@@ -29,39 +29,46 @@ export iterable platform type Map<K, V canbe linear>(?hash: (K) -> Long, ?eq: (K
 // variadic tail is owned and needs no entry in the clause [deduce-syntax].
 // A repeated key keeps the position of its first appearance and takes the
 // value of its last [col-duplicate-keys].
-export intrinsic fn map_of<K, V canbe linear>(...entries: (K, V)[], ?Hashed<K>) [] -> Map<K, V>(?hash, ?eq)
+export platform fn map_of<K, V canbe linear>(...entries: (K, V)[], ?Hashed<K>) [] -> Map<K, V>(?hash, ?eq)
 
 // Mutable constructor
-export intrinsic fn mut_map_of<K, V canbe linear>(...entries: (K, V)[], ?Hashed<K>) [] -> Mut Map<K, V>(?hash, ?eq)
+export platform fn mut_map_of<K, V canbe linear>(...entries: (K, V)[], ?Hashed<K>) [] -> Mut Map<K, V>(?hash, ?eq)
 
 // [col-by] Builds a map from [size] generated entries: `map_by(3, i -> (i, i
 // * i))` maps each index to its square. A repeated key takes the value of its
 // last appearance [col-duplicate-keys].
-export intrinsic fn map_by<K, V canbe linear>(size: Int, init: (Int) -> (K, V), ?Hashed<K>) [] -> Map<K, V>(?hash, ?eq)
+export platform fn map_by<K, V canbe linear>(size: Int, init: (Int) -> (K, V), ?Hashed<K>) [] -> Map<K, V>(?hash, ?eq)
 => size, init
 
 // Mutable variant
-export intrinsic fn mut_map_by<K, V canbe linear>(size: Int, init: (Int) -> (K, V), ?Hashed<K>) [] -> Mut Map<K, V>(?hash, ?eq)
+export platform fn mut_map_by<K, V canbe linear>(size: Int, init: (Int) -> (K, V), ?Hashed<K>) [] -> Mut Map<K, V>(?hash, ?eq)
 => size, init
 
 // [col-convert] A map from a list of pairs — the first element of each pair
 // is the key, the second the value. A repeated key takes the value of its
 // last appearance [col-duplicate-keys].
-export intrinsic fn to_map<K, V canbe linear>(pairs: List<(K, V)>, ?Hashed<K>) [] -> Map<K, V>(?hash, ?eq)
+export platform fn to_map<K, V>(pairs: List<(K, V)>, ?Hashed<K>) [] -> Map<K, V>(?hash, ?eq)
 => pairs
 
 // [col-convert] A map from a list of *anything*, with [entry] saying what
 // key and value each element becomes. The two forms are the same function
 // spelled for the two sources people actually have: a list of pairs, or a
 // list plus a rule.
-export intrinsic fn to_map<T, K, V>(items: List<T>, entry: (T) -> (K, V), ?Hashed<K>) [] -> Map<K, V>(?hash, ?eq)
-=> items, entry
+export fn to_map<T, K, V>(items: List<T>, entry: (T) -> (K, V), ?Hashed<K>) [] -> Map<K, V>(?hash, ?eq)
+=> items, entry {
+    let map: Mut Map<K, V>(?hash, ?eq) = mut_map_of()
+    for x in items {
+        let (k, v) = entry(x)
+        put(map, k, v)
+    }
+    return map
+}
 
 // Possibly gets the value stored under [key]. The value is **borrowed** —
 // a view into the map, like [get] on a list — so reading a map copies
 // nothing and a caller that wants to keep the value says `copy`
 // [copy-opt-in]. The key is only read, so it is kept.
-export platform fn get<K, V>(map: Map<K, V>, key: K) [] -> (proj(map) V)? => map, key
+export platform fn get<K, V>(map: Map<K, V>(?hash, ?eq), key: K) [] -> (proj(map) V)? => map, key
 
 // Stores [value] under [key], replacing any value already there. The map
 // takes ownership of both, so both are moved; a key that is already present
@@ -71,14 +78,14 @@ export platform fn get<K, V>(map: Map<K, V>, key: K) [] -> (proj(map) V)? => map
 // replaced — which is why it is closed to linear values: storing one under an
 // occupied key would discard an obligation in silence. [replace] is the form
 // that hands the displaced value back, and the diagnostic names it.
-export platform fn put<K, V>(map: Mut Map<K, V>, key: K, value: V) [] -> None
+export platform fn put<K, V>(map: Mut Map<K, V>(?hash, ?eq), key: K, value: V) [] -> None
 => map: Mut, !key, !value
 
 // [linear-container] Stores [value] under [key] and answers what was there,
 // or `None` for a fresh key: [put] with the displaced value handed back
 // instead of dropped, which is the only shape a map of obligations can have a
 // write in.
-export platform fn replace<K, V canbe linear>(map: Mut Map<K, V>, key: K, value: V) [] -> V?
+export platform fn replace<K, V canbe linear>(map: Mut Map<K, V>(?hash, ?eq), key: K, value: V) [] -> V?
 => map: Mut, !key, !value
 
 // Removes the entry under [key] and hands its value back, or `None` when
@@ -89,10 +96,10 @@ export platform fn replace<K, V canbe linear>(map: Mut Map<K, V>, key: K, value:
 // [linear-container] This is take-by-move, so it is how an obligation leaves
 // a map: the `V?` shape makes the absence check the union narrow
 // [linear-union-arm], and nothing is aliased or dropped on the way.
-export platform fn remove<K, V canbe linear>(map: Mut Map<K, V>, key: K) [] -> V? => map: Mut, key
+export platform fn remove<K, V canbe linear>(map: Mut Map<K, V>(?hash, ?eq), key: K) [] -> V? => map: Mut, key
 
 // Whether the map holds an entry under [key].
-export platform fn contains_key<K, V>(map: Map<K, V>, key: K) [] -> Bool => map, key
+export platform fn contains_key<K, V>(map: Map<K, V>(?hash, ?eq), key: K) [] -> Bool => map, key
 
 // [qual-depend] The claim that a key is **present in one particular map** —
 // the first dependent qualifier: its value slot names the map the claim is
@@ -102,7 +109,7 @@ export platform fn contains_key<K, V>(map: Map<K, V>, key: K) [] -> Bool => map,
 // stripped by any mutation of it (the conservative direction — `preserve`
 // entries opt specific calls back in, a later step of the sequence).
 export qualifier KeyOf<K, V>(map: Map<K, V>) of K {
-    fn qualifies(key: K, map: Map<K, V>) -> Bool {
+    fn qualifies(key: K, map: Map<K, V>(?hash, ?eq)) -> Bool {
         return contains_key(map, key)
     }
 
@@ -114,12 +121,12 @@ export qualifier KeyOf<K, V>(map: Map<K, V>) of K {
 
 // The lowering behind the total [get]: a presence the claim already proved.
 // Private — the claim is the only door.
-platform fn get_present<K, V>(map: Map<K, V>, key: K) [] -> proj(map) V => map, key
+platform fn get_present<K, V>(map: Map<K, V>(?hash, ?eq), key: K) [] -> proj(map) V => map, key
 
 // [qual-depend] The **total** read: a key carrying the claim answers the
 // value itself — the `None` arm was paid where the key was tested. Ranked
 // above the optional [get] by its qualifier [fn-overload-rank].
-export fn get<K, V>(map: Map<K, V>, key: KeyOf(map) K) [] -> proj(map) V => map, key {
+export fn get<K, V>(map: Map<K, V>(?hash, ?eq), key: KeyOf(map) K) [] -> proj(map) V => map, key {
     return get_present(map, key)
 }
 

@@ -7,8 +7,6 @@
 pub mod unions;
 #[path = "salvo/seq.sv.rs"]
 pub mod seq;
-#[path = "salvo/collections.sv.rs"]
-pub mod collections;
 #[path = "salvo/scheduler.sv.rs"]
 pub mod scheduler;
 #[path = "salvo/hoststreams.sv.rs"]

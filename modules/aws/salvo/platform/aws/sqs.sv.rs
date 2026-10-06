@@ -2,19 +2,19 @@
 // the declarations the platform code uses, as the build emits them. Rewritten
 // by every build — do not edit; the build never reads this file.
 // salvo-abi 1 023a4214a13ba612
-use crate::collections::*;
 use crate::unions::*;
 use crate::aws::AwsError;
 use crate::core_actor::__Stateful_Faults as _;
 use crate::core_actor::__Stateless_Faults as _;
 use crate::core_bytes::Bytes;
 use crate::core_checked::Checked;
+use crate::core_map::Map;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct CreateQueueInput {
     pub queue_name: String,
-    pub attributes: Option<SalvoMap<String, String>>,
-    pub tags: Option<SalvoMap<String, String>>,
+    pub attributes: Option<Map<String, String>>,
+    pub tags: Option<Map<String, String>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -73,8 +73,8 @@ pub struct SendMessageInput {
     pub queue_url: String,
     pub message_body: String,
     pub delay_seconds: Option<i32>,
-    pub message_attributes: Option<SalvoMap<String, MessageAttributeValue>>,
-    pub message_system_attributes: Option<SalvoMap<String, MessageSystemAttributeValue>>,
+    pub message_attributes: Option<Map<String, MessageAttributeValue>>,
+    pub message_system_attributes: Option<Map<String, MessageSystemAttributeValue>>,
     pub message_deduplication_id: Option<String>,
     pub message_group_id: Option<String>,
 }
@@ -211,9 +211,9 @@ pub struct Message {
     pub receipt_handle: Option<String>,
     pub md5_of_body: Option<String>,
     pub body: Option<String>,
-    pub attributes: Option<SalvoMap<String, String>>,
+    pub attributes: Option<Map<String, String>>,
     pub md5_of_message_attributes: Option<String>,
-    pub message_attributes: Option<SalvoMap<String, MessageAttributeValue>>,
+    pub message_attributes: Option<Map<String, MessageAttributeValue>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]

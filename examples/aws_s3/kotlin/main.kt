@@ -26,6 +26,7 @@ import salvo.core.console.Console
 import salvo.core.console.println
 import salvo.core.list.toStr as toStr__core_list
 import salvo.core.map.getPlatform
+import salvo.core.map.mutMapOfPlatform
 import salvo.core.map.putPlatform
 import salvo.core.result.err
 import salvo.core.result.ok
@@ -163,7 +164,7 @@ fun roundTrip(s3: S3, fs: Fs, console: Console, streams: salvo.stream.Streams, k
 }
 
 class MemS3(private val __dep_salvo_stream_Streams: salvo.stream.Streams) : S3 {
-    private var objects: salvo.platform.core.map.MutMap<String, salvo.platform.core.bytes.Bytes> = linkedMapOf<String, salvo.platform.core.bytes.Bytes>().also { __m -> __m.putAll(listOf()) }
+    private var objects: salvo.platform.core.map.MutMap<String, salvo.platform.core.bytes.Bytes> = mutMapOfPlatform(arrayOf(), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun putObject(input: PutObjectInput, reply: salvo.SalvoReply) {
@@ -183,12 +184,12 @@ class MemS3(private val __dep_salvo_stream_Streams: salvo.stream.Streams) : S3 {
         }
         val data: salvo.platform.core.bytes.Bytes = buf
         val tag = "\"${sizePlatform__core_bytes(data)}\""
-        putPlatform(objects, "$bucket/$key", data)
+        putPlatform(objects, "$bucket/$key", data, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
         salvo.SalvoSched.replyWire(reply, Union2.U1<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>(ok(PutObjectOutput(eTag = tag))), salvo.Union2Codec(__Codec_PutObjectOutput, __Codec_Checked(salvo.Union2Codec(__Codec_S3Error, __Codec_AwsError))))
     }
 
     override fun getObject(input: GetObjectInput, reply: salvo.SalvoReply) {
-        val found = getPlatform(objects, "${input.bucket}/${input.key}")
+        val found = getPlatform(objects, "${input.bucket}/${input.key}", { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
         if (found == null) {
             reply.send(Union2.U2<GetObjectOutput, Checked<Union2<S3Error, AwsError>>>(err(checked<Union2<S3Error, AwsError>>(Union2.U1<S3Error, AwsError>(S3Error(code = "NoSuchKey", message = "The specified key does not exist.", status = 404))))))
             return

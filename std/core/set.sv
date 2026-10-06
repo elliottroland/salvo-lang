@@ -25,39 +25,39 @@ export iterable platform type Set<T>(?hash: (T) -> Long, ?eq: (T, T) -> Bool) ca
 // A duplicate element is dropped — the last one wins, as it does in a set
 // literal [col-duplicate-keys], so the result may be smaller than the
 // argument list.
-export intrinsic fn set_of<T>(...elems: T[], ?Hashed<T>) [] -> Set<T>(?hash, ?eq)
+export platform fn set_of<T>(...elems: T[], ?Hashed<T>) [] -> Set<T>(?hash, ?eq)
 
 // Mutable constructor
-export intrinsic fn mut_set_of<T>(...elems: T[], ?Hashed<T>) [] -> Mut Set<T>(?hash, ?eq)
+export platform fn mut_set_of<T>(...elems: T[], ?Hashed<T>) [] -> Mut Set<T>(?hash, ?eq)
 
 // [col-by] Builds a set from [size] generated elements. Duplicates collapse,
 // so the result may hold fewer than [size].
-export intrinsic fn set_by<T>(size: Int, init: (Int) -> T, ?Hashed<T>) [] -> Set<T>(?hash, ?eq)
+export platform fn set_by<T>(size: Int, init: (Int) -> T, ?Hashed<T>) [] -> Set<T>(?hash, ?eq)
 => size, init
 
 // Mutable variant
-export intrinsic fn mut_set_by<T>(size: Int, init: (Int) -> T, ?Hashed<T>) [] -> Mut Set<T>(?hash, ?eq)
+export platform fn mut_set_by<T>(size: Int, init: (Int) -> T, ?Hashed<T>) [] -> Mut Set<T>(?hash, ?eq)
 => size, init
 
 // [col-convert] The elements of [list] as a set, in first-appearance order;
 // duplicates collapse.
-export intrinsic fn to_set<T>(list: List<T>, ?Hashed<T>) [] -> Set<T>(?hash, ?eq) => list
+export platform fn to_set<T>(list: List<T>, ?Hashed<T>) [] -> Set<T>(?hash, ?eq) => list
 
 // Adds an element to the set, reporting whether it was *new*: `false` means
 // an equal element was already there and the set is unchanged. The set
 // takes ownership of [elem], so it is moved; the set itself is mutated,
 // which is why its surviving qualifiers are listed exhaustively
 // [deduce-syntax].
-export platform fn add<T>(set: Mut Set<T>, elem: T) [] -> Bool => set: Mut, !elem
+export platform fn add<T>(set: Mut Set<T>(?hash, ?eq), elem: T) [] -> Bool => set: Mut, !elem
 
 // Removes an element, reporting whether it was there. [elem] is only read —
 // hashed and compared — so it is kept, not moved: removing by a value you
 // still hold is the normal case. The surviving elements keep their order
 // [col-insertion-order].
-export platform fn remove<T>(set: Mut Set<T>, elem: T) [] -> Bool => set: Mut, elem
+export platform fn remove<T>(set: Mut Set<T>(?hash, ?eq), elem: T) [] -> Bool => set: Mut, elem
 
 // Whether the set holds an element equal to [elem].
-export platform fn contains<T>(set: Set<T>, elem: T) [] -> Bool => set, elem
+export platform fn contains<T>(set: Set<T>(?hash, ?eq), elem: T) [] -> Bool => set, elem
 
 // Returns the number of elements in the set
 export platform fn size<T>(set: Set<T>) [] -> Int => set

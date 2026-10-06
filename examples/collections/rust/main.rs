@@ -3,8 +3,6 @@
 pub mod unions;
 #[path = "seq.rs"]
 pub mod seq;
-#[path = "collections.rs"]
-pub mod collections;
 #[path = "hosttime.rs"]
 pub mod hosttime;
 #[path = "wire.rs"]
@@ -42,7 +40,6 @@ pub mod platform_core_sorted;
 #[path = "platform/core/string.rs"]
 pub mod platform_core_string;
 
-use crate::collections::*;
 use crate::unions::*;
 use crate::core_compare::mix_hash;
 use crate::core_console::ConsolePlatformSync as _;
@@ -57,11 +54,15 @@ use crate::core_list::list_by;
 use crate::core_list::mut_sort;
 use crate::core_list::sort;
 use crate::core_list::to_str as to_str__core_list;
+use crate::core_map::Map;
 use crate::core_map::iter as iter__core_map;
 use crate::core_map::next as next__core_map;
+use crate::core_map::to_map;
+use crate::core_set::Set;
 use crate::core_set::iter as iter__core_set;
 use crate::core_set::next as next__core_set;
 use crate::core_set::to_str as to_str__core_set;
+use crate::core_sorted::SortedSet;
 use crate::core_sorted::to_str as to_str__core_sorted;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -110,33 +111,33 @@ pub fn count_unique(xs: &Vec<i32>) -> i32 {
 pub fn main() {
     let console = crate::core_console::Console::shared(crate::core_console::__Platform_StdOutConsole::new());
     let mut primes = vec![2, 3, 5, 7];
-    let mut vowels = SalvoSet::from_elements::<HostHash, HostEq, _>(vec!["a".to_string(), "e".to_string(), "i".to_string(), "o".to_string(), "u".to_string()]);
-    let mut ages = SalvoMap::from_entries::<HostHash, HostEq, _>(vec![("ada".to_string(), 36), ("grace".to_string(), 45)]);
+    let mut vowels = crate::core_set::set_of_platform::<String>(vec!["a".to_string(), "e".to_string(), "i".to_string(), "o".to_string(), "u".to_string()], &mut |__i0| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__i0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__i0, __i1| (&__i0[..] == &__i1[..]));
+    let mut ages = crate::core_map::map_of_platform::<String, i32>(vec![("ada".to_string(), 36), ("grace".to_string(), 45)], &mut |__i0| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__i0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__i0, __i1| (&__i0[..] == &__i1[..]));
     println(&console, &(format!("1. list {}", to_str__core_list::<i32>(&primes, &mut |__i0| format!("{}", __i0)))));
     println(&console, &(format!("1. set {} of {}", to_str__core_set::<String>(&vowels, &mut |__i0| format!("{}", __i0)), crate::core_set::size_platform(&vowels))));
     println(&console, &(format!("1. map {}", ages.to_string())));
     let mut note: Note = Note { text: "still a struct literal".to_string() };
     println(&console, &(format!("1. struct {}", note.text.clone())));
-    let mut seen: SalvoSet<String> = SalvoSet::from_elements::<HostHash, HostEq, _>(vec![]);
-    crate::core_set::add_platform(&mut seen, "first".to_string());
+    let mut seen: Set<String> = crate::core_set::mut_set_of_platform::<String>(vec![], &mut |__i0| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__i0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__i0, __i1| (&__i0[..] == &__i1[..]));
+    crate::core_set::add_platform::<String>(&mut seen, "first".to_string(), &mut |__i0| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__i0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__i0, __i1| (&__i0[..] == &__i1[..]));
     println(&console, &(format!("1. empty then filled {}", to_str__core_set::<String>(&seen, &mut |__i0| format!("{}", __i0)))));
-    let mut tally: SalvoMap<String, i32> = SalvoMap::from_entries::<HostHash, HostEq, _>(vec![("pear".to_string(), 1), ("apple".to_string(), 2)]);
-    crate::core_map::put_platform(&mut tally, "fig".to_string(), 3);
-    crate::core_map::put_platform(&mut tally, "pear".to_string(), 99);
+    let mut tally: Map<String, i32> = crate::core_map::mut_map_of_platform::<String, i32>(vec![("pear".to_string(), 1), ("apple".to_string(), 2)], &mut |__i0| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__i0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__i0, __i1| (&__i0[..] == &__i1[..]));
+    crate::core_map::put_platform::<String, i32>(&mut tally, "fig".to_string(), 3, &mut |__i0| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__i0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__i0, __i1| (&__i0[..] == &__i1[..]));
+    crate::core_map::put_platform::<String, i32>(&mut tally, "pear".to_string(), 99, &mut |__i0| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__i0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__i0, __i1| (&__i0[..] == &__i1[..]));
     println(&console, &(format!("2. insertion order kept {}", tally.to_string())));
-    let mut ranked: SalvoSortedSet<String> = SalvoSortedSet::from_elements::<HostOrd, _>(vec!["pear".to_string(), "apple".to_string(), "fig".to_string()]);
+    let mut ranked: SortedSet<String> = crate::core_sorted::mut_sorted_set_of_platform::<String>(vec!["pear".to_string(), "apple".to_string(), "fig".to_string()], &mut |__i0, __i1| (Ord::cmp(&__i0[..], &__i1[..]) as i32));
     println(&console, &(format!("2. key order {}", to_str__core_sorted::<String>(&ranked, &mut |__i0| format!("{}", __i0)))));
     let mut smallest = crate::core_sorted::min_platform(&ranked);
     if smallest.is_some() {
         println(&console, &(format!("2. min is cheap here {}", smallest.as_ref().unwrap().clone())));
     }
-    let mut corners: SalvoSet<Point> = SalvoSet::from_elements::<HostHash, HostEq, _>(vec![]);
-    crate::core_set::add_platform(&mut corners, Point { x: 0, y: 0 });
-    let mut again = crate::core_set::add_platform(&mut corners, Point { x: 0, y: 0 });
+    let mut corners: Set<Point> = crate::core_set::mut_set_of_platform::<Point>(vec![], &mut |__i0| hash(__i0), &mut |__i0, __i1| eq__Point_Point(__i0, __i1));
+    crate::core_set::add_platform::<Point>(&mut corners, Point { x: 0, y: 0 }, &mut |__i0| hash(__i0), &mut |__i0, __i1| eq__Point_Point(__i0, __i1));
+    let mut again = crate::core_set::add_platform::<Point>(&mut corners, Point { x: 0, y: 0 }, &mut |__i0| hash(__i0), &mut |__i0, __i1| eq__Point_Point(__i0, __i1));
     println(&console, &(format!("3. struct key: size {}, second add {}", crate::core_set::size_platform(&corners), again)));
-    let mut labels: SalvoMap<Point, String> = SalvoMap::from_entries::<HostHash, HostEq, _>(vec![]);
-    crate::core_map::put_platform(&mut labels, Point { x: 1, y: 1 }, "diagonal".to_string());
-    let mut found = crate::core_map::get_platform(&labels, &(Point { x: 1, y: 1 }));
+    let mut labels: Map<Point, String> = crate::core_map::mut_map_of_platform::<Point, String>(vec![], &mut |__i0| hash(__i0), &mut |__i0, __i1| eq__Point_Point(__i0, __i1));
+    crate::core_map::put_platform::<Point, String>(&mut labels, Point { x: 1, y: 1 }, "diagonal".to_string(), &mut |__i0| hash(__i0), &mut |__i0, __i1| eq__Point_Point(__i0, __i1));
+    let mut found = crate::core_map::get_platform::<Point, String>(&labels, &(Point { x: 1, y: 1 }), &mut |__i0| hash(__i0), &mut |__i0, __i1| eq__Point_Point(__i0, __i1));
     if found.is_some() {
         println(&console, &(format!("3. looked up by value {}", found.unwrap().clone())));
     }
@@ -152,10 +153,10 @@ pub fn main() {
     println(&console, &(format!("4. plain struct equality {}", notes_equal)));
     let mut squares = list_by(4, &mut (|i| i32::wrapping_mul(i, i)));
     println(&console, &(format!("5. generated {}", to_str__core_list::<i32>(&squares, &mut |__i0| format!("{}", __i0)))));
-    let mut deduped = SalvoSet::from_elements::<HostHash, HostEq, _>(primes.iter().cloned());
+    let mut deduped = crate::core_set::to_set_platform::<i32>(&primes, &mut |__i0| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(__i0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__i0, __i1| ((__i0) == (__i1)));
     println(&console, &(format!("5. to_set {}", to_str__core_set::<i32>(&deduped, &mut |__i0| format!("{}", __i0)))));
     let mut words = vec!["alpha".to_string(), "be".to_string()];
-    let mut lengths = SalvoMap::from_entries::<HostHash, HostEq, _>(words.iter().map(|w| (w.clone(), crate::core_string::size_platform(w))));
+    let mut lengths = to_map::<String, String, i32>(&words, &mut (|w| (w.clone(), crate::core_string::size_platform(w))), &mut |__i0| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__i0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__i0, __i1| (&__i0[..] == &__i1[..]));
     println(&console, &(format!("5. to_map with a rule {}", lengths.to_string())));
     let mut filled = vec!["ada".to_string(), "grace".to_string()];
     println(&console, &(format!("6. first is {}, no optional", first(&filled))));
@@ -189,7 +190,7 @@ pub fn main() {
     println(&console, &("".to_string()));
     let mut __loop2_pass = iter__core_map(&ages);
     while let Union2::U1(mut name) = next__core_map(&mut __loop2_pass) {
-        let mut age = crate::core_map::get_platform(&ages, &name);
+        let mut age = crate::core_map::get_platform::<String, i32>(&ages, &name, &mut |__i0| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__i0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__i0, __i1| (&__i0[..] == &__i1[..]));
         if age.is_some() {
             println(&console, &(format!("7. {} is {}", name, *age.unwrap())));
         }

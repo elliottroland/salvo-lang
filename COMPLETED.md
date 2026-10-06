@@ -141,6 +141,69 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Shrinking the backends, step 7: the keyed collections stay platform types,
+with one representation and the identity passed per call (2026-10-06, user
+decisions).**
+- **The decisions** (user, 2026-10-06): `Set`, `Map` and the sorted pair are
+  *not* rewritten in Salvo after all — with kept named fns available the user
+  preferred consistent behaviour from one host implementation per backend,
+  pinned by std tests, revisiting Salvo later. (1) **The identity is the
+  type's, passed per call**, `heap`'s model: `platform fn add<T>(set: Mut
+  Set<T>(?hash, ?eq), elem: T)`, the captured binders reaching the host as
+  ordinary trailing fn parameters. (2) One representation regardless of
+  identity (no more `LinkedHashMap` for the canonical case beside a runtime
+  slab for a named one). Performance is accepted; a canonical fast path for
+  the intrinsic identities waits on a benchmark (ROADMAP §0j step 7). Options
+  put and not taken: the boundary as entries lists, refusing sets/maps at the
+  boundary, and a Salvo slab with generated host factories.
+- **Built**: std's host files `std/platform/core/{set,map,sorted}.{kt,rs}`
+  implement the collections — an insertion-ordered slot list with tombstones,
+  each entry's digest cached, a bucket index from digest to slots, compaction
+  past `2·live + 8`; the sorted pair a sorted list with bisection. Cached
+  digests let compaction and the host equality (order-blind, for structs
+  holding one) run without an identity. The 22 constructor intrinsics are
+  platform fns taking `?Hashed<T>`/`?Ordered<T>` (the two-argument `to_map` is
+  Salvo); a platform fn's wrapper now forwards captured binders to the host.
+- **Literals desugar in core** [col-literal]: the checker resolves `{…}` as
+  `set_of`/`mut_set_of`/`map_of`/`mut_map_of`, recording the constructor, type
+  arguments and implicits (filled from the literal type's identities) at the
+  literal's span and typing each map entry as a tuple at the span from key to
+  value; `salvo_backend::emit_util::literal_as_call` rebuilds the call for
+  both emitters.
+- **Deleted**: `runtime/collections.rs` (1,291 lines) and `keyed.kt` (165);
+  Rust's identity markers, `container_identity_values`, `ordering_marker_for`,
+  `stored_implicit_demand` and the owned-`Arc` convention
+  ([rs-stored-implicit] is gone), `needs_collections`; Kotlin's `keyed_pair`,
+  `identity_fn_name`, `host_identity_value`, `container_ordering`,
+  `needs_keyed`, the boundary normalizers and `compare.kt`'s sorted builders;
+  the constructor lowerings and the `Set`/`Map`/`SortedSet`/`SortedMap`
+  type-name entries on both backends; `BoundaryCheck::Shape` and
+  `without_shapes` in core.
+- **The boundary** [platform-check]: a set or map is the host type, built by
+  host code with `canonicalSet`/`canonicalMap`/`canonicalSortedSet` (Kotlin)
+  or `canonical_set`/`canonical_map`/`canonical_sorted_set` (Rust); only an
+  *intrinsic* identity is canonical there now — a `by auto` stamp hashes
+  through `mix_hash`, which the host cannot reproduce, so `Set<Person>` in a
+  platform result is refused. The aws codegen (`Generator.java`) and its
+  checked-in host files build maps through `canonical_map`/`canonicalMap`.
+- **Fell out**: a generic fn that looks an element up captures the identity
+  (`fn has<T>(s: Set<T>(?hash, ?eq), e: T)`) — `Set<T>` alone asks for the
+  `hash` of a bare `T`. Kotlin cannot build `arrayOf(…)` over a bare type
+  variable (reified), so a variadic tail at one is `arrayOf<Any?>(…) as
+  Array<T>`, and over `Pair<K, V>` spells the element type [kt-variadic]. A
+  Given intrinsic implicit (`mut_set_of(hash = hash, eq = all_same)`) renders
+  as its lowering on Rust (it used `use crate::core_compare::hash`). A
+  `rename` in a module with a test annex matched its target twice (the annex
+  sees the module's fns again) and failed; `match_overload` dedupes by key.
+  The two-entry `to_map` dropped `V canbe linear` (it clones the pairs).
+- Tests: std's own suite gains `core/set.test.sv`, `core/sorted.test.sv` and
+  six map cases (order after remove and re-insert, duplicates in
+  constructors and literals, compaction, custom identities through concrete
+  and generic calls, the sorted pair's code-point order) — 130 on both
+  backends; the host-built boundary test is rewritten around the canonical
+  builders; marker-text tests deleted, two identity tests made e2e. Full
+  suite 8m07 (cold: every stamp missed). **1708 tests.**
+
 **Two defects a Salvo hash map hit first (2026-10-06, ROADMAP §0j step 7).**
 Prototyping step 7's `Map` in ordinary Salvo (`tmp/`) turned up:
 - **A borrowed optional did not narrow** [is-narrowing]: the total `get`
@@ -21891,7 +21954,7 @@ Recorded so nothing is left half-removed (no compatibility, per AGENTS.md):
   factories in a plural object (`FsErrors`), since a sealed `FsError` cannot
   extend `Union7` from another package.
 
-## Test inventory (all green: 1716; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1708; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -23142,6 +23205,16 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **`salvo` embeds `std/` at build time** (2026-10-06): after editing a
+  `.sv` under `std/`, `cargo build` before `salvo run`/`compile`, or the run
+  uses the old std (and a fix looks like it did nothing). `salvo platform
+  generate --src std` and `salvo test --src std` read the files on disk.
+
+- **A stale test driver can hang the suite instead of failing it**
+  (2026-10-06): after deleting scheduler shims, the first full run sat in
+  Kotlin's `runtime_tests` for over 25 minutes; once the drivers called the
+  core directly it took seconds. Grep the tests for a shim before deleting it.
 
 - **A monitor member must not call a sibling member** (2026-10-03): inside a
   handler bound by a module-level `use`, a sibling call goes through the

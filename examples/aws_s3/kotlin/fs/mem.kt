@@ -15,11 +15,13 @@ import salvo.core.list.at
 import salvo.core.list.sort
 import salvo.core.map.containsKeyPlatform
 import salvo.core.map.getPlatform as getPlatform__core_map
+import salvo.core.map.mutMapOfPlatform
 import salvo.core.map.putPlatform
 import salvo.core.map.removePlatform
 import salvo.core.result.err
 import salvo.core.result.ok
 import salvo.core.set.addPlatform
+import salvo.core.set.mutSetOfPlatform
 import salvo.core.set.toListPlatform
 import salvo.core.sorted.max
 import salvo.core.string.appendPlatform as appendPlatform__core_string
@@ -80,24 +82,24 @@ object __Codec_MemWrite : salvo.WireCodec<MemWrite> {
 }
 
 class MemFs : Fs, salvo.stream.Streams {
-    private var files: salvo.platform.core.map.MutMap<String, salvo.platform.core.bytes.Bytes> = linkedMapOf<String, salvo.platform.core.bytes.Bytes>().also { __m -> __m.putAll(listOf()) }
-    private var reads: salvo.platform.core.map.MutMap<Long, MemRead> = linkedMapOf<Long, MemRead>().also { __m -> __m.putAll(listOf()) }
-    private var writes: salvo.platform.core.map.MutMap<Long, MemWrite> = linkedMapOf<Long, MemWrite>().also { __m -> __m.putAll(listOf()) }
+    private var files: salvo.platform.core.map.MutMap<String, salvo.platform.core.bytes.Bytes> = mutMapOfPlatform(arrayOf(), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
+    private var reads: salvo.platform.core.map.MutMap<Long, MemRead> = mutMapOfPlatform(arrayOf(), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
+    private var writes: salvo.platform.core.map.MutMap<Long, MemWrite> = mutMapOfPlatform(arrayOf(), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
 
     override fun openRead(path: Path): Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         val pathText = toStr(path)
-        val content = getPlatform__core_map(files, pathText)
+        val content = getPlatform__core_map(files, pathText, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
         if (content == null) {
             return Union2.U2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>(Union7.U1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>(NotFound(path = pathText)))))
         }
         val handle = freshHandle()
-        putPlatform(reads, handle, MemRead(source = pathText, data = content, at = 0, failed = false))
+        putPlatform(reads, handle, MemRead(source = pathText, data = content, at = 0, failed = false), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
         return Union2.U1<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(InStream(handle = handle)))
     }
 
     override fun openReadAt(path: Path, offset: Long): Union2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         val pathText = toStr(path)
-        val content = getPlatform__core_map(files, pathText)
+        val content = getPlatform__core_map(files, pathText, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
         if (content == null) {
             return Union2.U2<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>(Union7.U1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>(NotFound(path = pathText)))))
         }
@@ -110,7 +112,7 @@ class MemFs : Fs, salvo.stream.Streams {
             at = end
         }
         val handle = freshHandle()
-        putPlatform(reads, handle, MemRead(source = pathText, data = content, at = at, failed = false))
+        putPlatform(reads, handle, MemRead(source = pathText, data = content, at = at, failed = false), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
         return Union2.U1<InStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(InStream(handle = handle)))
     }
 
@@ -118,26 +120,26 @@ class MemFs : Fs, salvo.stream.Streams {
         val pathText = toStr(path)
         val handle = freshHandle()
         val empty = mutBytes(arrayOf())
-        putPlatform(writes, handle, MemWrite(path = pathText, buffer = empty))
+        putPlatform(writes, handle, MemWrite(path = pathText, buffer = empty), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
         return Union2.U1<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(OutStream(handle = handle)))
     }
 
     override fun openAppend(path: Path): Union2<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         val pathText = toStr(path)
-        val existing = getPlatform__core_map(files, pathText)
+        val existing = getPlatform__core_map(files, pathText, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
         val start = mutBytes(arrayOf())
         if (existing == null) {
         } else {
             appendPlatform__core_bytes(start, existing)
         }
         val handle = freshHandle()
-        putPlatform(writes, handle, MemWrite(path = pathText, buffer = start))
+        putPlatform(writes, handle, MemWrite(path = pathText, buffer = start), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
         return Union2.U1<OutStream, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(OutStream(handle = handle)))
     }
 
     override fun exists(path: Path): Boolean {
         val pathText = toStr(path)
-        if (containsKeyPlatform(files, pathText)) {
+        if (containsKeyPlatform(files, pathText, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })) {
             return true
         }
         return fsHasChildren(files, pathText)
@@ -145,7 +147,7 @@ class MemFs : Fs, salvo.stream.Streams {
 
     override fun metadata(path: Path): Union2<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         val pathText = toStr(path)
-        val content = getPlatform__core_map(files, pathText)
+        val content = getPlatform__core_map(files, pathText, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
         if (content == null) {
             if (fsHasChildren(files, pathText)) {
                 return Union2.U1<FileInfo, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(FileInfo(size = 0L, isDir = true)))
@@ -157,13 +159,13 @@ class MemFs : Fs, salvo.stream.Streams {
 
     override fun listDir(path: Path): Union2<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         val pathText = toStr(path)
-        if (containsKeyPlatform(files, pathText)) {
+        if (containsKeyPlatform(files, pathText, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })) {
             return Union2.U2<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>(Union7.U4<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>(NotADirectory(path = pathText)))))
         }
         if (!fsHasChildren(files, pathText)) {
             return Union2.U2<List<String>, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>(Union7.U1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>(NotFound(path = pathText)))))
         }
-        val names: salvo.platform.core.set.MutSet<String> = linkedSetOf<String>().also { __s -> __s.addAll(listOf()) }
+        val names: salvo.platform.core.set.MutSet<String> = mutSetOfPlatform(arrayOf(), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
         val prefix = "$pathText/"
         for (key in salvo.platform.core.map.each(files)) {
             if (startsWithPlatform(key, prefix)) {
@@ -176,7 +178,7 @@ class MemFs : Fs, salvo.stream.Streams {
                         name = head
                     }
                 }
-                addPlatform(names, name)
+                addPlatform(names, name, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
             }
         }
         val sorted: List<String> = sort(toListPlatform(names), { __i0, __i1 -> salvo.__salvoCompare(__i0, __i1) })
@@ -190,8 +192,8 @@ class MemFs : Fs, salvo.stream.Streams {
 
     override fun delete(path: Path): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         val pathText = toStr(path)
-        if (containsKeyPlatform(files, pathText)) {
-            removePlatform(files, pathText)
+        if (containsKeyPlatform(files, pathText, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })) {
+            removePlatform(files, pathText, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
             return Union2.U1<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(Unit))
         }
         if (fsHasChildren(files, pathText)) {
@@ -203,13 +205,13 @@ class MemFs : Fs, salvo.stream.Streams {
     override fun renamePath(from: Path, to: Path): Union2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>> {
         val fromText = toStr(from)
         val toText = toStr(to)
-        val content = getPlatform__core_map(files, fromText)
+        val content = getPlatform__core_map(files, fromText, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
         if (content == null) {
             return Union2.U2<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(err(checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>(Union7.U1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>(NotFound(path = fromText)))))
         }
         val bytes: salvo.platform.core.bytes.Bytes = content
-        removePlatform(files, fromText)
-        putPlatform(files, toText, bytes)
+        removePlatform(files, fromText, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
+        putPlatform(files, toText, bytes, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
         return Union2.U1<Unit, Checked<Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>>(ok(Unit))
     }
 
@@ -268,7 +270,7 @@ class MemFs : Fs, salvo.stream.Streams {
         val open = memReadState(reads, s.handle)
         val failed = open.failed
         val source = open.source
-        removePlatform(reads, s.handle)
+        removePlatform(reads, s.handle, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
         (s).let {}
         if (failed) {
             return Union2.U2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>>(err(checked<Union2<InvalidUtf8, StreamFailed>>(Union2.U1<InvalidUtf8, StreamFailed>(InvalidUtf8(source = source)))))
@@ -281,7 +283,7 @@ class MemFs : Fs, salvo.stream.Streams {
         val got = memReadBytes(reads, s.handle, 65536)
         if (got is Union2.U2<*, *>) {
             val open = memReadState(reads, s.handle)
-            removePlatform(reads, s.handle)
+            removePlatform(reads, s.handle, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
             (s).let {}
             reply.send(Union3.U3<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>(err(checked<Union2<InvalidUtf8, StreamFailed>>(Union2.U2<InvalidUtf8, StreamFailed>(StreamFailed(source = open.source, message = "read failed"))))))
             ignore((got.value as Checked<Union2<InvalidUtf8, StreamFailed>>))
@@ -289,7 +291,7 @@ class MemFs : Fs, salvo.stream.Streams {
         }
         val data: salvo.platform.core.bytes.Bytes = (got.value as salvo.platform.core.bytes.Bytes)
         if (sizePlatform(data) == 0) {
-            removePlatform(reads, s.handle)
+            removePlatform(reads, s.handle, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
             (s).let {}
             reply.send(Union3.U2<Packet, End, Checked<Union2<InvalidUtf8, StreamFailed>>>(End()))
             return
@@ -299,7 +301,7 @@ class MemFs : Fs, salvo.stream.Streams {
 
     override fun fromBytes(data: salvo.platform.core.bytes.Bytes): InStream {
         val handle = freshHandle()
-        putPlatform(reads, handle, MemRead(source = "<bytes>", data = data, at = 0, failed = false))
+        putPlatform(reads, handle, MemRead(source = "<bytes>", data = data, at = 0, failed = false), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
         return InStream(handle = handle)
     }
 
@@ -321,20 +323,20 @@ class MemFs : Fs, salvo.stream.Streams {
 
     override fun flush(s: OutStream): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>> {
         val open = memWriteState(writes, s.handle)
-        putPlatform(files, open.path, open.buffer)
+        putPlatform(files, open.path, open.buffer, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
         return Union2.U1<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(Unit))
     }
 
     override fun close__OutStream(s: OutStream): Union2<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>> {
         val open = memWriteState(writes, s.handle)
-        putPlatform(files, open.path, open.buffer)
-        removePlatform(writes, s.handle)
+        putPlatform(files, open.path, open.buffer, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
+        removePlatform(writes, s.handle, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
         (s).let {}
         return Union2.U1<Unit, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(Unit))
     }
 }
 
-fun fsHasChildren(files: Map<String, salvo.platform.core.bytes.Bytes>, path: String): Boolean {
+fun fsHasChildren(files: salvo.platform.core.map.Map<String, salvo.platform.core.bytes.Bytes>, path: String): Boolean {
     val prefix = "$path/"
     for (key in salvo.platform.core.map.each(files)) {
         if (startsWithPlatform(key, prefix)) {
@@ -361,20 +363,20 @@ fun memAppend(writes: salvo.platform.core.map.MutMap<Long, MemWrite>, handle: Lo
     val grown = mutBytes(arrayOf(open.buffer))
     appendPlatform__core_bytes(grown, data)
     val buffer: salvo.platform.core.bytes.Bytes = grown
-    putPlatform(writes, handle, MemWrite(path = open.path, buffer = buffer))
+    putPlatform(writes, handle, MemWrite(path = open.path, buffer = buffer), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
     return (sizePlatform(data)).toLong()
 }
 
-fun memReadState(reads: Map<Long, MemRead>, handle: Long): MemRead {
-    val open = getPlatform__core_map(reads, handle)
+fun memReadState(reads: salvo.platform.core.map.Map<Long, MemRead>, handle: Long): MemRead {
+    val open = getPlatform__core_map(reads, handle, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
     if (open == null) {
         throw AssertionError(("salvo: " + ("stream handle $handle was not opened by this MemFs: a stream belongs to the provider that minted it [stream-provider]") + " at fs.mem:350:9"))
     }
     return MemRead(source = open.source, data = open.data, at = open.at, failed = open.failed)
 }
 
-fun memWriteState(writes: Map<Long, MemWrite>, handle: Long): MemWrite {
-    val open = getPlatform__core_map(writes, handle)
+fun memWriteState(writes: salvo.platform.core.map.Map<Long, MemWrite>, handle: Long): MemWrite {
+    val open = getPlatform__core_map(writes, handle, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
     if (open == null) {
         throw AssertionError(("salvo: " + ("stream handle $handle was not opened by this MemFs: a stream belongs to the provider that minted it [stream-provider]") + " at fs.mem:358:9"))
     }
@@ -400,10 +402,10 @@ fun memReadLine(reads: salvo.platform.core.map.MutMap<Long, MemRead>, handle: Lo
     }
     val text = strOfBytesPlatform(line)
     if (text == null) {
-        putPlatform(reads, handle, MemRead(source = open.source, data = bytes, at = nextAt, failed = true))
+        putPlatform(reads, handle, MemRead(source = open.source, data = bytes, at = nextAt, failed = true), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
         return null
     }
-    putPlatform(reads, handle, MemRead(source = open.source, data = bytes, at = nextAt, failed = false))
+    putPlatform(reads, handle, MemRead(source = open.source, data = bytes, at = nextAt, failed = false), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
     return trimSuffixPlatform(text, "\r")
 }
 
@@ -418,10 +420,10 @@ fun memReadAll(reads: salvo.platform.core.map.MutMap<Long, MemRead>, handle: Lon
     val rest = (slicePlatform(bytes, open.at, end) ?: throw AssertionError("salvo: value is absent at fs.mem:406:16"))
     val text = strOfBytesPlatform(rest)
     if (text == null) {
-        putPlatform(reads, handle, MemRead(source = source, data = bytes, at = end, failed = true))
+        putPlatform(reads, handle, MemRead(source = source, data = bytes, at = end, failed = true), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
         return Union2.U2<String, Checked<Union2<InvalidUtf8, StreamFailed>>>(err(checked<Union2<InvalidUtf8, StreamFailed>>(Union2.U1<InvalidUtf8, StreamFailed>(InvalidUtf8(source = source)))))
     }
-    putPlatform(reads, handle, MemRead(source = source, data = bytes, at = end, failed = false))
+    putPlatform(reads, handle, MemRead(source = source, data = bytes, at = end, failed = false), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
     return Union2.U1<String, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(text))
 }
 
@@ -441,6 +443,6 @@ fun memReadBytes(reads: salvo.platform.core.map.MutMap<Long, MemRead>, handle: L
         stop = end
     }
     val taken = (slicePlatform(bytes, open.at, stop) ?: throw AssertionError("salvo: value is absent at fs.mem:432:17"))
-    putPlatform(reads, handle, MemRead(source = source, data = bytes, at = stop, failed = false))
+    putPlatform(reads, handle, MemRead(source = source, data = bytes, at = stop, failed = false), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
     return Union2.U1<salvo.platform.core.bytes.Bytes, Checked<Union2<InvalidUtf8, StreamFailed>>>(ok(taken))
 }

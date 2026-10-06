@@ -1,22 +1,172 @@
-// [platform-value-type] std's set, for `core.set`'s `platform type Set<T>(?hash,
-// ?eq) canbe Mut` (ROADMAP 0.7): Kotlin's insertion-ordered sets — a
-// `LinkedHashSet`, or the runtime's `SalvoHashSet` when the type names its
-// identities [platform-slots].
+// [platform-value-type] [platform-slots] std's set, for `core.set`'s `platform
+// type Set<T>(?hash, ?eq) canbe Mut`: one insertion-ordered slab for every
+// identity (ROADMAP §0j step 7, user decision 2026-10-06). The identity is
+// the type's, not the value's: every operation is handed the `hash` and `eq`
+// its call resolved, lent for the call [platform-fn-value], and the set keeps
+// nothing but the elements and the digest each was filed under.
 package salvo.platform.core.set
 
-typealias Set<T> = kotlin.collections.Set<T>
-typealias MutSet<T> = kotlin.collections.MutableSet<T>
+typealias Set<T> = SalvoSet<T>
+typealias MutSet<T> = SalvoSet<T>
 
-// [platform-iterable] The host's loop over a set: the set itself.
+/**
+ * Elements in first-insertion order, `null` where one was removed, with the
+ * digest each was filed under; [buckets] maps a digest to its slots. The
+ * cached digests are what let compaction, equality and `hashCode` run
+ * without an identity in hand.
+ */
+class SalvoSet<T> internal constructor() : Iterable<T> {
+    internal val slots = ArrayList<Any?>()
+    internal val digests = ArrayList<Long>()
+    internal val buckets = HashMap<Long, MutableList<Int>>()
+    internal var live = 0
+
+    @Suppress("UNCHECKED_CAST")
+    internal fun find(elem: T, hash: (T) -> Long, eq: (T, T) -> Boolean): Int {
+        val bucket = buckets[hash(elem)] ?: return -1
+        for (i in bucket) {
+            val s = slots[i]
+            if (s !== TOMB && eq(s as T, elem)) return i
+        }
+        return -1
+    }
+
+    internal fun append(elem: T, digest: Long) {
+        slots.add(elem)
+        digests.add(digest)
+        buckets.getOrPut(digest) { ArrayList(1) }.add(slots.size - 1)
+        live++
+    }
+
+    /** Adds [elem], or overwrites an equal one in place: the last wins [col-duplicate-keys]. */
+    internal fun put(elem: T, hash: (T) -> Long, eq: (T, T) -> Boolean) {
+        val i = find(elem, hash, eq)
+        if (i >= 0) slots[i] = elem else append(elem, hash(elem))
+    }
+
+    internal fun removeAt(i: Int) {
+        val d = digests[i]
+        val bucket = buckets[d]!!
+        bucket.remove(i)
+        if (bucket.isEmpty()) buckets.remove(d)
+        slots[i] = TOMB
+        live--
+        if (slots.size > 2 * live + 8) compact()
+    }
+
+    private fun compact() {
+        val keep = ArrayList<Any?>(live)
+        val keepDigests = ArrayList<Long>(live)
+        for (i in slots.indices) {
+            if (slots[i] !== TOMB) {
+                keep.add(slots[i])
+                keepDigests.add(digests[i])
+            }
+        }
+        slots.clear()
+        digests.clear()
+        buckets.clear()
+        live = 0
+        @Suppress("UNCHECKED_CAST")
+        for (i in keep.indices) append(keep[i] as T, keepDigests[i])
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    override fun iterator(): Iterator<T> =
+        slots.asSequence().filter { it !== TOMB }.map { it as T }.iterator()
+
+    /** A fresh set with the same elements, filed the same way. */
+    fun copy(): SalvoSet<T> {
+        val out = SalvoSet<T>()
+        @Suppress("UNCHECKED_CAST")
+        for (i in slots.indices) if (slots[i] !== TOMB) out.append(slots[i] as T, digests[i])
+        return out
+    }
+
+    /**
+     * Order-blind, as a set is: the same elements, each found under the digest
+     * the other set filed it by. Host equality on the elements — what a data
+     * class holding a set compares by (ROADMAP §0j step 8 owns replacing it).
+     */
+    override fun equals(other: Any?): Boolean {
+        if (other !is SalvoSet<*>) return false
+        if (live != other.live) return false
+        for (i in slots.indices) {
+            val s = slots[i]
+            if (s === TOMB) continue
+            val bucket = other.buckets[digests[i]] ?: return false
+            if (bucket.none { other.slots[it] == s }) return false
+        }
+        return true
+    }
+
+    override fun hashCode(): Int {
+        var h = 0L
+        for (i in slots.indices) if (slots[i] !== TOMB) h += digests[i]
+        return (h xor (h ushr 32)).toInt()
+    }
+
+    override fun toString(): String = joinToString(", ", "{", "}")
+
+    internal companion object {
+        val TOMB = Any()
+    }
+}
+
+/**
+ * [platform-value-type] For host code: a set kept **canonically** — the
+ * identity Salvo resolves for an intrinsic element type, whose `hash` is the
+ * JVM's `hashCode` and whose `eq` is `==`. A repeated element: the last wins.
+ */
+fun <T> canonicalSet(elems: Iterable<T>): SalvoSet<T> {
+    val s = SalvoSet<T>()
+    for (e in elems) s.put(e, { it.hashCode().toLong() }, { a, b -> a == b })
+    return s
+}
+
+// [platform-iterable] The host's loop over a set: its elements, in insertion order.
 fun <T> each(set: Set<T>): Iterable<T> = set
 
-fun <T> add(set: MutSet<T>, elem: T): Boolean = set.add(elem)
+fun <T> setOf(elems: Array<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): Set<T> = mutSetOf(elems, hash, eq)
 
-fun <T> remove(set: MutSet<T>, elem: T): Boolean = set.remove(elem)
+fun <T> mutSetOf(elems: Array<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): MutSet<T> {
+    val s = SalvoSet<T>()
+    for (e in elems) s.put(e, hash, eq)
+    return s
+}
 
-fun <T> contains(set: Set<T>, elem: T): Boolean = set.contains(elem)
+fun <T> setBy(size: Int, init: (Int) -> T, hash: (T) -> Long, eq: (T, T) -> Boolean): Set<T> =
+    mutSetBy(size, init, hash, eq)
 
-fun <T> size(set: Set<T>): Int = set.size
+fun <T> mutSetBy(size: Int, init: (Int) -> T, hash: (T) -> Long, eq: (T, T) -> Boolean): MutSet<T> {
+    val s = SalvoSet<T>()
+    for (i in 0 until size) s.put(init(i), hash, eq)
+    return s
+}
+
+fun <T> toSet(list: List<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): Set<T> {
+    val s = SalvoSet<T>()
+    for (e in list) s.put(e, hash, eq)
+    return s
+}
+
+fun <T> add(set: MutSet<T>, elem: T, hash: (T) -> Long, eq: (T, T) -> Boolean): Boolean {
+    if (set.find(elem, hash, eq) >= 0) return false
+    set.append(elem, hash(elem))
+    return true
+}
+
+fun <T> remove(set: MutSet<T>, elem: T, hash: (T) -> Long, eq: (T, T) -> Boolean): Boolean {
+    val i = set.find(elem, hash, eq)
+    if (i < 0) return false
+    set.removeAt(i)
+    return true
+}
+
+fun <T> contains(set: Set<T>, elem: T, hash: (T) -> Long, eq: (T, T) -> Boolean): Boolean =
+    set.find(elem, hash, eq) >= 0
+
+fun <T> size(set: Set<T>): Int = set.live
 
 // In insertion order [col-insertion-order].
 fun <T> toList(set: Set<T>): MutableList<T> = set.toMutableList()

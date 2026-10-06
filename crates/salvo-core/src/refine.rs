@@ -898,7 +898,10 @@ pub(crate) fn match_overload<'p>(
     let gnames: Vec<&str> = generics.iter().map(|g| g.name.as_str()).collect();
     let want = signature(params, &gnames);
     let candidates = scope.fns.get(name).map(|v| v.as_slice()).unwrap_or(&[]);
-    let matched: Vec<&crate::resolve::FnEntry<'p>> = candidates
+    // A declaration may be in scope twice — a module's annex sees its own
+    // module's fns, and the same fns again as the module it tests — so the
+    // match is by declaration, not by entry.
+    let mut matched: Vec<&crate::resolve::FnEntry<'p>> = candidates
         .iter()
         .filter(|c| {
             let mut cg: Vec<&str> = c.decl.generics.iter().map(|g| g.name.as_str()).collect();
@@ -910,6 +913,8 @@ pub(crate) fn match_overload<'p>(
             signature(&c.decl.params, &cg) == want
         })
         .collect();
+    let mut seen = std::collections::HashSet::new();
+    matched.retain(|c| seen.insert(c.key));
     match matched.as_slice() {
         [one] => Ok(**one),
         _ => Err(candidates

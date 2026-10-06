@@ -1126,7 +1126,7 @@ nothing but the monitor.
   of escaped text. The test's module list is what makes it complete rather
   than a sample, so a new runtime module belongs there the moment it exists.
   They are `throwsignal.kt` ([kt-throw-signal]), `compare.kt`, `bytes.kt`
-  ([kt-bytes]), `keyed.kt` ([kt-keyed]), `hosttime.kt`, `wire.kt`, and the
+  ([kt-bytes]), `hosttime.kt`, `wire.kt`, and the
   runtime's two shims, `scheduler.kt` ([kt-actor]) and `hoststreams.kt`
   ([stream-table]).
 * [kt-runtime-host] **The scheduler itself is Salvo** (2026-10-03,
@@ -1140,60 +1140,22 @@ nothing but the monitor.
   (`SalvoSched.spawn`, `send`, `mint`, …) as calls into the core, plus the
   registry of proxies (`ConcurrentHashMap`s) the wire codecs read; about 380
   lines, from 1,994 before the port.
-* [kt-keyed] [cmp-carry] `keyed.kt` holds `SalvoHashMap`/`SalvoHashSet`, the
-  insertion-ordered hash containers keyed by a **pair of functions**
-  (`hashOf: (K) -> Long`, `eqOf: (K, K) -> Boolean`): entries live in a list in
-  first-insertion order and a bucket index maps a Salvo hash to the slots
-  holding it. `LinkedHashMap` cannot serve, because it keys by the JVM's
-  `hashCode`/`equals` and a Salvo identity is neither. The sorted pair needs no
-  file: `java.util.TreeMap(Comparator { … })` takes its ordering as a value
-  already.
-  * Because the containers take *functions*, an identity that is a **capability
-    the enclosing function was handed** — a keyed container built inside a
-    generic function — needs nothing more than the parameter's name
-    (2026-09-26). That is the whole of this backend's support for the shape the
-    Rust backend needed a value-keyed store and an owned convention for
-    ([rs-stored-implicit]); a forwarded `?cmp` reaches `Comparator` the same way,
-    through `cmp_body`.
-  * A **canonical intrinsic** identity is the host's own operation, which is
-    what the JVM's `hashCode`/`equals` already are, so it selects the native
-    container instead and the file is not emitted [cmp-groups].
-  * A **mixed** pair — one slot written, the other the host's — is honoured
-    (user decision 2026-09-26: a parameter group is a convenience, not a
-    contract): the declared slot is referenced and the host's becomes the lambda
-    its own lowering makes [implicit-intrinsic], so
-    `SalvoHashSet<Int>({ __i0 -> (__i0).hashCode().toLong() }, ::all_same)`.
-    Only a pair that is *entirely* the host's takes the native container.
-    Until 2026-09-26 the first host slot abandoned the whole pair and a written
-    `eq = …` was silently lost — wrong output [backend-never-wrong].
-* `compare.kt` holds `__salvoCompare`, the structural comparison
-  [kt-ordered] [col-sorted] needs. It exists because the JVM's own ordering
-  cannot answer for Salvo's types: a `List` and a tuple are not
-  `Comparable`, and `String.compareTo` is UTF-16 code-unit order where Salvo
-  is code-point order. It recurses through lists (lexicographically, a
-  shorter prefix ordering first), `Pair` and `Triple`, compares strings by
-  code point, and defers to `Comparable` otherwise.
-  * It is emitted when a module builds a sorted collection, or calls (or
-    passes as an implicit) the `cmp` of a `Str`, a `List` or a tuple; the
-    sorted constructors pass it as an explicit `Comparator` rather than
-    relying on natural ordering.
-  * [kt-cmp-groups] [cmp-groups] The canonical `cmp(Str, Str)` reaches it too,
-    and for the same reason — so the file is also emitted when that overload
-    is called *or* passed as an implicit's adapter, which is the one way a
-    program can reach a lowering without a call site of its own
-    [implicit-intrinsic]. The rest of the canonicals are native: `cmp` at
-    `Int`/`Long`/`Byte`/`Char`/`Bool` is `compareTo` (each is `Comparable`
-    here, `Byte` as a `UByte`), `eq` is `==`, and `hash` is
-    `hashCode().toLong()`.
-    * [cmp-hash-values] That last one is this host's digest and not Rust's,
-      deliberately: only the agreement with `eq` crosses the backends.
-  * [obligation-by] A member **stamped** by a `by` clause is an ordinary Kotlin
-    fn whose body is the unrolled Salvo — `fun cmp__n(a: Point, b: Point): Int`
-    comparing `a.x` with `b.x`, then `a.y` with `b.y` — so nothing in this
-    backend knows the member was not written by hand. The interim structural
-    identities of a `List` or a tuple [col-hashed-ordered] lower to
-    `__salvoCompare`, `==` and `hashCode().toLong()`; `mix_hash` to the
-    wrapping `seed * 31L + value`.
+* [kt-keyed] [platform-slots] **The keyed collections are std's host
+  classes** (2026-10-06, ROADMAP §0j step 7; `keyed.kt` and the `LinkedHashMap`
+  / `TreeMap` paths are gone): `SalvoSet`/`SalvoMap` in
+  `std/platform/core/{set,map}.kt` (a slot list in first-insertion order with
+  tombstones, each entry's digest cached, a `HashMap<Long, MutableList<Int>>`
+  bucket index) and `SalvoSortedSet`/`SalvoSortedMap` in `sorted.kt` (sorted
+  `ArrayList`s searched by bisection), the type aliases `Set`/`MutSet`, … naming
+  them. Every operation is handed `hash: (T) -> Long` and `eq: (T, T) ->
+  Boolean` (or `cmp`) as trailing parameters; nothing is stored. `equals` is
+  order-blind over cached digests, `toString` is `{a, b}`; `SalvoMap` is
+  `Iterable<Pair<K, V>>`, which is what a boundary check and host code walk.
+  * [kt-variadic] A constructor's variadic tail over a **bare type variable**
+    cannot be `arrayOf(…)` (it wants a reified `T`), so it is
+    `arrayOf<Any?>(…) as Array<T>` — what an erased `Array<T>` is at run time;
+    over a class of type variables (`Pair<K, V>`) the element type is spelled
+    (`arrayOf<Pair<K, V>>(…)`), since that array is a `Pair[]`.
 * [kt-mailbox] [actor-mailbox] **The mailbox bound is a generated property**,
   `internal val __mailboxCapacity: Int`, initialised from the slot's expression
   where a constructor parameter is in scope for free. The spawn reads it off the

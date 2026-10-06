@@ -11,10 +11,12 @@ import salvo.core.list.sizePlatform
 import salvo.core.map.containsKeyPlatform
 import salvo.core.map.getPlatform as getPlatform__core_map
 import salvo.core.map.keysPlatform
+import salvo.core.map.mutMapOfPlatform
 import salvo.core.map.putPlatform
 import salvo.core.map.removePlatform
 import salvo.core.set.addPlatform as addPlatform__core_set
 import salvo.core.set.containsPlatform
+import salvo.core.set.mutSetOfPlatform
 import salvo.runtime.Exported
 import salvo.runtime.actorPool
 import salvo.runtime.answer
@@ -511,8 +513,8 @@ class __Mon_RouteTable(
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun versionIn(versions: Map<Int, Long>, group: Int): Long {
-    val v = getPlatform__core_map(versions, group)
+fun versionIn(versions: salvo.platform.core.map.Map<Int, Long>, group: Int): Long {
+    val v = getPlatform__core_map(versions, group, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
     if (v != null) {
         val n = v as Long
         return n
@@ -521,7 +523,7 @@ fun versionIn(versions: Map<Int, Long>, group: Int): Long {
 }
 
 fun bumpIn(versions: salvo.platform.core.map.MutMap<Int, Long>, waiters: salvo.platform.core.list.MutList<ViewWaiter>, group: Int) {
-    putPlatform(versions, group, versionIn(versions, group) + 1)
+    putPlatform(versions, group, versionIn(versions, group) + 1, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
     var i = 0
     while (i < sizePlatform(waiters)) {
         if ((getPlatform__core_list(waiters, i) ?: throw AssertionError("salvo: value is absent at runtime.routing:171:12")).group == group) {
@@ -541,26 +543,26 @@ data class ViewWaiter(
 
 class Routes : RouteTable {
     private var nodeId: Long = 0L
-    private var hosted: salvo.platform.core.set.MutSet<Long> = linkedSetOf<Long>().also { __s -> __s.addAll(listOf()) }
-    private var poolNode: salvo.platform.core.map.MutMap<Int, Long> = linkedMapOf<Int, Long>().also { __m -> __m.putAll(listOf()) }
-    private var bits: salvo.platform.core.map.MutMap<Int, Long> = linkedMapOf<Int, Long>().also { __m -> __m.putAll(listOf()) }
-    private var remote: salvo.platform.core.map.MutMap<Int, RemoteRef> = linkedMapOf<Int, RemoteRef>().also { __m -> __m.putAll(listOf()) }
-    private var proxies: salvo.platform.core.map.MutMap<RemoteRef, Int> = salvo.SalvoHashMap<RemoteRef, Int>(::hash__RemoteRef, ::eq__RemoteRef_RemoteRef).also { __m -> __m.putAll(listOf()) }
-    private var credits: salvo.platform.core.map.MutMap<Int, Int> = linkedMapOf<Int, Int>().also { __m -> __m.putAll(listOf()) }
-    private var heldN: salvo.platform.core.map.MutMap<Int, Int> = linkedMapOf<Int, Int>().also { __m -> __m.putAll(listOf()) }
-    private var routes: salvo.platform.core.map.MutMap<Long, salvo.platform.core.bytes.Bytes> = linkedMapOf<Long, salvo.platform.core.bytes.Bytes>().also { __m -> __m.putAll(listOf()) }
-    private var outbound: salvo.platform.core.set.MutSet<Long> = linkedSetOf<Long>().also { __s -> __s.addAll(listOf()) }
+    private var hosted: salvo.platform.core.set.MutSet<Long> = mutSetOfPlatform(arrayOf(), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
+    private var poolNode: salvo.platform.core.map.MutMap<Int, Long> = mutMapOfPlatform(arrayOf(), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
+    private var bits: salvo.platform.core.map.MutMap<Int, Long> = mutMapOfPlatform(arrayOf(), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
+    private var remote: salvo.platform.core.map.MutMap<Int, RemoteRef> = mutMapOfPlatform(arrayOf(), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
+    private var proxies: salvo.platform.core.map.MutMap<RemoteRef, Int> = mutMapOfPlatform(arrayOf(), ::hash__RemoteRef, ::eq__RemoteRef_RemoteRef)
+    private var credits: salvo.platform.core.map.MutMap<Int, Int> = mutMapOfPlatform(arrayOf(), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
+    private var heldN: salvo.platform.core.map.MutMap<Int, Int> = mutMapOfPlatform(arrayOf(), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
+    private var routes: salvo.platform.core.map.MutMap<Long, salvo.platform.core.bytes.Bytes> = mutMapOfPlatform(arrayOf(), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
+    private var outbound: salvo.platform.core.set.MutSet<Long> = mutSetOfPlatform(arrayOf(), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
     private var parked: salvo.platform.core.list.MutList<Parked> = mutableListOf<Parked>()
     private var outbox: salvo.platform.core.list.MutList<Staged> = mutableListOf<Staged>()
     private var taskKeys: salvo.platform.core.list.MutList<Long> = mutableListOf<Long>()
     private var tasks: salvo.platform.core.list.MutList<ExportedTask> = mutableListOf<ExportedTask>()
-    private var controls: salvo.platform.core.map.MutMap<ControlKey, Int> = salvo.SalvoHashMap<ControlKey, Int>(::hash__ControlKey, ::eq__ControlKey_ControlKey).also { __m -> __m.putAll(listOf()) }
+    private var controls: salvo.platform.core.map.MutMap<ControlKey, Int> = mutMapOfPlatform(arrayOf(), ::hash__ControlKey, ::eq__ControlKey_ControlKey)
     private var local: List<Pair<String, String>> = listOf<Pair<String, String>>()
-    private var peers: salvo.platform.core.map.MutMap<Long, List<Pair<String, String>>> = linkedMapOf<Long, List<Pair<String, String>>>().also { __m -> __m.putAll(listOf()) }
+    private var peers: salvo.platform.core.map.MutMap<Long, List<Pair<String, String>>> = mutMapOfPlatform(arrayOf(), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
     private var deadEntry: Int = -1
     private var creditWaiters: salvo.platform.core.list.MutList<salvo.platform.runtime.Parker> = mutableListOf<salvo.platform.runtime.Parker>()
-    private var views: salvo.platform.core.map.MutMap<Int, List<Int>> = linkedMapOf<Int, List<Int>>().also { __m -> __m.putAll(listOf()) }
-    private var versions: salvo.platform.core.map.MutMap<Int, Long> = linkedMapOf<Int, Long>().also { __m -> __m.putAll(listOf()) }
+    private var views: salvo.platform.core.map.MutMap<Int, List<Int>> = mutMapOfPlatform(arrayOf(), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
+    private var versions: salvo.platform.core.map.MutMap<Int, Long> = mutMapOfPlatform(arrayOf(), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
     private var viewWaiters: salvo.platform.core.list.MutList<ViewWaiter> = mutableListOf<ViewWaiter>()
     private var nextWaiter: Long = 0L
 
@@ -569,17 +571,17 @@ class Routes : RouteTable {
     }
 
     override fun adoptPool(pool: Int, node: Long) {
-        putPlatform(poolNode, pool, node)
+        putPlatform(poolNode, pool, node, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
     }
 
     override fun addNode(): Long {
         val n = freshNode()
-        addPlatform__core_set(hosted, n)
+        addPlatform__core_set(hosted, n, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
         return n
     }
 
     override fun hosts(node: Long): Boolean {
-        return containsPlatform(hosted, node)
+        return containsPlatform(hosted, node, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
     }
 
     override fun identityOf(addr: Int, pool: Int): RemoteRef {
@@ -590,8 +592,8 @@ class Routes : RouteTable {
     override fun findImport(r: RemoteRef, here: Long): Union3<Found, MakeProxy, MakeDead> {
         if (r.node == here) {
             val idx = (r.actor).toInt()
-            val b = getPlatform__core_map(bits, idx)
-            if (!containsKeyPlatform(remote, idx) && (b != null) && run { val known = b as Long; known == r.bits }) {
+            val b = getPlatform__core_map(bits, idx, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
+            if (!containsKeyPlatform(remote, idx, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) }) && (b != null) && run { val known = b as Long; known == r.bits }) {
                 val known = b as Long
                 return Union3.U1<Found, MakeProxy, MakeDead>(Found(idx = idx))
             }
@@ -600,7 +602,7 @@ class Routes : RouteTable {
             }
             return Union3.U3<Found, MakeProxy, MakeDead>(MakeDead())
         }
-        val p = getPlatform__core_map(proxies, r)
+        val p = getPlatform__core_map(proxies, r, ::hash__RemoteRef, ::eq__RemoteRef_RemoteRef)
         if (p != null) {
             val idx = p as Int
             return Union3.U1<Found, MakeProxy, MakeDead>(Found(idx = idx))
@@ -610,14 +612,14 @@ class Routes : RouteTable {
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun registerProxy(r: RemoteRef, idx: Int, here: Long): Int {
-        val existing = getPlatform__core_map(proxies, r)
+        val existing = getPlatform__core_map(proxies, r, ::hash__RemoteRef, ::eq__RemoteRef_RemoteRef)
         if (existing != null) {
             val e = existing as Int
             return e
         }
-        putPlatform(remote, idx, r)
-        putPlatform(proxies, r, idx)
-        putPlatform(credits, idx, 0)
+        putPlatform(remote, idx, r, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
+        putPlatform(proxies, r, idx, ::hash__RemoteRef, ::eq__RemoteRef_RemoteRef)
+        putPlatform(credits, idx, 0, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
         val frame = salvo.salvoEncode(Union5.U4<MsgFrame, AnswerFrame, GrantFrame, OpenFrame, ControlFrame>(OpenFrame(to = r.node, actor = r.actor, bits = r.bits, from = here)), salvo.Union5Codec(__Codec_MsgFrame, __Codec_AnswerFrame, __Codec_GrantFrame, __Codec_OpenFrame, __Codec_ControlFrame))
         stageIn(routes, outbound, outbox, parked, here, r.node, frame)
         return idx
@@ -632,12 +634,12 @@ class Routes : RouteTable {
     }
 
     override fun isProxy(addr: Int): Boolean {
-        return containsKeyPlatform(remote, addr)
+        return containsKeyPlatform(remote, addr, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun proxyRef(addr: Int): RemoteRef? {
-        val r = getPlatform__core_map(remote, addr)
+        val r = getPlatform__core_map(remote, addr, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
         if (r != null) {
             val found = r as RemoteRef
             return found
@@ -647,12 +649,12 @@ class Routes : RouteTable {
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun takeCredit(addr: Int, me: salvo.platform.runtime.Parker): Int {
-        val c = getPlatform__core_map(credits, addr)
+        val c = getPlatform__core_map(credits, addr, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
         if (c != null) {
             val n = c as Int
             if (n > 0) {
-                putPlatform(credits, addr, n - 1)
-                putPlatform(heldN, addr, heldIn(heldN, addr) + 1)
+                putPlatform(credits, addr, n - 1, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
+                putPlatform(heldN, addr, heldIn(heldN, addr) + 1, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
                 return 1
             }
             addPlatform__core_list(creditWaiters, me)
@@ -666,7 +668,7 @@ class Routes : RouteTable {
     }
 
     override fun grant(addr: Int, pool: Int, from: Long, n: Int) {
-        putPlatform(heldN, addr, heldIn(heldN, addr) + n)
+        putPlatform(heldN, addr, heldIn(heldN, addr) + n, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
         val me = identityIn(remote, bits, poolNode, nodeId, addr, pool)
         val frame = salvo.salvoEncode(Union5.U3<MsgFrame, AnswerFrame, GrantFrame, OpenFrame, ControlFrame>(GrantFrame(to = from, host = me.node, actor = me.actor, bits = me.bits, n = n)), salvo.Union5Codec(__Codec_MsgFrame, __Codec_AnswerFrame, __Codec_GrantFrame, __Codec_OpenFrame, __Codec_ControlFrame))
         stageIn(routes, outbound, outbox, parked, me.node, from, frame)
@@ -681,27 +683,27 @@ class Routes : RouteTable {
     }
 
     override fun addRoute(node: Long, at: salvo.platform.core.bytes.Bytes) {
-        putPlatform(routes, node, at)
+        putPlatform(routes, node, at, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
         restage(routes, outbound, outbox, parked)
     }
 
     override fun setOutbound(node: Long) {
-        addPlatform__core_set(outbound, node)
+        addPlatform__core_set(outbound, node, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
         restage(routes, outbound, outbox, parked)
     }
 
     override fun hasOutbound(node: Long): Boolean {
-        return containsPlatform(outbound, node)
+        return containsPlatform(outbound, node, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun accepts(to: Long, actor: Long, claimed: Long): Boolean {
-        if (!containsPlatform(hosted, to)) {
+        if (!containsPlatform(hosted, to, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })) {
             return false
         }
         val idx = (actor).toInt()
-        val b = getPlatform__core_map(bits, idx)
-        if (!containsKeyPlatform(remote, idx) && (b != null) && run { val known = b as Long; known == claimed }) {
+        val b = getPlatform__core_map(bits, idx, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
+        if (!containsKeyPlatform(remote, idx, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) }) && (b != null) && run { val known = b as Long; known == claimed }) {
             val known = b as Long
             return true
         }
@@ -711,31 +713,31 @@ class Routes : RouteTable {
     override fun received(idx: Int) {
         val h = heldIn(heldN, idx)
         if (h > 0) {
-            putPlatform(heldN, idx, h - 1)
+            putPlatform(heldN, idx, h - 1, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
         }
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun credited(r: RemoteRef, to: Long, n: Int): Boolean {
-        if (!containsPlatform(hosted, to)) {
+        if (!containsPlatform(hosted, to, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })) {
             return false
         }
-        val p = getPlatform__core_map(proxies, r)
+        val p = getPlatform__core_map(proxies, r, ::hash__RemoteRef, ::eq__RemoteRef_RemoteRef)
         if (p != null) {
             val idx = p as Int
             val i = idx
-            val c = getPlatform__core_map(credits, i)
+            val c = getPlatform__core_map(credits, i, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
             var now = 0
             if (c != null) {
                 val have = c as Int
                 now = have
             }
-            putPlatform(credits, i, now + n)
+            putPlatform(credits, i, now + n, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
             var h = heldIn(heldN, i) - n
             if (h < 0) {
                 h = 0
             }
-            putPlatform(heldN, i, h)
+            putPlatform(heldN, i, h, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
             wakeSenders(creditWaiters)
             return true
         }
@@ -764,12 +766,12 @@ class Routes : RouteTable {
     }
 
     override fun watchChannel(node: Long, channel: String, sink: Int) {
-        putPlatform(controls, ControlKey(node = node, channel = channel), sink)
+        putPlatform(controls, ControlKey(node = node, channel = channel), sink, ::hash__ControlKey, ::eq__ControlKey_ControlKey)
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun channelSink(node: Long, channel: String): Int {
-        val s = getPlatform__core_map(controls, ControlKey(node = node, channel = channel))
+        val s = getPlatform__core_map(controls, ControlKey(node = node, channel = channel), ::hash__ControlKey, ::eq__ControlKey_ControlKey)
         if (s != null) {
             val sink = s as Int
             return sink
@@ -786,12 +788,12 @@ class Routes : RouteTable {
     }
 
     override fun setPeer(node: Long, table: List<Pair<String, String>>) {
-        putPlatform(peers, node, table)
+        putPlatform(peers, node, table, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun peerHash(node: Long, protocol: String): String? {
-        val t = getPlatform__core_map(peers, node)
+        val t = getPlatform__core_map(peers, node, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
         if (t != null) {
             val table = t as List<Pair<String, String>>
             for (entry in salvo.platform.core.list.each(table)) {
@@ -806,11 +808,11 @@ class Routes : RouteTable {
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun forgetNode(node: Long): List<Int> {
-        val _route = removePlatform(routes, node)
-        val _peer = removePlatform(peers, node)
+        val _route = removePlatform(routes, node, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
+        val _peer = removePlatform(peers, node, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
         val gone: salvo.platform.core.list.MutList<Int> = mutableListOf<Int>()
         for (idx in salvo.platform.core.list.each(keysPlatform(remote))) {
-            val r = getPlatform__core_map(remote, idx)
+            val r = getPlatform__core_map(remote, idx, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
             if (r != null) {
                 val found = r as RemoteRef
                 if (found.node == node) {
@@ -823,13 +825,13 @@ class Routes : RouteTable {
     }
 
     override fun setView(group: Int, members: List<Int>) {
-        putPlatform(views, group, members)
+        putPlatform(views, group, members, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
         bumpIn(versions, viewWaiters, group)
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun viewOf(group: Int): List<Int> {
-        val v = getPlatform__core_map(views, group)
+        val v = getPlatform__core_map(views, group, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
         if (v != null) {
             val found = v as List<Int>
             return found
@@ -867,7 +869,7 @@ class Routes : RouteTable {
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun creditsOf(addr: Int): Int? {
-        val c = getPlatform__core_map(credits, addr)
+        val c = getPlatform__core_map(credits, addr, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
         if (c != null) {
             val n = c as Int
             return n
@@ -877,8 +879,8 @@ class Routes : RouteTable {
 
     fun init() {
         nodeId = freshNode()
-        addPlatform__core_set(hosted, nodeId)
-        putPlatform(poolNode, 0, nodeId)
+        addPlatform__core_set(hosted, nodeId, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
+        putPlatform(poolNode, 0, nodeId, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
     }
 }
 
@@ -887,8 +889,8 @@ sealed class __Priv_Routes {
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun nodeIn(poolNode: Map<Int, Long>, nodeId: Long, pool: Int): Long {
-    val n = getPlatform__core_map(poolNode, pool)
+fun nodeIn(poolNode: salvo.platform.core.map.Map<Int, Long>, nodeId: Long, pool: Int): Long {
+    val n = getPlatform__core_map(poolNode, pool, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
     if (n != null) {
         val v = n as Long
         return v
@@ -897,8 +899,8 @@ fun nodeIn(poolNode: Map<Int, Long>, nodeId: Long, pool: Int): Long {
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun heldIn(heldN: Map<Int, Int>, idx: Int): Int {
-    val h = getPlatform__core_map(heldN, idx)
+fun heldIn(heldN: salvo.platform.core.map.Map<Int, Int>, idx: Int): Int {
+    val h = getPlatform__core_map(heldN, idx, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
     if (h != null) {
         val n = h as Int
         return n
@@ -907,20 +909,20 @@ fun heldIn(heldN: Map<Int, Int>, idx: Int): Int {
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun identityIn(remote: Map<Int, RemoteRef>, bits: salvo.platform.core.map.MutMap<Int, Long>, poolNode: Map<Int, Long>, nodeId: Long, addr: Int, pool: Int): RemoteRef {
-    val r = getPlatform__core_map(remote, addr)
+fun identityIn(remote: salvo.platform.core.map.Map<Int, RemoteRef>, bits: salvo.platform.core.map.MutMap<Int, Long>, poolNode: salvo.platform.core.map.Map<Int, Long>, nodeId: Long, addr: Int, pool: Int): RemoteRef {
+    val r = getPlatform__core_map(remote, addr, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
     if (r != null) {
         val found = r as RemoteRef
         return found
     }
     val n = nodeIn(poolNode, nodeId, pool)
-    val b = getPlatform__core_map(bits, addr)
+    val b = getPlatform__core_map(bits, addr, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
     if (b != null) {
         val known = b as Long
         return RemoteRef(node = n, actor = (addr).toLong(), bits = known)
     }
     val minted = identityBits()
-    putPlatform(bits, addr, minted)
+    putPlatform(bits, addr, minted, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
     return RemoteRef(node = n, actor = (addr).toLong(), bits = minted)
 }
 
@@ -931,11 +933,11 @@ fun wakeSenders(waiters: salvo.platform.core.list.MutList<salvo.platform.runtime
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun stageIn(routes: Map<Long, salvo.platform.core.bytes.Bytes>, outbound: Set<Long>, outbox: salvo.platform.core.list.MutList<Staged>, parked: salvo.platform.core.list.MutList<Parked>, from: Long, to: Long, frame: salvo.platform.core.bytes.Bytes) {
-    val ep = getPlatform__core_map(routes, to)
+fun stageIn(routes: salvo.platform.core.map.Map<Long, salvo.platform.core.bytes.Bytes>, outbound: salvo.platform.core.set.Set<Long>, outbox: salvo.platform.core.list.MutList<Staged>, parked: salvo.platform.core.list.MutList<Parked>, from: Long, to: Long, frame: salvo.platform.core.bytes.Bytes) {
+    val ep = getPlatform__core_map(routes, to, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
     if (ep != null) {
         val at = ep as salvo.platform.core.bytes.Bytes
-        if (containsPlatform(outbound, from)) {
+        if (containsPlatform(outbound, from, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })) {
             addPlatform__core_list(outbox, Staged(from = from, to = at, frame = frame))
             return
         }
@@ -943,7 +945,7 @@ fun stageIn(routes: Map<Long, salvo.platform.core.bytes.Bytes>, outbound: Set<Lo
     addPlatform__core_list(parked, Parked(from = from, to = to, frame = frame))
 }
 
-fun restage(routes: Map<Long, salvo.platform.core.bytes.Bytes>, outbound: Set<Long>, outbox: salvo.platform.core.list.MutList<Staged>, parked: salvo.platform.core.list.MutList<Parked>) {
+fun restage(routes: salvo.platform.core.map.Map<Long, salvo.platform.core.bytes.Bytes>, outbound: salvo.platform.core.set.Set<Long>, outbox: salvo.platform.core.list.MutList<Staged>, parked: salvo.platform.core.list.MutList<Parked>) {
     val waiting: salvo.platform.core.list.MutList<Parked> = mutableListOf<Parked>()
     while (sizePlatform(parked) > 0) {
         addPlatform__core_list(waiting, (removeAtPlatform(parked, 0) ?: throw AssertionError("salvo: value is absent at runtime.routing:577:22")))

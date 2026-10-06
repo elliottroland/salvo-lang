@@ -50,7 +50,7 @@ structural `cmp`/`eq`/`hash`/`to_str` are std functions over the fields of any
 struct or the arms of any union).
 Fourteen worked examples in `examples/` carry the checked-in generated code for both
 targets and the output they print, three of them consuming the first dependency
-(`modules/aws/`: `aws_profile`, `aws_sqs`, `aws_s3`). 1700 tests green; std's own Salvo tests run inside one of them.
+(`modules/aws/`: `aws_profile`, `aws_sqs`, `aws_s3`). 1708 tests green; std's own Salvo tests run inside one of them.
 
 ## The sequence
 
@@ -79,10 +79,9 @@ and the `test actor` follow-ups recorded below:
    runtime a mismatch is a compiler bug either way; an exact check would need
    a type token generated code could pass.
 7. **Every collection as a platform type** — done for every collection
-   (2026-10-04/05, COMPLETED.md). What it left (the constructors, the two
-   maps' `to_str`) is superseded by §0j step 7: `Set`, `Map` and the sorted
-   pair become Salvo structs, `List` and `Deque` stay platform types. Lost
-   with `List` and still owed: printing a nested list (step 8).
+   (2026-10-04/05, COMPLETED.md); the constructors followed with §0j step 7
+   (2026-10-06). Lost with `List` and still owed: printing a nested list
+   (step 8).
 
 ### 0b — ✅ Three slow tests (fixed 2026-10-04, COMPLETED.md)
 
@@ -199,26 +198,23 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
      generic struct arm (`type Either<A> = Box<A> | Int : ToStr<self> by
      auto`) is an overload-ranking ambiguity between the union's and `Box`'s
      `to_str` at `Box<A>`.
-7. **`Set`/`Map` in Salvo, then the sorted pair.** `Map<K, V>(?hash, ?eq)` is
-   the slab both runtimes share today: entries in insertion order with
-   `None` tombstones, an `IntBuffer` index with open addressing over a
-   power-of-two capacity, compaction when tombstones outnumber live entries.
-   `Set<T>` uses the same layout. `SortedSet`/`SortedMap` start as a sorted
-   list with binary search; a B-tree in an arena (`List<Node>` with `Int`
-   children) later if writes need it. `List` and `Deque` stay platform types.
-   Literals desugar in core to the std constructors. Deleted: the 22
-   constructor intrinsics; [cmp-carry]'s marker and value rendering and
-   Kotlin's `keyed_pair`; Rust's stored-implicit demand; `runtime/
-   collections.rs`, `keyed.kt`; the boundary `Shape` checks; the
-   collection type-name tables (`Mut` renders through `Mut<Name>` for
-   `canbe Mut` types). Absorbs:
-   - §0 item 7 (every collection as a platform type), replaced by this.
-   - Its **`to_str` DECISION** for the two maps: two implicits of one name
-     at different types were decided legal (2026-09-28, §16's "riding
-     along"), so `to_str(map, ?to_str: (K) -> Str, ?to_str: (V) -> Str)` is
-     the build, not a decision.
-   - The recorded **`entries`/`values` iterators over a Map**: view structs
-     over the entries, as `Enumerated` is, need no copy.
+7. ✅ **The keyed collections, one representation per backend, identity
+   per call** (user decisions and build 2026-10-06, COMPLETED.md; the
+   "written in Salvo" plan was dropped by the user for this). Left:
+   - **A canonical fast path, after a benchmark**: a std benchmark of
+     lookups on a `Set<Int>` and a `Map<Str, Int>` on both backends, then
+     host entry points the emitter calls when the checker resolved the
+     identity to the *intrinsic* canonical fns (Kotlin's boxing of the
+     `Long` digest is the expected cost; on Rust, try `impl FnMut` host
+     signatures before a second entry point). Must compute exactly what the
+     canonical fns compute, since one set is reached through both paths.
+   - The two maps' `to_str` are still intrinsics over the host's
+     `toString`/`Display` (`to_str(map, ?to_str: (K) -> Str, ?to_str: (V) ->
+     Str)` in Salvo is the build: two implicits of one name were decided
+     legal, 2026-09-28).
+   - `==` on a set or map has no Salvo `eq`; a struct holding one compares
+     by the host classes' order-blind equality (step 8's host-equality rule).
+   - The recorded **`entries`/`values` iterators over a Map**.
    - Until step 9, `Set`/`Map` stay `noremote`; their codec is the entries,
      never the slab (hash values differ by backend).
 8. **Recursive implicits (§6), then the host-equality rule.** List and tuple
@@ -847,7 +843,7 @@ COMPLETED.md's comptime entry holds the argument):
    `Hashed<A>` as a pair; half a pair at any level is the existing error.
 5. **std owns container identity**, in Salvo: obligation clauses on the
    platform type `List` (section 2c) and ordinary Salvo instances on the
-   `Set`/`Map`/sorted structs of §0j step 7; the interim intrinsics and the Rust
+   `Set`/`Map`/sorted platform types; the interim intrinsics and the Rust
    backend's conditional derives are deleted when it lands, and `xs == ys` on
    two `List<Person>` then consults `Person`'s declared `eq`.
 6. Recursion applies **everywhere resolution runs**: calls, picks,
@@ -1148,8 +1144,8 @@ forwarded by whoever drives it), and the [group-obligation] match **ignores
 trailing implicit parameters** when checking the hidden struct's `: Yield<self,
 T>` — implicits are the callee's business, resolved at the call, not part of
 the member's shape. The alternative is storing the inner `next` as a fn-valued
-field, which [rs-stored-implicit] lowers today for keyed containers; that
-lowering goes with §0j step 7, so the implicit-on-`next` form is the one. A hand-written generic stage (`struct
+field, which nothing lowers since §0j step 7 removed the stored-implicit
+convention for keyed containers, so the implicit-on-`next` form is the one. A hand-written generic stage (`struct
 MapIter<It, T, U> : Yield<self, U>` with `next(p, ?Yield<It, T>)`) hits the same
 obligation gap today, so this is a prerequisite rather than a cost of the sugar.
 

@@ -3,8 +3,6 @@
 pub mod unions;
 #[path = "seq.rs"]
 pub mod seq;
-#[path = "collections.rs"]
-pub mod collections;
 #[path = "scheduler.rs"]
 pub mod scheduler;
 #[path = "hosttime.rs"]
@@ -70,7 +68,6 @@ pub mod platform_runtime_routing;
 #[path = "platform/runtime.rs"]
 pub mod platform_runtime;
 
-use crate::collections::*;
 use crate::unions::*;
 use crate::aws::AwsError;
 use crate::aws_sqs::CreateQueueInput;
@@ -100,6 +97,7 @@ use crate::core_console::__Stateful_Console as _;
 use crate::core_console::__Stateless_Console as _;
 use crate::core_console::println;
 use crate::core_list::to_str;
+use crate::core_map::Map;
 use crate::core_result::err;
 use crate::core_result::ok;
 
@@ -179,13 +177,13 @@ pub fn no_queue(url: String) -> SqsError {
 }
 
 pub struct MemSqs {
-    queues: SalvoMap<String, Vec<String>>,
+    queues: Map<String, Vec<String>>,
 }
 
 impl MemSqs {
     pub fn new() -> Self {
         Self {
-            queues: SalvoMap::from_entries::<HostHash, HostEq, _>(vec![]),
+            queues: crate::core_map::mut_map_of_platform::<String, Vec<String>>(vec![], &mut |__i0| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__i0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__i0, __i1| (&__i0[..] == &__i1[..])),
         }
     }
 }
@@ -194,15 +192,15 @@ impl crate::aws_sqs::__Stateful_Sqs for MemSqs {
 
     fn create_queue(&mut self, input: CreateQueueInput, reply: crate::scheduler::SalvoReply) {
         let mut url = format!("mem://{}", input.queue_name.clone());
-        if !crate::core_map::contains_key_platform(&self.queues, &url) {
-            crate::core_map::put_platform(&mut self.queues, url.clone(), vec![]);
+        if !crate::core_map::contains_key_platform::<String, Vec<String>>(&self.queues, &url, &mut |__i0| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__i0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__i0, __i1| (&__i0[..] == &__i1[..])) {
+            crate::core_map::put_platform::<String, Vec<String>>(&mut self.queues, url.clone(), vec![], &mut |__i0| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__i0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__i0, __i1| (&__i0[..] == &__i1[..]));
         }
         crate::scheduler::salvo_reply_wire::<Union2<CreateQueueOutput, Checked<Union2<SqsError, AwsError>>>>(reply, Union2::<CreateQueueOutput, Checked<Union2<SqsError, AwsError>>>::U1(ok(CreateQueueOutput { queue_url: Some(url) })));
     }
 
     fn get_queue_url(&mut self, input: GetQueueUrlInput, reply: crate::scheduler::SalvoReply) {
         let mut url = format!("mem://{}", input.queue_name.clone());
-        if !crate::core_map::contains_key_platform(&self.queues, &url) {
+        if !crate::core_map::contains_key_platform::<String, Vec<String>>(&self.queues, &url, &mut |__i0| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__i0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__i0, __i1| (&__i0[..] == &__i1[..])) {
             crate::scheduler::salvo_reply_wire::<Union2<GetQueueUrlOutput, Checked<Union2<SqsError, AwsError>>>>(reply, Union2::<GetQueueUrlOutput, Checked<Union2<SqsError, AwsError>>>::U2(err(checked(Union2::<SqsError, AwsError>::U1(no_queue(url))))));
             return;
         }
@@ -210,7 +208,7 @@ impl crate::aws_sqs::__Stateful_Sqs for MemSqs {
     }
 
     fn send_message(&mut self, input: SendMessageInput, reply: crate::scheduler::SalvoReply) {
-        let mut held = crate::core_map::get_platform(&self.queues, &input.queue_url);
+        let mut held = crate::core_map::get_platform::<String, Vec<String>>(&self.queues, &input.queue_url, &mut |__i0| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__i0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__i0, __i1| (&__i0[..] == &__i1[..]));
         if held.is_none() {
             crate::scheduler::salvo_reply_wire::<Union2<SendMessageOutput, Checked<Union2<SqsError, AwsError>>>>(reply, Union2::<SendMessageOutput, Checked<Union2<SqsError, AwsError>>>::U2(err(checked(Union2::<SqsError, AwsError>::U1(no_queue(input.queue_url.clone()))))));
             return;
@@ -222,12 +220,12 @@ impl crate::aws_sqs::__Stateful_Sqs for MemSqs {
         let mut id = format!("m{}", i32::wrapping_add(crate::core_list::size_platform(&grown), 1));
         crate::core_list::add_platform(&mut grown, input.message_body.clone());
         let mut stored: Vec<String> = grown;
-        crate::core_map::put_platform(&mut self.queues, input.queue_url.clone(), stored);
+        crate::core_map::put_platform::<String, Vec<String>>(&mut self.queues, input.queue_url.clone(), stored, &mut |__i0| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__i0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__i0, __i1| (&__i0[..] == &__i1[..]));
         crate::scheduler::salvo_reply_wire::<Union2<SendMessageOutput, Checked<Union2<SqsError, AwsError>>>>(reply, Union2::<SendMessageOutput, Checked<Union2<SqsError, AwsError>>>::U1(ok(SendMessageOutput { message_id: Some(id), md5_of_message_body: None, md5_of_message_attributes: None, md5_of_message_system_attributes: None, sequence_number: None })));
     }
 
     fn receive_message(&mut self, input: ReceiveMessageInput, reply: crate::scheduler::SalvoReply) {
-        let mut held = crate::core_map::get_platform(&self.queues, &input.queue_url);
+        let mut held = crate::core_map::get_platform::<String, Vec<String>>(&self.queues, &input.queue_url, &mut |__i0| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__i0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__i0, __i1| (&__i0[..] == &__i1[..]));
         if held.is_none() {
             (reply).send(std::boxed::Box::new(Union2::<ReceiveMessageOutput, Checked<Union2<SqsError, AwsError>>>::U2(err(checked(Union2::<SqsError, AwsError>::U1(no_queue(input.queue_url.clone())))))));
             return;
@@ -247,11 +245,11 @@ impl crate::aws_sqs::__Stateful_Sqs for MemSqs {
     }
 
     fn delete_queue(&mut self, input: DeleteQueueInput, reply: crate::scheduler::SalvoReply) {
-        if !crate::core_map::contains_key_platform(&self.queues, &input.queue_url) {
+        if !crate::core_map::contains_key_platform::<String, Vec<String>>(&self.queues, &input.queue_url, &mut |__i0| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__i0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__i0, __i1| (&__i0[..] == &__i1[..])) {
             crate::scheduler::salvo_reply_wire::<Union2<(), Checked<Union2<SqsError, AwsError>>>>(reply, Union2::<(), Checked<Union2<SqsError, AwsError>>>::U2(err(checked(Union2::<SqsError, AwsError>::U1(no_queue(input.queue_url.clone()))))));
             return;
         }
-        crate::core_map::remove_platform(&mut self.queues, &input.queue_url);
+        crate::core_map::remove_platform::<String, Vec<String>>(&mut self.queues, &input.queue_url, &mut |__i0| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__i0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__i0, __i1| (&__i0[..] == &__i1[..]));
         crate::scheduler::salvo_reply_wire::<Union2<(), Checked<Union2<SqsError, AwsError>>>>(reply, Union2::<(), Checked<Union2<SqsError, AwsError>>>::U1(ok(())));
     }
 }

@@ -2,12 +2,12 @@
 // the declarations the platform code uses, as the build emits them. Rewritten
 // by every build — do not edit; the build never reads this file.
 // salvo-abi 1 023a4214a13ba612
-use crate::collections::*;
 use crate::unions::*;
 use crate::aws::AwsError;
 use crate::core_actor::__Stateful_Faults as _;
 use crate::core_actor::__Stateless_Faults as _;
 use crate::core_checked::Checked;
+use crate::core_map::Map;
 use crate::stream::InStream;
 use crate::time::Instant;
 
@@ -42,7 +42,7 @@ pub struct PutObjectInput {
     pub grant_write_acp: Option<String>,
     pub key: String,
     pub write_offset_bytes: Option<i64>,
-    pub metadata: Option<SalvoMap<String, String>>,
+    pub metadata: Option<Map<String, String>>,
     pub server_side_encryption: Option<String>,
     pub storage_class: Option<String>,
     pub website_redirect_location: Option<String>,
@@ -249,7 +249,7 @@ pub struct GetObjectOutput {
     pub content_type: Option<String>,
     pub website_redirect_location: Option<String>,
     pub server_side_encryption: Option<String>,
-    pub metadata: Option<SalvoMap<String, String>>,
+    pub metadata: Option<Map<String, String>>,
     pub sse_customer_algorithm: Option<String>,
     pub sse_customer_key_md5: Option<String>,
     pub ssekms_key_id: Option<String>,

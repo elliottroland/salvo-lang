@@ -960,11 +960,12 @@ Conventions:
   keeps its original position, and removing one is O(1) and leaves the order
   of the rest intact. `to_list` on a set, `keys` on a map, a `for` over
   either, and `to_str` all agree on that order.
-  * Kotlin gets it from `LinkedHashSet`/`LinkedHashMap`. Rust's standard
-    library has no ordered hash container, so **the backend ships one**:
-    `SalvoSet`/`SalvoMap` in `runtime/collections.rs` (a slot vector plus a
-    hash index, compacted when the graveyard outgrows the live entries)
-    [rs-collections].
+  * **std's host files implement it, the same way on both backends**
+    (2026-10-06, ROADMAP §0j step 7; it used to be `LinkedHashSet`/
+    `LinkedHashMap` on Kotlin and a runtime file on Rust): a slot list in
+    first-insertion order with tombstones, each entry's digest cached, and a
+    bucket index from digest to slots, compacted when the tombstones outgrow
+    the live entries [platform-slots].
   * Two alternatives were rejected. **Unspecified order** — what
     `HashMap`/`HashSet` give — would make a program's output depend on its
     backend, which [backend-parity] forbids. **Always sorted** would charge
@@ -1026,25 +1027,14 @@ Conventions:
     keyed container over a tuple reached the host's structural comparison
     without asking anyone. ROADMAP's "Recursive implicit resolution" is the
     lift.
-  * **A keyed container built inside a generic function** carries an identity
-    the function was *handed* rather than one it can name, and both backends
-    lower it (2026-09-26): the container takes the capability **as functions**.
-    Kotlin needed only the parameter's name, its containers having always taken
-    closures; Rust grew a value-keyed store per family alongside the
-    marker-keyed ones, and the kept capability arrives owned
-    ([rs-stored-implicit]). A fn that merely *forwards* the capability to one
-    that builds a container is in the same position, so the owned convention is
-    closed under forwarding. What makes that stable for the canonical
-    case is [fn-attached] — a fn declared on a type travels with it, so the `cmp` an
-    unwritten slot resolves to is the same one everywhere the type is usable.
-  * **A non-canonical identity is kept at run time**, which is what the
-    containers' runtimes were rewritten for (landed 2026-09-22, the ordering
-    round's step 4b): neither host's container has a slot for a pair of
-    functions, so Rust keys `SalvoSet`/`SalvoMap` and the sorted pair through
-    zero-sized markers behind a boxed store [rs-collections], and Kotlin builds
-    its `TreeSet`/`TreeMap` with the identity as the comparator and its hash
-    containers over the pair as values [kt-ordered]. `Set<Str>` is unchanged
-    either way: the canonical path is the host's own hashing and ordering.
+  * **The identity is passed per call, never stored** (user decision
+    2026-10-06, ROADMAP §0j step 7): every operation receives the `hash`/`eq`
+    or `cmp` its call resolved — at a concrete type the canonical or written
+    one, inside a generic fn the one it was handed — so a keyed container
+    built in a generic body needs nothing special, and one host
+    representation serves every identity [platform-slots]. (Until then Rust
+    keyed by marker types or by stored `Arc`s and Kotlin by `LinkedHashMap`
+    or a runtime slab, chosen per identity.)
 * [col-literal-arg] **A bare collection literal as an argument determines the
   callee's type parameter** (fixed 2026-09-25): `to_set([1, 2])` reads `T` off
   the literal's own elements. An expected element type only helps when it is
@@ -1189,6 +1179,14 @@ Conventions:
     empty or not (2026-10-05; before, the literal was built with the
     canonical identity and the slot pattern accepted it, so the value
     silently hashed the host's way).
+  * **The checker resolves a set or map literal as that constructor call**
+    (2026-10-06, ROADMAP §0j step 7): `{a, b}` is `set_of(a, b)` (or
+    `mut_set_of` at a `Mut` position), `{k: v}` is `map_of((k, v))`, an empty
+    `{}` at a `Map` is `map_of()`. It records the constructor at the
+    literal's span, with its type arguments and its implicits filled from
+    the identities the literal's type carries, so a backend renders an
+    ordinary call (`literal_as_call`) and knows nothing of literals or
+    identities.
   * Elements **move** into the literal [deduce-consume], and a linear one
     is refused as it is in any composite [linear-composite].
   * A bracket literal still types as an **array** where the position
@@ -8813,12 +8811,31 @@ replaced the working document TESTING.md).
   * [platform-slots] **Identity slots** are allowed on a copyable platform
     type (user decision 2026-10-04): `platform type Set<T>(?hash: (T) -> Long,
     ?eq: (T, T) -> Bool)`, part of the type as on any type declaration
-    [cmp-carry]. The value carries its identities, and the host type is what
-    keeps them (`SalvoSet`/`SalvoHashSet`). A value type with slots promises
-    no `Hash` on Rust, since it is not a key [col-key-eligible]. `linear`
-    refuses slots. The constructors that *fill* the slots (`set_of`, `set_by`,
-    `to_set`, literals) stay intrinsic for now, since the emitters choose a
-    marker type or a value per identity there (ROADMAP 0.7).
+    [cmp-carry]. **The identity is the type's, passed per call** (user
+    decision 2026-10-06, ROADMAP §0j step 7, `heap`'s model): every platform
+    fn that needs it captures the binders from its parameter's type —
+    `platform fn add<T>(set: Mut Set<T>(?hash, ?eq), elem: T)` — and the
+    wrapper hands them to the host as trailing fn parameters, lent for the
+    call [platform-fn-value]; a constructor takes them as implicits
+    (`set_of<T>(...elems: T[], ?Hashed<T>)`). The value stores no fn, so the
+    host keeps one representation for every identity: std's `Set`/`Map` are
+    an insertion-ordered slab (entries, tombstones, the digest each was filed
+    under, a bucket index), the sorted pair a sorted list searched by
+    bisection, in `std/platform/core/{set,map,sorted}.{kt,rs}`. A value type
+    with slots promises no `Hash` on Rust, since it is not a key
+    [col-key-eligible]. `linear` refuses slots.
+    * **Consequence for generic code**: a generic fn that looks an element up
+      captures the identity too (`fn has<T>(s: Set<T>(?hash, ?eq), e: T)`), as
+      a fn over a `Heap` captures its `?cmp`; `Set<T>` with nothing written
+      resolves `hash` at `T` by name, which a bare `T` cannot answer.
+    * **Host code builds the canonical one** (`canonicalSet`/`canonicalMap`/
+      `canonicalSortedSet` on Kotlin, `canonical_set`/`canonical_map`/
+      `canonical_sorted_set` on Rust): the identity Salvo resolves for an
+      intrinsic key type, which is the host's own hashing and equality
+      (`hashCode`/`==`, `DefaultHasher`/`PartialEq`) and code-point order.
+      A set or map at the boundary keyed by anything else — a written
+      identity, a hand-written `hash`, a `by auto` stamp, whose `hash` folds
+      fields its own way — is refused [platform-check].
   * **Refused**: an obligation clause other than `: Iter<self, T>`
     (`by auto` has no fields; comparisons are platform fns), an alias.
   * [platform-generic] **Type parameters are opaque to the host** (2026-10-02,
@@ -8895,16 +8912,14 @@ replaced the working document TESTING.md).
     the implementation files).
   * A platform fn whose result borrows (`proj`) is refused (D10 C5), as a
     platform-handled member's is at emission.
-  * **Collections** (D10 C1, C2): a set or map keyed by a Salvo-defined
-    identity — written (`SortedSet<Str>(by_len)`) or filled by name from a
-    hand-written `hash`/`eq`/`cmp` — is refused in a result, since the host
-    cannot build one; an intrinsic identity or one `by auto` stamped is
-    canonical. A set or map must keep Salvo's order (insertion order; the
-    canonical ordering for a sorted one): on Kotlin, where the host type
-    cannot promise it, one at the top of a result or reply is copied into
-    shape and one inside another value is refused naming the constructor;
-    Rust's types promise it. Each backend gives the host constructors
-    (`salvo.salvoSortedSetOf`, `collect()`).
+  * **Collections** (D10 C2; revised 2026-10-06, ROADMAP §0j step 7): a
+    set or map is std's own host type, which host code builds with the
+    canonical builders [platform-slots], so its order is the type's and
+    nothing about its shape is checked (the Kotlin shape checks and
+    normalizers went with the JVM's collections). One keyed by anything but
+    an **intrinsic** identity — written (`SortedSet<Str>(by_len)`), filled
+    from a hand-written `hash`/`eq`/`cmp`, or `by auto` stamped — is refused
+    in a result, since the host cannot hash or order it Salvo's way.
 * [platform-factory] **Factories build a union at the boundary** (user
   decisions 2026-10-01, ABI D5). Positional unions stay; beside them the
   compiler emits one factory per runtime arm for every union a host builds:

@@ -2691,9 +2691,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.resolve_implicit_fn_at(&slot.name, None, &want).ok().map(|(k, _)| k)
                 }
             };
+            // [platform-check] Only an **intrinsic** identity is the host's
+            // own (`hashCode`/`==`, `Hash`/`PartialEq`), which is what host
+            // code builds a set or map with (`canonical_map`); a stamped
+            // `hash` folds fields its own way (ROADMAP §0j step 7).
             let Some(decl) = key.and_then(|k| self.fn_decl_by_key(k)) else { continue };
-            let auto = decl.stamped.as_ref().is_some_and(|st| st.compfn == "auto" || st.from == "auto");
-            if !decl.intrinsic && !auto {
+            if !decl.intrinsic {
                 return false;
             }
         }
@@ -2869,22 +2872,19 @@ impl<'p, 'r> Checker<'p, 'r> {
                     let elem = args[0].clone();
                     self.boundary_plan(&elem, what, span, visiting).map(|c| C::Elems(Box::new(c)))
                 }
-                // [platform-check] D10 C1/C2: a set or map also has a shape the
-                // host type cannot promise on Kotlin — insertion order, or the
-                // canonical ordering for a sorted one.
+                // [platform-check] A set or map is the host type std's host
+                // files define, so only its elements or entries can need a
+                // check (ROADMAP §0j step 7: the shape checks went with the
+                // JVM's own collections).
                 "Set" | "SortedSet" if args.len() == 1 => {
                     let elem = args[0].clone();
-                    let inner = self.boundary_plan(&elem, what, span, visiting).map(|c| Box::new(C::Elems(Box::new(c))));
-                    let kind = if name == "Set" { crate::abi::Shape::Set } else { crate::abi::Shape::SortedSet };
-                    Some(C::Shape { kind, inner })
+                    self.boundary_plan(&elem, what, span, visiting).map(|c| C::Elems(Box::new(c)))
                 }
                 "Map" | "SortedMap" if args.len() >= 2 => {
                     let (k, v) = (args[0].clone(), args[1].clone());
                     let kc = self.boundary_plan(&k, what, span, visiting);
                     let vc = self.boundary_plan(&v, what, span, visiting);
-                    let inner = (kc.is_some() || vc.is_some()).then(|| Box::new(C::Entries(kc.map(Box::new), vc.map(Box::new))));
-                    let kind = if name == "Map" { crate::abi::Shape::Map } else { crate::abi::Shape::SortedMap };
-                    Some(C::Shape { kind, inner })
+                    (kc.is_some() || vc.is_some()).then(|| C::Entries(kc.map(Box::new), vc.map(Box::new)))
                 }
                 _ => {
                     let decl: &'p StructDecl = self.symbols.structs.get(name.as_str()).copied()?;
@@ -11179,6 +11179,64 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// sound and saves writing it twice (`let ys: Mut List<Int> = [4, 5]`).
     /// Only `Mut`: every other qualifier is a claim about the value that
     /// construction does not establish [qual-constructive].
+    /// [col-literal] A collection literal **is a constructor call**
+    /// (ROADMAP §0j step 7): `{a, b}` is `set_of(a, b)` (or `mut_set_of`),
+    /// `{k: v}` is `map_of((k, v))`, an empty `{}` at a `Map` is `map_of()`.
+    /// Recorded as one — the constructor at the literal's span, its type
+    /// arguments, and its implicits filled with the identities the literal's
+    /// type carries (or resolved by name) — so the backends render the call
+    /// and know nothing of literals' identities. For a map, each entry is a
+    /// tuple typed at the span from its key's start to its value's end.
+    fn desugar_collection_literal(&mut self, ty: &Ty, span: Span, entries: &[(Span, Ty)]) {
+        let (base, args) = match ty.strip_quals() {
+            Ty::Named { name, args } => (name.clone(), args.clone()),
+            _ => return,
+        };
+        let is_mut = ty.quals().iter().any(|q| q.name == "Mut");
+        let (ctor, module, slots, ngen): (&str, [&str; 2], &[&str], usize) = match base.as_str() {
+            "Set" => (if is_mut { "mut_set_of" } else { "set_of" }, ["core", "set"], &["hash", "eq"], 1),
+            "Map" => (if is_mut { "mut_map_of" } else { "map_of" }, ["core", "map"], &["hash", "eq"], 2),
+            _ => return,
+        };
+        if args.iter().take(ngen).any(|a| a.is_unknown()) {
+            return;
+        }
+        let Some((key, decl)) = self.std_fn(&module, ctor) else { return };
+        let mut subst: HashMap<String, Ty> = HashMap::new();
+        let gens: HashSet<String> = decl.generics.iter().map(|g| g.name.clone()).collect();
+        for (g, a) in decl.generics.iter().zip(args.iter()) {
+            subst.insert(g.name.clone(), a.clone());
+        }
+        for (slot, a) in slots.iter().zip(args.iter().skip(ngen)) {
+            if matches!(a, Ty::FnName(_)) {
+                subst.insert(FnId::subst_key(slot), a.clone());
+            }
+        }
+        for (s, t) in entries {
+            self.out.expr_ty.insert(self.key(*s), t.clone());
+        }
+        self.out.call_fn.insert(self.key(span), key);
+        self.out
+            .call_type_args
+            .insert(self.key(span), args.iter().take(ngen).cloned().collect());
+        let implicits = self.out.implicit_params.get(&key).cloned().unwrap_or_default();
+        self.fill_implicits(&implicits, ctor, &mut subst, &gens, &[], span);
+    }
+
+    /// A std fn by module and name: the first declaration of that name in
+    /// the module's file.
+    fn std_fn(&self, module: &[&str], name: &str) -> Option<(FnKey, &'p FnDecl)> {
+        self.resolution
+            .scopes
+            .iter()
+            .flat_map(|s| s.fns.get(name).into_iter().flatten())
+            .find(|e| {
+                let f = &self.files[e.key.file];
+                f.is_std && f.module.0.iter().map(String::as_str).eq(module.iter().copied())
+            })
+            .map(|e| (e.key, e.decl))
+    }
+
     fn collection_lit_ty(&self, name: &str, args: Vec<Ty>, expected: Option<&Ty>) -> Ty {
         // [cmp-carry] [col-literal] A literal takes its **identity** from the
         // position as it takes its kind: `let s: Set<Str>(by_len, same_len) =
@@ -21695,11 +21753,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                         expected.map(|t| t.strip_quals())
                     {
                         if name == "Map" && args.len() >= 2 {
-                            return self.collection_lit_ty(
+                            let ty = self.collection_lit_ty(
                                 "Map",
                                 vec![args[0].clone(), args[1].clone()],
                                 expected,
                             );
+                            self.desugar_collection_literal(&ty, *span, &[]);
+                            return ty;
                         }
                         if name == "List" && args.len() == 1 {
                             return self.collection_lit_ty(
@@ -21747,7 +21807,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if let Some(reason) = self.key_ineligible(&elem) {
                     self.error(*span, reason);
                 }
-                self.collection_lit_ty("Set", vec![elem], expected)
+                let ty = self.collection_lit_ty("Set", vec![elem], expected);
+                self.desugar_collection_literal(&ty, *span, &[]);
+                ty
             }
             Expr::MapLit { entries, span } => {
                 let (expected_key, expected_val) = match expected.map(|t| t.strip_quals()) {
@@ -21786,7 +21848,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if let Some(reason) = self.key_ineligible(&key) {
                     self.error(*span, reason);
                 }
-                self.collection_lit_ty("Map", vec![key, val], expected)
+                let ty = self.collection_lit_ty("Map", vec![key.clone(), val.clone()], expected);
+                let tuples: Vec<(Span, Ty)> = entries
+                    .iter()
+                    .map(|(k, v)| (Span::new(k.span().start, v.span().end), Ty::Tuple(vec![key.clone(), val.clone()])))
+                    .collect();
+                self.desugar_collection_literal(&ty, *span, &tuples);
+                ty
             }
             Expr::Tuple { elems, .. } => {
                 let expected_elems: Option<&Vec<Ty>> = match expected {

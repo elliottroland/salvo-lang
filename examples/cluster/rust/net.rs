@@ -1,4 +1,3 @@
-use crate::collections::*;
 use crate::unions::*;
 use crate::core_actor::__Stateful_Faults as _;
 use crate::core_actor::__Stateless_Faults as _;
@@ -11,8 +10,10 @@ use crate::core_list::all;
 use crate::core_list::at;
 use crate::core_list::last;
 use crate::core_list::partition;
+use crate::core_map::Map;
 use crate::core_result::err;
 use crate::core_result::ok;
+use crate::core_set::Set;
 use crate::runtime::Delivered;
 use crate::runtime::RuntimeHostPlatformSync as _;
 use crate::runtime::__Stateful_RuntimeHost as _;
@@ -1100,7 +1101,7 @@ pub fn introduce(node: &NodeId, peers: &Vec<NodeEndpoint>) {
     send_control(&(node.clone()), &("".to_string()), crate::wire::salvo_encode(&intro));
 }
 
-pub fn leave_group(known: &SalvoMap<NodeId, Node>) {
+pub fn leave_group(known: &Map<NodeId, Node>) {
     for mut id in crate::platform_core_list::each(&(crate::core_map::keys_platform(known))).map(|__x| __x.clone()) {
         let mut leaving: Union4<Hello, Ack, Leaving, Intro> = Union4::<Hello, Ack, Leaving, Intro>::U3(Leaving {  });
         send_control(&(id.clone()), &("".to_string()), crate::wire::salvo_encode(&leaving));
@@ -1110,7 +1111,7 @@ pub fn leave_group(known: &SalvoMap<NodeId, Node>) {
 pub struct StaticNodeGroup {
     name: String,
     all: Vec<NodeEndpoint>,
-    known: SalvoMap<NodeId, Node>,
+    known: Map<NodeId, Node>,
     watchers: Vec<usize>,
     __dep_Transport: crate::net::Transport,
     pub __mailbox_capacity: i32,
@@ -1123,7 +1124,7 @@ impl StaticNodeGroup {
         Self {
             name,
             all,
-            known: SalvoMap::from_entries::<__Hash_hash__NodeId_NodeId, __Eq_eq__NodeId_NodeId, _>(vec![]),
+            known: crate::core_map::mut_map_of_platform::<NodeId, Node>(vec![], &mut |__i0| hash__NodeId(__i0), &mut |__i0, __i1| eq__NodeId_NodeId(__i0, __i1)),
             watchers: vec![],
             __dep_Transport,
             __mailbox_capacity: 64,
@@ -1141,7 +1142,7 @@ impl crate::net::__Stateful_NodeGroup for StaticNodeGroup {
 
     fn subscribe(&mut self, w: usize) {
         for mut id in crate::platform_core_list::each(&(crate::core_map::keys_platform(&self.known))).map(|__x| __x.clone()) {
-            let mut n = crate::core_map::get_platform(&self.known, &id);
+            let mut n = crate::core_map::get_platform::<NodeId, Node>(&self.known, &id, &mut |__i0| hash__NodeId(__i0), &mut |__i0, __i1| eq__NodeId_NodeId(__i0, __i1));
             if !(n.is_none()) {
                 crate::scheduler::salvo_send_wire(w, crate::net::__Msg_NodeGroupWatcher::Joined(n.unwrap().clone()), crate::net::__PROTO_NodeGroupWatcher);
             }
@@ -1171,17 +1172,17 @@ impl StaticNodeGroup {
         let mut event = handshake(&self.__dep_Transport, &self.name, from, data);
         match event {
             Some(Union3::U1(_)) => {
-                if crate::core_map::contains_key_platform(&self.known, &event.as_ref().unwrap().u1().clone().node) {
+                if crate::core_map::contains_key_platform::<NodeId, Node>(&self.known, &event.as_ref().unwrap().u1().clone().node, &mut |__i0| hash__NodeId(__i0), &mut |__i0, __i1| eq__NodeId_NodeId(__i0, __i1)) {
                     return;
                 }
                 let mut n = Node { id: event.as_ref().unwrap().u1().clone().node.clone(), at: event.as_ref().unwrap().u1().clone().at.clone() };
-                crate::core_map::put_platform(&mut self.known, event.as_ref().unwrap().u1().clone().node.clone(), n.clone());
+                crate::core_map::put_platform::<NodeId, Node>(&mut self.known, event.as_ref().unwrap().u1().clone().node.clone(), n.clone(), &mut |__i0| hash__NodeId(__i0), &mut |__i0, __i1| eq__NodeId_NodeId(__i0, __i1));
                 for w in crate::platform_core_list::each(&self.watchers) {
                     crate::scheduler::salvo_send_wire(w.clone(), crate::net::__Msg_NodeGroupWatcher::Joined(n.clone()), crate::net::__PROTO_NodeGroupWatcher);
                 }
             }
             Some(Union3::U2(_)) => {
-                let mut n = crate::core_map::remove_platform(&mut self.known, &event.as_ref().unwrap().u2().clone().node);
+                let mut n = crate::core_map::remove_platform::<NodeId, Node>(&mut self.known, &event.as_ref().unwrap().u2().clone().node, &mut |__i0| hash__NodeId(__i0), &mut |__i0, __i1| eq__NodeId_NodeId(__i0, __i1));
                 if n.is_none() {
                     return;
                 }
@@ -1279,10 +1280,10 @@ fn __decode_msg_StaticNodeGroup(proto: &str, payload: &[u8]) -> Option<crate::sc
     None
 }
 
-pub fn known_nodes(known: &SalvoMap<NodeId, Node>) -> Vec<Node> {
+pub fn known_nodes(known: &Map<NodeId, Node>) -> Vec<Node> {
     let mut all_known: Vec<Node> = vec![];
     for mut id in crate::platform_core_list::each(&(crate::core_map::keys_platform(known))).map(|__x| __x.clone()) {
-        let mut n = crate::core_map::get_platform(known, &id);
+        let mut n = crate::core_map::get_platform::<NodeId, Node>(known, &id, &mut |__i0| hash__NodeId(__i0), &mut |__i0, __i1| eq__NodeId_NodeId(__i0, __i1));
         if !(n.is_none()) {
             crate::core_list::add_platform(&mut all_known, n.unwrap().clone());
         }
@@ -1293,8 +1294,8 @@ pub fn known_nodes(known: &SalvoMap<NodeId, Node>) -> Vec<Node> {
 pub struct GossipNodeGroup {
     name: String,
     seeds: Vec<NodeEndpoint>,
-    known: SalvoMap<NodeId, Node>,
-    dialed: SalvoSet<String>,
+    known: Map<NodeId, Node>,
+    dialed: Set<String>,
     watchers: Vec<usize>,
     __dep_Transport: crate::net::Transport,
     pub __mailbox_capacity: i32,
@@ -1307,8 +1308,8 @@ impl GossipNodeGroup {
         Self {
             name,
             seeds,
-            known: SalvoMap::from_entries::<__Hash_hash__NodeId_NodeId, __Eq_eq__NodeId_NodeId, _>(vec![]),
-            dialed: SalvoSet::from_elements::<HostHash, HostEq, _>(vec![]),
+            known: crate::core_map::mut_map_of_platform::<NodeId, Node>(vec![], &mut |__i0| hash__NodeId(__i0), &mut |__i0, __i1| eq__NodeId_NodeId(__i0, __i1)),
+            dialed: crate::core_set::mut_set_of_platform::<String>(vec![], &mut |__i0| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__i0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__i0, __i1| (&__i0[..] == &__i1[..])),
             watchers: vec![],
             __dep_Transport,
             __mailbox_capacity: 64,
@@ -1326,7 +1327,7 @@ impl crate::net::__Stateful_NodeGroup for GossipNodeGroup {
 
     fn subscribe(&mut self, w: usize) {
         for mut id in crate::platform_core_list::each(&(crate::core_map::keys_platform(&self.known))).map(|__x| __x.clone()) {
-            let mut n = crate::core_map::get_platform(&self.known, &id);
+            let mut n = crate::core_map::get_platform::<NodeId, Node>(&self.known, &id, &mut |__i0| hash__NodeId(__i0), &mut |__i0, __i1| eq__NodeId_NodeId(__i0, __i1));
             if !(n.is_none()) {
                 crate::scheduler::salvo_send_wire(w, crate::net::__Msg_NodeGroupWatcher::Joined(n.unwrap().clone()), crate::net::__PROTO_NodeGroupWatcher);
             }
@@ -1354,27 +1355,27 @@ impl GossipNodeGroup {
         let mut event = handshake(&self.__dep_Transport, &self.name, from, data);
         match event {
             Some(Union3::U1(_)) => {
-                if crate::core_map::contains_key_platform(&self.known, &event.as_ref().unwrap().u1().clone().node) {
+                if crate::core_map::contains_key_platform::<NodeId, Node>(&self.known, &event.as_ref().unwrap().u1().clone().node, &mut |__i0| hash__NodeId(__i0), &mut |__i0, __i1| eq__NodeId_NodeId(__i0, __i1)) {
                     return;
                 }
                 let mut others: Vec<NodeEndpoint> = vec![];
                 for mut id in crate::platform_core_list::each(&(crate::core_map::keys_platform(&self.known))).map(|__x| __x.clone()) {
-                    let mut n = crate::core_map::get_platform(&self.known, &id);
+                    let mut n = crate::core_map::get_platform::<NodeId, Node>(&self.known, &id, &mut |__i0| hash__NodeId(__i0), &mut |__i0, __i1| eq__NodeId_NodeId(__i0, __i1));
                     if !(n.is_none()) {
                         crate::core_list::add_platform(&mut others, n.unwrap().clone().at.clone());
                     }
                     introduce(&(id.clone()), &(vec![event.as_ref().unwrap().u1().clone().at.clone()]));
                 }
                 introduce(&(event.as_ref().unwrap().u1().clone().node.clone()), &others);
-                crate::core_set::add_platform(&mut self.dialed, to_str__NodeEndpoint(&event.as_ref().unwrap().u1().clone().at));
+                crate::core_set::add_platform::<String>(&mut self.dialed, to_str__NodeEndpoint(&event.as_ref().unwrap().u1().clone().at), &mut |__i0| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__i0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__i0, __i1| (&__i0[..] == &__i1[..]));
                 let mut n = Node { id: event.as_ref().unwrap().u1().clone().node.clone(), at: event.as_ref().unwrap().u1().clone().at.clone() };
-                crate::core_map::put_platform(&mut self.known, event.as_ref().unwrap().u1().clone().node.clone(), n.clone());
+                crate::core_map::put_platform::<NodeId, Node>(&mut self.known, event.as_ref().unwrap().u1().clone().node.clone(), n.clone(), &mut |__i0| hash__NodeId(__i0), &mut |__i0, __i1| eq__NodeId_NodeId(__i0, __i1));
                 for w in crate::platform_core_list::each(&self.watchers) {
                     crate::scheduler::salvo_send_wire(w.clone(), crate::net::__Msg_NodeGroupWatcher::Joined(n.clone()), crate::net::__PROTO_NodeGroupWatcher);
                 }
             }
             Some(Union3::U2(_)) => {
-                let mut n = crate::core_map::remove_platform(&mut self.known, &event.as_ref().unwrap().u2().clone().node);
+                let mut n = crate::core_map::remove_platform::<NodeId, Node>(&mut self.known, &event.as_ref().unwrap().u2().clone().node, &mut |__i0| hash__NodeId(__i0), &mut |__i0, __i1| eq__NodeId_NodeId(__i0, __i1));
                 if n.is_none() {
                     return;
                 }
@@ -1475,14 +1476,14 @@ fn __decode_msg_GossipNodeGroup(proto: &str, payload: &[u8]) -> Option<crate::sc
     None
 }
 
-pub fn dial(transport: &crate::net::Transport, dialed: &mut SalvoSet<String>, group: &String, e: NodeEndpoint) {
-    if eq__NodeEndpoint_NodeEndpoint(&e, &(transport.local_endpoint())) || crate::core_set::contains_platform(dialed, &(to_str__NodeEndpoint(&e))) {
+pub fn dial(transport: &crate::net::Transport, dialed: &mut Set<String>, group: &String, e: NodeEndpoint) {
+    if eq__NodeEndpoint_NodeEndpoint(&e, &(transport.local_endpoint())) || crate::core_set::contains_platform::<String>(dialed, &(to_str__NodeEndpoint(&e)), &mut |__i0| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__i0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__i0, __i1| (&__i0[..] == &__i1[..])) {
         return;
     }
-    crate::core_set::add_platform(dialed, to_str__NodeEndpoint(&e));
+    crate::core_set::add_platform::<String>(dialed, to_str__NodeEndpoint(&e), &mut |__i0| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__i0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__i0, __i1| (&__i0[..] == &__i1[..]));
     let mut sent = { let __a1 = hello_frame(transport, group); transport.deliver(&(e.clone()), __a1) };
     if matches!(sent, Union2::U2(_)) {
-        let mut _forgot = crate::core_set::remove_platform(dialed, &(to_str__NodeEndpoint(&e)));
+        let mut _forgot = crate::core_set::remove_platform::<String>(dialed, &(to_str__NodeEndpoint(&e)), &mut |__i0| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__i0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__i0, __i1| (&__i0[..] == &__i1[..]));
     }
 }
 
@@ -2642,9 +2643,9 @@ impl crate::wire::__Wire for __Msg_MemNet {
 pub const __PROTO_MemNet: &str = "2815c14392023d5e";
 
 pub struct MemNetwork {
-    listeners: SalvoMap<NodeEndpoint, usize>,
-    cuts: SalvoSet<String>,
-    dead: SalvoSet<NodeEndpoint>,
+    listeners: Map<NodeEndpoint, usize>,
+    cuts: Set<String>,
+    dead: Set<NodeEndpoint>,
     count: i32,
     pub __mailbox_capacity: i32,
     __addr: Option<usize>,
@@ -2654,9 +2655,9 @@ pub struct MemNetwork {
 impl MemNetwork {
     pub fn new() -> Self {
         Self {
-            listeners: SalvoMap::from_entries::<__Hash_hash__NodeEndpoint_NodeEndpoint, __Eq_eq__NodeEndpoint_NodeEndpoint, _>(vec![]),
-            cuts: SalvoSet::from_elements::<HostHash, HostEq, _>(vec![]),
-            dead: SalvoSet::from_elements::<__Hash_hash__NodeEndpoint_NodeEndpoint, __Eq_eq__NodeEndpoint_NodeEndpoint, _>(vec![]),
+            listeners: crate::core_map::mut_map_of_platform::<NodeEndpoint, usize>(vec![], &mut |__i0| hash__NodeEndpoint(__i0), &mut |__i0, __i1| eq__NodeEndpoint_NodeEndpoint(__i0, __i1)),
+            cuts: crate::core_set::mut_set_of_platform::<String>(vec![], &mut |__i0| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__i0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__i0, __i1| (&__i0[..] == &__i1[..])),
+            dead: crate::core_set::mut_set_of_platform::<NodeEndpoint>(vec![], &mut |__i0| hash__NodeEndpoint(__i0), &mut |__i0, __i1| eq__NodeEndpoint_NodeEndpoint(__i0, __i1)),
             count: 0,
             __mailbox_capacity: 64,
             __addr: None,
@@ -2668,20 +2669,20 @@ impl MemNetwork {
 impl crate::net::__Stateful_MemNet for MemNetwork {
 
     fn attach(&mut self, at: NodeEndpoint, sink: usize) {
-        crate::core_set::remove_platform(&mut self.dead, &at);
-        crate::core_map::put_platform(&mut self.listeners, at, sink);
+        crate::core_set::remove_platform::<NodeEndpoint>(&mut self.dead, &at, &mut |__i0| hash__NodeEndpoint(__i0), &mut |__i0, __i1| eq__NodeEndpoint_NodeEndpoint(__i0, __i1));
+        crate::core_map::put_platform::<NodeEndpoint, usize>(&mut self.listeners, at, sink, &mut |__i0| hash__NodeEndpoint(__i0), &mut |__i0, __i1| eq__NodeEndpoint_NodeEndpoint(__i0, __i1));
     }
 
     fn detach(&mut self, at: NodeEndpoint) {
-        crate::core_map::remove_platform(&mut self.listeners, &at);
+        crate::core_map::remove_platform::<NodeEndpoint, usize>(&mut self.listeners, &at, &mut |__i0| hash__NodeEndpoint(__i0), &mut |__i0, __i1| eq__NodeEndpoint_NodeEndpoint(__i0, __i1));
     }
 
     fn route(&mut self, from: NodeEndpoint, to: NodeEndpoint, out: crate::scheduler::SalvoReply) {
-        if crate::core_set::contains_platform(&self.dead, &to) || crate::core_set::contains_platform(&self.cuts, &(cut_key(&from, &to))) {
+        if crate::core_set::contains_platform::<NodeEndpoint>(&self.dead, &to, &mut |__i0| hash__NodeEndpoint(__i0), &mut |__i0, __i1| eq__NodeEndpoint_NodeEndpoint(__i0, __i1)) || crate::core_set::contains_platform::<String>(&self.cuts, &(cut_key(&from, &to)), &mut |__i0| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__i0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__i0, __i1| (&__i0[..] == &__i1[..])) {
             crate::scheduler::salvo_reply_wire::<Option<usize>>(out, None);
             return;
         }
-        let mut sink = crate::core_map::get_platform(&self.listeners, &to);
+        let mut sink = crate::core_map::get_platform::<NodeEndpoint, usize>(&self.listeners, &to, &mut |__i0| hash__NodeEndpoint(__i0), &mut |__i0, __i1| eq__NodeEndpoint_NodeEndpoint(__i0, __i1));
         if sink.is_none() {
             crate::scheduler::salvo_reply_wire::<Option<usize>>(out, None);
             return;
@@ -2691,18 +2692,18 @@ impl crate::net::__Stateful_MemNet for MemNetwork {
     }
 
     fn partition(&mut self, a: NodeEndpoint, b: NodeEndpoint) {
-        crate::core_set::add_platform(&mut self.cuts, cut_key(&a, &b));
-        crate::core_set::add_platform(&mut self.cuts, cut_key(&b, &a));
+        crate::core_set::add_platform::<String>(&mut self.cuts, cut_key(&a, &b), &mut |__i0| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__i0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__i0, __i1| (&__i0[..] == &__i1[..]));
+        crate::core_set::add_platform::<String>(&mut self.cuts, cut_key(&b, &a), &mut |__i0| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__i0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__i0, __i1| (&__i0[..] == &__i1[..]));
     }
 
     fn heal(&mut self, a: NodeEndpoint, b: NodeEndpoint) {
-        crate::core_set::remove_platform(&mut self.cuts, &(cut_key(&a, &b)));
-        crate::core_set::remove_platform(&mut self.cuts, &(cut_key(&b, &a)));
+        crate::core_set::remove_platform::<String>(&mut self.cuts, &(cut_key(&a, &b)), &mut |__i0| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__i0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__i0, __i1| (&__i0[..] == &__i1[..]));
+        crate::core_set::remove_platform::<String>(&mut self.cuts, &(cut_key(&b, &a)), &mut |__i0| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__i0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__i0, __i1| (&__i0[..] == &__i1[..]));
     }
 
     fn kill(&mut self, node: NodeEndpoint) {
-        crate::core_map::remove_platform(&mut self.listeners, &node);
-        crate::core_set::add_platform(&mut self.dead, node);
+        crate::core_map::remove_platform::<NodeEndpoint, usize>(&mut self.listeners, &node, &mut |__i0| hash__NodeEndpoint(__i0), &mut |__i0, __i1| eq__NodeEndpoint_NodeEndpoint(__i0, __i1));
+        crate::core_set::add_platform::<NodeEndpoint>(&mut self.dead, node, &mut |__i0| hash__NodeEndpoint(__i0), &mut |__i0, __i1| eq__NodeEndpoint_NodeEndpoint(__i0, __i1));
     }
 
     fn delivered(&mut self, out: crate::scheduler::SalvoReply) {
@@ -2895,24 +2896,4 @@ pub fn eq__Node_Node(a: &Node, b: &Node) -> bool {
         return false;
     }
     return true;
-}
-
-pub struct __Hash_hash__NodeId_NodeId;
-impl SalvoHash<NodeId> for __Hash_hash__NodeId_NodeId {
-    fn hash(__v: &NodeId) -> i64 { hash__NodeId(__v) }
-}
-
-pub struct __Eq_eq__NodeId_NodeId;
-impl SalvoEq<NodeId> for __Eq_eq__NodeId_NodeId {
-    fn eq(__a: &NodeId, __b: &NodeId) -> bool { eq__NodeId_NodeId(__a, __b) }
-}
-
-pub struct __Hash_hash__NodeEndpoint_NodeEndpoint;
-impl SalvoHash<NodeEndpoint> for __Hash_hash__NodeEndpoint_NodeEndpoint {
-    fn hash(__v: &NodeEndpoint) -> i64 { hash__NodeEndpoint(__v) }
-}
-
-pub struct __Eq_eq__NodeEndpoint_NodeEndpoint;
-impl SalvoEq<NodeEndpoint> for __Eq_eq__NodeEndpoint_NodeEndpoint {
-    fn eq(__a: &NodeEndpoint, __b: &NodeEndpoint) -> bool { eq__NodeEndpoint_NodeEndpoint(__a, __b) }
 }

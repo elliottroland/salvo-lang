@@ -3562,7 +3562,7 @@ fn kotlinc_compiles_and_runs_a_declared_identity() -> KotlinCase {
     kotlin_case(files, "hashed_capability", "1 1 2\n")
 }
 
-/// [cmp-carry] [kt-keyed] A **mixed fill**, byte-identical to the Rust backend's
+/// [cmp-carry] [platform-slots] A **mixed fill**, byte-identical to the Rust backend's
 /// `a_mixed_identity_fill_pairs_both_slots`: the written `hash` beside the `eq`
 /// that `: Hashed<self> by auto` generated. This backend used to abandon the whole
 /// pair when *either* slot resolved to the host's own operation, so the written
@@ -3597,33 +3597,6 @@ fn main() [use] -> None {
 }
 "#;
 
-#[test]
-fn a_mixed_identity_fill_pairs_both_slots() {
-    let program = build_program(&[("main.sv", MIXED_IDENTITY_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
-        panic!("codegen errors:\n{}", errors.join("\n"));
-    });
-    let kt = files
-        .iter()
-        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
-        .expect("main.kt")
-        .content
-        .clone();
-    assert!(
-        kt.contains(&format!(
-            "salvo.SalvoHashSet<Point>(::byX, ::{})",
-            mangled_name(&kt, "fun eq", "(a: Point, b: Point)")
-        )),
-        "the written hash pairs with the generated eq: {kt}"
-    );
-    assert!(
-        kt.contains(&format!(
-            "salvo.SalvoHashMap<Point, Int>(::byX, ::{})",
-            mangled_name(&kt, "fun eq", "(a: Point, b: Point)")
-        )),
-        "and for a map too: {kt}"
-    );
-}
 
 fn kotlinc_compiles_and_runs_a_mixed_identity() -> KotlinCase {
     let program = build_program(&[("main.sv", MIXED_IDENTITY_DEMO)]);
@@ -3633,7 +3606,7 @@ fn kotlinc_compiles_and_runs_a_mixed_identity() -> KotlinCase {
     kotlin_case(files, "mixed_identity", "2 1 2\n")
 }
 
-/// [cmp-carry] [kt-keyed] A mixed fill **inside a generic body** — the two
+/// [cmp-carry] [platform-slots] A mixed fill **inside a generic body** — the two
 /// features crossed. This backend needs nothing for it: a forwarded slot is a
 /// parameter name and a named one is `::name`, and the container takes two
 /// functions either way.
@@ -3669,7 +3642,7 @@ fn kotlinc_compiles_and_runs_a_generic_written_identity() -> KotlinCase {
     kotlin_case(files, "generic_written_identity", "1\n")
 }
 
-/// [cmp-carry] [kt-keyed] An identity assembled from **two different sources** —
+/// [cmp-carry] [platform-slots] An identity assembled from **two different sources** —
 /// `hash` forwarded from the fn's own implicit, `eq` resolved — byte-identical to
 /// the Rust backend's `rustc_compiles_and_runs_an_identity_from_two_sources`,
 /// where the shape closed two defects. This backend always handled it; the case
@@ -3712,38 +3685,8 @@ fn kotlinc_compiles_and_runs_a_held_identity() -> KotlinCase {
     kotlin_case(files, "held_identity", "2\n")
 }
 
-/// [cmp-carry] [kt-keyed] [implicit-intrinsic] The other half of a mixed fill:
-/// the **host's own** identity beside a written one. It has no symbol to
-/// reference, so it becomes the lambda its lowering makes — where a pair that is
-/// *entirely* the host's still selects the native container.
-#[test]
-fn a_host_slot_in_a_mixed_pair_becomes_its_lowering() {
-    let program = build_program(&[(
-        "main.sv",
-        "export fn all_same(a: Int, b: Int) -> Bool => a, b {\n    \
-         return true\n}\n\
-         fn main() [use] -> None {\n    \
-         use StdOutConsole()\n    \
-         let s: Mut Set<Int> = mut_set_of(hash = hash, eq = all_same)\n    \
-         add(s, 1)\n    \
-         println(\"${size(s)}\")\n}\n",
-    )]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
-        panic!("codegen errors:\n{}", errors.join("\n"));
-    });
-    let kt = files
-        .iter()
-        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
-        .expect("main.kt")
-        .content
-        .clone();
-    assert!(
-        kt.contains("SalvoHashSet<Int>({ __i0 -> (__i0).hashCode().toLong() }, ::allSame)"),
-        "the host's hash is its lowering as a lambda: {kt}"
-    );
-}
 
-/// [cmp-carry] [kt-keyed] The capability inside a **generic** body, byte-identical
+/// [cmp-carry] [platform-slots] The capability inside a **generic** body, byte-identical
 /// to the Rust backend's `rustc_compiles_and_runs_a_generic_keyed_container`.
 /// This backend needed nothing but the parameter's *name*: `keyed.kt`'s
 /// containers have always taken closures, so a forwarded capability is already

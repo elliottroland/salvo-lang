@@ -43,3 +43,69 @@ test "put preserves KeyOf claims, so the total read follows a write" {
     put(m, "b", 2)
     expect_eq(get(m, k), 1)
 }
+
+// ---- the shared behaviour (ROADMAP §0j step 7): what both backends' host
+// maps must agree on.
+
+fn len_hash(s: Str) [] -> Long => s {
+    return to_long(size(s))
+}
+
+fn len_eq(a: Str, b: Str) [] -> Bool => a, b {
+    return size(a) == size(b)
+}
+
+fn put_generic<K, V>(m: Mut Map<K, V>(?hash, ?eq), k: K, v: V) [] -> None => m: Mut, !k, !v {
+    put(m, k, v)
+}
+
+test "an overwrite keeps the key's place; a removed key comes back last" {
+    let m = mut_map_of(("a", 1), ("b", 2), ("c", 3))
+    put(m, "a", 10)
+    let _gone = remove(m, "b")
+    put(m, "b", 20)
+    expect_eq("${m}", "{a: 10, c: 3, b: 20}")
+}
+
+test "a repeated key keeps its first place and takes its last value" {
+    let m = map_of(("k", 1), ("j", 2), ("k", 3))
+    let lit: Map<Str, Int> = {"x": 1, "y": 2, "x": 9}
+    expect_eq("${m} ${lit}", "{k: 3, j: 2} {x: 9, y: 2}")
+}
+
+test "replace answers what it displaced" {
+    let m = mut_map_of(("a", 1))
+    let old = replace(m, "a", 5)
+    let fresh = replace(m, "b", 6)
+    expect(old! == 1 && fresh is None, "the old value, then nothing")
+    expect_eq("${m}", "{a: 5, b: 6}")
+}
+
+test "removing many keeps the rest findable and in order" {
+    let m: Mut Map<Int, Int> = mut_map_of()
+    for i in range(0, 50) {
+        put(m, copy(i), i * 2)
+    }
+    for i in range(1, 50) {
+        if i % 10 != 0 {
+            let _gone = remove(m, i)
+        }
+    }
+    expect_eq("${m}", "{0: 0, 10: 20, 20: 40, 30: 60, 40: 80}")
+    expect(get(m, 30)! == 60 && get(m, 31) is None, "survivors found, the removed not")
+}
+
+test "a custom identity keys the map, through a generic call too" {
+    let m: Mut Map<Str, Int>(len_hash, len_eq) = {"ab": 1}
+    put(m, "xy", 2)
+    put_generic(m, "zz", 3)
+    expect_eq("${m} ${size(m)}", "{zz: 3} 1")
+}
+
+test "drain hands every value over, in insertion order" {
+    let m: Mut Map<Int, Mut List<Int>> = mut_map_of()
+    put(m, 2, mut_list_of(20))
+    put(m, 1, mut_list_of(10))
+    let seen = into_values@core.map(m)
+    expect_eq("${size(seen)} ${get(get(seen, 0)!, 0)!} ${get(get(seen, 1)!, 0)!}", "2 20 10")
+}

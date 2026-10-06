@@ -159,7 +159,7 @@ private fun toSdkPutObjectInput(v: PutObjectInput, bodyStream: aws.smithy.kotlin
     grantWriteAcp = v.grantWriteAcp
     key = v.key
     writeOffsetBytes = v.writeOffsetBytes
-    metadata = v.metadata?.let { it.entries.associate { (k1, v1) -> k1 to v1 } }
+    metadata = v.metadata?.let { it.associate { (k1, v1) -> k1 to v1 } }
     serverSideEncryption = v.serverSideEncryption?.let { aws.sdk.kotlin.services.s3.model.ServerSideEncryption.fromValue(it) }
     storageClass = v.storageClass?.let { aws.sdk.kotlin.services.s3.model.StorageClass.fromValue(it) }
     websiteRedirectLocation = v.websiteRedirectLocation
@@ -259,7 +259,7 @@ private fun fromSdkGetObjectOutput(v: aws.sdk.kotlin.services.s3.model.GetObject
     contentType = v.contentType,
     websiteRedirectLocation = v.websiteRedirectLocation,
     serverSideEncryption = v.serverSideEncryption?.let { it.value },
-    metadata = v.metadata?.let { it.entries.sortedBy { it.key }.associate { (k1, v1) -> k1 to v1 } },
+    metadata = v.metadata?.let { salvo.platform.core.map.canonicalMap(it.entries.sortedBy { it.key }.map { (k1, v1) -> k1 to v1 }) },
     sseCustomerAlgorithm = v.sseCustomerAlgorithm,
     sseCustomerKeyMd5 = v.sseCustomerKeyMd5,
     ssekmsKeyId = v.ssekmsKeyId,

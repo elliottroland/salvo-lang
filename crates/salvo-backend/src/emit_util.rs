@@ -882,3 +882,39 @@ pub fn is_project_module(program: &salvo_core::Program, module: &salvo_core::Mod
         .units()
         .any(|u| u.file.module == *module && (!u.file.is_std || u.file.is_shadow) && u.file.dependency.is_none())
 }
+
+/// [col-literal] A collection literal the checker resolved as a constructor
+/// call (`{a, b}` is `set_of(a, b)`, `{k: v}` is `map_of((k, v))`), rebuilt
+/// as that call so the emitter renders it through its ordinary call path: the
+/// call span is the literal's (where the checker recorded the constructor,
+/// its type arguments and implicits), and a map entry is a tuple spanning its
+/// key and value (where the checker recorded the tuple's type). `None` when
+/// the literal was not resolved that way (a `{}` at a `List`).
+pub fn literal_as_call(
+    checked: &salvo_core::Checked,
+    file: usize,
+    expr: &Expr,
+    name_of: impl Fn(salvo_core::FnKey) -> Option<String>,
+) -> Option<Expr> {
+    let span = expr.span();
+    let key = *checked.call_fn.get(&(file, span))?;
+    let name = name_of(key)?;
+    let args: Vec<Expr> = match expr {
+        Expr::SetLit { elems, .. } => elems.clone(),
+        Expr::MapLit { entries, .. } => entries
+            .iter()
+            .map(|(k, v)| Expr::Tuple {
+                elems: vec![k.clone(), v.clone()],
+                span: Span::new(k.span().start, v.span().end),
+            })
+            .collect(),
+        _ => return None,
+    };
+    Some(Expr::Call {
+        callee: Box::new(Expr::Ident(Ident { name, span: Span::new(span.start, span.start) })),
+        type_args: Vec::new(),
+        args,
+        named: Vec::new(),
+        span,
+    })
+}

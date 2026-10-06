@@ -16,15 +16,22 @@ import salvo.core.list.sort
 import salvo.core.list.toStr as toStr__core_list
 import salvo.core.map.getPlatform
 import salvo.core.map.iter as iter__core_map
+import salvo.core.map.mapOfPlatform
+import salvo.core.map.mutMapOfPlatform
 import salvo.core.map.next as next__core_map
 import salvo.core.map.putPlatform
+import salvo.core.map.toMap
 import salvo.core.set.addPlatform as addPlatform__core_set
 import salvo.core.set.iter as iter__core_set
+import salvo.core.set.mutSetOfPlatform
 import salvo.core.set.next as next__core_set
+import salvo.core.set.setOfPlatform
 import salvo.core.set.sizePlatform as sizePlatform__core_set
 import salvo.core.set.toListPlatform
+import salvo.core.set.toSetPlatform
 import salvo.core.set.toStr as toStr__core_set
 import salvo.core.sorted.minPlatform
+import salvo.core.sorted.mutSortedSetOfPlatform
 import salvo.core.sorted.toStr as toStr__core_sorted
 import salvo.core.string.sizePlatform as sizePlatform__core_string
 
@@ -64,33 +71,33 @@ fun countUnique(xs: List<Int>): Int {
 fun main() {
     val console: Console = salvo.core.console.__Platform_StdOutConsole()
     val primes = listOf<Int>(2, 3, 5, 7)
-    val vowels = linkedSetOf<String>("a", "e", "i", "o", "u")
-    val ages = linkedMapOf<String, Int>(("ada" to 36), ("grace" to 45))
+    val vowels = setOfPlatform(arrayOf("a", "e", "i", "o", "u"), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
+    val ages = mapOfPlatform(arrayOf(Pair("ada", 36), Pair("grace", 45)), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
     println(console, "1. list ${toStr__core_list(primes, { __i0 -> (__i0).toString() })}")
     println(console, "1. set ${toStr__core_set(vowels, { __i0 -> __i0 })} of ${sizePlatform__core_set(vowels)}")
-    println(console, "1. map ${ages.entries.joinToString(", ", "{", "}") { "${it.key}: ${it.value}" }}")
+    println(console, "1. map ${ages.toString()}")
     val note: Note = Note(text = "still a struct literal")
     println(console, "1. struct ${note.text}")
-    val seen: salvo.platform.core.set.MutSet<String> = linkedSetOf<String>()
-    addPlatform__core_set(seen, "first")
+    val seen: salvo.platform.core.set.MutSet<String> = mutSetOfPlatform(arrayOf(), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
+    addPlatform__core_set(seen, "first", { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
     println(console, "1. empty then filled ${toStr__core_set(seen, { __i0 -> __i0 })}")
-    val tally: salvo.platform.core.map.MutMap<String, Int> = linkedMapOf<String, Int>().also { __m -> __m.putAll(listOf(Pair("pear", 1), Pair("apple", 2))) }
-    putPlatform(tally, "fig", 3)
-    putPlatform(tally, "pear", 99)
-    println(console, "2. insertion order kept ${tally.entries.joinToString(", ", "{", "}") { "${it.key}: ${it.value}" }}")
-    val ranked: salvo.platform.core.sorted.MutSortedSet<String> = java.util.TreeSet<String>(salvo.SalvoCanonicalOrder).also { __s -> __s.addAll(listOf("pear", "apple", "fig")) }
+    val tally: salvo.platform.core.map.MutMap<String, Int> = mutMapOfPlatform(arrayOf(Pair("pear", 1), Pair("apple", 2)), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
+    putPlatform(tally, "fig", 3, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
+    putPlatform(tally, "pear", 99, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
+    println(console, "2. insertion order kept ${tally.toString()}")
+    val ranked: salvo.platform.core.sorted.MutSortedSet<String> = mutSortedSetOfPlatform(arrayOf("pear", "apple", "fig"), { __i0, __i1 -> salvo.__salvoCompare(__i0, __i1) })
     println(console, "2. key order ${toStr__core_sorted(ranked, { __i0 -> __i0 })}")
     val smallest = minPlatform(ranked)
     if (smallest != null) {
         println(console, "2. min is cheap here $smallest")
     }
-    val corners: salvo.platform.core.set.MutSet<Point> = linkedSetOf<Point>()
-    addPlatform__core_set(corners, Point(x = 0, y = 0))
-    val again = addPlatform__core_set(corners, Point(x = 0, y = 0))
+    val corners: salvo.platform.core.set.MutSet<Point> = mutSetOfPlatform(arrayOf(), ::hash, ::eq__Point_Point)
+    addPlatform__core_set(corners, Point(x = 0, y = 0), ::hash, ::eq__Point_Point)
+    val again = addPlatform__core_set(corners, Point(x = 0, y = 0), ::hash, ::eq__Point_Point)
     println(console, "3. struct key: size ${sizePlatform__core_set(corners)}, second add $again")
-    val labels: salvo.platform.core.map.MutMap<Point, String> = linkedMapOf<Point, String>()
-    putPlatform(labels, Point(x = 1, y = 1), "diagonal")
-    val found = getPlatform(labels, Point(x = 1, y = 1))
+    val labels: salvo.platform.core.map.MutMap<Point, String> = mutMapOfPlatform(arrayOf(), ::hash, ::eq__Point_Point)
+    putPlatform(labels, Point(x = 1, y = 1), "diagonal", ::hash, ::eq__Point_Point)
+    val found = getPlatform(labels, Point(x = 1, y = 1), ::hash, ::eq__Point_Point)
     if (found != null) {
         println(console, "3. looked up by value $found")
     }
@@ -106,11 +113,11 @@ fun main() {
     println(console, "4. plain struct equality $notesEqual")
     val squares = listBy(4, { i -> i * i })
     println(console, "5. generated ${toStr__core_list(squares, { __i0 -> (__i0).toString() })}")
-    val deduped = linkedSetOf<Int>().also { __s -> __s.addAll(primes) }
+    val deduped = toSetPlatform(primes, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
     println(console, "5. to_set ${toStr__core_set(deduped, { __i0 -> (__i0).toString() })}")
     val words = listOf<String>("alpha", "be")
-    val lengths = linkedMapOf<String, Int>().also { __m -> words.map({ w -> Pair(w, sizePlatform__core_string(w)) }).forEach { __e -> __m.put(__e.first, __e.second) } }
-    println(console, "5. to_map with a rule ${lengths.entries.joinToString(", ", "{", "}") { "${it.key}: ${it.value}" }}")
+    val lengths = toMap(words, { w -> Pair(w, sizePlatform__core_string(w)) }, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
+    println(console, "5. to_map with a rule ${lengths.toString()}")
     val filled = listOf<String>("ada", "grace")
     println(console, "6. first is ${first(filled)}, no optional")
     val growing: salvo.platform.core.list.MutList<Int> = mutableListOf<Int>()
@@ -149,7 +156,7 @@ fun main() {
         val __loop2_step = next__core_map(__loop2_pass)
         if (__loop2_step !is Union2.U1<*, *>) { break }
         val name = __loop2_step.value as String
-        val age = getPlatform(ages, name)
+        val age = getPlatform(ages, name, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
         if (age != null) {
             println(console, "7. $name is $age")
         }

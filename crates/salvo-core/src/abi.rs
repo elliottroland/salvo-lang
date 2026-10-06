@@ -198,61 +198,9 @@ pub enum BoundaryCheck {
     Struct { name: String, fields: Vec<(String, BoundaryCheck)> },
     /// A tuple's elements that need checking, by position.
     Tuple { arity: usize, elems: Vec<(usize, BoundaryCheck)> },
-    /// [platform-check] A set or map: its shape where the host type cannot
-    /// promise it (Kotlin: insertion order, or the canonical ordering of a
-    /// sorted one — D10 C1, C2; Rust's types guarantee both), then `inner`.
-    Shape { kind: Shape, inner: Option<Box<BoundaryCheck>> },
-}
-
-/// [platform-check] The collection a [`BoundaryCheck::Shape`] is about.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Shape {
-    Set,
-    Map,
-    SortedSet,
-    SortedMap,
 }
 
 impl BoundaryCheck {
-    /// The plan with every [`BoundaryCheck::Shape`] dropped (its inner check
-    /// kept): what a backend whose collection types already promise the shape
-    /// has to check. `None` when nothing is left.
-    pub fn without_shapes(&self) -> Option<BoundaryCheck> {
-        use BoundaryCheck as C;
-        let boxed = |c: &C| c.without_shapes().map(Box::new);
-        match self {
-            C::Shape { inner, .. } => inner.as_ref().and_then(|c| c.without_shapes()),
-            C::OneOf(_) => Some(self.clone()),
-            C::Qualifies { quals, ty, inner } => Some(C::Qualifies {
-                quals: quals.clone(),
-                ty: ty.clone(),
-                inner: inner.as_ref().and_then(|c| boxed(c)),
-            }),
-            C::Elems(c) => c.without_shapes().map(|c| C::Elems(Box::new(c))),
-            C::Entries(k, v) => {
-                let (k, v) = (k.as_ref().and_then(|c| boxed(c)), v.as_ref().and_then(|c| boxed(c)));
-                (k.is_some() || v.is_some()).then_some(C::Entries(k, v))
-            }
-            C::Nullable(c) => c.without_shapes().map(|c| C::Nullable(Box::new(c))),
-            C::Union { arity, arms } => {
-                let arms: Vec<_> = arms
-                    .iter()
-                    .filter_map(|(i, t, c)| c.without_shapes().map(|c| (*i, t.clone(), c)))
-                    .collect();
-                (!arms.is_empty()).then_some(C::Union { arity: *arity, arms })
-            }
-            C::Struct { name, fields } => {
-                let fields: Vec<_> =
-                    fields.iter().filter_map(|(f, c)| c.without_shapes().map(|c| (f.clone(), c))).collect();
-                (!fields.is_empty()).then(|| C::Struct { name: name.clone(), fields })
-            }
-            C::Tuple { arity, elems } => {
-                let elems: Vec<_> = elems.iter().filter_map(|(i, c)| c.without_shapes().map(|c| (*i, c))).collect();
-                (!elems.is_empty()).then_some(C::Tuple { arity: *arity, elems })
-            }
-        }
-    }
-
     /// Whether the check walks a collection, whose cost grows with what the
     /// host returned — what the declaration's warning names (D10 C3).
     pub fn walks(&self) -> bool {
@@ -264,7 +212,6 @@ impl BoundaryCheck {
             BoundaryCheck::Union { arms, .. } => arms.iter().any(|(_, _, c)| c.walks()),
             BoundaryCheck::Struct { fields, .. } => fields.iter().any(|(_, c)| c.walks()),
             BoundaryCheck::Tuple { elems, .. } => elems.iter().any(|(_, c)| c.walks()),
-            BoundaryCheck::Shape { inner, .. } => inner.as_ref().is_some_and(|c| c.walks()),
         }
     }
 }

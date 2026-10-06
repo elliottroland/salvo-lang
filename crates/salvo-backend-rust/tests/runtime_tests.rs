@@ -23,7 +23,6 @@ use std::process::Command;
 const RUNTIME_MODULES: &[&str] = &[
     "strings.rs",
     "seq.rs",
-    "collections.rs",
     "scheduler.rs",
     "hoststreams.rs",
     "hosttime.rs",
@@ -202,90 +201,6 @@ fn run_runtime_program(tag: &str, modules: &[&str], driver: &str, expected_stdou
     assert!(run.status.success(), "the runtime program {tag} failed");
     stamp.verified();
     let _ = std::fs::remove_dir_all(&dir);
-}
-
-/// [cmp-carry] [col-membership] The sorted collections, driven as the emitter
-/// will drive them: a **zero-sized marker** per ordering, two sets of the same
-/// elements under two orderings, and membership decided by `cmp == 0` — so a
-/// second person of an age already present is *not* a new member under an
-/// ordering by age, and *is* one under the canonical ordering.
-///
-/// Also exercises the clone-free probe (`contains` on a `&T`) and that a
-/// container is `Send` when its elements are, which is what an actor holding one
-/// needs.
-#[test]
-fn the_sorted_collections_are_kept_by_the_ordering_their_type_names() {
-    let program = r#"
-#[derive(Clone, PartialEq)]
-struct Person { name: String, age: i32 }
-
-impl std::fmt::Display for Person {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.name)
-    }
-}
-
-fn cmp__Person(a: &Person, b: &Person) -> i32 {
-    match a.name.cmp(&b.name) {
-        std::cmp::Ordering::Less => -1,
-        std::cmp::Ordering::Equal => 0,
-        std::cmp::Ordering::Greater => 1,
-    }
-}
-fn by_age(a: &Person, b: &Person) -> i32 { (a.age - b.age).signum() }
-
-pub struct __Cmp_cmp__Person;
-impl collections::SalvoCmp<Person> for __Cmp_cmp__Person {
-    fn cmp(a: &Person, b: &Person) -> i32 { cmp__Person(a, b) }
-}
-pub struct __Cmp_by_age;
-impl collections::SalvoCmp<Person> for __Cmp_by_age {
-    fn cmp(a: &Person, b: &Person) -> i32 { by_age(a, b) }
-}
-
-// A Salvo fn generic over any sorted set: no marker in the signature.
-fn lowest<T: Clone + Send + 'static>(s: &collections::SalvoSortedSet<T>) -> Option<T> {
-    s.min().cloned()
-}
-
-fn main() {
-    let ada = Person { name: "Ada".to_string(), age: 36 };
-    let bob = Person { name: "Bob".to_string(), age: 24 };
-    let cyd = Person { name: "Cyd".to_string(), age: 31 };
-    let elems = vec![cyd.clone(), ada.clone(), bob.clone()];
-
-    let byname = collections::SalvoSortedSet::from_elements::<__Cmp_cmp__Person, _>(elems.clone());
-    let byage = collections::SalvoSortedSet::from_elements::<__Cmp_by_age, _>(elems);
-    println!("byname {byname}");
-    println!("byage {byage}");
-    println!("lowest {} {}", lowest(&byname).unwrap(), lowest(&byage).unwrap());
-    println!("contains {} {}", byname.contains(&ada), byage.contains(&ada));
-
-    let twin = Person { name: "Eve".to_string(), age: 24 };
-    let mut under_age = byage.clone();
-    let mut under_name = byname.clone();
-    println!("twin {} {}", under_age.insert(twin.clone()), under_name.insert(twin));
-
-    let mut ranks = collections::SalvoSortedMap::from_entries::<__Cmp_by_age, _>(vec![
-        (ada.clone(), "oldest".to_string()),
-        (bob.clone(), "youngest".to_string()),
-    ]);
-    println!("map {ranks} first {} last {}", ranks.first_key().unwrap(), ranks.last_key().unwrap());
-    let replaced = ranks.insert(Person { name: "Eve".to_string(), age: 24 }, "twin".to_string());
-    println!("replaced {:?} map {ranks}", replaced);
-
-    fn assert_send<X: Send>(_: &X) {}
-    assert_send(&byname);
-}
-"#;
-    let expected = "byname {Ada, Bob, Cyd}\n\
-                    byage {Bob, Cyd, Ada}\n\
-                    lowest Ada Bob\n\
-                    contains true true\n\
-                    twin false true\n\
-                    map {Bob: youngest, Ada: oldest} first Bob last Ada\n\
-                    replaced Some(\"youngest\") map {Bob: twin, Ada: oldest}\n";
-    run_runtime_program("sorted-collections", &["collections.rs"], program, expected);
 }
 
 #[test]

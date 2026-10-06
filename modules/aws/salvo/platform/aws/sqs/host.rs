@@ -241,9 +241,9 @@ fn from_sdk_message(v: &aws_sdk_sqs::types::Message) -> Message {
         receipt_handle: v.receipt_handle().map(|x| x.to_string()),
         md5_of_body: v.md5_of_body().map(|x| x.to_string()),
         body: v.body().map(|x| x.to_string()),
-        attributes: v.attributes().map(|x| { let mut __es: Vec<_> = x.iter().map(|(k, v)| (k.as_str().to_string(), v.to_string())).collect(); __es.sort_by(|a, b| a.0.cmp(&b.0)); crate::collections::SalvoMap::from_entries::<crate::collections::HostHash, crate::collections::HostEq, _>(__es) }),
+        attributes: v.attributes().map(|x| { let mut __es: Vec<_> = x.iter().map(|(k, v)| (k.as_str().to_string(), v.to_string())).collect(); __es.sort_by(|a, b| a.0.cmp(&b.0)); crate::platform_core_map::canonical_map(__es) }),
         md5_of_message_attributes: v.md5_of_message_attributes().map(|x| x.to_string()),
-        message_attributes: v.message_attributes().map(|x| { let mut __es: Vec<_> = x.iter().map(|(k, v)| (k.clone(), from_sdk_message_attribute_value(v))).collect(); __es.sort_by(|a, b| a.0.cmp(&b.0)); crate::collections::SalvoMap::from_entries::<crate::collections::HostHash, crate::collections::HostEq, _>(__es) }),
+        message_attributes: v.message_attributes().map(|x| { let mut __es: Vec<_> = x.iter().map(|(k, v)| (k.clone(), from_sdk_message_attribute_value(v))).collect(); __es.sort_by(|a, b| a.0.cmp(&b.0)); crate::platform_core_map::canonical_map(__es) }),
     }
 }
 

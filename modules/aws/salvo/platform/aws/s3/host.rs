@@ -245,7 +245,7 @@ fn from_sdk_get_object_output(v: aws_sdk_s3::operation::get_object::GetObjectOut
         content_type: v.content_type().map(|x| x.to_string()),
         website_redirect_location: v.website_redirect_location().map(|x| x.to_string()),
         server_side_encryption: v.server_side_encryption().map(|x| x.as_str().to_string()),
-        metadata: v.metadata().map(|x| { let mut __es: Vec<_> = x.iter().map(|(k, v)| (k.clone(), v.to_string())).collect(); __es.sort_by(|a, b| a.0.cmp(&b.0)); crate::collections::SalvoMap::from_entries::<crate::collections::HostHash, crate::collections::HostEq, _>(__es) }),
+        metadata: v.metadata().map(|x| { let mut __es: Vec<_> = x.iter().map(|(k, v)| (k.clone(), v.to_string())).collect(); __es.sort_by(|a, b| a.0.cmp(&b.0)); crate::platform_core_map::canonical_map(__es) }),
         sse_customer_algorithm: v.sse_customer_algorithm().map(|x| x.to_string()),
         sse_customer_key_md5: v.sse_customer_key_md5().map(|x| x.to_string()),
         ssekms_key_id: v.ssekms_key_id().map(|x| x.to_string()),

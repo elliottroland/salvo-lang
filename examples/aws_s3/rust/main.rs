@@ -3,8 +3,6 @@
 pub mod unions;
 #[path = "seq.rs"]
 pub mod seq;
-#[path = "collections.rs"]
-pub mod collections;
 #[path = "scheduler.rs"]
 pub mod scheduler;
 #[path = "hoststreams.rs"]
@@ -96,7 +94,6 @@ pub mod platform_runtime;
 #[path = "platform/time.rs"]
 pub mod platform_time;
 
-use crate::collections::*;
 use crate::unions::*;
 use crate::aws::AwsError;
 use crate::aws_s3::FakeS3;
@@ -122,6 +119,7 @@ use crate::core_console::__Stateful_Console as _;
 use crate::core_console::__Stateless_Console as _;
 use crate::core_console::println;
 use crate::core_list::to_str as to_str__core_list;
+use crate::core_map::Map;
 use crate::core_result::err;
 use crate::core_result::ok;
 use crate::fs::__Stateful_Fs as _;
@@ -242,14 +240,14 @@ pub fn round_trip(s3: &crate::aws_s3::S3, fs: &crate::fs::Fs, console: &crate::c
 }
 
 pub struct MemS3 {
-    objects: SalvoMap<String, Bytes>,
+    objects: Map<String, Bytes>,
     __dep_Streams: crate::stream::Streams,
 }
 
 impl MemS3 {
     pub fn new(__dep_Streams: crate::stream::Streams) -> Self {
         Self {
-            objects: SalvoMap::from_entries::<HostHash, HostEq, _>(vec![]),
+            objects: crate::core_map::mut_map_of_platform::<String, Bytes>(vec![], &mut |__i0| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__i0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__i0, __i1| (&__i0[..] == &__i1[..])),
             __dep_Streams,
         }
     }
@@ -274,12 +272,12 @@ impl crate::aws_s3::__Stateful_S3 for MemS3 {
         }
         let mut data: Bytes = buf;
         let mut tag = format!("\"{}\"", crate::core_bytes::size_platform(&data));
-        crate::core_map::put_platform(&mut self.objects, format!("{}/{}", bucket, key), data);
+        crate::core_map::put_platform::<String, Bytes>(&mut self.objects, format!("{}/{}", bucket, key), data, &mut |__i0| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__i0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__i0, __i1| (&__i0[..] == &__i1[..]));
         crate::scheduler::salvo_reply_wire::<Union2<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>>(reply, Union2::<PutObjectOutput, Checked<Union2<S3Error, AwsError>>>::U1(ok(PutObjectOutput { e_tag: Some(tag), expiration: None, checksum_crc32: None, checksum_crc32_c: None, checksum_crc64_nvme: None, checksum_sha1: None, checksum_sha256: None, checksum_sha512: None, checksum_md5: None, checksum_xxhash64: None, checksum_xxhash3: None, checksum_xxhash128: None, checksum_type: None, server_side_encryption: None, version_id: None, sse_customer_algorithm: None, sse_customer_key_md5: None, ssekms_key_id: None, ssekms_encryption_context: None, bucket_key_enabled: None, size: None, request_charged: None })));
     }
 
     fn get_object(&mut self, input: GetObjectInput, reply: crate::scheduler::SalvoReply) {
-        let mut found = crate::core_map::get_platform(&self.objects, &(format!("{}/{}", input.bucket.clone(), input.key.clone())));
+        let mut found = crate::core_map::get_platform::<String, Bytes>(&self.objects, &(format!("{}/{}", input.bucket.clone(), input.key.clone())), &mut |__i0| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__i0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__i0, __i1| (&__i0[..] == &__i1[..]));
         if found.is_none() {
             (reply).send(std::boxed::Box::new(Union2::<GetObjectOutput, Checked<Union2<S3Error, AwsError>>>::U2(err(checked(Union2::<S3Error, AwsError>::U1(S3Error { code: "NoSuchKey".to_string(), message: "The specified key does not exist.".to_string(), status: 404, request_id: None, storage_class: None, access_tier: None }))))));
             return;

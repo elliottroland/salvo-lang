@@ -1,4 +1,3 @@
-use crate::collections::*;
 use crate::unions::*;
 use crate::aws::AwsError;
 use crate::core_actor::__Stateful_Faults as _;
@@ -7,6 +6,7 @@ use crate::core_bytes::bytes_of;
 use crate::core_checked::Checked;
 use crate::core_checked::checked;
 use crate::core_checked::ignore;
+use crate::core_map::Map;
 use crate::core_result::err;
 use crate::core_result::ok;
 use crate::stream::InStream;
@@ -55,7 +55,7 @@ pub struct PutObjectInput {
     pub grant_write_acp: Option<String>,
     pub key: String,
     pub write_offset_bytes: Option<i64>,
-    pub metadata: Option<SalvoMap<String, String>>,
+    pub metadata: Option<Map<String, String>>,
     pub server_side_encryption: Option<String>,
     pub storage_class: Option<String>,
     pub website_redirect_location: Option<String>,
@@ -266,7 +266,7 @@ pub struct GetObjectOutput {
     pub content_type: Option<String>,
     pub website_redirect_location: Option<String>,
     pub server_side_encryption: Option<String>,
-    pub metadata: Option<SalvoMap<String, String>>,
+    pub metadata: Option<Map<String, String>>,
     pub sse_customer_algorithm: Option<String>,
     pub sse_customer_key_md5: Option<String>,
     pub ssekms_key_id: Option<String>,

@@ -7,55 +7,84 @@ import salvo.core.iterator.finished
 import salvo.core.list.at
 import salvo.core.list.drain as drain__core_list
 
-fun<K, V> getPlatform(map: Map<K, V>, key: K): V? {
-    return salvo.platform.core.map.get(map, key)
+fun<K, V> mapOfPlatform(entries: Array<Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.Map<K, V> {
+    return salvo.platform.core.map.mapOf(entries, hash, eq)
 }
 
-fun<K, V> putPlatform(map: salvo.platform.core.map.MutMap<K, V>, key: K, value: V) {
-    return salvo.platform.core.map.put(map, key, value)
+fun<K, V> mutMapOfPlatform(entries: Array<Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.MutMap<K, V> {
+    return salvo.platform.core.map.mutMapOf(entries, hash, eq)
 }
 
-fun<K, V> replacePlatform(map: salvo.platform.core.map.MutMap<K, V>, key: K, value: V): V? {
-    return salvo.platform.core.map.replace(map, key, value)
+fun<K, V> mapByPlatform(size: Int, init: (Int) -> Pair<K, V>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.Map<K, V> {
+    return salvo.platform.core.map.mapBy(size, init, hash, eq)
 }
 
-fun<K, V> removePlatform(map: salvo.platform.core.map.MutMap<K, V>, key: K): V? {
-    return salvo.platform.core.map.remove(map, key)
+fun<K, V> mutMapByPlatform(size: Int, init: (Int) -> Pair<K, V>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.MutMap<K, V> {
+    return salvo.platform.core.map.mutMapBy(size, init, hash, eq)
 }
 
-fun<K, V> containsKeyPlatform(map: Map<K, V>, key: K): Boolean {
-    return salvo.platform.core.map.containsKey(map, key)
+fun<K, V> toMapPlatform(pairs: List<Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.Map<K, V> {
+    return salvo.platform.core.map.toMap(pairs, hash, eq)
 }
 
-fun<K, V> KeyOf_qualifies(key: K, map: Map<K, V>): Boolean {
-    return containsKeyPlatform(map, key)
+fun<T, K, V> toMap(items: List<T>, entry: (T) -> Pair<K, V>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.Map<K, V> {
+    val map: salvo.platform.core.map.MutMap<K, V> = mutMapOfPlatform(arrayOf<Pair<K, V>>(), hash, eq)
+    for (x in salvo.platform.core.list.each(items)) {
+        val (k, v) = entry(x)
+        putPlatform(map, k, v, hash, eq)
+    }
+    return map
 }
 
-fun<K, V> getPresentPlatform(map: Map<K, V>, key: K): V {
-    return salvo.platform.core.map.getPresent(map, key)
+fun<K, V> getPlatform(map: salvo.platform.core.map.Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V? {
+    return salvo.platform.core.map.get(map, key, hash, eq)
 }
 
-fun<K, V> get(map: Map<K, V>, key: K): V {
-    return getPresentPlatform(map, key)
+fun<K, V> putPlatform(map: salvo.platform.core.map.MutMap<K, V>, key: K, value: V, hash: (K) -> Long, eq: (K, K) -> Boolean) {
+    return salvo.platform.core.map.put(map, key, value, hash, eq)
 }
 
-fun<K, V> sizePlatform(map: Map<K, V>): Int {
+fun<K, V> replacePlatform(map: salvo.platform.core.map.MutMap<K, V>, key: K, value: V, hash: (K) -> Long, eq: (K, K) -> Boolean): V? {
+    return salvo.platform.core.map.replace(map, key, value, hash, eq)
+}
+
+fun<K, V> removePlatform(map: salvo.platform.core.map.MutMap<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V? {
+    return salvo.platform.core.map.remove(map, key, hash, eq)
+}
+
+fun<K, V> containsKeyPlatform(map: salvo.platform.core.map.Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): Boolean {
+    return salvo.platform.core.map.containsKey(map, key, hash, eq)
+}
+
+fun<K, V> KeyOf_qualifies(key: K, map: salvo.platform.core.map.Map<K, V>, hash: (K) -> Long, eq: (K, K) -> Boolean): Boolean {
+    return containsKeyPlatform(map, key, hash, eq)
+}
+
+fun<K, V> getPresentPlatform(map: salvo.platform.core.map.Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V {
+    return salvo.platform.core.map.getPresent(map, key, hash, eq)
+}
+
+fun<K, V> get(map: salvo.platform.core.map.Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V {
+    return getPresentPlatform(map, key, hash, eq)
+}
+
+fun<K, V> sizePlatform(map: salvo.platform.core.map.Map<K, V>): Int {
     return salvo.platform.core.map.size(map)
 }
 
-fun<K, V> drain(map: Map<K, V>, each: (V) -> Unit) {
+fun<K, V> drain(map: salvo.platform.core.map.Map<K, V>, each: (V) -> Unit) {
     drain__core_list(intoValuesPlatform(map), each)
 }
 
-fun<K, V> intoValuesPlatform(map: Map<K, V>): List<V> {
+fun<K, V> intoValuesPlatform(map: salvo.platform.core.map.Map<K, V>): List<V> {
     return salvo.platform.core.map.intoValues(map)
 }
 
-fun<K, V> keysPlatform(map: Map<K, V>): List<K> {
+fun<K, V> keysPlatform(map: salvo.platform.core.map.Map<K, V>): List<K> {
     return salvo.platform.core.map.keys(map)
 }
 
-fun<K, V> iter(map: Map<K, V>): MapKeyYield<K> {
+fun<K, V> iter(map: salvo.platform.core.map.Map<K, V>): MapKeyYield<K> {
     return MapKeyYield(items = keysPlatform(map), at = 0)
 }
 
@@ -81,6 +110,6 @@ fun<K> next(p: MapKeyYield<K>): Union2<K, Finished> {
     return Union2.U1<K, Finished>(emitted(key))
 }
 
-fun<K, V> NonEmpty_qualifies(map: Map<K, V>): Boolean {
+fun<K, V> NonEmpty_qualifies(map: salvo.platform.core.map.Map<K, V>): Boolean {
     return sizePlatform(map) > 0
 }

@@ -865,8 +865,7 @@ final class Generator {
             return "{ let mut __es: Vec<_> = " + ref + ".iter().map(|(k, v)| (" + k + ", "
                     + rsFromSdk(target(m.getValue()), "v") + ")).collect(); "
                     + "__es.sort_by(|a, b| a.0.cmp(&b.0)); "
-                    + "crate::collections::SalvoMap::from_entries::<crate::collections::HostHash, "
-                    + "crate::collections::HostEq, _>(__es) }";
+                    + "crate::platform_core_map::canonical_map(__es) }";
         }
         if (t instanceof StringShape) return ref + ".to_string()";
         if (t instanceof BlobShape) return ref + ".as_ref().to_vec()";
@@ -1400,7 +1399,7 @@ final class Generator {
         if (t instanceof MapShape m) {
             Shape key = target(m.getKey());
             String k = key instanceof EnumShape ? ktModel() + "." + ktSdkName(key.getId()) + ".fromValue(k" + d + ")" : "k" + d;
-            return v + ".entries.associate { (k" + d + ", v" + d + ") -> " + k + " to "
+            return v + ".associate { (k" + d + ", v" + d + ") -> " + k + " to "
                     + ktToSdk(target(m.getValue()), "v" + d, d + 1) + " }";
         }
         if (t instanceof BlobShape) return v + ".toByteArray()";
@@ -1419,8 +1418,8 @@ final class Generator {
             Shape key = target(m.getKey());
             String k = key instanceof EnumShape ? "k" + d + ".value" : "k" + d;
             String sortKey = key instanceof EnumShape ? "it.key.value" : "it.key";
-            return v + ".entries.sortedBy { " + sortKey + " }.associate { (k" + d + ", v" + d + ") -> " + k + " to "
-                    + ktFromSdk(target(m.getValue()), "v" + d, d + 1) + " }";
+            return "salvo.platform.core.map.canonicalMap(" + v + ".entries.sortedBy { " + sortKey + " }.map { (k" + d + ", v" + d + ") -> " + k + " to "
+                    + ktFromSdk(target(m.getValue()), "v" + d, d + 1) + " })";
         }
         if (t instanceof BlobShape) return "salvo.SalvoBytes(" + v + ")";
         if (t instanceof TimestampShape) return "salvoInstant(" + v + ")";

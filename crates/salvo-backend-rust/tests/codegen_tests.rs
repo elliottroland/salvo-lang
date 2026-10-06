@@ -5932,7 +5932,9 @@ pub const KEYED_OUTPUT: &str = "byname Ada of 3\nbyage Bob of 3\ntwin false true
 /// operations needed `T: Hash + Eq`, so `contains` inside generic code was a
 /// rustc error in emitted output — a program the checker accepted and the backend
 /// could not build. Every operation is bound-free now, which removed the
-/// requirement rather than adding one.
+/// requirement rather than adding one. Since ROADMAP §0j step 7 a generic fn
+/// that looks an element up captures the set's identity from its type
+/// (`Set<T>(?hash, ?eq)`), as a fn over a `Heap` captures its `?cmp`.
 #[test]
 fn rustc_compiles_and_runs_a_generic_over_a_hash_container() {
     if !rustc_available() {
@@ -5940,7 +5942,7 @@ fn rustc_compiles_and_runs_a_generic_over_a_hash_container() {
         return;
     }
     let src = r#"
-fn has<T>(s: Set<T>, e: T) -> Bool => s, e {
+fn has<T>(s: Set<T>(?hash, ?eq), e: T) -> Bool => s, e {
     return contains(s, e)
 }
 
@@ -7511,7 +7513,7 @@ export fn main() [use] {
     // which is where this lowering lives anyway.
     assert!(
         main.contains("let mut sb = mut_str(parts.clone());")
-            && main.contains("parts.iter().cloned()"),
+            && main.contains("set_of_platform::<String>(parts.clone(), "),
         "unexpected:\n{main}"
     );
     run_rust_files(&files, "strings-spread", "ab 2\n");
@@ -8744,55 +8746,29 @@ fn rustc_compiles_and_runs_collections() {
     run_rust_files(&files, "collections", COLLECTIONS_OUTPUT);
 }
 
-/// [rs-collections] The runtime module is emitted, mounted in the crate root
-/// and imported by the module that uses it.
-///
-/// It is *not* asserted that a program without collections omits it, because
-/// today it does not: module reachability is name-based and deliberately
-/// conservative [mod-used-only], and `core.map` declares a `get` overload
-/// that `core.list`'s own `next` body calls — so both collection modules,
-/// and with them this runtime, are reachable from any program that touches
-/// a list or a string. That is dead code (the crate allows it) rather than
-/// wrong code, and the fix is a precision pass on reachability — using the
-/// checker's *resolved* call targets for overloaded names instead of the
-/// name alone. Recorded in ROADMAP.md.
+/// [platform-value-type] The keyed collections are std's host types
+/// (`std/platform/core/{set,map,sorted}.rs`), so no runtime module is emitted
+/// for them (ROADMAP §0j step 7), and the emitted code names Rust's unordered
+/// `HashMap`/`HashSet` nowhere [col-insertion-order].
 #[test]
-fn the_collections_runtime_is_emitted_mounted_and_imported() {
+fn the_collections_are_std_host_types() {
     let files = generate(&[("main.sv", COLLECTIONS_DEMO)]);
     assert!(
-        files.iter().any(|f| f.rel_path.ends_with("collections.rs")),
-        "a program using Set/Map should emit the runtime module"
+        !files.iter().any(|f| f.rel_path.ends_with("collections.rs")),
+        "the collections runtime module is gone"
     );
     let main = files
         .iter()
         .find(|f| f.rel_path.ends_with("main.rs"))
         .expect("main.rs");
     assert!(
-        main.content.contains("mod collections;"),
-        "the crate root should mount it: {}",
-        main.content
-    );
-    assert!(
-        main.content.contains("use crate::collections::*;"),
-        "the using module should import it: {}",
-        main.content
-    );
-    // The ordered types are what it exists for, and the emitted signatures
-    // name them rather than Rust's unordered `HashMap`/`HashSet`
-    // [col-insertion-order].
-    let runtime = files
-        .iter()
-        .find(|f| f.rel_path.ends_with("collections.rs"))
-        .expect("collections.rs");
-    assert!(
-        runtime.content.contains("pub struct SalvoMap<K, V>")
-            && runtime.content.contains("pub struct SalvoSet<T>"),
-        "the runtime should define the ordered types"
-    );
-    assert!(
         !main.content.contains("HashMap<") && !main.content.contains("HashSet<"),
         "emitted code should use the ordered types, not Rust's unordered ones: {}",
         main.content
+    );
+    assert!(
+        files.iter().any(|f| f.rel_path.to_string_lossy() == "platform/core/map.rs"),
+        "the map's host file is carried"
     );
 }
 
@@ -14773,23 +14749,6 @@ fn main() [use] -> None {
 }
 "#;
 
-#[test]
-fn a_declared_identity_keys_its_container() {
-    let files = generate(&[("main.sv", HASHED_CAPABILITY_DEMO)]);
-    let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
-    // The declared pair becomes a marker; the primitive keeps the host's.
-    assert!(
-        main.content.contains("__Hash_hash_Member") && main.content.contains("__Eq_eq_Member"),
-        "the declared identity must reach the container as a marker:\n{}",
-        main.content
-    );
-    assert!(
-        main.content.contains("SalvoSet::<String>::from_elements::<HostHash, HostEq, _>")
-            || main.content.contains("from_elements::<HostHash, HostEq, _>(vec![])"),
-        "a primitive keys by the host's own identity:\n{}",
-        main.content
-    );
-}
 
 #[test]
 fn rustc_compiles_and_runs_a_declared_identity() {
@@ -14836,36 +14795,6 @@ fn main() [use] -> None {
 }
 "#;
 
-#[test]
-fn a_mixed_identity_fill_pairs_both_slots() {
-    let files = generate(&[("main.sv", MIXED_IDENTITY_DEMO)]);
-    let rust = files
-        .iter()
-        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
-        .expect("main.rs")
-        .content
-        .clone();
-    // The written `hash` and the generated `eq`, as one marker pair — a written
-    // fill is a carried identity now, which is what the checker was missing.
-    assert!(
-        rust.contains("SalvoSet::from_elements::<__Hash_by_x_Point, __Eq_eq_Point, _>"),
-        "the written hash pairs with the written eq: {rust}"
-    );
-    assert!(
-        rust.contains("SalvoMap::from_entries::<__Hash_by_x_Point, __Eq_eq_Point, _>"),
-        "and for a map too: {rust}"
-    );
-    // Each marker calls its identity by the name that identity is *emitted*
-    // under [fn-emit-name]; a marker that lost it was rustc's E0425 in the
-    // value path beside it.
-    let mangled_eq = mangled_name(&rust, "fn eq", "(a: &Point, b: &Point)");
-    assert!(
-        rust.contains(&format!(
-            "fn eq(__a: &Point, __b: &Point) -> bool {{ {mangled_eq}(__a, __b) }}"
-        )),
-        "a marker keeps its target's mangling: {rust}"
-    );
-}
 
 #[test]
 fn rustc_compiles_and_runs_a_mixed_identity() {
@@ -14877,7 +14806,7 @@ fn rustc_compiles_and_runs_a_mixed_identity() {
     run_rust_files(&files, "mixed_identity", "2 1 2\n");
 }
 
-/// [cmp-carry] [rs-stored-implicit] [implicit-with] Identities **written out
+/// [cmp-carry] [platform-slots] [implicit-with] Identities **written out
 /// inside a generic body**, which is the only way to name them there: an identity
 /// group is filled from one source, so a forwarded member cannot sit beside a
 /// written one. The subject is a type variable, which no marker type can name, so
@@ -14906,30 +14835,6 @@ fn main() [use] -> None {
 }
 "#;
 
-#[test]
-fn a_generic_body_writes_both_identities_out() {
-    let files = generate(&[("main.sv", GENERIC_MIXED_DEMO)]);
-    let rust = files
-        .iter()
-        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
-        .expect("main.rs")
-        .content
-        .clone();
-    // No marker can name a type variable, so both written identities become
-    // closures — and the fn carries the store's bounds even though none of its
-    // own implicits is kept.
-    assert!(
-        rust.contains(
-            "SalvoSet::with_fns(std::sync::Arc::new(move |__v: &T| wide_hash(__v)), \
-             std::sync::Arc::new(move |__a: &T, __b: &T| all_same(__a, __b)))"
-        ),
-        "a written identity over a type variable is a closure: {rust}"
-    );
-    assert!(
-        rust.contains("pub fn gather<T: Clone + Send + 'static>"),
-        "a fn building a value-keyed container carries the store's bounds: {rust}"
-    );
-}
 
 #[test]
 fn rustc_compiles_and_runs_a_generic_written_identity() {
@@ -14941,7 +14846,7 @@ fn rustc_compiles_and_runs_a_generic_written_identity() {
     run_rust_files(&files, "generic_written_identity", "1\n");
 }
 
-/// [cmp-carry] [rs-stored-implicit] [implicit-with] A fn that **holds the whole
+/// [cmp-carry] [platform-slots] [implicit-with] A fn that **holds the whole
 /// identity** and a caller that **writes it out** — the legal shape of what was
 /// once an identity assembled from two sources. Found 2026-09-26 while answering
 /// what "filled" means for the fill-together rule, and it closed two defects
@@ -14983,32 +14888,6 @@ fn main() [use] -> None {
 }
 "#;
 
-#[test]
-fn a_held_identity_is_shared_and_a_written_one_owned() {
-    let files = generate(&[("main.sv", MIXED_SOURCE_DEMO)]);
-    let rust = files
-        .iter()
-        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
-        .expect("main.rs")
-        .content
-        .clone();
-    // Both members are forwarded, so the container shares both handles.
-    assert!(
-        rust.contains(
-            "SalvoSet::with_fns(std::sync::Arc::clone(&hash), std::sync::Arc::clone(&eq))"
-        ),
-        "a forwarded pair is shared, not rebuilt: {rust}"
-    );
-    // And the caller's written fills at those kept positions arrive owned.
-    assert!(
-        rust.contains("std::sync::Arc::new(move |__i0| by_x(__i0))")
-            && rust.contains(&format!(
-                "std::sync::Arc::new(move |__i0, __i1| {}(__i0, __i1))",
-                mangled_name(&rust, "fn eq", "(a: &Point, b: &Point)")
-            )),
-        "written fills at kept positions are owned, and keep their mangling: {rust}"
-    );
-}
 
 #[test]
 fn rustc_compiles_and_runs_a_held_identity() {
@@ -15020,11 +14899,15 @@ fn rustc_compiles_and_runs_a_held_identity() {
     run_rust_files(&files, "held_identity", "2\n");
 }
 
-/// [rs-stored-implicit] A **written lambda** at a kept position: `move` is only
-/// legal directly before a closure's `|`, so it attaches to the lambda rather
-/// than to a parenthesized expression.
+/// [cmp-carry] A **written lambda** as a container's `hash`: lent for each
+/// call like any implicit, so it needs nothing of its own (ROADMAP §0j step
+/// 7; it used to be moved into an owned `Arc`).
 #[test]
 fn a_written_lambda_at_a_kept_position_moves() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
     let files = generate(&[(
         "main.sv",
         "struct Point : Hashed<self> by auto {\n    \
@@ -15039,25 +14922,18 @@ fn a_written_lambda_at_a_kept_position_moves() {
          let s = collect(Point {x: 1, y: 1}, hash = (p: Point) -> to_long(p.x), eq = eq)\n    \
          println(\"${size(s)}\")\n}\n",
     )]);
-    let rust = files
-        .iter()
-        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
-        .expect("main.rs")
-        .content
-        .clone();
-    assert!(
-        rust.contains("std::sync::Arc::new(move |p: &Point|"),
-        "the lambda itself is moved, not a parenthesized copy of it: {rust}"
-    );
+    run_rust_files(&files, "a_written_lambda_at_a_kept_position_moves", "1\n");
 }
 
 /// [cmp-carry] [rs-borrows] A declared identity over a **Copy scalar** takes its
-/// arguments by value, while the marker's own parameters are references — so the
-/// marker derefs. Splicing the reference through was rustc's E0308, reachable
-/// the moment a written fill became a carried identity (2026-09-26)
-/// [backend-never-wrong].
+/// arguments by value, while the host's `eq` parameter hands references — so
+/// the adapter derefs [backend-never-wrong].
 #[test]
 fn a_scalar_identitys_marker_derefs_its_arguments() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
     let files = generate(&[(
         "main.sv",
         "export fn all_same(a: Int, b: Int) -> Bool => a, b {\n    \
@@ -15068,19 +14944,10 @@ fn a_scalar_identitys_marker_derefs_its_arguments() {
          add(s, 1)\n    \
          println(\"${size(s)}\")\n}\n",
     )]);
-    let rust = files
-        .iter()
-        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
-        .expect("main.rs")
-        .content
-        .clone();
-    assert!(
-        rust.contains("fn eq(__a: &i32, __b: &i32) -> bool { all_same(*__a, *__b) }"),
-        "a by-value identity is called with derefs: {rust}"
-    );
+    run_rust_files(&files, "a_scalar_identitys_marker_derefs_its_arguments", "1\n");
 }
 
-/// [cmp-carry] [rs-stored-implicit] The capability inside a **generic** body:
+/// [cmp-carry] [platform-slots] The capability inside a **generic** body:
 /// every keyed family built from an identity the function was *handed* rather
 /// than one it can name (2026-09-26). The declared identity is non-structural,
 /// so a body that fell back to the host's hashing would print different numbers
@@ -15199,62 +15066,6 @@ fn a_tuple_key_resolves_the_structural_identity() {
     assert!(!files.is_empty());
 }
 
-/// [cmp-carry] [rs-stored-implicit] A keyed container built inside a **generic**
-/// function: its identity is a capability the function was handed, so no marker
-/// type can name it and the runtime takes the functions themselves
-/// (`with_fns`/`with_cmp`). The implicit therefore arrives *owned*, behind an
-/// `Arc` — the convention an iterator fn's callbacks already get, for the same
-/// reason: the container outlives the call.
-#[test]
-fn a_generic_body_builds_every_keyed_container() {
-    let files = generate(&[(
-        "main.sv",
-        "fn gather<T>(a: T, b: T, ?Hashed<T>) -> Set<T> => !a, !b {\n    \
-         let s: Mut Set<T> = mut_set_of()\n    \
-         add(s, a)\n    \
-         add(s, b)\n    \
-         return s\n}\n\
-         fn ranked<T>(a: T, ?Ordered<T>) -> SortedSet<T> => !a {\n    \
-         let s: Mut SortedSet<T> = mut_sorted_set_of()\n    \
-         add(s, a)\n    \
-         return s\n}\n\
-         fn main() [use] -> None {\n    \
-         use StdOutConsole()\n    \
-         println(\"${size(gather(1, 2))} ${size(ranked(3))}\")\n}\n",
-    )]);
-    let rust = files
-        .iter()
-        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
-        .expect("main.rs")
-        .content
-        .clone();
-    // The capability arrives owned and sendable, which is what the store holds.
-    assert!(
-        rust.contains("hash: std::sync::Arc<dyn Fn(&T) -> i64 + Send + Sync>")
-            && rust.contains("eq: std::sync::Arc<dyn Fn(&T, &T) -> bool + Send + Sync>"),
-        "a kept capability arrives as an owned Arc: {rust}"
-    );
-    // Its key type is `Send + 'static`, the bound the runtime's stores declare.
-    assert!(
-        rust.contains("pub fn gather<T: Clone + Send + 'static>"),
-        "a container's key type carries the store's bounds: {rust}"
-    );
-    // The container is built from the functions, not from marker types.
-    assert!(
-        rust.contains("SalvoSet::with_fns(std::sync::Arc::clone(&hash), std::sync::Arc::clone(&eq))"),
-        "the hash pair is passed as values: {rust}"
-    );
-    assert!(
-        rust.contains("SalvoSortedSet::with_cmp(std::sync::Arc::clone(&cmp))"),
-        "the ordering is passed as a value: {rust}"
-    );
-    // And the *caller*, which is not generic, hands over an owned closure
-    // rather than a borrow of one.
-    assert!(
-        rust.contains("gather::<i32>(1, 2, std::sync::Arc::new(move |"),
-        "a call fills a kept position with an owned closure: {rust}"
-    );
-}
 
 // ===== the defect round of 2026-09-25 =====
 

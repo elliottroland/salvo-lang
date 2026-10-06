@@ -15,7 +15,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use salvo_core::check::{Checked, Coercion, PredicateCheck, UnionTest};
-use salvo_core::types::{FnId, Ty};
+use salvo_core::types::Ty;
 use salvo_core::{ModulePath, Program, Symbols};
 use salvo_syntax::ast::*;
 use salvo_syntax::Span;
@@ -129,7 +129,6 @@ fn emit_program_mode(
     // [kt-ordered] And for the structural comparison an ordered
     // struct's `compareTo` uses [col-hashed-ordered].
     let mut needs_compare = false;
-    let mut needs_keyed = false;
     // [kt-bytes] And for the byte buffer, whenever a `Bytes` is named
     // anywhere in the program [bytes-type].
     let mut needs_bytes = false;
@@ -174,7 +173,6 @@ fn emit_program_mode(
         tuple_sizes.extend(emitter.tuple_sizes);
         needs_throw |= emitter.needs_throw;
         needs_compare |= emitter.needs_compare;
-        needs_keyed |= emitter.needs_keyed;
         needs_bytes |= emitter.needs_bytes;
         needs_wire |= emitter.needs_wire;
         needs_scheduler |= emitter.needs_scheduler;
@@ -251,14 +249,6 @@ fn emit_program_mode(
         files.push(EmittedFile {
             rel_path: std::path::PathBuf::from("compare.kt"),
             content: generate_compare_file(),
-        });
-    }
-    // [cmp-carry] Only where a collection's type *names* the hash and equality its
-    // keys are kept by: everything else is still a `LinkedHashMap`.
-    if needs_keyed {
-        files.push(EmittedFile {
-            rel_path: std::path::PathBuf::from("keyed.kt"),
-            content: generate_keyed_file(),
         });
     }
     if needs_bytes || needs_wire {
@@ -461,14 +451,6 @@ fn kotlin_package(module: &ModulePath) -> String {
 /// by `runtime_tests.rs`.
 fn generate_throw_file() -> String {
     include_str!("../runtime/throwsignal.kt").to_string()
-}
-
-/// [kt-ordered] The structural comparison an ordered struct's
-/// `compareTo` uses for each field [col-hashed-ordered].
-///
-/// Source in `runtime/keyed.kt`, included verbatim [backend-companion].
-fn generate_keyed_file() -> String {
-    include_str!("../runtime/keyed.kt").to_string()
 }
 
 /// Source in `runtime/compare.kt`, included verbatim and compiled directly
@@ -984,9 +966,6 @@ struct Emitter<'p> {
     /// [kt-ordered] Whether this module declared an ordered struct, so
     /// the comparison runtime is emitted.
     needs_compare: bool,
-    /// [cmp-carry] Whether this module builds a collection keyed by a **named**
-    /// hash and equality, which is the only thing `keyed.kt` is for.
-    needs_keyed: bool,
     /// [kt-bytes] Whether this file named a `Bytes`, so the program needs
     /// the buffer runtime class.
     needs_bytes: bool,
@@ -1122,7 +1101,6 @@ impl<'p> Emitter<'p> {
             lambda_label_id: 0,
             needs_throw: false,
             needs_compare: false,
-            needs_keyed: false,
             needs_bytes: false,
             needs_wire: false,
             needs_scheduler: false,
@@ -2027,11 +2005,10 @@ impl<'p> Emitter<'p> {
                     (Some(plan), Some(payload)) => {
                         let ty = self.emit_type(payload);
                         let what = format!("what the host sent on `{}.{}`", e.name.name, f.name.name);
-                        let (value, rest) = self.normalized(&plan, "__c");
-                        let body = rest.map(|p| self.render_boundary_check(&p, "__c", &what, 3)).unwrap_or_default();
+                        let body = self.render_boundary_check(&plan, "__c", &what, 3);
                         args.push(format!(
                             "{name}.checked {{ __any ->\n            \
-                             @Suppress(\"UNCHECKED_CAST\") val __c = __any as {ty}\n{body}            {value}\n        }}"
+                             @Suppress(\"UNCHECKED_CAST\") val __c = __any as {ty}\n{body}            __c\n        }}"
                         ));
                     }
                     _ => args.push(name),
@@ -2051,8 +2028,7 @@ impl<'p> Emitter<'p> {
             match result_plan {
                 Some(plan) => {
                     let what = format!("`{}.{}`'s result", e.name.name, f.name.name);
-                    let (call, rest) = self.normalized(&plan, &call);
-                    let body = rest.map(|p| self.render_boundary_check(&p, "__r", &what, 2)).unwrap_or_default();
+                    let body = self.render_boundary_check(&plan, "__r", &what, 2);
                     adapter.push_str(&format!(
                         "    override fun{generics} {member}({params}){ret} {{\n        \
                          val __r = {call}\n{body}        return __r\n    }}\n"
@@ -2478,7 +2454,16 @@ impl<'p> Emitter<'p> {
     fn platform_fn_body(&mut self, f: &FnDecl, indent: usize) -> String {
         let module = self.program.files[self.file_idx].module.clone();
         self.platform_hosts.insert(module.clone());
-        let args: Vec<String> = f.params.iter().map(|p| kt_ident(&p.name.name)).collect();
+        let mut args: Vec<String> = f.params.iter().map(|p| kt_ident(&p.name.name)).collect();
+        // [platform-slots] A binder captured from a parameter's type
+        // (`set: Mut Set<T>(?hash, ?eq)`) is one more argument, lent for the
+        // call [platform-fn-value].
+        for ip in self.implicits_of(f) {
+            let name = kt_ident(&ip.name);
+            if !args.contains(&name) {
+                args.push(name);
+            }
+        }
         let call = format!("{}.{}({})", host_package(&module), kt_ident(&f.name.name), args.join(", "));
         let pad = "    ".repeat(indent);
         // [platform-check] The wrapper checks the result (D7).
@@ -2490,33 +2475,10 @@ impl<'p> Emitter<'p> {
         match plan {
             Some(plan) => {
                 let what = format!("`platform fn {}`'s result", f.name.name);
-                let (call, rest) = self.normalized(&plan, &call);
-                let body = rest.map(|p| self.render_boundary_check(&p, "__r", &what, indent)).unwrap_or_default();
+                let body = self.render_boundary_check(&plan, "__r", &what, indent);
                 format!("{pad}val __r = {call}\n{body}{pad}return __r\n")
             }
             None => format!("{pad}return {call}\n"),
-        }
-    }
-
-    /// [platform-check] [kt-platform-check] A set or map the host hands back at
-    /// the top of a crossing is *normalized* rather than checked (D10 C1, C2):
-    /// `expr` wrapped in the runtime's copy-if-needed, and the rest of the plan.
-    fn normalized(
-        &mut self,
-        plan: &salvo_core::abi::BoundaryCheck,
-        expr: &str,
-    ) -> (String, Option<salvo_core::abi::BoundaryCheck>) {
-        use salvo_core::abi::{BoundaryCheck as C, Shape};
-        match plan {
-            C::Shape { kind, inner } => {
-                self.needs_compare = true;
-                let helper = match kind {
-                    Shape::Set | Shape::Map => "salvo.__salvoInsertionOrdered",
-                    Shape::SortedSet | Shape::SortedMap => "salvo.__salvoCanonicalSorted",
-                };
-                (format!("{helper}({expr})"), inner.as_deref().cloned())
-            }
-            other => (expr.to_string(), Some(other.clone())),
         }
     }
 
@@ -2618,35 +2580,6 @@ impl<'p> Emitter<'p> {
                     let t = format!("__t{d}_{i}");
                     out.push_str(&format!("{pad}val {t} = {v}.{}\n", tuple_field(*i)));
                     out.push_str(&self.render_boundary_check(inner, &t, what, indent));
-                }
-                out
-            }
-            // [platform-check] Inside another value a set or map cannot be
-            // replaced, so a wrong shape is refused, naming how to build it.
-            C::Shape { kind, inner } => {
-                use salvo_core::abi::Shape;
-                self.needs_compare = true;
-                let (cond, how) = match kind {
-                    Shape::Set => (
-                        format!("{v}.size > 1 && {v} !is java.util.LinkedHashSet<*>"),
-                        "is a set that keeps no insertion order: build it with `linkedSetOf(…)`",
-                    ),
-                    Shape::Map => (
-                        format!("{v}.size > 1 && {v} !is java.util.LinkedHashMap<*, *>"),
-                        "is a map that keeps no insertion order: build it with `linkedMapOf(…)`",
-                    ),
-                    Shape::SortedSet => (
-                        format!("{v}.comparator() !== salvo.SalvoCanonicalOrder"),
-                        "is not sorted by Salvo's ordering: build it with `salvo.salvoSortedSetOf(…)`",
-                    ),
-                    Shape::SortedMap => (
-                        format!("{v}.comparator() !== salvo.SalvoCanonicalOrder"),
-                        "is not sorted by Salvo's ordering: build it with `salvo.salvoSortedMapOf(…)`",
-                    ),
-                };
-                let mut out = format!("{pad}if ({cond}) {}\n", fail(how.to_string()));
-                if let Some(inner) = inner {
-                    out.push_str(&self.render_boundary_check(inner, v, what, indent));
                 }
                 out
             }
@@ -3936,8 +3869,6 @@ impl<'p> Emitter<'p> {
                 recv,
                 &[code.clone()],
                 &[],
-                None,
-                None,
             ) {
                 Some(rendered) => rendered,
                 None => {
@@ -4638,182 +4569,6 @@ impl<'p> Emitter<'p> {
     }
 
     // ================= checker-type (Ty) rendering =================
-
-    /// [cmp-carry] The `hash` and `eq` a hash container built here is kept by, as
-    /// two Kotlin function references — `None` for the canonical path, which stays
-    /// a `LinkedHashMap` and is what every Salvo program has always compiled to.
-    ///
-    /// On the JVM there is no zero-sized-type trick: the pair is passed to the
-    /// runtime container as *values*. The container extends the JVM's abstract
-    /// collections, so the emitted type is unchanged and only the construction
-    /// differs — which is why this backend pays one call site and no lowerings.
-    fn keyed_pair(&mut self, span: Span) -> Option<(String, String)> {
-        let ty = self.checked.expr_ty.get(&(self.file_idx, span))?.clone();
-        let Ty::Named { name, args } = ty.strip_quals() else {
-            return None;
-        };
-        if !matches!(name.as_str(), "Set" | "Map") {
-            return None;
-        }
-        let subject = args.first()?.clone();
-        let ids: Vec<FnId> = args
-            .iter()
-            .filter_map(|a| match a {
-                Ty::FnName(id) => Some(id.clone()),
-                _ => None,
-            })
-            .collect();
-        if ids.len() != 2 {
-            return None;
-        }
-        // [cmp-carry] A slot whose identity is the host's own operation has no
-        // symbol to reference (`identity_fn_name` answers `None`), and when
-        // *both* are the host's the native container is the right rendering —
-        // that is the common case, and the file is not needed at all.
-        //
-        // A **mixed** fill is honoured rather than dropped (user decision
-        // 2026-09-26: a parameter group is a convenience, not a contract the
-        // caller must fill wholesale): the declared slot is referenced and the
-        // host's slot becomes the lambda its own lowering makes
-        // [implicit-intrinsic]. Until this, `?` on the first `None` abandoned
-        // the whole pair and a written `eq = …` beside a host `hash` was
-        // silently lost — wrong output [backend-never-wrong].
-        let hash = self.identity_fn_name(&ids[0], &subject);
-        let eq = self.identity_fn_name(&ids[1], &subject);
-        if hash.is_none() && eq.is_none() {
-            return None;
-        }
-        self.needs_keyed = true;
-        let hash = match hash {
-            Some(name) => name,
-            None => self.host_identity_value(&ids[0], &subject, "hash")?,
-        };
-        let eq = match eq {
-            Some(name) => name,
-            None => self.host_identity_value(&ids[1], &subject, "eq")?,
-        };
-        Some((hash, eq))
-    }
-
-    /// [cmp-carry] [implicit-intrinsic] The **host's own** identity as a value:
-    /// the lambda an `intrinsic fn` becomes when it is passed rather than
-    /// called. Needed only for a *mixed* pair — one slot declared, the other
-    /// left to the host — because a container keyed by a pair has to be handed
-    /// two functions, and half of a pair is not one of them.
-    fn host_identity_value(&mut self, id: &FnId, subject: &Ty, kind: &str) -> Option<String> {
-        let decl = self
-            .checked
-            .carried_identities
-            .get(&(id.clone(), subject.clone()))
-            .copied()
-            .and_then(|k| self.fn_by_key(k))
-            .cloned();
-        match decl {
-            Some(decl) if decl.intrinsic => Some(self.intrinsic_fn_value(&decl)),
-            // Nothing resolved the slot at all: the loud refusal belongs to
-            // `identity_fn_name`, which has already reported it.
-            _ => {
-                self.error(format!(
-                    "this collection's `{kind}` (`{id}`) has no lowering as a value, \
-                     so the pair `{subject}` is keyed by cannot be built [cmp-carry]"
-                ));
-                None
-            }
-        }
-    }
-
-    /// [cmp-carry] The Kotlin name of the declaration an identity resolves to —
-    /// the *checker's* answer, recorded where the type was written.
-    fn identity_fn_name(&mut self, id: &FnId, subject: &Ty) -> Option<String> {
-        let decl = self
-            .checked
-            .carried_identities
-            .get(&(id.clone(), subject.clone()))
-            .copied()
-            .and_then(|k| self.fn_by_key(k));
-        match decl {
-            // [cmp-groups] A **canonical intrinsic** is the host's own
-            // operation, which is what the JVM's `hashCode`/`equals` already
-            // are — so the native container is the right rendering and there is
-            // no symbol to reference. Since the keyed constructors took the
-            // capability (2026-09-25) every container names an identity, so
-            // this is the common path rather than an edge.
-            Some(decl) if decl.intrinsic => None,
-            // A **function reference**: the container takes the pair as values, so
-            // what it needs is `::name` rather than a call.
-            Some(decl) => Some(format!("::{}", self.kotlin_fn_name(decl))),
-            // [cmp-carry] [kt-keyed] A **forwarded capability**: the identity is
-            // the enclosing fn's own implicit parameter, which on this backend is
-            // an ordinary function *value* — so the container takes it
-            // directly, by name, and a generic body needs nothing else. (The
-            // Rust backend has to work for it: there an implicit arrives as a
-            // borrow, and a container has to keep what it is given
-            // [rs-stored-implicit].)
-            None if matches!(id, FnId::Binder(_)) => Some(kt_ident(id.base_name())),
-            None => {
-                self.error(format!(
-                    "the `{id}` this collection is keyed by has no resolved declaration"
-                ));
-                None
-            }
-        }
-    }
-
-    /// [cmp-carry] The Kotlin function a keyed container's named ordering is kept
-    /// by, when this expression builds one — a `TreeSet`/`TreeMap` takes a
-    /// comparator, so the identity needs no marker here, only a name.
-    ///
-    /// `None` means "the canonical path", which is `__salvoCompare` and what every
-    /// sorted collection was built with before an ordering could be named. The
-    /// **hash** pair is refused instead: `LinkedHashSet` keys off
-    /// `hashCode`/`equals` with no slot for a function, so it needs a runtime
-    /// container this backend does not have yet [backend-never-wrong].
-    fn container_ordering(&mut self, span: Span) -> Option<String> {
-        let ty = self.checked.expr_ty.get(&(self.file_idx, span))?.clone();
-        let Ty::Named { name, args } = ty.strip_quals() else {
-            return None;
-        };
-        if !matches!(name.as_str(), "Set" | "Map" | "SortedSet" | "SortedMap") {
-            return None;
-        }
-        let Some(Ty::FnName(id)) = args.iter().find(|a| matches!(a, Ty::FnName(_))) else {
-            return None;
-        };
-        let (id, name) = (id.clone(), name.clone());
-        let subject = args.first()?.clone();
-        // [cmp-carry] A *hash* container's pair is handed to the runtime container
-        // as two function values rather than as a comparator, so it is resolved by
-        // `keyed_pair` instead — this path is the sorted pair's comparator.
-        if matches!(name.as_str(), "Set" | "Map") {
-            return None;
-        }
-        let key = (id.clone(), subject);
-        let decl = self
-            .checked
-            .carried_identities
-            .get(&key)
-            .copied()
-            .and_then(|k| self.fn_by_key(k));
-        match decl {
-            // [cmp-groups] A **canonical intrinsic** is the host's own
-            // comparison — `__salvoCompare`, which is what `None` selects — and
-            // has no emitted symbol a comparator could call. Since the sorted
-            // constructors took the capability (2026-09-25) every container
-            // names an identity, so this is the common path.
-            Some(decl) if decl.intrinsic => None,
-            Some(decl) => Some(self.kotlin_fn_name(decl)),
-            // [cmp-carry] [kt-keyed] A **forwarded capability**, exactly as in
-            // `identity_fn_name`: the ordering is this fn's own implicit
-            // parameter, and `cmp_body` calls it like any named one.
-            None if matches!(id, FnId::Binder(_)) => Some(kt_ident(id.base_name())),
-            None => {
-                self.error(format!(
-                    "the ordering `{id}` of this collection has no resolved declaration"
-                ));
-                None
-            }
-        }
-    }
 
     /// Renders a checker type to Kotlin (qualifiers erased, unions as
     /// sealed wrappers).
@@ -7339,66 +7094,32 @@ impl<'p> Emitter<'p> {
             // constructors `set_of`/`map_of` use [col-insertion-order], with
             // the element types spelled out because kotlinc cannot infer
             // them from an empty literal.
-            Expr::SetLit { elems, span } => {
-                let items: Vec<String> = elems.iter().map(|e| self.emit_expr(e)).collect();
-                // [col-literal] An empty `{}` takes its kind from the
-                // position; the checker resolved it, so follow the checked
-                // type rather than the node.
-                match self.ty_of(*span).map(|t| t.strip_quals()) {
-                    Some(Ty::Named { name, args }) if name == "Map" && args.len() >= 2 => {
-                        let (kt, vt) = (self.emit_ty(&args[0]), self.emit_ty(&args[1]));
-                        match self.keyed_pair(*span) {
-                            Some((h, e)) => {
-                                format!("salvo.SalvoHashMap<{kt}, {vt}>({h}, {e})")
-                            }
-                            None => format!("linkedMapOf<{}, {}>()", kt, vt),
-                        }
-                    }
-                    Some(Ty::Named { name, args }) if name == "List" && args.len() == 1 => {
-                        let elem = self.emit_ty(&args[0]);
-                        let mutable = self
-                            .ty_of(*span)
-                            .is_some_and(|t| t.quals().iter().any(|q| q.name == "Mut"));
-                        if mutable {
+            // [col-literal] A set or map literal is the constructor call the
+            // checker resolved it as; an empty `{}` at a `List` is a list.
+            Expr::SetLit { .. } | Expr::MapLit { .. } => {
+                let call = salvo_backend::emit_util::literal_as_call(self.checked, self.file_idx, expr, |k| {
+                    self.fn_by_key(k).map(|d| d.name.name.clone())
+                });
+                if let Some(call) = call {
+                    return self.emit_expr(&call);
+                }
+                match (expr, self.ty_of(expr.span()).cloned()) {
+                    (Expr::SetLit { elems, .. }, Some(t)) => {
+                        let items: Vec<String> = elems.iter().map(|e| self.emit_expr(e)).collect();
+                        let elem = match t.strip_quals() {
+                            Ty::Named { args, .. } if !args.is_empty() => self.emit_ty(&args[0]),
+                            _ => "Any".to_string(),
+                        };
+                        if t.quals().iter().any(|q| q.name == "Mut") {
                             format!("mutableListOf<{}>({})", elem, items.join(", "))
                         } else {
                             format!("listOf<{}>({})", elem, items.join(", "))
                         }
                     }
-                    Some(Ty::Named { name, args }) if name == "Set" && !args.is_empty() => {
-                        {
-                            let elem = self.emit_ty(&args[0]);
-                            match self.keyed_pair(*span) {
-                                Some((h, e)) => format!(
-                                    "salvo.SalvoHashSet<{elem}>({h}, {e}).also {{ __s -> \
-                                     __s.addAll(listOf({})) }}",
-                                    items.join(", ")
-                                ),
-                                None => format!("linkedSetOf<{elem}>({})", items.join(", ")),
-                            }
-                        }
+                    _ => {
+                        self.error("internal error: a collection literal the checker did not resolve [col-literal]");
+                        "TODO()".to_string()
                     }
-                    _ => format!("linkedSetOf<Any>({})", items.join(", ")),
-                }
-            }
-            Expr::MapLit { entries, span } => {
-                let items: Vec<String> = entries
-                    .iter()
-                    .map(|(k, v)| format!("({} to {})", self.emit_expr(k), self.emit_expr(v)))
-                    .collect();
-                let (kt, vt) = match self.ty_of(*span).map(|t| t.strip_quals()) {
-                    Some(Ty::Named { name, args }) if name == "Map" && args.len() >= 2 => {
-                        (self.emit_ty(&args[0]), self.emit_ty(&args[1]))
-                    }
-                    _ => ("Any".to_string(), "Any".to_string()),
-                };
-                match self.keyed_pair(*span) {
-                    Some((h, e)) => format!(
-                        "salvo.SalvoHashMap<{kt}, {vt}>({h}, {e}).also {{ __m -> \
-                         __m.putAll(listOf({})) }}",
-                        items.join(", ")
-                    ),
-                    None => format!("linkedMapOf<{}, {}>({})", kt, vt, items.join(", ")),
                 }
             }
             Expr::Tuple { elems, .. } => {
@@ -9102,38 +8823,17 @@ impl<'p> Emitter<'p> {
             {
                 self.needs_scheduler = true;
             }
-            // [col-sorted] [kt-ordered] The sorted constructors build their
-            // tree with Salvo's comparator. The `Sorted List` surface no
-            // longer needs it: its primitives are handed the ordering the
-            // claim names [col-sorted-list], and where that is the canonical
-            // `cmp(Str, Str)` the case below asks for the file.
-            if matches!(
-                f.name.name.as_str(),
-                "sorted_set_of" | "mut_sorted_set_of" | "sorted_map_of" | "mut_sorted_map_of"
-            ) {
-                self.needs_compare = true;
-            }
             // [cmp-groups] The canonical `cmp(Str, Str)` goes through the same
             // comparator, for the same reason: `String.compareTo` is UTF-16
             // code-unit order where Salvo's `Str` order is code point.
             if f.name.name == "cmp" && matches!(recv, Some("Str" | "List" | "()")) {
                 self.needs_compare = true;
             }
-            // [cmp-carry] A keyed container kept by a *named* ordering needs a
-            // runtime container with a slot for one, which this backend does not
-            // have yet (`TreeSet` takes a comparator, but `LinkedHashSet` keys off
-            // `hashCode`/`equals`, so the pair has to be built together). Refused
-            // rather than emitted as a container that ignores the ordering it was
-            // told to keep [backend-never-wrong].
-            let ordering = self.container_ordering(span);
-            let keyed = self.keyed_pair(span);
             if let Some(code) = crate::intrinsics::fn_call(
                 &f.name.name,
                 recv,
                 &arg_code,
                 &type_args,
-                ordering.as_deref(),
-                keyed.as_ref().map(|(h, e)| (h.as_str(), e.as_str())),
             )
             {
                 return code;
@@ -9671,7 +9371,7 @@ impl<'p> Emitter<'p> {
         if decl.name.name == "cmp" && matches!(recv, Some("Str" | "List" | "()")) {
             self.needs_compare = true;
         }
-        match crate::intrinsics::fn_call(&decl.name.name, recv, &params, &[], None, None) {
+        match crate::intrinsics::fn_call(&decl.name.name, recv, &params, &[]) {
             Some(body) => format!("{{ {} -> {body} }}", params.join(", ")),
             None => {
                 self.error(format!(
@@ -9729,6 +9429,39 @@ impl<'p> Emitter<'p> {
             BinaryOp::NotEq => format!("!{call}"),
             other => format!("{call} {} 0", binary_op(other)),
         }
+    }
+
+    /// [kt-variadic] The rendered element type of `f`'s variadic tail at the
+    /// call at `span`, when it mentions a type variable of the enclosing fn —
+    /// with whether it *is* one (an `Array<T>` is erased to `Array<Any?>`,
+    /// while an `Array<Pair<K, V>>` is an array of `Pair`); `None` otherwise.
+    fn variadic_generic_elem(&mut self, f: &FnDecl, span: Span) -> Option<(String, bool)> {
+        let p = f.params.iter().find(|p| p.variadic)?;
+        let Type::Array { elem, .. } = &p.ty else { return None };
+        let targs = self.checked.call_type_args.get(&(self.file_idx, span)).cloned()?;
+        let subst = |t: &Type| -> Option<Ty> {
+            match t {
+                Type::Named { qualifiers, base } if qualifiers.is_empty() && base.args.is_empty() => {
+                    let i = f.generics.iter().position(|g| g.name == base.name.name)?;
+                    targs.get(i).cloned()
+                }
+                _ => None,
+            }
+        };
+        let ty = match elem.as_ref() {
+            Type::Tuple { elems, .. } => Ty::Tuple(elems.iter().map(subst).collect::<Option<Vec<_>>>()?),
+            other => subst(other)?,
+        };
+        fn has_var(t: &Ty) -> bool {
+            match t.strip_quals() {
+                Ty::Var(_) => true,
+                Ty::Named { args, .. } => args.iter().any(has_var),
+                Ty::Tuple(ts) => ts.iter().any(has_var),
+                _ => false,
+            }
+        }
+        let bare = matches!(ty.strip_quals(), Ty::Var(_));
+        has_var(&ty).then(|| (self.emit_ty(&ty), bare))
     }
 
     fn emit_fn_call(
@@ -9794,7 +9527,20 @@ impl<'p> Emitter<'p> {
             } else {
                 let items: Vec<String> =
                     tail.into_iter().map(|a| self.emit_expr(a)).collect();
-                all.push(format!("arrayOf({})", items.join(", ")));
+                // [kt-variadic] An `Array<T>` over a type variable cannot be
+                // built by `arrayOf` (it wants a reified `T`): the elements go
+                // into an `Array<Any?>`, which is what an erased `Array<T>` is
+                // at runtime, and the cast states the element type.
+                match self.variadic_generic_elem(f, span) {
+                    Some((elem, true)) => all.push(format!(
+                        "@Suppress(\"UNCHECKED_CAST\") (arrayOf<Any?>({}) as Array<{elem}>)",
+                        items.join(", ")
+                    )),
+                    // A class over type variables (`Pair<K, V>`) is a class
+                    // the JVM can name: only its element type is spelled.
+                    Some((elem, false)) => all.push(format!("arrayOf<{elem}>({})", items.join(", "))),
+                    None => all.push(format!("arrayOf({})", items.join(", "))),
+                }
             }
         }
         // [implicit-resolve] The implicit parameters, in the callee's order:

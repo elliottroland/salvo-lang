@@ -1,4 +1,3 @@
-use crate::collections::*;
 use crate::unions::*;
 use crate::core_iterator::Finished;
 use crate::core_iterator::emitted;
@@ -12,55 +11,84 @@ const _: fn() = || { fn __contract<T: Send + 'static + Clone + std::fmt::Debug +
 const _: fn() = || { fn __each(x: &Map<i32, i32>) -> impl Iterator<Item = i32> + '_ { crate::platform_core_map::each(x).map(|e| e.clone()) } let _ = __each; };
 const _: fn() = || { fn __each_ref(x: &Map<i32, i32>) -> impl Iterator<Item = &i32> + '_ { crate::platform_core_map::each(x) } fn __each_mut(x: &mut Map<i32, i32>) -> impl Iterator<Item = &mut i32> + '_ { crate::platform_core_map::each_mut(x) } fn __into_each(x: Map<i32, i32>) -> impl Iterator<Item = i32> { crate::platform_core_map::into_each(x) } let _ = (__each_ref, __each_mut, __into_each); };
 
-pub fn get_platform<'a, K: Clone, V: Clone>(map: &'a SalvoMap<K, V>, key: &K) -> Option<&'a V> {
-    crate::platform_core_map::get(map, key)
+pub fn map_of_platform<K: Clone, V>(entries: Vec<(K, V)>, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> Map<K, V> {
+    crate::platform_core_map::map_of(entries, hash, eq)
 }
 
-pub fn put_platform<K: Clone, V: Clone>(map: &mut SalvoMap<K, V>, key: K, value: V) {
-    crate::platform_core_map::put(map, key, value)
+pub fn mut_map_of_platform<K: Clone, V>(entries: Vec<(K, V)>, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> Map<K, V> {
+    crate::platform_core_map::mut_map_of(entries, hash, eq)
 }
 
-pub fn replace_platform<K: Clone, V>(map: &mut SalvoMap<K, V>, key: K, value: V) -> Option<V> {
-    crate::platform_core_map::replace(map, key, value)
+pub fn map_by_platform<K: Clone, V>(size: i32, init: &mut dyn FnMut(i32) -> (K, V), hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> Map<K, V> {
+    crate::platform_core_map::map_by(size, init, hash, eq)
 }
 
-pub fn remove_platform<K: Clone, V>(map: &mut SalvoMap<K, V>, key: &K) -> Option<V> {
-    crate::platform_core_map::remove(map, key)
+pub fn mut_map_by_platform<K: Clone, V>(size: i32, init: &mut dyn FnMut(i32) -> (K, V), hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> Map<K, V> {
+    crate::platform_core_map::mut_map_by(size, init, hash, eq)
 }
 
-pub fn contains_key_platform<K: Clone, V: Clone>(map: &SalvoMap<K, V>, key: &K) -> bool {
-    crate::platform_core_map::contains_key(map, key)
+pub fn to_map_platform<K: Clone, V: Clone>(pairs: &Vec<(K, V)>, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> Map<K, V> {
+    crate::platform_core_map::to_map(pairs, hash, eq)
 }
 
-pub fn KeyOf_qualifies<K: Clone, V: Clone>(key: &K, map: &SalvoMap<K, V>) -> bool {
-    return contains_key_platform(map, key);
+pub fn to_map<T: Clone, K: Clone, V: Clone>(items: &Vec<T>, entry: &mut impl FnMut(&T) -> (K, V), hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> Map<K, V> {
+    let mut map: Map<K, V> = mut_map_of_platform::<K, V>(vec![], &mut *hash, &mut *eq);
+    for mut x in crate::platform_core_list::each(items).map(|__x| __x.clone()) {
+        let (mut k, mut v) = entry(&x);
+        put_platform::<K, V>(&mut map, k, v, &mut *hash, &mut *eq);
+    }
+    return map;
 }
 
-pub fn get_present_platform<'a, K: Clone, V: Clone>(map: &'a SalvoMap<K, V>, key: &K) -> &'a V {
-    crate::platform_core_map::get_present(map, key)
+pub fn get_platform<'a, K: Clone, V: Clone>(map: &'a Map<K, V>, key: &K, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> Option<&'a V> {
+    crate::platform_core_map::get(map, key, hash, eq)
 }
 
-pub fn get<'a, K: Clone, V: Clone>(map: &'a SalvoMap<K, V>, key: &K) -> &'a V {
-    return get_present_platform(map, key);
+pub fn put_platform<K: Clone, V: Clone>(map: &mut Map<K, V>, key: K, value: V, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) {
+    crate::platform_core_map::put(map, key, value, hash, eq)
 }
 
-pub fn size_platform<K: Clone, V>(map: &SalvoMap<K, V>) -> i32 {
+pub fn replace_platform<K: Clone, V>(map: &mut Map<K, V>, key: K, value: V, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> Option<V> {
+    crate::platform_core_map::replace(map, key, value, hash, eq)
+}
+
+pub fn remove_platform<K: Clone, V>(map: &mut Map<K, V>, key: &K, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> Option<V> {
+    crate::platform_core_map::remove(map, key, hash, eq)
+}
+
+pub fn contains_key_platform<K: Clone, V: Clone>(map: &Map<K, V>, key: &K, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> bool {
+    crate::platform_core_map::contains_key(map, key, hash, eq)
+}
+
+pub fn KeyOf_qualifies<K: Clone, V: Clone>(key: &K, map: &Map<K, V>, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> bool {
+    return contains_key_platform::<K, V>(map, key, &mut *hash, &mut *eq);
+}
+
+pub fn get_present_platform<'a, K: Clone, V: Clone>(map: &'a Map<K, V>, key: &K, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> &'a V {
+    crate::platform_core_map::get_present(map, key, hash, eq)
+}
+
+pub fn get<'a, K: Clone, V: Clone>(map: &'a Map<K, V>, key: &K, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> &'a V {
+    return get_present_platform::<K, V>(map, key, &mut *hash, &mut *eq);
+}
+
+pub fn size_platform<K: Clone, V>(map: &Map<K, V>) -> i32 {
     crate::platform_core_map::size(map)
 }
 
-pub fn drain<K: Clone, V>(map: SalvoMap<K, V>, each: &mut impl FnMut(V)) {
+pub fn drain<K: Clone, V>(map: Map<K, V>, each: &mut impl FnMut(V)) {
     drain__core_list(into_values_platform(map), each);
 }
 
-pub fn into_values_platform<K: Clone, V>(map: SalvoMap<K, V>) -> Vec<V> {
+pub fn into_values_platform<K: Clone, V>(map: Map<K, V>) -> Vec<V> {
     crate::platform_core_map::into_values(map)
 }
 
-pub fn keys_platform<K: Clone, V: Clone>(map: &SalvoMap<K, V>) -> Vec<K> {
+pub fn keys_platform<K: Clone, V: Clone>(map: &Map<K, V>) -> Vec<K> {
     crate::platform_core_map::keys(map)
 }
 
-pub fn iter<K: Clone, V: Clone>(map: &SalvoMap<K, V>) -> MapKeyYield<K> {
+pub fn iter<K: Clone, V: Clone>(map: &Map<K, V>) -> MapKeyYield<K> {
     return MapKeyYield { items: keys_platform(map), at: 0 };
 }
 
@@ -92,6 +120,6 @@ pub fn next<K: Clone>(p: &mut MapKeyYield<K>) -> Union2<K, Finished> {
     return Union2::<K, Finished>::U1(emitted(key.as_ref().unwrap().clone()));
 }
 
-pub fn NonEmpty__Map_qualifies<K: Clone, V: Clone>(map: &SalvoMap<K, V>) -> bool {
+pub fn NonEmpty__Map_qualifies<K: Clone, V: Clone>(map: &Map<K, V>) -> bool {
     return size_platform(map) > 0;
 }

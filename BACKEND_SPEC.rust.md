@@ -1810,78 +1810,28 @@ facts worth knowing") and keeps the history ("One shape for effects").
   An empty `deque_of()` spells its element type from the call's resolved type
   argument (`VecDeque::<T>::new()`), since rustc cannot infer it from an
   unconstrained temporary.
-* [rs-collections] The insertion-ordered `Set`/`Map` [col-insertion-order]
-  are such a module: `runtime/collections.rs` defines `SalvoSet`/`SalvoMap`,
-  because Rust's standard library has no ordered hash container (`HashMap`
-  has no order; `BTreeMap` is *key* order and demands orderable keys). The
-  representation is a slot vector plus a hash index — insertion order is the
-  slot order, a removal tombstones its slot so the rest keep their
-  positions, and the vector is compacted once the tombstones outgrow the
-  live entries.
-  * `Map<K, V>` is `SalvoMap`, `Set<T>` is `SalvoSet`; the sorted pair maps
-    to `BTreeMap`/`BTreeSet` instead [col-sorted], which need no runtime.
-  * **Trait bounds live on the impl blocks, not on the struct**, and only
-    where they are needed: a generic Salvo fn mentioning `Set<T>` emits a
-    signature carrying only the bounds *Salvo* knows about, so a bound on
-    the type definition would make that signature unsatisfiable. `iter`,
-    `len`, `keys`, `values` and the `Display`/`Debug` impls are unbounded;
-    the hash operations require `Hash + Eq + Clone`.
-  * The runtime is emitted only into a program whose modules mention one of
-    the types or call one of their constructors, and the crate root mounts
-    it with `mod collections;` [rs-crate].
-  * [linear-container] The obligation surface added two methods, both about
-    *not dropping*: `replace(key, value) -> Option<V>` (`insert` answers
-    nothing, so it cannot be the write for a map of obligations) and
-    `into_values() -> Vec<V>`, which is what `drain(map, each)` walks.
-* [rs-stored-implicit] [cmp-carry] **A capability the callee *keeps* arrives
-  owned**, as `std::sync::Arc<dyn Fn(…) -> … + Send + Sync>` rather than the
-  usual `&mut dyn FnMut` — the same convention exception an iterator fn's
-  callbacks get [rs-iter-pass], and for the same reason: what receives it
-  outlives the call. What keeps one is a **keyed container built inside a
-  generic function** (landed 2026-09-26): there the identity is a capability the
-  function was handed, so no marker type can name it and the container has to
-  hold the functions themselves.
-  * The runtime grew a **value-keyed store per family** beside the
-    marker-keyed ones — `FnStore` (hash/eq), `FnSortedStore` and
-    `FnSortedMapStore` (cmp) — reached through `SalvoSet::with_fns`,
-    `SalvoMap::with_fns`, `SalvoSortedSet::with_cmp` and
-    `SalvoSortedMap::with_cmp`. They cannot reuse `HashedStore`/`BTreeStore`
-    because `HashBy`/`OrdBy` dispatch their `Hash`/`Eq`/`Ord` impls through
-    *types*, and a closure held elsewhere is not reachable from them. The hash
-    store's shape is the Kotlin runtime's: a slab in first-insertion order plus
-    a bucket index from a Salvo hash to the slots holding it, confirming a hit
-    with `eq`. The sorted pair is a sorted `Vec` with `binary_search_by`.
-    `Arc` rather than `Box` so a container's clone shares its identity.
-  * **The demand is closed under forwarding.** The seeds are the construction
-    sites (an expression whose type is a keyed container carrying a
-    `FnId::Binder`); a fn that passes its own implicit into a position already
-    owned holds an `Arc` for the same reason, so it joins the set
-    (`stored_implicit_demand`, mirroring `lend_mut_demand`). At a call, a kept
-    position takes `Arc::new(move |…| …)` for a resolved or written identity and
-    `Arc::clone(&name)` for a forwarded one.
-  * **Its key type carries the store's bounds**: a generic in such a fn is
-    `Clone + Send + 'static` rather than the usual `Clone`, because the store is
-    a `Box<dyn … + Send>` over owned data. Every Salvo type satisfies both, so
-    this only spells at the one site what the container needs.
-  * The **intrinsic** identity is not special here: a host `hash`/`eq`/`cmp`
-    filling a kept position renders as its own lowering inside the closure, the
-    way any intrinsic implicit value does [implicit-intrinsic] — so a generic
-    body reaches the host's identity through exactly the same code as a
-    declared one.
-  * A **mixed** identity — one slot forwarded, another named — is honoured too
-    (user decision 2026-09-26): a marker type cannot be mixed into a value pair,
-    so the named slot becomes its own closure beside the forwarded handle
-    (`Arc::new(move |__a: &T, __b: &T| all_same(__a, __b))`, and
-    `<HostEq as SalvoEq<T>>::eq` for the host's). An identity that needs
-    implicits *of its own* has nothing to fill them from there and is refused by
-    name [backend-never-wrong].
-  * [rs-borrows] **A marker calls its identity in the identity's modes.** The
-    trait fixes the marker's own parameters as references, while a declared
-    identity over a Copy scalar takes its arguments by value — so the marker
-    derefs (`all_same(*__a, *__b)`). Splicing the reference through was rustc's
-    E0308, reachable the moment a *written* fill became a carried identity
-    (2026-09-26): before that, a scalar subject always took the `HostHash`/
-    `HostEq` path and no marker was generated for one.
+* [rs-collections] The keyed collections are **std's host types**
+  (2026-10-06, ROADMAP §0j step 7): `Set<T>`/`Map<K, V>` in
+  `std/platform/core/{set,map}.rs`, an insertion-ordered slot vector of
+  `(digest, entry)` with tombstones and a `HashMap<i64, Vec<usize>>` from a
+  Salvo digest to its slots, compacted when the tombstones outgrow the live
+  entries; the sorted pair a sorted `Vec` searched with `binary_search_by`
+  (`sorted.rs`). They render as ordinary platform types (`crate::core_set::Set`
+  re-exported from the host file) and need no runtime module.
+  * **Every operation takes the identity as trailing lent fn parameters**
+    (`hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool`,
+    `cmp: &mut dyn FnMut(&T, &T) -> i32`) [platform-slots]: nothing is stored,
+    so the old marker types (`__Hash_…`, `HostHash`), the value-keyed stores
+    and the owned-`Arc` convention for a kept capability
+    ([rs-stored-implicit], deleted) are gone. A Given intrinsic identity
+    renders as its lowering inside the adapter [implicit-intrinsic].
+  * `PartialEq` is order-blind (each entry found under its cached digest, by
+    the elements' own `==`), `Debug`/`Display` print `{a, b}` / `{k: v}`;
+    `canonical_hash`/`canonical_set`/`canonical_map`/`canonical_sorted_set`
+    build the canonical case for host code.
+  * [linear-container] `replace(key, value) -> Option<V>` and
+    `into_values() -> Vec<V>` (what `drain(map, each)` walks) are the
+    obligation surface.
 * [rs-mailbox] [actor-mailbox] **The mailbox bound is a generated field on the
   handler**, `__mailbox_capacity: i32`, initialised by `new` from the slot's
   expression — which is exactly where a state field's initialiser is computed,

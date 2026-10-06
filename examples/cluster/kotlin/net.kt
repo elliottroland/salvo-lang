@@ -17,6 +17,7 @@ import salvo.core.list.sizePlatform
 import salvo.core.map.containsKeyPlatform
 import salvo.core.map.getPlatform as getPlatform__core_map
 import salvo.core.map.keysPlatform
+import salvo.core.map.mutMapOfPlatform
 import salvo.core.map.putPlatform
 import salvo.core.map.removePlatform as removePlatform__core_map
 import salvo.core.result.err
@@ -24,6 +25,7 @@ import salvo.core.result.ok
 import salvo.core.seq.count
 import salvo.core.set.addPlatform as addPlatform__core_set
 import salvo.core.set.containsPlatform
+import salvo.core.set.mutSetOfPlatform
 import salvo.core.set.removePlatform as removePlatform__core_set
 import salvo.runtime.Delivered
 import salvo.runtime.routing.connected as connected__runtime_routing
@@ -713,7 +715,7 @@ fun introduce(node: NodeId, peers: List<NodeEndpoint>) {
     sendControl(node, "", salvo.salvoEncode(intro, salvo.Union4Codec(__Codec_Hello, __Codec_Ack, __Codec_Leaving, __Codec_Intro)))
 }
 
-fun leaveGroup(known: Map<NodeId, Node>) {
+fun leaveGroup(known: salvo.platform.core.map.Map<NodeId, Node>) {
     for (id in salvo.platform.core.list.each(keysPlatform(known))) {
         val leaving: Union4<Hello, Ack, Leaving, Intro> = Union4.U3<Hello, Ack, Leaving, Intro>(Leaving())
         sendControl(id, "", salvo.salvoEncode(leaving, salvo.Union4Codec(__Codec_Hello, __Codec_Ack, __Codec_Leaving, __Codec_Intro)))
@@ -721,7 +723,7 @@ fun leaveGroup(known: Map<NodeId, Node>) {
 }
 
 class StaticNodeGroup(private val name: String, private val all: List<NodeEndpoint>, private val __dep_Transport: Transport) : NodeGroup {
-    private var known: salvo.platform.core.map.MutMap<NodeId, Node> = salvo.SalvoHashMap<NodeId, Node>(::hash__NodeId, ::eq__NodeId_NodeId).also { __m -> __m.putAll(listOf()) }
+    private var known: salvo.platform.core.map.MutMap<NodeId, Node> = mutMapOfPlatform(arrayOf(), ::hash__NodeId, ::eq__NodeId_NodeId)
     private var watchers: salvo.platform.core.list.MutList<Int> = mutableListOf<Int>()
     val __mailboxCapacity: Int = 64
     var __addr: Int? = null
@@ -733,7 +735,7 @@ class StaticNodeGroup(private val name: String, private val all: List<NodeEndpoi
 
     override fun subscribe(w: Int) {
         for (id in salvo.platform.core.list.each(keysPlatform(known))) {
-            val n = getPlatform__core_map(known, id)
+            val n = getPlatform__core_map(known, id, ::hash__NodeId, ::eq__NodeId_NodeId)
             if (!(n == null)) {
                 salvo.SalvoSched.sendWire(w, __Msg_NodeGroupWatcher.Joined(n), __PROTO_NodeGroupWatcher, __Codec___Msg_NodeGroupWatcher)
             }
@@ -750,17 +752,17 @@ class StaticNodeGroup(private val name: String, private val all: List<NodeEndpoi
         val event = handshake(__dep_Transport, name, from, data)
         when (event) {
             is Union3.U1<*, *, *> -> {
-                if (containsKeyPlatform(known, (event?.value as PeerHello).node)) {
+                if (containsKeyPlatform(known, (event?.value as PeerHello).node, ::hash__NodeId, ::eq__NodeId_NodeId)) {
                     return
                 }
                 val n = Node(id = (event?.value as PeerHello).node, at = (event?.value as PeerHello).at)
-                putPlatform(known, (event?.value as PeerHello).node, n)
+                putPlatform(known, (event?.value as PeerHello).node, n, ::hash__NodeId, ::eq__NodeId_NodeId)
                 for (w in salvo.platform.core.list.each(watchers)) {
                     salvo.SalvoSched.sendWire(w, __Msg_NodeGroupWatcher.Joined(n), __PROTO_NodeGroupWatcher, __Codec___Msg_NodeGroupWatcher)
                 }
             }
             is Union3.U2<*, *, *> -> {
-                val n = removePlatform__core_map(known, (event?.value as PeerGone).node)
+                val n = removePlatform__core_map(known, (event?.value as PeerGone).node, ::hash__NodeId, ::eq__NodeId_NodeId)
                 if (n == null) {
                     return
                 }
@@ -855,10 +857,10 @@ class __Actor_StaticNodeGroup(private val handler: StaticNodeGroup) : salvo.Salv
     }
 }
 
-fun knownNodes(known: Map<NodeId, Node>): List<Node> {
+fun knownNodes(known: salvo.platform.core.map.Map<NodeId, Node>): List<Node> {
     val allKnown: salvo.platform.core.list.MutList<Node> = mutableListOf<Node>()
     for (id in salvo.platform.core.list.each(keysPlatform(known))) {
-        val n = getPlatform__core_map(known, id)
+        val n = getPlatform__core_map(known, id, ::hash__NodeId, ::eq__NodeId_NodeId)
         if (!(n == null)) {
             addPlatform__core_list(allKnown, n)
         }
@@ -867,8 +869,8 @@ fun knownNodes(known: Map<NodeId, Node>): List<Node> {
 }
 
 class GossipNodeGroup(private val name: String, private val seeds: List<NodeEndpoint>, private val __dep_Transport: Transport) : NodeGroup {
-    private var known: salvo.platform.core.map.MutMap<NodeId, Node> = salvo.SalvoHashMap<NodeId, Node>(::hash__NodeId, ::eq__NodeId_NodeId).also { __m -> __m.putAll(listOf()) }
-    private var dialed: salvo.platform.core.set.MutSet<String> = linkedSetOf<String>().also { __s -> __s.addAll(listOf()) }
+    private var known: salvo.platform.core.map.MutMap<NodeId, Node> = mutMapOfPlatform(arrayOf(), ::hash__NodeId, ::eq__NodeId_NodeId)
+    private var dialed: salvo.platform.core.set.MutSet<String> = mutSetOfPlatform(arrayOf(), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
     private var watchers: salvo.platform.core.list.MutList<Int> = mutableListOf<Int>()
     val __mailboxCapacity: Int = 64
     var __addr: Int? = null
@@ -880,7 +882,7 @@ class GossipNodeGroup(private val name: String, private val seeds: List<NodeEndp
 
     override fun subscribe(w: Int) {
         for (id in salvo.platform.core.list.each(keysPlatform(known))) {
-            val n = getPlatform__core_map(known, id)
+            val n = getPlatform__core_map(known, id, ::hash__NodeId, ::eq__NodeId_NodeId)
             if (!(n == null)) {
                 salvo.SalvoSched.sendWire(w, __Msg_NodeGroupWatcher.Joined(n), __PROTO_NodeGroupWatcher, __Codec___Msg_NodeGroupWatcher)
             }
@@ -897,27 +899,27 @@ class GossipNodeGroup(private val name: String, private val seeds: List<NodeEndp
         val event = handshake(__dep_Transport, name, from, data)
         when (event) {
             is Union3.U1<*, *, *> -> {
-                if (containsKeyPlatform(known, (event?.value as PeerHello).node)) {
+                if (containsKeyPlatform(known, (event?.value as PeerHello).node, ::hash__NodeId, ::eq__NodeId_NodeId)) {
                     return
                 }
                 val others: salvo.platform.core.list.MutList<NodeEndpoint> = mutableListOf<NodeEndpoint>()
                 for (id in salvo.platform.core.list.each(keysPlatform(known))) {
-                    val n = getPlatform__core_map(known, id)
+                    val n = getPlatform__core_map(known, id, ::hash__NodeId, ::eq__NodeId_NodeId)
                     if (!(n == null)) {
                         addPlatform__core_list(others, n.at)
                     }
                     introduce(id, listOf<NodeEndpoint>((event?.value as PeerHello).at))
                 }
                 introduce((event?.value as PeerHello).node, others)
-                addPlatform__core_set(dialed, toStr__NodeEndpoint((event?.value as PeerHello).at))
+                addPlatform__core_set(dialed, toStr__NodeEndpoint((event?.value as PeerHello).at), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
                 val n = Node(id = (event?.value as PeerHello).node, at = (event?.value as PeerHello).at)
-                putPlatform(known, (event?.value as PeerHello).node, n)
+                putPlatform(known, (event?.value as PeerHello).node, n, ::hash__NodeId, ::eq__NodeId_NodeId)
                 for (w in salvo.platform.core.list.each(watchers)) {
                     salvo.SalvoSched.sendWire(w, __Msg_NodeGroupWatcher.Joined(n), __PROTO_NodeGroupWatcher, __Codec___Msg_NodeGroupWatcher)
                 }
             }
             is Union3.U2<*, *, *> -> {
-                val n = removePlatform__core_map(known, (event?.value as PeerGone).node)
+                val n = removePlatform__core_map(known, (event?.value as PeerGone).node, ::hash__NodeId, ::eq__NodeId_NodeId)
                 if (n == null) {
                     return
                 }
@@ -1014,13 +1016,13 @@ class __Actor_GossipNodeGroup(private val handler: GossipNodeGroup) : salvo.Salv
 }
 
 fun dial(transport: Transport, dialed: salvo.platform.core.set.MutSet<String>, group: String, e: NodeEndpoint) {
-    if (eq__NodeEndpoint_NodeEndpoint(e, transport.localEndpoint()) || containsPlatform(dialed, toStr__NodeEndpoint(e))) {
+    if (eq__NodeEndpoint_NodeEndpoint(e, transport.localEndpoint()) || containsPlatform(dialed, toStr__NodeEndpoint(e), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })) {
         return
     }
-    addPlatform__core_set(dialed, toStr__NodeEndpoint(e))
+    addPlatform__core_set(dialed, toStr__NodeEndpoint(e), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
     val sent = transport.deliver(e, helloFrame(transport, group))
     if (sent is Union2.U2<*, *>) {
-        val _forgot = removePlatform__core_set(dialed, toStr__NodeEndpoint(e))
+        val _forgot = removePlatform__core_set(dialed, toStr__NodeEndpoint(e), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
     }
 }
 
@@ -1790,29 +1792,29 @@ object __Codec___Msg_MemNet : salvo.WireCodec<__Msg_MemNet> {
 const val __PROTO_MemNet: String = "2815c14392023d5e"
 
 class MemNetwork : MemNet {
-    private var listeners: salvo.platform.core.map.MutMap<NodeEndpoint, Int> = salvo.SalvoHashMap<NodeEndpoint, Int>(::hash__NodeEndpoint, ::eq__NodeEndpoint_NodeEndpoint).also { __m -> __m.putAll(listOf()) }
-    private var cuts: salvo.platform.core.set.MutSet<String> = linkedSetOf<String>().also { __s -> __s.addAll(listOf()) }
-    private var dead: salvo.platform.core.set.MutSet<NodeEndpoint> = salvo.SalvoHashSet<NodeEndpoint>(::hash__NodeEndpoint, ::eq__NodeEndpoint_NodeEndpoint).also { __s -> __s.addAll(listOf()) }
+    private var listeners: salvo.platform.core.map.MutMap<NodeEndpoint, Int> = mutMapOfPlatform(arrayOf(), ::hash__NodeEndpoint, ::eq__NodeEndpoint_NodeEndpoint)
+    private var cuts: salvo.platform.core.set.MutSet<String> = mutSetOfPlatform(arrayOf(), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
+    private var dead: salvo.platform.core.set.MutSet<NodeEndpoint> = mutSetOfPlatform(arrayOf(), ::hash__NodeEndpoint, ::eq__NodeEndpoint_NodeEndpoint)
     private var count: Int = 0
     val __mailboxCapacity: Int = 64
     var __addr: Int? = null
     val __parked: MutableMap<Long, __Cont_MemNetwork> = mutableMapOf()
 
     override fun attach(at: NodeEndpoint, sink: Int) {
-        removePlatform__core_set(dead, at)
-        putPlatform(listeners, at, sink)
+        removePlatform__core_set(dead, at, ::hash__NodeEndpoint, ::eq__NodeEndpoint_NodeEndpoint)
+        putPlatform(listeners, at, sink, ::hash__NodeEndpoint, ::eq__NodeEndpoint_NodeEndpoint)
     }
 
     override fun detach(at: NodeEndpoint) {
-        removePlatform__core_map(listeners, at)
+        removePlatform__core_map(listeners, at, ::hash__NodeEndpoint, ::eq__NodeEndpoint_NodeEndpoint)
     }
 
     override fun route(from: NodeEndpoint, to: NodeEndpoint, out: salvo.SalvoReply) {
-        if (containsPlatform(dead, to) || containsPlatform(cuts, cutKey(from, to))) {
+        if (containsPlatform(dead, to, ::hash__NodeEndpoint, ::eq__NodeEndpoint_NodeEndpoint) || containsPlatform(cuts, cutKey(from, to), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })) {
             salvo.SalvoSched.replyWire(out, null, salvo.OptCodec(salvo.AddrCodec))
             return
         }
-        val sink = getPlatform__core_map(listeners, to)
+        val sink = getPlatform__core_map(listeners, to, ::hash__NodeEndpoint, ::eq__NodeEndpoint_NodeEndpoint)
         if (sink == null) {
             salvo.SalvoSched.replyWire(out, null, salvo.OptCodec(salvo.AddrCodec))
             return
@@ -1822,18 +1824,18 @@ class MemNetwork : MemNet {
     }
 
     override fun partition(a: NodeEndpoint, b: NodeEndpoint) {
-        addPlatform__core_set(cuts, cutKey(a, b))
-        addPlatform__core_set(cuts, cutKey(b, a))
+        addPlatform__core_set(cuts, cutKey(a, b), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
+        addPlatform__core_set(cuts, cutKey(b, a), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
     }
 
     override fun heal(a: NodeEndpoint, b: NodeEndpoint) {
-        removePlatform__core_set(cuts, cutKey(a, b))
-        removePlatform__core_set(cuts, cutKey(b, a))
+        removePlatform__core_set(cuts, cutKey(a, b), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
+        removePlatform__core_set(cuts, cutKey(b, a), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
     }
 
     override fun kill(node: NodeEndpoint) {
-        removePlatform__core_map(listeners, node)
-        addPlatform__core_set(dead, node)
+        removePlatform__core_map(listeners, node, ::hash__NodeEndpoint, ::eq__NodeEndpoint_NodeEndpoint)
+        addPlatform__core_set(dead, node, ::hash__NodeEndpoint, ::eq__NodeEndpoint_NodeEndpoint)
     }
 
     override fun delivered(out: salvo.SalvoReply) {

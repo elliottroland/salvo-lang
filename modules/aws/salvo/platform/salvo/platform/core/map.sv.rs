@@ -2,18 +2,151 @@
 // the declarations the platform code uses, as the build emits them. Rewritten
 // by every build — do not edit; the build never reads this file.
 // salvo-abi 1 023a4214a13ba612
-// [platform-value-type] std's map, for `core.map`'s `platform type Map<K,
-// V>(?hash, ?eq) canbe Mut` (ROADMAP 0.7): the runtime's insertion-ordered
-// `SalvoMap`, which carries the identities it was built with
-// [platform-slots]. `Mut Map` is the same type, passed as `&mut`.
+// [platform-value-type] [platform-slots] std's map, for `core.map`'s `platform
+// type Map<K, V>(?hash, ?eq) canbe Mut`: one insertion-ordered slab for every
+// identity (ROADMAP §0j step 7, user decision 2026-10-06). Every operation is
+// handed the `hash` and `eq` its call resolved, lent for the call
+// [platform-fn-value]; the map keeps the entries and the digest each key was
+// filed under, nothing else. `Mut Map` is the same type, passed as `&mut`.
 
-pub type Map<K, V> = crate::collections::SalvoMap<K, V>;
-pub type MutMap<K, V> = crate::collections::SalvoMap<K, V>;
+use std::collections::HashMap;
+use std::fmt;
+
+type HashFn<'a, K> = &'a mut dyn FnMut(&K) -> i64;
+type EqFn<'a, K> = &'a mut dyn FnMut(&K, &K) -> bool;
+
+/// Entries in first-insertion order (`None` where one was removed) with each
+/// key's digest; `buckets` maps a digest to its slots. An overwrite keeps the
+/// key's position [col-insertion-order].
+#[derive(Clone)]
+pub struct Map<K, V> {
+    slots: Vec<Option<(i64, K, V)>>,
+    buckets: HashMap<i64, Vec<usize>>,
+    live: usize,
+}
+
+pub type MutMap<K, V> = Map<K, V>;
+
+impl<K, V> Map<K, V> {
+    fn new() -> Self {
+        Map { slots: Vec::new(), buckets: HashMap::new(), live: 0 }
+    }
+
+    fn find(&self, key: &K, hash: HashFn<K>, eq: EqFn<K>) -> Option<usize> {
+        let bucket = self.buckets.get(&hash(key))?;
+        bucket
+            .iter()
+            .copied()
+            .find(|&i| self.slots[i].as_ref().is_some_and(|(_, k, _)| eq(k, key)))
+    }
+
+    fn append(&mut self, digest: i64, key: K, value: V) {
+        self.slots.push(Some((digest, key, value)));
+        self.buckets.entry(digest).or_default().push(self.slots.len() - 1);
+        self.live += 1;
+    }
+
+    /// Stores `value` under `key`: an existing key keeps its place and takes
+    /// the new key and value. Answers the displaced value.
+    fn store(&mut self, key: K, value: V, hash: HashFn<K>, eq: EqFn<K>) -> Option<V> {
+        match self.find(&key, &mut *hash, eq) {
+            Some(i) => {
+                let (digest, _, old) = self.slots[i].take().expect("a found slot is live");
+                self.slots[i] = Some((digest, key, value));
+                Some(old)
+            }
+            None => {
+                let digest = hash(&key);
+                self.append(digest, key, value);
+                None
+            }
+        }
+    }
+
+    fn remove_at(&mut self, i: usize) -> Option<V> {
+        let (digest, _, value) = self.slots[i].take()?;
+        if let Some(bucket) = self.buckets.get_mut(&digest) {
+            bucket.retain(|&j| j != i);
+            if bucket.is_empty() {
+                self.buckets.remove(&digest);
+            }
+        }
+        self.live -= 1;
+        if self.slots.len() > 2 * self.live + 8 {
+            let slots = std::mem::take(&mut self.slots);
+            self.buckets.clear();
+            self.live = 0;
+            for (d, k, v) in slots.into_iter().flatten() {
+                self.append(d, k, v);
+            }
+        }
+        Some(value)
+    }
+
+    /// The entries, in insertion order.
+    pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> + '_ {
+        self.slots.iter().filter_map(|s| s.as_ref().map(|(_, k, v)| (k, v)))
+    }
+}
+
+/// Order-blind, on host equality (what a struct holding a map compares by;
+/// ROADMAP §0j step 8 owns replacing it).
+impl<K: PartialEq, V: PartialEq> PartialEq for Map<K, V> {
+    fn eq(&self, other: &Self) -> bool {
+        self.live == other.live
+            && self.slots.iter().flatten().all(|(d, k, v)| {
+                other.buckets.get(d).is_some_and(|b| {
+                    b.iter().any(|&j| other.slots[j].as_ref().is_some_and(|(_, ok, ov)| ok == k && ov == v))
+                })
+            })
+    }
+}
+
+impl<K: PartialEq, V: PartialEq> Eq for Map<K, V> {}
+
+impl<K: fmt::Debug, V: fmt::Debug> fmt::Debug for Map<K, V> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_map().entries(self.iter()).finish()
+    }
+}
+
+/// `{a: 1, b: 2}`, in insertion order — the map literal that would build it
+/// [col-to-str].
+impl<K: fmt::Display, V: fmt::Display> fmt::Display for Map<K, V> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{{")?;
+        for (i, (k, v)) in self.iter().enumerate() {
+            if i > 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{k}: {v}")?;
+        }
+        write!(f, "}}")
+    }
+}
+
+/// [platform-value-type] For host code: the digest Salvo's canonical `hash`
+/// answers for an intrinsic key type (`Str`, `Int`, `Long`, `Char`, `Bool`,
+/// `Byte`) — the standard library's `DefaultHasher` over the value, which is
+/// what the `hash` intrinsics lower to.
+pub fn canonical_hash<K: std::hash::Hash + ?Sized>(k: &K) -> i64 {
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    k.hash(&mut h);
+    std::hash::Hasher::finish(&h) as i64
+}
+
+/// [platform-value-type] For host code: a map keyed **canonically** (the
+/// identity Salvo resolves for an intrinsic key type), in the order given; a
+/// repeated key keeps its first place and takes its last value
+/// [col-duplicate-keys].
+pub fn canonical_map<K: std::hash::Hash + PartialEq, V>(entries: Vec<(K, V)>) -> Map<K, V> {
+    map_of(entries, &mut |k: &K| canonical_hash(k), &mut |a: &K, b: &K| a == b)
+}
 
 // [platform-iterable] [col-map-iter] The host's loop over a map: its keys,
 // in insertion order.
 pub fn each<K, V>(map: &Map<K, V>) -> impl Iterator<Item = &K> + '_ {
-    map.keys()
+    map.iter().map(|(k, _)| k)
 }
 
 pub fn each_mut<K, V>(_map: &mut Map<K, V>) -> std::iter::Empty<&mut K> {
@@ -21,44 +154,77 @@ pub fn each_mut<K, V>(_map: &mut Map<K, V>) -> std::iter::Empty<&mut K> {
     unreachable!("salvo: a map's keys are not written in place")
 }
 
-pub fn into_each<K: Clone, V>(map: Map<K, V>) -> std::vec::IntoIter<K> {
-    map.keys().cloned().collect::<Vec<K>>().into_iter()
+pub fn into_each<K, V>(map: Map<K, V>) -> std::vec::IntoIter<K> {
+    map.slots.into_iter().flatten().map(|(_, k, _)| k).collect::<Vec<K>>().into_iter()
 }
 
-pub fn get<'a, K, V>(map: &'a Map<K, V>, key: &K) -> Option<&'a V> {
-    map.get(key)
+// A repeated key keeps the position of its first appearance and takes the
+// value of its last [col-duplicate-keys].
+pub fn map_of<K, V>(entries: Vec<(K, V)>, hash: HashFn<K>, eq: EqFn<K>) -> Map<K, V> {
+    let mut m = Map::new();
+    for (k, v) in entries {
+        m.store(k, v, &mut *hash, &mut *eq);
+    }
+    m
+}
+
+pub fn mut_map_of<K, V>(entries: Vec<(K, V)>, hash: HashFn<K>, eq: EqFn<K>) -> Map<K, V> {
+    map_of(entries, hash, eq)
+}
+
+pub fn map_by<K, V>(size: i32, init: &mut dyn FnMut(i32) -> (K, V), hash: HashFn<K>, eq: EqFn<K>) -> Map<K, V> {
+    let mut m = Map::new();
+    for i in 0..size.max(0) {
+        let (k, v) = init(i);
+        m.store(k, v, &mut *hash, &mut *eq);
+    }
+    m
+}
+
+pub fn mut_map_by<K, V>(size: i32, init: &mut dyn FnMut(i32) -> (K, V), hash: HashFn<K>, eq: EqFn<K>) -> Map<K, V> {
+    map_by(size, init, hash, eq)
+}
+
+pub fn to_map<K: Clone, V: Clone>(pairs: &Vec<(K, V)>, hash: HashFn<K>, eq: EqFn<K>) -> Map<K, V> {
+    map_of(pairs.clone(), hash, eq)
+}
+
+pub fn get<'a, K, V>(map: &'a Map<K, V>, key: &K, hash: HashFn<K>, eq: EqFn<K>) -> Option<&'a V> {
+    let i = map.find(key, hash, eq)?;
+    map.slots[i].as_ref().map(|(_, _, v)| v)
 }
 
 // The claim proved the key present [qual-depend].
-pub fn get_present<'a, K, V>(map: &'a Map<K, V>, key: &K) -> &'a V {
-    map.get(key).expect("salvo: a `KeyOf` key is absent")
+pub fn get_present<'a, K, V>(map: &'a Map<K, V>, key: &K, hash: HashFn<K>, eq: EqFn<K>) -> &'a V {
+    get(map, key, hash, eq).expect("salvo: a `KeyOf` key is absent")
 }
 
-pub fn put<K, V>(map: &mut Map<K, V>, key: K, value: V) {
-    map.insert(key, value);
+pub fn put<K, V>(map: &mut Map<K, V>, key: K, value: V, hash: HashFn<K>, eq: EqFn<K>) {
+    map.store(key, value, hash, eq);
 }
 
-pub fn replace<K, V>(map: &mut Map<K, V>, key: K, value: V) -> Option<V> {
-    map.replace(key, value)
+pub fn replace<K, V>(map: &mut Map<K, V>, key: K, value: V, hash: HashFn<K>, eq: EqFn<K>) -> Option<V> {
+    map.store(key, value, hash, eq)
 }
 
-pub fn remove<K, V>(map: &mut Map<K, V>, key: &K) -> Option<V> {
-    map.remove(key)
+pub fn remove<K, V>(map: &mut Map<K, V>, key: &K, hash: HashFn<K>, eq: EqFn<K>) -> Option<V> {
+    let i = map.find(key, hash, eq)?;
+    map.remove_at(i)
 }
 
-pub fn contains_key<K, V>(map: &Map<K, V>, key: &K) -> bool {
-    map.contains_key(key)
+pub fn contains_key<K, V>(map: &Map<K, V>, key: &K, hash: HashFn<K>, eq: EqFn<K>) -> bool {
+    map.find(key, hash, eq).is_some()
 }
 
 pub fn size<K, V>(map: &Map<K, V>) -> i32 {
-    map.len() as i32
+    map.live as i32
 }
 
 pub fn keys<K: Clone, V>(map: &Map<K, V>) -> Vec<K> {
-    map.keys().cloned().collect()
+    map.iter().map(|(k, _)| k.clone()).collect()
 }
 
 // [linear-container] The values, owned, in insertion order.
 pub fn into_values<K, V>(map: Map<K, V>) -> Vec<V> {
-    map.into_values()
+    map.slots.into_iter().flatten().map(|(_, _, v)| v).collect()
 }

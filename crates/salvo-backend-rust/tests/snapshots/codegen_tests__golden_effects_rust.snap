@@ -627,7 +627,6 @@ pub fn binary_search<T: Clone>(list: &Vec<T>, elem: &T, cmp: &mut dyn FnMut(&T, 
 }
 
 // ===== core/map.rs =====
-use crate::collections::*;
 use crate::unions::*;
 use crate::core_iterator::Finished;
 use crate::core_iterator::emitted;
@@ -641,55 +640,84 @@ const _: fn() = || { fn __contract<T: Send + 'static + Clone + std::fmt::Debug +
 const _: fn() = || { fn __each(x: &Map<i32, i32>) -> impl Iterator<Item = i32> + '_ { crate::platform_core_map::each(x).map(|e| e.clone()) } let _ = __each; };
 const _: fn() = || { fn __each_ref(x: &Map<i32, i32>) -> impl Iterator<Item = &i32> + '_ { crate::platform_core_map::each(x) } fn __each_mut(x: &mut Map<i32, i32>) -> impl Iterator<Item = &mut i32> + '_ { crate::platform_core_map::each_mut(x) } fn __into_each(x: Map<i32, i32>) -> impl Iterator<Item = i32> { crate::platform_core_map::into_each(x) } let _ = (__each_ref, __each_mut, __into_each); };
 
-pub fn get_platform<'a, K: Clone, V: Clone>(map: &'a SalvoMap<K, V>, key: &K) -> Option<&'a V> {
-    crate::platform_core_map::get(map, key)
+pub fn map_of_platform<K: Clone, V>(entries: Vec<(K, V)>, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> Map<K, V> {
+    crate::platform_core_map::map_of(entries, hash, eq)
 }
 
-pub fn put_platform<K: Clone, V: Clone>(map: &mut SalvoMap<K, V>, key: K, value: V) {
-    crate::platform_core_map::put(map, key, value)
+pub fn mut_map_of_platform<K: Clone, V>(entries: Vec<(K, V)>, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> Map<K, V> {
+    crate::platform_core_map::mut_map_of(entries, hash, eq)
 }
 
-pub fn replace_platform<K: Clone, V>(map: &mut SalvoMap<K, V>, key: K, value: V) -> Option<V> {
-    crate::platform_core_map::replace(map, key, value)
+pub fn map_by_platform<K: Clone, V>(size: i32, init: &mut dyn FnMut(i32) -> (K, V), hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> Map<K, V> {
+    crate::platform_core_map::map_by(size, init, hash, eq)
 }
 
-pub fn remove_platform<K: Clone, V>(map: &mut SalvoMap<K, V>, key: &K) -> Option<V> {
-    crate::platform_core_map::remove(map, key)
+pub fn mut_map_by_platform<K: Clone, V>(size: i32, init: &mut dyn FnMut(i32) -> (K, V), hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> Map<K, V> {
+    crate::platform_core_map::mut_map_by(size, init, hash, eq)
 }
 
-pub fn contains_key_platform<K: Clone, V: Clone>(map: &SalvoMap<K, V>, key: &K) -> bool {
-    crate::platform_core_map::contains_key(map, key)
+pub fn to_map_platform<K: Clone, V: Clone>(pairs: &Vec<(K, V)>, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> Map<K, V> {
+    crate::platform_core_map::to_map(pairs, hash, eq)
 }
 
-pub fn KeyOf_qualifies<K: Clone, V: Clone>(key: &K, map: &SalvoMap<K, V>) -> bool {
-    return contains_key_platform(map, key);
+pub fn to_map<T: Clone, K: Clone, V: Clone>(items: &Vec<T>, entry: &mut impl FnMut(&T) -> (K, V), hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> Map<K, V> {
+    let mut map: Map<K, V> = mut_map_of_platform::<K, V>(vec![], &mut *hash, &mut *eq);
+    for mut x in crate::platform_core_list::each(items).map(|__x| __x.clone()) {
+        let (mut k, mut v) = entry(&x);
+        put_platform::<K, V>(&mut map, k, v, &mut *hash, &mut *eq);
+    }
+    return map;
 }
 
-pub fn get_present_platform<'a, K: Clone, V: Clone>(map: &'a SalvoMap<K, V>, key: &K) -> &'a V {
-    crate::platform_core_map::get_present(map, key)
+pub fn get_platform<'a, K: Clone, V: Clone>(map: &'a Map<K, V>, key: &K, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> Option<&'a V> {
+    crate::platform_core_map::get(map, key, hash, eq)
 }
 
-pub fn get<'a, K: Clone, V: Clone>(map: &'a SalvoMap<K, V>, key: &K) -> &'a V {
-    return get_present_platform(map, key);
+pub fn put_platform<K: Clone, V: Clone>(map: &mut Map<K, V>, key: K, value: V, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) {
+    crate::platform_core_map::put(map, key, value, hash, eq)
 }
 
-pub fn size_platform<K: Clone, V>(map: &SalvoMap<K, V>) -> i32 {
+pub fn replace_platform<K: Clone, V>(map: &mut Map<K, V>, key: K, value: V, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> Option<V> {
+    crate::platform_core_map::replace(map, key, value, hash, eq)
+}
+
+pub fn remove_platform<K: Clone, V>(map: &mut Map<K, V>, key: &K, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> Option<V> {
+    crate::platform_core_map::remove(map, key, hash, eq)
+}
+
+pub fn contains_key_platform<K: Clone, V: Clone>(map: &Map<K, V>, key: &K, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> bool {
+    crate::platform_core_map::contains_key(map, key, hash, eq)
+}
+
+pub fn KeyOf_qualifies<K: Clone, V: Clone>(key: &K, map: &Map<K, V>, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> bool {
+    return contains_key_platform::<K, V>(map, key, &mut *hash, &mut *eq);
+}
+
+pub fn get_present_platform<'a, K: Clone, V: Clone>(map: &'a Map<K, V>, key: &K, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> &'a V {
+    crate::platform_core_map::get_present(map, key, hash, eq)
+}
+
+pub fn get<'a, K: Clone, V: Clone>(map: &'a Map<K, V>, key: &K, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> &'a V {
+    return get_present_platform::<K, V>(map, key, &mut *hash, &mut *eq);
+}
+
+pub fn size_platform<K: Clone, V>(map: &Map<K, V>) -> i32 {
     crate::platform_core_map::size(map)
 }
 
-pub fn drain<K: Clone, V>(map: SalvoMap<K, V>, each: &mut impl FnMut(V)) {
+pub fn drain<K: Clone, V>(map: Map<K, V>, each: &mut impl FnMut(V)) {
     drain__core_list(into_values_platform(map), each);
 }
 
-pub fn into_values_platform<K: Clone, V>(map: SalvoMap<K, V>) -> Vec<V> {
+pub fn into_values_platform<K: Clone, V>(map: Map<K, V>) -> Vec<V> {
     crate::platform_core_map::into_values(map)
 }
 
-pub fn keys_platform<K: Clone, V: Clone>(map: &SalvoMap<K, V>) -> Vec<K> {
+pub fn keys_platform<K: Clone, V: Clone>(map: &Map<K, V>) -> Vec<K> {
     crate::platform_core_map::keys(map)
 }
 
-pub fn iter<K: Clone, V: Clone>(map: &SalvoMap<K, V>) -> MapKeyYield<K> {
+pub fn iter<K: Clone, V: Clone>(map: &Map<K, V>) -> MapKeyYield<K> {
     return MapKeyYield { items: keys_platform(map), at: 0 };
 }
 
@@ -721,12 +749,11 @@ pub fn next<K: Clone>(p: &mut MapKeyYield<K>) -> Union2<K, Finished> {
     return Union2::<K, Finished>::U1(emitted(key.as_ref().unwrap().clone()));
 }
 
-pub fn NonEmpty__Map_qualifies<K: Clone, V: Clone>(map: &SalvoMap<K, V>) -> bool {
+pub fn NonEmpty__Map_qualifies<K: Clone, V: Clone>(map: &Map<K, V>) -> bool {
     return size_platform(map) > 0;
 }
 
 // ===== core/set.rs =====
-use crate::collections::*;
 use crate::unions::*;
 use crate::core_iterator::Finished;
 use crate::core_iterator::emitted;
@@ -740,23 +767,43 @@ const _: fn() = || { fn __contract<T: Send + 'static + Clone + std::fmt::Debug +
 const _: fn() = || { fn __each(x: &Set<i32>) -> impl Iterator<Item = i32> + '_ { crate::platform_core_set::each(x).map(|e| e.clone()) } let _ = __each; };
 const _: fn() = || { fn __each_ref(x: &Set<i32>) -> impl Iterator<Item = &i32> + '_ { crate::platform_core_set::each(x) } fn __each_mut(x: &mut Set<i32>) -> impl Iterator<Item = &mut i32> + '_ { crate::platform_core_set::each_mut(x) } fn __into_each(x: Set<i32>) -> impl Iterator<Item = i32> { crate::platform_core_set::into_each(x) } let _ = (__each_ref, __each_mut, __into_each); };
 
-pub fn add_platform<T: Clone>(set: &mut SalvoSet<T>, elem: T) -> bool {
-    crate::platform_core_set::add(set, elem)
+pub fn set_of_platform<T: Clone>(elems: Vec<T>, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> Set<T> {
+    crate::platform_core_set::set_of(elems, hash, eq)
 }
 
-pub fn remove_platform<T: Clone>(set: &mut SalvoSet<T>, elem: &T) -> bool {
-    crate::platform_core_set::remove(set, elem)
+pub fn mut_set_of_platform<T: Clone>(elems: Vec<T>, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> Set<T> {
+    crate::platform_core_set::mut_set_of(elems, hash, eq)
 }
 
-pub fn contains_platform<T: Clone>(set: &SalvoSet<T>, elem: &T) -> bool {
-    crate::platform_core_set::contains(set, elem)
+pub fn set_by_platform<T: Clone>(size: i32, init: &mut dyn FnMut(i32) -> T, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> Set<T> {
+    crate::platform_core_set::set_by(size, init, hash, eq)
 }
 
-pub fn size_platform<T: Clone>(set: &SalvoSet<T>) -> i32 {
+pub fn mut_set_by_platform<T: Clone>(size: i32, init: &mut dyn FnMut(i32) -> T, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> Set<T> {
+    crate::platform_core_set::mut_set_by(size, init, hash, eq)
+}
+
+pub fn to_set_platform<T: Clone>(list: &Vec<T>, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> Set<T> {
+    crate::platform_core_set::to_set(list, hash, eq)
+}
+
+pub fn add_platform<T: Clone>(set: &mut Set<T>, elem: T, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> bool {
+    crate::platform_core_set::add(set, elem, hash, eq)
+}
+
+pub fn remove_platform<T: Clone>(set: &mut Set<T>, elem: &T, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> bool {
+    crate::platform_core_set::remove(set, elem, hash, eq)
+}
+
+pub fn contains_platform<T: Clone>(set: &Set<T>, elem: &T, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> bool {
+    crate::platform_core_set::contains(set, elem, hash, eq)
+}
+
+pub fn size_platform<T: Clone>(set: &Set<T>) -> i32 {
     crate::platform_core_set::size(set)
 }
 
-pub fn to_str<T: Clone>(set: &SalvoSet<T>, to_str: &mut dyn FnMut(&T) -> String) -> String {
+pub fn to_str<T: Clone>(set: &Set<T>, to_str: &mut dyn FnMut(&T) -> String) -> String {
     let mut out = mut_str(vec!["{".to_string()]);
     let mut i = 0;
     for mut x in crate::platform_core_set::each(set).map(|__x| __x.clone()) {
@@ -770,11 +817,11 @@ pub fn to_str<T: Clone>(set: &SalvoSet<T>, to_str: &mut dyn FnMut(&T) -> String)
     return out;
 }
 
-pub fn to_list_platform<T: Clone>(set: &SalvoSet<T>) -> Vec<T> {
+pub fn to_list_platform<T: Clone>(set: &Set<T>) -> Vec<T> {
     crate::platform_core_set::to_list(set)
 }
 
-pub fn iter<T: Clone>(set: &SalvoSet<T>) -> SetYield<T> {
+pub fn iter<T: Clone>(set: &Set<T>) -> SetYield<T> {
     return SetYield { items: to_list_platform(set), at: 0 };
 }
 
@@ -806,12 +853,11 @@ pub fn next<T: Clone>(p: &mut SetYield<T>) -> Union2<T, Finished> {
     return Union2::<T, Finished>::U1(emitted(elem.as_ref().unwrap().clone()));
 }
 
-pub fn NonEmpty__Set_qualifies<T: Clone>(set: &SalvoSet<T>) -> bool {
+pub fn NonEmpty__Set_qualifies<T: Clone>(set: &Set<T>) -> bool {
     return size_platform(set) > 0;
 }
 
 // ===== core/sorted.rs =====
-use crate::collections::*;
 use crate::core_list::at;
 use crate::core_map::MapKeyYield;
 use crate::core_set::SetYield;
@@ -823,51 +869,59 @@ const _: fn() = || { fn __contract<T: Send + 'static + Clone + std::fmt::Debug +
 const _: fn() = || { fn __each(x: &SortedSet<i32>) -> impl Iterator<Item = i32> + '_ { crate::platform_core_sorted::each_sorted_set(x).map(|e| e.clone()) } let _ = __each; };
 const _: fn() = || { fn __each_ref(x: &SortedSet<i32>) -> impl Iterator<Item = &i32> + '_ { crate::platform_core_sorted::each_sorted_set(x) } fn __each_mut(x: &mut SortedSet<i32>) -> impl Iterator<Item = &mut i32> + '_ { crate::platform_core_sorted::each_sorted_set_mut(x) } fn __into_each(x: SortedSet<i32>) -> impl Iterator<Item = i32> { crate::platform_core_sorted::into_each_sorted_set(x) } let _ = (__each_ref, __each_mut, __into_each); };
 
-pub fn add_platform<T: Clone>(set: &mut SalvoSortedSet<T>, elem: T) -> bool {
-    crate::platform_core_sorted::add(set, elem)
+pub fn sorted_set_of_platform<T: Clone>(elems: Vec<T>, cmp: &mut dyn FnMut(&T, &T) -> i32) -> SortedSet<T> {
+    crate::platform_core_sorted::sorted_set_of(elems, cmp)
 }
 
-pub fn remove__SortedSet_T<T: Clone>(set: &mut SalvoSortedSet<T>, elem: &T) -> bool {
-    return remove_elem_platform(set, elem);
+pub fn mut_sorted_set_of_platform<T: Clone>(elems: Vec<T>, cmp: &mut dyn FnMut(&T, &T) -> i32) -> SortedSet<T> {
+    crate::platform_core_sorted::mut_sorted_set_of(elems, cmp)
 }
 
-pub fn remove_elem_platform<T: Clone>(set: &mut SalvoSortedSet<T>, elem: &T) -> bool {
-    crate::platform_core_sorted::remove_elem(set, elem)
+pub fn add_platform<T: Clone>(set: &mut SortedSet<T>, elem: T, cmp: &mut dyn FnMut(&T, &T) -> i32) -> bool {
+    crate::platform_core_sorted::add(set, elem, cmp)
 }
 
-pub fn set_size_platform<T: Clone>(set: &SalvoSortedSet<T>) -> i32 {
+pub fn remove__SortedSet_T<T: Clone>(set: &mut SortedSet<T>, elem: &T, cmp: &mut dyn FnMut(&T, &T) -> i32) -> bool {
+    return remove_elem_platform::<T>(set, elem, &mut *cmp);
+}
+
+pub fn remove_elem_platform<T: Clone>(set: &mut SortedSet<T>, elem: &T, cmp: &mut dyn FnMut(&T, &T) -> i32) -> bool {
+    crate::platform_core_sorted::remove_elem(set, elem, cmp)
+}
+
+pub fn set_size_platform<T: Clone>(set: &SortedSet<T>) -> i32 {
     crate::platform_core_sorted::set_size(set)
 }
 
-pub fn remove_key_platform<K: Clone, V: Clone>(map: &mut SalvoSortedMap<K, V>, key: &K) -> Option<V> {
-    crate::platform_core_sorted::remove_key(map, key)
+pub fn remove_key_platform<K: Clone, V: Clone>(map: &mut SortedMap<K, V>, key: &K, cmp: &mut dyn FnMut(&K, &K) -> i32) -> Option<V> {
+    crate::platform_core_sorted::remove_key(map, key, cmp)
 }
 
-pub fn map_size_platform<K: Clone, V: Clone>(map: &SalvoSortedMap<K, V>) -> i32 {
+pub fn map_size_platform<K: Clone, V: Clone>(map: &SortedMap<K, V>) -> i32 {
     crate::platform_core_sorted::map_size(map)
 }
 
-pub fn contains_platform<T: Clone>(set: &SalvoSortedSet<T>, elem: &T) -> bool {
-    crate::platform_core_sorted::contains(set, elem)
+pub fn contains_platform<T: Clone>(set: &SortedSet<T>, elem: &T, cmp: &mut dyn FnMut(&T, &T) -> i32) -> bool {
+    crate::platform_core_sorted::contains(set, elem, cmp)
 }
 
-pub fn size__SortedSet<T: Clone>(set: &SalvoSortedSet<T>) -> i32 {
+pub fn size__SortedSet<T: Clone>(set: &SortedSet<T>) -> i32 {
     return set_size_platform(set);
 }
 
-pub fn min_platform<T: Clone>(set: &SalvoSortedSet<T>) -> Option<T> {
+pub fn min_platform<T: Clone>(set: &SortedSet<T>) -> Option<T> {
     crate::platform_core_sorted::min(set)
 }
 
-pub fn max_platform<T: Clone>(set: &SalvoSortedSet<T>) -> Option<T> {
+pub fn max_platform<T: Clone>(set: &SortedSet<T>) -> Option<T> {
     crate::platform_core_sorted::max(set)
 }
 
-pub fn to_list_platform<T: Clone>(set: &SalvoSortedSet<T>) -> Vec<T> {
+pub fn to_list_platform<T: Clone>(set: &SortedSet<T>) -> Vec<T> {
     crate::platform_core_sorted::to_list(set)
 }
 
-pub fn to_str<T: Clone>(set: &SalvoSortedSet<T>, to_str: &mut dyn FnMut(&T) -> String) -> String {
+pub fn to_str<T: Clone>(set: &SortedSet<T>, to_str: &mut dyn FnMut(&T) -> String) -> String {
     let mut out = mut_str(vec!["{".to_string()]);
     let mut i = 0;
     for mut x in crate::platform_core_sorted::each_sorted_set(set).map(|__x| __x.clone()) {
@@ -881,7 +935,7 @@ pub fn to_str<T: Clone>(set: &SalvoSortedSet<T>, to_str: &mut dyn FnMut(&T) -> S
     return out;
 }
 
-pub fn iter__SortedSet<T: Clone>(set: &SalvoSortedSet<T>) -> SetYield<T> {
+pub fn iter__SortedSet<T: Clone>(set: &SortedSet<T>) -> SetYield<T> {
     return SetYield { items: to_list_platform(set), at: 0 };
 }
 
@@ -891,63 +945,71 @@ const _: fn() = || { fn __contract<T: Send + 'static + Clone + std::fmt::Debug +
 const _: fn() = || { fn __each(x: &SortedMap<i32, i32>) -> impl Iterator<Item = i32> + '_ { crate::platform_core_sorted::each_sorted_map(x).map(|e| e.clone()) } let _ = __each; };
 const _: fn() = || { fn __each_ref(x: &SortedMap<i32, i32>) -> impl Iterator<Item = &i32> + '_ { crate::platform_core_sorted::each_sorted_map(x) } fn __each_mut(x: &mut SortedMap<i32, i32>) -> impl Iterator<Item = &mut i32> + '_ { crate::platform_core_sorted::each_sorted_map_mut(x) } fn __into_each(x: SortedMap<i32, i32>) -> impl Iterator<Item = i32> { crate::platform_core_sorted::into_each_sorted_map(x) } let _ = (__each_ref, __each_mut, __into_each); };
 
-pub fn get_platform<'a, K: Clone, V: Clone>(map: &'a SalvoSortedMap<K, V>, key: &K) -> Option<&'a V> {
-    crate::platform_core_sorted::get(map, key)
+pub fn sorted_map_of_platform<K: Clone, V: Clone>(entries: Vec<(K, V)>, cmp: &mut dyn FnMut(&K, &K) -> i32) -> SortedMap<K, V> {
+    crate::platform_core_sorted::sorted_map_of(entries, cmp)
 }
 
-pub fn put_platform<K: Clone, V: Clone>(map: &mut SalvoSortedMap<K, V>, key: K, value: V) {
-    crate::platform_core_sorted::put(map, key, value)
+pub fn mut_sorted_map_of_platform<K: Clone, V: Clone>(entries: Vec<(K, V)>, cmp: &mut dyn FnMut(&K, &K) -> i32) -> SortedMap<K, V> {
+    crate::platform_core_sorted::mut_sorted_map_of(entries, cmp)
 }
 
-pub fn remove__SortedMap_K<K: Clone, V: Clone>(map: &mut SalvoSortedMap<K, V>, key: &K) -> Option<V> {
-    return remove_key_platform(map, key);
+pub fn get_platform<'a, K: Clone, V: Clone>(map: &'a SortedMap<K, V>, key: &K, cmp: &mut dyn FnMut(&K, &K) -> i32) -> Option<&'a V> {
+    crate::platform_core_sorted::get(map, key, cmp)
 }
 
-pub fn contains_key_platform<K: Clone, V: Clone>(map: &SalvoSortedMap<K, V>, key: &K) -> bool {
-    crate::platform_core_sorted::contains_key(map, key)
+pub fn put_platform<K: Clone, V: Clone>(map: &mut SortedMap<K, V>, key: K, value: V, cmp: &mut dyn FnMut(&K, &K) -> i32) {
+    crate::platform_core_sorted::put(map, key, value, cmp)
 }
 
-pub fn size__SortedMap<K: Clone, V: Clone>(map: &SalvoSortedMap<K, V>) -> i32 {
+pub fn remove__SortedMap_K<K: Clone, V: Clone>(map: &mut SortedMap<K, V>, key: &K, cmp: &mut dyn FnMut(&K, &K) -> i32) -> Option<V> {
+    return remove_key_platform::<K, V>(map, key, &mut *cmp);
+}
+
+pub fn contains_key_platform<K: Clone, V: Clone>(map: &SortedMap<K, V>, key: &K, cmp: &mut dyn FnMut(&K, &K) -> i32) -> bool {
+    crate::platform_core_sorted::contains_key(map, key, cmp)
+}
+
+pub fn size__SortedMap<K: Clone, V: Clone>(map: &SortedMap<K, V>) -> i32 {
     return map_size_platform(map);
 }
 
-pub fn first_key_platform<K: Clone, V: Clone>(map: &SalvoSortedMap<K, V>) -> Option<K> {
+pub fn first_key_platform<K: Clone, V: Clone>(map: &SortedMap<K, V>) -> Option<K> {
     crate::platform_core_sorted::first_key(map)
 }
 
-pub fn last_key_platform<K: Clone, V: Clone>(map: &SalvoSortedMap<K, V>) -> Option<K> {
+pub fn last_key_platform<K: Clone, V: Clone>(map: &SortedMap<K, V>) -> Option<K> {
     crate::platform_core_sorted::last_key(map)
 }
 
-pub fn keys_platform<K: Clone, V: Clone>(map: &SalvoSortedMap<K, V>) -> Vec<K> {
+pub fn keys_platform<K: Clone, V: Clone>(map: &SortedMap<K, V>) -> Vec<K> {
     crate::platform_core_sorted::keys(map)
 }
 
-pub fn iter__SortedMap<K: Clone, V: Clone>(map: &SalvoSortedMap<K, V>) -> MapKeyYield<K> {
+pub fn iter__SortedMap<K: Clone, V: Clone>(map: &SortedMap<K, V>) -> MapKeyYield<K> {
     return MapKeyYield { items: keys_platform(map), at: 0 };
 }
 
-pub fn NonEmpty__SortedSet_qualifies<T: Clone>(set: &SalvoSortedSet<T>) -> bool {
+pub fn NonEmpty__SortedSet_qualifies<T: Clone>(set: &SortedSet<T>) -> bool {
     return size__SortedSet(set) > 0;
 }
 
-pub fn NonEmpty__SortedMap_qualifies<K: Clone, V: Clone>(map: &SalvoSortedMap<K, V>) -> bool {
+pub fn NonEmpty__SortedMap_qualifies<K: Clone, V: Clone>(map: &SortedMap<K, V>) -> bool {
     return size__SortedMap(map) > 0;
 }
 
-pub fn min<T: Clone>(set: &SalvoSortedSet<T>) -> T {
+pub fn min<T: Clone>(set: &SortedSet<T>) -> T {
     return min_platform(set).expect("salvo: value is absent at core.sorted:188:12");
 }
 
-pub fn max<T: Clone>(set: &SalvoSortedSet<T>) -> T {
+pub fn max<T: Clone>(set: &SortedSet<T>) -> T {
     return max_platform(set).expect("salvo: value is absent at core.sorted:192:12");
 }
 
-pub fn first_key<K: Clone, V: Clone>(map: &SalvoSortedMap<K, V>) -> K {
+pub fn first_key<K: Clone, V: Clone>(map: &SortedMap<K, V>) -> K {
     return first_key_platform(map).expect("salvo: value is absent at core.sorted:196:12");
 }
 
-pub fn last_key<K: Clone, V: Clone>(map: &SalvoSortedMap<K, V>) -> K {
+pub fn last_key<K: Clone, V: Clone>(map: &SortedMap<K, V>) -> K {
     return last_key_platform(map).expect("salvo: value is absent at core.sorted:200:12");
 }
 
@@ -1176,8 +1238,6 @@ pub fn split_last(str: &String, sep: &String) -> Option<(String, String)> {
 pub mod unions;
 #[path = "seq.rs"]
 pub mod seq;
-#[path = "collections.rs"]
-pub mod collections;
 #[path = "hosttime.rs"]
 pub mod hosttime;
 #[path = "wire.rs"]
@@ -1647,1299 +1707,6 @@ pub fn salvo_pair_mut<T>(xs: &mut [T], i: usize, j: usize) -> Option<(&mut T, &m
     }
 }
 
-// ===== collections.rs =====
-// Generated by the Salvo compiler: insertion-ordered collections.
-//
-// Salvo's `Map<K, V>` and `Set<T>` iterate in **insertion order** on every
-// backend [col-insertion-order]. Kotlin gets that from `LinkedHashMap` /
-// `LinkedHashSet`; Rust's own `HashMap`/`HashSet` do not provide it (their
-// order is unspecified and randomly seeded per process), and the standard
-// library has no ordered hash map, so this file is the equivalent. The
-// observable semantics are LinkedHashMap's, exactly:
-//
-//   * iteration yields entries in first-insertion order;
-//   * overwriting an existing key updates the value and **keeps** the
-//     key's original position;
-//   * removal is O(1) and preserves the order of everything else;
-//   * equality is order-insensitive content equality, like
-//     `AbstractMap.equals` on the JVM.
-//
-// Representation: entries live in a `Vec` in insertion order, and a
-// `HashMap` indexes key -> slot. A removed slot becomes `None` so the
-// stored indices stay valid, and the slab is compacted once the dead slots
-// outnumber the live ones — which keeps removal amortized O(1) without
-// letting an add/remove loop grow the vector without bound.
-//
-// **Where the bounds sit matters.** The struct definitions carry none, and
-// each operation carries only what it needs: hashing a key needs
-// `Hash + Eq + Clone`, but *walking* a collection does not. That is what
-// lets a generic Salvo function (`fn iter<T>(set: Set<T>)`, whose emitted
-// signature has only the bounds Salvo knows about) iterate a `Set<T>` at
-// all — a bound on the struct would have to be repeated by every generated
-// signature that so much as mentions the type.
-
-use std::cmp::Ordering;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::fmt;
-use std::hash::Hash;
-use std::marker::PhantomData;
-use std::sync::Arc;
-
-// ===== the hash and equality a keyed container is kept by [cmp-carry] =====
-
-/// One Salvo `hash`, as a **type**, exactly as `SalvoCmp` is one ordering: the
-/// compiler emits a zero-sized marker per bound identity and implements this for
-/// it, so hashing is a direct call and no key pays to store a function.
-pub trait SalvoHash<T> {
-    fn hash(value: &T) -> i64;
-}
-
-/// …and one `eq`. A hash container buckets by `hash` and confirms the bucket hit
-/// by `eq`, which is why the two travel together [col-membership].
-pub trait SalvoEq<T> {
-    fn eq(a: &T, b: &T) -> bool;
-}
-
-/// The **canonical** pair: the host's own hashing and equality, which is what
-/// every keyed container used before a hash could be named — and for a generated
-/// `auto fn hash`/`auto fn eq` it is the same function [cmp-auto].
-pub struct HostHash;
-
-impl<T: Hash> SalvoHash<T> for HostHash {
-    fn hash(value: &T) -> i64 {
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        value.hash(&mut hasher);
-        std::hash::Hasher::finish(&hasher) as i64
-    }
-}
-
-pub struct HostEq;
-
-impl<T: PartialEq> SalvoEq<T> for HostEq {
-    fn eq(a: &T, b: &T) -> bool {
-        a == b
-    }
-}
-
-/// A key wearing a hash and an equality. `#[repr(transparent)]` for the same
-/// reason `OrdBy` is: it lets a borrowed key be *viewed* as a borrowed wrapper,
-/// so a lookup costs no clone.
-#[repr(transparent)]
-struct HashBy<H, E, T>(T, PhantomData<(H, E)>);
-
-impl<H, E, T> HashBy<H, E, T> {
-    fn wrap(value: T) -> Self {
-        HashBy(value, PhantomData)
-    }
-
-    /// A borrowed key as a borrowed wrapper.
-    fn probe(value: &T) -> &Self {
-        // SAFETY: `HashBy` is `#[repr(transparent)]` over `T` — the
-        // `PhantomData` is zero-sized, so `T` is its only non-zero-sized field.
-        // The language therefore guarantees identical size, alignment and
-        // validity, so the memory behind a live `&T` is a valid
-        // `HashBy<H, E, T>`; the result borrows it for the same lifetime, and
-        // both references are shared. As with `OrdBy`, there is deliberately no
-        // mutable form: writing through one could break the index's invariant.
-        unsafe { &*(value as *const T as *const HashBy<H, E, T>) }
-    }
-}
-
-impl<H: SalvoHash<T>, E, T> Hash for HashBy<H, E, T> {
-    fn hash<S: std::hash::Hasher>(&self, state: &mut S) {
-        state.write_i64(H::hash(&self.0));
-    }
-}
-
-impl<H, E: SalvoEq<T>, T> PartialEq for HashBy<H, E, T> {
-    fn eq(&self, other: &Self) -> bool {
-        E::eq(&self.0, &other.0)
-    }
-}
-
-impl<H, E: SalvoEq<T>, T> Eq for HashBy<H, E, T> {}
-
-// ===== the store, generic over the pair =====
-
-/// The insertion-ordered map behind `SalvoMap`, with the hash and equality its
-/// keys are kept by erased at this boundary — so `SalvoMap<K, V>` is one Rust
-/// type however its keys are hashed, and a Salvo fn over a map is emitted with no
-/// parameter and no bound for the difference.
-trait MapStore<K, V> {
-    fn get(&self, key: &K) -> Option<&V>;
-    fn get_mut(&mut self, key: &K) -> Option<&mut V>;
-    fn insert(&mut self, key: K, value: V);
-    fn replace(&mut self, key: K, value: V) -> Option<V>;
-    fn remove(&mut self, key: &K) -> Option<V>;
-    fn contains_key(&self, key: &K) -> bool;
-    fn len(&self) -> usize;
-    /// The slab, in insertion order: what iteration walks. Exposing it keeps
-    /// `SalvoMap::iter` an ordinary iterator rather than a boxed one.
-    fn slots(&self) -> &[Option<(K, V)>];
-    fn take_values(&mut self) -> Vec<V>;
-    fn clone_box(&self) -> Box<dyn MapStore<K, V> + Send>;
-}
-
-struct HashedStore<H, E, K, V> {
-    slots: Vec<Option<(K, V)>>,
-    index: HashMap<HashBy<H, E, K>, usize>,
-}
-
-impl<H, E, K, V> HashedStore<H, E, K, V> {
-    fn new() -> Self {
-        HashedStore {
-            slots: Vec::new(),
-            index: HashMap::new(),
-        }
-    }
-}
-
-impl<H, E, K, V> MapStore<K, V> for HashedStore<H, E, K, V>
-where
-    H: SalvoHash<K> + Send + 'static,
-    E: SalvoEq<K> + Send + 'static,
-    K: Clone + Send + 'static,
-    V: Clone + Send + 'static,
-{
-    fn get(&self, key: &K) -> Option<&V> {
-        let i = *self.index.get(HashBy::<H, E, K>::probe(key))?;
-        self.slots[i].as_ref().map(|(_, v)| v)
-    }
-
-    fn get_mut(&mut self, key: &K) -> Option<&mut V> {
-        let i = *self.index.get(HashBy::<H, E, K>::probe(key))?;
-        self.slots[i].as_mut().map(|(_, v)| v)
-    }
-
-    fn insert(&mut self, key: K, value: V) {
-        match self.index.get(HashBy::<H, E, K>::probe(&key)) {
-            Some(&i) => self.slots[i] = Some((key, value)),
-            None => {
-                self.slots.push(Some((key.clone(), value)));
-                self.index.insert(HashBy::wrap(key), self.slots.len() - 1);
-            }
-        }
-    }
-
-    fn replace(&mut self, key: K, value: V) -> Option<V> {
-        match self.index.get(HashBy::<H, E, K>::probe(&key)) {
-            Some(&i) => self.slots[i].replace((key, value)).map(|(_, v)| v),
-            None => {
-                self.slots.push(Some((key.clone(), value)));
-                self.index.insert(HashBy::wrap(key), self.slots.len() - 1);
-                None
-            }
-        }
-    }
-
-    fn remove(&mut self, key: &K) -> Option<V> {
-        let i = self.index.remove(HashBy::<H, E, K>::probe(key))?;
-        let taken = self.slots[i].take().map(|(_, v)| v);
-        self.compact_if_sparse();
-        taken
-    }
-
-    fn contains_key(&self, key: &K) -> bool {
-        self.index.contains_key(HashBy::<H, E, K>::probe(key))
-    }
-
-    fn len(&self) -> usize {
-        self.index.len()
-    }
-
-    fn slots(&self) -> &[Option<(K, V)>] {
-        &self.slots
-    }
-
-    fn take_values(&mut self) -> Vec<V> {
-        self.index.clear();
-        std::mem::take(&mut self.slots)
-            .into_iter()
-            .flatten()
-            .map(|(_, v)| v)
-            .collect()
-    }
-
-    fn clone_box(&self) -> Box<dyn MapStore<K, V> + Send> {
-        let mut store = HashedStore::<H, E, K, V>::new();
-        store.slots = self.slots.clone();
-        for (i, slot) in store.slots.iter().enumerate() {
-            if let Some((k, _)) = slot {
-                store.index.insert(HashBy::wrap(k.clone()), i);
-            }
-        }
-        Box::new(store)
-    }
-}
-
-impl<H, E, K, V> HashedStore<H, E, K, V>
-where
-    H: SalvoHash<K>,
-    E: SalvoEq<K>,
-    K: Clone,
-{
-    fn compact_if_sparse(&mut self) {
-        let live = self.index.len();
-        if self.slots.len() <= 2 * live + 8 {
-            return;
-        }
-        self.slots.retain(|s| s.is_some());
-        self.index.clear();
-        for (i, slot) in self.slots.iter().enumerate() {
-            if let Some((k, _)) = slot {
-                self.index.insert(HashBy::wrap(k.clone()), i);
-            }
-        }
-    }
-}
-
-/// [cmp-carry] A store whose identity is a **pair of functions** rather than a
-/// pair of marker types, for a keyed container built inside a *generic*
-/// function: there the identity is a capability the function was handed, so
-/// there is no type to name it by (added 2026-09-26).
-///
-/// Its representation matches the Kotlin runtime's `SalvoHashMap`, which has
-/// always held closures: entries live in a slab in first-insertion order and a
-/// bucket index maps a Salvo hash to the slots holding it, confirming a bucket
-/// hit with `eq`. That is also why it cannot reuse `HashedStore` — `HashBy`'s
-/// `Hash`/`Eq` impls dispatch through *types*, and a closure held elsewhere is
-/// not reachable from them.
-///
-/// `Arc` rather than `Box` so `clone_box` can share the identity: two clones of
-/// a map are keyed the same way by construction.
-struct FnStore<K, V> {
-    slots: Vec<Option<(K, V)>>,
-    buckets: HashMap<i64, Vec<usize>>,
-    hash: Arc<dyn Fn(&K) -> i64 + Send + Sync>,
-    eq: Arc<dyn Fn(&K, &K) -> bool + Send + Sync>,
-    live: usize,
-}
-
-impl<K, V> FnStore<K, V> {
-    fn new(
-        hash: Arc<dyn Fn(&K) -> i64 + Send + Sync>,
-        eq: Arc<dyn Fn(&K, &K) -> bool + Send + Sync>,
-    ) -> Self {
-        FnStore {
-            slots: Vec::new(),
-            buckets: HashMap::new(),
-            hash,
-            eq,
-            live: 0,
-        }
-    }
-
-    /// The slot holding a key equal to `key`, if any.
-    fn slot_of(&self, key: &K) -> Option<usize> {
-        let bucket = self.buckets.get(&(self.hash)(key))?;
-        bucket.iter().copied().find(|&i| {
-            self.slots[i]
-                .as_ref()
-                .is_some_and(|(k, _)| (self.eq)(k, key))
-        })
-    }
-
-    fn compact_if_sparse(&mut self) {
-        if self.slots.len() <= 2 * self.live + 8 {
-            return;
-        }
-        self.slots.retain(|s| s.is_some());
-        self.buckets.clear();
-        for i in 0..self.slots.len() {
-            if let Some((k, _)) = &self.slots[i] {
-                let h = (self.hash)(k);
-                self.buckets.entry(h).or_default().push(i);
-            }
-        }
-    }
-}
-
-impl<K: Clone + Send + 'static, V: Clone + Send + 'static> MapStore<K, V> for FnStore<K, V> {
-    fn get(&self, key: &K) -> Option<&V> {
-        let i = self.slot_of(key)?;
-        self.slots[i].as_ref().map(|(_, v)| v)
-    }
-
-    fn get_mut(&mut self, key: &K) -> Option<&mut V> {
-        let i = self.slot_of(key)?;
-        self.slots[i].as_mut().map(|(_, v)| v)
-    }
-
-    fn insert(&mut self, key: K, value: V) {
-        match self.slot_of(&key) {
-            // An overwrite keeps the key's position [col-insertion-order].
-            Some(i) => self.slots[i] = Some((key, value)),
-            None => {
-                let h = (self.hash)(&key);
-                self.slots.push(Some((key, value)));
-                self.buckets.entry(h).or_default().push(self.slots.len() - 1);
-                self.live += 1;
-            }
-        }
-    }
-
-    fn replace(&mut self, key: K, value: V) -> Option<V> {
-        match self.slot_of(&key) {
-            Some(i) => self.slots[i].replace((key, value)).map(|(_, v)| v),
-            None => {
-                self.insert(key, value);
-                None
-            }
-        }
-    }
-
-    fn remove(&mut self, key: &K) -> Option<V> {
-        let i = self.slot_of(key)?;
-        let h = (self.hash)(key);
-        if let Some(bucket) = self.buckets.get_mut(&h) {
-            bucket.retain(|&j| j != i);
-            if bucket.is_empty() {
-                self.buckets.remove(&h);
-            }
-        }
-        let taken = self.slots[i].take().map(|(_, v)| v);
-        self.live -= 1;
-        self.compact_if_sparse();
-        taken
-    }
-
-    fn contains_key(&self, key: &K) -> bool {
-        self.slot_of(key).is_some()
-    }
-
-    fn len(&self) -> usize {
-        self.live
-    }
-
-    fn slots(&self) -> &[Option<(K, V)>] {
-        &self.slots
-    }
-
-    fn take_values(&mut self) -> Vec<V> {
-        self.buckets.clear();
-        self.live = 0;
-        self.slots
-            .drain(..)
-            .flatten()
-            .map(|(_, v)| v)
-            .collect()
-    }
-
-    fn clone_box(&self) -> Box<dyn MapStore<K, V> + Send> {
-        Box::new(FnStore {
-            slots: self.slots.clone(),
-            buckets: self.buckets.clone(),
-            hash: Arc::clone(&self.hash),
-            eq: Arc::clone(&self.eq),
-            live: self.live,
-        })
-    }
-}
-
-pub struct SalvoMap<K, V> {
-    // `+ Send` on the box rather than on the trait: a map is sendable when its
-    // keys and values are, and stating it here keeps every operation bound-free —
-    // so a Salvo fn over a map is emitted with no bounds of its own.
-    store: Box<dyn MapStore<K, V> + Send>,
-}
-
-// Building one names the hash and the equality its keys are kept by, which is the
-// only place the markers appear.
-impl<K: Clone + Send + 'static, V: Clone + Send + 'static> SalvoMap<K, V> {
-    pub fn new<H, E>() -> Self
-    where
-        H: SalvoHash<K> + Send + 'static,
-        E: SalvoEq<K> + Send + 'static,
-    {
-        SalvoMap {
-            store: Box::new(HashedStore::<H, E, K, V>::new()),
-        }
-    }
-
-    /// [cmp-carry] The same map, keyed by a **pair of functions**: what a
-    /// keyed container built inside a generic function is given, where the
-    /// identity is a capability rather than a name (2026-09-26).
-    pub fn with_fns(
-        hash: Arc<dyn Fn(&K) -> i64 + Send + Sync>,
-        eq: Arc<dyn Fn(&K, &K) -> bool + Send + Sync>,
-    ) -> Self {
-        SalvoMap {
-            store: Box::new(FnStore::new(hash, eq)),
-        }
-    }
-
-    /// The constructor lowering's entry point: `map_of(("a", 1), ...)`.
-    /// A repeated key keeps the position of its first appearance and takes
-    /// the value of its last [col-duplicate-keys].
-    pub fn from_entries<H, E, I>(entries: I) -> Self
-    where
-        H: SalvoHash<K> + Send + 'static,
-        E: SalvoEq<K> + Send + 'static,
-        I: IntoIterator<Item = (K, V)>,
-    {
-        let mut map = SalvoMap::new::<H, E>();
-        for (k, v) in entries {
-            map.insert(k, v);
-        }
-        map
-    }
-}
-
-// Using one needs nothing of `K` or `V`: every operation goes through the store.
-impl<K, V> SalvoMap<K, V> {
-    pub fn len(&self) -> usize {
-        self.store.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    /// Entries in insertion order.
-    pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> + '_ {
-        self.store
-            .slots()
-            .iter()
-            .filter_map(|s| s.as_ref().map(|(k, v)| (k, v)))
-    }
-
-    pub fn keys(&self) -> impl Iterator<Item = &K> + '_ {
-        self.iter().map(|(k, _)| k)
-    }
-
-    pub fn values(&self) -> impl Iterator<Item = &V> + '_ {
-        self.iter().map(|(_, v)| v)
-    }
-
-    /// Inserts or overwrites. An overwrite keeps the key's original
-    /// position, so iteration order is stable under updates.
-    pub fn insert(&mut self, key: K, value: V) {
-        self.store.insert(key, value)
-    }
-
-    pub fn get(&self, key: &K) -> Option<&V> {
-        self.store.get(key)
-    }
-
-    pub fn get_mut(&mut self, key: &K) -> Option<&mut V> {
-        self.store.get_mut(key)
-    }
-
-    /// Removes the entry and hands its value back — the shape Salvo's
-    /// `remove(map, key) -> V?` needs, so a caller can take ownership of
-    /// what the map was holding.
-    pub fn remove(&mut self, key: &K) -> Option<V> {
-        self.store.remove(key)
-    }
-
-    /// [linear-container] Inserts and answers what it **displaced** — the
-    /// shape `replace(map, key, value) -> V?` needs, and the only write a map
-    /// of obligations can have: an overwrite that dropped the old value would
-    /// be a silent discard. Like `insert`, an existing key keeps its position.
-    pub fn replace(&mut self, key: K, value: V) -> Option<V> {
-        self.store.replace(key, value)
-    }
-
-    /// [linear-container] Consumes the map and answers its values in
-    /// insertion order — what `drain(map, each)` hands to its callback, one
-    /// at a time.
-    pub fn into_values(mut self) -> Vec<V> {
-        self.store.take_values()
-    }
-
-    pub fn contains_key(&self, key: &K) -> bool {
-        self.store.contains_key(key)
-    }
-}
-
-// Through the store, so no key is rehashed and no bound is needed here.
-impl<K, V> Clone for SalvoMap<K, V> {
-    fn clone(&self) -> Self {
-        SalvoMap {
-            store: self.store.clone_box(),
-        }
-    }
-}
-
-/// Order-insensitive, matching the JVM's `AbstractMap.equals` so `==` on a
-/// map means the same thing on both backends [col-equality].
-impl<K, V: PartialEq> PartialEq for SalvoMap<K, V> {
-    fn eq(&self, other: &Self) -> bool {
-        self.len() == other.len() && self.iter().all(|(k, v)| other.get(k) == Some(v))
-    }
-}
-
-impl<K, V: Eq> Eq for SalvoMap<K, V> {}
-
-/// `{a: 1, b: 2}` — the language's format, in insertion order, matching
-/// the map literal that would build it [col-to-str]. Walking only, so no
-/// hashing bound.
-impl<K: fmt::Display, V: fmt::Display> fmt::Display for SalvoMap<K, V> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{{")?;
-        for (i, (k, v)) in self.iter().enumerate() {
-            if i > 0 {
-                write!(f, ", ")?;
-            }
-            write!(f, "{}: {}", k, v)?;
-        }
-        write!(f, "}}")
-    }
-}
-
-// A struct derives `Debug`, so a struct holding a map needs this. Nothing
-// renders a Salvo value through `Debug` any more — interpolation goes through
-// `to_str` [interp-to-str] — so the bound is `Debug`, not the `Display` it was
-// while `{:?}` rendered structs: that bound made every struct with a
-// `Map<Str, SomeStruct>` field a rustc error (found 2026-09-29, the aws
-// generator's `message_attributes`).
-impl<K: fmt::Debug, V: fmt::Debug> fmt::Debug for SalvoMap<K, V> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_map().entries(self.iter()).finish()
-    }
-}
-
-pub struct SalvoSet<T> {
-    // A set is a map to nothing: one representation, so the two cannot
-    // drift apart on ordering or removal semantics.
-    entries: SalvoMap<T, ()>,
-}
-
-// Building one names the pair its elements are kept by.
-impl<T: Clone + Send + 'static> SalvoSet<T> {
-    pub fn new<H, E>() -> Self
-    where
-        H: SalvoHash<T> + Send + 'static,
-        E: SalvoEq<T> + Send + 'static,
-    {
-        SalvoSet {
-            entries: SalvoMap::new::<H, E>(),
-        }
-    }
-
-    /// [cmp-carry] Keyed by a pair of functions, for a generic body.
-    pub fn with_fns(
-        hash: Arc<dyn Fn(&T) -> i64 + Send + Sync>,
-        eq: Arc<dyn Fn(&T, &T) -> bool + Send + Sync>,
-    ) -> Self {
-        SalvoSet {
-            entries: SalvoMap::with_fns(hash, eq),
-        }
-    }
-
-    pub fn from_elements<H, E, I>(elems: I) -> Self
-    where
-        H: SalvoHash<T> + Send + 'static,
-        E: SalvoEq<T> + Send + 'static,
-        I: IntoIterator<Item = T>,
-    {
-        let mut set = SalvoSet::new::<H, E>();
-        for e in elems {
-            set.insert(e);
-        }
-        set
-    }
-}
-
-// Using one needs nothing of `T`.
-impl<T> SalvoSet<T> {
-    pub fn len(&self) -> usize {
-        self.entries.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-
-    /// Elements in insertion order.
-    pub fn iter(&self) -> impl Iterator<Item = &T> + '_ {
-        self.entries.keys()
-    }
-
-    /// `true` when the element was newly added, which is what Salvo's
-    /// `add(set, elem) -> Bool` reports.
-    pub fn insert(&mut self, elem: T) -> bool {
-        if self.entries.contains_key(&elem) {
-            return false;
-        }
-        self.entries.insert(elem, ());
-        true
-    }
-
-    /// `true` when the element was present.
-    pub fn remove(&mut self, elem: &T) -> bool {
-        self.entries.remove(elem).is_some()
-    }
-
-    pub fn contains(&self, elem: &T) -> bool {
-        self.entries.contains_key(elem)
-    }
-}
-
-impl<T> Clone for SalvoSet<T> {
-    fn clone(&self) -> Self {
-        SalvoSet {
-            entries: self.entries.clone(),
-        }
-    }
-}
-
-/// Order-insensitive, like the JVM's `AbstractSet.equals`.
-impl<T> PartialEq for SalvoSet<T> {
-    fn eq(&self, other: &Self) -> bool {
-        self.len() == other.len() && self.iter().all(|e| other.contains(e))
-    }
-}
-
-impl<T> Eq for SalvoSet<T> {}
-
-/// `{1, 2, 3}` — the set literal that would build it.
-impl<T: fmt::Display> fmt::Display for SalvoSet<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{{")?;
-        for (i, e) in self.iter().enumerate() {
-            if i > 0 {
-                write!(f, ", ")?;
-            }
-            write!(f, "{}", e)?;
-        }
-        write!(f, "}}")
-    }
-}
-
-impl<T: fmt::Debug> fmt::Debug for SalvoSet<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_set().entries(self.entries.keys()).finish()
-    }
-}
-
-// ===== the sorted collections, and the ordering they are kept by =====
-//
-// [cmp-carry] [col-membership] A `SortedSet<T>(?cmp)` / `SortedMap<K, V>(?cmp)`
-// is kept by the ordering its type names, and its members are **`cmp`-distinct**:
-// two elements are one member when `cmp(a, b) == 0`. That is what both hosts do
-// natively — `BTreeSet` decides duplicates by `Ord` alone — so it is the rule
-// the language states rather than one this file invents.
-//
-// The ordering is a **type**, not a value: the compiler emits a zero-sized
-// marker per bound identity (`__Cmp_by_age`) and implements `SalvoCmp` for it,
-// so comparisons are direct calls the optimizer can inline and no element pays
-// to store a comparator. The marker then stops at the container's edge, behind a
-// boxed store — which is why a Salvo fn generic over a sorted collection is
-// emitted with no extra type parameter, and why swapping the store (a B-tree
-// today) changes nothing outside this file.
-
-// ===== the ordering as a type [cmp-carry] =====
-
-/// One Salvo ordering, as a **type**: the compiler generates a zero-sized
-/// marker per bound identity and implements this for it, so a comparison is a
-/// direct call the optimizer can inline and no element pays for storing one.
-pub trait SalvoCmp<T> {
-    fn cmp(a: &T, b: &T) -> i32;
-}
-
-/// The **canonical** ordering, as a marker: the host's own `Ord`. A sorted
-/// collection whose type names no ordering is kept by this one, which is what
-/// every such collection was kept by before orderings could be named — and for a
-/// generated `auto fn cmp` it *is* the same function, since that member lowers to
-/// the host's derived comparison [cmp-auto].
-pub struct HostOrd;
-
-impl<T: Ord> SalvoCmp<T> for HostOrd {
-    fn cmp(a: &T, b: &T) -> i32 {
-        match Ord::cmp(a, b) {
-            Ordering::Less => -1,
-            Ordering::Equal => 0,
-            Ordering::Greater => 1,
-        }
-    }
-}
-
-/// An element wearing an ordering. `#[repr(transparent)]` is load-bearing:
-/// with exactly one non-zero-sized field this type has `T`'s size, alignment
-/// and validity, which is what lets `probe` view a borrowed `T` as a borrowed
-/// wrapper without copying it.
-#[repr(transparent)]
-pub struct OrdBy<C, T>(T, PhantomData<C>);
-
-impl<C, T> OrdBy<C, T> {
-    fn wrap(value: T) -> Self {
-        OrdBy(value, PhantomData)
-    }
-
-    fn get(&self) -> &T {
-        &self.0
-    }
-
-    /// A borrowed element as a borrowed wrapper, for probing a tree without
-    /// building an owned wrapper (which would mean cloning the element).
-    fn probe(value: &T) -> &Self {
-        // SAFETY: `OrdBy` is `#[repr(transparent)]` over `T` — `PhantomData<C>`
-        // is zero-sized, so `T` is the only non-zero-sized field. The language
-        // therefore guarantees this type has `T`'s size, alignment and validity
-        // invariant, so the memory behind a live `&T` is a valid `OrdBy<C, T>`.
-        // The returned reference borrows that same memory for the same lifetime
-        // (tied by the signature), and both references are shared, so no
-        // `&mut` aliasing is created. There is deliberately no `probe_mut`:
-        // writing through such a reference could break the tree's ordering.
-        unsafe { &*(value as *const T as *const OrdBy<C, T>) }
-    }
-}
-
-impl<C: SalvoCmp<T>, T> PartialEq for OrdBy<C, T> {
-    fn eq(&self, other: &Self) -> bool {
-        C::cmp(&self.0, &other.0) == 0
-    }
-}
-
-impl<C: SalvoCmp<T>, T> Eq for OrdBy<C, T> {}
-
-impl<C: SalvoCmp<T>, T> PartialOrd for OrdBy<C, T> {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(Ord::cmp(self, other))
-    }
-}
-
-impl<C: SalvoCmp<T>, T> Ord for OrdBy<C, T> {
-    fn cmp(&self, other: &Self) -> Ordering {
-        C::cmp(&self.0, &other.0).cmp(&0)
-    }
-}
-
-// ===== the store, generic over the ordering =====
-
-trait SortedStore<T> {
-    fn insert(&mut self, value: T) -> bool;
-    fn remove(&mut self, value: &T) -> bool;
-    fn contains(&self, value: &T) -> bool;
-    fn len(&self) -> usize;
-    fn min(&self) -> Option<&T>;
-    fn max(&self) -> Option<&T>;
-    fn to_vec(&self) -> Vec<T>;
-    /// [platform-iterable] The elements in order, borrowed.
-    fn iter(&self) -> Box<dyn Iterator<Item = &T> + '_>;
-    fn clone_box(&self) -> Box<dyn SortedStore<T> + Send>;
-}
-
-struct BTreeStore<C, T> {
-    inner: BTreeSet<OrdBy<C, T>>,
-}
-
-impl<C, T> BTreeStore<C, T> {
-    fn new() -> Self {
-        BTreeStore {
-            inner: BTreeSet::new(),
-        }
-    }
-}
-
-impl<C, T> SortedStore<T> for BTreeStore<C, T>
-where
-    C: SalvoCmp<T> + Send + 'static,
-    T: Clone + Send + 'static,
-{
-    fn insert(&mut self, value: T) -> bool {
-        self.inner.insert(OrdBy::wrap(value))
-    }
-
-    fn remove(&mut self, value: &T) -> bool {
-        self.inner.remove(OrdBy::<C, T>::probe(value))
-    }
-
-    fn contains(&self, value: &T) -> bool {
-        self.inner.contains(OrdBy::<C, T>::probe(value))
-    }
-
-    fn len(&self) -> usize {
-        self.inner.len()
-    }
-
-    fn min(&self) -> Option<&T> {
-        self.inner.iter().next().map(OrdBy::get)
-    }
-
-    fn max(&self) -> Option<&T> {
-        self.inner.iter().next_back().map(OrdBy::get)
-    }
-
-    fn to_vec(&self) -> Vec<T> {
-        self.inner.iter().map(|w| w.get().clone()).collect()
-    }
-
-    fn iter(&self) -> Box<dyn Iterator<Item = &T> + '_> {
-        Box::new(self.inner.iter().map(|w| w.get()))
-    }
-
-    fn clone_box(&self) -> Box<dyn SortedStore<T> + Send> {
-        Box::new(BTreeStore::<C, T> {
-            inner: self
-                .inner
-                .iter()
-                .map(|w| OrdBy::wrap(w.get().clone()))
-                .collect(),
-        })
-    }
-}
-
-/// [cmp-carry] The sorted store whose ordering is a **function** rather than a
-/// marker type — the sorted half of `FnStore`, for a container built inside a
-/// generic function (added 2026-09-26). A sorted `Vec` with binary search by the
-/// held comparator: `BTreeSet` cannot serve, because `OrdBy`'s `Ord` dispatches
-/// through a *type*.
-struct FnSortedStore<T> {
-    items: Vec<T>,
-    cmp: Arc<dyn Fn(&T, &T) -> i32 + Send + Sync>,
-}
-
-impl<T> FnSortedStore<T> {
-    fn new(cmp: Arc<dyn Fn(&T, &T) -> i32 + Send + Sync>) -> Self {
-        FnSortedStore {
-            items: Vec::new(),
-            cmp,
-        }
-    }
-
-    /// `Ok(i)` when an element comparing equal sits at `i`, `Err(i)` where one
-    /// would be inserted — `slice::binary_search_by` against the held ordering.
-    fn find(&self, value: &T) -> Result<usize, usize> {
-        self.items.binary_search_by(|probe| match (self.cmp)(probe, value) {
-            n if n < 0 => Ordering::Less,
-            0 => Ordering::Equal,
-            _ => Ordering::Greater,
-        })
-    }
-}
-
-impl<T: Clone + Send + 'static> SortedStore<T> for FnSortedStore<T> {
-    fn insert(&mut self, value: T) -> bool {
-        match self.find(&value) {
-            // A set: an element comparing equal is already there
-            // [col-membership].
-            Ok(_) => false,
-            Err(at) => {
-                self.items.insert(at, value);
-                true
-            }
-        }
-    }
-
-    fn remove(&mut self, value: &T) -> bool {
-        match self.find(value) {
-            Ok(at) => {
-                self.items.remove(at);
-                true
-            }
-            Err(_) => false,
-        }
-    }
-
-    fn contains(&self, value: &T) -> bool {
-        self.find(value).is_ok()
-    }
-
-    fn len(&self) -> usize {
-        self.items.len()
-    }
-
-    fn min(&self) -> Option<&T> {
-        self.items.first()
-    }
-
-    fn max(&self) -> Option<&T> {
-        self.items.last()
-    }
-
-    fn to_vec(&self) -> Vec<T> {
-        self.items.clone()
-    }
-
-    fn iter(&self) -> Box<dyn Iterator<Item = &T> + '_> {
-        Box::new(self.items.iter())
-    }
-
-    fn clone_box(&self) -> Box<dyn SortedStore<T> + Send> {
-        Box::new(FnSortedStore {
-            items: self.items.clone(),
-            cmp: Arc::clone(&self.cmp),
-        })
-    }
-}
-
-// ===== the container the emitted code sees =====
-
-pub struct SalvoSortedSet<T> {
-    // `+ Send` on the *box* rather than on the trait: a container is sendable
-    // when its elements are, and stating it here keeps the bound off every
-    // method — so a Salvo fn over a sorted collection is emitted with no bounds
-    // of its own, which is the whole point of hiding the marker.
-    store: Box<dyn SortedStore<T> + Send>,
-}
-
-// Building one names the ordering, which is the only place the marker — and the
-// bounds the boxed store needs — appear.
-impl<T: Clone + Send + 'static> SalvoSortedSet<T> {
-    pub fn new<C: SalvoCmp<T> + Send + 'static>() -> Self {
-        SalvoSortedSet {
-            store: Box::new(BTreeStore::<C, T>::new()),
-        }
-    }
-
-    /// [cmp-carry] Ordered by a **function**, for a generic body.
-    pub fn with_cmp(cmp: Arc<dyn Fn(&T, &T) -> i32 + Send + Sync>) -> Self {
-        SalvoSortedSet {
-            store: Box::new(FnSortedStore::new(cmp)),
-        }
-    }
-
-    pub fn from_elements<C: SalvoCmp<T> + Send + 'static, I: IntoIterator<Item = T>>(
-        elems: I,
-    ) -> Self {
-        let mut set = SalvoSortedSet::new::<C>();
-        for e in elems {
-            set.insert(e);
-        }
-        set
-    }
-}
-
-// Using one needs nothing of `T`: every operation goes through the store.
-impl<T> SalvoSortedSet<T> {
-    pub fn insert(&mut self, value: T) -> bool {
-        self.store.insert(value)
-    }
-    pub fn remove(&mut self, value: &T) -> bool {
-        self.store.remove(value)
-    }
-    pub fn contains(&self, value: &T) -> bool {
-        self.store.contains(value)
-    }
-    pub fn len(&self) -> usize {
-        self.store.len()
-    }
-    pub fn min(&self) -> Option<&T> {
-        self.store.min()
-    }
-    pub fn max(&self) -> Option<&T> {
-        self.store.max()
-    }
-    pub fn to_vec(&self) -> Vec<T> {
-        self.store.to_vec()
-    }
-    /// [platform-iterable] The elements in order, borrowed.
-    pub fn iter(&self) -> impl Iterator<Item = &T> + '_ {
-        self.store.iter()
-    }
-}
-
-// [platform-value-type] Compared and printed element-wise, in order, as a
-// struct holding one needs.
-impl<T: PartialEq> PartialEq for SalvoSortedSet<T> {
-    fn eq(&self, other: &Self) -> bool {
-        self.iter().eq(other.iter())
-    }
-}
-impl<T: Eq> Eq for SalvoSortedSet<T> {}
-impl<T: fmt::Debug> fmt::Debug for SalvoSortedSet<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_set().entries(self.iter()).finish()
-    }
-}
-
-impl<T> Clone for SalvoSortedSet<T> {
-    fn clone(&self) -> Self {
-        SalvoSortedSet {
-            store: self.store.clone_box(),
-        }
-    }
-}
-
-impl<T: fmt::Display> fmt::Display for SalvoSortedSet<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let items: Vec<String> = self.to_vec().iter().map(|e| e.to_string()).collect();
-        write!(f, "{{{}}}", items.join(", "))
-    }
-}
-
-// ===== the sorted map, the same way =====
-
-trait SortedMapStore<K, V> {
-    fn get(&self, key: &K) -> Option<&V>;
-    fn insert(&mut self, key: K, value: V) -> Option<V>;
-    fn remove(&mut self, key: &K) -> Option<V>;
-    fn contains_key(&self, key: &K) -> bool;
-    fn len(&self) -> usize;
-    fn first_key(&self) -> Option<&K>;
-    fn last_key(&self) -> Option<&K>;
-    fn keys(&self) -> Vec<K>;
-    fn entries(&self) -> Vec<(K, V)>;
-    /// [platform-iterable] The entries in key order, borrowed.
-    fn iter(&self) -> Box<dyn Iterator<Item = (&K, &V)> + '_>;
-    fn clone_box(&self) -> Box<dyn SortedMapStore<K, V> + Send>;
-}
-
-/// [cmp-carry] The sorted *map* store ordered by a **function**, completing the
-/// set of four (added 2026-09-26). A sorted `Vec` of entries, searched by the
-/// held comparator, for the same reason `FnSortedStore` is one.
-struct FnSortedMapStore<K, V> {
-    entries: Vec<(K, V)>,
-    cmp: Arc<dyn Fn(&K, &K) -> i32 + Send + Sync>,
-}
-
-impl<K, V> FnSortedMapStore<K, V> {
-    fn find(&self, key: &K) -> Result<usize, usize> {
-        self.entries
-            .binary_search_by(|(probe, _)| match (self.cmp)(probe, key) {
-                n if n < 0 => Ordering::Less,
-                0 => Ordering::Equal,
-                _ => Ordering::Greater,
-            })
-    }
-}
-
-impl<K: Clone + Send + 'static, V: Clone + Send + 'static> SortedMapStore<K, V>
-    for FnSortedMapStore<K, V>
-{
-    fn get(&self, key: &K) -> Option<&V> {
-        self.find(key).ok().map(|at| &self.entries[at].1)
-    }
-
-    fn insert(&mut self, key: K, value: V) -> Option<V> {
-        match self.find(&key) {
-            Ok(at) => Some(std::mem::replace(&mut self.entries[at], (key, value)).1),
-            Err(at) => {
-                self.entries.insert(at, (key, value));
-                None
-            }
-        }
-    }
-
-    fn remove(&mut self, key: &K) -> Option<V> {
-        match self.find(key) {
-            Ok(at) => Some(self.entries.remove(at).1),
-            Err(_) => None,
-        }
-    }
-
-    fn contains_key(&self, key: &K) -> bool {
-        self.find(key).is_ok()
-    }
-
-    fn len(&self) -> usize {
-        self.entries.len()
-    }
-
-    fn first_key(&self) -> Option<&K> {
-        self.entries.first().map(|(k, _)| k)
-    }
-
-    fn last_key(&self) -> Option<&K> {
-        self.entries.last().map(|(k, _)| k)
-    }
-
-    fn keys(&self) -> Vec<K> {
-        self.entries.iter().map(|(k, _)| k.clone()).collect()
-    }
-
-    fn entries(&self) -> Vec<(K, V)> {
-        self.entries.clone()
-    }
-
-    fn iter(&self) -> Box<dyn Iterator<Item = (&K, &V)> + '_> {
-        Box::new(self.entries.iter().map(|(k, v)| (k, v)))
-    }
-
-    fn clone_box(&self) -> Box<dyn SortedMapStore<K, V> + Send> {
-        Box::new(FnSortedMapStore {
-            entries: self.entries.clone(),
-            cmp: Arc::clone(&self.cmp),
-        })
-    }
-}
-
-struct BTreeMapStore<C, K, V> {
-    inner: BTreeMap<OrdBy<C, K>, V>,
-}
-
-impl<C, K, V> SortedMapStore<K, V> for BTreeMapStore<C, K, V>
-where
-    C: SalvoCmp<K> + Send + 'static,
-    K: Clone + Send + 'static,
-    V: Clone + Send + 'static,
-{
-    fn get(&self, key: &K) -> Option<&V> {
-        self.inner.get(OrdBy::<C, K>::probe(key))
-    }
-    fn insert(&mut self, key: K, value: V) -> Option<V> {
-        self.inner.insert(OrdBy::wrap(key), value)
-    }
-    fn remove(&mut self, key: &K) -> Option<V> {
-        self.inner.remove(OrdBy::<C, K>::probe(key))
-    }
-    fn contains_key(&self, key: &K) -> bool {
-        self.inner.contains_key(OrdBy::<C, K>::probe(key))
-    }
-    fn len(&self) -> usize {
-        self.inner.len()
-    }
-    fn first_key(&self) -> Option<&K> {
-        self.inner.keys().next().map(OrdBy::get)
-    }
-    fn last_key(&self) -> Option<&K> {
-        self.inner.keys().next_back().map(OrdBy::get)
-    }
-    fn keys(&self) -> Vec<K> {
-        self.inner.keys().map(|k| k.get().clone()).collect()
-    }
-    fn entries(&self) -> Vec<(K, V)> {
-        self.inner
-            .iter()
-            .map(|(k, v)| (k.get().clone(), v.clone()))
-            .collect()
-    }
-
-    fn iter(&self) -> Box<dyn Iterator<Item = (&K, &V)> + '_> {
-        Box::new(self.inner.iter().map(|(k, v)| (k.get(), v)))
-    }
-    fn clone_box(&self) -> Box<dyn SortedMapStore<K, V> + Send> {
-        Box::new(BTreeMapStore::<C, K, V> {
-            inner: self
-                .inner
-                .iter()
-                .map(|(k, v)| (OrdBy::wrap(k.get().clone()), v.clone()))
-                .collect(),
-        })
-    }
-}
-
-pub struct SalvoSortedMap<K, V> {
-    store: Box<dyn SortedMapStore<K, V> + Send>,
-}
-
-impl<K: Clone + Send + 'static, V: Clone + Send + 'static> SalvoSortedMap<K, V> {
-    pub fn new<C: SalvoCmp<K> + Send + 'static>() -> Self {
-        SalvoSortedMap {
-            store: Box::new(BTreeMapStore::<C, K, V> {
-                inner: BTreeMap::new(),
-            }),
-        }
-    }
-    /// [cmp-carry] Ordered by a **function**, for a generic body.
-    pub fn with_cmp(cmp: Arc<dyn Fn(&K, &K) -> i32 + Send + Sync>) -> Self {
-        SalvoSortedMap {
-            store: Box::new(FnSortedMapStore {
-                entries: Vec::new(),
-                cmp,
-            }),
-        }
-    }
-
-    pub fn from_entries<C: SalvoCmp<K> + Send + 'static, I: IntoIterator<Item = (K, V)>>(
-        entries: I,
-    ) -> Self {
-        let mut map = SalvoSortedMap::new::<C>();
-        for (k, v) in entries {
-            map.insert(k, v);
-        }
-        map
-    }
-}
-
-impl<K, V> SalvoSortedMap<K, V> {
-    pub fn get(&self, key: &K) -> Option<&V> {
-        self.store.get(key)
-    }
-    pub fn insert(&mut self, key: K, value: V) -> Option<V> {
-        self.store.insert(key, value)
-    }
-    pub fn remove(&mut self, key: &K) -> Option<V> {
-        self.store.remove(key)
-    }
-    pub fn contains_key(&self, key: &K) -> bool {
-        self.store.contains_key(key)
-    }
-    pub fn len(&self) -> usize {
-        self.store.len()
-    }
-    pub fn first_key(&self) -> Option<&K> {
-        self.store.first_key()
-    }
-    pub fn last_key(&self) -> Option<&K> {
-        self.store.last_key()
-    }
-    pub fn keys(&self) -> Vec<K> {
-        self.store.keys()
-    }
-    pub fn entries(&self) -> Vec<(K, V)> {
-        self.store.entries()
-    }
-    /// [platform-iterable] The entries in key order, borrowed.
-    pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> + '_ {
-        self.store.iter()
-    }
-}
-
-impl<K: PartialEq, V: PartialEq> PartialEq for SalvoSortedMap<K, V> {
-    fn eq(&self, other: &Self) -> bool {
-        self.iter().eq(other.iter())
-    }
-}
-impl<K: Eq, V: Eq> Eq for SalvoSortedMap<K, V> {}
-impl<K: fmt::Debug, V: fmt::Debug> fmt::Debug for SalvoSortedMap<K, V> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_map().entries(self.iter()).finish()
-    }
-}
-
-impl<K, V> Clone for SalvoSortedMap<K, V> {
-    fn clone(&self) -> Self {
-        SalvoSortedMap {
-            store: self.store.clone_box(),
-        }
-    }
-}
-
-impl<K: fmt::Display, V: fmt::Display> fmt::Display for SalvoSortedMap<K, V> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let items: Vec<String> = self
-            .entries()
-            .iter()
-            .map(|(k, v)| format!("{k}: {v}"))
-            .collect();
-        write!(f, "{{{}}}", items.join(", "))
-    }
-}
-
-// [platform-check] [rs-platform-check] Collecting into a Salvo collection under
-// the canonical identity — the host's own hash and equality, or its `Ord` —
-// which is what host code builds a result with: `iter.collect::<SalvoSet<_>>()`
-// (ABI D10 C1, C2). A collection keyed by a Salvo-defined identity is
-// refused at the boundary, so these are the only ones a host builds.
-impl<T: Clone + Send + 'static + std::hash::Hash + PartialEq> FromIterator<T> for SalvoSet<T> {
-    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
-        SalvoSet::from_elements::<HostHash, HostEq, _>(iter)
-    }
-}
-
-impl<K: Clone + Send + 'static + std::hash::Hash + PartialEq, V: Clone + Send + 'static> FromIterator<(K, V)>
-    for SalvoMap<K, V>
-{
-    fn from_iter<I: IntoIterator<Item = (K, V)>>(iter: I) -> Self {
-        SalvoMap::from_entries::<HostHash, HostEq, _>(iter)
-    }
-}
-
-impl<T: Clone + Send + 'static + Ord> FromIterator<T> for SalvoSortedSet<T> {
-    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
-        SalvoSortedSet::from_elements::<HostOrd, _>(iter)
-    }
-}
-
-impl<K: Clone + Send + 'static + Ord, V: Clone + Send + 'static> FromIterator<(K, V)> for SalvoSortedMap<K, V> {
-    fn from_iter<I: IntoIterator<Item = (K, V)>>(iter: I) -> Self {
-        SalvoSortedMap::from_entries::<HostOrd, _>(iter)
-    }
-}
-
 // ===== hosttime.rs =====
 // Generated by the Salvo compiler: the two clock readings std's `time`
 // module is built on [time-types] [rs-time].
@@ -3106,18 +1873,151 @@ pub fn search_sorted_by<T>(list: &List<T>, elem: &T, cmp: &mut dyn FnMut(&T, &T)
 }
 
 // ===== platform/core/map.rs =====
-// [platform-value-type] std's map, for `core.map`'s `platform type Map<K,
-// V>(?hash, ?eq) canbe Mut` (ROADMAP 0.7): the runtime's insertion-ordered
-// `SalvoMap`, which carries the identities it was built with
-// [platform-slots]. `Mut Map` is the same type, passed as `&mut`.
+// [platform-value-type] [platform-slots] std's map, for `core.map`'s `platform
+// type Map<K, V>(?hash, ?eq) canbe Mut`: one insertion-ordered slab for every
+// identity (ROADMAP §0j step 7, user decision 2026-10-06). Every operation is
+// handed the `hash` and `eq` its call resolved, lent for the call
+// [platform-fn-value]; the map keeps the entries and the digest each key was
+// filed under, nothing else. `Mut Map` is the same type, passed as `&mut`.
 
-pub type Map<K, V> = crate::collections::SalvoMap<K, V>;
-pub type MutMap<K, V> = crate::collections::SalvoMap<K, V>;
+use std::collections::HashMap;
+use std::fmt;
+
+type HashFn<'a, K> = &'a mut dyn FnMut(&K) -> i64;
+type EqFn<'a, K> = &'a mut dyn FnMut(&K, &K) -> bool;
+
+/// Entries in first-insertion order (`None` where one was removed) with each
+/// key's digest; `buckets` maps a digest to its slots. An overwrite keeps the
+/// key's position [col-insertion-order].
+#[derive(Clone)]
+pub struct Map<K, V> {
+    slots: Vec<Option<(i64, K, V)>>,
+    buckets: HashMap<i64, Vec<usize>>,
+    live: usize,
+}
+
+pub type MutMap<K, V> = Map<K, V>;
+
+impl<K, V> Map<K, V> {
+    fn new() -> Self {
+        Map { slots: Vec::new(), buckets: HashMap::new(), live: 0 }
+    }
+
+    fn find(&self, key: &K, hash: HashFn<K>, eq: EqFn<K>) -> Option<usize> {
+        let bucket = self.buckets.get(&hash(key))?;
+        bucket
+            .iter()
+            .copied()
+            .find(|&i| self.slots[i].as_ref().is_some_and(|(_, k, _)| eq(k, key)))
+    }
+
+    fn append(&mut self, digest: i64, key: K, value: V) {
+        self.slots.push(Some((digest, key, value)));
+        self.buckets.entry(digest).or_default().push(self.slots.len() - 1);
+        self.live += 1;
+    }
+
+    /// Stores `value` under `key`: an existing key keeps its place and takes
+    /// the new key and value. Answers the displaced value.
+    fn store(&mut self, key: K, value: V, hash: HashFn<K>, eq: EqFn<K>) -> Option<V> {
+        match self.find(&key, &mut *hash, eq) {
+            Some(i) => {
+                let (digest, _, old) = self.slots[i].take().expect("a found slot is live");
+                self.slots[i] = Some((digest, key, value));
+                Some(old)
+            }
+            None => {
+                let digest = hash(&key);
+                self.append(digest, key, value);
+                None
+            }
+        }
+    }
+
+    fn remove_at(&mut self, i: usize) -> Option<V> {
+        let (digest, _, value) = self.slots[i].take()?;
+        if let Some(bucket) = self.buckets.get_mut(&digest) {
+            bucket.retain(|&j| j != i);
+            if bucket.is_empty() {
+                self.buckets.remove(&digest);
+            }
+        }
+        self.live -= 1;
+        if self.slots.len() > 2 * self.live + 8 {
+            let slots = std::mem::take(&mut self.slots);
+            self.buckets.clear();
+            self.live = 0;
+            for (d, k, v) in slots.into_iter().flatten() {
+                self.append(d, k, v);
+            }
+        }
+        Some(value)
+    }
+
+    /// The entries, in insertion order.
+    pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> + '_ {
+        self.slots.iter().filter_map(|s| s.as_ref().map(|(_, k, v)| (k, v)))
+    }
+}
+
+/// Order-blind, on host equality (what a struct holding a map compares by;
+/// ROADMAP §0j step 8 owns replacing it).
+impl<K: PartialEq, V: PartialEq> PartialEq for Map<K, V> {
+    fn eq(&self, other: &Self) -> bool {
+        self.live == other.live
+            && self.slots.iter().flatten().all(|(d, k, v)| {
+                other.buckets.get(d).is_some_and(|b| {
+                    b.iter().any(|&j| other.slots[j].as_ref().is_some_and(|(_, ok, ov)| ok == k && ov == v))
+                })
+            })
+    }
+}
+
+impl<K: PartialEq, V: PartialEq> Eq for Map<K, V> {}
+
+impl<K: fmt::Debug, V: fmt::Debug> fmt::Debug for Map<K, V> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_map().entries(self.iter()).finish()
+    }
+}
+
+/// `{a: 1, b: 2}`, in insertion order — the map literal that would build it
+/// [col-to-str].
+impl<K: fmt::Display, V: fmt::Display> fmt::Display for Map<K, V> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{{")?;
+        for (i, (k, v)) in self.iter().enumerate() {
+            if i > 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{k}: {v}")?;
+        }
+        write!(f, "}}")
+    }
+}
+
+/// [platform-value-type] For host code: the digest Salvo's canonical `hash`
+/// answers for an intrinsic key type (`Str`, `Int`, `Long`, `Char`, `Bool`,
+/// `Byte`) — the standard library's `DefaultHasher` over the value, which is
+/// what the `hash` intrinsics lower to.
+pub fn canonical_hash<K: std::hash::Hash + ?Sized>(k: &K) -> i64 {
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    k.hash(&mut h);
+    std::hash::Hasher::finish(&h) as i64
+}
+
+/// [platform-value-type] For host code: a map keyed **canonically** (the
+/// identity Salvo resolves for an intrinsic key type), in the order given; a
+/// repeated key keeps its first place and takes its last value
+/// [col-duplicate-keys].
+pub fn canonical_map<K: std::hash::Hash + PartialEq, V>(entries: Vec<(K, V)>) -> Map<K, V> {
+    map_of(entries, &mut |k: &K| canonical_hash(k), &mut |a: &K, b: &K| a == b)
+}
 
 // [platform-iterable] [col-map-iter] The host's loop over a map: its keys,
 // in insertion order.
 pub fn each<K, V>(map: &Map<K, V>) -> impl Iterator<Item = &K> + '_ {
-    map.keys()
+    map.iter().map(|(k, _)| k)
 }
 
 pub fn each_mut<K, V>(_map: &mut Map<K, V>) -> std::iter::Empty<&mut K> {
@@ -3125,56 +2025,219 @@ pub fn each_mut<K, V>(_map: &mut Map<K, V>) -> std::iter::Empty<&mut K> {
     unreachable!("salvo: a map's keys are not written in place")
 }
 
-pub fn into_each<K: Clone, V>(map: Map<K, V>) -> std::vec::IntoIter<K> {
-    map.keys().cloned().collect::<Vec<K>>().into_iter()
+pub fn into_each<K, V>(map: Map<K, V>) -> std::vec::IntoIter<K> {
+    map.slots.into_iter().flatten().map(|(_, k, _)| k).collect::<Vec<K>>().into_iter()
 }
 
-pub fn get<'a, K, V>(map: &'a Map<K, V>, key: &K) -> Option<&'a V> {
-    map.get(key)
+// A repeated key keeps the position of its first appearance and takes the
+// value of its last [col-duplicate-keys].
+pub fn map_of<K, V>(entries: Vec<(K, V)>, hash: HashFn<K>, eq: EqFn<K>) -> Map<K, V> {
+    let mut m = Map::new();
+    for (k, v) in entries {
+        m.store(k, v, &mut *hash, &mut *eq);
+    }
+    m
+}
+
+pub fn mut_map_of<K, V>(entries: Vec<(K, V)>, hash: HashFn<K>, eq: EqFn<K>) -> Map<K, V> {
+    map_of(entries, hash, eq)
+}
+
+pub fn map_by<K, V>(size: i32, init: &mut dyn FnMut(i32) -> (K, V), hash: HashFn<K>, eq: EqFn<K>) -> Map<K, V> {
+    let mut m = Map::new();
+    for i in 0..size.max(0) {
+        let (k, v) = init(i);
+        m.store(k, v, &mut *hash, &mut *eq);
+    }
+    m
+}
+
+pub fn mut_map_by<K, V>(size: i32, init: &mut dyn FnMut(i32) -> (K, V), hash: HashFn<K>, eq: EqFn<K>) -> Map<K, V> {
+    map_by(size, init, hash, eq)
+}
+
+pub fn to_map<K: Clone, V: Clone>(pairs: &Vec<(K, V)>, hash: HashFn<K>, eq: EqFn<K>) -> Map<K, V> {
+    map_of(pairs.clone(), hash, eq)
+}
+
+pub fn get<'a, K, V>(map: &'a Map<K, V>, key: &K, hash: HashFn<K>, eq: EqFn<K>) -> Option<&'a V> {
+    let i = map.find(key, hash, eq)?;
+    map.slots[i].as_ref().map(|(_, _, v)| v)
 }
 
 // The claim proved the key present [qual-depend].
-pub fn get_present<'a, K, V>(map: &'a Map<K, V>, key: &K) -> &'a V {
-    map.get(key).expect("salvo: a `KeyOf` key is absent")
+pub fn get_present<'a, K, V>(map: &'a Map<K, V>, key: &K, hash: HashFn<K>, eq: EqFn<K>) -> &'a V {
+    get(map, key, hash, eq).expect("salvo: a `KeyOf` key is absent")
 }
 
-pub fn put<K, V>(map: &mut Map<K, V>, key: K, value: V) {
-    map.insert(key, value);
+pub fn put<K, V>(map: &mut Map<K, V>, key: K, value: V, hash: HashFn<K>, eq: EqFn<K>) {
+    map.store(key, value, hash, eq);
 }
 
-pub fn replace<K, V>(map: &mut Map<K, V>, key: K, value: V) -> Option<V> {
-    map.replace(key, value)
+pub fn replace<K, V>(map: &mut Map<K, V>, key: K, value: V, hash: HashFn<K>, eq: EqFn<K>) -> Option<V> {
+    map.store(key, value, hash, eq)
 }
 
-pub fn remove<K, V>(map: &mut Map<K, V>, key: &K) -> Option<V> {
-    map.remove(key)
+pub fn remove<K, V>(map: &mut Map<K, V>, key: &K, hash: HashFn<K>, eq: EqFn<K>) -> Option<V> {
+    let i = map.find(key, hash, eq)?;
+    map.remove_at(i)
 }
 
-pub fn contains_key<K, V>(map: &Map<K, V>, key: &K) -> bool {
-    map.contains_key(key)
+pub fn contains_key<K, V>(map: &Map<K, V>, key: &K, hash: HashFn<K>, eq: EqFn<K>) -> bool {
+    map.find(key, hash, eq).is_some()
 }
 
 pub fn size<K, V>(map: &Map<K, V>) -> i32 {
-    map.len() as i32
+    map.live as i32
 }
 
 pub fn keys<K: Clone, V>(map: &Map<K, V>) -> Vec<K> {
-    map.keys().cloned().collect()
+    map.iter().map(|(k, _)| k.clone()).collect()
 }
 
 // [linear-container] The values, owned, in insertion order.
 pub fn into_values<K, V>(map: Map<K, V>) -> Vec<V> {
-    map.into_values()
+    map.slots.into_iter().flatten().map(|(_, _, v)| v).collect()
 }
 
 // ===== platform/core/set.rs =====
-// [platform-value-type] std's set, for `core.set`'s `platform type Set<T>(?hash,
-// ?eq) canbe Mut` (ROADMAP 0.7): the runtime's insertion-ordered `SalvoSet`,
-// which carries the identities it was built with [platform-slots]. `Mut Set`
-// is the same type, passed as `&mut`.
+// [platform-value-type] [platform-slots] std's set, for `core.set`'s `platform
+// type Set<T>(?hash, ?eq) canbe Mut`: one insertion-ordered slab for every
+// identity (ROADMAP §0j step 7, user decision 2026-10-06). Every operation is
+// handed the `hash` and `eq` its call resolved, lent for the call
+// [platform-fn-value]; the set keeps the elements and the digest each was
+// filed under, nothing else. `Mut Set` is the same type, passed as `&mut`.
 
-pub type Set<T> = crate::collections::SalvoSet<T>;
-pub type MutSet<T> = crate::collections::SalvoSet<T>;
+use std::collections::HashMap;
+use std::fmt;
+
+type HashFn<'a, T> = &'a mut dyn FnMut(&T) -> i64;
+type EqFn<'a, T> = &'a mut dyn FnMut(&T, &T) -> bool;
+
+/// Elements in first-insertion order (`None` where one was removed) with the
+/// digest each was filed under; `buckets` maps a digest to its slots. The
+/// cached digests let compaction and equality run without an identity.
+#[derive(Clone)]
+pub struct Set<T> {
+    slots: Vec<Option<(i64, T)>>,
+    buckets: HashMap<i64, Vec<usize>>,
+    live: usize,
+}
+
+pub type MutSet<T> = Set<T>;
+
+impl<T> Set<T> {
+    fn new() -> Self {
+        Set { slots: Vec::new(), buckets: HashMap::new(), live: 0 }
+    }
+
+    fn find(&self, elem: &T, hash: HashFn<T>, eq: EqFn<T>) -> Option<usize> {
+        let bucket = self.buckets.get(&hash(elem))?;
+        bucket
+            .iter()
+            .copied()
+            .find(|&i| self.slots[i].as_ref().is_some_and(|(_, e)| eq(e, elem)))
+    }
+
+    fn append(&mut self, digest: i64, elem: T) {
+        self.slots.push(Some((digest, elem)));
+        self.buckets.entry(digest).or_default().push(self.slots.len() - 1);
+        self.live += 1;
+    }
+
+    /// Adds `elem`, or overwrites an equal one in place: the last wins
+    /// [col-duplicate-keys].
+    fn put(&mut self, elem: T, hash: HashFn<T>, eq: EqFn<T>) {
+        match self.find(&elem, &mut *hash, eq) {
+            Some(i) => {
+                let digest = self.slots[i].as_ref().map(|(d, _)| *d).unwrap_or_default();
+                self.slots[i] = Some((digest, elem));
+            }
+            None => {
+                let digest = hash(&elem);
+                self.append(digest, elem);
+            }
+        }
+    }
+
+    fn remove_at(&mut self, i: usize) {
+        if let Some((digest, _)) = self.slots[i].take() {
+            if let Some(bucket) = self.buckets.get_mut(&digest) {
+                bucket.retain(|&j| j != i);
+                if bucket.is_empty() {
+                    self.buckets.remove(&digest);
+                }
+            }
+            self.live -= 1;
+        }
+        if self.slots.len() > 2 * self.live + 8 {
+            let slots = std::mem::take(&mut self.slots);
+            self.buckets.clear();
+            self.live = 0;
+            for (digest, elem) in slots.into_iter().flatten() {
+                self.append(digest, elem);
+            }
+        }
+    }
+
+    /// The elements, in insertion order.
+    pub fn iter(&self) -> impl Iterator<Item = &T> + '_ {
+        self.slots.iter().filter_map(|s| s.as_ref().map(|(_, e)| e))
+    }
+}
+
+/// Order-blind, as a set is: the same elements, each found under the digest
+/// the other filed it by. Host equality on the elements — what a struct
+/// holding a set compares by (ROADMAP §0j step 8 owns replacing it).
+impl<T: PartialEq> PartialEq for Set<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.live == other.live
+            && self.slots.iter().flatten().all(|(d, e)| {
+                other
+                    .buckets
+                    .get(d)
+                    .is_some_and(|b| b.iter().any(|&j| other.slots[j].as_ref().is_some_and(|(_, o)| o == e)))
+            })
+    }
+}
+
+impl<T: PartialEq> Eq for Set<T> {}
+
+impl<T: fmt::Debug> fmt::Debug for Set<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_set().entries(self.iter()).finish()
+    }
+}
+
+/// `{1, 2, 3}`: the set literal that would build it.
+impl<T: fmt::Display> fmt::Display for Set<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{{")?;
+        for (i, e) in self.iter().enumerate() {
+            if i > 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{e}")?;
+        }
+        write!(f, "}}")
+    }
+}
+
+/// [platform-value-type] For host code: a set kept **canonically** (the
+/// identity Salvo resolves for an intrinsic element type: the standard
+/// library's `DefaultHasher` over the value, and `==`). A repeated element:
+/// the last wins.
+pub fn canonical_set<T: std::hash::Hash + PartialEq>(elems: Vec<T>) -> Set<T> {
+    set_of(
+        elems,
+        &mut |e: &T| {
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            e.hash(&mut h);
+            std::hash::Hasher::finish(&h) as i64
+        },
+        &mut |a: &T, b: &T| a == b,
+    )
+}
 
 // [platform-iterable] The host's loop over a set, in insertion order.
 pub fn each<T>(set: &Set<T>) -> impl Iterator<Item = &T> + '_ {
@@ -3186,24 +2249,63 @@ pub fn each_mut<T>(_set: &mut Set<T>) -> std::iter::Empty<&mut T> {
     unreachable!("salvo: a set's elements are not written in place")
 }
 
-pub fn into_each<T: Clone>(set: Set<T>) -> std::vec::IntoIter<T> {
-    set.iter().cloned().collect::<Vec<T>>().into_iter()
+pub fn into_each<T>(set: Set<T>) -> std::vec::IntoIter<T> {
+    set.slots.into_iter().flatten().map(|(_, e)| e).collect::<Vec<T>>().into_iter()
 }
 
-pub fn add<T>(set: &mut Set<T>, elem: T) -> bool {
-    set.insert(elem)
+pub fn set_of<T>(elems: Vec<T>, hash: HashFn<T>, eq: EqFn<T>) -> Set<T> {
+    let mut s = Set::new();
+    for e in elems {
+        s.put(e, &mut *hash, &mut *eq);
+    }
+    s
 }
 
-pub fn remove<T>(set: &mut Set<T>, elem: &T) -> bool {
-    set.remove(elem)
+pub fn mut_set_of<T>(elems: Vec<T>, hash: HashFn<T>, eq: EqFn<T>) -> Set<T> {
+    set_of(elems, hash, eq)
 }
 
-pub fn contains<T>(set: &Set<T>, elem: &T) -> bool {
-    set.contains(elem)
+pub fn set_by<T>(size: i32, init: &mut dyn FnMut(i32) -> T, hash: HashFn<T>, eq: EqFn<T>) -> Set<T> {
+    let mut s = Set::new();
+    for i in 0..size.max(0) {
+        s.put(init(i), &mut *hash, &mut *eq);
+    }
+    s
+}
+
+pub fn mut_set_by<T>(size: i32, init: &mut dyn FnMut(i32) -> T, hash: HashFn<T>, eq: EqFn<T>) -> Set<T> {
+    set_by(size, init, hash, eq)
+}
+
+pub fn to_set<T: Clone>(list: &Vec<T>, hash: HashFn<T>, eq: EqFn<T>) -> Set<T> {
+    set_of(list.clone(), hash, eq)
+}
+
+pub fn add<T>(set: &mut Set<T>, elem: T, hash: HashFn<T>, eq: EqFn<T>) -> bool {
+    if set.find(&elem, &mut *hash, eq).is_some() {
+        return false;
+    }
+    let digest = hash(&elem);
+    set.append(digest, elem);
+    true
+}
+
+pub fn remove<T>(set: &mut Set<T>, elem: &T, hash: HashFn<T>, eq: EqFn<T>) -> bool {
+    match set.find(elem, hash, eq) {
+        Some(i) => {
+            set.remove_at(i);
+            true
+        }
+        None => false,
+    }
+}
+
+pub fn contains<T>(set: &Set<T>, elem: &T, hash: HashFn<T>, eq: EqFn<T>) -> bool {
+    set.find(elem, hash, eq).is_some()
 }
 
 pub fn size<T>(set: &Set<T>) -> i32 {
-    set.len() as i32
+    set.live as i32
 }
 
 // In insertion order [col-insertion-order].
@@ -3212,32 +2314,136 @@ pub fn to_list<T: Clone>(set: &Set<T>) -> Vec<T> {
 }
 
 // ===== platform/core/sorted.rs =====
-// [platform-value-type] std's sorted pair, for `core.sorted`'s `platform type
-// SortedSet<T>(?cmp)` and `SortedMap<K, V>(?cmp)` (ROADMAP 0.7): the runtime's
-// containers, which carry the ordering they were built with
-// [platform-slots]. A `Mut` one is the same type, passed as `&mut`.
+// [platform-value-type] [platform-slots] std's sorted pair, for `core.sorted`'s
+// `platform type SortedSet<T>(?cmp)` and `SortedMap<K, V>(?cmp)`: a sorted
+// `Vec` searched by bisection (ROADMAP §0j step 7, user decision 2026-10-06).
+// Every operation is handed the `cmp` its call resolved, lent for the call
+// [platform-fn-value]; the value keeps only its members, in order. Two
+// members are one when `cmp` answers 0 [col-membership]. A `Mut` one is the
+// same type, passed as `&mut`.
 
-pub type SortedSet<T> = crate::collections::SalvoSortedSet<T>;
-pub type MutSortedSet<T> = crate::collections::SalvoSortedSet<T>;
-pub type SortedMap<K, V> = crate::collections::SalvoSortedMap<K, V>;
-pub type MutSortedMap<K, V> = crate::collections::SalvoSortedMap<K, V>;
+use std::fmt;
+
+type CmpFn<'a, T> = &'a mut dyn FnMut(&T, &T) -> i32;
+
+/// Where `x` is in `items`: `Ok(i)`, or `Err(insertion point)`.
+fn bisect<T>(items: &[T], x: &T, cmp: CmpFn<T>) -> Result<usize, usize> {
+    items.binary_search_by(|e| cmp(e, x).cmp(&0))
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct SortedSet<T> {
+    items: Vec<T>,
+}
+
+pub type MutSortedSet<T> = SortedSet<T>;
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct SortedMap<K, V> {
+    keys: Vec<K>,
+    values: Vec<V>,
+}
+
+pub type MutSortedMap<K, V> = SortedMap<K, V>;
+
+impl<T> SortedSet<T> {
+    /// The members, in order.
+    pub fn iter(&self) -> impl Iterator<Item = &T> + '_ {
+        self.items.iter()
+    }
+}
+
+impl<K, V> SortedMap<K, V> {
+    /// The entries, in key order.
+    pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> + '_ {
+        self.keys.iter().zip(self.values.iter())
+    }
+
+    /// Stores under `key`; an equal key is replaced, key and value. Answers
+    /// the displaced value.
+    fn store(&mut self, key: K, value: V, cmp: CmpFn<K>) -> Option<V> {
+        match bisect(&self.keys, &key, cmp) {
+            Ok(i) => {
+                self.keys[i] = key;
+                Some(std::mem::replace(&mut self.values[i], value))
+            }
+            Err(i) => {
+                self.keys.insert(i, key);
+                self.values.insert(i, value);
+                None
+            }
+        }
+    }
+}
+
+impl<T: fmt::Debug> fmt::Debug for SortedSet<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_set().entries(self.items.iter()).finish()
+    }
+}
+
+impl<T: fmt::Display> fmt::Display for SortedSet<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{{")?;
+        for (i, e) in self.items.iter().enumerate() {
+            if i > 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{e}")?;
+        }
+        write!(f, "}}")
+    }
+}
+
+impl<K: fmt::Debug, V: fmt::Debug> fmt::Debug for SortedMap<K, V> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_map().entries(self.keys.iter().zip(self.values.iter())).finish()
+    }
+}
+
+/// `{a: 1, b: 2}`, in key order [col-to-str].
+impl<K: fmt::Display, V: fmt::Display> fmt::Display for SortedMap<K, V> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{{")?;
+        for (i, (k, v)) in self.keys.iter().zip(self.values.iter()).enumerate() {
+            if i > 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{k}: {v}")?;
+        }
+        write!(f, "}}")
+    }
+}
+
+/// [platform-value-type] For host code: a sorted set under the canonical
+/// ordering of an intrinsic type, which is `Ord` (a `String` compares by
+/// bytes, which is code-point order).
+pub fn canonical_sorted_set<T: Ord>(elems: Vec<T>) -> SortedSet<T> {
+    sorted_set_of(elems, &mut |a: &T, b: &T| a.cmp(b) as i32)
+}
+
+/// [platform-value-type] For host code: a sorted map under the canonical
+/// ordering of an intrinsic key type.
+pub fn canonical_sorted_map<K: Ord, V>(entries: Vec<(K, V)>) -> SortedMap<K, V> {
+    sorted_map_of(entries, &mut |a: &K, b: &K| a.cmp(b) as i32)
+}
 
 // [platform-iterable] The host's loops: a set's elements and a map's keys,
 // in order. Elements and keys are not written in place.
 pub fn each_sorted_set<T>(set: &SortedSet<T>) -> impl Iterator<Item = &T> + '_ {
-    set.iter()
+    set.items.iter()
 }
 
 pub fn each_sorted_set_mut<T>(_set: &mut SortedSet<T>) -> std::iter::Empty<&mut T> {
     unreachable!("salvo: a sorted set's elements are not written in place")
 }
 
-pub fn into_each_sorted_set<T: Clone>(set: SortedSet<T>) -> std::vec::IntoIter<T> {
-    set.to_vec().into_iter()
+pub fn into_each_sorted_set<T>(set: SortedSet<T>) -> std::vec::IntoIter<T> {
+    set.items.into_iter()
 }
 
 pub fn each_sorted_map<K, V>(map: &SortedMap<K, V>) -> impl Iterator<Item = &K> + '_ {
-    map.iter().map(|(k, _)| k)
+    map.keys.iter()
 }
 
 pub fn each_sorted_map_mut<K, V>(_map: &mut SortedMap<K, V>) -> std::iter::Empty<&mut K> {
@@ -3245,67 +2451,109 @@ pub fn each_sorted_map_mut<K, V>(_map: &mut SortedMap<K, V>) -> std::iter::Empty
 }
 
 pub fn into_each_sorted_map<K, V>(map: SortedMap<K, V>) -> std::vec::IntoIter<K> {
-    map.keys().into_iter()
+    map.keys.into_iter()
 }
 
-pub fn add<T>(set: &mut SortedSet<T>, elem: T) -> bool {
-    set.insert(elem)
+// A repeated member: the last wins, in the place they share.
+pub fn sorted_set_of<T>(elems: Vec<T>, cmp: CmpFn<T>) -> SortedSet<T> {
+    let mut s = SortedSet { items: Vec::with_capacity(elems.len()) };
+    for e in elems {
+        match bisect(&s.items, &e, &mut *cmp) {
+            Ok(i) => s.items[i] = e,
+            Err(i) => s.items.insert(i, e),
+        }
+    }
+    s
 }
 
-pub fn remove_elem<T>(set: &mut SortedSet<T>, elem: &T) -> bool {
-    set.remove(elem)
+pub fn mut_sorted_set_of<T>(elems: Vec<T>, cmp: CmpFn<T>) -> SortedSet<T> {
+    sorted_set_of(elems, cmp)
 }
 
-pub fn contains<T>(set: &SortedSet<T>, elem: &T) -> bool {
-    set.contains(elem)
+pub fn add<T>(set: &mut SortedSet<T>, elem: T, cmp: CmpFn<T>) -> bool {
+    match bisect(&set.items, &elem, cmp) {
+        Ok(_) => false,
+        Err(i) => {
+            set.items.insert(i, elem);
+            true
+        }
+    }
+}
+
+pub fn remove_elem<T>(set: &mut SortedSet<T>, elem: &T, cmp: CmpFn<T>) -> bool {
+    match bisect(&set.items, elem, cmp) {
+        Ok(i) => {
+            set.items.remove(i);
+            true
+        }
+        Err(_) => false,
+    }
+}
+
+pub fn contains<T>(set: &SortedSet<T>, elem: &T, cmp: CmpFn<T>) -> bool {
+    bisect(&set.items, elem, cmp).is_ok()
 }
 
 pub fn set_size<T>(set: &SortedSet<T>) -> i32 {
-    set.len() as i32
+    set.items.len() as i32
 }
 
 pub fn min<T: Clone>(set: &SortedSet<T>) -> Option<T> {
-    set.min().cloned()
+    set.items.first().cloned()
 }
 
 pub fn max<T: Clone>(set: &SortedSet<T>) -> Option<T> {
-    set.max().cloned()
+    set.items.last().cloned()
 }
 
-pub fn to_list<T>(set: &SortedSet<T>) -> Vec<T> {
-    set.to_vec()
+pub fn to_list<T: Clone>(set: &SortedSet<T>) -> Vec<T> {
+    set.items.clone()
 }
 
-pub fn get<'a, K, V>(map: &'a SortedMap<K, V>, key: &K) -> Option<&'a V> {
-    map.get(key)
+pub fn sorted_map_of<K, V>(entries: Vec<(K, V)>, cmp: CmpFn<K>) -> SortedMap<K, V> {
+    let mut m = SortedMap { keys: Vec::with_capacity(entries.len()), values: Vec::with_capacity(entries.len()) };
+    for (k, v) in entries {
+        m.store(k, v, &mut *cmp);
+    }
+    m
 }
 
-pub fn put<K, V>(map: &mut SortedMap<K, V>, key: K, value: V) {
-    map.insert(key, value);
+pub fn mut_sorted_map_of<K, V>(entries: Vec<(K, V)>, cmp: CmpFn<K>) -> SortedMap<K, V> {
+    sorted_map_of(entries, cmp)
 }
 
-pub fn remove_key<K, V>(map: &mut SortedMap<K, V>, key: &K) -> Option<V> {
-    map.remove(key)
+pub fn get<'a, K, V>(map: &'a SortedMap<K, V>, key: &K, cmp: CmpFn<K>) -> Option<&'a V> {
+    bisect(&map.keys, key, cmp).ok().map(|i| &map.values[i])
 }
 
-pub fn contains_key<K, V>(map: &SortedMap<K, V>, key: &K) -> bool {
-    map.contains_key(key)
+pub fn put<K, V>(map: &mut SortedMap<K, V>, key: K, value: V, cmp: CmpFn<K>) {
+    map.store(key, value, cmp);
+}
+
+pub fn remove_key<K, V>(map: &mut SortedMap<K, V>, key: &K, cmp: CmpFn<K>) -> Option<V> {
+    let i = bisect(&map.keys, key, cmp).ok()?;
+    map.keys.remove(i);
+    Some(map.values.remove(i))
+}
+
+pub fn contains_key<K, V>(map: &SortedMap<K, V>, key: &K, cmp: CmpFn<K>) -> bool {
+    bisect(&map.keys, key, cmp).is_ok()
 }
 
 pub fn map_size<K, V>(map: &SortedMap<K, V>) -> i32 {
-    map.len() as i32
+    map.keys.len() as i32
 }
 
 pub fn first_key<K: Clone, V>(map: &SortedMap<K, V>) -> Option<K> {
-    map.first_key().cloned()
+    map.keys.first().cloned()
 }
 
 pub fn last_key<K: Clone, V>(map: &SortedMap<K, V>) -> Option<K> {
-    map.last_key().cloned()
+    map.keys.last().cloned()
 }
 
-pub fn keys<K, V>(map: &SortedMap<K, V>) -> Vec<K> {
-    map.keys()
+pub fn keys<K: Clone, V>(map: &SortedMap<K, V>) -> Vec<K> {
+    map.keys.clone()
 }
 
 // ===== platform/core/string.rs =====

@@ -10,8 +10,8 @@ import salvo.core.checked.Checked
 
 data class CreateQueueInput(
     val queueName: String,
-    val attributes: Map<String, String>? = null,
-    val tags: Map<String, String>? = null,
+    val attributes: salvo.platform.core.map.Map<String, String>? = null,
+    val tags: salvo.platform.core.map.Map<String, String>? = null,
 )
 
 data class CreateQueueOutput(
@@ -53,8 +53,8 @@ data class SendMessageInput(
     val queueUrl: String,
     val messageBody: String,
     val delaySeconds: Int? = null,
-    val messageAttributes: Map<String, MessageAttributeValue>? = null,
-    val messageSystemAttributes: Map<String, MessageSystemAttributeValue>? = null,
+    val messageAttributes: salvo.platform.core.map.Map<String, MessageAttributeValue>? = null,
+    val messageSystemAttributes: salvo.platform.core.map.Map<String, MessageSystemAttributeValue>? = null,
     val messageDeduplicationId: String? = null,
     val messageGroupId: String? = null,
 )
@@ -150,9 +150,9 @@ data class Message(
     val receiptHandle: String? = null,
     val md5OfBody: String? = null,
     val body: String? = null,
-    val attributes: Map<String, String>? = null,
+    val attributes: salvo.platform.core.map.Map<String, String>? = null,
     val md5OfMessageAttributes: String? = null,
-    val messageAttributes: Map<String, MessageAttributeValue>? = null,
+    val messageAttributes: salvo.platform.core.map.Map<String, MessageAttributeValue>? = null,
 )
 
 data class DeleteMessageInput(

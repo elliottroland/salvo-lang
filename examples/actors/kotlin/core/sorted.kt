@@ -6,51 +6,59 @@ import salvo.core.set.SetYield
 import salvo.core.string.appendPlatform
 import salvo.core.string.mutStr
 
-fun<T> addPlatform(set: salvo.platform.core.sorted.MutSortedSet<T>, elem: T): Boolean {
-    return salvo.platform.core.sorted.add(set, elem)
+fun<T> sortedSetOfPlatform(elems: Array<T>, cmp: (T, T) -> Int): salvo.platform.core.sorted.SortedSet<T> {
+    return salvo.platform.core.sorted.sortedSetOf(elems, cmp)
 }
 
-fun<T> remove__SortedSet_T(set: salvo.platform.core.sorted.MutSortedSet<T>, elem: T): Boolean {
-    return removeElemPlatform(set, elem)
+fun<T> mutSortedSetOfPlatform(elems: Array<T>, cmp: (T, T) -> Int): salvo.platform.core.sorted.MutSortedSet<T> {
+    return salvo.platform.core.sorted.mutSortedSetOf(elems, cmp)
 }
 
-fun<T> removeElemPlatform(set: salvo.platform.core.sorted.MutSortedSet<T>, elem: T): Boolean {
-    return salvo.platform.core.sorted.removeElem(set, elem)
+fun<T> addPlatform(set: salvo.platform.core.sorted.MutSortedSet<T>, elem: T, cmp: (T, T) -> Int): Boolean {
+    return salvo.platform.core.sorted.add(set, elem, cmp)
 }
 
-fun<T> setSizePlatform(set: java.util.SortedSet<T>): Int {
+fun<T> remove__SortedSet_T(set: salvo.platform.core.sorted.MutSortedSet<T>, elem: T, cmp: (T, T) -> Int): Boolean {
+    return removeElemPlatform(set, elem, cmp)
+}
+
+fun<T> removeElemPlatform(set: salvo.platform.core.sorted.MutSortedSet<T>, elem: T, cmp: (T, T) -> Int): Boolean {
+    return salvo.platform.core.sorted.removeElem(set, elem, cmp)
+}
+
+fun<T> setSizePlatform(set: salvo.platform.core.sorted.SortedSet<T>): Int {
     return salvo.platform.core.sorted.setSize(set)
 }
 
-fun<K, V> removeKeyPlatform(map: salvo.platform.core.sorted.MutSortedMap<K, V>, key: K): V? {
-    return salvo.platform.core.sorted.removeKey(map, key)
+fun<K, V> removeKeyPlatform(map: salvo.platform.core.sorted.MutSortedMap<K, V>, key: K, cmp: (K, K) -> Int): V? {
+    return salvo.platform.core.sorted.removeKey(map, key, cmp)
 }
 
-fun<K, V> mapSizePlatform(map: java.util.SortedMap<K, V>): Int {
+fun<K, V> mapSizePlatform(map: salvo.platform.core.sorted.SortedMap<K, V>): Int {
     return salvo.platform.core.sorted.mapSize(map)
 }
 
-fun<T> containsPlatform(set: java.util.SortedSet<T>, elem: T): Boolean {
-    return salvo.platform.core.sorted.contains(set, elem)
+fun<T> containsPlatform(set: salvo.platform.core.sorted.SortedSet<T>, elem: T, cmp: (T, T) -> Int): Boolean {
+    return salvo.platform.core.sorted.contains(set, elem, cmp)
 }
 
-fun<T> size__SortedSet(set: java.util.SortedSet<T>): Int {
+fun<T> size__SortedSet(set: salvo.platform.core.sorted.SortedSet<T>): Int {
     return setSizePlatform(set)
 }
 
-fun<T> minPlatform(set: java.util.SortedSet<T>): T? {
+fun<T> minPlatform(set: salvo.platform.core.sorted.SortedSet<T>): T? {
     return salvo.platform.core.sorted.min(set)
 }
 
-fun<T> maxPlatform(set: java.util.SortedSet<T>): T? {
+fun<T> maxPlatform(set: salvo.platform.core.sorted.SortedSet<T>): T? {
     return salvo.platform.core.sorted.max(set)
 }
 
-fun<T> toListPlatform(set: java.util.SortedSet<T>): List<T> {
+fun<T> toListPlatform(set: salvo.platform.core.sorted.SortedSet<T>): List<T> {
     return salvo.platform.core.sorted.toList(set)
 }
 
-fun<T> toStr(set: java.util.SortedSet<T>, toStr: (T) -> String): String {
+fun<T> toStr(set: salvo.platform.core.sorted.SortedSet<T>, toStr: (T) -> String): String {
     val out = mutStr(arrayOf("{"))
     var i = 0
     for (x in salvo.platform.core.sorted.eachSortedSet(set)) {
@@ -64,66 +72,74 @@ fun<T> toStr(set: java.util.SortedSet<T>, toStr: (T) -> String): String {
     return out.toString()
 }
 
-fun<T> iter__SortedSet(set: java.util.SortedSet<T>): SetYield<T> {
+fun<T> iter__SortedSet(set: salvo.platform.core.sorted.SortedSet<T>): SetYield<T> {
     return SetYield(items = toListPlatform(set), at = 0)
 }
 
-fun<K, V> getPlatform(map: java.util.SortedMap<K, V>, key: K): V? {
-    return salvo.platform.core.sorted.get(map, key)
+fun<K, V> sortedMapOfPlatform(entries: Array<Pair<K, V>>, cmp: (K, K) -> Int): salvo.platform.core.sorted.SortedMap<K, V> {
+    return salvo.platform.core.sorted.sortedMapOf(entries, cmp)
 }
 
-fun<K, V> putPlatform(map: salvo.platform.core.sorted.MutSortedMap<K, V>, key: K, value: V) {
-    return salvo.platform.core.sorted.put(map, key, value)
+fun<K, V> mutSortedMapOfPlatform(entries: Array<Pair<K, V>>, cmp: (K, K) -> Int): salvo.platform.core.sorted.MutSortedMap<K, V> {
+    return salvo.platform.core.sorted.mutSortedMapOf(entries, cmp)
 }
 
-fun<K, V> remove__SortedMap_K(map: salvo.platform.core.sorted.MutSortedMap<K, V>, key: K): V? {
-    return removeKeyPlatform(map, key)
+fun<K, V> getPlatform(map: salvo.platform.core.sorted.SortedMap<K, V>, key: K, cmp: (K, K) -> Int): V? {
+    return salvo.platform.core.sorted.get(map, key, cmp)
 }
 
-fun<K, V> containsKeyPlatform(map: java.util.SortedMap<K, V>, key: K): Boolean {
-    return salvo.platform.core.sorted.containsKey(map, key)
+fun<K, V> putPlatform(map: salvo.platform.core.sorted.MutSortedMap<K, V>, key: K, value: V, cmp: (K, K) -> Int) {
+    return salvo.platform.core.sorted.put(map, key, value, cmp)
 }
 
-fun<K, V> size__SortedMap(map: java.util.SortedMap<K, V>): Int {
+fun<K, V> remove__SortedMap_K(map: salvo.platform.core.sorted.MutSortedMap<K, V>, key: K, cmp: (K, K) -> Int): V? {
+    return removeKeyPlatform(map, key, cmp)
+}
+
+fun<K, V> containsKeyPlatform(map: salvo.platform.core.sorted.SortedMap<K, V>, key: K, cmp: (K, K) -> Int): Boolean {
+    return salvo.platform.core.sorted.containsKey(map, key, cmp)
+}
+
+fun<K, V> size__SortedMap(map: salvo.platform.core.sorted.SortedMap<K, V>): Int {
     return mapSizePlatform(map)
 }
 
-fun<K, V> firstKeyPlatform(map: java.util.SortedMap<K, V>): K? {
+fun<K, V> firstKeyPlatform(map: salvo.platform.core.sorted.SortedMap<K, V>): K? {
     return salvo.platform.core.sorted.firstKey(map)
 }
 
-fun<K, V> lastKeyPlatform(map: java.util.SortedMap<K, V>): K? {
+fun<K, V> lastKeyPlatform(map: salvo.platform.core.sorted.SortedMap<K, V>): K? {
     return salvo.platform.core.sorted.lastKey(map)
 }
 
-fun<K, V> keysPlatform(map: java.util.SortedMap<K, V>): List<K> {
+fun<K, V> keysPlatform(map: salvo.platform.core.sorted.SortedMap<K, V>): List<K> {
     return salvo.platform.core.sorted.keys(map)
 }
 
-fun<K, V> iter__SortedMap(map: java.util.SortedMap<K, V>): MapKeyYield<K> {
+fun<K, V> iter__SortedMap(map: salvo.platform.core.sorted.SortedMap<K, V>): MapKeyYield<K> {
     return MapKeyYield(items = keysPlatform(map), at = 0)
 }
 
-fun<T> NonEmpty_qualifies(set: java.util.SortedSet<T>): Boolean {
+fun<T> NonEmpty_qualifies(set: salvo.platform.core.sorted.SortedSet<T>): Boolean {
     return size__SortedSet(set) > 0
 }
 
-fun<K, V> NonEmpty_qualifies(map: java.util.SortedMap<K, V>): Boolean {
+fun<K, V> NonEmpty_qualifies(map: salvo.platform.core.sorted.SortedMap<K, V>): Boolean {
     return size__SortedMap(map) > 0
 }
 
-fun<T> min(set: java.util.SortedSet<T>): T {
+fun<T> min(set: salvo.platform.core.sorted.SortedSet<T>): T {
     return (minPlatform(set) ?: throw AssertionError("salvo: value is absent at core.sorted:188:12"))
 }
 
-fun<T> max(set: java.util.SortedSet<T>): T {
+fun<T> max(set: salvo.platform.core.sorted.SortedSet<T>): T {
     return (maxPlatform(set) ?: throw AssertionError("salvo: value is absent at core.sorted:192:12"))
 }
 
-fun<K, V> firstKey(map: java.util.SortedMap<K, V>): K {
+fun<K, V> firstKey(map: salvo.platform.core.sorted.SortedMap<K, V>): K {
     return (firstKeyPlatform(map) ?: throw AssertionError("salvo: value is absent at core.sorted:196:12"))
 }
 
-fun<K, V> lastKey(map: java.util.SortedMap<K, V>): K {
+fun<K, V> lastKey(map: salvo.platform.core.sorted.SortedMap<K, V>): K {
     return (lastKeyPlatform(map) ?: throw AssertionError("salvo: value is absent at core.sorted:200:12"))
 }

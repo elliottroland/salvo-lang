@@ -33,30 +33,9 @@ pub fn fn_call(
     recv: Option<&str>,
     args: &[String],
     type_args: &[String],
-    ordering: Option<&str>,
-    keyed: Option<(&str, &str)>,
 ) -> Option<String> {
     let elem = || type_args.first().map(String::as_str).unwrap_or("Any");
     let a = |i: usize| args.get(i).map(String::as_str).unwrap_or("TODO()");
-    // [cmp-carry] The comparison a sorted collection is kept by: the function its
-    // type names, or the language's structural comparison when it names none.
-    // [cmp-carry] A hash container's constructor: the runtime container when the
-    // type names a `hash`/`eq` pair, the JVM's own `LinkedHashMap` otherwise —
-    // which is what every Salvo program has always compiled to.
-    let set_ctor = |elem: &str| match keyed {
-        Some((h, e)) => format!("salvo.SalvoHashSet<{elem}>({h}, {e})"),
-        None => format!("linkedSetOf<{elem}>()"),
-    };
-    let map_ctor = |k: &str, v: &str| match keyed {
-        Some((h, e)) => format!("salvo.SalvoHashMap<{k}, {v}>({h}, {e})"),
-        None => format!("linkedMapOf<{k}, {v}>()"),
-    };
-    // [platform-check] The canonical ordering is one object, so a sorted
-    // collection can be recognized as sorted the program's way.
-    let comparator = || match ordering {
-        Some(target) => format!("java.util.Comparator {{ __a, __b -> {target}(__a, __b) }}"),
-        None => "salvo.SalvoCanonicalOrder".to_string(),
-    };
     Some(match (name, recv) {
         // core.basic -----------------------------------------------------
         // [op-convert] The explicit numeric conversions. Kotlin's `toX()`
@@ -202,125 +181,16 @@ pub fn fn_call(
         ("array_by", Some("Int")) => {
             format!("Array<{}>({}, {})", elem(), a(0), a(1))
         }
-        ("set_by", Some("Int")) | ("mut_set_by", Some("Int")) => format!(
-            "{}.also {{ __s -> __s.addAll((0 until ({})).map({})) }}",
-            set_ctor(&elem()),
-            a(0),
-            a(1)
-        ),
-        ("map_by", Some("Int")) | ("mut_map_by", Some("Int")) => format!(
-            "{}.also {{ __m -> (0 until ({})).map({})\
-             .forEach {{ __e -> __m.put(__e.first, __e.second) }} }}",
-            map_ctor(
-                type_args.first().map(String::as_str).unwrap_or("Any"),
-                type_args.get(1).map(String::as_str).unwrap_or("Any"),
-            ),
-            a(0),
-            a(1)
-        ),
-
-        // [col-convert] The converters. `LinkedHashSet`/`LinkedHashMap` keep
-        // first-appearance order [col-insertion-order].
-        ("to_set", Some("List")) => {
-            format!("{}.also {{ __s -> __s.addAll({}) }}", set_ctor(&elem()), a(0))
-        }
-        ("to_map", Some("List")) if args.len() == 1 => format!(
-            "{}.also {{ __m -> {}\
-             .forEach {{ __e -> __m.put(__e.first, __e.second) }} }}",
-            map_ctor(
-                type_args.first().map(String::as_str).unwrap_or("Any"),
-                type_args.get(1).map(String::as_str).unwrap_or("Any"),
-            ),
-            a(0)
-        ),
-        ("to_map", Some("List")) => format!(
-            "{}.also {{ __m -> {}.map({})\
-             .forEach {{ __e -> __m.put(__e.first, __e.second) }} }}",
-            map_ctor(
-                type_args.get(1).map(String::as_str).unwrap_or("Any"),
-                type_args.get(2).map(String::as_str).unwrap_or("Any"),
-            ),
-            a(0),
-            a(1)
-        ),
-
         // core.set -------------------------------------------------------
-        // [col-insertion-order] `linkedSetOf` is a `LinkedHashSet`, whose
-        // iteration order is first-insertion — which is the language's rule,
-        // not the JVM's default for every set. It is both a `Set` and a
-        // `MutableSet`, so the same constructor serves both declarations
-        // [type-canbe-mut]; the element type is spelled out for the same
-        // reason the list constructors spell it [backend-intrinsic].
-        ("set_of", Some("[]")) | ("mut_set_of", Some("[]")) => {
-            format!("{}.also {{ __s -> __s.addAll(listOf({})) }}", set_ctor(&elem()), args.join(", "))
-        }
         // [col-key-eligible] An owned read of a snapshot element. Identity
         // is the copy here because element/key types are the immutable
         // intrinsic types, which is what `copy` of a generic cannot assume
         // [kt-copy].
         ("snapshot_at", Some("List")) => format!("{}.getOrNull({})", a(0), a(1)),
 
-        // core.sorted ----------------------------------------------------
-        // [cmp-carry] The comparator a sorted collection is built with: the
-        // ordering its *type* names, or the language's structural comparison when
-        // it names none — which is the canonical path and what `__salvoCompare`
-        // has always provided.
-
-        // [col-sorted] [kt-ordered] A `TreeSet`/`TreeMap` built with **our**
-        // comparator rather than natural ordering: Salvo orders a `List` or a
-        // tuple by its elements (neither is `Comparable` on the JVM) and a
-        // `Str` by code point (`String.compareTo` is UTF-16 code-unit order),
-        // so natural ordering would disagree with Rust [backend-parity].
-        ("sorted_set_of", Some("[]")) | ("mut_sorted_set_of", Some("[]")) => format!(
-            "java.util.TreeSet<{}>({}).also {{ __s -> \
-             __s.addAll(listOf({})) }}",
-            elem(),
-            comparator(),
-            args.join(", ")
-        ),
-
-        ("sorted_map_of", Some("[]")) | ("mut_sorted_map_of", Some("[]")) => format!(
-            "java.util.TreeMap<{}, {}>({}).also {{ __m -> \
-             __m.putAll(listOf({})) }}",
-            type_args.first().map(String::as_str).unwrap_or("Any"),
-            type_args.get(1).map(String::as_str).unwrap_or("Any"),
-            comparator(),
-            args.join(", ")
-        ),
-        ("to_str", Some("SortedMap")) => format!(
-            "{}.entries.joinToString(\", \", \"{{\", \"}}\") \
-             {{ \"${{it.key}}: ${{it.value}}\" }}",
-            a(0)
-        ),
-
-        // core.map -------------------------------------------------------
-        // [col-insertion-order] `linkedMapOf` is a `LinkedHashMap`: an
-        // overwrite keeps the key's position and removal preserves the
-        // order of the rest. It takes `Pair`s, which is what a Salvo
-        // 2-tuple already is [type-tuple], so the entries pass straight
-        // through. A repeated key resolves last-wins, as Salvo's rule says
-        // [col-duplicate-keys].
-        // [cmp-carry] Through `map_ctor`, like every other keyed constructor:
-        // this one built a `linkedMapOf` directly, so a map whose type named a
-        // `hash`/`eq` pair silently keyed by the JVM's `hashCode`/`equals`
-        // instead — the *set* beside it was routed and the map was not (fixed
-        // 2026-09-26, when the constructors began naming an identity and the
-        // two disagreed on the same program).
-        ("map_of", Some("[]")) | ("mut_map_of", Some("[]")) => format!(
-            "{}.also {{ __m -> __m.putAll(listOf({})) }}",
-            map_ctor(
-                type_args.first().map(String::as_str).unwrap_or("Any"),
-                type_args.get(1).map(String::as_str).unwrap_or("Any"),
-            ),
-            args.join(", ")
-        ),
-        // [col-to-str] `{a: 1, b: 2}` — the map literal's shape. Kotlin's
-        // own `toString` renders `{a=1}`, so the separator is written out.
-        ("to_str", Some("Map")) => format!(
-            "{}.entries.joinToString(\", \", \"{{\", \"}}\") \
-             {{ \"${{it.key}}: ${{it.value}}\" }}",
-            a(0)
-        ),
+        // core.sorted, core.map ------------------------------------------
+        // [col-to-str] `{a: 1, b: 2}`: the host type's `toString`.
+        ("to_str", Some("SortedMap")) | ("to_str", Some("Map")) => format!("{}.toString()", a(0)),
 
         // core.array -----------------------------------------------------
         // [fn-variadic] The variadic tail *is* the array; a `...spread`
@@ -373,16 +243,6 @@ pub fn type_name(name: &str) -> Option<&'static str> {
         // [col-deque] One class for `Deque` and `Mut Deque`, as `SalvoBytes`
         // is for `Bytes` [type-canbe-mut].
         "Deque" => "kotlin.collections.ArrayDeque",
-        // [col-insertion-order] The immutable views of the ordered
-        // implementations the constructors build: a `LinkedHashSet` *is* a
-        // `Set` and a `LinkedHashMap` *is* a `Map`, so the declared type
-        // stays the interface and the order comes from the instance.
-        "Set" => "Set",
-        "Map" => "Map",
-        // [col-sorted] The JVM's sorted views of the trees the constructors
-        // build: a `TreeSet` *is* a `SortedSet`, so dropping `Mut` is free.
-        "SortedSet" => "java.util.SortedSet",
-        "SortedMap" => "java.util.SortedMap",
         _ => return None,
     })
 }
@@ -394,15 +254,6 @@ pub fn type_name(name: &str) -> Option<&'static str> {
 pub fn mut_type_name(name: &str) -> Option<&'static str> {
     match name {
         "List" => Some("MutableList"),
-        // Like `MutableList`, these *are* subtypes of their immutable
-        // forms, so dropping the `Mut` is free [str-drop-mut].
-        "Set" => Some("MutableSet"),
-        "Map" => Some("MutableMap"),
-        // [col-sorted] `java.util.SortedSet`/`SortedMap` are already mutable
-        // interfaces on the JVM, so `Mut` needs no different type here — and
-        // dropping it renders nothing [str-drop-mut].
-        "SortedSet" => Some("java.util.SortedSet"),
-        "SortedMap" => Some("java.util.SortedMap"),
         // [kt-mut-str] A string under construction. Unlike `MutableList`,
         // this is *not* a subtype of its immutable form, which is what
         // makes dropping `Mut` a conversion [str-drop-mut].

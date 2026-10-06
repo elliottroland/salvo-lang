@@ -1938,15 +1938,14 @@ fn a_dependencys_host_project_is_checked_before_its_code() {
     assert!(!ok && stderr.contains("was generated for ABI 0, and this compiler's is 1"), "{stderr}");
 }
 
-/// [platform-check] D10 C1/C2: a set or map the host returns keeps Salvo's
-/// order. On Kotlin, a top-level result built the host's way (`hashSetOf`, a
-/// `TreeSet` under natural ordering, which sorts by UTF-16 code unit) is copied
-/// into Salvo's shape; one inside another value cannot be replaced, so it is
-/// refused naming the constructor to use. Rust's types promise the shape, and
-/// `collect()` builds them under the canonical identity.
+/// [platform-value-type] A set or map the host returns is std's own host type
+/// (ROADMAP §0j step 7), built with the canonical builders the host files
+/// offer (`canonicalSet`, `canonical_map`, …): Salvo then finds the elements
+/// by its own `hash`/`eq`/`cmp`, and a sorted set of strings is in code-point
+/// order on both backends (UTF-16 order would put the emoji first).
 #[test]
-fn sets_and_maps_from_the_host_keep_salvos_order() {
-    let Some(stamp) = e2e_stamp("sets_and_maps_from_the_host", &["kotlinc", "rustc"]) else { return };
+fn sets_and_maps_from_the_host_are_built_canonically() {
+    let Some(stamp) = e2e_stamp("sets_and_maps_from_the_host_canonical", &["kotlinc", "rustc"]) else { return };
     const PROGRAM: &str = "\
 struct Bag {
     tags: Set<Str>
@@ -1958,12 +1957,15 @@ platform fn sorted() [] -> SortedSet<Str>
 
 platform fn ages() [] -> Map<Str, Int>
 
-platform fn bag(ok: Bool) [] -> Bag
+platform fn bag() [] -> Bag
 
 fn main() [use] {
     use StdOutConsole()
-    println(\"${size(names())} ${sorted()} ${size(ages())} ${size(bag(true).tags)}\")
-    LAST
+    let ns = names()
+    let ag = ages()
+    let has = contains(ns, \"a\")
+    let y = get(ag, \"y\")!
+    println(\"${size(ns)} ${has} ${sorted()} ${y} ${size(bag().tags)}\")
 }
 ";
     let hosts = [
@@ -1972,10 +1974,10 @@ fn main() [use] {
             "kotlinc",
             "kt",
             vec![
-                ("TODO(\"implement names\")", "return hashSetOf(\"b\", \"a\", \"c\")"),
-                ("TODO(\"implement sorted\")", "return java.util.TreeSet(listOf(\"\\uFF61\", \"\\uD83D\\uDE00\"))"),
-                ("TODO(\"implement ages\")", "return hashMapOf(\"x\" to 1, \"y\" to 2)"),
-                ("TODO(\"implement bag\")", "return Bag(tags = if (ok) linkedSetOf(\"a\", \"b\") else hashSetOf(\"a\", \"b\", \"c\"))"),
+                ("TODO(\"implement names\")", "return salvo.platform.core.set.canonicalSet(listOf(\"b\", \"a\", \"c\"))"),
+                ("TODO(\"implement sorted\")", "return salvo.platform.core.sorted.canonicalSortedSet(listOf(\"\\uFF61\", \"\\uD83D\\uDE00\"))"),
+                ("TODO(\"implement ages\")", "return salvo.platform.core.map.canonicalMap(listOf(\"x\" to 1, \"y\" to 2))"),
+                ("TODO(\"implement bag\")", "return Bag(tags = salvo.platform.core.set.canonicalSet(listOf(\"a\", \"b\")))"),
             ],
         ),
         (
@@ -1983,10 +1985,10 @@ fn main() [use] {
             "rustc",
             "rs",
             vec![
-                ("todo!(\"implement names\")", "[\"b\", \"a\", \"c\"].iter().map(|s| s.to_string()).collect()"),
-                ("todo!(\"implement sorted\")", "[\"\\u{FF61}\", \"\\u{1F600}\"].iter().map(|s| s.to_string()).collect()"),
-                ("todo!(\"implement ages\")", "[(\"x\".to_string(), 1), (\"y\".to_string(), 2)].into_iter().collect()"),
-                ("todo!(\"implement bag\")", "let _ = ok;\n    Bag { tags: [\"a\", \"b\"].iter().map(|s| s.to_string()).collect() }"),
+                ("todo!(\"implement names\")", "crate::platform_core_set::canonical_set(vec![\"b\".to_string(), \"a\".to_string(), \"c\".to_string()])"),
+                ("todo!(\"implement sorted\")", "crate::platform_core_sorted::canonical_sorted_set(vec![\"\\u{FF61}\".to_string(), \"\\u{1F600}\".to_string()])"),
+                ("todo!(\"implement ages\")", "crate::platform_core_map::canonical_map(vec![(\"x\".to_string(), 1), (\"y\".to_string(), 2)])"),
+                ("todo!(\"implement bag\")", "Bag { tags: crate::platform_core_set::canonical_set(vec![\"a\".to_string(), \"b\".to_string()]) }"),
             ],
         ),
     ];
@@ -1997,7 +1999,7 @@ fn main() [use] {
         }
         let dir = work_dir(&format!("shapes_{backend}"));
         project(&dir);
-        fs::write(dir.join("main.sv"), PROGRAM.replace("LAST", "")).unwrap();
+        fs::write(dir.join("main.sv"), PROGRAM).unwrap();
         let out = salvo_in(&dir, &["platform", "generate", "--backend", backend]);
         assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
         let host = dir.join("platform").join(format!("main.{ext}"));
@@ -2010,24 +2012,16 @@ fn main() [use] {
         let out = salvo_in(&dir, &["run", "--backend", backend]);
         let stderr = String::from_utf8_lossy(&out.stderr);
         assert!(out.status.success(), "{backend}: {stderr}");
-        assert_eq!(String::from_utf8_lossy(&out.stdout), "3 {\u{FF61}, \u{1F600}} 2 2\n", "{backend}: {stderr}");
-        if backend == "kotlin" {
-            fs::write(dir.join("main.sv"), PROGRAM.replace("LAST", "println(\"${size(bag(false).tags)}\")")).unwrap();
-            let out = salvo_in(&dir, &["run", "--backend", backend]);
-            let stderr = String::from_utf8_lossy(&out.stderr);
-            assert!(
-                !out.status.success() && stderr.contains("is a set that keeps no insertion order: build it with `linkedSetOf(…)`"),
-                "{stderr}"
-            );
-        }
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "3 true {\u{FF61}, \u{1F600}} 2 2\n", "{backend}: {stderr}");
     }
     stamp.verified();
 }
 
 /// [platform-check] D10 C2: a host cannot build a collection keyed by a
 /// Salvo-defined identity — a written one (`SortedSet<Str>(by_len)`) or one
-/// filled by name from a hand-written `hash` — so a result of one is refused.
-/// The canonical identity passes, and so does one `by auto` stamped.
+/// filled by name from a hand-written `hash`, or a `by auto` stamped one,
+/// whose `hash` folds fields its own way — so a result of one is refused.
+/// Only an intrinsic identity is the host's own (ROADMAP §0j step 7).
 #[test]
 fn a_collection_keyed_by_a_salvo_identity_is_refused_at_the_boundary() {
     let dir = work_dir("keyed");
@@ -2068,7 +2062,8 @@ platform fn tags() [] -> Set<Tag>
     let out = salvo_in(&dir, &["analyze"]);
     let stderr = String::from_utf8_lossy(&out.stderr);
     let errors: Vec<&str> = stderr.lines().filter(|l| l.starts_with("error:")).collect();
-    assert!(errors.len() == 2, "{stderr}");
+    assert!(errors.len() == 3, "{stderr}");
+    assert!(errors.iter().any(|l| l.contains("`platform fn people`'s result is `Set<Person>`")), "{stderr}");
     assert!(
         errors.iter().any(|l| l.contains("`platform fn sorted`'s result is `SortedSet<Str>(by_len)`, a collection keyed by a Salvo-defined identity")),
         "{stderr}"

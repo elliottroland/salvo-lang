@@ -52,14 +52,6 @@ pub fn fn_call(
     recv: Option<&str>,
     args: &[String],
     spread: Spread,
-    ordering: Option<&str>,
-    // [cmp-carry] The identity as **function values** rather than marker
-    // types: what a keyed container built inside a *generic* function is
-    // given, where the identity is a capability the function was handed and
-    // no type names it (2026-09-26). One string, already
-    // comma-separated — `hash, eq` or a single `cmp` — spliced into the
-    // runtime's `with_fns`/`with_cmp` entry points.
-    keyed_values: Option<&str>,
     // [rs-loc] The call is a return-path forward inside a lending fn's
     // **locator variant**: the lowering answers *position data* instead
     // of a borrow. Only the lenders with a locator form answer; the rest
@@ -72,44 +64,6 @@ pub fn fn_call(
         // the reference site report it, never a silently-read lowering.
         return None;
     }
-    // [cmp-carry] The marker type naming the ordering a keyed container is kept
-    // by, when this call *constructs* one: the emitter reads it off the call's
-    // own type, since that is where the identity lives.
-    let ord = || ordering.unwrap_or("HostOrd");
-    let keyed = || ordering.unwrap_or("HostHash, HostEq");
-    // [cmp-carry] One place per family that knows how a keyed container is
-    // built, so the marker form and the function-value form cannot drift —
-    // the shape the Kotlin intrinsics have always had (`set_ctor`/`map_ctor`).
-    // The value form fills by insertion, which is what the runtime's
-    // `from_elements` does anyway.
-    let set_ctor = |iter: String| match keyed_values {
-        Some(fns) => format!(
-            "{{ let mut __c = SalvoSet::with_fns({fns}); for __e in {iter} {{ __c.insert(__e); }} __c }}"
-        ),
-        None => format!("SalvoSet::from_elements::<{}, _>({iter})", keyed()),
-    };
-    let map_ctor = |iter: String| match keyed_values {
-        Some(fns) => format!(
-            "{{ let mut __c = SalvoMap::with_fns({fns}); for (__k, __v) in {iter} {{ __c.insert(__k, __v); }} __c }}"
-        ),
-        None => format!("SalvoMap::from_entries::<{}, _>({iter})", keyed()),
-    };
-    let sorted_set_ctor = |iter: String| match keyed_values {
-        Some(fns) => format!(
-            "{{ let mut __c = SalvoSortedSet::with_cmp({fns}); for __e in {iter} {{ __c.insert(__e); }} __c }}"
-        ),
-        None => format!("SalvoSortedSet::from_elements::<{}, _>({iter})", ord()),
-    };
-    let sorted_map_ctor = |iter: String| match keyed_values {
-        Some(fns) => format!(
-            "{{ let mut __c = SalvoSortedMap::with_cmp({fns}); for (__k, __v) in {iter} {{ __c.insert(__k, __v); }} __c }}"
-        ),
-        None => format!("SalvoSortedMap::from_entries::<{}, _>({iter})", ord()),
-    };
-    // [cmp-carry] …and the hash/equality **pair** a keyed container is kept by:
-    // one marker each, the host's own when the type names none. The emitter hands
-    // them over as one rendered argument list, since they always travel together
-    // [col-membership].
     let a = |i: usize| args.get(i).map(String::as_str).unwrap_or("todo!()");
     // [col-bounds] An `Int` argument in an **index** position. The cast goes
     // through `i64` rather than straight to `usize`, because a *literal* takes
@@ -125,13 +79,6 @@ pub fn fn_call(
     let owned_vec = || match spread {
         Spread::Owned => a(0).to_string(),
         _ => format!("{}.clone()", a(0)),
-    };
-    // …and as an iterator of owned elements, which is what the set/map
-    // constructors consume. `into_iter` on an owned vector moves its
-    // elements; a borrowed one has to clone each.
-    let owned_iter = || match spread {
-        Spread::Owned => format!("{}.into_iter()", a(0)),
-        _ => format!("{}.iter().cloned()", a(0)),
     };
     Some(match (name, recv) {
         // core.basic -----------------------------------------------------
@@ -370,71 +317,17 @@ pub fn fn_call(
         ("array_by", Some("Int")) => {
             format!("(0..({})).map({}).collect::<Vec<_>>()", a(0), a(1))
         }
-        ("set_by", Some("Int")) | ("mut_set_by", Some("Int")) => {
-            set_ctor(format!("(0..({})).map({})", a(0), a(1)))
-        }
-        ("map_by", Some("Int")) | ("mut_map_by", Some("Int")) => {
-            map_ctor(format!("(0..({})).map({})", a(0), a(1)))
-        }
-
-        // [col-convert] The converters.
-        ("to_set", Some("List")) => set_ctor(format!("{}.iter().cloned()", a(0))),
-        ("to_map", Some("List")) if args.len() == 1 => {
-            map_ctor(format!("{}.iter().cloned()", a(0)))
-        }
-        ("to_map", Some("List")) => map_ctor(format!("{}.iter().map({})", a(0), a(1))),
-
 
         // core.set -------------------------------------------------------
-        // [rs-collections] The ordered set from the runtime file. A
-        // `...spread` arrives as the whole `Vec<T>`, so it is the element
-        // source itself — cloned, since a variadic position is not tracked
-        // by the flow analysis and the array stays usable afterwards (the
-        // same reasoning as the list constructors above).
-        ("set_of", Some("[]")) | ("mut_set_of", Some("[]")) if spread_any => {
-            set_ctor(owned_iter())
-        }
-        ("set_of", Some("[]")) | ("mut_set_of", Some("[]")) => {
-            set_ctor(format!("vec![{}]", args.join(", ")))
-        }
         // [col-key-eligible] An owned read of a snapshot element — a clone
         // here, where Kotlin can share the reference.
         ("snapshot_at", Some("List")) => {
             format!("{}.get({}).cloned()", a(0), index(1))
         }
 
-        // core.sorted ----------------------------------------------------
-        // [col-sorted] `BTreeSet`/`BTreeMap` keep their keys in order, and
-        // `from_iter` builds one from anything iterable.
-        ("sorted_set_of", Some("[]")) | ("mut_sorted_set_of", Some("[]")) if spread_any => {
-            sorted_set_ctor(owned_iter())
-        }
-        ("sorted_set_of", Some("[]")) | ("mut_sorted_set_of", Some("[]")) => {
-            sorted_set_ctor(format!("vec![{}]", args.join(", ")))
-        }
-
-        ("sorted_map_of", Some("[]")) | ("mut_sorted_map_of", Some("[]")) if spread_any => {
-            sorted_map_ctor(owned_iter())
-        }
-        ("sorted_map_of", Some("[]")) | ("mut_sorted_map_of", Some("[]")) => {
-            sorted_map_ctor(format!("vec![{}]", args.join(", ")))
-        }
-        ("to_str", Some("SortedMap")) => format!(
-            "format!(\"{{{{{{}}}}}}\", {}.entries().iter()\
-             .map(|(__k, __v)| format!(\"{{}}: {{}}\", __k, __v))\
-             .collect::<Vec<_>>().join(\", \"))",
-            a(0)
-        ),
-
-        // core.map -------------------------------------------------------
-        // [rs-collections] Entries are native 2-tuples on this backend
-        // [type-tuple], which is exactly what `from_entries` consumes.
-        ("map_of", Some("[]")) | ("mut_map_of", Some("[]")) if spread_any => {
-            map_ctor(owned_iter())
-        }
-        ("map_of", Some("[]")) | ("mut_map_of", Some("[]")) => {
-            map_ctor(format!("vec![{}]", args.join(", ")))
-        }
+        // core.sorted, core.map ------------------------------------------
+        // [col-to-str] `{a: 1, b: 2}`: the host type's `Display`.
+        ("to_str", Some("SortedMap")) => format!("{}.to_string()", a(0)),
         // [col-to-str] `{a: 1, b: 2}`.
         ("to_str", Some("Map")) => format!("{}.to_string()", a(0)),
 
@@ -475,19 +368,6 @@ pub fn type_name(name: &str) -> Option<&'static str> {
         // [col-deque] Both ends O(1); `Deque` and `Mut Deque` are one type,
         // mutability living in the binding as for `Vec` [type-canbe-mut].
         "Deque" => "std::collections::VecDeque",
-        // [col-insertion-order] Not `HashSet`/`HashMap`: those have no
-        // iteration order to speak of (unspecified, and randomly seeded per
-        // process), while Salvo's collections iterate in insertion order on
-        // every backend. The runtime file supplies the ordered equivalents
-        // with `LinkedHashMap` semantics [rs-collections].
-        "Set" => "SalvoSet",
-        "Map" => "SalvoMap",
-        // [col-sorted] [cmp-carry] The runtime's ordered collections: a B-tree
-        // behind a store that carries the ordering the *type* names, so two sets
-        // ordered differently are one Rust type and no signature grows a
-        // parameter for the difference [rs-collections].
-        "SortedSet" => "SalvoSortedSet",
-        "SortedMap" => "SalvoSortedMap",
         _ => return None,
     })
 }

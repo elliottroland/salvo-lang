@@ -31,28 +31,28 @@ export iterable platform type SortedSet<T>(?cmp: (T, T) -> Int) canbe Mut : Iter
 
 // Constructor. The elements are stored, so they are moved; duplicates
 // collapse, and the result is in order however the arguments were written.
-export intrinsic fn sorted_set_of<T>(...elems: T[], ?Ordered<T>) [] -> SortedSet<T>(?cmp)
+export platform fn sorted_set_of<T>(...elems: T[], ?Ordered<T>) [] -> SortedSet<T>(?cmp)
 
 // Mutable constructor
-export intrinsic fn mut_sorted_set_of<T>(...elems: T[], ?Ordered<T>) [] -> Mut SortedSet<T>(?cmp)
+export platform fn mut_sorted_set_of<T>(...elems: T[], ?Ordered<T>) [] -> Mut SortedSet<T>(?cmp)
 
 // Adds an element, reporting whether it was new.
-export platform fn add<T>(set: Mut SortedSet<T>, elem: T) [] -> Bool => set: Mut, !elem
+export platform fn add<T>(set: Mut SortedSet<T>(?cmp), elem: T) [] -> Bool => set: Mut, !elem
 
 // Removes an element, reporting whether it was there.
-export fn remove<T>(set: Mut SortedSet<T>, elem: T) [] -> Bool => set: Mut, elem {
+export fn remove<T>(set: Mut SortedSet<T>(?cmp), elem: T) [] -> Bool => set: Mut, elem {
     return remove_elem(set, elem)
 }
 
 // The host's [remove] and [size] for each container, under names of their own:
 // two platform fns of one module may not overload each other.
-platform fn remove_elem<T>(set: Mut SortedSet<T>, elem: T) [] -> Bool => set: Mut, elem
+platform fn remove_elem<T>(set: Mut SortedSet<T>(?cmp), elem: T) [] -> Bool => set: Mut, elem
 platform fn set_size<T>(set: SortedSet<T>) [] -> Int => set
-platform fn remove_key<K, V>(map: Mut SortedMap<K, V>, key: K) [] -> V? => map: Mut, key
+platform fn remove_key<K, V>(map: Mut SortedMap<K, V>(?cmp), key: K) [] -> V? => map: Mut, key
 platform fn map_size<K, V>(map: SortedMap<K, V>) [] -> Int => map
 
 // Whether the set holds an element equal to [elem].
-export platform fn contains<T>(set: SortedSet<T>, elem: T) [] -> Bool => set, elem
+export platform fn contains<T>(set: SortedSet<T>(?cmp), elem: T) [] -> Bool => set, elem
 
 // Returns the number of elements in the set
 export fn size<T>(set: SortedSet<T>) [] -> Int => set {
@@ -98,27 +98,27 @@ export iterable platform type SortedMap<K, V>(?cmp: (K, K) -> Int) canbe Mut : I
 // Constructor, from entries written as pairs. A repeated key takes the value
 // of its last appearance [col-duplicate-keys]; position is irrelevant here,
 // since the order is the keys'.
-export intrinsic fn sorted_map_of<K, V>(...entries: (K, V)[], ?Ordered<K>) [] -> SortedMap<K, V>(?cmp)
+export platform fn sorted_map_of<K, V>(...entries: (K, V)[], ?Ordered<K>) [] -> SortedMap<K, V>(?cmp)
 
 // Mutable constructor
-export intrinsic fn mut_sorted_map_of<K, V>(...entries: (K, V)[], ?Ordered<K>) [] -> Mut SortedMap<K, V>(?cmp)
+export platform fn mut_sorted_map_of<K, V>(...entries: (K, V)[], ?Ordered<K>) [] -> Mut SortedMap<K, V>(?cmp)
 
 // Possibly gets the value stored under [key], **borrowed** out of the map
 // [copy-opt-in].
-export platform fn get<K, V>(map: SortedMap<K, V>, key: K) [] -> (proj(map) V)?
+export platform fn get<K, V>(map: SortedMap<K, V>(?cmp), key: K) [] -> (proj(map) V)?
 => map, key
 
 // Stores [value] under [key], replacing any value already there.
-export platform fn put<K, V>(map: Mut SortedMap<K, V>, key: K, value: V) [] -> None
+export platform fn put<K, V>(map: Mut SortedMap<K, V>(?cmp), key: K, value: V) [] -> None
 => map: Mut, !key, !value
 
 // Removes the entry under [key] and hands its value back.
-export fn remove<K, V>(map: Mut SortedMap<K, V>, key: K) [] -> V? => map: Mut, key {
+export fn remove<K, V>(map: Mut SortedMap<K, V>(?cmp), key: K) [] -> V? => map: Mut, key {
     return remove_key(map, key)
 }
 
 // Whether the map holds an entry under [key].
-export platform fn contains_key<K, V>(map: SortedMap<K, V>, key: K) [] -> Bool => map, key
+export platform fn contains_key<K, V>(map: SortedMap<K, V>(?cmp), key: K) [] -> Bool => map, key
 
 // Returns the number of entries in the map
 export fn size<K, V>(map: SortedMap<K, V>) [] -> Int => map {

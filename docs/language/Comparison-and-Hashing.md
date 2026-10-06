@@ -266,8 +266,22 @@ fn gather<T>(a: T, b: T, ?Hashed<T>) -> Set<T> => !a, !b {
 The container is keyed by whatever the caller's `T` brought with it — a declared
 pair for a struct that has one, the host's own identity for a primitive — and a
 function that only *forwards* the capability to a builder needs to say nothing
-extra either. Both backends key the container by the functions themselves, which
-is what the two runtimes have always taken.
+extra either.
+
+The identity lives in the container's **type**, never in the value: every
+operation is handed the `hash` and `eq` (or `cmp`) its call resolved, the way
+the functions over a `Heap` take its `?cmp`. So a generic function that looks
+something up in a set it was given names the identity in the parameter's type,
+and the call fills it from the argument:
+
+```
+fn has<T>(s: Set<T>(?hash, ?eq), e: T) -> Bool => s, e {
+    return contains(s, e)
+}
+```
+
+Written as a plain `Set<T>`, the parameter would ask for the `hash` of a bare
+`T`, which nothing can answer.
 
 One thing does not work yet, and says so: a keyed container over a **tuple or a
 list**, whose identities are the hosts' own and Salvo cannot name them yet — the

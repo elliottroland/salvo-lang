@@ -163,8 +163,8 @@ private fun salvoExpandHome(path: String): String =
 
 private fun toSdkCreateQueueInput(v: CreateQueueInput): aws.sdk.kotlin.services.sqs.model.CreateQueueRequest = aws.sdk.kotlin.services.sqs.model.CreateQueueRequest {
     queueName = v.queueName
-    attributes = v.attributes?.let { it.entries.associate { (k1, v1) -> aws.sdk.kotlin.services.sqs.model.QueueAttributeName.fromValue(k1) to v1 } }
-    tags = v.tags?.let { it.entries.associate { (k1, v1) -> k1 to v1 } }
+    attributes = v.attributes?.let { it.associate { (k1, v1) -> aws.sdk.kotlin.services.sqs.model.QueueAttributeName.fromValue(k1) to v1 } }
+    tags = v.tags?.let { it.associate { (k1, v1) -> k1 to v1 } }
 }
 
 private fun fromSdkCreateQueueOutput(v: aws.sdk.kotlin.services.sqs.model.CreateQueueResponse): CreateQueueOutput = CreateQueueOutput(
@@ -184,8 +184,8 @@ private fun toSdkSendMessageInput(v: SendMessageInput): aws.sdk.kotlin.services.
     queueUrl = v.queueUrl
     messageBody = v.messageBody
     delaySeconds = v.delaySeconds
-    messageAttributes = v.messageAttributes?.let { it.entries.associate { (k1, v1) -> k1 to toSdkMessageAttributeValue(v1) } }
-    messageSystemAttributes = v.messageSystemAttributes?.let { it.entries.associate { (k1, v1) -> aws.sdk.kotlin.services.sqs.model.MessageSystemAttributeNameForSends.fromValue(k1) to toSdkMessageSystemAttributeValue(v1) } }
+    messageAttributes = v.messageAttributes?.let { it.associate { (k1, v1) -> k1 to toSdkMessageAttributeValue(v1) } }
+    messageSystemAttributes = v.messageSystemAttributes?.let { it.associate { (k1, v1) -> aws.sdk.kotlin.services.sqs.model.MessageSystemAttributeNameForSends.fromValue(k1) to toSdkMessageSystemAttributeValue(v1) } }
     messageDeduplicationId = v.messageDeduplicationId
     messageGroupId = v.messageGroupId
 }
@@ -250,9 +250,9 @@ private fun fromSdkMessage(v: aws.sdk.kotlin.services.sqs.model.Message): Messag
     receiptHandle = v.receiptHandle,
     md5OfBody = v.md5OfBody,
     body = v.body,
-    attributes = v.attributes?.let { it.entries.sortedBy { it.key.value }.associate { (k1, v1) -> k1.value to v1 } },
+    attributes = v.attributes?.let { salvo.platform.core.map.canonicalMap(it.entries.sortedBy { it.key.value }.map { (k1, v1) -> k1.value to v1 }) },
     md5OfMessageAttributes = v.md5OfMessageAttributes,
-    messageAttributes = v.messageAttributes?.let { it.entries.sortedBy { it.key }.associate { (k1, v1) -> k1 to fromSdkMessageAttributeValue(v1) } },
+    messageAttributes = v.messageAttributes?.let { salvo.platform.core.map.canonicalMap(it.entries.sortedBy { it.key }.map { (k1, v1) -> k1 to fromSdkMessageAttributeValue(v1) }) },
 )
 
 private fun toSdkMessage(v: Message): aws.sdk.kotlin.services.sqs.model.Message = aws.sdk.kotlin.services.sqs.model.Message {
@@ -260,9 +260,9 @@ private fun toSdkMessage(v: Message): aws.sdk.kotlin.services.sqs.model.Message 
     receiptHandle = v.receiptHandle
     md5OfBody = v.md5OfBody
     body = v.body
-    attributes = v.attributes?.let { it.entries.associate { (k1, v1) -> aws.sdk.kotlin.services.sqs.model.MessageSystemAttributeName.fromValue(k1) to v1 } }
+    attributes = v.attributes?.let { it.associate { (k1, v1) -> aws.sdk.kotlin.services.sqs.model.MessageSystemAttributeName.fromValue(k1) to v1 } }
     md5OfMessageAttributes = v.md5OfMessageAttributes
-    messageAttributes = v.messageAttributes?.let { it.entries.associate { (k1, v1) -> k1 to toSdkMessageAttributeValue(v1) } }
+    messageAttributes = v.messageAttributes?.let { it.associate { (k1, v1) -> k1 to toSdkMessageAttributeValue(v1) } }
 }
 
 private fun toSdkDeleteMessageInput(v: DeleteMessageInput): aws.sdk.kotlin.services.sqs.model.DeleteMessageRequest = aws.sdk.kotlin.services.sqs.model.DeleteMessageRequest {

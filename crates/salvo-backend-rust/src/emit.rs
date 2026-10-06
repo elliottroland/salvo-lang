@@ -15,7 +15,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use salvo_core::check::{Checked, Coercion, PredicateCheck, ThrowSite, UnionTest};
-use salvo_core::types::{FnId, Ty};
+use salvo_core::types::Ty;
 use salvo_core::{ModulePath, Program, Symbols};
 use salvo_syntax::ast::*;
 use salvo_syntax::Span;
@@ -215,10 +215,6 @@ fn emit_program_mode(
     // [rs-seq] And for the sequence helpers the `List` fast paths of
     // `map`/`filter`/`reduce` lower to.
     let mut needs_seq = false;
-    // [rs-collections] And for the insertion-ordered `Set`/`Map`
-    // [col-insertion-order], which Rust's standard library has no
-    // equivalent of.
-    let mut needs_collections = false;
     // [rs-actor] And for the scheduler, when a program spawns.
     let mut needs_scheduler = false;
     // [time-types] And for the two clock readings, when a program reads time.
@@ -261,7 +257,6 @@ fn emit_program_mode(
         union_sizes.extend(emitter.union_sizes);
         needs_str |= emitter.needs_str;
         needs_seq |= emitter.needs_seq;
-        needs_collections |= emitter.needs_collections;
         needs_scheduler |= emitter.needs_scheduler;
         needs_time |= emitter.needs_time;
         needs_wire |= emitter.needs_wire;
@@ -341,12 +336,6 @@ fn emit_program_mode(
         files.push(EmittedFile {
             rel_path: std::path::PathBuf::from("seq.rs"),
             content: generate_seq_file(),
-        });
-    }
-    if needs_collections {
-        files.push(EmittedFile {
-            rel_path: std::path::PathBuf::from("collections.rs"),
-            content: generate_collections_file(),
         });
     }
     if needs_scheduler {
@@ -526,9 +515,6 @@ fn emit_program_mode(
         }
         if needs_seq {
             mounts.push(("seq".to_string(), runtime("seq")));
-        }
-        if needs_collections {
-            mounts.push(("collections".to_string(), runtime("collections")));
         }
         if needs_scheduler {
             mounts.push(("scheduler".to_string(), runtime("scheduler")));
@@ -768,9 +754,6 @@ pub fn platform_skeletons(
         if !emitter.union_sizes.is_empty() {
             uses.insert("use crate::unions::*;".to_string());
         }
-        if emitter.needs_collections {
-            uses.insert("use crate::collections::*;".to_string());
-        }
         let preamble = if uses.is_empty() {
             String::new()
         } else {
@@ -988,22 +971,6 @@ fn generate_strings_file() -> String {
 /// `runtime_tests.rs`.
 fn generate_seq_file() -> String {
     include_str!("../runtime/seq.rs").to_string()
-}
-
-/// [rs-collections] The insertion-ordered `Set`/`Map` the collection
-/// intrinsics lower to.
-///
-/// Rust's own `HashMap`/`HashSet` cannot serve: Salvo's collections iterate
-/// in **insertion order** on every backend [col-insertion-order], which
-/// Kotlin gets free from `LinkedHashMap`/`LinkedHashSet` and Rust's standard
-/// library has no equivalent of. The file supplies that equivalent, with
-/// LinkedHashMap's exact observable semantics — a position-preserving
-/// overwrite, an order-preserving O(1) removal, and order-insensitive
-/// equality.
-/// Source in `runtime/collections.rs`, included verbatim and compiled
-/// directly by `runtime_tests.rs`.
-fn generate_collections_file() -> String {
-    include_str!("../runtime/collections.rs").to_string()
 }
 
 /// [rs-actor] The actor scheduler asynchronous effect handlers run on:
@@ -1479,11 +1446,6 @@ struct Emitter<'p> {
     /// Items generated for this file beside the module body (e.g. the
     /// `__Dyn` combiners of a fn value), appended after it.
     generated_items: Vec<String>,
-    /// [cmp-carry] The ordering markers this module has already generated, name
-    /// -> the element type it orders: one zero-sized struct and `SalvoCmp` impl
-    /// per identity a keyed container here is kept by. Module-local, so nothing
-    /// has to be imported and two modules naming one ordering each get their own.
-    ordering_markers: BTreeMap<String, String>,
     /// [platform-handler] [platform-tree] The modules whose `platform/`
     /// companion this file's `use` sites depend on: registering a platform
     /// handler constructs a *host* struct, so the companion defining it has
@@ -1550,9 +1512,6 @@ struct Emitter<'p> {
     /// [rs-seq] This file calls a sequence helper, so the program needs the
     /// generated sequence support file.
     needs_seq: bool,
-    /// [rs-collections] Whether this module referenced `Set`/`Map`, so the
-    /// ordered-collection runtime is emitted and mounted.
-    needs_collections: bool,
     /// [rs-actor] This file spawns, sends to an addr, or bridges with
     /// `waitfor`, so the scheduler module is part of the program.
     needs_scheduler: bool,
@@ -1571,21 +1530,6 @@ struct Emitter<'p> {
     /// its fn-typed parameters arrive owned and `'static`, since they are
     /// used in every pass rather than during the call.
     in_iterator_fn: bool,
-    /// [rs-stored-implicit] The implicits that arrive **owned**, as
-    /// `Arc<dyn Fn …>` rather than `&mut dyn FnMut`: a capability the callee
-    /// *keeps* past its own return, because it hands it to a keyed container
-    /// it builds [cmp-carry]. Program-wide and computed once — the set is
-    /// closed under forwarding, so a fn that passes its implicit to one of
-    /// these is one of these. Empty in a program that builds no keyed
-    /// container inside a generic fn, which is the usual case.
-    stored_implicits: HashSet<(salvo_core::FnKey, String)>,
-    /// [rs-stored-implicit] The fns building a container keyed by values, whose
-    /// generics therefore carry the store's `Send + 'static`.
-    value_keyed_fns: HashSet<salvo_core::FnKey>,
-    /// [rs-stored-implicit] The key of the top-level fn being emitted, for
-    /// asking whether one of *its* implicits is kept. `None` inside a member,
-    /// which cannot be generic and so cannot carry a forwarded identity.
-    current_fn_key: Option<salvo_core::FnKey>,
     /// [iter-fn] Inside an iterator fn's body: the names that are
     /// fields of the generated pass rather than locals. `bindings` renders
     /// their *reads* (`SelfField`); this set is what tells a `let` to assign
@@ -1660,144 +1604,6 @@ struct LendMutDemand {
 /// body (an intrinsic forward becomes a mut splice, a named one demands
 /// the callee's variant too). A seed with no named callee — a fn value or
 /// effect member lending mutably — is the loud v1 cut.
-/// [rs-stored-implicit] [cmp-carry] Which implicits arrive **owned**: the ones
-/// a callee *keeps*, because it hands them to a keyed container it builds
-/// inside a generic function (2026-09-26).
-///
-/// Seeds are the construction sites — an expression whose type is a keyed
-/// container carrying a `FnId::Binder`, which is exactly "its identity is a
-/// capability this function was handed". The closure is **forwarding**: if a fn
-/// passes its own implicit into a position that is already owned, its own
-/// parameter has to be owned too, since what it passes on is a handle it must
-/// hold. One pass per fn body per round, to a fixpoint — the set is tiny (empty
-/// in most programs), so the rounds are cheap.
-fn stored_implicit_demand(program: &Program, checked: &Checked) -> StoredImplicits {
-    let mut demand: HashSet<(salvo_core::FnKey, String)> = HashSet::new();
-    // [rs-stored-implicit] The fns that *build* a value-keyed container, which is
-    // a wider set than the ones holding a kept capability: writing both members
-    // of an identity out is the only way to name identities in a generic body
-    // [implicit-with], and such a container is keyed by values too — its subject
-    // being a type variable, no marker can name it. Those fns need the store's
-    // bounds on their generics even when no implicit of theirs is kept.
-    let mut value_keyed: HashSet<salvo_core::FnKey> = HashSet::new();
-    // Every fn body, with its key and the span it covers: the map from a
-    // construction (or a call) back to the fn whose parameters are in play.
-    let mut bodies: Vec<(salvo_core::FnKey, usize, Span)> = Vec::new();
-    for (file, module) in program.modules.iter().enumerate() {
-        for (item, it) in module.items.iter().enumerate() {
-            let key = salvo_core::FnKey { file, item };
-            match it {
-                Item::Fn(f) => bodies.extend(f.body.as_ref().map(|b| (key, file, b.span))),
-                // A handler member's implicits are looked up by its own name
-                // span, not by a `FnKey`, so it cannot join this set — and it
-                // cannot be generic either, which is what makes a Binder
-                // identity possible. Nothing to do here.
-                _ => {}
-            }
-        }
-    }
-    let enclosing = |file_idx: usize, span: Span| -> Option<salvo_core::FnKey> {
-        bodies
-            .iter()
-            .find(|(_, f, b)| *f == file_idx && b.start <= span.start && span.end <= b.end)
-            .map(|(k, _, _)| *k)
-    };
-    // The seeds: a keyed container whose identity is a forwarded capability.
-    for ((file_idx, span), ty) in &checked.expr_ty {
-        let Ty::Named { name, args } = ty.strip_quals() else {
-            continue;
-        };
-        if !matches!(name.as_str(), "Set" | "Map" | "SortedSet" | "SortedMap") {
-            continue;
-        }
-        let Some(key) = enclosing(*file_idx, *span) else {
-            continue;
-        };
-        let subject = args.first();
-        let generic_subject = subject.is_some_and(|t| {
-            let names: Vec<&str> = program
-                .modules
-                .get(key.file)
-                .and_then(|m| m.items.get(key.item))
-                .and_then(|it| match it {
-                    Item::Fn(f) => Some(f.generics.iter().map(|g| g.name.as_str()).collect()),
-                    _ => None,
-                })
-                .unwrap_or_default();
-            ty_mentions_any(t, &names)
-        });
-        let mut carries_binder = false;
-        for a in args {
-            if let Ty::FnName(FnId::Binder(n)) = a {
-                demand.insert((key, n.clone()));
-                carries_binder = true;
-            }
-        }
-        if carries_binder || (generic_subject && args.iter().any(|a| matches!(a, Ty::FnName(_)))) {
-            value_keyed.insert(key);
-        }
-    }
-    // The closure: forwarding an implicit into an owned position.
-    loop {
-        let mut grew = false;
-        for ((file_idx, span), filled) in &checked.implicit_args {
-            let Some(callee) = checked.call_fn.get(&(*file_idx, *span)) else {
-                continue;
-            };
-            let Some(params) = checked.implicit_params.get(callee) else {
-                continue;
-            };
-            let Some(here) = enclosing(*file_idx, *span) else {
-                continue;
-            };
-            for (i, a) in filled.iter().enumerate() {
-                let salvo_core::ImplicitArg::Forwarded { name } = a else {
-                    continue;
-                };
-                let Some(param) = params.get(i) else { continue };
-                if demand.contains(&(*callee, param.name.clone()))
-                    && demand.insert((here, name.clone()))
-                {
-                    grew = true;
-                }
-            }
-        }
-        if !grew {
-            break;
-        }
-    }
-    // A fn that only *forwards* a kept capability calls one that keeps it, and
-    // the callee's bounds are the caller's to satisfy.
-    for (key, _) in &demand {
-        value_keyed.insert(*key);
-    }
-    StoredImplicits {
-        owned: demand,
-        value_keyed,
-    }
-}
-
-/// [rs-stored-implicit] What `stored_implicit_demand` answers: which implicits
-/// arrive owned, and which fns build a container keyed by *values* (so their
-/// generics carry the store's bounds).
-struct StoredImplicits {
-    owned: HashSet<(salvo_core::FnKey, String)>,
-    value_keyed: HashSet<salvo_core::FnKey>,
-}
-
-/// Whether a type mentions any of `names` as a bare type name or type variable.
-fn ty_mentions_any(ty: &Ty, names: &[&str]) -> bool {
-    match ty.strip_quals() {
-        Ty::Var(g) => names.contains(&g.as_str()),
-        Ty::Named { name, args } => {
-            (args.is_empty() && names.contains(&name.as_str()))
-                || args.iter().any(|a| ty_mentions_any(a, names))
-        }
-        Ty::Tuple(parts) => parts.iter().any(|t| ty_mentions_any(t, names)),
-        _ => false,
-    }
-}
-
 fn lend_mut_demand(program: &Program, checked: &Checked) -> LendMutDemand {
     let fn_of = |key: salvo_core::FnKey| -> Option<&FnDecl> {
         match program.modules.get(key.file)?.items.get(key.item)? {
@@ -2233,9 +2039,6 @@ impl<'p> Emitter<'p> {
         file_name: &str,
     ) -> Self {
         let lend_mut = lend_mut_demand(program, checked);
-        let stored = stored_implicit_demand(program, checked);
-        let stored_implicits = stored.owned;
-        let value_keyed_fns = stored.value_keyed;
         Emitter {
             abi_keep: None,
             platform_effects: Default::default(),
@@ -2326,7 +2129,6 @@ impl<'p> Emitter<'p> {
             fn_aliases: BTreeMap::new(),
             root_module: None,
             generated_items: Vec::new(),
-            ordering_markers: BTreeMap::new(),
             platform_hosts: BTreeSet::new(),
             hoist_id: 0,
             current_fn: String::new(),
@@ -2343,15 +2145,11 @@ impl<'p> Emitter<'p> {
             needs_protocol: false,
             needs_str: false,
             needs_seq: false,
-            needs_collections: false,
             needs_scheduler: false,
             needs_time: false,
             is_temps: HashMap::new(),
             is_temp_id: 0,
             in_iterator_fn: false,
-            stored_implicits,
-            value_keyed_fns,
-            current_fn_key: None,
             gen_fields: HashSet::new(),
             gen_slots: HashSet::new(),
             pending_lambda_conv: None,
@@ -2861,12 +2659,6 @@ impl<'p> Emitter<'p> {
         }
         if self.needs_seq {
             imports.insert("use crate::seq::*;".to_string());
-        }
-        // [rs-collections] The ordered `Set`/`Map`: needed by any module
-        // that so much as *names* one in a signature, not only by one that
-        // calls into it.
-        if self.needs_collections {
-            imports.insert("use crate::collections::*;".to_string());
         }
         let mut out = String::new();
         if !imports.is_empty() {
@@ -3389,7 +3181,7 @@ impl<'p> Emitter<'p> {
             for p in f.params.iter().filter(|p| !p.implicit) {
                 let pname = rs_ident(&p.name.name);
                 let plan = checking
-                    .then(|| self.checked.boundary_checks.get(&(self.file_idx, p.name.span)).and_then(|c| c.without_shapes()))
+                    .then(|| self.checked.boundary_checks.get(&(self.file_idx, p.name.span)).cloned())
                     .flatten();
                 match (plan, reply_payload(&p.ty)) {
                     (Some(plan), Some(payload)) => {
@@ -3407,7 +3199,7 @@ impl<'p> Emitter<'p> {
             args.extend(self.implicits_of(f).iter().map(|imp| rs_ident(&imp.name)));
             let call = format!("self.0.{member}({})", args.join(", "));
             let result_plan = checking
-                .then(|| self.checked.boundary_checks.get(&(self.file_idx, f.name.span)).and_then(|c| c.without_shapes()))
+                .then(|| self.checked.boundary_checks.get(&(self.file_idx, f.name.span)).cloned())
                 .flatten();
             let body = match result_plan {
                 Some(plan) => {
@@ -3877,7 +3669,7 @@ impl<'p> Emitter<'p> {
         // [col-idx] A qualified scalar (`index: Idx(list) Int`) arrives by
         // reference, as every qualified parameter does, and the host takes the
         // scalar.
-        let args: Vec<String> = f
+        let mut args: Vec<String> = f
             .params
             .iter()
             .map(|p| {
@@ -3891,6 +3683,15 @@ impl<'p> Emitter<'p> {
                 }
             })
             .collect();
+        // [platform-slots] A binder captured from a parameter's type
+        // (`set: Mut Set<T>(?hash, ?eq)`) is one more argument, lent for the
+        // call [platform-fn-value].
+        for ip in self.implicits_of(f) {
+            let name = rs_ident(&ip.name);
+            if !args.contains(&name) {
+                args.push(name);
+            }
+        }
         let call = format!("crate::{}::{}({})", host_mod_name(&module), rs_ident(&f.name.name), args.join(", "));
         let pad = "    ".repeat(indent);
         // [rs-loc] The locator variant answers a *position* in the first
@@ -3929,7 +3730,7 @@ impl<'p> Emitter<'p> {
         let plan = self
             .abi_keep
             .is_none()
-            .then(|| self.checked.boundary_checks.get(&(self.file_idx, f.name.span)).and_then(|c| c.without_shapes()))
+            .then(|| self.checked.boundary_checks.get(&(self.file_idx, f.name.span)).cloned())
             .flatten();
         match plan {
             Some(plan) => {
@@ -4050,11 +3851,6 @@ impl<'p> Emitter<'p> {
                 }
                 out
             }
-            // Rust's collection types promise the shape themselves.
-            C::Shape { inner, .. } => match inner {
-                Some(inner) => self.render_boundary_check(inner, v, what, indent),
-                None => String::new(),
-            },
         }
     }
 
@@ -5857,7 +5653,6 @@ impl<'p> Emitter<'p> {
         let top_level = matches!(style, FnStyle::TopLevel);
         let is_main = top_level && f.name.name == "main";
         let fn_key = if top_level { self.key_of_fn(f) } else { None };
-        let saved_fn_key = std::mem::replace(&mut self.current_fn_key, fn_key);
         // [rs-throw-controlflow] A fn declaring `[Throw<M>]` returns
         // `ControlFlow<M, T>`: the throw *is* the return, so intermediate
         // frames stay silent (no handler, no dispatch, no allocation).
@@ -5929,12 +5724,6 @@ impl<'p> Emitter<'p> {
             // lazy pair (2026-09-10); a stored callback's own `'static` is
             // spelled where the `Rc<dyn Fn>` is [rs-fn-field].
             .map(|g| {
-                // [rs-stored-implicit] [cmp-carry] …except in a fn that builds a
-                // keyed container: the container keeps its elements and its
-                // identity behind a sendable box, so its key type is
-                // `Send + 'static` — the bounds the runtime's stores declare.
-                // A Salvo type always satisfies both; this only spells what the
-                // container needs at the one place it is needed.
                 // [platform-generic] A platform fn's type parameter is opaque
                 // to the host, which may store, move and hand one back: the
                 // fixed bounds `Send + 'static` (which give `Any` for a
@@ -5950,8 +5739,6 @@ impl<'p> Emitter<'p> {
                     }
                 } else if f.platform {
                     format!("{}: Send + 'static", g.name)
-                } else if fn_key.is_some_and(|k| self.value_keyed_fns.contains(&k)) {
-                    format!("{}: Clone + Send + 'static", g.name)
                 } else if f.generic_canbe.iter().any(|c| c.0.name == g.name && c.1.name.name == "linear") {
                     // [linear-generics] A `T canbe linear` is never copied, and a
                     // linear `T` has no `Clone`.
@@ -6233,17 +6020,6 @@ impl<'p> Emitter<'p> {
                 let owned = format!("{rendered} + Send + Sync + 'static");
                 self.bindings.insert(imp.name.clone(), BindKind::Owned);
                 params.push(format!("{}: {owned}", rs_ident(&imp.name)));
-                continue;
-            }
-            // [rs-stored-implicit] [cmp-carry] A capability this fn *keeps* —
-            // it hands it to a keyed container it builds, which outlives the
-            // call — arrives owned, behind an `Arc`: the same convention
-            // exception an iterator fn's callbacks get, for the same reason,
-            // and a shape the container can hold (`with_fns`/`with_cmp`).
-            if self.stores_implicit(&imp.name) {
-                let rendered = self.stored_implicit_ty(&imp.ty);
-                self.bindings.insert(imp.name.clone(), BindKind::Owned);
-                params.push(format!("{}: {rendered}", rs_ident(&imp.name)));
                 continue;
             }
             let rendered = self.implicit_param_type_of(imp);
@@ -6747,7 +6523,6 @@ impl<'p> Emitter<'p> {
         self.loop_splice_floors = saved_loop_floors;
         self.throw_message = saved_throw;
         self.try_frames = saved_try_frames;
-        self.current_fn_key = saved_fn_key;
         out
     }
 
@@ -7215,12 +6990,6 @@ impl<'p> Emitter<'p> {
             format!("<{}>", arg_strs.join(", "))
         };
         if let Some(rs) = crate::intrinsics::type_name(name) {
-            // [rs-collections] Naming the type is enough to need its
-            // runtime module imported, whether or not this module also
-            // calls into it.
-            if matches!(name, "Set" | "Map" | "SortedSet" | "SortedMap") {
-                self.needs_collections = true;
-            }
             // [rs-actor] The scheduler's handles are *not* generic in Rust:
             // an addr is an index and a token is one type, so the Salvo type
             // argument (the effect an addr serves, the payload a token carries)
@@ -7355,347 +7124,6 @@ impl<'p> Emitter<'p> {
         }
     }
 
-    /// [cmp-carry] The hash/equality **markers** a keyed container built here is
-    /// kept by, rendered as one argument list since the pair always travels
-    /// together [col-membership] — the host's own when its type names neither.
-    fn keyed_markers(&mut self, span: Span) -> String {
-        self.needs_collections = true;
-        match self.container_identity_markers(span) {
-            Some(pair) => pair,
-            None => "HostHash, HostEq".to_string(),
-        }
-    }
-
-    /// [cmp-carry] The generated markers for a `Set`/`Map` whose type names its
-    /// hash and equality. `None` for the canonical path.
-    fn container_identity_markers(&mut self, span: Span) -> Option<String> {
-        let ty = self.checked.expr_ty.get(&(self.file_idx, span))?.clone();
-        let Ty::Named { name, args } = ty.strip_quals() else {
-            return None;
-        };
-        if !matches!(name.as_str(), "Set" | "Map") {
-            return None;
-        }
-        let subject = args.first()?.clone();
-        let ids: Vec<FnId> = args
-            .iter()
-            .filter_map(|a| match a {
-                Ty::FnName(id) => Some(id.clone()),
-                _ => None,
-            })
-            .collect();
-        if ids.len() != 2 {
-            return None;
-        }
-        let hash = self.identity_marker(&ids[0], &subject, "Hash")?;
-        let eq = self.identity_marker(&ids[1], &subject, "Eq")?;
-        Some(format!("{hash}, {eq}"))
-    }
-
-    /// [cmp-carry] One generated marker: a zero-sized struct and the impl of the
-    /// capability's trait for it, registered on first use. The declaration behind
-    /// the name is the *checker's* answer — resolving it here could disagree with
-    /// what the checker type-checked against.
-    fn identity_marker(&mut self, id: &FnId, subject: &Ty, kind: &str) -> Option<String> {
-        // The **subject** is part of the name: one `cmp`/`hash` serves many
-        // element types, and a marker impl is written for exactly one — sharing
-        // the name silently gave `SortedSet<Str>` and `SortedSet<Int>` the same
-        // marker (rustc then complained about the element type, which is how it
-        // was found once every container started naming an identity).
-        let elem_tag = rs_ident(&self.rust_ty(subject).replace(
-            |c: char| !c.is_ascii_alphanumeric(),
-            "_",
-        ));
-        let marker = format!(
-            "__{kind}_{}_{elem_tag}",
-            rs_ident(&id.to_string().replace('@', "__"))
-        );
-        if !self.ordering_markers.contains_key(&marker) {
-            let decl_key = self
-                .checked
-                .carried_identities
-                .get(&(id.clone(), subject.clone()))
-                .copied();
-            let decl = decl_key.and_then(|k| self.fn_by_key(k));
-            let Some(decl) = decl else {
-                // [cmp-carry] A **forwarded** capability: the identity is the
-                // enclosing fn's own implicit parameter, so there is no
-                // declaration to name and no marker can be generated. A
-                // container whose identity is *entirely* forwarded takes the
-                // functions as values instead and never reaches here
-                // ([rs-stored-implicit], 2026-09-26) — so what is left is a
-                // **mixed** fill: one slot named or left to the host, the other
-                // forwarded. That pair has no single rendering, and it is
-                // refused loudly rather than mis-lowered
-                // [backend-never-wrong].
-                if matches!(id, FnId::Binder(_)) {
-                    self.error(format!(
-                        "this keyed container mixes identities: `{id}` is a \
-                         capability this function was handed while another slot \
-                         is not, and the two cannot be rendered together — fill \
-                         the whole identity from one source [cmp-carry]"
-                    ));
-                    return None;
-                }
-                // A **written** fill (`mut_set_of(eq = f)`) is not recorded as a
-                // carried identity, so it lands here; ROADMAP's "partially
-                // filled identity group" is the open defect, and it carries a
-                // decision about whether such a pair should be legal at all.
-                self.error(format!(
-                    "the `{id}` this collection is keyed by has no resolved \
-                     declaration: an identity written at the constructor \
-                     (`eq = {id}`) is not carried by the container yet, and a \
-                     hash and an equality have to come from one source \
-                     [cmp-carry]"
-                ));
-                return None;
-            };
-            // [cmp-groups] A **canonical intrinsic** is the host's own
-            // operation — that is what `hash(Int)`/`eq(Str, Str)`/`cmp(Int,
-            // Int)` *mean* — so it needs no marker of its own, and has no
-            // emitted symbol a marker could call. Every keyed container names
-            // an identity since the constructors took the capability
-            // (2026-09-25), so this is now the common path, not an edge.
-            if decl.intrinsic {
-                self.needs_collections = true;
-                return Some(
-                    match kind {
-                        "Hash" => "HostHash",
-                        "Eq" => "HostEq",
-                        _ => "HostOrd",
-                    }
-                    .to_string(),
-                );
-            }
-            let target = self.rust_fn_name(decl);
-            let elem = self.rust_ty(subject);
-            // [rs-borrows] The marker's own parameters are references — the
-            // trait says so — but the identity it calls takes its arguments in
-            // *its* modes: a Copy scalar by value, a read struct by reference.
-            // Splicing a reference everywhere was rustc's E0308 the moment a
-            // declared identity over a scalar became reachable (`eq = f` at
-            // `Set<Int>`, 2026-09-26) [backend-never-wrong].
-            // Every parameter of an identity *is* the subject, so one test
-            // answers for all of them.
-            let decl = decl.clone();
-            let copy_subject = Self::is_copy_ty(subject);
-            let arg = |emitter: &mut Self, i: usize, name: &str| -> String {
-                let Some(p) = decl.params.iter().filter(|p| !p.implicit).nth(i).cloned() else {
-                    return name.to_string();
-                };
-                match emitter.param_mode(decl_key, &p) {
-                    ParamMode::Owned if copy_subject => format!("*{name}"),
-                    ParamMode::Owned => format!("{name}.clone()"),
-                    _ => name.to_string(),
-                }
-            };
-            let (a0, a1) = (arg(self, 0, "__a"), arg(self, 1, "__b"));
-            let v0 = arg(self, 0, "__v");
-            let body = match kind {
-                "Hash" => format!(
-                    "    fn hash(__v: &{elem}) -> i64 {{ {target}({v0}) }}"
-                ),
-                "Eq" => format!(
-                    "    fn eq(__a: &{elem}, __b: &{elem}) -> bool {{ {target}({a0}, {a1}) }}"
-                ),
-                _ => format!(
-                    "    fn cmp(__a: &{elem}, __b: &{elem}) -> i32 {{ {target}({a0}, {a1}) }}"
-                ),
-            };
-            self.needs_collections = true;
-            self.ordering_markers.insert(marker.clone(), elem.clone());
-            self.generated_items.push(format!(
-                "\npub struct {marker};\nimpl Salvo{kind}<{elem}> for {marker} {{\n{body}\n}}\n"
-            ));
-        }
-        Some(marker)
-    }
-
-    /// [cmp-carry] The identity a keyed container is kept by, as **function
-    /// values** — `hash, eq` or a single `cmp` — when it is a capability the
-    /// enclosing fn was handed rather than a name (`FnId::Binder`). That is the
-    /// generic-body case: a marker type cannot name a parameter, so the runtime
-    /// takes the functions themselves (`with_fns`/`with_cmp`, added
-    /// 2026-09-26). The implicit arrives as an owned `Arc<dyn Fn …>` for exactly
-    /// this reason [rs-stored-implicit], so passing it on is a clone of the
-    /// handle.
-    ///
-    /// `None` for every other shape, which keeps the marker path the default.
-    fn container_identity_values(&mut self, span: Span) -> Option<String> {
-        let ty = self.checked.expr_ty.get(&(self.file_idx, span))?.clone();
-        let Ty::Named { name, args } = ty.strip_quals() else {
-            return None;
-        };
-        if !matches!(name.as_str(), "Set" | "Map" | "SortedSet" | "SortedMap") {
-            return None;
-        }
-        let ids: Vec<FnId> = args
-            .iter()
-            .filter_map(|a| match a {
-                Ty::FnName(id) => Some(id.clone()),
-                _ => None,
-            })
-            .collect();
-        let subject = args.first()?.clone();
-        // The value form is for an identity no **marker type** can express, and
-        // there are two such shapes — both of them inside generic code:
-        //
-        //  * a **forwarded capability**, which is a parameter rather than a name
-        //    [cmp-carry], and
-        //  * any identity whose **subject is a type variable**: a marker is a
-        //    top-level `struct` with an `impl SalvoHash<T>`, and `T` is not in
-        //    scope there. This is reachable since an identity group must be
-        //    filled from one source [implicit-with] — writing both members out
-        //    is the only way to name identities in a generic body, and it was
-        //    rustc's E0425 before the value form took it (2026-09-26).
-        //
-        // With neither, the markers are the rendering — zero-sized and
-        // statically dispatched — so this path stays out of the way of every
-        // ordinary container.
-        let forwarded = ids.iter().any(|id| matches!(id, FnId::Binder(_)));
-        if !forwarded && !self.ty_mentions_generic(&subject) {
-            return None;
-        }
-        // Which identity each slot is, by position: the hash pair carries two,
-        // the sorted pair one.
-        let kinds: &[&str] = if ids.len() == 2 {
-            &["hash", "eq"]
-        } else {
-            &["cmp"]
-        };
-        self.needs_collections = true;
-        let mut out: Vec<String> = Vec::new();
-        for (i, id) in ids.iter().enumerate() {
-            let kind = kinds.get(i).copied().unwrap_or("cmp");
-            match id {
-                // The capability this fn holds: a share of the same handle.
-                FnId::Binder(name) => {
-                    out.push(format!("std::sync::Arc::clone(&{})", rs_ident(name)));
-                }
-                // [cmp-carry] A slot filled by a **name** beside a forwarded one
-                // — a mixed fill, honoured rather than refused (user decision
-                // 2026-09-26). A marker cannot be mixed into a value pair, so
-                // the named identity becomes a closure of its own: the host's
-                // own operation through its `Host*` marker, a declared fn by a
-                // direct call.
-                _ => match self.identity_value_of(id, &subject, kind) {
-                    Some(code) => out.push(code),
-                    None => return None,
-                },
-            }
-        }
-        Some(out.join(", "))
-    }
-
-    /// Whether a type mentions a generic that is in scope here — so it cannot be
-    /// named at item level, where a marker `struct` and its `impl` would have to
-    /// sit.
-    fn ty_mentions_generic(&self, ty: &Ty) -> bool {
-        match ty.strip_quals() {
-            Ty::Var(g) => self.generics.contains(g),
-            Ty::Named { name, args } => {
-                (args.is_empty() && self.generics.contains(name))
-                    || args.iter().any(|a| self.ty_mentions_generic(a))
-            }
-            Ty::Tuple(parts) => parts.iter().any(|t| self.ty_mentions_generic(t)),
-            _ => false,
-        }
-    }
-
-    /// [cmp-carry] [rs-stored-implicit] A **named** identity as an owned value,
-    /// for a container that is keyed by functions because another of its slots
-    /// is a forwarded capability. The subject is a type variable here (that is
-    /// what makes the container value-keyed), so every parameter is a reference
-    /// and no mode analysis is needed.
-    fn identity_value_of(&mut self, id: &FnId, subject: &Ty, kind: &str) -> Option<String> {
-        let elem = self.rust_ty(subject);
-        // The declaration itself, **not a clone**: `rust_fn_name` identifies an
-        // overload by pointer, so a copy silently loses the mangling and emits
-        // the unmangled name — which for a generated structural member
-        // (`eq__4`) was rustc's E0425 [backend-never-wrong], found 2026-09-26.
-        let decl: Option<&'p FnDecl> = self
-            .checked
-            .carried_identities
-            .get(&(id.clone(), subject.clone()))
-            .copied()
-            .and_then(|k| self.fn_by_key(k));
-        let Some(decl) = decl else {
-            self.error(format!(
-                "the `{id}` this collection is keyed by has no resolved declaration \
-                 [cmp-carry]"
-            ));
-            return None;
-        };
-        // An identity that needs implicits of its own has nothing to fill them
-        // from here — the call the checker resolved is elsewhere — so it is
-        // refused by name rather than emitted incomplete
-        // [backend-never-wrong].
-        if decl.params.iter().any(|p| p.implicit) {
-            self.error(format!(
-                "the `{id}` this collection is keyed by needs implicit arguments of \
-                 its own, which a container built from a forwarded capability has \
-                 no way to supply — give the container an identity that needs none \
-                 [cmp-carry]"
-            ));
-            return None;
-        }
-        // The host's own operation reaches the same markers the marker path
-        // uses; calling through the trait keeps one definition of what the
-        // host's identity *is*.
-        if decl.intrinsic {
-            let (marker, tr, sig, call) = match kind {
-                "hash" => ("HostHash", "SalvoHash", "|__v: &{elem}| -> i64", "hash(__v)"),
-                "eq" => ("HostEq", "SalvoEq", "|__a: &{elem}, __b: &{elem}| -> bool", "eq(__a, __b)"),
-                _ => ("HostOrd", "SalvoCmp", "|__a: &{elem}, __b: &{elem}| -> i32", "cmp(__a, __b)"),
-            };
-            let sig = sig.replace("{elem}", &elem);
-            return Some(format!(
-                "std::sync::Arc::new({sig} {{ <{marker} as {tr}<{elem}>>::{call} }})"
-            ));
-        }
-        let target = self.rust_fn_name(decl);
-        Some(match kind {
-            "hash" => format!("std::sync::Arc::new(move |__v: &{elem}| {target}(__v))"),
-            _ => format!(
-                "std::sync::Arc::new(move |__a: &{elem}, __b: &{elem}| {target}(__a, __b))"
-            ),
-        })
-    }
-
-    /// [cmp-carry] The marker type naming the ordering the keyed container this
-    /// expression builds is kept by — `HostOrd` when its type names
-    /// none, which is the canonical path every program took before orderings
-    /// could be named, and a generated marker when it names one.
-    ///
-    /// Registers the marker's definition on first use, so the module emits one
-    /// zero-sized struct and one `SalvoCmp` impl per ordering it actually
-    /// mentions.
-    fn ordering_marker_for(&mut self, span: Span) -> Option<String> {
-        let ty = self.checked.expr_ty.get(&(self.file_idx, span))?.clone();
-        let Ty::Named { name, args } = ty.strip_quals() else {
-            return None;
-        };
-        if !matches!(name.as_str(), "SortedSet" | "SortedMap") {
-            return None;
-        }
-        // Building one needs the runtime module, whether or not this module also
-        // names the type [rs-collections].
-        self.needs_collections = true;
-        let subject = args.first()?.clone();
-        let Some(Ty::FnName(id)) = args.iter().find(|a| matches!(a, Ty::FnName(_))) else {
-            // No identity in the type: the host's own ordering, as ever.
-            return Some("HostOrd".to_string());
-        };
-        let id = id.clone();
-        // One implementation with the hash pair's [cmp-carry]: the same marker
-        // naming, and the same "a canonical intrinsic *is* the host's ordering"
-        // fallback. Keeping a second copy here is what let the intrinsic case
-        // reach rustc as a call to a function with no emitted symbol.
-        Some(
-            self.identity_marker(&id, &subject, "Cmp")
-                .unwrap_or_else(|| "HostOrd".to_string()),
-        )
-    }
 
     /// Renders a checker `Ty` as Rust (qualifiers erased, unions as the
     /// enum encoding). Must agree with `emit_type` on the same source
@@ -7926,35 +7354,6 @@ impl<'p> Emitter<'p> {
     /// [rs-proj-arm] An implicit parameter's type, with the union arms its
     /// declaration marks as borrows rendered as references: `Yield`'s `next`
     /// is `&mut dyn FnMut(&mut It) -> Union2<&T, Finished>`.
-    /// [rs-stored-implicit] Does the fn being emitted *keep* this implicit —
-    /// hand it to a keyed container it builds [cmp-carry]? Then it arrives
-    /// owned. The demand set is program-wide and closed under forwarding
-    /// (`stored_implicit_demand`), so a fn that only passes the capability on
-    /// answers `true` as well.
-    fn stores_implicit(&self, name: &str) -> bool {
-        self.current_fn_key
-            .is_some_and(|k| self.stored_implicits.contains(&(k, name.to_string())))
-    }
-
-    /// [rs-stored-implicit] How a kept capability is rendered:
-    /// `Arc<dyn Fn(&T) -> i64 + Send + Sync>`. `Fn` rather than `FnMut` and
-    /// `Send + Sync` rather than plain, because the container may be shared
-    /// and cloned — the bounds its store declares.
-    fn stored_implicit_ty(&mut self, ty: &Ty) -> String {
-        let params = self.fn_ty_param_renderings(ty);
-        let ret = match ty.strip_quals() {
-            Ty::Fn { ret, .. } => match ret.as_ref() {
-                Ty::Named { name, .. } if name == "None" => String::new(),
-                r => format!(" -> {}", self.rust_ty(r)),
-            },
-            _ => String::new(),
-        };
-        format!(
-            "std::sync::Arc<dyn Fn({}){ret} + Send + Sync>",
-            params.join(", ")
-        )
-    }
-
     fn implicit_param_type_of(&mut self, imp: &salvo_core::ImplicitParam) -> String {
         self.implicit_param_type_borrowing(&imp.ty, &imp.borrowed_arms)
     }
@@ -12659,39 +12058,25 @@ impl<'p> Emitter<'p> {
             }
             // [col-literal] [rs-collections] The brace literals lower to
             // the ordered runtime types, like `set_of`/`map_of`.
-            Expr::SetLit { elems, span } => {
-                self.needs_collections = true;
-                let items: Vec<String> = elems.iter().map(|e| self.emit_owned(e)).collect();
-                // [col-literal] An empty `{}` takes its *kind* from the
-                // position, and the checker is what resolved it — so the
-                // emitter follows the checked type rather than the node:
-                // `let m: Map<Str, Int> = {}` is an empty map, and a
-                // `List` position an empty list.
-                match self.ty_of(*span).map(|t| t.strip_quals()) {
-                    Some(Ty::Named { name, .. }) if name == "Map" => {
-                        format!("SalvoMap::from_entries::<{}, _>(vec![])", self.keyed_markers(*span))
-                    }
-                    Some(Ty::Named { name, .. }) if name == "List" => {
-                        format!("vec![{}]", items.join(", "))
-                    }
-                    _ => format!(
-                        "SalvoSet::from_elements::<{}, _>(vec![{}])",
-                        self.keyed_markers(*span),
-                        items.join(", ")
-                    ),
+            // [col-literal] A set or map literal is the constructor call the
+            // checker resolved it as; an empty `{}` at a `List` is `vec![]`.
+            Expr::SetLit { .. } | Expr::MapLit { .. } => {
+                let call = salvo_backend::emit_util::literal_as_call(self.checked, self.file_idx, expr, |k| {
+                    self.fn_by_key(k).map(|d| d.name.name.clone())
+                });
+                match call {
+                    Some(call) => self.emit_expr(&call),
+                    None => match expr {
+                        Expr::SetLit { elems, .. } => {
+                            let items: Vec<String> = elems.iter().map(|e| self.emit_owned(e)).collect();
+                            format!("vec![{}]", items.join(", "))
+                        }
+                        _ => {
+                            self.error("internal error: a map literal the checker did not resolve [col-literal]".to_string());
+                            "todo!()".to_string()
+                        }
+                    },
                 }
-            }
-            Expr::MapLit { entries, span, .. } => {
-                self.needs_collections = true;
-                let items: Vec<String> = entries
-                    .iter()
-                    .map(|(k, v)| format!("({}, {})", self.emit_owned(k), self.emit_owned(v)))
-                    .collect();
-                format!(
-                    "SalvoMap::from_entries::<{}, _>(vec![{}])",
-                    self.keyed_markers(*span),
-                    items.join(", ")
-                )
             }
             Expr::Tuple { elems, .. } => {
                 let items: Vec<String> = elems.iter().map(|e| self.emit_expr(e)).collect();
@@ -14329,7 +13714,6 @@ impl<'p> Emitter<'p> {
                 }
                 ("Set", 1) | ("SortedSet", 1) => {
                     let inner = self.float_text_expr(&args[0], "__ft")?;
-                    self.needs_collections = true;
                     Some(format!(
                         "format!(\"{{{{{{}}}}}}\", {code}.iter().map(|__ft| {inner})\
                          .collect::<Vec<_>>().join(\", \"))"
@@ -14346,7 +13730,6 @@ impl<'p> Emitter<'p> {
                     if !Self::ty_has_float(&args[0]) && !Self::ty_has_float(&args[1]) {
                         return None;
                     }
-                    self.needs_collections = true;
                     Some(format!(
                         "format!(\"{{{{{{}}}}}}\", {code}.iter()\
                          .map(|(__fk, __fv)| format!(\"{{}}: {{}}\", {key}, {val}))\
@@ -14425,8 +13808,6 @@ impl<'p> Emitter<'p> {
                 recv,
                 &[arg.clone()],
                 crate::intrinsics::Spread::None,
-                None,
-                None,
                 false,
             ) {
                 Some(code) => code,
@@ -16375,50 +15756,12 @@ impl<'p> Emitter<'p> {
             // sequence helpers, which is what gives their callbacks an
             // expected type — a closure bound to a `let` cannot infer its
             // parameters, so an inline lowering would not compile.
-            // [rs-collections] The ordered `Set`/`Map` runtime: either the
-            // receiver is one of them, or this is a constructor, whose
-            // receiver is the variadic array rather than the collection it
-            // builds.
-            if recv == Some("Set")
-                || recv == Some("Map")
-                || matches!(
-                    f.name.name.as_str(),
-                    "set_of"
-                        | "mut_set_of"
-                        | "map_of"
-                        | "mut_map_of"
-                        | "set_by"
-                        | "mut_set_by"
-                        | "map_by"
-                        | "mut_map_by"
-                        | "to_set"
-                        | "to_map"
-                )
-            {
-                self.needs_collections = true;
-            }
             // [fn-variadic] How the variadic tail arrived, which decides the
             // shape the constructor lowering wants. A lone `...spread`
             // forwards a *borrowed* collection; a tail that mixes plain
             // arguments with a spread was assembled into a fresh vector by
             // `intrinsic_arg_code`, so it arrives owned and must not be
             // cloned again.
-            // [cmp-carry] When this call builds a keyed container, the identities
-            // it will be kept by are in the call's own type — an ordering for the
-            // sorted pair, a hash/equality pair for the hash pair. One slot,
-            // since only one of the two applies to any call.
-            // [cmp-carry] …and when the identity is a **capability** this fn was
-            // handed rather than a name — a keyed container built inside a
-            // generic function — the values are what the runtime takes
-            // (`with_fns`/`with_cmp`), since no marker type can name a
-            // parameter.
-            let keyed_values = self.container_identity_values(span);
-            let ordering = if keyed_values.is_some() {
-                None
-            } else {
-                self.ordering_marker_for(span)
-                    .or_else(|| self.container_identity_markers(span))
-            };
             let variadic_at = f.params.iter().position(|p| p.variadic);
             let tail_len = variadic_at.map_or(0, |v| args.len().saturating_sub(v));
             let spread = if !args.iter().any(|a| matches!(a, Expr::Spread { .. })) {
@@ -16441,8 +15784,6 @@ impl<'p> Emitter<'p> {
                     recv,
                     &arg_code,
                     spread,
-                    ordering.as_deref(),
-                    keyed_values.as_deref(),
                     mut_lend,
                 )
             {
@@ -16815,40 +16156,25 @@ impl<'p> Emitter<'p> {
     /// `&T`, `None` for by value), which is what the adapter has to bridge to
     /// the written fn's own convention — and what a *lambda* argument binds
     /// its parameters under, exactly as in a written fn-typed position.
-    /// [rs-stored-implicit] `stored` marks a position the callee **keeps** — it
-    /// hands the capability to a keyed container it builds [cmp-carry] — so the
-    /// value goes over owned, behind an `Arc`, rather than as a borrow of a
-    /// temporary closure. Missing this made a *written* fill at a kept position
-    /// rustc's E0308 (found 2026-09-26: the caller of a fn whose own `?hash`
-    /// is kept).
     fn implicit_value(
         &mut self,
         value: &Expr,
         arity: usize,
         handed: &[Option<bool>],
-        stored: bool,
     ) -> String {
-        // A kept position takes the value owned, so its adapter is a `move`
-        // closure; a borrowed one stays exactly as it was — the convention for
-        // every position that is *not* kept is unchanged. `move` is only legal
-        // directly before a closure's `|`, so it is added to a closure and never
-        // to a parenthesized expression.
-        let wrap = |code: String| {
-            if !stored {
-                return format!("&mut {code}");
-            }
-            let owned = if code.starts_with('|') {
-                format!("move {code}")
-            } else {
-                code
-            };
-            format!("std::sync::Arc::new({owned})")
-        };
+        let wrap = |code: String| format!("&mut {code}");
         if let Expr::Ident(id) = value {
             let is_local = self.bindings.contains_key(id.name.as_str());
             if !is_local {
                 if let Some(key) = self.checked.fn_refs.get(&(self.file_idx, id.span)).copied() {
                     if let Some(decl) = self.fn_by_key(key) {
+                        // [implicit-intrinsic] An intrinsic has no Rust fn to
+                        // name: the adapter's body is its lowering.
+                        if decl.intrinsic {
+                            let ps: Vec<String> = (0..arity).map(|i| format!("__i{i}")).collect();
+                            let body = self.intrinsic_fn_value_body(decl, &ps);
+                            return wrap(format!("|{}| {body}", ps.join(", ")));
+                        }
                         let target = self.rust_fn_name(decl);
                         let fixed: Vec<Param> = decl
                             .params
@@ -16895,11 +16221,6 @@ impl<'p> Emitter<'p> {
             );
         }
         let code = self.emit_owned(value);
-        // A written lambda goes over as itself so `move` can attach to it; any
-        // other expression keeps its parentheses.
-        if stored && code.starts_with('|') {
-            return wrap(code);
-        }
         wrap(format!("({code})"))
     }
 
@@ -17010,8 +16331,6 @@ impl<'p> Emitter<'p> {
             recv,
             params,
             crate::intrinsics::Spread::None,
-            None,
-            None,
             false,
         ) {
             Some(code) => code,
@@ -17051,18 +16370,6 @@ impl<'p> Emitter<'p> {
                 .call_fn
                 .get(&(self.file_idx, span))
                 .is_some_and(|k| self.owns_callbacks(*k));
-        // [rs-stored-implicit] [cmp-carry] The positions the callee *keeps*: it
-        // hands them to a keyed container it builds, so they arrive as an owned
-        // `Arc<dyn Fn …>` and the argument is a handle rather than a borrow.
-        let stored: HashSet<String> = match self.checked.call_fn.get(&(self.file_idx, span)) {
-            Some(k) => self
-                .stored_implicits
-                .iter()
-                .filter(|(key, _)| key == k)
-                .map(|(_, name)| name.clone())
-                .collect(),
-            None => HashSet::new(),
-        };
         // [implicit-param] How the *position* hands each parameter over: a
         // kept-`Mut` one arrives as `&mut T` already (`fn_ty_param_renderings`),
         // so the adapter must not borrow it a second time — `next(&mut __i0)`
@@ -17113,8 +16420,7 @@ impl<'p> Emitter<'p> {
                         Some(a) => {
                             let handed =
                                 position_refmut.get(name).cloned().unwrap_or_default();
-                            let keeps = stored.contains(name);
-                            out.push(self.implicit_value(&a.value, *arity, &handed, keeps))
+                            out.push(self.implicit_value(&a.value, *arity, &handed))
                         }
                         None => {
                             self.error(format!(
@@ -17125,15 +16431,7 @@ impl<'p> Emitter<'p> {
                     }
                 }
                 salvo_core::ImplicitArg::Forwarded { name } => {
-                    // [rs-stored-implicit] Forwarding into a *stored* position
-                    // shares the handle: this fn holds an `Arc` for the same
-                    // reason the callee does [cmp-carry].
-                    if stored.contains(name) {
-                        out.push(format!(
-                            "std::sync::Arc::clone(&{})",
-                            rs_ident(name)
-                        ));
-                    } else if producer {
+                    if producer {
                         let held = match self.bindings.get(name.as_str()) {
                             Some(BindKind::SelfField) => format!("self.{}", rs_ident(name)),
                             _ => rs_ident(name),
@@ -17343,17 +16641,7 @@ impl<'p> Emitter<'p> {
                             } else {
                                 format!("{{ {peels}{body} }}")
                             };
-                            if stored.contains(name) {
-                                // [rs-stored-implicit] The callee keeps it, so
-                                // it is handed over owned — and behind an `Arc`,
-                                // which is how the container holds an identity
-                                // it may share with a clone of itself
-                                // [cmp-carry].
-                                out.push(format!(
-                                    "std::sync::Arc::new(move |{}| {body})",
-                                    params.join(", ")
-                                ));
-                            } else if producer {
+                            if producer {
                                 out.push(format!("move |{}| {body}", params.join(", ")));
                             } else {
                                 out.push(format!("&mut |{}| {body}", params.join(", ")));

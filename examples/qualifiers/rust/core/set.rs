@@ -1,4 +1,3 @@
-use crate::collections::*;
 use crate::unions::*;
 use crate::core_iterator::Finished;
 use crate::core_iterator::emitted;
@@ -12,23 +11,43 @@ const _: fn() = || { fn __contract<T: Send + 'static + Clone + std::fmt::Debug +
 const _: fn() = || { fn __each(x: &Set<i32>) -> impl Iterator<Item = i32> + '_ { crate::platform_core_set::each(x).map(|e| e.clone()) } let _ = __each; };
 const _: fn() = || { fn __each_ref(x: &Set<i32>) -> impl Iterator<Item = &i32> + '_ { crate::platform_core_set::each(x) } fn __each_mut(x: &mut Set<i32>) -> impl Iterator<Item = &mut i32> + '_ { crate::platform_core_set::each_mut(x) } fn __into_each(x: Set<i32>) -> impl Iterator<Item = i32> { crate::platform_core_set::into_each(x) } let _ = (__each_ref, __each_mut, __into_each); };
 
-pub fn add_platform<T: Clone>(set: &mut SalvoSet<T>, elem: T) -> bool {
-    crate::platform_core_set::add(set, elem)
+pub fn set_of_platform<T: Clone>(elems: Vec<T>, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> Set<T> {
+    crate::platform_core_set::set_of(elems, hash, eq)
 }
 
-pub fn remove_platform<T: Clone>(set: &mut SalvoSet<T>, elem: &T) -> bool {
-    crate::platform_core_set::remove(set, elem)
+pub fn mut_set_of_platform<T: Clone>(elems: Vec<T>, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> Set<T> {
+    crate::platform_core_set::mut_set_of(elems, hash, eq)
 }
 
-pub fn contains_platform<T: Clone>(set: &SalvoSet<T>, elem: &T) -> bool {
-    crate::platform_core_set::contains(set, elem)
+pub fn set_by_platform<T: Clone>(size: i32, init: &mut dyn FnMut(i32) -> T, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> Set<T> {
+    crate::platform_core_set::set_by(size, init, hash, eq)
 }
 
-pub fn size_platform<T: Clone>(set: &SalvoSet<T>) -> i32 {
+pub fn mut_set_by_platform<T: Clone>(size: i32, init: &mut dyn FnMut(i32) -> T, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> Set<T> {
+    crate::platform_core_set::mut_set_by(size, init, hash, eq)
+}
+
+pub fn to_set_platform<T: Clone>(list: &Vec<T>, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> Set<T> {
+    crate::platform_core_set::to_set(list, hash, eq)
+}
+
+pub fn add_platform<T: Clone>(set: &mut Set<T>, elem: T, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> bool {
+    crate::platform_core_set::add(set, elem, hash, eq)
+}
+
+pub fn remove_platform<T: Clone>(set: &mut Set<T>, elem: &T, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> bool {
+    crate::platform_core_set::remove(set, elem, hash, eq)
+}
+
+pub fn contains_platform<T: Clone>(set: &Set<T>, elem: &T, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> bool {
+    crate::platform_core_set::contains(set, elem, hash, eq)
+}
+
+pub fn size_platform<T: Clone>(set: &Set<T>) -> i32 {
     crate::platform_core_set::size(set)
 }
 
-pub fn to_str<T: Clone>(set: &SalvoSet<T>, to_str: &mut dyn FnMut(&T) -> String) -> String {
+pub fn to_str<T: Clone>(set: &Set<T>, to_str: &mut dyn FnMut(&T) -> String) -> String {
     let mut out = mut_str(vec!["{".to_string()]);
     let mut i = 0;
     for mut x in crate::platform_core_set::each(set).map(|__x| __x.clone()) {
@@ -42,11 +61,11 @@ pub fn to_str<T: Clone>(set: &SalvoSet<T>, to_str: &mut dyn FnMut(&T) -> String)
     return out;
 }
 
-pub fn to_list_platform<T: Clone>(set: &SalvoSet<T>) -> Vec<T> {
+pub fn to_list_platform<T: Clone>(set: &Set<T>) -> Vec<T> {
     crate::platform_core_set::to_list(set)
 }
 
-pub fn iter<T: Clone>(set: &SalvoSet<T>) -> SetYield<T> {
+pub fn iter<T: Clone>(set: &Set<T>) -> SetYield<T> {
     return SetYield { items: to_list_platform(set), at: 0 };
 }
 
@@ -78,6 +97,6 @@ pub fn next<T: Clone>(p: &mut SetYield<T>) -> Union2<T, Finished> {
     return Union2::<T, Finished>::U1(emitted(elem.as_ref().unwrap().clone()));
 }
 
-pub fn NonEmpty__Set_qualifies<T: Clone>(set: &SalvoSet<T>) -> bool {
+pub fn NonEmpty__Set_qualifies<T: Clone>(set: &Set<T>) -> bool {
     return size_platform(set) > 0;
 }
