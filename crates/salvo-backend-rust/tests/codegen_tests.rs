@@ -1130,6 +1130,45 @@ fn main() [use] -> None {
     run_rust_files(&files, "canbe_mut_field", "2 3 0 1 12\n0 1 3\n1 2\n16\n");
 }
 
+/// [is-narrowing] [rs-opt-borrow] A borrowed optional element (`&Option<P>`
+/// from the total `get` over a `List<P?>`) narrows through `as_ref()`, and an
+/// optional borrow of a scalar (`Option<&i32>`) is `.copied()` into an owned
+/// `Int?` — as an argument, an annotated `let` and a `copy`.
+#[test]
+fn rustc_compiles_and_runs_borrowed_optional_elements() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let src = r#"struct P { a: Int }
+
+fn show(v: Int?) [] -> Str => v {
+    if v is Int n {
+        return "${n}"
+    }
+    return "-"
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    let xs: List<P?> = [P { a: 1 }, None, P { a: 3 }]
+    for i in indices(xs) {
+        let s = get(xs, i)
+        if s is P p {
+            println("${p.a}")
+        } else {
+            println("none")
+        }
+    }
+    let ns = [4, 5]
+    let v: Int? = get(ns, 1)
+    println("${show(get(ns, 0))} ${show(v)} ${show(copy(get(ns, 7)))}")
+}
+"#;
+    let files = generate(&[("main.sv", src)]);
+    run_rust_files(&files, "borrowed_optional", "1\nnone\n3\n4 5 -\n");
+}
+
 /// [struct-slot] [cmp-binder] A struct with a fn slot, run on Rust: a
 /// captured binder is a trailing reference parameter, which counts against
 /// lifetime elision for `top`'s `proj(r)` return [readonly-return].

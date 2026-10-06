@@ -24746,7 +24746,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
             dependent_args = self.check_predicate_quals(&pat, &resolved, &subj_ty, *span);
-        } else if let Some(test) = self.union_test_for(&repr, &pat) {
+        } else if let Some(test) = self.union_test_for(strip_proj_union(&repr), &pat) {
             // Runtime lowering against the declared union representation
             // [is-narrowing] [is-precise].
             self.out.is_tests.insert(self.key(*span), test);
@@ -24791,6 +24791,23 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.error(*span, "this check can never succeed".to_string());
                 }
                 (self.mk_union(m), Some(self.mk_union(r)))
+            }
+            // [is-narrowing] A union read through a qualifier that is about
+            // where the value lives, not what it holds — a `proj(list)`
+            // element of a `List<P?>` — narrows like the union, each side
+            // keeping the qualifier: the matched arm is still a view.
+            Ty::Qualified { quals, base } if matches!(base.as_ref(), Ty::Union(_)) && quals.iter().all(|q| q.name == "proj") => {
+                let Ty::Union(arms) = base.as_ref() else { unreachable!() };
+                let (m, r): (Vec<Ty>, Vec<Ty>) = arms
+                    .iter()
+                    .cloned()
+                    .partition(|arm| self.arm_matches(arm, &pat));
+                if m.is_empty() {
+                    self.error(*span, "this check can never succeed".to_string());
+                }
+                let m = self.mk_union(m).qualify(quals.clone());
+                let r = self.mk_union(r).qualify(quals.clone());
+                (m, Some(r))
             }
             other => {
                 if is_predicate {
@@ -30123,4 +30140,14 @@ fn collect_binding_is<'a>(cond: &'a Expr, f: &mut impl FnMut(&'a Expr, Span)) {
 /// parameter's name sits inside the parameter).
 fn spans_overlap(a: Span, b: Span) -> bool {
     a.start <= b.end && b.start <= a.end
+}
+
+/// [is-narrowing] A union under `proj` alone — a borrowed element of a
+/// `List<P?>` — tests like the union itself: the qualifier says where the
+/// value lives, and the runtime shape is the union's.
+fn strip_proj_union(ty: &Ty) -> &Ty {
+    match ty {
+        Ty::Qualified { quals, base } if matches!(base.as_ref(), Ty::Union(_)) && quals.iter().all(|q| q.name == "proj") => base,
+        other => other,
+    }
 }

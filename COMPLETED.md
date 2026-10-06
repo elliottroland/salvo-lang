@@ -141,6 +141,22 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Two defects a Salvo hash map hit first (2026-10-06, ROADMAP §0j step 7).**
+Prototyping step 7's `Map` in ordinary Salvo (`tmp/`) turned up:
+- **A borrowed optional did not narrow** [is-narrowing]: the total `get`
+  over a `List<P?>` answers `proj(xs) P?`, and `s is P p` bound `p` at `P?`,
+  so `p.a` was refused — the narrowing math matched only a bare union. It
+  now partitions the union under a `proj` and keeps the qualifier on both
+  sides, and records the runtime test against the bare union. Rust read the
+  payload with `unwrap()` out of the `&Option<P>` (E0507); it is
+  `as_ref().unwrap()` now.
+- **Rust: an optional borrow of a Copy scalar into an owned `Int?`**
+  (`show(get(xs, 0))`, `let v: Int? = get(xs, 1)`, `copy(get(xs, 7))`) was
+  E0308 everywhere, std's own maps and lists included; the checker drops
+  `proj` from a Copy scalar, so the emitter now asks `derived_calls` and
+  renders `.copied()` (`.cloned()` for the `copy`).
+- Tests: one program e2e on both backends. **1716 tests.**
+
 **Shrinking the backends, step 6h: platform fns keep named fns (2026-10-06,
 ROADMAP §0j).**
 - **[platform-fn-value] widened** as decided: a platform fn whose clause
@@ -21875,7 +21891,7 @@ Recorded so nothing is left half-removed (no compatibility, per AGENTS.md):
   factories in a plural object (`FsErrors`), since a sealed `FsError` cannot
   extend `Union7` from another package.
 
-## Test inventory (all green: 1715; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1716; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

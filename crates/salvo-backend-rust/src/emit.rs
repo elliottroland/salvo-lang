@@ -9259,6 +9259,15 @@ impl<'p> Emitter<'p> {
         // result is optional holds `Option<&T>`. Recorded so a later
         // narrowing unwraps the reference rather than cloning it.
         if let Pattern::Ident(name) = pattern {
+            // [rs-opt-borrow] An annotated owned optional (`let v: Int? =
+            // get(xs, i)`) of a Copy scalar takes the value out: `.copied()`.
+            if let Some(annot) = ty.filter(|t| matches!(t, Type::Nullable { .. }) && !type_has_proj(t)) {
+                if let Some(code) = self.adapt_borrowed_arms_to_owned(value, Some(annot), ParamMode::Owned) {
+                    self.bindings.insert(name.name.clone(), BindKind::Owned);
+                    let t = self.emit_type(annot);
+                    return format!("{pad}let mut {}: {t} = {code};\n", rs_ident(&name.name));
+                }
+            }
             if !self.mutated.contains(name.name.as_str()) && self.is_optional_derived_call(value) {
                 self.bindings.insert(name.name.clone(), BindKind::OptRef);
             }
@@ -11084,6 +11093,36 @@ impl<'p> Emitter<'p> {
         param_ty: Option<&Type>,
         mode: ParamMode,
     ) -> Option<String> {
+        // [rs-opt-borrow] An optional borrow of a Copy scalar
+        // (`Option<&i32>`, `get(xs, i)`) into an owned `Int?`: `.copied()`.
+        // A non-Copy payload is the checker's to refuse (it asks for `copy`).
+        if matches!(arg, Expr::Call { .. }) {
+            let lends = self.checked.derived_calls.contains_key(&(self.file_idx, arg.span()))
+                && !self.projected_scalar_call(arg.span());
+            let opt_borrow = lends
+                && self.ty_of(arg.span()).is_some_and(|t| match t {
+                    Ty::Union(arms) => {
+                        let vals: Vec<&Ty> = arms.iter().filter(|a| !a.is_none_ty()).collect();
+                        t.has_none_arm() && vals.len() == 1 && Self::is_copy_ty(vals[0].strip_quals())
+                    }
+                    _ => false,
+                });
+            let owned_position = match param_ty {
+                Some(Type::Union { arms, .. }) => {
+                    arms.iter().any(is_none_type) && !arms.iter().any(type_has_proj)
+                }
+                Some(Type::Nullable { inner, .. }) => !type_has_proj(inner),
+                _ => false,
+            };
+            if opt_borrow && owned_position {
+                let code = self.emit_expr(arg);
+                return Some(match mode {
+                    ParamMode::Owned => format!("({code}).copied()"),
+                    ParamMode::Ref => format!("&({code}).copied()"),
+                    ParamMode::RefMut => format!("&mut ({code}).copied()"),
+                });
+            }
+        }
         let borrowed = match arg {
             Expr::Ident(id) => self
                 .borrowed_arm_locals
@@ -11246,6 +11285,22 @@ impl<'p> Emitter<'p> {
                 // `&i32` against `10` before this (found 2026-09-27).
                 let borrowed = self.subject_is_optional_borrow(subject);
                 self.narrowed_read_is_ref = false;
+                // [is-narrowing] A borrow *of* an optional (`&Option<T>`, the
+                // total `get` over a `List<T?>`): `as_ref()` reaches the
+                // payload as a `&T` without moving out of the borrow.
+                let whole_borrow = self.ty_of(subject.span()).is_some_and(|t| {
+                    matches!(t, Ty::Qualified { quals, base }
+                        if matches!(base.as_ref(), Ty::Union(_)) && quals.iter().all(|q| q.name == "proj"))
+                });
+                if whole_borrow {
+                    return match target {
+                        Some(t) if Self::is_copy_ty(t) => format!("*{subj}.as_ref().unwrap()"),
+                        _ => {
+                            self.narrowed_read_is_ref = true;
+                            format!("{subj}.as_ref().unwrap()")
+                        }
+                    };
+                }
                 match target {
                     Some(t) if Self::is_copy_ty(t) && borrowed => format!("*{subj}.unwrap()"),
                     Some(t) if Self::is_copy_ty(t) => format!("{subj}.unwrap()"),
@@ -16436,6 +16491,20 @@ impl<'p> Emitter<'p> {
             other if self.ty_of(other.span()).is_some_and(|t| t.is_proj()) => {
                 let code = self.emit_expr(other);
                 format!("{code}.clone()")
+            }
+            // [rs-opt-borrow] An **optional** projection (`get(m, k)`, an
+            // `Option<&T>`): the copy is `.cloned()`.
+            other
+                if matches!(other, Expr::Call { .. })
+                    && self.checked.derived_calls.contains_key(&(self.file_idx, other.span()))
+                    && !self.projected_scalar_call(other.span())
+                    && self.ty_of(other.span()).is_some_and(|t| {
+                        matches!(t.strip_quals(), Ty::Union(arms)
+                            if t.has_none_arm() && arms.iter().filter(|a| !a.is_none_ty()).count() == 1)
+                    }) =>
+            {
+                let code = self.emit_expr(other);
+                format!("{code}.cloned()")
             }
             other => self.emit_expr(other),
         }

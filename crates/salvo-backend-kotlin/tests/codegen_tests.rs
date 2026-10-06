@@ -4547,6 +4547,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_copy_elements,
     kotlinc_compiles_and_runs_canbe_mut_field,
     kotlinc_compiles_and_runs_struct_slot,
+    kotlinc_compiles_and_runs_borrowed_optional_elements,
     kotlinc_compiles_and_runs_generic_stamp,
     kotlinc_compiles_and_runs_opaque_struct,
     kotlinc_compiles_and_runs_mixed_members,
@@ -5813,6 +5814,43 @@ fn main() [use] -> None {
     println("${up.items} ${down.items} ${top(up)!} ${top(down)!}")
 }
 "#;
+
+/// [is-narrowing] [rs-opt-borrow] A borrowed optional element (`get(xs, i)`
+/// over a `List<P?>`, a `proj` around the whole optional) narrows like the
+/// optional, and an optional borrow of a scalar flows into an owned `Int?`.
+const BORROWED_OPTIONAL_DEMO: &str = r#"struct P { a: Int }
+
+fn show(v: Int?) [] -> Str => v {
+    if v is Int n {
+        return "${n}"
+    }
+    return "-"
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    let xs: List<P?> = [P { a: 1 }, None, P { a: 3 }]
+    for i in indices(xs) {
+        let s = get(xs, i)
+        if s is P p {
+            println("${p.a}")
+        } else {
+            println("none")
+        }
+    }
+    let ns = [4, 5]
+    let v: Int? = get(ns, 1)
+    println("${show(get(ns, 0))} ${show(v)} ${show(copy(get(ns, 7)))}")
+}
+"#;
+
+fn kotlinc_compiles_and_runs_borrowed_optional_elements() -> KotlinCase {
+    let program = build_program(&[("main.sv", BORROWED_OPTIONAL_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "borrowed_optional", "1\nnone\n3\n4 5 -\n")
+}
 
 fn kotlinc_compiles_and_runs_struct_slot() -> KotlinCase {
     let program = build_program(&[("main.sv", STRUCT_SLOT_DEMO)]);

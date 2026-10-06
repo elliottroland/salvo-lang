@@ -557,6 +557,14 @@ the blanket rule:
     2026-09-27: `get(xs, 0) ?: 10` emitted `&i32` against `10`, on lists and
     maps alike; the `proj` case had compiled only because `.as_ref()
     .unwrap().clone()` over `Option<&T>` happens to yield `&T`.
+  * **A borrow *of* an optional** (`&Option<T>`, the total `get` over a
+    `List<T?>`, checker type `proj(xs) T?`) is narrowed through
+    `s.as_ref().unwrap()`, a `&T` (2026-10-06); `unwrap()` there moved out of
+    the borrow (E0507).
+  * **An optional borrow of a Copy scalar into an owned `T?`** — an argument
+    to an `Int?` parameter, an annotated `let v: Int? = get(xs, i)`, a
+    `copy(get(xs, i))` — is `(…).copied()` / `.cloned()` (2026-10-06); all
+    three were E0308 (`Option<&i32>` against `Option<i32>`).
   * [proj-type] [lambda-view] An unwrap whose own checker type is a
     projection stays the reference — no clone, no deref: a lambda tail
     `get(all, i)!` typed `proj Str` yields `&String` into the closure's

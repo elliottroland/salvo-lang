@@ -2107,6 +2107,10 @@ Conventions:
   * Narrowing resets to the declared type for any variable assigned
     inside a branch ([narrow-assign-reset]); place facts fall on the
     events in [flow-place-invalidate].
+  * **A borrowed optional narrows like the optional** (2026-10-06): the
+    total `get` over a `List<P?>` answers `proj(xs) P?`, a view of the whole
+    optional, and `s is P p` binds `p: proj(xs) P` — each side keeps the
+    `proj`. It used to bind `p` at `P?` (a field read on it was refused).
 * [is-not] `x !is Q` is **sugar for `!(x is Q)`** (user decision 2026-09-22,
   the heap plan's item 5): the parser builds one `Expr::Is` under a `Not`, so
   narrowing, `when` heads and [is-narrow-guard]'s fall-through all reach it
