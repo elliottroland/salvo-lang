@@ -77,6 +77,7 @@ pub mod platform_time;
 use crate::core_actor::Idle;
 use crate::core_actor::__Stateful_Faults as _;
 use crate::core_actor::__Stateless_Faults as _;
+use crate::core_actor::on_idle;
 use crate::core_actor::pool;
 use crate::core_console::ConsolePlatformSync as _;
 use crate::core_console::__Stateful_Console as _;
@@ -596,7 +597,7 @@ pub fn main() {
         {
             let (mut settled, __wid) = crate::scheduler::salvo_waiter();
             crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<Idle>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg)));
-            crate::scheduler::salvo_on_idle(p, settled, |__gates, __tokens| std::boxed::Box::new(Idle { parked_gates: __gates, parked_tokens: __tokens }));
+            on_idle(&p, settled);
             *crate::scheduler::salvo_wait(__wid).downcast::<Idle>().expect("the awaited answer")
         };
         crate::scheduler::salvo_send_wire(ctl, crate::time::__Msg_TimerCtl::Advance(millis(2500i64)), crate::time::__PROTO_TimerCtl);
@@ -611,7 +612,7 @@ pub fn main() {
         {
             let (mut settled, __wid) = crate::scheduler::salvo_waiter();
             crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<Idle>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg)));
-            crate::scheduler::salvo_on_idle(p, settled, |__gates, __tokens| std::boxed::Box::new(Idle { parked_gates: __gates, parked_tokens: __tokens }));
+            on_idle(&p, settled);
             *crate::scheduler::salvo_wait(__wid).downcast::<Idle>().expect("the awaited answer")
         };
         crate::scheduler::salvo_send_wire(ctl, crate::time::__Msg_TimerCtl::Advance(seconds(2i64)), crate::time::__PROTO_TimerCtl);

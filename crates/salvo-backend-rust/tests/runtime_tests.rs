@@ -607,7 +607,7 @@ fn main() {
     let pool = salvo_pool(2);
     let fragile = salvo_spawn(pool, 4, Box::new(Fragile), None);
     let (token, wid) = salvo_waiter();
-    salvo_watch(fragile, token, |reason| Box::new(format!("exit({reason})")));
+    crate::runtime::watch(fragile as i32, token.take_local().unwrap());
     salvo_send(fragile, Box::new("boom".to_string()));
     let exit = salvo_wait(wid);
     println!("exit: exit({})", exit.downcast_ref::<crate::core_actor::Exit>().unwrap().reason);
@@ -616,7 +616,7 @@ fn main() {
     // And a watch registered after the death answers immediately, with the
     // reason the death recorded.
     let (late_token, late_wid) = salvo_waiter();
-    salvo_watch(fragile, late_token, |reason| Box::new(format!("exit({reason})")));
+    crate::runtime::watch(fragile as i32, late_token.take_local().unwrap());
     let late = salvo_wait(late_wid);
     println!("late watch: exit({})", late.downcast_ref::<crate::core_actor::Exit>().unwrap().reason);
 }
@@ -1023,10 +1023,6 @@ impl SalvoActor for Asker {
     fn resume(&mut self, _ctx: &SalvoCtx, _slot: u64, _value: SalvoMsg) {}
 }
 
-fn report(gates: i32, tokens: i32) -> SalvoMsg {
-    Box::new(format!("gates {gates}, tokens {tokens}"))
-}
-
 /// The core answers an idle hook with `core.actor`'s `Idle`.
 fn idle_text(v: &SalvoMsg) -> String {
     let i = v.downcast_ref::<crate::core_actor::Idle>().unwrap();
@@ -1039,13 +1035,13 @@ fn main() {
     let asker = salvo_spawn(pool, 4, Box::new(Asker { holder }), None);
     // Nothing has been sent, so the answer is "done".
     let (first, w1) = salvo_waiter();
-    salvo_on_idle(pool, first, report);
+    crate::runtime::on_idle(pool as i32, first.take_local().unwrap());
     println!("settled: {}", idle_text(&salvo_wait(w1)));
     // The hook cannot fire before the message it was registered after has
     // run: a queued entry is deliverable, so the scheduler is not idle.
     salvo_send(asker, Box::new("go".to_string()));
     let (second, w2) = salvo_waiter();
-    salvo_on_idle(pool, second, report);
+    crate::runtime::on_idle(pool as i32, second.take_local().unwrap());
     println!("stuck: {}", idle_text(&salvo_wait(w2)));
 }
 "#,
@@ -1075,15 +1071,11 @@ impl SalvoActor for Watcher {
         // the registration is a continuation on this actor.
         self.out = Some(*msg.downcast::<SalvoReply>().unwrap());
         let (token, _slot) = salvo_mint(ctx.addr);
-        salvo_on_idle(SALVO_MAIN_POOL, token, report);
+        crate::runtime::on_idle(SALVO_MAIN_POOL as i32, token.take_local().unwrap());
     }
     fn resume(&mut self, _ctx: &SalvoCtx, _slot: u64, value: SalvoMsg) {
         self.out.take().unwrap().send(value);
     }
-}
-
-fn report(gates: i32, tokens: i32) -> SalvoMsg {
-    Box::new(format!("gates {gates}, tokens {tokens}"))
 }
 
 /// The core answers an idle hook with `core.actor`'s `Idle`.

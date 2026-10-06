@@ -1602,6 +1602,7 @@ facts worth knowing") and keeps the history ("One shape for effects").
   | `InStream` / `OutStream` | `crate::stream::InStream { handle: i64 }`; the table is Salvo (`runtime.streams`); host code reaches it through `crate::hoststreams::salvo_stream_register_in/out` and `salvo_stream_take_in` (an `Arc<Mutex<SalvoIn>>` reader) [stream-table] |
   | `platform handler H(p: T) of E` | `pub struct H` with `pub fn new(p: T) -> Self`, implementing `crate::<module of E>::EPlatformSync` (`&self`) when `threadsafe`, `EPlatform` (`&mut self`) otherwise [rs-platform-handler] |
   | a member parameter | kept non-`Copy`: `&T`; kept `Mut`: `&mut T`; consumed, or `Copy`: `T` [rs-borrows] |
+  | a fn-typed parameter | lent: `&mut impl FnMut(…)` (`&mut dyn FnMut` in std); `once`: `impl FnOnce(…)`; **kept** (`=> !hook`) outside the runtime: the pointer `fn(…) -> R`, the call site's capture-free adapter coercing to it [platform-fn-value]; kept in the runtime: `Box<dyn FnOnce/FnMut + Send + 'static>` [runtime-kept-fn] |
 
 * [rs-mod-use] [mod-use] A module-level `use` emits `fn __module_use_N() ->
   &'static E` with a `static CELL: OnceLock<E>` whose initializer is what
@@ -2089,10 +2090,8 @@ facts worth knowing") and keeps the history ("One shape for effects").
     { … }` → a block expression that mints a waiter, runs the block, then
     `salvo_wait` and downcasts to `T`; `send(r, v)` → `r.send(Box::new(v))`;
     `pool(n)` → `salvo_pool(n as usize)`; `thread()` → `salvo_thread()`;
-    `watch(a, out)` →
-    `salvo_watch(a, out, |__reason| Box::new(Exit { reason: __reason }))`;
-    `on_idle(p, i)` → `salvo_on_idle(p, i, |__gates, __tokens| Box::new(Idle {
-    parked_gates: __gates, parked_tokens: __tokens }))`.
+    `watch` and `on_idle` are Salvo over `reply_token(r)` →
+    `r.take_local()` [runtime-handles].
   * **[main-pool] An omitted `on` clause is `salvo_current_pool()`** — a
     thread-local read, so the placement a spawn inherits costs nothing and
     needs no signature. `main`'s thread answers pool 0, the pool it is the
@@ -2124,30 +2123,20 @@ facts worth knowing") and keeps the history ("One shape for effects").
       `pub fn` whose parameters are all moved and which returns `()`.
   * **[pool-fault-sink] `pool(n, sink)`** → `salvo_pool_with_sink(n as usize,
     Some((sink as usize, |__reason| Box::new(__Msg_Faults::Faulted(Fault {
-    reason: __reason })))))`. The builder is the same trick as `watch`'s: the
-    runtime holds a `String` and cannot construct a Salvo value, so the *pool
-    creation site* hands over the constructor. Dispatched on **arity**, since
-    both `pool` overloads take an `Int` first and the intrinsic table's key is
-    the receiver type.
-  * **A `watch` carries its own `Exit` constructor** [actor-watch]. The runtime
-    holds a reason `String` and cannot build a Salvo struct, so the watch site
-    passes a `fn(String) -> SalvoMsg` alongside the token and the scheduler
-    calls it at death — which keeps a watcher's payload byte-identical to an
-    ordinary `r.send(Exit{…})` instead of teaching `resume` a special case
-    (that special case would have been *silently wrong* the moment a program
-    fulfilled a `Reply<Exit>` itself). `Exit` is named **unqualified**, which
-    is safe rather than lucky: the file glob-imports every module whose names
-    it uses, and a `Reply<Exit>` cannot be obtained in a file where `Exit`
-    means something else, so a shadowing declaration and this emission never
-    meet.
-  * **[actor-on-idle] A quiescence hook carries its own `Idle` constructor**,
-    on exactly that precedent: `salvo_on_idle(pool, notify, fn(i32, i32) ->
-    SalvoMsg)`, and the counts cross the seam as numbers. What the runtime adds
+    reason: __reason })))))`. The runtime holds a `String` and cannot
+    construct the `Faults` *message* (a generated enum no Salvo fn can name),
+    so the *pool creation site* hands over the constructor. Dispatched on
+    **arity**, since both `pool` overloads take an `Int` first and the
+    intrinsic table's key is the receiver type.
+  * **[actor-watch] [actor-on-idle] `Exit` and `Idle` are the scheduler's
+    own**: it is Salvo and builds both (`erase(Exit { reason })`), so a
+    watcher's payload is an ordinary answer and `watch`/`on_idle` hand it only
+    the core's token. What the runtime adds
     for it is an accounting of *undischarged tokens*: `ActorState.owed` counts
     the tokens aimed at an actor, `PoolState.owed` those aimed at a task or held
     by a frame parked on that pool, and `SalvoReply.tracked` is what stops a
     token being counted twice — a delivery clears it, and so does handing the
-    token to the scheduler (`salvo_watch`, `salvo_on_idle`), which is why a
+    token to the scheduler (`watch`, `on_idle`), which is why a
     program idling with registrations outstanding reports zero. `fire_idle` runs
     where the scheduler runs dry: in `salvo_wait` *before* the deadlock report
     (firing a hook is progress, so the report is what firing nothing leaves) and

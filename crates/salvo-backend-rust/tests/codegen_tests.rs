@@ -11760,25 +11760,6 @@ fn rustc_compiles_and_runs_a_death_watch() {
     run_rust_files(&files, "watch", WATCH_OUTPUT);
 }
 
-/// [actor-watch] [rs-actor] What a `watch` lowers to: the scheduler call
-/// **plus the `Exit` builder** the watch site closes over — the runtime holds a
-/// reason string and cannot construct a Salvo struct, so the constructor
-/// travels with the registration.
-#[test]
-fn a_watch_lowers_to_a_scheduler_call_with_an_exit_builder() {
-    let files = generate(&[("main.sv", WATCH)]);
-    let main = files
-        .iter()
-        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
-        .expect("main.rs");
-    assert!(
-        main.content.contains(
-            "crate::scheduler::salvo_watch(c, out, |__reason| std::boxed::Box::new(Exit { reason: __reason }))"
-        ),
-        "the watch registration or its `Exit` builder is missing:\n{}",
-        main.content
-    );
-}
 
 /// [effect-handler-multi] Handlers of several effects, end to end: T-4(a)'s own
 /// shape — one actor with a public `Timer` face and a `TimerCtl` admin face over
@@ -11990,26 +11971,6 @@ fn rustc_compiles_and_runs_a_quiescence_hook() {
     run_rust_files(&files, "on-idle", ON_IDLE_OUTPUT);
 }
 
-/// [actor-on-idle] [rs-actor] What `on_idle` lowers to, on `watch`'s
-/// precedent: the scheduler call **plus the `Idle` builder** the registration
-/// site closes over, since the runtime holds two counts and cannot construct a
-/// Salvo struct.
-#[test]
-fn a_quiescence_hook_lowers_to_a_scheduler_call_with_an_idle_builder() {
-    let files = generate(&[("main.sv", ON_IDLE)]);
-    let main = files
-        .iter()
-        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
-        .expect("main.rs");
-    assert!(
-        main.content.contains(
-            "crate::scheduler::salvo_on_idle(p, i, |__gates, __tokens| \
-             std::boxed::Box::new(Idle { parked_gates: __gates, parked_tokens: __tokens }))"
-        ),
-        "the idle registration or its `Idle` builder is missing:\n{}",
-        main.content
-    );
-}
 
 /// [rs-actor] [actor-replyto] The lowering: a continuation enum beside the
 /// message enum; the two generated fields on the handler; a `__dispatch`
@@ -16284,5 +16245,23 @@ fn union_text(files: &[salvo_backend_rust::EmittedFile]) -> UnionText {
             .filter(|f| f.rel_path.starts_with("unions"))
             .map(|f| f.content.clone())
             .collect(),
+    }
+}
+
+/// [actor-watch] [actor-on-idle] [runtime-handles] `watch` and `on_idle` are
+/// Salvo: the program calls `core.actor`'s fns, which take the core's token
+/// out of the reply token (`take_local()`) and register it; the scheduler
+/// builds `Exit` and `Idle` itself, so no builder travels with the call.
+#[test]
+fn watch_and_on_idle_are_salvo_over_the_core_token() {
+    for (src, call) in [(WATCH, "watch(&c, out)"), (ON_IDLE, "on_idle(&p, i)")] {
+        let files = generate(&[("main.sv", src)]);
+        let main = files.iter().find(|f| f.rel_path.to_string_lossy() == "main.rs").expect("main.rs");
+        assert!(main.content.contains(call) && !main.content.contains("salvo_watch("), "{}", main.content);
+        let actor = files
+            .iter()
+            .find(|f| f.rel_path.to_string_lossy() == "core/actor.rs")
+            .expect("core/actor.rs");
+        assert!(actor.content.contains(".take_local()"), "{}", actor.content);
     }
 }

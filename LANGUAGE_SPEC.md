@@ -5635,10 +5635,12 @@ docs/language/ remains the source of truth for everything that does.
     `IoError { message: Str }` already accepts): print it in a diagnostic, do
     not branch on it. The struct rather than a bare `Str` is the growth point
     for a `kind` when a non-fault death becomes expressible.
-  * **The runtime cannot build it**, so the *watch site* hands the scheduler a
-    builder along with the token ([rs-actor], [kt-actor]) — which keeps a
-    watcher's payload identical to an ordinary `r.send(Exit{…})` instead of
-    special-casing the delivery.
+  * **The runtime builds it**: `watch` is Salvo (`core.actor`), taking the
+    core's token out of the reply token (`reply_token` [runtime-handles]) and
+    registering it with `runtime.watch`; the scheduler, Salvo too, answers it
+    with `erase(Exit { reason })` — so a watcher's payload is an ordinary
+    answer, identical to `r.send(Exit{…})`. Until 2026-10-06 the watch site
+    handed the scheduler a constructor it no longer used.
   * **Supervision is a pattern, not a construct**: an interceptor (a handler
     of `E` depending on `E`) that holds its child's addr privately, watches
     it, and respawns on `Exit` gives clients a stable addr and never lets them
@@ -6142,7 +6144,9 @@ between endpoints and delivers what arrives into the scheduler.
     socket. An addr of a hosted node other than the current one is a proxy in
     every respect but the socket; `this_node()` answers the current pool's.
   * **The runtime's outbound is an actor**: `route_frames(out: Addr<Outbound>)`
-    binds the current node's wire (`Sending [Transport] of Outbound` in std
+    (Salvo since 2026-10-06: it hands the host the named fn `forward_frame`
+    through `bind_outbound` [platform-fn-value], which decodes the endpoint
+    and sends `send_frame` to the actor) binds the current node's wire (`Sending [Transport] of Outbound` in std
     hands frames to the transport in scope), `add_route(node, at)` says where
     a node's frames go, and `Receiving of Inbound` hands arriving frames to
     `deliver_frame`. A frame for an unknown target, with mismatched bits or a
@@ -7982,7 +7986,10 @@ between endpoints and delivers what arrives into the scheduler.
   tables, and only std converts** (2026-10-05): `runtime` declares
   `addr_index<E>(Addr<E>) -> Int`, `addr_of<E>(Int) -> Addr<E>`,
   `pool_index(Pool) -> Int` and `pool_of(Int) -> Pool` as intrinsics (an `as`
-  cast on Rust, nothing on Kotlin). A program cannot import `runtime`
+  cast on Rust, nothing on Kotlin), and `reply_token<T>(Reply<T>) -> Token?`
+  (2026-10-06), the core's token taken out of a reply token (`None` for one
+  minted on another node), which is how `core.actor`'s `watch` and `on_idle`
+  are Salvo. A program cannot import `runtime`
   [mod-export], so it cannot forge a handle; std's `core.actor` and `net` are
   Salvo over `runtime.routing` through them. `Addr`, `Reply` and `Pool` stay
   `intrinsic type`s: the backends generate the actor machinery and name them
@@ -8826,7 +8833,8 @@ replaced the working document TESTING.md).
   * Nothing to check at the boundary [platform-check]: the value is opaque.
   * Lowering: [rs-platform-type], [kt-platform-type].
 * [platform-fn-value] **Function values cross the platform boundary,
-  effect-free and lent for the call** (2026-10-02, runtime E2): a platform
+  effect-free, and lent for the call unless named** (2026-10-02, runtime E2;
+  widened 2026-10-06, ROADMAP §0j 6h): a platform
   fn or platform handler member may take `(A) -> R` or `once (A) -> R`; the
   host receives its own closure type (Kotlin `(A) -> R`; Rust `impl FnMut` /
   `impl FnOnce` for a fn, `&mut dyn FnMut` / `Box<dyn FnOnce + '_>` for an
@@ -8837,7 +8845,19 @@ replaced the working document TESTING.md).
   (ABI D10 C4). A callback the host keeps and runs on a thread of its own
   is not available to programs — a fn value is not sendable
   [actor-sendable] — and is the runtime module's privilege when the
-  scheduler needs it (runtime step 11).
+  scheduler needs it (runtime step 11) [runtime-kept-fn].
+  * **A named fn may be kept** (user decision 2026-10-05): a platform fn
+    whose clause consumes a plain fn-typed parameter (`=> !hook`; a `once`
+    one is still lent, and consumed by its call) **keeps** it, and every
+    argument there must be a **named top-level fn** — capture-free, and
+    effect-free by its type — the identity restriction [cmp-carry] has. A
+    lambda or a local is refused, naming the rule. The host may call it from
+    any thread, as often and as late as it likes: Rust's host takes a plain
+    `fn(…) -> R` pointer (`Copy + Send + Sync + 'static`; the call site's
+    adapter captures nothing and coerces to it), Kotlin's its own fn type.
+    What std's `net` uses for its outbound hook (`bind_outbound`).
+    `platform_keeps_param` (`salvo_core::check`) is the one predicate the
+    checker and the emitters share.
 * [platform-never] **A platform fn or platform handler member answering
   `Never` cannot return** (2026-10-02, runtime E6): the host's
   signature says so in its own type system — Kotlin's `Nothing`, Rust's `!`

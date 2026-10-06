@@ -595,6 +595,92 @@ class HostApply : ApplyPlatform {
     __stamp.verified();
 }
 
+/// [platform-fn-value] A platform fn that **keeps** a fn value (`=> !hook`
+/// on a plain fn type) takes a named top-level fn: the host stores it and
+/// calls it later, from another call. Rust's host holds a `fn` pointer;
+/// Kotlin's its own fn type. A lambda in that position is refused.
+#[test]
+fn a_platform_fn_keeps_a_named_fn() {
+    let Some(__stamp) = e2e_stamp("a_platform_fn_keeps_a_named_fn", &["kotlinc", "rustc"]) else {
+        return;
+    };
+    const HOST_SV: &str = r#"export platform fn keep(hook: (n: Int, label: Str) -> Str) [] -> None => !hook
+export platform fn fire(n: Int) [] -> Str => n
+"#;
+    const MAIN_SV: &str = r#"import host
+
+fn shout(n: Int, label: Str) [] -> Str => n, label {
+    return "${label} ${n * 2}"
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    keep(shout)
+    println(fire(4))
+    println(fire(5))
+}
+"#;
+    const HOST_RS: &str = r#"use std::sync::Mutex;
+
+static HOOK: Mutex<Option<fn(i32, &String) -> String>> = Mutex::new(None);
+
+pub fn keep(hook: fn(i32, &String) -> String) {
+    *HOOK.lock().unwrap() = Some(hook);
+}
+
+pub fn fire(n: i32) -> String {
+    let hook = HOOK.lock().unwrap().expect("kept");
+    std::thread::spawn(move || hook(n, &"fired".to_string())).join().unwrap()
+}
+"#;
+    const HOST_KT: &str = r#"package salvo.platform.host
+
+private var hook: ((Int, String) -> String)? = null
+
+fun keep(hook: (Int, String) -> String) {
+    salvo.platform.host.hook = hook
+}
+
+fun fire(n: Int): String = hook!!(n, "fired")
+"#;
+    for (backend, tool, ext, sig, implementation) in [
+        ("kotlin", "kotlinc", "kt", "fun keep(hook: (Int, String) -> String)", HOST_KT),
+        ("rust", "rustc", "rs", "pub fn keep(hook: fn(i32, &String) -> String)", HOST_RS),
+    ] {
+        if !have(tool) {
+            eprintln!("skipping {backend}: {tool} not found on PATH");
+            continue;
+        }
+        let dir = work_dir(&format!("pkeep_{backend}"));
+        project(&dir);
+        fs::write(dir.join("host.sv"), HOST_SV).unwrap();
+        fs::write(dir.join("main.sv"), MAIN_SV).unwrap();
+        let out = salvo_in(&dir, &["platform", "generate", "--backend", backend, "--src", "."]);
+        assert!(out.status.success(), "{backend}: {}", String::from_utf8_lossy(&out.stderr));
+        let path = dir.join("platform").join(format!("host.{ext}"));
+        let skeleton = fs::read_to_string(&path).unwrap();
+        assert!(skeleton.contains(sig), "{backend} skeleton lacks `{sig}`:\n{skeleton}");
+        fs::write(&path, implementation).unwrap();
+        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", "."]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "{backend}: {stderr}");
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "fired 8\nfired 10\n", "{backend}: {stderr}");
+    }
+    // A lambda (or a local) cannot be kept.
+    let dir = work_dir("pkeep_lambda");
+    project(&dir);
+    fs::write(dir.join("host.sv"), HOST_SV).unwrap();
+    fs::write(
+        dir.join("main.sv"),
+        "import host\n\nfn main() [] {\n    let k = 3\n    keep((n, label) -> \"${label} ${n + k}\")\n}\n",
+    )
+    .unwrap();
+    let out = salvo_in(&dir, &["analyze", "--src", "."]);
+    let all = String::from_utf8_lossy(&out.stderr).to_string() + &String::from_utf8_lossy(&out.stdout);
+    assert!(all.contains("takes a named top-level fn"), "{all}");
+    __stamp.verified();
+}
+
 /// [platform-iterable] A customer's `iterable platform type`: `salvo platform
 /// generate` writes the `each` stub beside the type, a `for` over a value
 /// loops over the host's `each`, and a generic fn walking it through

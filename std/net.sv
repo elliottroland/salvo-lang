@@ -193,7 +193,26 @@ fn add_route(node: NodeId, at: NodeEndpoint) [] -> None => node, at {
 // runtime wants sent is queued to [out], whose activation calls
 // `Transport.deliver` — with the scheduler's lock released, which is why it
 // is an actor and not a direct call.
-intrinsic fn route_frames(out: Addr<Outbound>) [] -> None => !out
+fn route_frames(out: Addr<Outbound>) [] -> None => !out {
+    bind_outbound(here_node(), addr_index(out), forward_frame)
+    outbound_bound()
+}
+
+// [addr-routable] [platform-fn-value] The outbound hook: called by the host,
+// on whichever thread has a frame for the wire, with the `Outbound` actor's
+// index, the endpoint's canonical bytes and the frame. An endpoint that does
+// not decode is dropped, never sent wrong.
+fn forward_frame(out: Int, to: Bytes, frame: Bytes) [] -> None => out, to, !frame {
+    if decode<NodeEndpoint>(to) is NodeEndpoint ep {
+        let sending: Addr<Outbound> = addr_of(out)
+        sending.send_frame(ep, frame)
+    }
+}
+
+// [platform-fn-value] Records [hook] as node [node]'s outbound hook, called
+// with [out]: the host keeps the named fn and calls it for each frame.
+platform fn bind_outbound(node: Long, out: Int, hook: (out: Int, to: Bytes, frame: Bytes) -> None) [] -> None
+=>[hook] !frame => node, out, !hook
 
 // [addr-routable] Hands one frame that arrived on the wire to the runtime:
 // a message into an actor's mailbox, a reply to its waiter, a credit to a

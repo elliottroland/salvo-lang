@@ -14419,42 +14419,22 @@ fn kotlinc_compiles_and_runs_a_quiescence_hook() -> KotlinCase {
     )
 }
 
-/// [actor-on-idle] [kt-actor] What `on_idle` lowers to, mirroring the Rust
-/// backend: the scheduler call **plus the `Idle` builder** the registration site
-/// closes over, since the runtime holds two counts and cannot construct a Salvo
-/// class.
+/// [actor-watch] [actor-on-idle] [runtime-handles] `watch` and `on_idle` are
+/// Salvo: the program calls `core.actor`'s fns, which take the core's token
+/// out of the reply token (`takeLocal()`) and register it; the scheduler
+/// builds `Exit` and `Idle` itself, so no builder travels with the call.
 #[test]
-fn a_quiescence_hook_lowers_to_a_scheduler_call_with_an_idle_builder_kotlin() {
-    let files = generate_files(&[("main.sv", ON_IDLE)]);
-    let main = files
-        .iter()
-        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
-        .expect("main.kt");
-    assert!(
-        main.content.contains(
-            "salvo.SalvoSched.onIdle(p, i, { __gates, __tokens -> Idle(__gates, __tokens) })"
-        ),
-        "the idle registration or its `Idle` builder is missing:\n{}",
-        main.content
-    );
-}
-
-/// [actor-watch] [kt-actor] What a `watch` lowers to, mirroring the Rust
-/// backend: the scheduler call **plus the `Exit` builder** the watch site
-/// closes over, since the runtime cannot construct a Salvo class.
-#[test]
-fn a_watch_lowers_to_a_scheduler_call_with_an_exit_builder_kotlin() {
-    let files = generate_files(&[("main.sv", WATCH)]);
-    let main = files
-        .iter()
-        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
-        .expect("main.kt");
-    assert!(
-        main.content
-            .contains("salvo.SalvoSched.watch(c, out, { __reason -> Exit(__reason) })"),
-        "the watch registration or its `Exit` builder is missing:\n{}",
-        main.content
-    );
+fn watch_and_on_idle_are_salvo_over_the_core_token_kotlin() {
+    for (src, call) in [(WATCH, "watch(c, out)"), (ON_IDLE, "onIdle(p, i)")] {
+        let files = generate_files(&[("main.sv", src)]);
+        let main = files.iter().find(|f| f.rel_path.to_string_lossy() == "main.kt").expect("main.kt");
+        assert!(main.content.contains(call) && !main.content.contains("SalvoSched.watch"), "{}", main.content);
+        let actor = files
+            .iter()
+            .find(|f| f.rel_path.to_string_lossy() == "core/actor.kt")
+            .expect("core/actor.kt");
+        assert!(actor.content.contains(".takeLocal()"), "{}", actor.content);
+    }
 }
 
 /// [kt-actor] [actor-replyto] The lowering, mirroring the Rust backend's: a

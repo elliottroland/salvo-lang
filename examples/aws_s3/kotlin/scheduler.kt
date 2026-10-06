@@ -139,16 +139,6 @@ object SalvoSched {
         return SalvoReply(salvo.runtime.mintTaskOn(pool, b)).also { it.decode = decode }
     }
 
-    /** [actor-watch] A death watch: the core answers it with an `Exit`. */
-    fun watch(addr: Int, onExit: SalvoReply, exit: (String) -> Any?) {
-        onExit.takeLocal()?.let { salvo.runtime.watch(addr, it) }
-    }
-
-    /** [actor-on-idle] A quiescence hook: the core answers it with an `Idle`. */
-    fun onIdle(pool: Int, notify: SalvoReply, idle: (Int, Int) -> Any?) {
-        notify.takeLocal()?.let { salvo.runtime.onIdle(pool, it) }
-    }
-
     /** A waiter: the `waitfor` bridge. Answers (token, waiter id). */
     fun waiter(): Pair<SalvoReply, Int> {
         val m = salvo.runtime.waiter()
@@ -188,11 +178,6 @@ object SalvoSched {
     fun importAddr(r: SalvoRemoteRef): Int = salvo.runtime.routing.importAddr(r.node, r.actor, r.bits)
 
     fun isRemote(addr: Int): Boolean = salvo.runtime.routing.remote(addr)
-
-    fun setWire(hook: (ByteArray, ByteArray) -> Unit) {
-        wires[hereNode()] = hook
-        salvo.runtime.routing.outboundBound()
-    }
 
     /** [addr-routable] [wire-format] The typed send; for a proxy, encoded here and routed. */
     fun <M> sendWire(addr: Int, msg: M, proto: String, codec: WireCodec<M>) {

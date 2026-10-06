@@ -4,6 +4,8 @@ use crate::runtime::__Stateful_SchedTable as _;
 use crate::runtime::__Stateless_RuntimeHost as _;
 use crate::runtime::__Stateless_SchedTable as _;
 use crate::runtime::new_pool_of;
+use crate::runtime::on_idle as on_idle__runtime;
+use crate::runtime::watch as watch__runtime;
 use crate::runtime_routing::__Stateful_RouteTable as _;
 use crate::runtime_routing::__Stateless_RouteTable as _;
 use crate::runtime_routing::adopt;
@@ -154,6 +156,14 @@ impl crate::wire::__Wire for Exit {
     }
 }
 
+pub fn watch(target: &usize, on_exit: crate::scheduler::SalvoReply) {
+    let mut __is1 = (on_exit).take_local();
+    if __is1.is_some() {
+        let mut t = __is1.unwrap();
+        watch__runtime((((target).clone()) as i32), t);
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Idle {
     pub parked_gates: i32,
@@ -170,5 +180,13 @@ impl crate::wire::__Wire for Idle {
             parked_gates: crate::wire::__Wire::__dec(r)?,
             parked_tokens: crate::wire::__Wire::__dec(r)?,
         })
+    }
+}
+
+pub fn on_idle(p: &usize, notify: crate::scheduler::SalvoReply) {
+    let mut __is2 = (notify).take_local();
+    if __is2.is_some() {
+        let mut t = __is2.unwrap();
+        on_idle__runtime((((p).clone()) as i32), t);
     }
 }

@@ -2,6 +2,7 @@ package salvo.main
 
 import salvo.core.actor.Idle
 import salvo.core.actor.__Codec_Idle
+import salvo.core.actor.onIdle
 import salvo.core.actor.pool
 import salvo.core.console.Console
 import salvo.core.console.println
@@ -332,7 +333,7 @@ fun main() {
         run {
             val (settled, __wid) = salvo.SalvoSched.waiter()
             salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), __Codec_Idle) })
-            salvo.SalvoSched.onIdle(p, settled, { __gates, __tokens -> Idle(__gates, __tokens) })
+            onIdle(p, settled)
             salvo.SalvoSched.awaitReply(__wid) as Idle
         }
         salvo.SalvoSched.sendWire(ctl, __Msg_TimerCtl.Advance(millis(2500L)), __PROTO_TimerCtl, __Codec___Msg_TimerCtl)
@@ -347,7 +348,7 @@ fun main() {
         run {
             val (settled, __wid) = salvo.SalvoSched.waiter()
             salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), __Codec_Idle) })
-            salvo.SalvoSched.onIdle(p, settled, { __gates, __tokens -> Idle(__gates, __tokens) })
+            onIdle(p, settled)
             salvo.SalvoSched.awaitReply(__wid) as Idle
         }
         salvo.SalvoSched.sendWire(ctl, __Msg_TimerCtl.Advance(seconds(2L)), __PROTO_TimerCtl, __Codec___Msg_TimerCtl)

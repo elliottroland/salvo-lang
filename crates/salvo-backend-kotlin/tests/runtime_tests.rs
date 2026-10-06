@@ -317,14 +317,14 @@ fun main() {
     val pool = SalvoSched.pool(2)
     val fragile = SalvoSched.spawn(pool, 4, Fragile())
     val (token, wid) = SalvoSched.waiter()
-    SalvoSched.watch(fragile, token, { reason -> "exit($reason)" })
+    token.takeLocal()?.let { salvo.runtime.watch(fragile, it) }
     SalvoSched.send(fragile, "boom")
     println("exit: exit(${(SalvoSched.awaitReply(wid) as salvo.core.actor.Exit).reason})")
     // A send to the dead is a no-op: this neither blocks nor fails.
     SalvoSched.send(fragile, "ignored")
     // And a watch registered after the death answers immediately.
     val (lateToken, lateWid) = SalvoSched.waiter()
-    SalvoSched.watch(fragile, lateToken, { reason -> "exit($reason)" })
+    lateToken.takeLocal()?.let { salvo.runtime.watch(fragile, it) }
     println("late watch: exit(${(SalvoSched.awaitReply(lateWid) as salvo.core.actor.Exit).reason})")
 }
 "#,
@@ -668,13 +668,13 @@ fun main() {
     val asker = SalvoSched.spawn(pool, 4, Asker(holder))
     // Nothing has been sent, so the answer is "done".
     val (first, w1) = SalvoSched.waiter()
-    SalvoSched.onIdle(pool, first) { g, t -> "gates $g, tokens $t" }
+    first.takeLocal()?.let { salvo.runtime.onIdle(pool, it) }
     println("settled: ${idleText(SalvoSched.awaitReply(w1))}")
     // The hook cannot fire before the message it was registered after has
     // run: a queued entry is deliverable, so the scheduler is not idle.
     SalvoSched.send(asker, "go")
     val (second, w2) = SalvoSched.waiter()
-    SalvoSched.onIdle(pool, second) { g, t -> "gates $g, tokens $t" }
+    second.takeLocal()?.let { salvo.runtime.onIdle(pool, it) }
     println("stuck: ${idleText(SalvoSched.awaitReply(w2))}")
 }
 "#,
@@ -698,7 +698,7 @@ class Watcher : SalvoActor {
         // registration is a continuation on this actor.
         out = msg as SalvoReply
         val (token, _slot) = SalvoSched.mint(ctx.addr)
-        SalvoSched.onIdle(SalvoSched.MAIN_POOL, token) { g, t -> "gates $g, tokens $t" }
+        token.takeLocal()?.let { salvo.runtime.onIdle(SalvoSched.MAIN_POOL, it) }
     }
 
     override fun resume(ctx: SalvoCtx, slot: Long, value: Any?) {

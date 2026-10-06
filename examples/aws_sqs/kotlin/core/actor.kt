@@ -1,8 +1,11 @@
 package salvo.core.actor
 
+import salvo.runtime.Token
 import salvo.runtime.newPoolOf
+import salvo.runtime.onIdle as onIdle__runtime
 import salvo.runtime.routing.adopt
 import salvo.runtime.routing.sameActor
+import salvo.runtime.watch as watch__runtime
 
 fun eq(a: Int, b: Int): Boolean {
     return sameActor((a), (b))
@@ -87,6 +90,15 @@ object __Codec_Exit : salvo.WireCodec<Exit> {
     override fun dec(inp: salvo.WireIn): Exit = Exit(salvo.StrCodec.dec(inp))
 }
 
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun watch(target: Int, onExit: salvo.SalvoReply) {
+    var __is1 = (onExit).takeLocal()
+    if (__is1 != null) {
+        val t = __is1 as Token
+        watch__runtime((target), t)
+    }
+}
+
 data class Idle(
     val parkedGates: Int,
     val parkedTokens: Int,
@@ -98,4 +110,13 @@ object __Codec_Idle : salvo.WireCodec<Idle> {
         salvo.IntCodec.enc(v.parkedTokens, out)
     }
     override fun dec(inp: salvo.WireIn): Idle = Idle(salvo.IntCodec.dec(inp), salvo.IntCodec.dec(inp))
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun onIdle(p: Int, notify: salvo.SalvoReply) {
+    var __is2 = (notify).takeLocal()
+    if (__is2 != null) {
+        val t = __is2 as Token
+        onIdle__runtime((p), t)
+    }
 }

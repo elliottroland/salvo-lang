@@ -164,6 +164,19 @@ pub fn shout(g: &Greeting) -> String {
 
 The program calls a generated wrapper (`shoutPlatform` / `shout_platform`), which calls the implementation; the wrapper is where the boundary checks the planned ABI adds will go. A platform fn is not generic, takes no implicit parameters and declares no effects, and two platform fns may not overload each other.
 
+A platform fn may take a function value: an effect-free `(A) -> R`, which the host may call during the call and must not keep. To let the host **keep** one — a hook it calls later, from any thread — the declaration consumes the parameter, and the caller then passes a **named top-level function**, never a lambda or a local:
+
+```
+platform fn on_tick(hook: (n: Int) -> None) [] -> None => !hook
+
+fn report(n: Int) [] -> None => n { … }
+
+on_tick(report)      // fine: a named fn, nothing captured
+on_tick(n -> …)      // error: a kept callback must be a named fn
+```
+
+A named function captures nothing, so it is safe to keep for as long as the host likes; on Rust the host receives a plain `fn(i32)` pointer, on Kotlin a `(Int) -> Unit`.
+
 ## Kotlin
 
 * Generated Kotlin uses Kotlin's naming: every function, member, parameter, field and local is written in camel case (`read_to_str` becomes `readToStr`, a field `data_type` becomes `dataType`). Rust keeps Salvo's snake case. So that a program means the same on both, two names that differ only in this way — `foo_bar` and `fooBar` in one scope — are an error on every backend.

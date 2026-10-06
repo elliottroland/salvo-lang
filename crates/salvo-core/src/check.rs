@@ -1119,6 +1119,18 @@ impl Checked {
     }
 }
 
+/// [platform-fn-value] [runtime-kept-fn] Whether platform fn `f` keeps its
+/// fn-typed parameter `p` past the call: its clause consumes it (`=> !p`).
+/// In std's runtime that is a kept closure; anywhere else the argument must
+/// be a named top-level fn. One predicate, so the checker and the emitters
+/// agree on which parameters are kept.
+pub fn platform_keeps_param(f: &ast::FnDecl, p: &ast::Param) -> bool {
+    f.platform
+        && f.deductions.iter().flatten().any(|d| {
+            d.param_name().is_some_and(|n| n.name == p.name.name) && matches!(d.kind, ast::DeductionKind::Moved)
+        })
+}
+
 /// Checks the whole program (resolution must come from the same program).
 ///
 /// Runs in two rounds so that *inferred* deductions are enforced at call
@@ -27932,6 +27944,32 @@ impl<'p, 'r> Checker<'p, 'r> {
         // activation, and the Rust lowering moves the captures in — so the
         // state is the body's, not shared with the caller.
         let runtime_kept = decl.platform && best_key.is_some_and(|k| self.runtime_files.get(k.file).copied().unwrap_or(false));
+        // [platform-fn-value] Outside the runtime, a platform fn that keeps a
+        // fn value (`=> !hook` on a fn-typed parameter) keeps a **named**
+        // one: a top-level fn, so capture-free, and effect-free by its type —
+        // the identity restriction [cmp-carry] has. The host may call it
+        // from any thread, long after this call returns, which a closure's
+        // captures could not survive on Rust and would race on Kotlin.
+        if decl.platform && !runtime_kept {
+            for (i, p) in decl.params.iter().enumerate() {
+                if !matches!(p.ty, ast::Type::Fn { .. }) || !crate::check::platform_keeps_param(decl, p) {
+                    continue;
+                }
+                let Some(arg) = args.get(i) else { continue };
+                if self.out.fn_refs.contains_key(&self.key(arg.span())) {
+                    continue;
+                }
+                self.error(
+                    arg.span(),
+                    format!(
+                        "`{}` keeps its `{}` callback past the call, so it takes a named \
+                         top-level fn, not a lambda or a local: write the callback as a \
+                         fn and pass it by name [platform-fn-value]",
+                        decl.name.name, p.name.name
+                    ),
+                );
+            }
+        }
         if self.inferred.is_some() && !runtime_kept {
             let facts: Option<Vec<crate::deduce::ParamDeduction>> =
                 self.effective_contract(best_key, decl);

@@ -206,3 +206,13 @@ impl crate::net::TransportPlatformSync for HostTcpTransport {
         self.bind.clone()
     }
 }
+
+// [platform-fn-value] `bind_outbound`: node `node`'s outbound hook is the
+// named Salvo fn `hook`, a plain `fn` pointer, called with `out` (the
+// `Outbound` actor's index) on whichever thread the routing service has a
+// frame on. The host keeps it.
+pub fn bind_outbound(node: i64, out: i32, hook: fn(i32, &crate::platform_core_bytes::Bytes, crate::platform_core_bytes::Bytes)) {
+    crate::scheduler::registry()
+        .wires
+        .insert(node, Arc::new(move |to: &[u8], frame: Vec<u8>| hook(out, &to.to_vec(), frame)));
+}

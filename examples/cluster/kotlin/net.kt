@@ -35,6 +35,7 @@ import salvo.runtime.routing.identity
 import salvo.runtime.routing.localProtocols
 import salvo.runtime.routing.newNode as newNode__runtime_routing
 import salvo.runtime.routing.nodeLeft as nodeLeft__runtime_routing
+import salvo.runtime.routing.outboundBound
 import salvo.runtime.routing.peerProtocol as peerProtocol__runtime_routing
 import salvo.runtime.routing.pending as pending__runtime_routing
 import salvo.runtime.routing.poolAt as poolAt__runtime_routing
@@ -236,6 +237,25 @@ fun addRoute(node: NodeId, at: NodeEndpoint) {
     route(node.id, salvo.salvoEncode(at, __Codec_NodeEndpoint))
 }
 
+fun routeFrames(out: Int) {
+    bindOutboundPlatform(hereNode(), (out), ::forwardFrame)
+    outboundBound()
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun forwardFrame(out: Int, to: salvo.platform.core.bytes.Bytes, frame: salvo.platform.core.bytes.Bytes) {
+    var __is1 = salvo.salvoDecode(to, __Codec_NodeEndpoint)
+    if (__is1 != null) {
+        val ep = __is1 as NodeEndpoint
+        val sending: Int = (out)
+        salvo.SalvoSched.sendWire(sending, __Msg_Outbound.SendFrame(ep, frame), __PROTO_Outbound, __Codec___Msg_Outbound)
+    }
+}
+
+fun bindOutboundPlatform(node: Long, out: Int, hook: (Int, salvo.platform.core.bytes.Bytes, salvo.platform.core.bytes.Bytes) -> Unit) {
+    return salvo.platform.net.bindOutbound(node, out, hook)
+}
+
 fun deliverFrame(data: salvo.platform.core.bytes.Bytes): Boolean {
     return deliver(data)
 }
@@ -413,7 +433,7 @@ fun connect__NodeEndpoint_Pool(transport: Transport, me: NodeEndpoint, on: Int):
     }
     val sending = run { val __h = Sending(transport); val __a = salvo.SalvoSched.spawn(on, __h.__mailboxCapacity, __Actor_Sending(__h), __Actor_Sending.__DECODE); __a }
     val receiving = run { val __h = Receiving(); val __a = salvo.SalvoSched.spawn(on, __h.__mailboxCapacity, __Actor_Receiving(__h), __Actor_Receiving.__DECODE); __a }
-    run { val __out = sending; salvo.SalvoSched.setWire { __ep, __frame -> val __to = salvo.salvoDecode(salvo.SalvoBytes(__ep), __Codec_NodeEndpoint); if (__to != null) salvo.SalvoSched.sendWire(__out, __Msg_Outbound.SendFrame(__to, salvo.SalvoBytes(__frame)), __PROTO_Outbound, __Codec___Msg_Outbound) } }
+    routeFrames(sending)
     val _listening = transport.listen(me, receiving)
     addRoute(thisNode(), me)
     return true

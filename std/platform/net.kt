@@ -175,3 +175,10 @@ class HostTcpTransport(private val bind: NodeEndpoint) : TransportPlatform {
 
     override fun localEndpoint(): NodeEndpoint = bind
 }
+
+// [platform-fn-value] `bind_outbound`: node [node]'s outbound hook is the
+// named Salvo fn [hook], called with [out] (the `Outbound` actor's index) on
+// whichever thread the routing service has a frame on. The host keeps it.
+fun bindOutbound(node: Long, out: Int, hook: (Int, SalvoBytes, SalvoBytes) -> Unit) {
+    SalvoSched.wires[node] = { to, frame -> hook(out, SalvoBytes(to), SalvoBytes(frame)) }
+}

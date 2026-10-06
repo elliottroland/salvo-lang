@@ -285,31 +285,9 @@ pub fn fn_call(
         // placement the language types `Dedicated` — the qualifier is erased,
         // so what reaches here is a plain pool id.
         ("thread", None) => "crate::scheduler::salvo_thread()".to_string(),
-        // [actor-watch] Registering a death watch hands the scheduler the
-        // token *and* a builder for the `Exit` it will carry: the runtime
-        // holds a reason string and cannot construct a Salvo struct, so the
-        // watch site closes over the constructor instead.
-        //
-        // `Exit` is named unqualified, which is safe rather than lucky: the
-        // file glob-imports every module whose names it uses, and a
-        // `Reply<Exit>` cannot be *obtained* in a file where `Exit` means
-        // something else (the annotation naming std's `Exit` would not
-        // resolve), so a shadowing declaration and this emission never meet.
-        ("watch", Some("Addr")) => format!(
-            "crate::scheduler::salvo_watch({}, {}, |__reason| std::boxed::Box::new(Exit {{ reason: __reason }}))",
-            a(0),
-            a(1)
-        ),
-        // [actor-on-idle] The quiescence hook, registered the same way and for
-        // the same reason: the runtime holds two counts and cannot construct
-        // the language's `Idle`, so the registration site closes over the
-        // constructor. `Idle` is named unqualified on `Exit`'s precedent above.
-        ("on_idle", Some("Pool")) => format!(
-            "crate::scheduler::salvo_on_idle({}, {}, |__gates, __tokens| std::boxed::Box::new(Idle {{ \
-             parked_gates: __gates, parked_tokens: __tokens }}))",
-            a(0),
-            a(1)
-        ),
+        // [runtime-handles] The core's token inside a reply token, or `None`
+        // for one minted on another node.
+        ("reply_token", Some("Reply")) => format!("({}).take_local()", a(0)),
         // time -----------------------------------------------------------
         // [time-ticker] [time-clock] [rs-time] The two clock readings, each a
         // plain `i64` of nanoseconds — the whole of what the host contributes

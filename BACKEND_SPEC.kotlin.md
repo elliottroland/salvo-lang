@@ -1420,10 +1420,8 @@ nothing but the monitor.
     → a `run { }` expression that mints a waiter with a destructuring `val
     (out, __wid)`, runs the block, then `awaitReply(__wid) as T`; `send(r, v)`
     → `r.send(v)`; `pool(n)` → `SalvoSched.pool(n)`; `thread()` →
-    `SalvoSched.thread()`; `watch(a, out)` →
-    `SalvoSched.watch(a, out, { __reason -> Exit(__reason) })`; `on_idle(p, i)`
-    → `SalvoSched.onIdle(p, i, { __gates, __tokens -> Idle(__gates, __tokens)
-    })`.
+    `SalvoSched.thread()`; `watch` and `on_idle` are Salvo over
+    `reply_token(r)` → `r.takeLocal()` [runtime-handles].
   * **[main-pool] An omitted `on` clause is `SalvoSched.currentPool()`** — a
     `ThreadLocal` read, so the placement a spawn inherits costs nothing and
     needs no signature. Main's thread answers pool 0, the pool it is the single
@@ -1446,26 +1444,20 @@ nothing but the monitor.
     **outside** the lambda so they are the values as they were at the mint.
     A free `send fn` itself is an ordinary top-level function returning `Unit`.
   * **[pool-fault-sink] `pool(n, sink)`** → `SalvoSched.poolWithSink(n, sink,
-    { __reason -> __Msg_Faults.Faulted(Fault(__reason)) })`. The builder is the
-    same trick as `watch`'s: the runtime holds a `String` and cannot construct
-    a Salvo class, so the *pool creation site* hands over the constructor.
-    Dispatched on **arity**, since both `pool` overloads take an `Int` first.
-  * **A `watch` carries its own `Exit` constructor** [actor-watch]. The runtime
-    holds a reason `String` and cannot build a Salvo class, so the watch site
-    passes a `(String) -> Any?` alongside the token and the scheduler calls it
-    at death — which keeps a watcher's payload identical to an ordinary
-    `r.send(Exit{…})` instead of teaching `resume` a special case. `Exit` is
-    named **unqualified**, safely: the file star-imports every module whose
-    names it uses, and a `Reply<Exit>` cannot be obtained in a file where
-    `Exit` means something else.
-  * **[actor-on-idle] A quiescence hook carries its own `Idle` constructor**,
-    on exactly that precedent: `SalvoSched.onIdle(pool, notify, (Int, Int) ->
-    Any?)`, and the counts cross the seam as numbers. What the runtime adds for
+    { __reason -> __Msg_Faults.Faulted(Fault(__reason)) })`. The runtime
+    holds a `String` and cannot construct the `Faults` *message* (a generated
+    class no Salvo fn can name), so the *pool creation site* hands over the
+    constructor; `Faulted` is named unqualified, safely, since a file reaching
+    `pool(n, sink)` star-imports `core.actor`. Dispatched on **arity**, since
+    both `pool` overloads take an `Int` first.
+  * **[actor-watch] [actor-on-idle] `Exit` and `Idle` are the scheduler's
+    own**: it is Salvo and builds both, so `watch`/`on_idle` hand it only the
+    core's token. What the runtime adds for
     it is an accounting of *undischarged tokens*: `SalvoActorState.owed` counts
     the tokens aimed at an actor, `SalvoPoolState.owed` those aimed at a task or
     held by a frame parked on that pool, and `SalvoReply.tracked` is what stops
     a token being counted twice — a delivery clears it, and so does handing the
-    token to the scheduler (`watch`, `onIdle`), which is why a program idling
+    token to the scheduler (`watch`, `on_idle`), which is why a program idling
     with registrations outstanding reports zero. `fireIdle` runs where the
     scheduler runs dry: in `awaitReply` *before* the deadlock report (firing a
     hook is progress, so the report is what firing nothing leaves) and in

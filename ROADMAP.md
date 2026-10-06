@@ -61,20 +61,19 @@ Salvo" (the runtime record, retired 2026-10-03). What is left, besides 0c, 0d, 0
 and the `test actor` follow-ups recorded below:
 
 2. **What is left of the actor, net and time intrinsics** (most went
-   2026-10-05, COMPLETED.md). §0j schedules three of them: `encode`/`decode`
-   become Salvo codecs (step 9), the builder-taking ones become Salvo once a
-   platform fn may keep a named fn (step 6h), and `epoch_nanos` becomes a
-   platform fn (step 5); `key_hash<T>` is a candidate for a `?hash` implicit
-   after step 8. Still intrinsic, each for a reason:
-   `encode`/`decode`, `protocol<E>`, `send(reply, value)` and `key_hash`
-   are type-directed (they need a codec or a protocol hash per type, which a
-   generic Salvo fn cannot ask for); `pool(size, sink)`, `watch`, `on_idle`,
-   `watch_control` and `route_frames` hand the scheduler a builder for a
-   Salvo message it cannot construct (`Fault`, `Exit`, `Idle`, the handler's
-   private `control`, `Outbound`) — they could become Salvo once a Salvo fn
-   can register a message-building callback with the runtime; `thread()`
-   mints a `Dedicated Pool`, a provenance claim only a constructor can make;
-   `epoch_nanos` reads the host clock (a candidate for a platform fn).
+   2026-10-05 and 2026-10-06, COMPLETED.md; `route_frames`, `watch` and
+   `on_idle` are Salvo since §0j 6h, `epoch_nanos` a platform fn since step
+   5). §0j schedules `encode`/`decode` as Salvo codecs (step 9); `key_hash<T>`
+   is a candidate for a `?hash` implicit after step 8. Still intrinsic, each
+   for a reason: `encode`/`decode`, `protocol<E>`, `send(reply, value)` and
+   `key_hash` are type-directed (they need a codec or a protocol hash per
+   type, which a generic Salvo fn cannot ask for); `pool(size, sink)` and
+   `watch_control` hand the scheduler a builder for an actor *message*
+   (`Faults.faulted`, the handler's private `control`), which no Salvo fn can
+   construct (§0j 6h's DECISION); `thread()` mints a `Dedicated Pool`, a
+   provenance claim only a constructor can make; `reply_token` and the four
+   handle conversions are the runtime's view of its own handles
+   [runtime-handles].
 6. **Kotlin's `unerase<T>` cannot check `T`** (erased generics): a mismatch
    surfaces as a `ClassCastException` where the value is used. In the
    runtime a mismatch is a compiler bug either way; an exact check would need
@@ -179,10 +178,19 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
      `println("${get(d, i)} ${replace(d, i, 0)}")` is E0502 in rustc (Kotlin
      runs it). Repro: any interpolation whose earlier part calls a lending
      read of `d` and a later part mutates `d`.
-   - h. **Platform fns keep named fns** ([platform-fn-value] widened as
-     above). Unblocks §0 item 2's builders: `pool(size, sink)`, `watch`,
-     `on_idle`, `watch_control` and `route_frames` hand the scheduler a named
-     message-building fn and become Salvo.
+   - h. ✅ **Platform fns keep named fns** [platform-fn-value] (2026-10-06,
+     COMPLETED.md): `route_frames`, `watch` and `on_idle` are Salvo. Left, a
+     **DECISION**: `pool(size, sink)` and `watch_control` build an actor
+     *message* (`Faults.faulted`, the handler's private `control`), which is
+     generated code no Salvo fn can name, so a kept named fn cannot build it.
+     Options: (a) leave the two intrinsic (recommended for now: two small
+     arms each, no surface change); (b) a message as a value — a send
+     member's message as a fn, `faulted@Faults: (Fault) -> Msg<Faults>`,
+     with a new `Msg<E>` type the runtime carries as `Dyn` (a private member
+     would still need `@self`, so `watch_control` stays out unless the
+     top-level rule bends); (c) change how a sink and a control channel
+     receive their payload (e.g. a re-armed reply token per delivery), a std
+     API change to `Faults` and the groups.
    - i. ✅ **Implicits on stamped fns for generic structs** [comptime-generic]
      (2026-10-05, COMPLETED.md), with the DECISION it needed: an implicit
      joins resolution by argument types [implicit-resolve-body] (user, option

@@ -3,6 +3,7 @@ package salvo.main
 import salvo.core.actor.Exit
 import salvo.core.actor.__Codec_Exit
 import salvo.core.actor.pool
+import salvo.core.actor.watch
 import salvo.core.bytes.next
 import salvo.core.console.Console
 import salvo.core.console.println
@@ -519,7 +520,7 @@ fun main() {
     val exit = run {
         val (gone, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), __Codec_Exit) })
-        salvo.SalvoSched.watch(fragile, gone, { __reason -> Exit(__reason) })
+        watch(fragile, gone)
         salvo.SalvoSched.sendWire(fragile, __Msg_Fragile.Crash(), __PROTO_Fragile, __Codec___Msg_Fragile)
         salvo.SalvoSched.awaitReply(__wid) as Exit
     }

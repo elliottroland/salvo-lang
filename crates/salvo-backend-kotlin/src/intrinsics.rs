@@ -156,30 +156,9 @@ pub fn fn_call(
         // placement the language types `Dedicated` — the qualifier is erased,
         // so what reaches here is a plain pool id.
         ("thread", None) => "salvo.SalvoSched.thread()".to_string(),
-        // [actor-watch] Registering a death watch hands the scheduler the
-        // token *and* a builder for the `Exit` it will carry: the runtime
-        // holds a reason string and cannot construct a Salvo class, so the
-        // watch site closes over the constructor instead.
-        //
-        // `Exit` is named unqualified, which is safe rather than lucky: the
-        // file star-imports every module whose names it uses, and a
-        // `Reply<Exit>` cannot be *obtained* in a file where `Exit` means
-        // something else (the annotation naming std's `Exit` would not
-        // resolve), so a shadowing declaration and this emission never meet.
-        ("watch", Some("Addr")) => format!(
-            "salvo.SalvoSched.watch({}, {}, {{ __reason -> Exit(__reason) }})",
-            a(0),
-            a(1)
-        ),
-        // [actor-on-idle] The quiescence hook, registered the same way and for
-        // the same reason: the runtime holds two counts and cannot construct
-        // the language's `Idle`, so the registration site closes over the
-        // constructor. `Idle` is named unqualified on `Exit`'s precedent above.
-        ("on_idle", Some("Pool")) => format!(
-            "salvo.SalvoSched.onIdle({}, {}, {{ __gates, __tokens -> Idle(__gates, __tokens) }})",
-            a(0),
-            a(1)
-        ),
+        // [runtime-handles] The core's token inside a reply token, or `null`
+        // for one minted on another node.
+        ("reply_token", Some("Reply")) => format!("({}).takeLocal()", a(0)),
         // time -----------------------------------------------------------
         // [time-ticker] [time-clock] [kt-time] The two clock readings, each a
         // `Long` of nanoseconds — the whole of the host's contribution to the

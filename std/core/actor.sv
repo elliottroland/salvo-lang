@@ -13,9 +13,13 @@
 
 import runtime.addr_index
 import runtime.pool_of
+import runtime.pool_index
 import runtime.new_pool_of
 import runtime.routing.adopt
 import runtime.routing.same_actor
+import runtime.Token
+import runtime.reply_token
+import runtime
 
 // [actor-spawn-expr] A handle to a running actor, and the *only* thing a
 // spawn hands back: the state behind it is the child's alone, so an `Addr` is
@@ -163,7 +167,13 @@ export struct Exit { reason: Str }
 //
 // [target] is kept, since an addr is freely copyable: watching does not spend
 // the handle, and the same actor may be watched by many.
-export intrinsic fn watch<E>(target: Addr<E>, on_exit: Reply<Exit>) [spawn] -> None => target, !on_exit
+export fn watch<E>(target: Addr<E>, on_exit: Reply<Exit>) [spawn] -> None => target, !on_exit {
+    // A token minted on another node has no local half to register: the
+    // watch is dropped, as it always was.
+    if reply_token(on_exit) is Token t {
+        watch(addr_index(target), t)
+    }
+}
 
 // [actor-on-idle] What quiescence looked like, delivered to whoever asked to
 // hear about it.
@@ -205,4 +215,8 @@ export struct Idle {
 //
 // [p] is kept: a pool is an ordinary value, and asking about one does not
 // spend it.
-export intrinsic fn on_idle(p: Pool, notify: Reply<Idle>) [spawn] -> None => p, !notify
+export fn on_idle(p: Pool, notify: Reply<Idle>) [spawn] -> None => p, !notify {
+    if reply_token(notify) is Token t {
+        on_idle(pool_index(p), t)
+    }
+}

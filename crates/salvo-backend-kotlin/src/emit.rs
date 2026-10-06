@@ -9060,19 +9060,6 @@ impl<'p> Emitter<'p> {
                         "salvo.SalvoSched.keyHash(salvo.salvoEncode({k}, {codec}).toByteArray())"
                     );
                 }
-                "route_frames" if args.len() == 1 => {
-                    self.needs_scheduler = true;
-                    self.needs_wire = true;
-                    let out = self.emit_expr(args[0]);
-                    let ep = Ty::Named { name: "NodeEndpoint".to_string(), args: Vec::new() };
-                    let codec = self.kotlin_codec_expr(&ep);
-                    let msg = msg_class_name("Outbound");
-                    return format!(
-                        "run {{ val __out = {out}; salvo.SalvoSched.setWire {{ __ep, __frame -> \
-                         val __to = salvo.salvoDecode(salvo.SalvoBytes(__ep), {codec}); \
-                         if (__to != null) salvo.SalvoSched.sendWire(__out, {msg}.SendFrame(__to, salvo.SalvoBytes(__frame)), __PROTO_Outbound, __Codec_{msg}) }} }}"
-                    );
-                }
                 _ => {}
             }
         }
@@ -9105,13 +9092,12 @@ impl<'p> Emitter<'p> {
                 }
             }
             // [kt-actor] The scheduler's own intrinsics: answering a reply
-            // token, building a pool (plain or dedicated), registering a
-            // death watch, and registering a quiescence hook
-            // [actor-on-idle].
+            // token (or taking its core token out [runtime-handles]) and
+            // building a pool (plain or dedicated).
             if recv == Some("Reply")
                 || matches!(
                     f.name.name.as_str(),
-                    "pool" | "thread" | "watch" | "on_idle"
+                    "pool" | "thread"
                 )
             {
                 self.needs_scheduler = true;

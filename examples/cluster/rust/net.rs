@@ -30,6 +30,7 @@ use crate::runtime_routing::identity;
 use crate::runtime_routing::local_protocols;
 use crate::runtime_routing::new_node as new_node__runtime_routing;
 use crate::runtime_routing::node_left as node_left__runtime_routing;
+use crate::runtime_routing::outbound_bound;
 use crate::runtime_routing::peer_protocol as peer_protocol__runtime_routing;
 use crate::runtime_routing::pending as pending__runtime_routing;
 use crate::runtime_routing::pool_at as pool_at__runtime_routing;
@@ -374,6 +375,24 @@ pub fn add_route(node: &NodeId, at: &NodeEndpoint) {
     route(node.id, crate::wire::salvo_encode(&at.clone()));
 }
 
+pub fn route_frames(out: usize) {
+    bind_outbound_platform(here_node(), (((out).clone()) as i32), |mut __a0, mut __a1, mut __a2| forward_frame(__a0, __a1, __a2));
+    outbound_bound();
+}
+
+pub fn forward_frame(out: i32, to: &Bytes, frame: Bytes) {
+    let mut __is1 = crate::wire::salvo_decode::<NodeEndpoint>(&to.clone());
+    if __is1.is_some() {
+        let mut ep = __is1.as_ref().unwrap().clone();
+        let mut sending: usize = ((out) as usize);
+        crate::scheduler::salvo_send_wire(sending, crate::net::__Msg_Outbound::SendFrame(ep, frame), crate::net::__PROTO_Outbound);
+    }
+}
+
+pub fn bind_outbound_platform(node: i64, out: i32, hook: fn(i32, &Bytes, Bytes)) {
+    crate::platform_net::bind_outbound(node, out, hook)
+}
+
 pub fn deliver_frame(data: &Bytes) -> bool {
     return deliver(data);
 }
@@ -649,7 +668,7 @@ pub fn connect__NodeEndpoint_Pool(transport: &crate::net::Transport, me: NodeEnd
     }
     let mut sending = ({ let __h = Sending::new(transport.clone()); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(on, __cap as usize, std::boxed::Box::new(__Actor_Sending::new(__h)), __DECODE_Sending); __a });
     let mut receiving = ({ let __h = Receiving::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(on, __cap as usize, std::boxed::Box::new(__Actor_Receiving::new(__h)), __DECODE_Receiving); __a });
-    { let __out = sending; crate::scheduler::salvo_set_wire(std::sync::Arc::new(move |__ep: &[u8], __frame: Vec<u8>| { if let Some(__to) = crate::wire::salvo_decode::<NodeEndpoint>(__ep) { crate::scheduler::salvo_send_wire(__out, crate::net::__Msg_Outbound::SendFrame(__to, __frame), crate::net::__PROTO_Outbound); } })) };
+    route_frames(sending);
     let mut _listening = transport.listen(&(me.clone()), receiving);
     add_route(&(this_node()), &me);
     return true;

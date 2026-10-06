@@ -141,6 +141,41 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Shrinking the backends, step 6h: platform fns keep named fns (2026-10-06,
+ROADMAP §0j).**
+- **[platform-fn-value] widened** as decided: a platform fn whose clause
+  consumes a plain fn-typed parameter (`=> !hook`) keeps it, and outside the
+  runtime every argument there must be a named top-level fn (the checker
+  refuses a lambda or a local, naming the rule; `once` fns are still lent).
+  `salvo_core::check::platform_keeps_param` is the one predicate the checker
+  and the Rust emitter share. Rust's host takes a plain `fn(…) -> R`
+  pointer: the call site's adapter (`|__a0, …| name(…)`, unborrowed) captures
+  nothing and coerces to it. Kotlin needed nothing.
+- **Became Salvo**: `net.route_frames` hands the host the named fn
+  `forward_frame` through a new platform fn `bind_outbound` (host code in
+  `std/platform/net.{kt,rs}`), which decodes the endpoint and sends
+  `send_frame` to the `Outbound` actor; `core.actor`'s `watch` and `on_idle`
+  take the core's token out of the reply token with a new runtime intrinsic,
+  `reply_token<T>(Reply<T>) -> Token?` [runtime-handles], and register it.
+  The builders `watch`/`on_idle` passed had been dead since the scheduler
+  became Salvo (it builds `Exit` and `Idle` itself). Deleted: the three
+  intrinsic lowerings in both emitters, `salvo_watch`/`salvo_on_idle`/
+  `salvo_set_wire` and `IdleOf` (Rust), `watch`/`onIdle`/`setWire` (Kotlin).
+- **Not built, a DECISION now** (ROADMAP §0j 6h): `pool(size, sink)` and
+  `watch_control` build an actor *message* (`Faults.faulted`, a handler's
+  private `control`), generated code that no Salvo fn can name, so the plan's
+  "named message-building fn" cannot write them. They stay intrinsic until
+  the user picks among the options recorded there.
+- Fell out: the scheduler drivers in both `runtime_tests.rs` called the
+  deleted shims and now register through the core (`crate::runtime::watch`,
+  `salvo.runtime.watch`). The first full run after the change **hung for over
+  25 minutes** in Kotlin's `runtime_tests` (stale drivers that no longer
+  compiled); the rerun after fixing them took 3m33. Not diagnosed further.
+- Tests: `a_platform_fn_keeps_a_named_fn` (host keeps the fn and calls it
+  from another call, on a spawned thread on Rust; the lambda refusal);
+  `watch_and_on_idle_are_salvo_over_the_core_token` on both backends
+  replaces the four builder-lowering tests. **1715 tests.**
+
 **Shrinking the backends, step 6f: hand-written members beside `by auto`
 (2026-10-05, ROADMAP §0j).** Checked rather than built: a struct may take
 `Eq<self>, ToStr<self> by auto` and write its own `eq` (an obligation without
@@ -21840,7 +21875,7 @@ Recorded so nothing is left half-removed (no compatibility, per AGENTS.md):
   factories in a plural object (`FsErrors`), since a sealed `FsError` cannot
   extend `Union7` from another package.
 
-## Test inventory (all green: 1716; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1715; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

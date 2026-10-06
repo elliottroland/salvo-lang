@@ -1341,6 +1341,10 @@ export intrinsic fn addr_index<E>(a: Addr<E>) [] -> Int => a
 export intrinsic fn addr_of<E>(index: Int) [] -> Addr<E> => index
 export intrinsic fn pool_index(p: Pool) [] -> Int => p
 export intrinsic fn pool_of(index: Int) [] -> Pool => index
+// [runtime-handles] The core's token inside a reply token, taken out of it:
+// what `core.actor`'s `watch` and `on_idle` register. `None` for a token
+// minted on another node, which has no local half.
+export intrinsic fn reply_token<T canbe linear>(r: Reply<T>) [] -> Token? => !r
 
 // [runtime-sched] A pool of [n] worker threads; uncaught faults on it go to
 // [sink] (an actor), or to the named report when it is -1.

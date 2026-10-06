@@ -2705,13 +2705,24 @@ impl<'p> Emitter<'p> {
         if !f.platform || !(matches!(p.ty, Type::Fn { .. }) || is_once_fn_type(&p.ty)) {
             return false;
         }
+        self.in_runtime_file(f) && salvo_core::check::platform_keeps_param(f, p)
+    }
+
+    /// [platform-fn-value] Whether `p` is a **named** fn the host keeps: a
+    /// consumed fn-typed parameter of a platform fn outside the runtime. The
+    /// checker made every argument a top-level fn, so the adapter captures
+    /// nothing and the host holds a plain `fn` pointer — `Copy`, `Send`,
+    /// `Sync` and `'static`, callable from any thread for as long as it likes.
+    fn keeps_named_fn_param(&self, f: &FnDecl, p: &Param) -> bool {
+        f.platform
+            && matches!(p.ty, Type::Fn { .. })
+            && !self.in_runtime_file(f)
+            && salvo_core::check::platform_keeps_param(f, p)
+    }
+
+    fn in_runtime_file(&self, f: &FnDecl) -> bool {
         let file = &self.program.files[self.file_of_fn(f)];
-        let runtime = file.is_std && file.module.0.first().is_some_and(|m| m == salvo_core::STD_INTERNAL);
-        runtime
-            && f.deductions.iter().flatten().any(|d| {
-                d.param_name().is_some_and(|n| n.name == p.name.name)
-                    && matches!(d.kind, salvo_syntax::ast::DeductionKind::Moved)
-            })
+        file.is_std && file.module.0.first().is_some_and(|m| m == salvo_core::STD_INTERNAL)
     }
 
     /// The file index declaring `f`.
@@ -6188,6 +6199,8 @@ impl<'p> Emitter<'p> {
             // run on another thread) is owned, boxed and `Send + 'static`.
             if self.keeps_fn_param(f, p) {
                 ty = kept_fn_param_ty(ty);
+            } else if self.keeps_named_fn_param(f, p) {
+                ty = kept_named_fn_param_ty(ty);
             }
             params.push(format!("{mut_kw}{}: {ty}", rs_ident(&p.name.name)));
         }
@@ -15917,8 +15930,13 @@ impl<'p> Emitter<'p> {
             let kept = fn_key
                 .and_then(|k| self.fn_by_key(k))
                 .is_some_and(|decl| self.keeps_fn_param(decl, param));
+            // [platform-fn-value] A kept named fn: the adapter, unborrowed
+            // and capture-free, coerces to the host's `fn` pointer.
+            let kept_named = fn_key
+                .and_then(|k| self.fn_by_key(k))
+                .is_some_and(|decl| self.keeps_named_fn_param(decl, param));
             self.pending_lambda_move = producer || kept;
-            let mode = if kept { ParamMode::Owned } else { mode };
+            let mode = if kept || kept_named { ParamMode::Owned } else { mode };
             let code = self.emit_arg(arg, mode, Some(&param.ty));
             let code = if kept { format!("std::boxed::Box::new({code})") } else { code };
             // [rs-effects] A `once` fn value given to an effect member is
@@ -16170,10 +16188,9 @@ impl<'p> Emitter<'p> {
             return format!("crate::wire::salvo_decode::<{rs}>(&{code})");
         }
         // [addr-routable] [rs-wire] The routing intrinsics of std `net`, each
-        // a thin call into the scheduler's wire section. `route_frames` hands
-        // the runtime a hook that builds the `Outbound` message — the runtime
-        // cannot construct a Salvo struct, so the registration site supplies
-        // the constructor, as `watch` does for `Exit` [actor-watch].
+        // a thin call into the scheduler's wire section. `watch_control`
+        // hands the runtime a builder for the sink's private `control`
+        // message, which no Salvo fn can construct (ROADMAP §0j 6h).
         if f.intrinsic {
             match f.name.name.as_str() {
                 // [node-group] [actor-group] The control channel: the
@@ -16217,22 +16234,6 @@ impl<'p> Emitter<'p> {
                     let k = self.emit_read(args[0]);
                     return format!(
                         "crate::scheduler::salvo_key_hash(&crate::wire::salvo_encode(&{k}))"
-                    );
-                }
-                "route_frames" if args.len() == 1 => {
-                    self.needs_scheduler = true;
-                    self.needs_wire = true;
-                    let out = self.emit_read(args[0]);
-                    let msg = self.effect_path("Outbound", &msg_enum_name("Outbound"));
-                    let proto = self.effect_path("Outbound", &protocol_const_name("Outbound"));
-                    let ep = self.rust_ty(&Ty::Named {
-                        name: "NodeEndpoint".to_string(),
-                        args: Vec::new(),
-                    });
-                    return format!(
-                        "{{ let __out = {out}; crate::scheduler::salvo_set_wire(std::sync::Arc::new(move |__ep: &[u8], __frame: Vec<u8>| {{ \
-                         if let Some(__to) = crate::wire::salvo_decode::<{ep}>(__ep) {{ \
-                         crate::scheduler::salvo_send_wire(__out, {msg}::SendFrame(__to, __frame), {proto}); }} }})) }}"
                     );
                 }
                 _ => {}
@@ -16305,13 +16306,12 @@ impl<'p> Emitter<'p> {
                 self.needs_str = true;
             }
             // [rs-actor] The scheduler's own intrinsics: answering a reply
-            // token, building a pool (plain or dedicated), registering a
-            // death watch, and registering a quiescence hook
-            // [actor-on-idle].
+            // token (or taking its core token out [runtime-handles]) and
+            // building a pool (plain or dedicated).
             if recv == Some("Reply")
                 || matches!(
                     f.name.name.as_str(),
-                    "pool" | "thread" | "watch" | "on_idle"
+                    "pool" | "thread"
                 )
             {
                 self.needs_scheduler = true;
@@ -18803,6 +18803,19 @@ fn member_fn_param_ty(ty: &Type, rendered: String) -> String {
     if is_once_fn_type(ty) {
         if let Some(rest) = rendered.strip_prefix("impl ") {
             return format!("std::boxed::Box<dyn {rest} + '_>");
+        }
+    }
+    rendered
+}
+
+/// [platform-fn-value] A kept named fn's type: `impl FnMut(…) -> R` (or the
+/// `&mut dyn` std's wrappers take) becomes the pointer `fn(…) -> R`.
+fn kept_named_fn_param_ty(rendered: String) -> String {
+    let inner = rendered.strip_prefix("&mut ").unwrap_or(&rendered);
+    let inner = inner.strip_prefix("impl ").or_else(|| inner.strip_prefix("dyn ")).unwrap_or(inner);
+    for tr in ["FnMut(", "FnOnce(", "Fn("] {
+        if let Some(rest) = inner.strip_prefix(tr) {
+            return format!("fn({rest}");
         }
     }
     rendered
