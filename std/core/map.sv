@@ -148,11 +148,47 @@ platform fn into_values<K, V canbe linear>(map: Map<K, V>) [] -> List<V> => !map
 
 // The text form of a map, for string interpolation [interp-to-str]:
 // `{a: 1, b: 2}` in insertion order — the map *literal* that would build it
-// [col-to-str]. Still an intrinsic: in Salvo it would need the `to_str` of
-// two types at once, and implicits resolve by name, so a fn cannot take two
-// `?to_str`s (ROADMAP 0.7).
-export intrinsic fn to_str<K, V>(map: Map<K, V>) [] -> Str => map
+// [col-to-str]. Each key and value renders by its own `to_str`: two
+// implicits of one name at different types, which a call inside the body
+// tells apart by its argument [implicit-resolve-body].
+export fn to_str<K, V>(map: Map<K, V>(?hash, ?eq), ?to_str: (k: K) -> Str, ?to_str: (v: V) -> Str) [] -> Str
+=> map {
+    let out = mut_str("{")
+    let i = 0
+    for k in map {
+        if i > 0 {
+            append(out, ", ")
+        }
+        append(out, to_str(k))
+        append(out, ": ")
+        append(out, to_str(get(map, k)!))
+        i = i + 1
+    }
+    append(out, "}")
+    return out
+}
 
+
+// [op-equality] Two maps are equal when they hold the same keys with equal
+// values, in any order: what `a == b` resolves to. The keys are compared by
+// the map's identity, the values by their own `eq` — two implicits of one
+// name, told apart by their types [implicit-same-name].
+export fn eq<K, V>(a: Map<K, V>(?hash, ?eq), b: Map<K, V>(?hash, ?eq), ?eq: (x: V, y: V) -> Bool) [] -> Bool
+=> a, b {
+    if size(a) != size(b) {
+        return false
+    }
+    for k in a {
+        let theirs = get(b, k)
+        if theirs is None {
+            return false
+        }
+        if !eq(get(a, k)!, theirs) {
+            return false
+        }
+    }
+    return true
+}
 
 // [col-insertion-order] The keys, in insertion order — which is also what
 // makes a map iterable, below.
@@ -204,6 +240,56 @@ export fn next<K>(p: Mut MapKeyYield<K>) [] -> Emitted K | Finished => p: Mut {
     }
     p.at = p.at + 1
     return emitted(key)
+}
+
+// [col-map-entries] The slots of a map, live or removed, in insertion order:
+// what [entries] and [values] walk. [key_at] is `None` at a removed slot;
+// [value_at] is only asked of a live one.
+platform fn slot_count<K, V>(map: Map<K, V>) [] -> Int => map
+platform fn key_at<K, V>(map: Map<K, V>, at: Int) [] -> (proj(map) K)? => map, at
+platform fn value_at<K, V>(map: Map<K, V>, at: Int) [] -> proj(map) V => map, at
+
+// [col-map-entries] One entry of a map, as it is in the map: a **view
+// struct** of two borrows, as [Enumerated] is a view of a list element — so
+// walking the entries copies nothing.
+export struct MapEntry<K, V> {
+    key: proj K,
+    value: proj V
+}
+
+// [col-map-entries] The entries, in insertion order, each a borrowed
+// key/value view: `for e in entries(m) { println("${e.key}: ${e.value}") }`.
+export iter fn entries<K, V>(map: Map<K, V>) -> Emitted MapEntry<K, V> | Finished holds proj(map) {
+    state {
+        // The next slot to look at.
+        at: Int = 0
+    }
+    while at < slot_count(map) {
+        let here = at.copy()
+        at = at + 1
+        let key = key_at(map, here)
+        if !(key is None) {
+            let value = value_at(map, here)
+            return emitted(MapEntry<K, V> { key: key, value: value })
+        }
+    }
+    return finished()
+}
+
+// [col-map-entries] The values, in insertion order, borrowed.
+export iter fn values<K, V>(map: Map<K, V>) -> Emitted (proj(map) V) | Finished holds proj(map) {
+    state {
+        at: Int = 0
+    }
+    while at < slot_count(map) {
+        let here = at.copy()
+        at = at + 1
+        if !(key_at(map, here) is None) {
+            let value = value_at(map, here)
+            return emitted(value)
+        }
+    }
+    return finished()
 }
 
 // [qual-overload] The same claim over a map, where `put` is the operation that

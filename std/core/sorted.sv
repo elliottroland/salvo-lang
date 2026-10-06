@@ -135,7 +135,55 @@ export platform fn last_key<K, V>(map: SortedMap<K, V>) [] -> K? => map
 export platform fn keys<K, V>(map: SortedMap<K, V>) [] -> List<K> => map
 
 // The text form: `{a: 1, b: 2}` in **key order** [col-to-str].
-export intrinsic fn to_str<K, V>(map: SortedMap<K, V>) [] -> Str => map
+export fn to_str<K, V>(map: SortedMap<K, V>(?cmp), ?to_str: (k: K) -> Str, ?to_str: (v: V) -> Str) [] -> Str
+=> map {
+    let out = mut_str("{")
+    let i = 0
+    for k in map {
+        if i > 0 {
+            append(out, ", ")
+        }
+        append(out, to_str(k))
+        append(out, ": ")
+        append(out, to_str(get(map, k)!))
+        i = i + 1
+    }
+    append(out, "}")
+    return out
+}
+
+// [op-equality] Two sorted sets are equal when they hold the same members
+// under their ordering.
+export fn eq<T>(a: SortedSet<T>(?cmp), b: SortedSet<T>(?cmp)) [] -> Bool => a, b {
+    if size(a) != size(b) {
+        return false
+    }
+    for x in a {
+        if !contains(b, x) {
+            return false
+        }
+    }
+    return true
+}
+
+// [op-equality] Two sorted maps are equal when they hold the same keys (under
+// their ordering) with equal values.
+export fn eq<K, V>(a: SortedMap<K, V>(?cmp), b: SortedMap<K, V>(?cmp), ?eq: (x: V, y: V) -> Bool) [] -> Bool
+=> a, b {
+    if size(a) != size(b) {
+        return false
+    }
+    for k in a {
+        let theirs = get(b, k)
+        if theirs is None {
+            return false
+        }
+        if !eq(get(a, k)!, theirs) {
+            return false
+        }
+    }
+    return true
+}
 
 // [iter-mint] A fresh iterator over the map's **keys**, in order — the same
 // reading `core.map` takes, where a value is reached with `get`.

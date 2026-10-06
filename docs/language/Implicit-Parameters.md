@@ -141,6 +141,17 @@ function — there is nothing to register.
   type prints, so a function that *consumes* an argument where the position
   keeps it is reported in words: which argument, which direction, and the two
   ways to fix it.
+- **One name may stand for two implicits at different types.** A function
+  printing a map needs a `to_str` for the keys and another for the values:
+
+  ```
+  fn show<K, V>(m: Map<K, V>(?hash, ?eq), ?to_str: (k: K) -> Str, ?to_str: (v: V) -> Str) -> Str
+  ```
+
+  Each is filled on its own at the call. Inside the body, `to_str(k)` goes
+  through the one its argument fits — and so does `${k}` — so the two never
+  need names of their own. Arguments that fit both are an error, and so is a
+  bare override `to_str = f` at the call, which cannot say which one it means.
 - **What the implicit resolves to can determine the call's type arguments.**
   Resolution runs *between* the arguments, not after them, so a variable that
   appears only in the implicit's type is still inferred. A `?Yield<It, T>`

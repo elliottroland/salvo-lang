@@ -13,6 +13,8 @@ import salvo.core.index.revIndices
 import salvo.core.iterator.Finished
 import salvo.core.iterator.emitted
 import salvo.core.iterator.finished
+import salvo.core.map.eq
+import salvo.core.set.eq
 import salvo.core.string.appendPlatform
 import salvo.core.string.mutStr
 

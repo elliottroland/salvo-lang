@@ -292,24 +292,18 @@ fn an_unknown_group_is_rejected() {
     );
 }
 
-/// Two implicits of the same name cannot both be filled — with no binder
-/// there is nothing to tell them apart, and [var-no-shadow] would refuse
-/// them in the body. The remedy is to write the clashing ones out.
+/// [implicit-same-name] Two implicits of one name at different types are two
+/// parameters (user decision 2026-09-28): `?Field<A>, ?Field<B>` brings one
+/// `field` per type, and nothing is refused.
 #[test]
-fn two_implicits_of_the_same_name_are_rejected() {
+fn two_implicits_of_the_same_name_at_different_types_are_two_parameters() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
          fn f<A, B>(a: A, b: B, ?Field<A>, ?Field<B>) -> A => !a, !b {{\n\
          return a\n\
          }}\n"
     ));
-    assert!(
-        errs.iter().any(|e| {
-            e.contains("is declared as an implicit parameter twice")
-                && e.contains("individually under distinct names")
-        }),
-        "expected the duplicate-name rejection with its remedy, got: {errs:?}"
-    );
+    assert!(errs.is_empty(), "expected no errors, got: {errs:?}");
 }
 
 /// A group's type arguments have to match its generics.

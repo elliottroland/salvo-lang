@@ -1063,8 +1063,21 @@ Conventions:
   pair).
   * Neither backend's native rendering is used, because they disagree with
     each other and with Salvo: Rust's `Debug` for a map quotes string keys
-    and writes `:`, Kotlin's `toString` writes `a=1`. The Rust runtime and
-    the Kotlin lowerings each write the format out.
+    and writes `:`, Kotlin's `toString` writes `a=1`. A set's and a map's
+    `to_str` are Salvo (`core.set`, `core.map`, `core.sorted`; the maps' since
+    2026-10-06, over a key `?to_str` and a value `?to_str`
+    [implicit-same-name]), so each element renders by its own `to_str`.
+* [col-map-entries] **`entries(map)` and `values(map)`** (2026-10-06) walk a
+  map in insertion order without copying: `entries` emits `MapEntry<K, V>`
+  (`{ key: proj K, value: proj V }`), a view struct as [col-enumerate]'s
+  `Enumerated` is, and `values` emits `proj(map) V`. They step through the
+  host's slots (`slot_count`, `key_at`, `value_at`, private to `core.map`),
+  skipping removed ones.
+* [col-map-eq] **`==` on a set or a map compares contents, in any order**
+  (2026-10-06): `eq` for `Set`, `Map`, `SortedSet` and `SortedMap` is Salvo —
+  the same size, and every element (key) of one found in the other by the
+  container's identity, with equal values by the values' `eq` (a second
+  implicit of the name, [implicit-same-name]).
 * [col-sorted] `SortedSet<T>` and `SortedMap<K, V>` are **separate types**
   from `Set`/`Map`, kept in the natural order of their keys (user decision
   2026-09-12). Not a qualifier on the unordered types: a qualifier is
@@ -2965,6 +2978,22 @@ Conventions:
   * Matching is by name and type, **not** by how the parameters were
     declared: a `?Field<T>` spread here fills an individually declared
     `?add` there, and the other way round.
+* [implicit-same-name] **Two implicits of one name at different types are
+  two parameters** (user decision 2026-09-28, §16's "riding along"; built
+  2026-10-06): `fn to_str<K, V>(map: Map<K, V>(?hash, ?eq), ?to_str: (k: K) ->
+  Str, ?to_str: (v: V) -> Str)`. Positions of one name *and* one shape (the
+  parameter and result types, whatever the parameters are called) still merge
+  into one [implicit-group].
+  * **Inside the body**, a call of the name goes through the one whose
+    parameters the arguments fit, and so do interpolation, a comparison
+    operator and a forwarded fill; arguments that fit more than one are an
+    error naming both. The checker binds the second and later as
+    `to_str__1`, … (`ImplicitParam::local`) and records the one a call took
+    (`local_call_names`), which is the name the backends declare and call.
+  * **At a call site** each is filled on its own — a binder from the
+    argument's type, the rest by name and type. The bare override `to_str = f`
+    cannot say which it fills and is refused; the typed spelling (`to_str:
+    (V) -> Str = f`) is decided and not built.
 * [implicit-group] `params Field<T> { fn add(a: T, b: T) -> T ... }` declares
   a named bundle, spread into a signature as `?Field<T>`. It is a
   *declaration-side* shorthand only: the members become implicit parameters

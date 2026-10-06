@@ -659,6 +659,9 @@ pub struct Checked {
     /// `core/seq.sv` — the checker and the emitters disagreeing about what
     /// a call *is*.
     pub local_calls: HashSet<Key>,
+    /// [implicit-same-name] A local call through one of several implicits of
+    /// one name: the [`ImplicitParam::local`] it went through.
+    pub local_call_names: HashMap<Key, String>,
     /// [effect-available] Call sites whose name *is* an effect member but
     /// which resolved to an ordinary **fn declaration**, because no instance
     /// of the owning effect was in scope (2026-09-14). Recorded for the same
@@ -1016,6 +1019,12 @@ pub struct ImplicitParam {
     /// *same source* (user decision 2026-09-26). Symmetric and transitive, so
     /// the components are the connected classes of the declared pairs.
     pub bound: Option<usize>,
+    /// [implicit-same-name] The name the body binds it under and a backend
+    /// declares it as: [`name`](Self::name), except for the second and later
+    /// of **one name at different types** (`?to_str: (K) -> Str, ?to_str: (V)
+    /// -> Str`, legal since 2026-09-28), which are `to_str__1`, … — a call in
+    /// the body picks among them by argument types.
+    pub local: String,
 }
 
 /// What a call site puts in an implicit parameter [implicit-resolve].
@@ -4757,6 +4766,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 binder: false,
                 slot: None,
                 bound: None,
+                local: p.name.name.clone(),
             });
         }
         for g in &f.implicit_groups {
@@ -4853,6 +4863,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     binder: false,
                     slot: None,
                     bound: None,
+                    local: member.name.name.clone(),
                 });
             }
         }
@@ -4917,7 +4928,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             // An explicitly declared implicit of the same name *is* the
             // binding — the binder and the parameter are one thing, and what
             // resolution puts in it is what the result type publishes.
-            if let Some(written) = out.iter_mut().find(|o| o.name == name) {
+            // [implicit-same-name] …of the same name *and type*: one of
+            // another type is a second implicit of that name.
+            if let Some(written) = out.iter_mut().find(|o| o.name == name && same_fn_shape(&o.ty, &ty)) {
                 written.binder = true;
                 if written.slot.is_none() {
                     written.slot = slot;
@@ -4925,6 +4938,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 continue;
             }
             out.push(ImplicitParam {
+                local: name.clone(),
                 name,
                 ty,
                 span,
@@ -4945,31 +4959,23 @@ impl<'p, 'r> Checker<'p, 'r> {
         // nothing tells those two apart, and [var-no-shadow] would refuse them
         // in the body anyway. The remedy is to write the ones that clash
         // individually under distinct names.
+        // [implicit-same-name] A clash at *different* types is two parameters
+        // (user decision 2026-09-28): `?to_str: (K) -> Str, ?to_str: (V) ->
+        // Str`. The second and later are bound as `to_str__1`, …, and a call
+        // in the body picks among them by its arguments.
         let mut merged: Vec<ImplicitParam> = Vec::with_capacity(out.len());
-        let mut clashes: Vec<(String, Span, Ty, Ty)> = Vec::new();
-        for p in out {
-            match merged.iter_mut().find(|q| q.name == p.name) {
-                Some(kept) if kept.ty == p.ty => {
-                    // One position, so one parameter. A binder anywhere makes
-                    // the merged position a binder [cmp-binder].
-                    kept.binder = kept.binder || p.binder;
-                }
-                Some(kept) => {
-                    clashes.push((p.name.clone(), p.span, kept.ty.clone(), p.ty.clone()));
-                }
-                None => merged.push(p),
+        for mut p in out {
+            if let Some(kept) = merged.iter_mut().find(|q| q.name == p.name && same_fn_shape(&q.ty, &p.ty)) {
+                // One position, so one parameter. A binder anywhere makes
+                // the merged position a binder [cmp-binder].
+                kept.binder = kept.binder || p.binder;
+                continue;
             }
-        }
-        for (name, span, first, second) in clashes {
-            self.error(
-                span,
-                format!(
-                    "`{name}` is declared as an implicit parameter twice, at two \
-                     different types (`{first}` and `{second}`): with no binder there \
-                     is no way to tell them apart, so write the ones that clash \
-                     individually under distinct names"
-                ),
-            );
+            let n = merged.iter().filter(|q| q.name == p.name).count();
+            if n > 0 {
+                p.local = format!("{}__{n}", p.name);
+            }
+            merged.push(p);
         }
         self.bind_implicits_together(f, &mut merged);
         merged
@@ -5282,6 +5288,23 @@ impl<'p, 'r> Checker<'p, 'r> {
             return;
         }
         let mut filled: Vec<ImplicitArg> = Vec::new();
+        // [implicit-same-name] A bare `name = f` cannot say which of two
+        // implicits of one name it fills; the typed override spelling
+        // (`to_str: (V) -> Str = f`, decided 2026-09-28) is not built yet.
+        for arg in named {
+            if implicits.iter().filter(|p| p.name == arg.name.name).count() > 1 {
+                self.error(
+                    arg.span,
+                    format!(
+                        "`{callee}` has more than one implicit named `{}`, at different types, \
+                         so `{} = …` does not say which it fills; the typed override \
+                         (`{}: (…) -> … = f`) is not built yet [implicit-same-name]",
+                        arg.name.name, arg.name.name, arg.name.name
+                    ),
+                );
+                return;
+            }
+        }
         // [implicit-with] Where each **bound** parameter's value came from, for
         // the one-source check below.
         let mut sources: Vec<(usize, &str, &'static str)> = Vec::new();
@@ -5532,8 +5555,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                     match &id {
                         // The caller's own binder, forwarded [implicit-forward].
                         FnId::Binder(b) => {
-                            if self.own_implicits.iter().any(|p| p.name == *b) {
-                                return Some((ImplicitArg::Forwarded { name: b.clone() }, None));
+                            // [implicit-same-name] The one of the name whose type fits.
+                            let own = self
+                                .own_implicits
+                                .iter()
+                                .filter(|p| p.name == *b)
+                                .find(|p| is_subtype(&p.ty, &want) || p.ty.is_unknown() || want.is_unknown())
+                                .or_else(|| self.own_implicits.iter().find(|p| p.name == *b));
+                            if let Some(own) = own {
+                                return Some((ImplicitArg::Forwarded { name: own.local.clone() }, None));
                             }
                         }
                         FnId::Named { name, at } => {
@@ -5600,11 +5630,19 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ));
             }
             // 2. Forwarded from the enclosing fn's own implicits.
-            if let Some(own) = self.own_implicits.iter().find(|p| p.name == imp.name) {
+            // [implicit-same-name] Among several of the name, the one whose
+            // type fits; forwarded by its local name.
+            let own = self
+                .own_implicits
+                .iter()
+                .filter(|p| p.name == imp.name)
+                .find(|p| is_subtype(&p.ty, &want) || p.ty.is_unknown() || want.is_unknown())
+                .or_else(|| self.own_implicits.iter().find(|p| p.name == imp.name));
+            if let Some(own) = own {
                 if is_subtype(&own.ty, &want) || own.ty.is_unknown() || want.is_unknown() {
                     return Some((
                         ImplicitArg::Forwarded {
-                            name: imp.name.clone(),
+                            name: own.local.clone(),
                         },
                         // The enclosing fn's own binding, whatever it is:
                         // inside generic code the identity is a name only its
@@ -5782,13 +5820,16 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 continue;
             }
-            if decl.params.len() != want_params.len() {
+            // A written implicit (`?eq: (V, V) -> Bool`) is filled at the call,
+            // not by the position's arguments [comptime-generic].
+            let fixed: Vec<&ast::Param> = decl.params.iter().filter(|p| !p.implicit).collect();
+            if fixed.len() != want_params.len() {
                 note(
                     2,
                     format!(
                         "the `{name}` in scope takes {} argument(s), but the position \
                          needs {}",
-                        decl.params.len(),
+                        fixed.len(),
                         want_params.len()
                     ),
                     &mut near,
@@ -5796,7 +5837,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 continue;
             }
             let saved = self.enter_generics(&decl.generics);
-            let have_params: Vec<Ty> = decl.params.iter().map(|p| self.lower_type(&p.ty)).collect();
+            let have_params: Vec<Ty> = fixed.iter().map(|p| self.lower_type(&p.ty)).collect();
             let have_ret = decl
                 .return_type
                 .as_ref()
@@ -5830,6 +5871,20 @@ impl<'p, 'r> Checker<'p, 'r> {
             // position, and a concrete sibling would win by default.
             let candidate = self.fn_value_ty(entry.key, decl);
             let candidate = substitute_vars(&candidate, &binding, &generics);
+            // [comptime-generic] A written implicit is filled at the call, so
+            // the shape compared is the explicit parameters'.
+            let candidate = match candidate {
+                Ty::Fn { params, ret, contract, effects } if params.len() == decl.params.len() && fixed.len() < params.len() => {
+                    let keep: Vec<usize> = decl.params.iter().enumerate().filter(|(_, p)| !p.implicit).map(|(i, _)| i).collect();
+                    Ty::Fn {
+                        params: keep.iter().map(|&i| params[i].clone()).collect(),
+                        ret,
+                        contract: contract.map(|c| keep.iter().filter_map(|&i| c.get(i).cloned()).collect()),
+                        effects,
+                    }
+                }
+                other => other,
+            };
             if fn_value_fits(&candidate, want) {
                 let canonical = self
                     .attached_to(entry.key, decl)
@@ -7714,8 +7769,19 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .or_insert_with(|| ty.clone());
             let id = self.next_var_id;
             self.next_var_id += 1;
+            // [implicit-same-name] A second implicit of one name is bound
+            // under its own local name.
+            let bound_as = if p.implicit {
+                implicits
+                    .iter()
+                    .find(|i| i.name == p.name.name && spans_overlap(i.span, p.span))
+                    .map(|i| i.local.clone())
+                    .unwrap_or_else(|| p.name.name.clone())
+            } else {
+                p.name.name.clone()
+            };
             top.insert(
-                p.name.name.clone(),
+                bound_as,
                 LocalVar {
                     declared: ty.clone(),
                     narrowed: ty,
@@ -7740,13 +7806,13 @@ impl<'p, 'r> Checker<'p, 'r> {
         // are declared here. Kept, never consumable: an implicit belongs to
         // whoever supplied it, exactly like a kept fn-typed parameter.
         for imp in &implicits {
-            if top.contains_key(&imp.name) {
+            if top.contains_key(&imp.local) {
                 continue; // a written `?name: FnType` is already a param
             }
             let id = self.next_var_id;
             self.next_var_id += 1;
             top.insert(
-                imp.name.clone(),
+                imp.local.clone(),
                 LocalVar {
                     declared: imp.ty.clone(),
                     narrowed: imp.ty.clone(),
@@ -8863,6 +8929,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     binder: false,
                     slot: None,
                     bound: None,
+                    local: p.name.name.clone(),
                 })
                 .collect();
             self.generics = saved;
@@ -9761,7 +9828,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     if params.len() == 1 && Self::arg_fits_fn_value(ty, &params[0]))
         });
         if let Some(own) = own {
-            let name = own.name.clone();
+            let name = own.local.clone();
             self.out.interp_implicit.insert(self.key(expr.span()), name);
             return;
         }
@@ -11410,6 +11477,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             .own_implicits
             .iter()
             .filter(|p| p.name == member || p.slot.as_deref() == Some(member))
+            // [implicit-same-name] Of one name at different types, only the
+            // ones that fit the operands compete.
+            .filter(|p| is_subtype(&p.ty, &want) || p.ty.is_unknown())
             .collect();
         if candidates.len() > 1 {
             let shown: Vec<String> = candidates
@@ -11428,11 +11498,16 @@ impl<'p, 'r> Checker<'p, 'r> {
             );
             return;
         }
-        if let Some(own) = self.own_implicits.iter().find(|p| p.name == member) {
-            if is_subtype(&own.ty, &want) || own.ty.is_unknown() {
+        if let Some(own) = self
+            .own_implicits
+            .iter()
+            .find(|p| p.name == member && (is_subtype(&p.ty, &want) || p.ty.is_unknown()))
+        {
+            {
+                let local = own.local.clone();
                 self.out
                     .comparisons
-                    .insert(self.key(span), CompareVia::Implicit(member.to_string()));
+                    .insert(self.key(span), CompareVia::Implicit(local));
                 return;
             }
         }
@@ -26706,14 +26781,55 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
 
         if let Expr::Ident(id) = callee {
+            // [implicit-same-name] Two implicits of this name: the one whose
+            // parameters the arguments fit is the local the call goes
+            // through, recorded for the emitters.
+            let same: Vec<(String, Ty)> = self
+                .own_implicits
+                .iter()
+                .filter(|p| p.name == id.name)
+                .map(|p| (p.local.clone(), p.ty.clone()))
+                .collect();
+            let mut pre_tys: Option<Vec<Ty>> = None;
+            let lname: String = if same.len() > 1 {
+                let tys: Vec<Ty> = args.iter().map(|a| self.check_expr(a, None)).collect();
+                let fitting: Vec<&(String, Ty)> = same
+                    .iter()
+                    .filter(|(_, t)| match t.strip_quals() {
+                        Ty::Fn { params, .. } => {
+                            params.len() == tys.len() && tys.iter().zip(params).all(|(a, p)| Self::arg_fits_fn_value(a, p))
+                        }
+                        _ => false,
+                    })
+                    .collect();
+                if fitting.len() > 1 {
+                    let shown: Vec<String> = fitting.iter().map(|(_, t)| format!("`{t}`")).collect();
+                    self.error(
+                        span,
+                        format!(
+                            "`{}` here could go through more than one implicit of that name ({}): \
+                             the arguments fit each, so nothing chooses between them [implicit-same-name]",
+                            id.name,
+                            shown.join(" and ")
+                        ),
+                    );
+                }
+                let pick = fitting.first().copied();
+                let chosen = pick.map(|(l, _)| l.clone()).unwrap_or_else(|| id.name.clone());
+                self.out.local_call_names.insert(self.key(span), chosen.clone());
+                pre_tys = Some(tys);
+                chosen
+            } else {
+                id.name.clone()
+            };
             // [implicit-resolve-body] An **implicit** parameter of the
             // enclosing fn joins resolution by argument types (user decision
             // 2026-10-05, ROADMAP §0j 6i, option A): the call goes through the
             // implicit when its arguments fit it, and to the visible fns of
             // the name otherwise. Typed once, here; a call that falls through
             // hands the types on, so nothing is checked twice.
-            let mut implicit_typed: Option<Vec<Ty>> = None;
-            if let Some(var) = self.lookup(&id.name) {
+            let mut implicit_typed: Option<Vec<Ty>> = pre_tys.take();
+            if let Some(var) = self.lookup(&lname) {
                 let is_implicit = self
                     .own_implicits
                     .iter()
@@ -26723,7 +26839,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                     && !args.iter().any(|a| matches!(a, Expr::Lambda { .. } | Expr::Spread { .. }))
                 {
                     if let Ty::Fn { params, .. } = var.narrowed.strip_quals().clone() {
-                        let tys: Vec<Ty> = args.iter().map(|a| self.check_expr(a, None)).collect();
+                        let tys: Vec<Ty> = match implicit_typed.take() {
+                            Some(t) => t,
+                            None => args.iter().map(|a| self.check_expr(a, None)).collect(),
+                        };
                         let fits = tys.len() == params.len()
                             && tys.iter().zip(&params).all(|(a, p)| Self::arg_fits_fn_value(a, p));
                         if !fits {
@@ -26738,7 +26857,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
             // A local holding a callable (lambda parameter etc.).
-            if let Some(var) = self.lookup(&id.name) {
+            if let Some(var) = self.lookup(&lname) {
                 let vty = var.narrowed.clone();
                 // A consumed callable (e.g. a `once` fn already called
                 // [once-fn]) reports the standard consumed-use error.
@@ -26764,7 +26883,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // map that cannot see locals.
                     self.out.local_calls.insert(self.key(span));
                     // Calling the local is a use of it.
-                    if let Some(v) = self.lookup_mut(&id.name) {
+                    if let Some(v) = self.lookup_mut(&lname) {
                         v.used = true;
                     }
                     // [fn-effects] The call supplies the value's effects.
@@ -26873,7 +26992,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // multiplicity (second call, loop back edge, branch
                     // merges) for free.
                     if once {
-                        let state = self.lookup(&id.name).map(|var| (var.id, var.links.clone()));
+                        let state = self.lookup(&lname).map(|var| (var.id, var.links.clone()));
                         if let Some((var_id, links)) = state {
                             if !links.is_empty() {
                                 let name = id.name.clone();
@@ -26889,7 +27008,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                                     // [fate-field-disjoint].
                                     Some(&[]),
                                 );
-                                if let Some(var) = self.lookup_mut(&id.name) {
+                                if let Some(var) = self.lookup_mut(&lname) {
                                     var.narrowed = Ty::Never;
                                     var.consumed_by = Some(
                                         "a call (a `once` function is callable \
@@ -30217,5 +30336,14 @@ fn strip_proj_union(ty: &Ty) -> &Ty {
     match ty {
         Ty::Qualified { quals, base } if matches!(base.as_ref(), Ty::Union(_)) && quals.iter().all(|q| q.name == "proj") => base,
         other => other,
+    }
+}
+
+/// [implicit-same-name] Whether two implicit positions are one: the same
+/// parameter and result types, whatever the parameters are called.
+fn same_fn_shape(a: &Ty, b: &Ty) -> bool {
+    match (a.strip_quals(), b.strip_quals()) {
+        (Ty::Fn { params: pa, ret: ra, .. }, Ty::Fn { params: pb, ret: rb, .. }) => pa == pb && ra == rb,
+        _ => a == b,
     }
 }

@@ -188,10 +188,6 @@ pub fn fn_call(
         // [kt-copy].
         ("snapshot_at", Some("List")) => format!("{}.getOrNull({})", a(0), a(1)),
 
-        // core.sorted, core.map ------------------------------------------
-        // [col-to-str] `{a: 1, b: 2}`: the host type's `toString`.
-        ("to_str", Some("SortedMap")) | ("to_str", Some("Map")) => format!("{}.toString()", a(0)),
-
         // core.array -----------------------------------------------------
         // [fn-variadic] The variadic tail *is* the array; a `...spread`
         // arrives as `*arr`, which `arrayOf` re-wraps into an array of the

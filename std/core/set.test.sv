@@ -72,3 +72,11 @@ test "to_set and set_by keep first-appearance order" {
     expect_eq("${to_set([3, 3, 1, 2, 1])}", "{3, 1, 2}")
     expect_eq("${set_by(4, i -> i % 2)}", "{0, 1}")
 }
+
+test "two sets are equal with the same elements in any order" {
+    let a = set_of(1, 2, 3)
+    let b = mut_set_of(3, 1)
+    expect(a != b, "different sizes")
+    let _new = add(b, 2)
+    expect(a == b, "same elements, other order")
+}

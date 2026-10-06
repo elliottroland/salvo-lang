@@ -2014,7 +2014,7 @@ impl<'p> Emitter<'p> {
                     _ => args.push(name),
                 }
             }
-            args.extend(self.implicits_of(f).iter().map(|imp| kt_ident(&imp.name)));
+            args.extend(self.implicits_of(f).iter().map(|imp| kt_ident(&imp.local)));
             let type_args = if f.generics.is_empty() {
                 String::new()
             } else {
@@ -2147,7 +2147,7 @@ impl<'p> Emitter<'p> {
                 .filter(|p| !p.implicit)
                 .map(|p| kt_ident(&p.name.name))
                 .collect();
-            args.extend(self.implicits_of(f).iter().map(|imp| kt_ident(&imp.name)));
+            args.extend(self.implicits_of(f).iter().map(|imp| kt_ident(&imp.local)));
             // [monitor-handler] [kt-monitor-reentry] A JVM monitor is
             // reentrant where Rust's `Mutex` is not: entering this handle
             // again on a thread already inside it would deadlock on Rust, so
@@ -2459,7 +2459,7 @@ impl<'p> Emitter<'p> {
         // (`set: Mut Set<T>(?hash, ?eq)`) is one more argument, lent for the
         // call [platform-fn-value].
         for ip in self.implicits_of(f) {
-            let name = kt_ident(&ip.name);
+            let name = kt_ident(&ip.local);
             if !args.contains(&name) {
                 args.push(name);
             }
@@ -3773,7 +3773,7 @@ impl<'p> Emitter<'p> {
         let saved_implicits = std::mem::replace(&mut self.implicits, own_implicits);
         for imp in &self.implicits.clone() {
             let ty = self.kotlin_ty(&imp.ty);
-            params.push(format!("{}: {ty}", kt_ident(&imp.name)));
+            params.push(format!("{}: {ty}", kt_ident(&imp.local)));
         }
 
         let ret = if is_main {
@@ -3822,8 +3822,22 @@ impl<'p> Emitter<'p> {
             String::new()
         };
         self.unchecked_cast = saved_cast;
+        // [kt-keyed] A std platform wrapper whose identity arrives as binder
+        // implicits (`add(set: Mut Set<T>(?hash, ?eq), …)`) is `inline`, as
+        // its host fn is: the canonical `hash`/`eq` lambdas a call passes
+        // then compile to direct `hashCode`/`==` — the canonical fast path,
+        // with one code path for every identity.
+        let inline_kw = if f.platform
+            && top_level
+            && self.program.files[self.file_idx].is_std
+            && self.implicits_of(f).iter().any(|i| i.binder)
+        {
+            "inline "
+        } else {
+            ""
+        };
         let mut out = format!(
-            "\n{suppress}{pad}{kw}{generics} {name}({}){ret}{where_clause} {{\n",
+            "\n{suppress}{pad}{inline_kw}{kw}{generics} {name}({}){ret}{where_clause} {{\n",
             params.join(", ")
         );
         out.push_str(&body_prelude);
@@ -8145,7 +8159,7 @@ impl<'p> Emitter<'p> {
             if !params.is_empty() {
                 params.push_str(", ");
             }
-            params.push_str(&format!("{}: {ty}", kt_ident(&imp.name)));
+            params.push_str(&format!("{}: {ty}", kt_ident(&imp.local)));
         }
         params
     }
@@ -8592,7 +8606,9 @@ impl<'p> Emitter<'p> {
             || self.ctor_implicits.contains(name)
         {
             let arg_code: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
-            return format!("{}({})", kt_ident(name), arg_code.join(", "));
+            // [implicit-same-name] Through the one of several the checker chose.
+            let local = self.checked.local_call_names.get(&(self.file_idx, span)).map(String::as_str).unwrap_or(name);
+            return format!("{}({})", kt_ident(local), arg_code.join(", "));
         }
 
         // 2. Checker-resolved fn target (type-based overloads win).
@@ -8606,7 +8622,8 @@ impl<'p> Emitter<'p> {
         if self.checked.local_calls.contains(&(self.file_idx, span)) {
             let mut arg_code: Vec<String> = self.fn_value_effect_args(span);
             arg_code.extend(args.iter().map(|a| self.emit_expr(a)));
-            return format!("{}({})", kt_ident(name), arg_code.join(", "));
+            let local = self.checked.local_call_names.get(&(self.file_idx, span)).map(String::as_str).unwrap_or(name);
+            return format!("{}({})", kt_ident(local), arg_code.join(", "));
         }
         let checker_resolved = self
             .checked

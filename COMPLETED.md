@@ -141,6 +141,37 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Step 7's leftovers (2026-10-06).**
+- **Two implicits of one name at different types** [implicit-same-name], the
+  2026-09-28 decision, built: `ImplicitParam::local` (`to_str`, `to_str__1`),
+  bound as separate locals; a body call, an interpolation, an operator and a
+  forwarded fill pick the one whose type fits (`local_call_names` records a
+  call's choice for the emitters); two that both fit are an error; a bare
+  `to_str = f` override is refused (the typed spelling is not built). A
+  position compares by shape (`same_fn_shape`), so `?eq: (V, V) -> Bool`
+  beside a map's `eq` binder is a second implicit, not a merge; and
+  resolving a candidate by fn type ignores its written implicits
+  (`a == b` resolves a Salvo `eq` with `?eq` of its own).
+- **Built in Salvo**: the two maps' `to_str` (key and value `?to_str`), `eq`
+  for `Set`, `Map`, `SortedSet`, `SortedMap`, and `entries(map)` /
+  `values(map)` as iterators over three private host slot accessors
+  (`MapEntry`, a view struct, as `Enumerated` is). Deleted: the four `to_str`
+  intrinsic lowerings and Rust's float shortcuts for collections.
+- **The canonical fast path, without a second code path**: the wrappers of
+  std platform fns with binder implicits are `inline` on Kotlin, as are the
+  host fns, so the lambdas a call passes (`hashCode`, `==`) compile to direct
+  calls. Both hosts' tables became open addressing over a power-of-two
+  `slot + 1` index (digests cached), replacing bucket lists. The new
+  `bench/collections` (`tools/bench-collections.sh`), ms, Rust / Kotlin
+  before step 7 → after this: set-int 250/98 → 160/62; map-str 140/68 →
+  94/91; remove 280/40 → 90/54; sorted 41/75 → 15/65. Kotlin's map-str is
+  the one that got slower (boxed `Str` digests through a `Long` lambda).
+- Fell out: a Rust `for` over a `proj` scalar (`for v in values(m)`) bound
+  `&i32`; the pattern now dereferences it. An interpolation inside a fn with
+  a shadowing implicit `to_str` named the fn by its import alias.
+- Tests: four std cases for equality, one for the entries, and the two
+  obsolete refusal tests rewritten around the new rule. **1708 tests.**
+
 **Shrinking the backends, step 7: the keyed collections stay platform types,
 with one representation and the identity passed per call (2026-10-06, user
 decisions).**

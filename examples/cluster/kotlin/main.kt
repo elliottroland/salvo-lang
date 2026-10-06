@@ -14,7 +14,6 @@ import salvo.core.list.at
 import salvo.core.list.first
 import salvo.core.list.getPlatform
 import salvo.core.list.sizePlatform
-import salvo.core.map.next
 import salvo.core.range.next
 import salvo.core.set.next
 import salvo.core.string.next

@@ -5,19 +5,20 @@
 // [platform-fn-value]; the map keeps the entries and the digest each key was
 // filed under, nothing else. `Mut Map` is the same type, passed as `&mut`.
 
-use std::collections::HashMap;
 use std::fmt;
 
 type HashFn<'a, K> = &'a mut dyn FnMut(&K) -> i64;
 type EqFn<'a, K> = &'a mut dyn FnMut(&K, &K) -> bool;
 
-/// Entries in first-insertion order (`None` where one was removed) with each
-/// key's digest; `buckets` maps a digest to its slots. An overwrite keeps the
-/// key's position [col-insertion-order].
+/// Entries in first-insertion order (`None` where one was removed), each
+/// key's digest, and an open-addressing index over a power-of-two table
+/// holding `slot + 1` (0 is empty). An overwrite keeps the key's position
+/// [col-insertion-order].
 #[derive(Clone)]
 pub struct Map<K, V> {
-    slots: Vec<Option<(i64, K, V)>>,
-    buckets: HashMap<i64, Vec<usize>>,
+    slots: Vec<Option<(K, V)>>,
+    digests: Vec<i64>,
+    index: Vec<u32>,
     live: usize,
 }
 
@@ -25,34 +26,85 @@ pub type MutMap<K, V> = Map<K, V>;
 
 impl<K, V> Map<K, V> {
     fn new() -> Self {
-        Map { slots: Vec::new(), buckets: HashMap::new(), live: 0 }
+        Map { slots: Vec::new(), digests: Vec::new(), index: vec![0; 16], live: 0 }
+    }
+
+    fn home(&self, digest: i64) -> usize {
+        let d = digest as u64;
+        let h = d ^ (d >> 29) ^ (d >> 47);
+        (h as usize) & (self.index.len() - 1)
+    }
+
+    fn find_by(&self, digest: i64, mut same: impl FnMut(&K) -> bool) -> Option<usize> {
+        let mask = self.index.len() - 1;
+        let mut i = self.home(digest);
+        loop {
+            let at = self.index[i];
+            if at == 0 {
+                return None;
+            }
+            let s = (at - 1) as usize;
+            if self.digests[s] == digest {
+                if let Some((k, _)) = &self.slots[s] {
+                    if same(k) {
+                        return Some(s);
+                    }
+                }
+            }
+            i = (i + 1) & mask;
+        }
     }
 
     fn find(&self, key: &K, hash: HashFn<K>, eq: EqFn<K>) -> Option<usize> {
-        let bucket = self.buckets.get(&hash(key))?;
-        bucket
-            .iter()
-            .copied()
-            .find(|&i| self.slots[i].as_ref().is_some_and(|(_, k, _)| eq(k, key)))
+        let digest = hash(key);
+        self.find_by(digest, |k| eq(k, key))
+    }
+
+    fn place(&mut self, s: usize) {
+        let mask = self.index.len() - 1;
+        let mut i = self.home(self.digests[s]);
+        while self.index[i] != 0 {
+            i = (i + 1) & mask;
+        }
+        self.index[i] = (s + 1) as u32;
+    }
+
+    fn rebuild(&mut self) {
+        let slots = std::mem::take(&mut self.slots);
+        let digests = std::mem::take(&mut self.digests);
+        for (e, d) in slots.into_iter().zip(digests) {
+            if let Some(e) = e {
+                self.slots.push(Some(e));
+                self.digests.push(d);
+            }
+        }
+        let mut cap = 16;
+        while cap * 3 < (self.slots.len() + 1) * 8 {
+            cap *= 2;
+        }
+        self.index = vec![0; cap];
+        for s in 0..self.slots.len() {
+            self.place(s);
+        }
     }
 
     fn append(&mut self, digest: i64, key: K, value: V) {
-        self.slots.push(Some((digest, key, value)));
-        self.buckets.entry(digest).or_default().push(self.slots.len() - 1);
+        if (self.slots.len() + 1) * 4 > self.index.len() * 3 {
+            self.rebuild();
+        }
+        self.slots.push(Some((key, value)));
+        self.digests.push(digest);
         self.live += 1;
+        self.place(self.slots.len() - 1);
     }
 
     /// Stores `value` under `key`: an existing key keeps its place and takes
     /// the new key and value. Answers the displaced value.
     fn store(&mut self, key: K, value: V, hash: HashFn<K>, eq: EqFn<K>) -> Option<V> {
-        match self.find(&key, &mut *hash, eq) {
-            Some(i) => {
-                let (digest, _, old) = self.slots[i].take().expect("a found slot is live");
-                self.slots[i] = Some((digest, key, value));
-                Some(old)
-            }
+        let digest = hash(&key);
+        match self.find_by(digest, |k| eq(k, &key)) {
+            Some(i) => self.slots[i].replace((key, value)).map(|(_, old)| old),
             None => {
-                let digest = hash(&key);
                 self.append(digest, key, value);
                 None
             }
@@ -60,28 +112,17 @@ impl<K, V> Map<K, V> {
     }
 
     fn remove_at(&mut self, i: usize) -> Option<V> {
-        let (digest, _, value) = self.slots[i].take()?;
-        if let Some(bucket) = self.buckets.get_mut(&digest) {
-            bucket.retain(|&j| j != i);
-            if bucket.is_empty() {
-                self.buckets.remove(&digest);
-            }
-        }
+        let (_, value) = self.slots[i].take()?;
         self.live -= 1;
         if self.slots.len() > 2 * self.live + 8 {
-            let slots = std::mem::take(&mut self.slots);
-            self.buckets.clear();
-            self.live = 0;
-            for (d, k, v) in slots.into_iter().flatten() {
-                self.append(d, k, v);
-            }
+            self.rebuild();
         }
         Some(value)
     }
 
     /// The entries, in insertion order.
     pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> + '_ {
-        self.slots.iter().filter_map(|s| s.as_ref().map(|(_, k, v)| (k, v)))
+        self.slots.iter().flatten().map(|(k, v)| (k, v))
     }
 }
 
@@ -90,9 +131,11 @@ impl<K, V> Map<K, V> {
 impl<K: PartialEq, V: PartialEq> PartialEq for Map<K, V> {
     fn eq(&self, other: &Self) -> bool {
         self.live == other.live
-            && self.slots.iter().flatten().all(|(d, k, v)| {
-                other.buckets.get(d).is_some_and(|b| {
-                    b.iter().any(|&j| other.slots[j].as_ref().is_some_and(|(_, ok, ov)| ok == k && ov == v))
+            && self.slots.iter().zip(&self.digests).all(|(e, d)| {
+                e.as_ref().is_none_or(|(k, v)| {
+                    other
+                        .find_by(*d, |o| o == k)
+                        .is_some_and(|j| other.slots[j].as_ref().is_some_and(|(_, ov)| ov == v))
                 })
             })
     }
@@ -151,7 +194,7 @@ pub fn each_mut<K, V>(_map: &mut Map<K, V>) -> std::iter::Empty<&mut K> {
 }
 
 pub fn into_each<K, V>(map: Map<K, V>) -> std::vec::IntoIter<K> {
-    map.slots.into_iter().flatten().map(|(_, k, _)| k).collect::<Vec<K>>().into_iter()
+    map.slots.into_iter().flatten().map(|(k, _)| k).collect::<Vec<K>>().into_iter()
 }
 
 // A repeated key keeps the position of its first appearance and takes the
@@ -187,7 +230,7 @@ pub fn to_map<K: Clone, V: Clone>(pairs: &Vec<(K, V)>, hash: HashFn<K>, eq: EqFn
 
 pub fn get<'a, K, V>(map: &'a Map<K, V>, key: &K, hash: HashFn<K>, eq: EqFn<K>) -> Option<&'a V> {
     let i = map.find(key, hash, eq)?;
-    map.slots[i].as_ref().map(|(_, _, v)| v)
+    map.slots[i].as_ref().map(|(_, v)| v)
 }
 
 // The claim proved the key present [qual-depend].
@@ -222,5 +265,18 @@ pub fn keys<K: Clone, V>(map: &Map<K, V>) -> Vec<K> {
 
 // [linear-container] The values, owned, in insertion order.
 pub fn into_values<K, V>(map: Map<K, V>) -> Vec<V> {
-    map.slots.into_iter().flatten().map(|(_, _, v)| v).collect()
+    map.slots.into_iter().flatten().map(|(_, v)| v).collect()
+}
+
+// [col-map-entries] The slots, live or removed: what `entries` and `values` walk.
+pub fn slot_count<K, V>(map: &Map<K, V>) -> i32 {
+    map.slots.len() as i32
+}
+
+pub fn key_at<'a, K, V>(map: &'a Map<K, V>, at: i32) -> Option<&'a K> {
+    map.slots.get(at as usize)?.as_ref().map(|(k, _)| k)
+}
+
+pub fn value_at<'a, K, V>(map: &'a Map<K, V>, at: i32) -> &'a V {
+    map.slots[at as usize].as_ref().map(|(_, v)| v).expect("salvo: a removed map slot")
 }

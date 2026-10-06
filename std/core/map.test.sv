@@ -106,6 +106,30 @@ test "drain hands every value over, in insertion order" {
     let m: Mut Map<Int, Mut List<Int>> = mut_map_of()
     put(m, 2, mut_list_of(20))
     put(m, 1, mut_list_of(10))
-    let seen = into_values@core.map(m)
+    let seen = into_values(m)
     expect_eq("${size(seen)} ${get(get(seen, 0)!, 0)!} ${get(get(seen, 1)!, 0)!}", "2 20 10")
+}
+
+test "two maps are equal with the same entries in any order" {
+    let a = map_of(("x", 1), ("y", 2))
+    let b = mut_map_of(("y", 2), ("x", 1))
+    expect(a == b, "same entries, other order")
+    put(b, "x", 5)
+    expect(a != b, "a value differs")
+    let _gone = remove(b, "x")
+    expect(a != b, "a key is missing")
+}
+
+test "entries and values walk the live entries in insertion order, borrowed" {
+    let m = mut_map_of(("a", 1), ("b", 2), ("c", 3))
+    let _gone = remove(m, "b")
+    let seen = mut_str("")
+    for e in entries(m) {
+        append(seen, "${e.key}=${e.value} ")
+    }
+    let total = 0
+    for v in values(m) {
+        total = total + v
+    }
+    expect_eq("${seen}${total}", "a=1 c=3 4")
 }

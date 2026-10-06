@@ -12,7 +12,7 @@ typealias SortedMap<K, V> = SalvoSortedMap<K, V>
 typealias MutSortedMap<K, V> = SalvoSortedMap<K, V>
 
 /** Where [x] is in [items], or `-(insertion point) - 1`, as `binarySearch` answers. */
-internal fun <T> bisect(items: List<T>, x: T, cmp: (T, T) -> Int): Int {
+@PublishedApi internal inline fun <T> bisect(items: List<T>, x: T, cmp: (T, T) -> Int): Int {
     var lo = 0
     var hi = items.size - 1
     while (lo <= hi) {
@@ -27,7 +27,7 @@ internal fun <T> bisect(items: List<T>, x: T, cmp: (T, T) -> Int): Int {
     return -(lo + 1)
 }
 
-class SalvoSortedSet<T> internal constructor(internal val items: ArrayList<T>) : Iterable<T> {
+class SalvoSortedSet<T> @PublishedApi internal constructor(@PublishedApi internal val items: ArrayList<T>) : Iterable<T> {
     override fun iterator(): Iterator<T> = items.iterator()
 
     fun copy(): SalvoSortedSet<T> = SalvoSortedSet(ArrayList(items))
@@ -41,9 +41,9 @@ class SalvoSortedSet<T> internal constructor(internal val items: ArrayList<T>) :
     override fun toString(): String = items.joinToString(", ", "{", "}")
 }
 
-class SalvoSortedMap<K, V> internal constructor(
-    internal val keys: ArrayList<K>,
-    internal val values: ArrayList<V>,
+class SalvoSortedMap<K, V> @PublishedApi internal constructor(
+    @PublishedApi internal val keys: ArrayList<K>,
+    @PublishedApi internal val values: ArrayList<V>,
 ) {
     fun copy(): SalvoSortedMap<K, V> = SalvoSortedMap(ArrayList(keys), ArrayList(values))
 
@@ -58,7 +58,7 @@ class SalvoSortedMap<K, V> internal constructor(
     override fun toString(): String = keys.indices.joinToString(", ", "{", "}") { "${keys[it]}: ${values[it]}" }
 
     /** Stores under [key]; an equal key is replaced, key and value. Answers the displaced value. */
-    internal fun store(key: K, value: V, cmp: (K, K) -> Int): V? {
+    @PublishedApi internal inline fun store(key: K, value: V, cmp: (K, K) -> Int): V? {
         val i = bisect(keys, key, cmp)
         if (i >= 0) {
             val old = values[i]
@@ -110,10 +110,10 @@ fun <T> eachSortedSet(set: SortedSet<T>): Iterable<T> = set
 
 fun <K, V> eachSortedMap(map: SortedMap<K, V>): Iterable<K> = map.keys
 
-fun <T> sortedSetOf(elems: Array<T>, cmp: (T, T) -> Int): SortedSet<T> = mutSortedSetOf(elems, cmp)
+inline fun <T> sortedSetOf(elems: Array<T>, cmp: (T, T) -> Int): SortedSet<T> = mutSortedSetOf(elems, cmp)
 
 // A repeated member: the last wins, in the place they share.
-fun <T> mutSortedSetOf(elems: Array<T>, cmp: (T, T) -> Int): MutSortedSet<T> {
+inline fun <T> mutSortedSetOf(elems: Array<T>, cmp: (T, T) -> Int): MutSortedSet<T> {
     val s = SalvoSortedSet(ArrayList<T>(elems.size))
     for (e in elems) {
         val i = bisect(s.items, e, cmp)
@@ -122,21 +122,21 @@ fun <T> mutSortedSetOf(elems: Array<T>, cmp: (T, T) -> Int): MutSortedSet<T> {
     return s
 }
 
-fun <T> add(set: MutSortedSet<T>, elem: T, cmp: (T, T) -> Int): Boolean {
+inline fun <T> add(set: MutSortedSet<T>, elem: T, cmp: (T, T) -> Int): Boolean {
     val i = bisect(set.items, elem, cmp)
     if (i >= 0) return false
     set.items.add(-i - 1, elem)
     return true
 }
 
-fun <T> removeElem(set: MutSortedSet<T>, elem: T, cmp: (T, T) -> Int): Boolean {
+inline fun <T> removeElem(set: MutSortedSet<T>, elem: T, cmp: (T, T) -> Int): Boolean {
     val i = bisect(set.items, elem, cmp)
     if (i < 0) return false
     set.items.removeAt(i)
     return true
 }
 
-fun <T> contains(set: SortedSet<T>, elem: T, cmp: (T, T) -> Int): Boolean = bisect(set.items, elem, cmp) >= 0
+inline fun <T> contains(set: SortedSet<T>, elem: T, cmp: (T, T) -> Int): Boolean = bisect(set.items, elem, cmp) >= 0
 
 fun <T> setSize(set: SortedSet<T>): Int = set.items.size
 
@@ -146,31 +146,31 @@ fun <T> max(set: SortedSet<T>): T? = set.items.lastOrNull()
 
 fun <T> toList(set: SortedSet<T>): MutableList<T> = ArrayList(set.items)
 
-fun <K, V> sortedMapOf(entries: Array<Pair<K, V>>, cmp: (K, K) -> Int): SortedMap<K, V> = mutSortedMapOf(entries, cmp)
+inline fun <K, V> sortedMapOf(entries: Array<Pair<K, V>>, cmp: (K, K) -> Int): SortedMap<K, V> = mutSortedMapOf(entries, cmp)
 
-fun <K, V> mutSortedMapOf(entries: Array<Pair<K, V>>, cmp: (K, K) -> Int): MutSortedMap<K, V> {
+inline fun <K, V> mutSortedMapOf(entries: Array<Pair<K, V>>, cmp: (K, K) -> Int): MutSortedMap<K, V> {
     val m = SalvoSortedMap(ArrayList<K>(entries.size), ArrayList<V>(entries.size))
     for ((k, v) in entries) m.store(k, v, cmp)
     return m
 }
 
-fun <K, V> get(map: SortedMap<K, V>, key: K, cmp: (K, K) -> Int): V? {
+inline fun <K, V> get(map: SortedMap<K, V>, key: K, cmp: (K, K) -> Int): V? {
     val i = bisect(map.keys, key, cmp)
     return if (i >= 0) map.values[i] else null
 }
 
-fun <K, V> put(map: MutSortedMap<K, V>, key: K, value: V, cmp: (K, K) -> Int) {
+inline fun <K, V> put(map: MutSortedMap<K, V>, key: K, value: V, cmp: (K, K) -> Int) {
     map.store(key, value, cmp)
 }
 
-fun <K, V> removeKey(map: MutSortedMap<K, V>, key: K, cmp: (K, K) -> Int): V? {
+inline fun <K, V> removeKey(map: MutSortedMap<K, V>, key: K, cmp: (K, K) -> Int): V? {
     val i = bisect(map.keys, key, cmp)
     if (i < 0) return null
     map.keys.removeAt(i)
     return map.values.removeAt(i)
 }
 
-fun <K, V> containsKey(map: SortedMap<K, V>, key: K, cmp: (K, K) -> Int): Boolean = bisect(map.keys, key, cmp) >= 0
+inline fun <K, V> containsKey(map: SortedMap<K, V>, key: K, cmp: (K, K) -> Int): Boolean = bisect(map.keys, key, cmp) >= 0
 
 fun <K, V> mapSize(map: SortedMap<K, V>): Int = map.keys.size
 

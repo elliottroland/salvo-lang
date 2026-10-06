@@ -6,7 +6,6 @@ use crate::seq::*;
 use crate::unions::*;
 use crate::core_actor::__Stateful_Faults as _;
 use crate::core_actor::__Stateless_Faults as _;
-use crate::core_actor::eq;
 use crate::core_checked::Checked;
 use crate::core_checked::checked;
 use crate::core_checked::ignore;

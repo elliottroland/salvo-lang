@@ -325,12 +325,6 @@ pub fn fn_call(
             format!("{}.get({}).cloned()", a(0), index(1))
         }
 
-        // core.sorted, core.map ------------------------------------------
-        // [col-to-str] `{a: 1, b: 2}`: the host type's `Display`.
-        ("to_str", Some("SortedMap")) => format!("{}.to_string()", a(0)),
-        // [col-to-str] `{a: 1, b: 2}`.
-        ("to_str", Some("Map")) => format!("{}.to_string()", a(0)),
-
 
 
         _ => return None,

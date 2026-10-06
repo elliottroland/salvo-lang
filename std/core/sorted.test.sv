@@ -38,3 +38,8 @@ test "a sorted map keeps its keys in order; a repeated key takes the last value"
     expect_eq("${m} ${gone!} ${first_key_opt(m)!} ${last_key_opt(m)!}", "{b: 20, c: 3} 1 b c")
     expect(get(m, "c")! == 3 && get(m, "a") is None, "found and absent")
 }
+
+test "two sorted sets and maps compare by their members" {
+    expect(sorted_set_of(3, 1) == sorted_set_of(1, 3), "same members")
+    expect(sorted_map_of(("a", 1)) != sorted_map_of(("a", 2)), "a value differs")
+}

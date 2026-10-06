@@ -9,19 +9,21 @@
 // [platform-fn-value]; the set keeps the elements and the digest each was
 // filed under, nothing else. `Mut Set` is the same type, passed as `&mut`.
 
-use std::collections::HashMap;
 use std::fmt;
 
 type HashFn<'a, T> = &'a mut dyn FnMut(&T) -> i64;
 type EqFn<'a, T> = &'a mut dyn FnMut(&T, &T) -> bool;
 
-/// Elements in first-insertion order (`None` where one was removed) with the
-/// digest each was filed under; `buckets` maps a digest to its slots. The
-/// cached digests let compaction and equality run without an identity.
+/// Elements in first-insertion order (`None` where one was removed), the
+/// digest each was filed under, and an open-addressing index over a
+/// power-of-two table holding `slot + 1` (0 is empty). A removed element's
+/// index entry stays until the next rebuild, which compacts the slots too.
+/// The cached digests let compaction and equality run without an identity.
 #[derive(Clone)]
 pub struct Set<T> {
-    slots: Vec<Option<(i64, T)>>,
-    buckets: HashMap<i64, Vec<usize>>,
+    slots: Vec<Option<T>>,
+    digests: Vec<i64>,
+    index: Vec<u32>,
     live: usize,
 }
 
@@ -29,61 +31,101 @@ pub type MutSet<T> = Set<T>;
 
 impl<T> Set<T> {
     fn new() -> Self {
-        Set { slots: Vec::new(), buckets: HashMap::new(), live: 0 }
+        Set { slots: Vec::new(), digests: Vec::new(), index: vec![0; 16], live: 0 }
+    }
+
+    fn home(&self, digest: i64) -> usize {
+        let d = digest as u64;
+        let h = d ^ (d >> 29) ^ (d >> 47);
+        (h as usize) & (self.index.len() - 1)
+    }
+
+    fn find_by(&self, digest: i64, mut same: impl FnMut(&T) -> bool) -> Option<usize> {
+        let mask = self.index.len() - 1;
+        let mut i = self.home(digest);
+        loop {
+            let at = self.index[i];
+            if at == 0 {
+                return None;
+            }
+            let s = (at - 1) as usize;
+            if self.digests[s] == digest {
+                if let Some(e) = &self.slots[s] {
+                    if same(e) {
+                        return Some(s);
+                    }
+                }
+            }
+            i = (i + 1) & mask;
+        }
     }
 
     fn find(&self, elem: &T, hash: HashFn<T>, eq: EqFn<T>) -> Option<usize> {
-        let bucket = self.buckets.get(&hash(elem))?;
-        bucket
-            .iter()
-            .copied()
-            .find(|&i| self.slots[i].as_ref().is_some_and(|(_, e)| eq(e, elem)))
+        let digest = hash(elem);
+        self.find_by(digest, |e| eq(e, elem))
+    }
+
+    fn place(&mut self, s: usize) {
+        let mask = self.index.len() - 1;
+        let mut i = self.home(self.digests[s]);
+        while self.index[i] != 0 {
+            i = (i + 1) & mask;
+        }
+        self.index[i] = (s + 1) as u32;
+    }
+
+    /// Compacts the slots and re-files every element in a table sized for them.
+    fn rebuild(&mut self) {
+        let slots = std::mem::take(&mut self.slots);
+        let digests = std::mem::take(&mut self.digests);
+        for (e, d) in slots.into_iter().zip(digests) {
+            if let Some(e) = e {
+                self.slots.push(Some(e));
+                self.digests.push(d);
+            }
+        }
+        let mut cap = 16;
+        while cap * 3 < (self.slots.len() + 1) * 8 {
+            cap *= 2;
+        }
+        self.index = vec![0; cap];
+        for s in 0..self.slots.len() {
+            self.place(s);
+        }
     }
 
     fn append(&mut self, digest: i64, elem: T) {
-        self.slots.push(Some((digest, elem)));
-        self.buckets.entry(digest).or_default().push(self.slots.len() - 1);
+        if (self.slots.len() + 1) * 4 > self.index.len() * 3 {
+            self.rebuild();
+        }
+        self.slots.push(Some(elem));
+        self.digests.push(digest);
         self.live += 1;
+        self.place(self.slots.len() - 1);
     }
 
     /// Adds `elem`, or overwrites an equal one in place: the last wins
     /// [col-duplicate-keys].
     fn put(&mut self, elem: T, hash: HashFn<T>, eq: EqFn<T>) {
-        match self.find(&elem, &mut *hash, eq) {
-            Some(i) => {
-                let digest = self.slots[i].as_ref().map(|(d, _)| *d).unwrap_or_default();
-                self.slots[i] = Some((digest, elem));
-            }
-            None => {
-                let digest = hash(&elem);
-                self.append(digest, elem);
-            }
+        let digest = hash(&elem);
+        match self.find_by(digest, |e| eq(e, &elem)) {
+            Some(i) => self.slots[i] = Some(elem),
+            None => self.append(digest, elem),
         }
     }
 
     fn remove_at(&mut self, i: usize) {
-        if let Some((digest, _)) = self.slots[i].take() {
-            if let Some(bucket) = self.buckets.get_mut(&digest) {
-                bucket.retain(|&j| j != i);
-                if bucket.is_empty() {
-                    self.buckets.remove(&digest);
-                }
-            }
+        if self.slots[i].take().is_some() {
             self.live -= 1;
         }
         if self.slots.len() > 2 * self.live + 8 {
-            let slots = std::mem::take(&mut self.slots);
-            self.buckets.clear();
-            self.live = 0;
-            for (digest, elem) in slots.into_iter().flatten() {
-                self.append(digest, elem);
-            }
+            self.rebuild();
         }
     }
 
     /// The elements, in insertion order.
     pub fn iter(&self) -> impl Iterator<Item = &T> + '_ {
-        self.slots.iter().filter_map(|s| s.as_ref().map(|(_, e)| e))
+        self.slots.iter().flatten()
     }
 }
 
@@ -93,12 +135,11 @@ impl<T> Set<T> {
 impl<T: PartialEq> PartialEq for Set<T> {
     fn eq(&self, other: &Self) -> bool {
         self.live == other.live
-            && self.slots.iter().flatten().all(|(d, e)| {
-                other
-                    .buckets
-                    .get(d)
-                    .is_some_and(|b| b.iter().any(|&j| other.slots[j].as_ref().is_some_and(|(_, o)| o == e)))
-            })
+            && self
+                .slots
+                .iter()
+                .zip(&self.digests)
+                .all(|(e, d)| e.as_ref().is_none_or(|e| other.find_by(*d, |o| o == e).is_some()))
     }
 }
 
@@ -151,7 +192,7 @@ pub fn each_mut<T>(_set: &mut Set<T>) -> std::iter::Empty<&mut T> {
 }
 
 pub fn into_each<T>(set: Set<T>) -> std::vec::IntoIter<T> {
-    set.slots.into_iter().flatten().map(|(_, e)| e).collect::<Vec<T>>().into_iter()
+    set.slots.into_iter().flatten().collect::<Vec<T>>().into_iter()
 }
 
 pub fn set_of<T>(elems: Vec<T>, hash: HashFn<T>, eq: EqFn<T>) -> Set<T> {
@@ -183,10 +224,10 @@ pub fn to_set<T: Clone>(list: &Vec<T>, hash: HashFn<T>, eq: EqFn<T>) -> Set<T> {
 }
 
 pub fn add<T>(set: &mut Set<T>, elem: T, hash: HashFn<T>, eq: EqFn<T>) -> bool {
-    if set.find(&elem, &mut *hash, eq).is_some() {
+    let digest = hash(&elem);
+    if set.find_by(digest, |e| eq(e, &elem)).is_some() {
         return false;
     }
-    let digest = hash(&elem);
     set.append(digest, elem);
     true
 }

@@ -165,6 +165,8 @@ import salvo.core.index.revIndices
 import salvo.core.iterator.Finished
 import salvo.core.iterator.emitted
 import salvo.core.iterator.finished
+import salvo.core.map.eq
+import salvo.core.set.eq
 import salvo.core.string.appendPlatform
 import salvo.core.string.mutStr
 
@@ -585,24 +587,26 @@ import salvo.core.iterator.emitted
 import salvo.core.iterator.finished
 import salvo.core.list.at
 import salvo.core.list.drain as drain__core_list
+import salvo.core.string.appendPlatform
+import salvo.core.string.mutStr
 
-fun<K, V> mapOfPlatform(entries: Array<Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.Map<K, V> {
+inline fun<K, V> mapOfPlatform(entries: Array<Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.Map<K, V> {
     return salvo.platform.core.map.mapOf(entries, hash, eq)
 }
 
-fun<K, V> mutMapOfPlatform(entries: Array<Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.MutMap<K, V> {
+inline fun<K, V> mutMapOfPlatform(entries: Array<Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.MutMap<K, V> {
     return salvo.platform.core.map.mutMapOf(entries, hash, eq)
 }
 
-fun<K, V> mapByPlatform(size: Int, init: (Int) -> Pair<K, V>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.Map<K, V> {
+inline fun<K, V> mapByPlatform(size: Int, init: (Int) -> Pair<K, V>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.Map<K, V> {
     return salvo.platform.core.map.mapBy(size, init, hash, eq)
 }
 
-fun<K, V> mutMapByPlatform(size: Int, init: (Int) -> Pair<K, V>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.MutMap<K, V> {
+inline fun<K, V> mutMapByPlatform(size: Int, init: (Int) -> Pair<K, V>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.MutMap<K, V> {
     return salvo.platform.core.map.mutMapBy(size, init, hash, eq)
 }
 
-fun<K, V> toMapPlatform(pairs: List<Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.Map<K, V> {
+inline fun<K, V> toMapPlatform(pairs: List<Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.Map<K, V> {
     return salvo.platform.core.map.toMap(pairs, hash, eq)
 }
 
@@ -615,23 +619,23 @@ fun<T, K, V> toMap(items: List<T>, entry: (T) -> Pair<K, V>, hash: (K) -> Long, 
     return map
 }
 
-fun<K, V> getPlatform(map: salvo.platform.core.map.Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V? {
+inline fun<K, V> getPlatform(map: salvo.platform.core.map.Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V? {
     return salvo.platform.core.map.get(map, key, hash, eq)
 }
 
-fun<K, V> putPlatform(map: salvo.platform.core.map.MutMap<K, V>, key: K, value: V, hash: (K) -> Long, eq: (K, K) -> Boolean) {
+inline fun<K, V> putPlatform(map: salvo.platform.core.map.MutMap<K, V>, key: K, value: V, hash: (K) -> Long, eq: (K, K) -> Boolean) {
     return salvo.platform.core.map.put(map, key, value, hash, eq)
 }
 
-fun<K, V> replacePlatform(map: salvo.platform.core.map.MutMap<K, V>, key: K, value: V, hash: (K) -> Long, eq: (K, K) -> Boolean): V? {
+inline fun<K, V> replacePlatform(map: salvo.platform.core.map.MutMap<K, V>, key: K, value: V, hash: (K) -> Long, eq: (K, K) -> Boolean): V? {
     return salvo.platform.core.map.replace(map, key, value, hash, eq)
 }
 
-fun<K, V> removePlatform(map: salvo.platform.core.map.MutMap<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V? {
+inline fun<K, V> removePlatform(map: salvo.platform.core.map.MutMap<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V? {
     return salvo.platform.core.map.remove(map, key, hash, eq)
 }
 
-fun<K, V> containsKeyPlatform(map: salvo.platform.core.map.Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): Boolean {
+inline fun<K, V> containsKeyPlatform(map: salvo.platform.core.map.Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): Boolean {
     return salvo.platform.core.map.containsKey(map, key, hash, eq)
 }
 
@@ -639,7 +643,7 @@ fun<K, V> KeyOf_qualifies(key: K, map: salvo.platform.core.map.Map<K, V>, hash: 
     return containsKeyPlatform(map, key, hash, eq)
 }
 
-fun<K, V> getPresentPlatform(map: salvo.platform.core.map.Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V {
+inline fun<K, V> getPresentPlatform(map: salvo.platform.core.map.Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V {
     return salvo.platform.core.map.getPresent(map, key, hash, eq)
 }
 
@@ -657,6 +661,38 @@ fun<K, V> drain(map: salvo.platform.core.map.Map<K, V>, each: (V) -> Unit) {
 
 fun<K, V> intoValuesPlatform(map: salvo.platform.core.map.Map<K, V>): List<V> {
     return salvo.platform.core.map.intoValues(map)
+}
+
+fun<K, V> toStr(map: salvo.platform.core.map.Map<K, V>, toStr: (K) -> String, toStr__1: (V) -> String, hash: (K) -> Long, eq: (K, K) -> Boolean): String {
+    val out = mutStr(arrayOf("{"))
+    var i = 0
+    for (k in salvo.platform.core.map.each(map)) {
+        if (i > 0) {
+            appendPlatform(out, ", ")
+        }
+        appendPlatform(out, toStr(k))
+        appendPlatform(out, ": ")
+        appendPlatform(out, toStr__1((getPlatform(map, k, hash, eq) ?: throw AssertionError("salvo: value is absent at core.map:164:28"))))
+        i = i + 1
+    }
+    appendPlatform(out, "}")
+    return out.toString()
+}
+
+fun<K, V> eq(a: salvo.platform.core.map.Map<K, V>, b: salvo.platform.core.map.Map<K, V>, eq: (V, V) -> Boolean, hash: (K) -> Long, eq__1: (K, K) -> Boolean): Boolean {
+    if (sizePlatform(a) != sizePlatform(b)) {
+        return false
+    }
+    for (k in salvo.platform.core.map.each(a)) {
+        val theirs = getPlatform(b, k, hash, eq__1)
+        if (theirs == null) {
+            return false
+        }
+        if (!eq((getPlatform(a, k, hash, eq__1) ?: throw AssertionError("salvo: value is absent at core.map:186:16")), theirs)) {
+            return false
+        }
+    }
+    return true
 }
 
 fun<K, V> keysPlatform(map: salvo.platform.core.map.Map<K, V>): List<K> {
@@ -680,13 +716,73 @@ class __Codec_MapKeyYield<K>(private val __c_K: salvo.WireCodec<K>) : salvo.Wire
     override fun dec(inp: salvo.WireIn): MapKeyYield<K> = MapKeyYield(salvo.ListCodec(__c_K).dec(inp), salvo.IntCodec.dec(inp))
 }
 
-fun<K> next(p: MapKeyYield<K>): Union2<K, Finished> {
+fun<K> next__MapKeyYield(p: MapKeyYield<K>): Union2<K, Finished> {
     val key = p.items.getOrNull(p.at)
     if (key == null) {
         return Union2.U2<K, Finished>(finished())
     }
     p.at = p.at + 1
     return Union2.U1<K, Finished>(emitted(key))
+}
+
+fun<K, V> slotCountPlatform(map: salvo.platform.core.map.Map<K, V>): Int {
+    return salvo.platform.core.map.slotCount(map)
+}
+
+fun<K, V> keyAtPlatform(map: salvo.platform.core.map.Map<K, V>, at: Int): K? {
+    return salvo.platform.core.map.keyAt(map, at)
+}
+
+fun<K, V> valueAtPlatform(map: salvo.platform.core.map.Map<K, V>, at: Int): V {
+    return salvo.platform.core.map.valueAt(map, at)
+}
+
+data class MapEntry<K, V>(
+    val key: K,
+    val value: V,
+)
+
+data class __Iter_entries_Map<K, V>(
+    var map: salvo.platform.core.map.Map<K, V>,
+    var at: Int,
+)
+
+fun<K, V> entries(map: salvo.platform.core.map.Map<K, V>): __Iter_entries_Map<K, V> {
+    return __Iter_entries_Map(map = map, at = 0)
+}
+
+fun<K, V> next__Iter_entries_Map(__p: __Iter_entries_Map<K, V>): Union2<MapEntry<K, V>, Finished> {
+    while (__p.at < slotCountPlatform(__p.map)) {
+        val here = __p.at
+        __p.at = __p.at + 1
+        val key = keyAtPlatform(__p.map, here)
+        if (!(key == null)) {
+            val value = valueAtPlatform(__p.map, here)
+            return Union2.U1<MapEntry<K, V>, Finished>(emitted(MapEntry(key = key, value = value)))
+        }
+    }
+    return Union2.U2<MapEntry<K, V>, Finished>(finished())
+}
+
+data class __Iter_values_Map<K, V>(
+    var map: salvo.platform.core.map.Map<K, V>,
+    var at: Int,
+)
+
+fun<K, V> values(map: salvo.platform.core.map.Map<K, V>): __Iter_values_Map<K, V> {
+    return __Iter_values_Map(map = map, at = 0)
+}
+
+fun<K, V> next__Iter_values_Map(__p: __Iter_values_Map<K, V>): Union2<V, Finished> {
+    while (__p.at < slotCountPlatform(__p.map)) {
+        val here = __p.at
+        __p.at = __p.at + 1
+        if (!(keyAtPlatform(__p.map, here) == null)) {
+            val value = valueAtPlatform(__p.map, here)
+            return Union2.U1<V, Finished>(emitted(value))
+        }
+    }
+    return Union2.U2<V, Finished>(finished())
 }
 
 fun<K, V> NonEmpty_qualifies(map: salvo.platform.core.map.Map<K, V>): Boolean {
@@ -716,35 +812,35 @@ import salvo.core.list.at
 import salvo.core.string.appendPlatform
 import salvo.core.string.mutStr
 
-fun<T> setOfPlatform(elems: Array<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): salvo.platform.core.set.Set<T> {
+inline fun<T> setOfPlatform(elems: Array<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): salvo.platform.core.set.Set<T> {
     return salvo.platform.core.set.setOf(elems, hash, eq)
 }
 
-fun<T> mutSetOfPlatform(elems: Array<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): salvo.platform.core.set.MutSet<T> {
+inline fun<T> mutSetOfPlatform(elems: Array<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): salvo.platform.core.set.MutSet<T> {
     return salvo.platform.core.set.mutSetOf(elems, hash, eq)
 }
 
-fun<T> setByPlatform(size: Int, init: (Int) -> T, hash: (T) -> Long, eq: (T, T) -> Boolean): salvo.platform.core.set.Set<T> {
+inline fun<T> setByPlatform(size: Int, init: (Int) -> T, hash: (T) -> Long, eq: (T, T) -> Boolean): salvo.platform.core.set.Set<T> {
     return salvo.platform.core.set.setBy(size, init, hash, eq)
 }
 
-fun<T> mutSetByPlatform(size: Int, init: (Int) -> T, hash: (T) -> Long, eq: (T, T) -> Boolean): salvo.platform.core.set.MutSet<T> {
+inline fun<T> mutSetByPlatform(size: Int, init: (Int) -> T, hash: (T) -> Long, eq: (T, T) -> Boolean): salvo.platform.core.set.MutSet<T> {
     return salvo.platform.core.set.mutSetBy(size, init, hash, eq)
 }
 
-fun<T> toSetPlatform(list: List<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): salvo.platform.core.set.Set<T> {
+inline fun<T> toSetPlatform(list: List<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): salvo.platform.core.set.Set<T> {
     return salvo.platform.core.set.toSet(list, hash, eq)
 }
 
-fun<T> addPlatform(set: salvo.platform.core.set.MutSet<T>, elem: T, hash: (T) -> Long, eq: (T, T) -> Boolean): Boolean {
+inline fun<T> addPlatform(set: salvo.platform.core.set.MutSet<T>, elem: T, hash: (T) -> Long, eq: (T, T) -> Boolean): Boolean {
     return salvo.platform.core.set.add(set, elem, hash, eq)
 }
 
-fun<T> removePlatform(set: salvo.platform.core.set.MutSet<T>, elem: T, hash: (T) -> Long, eq: (T, T) -> Boolean): Boolean {
+inline fun<T> removePlatform(set: salvo.platform.core.set.MutSet<T>, elem: T, hash: (T) -> Long, eq: (T, T) -> Boolean): Boolean {
     return salvo.platform.core.set.remove(set, elem, hash, eq)
 }
 
-fun<T> containsPlatform(set: salvo.platform.core.set.Set<T>, elem: T, hash: (T) -> Long, eq: (T, T) -> Boolean): Boolean {
+inline fun<T> containsPlatform(set: salvo.platform.core.set.Set<T>, elem: T, hash: (T) -> Long, eq: (T, T) -> Boolean): Boolean {
     return salvo.platform.core.set.contains(set, elem, hash, eq)
 }
 
@@ -764,6 +860,18 @@ fun<T> toStr(set: salvo.platform.core.set.Set<T>, toStr: (T) -> String): String 
     }
     appendPlatform(out, "}")
     return out.toString()
+}
+
+fun<T> eq(a: salvo.platform.core.set.Set<T>, b: salvo.platform.core.set.Set<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): Boolean {
+    if (sizePlatform(a) != sizePlatform(b)) {
+        return false
+    }
+    for (x in salvo.platform.core.set.each(a)) {
+        if (!containsPlatform(b, x, hash, eq)) {
+            return false
+        }
+    }
+    return true
 }
 
 fun<T> toListPlatform(set: salvo.platform.core.set.Set<T>): List<T> {
@@ -803,21 +911,28 @@ fun<T> NonEmpty_qualifies(set: salvo.platform.core.set.Set<T>): Boolean {
 // ===== core/sorted.kt =====
 package salvo.core.sorted
 
+import salvo.core.checked.toStr
 import salvo.core.list.at
+import salvo.core.list.toStr
 import salvo.core.map.MapKeyYield
+import salvo.core.map.entries
+import salvo.core.map.eq
+import salvo.core.map.toStr
 import salvo.core.set.SetYield
+import salvo.core.set.eq
+import salvo.core.set.toStr
 import salvo.core.string.appendPlatform
 import salvo.core.string.mutStr
 
-fun<T> sortedSetOfPlatform(elems: Array<T>, cmp: (T, T) -> Int): salvo.platform.core.sorted.SortedSet<T> {
+inline fun<T> sortedSetOfPlatform(elems: Array<T>, cmp: (T, T) -> Int): salvo.platform.core.sorted.SortedSet<T> {
     return salvo.platform.core.sorted.sortedSetOf(elems, cmp)
 }
 
-fun<T> mutSortedSetOfPlatform(elems: Array<T>, cmp: (T, T) -> Int): salvo.platform.core.sorted.MutSortedSet<T> {
+inline fun<T> mutSortedSetOfPlatform(elems: Array<T>, cmp: (T, T) -> Int): salvo.platform.core.sorted.MutSortedSet<T> {
     return salvo.platform.core.sorted.mutSortedSetOf(elems, cmp)
 }
 
-fun<T> addPlatform(set: salvo.platform.core.sorted.MutSortedSet<T>, elem: T, cmp: (T, T) -> Int): Boolean {
+inline fun<T> addPlatform(set: salvo.platform.core.sorted.MutSortedSet<T>, elem: T, cmp: (T, T) -> Int): Boolean {
     return salvo.platform.core.sorted.add(set, elem, cmp)
 }
 
@@ -825,7 +940,7 @@ fun<T> remove__SortedSet_T(set: salvo.platform.core.sorted.MutSortedSet<T>, elem
     return removeElemPlatform(set, elem, cmp)
 }
 
-fun<T> removeElemPlatform(set: salvo.platform.core.sorted.MutSortedSet<T>, elem: T, cmp: (T, T) -> Int): Boolean {
+inline fun<T> removeElemPlatform(set: salvo.platform.core.sorted.MutSortedSet<T>, elem: T, cmp: (T, T) -> Int): Boolean {
     return salvo.platform.core.sorted.removeElem(set, elem, cmp)
 }
 
@@ -833,7 +948,7 @@ fun<T> setSizePlatform(set: salvo.platform.core.sorted.SortedSet<T>): Int {
     return salvo.platform.core.sorted.setSize(set)
 }
 
-fun<K, V> removeKeyPlatform(map: salvo.platform.core.sorted.MutSortedMap<K, V>, key: K, cmp: (K, K) -> Int): V? {
+inline fun<K, V> removeKeyPlatform(map: salvo.platform.core.sorted.MutSortedMap<K, V>, key: K, cmp: (K, K) -> Int): V? {
     return salvo.platform.core.sorted.removeKey(map, key, cmp)
 }
 
@@ -841,7 +956,7 @@ fun<K, V> mapSizePlatform(map: salvo.platform.core.sorted.SortedMap<K, V>): Int 
     return salvo.platform.core.sorted.mapSize(map)
 }
 
-fun<T> containsPlatform(set: salvo.platform.core.sorted.SortedSet<T>, elem: T, cmp: (T, T) -> Int): Boolean {
+inline fun<T> containsPlatform(set: salvo.platform.core.sorted.SortedSet<T>, elem: T, cmp: (T, T) -> Int): Boolean {
     return salvo.platform.core.sorted.contains(set, elem, cmp)
 }
 
@@ -861,7 +976,7 @@ fun<T> toListPlatform(set: salvo.platform.core.sorted.SortedSet<T>): List<T> {
     return salvo.platform.core.sorted.toList(set)
 }
 
-fun<T> toStr(set: salvo.platform.core.sorted.SortedSet<T>, toStr: (T) -> String): String {
+fun<T> toStr__SortedSet(set: salvo.platform.core.sorted.SortedSet<T>, toStr: (T) -> String): String {
     val out = mutStr(arrayOf("{"))
     var i = 0
     for (x in salvo.platform.core.sorted.eachSortedSet(set)) {
@@ -879,19 +994,19 @@ fun<T> iter__SortedSet(set: salvo.platform.core.sorted.SortedSet<T>): SetYield<T
     return SetYield(items = toListPlatform(set), at = 0)
 }
 
-fun<K, V> sortedMapOfPlatform(entries: Array<Pair<K, V>>, cmp: (K, K) -> Int): salvo.platform.core.sorted.SortedMap<K, V> {
+inline fun<K, V> sortedMapOfPlatform(entries: Array<Pair<K, V>>, cmp: (K, K) -> Int): salvo.platform.core.sorted.SortedMap<K, V> {
     return salvo.platform.core.sorted.sortedMapOf(entries, cmp)
 }
 
-fun<K, V> mutSortedMapOfPlatform(entries: Array<Pair<K, V>>, cmp: (K, K) -> Int): salvo.platform.core.sorted.MutSortedMap<K, V> {
+inline fun<K, V> mutSortedMapOfPlatform(entries: Array<Pair<K, V>>, cmp: (K, K) -> Int): salvo.platform.core.sorted.MutSortedMap<K, V> {
     return salvo.platform.core.sorted.mutSortedMapOf(entries, cmp)
 }
 
-fun<K, V> getPlatform(map: salvo.platform.core.sorted.SortedMap<K, V>, key: K, cmp: (K, K) -> Int): V? {
+inline fun<K, V> getPlatform(map: salvo.platform.core.sorted.SortedMap<K, V>, key: K, cmp: (K, K) -> Int): V? {
     return salvo.platform.core.sorted.get(map, key, cmp)
 }
 
-fun<K, V> putPlatform(map: salvo.platform.core.sorted.MutSortedMap<K, V>, key: K, value: V, cmp: (K, K) -> Int) {
+inline fun<K, V> putPlatform(map: salvo.platform.core.sorted.MutSortedMap<K, V>, key: K, value: V, cmp: (K, K) -> Int) {
     return salvo.platform.core.sorted.put(map, key, value, cmp)
 }
 
@@ -899,7 +1014,7 @@ fun<K, V> remove__SortedMap_K(map: salvo.platform.core.sorted.MutSortedMap<K, V>
     return removeKeyPlatform(map, key, cmp)
 }
 
-fun<K, V> containsKeyPlatform(map: salvo.platform.core.sorted.SortedMap<K, V>, key: K, cmp: (K, K) -> Int): Boolean {
+inline fun<K, V> containsKeyPlatform(map: salvo.platform.core.sorted.SortedMap<K, V>, key: K, cmp: (K, K) -> Int): Boolean {
     return salvo.platform.core.sorted.containsKey(map, key, cmp)
 }
 
@@ -919,6 +1034,50 @@ fun<K, V> keysPlatform(map: salvo.platform.core.sorted.SortedMap<K, V>): List<K>
     return salvo.platform.core.sorted.keys(map)
 }
 
+fun<K, V> toStr__SortedMap(map: salvo.platform.core.sorted.SortedMap<K, V>, toStr: (K) -> String, toStr__1: (V) -> String, cmp: (K, K) -> Int): String {
+    val out = mutStr(arrayOf("{"))
+    var i = 0
+    for (k in salvo.platform.core.sorted.eachSortedMap(map)) {
+        if (i > 0) {
+            appendPlatform(out, ", ")
+        }
+        appendPlatform(out, toStr(k))
+        appendPlatform(out, ": ")
+        appendPlatform(out, toStr__1((getPlatform(map, k, cmp) ?: throw AssertionError("salvo: value is absent at core.sorted:148:28"))))
+        i = i + 1
+    }
+    appendPlatform(out, "}")
+    return out.toString()
+}
+
+fun<T> eq__SortedSet_SortedSet(a: salvo.platform.core.sorted.SortedSet<T>, b: salvo.platform.core.sorted.SortedSet<T>, cmp: (T, T) -> Int): Boolean {
+    if (size__SortedSet(a) != size__SortedSet(b)) {
+        return false
+    }
+    for (x in salvo.platform.core.sorted.eachSortedSet(a)) {
+        if (!containsPlatform(b, x, cmp)) {
+            return false
+        }
+    }
+    return true
+}
+
+fun<K, V> eq__SortedMap_SortedMap(a: salvo.platform.core.sorted.SortedMap<K, V>, b: salvo.platform.core.sorted.SortedMap<K, V>, eq: (V, V) -> Boolean, cmp: (K, K) -> Int): Boolean {
+    if (size__SortedMap(a) != size__SortedMap(b)) {
+        return false
+    }
+    for (k in salvo.platform.core.sorted.eachSortedMap(a)) {
+        val theirs = getPlatform(b, k, cmp)
+        if (theirs == null) {
+            return false
+        }
+        if (!eq((getPlatform(a, k, cmp) ?: throw AssertionError("salvo: value is absent at core.sorted:181:16")), theirs)) {
+            return false
+        }
+    }
+    return true
+}
+
 fun<K, V> iter__SortedMap(map: salvo.platform.core.sorted.SortedMap<K, V>): MapKeyYield<K> {
     return MapKeyYield(items = keysPlatform(map), at = 0)
 }
@@ -932,19 +1091,19 @@ fun<K, V> NonEmpty_qualifies(map: salvo.platform.core.sorted.SortedMap<K, V>): B
 }
 
 fun<T> min(set: salvo.platform.core.sorted.SortedSet<T>): T {
-    return (minPlatform(set) ?: throw AssertionError("salvo: value is absent at core.sorted:188:12"))
+    return (minPlatform(set) ?: throw AssertionError("salvo: value is absent at core.sorted:236:12"))
 }
 
 fun<T> max(set: salvo.platform.core.sorted.SortedSet<T>): T {
-    return (maxPlatform(set) ?: throw AssertionError("salvo: value is absent at core.sorted:192:12"))
+    return (maxPlatform(set) ?: throw AssertionError("salvo: value is absent at core.sorted:240:12"))
 }
 
 fun<K, V> firstKey(map: salvo.platform.core.sorted.SortedMap<K, V>): K {
-    return (firstKeyPlatform(map) ?: throw AssertionError("salvo: value is absent at core.sorted:196:12"))
+    return (firstKeyPlatform(map) ?: throw AssertionError("salvo: value is absent at core.sorted:244:12"))
 }
 
 fun<K, V> lastKey(map: salvo.platform.core.sorted.SortedMap<K, V>): K {
-    return (lastKeyPlatform(map) ?: throw AssertionError("salvo: value is absent at core.sorted:200:12"))
+    return (lastKeyPlatform(map) ?: throw AssertionError("salvo: value is absent at core.sorted:248:12"))
 }
 
 // ===== core/string.kt =====
@@ -1926,48 +2085,109 @@ fun <T> searchSortedBy(list: List<T>, elem: T, cmp: (T, T) -> Int): Int? =
 // identity (ROADMAP §0j step 7, user decision 2026-10-06). Every operation is
 // handed the `hash` and `eq` its call resolved, lent for the call
 // [platform-fn-value]; the map keeps the entries and the digest each key was
-// filed under, nothing else.
+// filed under, nothing else. The operations are `inline`, as the set's are,
+// so the canonical identity compiles to the direct `hashCode`/`==` [kt-keyed].
 package salvo.platform.core.map
 
 typealias Map<K, V> = SalvoMap<K, V>
 typealias MutMap<K, V> = SalvoMap<K, V>
 
 /**
- * Entries in first-insertion order, `null` where one was removed, with each
- * key's digest; [buckets] maps a digest to its slots. An overwrite keeps the
+ * Entries in first-insertion order ([SalvoMap.TOMB] as the key where one was
+ * removed), each key's digest, and an open-addressing index over a
+ * power-of-two table holding `slot + 1` (0 is empty). An overwrite keeps the
  * key's position [col-insertion-order].
  */
-class SalvoMap<K, V> internal constructor() : Iterable<Pair<K, V>> {
-    internal val keys = ArrayList<Any?>()
-    internal val values = ArrayList<Any?>()
-    internal val digests = ArrayList<Long>()
-    internal val buckets = HashMap<Long, MutableList<Int>>()
-    internal var live = 0
+class SalvoMap<K, V> @PublishedApi internal constructor() : Iterable<Pair<K, V>> {
+    @PublishedApi internal var keys: Array<Any?> = arrayOfNulls(8)
+    @PublishedApi internal var values: Array<Any?> = arrayOfNulls(8)
+    @PublishedApi internal var digests: LongArray = LongArray(8)
+    @PublishedApi internal var count = 0
+    @PublishedApi internal var live = 0
+    @PublishedApi internal var index: IntArray = IntArray(16)
 
-    @Suppress("UNCHECKED_CAST")
-    internal fun find(key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): Int {
-        val bucket = buckets[hash(key)] ?: return -1
-        for (i in bucket) {
-            val k = keys[i]
-            if (k !== TOMB && eq(k as K, key)) return i
-        }
-        return -1
+    @PublishedApi internal fun home(digest: Long): Int {
+        val h = digest xor (digest ushr 29) xor (digest ushr 47)
+        return h.toInt() and (index.size - 1)
     }
 
-    internal fun append(key: K, value: V, digest: Long) {
-        keys.add(key)
-        values.add(value)
-        digests.add(digest)
-        buckets.getOrPut(digest) { ArrayList(1) }.add(keys.size - 1)
+    /** The slot holding a key equal to [key], or -1. */
+    @Suppress("UNCHECKED_CAST")
+    @PublishedApi internal inline fun find(key: K, digest: Long, eq: (K, K) -> Boolean): Int {
+        val mask = index.size - 1
+        var i = home(digest)
+        while (true) {
+            val at = index[i]
+            if (at == 0) return -1
+            val s = at - 1
+            if (digests[s] == digest) {
+                val k = keys[s]
+                if (k !== TOMB && eq(k as K, key)) return s
+            }
+            i = (i + 1) and mask
+        }
+    }
+
+    @PublishedApi internal fun append(key: K, value: V, digest: Long) {
+        if ((count + 1) * 4 > index.size * 3) rebuild()
+        if (count == keys.size) {
+            keys = keys.copyOf(count * 2)
+            values = values.copyOf(count * 2)
+            digests = digests.copyOf(count * 2)
+        }
+        keys[count] = key
+        values[count] = value
+        digests[count] = digest
+        count++
         live++
+        place(count - 1)
+    }
+
+    private fun place(s: Int) {
+        val mask = index.size - 1
+        var i = home(digests[s])
+        while (index[i] != 0) i = (i + 1) and mask
+        index[i] = s + 1
+    }
+
+    private fun rebuild() {
+        var w = 0
+        for (r in 0 until count) {
+            if (keys[r] !== TOMB) {
+                keys[w] = keys[r]
+                values[w] = values[r]
+                digests[w] = digests[r]
+                w++
+            }
+        }
+        for (r in w until count) {
+            keys[r] = null
+            values[r] = null
+        }
+        count = w
+        var cap = 16
+        while (cap * 3 < (count + 1) * 8) cap *= 2
+        index = IntArray(cap)
+        for (s in 0 until count) place(s)
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    @PublishedApi internal fun removeAt(s: Int): V {
+        val old = values[s] as V
+        keys[s] = TOMB
+        values[s] = null
+        live--
+        if (count > 2 * live + 8) rebuild()
+        return old
     }
 
     /** Stores [value] under [key]: an existing key keeps its place and takes the new key and value. */
     @Suppress("UNCHECKED_CAST")
-    internal fun store(key: K, value: V, hash: (K) -> Long, eq: (K, K) -> Boolean): Pair<Boolean, V?> {
-        val i = find(key, hash, eq)
+    @PublishedApi internal inline fun store(key: K, value: V, hash: (K) -> Long, eq: (K, K) -> Boolean): Pair<Boolean, V?> {
+        val d = hash(key)
+        val i = find(key, d, eq)
         if (i < 0) {
-            append(key, value, hash(key))
+            append(key, value, d)
             return Pair(false, null)
         }
         val old = values[i] as V
@@ -1976,41 +2196,12 @@ class SalvoMap<K, V> internal constructor() : Iterable<Pair<K, V>> {
         return Pair(true, old)
     }
 
-    @Suppress("UNCHECKED_CAST")
-    internal fun removeAt(i: Int): V {
-        val d = digests[i]
-        val bucket = buckets[d]!!
-        bucket.remove(i)
-        if (bucket.isEmpty()) buckets.remove(d)
-        val old = values[i] as V
-        keys[i] = TOMB
-        values[i] = null
-        live--
-        if (keys.size > 2 * live + 8) compact()
-        return old
-    }
-
-    @Suppress("UNCHECKED_CAST")
-    private fun compact() {
-        val ks = ArrayList<Any?>(live)
-        val vs = ArrayList<Any?>(live)
-        val ds = ArrayList<Long>(live)
-        for (i in keys.indices) {
-            if (keys[i] !== TOMB) {
-                ks.add(keys[i]); vs.add(values[i]); ds.add(digests[i])
-            }
-        }
-        keys.clear(); values.clear(); digests.clear(); buckets.clear()
-        live = 0
-        for (i in ks.indices) append(ks[i] as K, vs[i] as V, ds[i])
-    }
+    /** The live entries' slot numbers, in insertion order. */
+    @PublishedApi internal fun liveSlots(): Sequence<Int> = (0 until count).asSequence().filter { keys[it] !== TOMB }
 
     /** The entries, in insertion order: what a boundary check and host code walk. */
     @Suppress("UNCHECKED_CAST")
     override fun iterator(): Iterator<Pair<K, V>> = liveSlots().map { Pair(keys[it] as K, values[it] as V) }.iterator()
-
-    /** The live entries' slot numbers, in insertion order. */
-    internal fun liveSlots(): Sequence<Int> = keys.indices.asSequence().filter { keys[it] !== TOMB }
 
     /** A fresh map with the same entries, filed the same way; the values are shared. */
     @Suppress("UNCHECKED_CAST")
@@ -2021,12 +2212,14 @@ class SalvoMap<K, V> internal constructor() : Iterable<Pair<K, V>> {
     }
 
     /** Order-blind, on host equality (what a data class holding a map compares by; ROADMAP §0j step 8). */
+    @Suppress("UNCHECKED_CAST")
     override fun equals(other: Any?): Boolean {
         if (other !is SalvoMap<*, *>) return false
         if (live != other.live) return false
+        val o = other as SalvoMap<Any?, Any?>
         for (i in liveSlots()) {
-            val bucket = other.buckets[digests[i]] ?: return false
-            if (bucket.none { other.keys[it] == keys[i] && other.values[it] == values[i] }) return false
+            val j = o.find(keys[i], digests[i]) { a, b -> a == b }
+            if (j < 0 || o.values[j] != values[i]) return false
         }
         return true
     }
@@ -2040,8 +2233,8 @@ class SalvoMap<K, V> internal constructor() : Iterable<Pair<K, V>> {
     /** `{a: 1, b: 2}`, in insertion order — the map literal that would build it [col-to-str]. */
     override fun toString(): String = liveSlots().joinToString(", ", "{", "}") { "${keys[it]}: ${values[it]}" }
 
-    internal companion object {
-        val TOMB = Any()
+    @PublishedApi internal companion object {
+        @PublishedApi internal val TOMB = Any()
     }
 }
 
@@ -2062,21 +2255,21 @@ fun <K, V> canonicalMap(entries: Iterable<Pair<K, V>>): SalvoMap<K, V> {
 @Suppress("UNCHECKED_CAST")
 fun <K, V> each(map: Map<K, V>): Iterable<K> = map.liveSlots().map { map.keys[it] as K }.asIterable()
 
-fun <K, V> mapOf(entries: Array<Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): Map<K, V> =
+inline fun <K, V> mapOf(entries: Array<Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): Map<K, V> =
     mutMapOf(entries, hash, eq)
 
 // A repeated key keeps the position of its first appearance and takes the
 // value of its last [col-duplicate-keys].
-fun <K, V> mutMapOf(entries: Array<Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): MutMap<K, V> {
+inline fun <K, V> mutMapOf(entries: Array<Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): MutMap<K, V> {
     val m = SalvoMap<K, V>()
     for ((k, v) in entries) m.store(k, v, hash, eq)
     return m
 }
 
-fun <K, V> mapBy(size: Int, init: (Int) -> Pair<K, V>, hash: (K) -> Long, eq: (K, K) -> Boolean): Map<K, V> =
+inline fun <K, V> mapBy(size: Int, init: (Int) -> Pair<K, V>, hash: (K) -> Long, eq: (K, K) -> Boolean): Map<K, V> =
     mutMapBy(size, init, hash, eq)
 
-fun <K, V> mutMapBy(size: Int, init: (Int) -> Pair<K, V>, hash: (K) -> Long, eq: (K, K) -> Boolean): MutMap<K, V> {
+inline fun <K, V> mutMapBy(size: Int, init: (Int) -> Pair<K, V>, hash: (K) -> Long, eq: (K, K) -> Boolean): MutMap<K, V> {
     val m = SalvoMap<K, V>()
     for (i in 0 until size) {
         val (k, v) = init(i)
@@ -2085,37 +2278,37 @@ fun <K, V> mutMapBy(size: Int, init: (Int) -> Pair<K, V>, hash: (K) -> Long, eq:
     return m
 }
 
-fun <K, V> toMap(pairs: List<Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): Map<K, V> {
+inline fun <K, V> toMap(pairs: List<Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): Map<K, V> {
     val m = SalvoMap<K, V>()
     for ((k, v) in pairs) m.store(k, v, hash, eq)
     return m
 }
 
 @Suppress("UNCHECKED_CAST")
-fun <K, V> get(map: Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V? {
-    val i = map.find(key, hash, eq)
+inline fun <K, V> get(map: Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V? {
+    val i = map.find(key, hash(key), eq)
     return if (i < 0) null else map.values[i] as V
 }
 
 // The claim proved the key present [qual-depend].
 @Suppress("UNCHECKED_CAST")
-fun <K, V> getPresent(map: Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V =
-    map.values[map.find(key, hash, eq)] as V
+inline fun <K, V> getPresent(map: Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V =
+    map.values[map.find(key, hash(key), eq)] as V
 
-fun <K, V> put(map: MutMap<K, V>, key: K, value: V, hash: (K) -> Long, eq: (K, K) -> Boolean) {
+inline fun <K, V> put(map: MutMap<K, V>, key: K, value: V, hash: (K) -> Long, eq: (K, K) -> Boolean) {
     map.store(key, value, hash, eq)
 }
 
-fun <K, V> replace(map: MutMap<K, V>, key: K, value: V, hash: (K) -> Long, eq: (K, K) -> Boolean): V? =
+inline fun <K, V> replace(map: MutMap<K, V>, key: K, value: V, hash: (K) -> Long, eq: (K, K) -> Boolean): V? =
     map.store(key, value, hash, eq).second
 
-fun <K, V> remove(map: MutMap<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V? {
-    val i = map.find(key, hash, eq)
+inline fun <K, V> remove(map: MutMap<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V? {
+    val i = map.find(key, hash(key), eq)
     return if (i < 0) null else map.removeAt(i)
 }
 
-fun <K, V> containsKey(map: Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): Boolean =
-    map.find(key, hash, eq) >= 0
+inline fun <K, V> containsKey(map: Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): Boolean =
+    map.find(key, hash(key), eq) >= 0
 
 fun <K, V> size(map: Map<K, V>): Int = map.live
 
@@ -2126,6 +2319,18 @@ fun <K, V> keys(map: Map<K, V>): MutableList<K> = map.liveSlots().map { map.keys
 @Suppress("UNCHECKED_CAST")
 fun <K, V> intoValues(map: Map<K, V>): MutableList<V> = map.liveSlots().map { map.values[it] as V }.toMutableList()
 
+// [col-map-entries] The slots, live or removed: what `entries` and `values` walk.
+fun <K, V> slotCount(map: Map<K, V>): Int = map.count
+
+@Suppress("UNCHECKED_CAST")
+fun <K, V> keyAt(map: Map<K, V>, at: Int): K? {
+    val k = map.keys[at]
+    return if (k === SalvoMap.TOMB) null else k as K
+}
+
+@Suppress("UNCHECKED_CAST")
+fun <K, V> valueAt(map: Map<K, V>, at: Int): V = map.values[at] as V
+
 // ===== platform/core/set.kt =====
 // [platform-value-type] [platform-slots] std's set, for `core.set`'s `platform
 // type Set<T>(?hash, ?eq) canbe Mut`: one insertion-ordered slab for every
@@ -2133,82 +2338,119 @@ fun <K, V> intoValues(map: Map<K, V>): MutableList<V> = map.liveSlots().map { ma
 // the type's, not the value's: every operation is handed the `hash` and `eq`
 // its call resolved, lent for the call [platform-fn-value], and the set keeps
 // nothing but the elements and the digest each was filed under.
+//
+// The operations are `inline`, so a call that passes the canonical `hash`/
+// `eq` as lambdas (what the generated wrappers do) compiles to the direct
+// `hashCode`/`==` with nothing boxed — the fast path, with no second code
+// path to keep in step [kt-keyed].
 package salvo.platform.core.set
 
 typealias Set<T> = SalvoSet<T>
 typealias MutSet<T> = SalvoSet<T>
 
 /**
- * Elements in first-insertion order, `null` where one was removed, with the
- * digest each was filed under; [buckets] maps a digest to its slots. The
- * cached digests are what let compaction, equality and `hashCode` run
- * without an identity in hand.
+ * Elements in first-insertion order ([SalvoSet.TOMB] where one was removed),
+ * the digest each was filed under, and an open-addressing index over a
+ * power-of-two table holding `slot + 1` (0 is empty). A removed element's
+ * index entry stays until the next rebuild, which compacts the slots too.
  */
-class SalvoSet<T> internal constructor() : Iterable<T> {
-    internal val slots = ArrayList<Any?>()
-    internal val digests = ArrayList<Long>()
-    internal val buckets = HashMap<Long, MutableList<Int>>()
-    internal var live = 0
+class SalvoSet<T> @PublishedApi internal constructor() : Iterable<T> {
+    @PublishedApi internal var elems: Array<Any?> = arrayOfNulls(8)
+    @PublishedApi internal var digests: LongArray = LongArray(8)
+    @PublishedApi internal var count = 0
+    @PublishedApi internal var live = 0
+    @PublishedApi internal var index: IntArray = IntArray(16)
 
+    @PublishedApi internal fun home(digest: Long): Int {
+        val h = digest xor (digest ushr 29) xor (digest ushr 47)
+        return h.toInt() and (index.size - 1)
+    }
+
+    /** The slot holding an element equal to [elem], or -1. */
     @Suppress("UNCHECKED_CAST")
-    internal fun find(elem: T, hash: (T) -> Long, eq: (T, T) -> Boolean): Int {
-        val bucket = buckets[hash(elem)] ?: return -1
-        for (i in bucket) {
-            val s = slots[i]
-            if (s !== TOMB && eq(s as T, elem)) return i
+    @PublishedApi internal inline fun find(elem: T, digest: Long, eq: (T, T) -> Boolean): Int {
+        val mask = index.size - 1
+        var i = home(digest)
+        while (true) {
+            val at = index[i]
+            if (at == 0) return -1
+            val s = at - 1
+            if (digests[s] == digest) {
+                val e = elems[s]
+                if (e !== TOMB && eq(e as T, elem)) return s
+            }
+            i = (i + 1) and mask
         }
-        return -1
     }
 
-    internal fun append(elem: T, digest: Long) {
-        slots.add(elem)
-        digests.add(digest)
-        buckets.getOrPut(digest) { ArrayList(1) }.add(slots.size - 1)
+    @PublishedApi internal fun append(elem: T, digest: Long) {
+        if ((count + 1) * 4 > index.size * 3) rebuild()
+        if (count == elems.size) {
+            elems = elems.copyOf(count * 2)
+            digests = digests.copyOf(count * 2)
+        }
+        elems[count] = elem
+        digests[count] = digest
+        count++
         live++
+        place(count - 1)
     }
 
-    /** Adds [elem], or overwrites an equal one in place: the last wins [col-duplicate-keys]. */
-    internal fun put(elem: T, hash: (T) -> Long, eq: (T, T) -> Boolean) {
-        val i = find(elem, hash, eq)
-        if (i >= 0) slots[i] = elem else append(elem, hash(elem))
+    private fun place(s: Int) {
+        val mask = index.size - 1
+        var i = home(digests[s])
+        while (index[i] != 0) i = (i + 1) and mask
+        index[i] = s + 1
     }
 
-    internal fun removeAt(i: Int) {
-        val d = digests[i]
-        val bucket = buckets[d]!!
-        bucket.remove(i)
-        if (bucket.isEmpty()) buckets.remove(d)
-        slots[i] = TOMB
-        live--
-        if (slots.size > 2 * live + 8) compact()
-    }
-
-    private fun compact() {
-        val keep = ArrayList<Any?>(live)
-        val keepDigests = ArrayList<Long>(live)
-        for (i in slots.indices) {
-            if (slots[i] !== TOMB) {
-                keep.add(slots[i])
-                keepDigests.add(digests[i])
+    /** Compacts the slots and re-files every element in a table sized for them. */
+    private fun rebuild() {
+        var w = 0
+        for (r in 0 until count) {
+            if (elems[r] !== TOMB) {
+                elems[w] = elems[r]
+                digests[w] = digests[r]
+                w++
             }
         }
-        slots.clear()
-        digests.clear()
-        buckets.clear()
-        live = 0
-        @Suppress("UNCHECKED_CAST")
-        for (i in keep.indices) append(keep[i] as T, keepDigests[i])
+        for (r in w until count) elems[r] = null
+        count = w
+        var cap = 16
+        while (cap * 3 < (count + 1) * 8) cap *= 2
+        index = IntArray(cap)
+        for (s in 0 until count) place(s)
+    }
+
+    @PublishedApi internal fun removeAt(s: Int) {
+        elems[s] = TOMB
+        live--
+        if (count > 2 * live + 8) rebuild()
     }
 
     @Suppress("UNCHECKED_CAST")
-    override fun iterator(): Iterator<T> =
-        slots.asSequence().filter { it !== TOMB }.map { it as T }.iterator()
+    override fun iterator(): Iterator<T> = object : Iterator<T> {
+        private var at = skip(0)
+
+        private fun skip(from: Int): Int {
+            var i = from
+            while (i < count && elems[i] === TOMB) i++
+            return i
+        }
+
+        override fun hasNext(): Boolean = at < count
+
+        override fun next(): T {
+            val e = elems[at] as T
+            at = skip(at + 1)
+            return e
+        }
+    }
 
     /** A fresh set with the same elements, filed the same way. */
     fun copy(): SalvoSet<T> {
         val out = SalvoSet<T>()
         @Suppress("UNCHECKED_CAST")
-        for (i in slots.indices) if (slots[i] !== TOMB) out.append(slots[i] as T, digests[i])
+        for (s in 0 until count) if (elems[s] !== TOMB) out.append(elems[s] as T, digests[s])
         return out
     }
 
@@ -2217,28 +2459,29 @@ class SalvoSet<T> internal constructor() : Iterable<T> {
      * the other set filed it by. Host equality on the elements — what a data
      * class holding a set compares by (ROADMAP §0j step 8 owns replacing it).
      */
+    @Suppress("UNCHECKED_CAST")
     override fun equals(other: Any?): Boolean {
         if (other !is SalvoSet<*>) return false
         if (live != other.live) return false
-        for (i in slots.indices) {
-            val s = slots[i]
-            if (s === TOMB) continue
-            val bucket = other.buckets[digests[i]] ?: return false
-            if (bucket.none { other.slots[it] == s }) return false
+        val o = other as SalvoSet<Any?>
+        for (s in 0 until count) {
+            val e = elems[s]
+            if (e === TOMB) continue
+            if (o.find(e, digests[s]) { a, b -> a == b } < 0) return false
         }
         return true
     }
 
     override fun hashCode(): Int {
         var h = 0L
-        for (i in slots.indices) if (slots[i] !== TOMB) h += digests[i]
+        for (s in 0 until count) if (elems[s] !== TOMB) h += digests[s]
         return (h xor (h ushr 32)).toInt()
     }
 
     override fun toString(): String = joinToString(", ", "{", "}")
 
-    internal companion object {
-        val TOMB = Any()
+    @PublishedApi internal companion object {
+        @PublishedApi internal val TOMB = Any()
     }
 }
 
@@ -2249,51 +2492,59 @@ class SalvoSet<T> internal constructor() : Iterable<T> {
  */
 fun <T> canonicalSet(elems: Iterable<T>): SalvoSet<T> {
     val s = SalvoSet<T>()
-    for (e in elems) s.put(e, { it.hashCode().toLong() }, { a, b -> a == b })
+    for (e in elems) put(s, e, { it.hashCode().toLong() }, { a, b -> a == b })
     return s
+}
+
+/** Adds [elem], or overwrites an equal one in place: the last wins [col-duplicate-keys]. */
+@PublishedApi internal inline fun <T> put(s: SalvoSet<T>, elem: T, hash: (T) -> Long, eq: (T, T) -> Boolean) {
+    val d = hash(elem)
+    val i = s.find(elem, d, eq)
+    if (i >= 0) s.elems[i] = elem else s.append(elem, d)
 }
 
 // [platform-iterable] The host's loop over a set: its elements, in insertion order.
 fun <T> each(set: Set<T>): Iterable<T> = set
 
-fun <T> setOf(elems: Array<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): Set<T> = mutSetOf(elems, hash, eq)
+inline fun <T> setOf(elems: Array<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): Set<T> = mutSetOf(elems, hash, eq)
 
-fun <T> mutSetOf(elems: Array<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): MutSet<T> {
+inline fun <T> mutSetOf(elems: Array<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): MutSet<T> {
     val s = SalvoSet<T>()
-    for (e in elems) s.put(e, hash, eq)
+    for (e in elems) put(s, e, hash, eq)
     return s
 }
 
-fun <T> setBy(size: Int, init: (Int) -> T, hash: (T) -> Long, eq: (T, T) -> Boolean): Set<T> =
+inline fun <T> setBy(size: Int, init: (Int) -> T, hash: (T) -> Long, eq: (T, T) -> Boolean): Set<T> =
     mutSetBy(size, init, hash, eq)
 
-fun <T> mutSetBy(size: Int, init: (Int) -> T, hash: (T) -> Long, eq: (T, T) -> Boolean): MutSet<T> {
+inline fun <T> mutSetBy(size: Int, init: (Int) -> T, hash: (T) -> Long, eq: (T, T) -> Boolean): MutSet<T> {
     val s = SalvoSet<T>()
-    for (i in 0 until size) s.put(init(i), hash, eq)
+    for (i in 0 until size) put(s, init(i), hash, eq)
     return s
 }
 
-fun <T> toSet(list: List<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): Set<T> {
+inline fun <T> toSet(list: List<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): Set<T> {
     val s = SalvoSet<T>()
-    for (e in list) s.put(e, hash, eq)
+    for (e in list) put(s, e, hash, eq)
     return s
 }
 
-fun <T> add(set: MutSet<T>, elem: T, hash: (T) -> Long, eq: (T, T) -> Boolean): Boolean {
-    if (set.find(elem, hash, eq) >= 0) return false
-    set.append(elem, hash(elem))
+inline fun <T> add(set: MutSet<T>, elem: T, hash: (T) -> Long, eq: (T, T) -> Boolean): Boolean {
+    val d = hash(elem)
+    if (set.find(elem, d, eq) >= 0) return false
+    set.append(elem, d)
     return true
 }
 
-fun <T> remove(set: MutSet<T>, elem: T, hash: (T) -> Long, eq: (T, T) -> Boolean): Boolean {
-    val i = set.find(elem, hash, eq)
+inline fun <T> remove(set: MutSet<T>, elem: T, hash: (T) -> Long, eq: (T, T) -> Boolean): Boolean {
+    val i = set.find(elem, hash(elem), eq)
     if (i < 0) return false
     set.removeAt(i)
     return true
 }
 
-fun <T> contains(set: Set<T>, elem: T, hash: (T) -> Long, eq: (T, T) -> Boolean): Boolean =
-    set.find(elem, hash, eq) >= 0
+inline fun <T> contains(set: Set<T>, elem: T, hash: (T) -> Long, eq: (T, T) -> Boolean): Boolean =
+    set.find(elem, hash(elem), eq) >= 0
 
 fun <T> size(set: Set<T>): Int = set.live
 
@@ -2315,7 +2566,7 @@ typealias SortedMap<K, V> = SalvoSortedMap<K, V>
 typealias MutSortedMap<K, V> = SalvoSortedMap<K, V>
 
 /** Where [x] is in [items], or `-(insertion point) - 1`, as `binarySearch` answers. */
-internal fun <T> bisect(items: List<T>, x: T, cmp: (T, T) -> Int): Int {
+@PublishedApi internal inline fun <T> bisect(items: List<T>, x: T, cmp: (T, T) -> Int): Int {
     var lo = 0
     var hi = items.size - 1
     while (lo <= hi) {
@@ -2330,7 +2581,7 @@ internal fun <T> bisect(items: List<T>, x: T, cmp: (T, T) -> Int): Int {
     return -(lo + 1)
 }
 
-class SalvoSortedSet<T> internal constructor(internal val items: ArrayList<T>) : Iterable<T> {
+class SalvoSortedSet<T> @PublishedApi internal constructor(@PublishedApi internal val items: ArrayList<T>) : Iterable<T> {
     override fun iterator(): Iterator<T> = items.iterator()
 
     fun copy(): SalvoSortedSet<T> = SalvoSortedSet(ArrayList(items))
@@ -2344,9 +2595,9 @@ class SalvoSortedSet<T> internal constructor(internal val items: ArrayList<T>) :
     override fun toString(): String = items.joinToString(", ", "{", "}")
 }
 
-class SalvoSortedMap<K, V> internal constructor(
-    internal val keys: ArrayList<K>,
-    internal val values: ArrayList<V>,
+class SalvoSortedMap<K, V> @PublishedApi internal constructor(
+    @PublishedApi internal val keys: ArrayList<K>,
+    @PublishedApi internal val values: ArrayList<V>,
 ) {
     fun copy(): SalvoSortedMap<K, V> = SalvoSortedMap(ArrayList(keys), ArrayList(values))
 
@@ -2361,7 +2612,7 @@ class SalvoSortedMap<K, V> internal constructor(
     override fun toString(): String = keys.indices.joinToString(", ", "{", "}") { "${keys[it]}: ${values[it]}" }
 
     /** Stores under [key]; an equal key is replaced, key and value. Answers the displaced value. */
-    internal fun store(key: K, value: V, cmp: (K, K) -> Int): V? {
+    @PublishedApi internal inline fun store(key: K, value: V, cmp: (K, K) -> Int): V? {
         val i = bisect(keys, key, cmp)
         if (i >= 0) {
             val old = values[i]
@@ -2413,10 +2664,10 @@ fun <T> eachSortedSet(set: SortedSet<T>): Iterable<T> = set
 
 fun <K, V> eachSortedMap(map: SortedMap<K, V>): Iterable<K> = map.keys
 
-fun <T> sortedSetOf(elems: Array<T>, cmp: (T, T) -> Int): SortedSet<T> = mutSortedSetOf(elems, cmp)
+inline fun <T> sortedSetOf(elems: Array<T>, cmp: (T, T) -> Int): SortedSet<T> = mutSortedSetOf(elems, cmp)
 
 // A repeated member: the last wins, in the place they share.
-fun <T> mutSortedSetOf(elems: Array<T>, cmp: (T, T) -> Int): MutSortedSet<T> {
+inline fun <T> mutSortedSetOf(elems: Array<T>, cmp: (T, T) -> Int): MutSortedSet<T> {
     val s = SalvoSortedSet(ArrayList<T>(elems.size))
     for (e in elems) {
         val i = bisect(s.items, e, cmp)
@@ -2425,21 +2676,21 @@ fun <T> mutSortedSetOf(elems: Array<T>, cmp: (T, T) -> Int): MutSortedSet<T> {
     return s
 }
 
-fun <T> add(set: MutSortedSet<T>, elem: T, cmp: (T, T) -> Int): Boolean {
+inline fun <T> add(set: MutSortedSet<T>, elem: T, cmp: (T, T) -> Int): Boolean {
     val i = bisect(set.items, elem, cmp)
     if (i >= 0) return false
     set.items.add(-i - 1, elem)
     return true
 }
 
-fun <T> removeElem(set: MutSortedSet<T>, elem: T, cmp: (T, T) -> Int): Boolean {
+inline fun <T> removeElem(set: MutSortedSet<T>, elem: T, cmp: (T, T) -> Int): Boolean {
     val i = bisect(set.items, elem, cmp)
     if (i < 0) return false
     set.items.removeAt(i)
     return true
 }
 
-fun <T> contains(set: SortedSet<T>, elem: T, cmp: (T, T) -> Int): Boolean = bisect(set.items, elem, cmp) >= 0
+inline fun <T> contains(set: SortedSet<T>, elem: T, cmp: (T, T) -> Int): Boolean = bisect(set.items, elem, cmp) >= 0
 
 fun <T> setSize(set: SortedSet<T>): Int = set.items.size
 
@@ -2449,31 +2700,31 @@ fun <T> max(set: SortedSet<T>): T? = set.items.lastOrNull()
 
 fun <T> toList(set: SortedSet<T>): MutableList<T> = ArrayList(set.items)
 
-fun <K, V> sortedMapOf(entries: Array<Pair<K, V>>, cmp: (K, K) -> Int): SortedMap<K, V> = mutSortedMapOf(entries, cmp)
+inline fun <K, V> sortedMapOf(entries: Array<Pair<K, V>>, cmp: (K, K) -> Int): SortedMap<K, V> = mutSortedMapOf(entries, cmp)
 
-fun <K, V> mutSortedMapOf(entries: Array<Pair<K, V>>, cmp: (K, K) -> Int): MutSortedMap<K, V> {
+inline fun <K, V> mutSortedMapOf(entries: Array<Pair<K, V>>, cmp: (K, K) -> Int): MutSortedMap<K, V> {
     val m = SalvoSortedMap(ArrayList<K>(entries.size), ArrayList<V>(entries.size))
     for ((k, v) in entries) m.store(k, v, cmp)
     return m
 }
 
-fun <K, V> get(map: SortedMap<K, V>, key: K, cmp: (K, K) -> Int): V? {
+inline fun <K, V> get(map: SortedMap<K, V>, key: K, cmp: (K, K) -> Int): V? {
     val i = bisect(map.keys, key, cmp)
     return if (i >= 0) map.values[i] else null
 }
 
-fun <K, V> put(map: MutSortedMap<K, V>, key: K, value: V, cmp: (K, K) -> Int) {
+inline fun <K, V> put(map: MutSortedMap<K, V>, key: K, value: V, cmp: (K, K) -> Int) {
     map.store(key, value, cmp)
 }
 
-fun <K, V> removeKey(map: MutSortedMap<K, V>, key: K, cmp: (K, K) -> Int): V? {
+inline fun <K, V> removeKey(map: MutSortedMap<K, V>, key: K, cmp: (K, K) -> Int): V? {
     val i = bisect(map.keys, key, cmp)
     if (i < 0) return null
     map.keys.removeAt(i)
     return map.values.removeAt(i)
 }
 
-fun <K, V> containsKey(map: SortedMap<K, V>, key: K, cmp: (K, K) -> Int): Boolean = bisect(map.keys, key, cmp) >= 0
+inline fun <K, V> containsKey(map: SortedMap<K, V>, key: K, cmp: (K, K) -> Int): Boolean = bisect(map.keys, key, cmp) >= 0
 
 fun <K, V> mapSize(map: SortedMap<K, V>): Int = map.keys.size
 

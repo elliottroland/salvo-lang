@@ -2,8 +2,11 @@
 // the declarations the platform code uses, as the build emits them. Rewritten
 // by every build — do not edit; the build never reads this file.
 // salvo-abi 1 023a4214a13ba612
+use crate::core_actor::__Stateful_Faults as _;
+use crate::core_actor::__Stateless_Faults as _;
 use crate::core_list::at;
 use crate::core_map::MapKeyYield;
+use crate::core_map::entries;
 use crate::core_set::SetYield;
 use crate::core_string::mut_str;
 
@@ -65,7 +68,7 @@ pub fn to_list_platform<T: Clone>(set: &SortedSet<T>) -> Vec<T> {
     crate::platform_core_sorted::to_list(set)
 }
 
-pub fn to_str<T: Clone>(set: &SortedSet<T>, to_str: &mut dyn FnMut(&T) -> String) -> String {
+pub fn to_str__SortedSet<T: Clone>(set: &SortedSet<T>, to_str: &mut dyn FnMut(&T) -> String) -> String {
     let mut out = mut_str(vec!["{".to_string()]);
     let mut i = 0;
     for mut x in crate::platform_core_sorted::each_sorted_set(set).map(|__x| __x.clone()) {
@@ -129,6 +132,50 @@ pub fn keys_platform<K: Clone, V: Clone>(map: &SortedMap<K, V>) -> Vec<K> {
     crate::platform_core_sorted::keys(map)
 }
 
+pub fn to_str__SortedMap<K: Clone, V: Clone>(map: &SortedMap<K, V>, to_str: &mut dyn FnMut(&K) -> String, to_str__1: &mut dyn FnMut(&V) -> String, cmp: &mut dyn FnMut(&K, &K) -> i32) -> String {
+    let mut out = mut_str(vec!["{".to_string()]);
+    let mut i = 0;
+    for mut k in crate::platform_core_sorted::each_sorted_map(map).map(|__x| __x.clone()) {
+        if i > 0 {
+            crate::core_string::append_platform(&mut out, &(", ".to_string()));
+        }
+        crate::core_string::append_platform(&mut out, &(to_str(&k)));
+        crate::core_string::append_platform(&mut out, &(": ".to_string()));
+        crate::core_string::append_platform(&mut out, &(to_str__1(&get_platform::<K, V>(map, &k, &mut *cmp).expect("salvo: value is absent at core.sorted:148:28"))));
+        i = i32::wrapping_add(i, 1);
+    }
+    crate::core_string::append_platform(&mut out, &("}".to_string()));
+    return out;
+}
+
+pub fn eq__SortedSet_SortedSet<T: Clone>(a: &SortedSet<T>, b: &SortedSet<T>, cmp: &mut dyn FnMut(&T, &T) -> i32) -> bool {
+    if size__SortedSet(a) != size__SortedSet(b) {
+        return false;
+    }
+    for mut x in crate::platform_core_sorted::each_sorted_set(a).map(|__x| __x.clone()) {
+        if !contains_platform::<T>(b, &x, &mut *cmp) {
+            return false;
+        }
+    }
+    return true;
+}
+
+pub fn eq__SortedMap_SortedMap<K: Clone, V: Clone>(a: &SortedMap<K, V>, b: &SortedMap<K, V>, eq: &mut dyn FnMut(&V, &V) -> bool, cmp: &mut dyn FnMut(&K, &K) -> i32) -> bool {
+    if size__SortedMap(a) != size__SortedMap(b) {
+        return false;
+    }
+    for mut k in crate::platform_core_sorted::each_sorted_map(a).map(|__x| __x.clone()) {
+        let mut theirs = get_platform::<K, V>(b, &k, &mut *cmp);
+        if theirs.is_none() {
+            return false;
+        }
+        if !eq(&get_platform::<K, V>(a, &k, &mut *cmp).expect("salvo: value is absent at core.sorted:181:16"), &theirs.unwrap().clone()) {
+            return false;
+        }
+    }
+    return true;
+}
+
 pub fn iter__SortedMap<K: Clone, V: Clone>(map: &SortedMap<K, V>) -> MapKeyYield<K> {
     return MapKeyYield { items: keys_platform(map), at: 0 };
 }
@@ -142,17 +189,17 @@ pub fn NonEmpty__SortedMap_qualifies<K: Clone, V: Clone>(map: &SortedMap<K, V>) 
 }
 
 pub fn min<T: Clone>(set: &SortedSet<T>) -> T {
-    return min_platform(set).expect("salvo: value is absent at core.sorted:188:12");
+    return min_platform(set).expect("salvo: value is absent at core.sorted:236:12");
 }
 
 pub fn max<T: Clone>(set: &SortedSet<T>) -> T {
-    return max_platform(set).expect("salvo: value is absent at core.sorted:192:12");
+    return max_platform(set).expect("salvo: value is absent at core.sorted:240:12");
 }
 
 pub fn first_key<K: Clone, V: Clone>(map: &SortedMap<K, V>) -> K {
-    return first_key_platform(map).expect("salvo: value is absent at core.sorted:196:12");
+    return first_key_platform(map).expect("salvo: value is absent at core.sorted:244:12");
 }
 
 pub fn last_key<K: Clone, V: Clone>(map: &SortedMap<K, V>) -> K {
-    return last_key_platform(map).expect("salvo: value is absent at core.sorted:200:12");
+    return last_key_platform(map).expect("salvo: value is absent at core.sorted:248:12");
 }

@@ -2374,7 +2374,31 @@ impl<'p> Emitter<'p> {
             return String::new();
         }
         let place = format!("{}_pass", self.fresh_loop_var());
-        let var = self.for_pattern_var(pattern, false, indent + 1);
+        let mut var = self.for_pattern_var(pattern, false, indent + 1);
+        // [copy-scalar-free] A pass that walks data emits a borrow (`&i32`);
+        // a Copy scalar binds by value, as everywhere else it is read, so the
+        // pattern dereferences it (`Union2::U1(&x)`). Arithmetic on the
+        // borrow was E0308 since integer arithmetic became a function call.
+        if let (salvo_core::PassMember::Fn(key), Pattern::Ident(id)) = (&driver.next, pattern) {
+            let borrowed = self
+                .fn_by_key(*key)
+                .and_then(|d| d.return_type.as_ref())
+                .is_some_and(|rt| match rt {
+                    Type::Union { arms, .. } => arms
+                        .iter()
+                        .filter(|a| !is_none_type(a))
+                        .nth(driver.emitted_arm)
+                        .is_some_and(type_has_proj),
+                    _ => false,
+                });
+            if borrowed
+                && id.name != "_"
+                && !self.mutated.contains(id.name.as_str())
+                && self.ty_of(id.span).is_some_and(|t| Self::is_copy_ty(t))
+            {
+                var = format!("&{}", rs_ident(&id.name));
+            }
+        }
         // The `Emitted` arm of the result, by the identity the *checker*
         // computed [union-arm-identity].
         self.union_sizes.insert(driver.arms);
@@ -3196,7 +3220,7 @@ impl<'p> Emitter<'p> {
                     _ => args.push(pname),
                 }
             }
-            args.extend(self.implicits_of(f).iter().map(|imp| rs_ident(&imp.name)));
+            args.extend(self.implicits_of(f).iter().map(|imp| rs_ident(&imp.local)));
             let call = format!("self.0.{member}({})", args.join(", "));
             let result_plan = checking
                 .then(|| self.checked.boundary_checks.get(&(self.file_idx, f.name.span)).cloned())
@@ -3381,7 +3405,7 @@ impl<'p> Emitter<'p> {
                 .filter(|p| !p.implicit)
                 .map(|p| rs_ident(&p.name.name))
                 .collect();
-            args.extend(self.implicits_of(f).iter().map(|imp| rs_ident(&imp.name)));
+            args.extend(self.implicits_of(f).iter().map(|imp| rs_ident(&imp.local)));
             let args = args.join(", ");
             out.push_str(&format!(
                 "    pub fn {member}{lt}(&self{params}){ret} {{\n        \
@@ -3687,7 +3711,7 @@ impl<'p> Emitter<'p> {
         // (`set: Mut Set<T>(?hash, ?eq)`) is one more argument, lent for the
         // call [platform-fn-value].
         for ip in self.implicits_of(f) {
-            let name = rs_ident(&ip.name);
+            let name = rs_ident(&ip.local);
             if !args.contains(&name) {
                 args.push(name);
             }
@@ -4205,7 +4229,7 @@ impl<'p> Emitter<'p> {
         let mut out = String::new();
         for imp in &implicits {
             let rendered = self.implicit_param_type_of(imp);
-            out.push_str(&format!(", {}: {rendered}", rs_ident(&imp.name)));
+            out.push_str(&format!(", {}: {rendered}", rs_ident(&imp.local)));
         }
         out
     }
@@ -6018,13 +6042,13 @@ impl<'p> Emitter<'p> {
                 let rendered = self.owned_fn_ty(&imp.ty);
                 // [rs-lazy-adaptor] As a written callback parameter's.
                 let owned = format!("{rendered} + Send + Sync + 'static");
-                self.bindings.insert(imp.name.clone(), BindKind::Owned);
-                params.push(format!("{}: {owned}", rs_ident(&imp.name)));
+                self.bindings.insert(imp.local.clone(), BindKind::Owned);
+                params.push(format!("{}: {owned}", rs_ident(&imp.local)));
                 continue;
             }
             let rendered = self.implicit_param_type_of(imp);
-            self.bindings.insert(imp.name.clone(), BindKind::RefMut);
-            params.push(format!("{}: {rendered}", rs_ident(&imp.name)));
+            self.bindings.insert(imp.local.clone(), BindKind::RefMut);
+            params.push(format!("{}: {rendered}", rs_ident(&imp.local)));
         }
         // [copy-implicit] A handler member also sees the handler's implicit
         // constructor parameters — after the signature, since they are
@@ -6046,6 +6070,7 @@ impl<'p> Emitter<'p> {
                         binder: false,
                         slot: None,
                         bound: None,
+                        local: p.name.name.clone(),
                     });
                     self.bindings
                         .insert(p.name.name.clone(), BindKind::SelfField);
@@ -13712,30 +13737,6 @@ impl<'p> Emitter<'p> {
                          .collect::<Vec<_>>().join(\", \"))"
                     ))
                 }
-                ("Set", 1) | ("SortedSet", 1) => {
-                    let inner = self.float_text_expr(&args[0], "__ft")?;
-                    Some(format!(
-                        "format!(\"{{{{{{}}}}}}\", {code}.iter().map(|__ft| {inner})\
-                         .collect::<Vec<_>>().join(\", \"))"
-                    ))
-                }
-                ("Map", 2) | ("SortedMap", 2) => {
-                    // Either half may hold the float; the other keeps `Display`.
-                    let key = self
-                        .float_text_expr(&args[0], "__fk")
-                        .unwrap_or_else(|| "__fk.to_string()".to_string());
-                    let val = self
-                        .float_text_expr(&args[1], "__fv")
-                        .unwrap_or_else(|| "__fv.to_string()".to_string());
-                    if !Self::ty_has_float(&args[0]) && !Self::ty_has_float(&args[1]) {
-                        return None;
-                    }
-                    Some(format!(
-                        "format!(\"{{{{{{}}}}}}\", {code}.iter()\
-                         .map(|(__fk, __fv)| format!(\"{{}}: {{}}\", {key}, {val}))\
-                         .collect::<Vec<_>>().join(\", \"))"
-                    ))
-                }
                 _ => None,
             },
             Ty::Array(elem) => {
@@ -13822,8 +13823,11 @@ impl<'p> Emitter<'p> {
         let mut name = self.rust_fn_name(decl);
         // [rs-shadowed-call] Inside a fn with an implicit `to_str` (a stamp at a
         // generic struct), a declaration of that name is reached by its path.
+        // The path names the fn as its own module does, not by this file's
+        // import alias (`to_str__core_map`).
         if self.bindings.contains_key(decl.name.name.as_str()) && !name.contains("::") {
-            name = format!("{}::{name}", self.fn_module_path(decl));
+            let own = rs_ident(self.fn_names.get(decl).unwrap_or(&decl.name.name));
+            name = format!("{}::{own}", self.fn_module_path(decl));
         }
         // [interp-to-str] A `to_str` with implicits had them filled at the
         // zero-width span after the value.
@@ -15102,7 +15106,16 @@ impl<'p> Emitter<'p> {
         // chosen by the caller. A call of the same name whose arguments do
         // not fit the implicit resolved to a declaration instead, and goes
         // the ordinary way below.
-        if self.implicits.iter().any(|i| i.name == name)
+        // [implicit-same-name] Of several of the name, the one the checker
+        // chose.
+        let lname: String = self
+            .checked
+            .local_call_names
+            .get(&(self.file_idx, span))
+            .cloned()
+            .unwrap_or_else(|| name.to_string());
+        let lname = lname.as_str();
+        if self.implicits.iter().any(|i| i.local == lname)
             && self.checked.local_calls.contains(&(self.file_idx, span))
         {
             // A kept `Mut` position of the implicit's fn type is a `&mut`
@@ -15110,7 +15123,7 @@ impl<'p> Emitter<'p> {
             let modes: Vec<bool> = self
                 .implicits
                 .iter()
-                .find(|i| i.name == name)
+                .find(|i| i.local == lname)
                 .map(|i| match i.ty.strip_quals() {
                     Ty::Fn {
                         params, contract, ..
@@ -15136,7 +15149,7 @@ impl<'p> Emitter<'p> {
             let kept_ref: Vec<bool> = self
                 .implicits
                 .iter()
-                .find(|i| i.name == name)
+                .find(|i| i.local == lname)
                 .map(|i| match i.ty.strip_quals() {
                     Ty::Fn {
                         params, contract, ..
@@ -15172,17 +15185,17 @@ impl<'p> Emitter<'p> {
             // [iter-fn] Inside a generated pass the implicit is a
             // *field* (an `Rc<dyn Fn…>`), so it is called through `self` and
             // nothing is re-borrowed.
-            if matches!(self.bindings.get(name), Some(BindKind::SelfField)) {
-                return format!("(self.{})({})", rs_ident(name), arg_code.join(", "));
+            if matches!(self.bindings.get(lname), Some(BindKind::SelfField)) {
+                return format!("(self.{})({})", rs_ident(lname), arg_code.join(", "));
             }
             // [effect-args-hoisted] Calling through the parameter borrows it,
             // so an argument that *also* reaches it (a recursive call
             // forwarding the same implicit) is hoisted out first.
-            let borrowed = vec![format!("&mut *{}", rs_ident(name))];
+            let borrowed = vec![format!("&mut *{}", rs_ident(lname))];
             let (prelude, arg_code) = self.hoist_reborrows(&borrowed, arg_code);
             return Self::wrap_hoisted(
                 &prelude,
-                format!("{}({})", rs_ident(name), arg_code.join(", ")),
+                format!("{}({})", rs_ident(lname), arg_code.join(", ")),
             );
         }
 

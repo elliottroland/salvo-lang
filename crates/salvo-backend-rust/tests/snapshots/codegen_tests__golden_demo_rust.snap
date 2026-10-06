@@ -633,6 +633,7 @@ use crate::core_iterator::emitted;
 use crate::core_iterator::finished;
 use crate::core_list::at;
 use crate::core_list::drain as drain__core_list;
+use crate::core_string::mut_str;
 
 /// [platform-type] The host's `Map`.
 pub use crate::platform_core_map::Map;
@@ -713,6 +714,38 @@ pub fn into_values_platform<K: Clone, V>(map: Map<K, V>) -> Vec<V> {
     crate::platform_core_map::into_values(map)
 }
 
+pub fn to_str<K: Clone, V: Clone>(map: &Map<K, V>, to_str: &mut dyn FnMut(&K) -> String, to_str__1: &mut dyn FnMut(&V) -> String, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> String {
+    let mut out = mut_str(vec!["{".to_string()]);
+    let mut i = 0;
+    for mut k in crate::platform_core_map::each(map).map(|__x| __x.clone()) {
+        if i > 0 {
+            crate::core_string::append_platform(&mut out, &(", ".to_string()));
+        }
+        crate::core_string::append_platform(&mut out, &(to_str(&k)));
+        crate::core_string::append_platform(&mut out, &(": ".to_string()));
+        crate::core_string::append_platform(&mut out, &(to_str__1(&get_platform::<K, V>(map, &k, &mut *hash, &mut *eq).expect("salvo: value is absent at core.map:164:28"))));
+        i = i32::wrapping_add(i, 1);
+    }
+    crate::core_string::append_platform(&mut out, &("}".to_string()));
+    return out;
+}
+
+pub fn eq<K: Clone, V: Clone>(a: &Map<K, V>, b: &Map<K, V>, eq: &mut dyn FnMut(&V, &V) -> bool, hash: &mut dyn FnMut(&K) -> i64, eq__1: &mut dyn FnMut(&K, &K) -> bool) -> bool {
+    if size_platform(a) != size_platform(b) {
+        return false;
+    }
+    for mut k in crate::platform_core_map::each(a).map(|__x| __x.clone()) {
+        let mut theirs = get_platform::<K, V>(b, &k, &mut *hash, &mut *eq__1);
+        if theirs.is_none() {
+            return false;
+        }
+        if !eq(&get_platform::<K, V>(a, &k, &mut *hash, &mut *eq__1).expect("salvo: value is absent at core.map:186:16"), &theirs.unwrap().clone()) {
+            return false;
+        }
+    }
+    return true;
+}
+
 pub fn keys_platform<K: Clone, V: Clone>(map: &Map<K, V>) -> Vec<K> {
     crate::platform_core_map::keys(map)
 }
@@ -740,13 +773,76 @@ impl<K: Clone + 'static + crate::wire::__Wire> crate::wire::__Wire for MapKeyYie
     }
 }
 
-pub fn next<K: Clone>(p: &mut MapKeyYield<K>) -> Union2<K, Finished> {
+pub fn next__MapKeyYield<K: Clone>(p: &mut MapKeyYield<K>) -> Union2<K, Finished> {
     let mut key = p.items.get((p.at) as i64 as usize).cloned();
     if key.is_none() {
         return Union2::<K, Finished>::U2(finished());
     }
     p.at = i32::wrapping_add(p.at, 1);
     return Union2::<K, Finished>::U1(emitted(key.as_ref().unwrap().clone()));
+}
+
+pub fn slot_count_platform<K: Clone, V: Clone>(map: &Map<K, V>) -> i32 {
+    crate::platform_core_map::slot_count(map)
+}
+
+pub fn key_at_platform<K: Clone, V: Clone>(map: &Map<K, V>, at: i32) -> Option<&K> {
+    crate::platform_core_map::key_at(map, at)
+}
+
+pub fn value_at_platform<K: Clone, V: Clone>(map: &Map<K, V>, at: i32) -> &V {
+    crate::platform_core_map::value_at(map, at)
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct MapEntry<'s, K, V> {
+    pub key: &'s K,
+    pub value: &'s V,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct __Iter_entries_Map<'s, K, V> {
+    pub map: &'s Map<K, V>,
+    pub at: i32,
+}
+
+pub fn entries<K: Clone, V: Clone>(map: &Map<K, V>) -> __Iter_entries_Map<'_, K, V> {
+    return __Iter_entries_Map { map: map, at: 0 };
+}
+
+pub fn next__Iter_entries_Map<'a, K: Clone, V: Clone>(__p: &mut __Iter_entries_Map<'a, K, V>) -> Union2<MapEntry<'a, K, V>, Finished> {
+    while __p.at < slot_count_platform(&__p.map) {
+        let mut here = __p.at;
+        __p.at = i32::wrapping_add(__p.at, 1);
+        let mut key = key_at_platform(&__p.map, here);
+        if !(key.is_none()) {
+            let mut value = value_at_platform(&__p.map, here);
+            return Union2::<MapEntry<'_, K, V>, Finished>::U1(emitted(MapEntry { key: key.unwrap(), value: &value }));
+        }
+    }
+    return Union2::<MapEntry<'_, K, V>, Finished>::U2(finished());
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct __Iter_values_Map<'s, K, V> {
+    pub map: &'s Map<K, V>,
+    pub at: i32,
+}
+
+pub fn values<K: Clone, V: Clone>(map: &Map<K, V>) -> __Iter_values_Map<'_, K, V> {
+    return __Iter_values_Map { map: map, at: 0 };
+}
+
+pub fn next__Iter_values_Map<'s, K: Clone, V: Clone>(__p: &mut __Iter_values_Map<'s, K, V>) -> Union2<&'s V, Finished> {
+    while __p.at < slot_count_platform(&__p.map) {
+        let mut here = __p.at;
+        __p.at = i32::wrapping_add(__p.at, 1);
+        if !(key_at_platform(&__p.map, here).is_none()) {
+            let mut value = value_at_platform(&__p.map, here);
+            return Union2::U1(emitted(&value));
+        }
+    }
+    return Union2::U2(finished());
 }
 
 pub fn NonEmpty__Map_qualifies<K: Clone, V: Clone>(map: &Map<K, V>) -> bool {
@@ -817,6 +913,18 @@ pub fn to_str<T: Clone>(set: &Set<T>, to_str: &mut dyn FnMut(&T) -> String) -> S
     return out;
 }
 
+pub fn eq<T: Clone>(a: &Set<T>, b: &Set<T>, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> bool {
+    if size_platform(a) != size_platform(b) {
+        return false;
+    }
+    for mut x in crate::platform_core_set::each(a).map(|__x| __x.clone()) {
+        if !contains_platform::<T>(b, &x, &mut *hash, &mut *eq) {
+            return false;
+        }
+    }
+    return true;
+}
+
 pub fn to_list_platform<T: Clone>(set: &Set<T>) -> Vec<T> {
     crate::platform_core_set::to_list(set)
 }
@@ -860,6 +968,7 @@ pub fn NonEmpty__Set_qualifies<T: Clone>(set: &Set<T>) -> bool {
 // ===== core/sorted.rs =====
 use crate::core_list::at;
 use crate::core_map::MapKeyYield;
+use crate::core_map::entries;
 use crate::core_set::SetYield;
 use crate::core_string::mut_str;
 
@@ -921,7 +1030,7 @@ pub fn to_list_platform<T: Clone>(set: &SortedSet<T>) -> Vec<T> {
     crate::platform_core_sorted::to_list(set)
 }
 
-pub fn to_str<T: Clone>(set: &SortedSet<T>, to_str: &mut dyn FnMut(&T) -> String) -> String {
+pub fn to_str__SortedSet<T: Clone>(set: &SortedSet<T>, to_str: &mut dyn FnMut(&T) -> String) -> String {
     let mut out = mut_str(vec!["{".to_string()]);
     let mut i = 0;
     for mut x in crate::platform_core_sorted::each_sorted_set(set).map(|__x| __x.clone()) {
@@ -985,6 +1094,50 @@ pub fn keys_platform<K: Clone, V: Clone>(map: &SortedMap<K, V>) -> Vec<K> {
     crate::platform_core_sorted::keys(map)
 }
 
+pub fn to_str__SortedMap<K: Clone, V: Clone>(map: &SortedMap<K, V>, to_str: &mut dyn FnMut(&K) -> String, to_str__1: &mut dyn FnMut(&V) -> String, cmp: &mut dyn FnMut(&K, &K) -> i32) -> String {
+    let mut out = mut_str(vec!["{".to_string()]);
+    let mut i = 0;
+    for mut k in crate::platform_core_sorted::each_sorted_map(map).map(|__x| __x.clone()) {
+        if i > 0 {
+            crate::core_string::append_platform(&mut out, &(", ".to_string()));
+        }
+        crate::core_string::append_platform(&mut out, &(to_str(&k)));
+        crate::core_string::append_platform(&mut out, &(": ".to_string()));
+        crate::core_string::append_platform(&mut out, &(to_str__1(&get_platform::<K, V>(map, &k, &mut *cmp).expect("salvo: value is absent at core.sorted:148:28"))));
+        i = i32::wrapping_add(i, 1);
+    }
+    crate::core_string::append_platform(&mut out, &("}".to_string()));
+    return out;
+}
+
+pub fn eq__SortedSet_SortedSet<T: Clone>(a: &SortedSet<T>, b: &SortedSet<T>, cmp: &mut dyn FnMut(&T, &T) -> i32) -> bool {
+    if size__SortedSet(a) != size__SortedSet(b) {
+        return false;
+    }
+    for mut x in crate::platform_core_sorted::each_sorted_set(a).map(|__x| __x.clone()) {
+        if !contains_platform::<T>(b, &x, &mut *cmp) {
+            return false;
+        }
+    }
+    return true;
+}
+
+pub fn eq__SortedMap_SortedMap<K: Clone, V: Clone>(a: &SortedMap<K, V>, b: &SortedMap<K, V>, eq: &mut dyn FnMut(&V, &V) -> bool, cmp: &mut dyn FnMut(&K, &K) -> i32) -> bool {
+    if size__SortedMap(a) != size__SortedMap(b) {
+        return false;
+    }
+    for mut k in crate::platform_core_sorted::each_sorted_map(a).map(|__x| __x.clone()) {
+        let mut theirs = get_platform::<K, V>(b, &k, &mut *cmp);
+        if theirs.is_none() {
+            return false;
+        }
+        if !eq(&get_platform::<K, V>(a, &k, &mut *cmp).expect("salvo: value is absent at core.sorted:181:16"), &theirs.unwrap().clone()) {
+            return false;
+        }
+    }
+    return true;
+}
+
 pub fn iter__SortedMap<K: Clone, V: Clone>(map: &SortedMap<K, V>) -> MapKeyYield<K> {
     return MapKeyYield { items: keys_platform(map), at: 0 };
 }
@@ -998,19 +1151,19 @@ pub fn NonEmpty__SortedMap_qualifies<K: Clone, V: Clone>(map: &SortedMap<K, V>) 
 }
 
 pub fn min<T: Clone>(set: &SortedSet<T>) -> T {
-    return min_platform(set).expect("salvo: value is absent at core.sorted:188:12");
+    return min_platform(set).expect("salvo: value is absent at core.sorted:236:12");
 }
 
 pub fn max<T: Clone>(set: &SortedSet<T>) -> T {
-    return max_platform(set).expect("salvo: value is absent at core.sorted:192:12");
+    return max_platform(set).expect("salvo: value is absent at core.sorted:240:12");
 }
 
 pub fn first_key<K: Clone, V: Clone>(map: &SortedMap<K, V>) -> K {
-    return first_key_platform(map).expect("salvo: value is absent at core.sorted:196:12");
+    return first_key_platform(map).expect("salvo: value is absent at core.sorted:244:12");
 }
 
 pub fn last_key<K: Clone, V: Clone>(map: &SortedMap<K, V>) -> K {
-    return last_key_platform(map).expect("salvo: value is absent at core.sorted:200:12");
+    return last_key_platform(map).expect("salvo: value is absent at core.sorted:248:12");
 }
 
 // ===== core/string.rs =====
@@ -1901,19 +2054,20 @@ pub fn search_sorted_by<T>(list: &List<T>, elem: &T, cmp: &mut dyn FnMut(&T, &T)
 // [platform-fn-value]; the map keeps the entries and the digest each key was
 // filed under, nothing else. `Mut Map` is the same type, passed as `&mut`.
 
-use std::collections::HashMap;
 use std::fmt;
 
 type HashFn<'a, K> = &'a mut dyn FnMut(&K) -> i64;
 type EqFn<'a, K> = &'a mut dyn FnMut(&K, &K) -> bool;
 
-/// Entries in first-insertion order (`None` where one was removed) with each
-/// key's digest; `buckets` maps a digest to its slots. An overwrite keeps the
-/// key's position [col-insertion-order].
+/// Entries in first-insertion order (`None` where one was removed), each
+/// key's digest, and an open-addressing index over a power-of-two table
+/// holding `slot + 1` (0 is empty). An overwrite keeps the key's position
+/// [col-insertion-order].
 #[derive(Clone)]
 pub struct Map<K, V> {
-    slots: Vec<Option<(i64, K, V)>>,
-    buckets: HashMap<i64, Vec<usize>>,
+    slots: Vec<Option<(K, V)>>,
+    digests: Vec<i64>,
+    index: Vec<u32>,
     live: usize,
 }
 
@@ -1921,34 +2075,85 @@ pub type MutMap<K, V> = Map<K, V>;
 
 impl<K, V> Map<K, V> {
     fn new() -> Self {
-        Map { slots: Vec::new(), buckets: HashMap::new(), live: 0 }
+        Map { slots: Vec::new(), digests: Vec::new(), index: vec![0; 16], live: 0 }
+    }
+
+    fn home(&self, digest: i64) -> usize {
+        let d = digest as u64;
+        let h = d ^ (d >> 29) ^ (d >> 47);
+        (h as usize) & (self.index.len() - 1)
+    }
+
+    fn find_by(&self, digest: i64, mut same: impl FnMut(&K) -> bool) -> Option<usize> {
+        let mask = self.index.len() - 1;
+        let mut i = self.home(digest);
+        loop {
+            let at = self.index[i];
+            if at == 0 {
+                return None;
+            }
+            let s = (at - 1) as usize;
+            if self.digests[s] == digest {
+                if let Some((k, _)) = &self.slots[s] {
+                    if same(k) {
+                        return Some(s);
+                    }
+                }
+            }
+            i = (i + 1) & mask;
+        }
     }
 
     fn find(&self, key: &K, hash: HashFn<K>, eq: EqFn<K>) -> Option<usize> {
-        let bucket = self.buckets.get(&hash(key))?;
-        bucket
-            .iter()
-            .copied()
-            .find(|&i| self.slots[i].as_ref().is_some_and(|(_, k, _)| eq(k, key)))
+        let digest = hash(key);
+        self.find_by(digest, |k| eq(k, key))
+    }
+
+    fn place(&mut self, s: usize) {
+        let mask = self.index.len() - 1;
+        let mut i = self.home(self.digests[s]);
+        while self.index[i] != 0 {
+            i = (i + 1) & mask;
+        }
+        self.index[i] = (s + 1) as u32;
+    }
+
+    fn rebuild(&mut self) {
+        let slots = std::mem::take(&mut self.slots);
+        let digests = std::mem::take(&mut self.digests);
+        for (e, d) in slots.into_iter().zip(digests) {
+            if let Some(e) = e {
+                self.slots.push(Some(e));
+                self.digests.push(d);
+            }
+        }
+        let mut cap = 16;
+        while cap * 3 < (self.slots.len() + 1) * 8 {
+            cap *= 2;
+        }
+        self.index = vec![0; cap];
+        for s in 0..self.slots.len() {
+            self.place(s);
+        }
     }
 
     fn append(&mut self, digest: i64, key: K, value: V) {
-        self.slots.push(Some((digest, key, value)));
-        self.buckets.entry(digest).or_default().push(self.slots.len() - 1);
+        if (self.slots.len() + 1) * 4 > self.index.len() * 3 {
+            self.rebuild();
+        }
+        self.slots.push(Some((key, value)));
+        self.digests.push(digest);
         self.live += 1;
+        self.place(self.slots.len() - 1);
     }
 
     /// Stores `value` under `key`: an existing key keeps its place and takes
     /// the new key and value. Answers the displaced value.
     fn store(&mut self, key: K, value: V, hash: HashFn<K>, eq: EqFn<K>) -> Option<V> {
-        match self.find(&key, &mut *hash, eq) {
-            Some(i) => {
-                let (digest, _, old) = self.slots[i].take().expect("a found slot is live");
-                self.slots[i] = Some((digest, key, value));
-                Some(old)
-            }
+        let digest = hash(&key);
+        match self.find_by(digest, |k| eq(k, &key)) {
+            Some(i) => self.slots[i].replace((key, value)).map(|(_, old)| old),
             None => {
-                let digest = hash(&key);
                 self.append(digest, key, value);
                 None
             }
@@ -1956,28 +2161,17 @@ impl<K, V> Map<K, V> {
     }
 
     fn remove_at(&mut self, i: usize) -> Option<V> {
-        let (digest, _, value) = self.slots[i].take()?;
-        if let Some(bucket) = self.buckets.get_mut(&digest) {
-            bucket.retain(|&j| j != i);
-            if bucket.is_empty() {
-                self.buckets.remove(&digest);
-            }
-        }
+        let (_, value) = self.slots[i].take()?;
         self.live -= 1;
         if self.slots.len() > 2 * self.live + 8 {
-            let slots = std::mem::take(&mut self.slots);
-            self.buckets.clear();
-            self.live = 0;
-            for (d, k, v) in slots.into_iter().flatten() {
-                self.append(d, k, v);
-            }
+            self.rebuild();
         }
         Some(value)
     }
 
     /// The entries, in insertion order.
     pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> + '_ {
-        self.slots.iter().filter_map(|s| s.as_ref().map(|(_, k, v)| (k, v)))
+        self.slots.iter().flatten().map(|(k, v)| (k, v))
     }
 }
 
@@ -1986,9 +2180,11 @@ impl<K, V> Map<K, V> {
 impl<K: PartialEq, V: PartialEq> PartialEq for Map<K, V> {
     fn eq(&self, other: &Self) -> bool {
         self.live == other.live
-            && self.slots.iter().flatten().all(|(d, k, v)| {
-                other.buckets.get(d).is_some_and(|b| {
-                    b.iter().any(|&j| other.slots[j].as_ref().is_some_and(|(_, ok, ov)| ok == k && ov == v))
+            && self.slots.iter().zip(&self.digests).all(|(e, d)| {
+                e.as_ref().is_none_or(|(k, v)| {
+                    other
+                        .find_by(*d, |o| o == k)
+                        .is_some_and(|j| other.slots[j].as_ref().is_some_and(|(_, ov)| ov == v))
                 })
             })
     }
@@ -2047,7 +2243,7 @@ pub fn each_mut<K, V>(_map: &mut Map<K, V>) -> std::iter::Empty<&mut K> {
 }
 
 pub fn into_each<K, V>(map: Map<K, V>) -> std::vec::IntoIter<K> {
-    map.slots.into_iter().flatten().map(|(_, k, _)| k).collect::<Vec<K>>().into_iter()
+    map.slots.into_iter().flatten().map(|(k, _)| k).collect::<Vec<K>>().into_iter()
 }
 
 // A repeated key keeps the position of its first appearance and takes the
@@ -2083,7 +2279,7 @@ pub fn to_map<K: Clone, V: Clone>(pairs: &Vec<(K, V)>, hash: HashFn<K>, eq: EqFn
 
 pub fn get<'a, K, V>(map: &'a Map<K, V>, key: &K, hash: HashFn<K>, eq: EqFn<K>) -> Option<&'a V> {
     let i = map.find(key, hash, eq)?;
-    map.slots[i].as_ref().map(|(_, _, v)| v)
+    map.slots[i].as_ref().map(|(_, v)| v)
 }
 
 // The claim proved the key present [qual-depend].
@@ -2118,7 +2314,20 @@ pub fn keys<K: Clone, V>(map: &Map<K, V>) -> Vec<K> {
 
 // [linear-container] The values, owned, in insertion order.
 pub fn into_values<K, V>(map: Map<K, V>) -> Vec<V> {
-    map.slots.into_iter().flatten().map(|(_, _, v)| v).collect()
+    map.slots.into_iter().flatten().map(|(_, v)| v).collect()
+}
+
+// [col-map-entries] The slots, live or removed: what `entries` and `values` walk.
+pub fn slot_count<K, V>(map: &Map<K, V>) -> i32 {
+    map.slots.len() as i32
+}
+
+pub fn key_at<'a, K, V>(map: &'a Map<K, V>, at: i32) -> Option<&'a K> {
+    map.slots.get(at as usize)?.as_ref().map(|(k, _)| k)
+}
+
+pub fn value_at<'a, K, V>(map: &'a Map<K, V>, at: i32) -> &'a V {
+    map.slots[at as usize].as_ref().map(|(_, v)| v).expect("salvo: a removed map slot")
 }
 
 // ===== platform/core/set.rs =====
@@ -2129,19 +2338,21 @@ pub fn into_values<K, V>(map: Map<K, V>) -> Vec<V> {
 // [platform-fn-value]; the set keeps the elements and the digest each was
 // filed under, nothing else. `Mut Set` is the same type, passed as `&mut`.
 
-use std::collections::HashMap;
 use std::fmt;
 
 type HashFn<'a, T> = &'a mut dyn FnMut(&T) -> i64;
 type EqFn<'a, T> = &'a mut dyn FnMut(&T, &T) -> bool;
 
-/// Elements in first-insertion order (`None` where one was removed) with the
-/// digest each was filed under; `buckets` maps a digest to its slots. The
-/// cached digests let compaction and equality run without an identity.
+/// Elements in first-insertion order (`None` where one was removed), the
+/// digest each was filed under, and an open-addressing index over a
+/// power-of-two table holding `slot + 1` (0 is empty). A removed element's
+/// index entry stays until the next rebuild, which compacts the slots too.
+/// The cached digests let compaction and equality run without an identity.
 #[derive(Clone)]
 pub struct Set<T> {
-    slots: Vec<Option<(i64, T)>>,
-    buckets: HashMap<i64, Vec<usize>>,
+    slots: Vec<Option<T>>,
+    digests: Vec<i64>,
+    index: Vec<u32>,
     live: usize,
 }
 
@@ -2149,61 +2360,101 @@ pub type MutSet<T> = Set<T>;
 
 impl<T> Set<T> {
     fn new() -> Self {
-        Set { slots: Vec::new(), buckets: HashMap::new(), live: 0 }
+        Set { slots: Vec::new(), digests: Vec::new(), index: vec![0; 16], live: 0 }
+    }
+
+    fn home(&self, digest: i64) -> usize {
+        let d = digest as u64;
+        let h = d ^ (d >> 29) ^ (d >> 47);
+        (h as usize) & (self.index.len() - 1)
+    }
+
+    fn find_by(&self, digest: i64, mut same: impl FnMut(&T) -> bool) -> Option<usize> {
+        let mask = self.index.len() - 1;
+        let mut i = self.home(digest);
+        loop {
+            let at = self.index[i];
+            if at == 0 {
+                return None;
+            }
+            let s = (at - 1) as usize;
+            if self.digests[s] == digest {
+                if let Some(e) = &self.slots[s] {
+                    if same(e) {
+                        return Some(s);
+                    }
+                }
+            }
+            i = (i + 1) & mask;
+        }
     }
 
     fn find(&self, elem: &T, hash: HashFn<T>, eq: EqFn<T>) -> Option<usize> {
-        let bucket = self.buckets.get(&hash(elem))?;
-        bucket
-            .iter()
-            .copied()
-            .find(|&i| self.slots[i].as_ref().is_some_and(|(_, e)| eq(e, elem)))
+        let digest = hash(elem);
+        self.find_by(digest, |e| eq(e, elem))
+    }
+
+    fn place(&mut self, s: usize) {
+        let mask = self.index.len() - 1;
+        let mut i = self.home(self.digests[s]);
+        while self.index[i] != 0 {
+            i = (i + 1) & mask;
+        }
+        self.index[i] = (s + 1) as u32;
+    }
+
+    /// Compacts the slots and re-files every element in a table sized for them.
+    fn rebuild(&mut self) {
+        let slots = std::mem::take(&mut self.slots);
+        let digests = std::mem::take(&mut self.digests);
+        for (e, d) in slots.into_iter().zip(digests) {
+            if let Some(e) = e {
+                self.slots.push(Some(e));
+                self.digests.push(d);
+            }
+        }
+        let mut cap = 16;
+        while cap * 3 < (self.slots.len() + 1) * 8 {
+            cap *= 2;
+        }
+        self.index = vec![0; cap];
+        for s in 0..self.slots.len() {
+            self.place(s);
+        }
     }
 
     fn append(&mut self, digest: i64, elem: T) {
-        self.slots.push(Some((digest, elem)));
-        self.buckets.entry(digest).or_default().push(self.slots.len() - 1);
+        if (self.slots.len() + 1) * 4 > self.index.len() * 3 {
+            self.rebuild();
+        }
+        self.slots.push(Some(elem));
+        self.digests.push(digest);
         self.live += 1;
+        self.place(self.slots.len() - 1);
     }
 
     /// Adds `elem`, or overwrites an equal one in place: the last wins
     /// [col-duplicate-keys].
     fn put(&mut self, elem: T, hash: HashFn<T>, eq: EqFn<T>) {
-        match self.find(&elem, &mut *hash, eq) {
-            Some(i) => {
-                let digest = self.slots[i].as_ref().map(|(d, _)| *d).unwrap_or_default();
-                self.slots[i] = Some((digest, elem));
-            }
-            None => {
-                let digest = hash(&elem);
-                self.append(digest, elem);
-            }
+        let digest = hash(&elem);
+        match self.find_by(digest, |e| eq(e, &elem)) {
+            Some(i) => self.slots[i] = Some(elem),
+            None => self.append(digest, elem),
         }
     }
 
     fn remove_at(&mut self, i: usize) {
-        if let Some((digest, _)) = self.slots[i].take() {
-            if let Some(bucket) = self.buckets.get_mut(&digest) {
-                bucket.retain(|&j| j != i);
-                if bucket.is_empty() {
-                    self.buckets.remove(&digest);
-                }
-            }
+        if self.slots[i].take().is_some() {
             self.live -= 1;
         }
         if self.slots.len() > 2 * self.live + 8 {
-            let slots = std::mem::take(&mut self.slots);
-            self.buckets.clear();
-            self.live = 0;
-            for (digest, elem) in slots.into_iter().flatten() {
-                self.append(digest, elem);
-            }
+            self.rebuild();
         }
     }
 
     /// The elements, in insertion order.
     pub fn iter(&self) -> impl Iterator<Item = &T> + '_ {
-        self.slots.iter().filter_map(|s| s.as_ref().map(|(_, e)| e))
+        self.slots.iter().flatten()
     }
 }
 
@@ -2213,12 +2464,11 @@ impl<T> Set<T> {
 impl<T: PartialEq> PartialEq for Set<T> {
     fn eq(&self, other: &Self) -> bool {
         self.live == other.live
-            && self.slots.iter().flatten().all(|(d, e)| {
-                other
-                    .buckets
-                    .get(d)
-                    .is_some_and(|b| b.iter().any(|&j| other.slots[j].as_ref().is_some_and(|(_, o)| o == e)))
-            })
+            && self
+                .slots
+                .iter()
+                .zip(&self.digests)
+                .all(|(e, d)| e.as_ref().is_none_or(|e| other.find_by(*d, |o| o == e).is_some()))
     }
 }
 
@@ -2271,7 +2521,7 @@ pub fn each_mut<T>(_set: &mut Set<T>) -> std::iter::Empty<&mut T> {
 }
 
 pub fn into_each<T>(set: Set<T>) -> std::vec::IntoIter<T> {
-    set.slots.into_iter().flatten().map(|(_, e)| e).collect::<Vec<T>>().into_iter()
+    set.slots.into_iter().flatten().collect::<Vec<T>>().into_iter()
 }
 
 pub fn set_of<T>(elems: Vec<T>, hash: HashFn<T>, eq: EqFn<T>) -> Set<T> {
@@ -2303,10 +2553,10 @@ pub fn to_set<T: Clone>(list: &Vec<T>, hash: HashFn<T>, eq: EqFn<T>) -> Set<T> {
 }
 
 pub fn add<T>(set: &mut Set<T>, elem: T, hash: HashFn<T>, eq: EqFn<T>) -> bool {
-    if set.find(&elem, &mut *hash, eq).is_some() {
+    let digest = hash(&elem);
+    if set.find_by(digest, |e| eq(e, &elem)).is_some() {
         return false;
     }
-    let digest = hash(&elem);
     set.append(digest, elem);
     true
 }

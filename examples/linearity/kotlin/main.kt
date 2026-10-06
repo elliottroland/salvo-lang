@@ -8,7 +8,6 @@ import salvo.core.deque.mutDequeOf
 import salvo.core.deque.removeFirstPlatform
 import salvo.core.deque.sizePlatform
 import salvo.core.list.first
-import salvo.core.map.next
 import salvo.core.set.next
 import salvo.core.string.next
 

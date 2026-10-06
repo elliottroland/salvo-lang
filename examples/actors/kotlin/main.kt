@@ -13,7 +13,6 @@ import salvo.core.deque.mutDequeOf
 import salvo.core.deque.removeFirstPlatform
 import salvo.core.list.first
 import salvo.core.list.getPlatform
-import salvo.core.map.next
 import salvo.core.set.next
 import salvo.core.string.next
 import salvo.core.string.sizePlatform

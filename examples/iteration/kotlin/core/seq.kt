@@ -6,7 +6,6 @@ import salvo.core.iterator.Finished
 import salvo.core.iterator.emitted
 import salvo.core.iterator.finished
 import salvo.core.list.addPlatform
-import salvo.core.map.next
 import salvo.core.range.next
 import salvo.core.set.next
 import salvo.core.string.next

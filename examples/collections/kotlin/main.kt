@@ -18,13 +18,14 @@ import salvo.core.map.getPlatform
 import salvo.core.map.iter as iter__core_map
 import salvo.core.map.mapOfPlatform
 import salvo.core.map.mutMapOfPlatform
-import salvo.core.map.next as next__core_map
+import salvo.core.map.next__MapKeyYield
 import salvo.core.map.putPlatform
 import salvo.core.map.toMap
+import salvo.core.map.toStr as toStr__core_map
 import salvo.core.set.addPlatform as addPlatform__core_set
 import salvo.core.set.iter as iter__core_set
 import salvo.core.set.mutSetOfPlatform
-import salvo.core.set.next as next__core_set
+import salvo.core.set.next
 import salvo.core.set.setOfPlatform
 import salvo.core.set.sizePlatform as sizePlatform__core_set
 import salvo.core.set.toListPlatform
@@ -32,7 +33,7 @@ import salvo.core.set.toSetPlatform
 import salvo.core.set.toStr as toStr__core_set
 import salvo.core.sorted.minPlatform
 import salvo.core.sorted.mutSortedSetOfPlatform
-import salvo.core.sorted.toStr as toStr__core_sorted
+import salvo.core.sorted.toStr__SortedSet
 import salvo.core.string.sizePlatform as sizePlatform__core_string
 
 data class Point(
@@ -75,7 +76,7 @@ fun main() {
     val ages = mapOfPlatform(arrayOf(Pair("ada", 36), Pair("grace", 45)), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
     println(console, "1. list ${toStr__core_list(primes, { __i0 -> (__i0).toString() })}")
     println(console, "1. set ${toStr__core_set(vowels, { __i0 -> __i0 })} of ${sizePlatform__core_set(vowels)}")
-    println(console, "1. map ${ages.toString()}")
+    println(console, "1. map ${toStr__core_map(ages, { __i0 -> __i0 }, { __i0 -> (__i0).toString() }, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })}")
     val note: Note = Note(text = "still a struct literal")
     println(console, "1. struct ${note.text}")
     val seen: salvo.platform.core.set.MutSet<String> = mutSetOfPlatform(arrayOf(), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
@@ -84,9 +85,9 @@ fun main() {
     val tally: salvo.platform.core.map.MutMap<String, Int> = mutMapOfPlatform(arrayOf(Pair("pear", 1), Pair("apple", 2)), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
     putPlatform(tally, "fig", 3, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
     putPlatform(tally, "pear", 99, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
-    println(console, "2. insertion order kept ${tally.toString()}")
+    println(console, "2. insertion order kept ${toStr__core_map(tally, { __i0 -> __i0 }, { __i0 -> (__i0).toString() }, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })}")
     val ranked: salvo.platform.core.sorted.MutSortedSet<String> = mutSortedSetOfPlatform(arrayOf("pear", "apple", "fig"), { __i0, __i1 -> salvo.__salvoCompare(__i0, __i1) })
-    println(console, "2. key order ${toStr__core_sorted(ranked, { __i0 -> __i0 })}")
+    println(console, "2. key order ${toStr__SortedSet(ranked, { __i0 -> __i0 })}")
     val smallest = minPlatform(ranked)
     if (smallest != null) {
         println(console, "2. min is cheap here $smallest")
@@ -117,7 +118,7 @@ fun main() {
     println(console, "5. to_set ${toStr__core_set(deduped, { __i0 -> (__i0).toString() })}")
     val words = listOf<String>("alpha", "be")
     val lengths = toMap(words, { w -> Pair(w, sizePlatform__core_string(w)) }, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
-    println(console, "5. to_map with a rule ${lengths.toString()}")
+    println(console, "5. to_map with a rule ${toStr__core_map(lengths, { __i0 -> __i0 }, { __i0 -> (__i0).toString() }, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })}")
     val filled = listOf<String>("ada", "grace")
     println(console, "6. first is ${first(filled)}, no optional")
     val growing: salvo.platform.core.list.MutList<Int> = mutableListOf<Int>()
@@ -145,7 +146,7 @@ fun main() {
     println(console, "6. distinct ${toStr__core_list(unique, { __i0 -> (__i0).toString() })} of ${countUnique(unique)}")
     var __loop1_pass = iter__core_set(vowels)
     while (true) {
-        val __loop1_step = next__core_set(__loop1_pass)
+        val __loop1_step = next(__loop1_pass)
         if (__loop1_step !is Union2.U1<*, *>) { break }
         val v = __loop1_step.value as String
         console.print(v)
@@ -153,7 +154,7 @@ fun main() {
     println(console, "")
     var __loop2_pass = iter__core_map(ages)
     while (true) {
-        val __loop2_step = next__core_map(__loop2_pass)
+        val __loop2_step = next__MapKeyYield(__loop2_pass)
         if (__loop2_step !is Union2.U1<*, *>) { break }
         val name = __loop2_step.value as String
         val age = getPlatform(ages, name, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })

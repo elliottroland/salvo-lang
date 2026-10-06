@@ -16,7 +16,6 @@ import salvo.core.list.at
 import salvo.core.list.getPlatform as getPlatform__core_list
 import salvo.core.list.removeAtPlatform
 import salvo.core.list.sizePlatform as sizePlatform__core_list
-import salvo.core.map.next
 import salvo.core.range.next
 import salvo.core.set.next
 import salvo.core.sorted.max

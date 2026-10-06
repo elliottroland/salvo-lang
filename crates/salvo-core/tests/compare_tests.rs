@@ -948,10 +948,11 @@ fn probe(x: Int, y: Int) [] -> Bool => x, y {
     assert!(errs.is_empty(), "unexpected errors: {errs:?}");
 }
 
-/// …while a name clash at two *different* types stays an error: nothing tells
-/// those two apart, and the message names both types and the remedy.
+/// [implicit-same-name] …while two of one name at *different* types are two
+/// parameters (user decision 2026-09-28), and a call whose arguments fit both
+/// is the ambiguity, naming both types.
 #[test]
-fn a_clash_at_two_types_is_still_an_error() {
+fn a_call_fitting_two_same_named_implicits_is_ambiguous() {
     let errs = errors(
         r#"
 params Weird<T> {
@@ -964,9 +965,8 @@ fn probe<T>(a: T, b: T, ?Eq<T>, ?Weird<T>) [] -> Bool => a, b {
 "#,
     );
     assert!(
-        errs.iter()
-            .any(|e| e.contains("two different types") && e.contains("distinct names")),
-        "expected the clash to be reported: {errs:?}"
+        errs.iter().any(|e| e.contains("more than one implicit of that name") && e.contains("[implicit-same-name]")),
+        "expected the ambiguity to be reported: {errs:?}"
     );
 }
 

@@ -81,6 +81,21 @@ export fn to_str<T>(set: Set<T>, ?to_str: (x: T) -> Str) [] -> Str => set {
 }
 
 
+// [op-equality] Two sets are equal when they hold the same elements, in any
+// order: what `a == b` resolves to. The identity is the type's, so both sides
+// are looked up the same way.
+export fn eq<T>(a: Set<T>(?hash, ?eq), b: Set<T>(?hash, ?eq)) [] -> Bool => a, b {
+    if size(a) != size(b) {
+        return false
+    }
+    for x in a {
+        if !contains(b, x) {
+            return false
+        }
+    }
+    return true
+}
+
 // [col-distinct] The claim that a list holds no duplicates. Mint-only: there
 // is no `qualifies`, because deciding it needs the elements compared, which
 // only a backend can do over an unconstrained `T` — so it is established by

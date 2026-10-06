@@ -200,23 +200,14 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
      `to_str` at `Box<A>`.
 7. ✅ **The keyed collections, one representation per backend, identity
    per call** (user decisions and build 2026-10-06, COMPLETED.md; the
-   "written in Salvo" plan was dropped by the user for this). Left:
-   - **A canonical fast path, after a benchmark**: a std benchmark of
-     lookups on a `Set<Int>` and a `Map<Str, Int>` on both backends, then
-     host entry points the emitter calls when the checker resolved the
-     identity to the *intrinsic* canonical fns (Kotlin's boxing of the
-     `Long` digest is the expected cost; on Rust, try `impl FnMut` host
-     signatures before a second entry point). Must compute exactly what the
-     canonical fns compute, since one set is reached through both paths.
-   - The two maps' `to_str` are still intrinsics over the host's
-     `toString`/`Display` (`to_str(map, ?to_str: (K) -> Str, ?to_str: (V) ->
-     Str)` in Salvo is the build: two implicits of one name were decided
-     legal, 2026-09-28).
-   - `==` on a set or map has no Salvo `eq`; a struct holding one compares
-     by the host classes' order-blind equality (step 8's host-equality rule).
-   - The recorded **`entries`/`values` iterators over a Map**.
+   "written in Salvo" plan was dropped by the user for this; leftovers
+   closed the same day). Left:
+   - **A `==` on a struct holding a set or map** still compares by the host
+     classes' order-blind equality (step 8's host-equality rule).
    - Until step 9, `Set`/`Map` stay `noremote`; their codec is the entries,
      never the slab (hash values differ by backend).
+   - The typed override of a same-named implicit (`to_str: (V) -> Str = f`,
+     decided 2026-09-28) is refused with a message, not built.
 8. **Recursive implicits (§6), then the host-equality rule.** List and tuple
    `cmp`/`eq`/`hash`/`to_str` written in Salvo (§2c's obligation clauses, on
    platform types rather than intrinsic types); deleted with them: the

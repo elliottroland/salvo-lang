@@ -14,7 +14,6 @@ import salvo.core.list.getPlatform
 import salvo.core.list.iter as iter__core_list
 import salvo.core.list.next__ListYield
 import salvo.core.list.sizePlatform as sizePlatform__core_list
-import salvo.core.map.next
 import salvo.core.range.next
 import salvo.core.range.next as next__core_range
 import salvo.core.range.range__Int_Int_Int

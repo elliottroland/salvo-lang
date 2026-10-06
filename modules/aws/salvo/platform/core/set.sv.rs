@@ -65,6 +65,18 @@ pub fn to_str<T: Clone>(set: &Set<T>, to_str: &mut dyn FnMut(&T) -> String) -> S
     return out;
 }
 
+pub fn eq<T: Clone>(a: &Set<T>, b: &Set<T>, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> bool {
+    if size_platform(a) != size_platform(b) {
+        return false;
+    }
+    for mut x in crate::platform_core_set::each(a).map(|__x| __x.clone()) {
+        if !contains_platform::<T>(b, &x, &mut *hash, &mut *eq) {
+            return false;
+        }
+    }
+    return true;
+}
+
 pub fn to_list_platform<T: Clone>(set: &Set<T>) -> Vec<T> {
     crate::platform_core_set::to_list(set)
 }

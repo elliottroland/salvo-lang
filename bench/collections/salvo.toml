@@ -1,0 +1,7 @@
+[project]
+name = "collections_bench"
+version = "0.1.0"
+
+[build]
+src = "salvo"
+backend = "*"
