@@ -40,11 +40,11 @@ pub struct HostTcpTransport {
     bind: NodeEndpoint,
     /// Outbound connections, one per peer, each behind its own lock so two
     /// pools delivering to two peers never wait on each other.
-    peers: Mutex<HashMap<NodeEndpoint, Arc<Mutex<TcpStream>>>>,
+    peers: Mutex<HashMap<(String, i32), Arc<Mutex<TcpStream>>>>,
     /// Inbound listeners by endpoint: the sink each acceptor forwards to,
     /// shared with the acceptor so `listen` twice replaces the sink and
     /// `unlisten` stops the acceptor at its next accept.
-    listening: Mutex<HashMap<NodeEndpoint, Arc<Mutex<Option<usize>>>>>,
+    listening: Mutex<HashMap<(String, i32), Arc<Mutex<Option<usize>>>>>,
 }
 
 impl HostTcpTransport {
@@ -134,7 +134,7 @@ impl HostTcpTransport {
 impl crate::net::TransportPlatformSync for HostTcpTransport {
     fn listen(&self, at: &NodeEndpoint, sink: usize) -> Union2<(), Union2<Unreachable, WireFailed>> {
         let mut listening = self.listening.lock().unwrap();
-        if let Some(slot) = listening.get(at) {
+        if let Some(slot) = listening.get(&(at.host.clone(), at.port)) {
             // A second `listen` at the same endpoint replaces the sink; the
             // acceptor already running keeps forwarding, now to the new one.
             *slot.lock().unwrap() = Some(sink);
@@ -145,7 +145,7 @@ impl crate::net::TransportPlatformSync for HostTcpTransport {
             Err(e) => return Self::wire_failed(at, e.to_string()),
         };
         let slot = Arc::new(Mutex::new(Some(sink)));
-        listening.insert(at.clone(), slot.clone());
+        listening.insert((at.host.clone(), at.port), slot.clone());
         // An open listener is a source of work the scheduler cannot see, so
         // it must not declare the program idle or deadlocked while one is
         // open: tell it [threadsafe-platform] [actor-on-idle].
@@ -164,7 +164,7 @@ impl crate::net::TransportPlatformSync for HostTcpTransport {
     }
 
     fn unlisten(&self, at: &NodeEndpoint) {
-        if let Some(slot) = self.listening.lock().unwrap().remove(at) {
+        if let Some(slot) = self.listening.lock().unwrap().remove(&(at.host.clone(), at.port)) {
             *slot.lock().unwrap() = None;
             // Wake the acceptor so it sees the cleared slot and exits.
             let _ = TcpStream::connect(Self::addr_of(at));
@@ -175,7 +175,7 @@ impl crate::net::TransportPlatformSync for HostTcpTransport {
     fn deliver(&self, to: &NodeEndpoint, frame: Vec<u8>) -> Union2<(), Union2<Unreachable, WireFailed>> {
         let conn = {
             let mut peers = self.peers.lock().unwrap();
-            match peers.get(to) {
+            match peers.get(&(to.host.clone(), to.port)) {
                 Some(c) => c.clone(),
                 None => {
                     let mut stream = match TcpStream::connect(Self::addr_of(to)) {
@@ -186,7 +186,7 @@ impl crate::net::TransportPlatformSync for HostTcpTransport {
                         return Self::wire_failed(to, e.to_string());
                     }
                     let c = Arc::new(Mutex::new(stream));
-                    peers.insert(to.clone(), c.clone());
+                    peers.insert((to.host.clone(), to.port), c.clone());
                     c
                 }
             }
@@ -196,7 +196,7 @@ impl crate::net::TransportPlatformSync for HostTcpTransport {
             Ok(()) => Union2::U1(()),
             Err(e) => {
                 // A failed connection is dropped; the next `deliver` reconnects.
-                self.peers.lock().unwrap().remove(to);
+                self.peers.lock().unwrap().remove(&(to.host.clone(), to.port));
                 Self::wire_failed(to, e.to_string())
             }
         }

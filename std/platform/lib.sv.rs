@@ -17,6 +17,8 @@ pub mod hosttime;
 pub mod wire;
 #[path = "core/actor.sv.rs"]
 pub mod core_actor;
+#[path = "core/basic.sv.rs"]
+pub mod core_basic;
 #[path = "core/buffer.sv.rs"]
 pub mod core_buffer;
 #[path = "core/bytes.sv.rs"]

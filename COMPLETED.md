@@ -141,6 +141,36 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Shrinking the backends, step 8: recursive implicit resolution, and
+`List`/tuple identities in Salvo (2026-10-06, ROADMAP §0j; the decisions of
+§6, 2026-09-28).**
+- **Resolution** [implicit-recursive]: `resolve_implicit_fn_at` no longer
+  skips a candidate with implicits of its own. Once it fits by its explicit
+  parameters, `try_nested` fills its implicits in turn (the candidate's
+  generics bound as the fit bound them), capturing diagnostics so a candidate
+  that cannot be filled is a near miss and another may win (decision 1);
+  depth cap 8 and a cycle refusal (decision 2). `fill_implicits` was split
+  into `fill_implicit_list`, which returns the fills.
+- **Emission**: `ImplicitArg::Resolved` gained `nested`; `reach` follows it;
+  Rust's `emit_implicit_args` became `emit_implicit_list(filled, callee_key)`
+  and an adapter appends the nested fills after the fn's explicit arguments
+  (`forwarded_implicit_for` takes the callee's key); Kotlin's adapter is a
+  lambda when there are nested fills, `::f` otherwise.
+- **In Salvo** (`core.compare`, `core.basic`): `eq`/`cmp`/`hash` for `List<T>`
+  (element by element, lexicographic) and for pairs and triples (one implicit
+  per part, of one name [implicit-same-name]), and `to_str` for tuples. A
+  `List<Person>` now compares by `Person`'s *declared* `eq`.
+- **Deleted**: the six interim intrinsic declarations and both backends'
+  lowerings; Rust's `Eq`/`Hash`/`Ord` derives with `struct_derivable`,
+  `type_derivable` and `struct_has_capability`; Kotlin's [kt-float-eq]
+  override, the `SalvoTuple` interface and the structural half of
+  `compare.kt` (what is left is the code-point string compare).
+- **Fell out**: std's TCP transport host file keyed its tables by `NodeEndpoint`
+  through Rust's derived `Hash`/`Eq`; it keys by `(host, port)` now — the
+  one place host code hashed a Salvo struct.
+- Tests: the two derive/tuple-class assertions rewritten; the std suite and
+  the full suite are green. **1708 tests.**
+
 **Step 7's leftovers (2026-10-06).**
 - **Two implicits of one name at different types** [implicit-same-name], the
   2026-09-28 decision, built: `ImplicitParam::local` (`to_str`, `to_str__1`),

@@ -246,11 +246,18 @@ pub fn resolved_fn_keys(checked: &crate::check::Checked, file_idx: usize) -> Has
     }
     // [implicit-resolve] What fills an implicit position — `?cmp`, `?hash`,
     // a group's `next` — is a function the emitted call hands over.
+    fn walk(arg: &crate::check::ImplicitArg, out: &mut HashSet<crate::FnKey>) {
+        if let crate::check::ImplicitArg::Resolved { key, nested, .. } = arg {
+            out.insert(*key);
+            // [implicit-recursive] …and what fills its own implicits.
+            for n in nested {
+                walk(n, out);
+            }
+        }
+    }
     for (_, args) in checked.implicit_args.iter().filter(|(k, _)| mine(k)) {
         for arg in args {
-            if let crate::check::ImplicitArg::Resolved { key, .. } = arg {
-                out.insert(*key);
-            }
+            walk(arg, &mut out);
         }
     }
     // [cmp-groups] An operator names nothing: `a < b` resolves to a `cmp`.

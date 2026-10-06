@@ -162,23 +162,6 @@ pub fn fn_call(
              (std::hash::Hasher::finish(&__h) as i64) }}",
             a(0)
         ),
-        // [col-hashed-ordered] **Interim**: a `List` or a tuple compares, hashes
-        // and orders through the host's structural implementations, which
-        // reach an element struct's derive (kept for exactly this, see
-        // `emit_struct`) rather than its Salvo fn. Until std owns container
-        // identity through recursive implicit resolution (ROADMAP §2c and
-        // §6), so an element's *declared* `cmp` is not consulted inside
-        // a list — the limitation §6 records.
-        ("cmp", Some("List" | "()")) => {
-            format!("(Ord::cmp(&({}), &({})) as i32)", a(0), a(1))
-        }
-        ("eq", Some("List" | "()")) => format!("(({}) == ({}))", a(0), a(1)),
-        ("hash", Some("List" | "()")) => format!(
-            "{{ let mut __h = std::hash::DefaultHasher::new(); \
-             std::hash::Hash::hash(&({}), &mut __h); \
-             (std::hash::Hasher::finish(&__h) as i64) }}",
-            a(0)
-        ),
         // [op-bits] Rust's operators for the three bitwise folds and `!`; the
         // shifts go through `wrapping_shl`/`wrapping_shr`, which take the
         // count modulo the width as the JVM does (a plain `<<` panics in a

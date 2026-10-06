@@ -208,12 +208,27 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
      never the slab (hash values differ by backend).
    - The typed override of a same-named implicit (`to_str: (V) -> Str = f`,
      decided 2026-09-28) is refused with a message, not built.
-8. **Recursive implicits (§6), then the host-equality rule.** List and tuple
-   `cmp`/`eq`/`hash`/`to_str` written in Salvo (§2c's obligation clauses, on
-   platform types rather than intrinsic types); deleted with them: the
-   interim intrinsics in `core.compare`, Rust's `struct_derivable` and its
-   `Hash`/`Eq`/`Ord` derives, Kotlin's [kt-float-eq] override and the
-   structural part of `compare.kt`.
+8. ✅/partial **Recursive implicits (§6), then the host-equality rule**
+   (2026-10-06, COMPLETED.md): resolution and emission are recursive
+   [implicit-recursive]; `List` and tuple `eq`/`cmp`/`hash`/`to_str` are
+   Salvo; deleted: the interim intrinsics and both backends' lowerings, Rust's
+   `Eq`/`Hash`/`Ord` derives and their helpers, Kotlin's [kt-float-eq]
+   override, `SalvoTuple` and the structural half of `compare.kt`. Left:
+   - **The carried identity as a tree** (decision 3): a `Set<List<Person>>`
+     still records the flat `hash@List`, and the element's `hash` is resolved
+     where the set is used; the type does not print or compare the levels.
+   - **The typed override** of a same-named implicit (`to_str: (V) -> Str =
+     f`), refused with a message.
+   - **`with` pairing propagating** (decision 4) through a nested fill.
+   - **Host equality that remains**: Rust still derives `PartialEq`/`Debug`
+     on structs and unions (host code and generated `==` on primitives use
+     them), Kotlin's data classes keep `equals`/`hashCode`, and the host
+     `Set`/`Map` classes implement order-blind `equals` for the structs that
+     hold them. Removing those needs every host-side comparison to go
+     through a Salvo fn first.
+   - Waiting on it and now unblocked: `Checked<T>`'s `to_str`
+     [checked-type], `expect_eq` on a generic container, property testing's
+     `?generate`, `json` over container fields.
 9. **Wire codecs in Salvo.** `encode`/`decode` (`std/codec.sv`,
    `runtime/routing.sv`) as comptime fns over fields and arms, the `by auto`
    way, on a byte-level platform surface over `Bytes` (write/read `Int`,

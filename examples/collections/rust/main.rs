@@ -7,6 +7,8 @@ pub mod seq;
 pub mod hosttime;
 #[path = "wire.rs"]
 pub mod wire;
+#[path = "core/basic.rs"]
+pub mod core_basic;
 #[path = "core/checked.rs"]
 pub mod core_checked;
 #[path = "core/compare.rs"]
@@ -66,7 +68,7 @@ use crate::core_set::to_str as to_str__core_set;
 use crate::core_sorted::SortedSet;
 use crate::core_sorted::to_str__SortedSet;
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Point {
     pub x: i32,
     pub y: i32,

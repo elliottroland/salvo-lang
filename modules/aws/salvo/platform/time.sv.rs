@@ -10,7 +10,7 @@ use crate::runtime::__Stateful_SchedTable as _;
 use crate::runtime::__Stateless_RuntimeHost as _;
 use crate::runtime::__Stateless_SchedTable as _;
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Instant {
     pub nanos: i64,
 }

@@ -9,6 +9,8 @@ pub mod hosttime;
 pub mod wire;
 #[path = "core/array.rs"]
 pub mod core_array;
+#[path = "core/basic.rs"]
+pub mod core_basic;
 #[path = "core/checked.rs"]
 pub mod core_checked;
 #[path = "core/compare.rs"]

@@ -7954,7 +7954,7 @@ fn kotlinc_compiles_and_runs_tuples_past_three() -> KotlinCase {
 /// the `v3`/`v4` component names past `Pair`'s three [kt-tuple-component], and
 /// a generated `tuples.kt` whose class is a `data class` (structural equality
 /// and `componentN`, so a `Set` element and a destructuring both work)
-/// implementing `SalvoTuple` (which is how `__salvoCompare` orders it).
+/// carrying nothing more: its `eq`/`cmp`/`hash` are Salvo's.
 #[test]
 fn tuples_past_three_emit_a_generated_class() {
     let program = build_program(&[("main.sv", BIG_TUPLE_DEMO)]);
@@ -7986,7 +7986,7 @@ fn tuples_past_three_emit_a_generated_class() {
         .expect("tuples/Tuple5.kt is emitted for a program that names a big tuple");
     assert!(
         tuples.content.contains("data class Tuple5<")
-            && tuples.content.contains(") : SalvoTuple {")
+            && !tuples.content.contains("SalvoTuple")
             && tuples.content.contains("val v3: T4"),
         "the generated tuple class is wrong:\n{}",
         tuples.content

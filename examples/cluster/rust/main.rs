@@ -13,6 +13,8 @@ pub mod wire;
 pub mod core_actor;
 #[path = "core/array.rs"]
 pub mod core_array;
+#[path = "core/basic.rs"]
+pub mod core_basic;
 #[path = "core/buffer.rs"]
 pub mod core_buffer;
 #[path = "core/bytes.rs"]

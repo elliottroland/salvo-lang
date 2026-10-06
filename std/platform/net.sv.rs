@@ -16,7 +16,7 @@ use crate::runtime_routing::__Stateful_RouteTable as _;
 use crate::runtime_routing::__Stateless_RouteTable as _;
 use crate::runtime_routing::deliver;
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct NodeEndpoint {
     pub host: String,
     pub port: i32,

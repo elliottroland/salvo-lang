@@ -2706,61 +2706,6 @@ impl<'p> Emitter<'p> {
 
     // ================= declarations =================
 
-    /// [col-hashed-ordered] Whether a `member` (`hash`, `cmp`) is declared on
-    /// the struct: written inside its body or stamped (`scoped_to`), or a
-    /// fulfilment in the struct's file whose first parameter names it.
-    fn struct_has_capability(&self, s: &StructDecl, member: &str) -> bool {
-        self.program.modules.iter().flat_map(|m| &m.items).any(|item| {
-            let Item::Fn(f) = item else { return false };
-            if f.name.name != member {
-                return false;
-            }
-            if f.scoped_to.as_ref().is_some_and(|t| t.name == s.name.name) {
-                return true;
-            }
-            f.params
-                .first()
-                .is_some_and(|p| matches!(&p.ty, Type::Named { base, .. } if base.name.name == s.name.name))
-        })
-    }
-
-    /// Whether every field of `s` has a host `Hash`/`Ord` derive to stand on:
-    /// the scalars but the floats, `Str`, containers and tuples of derivable
-    /// types, and structs that are themselves derivable.
-    fn struct_derivable(&self, s: &StructDecl, depth: usize) -> bool {
-        if depth > 8 || !s.generics.is_empty() {
-            return false;
-        }
-        s.fields.iter().all(|f| self.type_derivable(&f.ty, depth))
-    }
-
-    fn type_derivable(&self, ty: &Type, depth: usize) -> bool {
-        match ty {
-            Type::Literal { .. } => true,
-            Type::Named { base, .. } => match base.name.name.as_str() {
-                "Int" | "Long" | "Byte" | "Char" | "Bool" | "Str" | "None" => true,
-                name if self
-                    .symbols
-                    .intrinsic_types
-                    .get(name)
-                    .is_some_and(|t| t.platform && !t.linear && t.auto_qualifiers.iter().any(|q| q.name.name == "Mut")) =>
-                {
-                    true
-                }
-                "List" | "Set" | "Map" => base.args.iter().all(|a| self.type_derivable(a, depth + 1)),
-                name => self.symbols.structs.get(name).is_some_and(|inner| {
-                    (self.struct_has_capability(inner, "hash")
-                        || self.struct_has_capability(inner, "cmp"))
-                        && self.struct_derivable(inner, depth + 1)
-                }),
-            },
-            Type::Tuple { elems, .. } => elems.iter().all(|e| self.type_derivable(e, depth + 1)),
-            Type::Array { elem, .. } => self.type_derivable(elem, depth + 1),
-            Type::QualifiedGroup { base, .. } => self.type_derivable(base, depth),
-            Type::Union { .. } | Type::Nullable { .. } | Type::Fn { .. } => false,
-        }
-    }
-
     fn emit_struct(&mut self, s: &StructDecl) -> String {
         let saved = self.enter_generics(&s.generics);
         // [rs-lazy-adaptor] No `'static` on a struct's type parameters: a
@@ -2811,28 +2756,12 @@ impl<'p> Emitter<'p> {
         // stamped from `core.auto` or hand-written [obligation-by] — and are
         // never these derives.
         //
-        // [col-hashed-ordered] The derives are still asked for where a struct
-        // *has* a `hash` or `cmp` and every field derives: a `List<Point>` or a
-        // `(Int, Point)` as a **key** hashes and orders through the host's
-        // structural `Vec`/tuple implementations, which reach the element's
-        // derive rather than its Salvo fn. Interim until std owns container
-        // identity through recursive implicit resolution (ROADMAP §2c and
-        // §6); the host's structural order agrees with the stamped
-        // one by construction (both are field-wise in declaration order).
-        let hashed = self.struct_has_capability(s, "hash") && self.struct_derivable(s, 0);
-        let ordered = self.struct_has_capability(s, "cmp") && self.struct_derivable(s, 0);
+        // [col-hashed-ordered] Nothing asks for `Eq`, `Hash` or `Ord`: a
+        // `List<Point>` or `(Int, Point)` key compares, hashes and orders
+        // through Salvo's own `eq`/`hash`/`cmp` for lists and tuples, which
+        // reach the element's Salvo fn (ROADMAP §0j step 8).
         let derives = if fn_fields.is_empty() {
-            let mut items = vec!["Clone", "Debug", "PartialEq"];
-            if hashed || ordered {
-                items.push("Eq");
-            }
-            if hashed {
-                items.push("Hash");
-            }
-            if ordered {
-                items.push("PartialOrd");
-                items.push("Ord");
-            }
+            let items = vec!["Clone", "Debug", "PartialEq"];
             format!("#[derive({})]", items.join(", "))
         } else if no_clone {
             String::new()
@@ -7397,12 +7326,10 @@ impl<'p> Emitter<'p> {
     /// [backend-never-wrong] violation, found 2026-09-22 while making the heap
     /// demo run, and the same disagreement [rs-fn-param-convention] records for
     /// a *lambda* argument, one level further out.
-    fn forwarded_implicit(&mut self, name: &str, span: salvo_syntax::Span) -> String {
+    fn forwarded_implicit_for(&mut self, name: &str, callee: Option<salvo_core::FnKey>) -> String {
         let local = rs_ident(name);
-        let want = self
-            .checked
-            .call_fn
-            .get(&(self.file_idx, span))
+        let want = callee
+            .as_ref()
             .and_then(|k| self.checked.implicit_params.get(k))
             .and_then(|ps| ps.iter().find(|p| p.name == name))
             .map(|p| p.ty.clone());
@@ -16366,23 +16293,29 @@ impl<'p> Emitter<'p> {
             Some(filled) => filled.clone(),
             None => return Vec::new(),
         };
+        let callee_key = self.checked.call_fn.get(&(self.file_idx, span)).copied();
+        self.emit_implicit_list(&filled, callee_key, named, span)
+    }
+
+    /// [implicit-resolve] [implicit-recursive] The rendered fills of one
+    /// callee's implicit positions: a call's own, or (recursively) those of a
+    /// fn an adapter calls.
+    fn emit_implicit_list(
+        &mut self,
+        filled: &[salvo_core::ImplicitArg],
+        callee_key: Option<salvo_core::FnKey>,
+        named: &[NamedArg],
+        span: Span,
+    ) -> Vec<String> {
         // The callee whose implicit positions these fill, for shape checks.
-        let callee_decl: Option<&'p FnDecl> = self
-            .checked
-            .call_fn
-            .get(&(self.file_idx, span))
-            .and_then(|key| self.fn_by_key(*key));
+        let callee_decl: Option<&'p FnDecl> = callee_key.and_then(|key| self.fn_by_key(key));
         let mut out = Vec::new();
         // [rs-iter-pass] An iterator fn's implicits arrive **owned** and
         // `'static` like its written callbacks, so the adapter is a `move`
         // closure rather than a `&mut` borrow of one: the pass calls it long
         // after this call returns.
         let producer = self.emitting_producer_args
-            || self
-                .checked
-                .call_fn
-                .get(&(self.file_idx, span))
-                .is_some_and(|k| self.owns_callbacks(*k));
+            || callee_key.is_some_and(|k| self.owns_callbacks(k));
         // [implicit-param] How the *position* hands each parameter over: a
         // kept-`Mut` one arrives as `&mut T` already (`fn_ty_param_renderings`),
         // so the adapter must not borrow it a second time — `next(&mut __i0)`
@@ -16390,10 +16323,8 @@ impl<'p> Emitter<'p> {
         // since that is what the adapter loop has.
         // `Some(false)` marks a *lent* position, handed over as `&T`
         // [rs-proj-lends]; `Some(true)` a kept-`Mut` one (`&mut T`).
-        let position_refmut: HashMap<String, Vec<Option<bool>>> = self
-            .checked
-            .call_fn
-            .get(&(self.file_idx, span))
+        let position_refmut: HashMap<String, Vec<Option<bool>>> = callee_key
+            .as_ref()
             .and_then(|k| self.checked.implicit_params.get(k))
             .map(|params| {
                 params
@@ -16426,7 +16357,7 @@ impl<'p> Emitter<'p> {
                     .collect()
             })
             .unwrap_or_default();
-        for arg in &filled {
+        for arg in filled {
             match arg {
                 salvo_core::ImplicitArg::Given { name, arity } => {
                     match named.iter().find(|a| a.name.name == *name) {
@@ -16451,10 +16382,10 @@ impl<'p> Emitter<'p> {
                         };
                         out.push(format!("{held}.clone()"));
                     } else {
-                        out.push(self.forwarded_implicit(name, span));
+                        out.push(self.forwarded_implicit_for(name, callee_key));
                     }
                 }
-                salvo_core::ImplicitArg::Resolved { name, key, want } => {
+                salvo_core::ImplicitArg::Resolved { name, key, nested, want } => {
                     match self.fn_by_key(*key) {
                         Some(decl) => {
                             let fixed: Vec<&Param> =
@@ -16468,10 +16399,8 @@ impl<'p> Emitter<'p> {
                             // fn owns its parameter: the adapter clones it out —
                             // the copy the Salvo body wrote as `copy(x)`, landing
                             // here instead of in the identity `copy` adapter.
-                            let retagged_positions: Vec<bool> = self
-                                .checked
-                                .call_fn
-                                .get(&(self.file_idx, span))
+                            let retagged_positions: Vec<bool> = callee_key
+                                .as_ref()
                                 .and_then(|k| self.checked.implicit_params.get(k))
                                 .and_then(|ps| ps.iter().find(|p| p.name == *name))
                                 .map(|p| match p.ty.strip_quals() {
@@ -16630,6 +16559,13 @@ impl<'p> Emitter<'p> {
                                     })
                                     .collect();
                                 self.loc_adapter = saved_loc_adapter;
+                                // [implicit-recursive] The resolved fn's own
+                                // implicits, filled in turn, follow its
+                                // explicit arguments.
+                                let mut args = args;
+                                if !nested.is_empty() {
+                                    args.extend(self.emit_implicit_list(nested, Some(*key), &[], span));
+                                }
                                 let call = format!("{target}({})", args.join(", "));
                                 // [copy-scalar-free] A pass that walks data
                                 // emits `&T`; when the position wants a

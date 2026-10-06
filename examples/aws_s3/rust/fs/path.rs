@@ -4,7 +4,7 @@ use crate::core_compare::mix_hash;
 use crate::core_string::is_empty;
 use crate::core_string::split_last;
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Path {
     pub text: String,
 }

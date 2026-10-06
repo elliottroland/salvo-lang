@@ -281,27 +281,20 @@ Conventions:
   Finished` is a type test either way). Fixed 2026-09-07, when std's
   iterator protocol [iter-protocol] introduced the first one; before that,
   an empty struct emitted Kotlin that kotlinc rejected.
-* [kt-float-eq] A struct with a floating-point field **overrides** the data
-  class's `equals`, comparing each field with `==`.
-  * Kotlin's generated `equals` calls `Double.equals`, for which `NaN`
-    equals itself and `+0.0` differs from `-0.0`; Rust's derived
-    `PartialEq` is IEEE, the opposite on both counts. Salvo owns the
-    semantics [col-equality], and `==` on statically-`Double` operands is
-    IEEE, so comparing the fields that way makes the backends agree.
-  * `hashCode` is left to the data class: a float-bearing struct has no
-    `hash` (`core.auto`'s fails at the float field), so it never reaches a
-    hash table where the (NaN-only) inconsistency could be observed.
+* [kt-float-eq] (Deleted 2026-10-06, §0j step 8.) A struct with a
+  floating-point field used to **override** the data class's `equals` so that
+  `NaN` and signed zeros agreed with Rust's IEEE derive. Equality on a struct
+  is its Salvo `eq` and no code consults the host's, so the override is gone.
 * [kt-ordered] **A struct's `cmp` is a Salvo fn** — stamped by `: Ordered<self>
   by auto` [obligation-by] or written by hand — emitted as an ordinary Kotlin
   fn over its fields, so a data class no longer gains a generated
   `Comparable`/`compareTo` (comptime rounds, 2026-09-28; the `auto`-driven
   `compareTo` is deleted). What is left of the host's ordering is the runtime
   comparator, `salvo.__salvoCompare` (runtime file `compare.kt`, emitted only
-  when something needs it): the interim structural `cmp` over a `List` or a
-  tuple [col-hashed-ordered] and `cmp(Str, Str)` reach it, since neither
-  `List` nor `Pair` is `Comparable` on the JVM and `String.compareTo` is the
-  wrong order. It recurses through lists and tuples, compares strings by code
-  point, and defers to `Comparable` otherwise.
+  when something needs it): `cmp(Str, Str)` reaches it, since `String.compareTo`
+  is the wrong order (UTF-16 code units; Salvo's is code points). A `List`'s and
+  a tuple's `cmp` are Salvo (`core.compare`, 2026-10-06), and the generated
+  `TupleN` classes carry nothing for ordering.
 * [struct-spread] `P {...p, f: v}` emits as `p.copy(f = v)`. The shallow
   copy aliases `Mut` fields where Rust deep-clones, which is
   unobservable because the checker consumes the spread base

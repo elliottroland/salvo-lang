@@ -224,11 +224,8 @@ Conventions:
     2026-09-11): declaring `: ToStr<self>` does not enable interpolation —
     a `to_str` in scope does that — it validates at the declaration that
     one exists, which is where the mistake is easier to see.
-  * **Known limitation**: a nested list (`List<List<Int>>`) cannot be
-    interpolated, since its element's `to_str` itself takes an implicit and
-    `resolve_implicit_fn` skips such candidates: recursive implicit
-    resolution, ROADMAP 6. A generic `List<T>` prints where its fn takes a
-    `?to_str` for `T`.
+  * A nested list (`List<List<Int>>`) and a tuple interpolate: the element's
+    `to_str` itself takes an implicit, filled in turn [implicit-recursive].
 * [interp-struct] **A struct interpolates by opting in** (user decision
   2026-09-28, comptime round 1, replacing the 2026-09-11 default-on
   derivation): `struct Person : ToStr<self> by auto { … }` stamps the
@@ -1152,18 +1149,16 @@ Conventions:
     `Double`/`Float` have `eq` and neither `cmp` nor `hash` (Rust's `f64` is not
     `Eq`, `Hash` or `Ord`), so `: Eq<self> by auto` on a struct holding one
     works and `: Hashed<self> by auto` reports the field; a nested struct must
-    have its own; a **`List` or a tuple** resolves the structural host identity
-    `core.compare` declares for it — **interim** (2026-09-28): the host compares
-    the container's elements structurally, so an element struct's *own* `cmp`
-    is not consulted inside a list, and std owning these in Salvo waits on
-    recursive implicit resolution (ROADMAP §6). Ordering is
-    lexicographic, with a shorter list that is a prefix comparing less.
+    have its own; a **`List` or a tuple** resolves `core.compare`'s Salvo
+    `eq`/`cmp`/`hash` for it, which take the element types' own (an element
+    struct's *declared* `cmp` is what orders a list of them, since 2026-10-06
+    [implicit-recursive]). Ordering is lexicographic, with a shorter list
+    that is a prefix comparing less.
   * Ordering of a struct is lexicographic **by field declaration order**,
     which makes field order semantically significant: the stamped `cmp` is one
-    per-field `cmp` in that order. The Rust backend keeps `#[derive(Hash, Ord)]`
-    on a struct that has the functions and whose fields all derive, for the
-    container identities above to reach; Kotlin's containers go through the
-    runtime comparator [kt-ordered].
+    per-field `cmp` in that order. No backend derives or generates a host
+    ordering or hash for a struct: a container of structs goes through the
+    Salvo functions.
   * A type variable is *not* checked at the declaration: like
     [linear-generics], the instantiation is where the key rule bites, which
     keeps generic code over keyed collections writable.
@@ -2978,6 +2973,27 @@ Conventions:
   * Matching is by name and type, **not** by how the parameters were
     declared: a `?Field<T>` spread here fills an individually declared
     `?add` there, and the other way round.
+* [implicit-recursive] **Resolution is recursive** (user decisions
+  2026-09-28, §6; built 2026-10-06): a candidate for an implicit position may
+  have implicits of its own — `eq<T>(a: List<T>, b: List<T>, ?eq: (T, T) ->
+  Bool)` — and those are filled in turn, by the same rules, with the
+  candidate's generics bound as its fit bound them. The fill is recorded as
+  `ImplicitArg::Resolved::nested`, and both backends' adapters pass it after
+  the fn's explicit arguments.
+  * A candidate whose implicits cannot be filled is a *near miss*: another
+    candidate that resolves fully wins; if none does, the error names the
+    chain (`eq for List<Foo> needs implicits of its own, and no eq …`).
+  * **Depth cap 8** (`resolution of eq for … nests more than 8 levels deep;
+    pass eq = … explicitly`) and a chain that needs itself is refused at once
+    as a cycle.
+  * std's `List` and tuple `eq`/`cmp`/`hash`/`to_str` are Salvo on it
+    (`core.compare`, `core.basic`); the host's structural comparisons are
+    gone. A tuple takes one implicit per part, of one name at different types
+    [implicit-same-name].
+  * Not yet: the carried identity is still a flat name [cmp-carry] — a
+    `Set<List<Person>>` records `hash@List`, and the element's `hash` is
+    resolved where the set is *used* rather than carried in the type; and the
+    typed override.
 * [implicit-same-name] **Two implicits of one name at different types are
   two parameters** (user decision 2026-09-28, §16's "riding along"; built
   2026-10-06): `fn to_str<K, V>(map: Map<K, V>(?hash, ?eq), ?to_str: (k: K) ->
@@ -4113,23 +4129,20 @@ Conventions:
       [interp-to-str] at the zero-width span after the value, and inside a
       stamped `to_str` an interpolated `T` renders through the implicit
       (`Checked::interp_implicit`).
-    * **A fn value cannot carry them**: [implicit-resolve] skips a candidate
-      with implicits of its own (a spread group included), naming recursive
-      resolution (§0j step 8) when it is the one that would have fit; passed
-      by name, a spread group's members count as parameters, so the value fits
-      no position that does not pass them. So `set_of(w)` over a
-      `Wrapper<Str>` is refused until step 8.
+    * **A fn value carries them by filling them in turn**
+      [implicit-recursive]: a candidate with implicits of its own (a spread
+      group included) fits a position when its explicit parameters do and its
+      implicits can be filled, so the hash of a `Wrapper<Str>` is a stamped
+      `hash` closed over the `Str` one.
     * Not yet: a generic union whose arm is a generic struct
       (`type Either<A> = Box<A> | Int`), whose stamped body calls `to_str`
       with a `Box<A>` that both the union's and `Box`'s overloads fit, which
       overload ranking does not order.
   * **Lowering**: a stamped fn is emitted as an ordinary fn whose body is the
     unrolled Salvo — a `cmp` per field, in declaration order. No structural
-    member is lowered to a host derive any more. The Rust backend still
-    derives `Hash`/`Ord` for a struct that *has* a `hash`/`cmp` and whose every
-    field derives, because a `List<Point>` or `(Int, Point)` **key** reaches
-    the element through the host's structural container identity
-    [col-hashed-ordered] (interim, until ROADMAP §6).
+    member is lowered to a host derive, and no backend derives `Hash`/`Ord`
+    or generates a `Comparable` for a struct: a `List<Point>` or `(Int,
+    Point)` **key** reaches the element's Salvo fn [col-hashed-ordered].
 * [fn-by] **`by X` on a fn declaration stamps that one member**, keeping the
   full written signature [decl-explicit]:
 

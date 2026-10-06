@@ -5599,10 +5599,11 @@ pub const AUTO_OUTPUT: &str =
 
 /// [obligation-by] The lowering: a stamped member is an **ordinary Rust fn**
 /// whose body is the unrolled Salvo — a `cmp` per field, in declaration order —
-/// and the struct keeps the host derives a keyed container over a `List<Point>`
-/// still stands on [col-hashed-ordered].
+/// and the struct derives nothing beyond `Clone`, `Debug` and `PartialEq`: a
+/// container over a `List<Point>` goes through Salvo's list `eq`/`hash`/`cmp`
+/// [col-hashed-ordered].
 #[test]
-fn default_obligations_lower_to_the_hosts_derives() {
+fn default_obligations_lower_to_salvo_fns() {
     let files = generate(&[("main.sv", AUTO_DEMO)]);
     let src = &files
         .iter()
@@ -5610,9 +5611,7 @@ fn default_obligations_lower_to_the_hosts_derives() {
         .expect("main.rs")
         .content;
     for expected in [
-        // A struct with a `hash` and a `cmp` keeps the host derives for the
-        // containers that reach them structurally.
-        "#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]\npub struct Point",
+        "#[derive(Clone, Debug, PartialEq)]\npub struct Point",
         // The stamped body is field-wise Salvo: one per-field `cmp`, then `0`.
         "return 0;",
         // The hand-written generic `eq` takes its implicit.

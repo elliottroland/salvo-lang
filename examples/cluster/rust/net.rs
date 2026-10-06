@@ -54,7 +54,7 @@ use crate::time::__Stateless_Timer as _;
 use crate::time::__Stateless_TimerCtl as _;
 use crate::time::nanos;
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct NodeEndpoint {
     pub host: String,
     pub port: i32,
@@ -344,7 +344,7 @@ impl Deliver {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct NodeId {
     pub id: i64,
 }
@@ -675,7 +675,7 @@ pub fn connect__NodeEndpoint_Pool(transport: &crate::net::Transport, me: NodeEnd
     return true;
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Node {
     pub id: NodeId,
     pub at: NodeEndpoint,

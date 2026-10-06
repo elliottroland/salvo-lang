@@ -108,3 +108,13 @@ export intrinsic fn to_str(value: Str) [] -> Str => value
 // decimal point always present [interp-float].
 export intrinsic fn to_str(value: Double) [] -> Str => value
 export intrinsic fn to_str(value: Float) [] -> Str => value
+
+// [interp-to-str] [implicit-recursive] A tuple's text form: `(1, 2.5)`, each
+// part by its own `to_str` (ROADMAP §0j step 8).
+export fn to_str<A, B>(value: (A, B), ?to_str: (x: A) -> Str, ?to_str: (x: B) -> Str) [] -> Str => value {
+    return "(${to_str(value.0)}, ${to_str(value.1)})"
+}
+
+export fn to_str<A, B, C>(value: (A, B, C), ?to_str: (x: A) -> Str, ?to_str: (x: B) -> Str, ?to_str: (x: C) -> Str) [] -> Str => value {
+    return "(${to_str(value.0)}, ${to_str(value.1)}, ${to_str(value.2)})"
+}

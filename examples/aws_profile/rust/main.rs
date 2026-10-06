@@ -9,6 +9,8 @@ pub mod hosttime;
 pub mod wire;
 #[path = "aws.rs"]
 pub mod aws;
+#[path = "core/basic.rs"]
+pub mod core_basic;
 #[path = "core/checked.rs"]
 pub mod core_checked;
 #[path = "core/compare.rs"]

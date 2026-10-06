@@ -676,9 +676,8 @@ fn generate_union_codec_file(n: usize) -> String {
 /// objects: structural `equals`/`hashCode` (so a big tuple is a `Set` element
 /// or a `Map` key on the same terms as a `Pair`) and `componentN` (so
 /// `let (a, b, c, d) = t` destructures). Ordering goes through
-/// `__salvoCompare`, which reaches them through `SalvoTuple` — the one thing a
-/// generic helper cannot do by type test, since there is no common supertype
-/// Kotlin already knows.
+/// Salvo's `eq`/`cmp`/`hash` for them are Salvo code
+/// (`core.compare`, ROADMAP §0j step 8), so the classes carry nothing more.
 ///
 /// The property names are `first`, `second`, `third` and then `v3`, `v4`, …:
 /// keeping `Pair`/`Triple`'s three names is what lets one index rule serve
@@ -694,13 +693,10 @@ fn generate_tuples_file(sizes: &BTreeSet<usize>) -> String {
         let fields: Vec<String> = (0..n)
             .map(|i| format!("val {}: T{}", tuple_field(i), i + 1))
             .collect();
-        let parts: Vec<String> = (0..n).map(tuple_field).collect();
         out.push_str(&format!(
-            "\ndata class Tuple{n}<{}>(\n    {},\n) : SalvoTuple {{\n    \
-             override val __parts: List<Any?> get() = listOf({})\n}}\n",
+            "\ndata class Tuple{n}<{}>(\n    {},\n)\n",
             params.join(", "),
-            fields.join(",\n    "),
-            parts.join(", ")
+            fields.join(",\n    ")
         ));
         let _ = &args;
     }
@@ -1652,51 +1648,11 @@ impl<'p> Emitter<'p> {
                 kt_ident(&field.name.name)
             ));
         }
-        // [col-equality] [kt-float-eq] Salvo owns floating-point equality, so
-        // a struct with a float field **overrides** the data class's
-        // `equals`, which makes every `==` on it (and every `contains`, and
-        // every collection lookup) use our semantics.
-        //
-        // The default would diverge from Rust: Kotlin's generated `equals`
-        // calls `Double.equals`, for which `NaN` equals itself and `+0.0`
-        // differs from `-0.0`, while Rust's derived `PartialEq` is IEEE —
-        // the opposite on both counts. Verified before fixing: the same
-        // program printed `struct nan == nan: false` on Rust and `true` on
-        // Kotlin. Comparing the fields with `==`, whose operands are
-        // statically `Double`/`Float`, is IEEE, so the two agree.
-        //
-        // `hashCode` is left to the data class: a float-bearing struct is
-        // barred from `: auto Hashed<self>` [col-hashed-ordered], so it never
-        // reaches a hash table where the (NaN-only) inconsistency could
-        // matter.
-        if self.struct_has_float_field(s) {
-            let star_args = if s.generics.is_empty() {
-                String::new()
-            } else {
-                format!(
-                    "<{}>",
-                    s.generics.iter().map(|_| "*").collect::<Vec<_>>().join(", ")
-                )
-            };
-            let comparisons: Vec<String> = s
-                .fields
-                .iter()
-                .map(|f| {
-                    let name = kt_ident(&f.name.name);
-                    format!("{name} == other.{name}")
-                })
-                .collect();
-            out.push_str(") {\n");
-            out.push_str("    override fun equals(other: Any?): Boolean {\n");
-            out.push_str("        if (this === other) return true\n");
-            out.push_str(&format!(
-                "        if (other !is {declared_name}{star_args}) return false\n"
-            ));
-            out.push_str(&format!("        return {}\n", comparisons.join(" && ")));
-            out.push_str("    }\n}\n");
-        } else {
-            out.push_str(")\n");
-        }
+        // [col-equality] Equality on a struct is its Salvo `eq`, never the data
+        // class's `equals`: nothing consults the host's, so a float field needs
+        // no override here (ROADMAP §0j step 8; it used to carry one so that
+        // `NaN` and signed zeros agreed with Rust's derive).
+        out.push_str(")\n");
         self.generics = saved;
         out
     }
@@ -1906,17 +1862,6 @@ impl<'p> Emitter<'p> {
                 "salvo.UnitCodec".to_string()
             }
         }
-    }
-
-    /// [col-equality] Whether a struct has a *direct* floating-point field,
-    /// which is what makes the data class's `equals` disagree with Rust's
-    /// derive. A nested struct needs no special case: if it holds a float it
-    /// gets its own comparison, which this one then calls.
-    fn struct_has_float_field(&self, s: &StructDecl) -> bool {
-        s.fields.iter().any(|f| match &f.ty {
-            Type::Named { base, .. } => matches!(base.name.name.as_str(), "Double" | "Float"),
-            _ => false,
-        })
     }
 
     fn emit_effect(&mut self, e: &EffectDecl) -> String {
@@ -6467,9 +6412,6 @@ impl<'p> Emitter<'p> {
             3 => format!("Triple<{}, {}, {}>", elems[0], elems[1], elems[2]),
             n => {
                 self.tuple_sizes.insert(n);
-                // The generated class orders through `__salvoCompare`, whose
-                // file also declares the marker interface it implements.
-                self.needs_compare = true;
                 format!("Tuple{n}<{}>", elems.join(", "))
             }
         }
@@ -7145,7 +7087,6 @@ impl<'p> Emitter<'p> {
                     3 => format!("Triple({})", items.join(", ")),
                     n => {
                         self.tuple_sizes.insert(n);
-                        self.needs_compare = true;
                         format!("Tuple{n}({})", items.join(", "))
                     }
                 }
@@ -8843,7 +8784,7 @@ impl<'p> Emitter<'p> {
             // [cmp-groups] The canonical `cmp(Str, Str)` goes through the same
             // comparator, for the same reason: `String.compareTo` is UTF-16
             // code-unit order where Salvo's `Str` order is code point.
-            if f.name.name == "cmp" && matches!(recv, Some("Str" | "List" | "()")) {
+            if f.name.name == "cmp" && recv == Some("Str") {
                 self.needs_compare = true;
             }
             if let Some(code) = crate::intrinsics::fn_call(
@@ -9162,8 +9103,20 @@ impl<'p> Emitter<'p> {
             Some(filled) => filled.clone(),
             None => return Vec::new(),
         };
+        self.emit_implicit_list(&filled, named, span)
+    }
+
+    /// [implicit-resolve] [implicit-recursive] The rendered fills of one
+    /// callee's implicit positions: a call's own, or (recursively) those of a
+    /// fn an adapter calls.
+    fn emit_implicit_list(
+        &mut self,
+        filled: &[salvo_core::ImplicitArg],
+        named: &[NamedArg],
+        span: Span,
+    ) -> Vec<String> {
         let mut out = Vec::new();
-        for arg in &filled {
+        for arg in filled {
             match arg {
                 salvo_core::ImplicitArg::Given { name, .. } => {
                     match named.iter().find(|a| a.name.name == *name) {
@@ -9181,7 +9134,7 @@ impl<'p> Emitter<'p> {
                 salvo_core::ImplicitArg::Forwarded { name } => {
                     out.push(kt_ident(name));
                 }
-                salvo_core::ImplicitArg::Resolved { name, key, want } => {
+                salvo_core::ImplicitArg::Resolved { name, key, nested, want } => {
                     match self.fn_by_key(*key) {
                         Some(decl) => {
                             // [copy-implicit] `copy` lowers by the argument's
@@ -9255,9 +9208,19 @@ impl<'p> Emitter<'p> {
                                 }
                             } else if decl.intrinsic {
                                 out.push(self.intrinsic_fn_value(decl));
-                            } else {
+                            } else if nested.is_empty() {
                                 let target = self.kotlin_fn_name(decl);
                                 out.push(format!("::{target}"));
+                            } else {
+                                // [implicit-recursive] The fn's own implicits,
+                                // filled in turn, follow its explicit
+                                // arguments: an adapter lambda makes the call.
+                                let target = self.kotlin_fn_name(decl);
+                                let n = decl.params.iter().filter(|p| !p.implicit).count();
+                                let ps: Vec<String> = (0..n).map(|i| format!("__n{i}")).collect();
+                                let mut args = ps.clone();
+                                args.extend(self.emit_implicit_list(nested, &[], span));
+                                out.push(format!("{{ {} -> {target}({}) }}", ps.join(", "), args.join(", ")));
                             }
                         }
                         None => {
@@ -9385,7 +9348,7 @@ impl<'p> Emitter<'p> {
         // runtime file of its own, exactly as a direct call to it would:
         // `cmp(Str, Str)` is `__salvoCompare`, and an adapter is the one place
         // a program can reach it without ever calling `cmp` directly.
-        if decl.name.name == "cmp" && matches!(recv, Some("Str" | "List" | "()")) {
+        if decl.name.name == "cmp" && recv == Some("Str") {
             self.needs_compare = true;
         }
         match crate::intrinsics::fn_call(&decl.name.name, recv, &params, &[]) {

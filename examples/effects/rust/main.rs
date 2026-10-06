@@ -7,6 +7,8 @@ pub mod seq;
 pub mod hosttime;
 #[path = "wire.rs"]
 pub mod wire;
+#[path = "core/basic.rs"]
+pub mod core_basic;
 #[path = "core/checked.rs"]
 pub mod core_checked;
 #[path = "core/compare.rs"]

@@ -27,6 +27,8 @@ pub mod aws_sqs;
 pub mod aws_sqs_host;
 #[path = "core/actor.sv.rs"]
 pub mod core_actor;
+#[path = "core/basic.sv.rs"]
+pub mod core_basic;
 #[path = "core/bytes.sv.rs"]
 pub mod core_bytes;
 #[path = "core/checked.sv.rs"]

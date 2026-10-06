@@ -4419,6 +4419,746 @@ Module {
                 span: 5979..6012,
             },
         ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "[interp-to-str] [implicit-recursive] A tuple's text form: `(1, 2.5)`, each",
+                    "part by its own `to_str` (ROADMAP §0j step 8).",
+                ],
+                exported: true,
+                intrinsic: false,
+                platform: false,
+                is_iter: false,
+                iter_state: [],
+                is_send: false,
+                name: Ident {
+                    name: "to_str",
+                    span: 6162..6168,
+                },
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [
+                    Ident {
+                        name: "A",
+                        span: 6169..6170,
+                    },
+                    Ident {
+                        name: "B",
+                        span: 6172..6173,
+                    },
+                ],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "value",
+                            span: 6175..6180,
+                        },
+                        ty: Tuple {
+                            elems: [
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "A",
+                                            span: 6183..6184,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 6183..6184,
+                                    },
+                                },
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "B",
+                                            span: 6186..6187,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 6186..6187,
+                                    },
+                                },
+                            ],
+                            span: 6182..6188,
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 6175..6188,
+                    },
+                    Param {
+                        name: Ident {
+                            name: "to_str",
+                            span: 6191..6197,
+                        },
+                        ty: Fn {
+                            params: [
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "A",
+                                            span: 6203..6204,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 6203..6204,
+                                    },
+                                },
+                            ],
+                            param_names: [
+                                Some(
+                                    Ident {
+                                        name: "x",
+                                        span: 6200..6201,
+                                    },
+                                ),
+                            ],
+                            effects: None,
+                            deductions: None,
+                            ret: Named {
+                                qualifiers: [],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "Str",
+                                        span: 6209..6212,
+                                    },
+                                    args: [],
+                                    value_args: [],
+                                    from: [],
+                                    at: None,
+                                    binder: false,
+                                    established: false,
+                                    alias: None,
+                                    span: 6209..6212,
+                                },
+                            },
+                            span: 6199..6212,
+                        },
+                        variadic: false,
+                        implicit: true,
+                        span: 6191..6212,
+                    },
+                    Param {
+                        name: Ident {
+                            name: "to_str",
+                            span: 6215..6221,
+                        },
+                        ty: Fn {
+                            params: [
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "B",
+                                            span: 6227..6228,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 6227..6228,
+                                    },
+                                },
+                            ],
+                            param_names: [
+                                Some(
+                                    Ident {
+                                        name: "x",
+                                        span: 6224..6225,
+                                    },
+                                ),
+                            ],
+                            effects: None,
+                            deductions: None,
+                            ret: Named {
+                                qualifiers: [],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "Str",
+                                        span: 6233..6236,
+                                    },
+                                    args: [],
+                                    value_args: [],
+                                    from: [],
+                                    at: None,
+                                    binder: false,
+                                    established: false,
+                                    alias: None,
+                                    span: 6233..6236,
+                                },
+                            },
+                            span: 6223..6236,
+                        },
+                        variadic: false,
+                        implicit: true,
+                        span: 6215..6236,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "value",
+                                    span: 6251..6256,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 6251..6256,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Str",
+                                span: 6244..6247,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 6244..6247,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: Some(
+                    Block {
+                        stmts: [
+                            Expr(
+                                Return {
+                                    value: Some(
+                                        Str {
+                                            parts: [
+                                                Text(
+                                                    "(",
+                                                ),
+                                                Interp(
+                                                    Call {
+                                                        callee: Ident(
+                                                            Ident {
+                                                                name: "to_str",
+                                                                span: 6274..6280,
+                                                            },
+                                                        ),
+                                                        type_args: [],
+                                                        args: [
+                                                            TupleIndex {
+                                                                base: Ident(
+                                                                    Ident {
+                                                                        name: "value",
+                                                                        span: 6281..6286,
+                                                                    },
+                                                                ),
+                                                                index: 0,
+                                                                span: 6281..6288,
+                                                            },
+                                                        ],
+                                                        named: [],
+                                                        span: 6274..6289,
+                                                    },
+                                                ),
+                                                Text(
+                                                    ", ",
+                                                ),
+                                                Interp(
+                                                    Call {
+                                                        callee: Ident(
+                                                            Ident {
+                                                                name: "to_str",
+                                                                span: 6294..6300,
+                                                            },
+                                                        ),
+                                                        type_args: [],
+                                                        args: [
+                                                            TupleIndex {
+                                                                base: Ident(
+                                                                    Ident {
+                                                                        name: "value",
+                                                                        span: 6301..6306,
+                                                                    },
+                                                                ),
+                                                                index: 1,
+                                                                span: 6301..6308,
+                                                            },
+                                                        ],
+                                                        named: [],
+                                                        span: 6294..6309,
+                                                    },
+                                                ),
+                                                Text(
+                                                    ")",
+                                                ),
+                                            ],
+                                            span: 6270..6312,
+                                        },
+                                    ),
+                                    span: 6263..6312,
+                                },
+                            ),
+                        ],
+                        span: 6257..6314,
+                    },
+                ),
+                span: 6159..6314,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [],
+                exported: true,
+                intrinsic: false,
+                platform: false,
+                is_iter: false,
+                iter_state: [],
+                is_send: false,
+                name: Ident {
+                    name: "to_str",
+                    span: 6326..6332,
+                },
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [
+                    Ident {
+                        name: "A",
+                        span: 6333..6334,
+                    },
+                    Ident {
+                        name: "B",
+                        span: 6336..6337,
+                    },
+                    Ident {
+                        name: "C",
+                        span: 6339..6340,
+                    },
+                ],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "value",
+                            span: 6342..6347,
+                        },
+                        ty: Tuple {
+                            elems: [
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "A",
+                                            span: 6350..6351,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 6350..6351,
+                                    },
+                                },
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "B",
+                                            span: 6353..6354,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 6353..6354,
+                                    },
+                                },
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "C",
+                                            span: 6356..6357,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 6356..6357,
+                                    },
+                                },
+                            ],
+                            span: 6349..6358,
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 6342..6358,
+                    },
+                    Param {
+                        name: Ident {
+                            name: "to_str",
+                            span: 6361..6367,
+                        },
+                        ty: Fn {
+                            params: [
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "A",
+                                            span: 6373..6374,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 6373..6374,
+                                    },
+                                },
+                            ],
+                            param_names: [
+                                Some(
+                                    Ident {
+                                        name: "x",
+                                        span: 6370..6371,
+                                    },
+                                ),
+                            ],
+                            effects: None,
+                            deductions: None,
+                            ret: Named {
+                                qualifiers: [],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "Str",
+                                        span: 6379..6382,
+                                    },
+                                    args: [],
+                                    value_args: [],
+                                    from: [],
+                                    at: None,
+                                    binder: false,
+                                    established: false,
+                                    alias: None,
+                                    span: 6379..6382,
+                                },
+                            },
+                            span: 6369..6382,
+                        },
+                        variadic: false,
+                        implicit: true,
+                        span: 6361..6382,
+                    },
+                    Param {
+                        name: Ident {
+                            name: "to_str",
+                            span: 6385..6391,
+                        },
+                        ty: Fn {
+                            params: [
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "B",
+                                            span: 6397..6398,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 6397..6398,
+                                    },
+                                },
+                            ],
+                            param_names: [
+                                Some(
+                                    Ident {
+                                        name: "x",
+                                        span: 6394..6395,
+                                    },
+                                ),
+                            ],
+                            effects: None,
+                            deductions: None,
+                            ret: Named {
+                                qualifiers: [],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "Str",
+                                        span: 6403..6406,
+                                    },
+                                    args: [],
+                                    value_args: [],
+                                    from: [],
+                                    at: None,
+                                    binder: false,
+                                    established: false,
+                                    alias: None,
+                                    span: 6403..6406,
+                                },
+                            },
+                            span: 6393..6406,
+                        },
+                        variadic: false,
+                        implicit: true,
+                        span: 6385..6406,
+                    },
+                    Param {
+                        name: Ident {
+                            name: "to_str",
+                            span: 6409..6415,
+                        },
+                        ty: Fn {
+                            params: [
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "C",
+                                            span: 6421..6422,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 6421..6422,
+                                    },
+                                },
+                            ],
+                            param_names: [
+                                Some(
+                                    Ident {
+                                        name: "x",
+                                        span: 6418..6419,
+                                    },
+                                ),
+                            ],
+                            effects: None,
+                            deductions: None,
+                            ret: Named {
+                                qualifiers: [],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "Str",
+                                        span: 6427..6430,
+                                    },
+                                    args: [],
+                                    value_args: [],
+                                    from: [],
+                                    at: None,
+                                    binder: false,
+                                    established: false,
+                                    alias: None,
+                                    span: 6427..6430,
+                                },
+                            },
+                            span: 6417..6430,
+                        },
+                        variadic: false,
+                        implicit: true,
+                        span: 6409..6430,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "value",
+                                    span: 6445..6450,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 6445..6450,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Str",
+                                span: 6438..6441,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 6438..6441,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: Some(
+                    Block {
+                        stmts: [
+                            Expr(
+                                Return {
+                                    value: Some(
+                                        Str {
+                                            parts: [
+                                                Text(
+                                                    "(",
+                                                ),
+                                                Interp(
+                                                    Call {
+                                                        callee: Ident(
+                                                            Ident {
+                                                                name: "to_str",
+                                                                span: 6468..6474,
+                                                            },
+                                                        ),
+                                                        type_args: [],
+                                                        args: [
+                                                            TupleIndex {
+                                                                base: Ident(
+                                                                    Ident {
+                                                                        name: "value",
+                                                                        span: 6475..6480,
+                                                                    },
+                                                                ),
+                                                                index: 0,
+                                                                span: 6475..6482,
+                                                            },
+                                                        ],
+                                                        named: [],
+                                                        span: 6468..6483,
+                                                    },
+                                                ),
+                                                Text(
+                                                    ", ",
+                                                ),
+                                                Interp(
+                                                    Call {
+                                                        callee: Ident(
+                                                            Ident {
+                                                                name: "to_str",
+                                                                span: 6488..6494,
+                                                            },
+                                                        ),
+                                                        type_args: [],
+                                                        args: [
+                                                            TupleIndex {
+                                                                base: Ident(
+                                                                    Ident {
+                                                                        name: "value",
+                                                                        span: 6495..6500,
+                                                                    },
+                                                                ),
+                                                                index: 1,
+                                                                span: 6495..6502,
+                                                            },
+                                                        ],
+                                                        named: [],
+                                                        span: 6488..6503,
+                                                    },
+                                                ),
+                                                Text(
+                                                    ", ",
+                                                ),
+                                                Interp(
+                                                    Call {
+                                                        callee: Ident(
+                                                            Ident {
+                                                                name: "to_str",
+                                                                span: 6508..6514,
+                                                            },
+                                                        ),
+                                                        type_args: [],
+                                                        args: [
+                                                            TupleIndex {
+                                                                base: Ident(
+                                                                    Ident {
+                                                                        name: "value",
+                                                                        span: 6515..6520,
+                                                                    },
+                                                                ),
+                                                                index: 2,
+                                                                span: 6515..6522,
+                                                            },
+                                                        ],
+                                                        named: [],
+                                                        span: 6508..6523,
+                                                    },
+                                                ),
+                                                Text(
+                                                    ")",
+                                                ),
+                                            ],
+                                            span: 6464..6526,
+                                        },
+                                    ),
+                                    span: 6457..6526,
+                                },
+                            ),
+                        ],
+                        span: 6451..6528,
+                    },
+                ),
+                span: 6323..6528,
+            },
+        ),
     ],
     uses: [],
 }

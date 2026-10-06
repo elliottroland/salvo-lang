@@ -15,6 +15,8 @@ pub mod aws;
 pub mod aws_sqs;
 #[path = "core/actor.rs"]
 pub mod core_actor;
+#[path = "core/basic.rs"]
+pub mod core_basic;
 #[path = "core/bytes.rs"]
 pub mod core_bytes;
 #[path = "core/checked.rs"]

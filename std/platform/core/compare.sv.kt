@@ -4,6 +4,103 @@
 // salvo-abi 1 5cd1832c3b5d03f1
 package salvo.core.compare
 
+import salvo.*
+import salvo.core.actor.eq
+import salvo.core.index.Idx_qualifies
+import salvo.core.list.Enumerated
+import salvo.core.list.enumerate
+import salvo.core.list.get
+import salvo.core.list.next__Iter_enumerate_List
+import salvo.core.list.sizePlatform
+import salvo.core.map.eq
+import salvo.core.set.eq
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun<T> eq__List_List(a: List<T>, b: List<T>, eq: (T, T) -> Boolean): Boolean {
+    if (sizePlatform(a) != sizePlatform(b)) {
+        return false
+    }
+    var __loop1_pass = enumerate(a)
+    while (true) {
+        val __loop1_step = next__Iter_enumerate_List(__loop1_pass)
+        if (__loop1_step !is Union2.U1<*, *>) { break }
+        val p = __loop1_step.value as Enumerated<T>
+        val j = p.index
+        if (Idx_qualifies(j, b, ::sizePlatform)) {
+            if (!eq(p.elem, get(b, j))) {
+                return false
+            }
+        }
+    }
+    return true
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun<T> cmp__List_List(a: List<T>, b: List<T>, cmp: (T, T) -> Int): Int {
+    var __loop2_pass = enumerate(a)
+    while (true) {
+        val __loop2_step = next__Iter_enumerate_List(__loop2_pass)
+        if (__loop2_step !is Union2.U1<*, *>) { break }
+        val p = __loop2_step.value as Enumerated<T>
+        val j = p.index
+        if (Idx_qualifies(j, b, ::sizePlatform)) {
+            val c = cmp(p.elem, get(b, j))
+            if (c != 0) {
+                return c
+            }
+        } else {
+            return 1
+        }
+    }
+    if (sizePlatform(a) < sizePlatform(b)) {
+        return -1
+    }
+    return 0
+}
+
+fun<T> hash__List(value: List<T>, hash: (T) -> Long): Long {
+    var h = 7L
+    for (x in salvo.platform.core.list.each(value)) {
+        h = mixHash(h, hash(x))
+    }
+    return h
+}
+
+fun<A, B> eq__TupleAB_TupleAB(a: Pair<A, B>, b: Pair<A, B>, eq: (A, A) -> Boolean, eq__1: (B, B) -> Boolean): Boolean {
+    return eq(a.first, b.first) && eq__1(a.second, b.second)
+}
+
+fun<A, B> cmp__TupleAB_TupleAB(a: Pair<A, B>, b: Pair<A, B>, cmp: (A, A) -> Int, cmp__1: (B, B) -> Int): Int {
+    val c = cmp(a.first, b.first)
+    if (c != 0) {
+        return c
+    }
+    return cmp__1(a.second, b.second)
+}
+
+fun<A, B> hash__TupleAB(value: Pair<A, B>, hash: (A) -> Long, hash__1: (B) -> Long): Long {
+    return mixHash(mixHash(7L, hash(value.first)), hash__1(value.second))
+}
+
+fun<A, B, C> eq__TupleABC_TupleABC(a: Triple<A, B, C>, b: Triple<A, B, C>, eq: (A, A) -> Boolean, eq__1: (B, B) -> Boolean, eq__2: (C, C) -> Boolean): Boolean {
+    return eq(a.first, b.first) && eq__1(a.second, b.second) && eq__2(a.third, b.third)
+}
+
+fun<A, B, C> cmp__TupleABC_TupleABC(a: Triple<A, B, C>, b: Triple<A, B, C>, cmp: (A, A) -> Int, cmp__1: (B, B) -> Int, cmp__2: (C, C) -> Int): Int {
+    val c = cmp(a.first, b.first)
+    if (c != 0) {
+        return c
+    }
+    val d = cmp__1(a.second, b.second)
+    if (d != 0) {
+        return d
+    }
+    return cmp__2(a.third, b.third)
+}
+
+fun<A, B, C> hash__TupleABC(value: Triple<A, B, C>, hash: (A) -> Long, hash__1: (B) -> Long, hash__2: (C) -> Long): Long {
+    return mixHash(mixHash(mixHash(7L, hash(value.first)), hash__1(value.second)), hash__2(value.third))
+}
 
 fun mixHash(seed: Long, value: Long): Long {
     return seed * 31L + value

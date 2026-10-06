@@ -206,7 +206,7 @@ impl crate::wire::__Wire for ControlFrame {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct RemoteRef {
     pub node: i64,
     pub actor: i64,
@@ -256,7 +256,7 @@ impl crate::wire::__Wire for ReplyParts {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ControlKey {
     pub node: i64,
     pub channel: String,

@@ -485,12 +485,10 @@ derives them mechanically:
   (`<T: Clone>`) — the owned-rendering rule may clone values of generic
   type. Structs additionally `#[derive(Clone, Debug, PartialEq)]` — `PartialEq`
   unconditionally, since it costs nothing where Salvo refuses `==` anyway
-  [col-equality] — plus `Eq` and `Hash` for a struct that *has* a `hash`, and
-  `Eq, PartialOrd, Ord` for one that has a `cmp` (stamped or hand-written
-  [obligation-by]), **when every field derives**: the interim structural
-  identity of a `List<Point>` or `(Int, Point)` key reaches the element's
-  derive rather than its Salvo fn [col-hashed-ordered], so the derive is what a
-  container over it stands on. A struct with a fn-typed field derives only `Clone`:
+  [col-equality] — and nothing else: no `Eq`, `Hash` or `Ord` (deleted 2026-10-06, §0j step 8),
+  since a `List<Point>` or `(Int, Point)` key goes through Salvo's list and
+  tuple `eq`/`hash`/`cmp` to the element's Salvo fn [col-hashed-ordered]. A
+  struct with a fn-typed field derives only `Clone`:
   `Rc<dyn Fn>` has neither `Debug` nor equality [rs-fn-field].
   Generated union enums derive `PartialEq` too, conditionally on their
   payloads, so a struct holding one can derive its own.
@@ -1193,9 +1191,8 @@ the blanket rule:
     Calls, adapter closures and `cmp = cmp@Point` values all reach it as a
     named fn, so nothing in this backend learns the member was not written by
     hand — and it takes part in overload mangling like any other body-bearing
-    fn. The interim structural identities of a `List` or a tuple
-    [col-hashed-ordered] lower to `Ord::cmp`, `==` and a `DefaultHasher` over
-    the host value; `mix_hash` to `wrapping_mul(31).wrapping_add(...)`.
+    fn. The identities of a `List` or a tuple [col-hashed-ordered] are Salvo
+    (`core.compare`), not lowerings; `mix_hash` is Salvo too.
   * [cmp-hash-values] `hash` is a block expression holding its own
     `std::hash::DefaultHasher`: `{ let mut __h = …; Hash::hash(&v, &mut __h);
     Hasher::finish(&__h) as i64 }`. One hasher per call, so a `hash` nested

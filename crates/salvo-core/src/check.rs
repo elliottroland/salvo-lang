@@ -1045,6 +1045,10 @@ pub enum ImplicitArg {
     Resolved {
         name: String,
         key: FnKey,
+        /// [implicit-recursive] The implicits of the resolved fn itself,
+        /// filled in turn (`eq` for `List<T>` needs an `eq` for `T`); empty
+        /// for a fn with none. One level per nesting, depth-capped.
+        nested: Vec<ImplicitArg>,
         /// [copy-implicit] The fn type the position wanted, with the call's
         /// type arguments substituted — the *concrete* type a shape-lowered
         /// intrinsic (`copy`) needs to render itself as a value.
@@ -2092,6 +2096,14 @@ struct Checker<'p, 'r> {
     /// [implicit-resolve-body] Argument types of a call that fell through an
     /// implicit to the fns of its name, consumed by `resolve_named_call`.
     pending_arg_tys: Option<Vec<Ty>>,
+    /// [implicit-recursive] The nested fill of the fn `resolve_implicit_fn_at`
+    /// just chose, taken by its caller.
+    last_nested: Vec<ImplicitArg>,
+    /// [implicit-recursive] How many resolutions are open: the depth cap (8).
+    resolve_depth: usize,
+    /// [implicit-recursive] The (fn, wanted type) pairs being resolved, for
+    /// the cycle refusal.
+    resolve_chain: Vec<(FnKey, String)>,
     /// [comptime-generic] `resolve_implicit_fn_at` is answering for a call
     /// (an operator, an interpolation), which fills the found fn's own
     /// implicits, rather than for a fn value, which cannot yet.
@@ -2336,6 +2348,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             lending_ctor: None,
             own_implicits: Vec::new(),
             pending_arg_tys: None,
+            last_nested: Vec::new(),
+            resolve_depth: 0,
+            resolve_chain: Vec::new(),
             resolve_as_call: false,
             renames: Vec::new(),
             warned_spare_lends: HashSet::new(),
@@ -5275,6 +5290,23 @@ impl<'p, 'r> Checker<'p, 'r> {
         named: &'p [ast::NamedArg],
         span: Span,
     ) {
+        if let Some(filled) = self.fill_implicit_list(implicits, callee, subst, callee_generics, named, span) {
+            self.out.implicit_args.insert(self.key(span), filled);
+        }
+    }
+
+    /// [implicit-resolve] The filling itself: one [`ImplicitArg`] per
+    /// parameter, or `None` after a refusal that was reported. A nested fill
+    /// [implicit-recursive] is this with no named arguments.
+    fn fill_implicit_list(
+        &mut self,
+        implicits: &[ImplicitParam],
+        callee: &str,
+        subst: &mut HashMap<String, Ty>,
+        callee_generics: &HashSet<String>,
+        named: &'p [ast::NamedArg],
+        span: Span,
+    ) -> Option<Vec<ImplicitArg>> {
         if implicits.is_empty() {
             for arg in named {
                 self.error(
@@ -5285,7 +5317,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     ),
                 );
             }
-            return;
+            return Some(Vec::new());
         }
         let mut filled: Vec<ImplicitArg> = Vec::new();
         // [implicit-same-name] A bare `name = f` cannot say which of two
@@ -5302,7 +5334,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         arg.name.name, arg.name.name, arg.name.name
                     ),
                 );
-                return;
+                return None;
             }
         }
         // [implicit-with] Where each **bound** parameter's value came from, for
@@ -5465,7 +5497,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ),
             );
         }
-        self.out.implicit_args.insert(self.key(span), filled);
+        Some(filled)
     }
 
     /// One implicit parameter, filled [implicit-resolve] — `None` when
@@ -5573,6 +5605,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                                         ImplicitArg::Resolved {
                                             name: imp.name.clone(),
                                             key,
+                                            // [implicit-recursive] Its own implicits
+                                            // are filled where it is used.
+                                            nested: std::mem::take(&mut self.last_nested),
                                             want: want.clone(),
                                         },
                                         None,
@@ -5681,6 +5716,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         ImplicitArg::Resolved {
                             name: imp.name.clone(),
                             key: found,
+                            nested: std::mem::take(&mut self.last_nested),
                             want: want.clone(),
                         },
                         Some(identity),
@@ -5736,6 +5772,54 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// type carries resolve to the fn it names and no other [cmp-carry].
     /// The identity that comes back is the *declaration's own*: its
     /// `@`-scoping when it has one, and its bare name otherwise.
+    /// [implicit-recursive] Fills the implicits of a candidate that already
+    /// fits its position, each in turn and by the same rules, with the
+    /// candidate's generics bound as the fit bound them. `Err` carries the
+    /// first refusal, worded as the chain, and leaves no diagnostic behind: a
+    /// candidate that cannot be filled is a near miss [implicit-resolve].
+    fn try_nested(
+        &mut self,
+        key: FnKey,
+        decl: &'p FnDecl,
+        binding: &HashMap<String, Ty>,
+        generics: &HashSet<String>,
+        want: &Ty,
+    ) -> Result<Vec<ImplicitArg>, String> {
+        let implicits = self.out.implicit_params.get(&key).cloned().unwrap_or_default();
+        if implicits.is_empty() {
+            return Ok(Vec::new());
+        }
+        let shown = format!("{want}");
+        if self.resolve_depth >= 8 {
+            return Err(format!(
+                "resolution of `{}` for `{shown}` nests more than 8 levels deep; pass `{} = …` explicitly",
+                decl.name.name, decl.name.name
+            ));
+        }
+        if self.resolve_chain.iter().any(|(k, w)| *k == key && *w == shown) {
+            let chain: Vec<String> = self.resolve_chain.iter().map(|(_, w)| w.clone()).collect();
+            return Err(format!(
+                "`{}` for `{shown}` needs itself ({} → {shown}): a cycle; pass `{} = …` explicitly",
+                decl.name.name,
+                chain.join(" → "),
+                decl.name.name
+            ));
+        }
+        self.resolve_depth += 1;
+        self.resolve_chain.push((key, shown.clone()));
+        let before = self.out.errors.len();
+        let mut subst = binding.clone();
+        let filled = self.fill_implicit_list(&implicits, &decl.name.name, &mut subst, generics, &[], Span::new(0, 0));
+        self.resolve_chain.pop();
+        self.resolve_depth -= 1;
+        if self.out.errors.len() > before {
+            let first = self.out.errors[before].message.clone();
+            self.out.errors.truncate(before);
+            return Err(format!("`{}` for `{shown}` needs implicits of its own, and {first}", decl.name.name));
+        }
+        filled.ok_or_else(|| format!("`{}` for `{shown}` could not be filled", decl.name.name))
+    }
+
     fn resolve_implicit_fn_at(
         &mut self,
         name: &str,
@@ -5773,7 +5857,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             collect_base_names(t, &mut want_types);
         }
         // Each hit with the type it is the canonical of, when it is one.
-        let mut hits: Vec<(FnKey, crate::resolve::Rung, Option<String>, String, FnId)> =
+        let mut hits: Vec<(FnKey, crate::resolve::Rung, Option<String>, String, FnId, Vec<ImplicitArg>)> =
             Vec::new();
         // The best explanation of a candidate that did not fit, for the
         // diagnostic when nothing does. Ranked, because the *interesting*
@@ -5788,38 +5872,11 @@ impl<'p, 'r> Checker<'p, 'r> {
         };
         for entry in entries {
             let decl = entry.decl;
-            if !self.resolve_as_call
-                && (decl.params.iter().any(|p| p.implicit) || !decl.implicit_groups.is_empty())
-            {
-                // A default that itself needs implicits would have to be
-                // resolved recursively (ROADMAP §0j step 8); out of scope for
-                // now, and silently skipping it is better than picking it and
-                // failing later. A spread group (`?Ordered<T>`, which a stamp
-                // at a generic struct carries) counts too.
-                let first_base = decl.params.iter().find(|p| !p.implicit).and_then(|p| match &p.ty {
-                    ast::Type::Named { base, .. } => Some(base.name.name.clone()),
-                    _ => None,
-                });
-                let want_base = want_params.first().and_then(|t| match t.strip_quals() {
-                    Ty::Named { name, .. } => Some(crate::typekey::plain(name).to_string()),
-                    _ => None,
-                });
-                if decl.params.iter().filter(|p| !p.implicit).count() == want_params.len()
-                    && first_base.is_some()
-                    && first_base == want_base
-                {
-                    note(
-                        0,
-                        format!(
-                            "a `{name}` taking these needs implicits of its own, which a \
-                             function passed as a value cannot carry yet (recursive \
-                             implicit resolution, ROADMAP §0j step 8)"
-                        ),
-                        &mut near,
-                    );
-                }
-                continue;
-            }
+            // [implicit-recursive] A candidate with implicits of its own is a
+            // candidate: its implicits are filled in turn once it fits
+            // (decision 1, 2026-09-28), and one that cannot be filled is
+            // a near miss, never silently dropped.
+            let has_imps = decl.params.iter().any(|p| p.implicit) || !decl.implicit_groups.is_empty();
             // A written implicit (`?eq: (V, V) -> Bool`) is filled at the call,
             // not by the position's arguments [comptime-generic].
             let fixed: Vec<&ast::Param> = decl.params.iter().filter(|p| !p.implicit).collect();
@@ -5886,6 +5943,16 @@ impl<'p, 'r> Checker<'p, 'r> {
                 other => other,
             };
             if fn_value_fits(&candidate, want) {
+                let mut nested: Vec<ImplicitArg> = Vec::new();
+                if has_imps && !self.resolve_as_call {
+                    match self.try_nested(entry.key, decl, &binding, &generics, want) {
+                        Ok(n) => nested = n,
+                        Err(reason) => {
+                            note(0, reason, &mut near);
+                            continue;
+                        }
+                    }
+                }
                 let canonical = self
                     .attached_to(entry.key, decl)
                     .filter(|t| want_types.contains(t));
@@ -5905,6 +5972,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     canonical,
                     entry.module.to_string(),
                     identity,
+                    nested,
                 ));
             } else {
                 let reason = self.fn_fit_reason(want, &candidate, name).unwrap_or_else(|| {
@@ -5943,8 +6011,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         // declaring its own pass under a name std also uses (`ListYield` plus
         // its `next`) resolves to its own `next` rather than colliding with
         // core's — the same ladder every named call already walks.
-        if let Some(top) = hits.iter().map(|(_, rung, _, _, _)| *rung).max() {
-            hits.retain(|(_, rung, _, _, _)| *rung == top);
+        if let Some(top) = hits.iter().map(|(_, rung, _, _, _, _)| *rung).max() {
+            hits.retain(|(_, rung, _, _, _, _)| *rung == top);
         }
         match hits.len() {
             0 => Err(match near {
@@ -5953,6 +6021,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }),
             1 => {
                 let hit = hits.remove(0);
+                self.last_nested = hit.5;
                 Ok((hit.0, hit.4))
             }
             n => Err(ImplicitMiss::Ambiguous(n)),

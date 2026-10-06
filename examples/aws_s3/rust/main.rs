@@ -17,6 +17,8 @@ pub mod aws;
 pub mod aws_s3;
 #[path = "core/actor.rs"]
 pub mod core_actor;
+#[path = "core/basic.rs"]
+pub mod core_basic;
 #[path = "core/buffer.rs"]
 pub mod core_buffer;
 #[path = "core/bytes.rs"]

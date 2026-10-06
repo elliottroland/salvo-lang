@@ -111,22 +111,88 @@ export intrinsic fn hash(value: Char) [] -> Long => value
 export intrinsic fn hash(value: Bool) [] -> Long => value
 export intrinsic fn hash(value: Str) [] -> Long => value
 
-// [col-hashed-ordered] **Interim**: a `List` and a tuple compare, hash and
-// order structurally through the host, exactly when their elements do — the
-// backends' implementations, declared here so a stamped `cmp`/`eq`/`hash`
-// over a struct holding one resolves. What this does *not* do is consult an
-// element's own declared identity inside the container (a `List<Person>`
-// compares by `Person`'s fields, not its `eq`); std owning these in Salvo
-// waits on recursive implicit resolution (ROADMAP §2c/§6).
-export intrinsic fn cmp<T>(a: List<T>, b: List<T>) [] -> Int => a, b
-export intrinsic fn eq<T>(a: List<T>, b: List<T>) [] -> Bool => a, b
-export intrinsic fn hash<T>(value: List<T>) [] -> Long => value
-export intrinsic fn cmp<A, B>(a: (A, B), b: (A, B)) [] -> Int => a, b
-export intrinsic fn eq<A, B>(a: (A, B), b: (A, B)) [] -> Bool => a, b
-export intrinsic fn hash<A, B>(value: (A, B)) [] -> Long => value
-export intrinsic fn cmp<A, B, C>(a: (A, B, C), b: (A, B, C)) [] -> Int => a, b
-export intrinsic fn eq<A, B, C>(a: (A, B, C), b: (A, B, C)) [] -> Bool => a, b
-export intrinsic fn hash<A, B, C>(value: (A, B, C)) [] -> Long => value
+// [col-hashed-ordered] [implicit-recursive] A `List` and a tuple compare, hash
+// and order **element by element, through the elements' own identities**: a
+// `List<Person>` compares by `Person`'s declared `eq`, hashes by its `hash`,
+// orders by its `cmp`. Ordinary Salvo over the implicits of the element types
+// (ROADMAP §0j step 8); resolving one of these for `List<Person>` fills the
+// element's in turn.
+export fn eq<T>(a: List<T>, b: List<T>, ?eq: (x: T, y: T) -> Bool) [] -> Bool => a, b {
+    if size(a) != size(b) {
+        return false
+    }
+    for p in enumerate(a) {
+        let j = p.index
+        if j is Idx(b) {
+            if !eq(p.elem, get(b, j)) {
+                return false
+            }
+        }
+    }
+    return true
+}
+
+export fn cmp<T>(a: List<T>, b: List<T>, ?cmp: (x: T, y: T) -> Int) [] -> Int => a, b {
+    for p in enumerate(a) {
+        let j = p.index
+        if j is Idx(b) {
+            let c = cmp(p.elem, get(b, j))
+            if c != 0 {
+                return c
+            }
+        } else {
+            return 1
+        }
+    }
+    if size(a) < size(b) {
+        return -1
+    }
+    return 0
+}
+
+export fn hash<T>(value: List<T>, ?hash: (x: T) -> Long) [] -> Long => value {
+    let h = 7L
+    for x in value {
+        h = mix_hash(h, hash(x))
+    }
+    return h
+}
+
+export fn eq<A, B>(a: (A, B), b: (A, B), ?eq: (x: A, y: A) -> Bool, ?eq: (x: B, y: B) -> Bool) [] -> Bool => a, b {
+    return eq(a.0, b.0) && eq(a.1, b.1)
+}
+
+export fn cmp<A, B>(a: (A, B), b: (A, B), ?cmp: (x: A, y: A) -> Int, ?cmp: (x: B, y: B) -> Int) [] -> Int => a, b {
+    let c = cmp(a.0, b.0)
+    if c != 0 {
+        return c
+    }
+    return cmp(a.1, b.1)
+}
+
+export fn hash<A, B>(value: (A, B), ?hash: (x: A) -> Long, ?hash: (x: B) -> Long) [] -> Long => value {
+    return mix_hash(mix_hash(7L, hash(value.0)), hash(value.1))
+}
+
+export fn eq<A, B, C>(a: (A, B, C), b: (A, B, C), ?eq: (x: A, y: A) -> Bool, ?eq: (x: B, y: B) -> Bool, ?eq: (x: C, y: C) -> Bool) [] -> Bool => a, b {
+    return eq(a.0, b.0) && eq(a.1, b.1) && eq(a.2, b.2)
+}
+
+export fn cmp<A, B, C>(a: (A, B, C), b: (A, B, C), ?cmp: (x: A, y: A) -> Int, ?cmp: (x: B, y: B) -> Int, ?cmp: (x: C, y: C) -> Int) [] -> Int => a, b {
+    let c = cmp(a.0, b.0)
+    if c != 0 {
+        return c
+    }
+    let d = cmp(a.1, b.1)
+    if d != 0 {
+        return d
+    }
+    return cmp(a.2, b.2)
+}
+
+export fn hash<A, B, C>(value: (A, B, C), ?hash: (x: A) -> Long, ?hash: (x: B) -> Long, ?hash: (x: C) -> Long) [] -> Long => value {
+    return mix_hash(mix_hash(mix_hash(7L, hash(value.0)), hash(value.1)), hash(value.2))
+}
 
 // The fold a structural `hash` combines its fields' digests with: `seed * 31 +
 // value`, which wraps on both backends because integer arithmetic does

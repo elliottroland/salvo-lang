@@ -15,7 +15,7 @@ use crate::runtime_timers::__Stateless_Wheel as _;
 use crate::runtime_timers::advance;
 use crate::runtime_timers::after_nanos;
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Duration {
     pub nanos: i64,
 }
@@ -31,7 +31,7 @@ impl crate::wire::__Wire for Duration {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Instant {
     pub nanos: i64,
 }
@@ -47,7 +47,7 @@ impl crate::wire::__Wire for Instant {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Tick {
     pub nanos: i64,
 }
