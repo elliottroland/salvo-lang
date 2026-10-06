@@ -660,6 +660,11 @@ pub struct Checked {
     /// exactly when it is here; the emitters no longer ask the scope-blind
     /// `Symbols::effect_of_fn`.
     pub member_calls: HashMap<Key, MemberCall>,
+    /// [fn-dot] Calls written `base.f(args)` that the checker read as
+    /// `f(base, args)`, keyed by the call span. The emitters normalize
+    /// exactly these; they no longer ask whether `f` could be a fn or a
+    /// member.
+    pub dot_calls: HashSet<Key>,
     /// [call-resolve] Call sites whose callee resolved to a **fn-typed
     /// local** (a parameter or `let`) rather than to a declaration, keyed
     /// by the call span.
@@ -26722,6 +26727,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             let known = self.scope.effect_members.contains_key(name) || self.has_callable(name);
             if known {
+                self.out.dot_calls.insert(self.key(span));
                 let mut all_args: Vec<&'p Expr> = Vec::with_capacity(args.len() + 1);
                 all_args.push(base);
                 all_args.extend(args.iter());

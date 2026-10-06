@@ -254,13 +254,23 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
     (`fn_ty_param_renderings`, the implicit positions). Rust code is deleted
     site by site as each table lands. Absorbs §11 (the read-mode table says
     what a read produced) and §0h's note that Rust's `__loc` variants depend
-    on callers. The `rs-` rules that state Salvo ownership (rs-read-mode,
+    on callers. Also moved (2026-10-06): the optional-borrow and `proj`-arm
+    call classification (`salvo_core::borrows`). What remains of the
+    narrowing table is the *local* classification (which `let` holds an
+    optional borrow, which holds borrowed arms), which the emitter builds in
+    its `bindings` map at about thirty sites, so it moves with step 13. The `rs-` rules that state Salvo ownership (rs-read-mode,
     rs-opt-borrow, rs-proj-arm, rs-fn-param-convention) become neutral
     LANGUAGE_SPEC.md rules; the Rust spellings stay in BACKEND_SPEC.rust.md.
 13. **A lowering pass for the rewrites**: argument hoists, fn variants,
     value-position `loop`/`if`/blocks, the iterator driver; possibly fn
-    bodies only. Designed with 12's tables as its vocabulary. Absorbs the
-    recorded "where dot-notation is normalized".
+    bodies only. Designed with 12's tables as its vocabulary. Dot-notation
+    is done (`Checked::dot_calls`, 2026-10-06). Survey findings to start
+    from: there is no last-use analysis to build (an owned local in a
+    consuming position is a move, because the checker rejected any later
+    use), so the per-read table is position x root binding kind x type; the
+    position (ambient `ValueMode` set by about ten callers) and the root kind
+    (`BindKind`, set at about thirty `bindings` insertions) are the two inputs
+    core lacks, and both come from the same walk this step is.
 
 What a garbage-collected third backend then writes: expression, statement
 and type rendering; the `UnionN` generator and union renderers; `try`/throw;

@@ -2605,7 +2605,9 @@ Conventions:
   declared fn or effect member. There is no method-call fallback: an
   undeclared name is an unresolved call ([call-resolve]), and the
   diagnostic names a `platform handler` [platform-handler] as the way
-  to reach a target-language method.
+  to reach a target-language method. The checker records each call it read
+  this way (`Checked::dot_calls`); a backend normalizes exactly those and
+  never guesses from the name (built 2026-10-06).
 * [ident-resolve] Every **identifier reference** must resolve to something
   declared — a local, a parameter, a handler, or a fn passed by name.
   Nothing else is a value, so the reference is an error (user request

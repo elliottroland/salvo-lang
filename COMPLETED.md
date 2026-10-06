@@ -136,6 +136,21 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-06 — Dot calls and borrowed results from core (§0j steps 12 and 13, partial)
+
+* `Checked::dot_calls` ([fn-dot]): the checker records each `base.f(args)` it
+  read as `f(base, args)`; both emitters normalize exactly those instead of
+  asking `effect_of_fn` / `resolve_fn`. Compared first over the suite: no
+  difference.
+* `salvo_core::borrows`: `is_optional_derived_call`, `call_borrowed_arms` and
+  `type_has_proj` left the Rust emitter.
+
+Stopped here on purpose. What is left of 12 (the per-local narrowing
+classification, the per-read table) and all of 13 need the emitter's two pieces
+of ambient state, the wanted `ValueMode` and the per-name `BindKind` map, to
+become the output of a core walk; that is one design (a lowering pass over fn
+bodies), not a series of moves, and ROADMAP §0j now records where it starts.
+
 ### 2026-10-06 — Lending variants in core (§0j step 12, second table)
 
 `salvo_core::lend_variants` took `lend_mut_demand` (which fns need a locator

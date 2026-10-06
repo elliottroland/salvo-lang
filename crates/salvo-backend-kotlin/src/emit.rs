@@ -8407,8 +8407,7 @@ impl<'p> Emitter<'p> {
         if let Expr::Field { base, field, .. } = callee {
             let name = field.name.as_str();
             let total = args.len() + 1;
-            if self.symbols.effect_of_fn.contains_key(name)
-                || self.symbols.resolve_fn(name, total).is_some()
+            if self.checked.dot_calls.contains(&(self.file_idx, span))
             {
                 let mut all_args: Vec<&Expr> = Vec::with_capacity(total);
                 all_args.push(base);

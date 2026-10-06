@@ -1595,6 +1595,7 @@ enum StmtCtx {
     Normal,
 }
 
+use salvo_core::borrows::type_has_proj;
 use salvo_core::lend_variants::{
     strip_top_proj_ast,
     collect_returned_exprs, covered_fns, fn_type_lends_mut, lend_mut_demand, mut_lend_call_of, ty_lends_mut, Covered,
@@ -7937,19 +7938,7 @@ impl<'p> Emitter<'p> {
     /// [readonly-return] whose declared result is optional — the shape that
     /// produces an `Option<&T>` in this backend.
     fn is_optional_derived_call(&self, value: &Expr) -> bool {
-        let Expr::Call { span, .. } = value else {
-            return false;
-        };
-        if !self
-            .checked
-            .derived_calls
-            .contains_key(&(self.file_idx, *span))
-        {
-            return false;
-        }
-        self.checked
-            .ty_of(self.file_idx, *span)
-            .is_some_and(|t| t.strip_quals().has_none_arm())
+        salvo_core::borrows::is_optional_derived_call(self.checked, self.file_idx, value)
     }
 
     fn emit_let(
@@ -10033,24 +10022,7 @@ impl<'p> Emitter<'p> {
     /// references: the `proj` arms of the resolved callee's written return
     /// type. Empty for anything else.
     fn call_borrowed_arms(&mut self, call: &Expr) -> Vec<usize> {
-        let Expr::Call { span, .. } = call else {
-            return Vec::new();
-        };
-        let Some(key) = self.checked.call_fn.get(&(self.file_idx, *span)).copied() else {
-            return Vec::new();
-        };
-        let Some(decl) = self.fn_by_key(key) else {
-            return Vec::new();
-        };
-        let Some(Type::Union { arms, .. }) = decl.return_type.as_ref() else {
-            return Vec::new();
-        };
-        arms.iter()
-            .filter(|a| !is_none_type(a))
-            .enumerate()
-            .filter(|(_, a)| type_has_proj(a))
-            .map(|(i, _)| i)
-            .collect()
+        salvo_core::borrows::call_borrowed_arms(self.program, self.checked, self.file_idx, call)
     }
 
     /// Reads the narrowed payload out of a subject for an `is` binding:
@@ -14345,8 +14317,7 @@ impl<'p> Emitter<'p> {
         if let Expr::Field { base, field, .. } = callee {
             let name = field.name.as_str();
             let total = args.len() + 1;
-            if self.symbols.effect_of_fn.contains_key(name)
-                || self.symbols.resolve_fn(name, total).is_some()
+            if self.checked.dot_calls.contains(&(self.file_idx, span))
             {
                 let mut all_args: Vec<&Expr> = Vec::with_capacity(total);
                 all_args.push(base);
@@ -17301,23 +17272,6 @@ fn child_exprs(expr: &Expr) -> Vec<&Expr> {
     }
 }
 
-/// [rs-proj-struct] Whether a written type carries a `proj` anywhere.
-fn type_has_proj(ty: &Type) -> bool {
-    fn in_ref(r: &TypeRef) -> bool {
-        r.name.name == "proj" || r.args.iter().any(type_has_proj)
-    }
-    match ty {
-        Type::Named { qualifiers, base } => qualifiers.iter().any(in_ref) || in_ref(base),
-        Type::QualifiedGroup {
-            qualifiers, base, ..
-        } => qualifiers.iter().any(in_ref) || type_has_proj(base),
-        Type::Nullable { inner, .. } | Type::Array { elem: inner, .. } => type_has_proj(inner),
-        Type::Union { arms, .. } | Type::Tuple { elems: arms, .. } => {
-            arms.iter().any(type_has_proj)
-        }
-        _ => false,
-    }
-}
 
 /// [rs-proj-struct] The type with its outermost `proj` qualifier removed —
 /// what a `&'s …` wraps.
