@@ -5279,8 +5279,8 @@ impl<'p> Emitter<'p> {
             || (self.lend_loc_mode
                 && self.mut_forward_sites.contains(&(self.file_idx, span)));
         let suffix = if loc { "__loc" } else { "" };
-        match self.checked.effect_member_calls.get(&(self.file_idx, span)) {
-            Some(&idx) => format!("{}{suffix}", self.member_name(decl, idx)),
+        match self.checked.member_calls.get(&(self.file_idx, span)).map(|c| c.index).or_else(|| self.checked.effect_member_calls.get(&(self.file_idx, span)).copied()) {
+            Some(idx) => format!("{}{suffix}", self.member_name(decl, idx)),
             None => match salvo_core::effect_members_named(decl, name).as_slice() {
                 [_] | [] => format!("{}{suffix}", rs_ident(name)),
                 _ => {
@@ -14930,53 +14930,22 @@ impl<'p> Emitter<'p> {
         span: Span,
     ) -> String {
         // 1. Effect member call: dispatch through the handler in scope
-        // [rs-effects] ([effect-disambiguation], `effect_calls`): a method
-        // call on the handle the instance is bound to.
-        // [call-resolve] ...unless the checker resolved this callee to a
-        // fn-typed **local**, which outranks any same-named declaration.
-        // `effect_of_fn` is program-wide and knows nothing of scopes, so
-        // without this a user effect member could hijack a std function's
-        // own parameter (`filter`'s `keep`).
-        if let Some(owners) = self
-            .symbols
-            .effect_of_fn
-            .get(name)
-            .filter(|_| {
-                !self.checked.local_calls.contains(&(self.file_idx, span))
-                    // [effect-available] ...or to an ordinary fn, because no
-                    // instance of the owning effect was in scope: the name is
-                    // a member somewhere, this call is not.
-                    && !self
-                        .checked
-                        .fn_over_member_calls
-                        .contains(&(self.file_idx, span))
-            })
-        {
-            let owners = owners.clone();
+        // [rs-effects] [effect-dispatch] A call is a member dispatch exactly
+        // when the checker recorded it (`member_calls`: the effect and the
+        // member): a method call on the handle the instance
+        // (`effect_calls`, [effect-disambiguation]) is bound to.
+        if let Some(call) = self.checked.member_calls.get(&(self.file_idx, span)).cloned() {
+            let effect: &str = self
+                .symbols
+                .effects
+                .get_key_value(call.effect.as_str())
+                .map(|(k, _)| *k)
+                .unwrap_or("");
             let checked_effect = self
                 .checked
                 .effect_calls
                 .get(&(self.file_idx, span))
                 .cloned();
-            // [effect-member-overload] Several effects may declare the
-            // member: the checker's per-call resolution names the owner;
-            // with a sole owner the map answers directly (the unchecked
-            // fallback path).
-            let effect: &str = match &checked_effect {
-                Some(Ty::Named { name: n, .. }) => owners
-                    .iter()
-                    .copied()
-                    .find(|o| *o == n.as_str())
-                    .unwrap_or(owners[0]),
-                _ if owners.len() == 1 => owners[0],
-                _ => {
-                    self.error(format!(
-                        "internal: `{name}` is a member of several effects and \
-                         the checker recorded no resolution for this call"
-                    ));
-                    owners[0]
-                }
-            };
             let handler = match &checked_effect {
                 Some(ty) if ty_is_concrete(ty) => {
                     let ty = ty.clone();
@@ -14987,12 +14956,7 @@ impl<'p> Emitter<'p> {
             // Effect member params: default kept rule [rs-borrows].
             // [effect-member-overload] The *resolved* overload's parameters,
             // since two overloads differ in exactly what they take.
-            let member = self.symbols.effects.get(effect).and_then(|e| {
-                match self.checked.effect_member_calls.get(&(self.file_idx, span)) {
-                    Some(&idx) => e.fns.get(idx),
-                    None => e.fns.iter().find(|f| f.name.name == name),
-                }
-            });
+            let member = self.symbols.effects.get(effect).and_then(|e| e.fns.get(call.index));
             let mut arg_code = match member {
                 Some(m) => {
                     let m = m.clone();

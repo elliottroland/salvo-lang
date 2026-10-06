@@ -32,6 +32,15 @@ use crate::types::{is_subtype, FnId, FnParamContract, Qual, QualEffect, Ty};
 /// Table key: (file index, expression span).
 pub type Key = (usize, Span);
 
+/// [effect-dispatch] An effect-member call, resolved.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MemberCall {
+    /// The effect's symbol key.
+    pub effect: String,
+    /// The member's index among the effect's `fns`.
+    pub index: usize,
+}
+
 /// [fn-overload-rank] One candidate of an overload set as a possible
 /// *lead*: the source of the expected types its arguments are checked
 /// against. Carries the candidate's own generic names and the substitution
@@ -645,6 +654,12 @@ pub struct Checked {
     /// they name an overloaded member positionally
     /// (`salvo_core::effect_member_name`).
     pub effect_member_calls: HashMap<Key, usize>,
+    /// [effect-dispatch] Every call the checker resolved to an effect member,
+    /// keyed by the call span: the effect (by its symbol key) and the
+    /// member's index in its declaration order. A call is a member dispatch
+    /// exactly when it is here; the emitters no longer ask the scope-blind
+    /// `Symbols::effect_of_fn`.
+    pub member_calls: HashMap<Key, MemberCall>,
     /// [call-resolve] Call sites whose callee resolved to a **fn-typed
     /// local** (a parameter or `let`) rather than to a declaration, keyed
     /// by the call span.
@@ -662,16 +677,6 @@ pub struct Checked {
     /// [implicit-same-name] A local call through one of several implicits of
     /// one name: the [`ImplicitParam::local`] it went through.
     pub local_call_names: HashMap<Key, String>,
-    /// [effect-available] Call sites whose name *is* an effect member but
-    /// which resolved to an ordinary **fn declaration**, because no instance
-    /// of the owning effect was in scope (2026-09-14). Recorded for the same
-    /// reason as `local_calls`: the emitters ask a program-wide,
-    /// scope-blind map (`Symbols::effect_of_fn`) whether a name is a member,
-    /// and would otherwise emit a member dispatch for a call the checker
-    /// resolved to a function — std's `Fs` claims `close`, `write`,
-    /// `read_line` and `position`, so this is every program that has one of
-    /// those names and no filesystem.
-    pub fn_over_member_calls: HashSet<Key>,
     /// Concrete effect instances threaded as leading handler arguments for
     /// a call to a fn that declares effect dependencies (keyed by the call
     /// span, in the callee's declaration order).
@@ -27526,10 +27531,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .any(|t| matches!(&t.ty, Ty::Named { name: n, .. } if *n == self.symbols.key_or(*e, &e.name.name)))
             });
             if !any_available && !self.overloads_of(name).is_empty() {
-                // Fall through to the fn overloads below — and tell the
-                // emitters, whose own "is this a member?" map cannot see
-                // scopes [effect-available].
-                self.out.fn_over_member_calls.insert(self.key(span));
+                // Fall through to the fn overloads below [effect-available].
             } else {
             // [lsp-definition] members have no `FnKey`; the def-site table
             // carries their declaration span.
@@ -27627,8 +27629,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 Route::Fn(arg_tys) => {
                     // The fn side won: fall through, with the types already
-                    // in hand and the emitters told [effect-available].
-                    self.out.fn_over_member_calls.insert(self.key(span));
+                    // in hand [effect-available].
                     pre_typed = Some(arg_tys);
                 }
                 Route::Neither => return Ty::Unknown,
@@ -27687,25 +27688,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                 name,
             );
             return Ty::Unknown;
-        }
-
-        // [effect-available] The fn path is committed, so tell the emitters —
-        // whose own "is this name an effect member?" question is asked of the
-        // **program-wide, scope-blind** `Symbols::effect_of_fn`, while the
-        // checker has just resolved a fn declaration.
-        //
-        // The two fall-throughs inside the member block above record the case
-        // where the member *was* in this scope and lost. This records the
-        // cases where that block never ran at all: the name is a member of an
-        // effect not in scope here, or the call wrote an explicit `@module`
-        // selector to reach the fn on purpose. The first is a user effect's
-        // member name colliding with a std fn — `effect Tally { fn add(n: Int)
-        // }` made *std's* `core/seq.sv` emit a member dispatch for its own
-        // `add(out, x)`, reported as "no handler for effect `Tally`" from
-        // inside std (found 2026-09-15). The checker was right and silent; the
-        // record is what makes the emitters agree.
-        if self.symbols.effect_of_fn.contains_key(name) {
-            self.out.fn_over_member_calls.insert(self.key(span));
         }
 
         // Type the arguments once, then match candidates against them.
@@ -29547,6 +29529,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             if let Some(idx) = crate::effect_member_index(effect, member) {
                 self.out.effect_member_calls.insert(self.key(span), idx);
             }
+        }
+        if let Some(index) = crate::effect_member_index(effect, member) {
+            let key = self.symbols.key_or(effect, &effect.name.name).to_string();
+            self.out.member_calls.insert(self.key(span), MemberCall { effect: key, index });
         }
         // [throw] The throw effect has no handler: the delimiter is `try`,
         // so its operation resolves through its own path.

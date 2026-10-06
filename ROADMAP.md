@@ -237,9 +237,10 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
    as an implicit": the stamped codec is that implicit. Needs 6i, and 8 for
    container fields.
 10. ✅ **Imports and runtime features from core** (COMPLETED.md, 2026-10-06).
-11. **Effect dispatch and copy plans** as side tables: per call, which
-    effect, member and handler; per copy site, identity, builder,
-    element-wise or platform copy.
+11. ✅ **Effect dispatch and copy plans** (COMPLETED.md, 2026-10-06). Left,
+    small: the dot-notation normalization still asks `effect_of_fn` (step 13
+    removes it), and the actor-send path (`a.send_fn(..)`) still reads
+    `effect_member_calls` for its overload index.
 12. **The ownership plan, as side tables**: per parameter (moved, lent, lent
     mutably, kept; fn-type parameters and implicits included), per read
     (move, copy, borrow, take), per narrowing (is the subject a borrow), per

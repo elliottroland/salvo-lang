@@ -987,7 +987,7 @@ nothing but the monitor.
   * **The skeleton prints the contract** in both shapes above the class: the
     threadsafe one names what synchronization the host owes; the undeclared
     one says the compiler serializes the instance.
-* [kt-copy] `copy(x)` lowers type-directedly:
+* [kt-copy] `copy(x)` renders core's copy plan [copy-plan]:
   * *identity* (emits just the argument) when the type is transitively
     immutable — scalars, `Str`, `None`, non-`Mut` lists of immutable
     elements, tuples/unions/fn values of immutable components, and

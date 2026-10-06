@@ -7549,6 +7549,17 @@ between endpoints and delivers what arrives into the scheduler.
     stored, sent). Without this, `return get(numbers, i)` on a `List<Double>`
     was refused as a view of `numbers` and asked for a `copy` that neither
     backend would emit. A non-scalar element read is unaffected.
+* [copy-plan] **What `copy` duplicates is core's call** (built 2026-10-06,
+  `salvo_core::copyplan`): a tree per type — share the value when no Salvo
+  operation can mutate any part of it (scalars, `Str`, non-`Mut` structs of
+  such, an `Addr`, a `Pool`, fn values); otherwise a `Mut Str` gets a new
+  buffer, a value platform type with a `Mut` kind its host's `copy`, a `List`
+  or `Deque` a new container whose elements copy by their own plan, a struct
+  a copy with each still-mutable field replaced by its own copy, an array of
+  immutable elements a new array. A struct reached again inside its own copy
+  has no plan and is refused. A backend whose copy is always deep (Rust's
+  `clone`) ignores the plan; one whose values share structure renders it
+  ([kt-copy]).
 * [copy-implicit] `?copy: (v: T) -> T` is an ordinary implicit parameter
   (user decision 2026-09-11): a generic body that must copy a `T` it
   cannot see through — `filter_to`'s `add(dest, copy(x))`, a handler
@@ -9244,6 +9255,13 @@ replaced the working document TESTING.md).
   an error at the second declaration (source order, so the diagnostic is
   deterministic and fires once). Signatures are compared as *lowered* types,
   so two spellings of one type are the duplicate they are.
+* [effect-dispatch] **A call is an effect-member dispatch exactly when the
+  checker says so** (built 2026-10-06, `Checked::member_calls`): the call's
+  span maps to the effect and to the member's index in its declaration order,
+  and the instance it goes through is `effect_calls`. A backend never asks
+  whether a name *could* be a member — a fn-typed local, or an ordinary fn
+  sharing a member's name because no instance of the effect was in scope,
+  is not one.
 * [effect-member-overload] A member name may recur, **within one effect and
   across effects** (user decisions 2026-09-14: the cross-effect ban lifted
   in the fifth round — `close` on `Fs` and on `Net` is the natural spelling

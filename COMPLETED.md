@@ -136,6 +136,32 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-06 — Effect dispatch and copy plans as core tables (§0j step 11)
+
+Two decisions moved out of the emitters, each verified before the emitter code
+went.
+
+* **`Checked::member_calls`** ([effect-dispatch]): recorded in
+  `check_effect_call`, the span of every call resolved to an effect member maps
+  to the effect's symbol key and the member's index. Both emitters' "is this
+  an effect-member call" test (`effect_of_fn` filtered by `local_calls` and
+  `fn_over_member_calls`, then a by-name owner pick with an "internal:
+  several owners" error) is now one lookup, and the member is `fns[index]`
+  rather than a search by name. Compared first (old decision against the
+  table, `SALVO_FEATURE_DIFF`, whole suite): no difference in either
+  direction. `fn_over_member_calls` and its three record sites are deleted —
+  it existed only to patch the scope-blind map. `effect_member_calls` stays for
+  the actor-send path.
+* **`salvo_core::copyplan`** ([copy-plan]): Kotlin's `copy_code`,
+  `copy_struct_fields` and `ty_immutable` (about 230 lines of deciding which
+  parts of a value a Salvo operation can mutate) became `copy_plan(symbols,
+  ty) -> Option<CopyPlan>` in core; Kotlin keeps a 45-line renderer. Generated
+  code is byte-identical. Rust ignores the plan (`clone` is deep).
+
+What the roadmap called "per call, which handler" was already a table
+(`effect_calls`, `use_effects`, `call_effects`); the emitters' handler
+*lookup* (which local names the instance) is rendering and stays.
+
 ### 2026-10-06 — Runtime features from core (§0j step 10, second half)
 
 `salvo_core::features::module_features` decides whether a program ships the

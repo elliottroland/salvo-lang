@@ -3,6 +3,7 @@
 
 pub mod route;
 pub mod features;
+pub mod copyplan;
 pub mod abi;
 pub mod case;
 pub mod check;

@@ -1029,8 +1029,6 @@ struct Emitter<'p> {
     /// reads it after the body and prepends `@Suppress("UNCHECKED_CAST")` —
     /// generated code must stay warning-free, and the author cannot edit it.
     unchecked_cast: bool,
-    /// [kt-copy] The structs whose deep copy is being built, outermost first.
-    copying: Vec<String>,
     /// Enclosing loops during emission [while-value]: the result variable
     /// a `break value` assigns before breaking (`None` for loops whose
     /// value is discarded). Innermost last.
@@ -1131,7 +1129,6 @@ impl<'p> Emitter<'p> {
             generics: HashSet::new(),
             ctor_implicits: HashSet::new(),
             unchecked_cast: false,
-            copying: Vec::new(),
             loop_results: Vec::new(),
             loop_id: 0,
             loop_destructures: Vec::new(),
@@ -3565,8 +3562,8 @@ impl<'p> Emitter<'p> {
         let Some(decl) = self.symbols.effects.get(effect).copied() else {
             return kt_ident(name);
         };
-        match self.checked.effect_member_calls.get(&(self.file_idx, span)) {
-            Some(&idx) => self.member_name(decl, idx),
+        match self.checked.member_calls.get(&(self.file_idx, span)).map(|c| c.index).or_else(|| self.checked.effect_member_calls.get(&(self.file_idx, span)).copied()) {
+            Some(idx) => self.member_name(decl, idx),
             None => match salvo_core::effect_members_named(decl, name).as_slice() {
                 [_] | [] => kt_ident(name),
                 _ => {
@@ -8480,50 +8477,18 @@ impl<'p> Emitter<'p> {
         span: Span,
     ) -> String {
         // 1. Effect member call: dispatch through the handler in scope
-        // [kt-effect-params]. The checker records which effect instance
-        // the call resolved to ([effect-disambiguation], `effect_calls`);
-        // string matching on the effect name remains the fallback for
-        // unchecked contexts.
-        // ...unless the checker resolved this callee to a fn-typed **local**
-        // [call-resolve], which outranks any same-named declaration:
-        // `effect_of_fn` is program-wide and cannot see scopes, so without
-        // this a user effect member could hijack a std function's own
-        // parameter (`filter`'s `keep`).
-        if let Some(owners) = self
-            .symbols
-            .effect_of_fn
-            .get(name)
-            .filter(|_| {
-                !self.checked.local_calls.contains(&(self.file_idx, span))
-                    // [effect-available] ...or to an ordinary fn, because no
-                    // instance of the owning effect was in scope: the name is
-                    // a member somewhere, this call is not.
-                    && !self
-                        .checked
-                        .fn_over_member_calls
-                        .contains(&(self.file_idx, span))
-            })
-        {
-            let owners = owners.clone();
-            // [effect-member-overload] Several effects may declare the
-            // member: the checker's per-call resolution names the owner;
-            // with a sole owner the map answers directly (the unchecked
-            // fallback path).
-            let effect: &str = match self.checked.effect_calls.get(&(self.file_idx, span)) {
-                Some(Ty::Named { name: n, .. }) => owners
-                    .iter()
-                    .copied()
-                    .find(|o| *o == n.as_str())
-                    .unwrap_or(owners[0]),
-                _ if owners.len() == 1 => owners[0],
-                _ => {
-                    self.error(format!(
-                        "internal: `{name}` is a member of several effects and \
-                         the checker recorded no resolution for this call"
-                    ));
-                    owners[0]
-                }
-            };
+        // [kt-effect-params] [effect-dispatch] A call is a member dispatch
+        // exactly when the checker recorded it (`member_calls`: the effect and
+        // the member), so neither a fn-typed local nor a fn that shares a
+        // member's name can be mistaken for one. The instance comes from
+        // `effect_calls` [effect-disambiguation].
+        if let Some(call) = self.checked.member_calls.get(&(self.file_idx, span)).cloned() {
+            let effect: &str = self
+                .symbols
+                .effects
+                .get_key_value(call.effect.as_str())
+                .map(|(k, _)| *k)
+                .unwrap_or("");
             let handler = match self.checked.effect_calls.get(&(self.file_idx, span)) {
                 Some(ty) if ty_is_concrete(ty) => {
                     let ty = ty.clone();
@@ -8819,133 +8784,54 @@ impl<'p> Emitter<'p> {
     }
 
     /// [kt-copy] The copy of a value of type `ty`, given its code, or `None`
-    /// where this backend cannot copy the shape correctly (a shallow copy
-    /// would alias mutable parts). Shared by `copy(x)` calls and by `copy`
-    /// resolved as an implicit *value* at a concrete type [copy-implicit].
+    /// where no backend can copy the shape correctly. Core decides what is
+    /// copied ([copy-plan]); this spells it. Shared by `copy(x)` calls and by
+    /// `copy` resolved as an implicit *value* at a concrete type
+    /// [copy-implicit].
     fn copy_code(&mut self, ty: &Ty, code: &str) -> Option<String> {
-        let code = code.to_string();
-        // Identity: no Salvo operation can mutate any part of the value.
-        if self.ty_immutable(ty, &mut Vec::new()) {
-            return Some(code);
-        }
-        // Real copies for the mutable shapes Kotlin can copy correctly.
-        let has_mut = ty.quals().iter().any(|q| q.name == "Mut");
-        match ty.strip_quals() {
-            // [kt-mut-str] A `Mut Str` is a `StringBuilder`, whose copy is
-            // a new builder over the same characters — identity here would
-            // alias the buffer, which is the whole point of [kt-copy].
-            Ty::Named { name, .. } if has_mut && name == "Str" => {
-                return Some(format!("StringBuilder({code})"));
-            }
-            // [platform-value-type] A value platform type copies through its
-            // host package's `copy` (convention, with `Mut<Name>`), for the
-            // plain kind as well as the `Mut` one: a host may use one class for
-            // both, so a plain value can be the very object something else
-            // holds as `Mut` — identity would alias it [kt-copy].
-            // Element-free ones only: a collection's copy must also copy
-            // mutable elements, which its own arm below does.
-            Ty::Named { name, args: no_args }
-                if no_args.is_empty() && self.symbols.intrinsic_types.get(name.as_str()).is_some_and(|t| {
-                    t.platform && !t.linear && t.auto_qualifiers.iter().any(|q| q.name.name == "Mut")
-                }) =>
-            {
-                let name = name.clone();
-                if let Some(module) = self.platform_type_module(&name) {
-                    return Some(format!("{}.copy({code})", host_package(&module)));
-                }
-            }
-            // [col-deque] One class serves `Deque` and `Mut Deque`, so even a
-            // plain deque may be an object someone else mutates: copy it.
-            // [kt-copy] A list or deque copies **element-wise** when its
-            // elements are themselves mutable (`List<Mut Counter>`): a shallow
-            // copy would share the elements, which Rust's deep `clone` does
-            // not (found 2026-10-05, ROADMAP §0j step 1). An element that
-            // copies as itself leaves the container copy shallow.
-            Ty::Named { name, args: targs }
-                if (name == "Deque" || name == "List") && targs.len() == 1 =>
-            {
-                self.loop_id += 1;
-                let var = format!("__c{}", self.loop_id);
-                let elem = self.copy_code(&targs[0], &var)?;
-                let mapped = if elem == var {
-                    None
-                } else {
-                    Some(format!("{code}.map {{ {var} -> {elem} }}"))
-                };
-                return Some(match (name.as_str(), mapped) {
-                    ("Deque", Some(m)) => format!("kotlin.collections.ArrayDeque({m})"),
-                    ("Deque", None) => format!("kotlin.collections.ArrayDeque({code})"),
-                    (_, Some(m)) if has_mut => format!("{m}.toMutableList()"),
-                    (_, Some(m)) => m,
-                    (_, None) if has_mut => format!("{code}.toMutableList()"),
-                    (_, None) => code,
-                });
-            }
-            Ty::Named { name, args: targs } if self.symbols.structs.contains_key(name.as_str()) => {
-                // [kt-copy] A struct copies **deeply**: the data class's
-                // `.copy(…)` with every field that is not immutable replaced
-                // by its own copy, which is what Rust's derived `clone` does.
-                // A field is typed as the value has it: a `canbe Mut` field is
-                // `Mut` in a `Mut` struct [field-canbe-mut].
-                let s = self.symbols.structs[name.as_str()];
-                if s.fields.is_empty() {
-                    return Some(code);
-                }
-                // A struct reached again inside its own copy (through a list
-                // of itself) would need a recursive copy fn; refused, not
-                // looped on.
-                if self.copying.iter().any(|n| n == name) {
-                    return None;
-                }
-                self.copying.push(name.clone());
-                let out = self.copy_struct_fields(s, targs, has_mut, &code);
-                self.copying.pop();
-                return out;
-            }
-            Ty::Array(elem) => {
-                if self.ty_immutable(elem, &mut Vec::new()) {
-                    return Some(format!("{code}.copyOf()"));
-                }
-            }
-            _ => {}
-        }
-        None
+        let plan = salvo_core::copyplan::copy_plan(self.symbols, ty)?;
+        self.render_copy(&plan, code)
     }
 
-    /// [kt-copy] The deep copy of a struct value (see `copy_code`).
-    fn copy_struct_fields(&mut self, s: &'p StructDecl, targs: &[Ty], has_mut: bool, code: &str) -> Option<String> {
-        let name = s.name.name.clone();
-        {
-            {
-                let subst: HashMap<String, Ty> = s
-                    .generics
-                    .iter()
-                    .map(|g| g.name.clone())
-                    .zip(targs.iter().cloned())
-                    .collect();
+    fn render_copy(&mut self, plan: &salvo_core::copyplan::CopyPlan, code: &str) -> Option<String> {
+        use salvo_core::copyplan::CopyPlan;
+        match plan {
+            CopyPlan::Identity => Some(code.to_string()),
+            // [kt-mut-str] A `Mut Str` is a `StringBuilder`.
+            CopyPlan::StrBuilder => Some(format!("StringBuilder({code})")),
+            CopyPlan::Platform(name) => {
+                let module = self.platform_type_module(name)?;
+                Some(format!("{}.copy({code})", host_package(&module)))
+            }
+            CopyPlan::Elements { deque, mutable, elem } => {
+                self.loop_id += 1;
+                let var = format!("__c{}", self.loop_id);
+                let elem = self.render_copy(elem, &var)?;
+                let mapped = if elem == var { None } else { Some(format!("{code}.map {{ {var} -> {elem} }}")) };
+                Some(match (*deque, mapped) {
+                    (true, Some(m)) => format!("kotlin.collections.ArrayDeque({m})"),
+                    (true, None) => format!("kotlin.collections.ArrayDeque({code})"),
+                    (false, Some(m)) if *mutable => format!("{m}.toMutableList()"),
+                    (false, Some(m)) => m,
+                    (false, None) if *mutable => format!("{code}.toMutableList()"),
+                    (false, None) => code.to_string(),
+                })
+            }
+            CopyPlan::Struct { fields, .. } => {
+                if fields.is_empty() {
+                    return Some(format!("{code}.copy()"));
+                }
                 self.loop_id += 1;
                 let var = format!("__s{}", self.loop_id);
                 let mut replaced = Vec::new();
-                for field in &s.fields {
-                    let fty = salvo_core::wire::approx_ty(&field.ty, &subst)?;
-                    let fty = if field.canbe_mut && has_mut {
-                        fty.qualify(vec![salvo_core::types::Qual::plain("Mut", Vec::new())])
-                    } else {
-                        fty
-                    };
-                    if self.ty_immutable(&fty, &mut vec![name.clone()]) {
-                        continue;
-                    }
-                    let fname = kt_ident(&field.name.name);
-                    let read = format!("{var}.{fname}");
-                    let copied = self.copy_code(&fty, &read)?;
+                for (field, fplan) in fields {
+                    let fname = kt_ident(field);
+                    let copied = self.render_copy(fplan, &format!("{var}.{fname}"))?;
                     replaced.push(format!("{fname} = {copied}"));
-                }
-                if replaced.is_empty() {
-                    return Some(format!("{code}.copy()"));
                 }
                 Some(format!("{code}.let {{ {var} -> {var}.copy({}) }}", replaced.join(", ")))
             }
+            CopyPlan::Array => Some(format!("{code}.copyOf()")),
         }
     }
 
@@ -9001,95 +8887,6 @@ impl<'p> Emitter<'p> {
             out.push(self.kotlin_ty(ty));
         }
         out
-    }
-
-    /// Whether no Salvo operation can mutate any part of a value of this
-    /// type — the condition under which identity is a correct `copy` on
-    /// the JVM [kt-copy]. Conservative: anything unknown is mutable.
-    /// `visiting` breaks struct cycles (a cycle through immutable
-    /// spines stays immutable).
-    fn ty_immutable(&self, ty: &Ty, visiting: &mut Vec<String>) -> bool {
-        match ty {
-            Ty::ValueRef { .. } | Ty::ConstInt(_) | Ty::Lit(_) => true,
-            Ty::Qualified { quals, base } => {
-                !quals.iter().any(|q| q.name == "Mut")
-                    && self.ty_immutable(base, visiting)
-            }
-            Ty::Named { name, args } => match name.as_str() {
-                "Byte" | "Int" | "Long" | "Float" | "Double" | "Char" | "Bool"
-                | "Str" | "None" => true,
-                // [actor-types] [kt-actor] An addr or a pool is a scheduler
-                // index — an `Int` — so copying one is the reference itself;
-                // nothing reachable through it is the holder's to mutate.
-                "Addr" | "Pool" => true,
-                // [platform-type] A copy of a platform handle shares the host
-                // object by definition: the reference itself — when nothing
-                // reachable through it is mutable. A platform *collection*
-                // is immutable only if its type arguments are (a
-                // `List<Mut Counter>` holds mutable elements), and a `Deque`
-                // never is: one class serves `Deque` and `Mut Deque`
-                // [col-deque]. This arm used to answer `true` for every
-                // platform type, which made `copy` of a list of mutable
-                // structs alias on Kotlin (ROADMAP §0j step 1).
-                _ if self.symbols.intrinsic_types.get(name.as_str()).is_some_and(|t| t.platform) => {
-                    name != "Deque" && args.iter().all(|a| self.ty_immutable(a, visiting))
-                }
-                _ => {
-                    // A type alias is what it names (found 2026-09-29: a
-                    // struct field of alias type — `fs.Streaming { error:
-                    // StreamError }` — made the struct look mutable).
-                    if let Some(alias) = self
-                        .symbols
-                        .type_aliases
-                        .get(name.as_str())
-                        .and_then(|d| d.alias.as_ref())
-                    {
-                        if visiting.iter().any(|v| v == name) {
-                            return true;
-                        }
-                        visiting.push(name.clone());
-                        let ok = salvo_core::wire::approx_ty(alias, &HashMap::new())
-                            .is_some_and(|t| self.ty_immutable(&t, visiting));
-                        visiting.pop();
-                        return ok;
-                    }
-                    let Some(s) = self.symbols.structs.get(name.as_str()) else {
-                        return false;
-                    };
-                    if visiting.iter().any(|v| v == name) {
-                        return true;
-                    }
-                    // A struct value without the `Mut` qualifier cannot
-                    // have fields assigned [struct-mut]; its fields must
-                    // still be transitively immutable themselves.
-                    visiting.push(name.clone());
-                    let subst: HashMap<String, Ty> = s
-                        .generics
-                        .iter()
-                        .map(|g| g.name.clone())
-                        .zip(args.iter().cloned())
-                        .collect();
-                    let ok = s.fields.iter().all(|field| {
-                        match salvo_core::wire::approx_ty(&field.ty, &subst) {
-                            Some(t) => self.ty_immutable(&t, visiting),
-                            None => false,
-                        }
-                    });
-                    visiting.pop();
-                    ok
-                }
-            },
-            Ty::Union(arms) => arms.iter().all(|a| self.ty_immutable(a, visiting)),
-            Ty::Tuple(elems) => elems.iter().all(|e| self.ty_immutable(e, visiting)),
-            // Arrays are index-assignable without `Mut`.
-            Ty::Array(_) => false,
-            // Function values are opaque and immutable.
-            Ty::Fn { .. } => true,
-            // [cmp-carry] An identity is not a value, so no value of this
-            // "type" exists to be immutable; conservative, like the rest.
-            Ty::FnName(_) => false,
-            Ty::Var(_) | Ty::Any | Ty::Never | Ty::Unknown => false,
-        }
     }
 
     /// [implicit-resolve] What a call passes for each implicit parameter:
