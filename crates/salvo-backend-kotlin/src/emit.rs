@@ -7001,6 +7001,11 @@ impl<'p> Emitter<'p> {
                 // A place's source spelling: every segment is a Salvo name.
                 args.push(a.path.split('.').map(kt_ident).collect::<Vec<_>>().join("."));
             }
+            // [col-idx] The `qualifies` call's implicits (`Idx`'s `?size`),
+            // filled by the checker at the container the test names.
+            if let Some(at) = check.implicits_at {
+                args.extend(self.emit_implicit_args(&[], at));
+            }
             parts.push(format!("{q}_qualifies({})", args.join(", ")));
         }
         if parts.len() == 1 {

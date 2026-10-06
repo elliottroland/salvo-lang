@@ -2,8 +2,8 @@ package salvo.main
 
 import salvo.core.console.Console
 import salvo.core.console.println
-import salvo.core.list.Idx_qualifies
-import salvo.core.list.NotEq_qualifies
+import salvo.core.index.Idx_qualifies
+import salvo.core.index.NotEq_qualifies
 import salvo.core.list.addPlatform
 import salvo.core.list.at
 import salvo.core.list.get
@@ -163,8 +163,8 @@ fun main() {
         d.hp = d.hp + 1
         duel(a, d)
     }
-    if (Idx_qualifies(i, squad)) {
-        if (Idx_qualifies(j, squad)) {
+    if (Idx_qualifies(i, squad, ::sizePlatform)) {
+        if (Idx_qualifies(j, squad, ::sizePlatform)) {
             update(squad, i, { f: Fighter ->
     f.energy = f.energy + 1
 })
@@ -177,8 +177,8 @@ fun main() {
             println(console, "3. ${get(squad, i).energy} ${get(squad, j).energy} (total reads: `Idx` survived)")
         }
     }
-    if (Idx_qualifies(i, squad)) {
-        if (Idx_qualifies(j, squad)) {
+    if (Idx_qualifies(i, squad, ::sizePlatform)) {
+        if (Idx_qualifies(j, squad, ::sizePlatform)) {
             strike(get(squad, i), get(squad, j))
             strike(get(squad, i), get(squad, i))
         }

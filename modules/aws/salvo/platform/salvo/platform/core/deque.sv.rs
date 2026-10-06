@@ -68,6 +68,15 @@ pub fn get<T>(d: &Deque<T>, index: i32) -> Option<&T> {
     if index < 0 { None } else { d.get(index as usize) }
 }
 
+// [col-idx] The total read and write: the index was proven in range.
+pub fn get_at<T>(d: &Deque<T>, index: i32) -> &T {
+    &d[index as usize]
+}
+
+pub fn replace<T>(d: &mut Deque<T>, index: i32, value: T) -> T {
+    std::mem::replace(&mut d[index as usize], value)
+}
+
 pub fn first<T>(d: &Deque<T>) -> Option<&T> {
     d.front()
 }

@@ -15,6 +15,8 @@ pub mod core_checked;
 pub mod core_compare;
 #[path = "core/console.rs"]
 pub mod core_console;
+#[path = "core/index.rs"]
+pub mod core_index;
 #[path = "core/iterator.rs"]
 pub mod core_iterator;
 #[path = "core/list.rs"]

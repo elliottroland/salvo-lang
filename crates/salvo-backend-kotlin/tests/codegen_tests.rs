@@ -10729,10 +10729,12 @@ fn main() [use] {
     use StdOutConsole()
     let xs: Mut List<Int> = mut_list_of()
     add(xs, 1)
-    // `@core.list` changes nothing here: there is one `add` that fits and no
-    // refinement of it disagrees, so the selector is noise [fn-overload-at].
-    add@core.list(xs, 2)
-    println("size: ${size(xs)}")
+    add(xs, 2)
+    // `@core.list` changes nothing here: there is one `size` that fits and
+    // nothing refines it, so the selector is noise [fn-overload-at]. (`add`
+    // was the example until `Idx` moved to `core.index`: refined in two
+    // places, its selector chooses whose refinements apply.)
+    println("size: ${size@core.list(xs)}")
 }
 "#;
 

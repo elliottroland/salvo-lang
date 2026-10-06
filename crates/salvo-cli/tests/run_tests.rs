@@ -553,8 +553,8 @@ fn main() [use] {
     let xs: Mut List<Int> = mut_list_of()
     // The selector changes nothing here, which is a warning — and a warning
     // must reach the builder without stopping it [fn-overload-at].
-    add@core.list(xs, 1)
-    println("checked by hand: ${size(xs)}")
+    add(xs, 1)
+    println("checked by hand: ${size@core.list(xs)}")
 }
 "#;
 

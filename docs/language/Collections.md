@@ -160,9 +160,26 @@ let back = remove_last(jobs)       // "c"
 println("${jobs}")                 // [b]
 ```
 
-`get(d, i)` and `remove_at(d, i)` count from the front and answer `None` out of range, as a list's do, and `for x in d` and `reversed(d)` walk it front to back and back to front. `to_list` and `to_deque` convert. Like a list it may hold linear values — a `Mut Deque<Reply<Str>>` owes, and `drain` is how it ends.
+`get(d, i)` and `remove_at(d, i)` count from the front and answer `None` out of range, as a list's do; with `i is Idx(d)` proven, `get(d, i)` answers the element itself and `replace(d, i, x)` writes in place, and `for x in d` and `reversed(d)` walk it front to back and back to front. `to_list` and `to_deque` convert. Like a list it may hold linear values — a `Mut Deque<Reply<Str>>` owes, and `drain` is how it ends.
 
 A deque has no literal (`[…]` is a list) and no `==`, hash or ordering: it is a queue to work through, not a value to compare or use as a key. It also has no wire form yet, so a message that would carry one to another node is refused.
+
+## Buffers
+
+`core.buffer` has two fixed-length runs of numbers, `IntBuffer` and `LongBuffer`: the index tables a hash structure probes, where a `List<Int>` would box every slot on the JVM. A buffer is made full and never changes length — there is no `add` or `remove`, and growing one means building a bigger one.
+
+```
+let table = int_buffer(8, -1)      // eight slots, every one -1
+let slot = 3
+if slot is Idx(table) {
+    let was = replace(table, slot, 42)   // -1: writes in place, answers what it held
+    let now = get(table, slot)           // 42, an Int: the index is proven
+}
+clear(table, -1)                   // every slot back to -1
+println("${size(table)} ${table}") // 8 [-1, -1, …]
+```
+
+`get(buf, i)` without a proof answers an `Int?`. Since the length is fixed, every `Idx` claim on a buffer survives `replace` and `clear`. `for x in buf` walks the slots, `copy` copies the array, and a buffer has no `==` and no wire form: it stays on its node.
 
 ## Arrays
 

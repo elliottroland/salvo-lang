@@ -3,6 +3,11 @@ use crate::unions::*;
 use crate::core_checked::Checked;
 use crate::core_checked::checked;
 use crate::core_checked::ignore;
+use crate::core_index::Idx__Int_qualifies;
+use crate::core_index::indices;
+use crate::core_index::next__Iter_indices_List;
+use crate::core_index::next__Iter_rev_indices_List;
+use crate::core_index::rev_indices;
 use crate::core_iterator::Finished;
 use crate::core_iterator::emitted;
 use crate::core_iterator::finished;
@@ -36,20 +41,20 @@ pub fn get_platform__loc<T>(list: &Vec<T>, index: i32) -> Option<usize> {
     if index >= 0 && (index as usize) < list.len() { Some(index as usize) } else { None }
 }
 
-pub fn Idx__Int_qualifies<T: Clone>(index: i32, list: &Vec<T>) -> bool {
-    return index >= 0 && index < size_platform(list);
-}
-
-pub fn NotEq__Int_qualifies(j: i32, i: i32) -> bool {
-    return j != i;
-}
-
 pub fn get<'a, T>(list: &'a Vec<T>, index: &i32) -> &'a T {
-    return get_platform(list, i32::wrapping_add(*index, 0)).expect("salvo: value is absent at core.list:106:12");
+    return get_at_platform(list, i32::wrapping_add(*index, 0));
 }
 
 pub fn get__loc<T>(list: &Vec<T>, index: &i32) -> usize {
-    return get_platform__loc(list, i32::wrapping_add(*index, 0)).expect("salvo: value is absent at core.list:106:12");
+    return get_at_platform__loc(list, i32::wrapping_add(*index, 0));
+}
+
+pub fn get_at_platform<T>(list: &Vec<T>, index: i32) -> &T {
+    crate::platform_core_list::get_at(list, index)
+}
+
+pub fn get_at_platform__loc<T>(list: &Vec<T>, index: i32) -> usize {
+    index as usize
 }
 
 pub fn swap__MutList_IdxInt_IdxInt<T: Clone>(list: &mut Vec<T>, i: &i32, j: &i32) {
@@ -57,12 +62,8 @@ pub fn swap__MutList_IdxInt_IdxInt<T: Clone>(list: &mut Vec<T>, i: &i32, j: &i32
     return;
 }
 
-pub fn replace<T>(list: &mut Vec<T>, index: &i32, value: T) -> T {
-    return replace_at_platform(list, i32::wrapping_add(*index, 0), value);
-}
-
-pub fn replace_at_platform<T>(list: &mut Vec<T>, index: i32, value: T) -> T {
-    crate::platform_core_list::replace_at(list, index, value)
+pub fn replace_platform<T>(list: &mut Vec<T>, index: &i32, value: T) -> T {
+    crate::platform_core_list::replace(list, *index, value)
 }
 
 pub fn at<T>(list: &mut Vec<T>, index: i32) -> Option<&T> {
@@ -74,12 +75,12 @@ pub fn at__loc<T>(list: &Vec<T>, index: i32) -> Option<usize> {
 }
 
 pub fn update<T: Clone>(list: &mut Vec<T>, index: &i32, f: &mut impl FnMut(&mut T)) {
-    f(list.get_mut((*index) as usize).expect("salvo: value is absent at core.list:165:7"));
+    f(list.get_mut((*index) as usize).expect("salvo: value is absent at core.list:134:7"));
     return;
 }
 
 pub fn update2<T: Clone>(list: &mut Vec<T>, i: &i32, j: &i32, f: &mut impl FnMut(&mut T, &mut T)) {
-    let (__pm0, __pm1) = salvo_pair_mut(&mut list[..], (*i) as usize, (*j) as usize).expect("salvo: value is absent at core.list:178:5");
+    let (__pm0, __pm1) = salvo_pair_mut(&mut list[..], (*i) as usize, (*j) as usize).expect("salvo: value is absent at core.list:147:5");
     f(__pm0, __pm1);
     return;
 }
@@ -116,7 +117,7 @@ pub fn drain<T>(list: Vec<T>, each: &mut impl FnMut(T)) {
     let mut m = into_mut_platform(list);
     reverse(&mut m);
     while size_platform(&m) > 0 {
-        each(remove_last_platform(&mut m).expect("salvo: value is absent at core.list:268:14"));
+        each(remove_last_platform(&mut m).expect("salvo: value is absent at core.list:237:14"));
     }
     end_empty_platform(m);
 }
@@ -142,7 +143,7 @@ pub fn NonEmpty__List_qualifies<T: Clone>(list: &Vec<T>) -> bool {
 }
 
 pub fn first<T>(list: &Vec<T>) -> &T {
-    return get_platform(list, 0).expect("salvo: value is absent at core.list:325:12");
+    return get_platform(list, 0).expect("salvo: value is absent at core.list:294:12");
 }
 
 pub fn size_platform<T>(list: &Vec<T>) -> i32 {
@@ -171,7 +172,7 @@ pub fn remove_back<T>(list: &mut Vec<T>, n: i32) -> Vec<T> {
 
 pub fn remove_front_while<T>(list: &mut Vec<T>, keep: &mut impl FnMut(&T) -> bool) -> Vec<T> {
     let mut n = 0;
-    while n < size_platform(list) && keep(&(get_platform(list, n).expect("salvo: value is absent at core.list:368:34"))) {
+    while n < size_platform(list) && keep(&(get_platform(list, n).expect("salvo: value is absent at core.list:337:34"))) {
         n = i32::wrapping_add(n, 1);
     }
     return remove_range_platform(list, 0, n);
@@ -179,7 +180,7 @@ pub fn remove_front_while<T>(list: &mut Vec<T>, keep: &mut impl FnMut(&T) -> boo
 
 pub fn remove_back_while<T>(list: &mut Vec<T>, keep: &mut impl FnMut(&T) -> bool) -> Vec<T> {
     let mut at = size_platform(list);
-    while at > 0 && keep(&(get_platform(list, i32::wrapping_sub(at, 1)).expect("salvo: value is absent at core.list:380:26"))) {
+    while at > 0 && keep(&(get_platform(list, i32::wrapping_sub(at, 1)).expect("salvo: value is absent at core.list:349:26"))) {
         at = i32::wrapping_sub(at, 1);
     }
     return remove_range_platform(list, at, size_platform(list));
@@ -192,52 +193,48 @@ pub fn sub_list<T: Clone>(list: &Vec<T>, from: i32, to: i32, copy: &mut dyn FnMu
         i = 0;
     }
     while i < to && i < size_platform(list) {
-        add_platform(&mut out, copy(&get_platform(list, i).expect("salvo: value is absent at core.list:398:23")));
+        add_platform(&mut out, copy(&get_platform(list, i).expect("salvo: value is absent at core.list:367:23")));
         i = i32::wrapping_add(i, 1);
     }
     return out;
 }
 
 pub fn find_first<T: Clone>(list: &Vec<T>, pick: &mut impl FnMut(&T) -> bool) -> Option<i32> {
-    let mut i = 0;
-    while i < size_platform(list) {
-        if pick(&(get_platform(list, i).expect("salvo: value is absent at core.list:408:17"))) {
+    let mut __loop1_pass = indices(list);
+    while let Union2::U1(mut i) = next__Iter_indices_List(&mut __loop1_pass) {
+        if pick(&(get(list, &i))) {
             return Some(i);
         }
-        i = i32::wrapping_add(i, 1);
     }
     return None;
 }
 
 pub fn find_last<T: Clone>(list: &Vec<T>, pick: &mut impl FnMut(&T) -> bool) -> Option<i32> {
-    let mut i = i32::wrapping_sub(size_platform(list), 1);
-    while i >= 0 {
-        if pick(&(get_platform(list, i).expect("salvo: value is absent at core.list:420:17"))) {
+    let mut __loop2_pass = rev_indices(list);
+    while let Union2::U1(mut i) = next__Iter_rev_indices_List(&mut __loop2_pass) {
+        if pick(&(get(list, &i))) {
             return Some(i);
         }
-        i = i32::wrapping_sub(i, 1);
     }
     return None;
 }
 
 pub fn index_of<T: Clone>(list: &Vec<T>, elem: &T, eq: &mut dyn FnMut(&T, &T) -> bool) -> Option<i32> {
-    let mut i = 0;
-    while i < size_platform(list) {
-        if eq(&get_platform(list, i).expect("salvo: value is absent at core.list:432:15"), elem) {
+    let mut __loop3_pass = indices(list);
+    while let Union2::U1(mut i) = next__Iter_indices_List(&mut __loop3_pass) {
+        if eq(&get(list, &i), elem) {
             return Some(i);
         }
-        i = i32::wrapping_add(i, 1);
     }
     return None;
 }
 
 pub fn last_index_of<T: Clone>(list: &Vec<T>, elem: &T, eq: &mut dyn FnMut(&T, &T) -> bool) -> Option<i32> {
-    let mut i = i32::wrapping_sub(size_platform(list), 1);
-    while i >= 0 {
-        if eq(&get_platform(list, i).expect("salvo: value is absent at core.list:444:15"), elem) {
+    let mut __loop4_pass = rev_indices(list);
+    while let Union2::U1(mut i) = next__Iter_rev_indices_List(&mut __loop4_pass) {
+        if eq(&get(list, &i), elem) {
             return Some(i);
         }
-        i = i32::wrapping_sub(i, 1);
     }
     return None;
 }
@@ -245,7 +242,7 @@ pub fn last_index_of<T: Clone>(list: &Vec<T>, elem: &T, eq: &mut dyn FnMut(&T, &
 pub fn contains<T: Clone>(list: &Vec<T>, elem: &T, eq: &mut dyn FnMut(&T, &T) -> bool) -> bool {
     let mut i = 0;
     while i < size_platform(list) {
-        if eq(&get_platform(list, i).expect("salvo: value is absent at core.list:456:15"), elem) {
+        if eq(&get_platform(list, i).expect("salvo: value is absent at core.list:417:15"), elem) {
             return true;
         }
         i = i32::wrapping_add(i, 1);
@@ -260,7 +257,7 @@ pub fn any<T: Clone>(list: &Vec<T>, pick: &mut impl FnMut(&T) -> bool) -> bool {
 pub fn all<T: Clone>(list: &Vec<T>, pick: &mut impl FnMut(&T) -> bool) -> bool {
     let mut i = 0;
     while i < size_platform(list) {
-        if !pick(&(get_platform(list, i).expect("salvo: value is absent at core.list:473:18"))) {
+        if !pick(&(get_platform(list, i).expect("salvo: value is absent at core.list:434:18"))) {
             return false;
         }
         i = i32::wrapping_add(i, 1);
@@ -272,7 +269,7 @@ pub fn count<T: Clone>(list: &Vec<T>, pick: &mut impl FnMut(&T) -> bool) -> i32 
     let mut n = 0;
     let mut i = 0;
     while i < size_platform(list) {
-        if pick(&(get_platform(list, i).expect("salvo: value is absent at core.list:486:17"))) {
+        if pick(&(get_platform(list, i).expect("salvo: value is absent at core.list:447:17"))) {
             n = i32::wrapping_add(n, 1);
         }
         i = i32::wrapping_add(i, 1);
@@ -342,44 +339,6 @@ pub fn next__Iter_reversed_List<'s, T: Clone>(__p: &mut __Iter_reversed_List<'s,
     }
     __p.at = i32::wrapping_sub(__p.at, 1);
     return Union2::U1(emitted(elem.unwrap()));
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct __Iter_indices_List<'s, T> {
-    pub list: &'s Vec<T>,
-    pub at: i32,
-}
-
-pub fn indices<T: Clone>(list: &Vec<T>) -> __Iter_indices_List<'_, T> {
-    return __Iter_indices_List { list: list, at: 0 };
-}
-
-pub fn next__Iter_indices_List<T: Clone>(__p: &mut __Iter_indices_List<'_, T>) -> Union2<i32, Finished> {
-    if __p.at >= size_platform(&__p.list) {
-        return Union2::<i32, Finished>::U2(finished());
-    }
-    let mut index = __p.at;
-    __p.at = i32::wrapping_add(__p.at, 1);
-    return Union2::<i32, Finished>::U1(emitted(index));
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct __Iter_rev_indices_List<'s, T> {
-    pub list: &'s Vec<T>,
-    pub at: i32,
-}
-
-pub fn rev_indices<T: Clone>(list: &Vec<T>) -> __Iter_rev_indices_List<'_, T> {
-    return __Iter_rev_indices_List { list: list, at: i32::wrapping_sub(size_platform(list), 1) };
-}
-
-pub fn next__Iter_rev_indices_List<T: Clone>(__p: &mut __Iter_rev_indices_List<'_, T>) -> Union2<i32, Finished> {
-    if __p.at < 0 {
-        return Union2::<i32, Finished>::U2(finished());
-    }
-    let mut index = __p.at;
-    __p.at = i32::wrapping_sub(__p.at, 1);
-    return Union2::<i32, Finished>::U1(emitted(index));
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -467,5 +426,9 @@ pub fn add_sorted<T: Clone>(list: &mut Vec<T>, elem: T, cmp: &mut dyn FnMut(&T, 
 }
 
 pub fn binary_search<T: Clone>(list: &Vec<T>, elem: &T, cmp: &mut dyn FnMut(&T, &T) -> i32) -> Option<i32> {
-    return search_sorted_by_platform(list, elem, cmp);
+    let mut found = { let __pick1 = search_sorted_by_platform(list, elem, cmp); if __pick1.is_some() { __pick1.unwrap() } else { return None } };
+    if Idx__Int_qualifies(found, &*list, &mut |__i0| size_platform(&__i0)) {
+        return Some(found);
+    }
+    return None;
 }

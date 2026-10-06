@@ -3863,7 +3863,23 @@ impl<'p> Emitter<'p> {
     fn platform_fn_body(&mut self, f: &FnDecl, indent: usize) -> String {
         let module = self.program.files[self.file_idx].module.clone();
         self.platform_hosts.insert(module.clone());
-        let args: Vec<String> = f.params.iter().map(|p| rs_ident(&p.name.name)).collect();
+        // [col-idx] A qualified scalar (`index: Idx(list) Int`) arrives by
+        // reference, as every qualified parameter does, and the host takes the
+        // scalar.
+        let args: Vec<String> = f
+            .params
+            .iter()
+            .map(|p| {
+                let name = rs_ident(&p.name.name);
+                match &p.ty {
+                    Type::Named { qualifiers, base } if !qualifiers.is_empty() && base.args.is_empty() => {
+                        let bare = Type::Named { qualifiers: Vec::new(), base: base.clone() };
+                        if self.is_copy_ast_type(&bare) { format!("*{name}") } else { name }
+                    }
+                    _ => name,
+                }
+            })
+            .collect();
         let call = format!("crate::{}::{}({})", host_mod_name(&module), rs_ident(&f.name.name), args.join(", "));
         let pad = "    ".repeat(indent);
         // [rs-loc] The locator variant answers a *position* in the first
@@ -3876,6 +3892,22 @@ impl<'p> Emitter<'p> {
                 return format!(
                     "{pad}if {i} >= 0 && ({i} as usize) < {first}.len() {{ Some({i} as usize) }} else {{ None }}\n",
                     i = args[1]
+                );
+            }
+            // [col-idx] A total read at a proven index is that index.
+            if matches!(module.0.as_slice(), [a, b] if a == "core" && (b == "list" || b == "deque"))
+                && f.name.name == "get_at"
+                && args.len() == 2
+            {
+                return format!("{pad}{} as usize\n", args[1]);
+            }
+            // A total lend answers the borrow itself, found by address.
+            let optional = matches!(f.return_type.as_ref(), Some(Type::Nullable { .. }))
+                || matches!(f.return_type.as_ref(), Some(Type::Union { arms, .. })
+                    if arms.iter().any(|a| matches!(a, Type::Named { base, .. } if base.name.name == "None")));
+            if !optional {
+                return format!(
+                    "{pad}{{ let __x = {call}; {first}.iter().position(|__e| std::ptr::eq(__e, __x)).expect(\"salvo: a borrow outside its container\") }}\n"
                 );
             }
             return format!(
@@ -13454,12 +13486,24 @@ impl<'p> Emitter<'p> {
                 // needs the same treatment any other read of that name gets:
                 // a handler state field is reached through `self`, and a name
                 // colliding with a Rust keyword is escaped.
+                let borrowed = !a.path.contains('.')
+                    && matches!(self.bindings.get(a.path.as_str()), Some(BindKind::Ref | BindKind::RefMut));
                 let path = self.slot_place(&a.path);
                 if a.copy {
                     args.push(path);
+                } else if borrowed {
+                    // A parameter that is already a reference reborrows as a
+                    // shared one: a generic slot (`Idx`'s `c: C`) would
+                    // otherwise bind `C` to the `&mut` itself.
+                    args.push(format!("&*{path}"));
                 } else {
                     args.push(format!("&{path}"));
                 }
+            }
+            // [col-idx] The `qualifies` call's implicits (`Idx`'s `?size`),
+            // filled by the checker at the container the test names.
+            if let Some(at) = check.implicits_at {
+                args.extend(self.emit_implicit_args(&[], at));
             }
             parts.push(format!("{fn_name}({})", args.join(", ")));
         }

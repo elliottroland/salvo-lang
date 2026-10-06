@@ -141,6 +141,58 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Shrinking the backends, steps 6g0 and 6g: one `Idx` for every container,
+and the buffers (2026-10-05, ROADMAP §0j; built on the user's decisions
+recorded the same day).**
+- **`core.index`** holds `Idx<C canbe linear>(c: C) of Int` and `NotEq`
+  [col-idx]. `qualifies(index, c, ?size: (c: C) -> Int)`: the mechanism the
+  decision preferred — `size` resolved where the claim is tested, at the
+  container the slot binds, so nothing prints in the type. Built as a general
+  rule: a `qualifies` may take implicits; the checker unifies each slot's type
+  (lowered under the qualifier's generics, which it was not before) with the
+  place and fills the implicits at a zero-width span on the first value
+  argument (`PredicateCheck::implicits_at`); both emitters append them.
+- **What moving the claim cost**: the refinements that keep it are the
+  owner's, so they all moved to `core.index` and refine only what that module
+  can see — `core.list`'s `replace` became an exported platform fn (its
+  private `replace_at` could not be refined from elsewhere), and the buffers'
+  operations are exported Salvo fns. A refinement's own type parameters now
+  take the leading positions when it is matched (inside `Idx<C>`, `refn
+  add<T>` lined `T` up behind `C` and matched nothing). `+Idx` is trusted only
+  in its own file, so `indices`/`rev_indices` moved too, and `core.list`'s
+  `find_first`/`find_last`/`index_of`/`last_index_of` now prove their result
+  through `indices` (no `while`, no `!`) and `binary_search` tests the host's
+  answer: their results are `(Idx(list) Int)?`.
+- **Deque** gains the total `get` and `replace`; both total reads are the
+  host's `get_at`, which **fixes the recorded `List<T?>` defect** (a stored
+  `None` read through `!` on the JVM's flattened `T??`).
+- **`core.buffer`** [buffer-type]: `IntBuffer`/`LongBuffer` exactly as
+  decided, over private `int_*`/`long_*` platform fns (two platform fns of one
+  module may not overload), `iter` for the `Iter` obligation, host files
+  `std/platform/core/buffer.{kt,rs}` (`IntArray`/`Vec<i32>`).
+- **Rust fell out**: a qualified scalar parameter arrives `&i32`, so a
+  platform fn's wrapper derefs it; a slot argument already a reference is
+  reborrowed `&*heap` (std's heap tests bound `C` to `&mut Vec<T>`
+  otherwise); a platform fn's locator variant over a *total* lend maps
+  nothing [rs-qualified-scalar] [rs-loc].
+- The redundant-selector tests moved from `add@core.list` to
+  `size@core.list`: `add` is refined in two places now, so its selector
+  chooses whose refinements apply and is no longer noise.
+- Found, not fixed (ROADMAP §0j 6g): a reading *call* before a mutation in
+  one interpolation is E0502 on Rust.
+- Tests: `core/buffer.test.sv`, a deque and a `List<Str?>` test in std's own
+  suite (113 on both backends). **1715 tests.**
+
+**The buffers and a general `Idx` (2026-10-05, user decisions).**
+ROADMAP §0j steps 6g0 and 6g held the API. Decided: `IntBuffer` and
+`LongBuffer` in `core.buffer`, iterable, with `int_buffer(size, fill)`,
+`size`, an optional and a total `get`, `replace`, `clear(buf, fill)` and
+`to_str`; `noremote`; a bounds test per hash probe. And `Idx` generalized: its
+own module `core.index` (with `NotEq`), claiming an index of any container
+with a `size`, so the buffers need no `BufferIdx` of their own (which the
+first proposal had, because qualifiers overload by subject and both would be
+`of Int`). Left out until needed: a fallible `set`, a wire form.
+
 **Shrinking the backends, step 6c: opaque structs (2026-10-05, ROADMAP §0j).**
 `opaque struct S` [struct-opaque], a contextual modifier like `noremote`: the
 declaring module and its `*.test.sv` annex see an ordinary struct; elsewhere

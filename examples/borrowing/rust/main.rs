@@ -15,6 +15,8 @@ pub mod core_checked;
 pub mod core_compare;
 #[path = "core/console.rs"]
 pub mod core_console;
+#[path = "core/index.rs"]
+pub mod core_index;
 #[path = "core/iterator.rs"]
 pub mod core_iterator;
 #[path = "core/list.rs"]
@@ -49,9 +51,9 @@ use crate::core_console::ConsolePlatformSync as _;
 use crate::core_console::__Stateful_Console as _;
 use crate::core_console::__Stateless_Console as _;
 use crate::core_console::println;
-use crate::core_list::Idx__Int_qualifies;
+use crate::core_index::Idx__Int_qualifies;
+use crate::core_index::NotEq__Int_qualifies;
 use crate::core_list::ListYield;
-use crate::core_list::NotEq__Int_qualifies;
 use crate::core_list::at;
 use crate::core_list::at__loc;
 use crate::core_list::get;
@@ -243,8 +245,8 @@ pub fn main() {
         let (__pm6, __pm7) = salvo_pair_mut(&mut squad[..], __h4, __h5).expect("salvo: value is absent at main:264:9");
         duel(__pm6, __pm7);
     }
-    if Idx__Int_qualifies(i, &squad) {
-        if Idx__Int_qualifies(j, &squad) {
+    if Idx__Int_qualifies(i, &squad, &mut |__i0| crate::core_list::size_platform(&__i0)) {
+        if Idx__Int_qualifies(j, &squad, &mut |__i0| crate::core_list::size_platform(&__i0)) {
             update(&mut squad, &i, &mut (|f: &mut Fighter| {
     f.energy = i32::wrapping_add(f.energy, 1);
 }));
@@ -257,8 +259,8 @@ pub fn main() {
             println(&console, &(format!("3. {} {} (total reads: `Idx` survived)", get(&squad, &i).energy, get(&squad, &j).energy)));
         }
     }
-    if Idx__Int_qualifies(i, &squad) {
-        if Idx__Int_qualifies(j, &squad) {
+    if Idx__Int_qualifies(i, &squad, &mut |__i0| crate::core_list::size_platform(&__i0)) {
+        if Idx__Int_qualifies(j, &squad, &mut |__i0| crate::core_list::size_platform(&__i0)) {
             strike(&mut squad, (i) as usize, (j) as usize);
             strike(&mut squad, (i) as usize, (i) as usize);
         }

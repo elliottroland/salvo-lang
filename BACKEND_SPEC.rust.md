@@ -523,6 +523,12 @@ the blanket rule:
   (Inside a borrowing struct or its `next`, where `'s` is in scope, a
   generic projection *does* render `&'s T` — the struct's own borrow.)
 
+* [rs-qualified-scalar] A **qualified scalar** parameter (`index: Idx(list)
+  Int`) is not Copy-rendered: it arrives `&i32` like any qualified type. So a
+  `platform fn` wrapper derefs it for the host (`*index`), and a dependent
+  qualifier's slot argument that is already a reference reborrows as shared
+  (`&*heap`), which keeps a generic slot (`Idx`'s `c: C`) from binding to the
+  `&mut` itself (2026-10-05, with [col-idx]).
 * [readonly-return] A wholesale projection returns `&T`, `Option<&T>` or
   `Union2<&T, Finished>`. One reference parameter: lifetime elision. More:
   `'a` is generated onto **every** source parameter (`proj(a, b)`)
@@ -668,7 +674,10 @@ the blanket rule:
   variant**, `{name}__loc`, beside the read emission.
   * The variant answers **position data** — `usize` for a total element
     lend, `Option<usize>` for an optional one, optional exactly where the
-    read emission was, so `!` keeps its message and timing. Its lent
+    read emission was, so `!` keeps its message and timing. A **platform**
+    fn's variant finds the host's borrow by address (`position(|e|
+    ptr::eq(e, x))`), mapped over the option only when the result is
+    optional; `List`/`Deque`'s total `get_at` is its index (2026-10-05). Its lent
     parameters drop to *read* mode (the search borrows nothing mutably),
     and it carries **no lifetimes** — a locator is owned data, which is
     what lets later slices pass it through closures and traits.

@@ -83,6 +83,21 @@ export platform fn remove_at<T canbe linear>(d: Mut Deque<T>, index: Int) [] -> 
 // The element at [index] from the front, borrowed, or `None` past the end.
 export platform fn get<T canbe linear>(d: Deque<T>, index: Int) [] -> (proj(d) T)? => d, index
 
+// [col-idx] The **total** read: an index proven in range by `Idx(d)`
+// (`core.index`) answers the element itself, as a list's does.
+export fn get<T canbe linear>(d: Deque<T>, index: Idx(d) Int) [] -> proj(d) T => d, index {
+    return get_at(d, index + 0)
+}
+
+// The host's read; the proven index is in range.
+platform fn get_at<T canbe linear>(d: Deque<T>, index: Int) [] -> proj(d) T => d, index
+
+// [col-replace] The **total positional write**, as a list's: puts [value] at
+// [index] and answers the element it displaced. `core.index`'s `Idx` says the
+// claims survive it.
+export platform fn replace<T canbe linear>(d: Mut Deque<T>, index: Idx(d) Int, value: T) [] -> T
+=> d: Mut, index, !value
+
 // The front element, borrowed, or `None` when empty.
 export platform fn first<T canbe linear>(d: Deque<T>) [] -> proj(d) T? => d
 

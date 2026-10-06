@@ -285,3 +285,10 @@ test "replace with None takes an element out" {
     }
     expect_eq(size(ys), 2)
 }
+
+test "the total read of a list of optionals answers a stored None" {
+    let ys: Mut List<Str?> = mut_list_of<Str?>(None)
+    let j = 0
+    assert!(j is Idx(ys))
+    expect(get(ys, j) is None, "a stored None is a value, not absence")
+}

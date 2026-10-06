@@ -51,13 +51,14 @@ type, and let mutation of what it depends on take it away.
 ## Consuming one: total operations
 
 A signature can *demand* the claim, which is how an operation loses its
-"maybe". `core.list` declares an index claim and a `get` that needs it:
+"maybe". `core.index` declares an index claim, and each container a `get` that
+needs it:
 
 ```
-// The claim: 0 <= index < size(list), about one particular list.
-export qualifier Idx<T>(list: List<T>) of Int {
-    fn qualifies(index: Int, list: List<T>) -> Bool {
-        return index >= 0 && index < size(list)
+// The claim: 0 <= index < size(c), about one particular container.
+export qualifier Idx<C>(c: C) of Int {
+    fn qualifies(index: Int, c: C, ?size: (c: C) -> Int) -> Bool {
+        return index >= 0 && index < size(c)
     }
 }
 
@@ -67,6 +68,11 @@ export platform fn get<T>(list: List<T>, index: Int) -> (proj(list) T)?
 // The total read — the claim did the checking, so there is no `None` arm.
 export fn get<T>(list: List<T>, index: Idx(list) Int) -> proj(list) T
 ```
+
+One `Idx` serves every container with a `size` — a `List`, a `Deque`, an
+`IntBuffer`: `qualifies` takes the `size` as an implicit parameter, filled where
+the claim is *tested*, at the container the test names, so nothing about it
+shows in the type. `Idx(xs) Int` reads the same whatever `xs` is.
 
 Both are called `get`; which one a call gets is ordinary overload resolution,
 ranked by the qualifier ([Qualifiers](Qualifiers.md)):
@@ -116,8 +122,11 @@ put(m, "b", 2)              // preserves KeyOf claims
 let v = get(m, k)           // the total overload: an Int, not an Int?
 ```
 
-`core.list` preserves `Idx` across `add` and `swap` for the same reason —
-growth keeps every existing index valid, and an exchange moves no boundary.
+`Idx` is preserved across a list's `add`, `swap` and `replace`, a deque's
+`add_first`, `add_last` and `replace`, and a buffer's `replace` and `clear`, for
+the same reason — growth keeps every existing index valid, and an exchange or a
+write in place moves no boundary. All of those refinements live in `core.index`,
+beside the claim, since only the claim's owner may say that a call keeps it.
 The `update` family preserves it too, which is what makes a sequence of
 in-place writes stay total ([Mutable handles](Mutable-Handles.md)).
 
@@ -138,7 +147,7 @@ one of them:
 
 | Claim | Says | Consumed by |
 |---|---|---|
-| `Idx<T>(list)` | a valid index of *this* list | total `get`, total `swap` |
+| `Idx<C>(c)` | a valid index of *this* container | total `get`, `swap`, `replace` |
 | `KeyOf<K, V>(map)` | this key is present in *this* map | total `get` |
 | `NotEq(i)` | this `Int` differs from *that* one | `update2`, two-handle calls |
 | `SpanOf(str)` | `0 <= start <= end <= size(str)` | total `substr` |

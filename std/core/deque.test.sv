@@ -63,3 +63,13 @@ test "drain consumes the deque, handing every element over" {
     expect_eq(to_str(d), "[a, b, c]")
     drain(d, x -> discard(x))
 }
+
+test "a proven index reads and writes a deque, and growth keeps the claim" {
+    let d = mut_deque_of(4, 5, 6)
+    let i = 2
+    assert!(i is Idx(d))
+    add_first(d, 3)
+    expect(get(d, i) == 5, "the total read")
+    expect(replace(d, i, 0) == 5, "the total write answers what it displaced")
+    expect("${d}" == "[3, 4, 0, 6]", "written in place")
+}

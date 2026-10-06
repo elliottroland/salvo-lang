@@ -23,6 +23,8 @@ pub mod core_compare;
 pub mod core_console;
 #[path = "core/deque.rs"]
 pub mod core_deque;
+#[path = "core/index.rs"]
+pub mod core_index;
 #[path = "core/iterator.rs"]
 pub mod core_iterator;
 #[path = "core/list.rs"]

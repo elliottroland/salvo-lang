@@ -26,6 +26,11 @@ pub fn get<T>(list: &List<T>, index: i32) -> Option<&T> {
     if index < 0 { None } else { list.get(index as usize) }
 }
 
+// [col-idx] The total read: the index was proven in range.
+pub fn get_at<T>(list: &List<T>, index: i32) -> &T {
+    &list[index as usize]
+}
+
 pub fn first<T>(list: &List<T>) -> Option<&T> {
     list.first()
 }
@@ -78,7 +83,7 @@ pub fn swap_at<T>(list: &mut List<T>, i: i32, j: i32) -> bool {
 }
 
 // [col-replace] The index was proven in range by the caller's `Idx` claim.
-pub fn replace_at<T>(list: &mut List<T>, index: i32, value: T) -> T {
+pub fn replace<T>(list: &mut List<T>, index: i32, value: T) -> T {
     std::mem::replace(&mut list[index as usize], value)
 }
 

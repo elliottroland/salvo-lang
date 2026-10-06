@@ -9,6 +9,11 @@ import salvo.core.actor.eq
 import salvo.core.checked.Checked
 import salvo.core.checked.checked
 import salvo.core.checked.ignore
+import salvo.core.index.Idx_qualifies
+import salvo.core.index.indices
+import salvo.core.index.next__Iter_indices_List
+import salvo.core.index.next__Iter_rev_indices_List
+import salvo.core.index.revIndices
 import salvo.core.iterator.Finished
 import salvo.core.iterator.emitted
 import salvo.core.iterator.finished
@@ -33,16 +38,12 @@ fun<T> getPlatform(list: List<T>, index: Int): T? {
     return salvo.platform.core.list.get(list, index)
 }
 
-fun<T> Idx_qualifies(index: Int, list: List<T>): Boolean {
-    return index >= 0 && index < sizePlatform(list)
-}
-
-fun NotEq_qualifies(j: Int, i: Int): Boolean {
-    return j != i
-}
-
 fun<T> get(list: List<T>, index: Int): T {
-    return (getPlatform(list, index + 0) ?: throw AssertionError("salvo: value is absent at core.list:106:12"))
+    return getAtPlatform(list, index + 0)
+}
+
+fun<T> getAtPlatform(list: List<T>, index: Int): T {
+    return salvo.platform.core.list.getAt(list, index)
 }
 
 fun<T> swap__MutList_IdxInt_IdxInt(list: salvo.platform.core.list.MutList<T>, i: Int, j: Int) {
@@ -50,12 +51,8 @@ fun<T> swap__MutList_IdxInt_IdxInt(list: salvo.platform.core.list.MutList<T>, i:
     return
 }
 
-fun<T> replace(list: salvo.platform.core.list.MutList<T>, index: Int, value: T): T {
-    return replaceAtPlatform(list, index + 0, value)
-}
-
-fun<T> replaceAtPlatform(list: salvo.platform.core.list.MutList<T>, index: Int, value: T): T {
-    return salvo.platform.core.list.replaceAt(list, index, value)
+fun<T> replacePlatform(list: salvo.platform.core.list.MutList<T>, index: Int, value: T): T {
+    return salvo.platform.core.list.replace(list, index, value)
 }
 
 fun<T> at(list: List<T>, index: Int): T? {
@@ -104,7 +101,7 @@ fun<T> drain(list: List<T>, each: (T) -> Unit) {
     val m = intoMutPlatform(list)
     reverse(m)
     while (sizePlatform(m) > 0) {
-        each((removeLastPlatform(m) ?: throw AssertionError("salvo: value is absent at core.list:268:14")))
+        each((removeLastPlatform(m) ?: throw AssertionError("salvo: value is absent at core.list:237:14")))
     }
     endEmptyPlatform(m)
 }
@@ -130,7 +127,7 @@ fun<T> NonEmpty_qualifies(list: List<T>): Boolean {
 }
 
 fun<T> first(list: List<T>): T {
-    return (getPlatform(list, 0) ?: throw AssertionError("salvo: value is absent at core.list:325:12"))
+    return (getPlatform(list, 0) ?: throw AssertionError("salvo: value is absent at core.list:294:12"))
 }
 
 fun<T> sizePlatform(list: List<T>): Int {
@@ -159,7 +156,7 @@ fun<T> removeBack(list: salvo.platform.core.list.MutList<T>, n: Int): salvo.plat
 
 fun<T> removeFrontWhile(list: salvo.platform.core.list.MutList<T>, keep: (T) -> Boolean): salvo.platform.core.list.MutList<T> {
     var n = 0
-    while (n < sizePlatform(list) && keep((getPlatform(list, n) ?: throw AssertionError("salvo: value is absent at core.list:368:34")))) {
+    while (n < sizePlatform(list) && keep((getPlatform(list, n) ?: throw AssertionError("salvo: value is absent at core.list:337:34")))) {
         n = n + 1
     }
     return removeRangePlatform(list, 0, n)
@@ -167,7 +164,7 @@ fun<T> removeFrontWhile(list: salvo.platform.core.list.MutList<T>, keep: (T) -> 
 
 fun<T> removeBackWhile(list: salvo.platform.core.list.MutList<T>, keep: (T) -> Boolean): salvo.platform.core.list.MutList<T> {
     var at = sizePlatform(list)
-    while (at > 0 && keep((getPlatform(list, at - 1) ?: throw AssertionError("salvo: value is absent at core.list:380:26")))) {
+    while (at > 0 && keep((getPlatform(list, at - 1) ?: throw AssertionError("salvo: value is absent at core.list:349:26")))) {
         at = at - 1
     }
     return removeRangePlatform(list, at, sizePlatform(list))
@@ -180,52 +177,64 @@ fun<T> subList(list: List<T>, from: Int, to: Int, copy: (T) -> T): salvo.platfor
         i = 0
     }
     while (i < to && i < sizePlatform(list)) {
-        addPlatform(out, copy((getPlatform(list, i) ?: throw AssertionError("salvo: value is absent at core.list:398:23"))))
+        addPlatform(out, copy((getPlatform(list, i) ?: throw AssertionError("salvo: value is absent at core.list:367:23"))))
         i = i + 1
     }
     return out
 }
 
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun<T> findFirst(list: List<T>, pick: (T) -> Boolean): Int? {
-    var i = 0
-    while (i < sizePlatform(list)) {
-        if (pick((getPlatform(list, i) ?: throw AssertionError("salvo: value is absent at core.list:408:17")))) {
+    var __loop1_pass = indices(list)
+    while (true) {
+        val __loop1_step = next__Iter_indices_List(__loop1_pass)
+        if (__loop1_step !is Union2.U1<*, *>) { break }
+        val i = __loop1_step.value as Int
+        if (pick(get(list, i))) {
             return i
         }
-        i = i + 1
     }
     return null
 }
 
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun<T> findLast(list: List<T>, pick: (T) -> Boolean): Int? {
-    var i = sizePlatform(list) - 1
-    while (i >= 0) {
-        if (pick((getPlatform(list, i) ?: throw AssertionError("salvo: value is absent at core.list:420:17")))) {
+    var __loop2_pass = revIndices(list)
+    while (true) {
+        val __loop2_step = next__Iter_rev_indices_List(__loop2_pass)
+        if (__loop2_step !is Union2.U1<*, *>) { break }
+        val i = __loop2_step.value as Int
+        if (pick(get(list, i))) {
             return i
         }
-        i = i - 1
     }
     return null
 }
 
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun<T> indexOf(list: List<T>, elem: T, eq: (T, T) -> Boolean): Int? {
-    var i = 0
-    while (i < sizePlatform(list)) {
-        if (eq((getPlatform(list, i) ?: throw AssertionError("salvo: value is absent at core.list:432:15")), elem)) {
+    var __loop3_pass = indices(list)
+    while (true) {
+        val __loop3_step = next__Iter_indices_List(__loop3_pass)
+        if (__loop3_step !is Union2.U1<*, *>) { break }
+        val i = __loop3_step.value as Int
+        if (eq(get(list, i), elem)) {
             return i
         }
-        i = i + 1
     }
     return null
 }
 
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun<T> lastIndexOf(list: List<T>, elem: T, eq: (T, T) -> Boolean): Int? {
-    var i = sizePlatform(list) - 1
-    while (i >= 0) {
-        if (eq((getPlatform(list, i) ?: throw AssertionError("salvo: value is absent at core.list:444:15")), elem)) {
+    var __loop4_pass = revIndices(list)
+    while (true) {
+        val __loop4_step = next__Iter_rev_indices_List(__loop4_pass)
+        if (__loop4_step !is Union2.U1<*, *>) { break }
+        val i = __loop4_step.value as Int
+        if (eq(get(list, i), elem)) {
             return i
         }
-        i = i - 1
     }
     return null
 }
@@ -233,7 +242,7 @@ fun<T> lastIndexOf(list: List<T>, elem: T, eq: (T, T) -> Boolean): Int? {
 fun<T> contains(list: List<T>, elem: T, eq: (T, T) -> Boolean): Boolean {
     var i = 0
     while (i < sizePlatform(list)) {
-        if (eq((getPlatform(list, i) ?: throw AssertionError("salvo: value is absent at core.list:456:15")), elem)) {
+        if (eq((getPlatform(list, i) ?: throw AssertionError("salvo: value is absent at core.list:417:15")), elem)) {
             return true
         }
         i = i + 1
@@ -248,7 +257,7 @@ fun<T> any(list: List<T>, pick: (T) -> Boolean): Boolean {
 fun<T> all(list: List<T>, pick: (T) -> Boolean): Boolean {
     var i = 0
     while (i < sizePlatform(list)) {
-        if (!pick((getPlatform(list, i) ?: throw AssertionError("salvo: value is absent at core.list:473:18")))) {
+        if (!pick((getPlatform(list, i) ?: throw AssertionError("salvo: value is absent at core.list:434:18")))) {
             return false
         }
         i = i + 1
@@ -260,7 +269,7 @@ fun<T> count(list: List<T>, pick: (T) -> Boolean): Int {
     var n = 0
     var i = 0
     while (i < sizePlatform(list)) {
-        if (pick((getPlatform(list, i) ?: throw AssertionError("salvo: value is absent at core.list:486:17")))) {
+        if (pick((getPlatform(list, i) ?: throw AssertionError("salvo: value is absent at core.list:447:17")))) {
             n = n + 1
         }
         i = i + 1
@@ -273,7 +282,7 @@ fun<T> partition(list: List<T>, pick: (T) -> Boolean, copy: (T) -> T): Pair<salv
     val no = mutableListOf<T>()
     var i = 0
     while (i < sizePlatform(list)) {
-        val x = (getPlatform(list, i) ?: throw AssertionError("salvo: value is absent at core.list:503:17"))
+        val x = (getPlatform(list, i) ?: throw AssertionError("salvo: value is absent at core.list:464:17"))
         if (pick(x)) {
             addPlatform(yes, copy(x))
         } else {
@@ -328,42 +337,6 @@ fun<T> next__Iter_reversed_List(__p: __Iter_reversed_List<T>): Union2<T, Finishe
     }
     __p.at = __p.at - 1
     return Union2.U1<T, Finished>(emitted(elem))
-}
-
-data class __Iter_indices_List<T>(
-    var list: List<T>,
-    var at: Int,
-)
-
-fun<T> indices(list: List<T>): __Iter_indices_List<T> {
-    return __Iter_indices_List(list = list, at = 0)
-}
-
-fun<T> next__Iter_indices_List(__p: __Iter_indices_List<T>): Union2<Int, Finished> {
-    if (__p.at >= sizePlatform(__p.list)) {
-        return Union2.U2<Int, Finished>(finished())
-    }
-    val index = __p.at
-    __p.at = __p.at + 1
-    return Union2.U1<Int, Finished>(emitted(index))
-}
-
-data class __Iter_rev_indices_List<T>(
-    var list: List<T>,
-    var at: Int,
-)
-
-fun<T> revIndices(list: List<T>): __Iter_rev_indices_List<T> {
-    return __Iter_rev_indices_List(list = list, at = sizePlatform(list) - 1)
-}
-
-fun<T> next__Iter_rev_indices_List(__p: __Iter_rev_indices_List<T>): Union2<Int, Finished> {
-    if (__p.at < 0) {
-        return Union2.U2<Int, Finished>(finished())
-    }
-    val index = __p.at
-    __p.at = __p.at - 1
-    return Union2.U1<Int, Finished>(emitted(index))
 }
 
 data class Enumerated<T>(
@@ -448,5 +421,9 @@ fun<T> addSorted(list: salvo.platform.core.list.MutList<T>, elem: T, cmp: (T, T)
 }
 
 fun<T> binarySearch(list: List<T>, elem: T, cmp: (T, T) -> Int): Int? {
-    return searchSortedByPlatform(list, elem, cmp)
+    val found = (searchSortedByPlatform(list, elem, cmp) ?: return null)
+    if (Idx_qualifies(found, list, ::sizePlatform)) {
+        return found
+    }
+    return null
 }

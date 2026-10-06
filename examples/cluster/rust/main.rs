@@ -15,6 +15,8 @@ pub mod wire;
 pub mod core_actor;
 #[path = "core/array.rs"]
 pub mod core_array;
+#[path = "core/buffer.rs"]
+pub mod core_buffer;
 #[path = "core/bytes.rs"]
 pub mod core_bytes;
 #[path = "core/checked.rs"]
@@ -25,6 +27,8 @@ pub mod core_compare;
 pub mod core_console;
 #[path = "core/deque.rs"]
 pub mod core_deque;
+#[path = "core/index.rs"]
+pub mod core_index;
 #[path = "core/iterator.rs"]
 pub mod core_iterator;
 #[path = "core/list.rs"]
@@ -53,6 +57,8 @@ pub mod runtime_routing;
 pub mod runtime_timers;
 #[path = "time.rs"]
 pub mod time;
+#[path = "platform/core/buffer.rs"]
+pub mod platform_core_buffer;
 #[path = "platform/core/bytes.rs"]
 pub mod platform_core_bytes;
 #[path = "platform/core/console.rs"]

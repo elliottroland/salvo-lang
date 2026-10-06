@@ -62,37 +62,8 @@ export fn mut_list_by<T>(size: Int, init: (Int) -> T) [] -> Mut List<T>
 // Possibly gets the element at the given index if the list is long enough
 export platform fn get<T canbe linear>(list: List<T>, index: Int) [] -> (proj(list) T)? => list, index
 
-// [qual-depend] [col-idx] The claim that an `Int` is a **valid index of one
-// particular list**: `0 <= index < size(list)`, bound to that list's
-// identity, so `Idx(xs) Int` and `Idx(ys) Int` are different facts. Tested
-// with the filled block (`i is Idx(xs)`), stripped by any mutation of the
-// list; the total [get] and [swap] overloads below consume it.
-export qualifier Idx<T canbe linear>(list: List<T>) of Int {
-    fn qualifies(index: Int, list: List<T>) -> Bool {
-        return index >= 0 && index < size(list)
-    }
-
-    // [qual-preserve] Growth keeps every existing index valid, and an
-    // exchange moves no boundary: `Idx` claims survive both — the opt-back
-    // from the conservative rule that any mutation of the list strips them.
-    refn add(list: Mut List<T>, elem: T) => list: preserve Idx
-    refn swap(list: Mut List<T>, i: Int, j: Int) => list: preserve Idx
-    // [col-replace] A write in place moves no boundary either.
-    refn replace_at(list: Mut List<T>, index: Int, value: T) => list: preserve Idx
-}
-
-// [qual-depend] [col-noteq] The claim that an `Int` **differs from one
-// particular other `Int`**: `j is NotEq(i)` proves `j != i`, bound to
-// `i`'s identity. For two element handles of one list it is the proof that
-// they cannot alias — mutation through one leaves the other standing
-// [elem-distinct], and a call may take both at once — which is what the
-// `update2` family stands on. Reassigning either side strips it
-// [qual-depend], like any dependent claim.
-export qualifier NotEq(i: Int) of Int with Idx {
-    fn qualifies(j: Int, i: Int) -> Bool {
-        return j != i
-    }
-}
+// [col-idx] `Idx` and `NotEq`, the claims about an index, are `core.index`'s:
+// one `Idx` serves every container with a `size`.
 
 // [col-idx] The **total** read: an index carrying the claim answers the
 // element itself — no `None` arm, nothing to `!`. Ranked above the optional
@@ -100,11 +71,14 @@ export qualifier NotEq(i: Int) of Int with Idx {
 // `NonEmpty` list is [col-of-nonempty].
 export fn get<T canbe linear>(list: List<T>, index: Idx(list) Int) [] -> proj(list) T
 => list, index {
-    // `index + 0` re-derives a plain `Int`: delegating with the claim still
-    // attached re-picks this overload and recurses — the same trap
-    // `first(NonEmpty)` dodges by not delegating to itself [col-of-nonempty].
-    return get(list, index + 0)!
+    // The host's read answers the element itself: going through the optional
+    // [get] and `!` would read a stored `None` of a `List<T?>` as absence on a
+    // backend that flattens `T??` (the JVM), and trap.
+    return get_at(list, index + 0)
 }
+
+// The host's read; the proven index is in range.
+platform fn get_at<T canbe linear>(list: List<T>, index: Int) [] -> proj(list) T => list, index
 
 // [col-idx] The **total** exchange: two proven indices cannot be out of
 // range, so there is no `Bool` to check — the claim did the checking
@@ -125,13 +99,8 @@ export fn swap<T>(list: Mut List<T>, i: Idx(list) Int, j: Idx(list) Int) [] -> N
 // [linear-container]: nothing written is dropped. Taking an element out of a
 // `List<T?>` is `replace(xs, i, None)`. A write moves no boundary, so
 // existing `Idx` claims survive it [qual-preserve].
-export fn replace<T canbe linear>(list: Mut List<T>, index: Idx(list) Int, value: T) [] -> T
-=> list: Mut, list: preserve Idx, index, !value {
-    return replace_at(list, index + 0, value)
-}
-
-// The host's write; the proven index is in range.
-platform fn replace_at<T canbe linear>(list: Mut List<T>, index: Int, value: T) [] -> T
+// The host writes it, and `core.index`'s `Idx` says the claims survive.
+export platform fn replace<T canbe linear>(list: Mut List<T>, index: Idx(list) Int, value: T) [] -> T
 => list: Mut, index, !value
 
 // [col-locate] What a **position-based** algorithm needs, as a params group
@@ -402,49 +371,41 @@ export fn sub_list<T>(list: List<T>, from: Int, to: Int, ?copy: (v: T) -> T) [] 
 }
 
 // [col-salvo] The index of the first element [pick] accepts, or `None`.
-export fn find_first<T>(list: List<T>, pick: (x: T) -> Bool) [] -> (+Idx(list) Int)? => list, pick {
-    let i = 0
-    while i < size(list) {
-        if pick(get(list, i)!) {
+export fn find_first<T>(list: List<T>, pick: (x: T) -> Bool) [] -> (Idx(list) Int)? => list, pick {
+    for i in indices(list) {
+        if pick(get(list, i)) {
             return i
         }
-        i = i + 1
     }
     return None
 }
 
 // [col-salvo] The index of the last element [pick] accepts, or `None`.
-export fn find_last<T>(list: List<T>, pick: (x: T) -> Bool) [] -> (+Idx(list) Int)? => list, pick {
-    let i = size(list) - 1
-    while i >= 0 {
-        if pick(get(list, i)!) {
+export fn find_last<T>(list: List<T>, pick: (x: T) -> Bool) [] -> (Idx(list) Int)? => list, pick {
+    for i in rev_indices(list) {
+        if pick(get(list, i)) {
             return i
         }
-        i = i - 1
     }
     return None
 }
 
 // [col-salvo] The index of the first element equal to [elem], or `None`.
-export fn index_of<T>(list: List<T>, elem: T, ?Eq<T>) [] -> (+Idx(list) Int)? => list, elem {
-    let i = 0
-    while i < size(list) {
-        if eq(get(list, i)!, elem) {
+export fn index_of<T>(list: List<T>, elem: T, ?Eq<T>) [] -> (Idx(list) Int)? => list, elem {
+    for i in indices(list) {
+        if eq(get(list, i), elem) {
             return i
         }
-        i = i + 1
     }
     return None
 }
 
 // [col-salvo] The index of the last element equal to [elem], or `None`.
-export fn last_index_of<T>(list: List<T>, elem: T, ?Eq<T>) [] -> (+Idx(list) Int)? => list, elem {
-    let i = size(list) - 1
-    while i >= 0 {
-        if eq(get(list, i)!, elem) {
+export fn last_index_of<T>(list: List<T>, elem: T, ?Eq<T>) [] -> (Idx(list) Int)? => list, elem {
+    for i in rev_indices(list) {
+        if eq(get(list, i), elem) {
             return i
         }
-        i = i - 1
     }
     return None
 }
@@ -581,44 +542,8 @@ export iter fn reversed<T>(list: List<T>) -> Emitted (proj(list) T) | Finished {
     return emitted(elem)
 }
 
-// [col-idx] Walks the **indices** of the list, front to back — and every
-// emitted `Int` carries the claim: `for i in indices(xs)` makes `get(xs, i)`
-// total. Sound because the iterator borrows the list [proj-field], so nothing
-// can shrink it while the loop runs [proj-infer].
-//
-// The `+Idx` is [deduce-reapply]'s establishment in a return-type arm: this
-// file declares `Idx`, and the bounds test above the emit is the proof the
-// trust rests on. [qual-depend] The claim names the parameter; in the
-// generated struct's obligation it names the struct's own borrowed field, and
-// a `for` binds it to the *source* list's identity, so the claim reads
-// `Idx(xs)` in the loop body.
-export iter fn indices<T>(list: List<T>) -> Emitted (+Idx(list) Int) | Finished {
-    state {
-        // The index the next turn emits.
-        at: Int = 0
-    }
-    if at >= size(list) {
-        return finished()
-    }
-    let index = at.copy()
-    at = at + 1
-    return emitted(index)
-}
-
-// [col-idx] The same indices, back to front: `size(list) - 1` down to `0` —
-// **the founding example of the refinement-types design**: the descending
-// loop whose body needs no `!`.
-export iter fn rev_indices<T>(list: List<T>) -> Emitted (+Idx(list) Int) | Finished {
-    state {
-        at: Int = size(list) - 1
-    }
-    if at < 0 {
-        return finished()
-    }
-    let index = at.copy()
-    at = at - 1
-    return emitted(index)
-}
+// [col-idx] `indices` and `rev_indices`, whose indices carry `Idx`, are
+// `core.index`'s: establishing the claim is trusted only where it is declared.
 
 // [col-enumerate] What [enumerate] and [enumerate_rev] emit: an element and
 // the index it sits at. A **view struct**, not a tuple: the element part is a
@@ -784,7 +709,13 @@ export fn add_sorted<T>(list: Mut Sorted<T>(?cmp) List<T>, elem: T) [] -> None
 // be meaningless rather than merely absent. With equal elements it answers
 // the **lowest** matching index, on both backends — and "matching" is a tie
 // in the ordering the claim names, `cmp(a, b) == 0` [col-membership].
-export fn binary_search<T>(list: Sorted<T>(?cmp) List<T>, elem: T) [] -> (+Idx(list) Int)?
+export fn binary_search<T>(list: Sorted<T>(?cmp) List<T>, elem: T) [] -> (Idx(list) Int)?
 => list, elem {
-    return search_sorted_by(list, elem, cmp)
+    // The host's search answers an index in range or nothing; the test is
+    // what proves it here, since `Idx` is established only in `core.index`.
+    let found = search_sorted_by(list, elem, cmp) ?: return None
+    if found is Idx(list) {
+        return found
+    }
+    return None
 }

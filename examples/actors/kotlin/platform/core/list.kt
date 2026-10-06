@@ -11,6 +11,10 @@ fun <T> each(list: List<T>): Iterable<T> = list
 
 fun <T> get(list: List<T>, index: Int): T? = list.getOrNull(index)
 
+// [col-idx] The total read: the index was proven in range, and the element is
+// answered as it is, so a stored `null` stays a value.
+fun <T> getAt(list: List<T>, index: Int): T = list[index]
+
 fun <T> first(list: List<T>): T? = list.firstOrNull()
 
 fun <T> size(list: List<T>): Int = list.size
@@ -54,7 +58,8 @@ fun <T> swapAt(list: MutList<T>, i: Int, j: Int): Boolean {
 }
 
 // [col-replace] The index was proven in range by the caller's `Idx` claim.
-fun <T> replaceAt(list: MutList<T>, index: Int, value: T): T = list.set(index, value)
+// [col-replace] The index was proven in range by the caller's `Idx` claim.
+fun <T> replace(list: MutList<T>, index: Int, value: T): T = list.set(index, value)
 
 fun <T> intoMut(list: List<T>): MutList<T> = if (list is MutableList<T>) list else list.toMutableList()
 

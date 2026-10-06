@@ -158,26 +158,25 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
      Int, v) -> T` [col-replace] (2026-10-05, COMPLETED.md), linear elements
      included: a qualifier's type parameter may now `canbe linear`. Left:
      §0d's `take(place: Mut T?) -> T?`, the same gap at a field.
-   - **Defect found with it** (not fixed): the total `get` over a list of
-     optionals traps on Kotlin where Rust answers `None`, because `T?` with
-     `T = Str?` flattens on the JVM and `get(list, i)!` then sees a stored
-     `None` as absence:
-     ```
-     let ys: Mut List<Str?> = mut_list_of<Str?>(None)
-     let j = 0
-     if j is Idx(ys) { println("${get(ys, j) is None}") }  // Rust: true; Kotlin: AssertionError
-     ```
-     The general fix is the same as §0j step 7's slot rule: a std function
-     must not `!` a `T?` whose `T` may itself be optional; `get`'s total
-     overload could call a platform fn answering `T` directly.
    - e. ✅ **Deep copy of structs on Kotlin** [kt-copy] (2026-10-05, with b).
      Left: a struct reached again inside its own copy (`List<Mut Node>` in
      `Node`) is a codegen error; it needs a generated recursive copy fn.
    - f. **Hand-written `eq`/`hash`/`to_str` beside `by auto`** on a struct:
      check what exists; a map's equality ignores order and tombstones.
-   - g. **`IntBuffer`**, a platform type (`IntArray` on Kotlin, `Vec<i32>` on
-     Rust) for hash index tables. Specializing `Int[]` (revisiting M7) is a
-     later, separate question.
+   - g0. ✅ **`Idx` for anything indexable** [col-idx] (user decision and
+     build 2026-10-05, COMPLETED.md): `core.index`, `qualifies` taking
+     `?size` at the tested container. `Str` stays excluded until the
+     recorded `size(Str)` DECISION.
+   - g. ✅ **`IntBuffer` and `LongBuffer`** [buffer-type] (user decisions and
+     build 2026-10-05, COMPLETED.md). A hash probe tests `i is Idx(index)`
+     per probe (accepted). Specializing `Int[]` to `IntArray` (M7) stays a
+     later, separate question; left out until needed: a fallible `set`, a
+     wire form.
+   - **Defect found with them** (not fixed): Rust's read-before-mutation
+     hoist [rs-mut-arg-hoist] hoists a *place*, not a reading *call*, so
+     `println("${get(d, i)} ${replace(d, i, 0)}")` is E0502 in rustc (Kotlin
+     runs it). Repro: any interpolation whose earlier part calls a lending
+     read of `d` and a later part mutates `d`.
    - h. **Platform fns keep named fns** ([platform-fn-value] widened as
      above). Unblocks §0 item 2's builders: `pool(size, sink)`, `watch`,
      `on_idle`, `watch_control` and `route_frames` hand the scheduler a named

@@ -38,6 +38,11 @@ fun <T> removeAt(d: MutDeque<T>, index: Int): T? =
 
 fun <T> get(d: Deque<T>, index: Int): T? = d.getOrNull(index)
 
+// [col-idx] The total read and write: the index was proven in range.
+fun <T> getAt(d: Deque<T>, index: Int): T = d[index]
+
+fun <T> replace(d: MutDeque<T>, index: Int, value: T): T = d.set(index, value)
+
 fun <T> first(d: Deque<T>): T? = d.firstOrNull()
 
 fun <T> last(d: Deque<T>): T? = d.lastOrNull()

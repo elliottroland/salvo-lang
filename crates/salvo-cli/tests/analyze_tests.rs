@@ -1976,7 +1976,8 @@ fn a_redundant_selector_warns_without_failing() {
     let source = "\
 fn main() [use] {
     let xs: Mut List<Int> = mut_list_of()
-    add@core.list(xs, 1)
+    add(xs, 1)
+    let _n = size@core.list(xs)
 }
 ";
     fs::write(dir.join("main.sv"), source).unwrap();

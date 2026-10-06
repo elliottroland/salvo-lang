@@ -96,6 +96,18 @@ fun<T> getPlatform(d: kotlin.collections.ArrayDeque<T>, index: Int): T? {
     return salvo.platform.core.deque.get(d, index)
 }
 
+fun<T> get(d: kotlin.collections.ArrayDeque<T>, index: Int): T {
+    return getAtPlatform(d, index + 0)
+}
+
+fun<T> getAtPlatform(d: kotlin.collections.ArrayDeque<T>, index: Int): T {
+    return salvo.platform.core.deque.getAt(d, index)
+}
+
+fun<T> replacePlatform(d: salvo.platform.core.deque.MutDeque<T>, index: Int, value: T): T {
+    return salvo.platform.core.deque.replace(d, index, value)
+}
+
 fun<T> firstPlatform(d: kotlin.collections.ArrayDeque<T>): T? {
     return salvo.platform.core.deque.first(d)
 }
@@ -111,7 +123,7 @@ fun<T> sizePlatform(d: kotlin.collections.ArrayDeque<T>): Int {
 fun<T> drain(d: kotlin.collections.ArrayDeque<T>, each: (T) -> Unit) {
     val m = intoMutPlatform(d)
     while (sizePlatform(m) > 0) {
-        each((removeFirstPlatform(m) ?: throw AssertionError("salvo: value is absent at core.deque:101:14")))
+        each((removeFirstPlatform(m) ?: throw AssertionError("salvo: value is absent at core.deque:116:14")))
     }
     endEmptyPlatform(m)
 }

@@ -37,6 +37,8 @@ pub mod core_checked;
 pub mod core_compare;
 #[path = "core/deque.sv.rs"]
 pub mod core_deque;
+#[path = "core/index.sv.rs"]
+pub mod core_index;
 #[path = "core/iterator.sv.rs"]
 pub mod core_iterator;
 #[path = "core/list.sv.rs"]

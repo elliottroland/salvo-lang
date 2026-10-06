@@ -388,6 +388,11 @@ struct EffectAvail {
 pub struct PredicateCheck {
     pub name: String,
     pub args: Vec<PredicateArg>,
+    /// [qual-depend] [col-idx] Where the `qualifies` call's **implicit**
+    /// arguments are recorded (`Checked::implicit_args`), when it has any:
+    /// `Idx`'s `?size` is resolved at the container the test names. A
+    /// zero-width span at the first value argument, one per qualifier.
+    pub implicits_at: Option<Span>,
 }
 
 /// [qual-depend] A place handed to a dependent `qualifies`: the source
@@ -18837,7 +18842,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             );
             return;
         };
-        if qualifies.params.len() != 1 + q.value_slots.len() {
+        // [col-idx] Implicit parameters trail and are filled where the test is
+        // made, so they are not part of the shape.
+        let fixed: Vec<&ast::Param> = qualifies.params.iter().filter(|p| !p.implicit).collect();
+        if fixed.len() != 1 + q.value_slots.len() {
             // [qual-depend] A dependent predicate takes the subject first,
             // then one parameter per value slot — `KeyOf`'s `qualifies` is
             // `(key: K, map: Map<K, V>)`.
@@ -18857,16 +18865,16 @@ impl<'p, 'r> Checker<'p, 'r> {
                 );
             }
         } else {
-            let pt = self.lower_type(&qualifies.params[0].ty);
+            let pt = self.lower_type(&fixed[0].ty);
             if !is_subtype(&of_ty, &pt) {
                 self.error(
-                    qualifies.params[0].span,
+                    fixed[0].span,
                     format!("`qualifies` must accept a `{of_ty}` parameter"),
                 );
             }
             // [qual-depend] Each dependency parameter matches its slot's
             // declared type, in slot order.
-            for (slot, param) in q.value_slots.iter().zip(qualifies.params.iter().skip(1)) {
+            for (slot, param) in q.value_slots.iter().zip(fixed.iter().skip(1)) {
                 let want = self.lower_type(&slot.ty);
                 let got = self.lower_type(&param.ty);
                 if !is_subtype(&want, &got) {
@@ -24530,7 +24538,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     args[0].1,
                     format!("`{q}` takes no value arguments"),
                 );
-                checks.push(PredicateCheck { name: q.clone(), args: Vec::new() });
+                checks.push(PredicateCheck { name: q.clone(), args: Vec::new(), implicits_at: None });
                 continue;
             }
             if slots.len() != args.len() {
@@ -24546,11 +24554,16 @@ impl<'p, 'r> Checker<'p, 'r> {
                         filled.join(", ")
                     ),
                 );
-                checks.push(PredicateCheck { name: q.clone(), args: Vec::new() });
+                checks.push(PredicateCheck { name: q.clone(), args: Vec::new(), implicits_at: None });
                 continue;
             }
             let mut rendered = Vec::new();
             let mut roots: Vec<u32> = Vec::new();
+            // [col-idx] What the slots bind the qualifier's own type
+            // parameters to (`C` ↦ `List<Int>`), for the `qualifies` call's
+            // implicits.
+            let qual_generics: Vec<Ident> = decl.map(|d| d.generics.clone()).unwrap_or_default();
+            let mut slot_subst: HashMap<String, Ty> = HashMap::new();
             for (slot, (path, pspan)) in slots.iter().zip(args) {
                 // [qual-const] A constant fills its slot whole: nothing
                 // to resolve, nothing to invalidate.
@@ -24568,7 +24581,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                     );
                     continue;
                 };
+                // The slot's type is written over the qualifier's own type
+                // parameters, so it is lowered under them.
+                let saved = self.enter_generics(&qual_generics);
                 let want = self.lower_type(&slot.ty);
+                self.generics = saved;
+                unify(&want, place_ty.strip_quals(), &mut slot_subst);
                 // Loose by design: the slot's type mentions the
                 // qualifier's own generics (`Map<K, V>`), which have no
                 // binding here — the base name is the honest check, and
@@ -24614,7 +24632,28 @@ impl<'p, 'r> Checker<'p, 'r> {
                         .collect::<Vec<Ty>>(),
                 );
             }
-            checks.push(PredicateCheck { name: q.clone(), args: rendered });
+            // [col-idx] The `qualifies` call is made here, so its implicits are
+            // filled here, at the types the slots bound: `Idx(xs)`'s `?size`
+            // is the `size` of whatever `xs` is.
+            let mut implicits_at = None;
+            if let Some(qf) = decl.and_then(|d| d.fns.iter().find(|f| f.name.name == "qualifies")) {
+                let saved = self.enter_generics(&qual_generics);
+                let inner = self.enter_generics(&qf.generics);
+                let implicits = self.collect_implicits(qf);
+                self.generics = inner;
+                self.generics = saved;
+                if !implicits.is_empty() {
+                    let at = args.first().map(|(_, s)| Span::new(s.start, s.start)).unwrap_or(span);
+                    let generics: HashSet<String> = qual_generics
+                        .iter()
+                        .chain(&qf.generics)
+                        .map(|g| g.name.clone())
+                        .collect();
+                    self.fill_implicits(&implicits, "qualifies", &mut slot_subst, &generics, &[], at);
+                    implicits_at = Some(at);
+                }
+            }
+            checks.push(PredicateCheck { name: q.clone(), args: rendered, implicits_at });
         }
         self.out.predicate_tests.insert(self.key(span), checks);
         // The `qualifies` call happens here at runtime: its declared

@@ -794,12 +794,38 @@ Conventions:
     (`Emitted Enumerated<T>`), which body inference cannot see through a
     generic constructor — the exact case the written form exists for
     [proj-infer].
-* [col-idx] `core.list` declares `qualifier Idx<T>(list: List<T>) of Int`
-  [qual-depend] — `0 <= index < size(list)`, about one particular list —
-  with **total overloads** consuming it: `get(list, index: Idx(list) Int)
-  -> proj(list) T` (no `None` arm) and `swap(list, i: Idx(list) Int, j:
-  Idx(list) Int) -> None` (no `Bool` — the claims did the checking
-  [col-bounds]). Ranked above their plain siblings [fn-overload-rank].
+* [col-idx] `core.index` declares `qualifier Idx<C canbe linear>(c: C) of
+  Int` [qual-depend] — `0 <= index < size(c)`, about one particular
+  container — with **total overloads** consuming it: `get(list, index:
+  Idx(list) Int) -> proj(list) T` (no `None` arm), `swap(list, i: Idx(list)
+  Int, j: Idx(list) Int) -> None` (no `Bool` — the claims did the checking
+  [col-bounds]), `replace` [col-replace], and the same `get`/`replace` on a
+  `Deque` and the buffers [buffer-type]. Ranked above their plain siblings
+  [fn-overload-rank].
+  * **Any container with a `size`** (user decision 2026-10-05, ROADMAP §0j
+    6g0; built 2026-10-05): `qualifies(index: Int, c: C, ?size: (c: C) ->
+    Int)` takes the `size` as an implicit, filled where the claim is tested
+    at the type the slot binds (`check_predicate_quals` unifies the slot with
+    the place and calls `fill_implicits` at a zero-width span on the first
+    value argument, `PredicateCheck::implicits_at`, where both emitters read
+    the call's implicit arguments). Nothing prints in the type. A
+    `qualifies` may take implicits generally: they trail, and the shape check
+    counts the others. Rust reborrows a slot argument that is already a
+    reference (`&*heap`), so a generic slot does not bind to the `&mut`.
+  * Its own module, with `NotEq` [col-noteq], so the refinements that keep
+    it — a list's `add`, `swap` and `replace`, a deque's `add_first`,
+    `add_last` and `replace`, a buffer's `replace` and `clear` — live beside
+    it [qual-refn-scope]. A refinement's own type parameters take the leading
+    positions when it is matched [qual-refn-match] (`refn add<T>(list: Mut
+    List<T>, …)` inside `Idx<C>`). The writes it refines are exported
+    platform fns or Salvo fns, since the owner has to see them, and
+    `+Idx` is trusted only in `core.index`, so `indices`/`rev_indices` live
+    there and `core.list`'s searches return `(Idx(list) Int)?` proven by
+    `indices` or a test.
+  * The **total read is the host's own** (`get_at`), not the optional `get`
+    and `!`: a `T?` with `T` optional flattens on the JVM, so `!` read a
+    stored `None` of a `List<Str?>` as absence and trapped (the recorded
+    defect, fixed 2026-10-05). Same on `Deque`.
   `core.map`'s `KeyOf` has its total `get` too (landed with `preserve`
   [qual-preserve], which is what lets a claim survive the `put`s between
   the test and the read). **The index iterators mint the claim**:
@@ -808,7 +834,19 @@ Conventions:
   refinement-types design, total end to end — and `binary_search`'s found
   arm is `(+Idx(list) Int)?`, so narrowing the optional is the last check
   the result ever needs.
-* [col-noteq] `core.list` declares `qualifier NotEq(i: Int) of Int with
+* [buffer-type] **`core.buffer`'s `IntBuffer` and `LongBuffer`** (user
+  decisions 2026-10-05, ROADMAP §0j 6g; built 2026-10-05): `iterable platform
+  type IntBuffer canbe Mut : Iter<self, Int>`, a fixed-length run (Kotlin
+  `IntArray`, Rust `Vec<i32>`; `LongBuffer` over `Long`, `LongArray`,
+  `Vec<i64>`). `int_buffer(size, fill)`/`long_buffer`, `size`, `get(buf,
+  i) -> Int?` and the total `get(buf, i: Idx(buf) Int) -> Int`, `replace(buf,
+  i: Idx(buf) Int, v) -> Int`, `clear(buf, fill)` (both keep `Idx` claims),
+  `to_str` (`[1, 2, 3]`) in Salvo, and `iter` for a generic `Iter` fn. No
+  add or remove; a plain buffer is immutable and `copy` copies the array
+  (Kotlin `copyOf`); `noremote` like every platform type; no `==`. The
+  operations are Salvo over private `int_*`/`long_*` platform fns, since two
+  platform fns of one module may not overload.
+* [col-noteq] `core.index` declares `qualifier NotEq(i: Int) of Int with
   Idx` [qual-depend] [qual-with] — `j != i`, bound to `i`'s identity — the
   proof that two element handles of one list cannot alias [elem-distinct].
   Established by the ordinary filled test (`j is NotEq(i)`), stripped by
@@ -863,8 +901,10 @@ Conventions:
     always handed back, and `Idx` claims survive [qual-preserve]. Taking an
     element out of a `List<T?>` is `replace(xs, i, None)`. It takes a linear
     element type too, since a **qualifier's type parameter may `canbe
-    linear`** (user decision 2026-10-05): `qualifier Idx<T canbe linear>(list:
-    List<T>) of Int` claims an index of a list of obligations.
+    linear`** (user decision 2026-10-05): `qualifier Idx<C canbe linear>(c:
+    C) of Int` claims an index of a list of obligations. Since 2026-10-05 a
+    platform fn of `core.list` (the host writes; `core.index`'s `Idx` refines
+    it to keep the claims) [col-idx].
 * [str-mut-results] **A list made from a string is the caller's own**:
   `split` and `lines` answer `Mut List<Str>` (2026-10-03, user request).
 * [str-search] `index_of(str, needle, from)` (from an offset, below 0 the

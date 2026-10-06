@@ -94,6 +94,18 @@ pub fn get_platform<T>(d: &std::collections::VecDeque<T>, index: i32) -> Option<
     crate::platform_core_deque::get(d, index)
 }
 
+pub fn get<'a, T>(d: &'a std::collections::VecDeque<T>, index: &i32) -> &'a T {
+    return get_at_platform(d, i32::wrapping_add(*index, 0));
+}
+
+pub fn get_at_platform<T>(d: &std::collections::VecDeque<T>, index: i32) -> &T {
+    crate::platform_core_deque::get_at(d, index)
+}
+
+pub fn replace_platform<T>(d: &mut std::collections::VecDeque<T>, index: &i32, value: T) -> T {
+    crate::platform_core_deque::replace(d, *index, value)
+}
+
 pub fn first_platform<T>(d: &std::collections::VecDeque<T>) -> Option<&T> {
     crate::platform_core_deque::first(d)
 }
@@ -109,7 +121,7 @@ pub fn size_platform<T>(d: &std::collections::VecDeque<T>) -> i32 {
 pub fn drain<T>(d: std::collections::VecDeque<T>, each: &mut impl FnMut(T)) {
     let mut m = into_mut_platform(d);
     while size_platform(&m) > 0 {
-        each(remove_first_platform(&mut m).expect("salvo: value is absent at core.deque:101:14"));
+        each(remove_first_platform(&mut m).expect("salvo: value is absent at core.deque:116:14"));
     }
     end_empty_platform(m);
 }

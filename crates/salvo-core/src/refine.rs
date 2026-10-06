@@ -459,11 +459,15 @@ fn resolve_refn<'p>(
     // `T`), then the refinement's own. Matching is positional, so a
     // refinement and the fn it refines need not agree on the *names*
     // [qual-refn-match].
+    // A refinement with type parameters **of its own** refines a fn over
+    // *those* (`refn add<T>(list: Mut List<T>, …)` inside `Idx<C>`), so they
+    // take the leading positions; the qualifier's follow, for a signature
+    // that mentions one.
     let mut generics: Vec<&str> = Vec::new();
+    generics.extend(decl.generics.iter().map(|g| g.name.as_str()));
     if let Some(q) = qualifier {
         generics.extend(q.generics.iter().map(|g| g.name.as_str()));
     }
-    generics.extend(decl.generics.iter().map(|g| g.name.as_str()));
     let want = signature(&decl.params, &generics);
     let _ = &want;
 
