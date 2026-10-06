@@ -1571,3 +1571,57 @@ fn main() [use, spawn] {
     }
     __stamp.verified();
 }
+
+/// [rs-interp-sequence] An interpolation whose earlier part reads a place
+/// through a call and whose later part mutates it runs in source order on
+/// both backends (rustc used to refuse it: E0502).
+#[test]
+fn an_interpolation_reads_before_a_later_part_mutates() {
+    let Some(__stamp) = e2e_stamp("interp_sequence", &["rustc", "kotlinc"]) else { return };
+    let dir = work_dir("interp_sequence");
+    fs::write(
+        dir.join("main.sv"),
+        "fn main() [use] {\n    use StdOutConsole()\n    let d = mut_list_of(1, 2, 3)\n    let i = 1\n    \
+         if i is Idx(d) {\n        println(\"${get(d, i)} ${replace(d, i, 0)}\")\n    }\n    println(\"${d}\")\n}\n",
+    )
+    .unwrap();
+    for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
+        if !have(tool) {
+            continue;
+        }
+        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", "."]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "{backend}: {stderr}");
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "2 2\n[1, 0, 3]\n", "{backend}");
+    }
+    __stamp.verified();
+}
+
+/// [kt-copy] [copy-plan] A struct that holds a list of itself copies deeply
+/// on both backends: Kotlin generates the struct's own copy fn.
+#[test]
+fn a_struct_holding_itself_copies_on_both_backends() {
+    let Some(__stamp) = e2e_stamp("recursive_copy", &["rustc", "kotlinc"]) else { return };
+    let dir = work_dir("recursive_copy");
+    fs::write(
+        dir.join("main.sv"),
+        "struct Node canbe Mut {\n    label: Str\n    kids: List<Mut Node>\n}\n\n\
+         fn relabel(n: Mut Node) [] -> None {\n    n.label = \"changed\"\n}\n\n\
+         fn main() [use] {\n    use StdOutConsole()\n    \
+         let kid: Mut Node = Mut Node { label: \"kid\", kids: [] }\n    \
+         let root: Mut Node = Mut Node { label: \"root\", kids: [kid] }\n    \
+         let twin = copy(root)\n    relabel(root)\n    \
+         println(\"${root.label} ${twin.label} ${size(twin.kids)}\")\n}\n",
+    )
+    .unwrap();
+    for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
+        if !have(tool) {
+            continue;
+        }
+        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", "."]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "{backend}: {stderr}");
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "changed root 1\n", "{backend}");
+    }
+    __stamp.verified();
+}

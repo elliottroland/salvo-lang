@@ -31,11 +31,17 @@ pub enum CopyPlan {
     Struct { name: String, fields: Vec<(String, CopyPlan)> },
     /// An array whose elements are immutable.
     Array,
+    /// A non-generic struct reached again inside its own copy (a list of
+    /// itself): the copy calls the struct's own copy fn, which a backend
+    /// generates from `copy_plan` of the struct. `mutable` is whether this
+    /// value is `Mut`.
+    Recur { name: String, mutable: bool },
 }
 
 /// The plan for a value of type `ty`, or `None` where no backend can copy
-/// the shape correctly (a shallow copy would alias mutable parts): a struct
-/// reached again inside its own copy, a mutable array of mutable elements.
+/// the shape correctly (a shallow copy would alias mutable parts): a generic
+/// struct reached again inside its own copy, a mutable array of mutable
+/// elements.
 pub fn copy_plan(symbols: &Symbols<'_>, ty: &Ty) -> Option<CopyPlan> {
     plan(symbols, ty, &mut Vec::new())
 }
@@ -66,8 +72,11 @@ fn plan(symbols: &Symbols<'_>, ty: &Ty, copying: &mut Vec<String>) -> Option<Cop
             }
             // A struct reached again inside its own copy would need a
             // recursive copy fn: refused, not looped on.
-            if copying.iter().any(|n| n == name) {
-                return None;
+            // The entry keeps the outer struct's own (keyed) name: the written
+            // field type names it plainly, and a plain name may be another
+            // module's struct.
+            if let Some(outer) = copying.iter().find(|n| crate::typekey::plain(n) == crate::typekey::plain(name)) {
+                return s.generics.is_empty().then(|| CopyPlan::Recur { name: outer.clone(), mutable: has_mut });
             }
             copying.push(name.clone());
             let out = struct_plan(symbols, s, args, has_mut, copying);

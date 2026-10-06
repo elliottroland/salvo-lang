@@ -136,6 +136,28 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-06 — Two defects, two leftovers (§0j)
+
+* **E0502 in an interpolation** ([rs-interp-sequence]): `println("${get(d, i)}
+  ${replace(d, i, 0)}")` borrowed `d` for the whole `format!`. Where a later
+  part takes a `&mut` of a place (not a `&mut |closure|` argument) and no place
+  read was hoisted, each part is formatted to text in turn and the texts are
+  joined. Fixing it textually on the rendered argument (not on the AST) kept it
+  to the one site; the 1.5 narrower cases were already covered by the place
+  hoist.
+* **A struct holding itself on Kotlin**: `CopyPlan::Recur` and a generated
+  `__copy[Mut]_Name` fn per such struct; generic structs are still refused.
+  The written field type names the struct plainly, so the plan keeps the
+  *outer* struct's keyed name (a plain `Node` may be another module's).
+* The lending sets are computed once per program (`Lend`), and the ABI module
+  rule lives once in `driver::reach` (`abi_modules`, `emitted`). The two
+  backends differ on purpose: Rust also writes the reached modules in ABI mode,
+  Kotlin does not (an attempt to unify them broke three platform tests).
+* ROADMAP's "one termination predicate" is dropped: Rust's
+  `block_terminates` (does control fall off the end) and Kotlin's
+  `block_returns_early` (is there a `return` before the tail) answer different
+  questions.
+
 ### 2026-10-06 — Dot calls and borrowed results from core (§0j steps 12 and 13, partial)
 
 * `Checked::dot_calls` ([fn-dot]): the checker records each `base.f(args)` it

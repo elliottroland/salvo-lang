@@ -13063,6 +13063,23 @@ impl<'p> Emitter<'p> {
         for part in &interps {
             self.hoisted_reads.remove(&(self.file_idx, part.span()));
         }
+        // [rs-interp-sequence] `format!` borrows every argument until it
+        // returns, so a part that reads a place through a call (`*get(&d, &i)`)
+        // collides with a later part that borrows it mutably. Where a later
+        // part takes a `&mut`, each part is formatted to text in turn first —
+        // which is the order the language gives them — and the final `format!`
+        // joins the texts.
+        if hoists.is_empty() && args.iter().skip(1).any(|a| a.match_indices("&mut ").any(|(i, _)| !a[i + 5..].starts_with('|'))) {
+            let mut lets = String::new();
+            for (i, a) in args.iter().enumerate() {
+                lets.push_str(&format!("let __ip{i} = format!(\"{{}}\", {a}); "));
+            }
+            let names: Vec<String> = (0..args.len()).map(|i| format!("__ip{i}")).collect();
+            return Self::wrap_hoisted(
+                &hoists,
+                format!("{{ {lets}format!(\"{fmt}\", {}) }}", names.join(", ")),
+            );
+        }
         Self::wrap_hoisted(
             &hoists,
             format!("format!(\"{fmt}\", {})", args.join(", ")),

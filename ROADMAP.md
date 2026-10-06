@@ -156,9 +156,10 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
      Int, v) -> T` [col-replace] (2026-10-05, COMPLETED.md), linear elements
      included: a qualifier's type parameter may now `canbe linear`. Left:
      §0d's `take(place: Mut T?) -> T?`, the same gap at a field.
-   - e. ✅ **Deep copy of structs on Kotlin** [kt-copy] (2026-10-05, with b).
-     Left: a struct reached again inside its own copy (`List<Mut Node>` in
-     `Node`) is a codegen error; it needs a generated recursive copy fn.
+   - e. ✅ **Deep copy of structs on Kotlin** [kt-copy] (2026-10-05, with b;
+     a non-generic struct that contains itself gets a generated copy fn,
+     2026-10-06). Left: the same for a *generic* struct, which is still
+     refused.
    - f. ✅ **Hand-written `eq`/`hash`/`to_str` beside `by auto`** (checked
      2026-10-05, COMPLETED.md): already supported (an obligation without
      `by` is a promise any visible fn keeps), generic structs included since
@@ -172,11 +173,6 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
      per probe (accepted). Specializing `Int[]` to `IntArray` (M7) stays a
      later, separate question; left out until needed: a fallible `set`, a
      wire form.
-   - **Defect found with them** (not fixed): Rust's read-before-mutation
-     hoist [rs-mut-arg-hoist] hoists a *place*, not a reading *call*, so
-     `println("${get(d, i)} ${replace(d, i, 0)}")` is E0502 in rustc (Kotlin
-     runs it). Repro: any interpolation whose earlier part calls a lending
-     read of `d` and a later part mutates `d`.
    - h. ✅ **Platform fns keep named fns** [platform-fn-value] (2026-10-06,
      COMPLETED.md): `route_frames`, `watch` and `on_idle` are Salvo. Left, a
      **DECISION**: `pool(size, sink)` and `watch_control` build an actor

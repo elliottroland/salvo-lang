@@ -878,6 +878,11 @@ const KOTLIN_KEYWORDS: &[&str] = &[
 /// A Salvo value name as a Kotlin identifier: camel case [kt-camel]
 /// (`salvo_core::case::camel`, the definition the checker's clash rule uses
 /// [name-camel]), back-quoted when it is a Kotlin keyword.
+/// [kt-copy] The generated copy fn of a struct that contains itself.
+fn recursive_copy_name(name: &str, mutable: bool) -> String {
+    format!("__copy{}_{}", if mutable { "Mut" } else { "" }, salvo_core::typekey::plain(name).replace('.', "_"))
+}
+
 fn kt_ident(name: &str) -> String {
     let name = salvo_core::case::camel(salvo_core::typekey::plain(name));
     if KOTLIN_KEYWORDS.contains(&name.as_str()) {
@@ -1009,6 +1014,8 @@ struct Emitter<'p> {
     /// reads it after the body and prepends `@Suppress("UNCHECKED_CAST")` —
     /// generated code must stay warning-free, and the author cannot edit it.
     unchecked_cast: bool,
+    /// [kt-copy] The structs whose own copy fn this module needs: (name, `Mut`).
+    recursive_copies: BTreeSet<(String, bool)>,
     /// Enclosing loops during emission [while-value]: the result variable
     /// a `break value` assigns before breaking (`None` for loops whose
     /// value is discarded). Innermost last.
@@ -1109,6 +1116,7 @@ impl<'p> Emitter<'p> {
             generics: HashSet::new(),
             ctor_implicits: HashSet::new(),
             unchecked_cast: false,
+            recursive_copies: BTreeSet::new(),
             loop_results: Vec::new(),
             loop_id: 0,
             loop_destructures: Vec::new(),
@@ -1469,6 +1477,24 @@ impl<'p> Emitter<'p> {
         // Generated items go last.
         for item in std::mem::take(&mut self.generated_items) {
             body.push_str(&item);
+        }
+        // [kt-copy] The copy fn of each struct reached again inside its own
+        // copy; rendering one may ask for another.
+        let mut done: BTreeSet<(String, bool)> = BTreeSet::new();
+        while let Some(next) = self.recursive_copies.iter().find(|e| !done.contains(*e)).cloned() {
+            done.insert(next.clone());
+            let (name, mutable) = next;
+            let mut ty = Ty::named(&name);
+            if mutable {
+                ty = ty.qualify(vec![salvo_core::types::Qual::plain("Mut", Vec::new())]);
+            }
+            let Some(plan) = salvo_core::copyplan::copy_plan(self.symbols, &ty) else { continue };
+            let Some(code) = self.render_copy(&plan, "__v") else { continue };
+            let kt = self.kotlin_ty(&ty);
+            body.push_str(&format!(
+                "\nfun {}(__v: {kt}): {kt} = {code}\n",
+                recursive_copy_name(&name, mutable)
+            ));
         }
         // [kt-package] Each module gets its own Kotlin package.
         let pkg = kotlin_package(&self.program.files[self.file_idx].module);
@@ -8811,6 +8837,12 @@ impl<'p> Emitter<'p> {
                 Some(format!("{code}.let {{ {var} -> {var}.copy({}) }}", replaced.join(", ")))
             }
             CopyPlan::Array => Some(format!("{code}.copyOf()")),
+            // [kt-copy] A struct reached again inside its own copy calls the
+            // struct's generated copy fn.
+            CopyPlan::Recur { name, mutable } => {
+                self.recursive_copies.insert((name.clone(), *mutable));
+                Some(format!("{}({code})", recursive_copy_name(name, *mutable)))
+            }
         }
     }
 
