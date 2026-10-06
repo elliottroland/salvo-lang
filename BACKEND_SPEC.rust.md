@@ -377,7 +377,8 @@ tables (`Checked::deductions`, [deduce-syntax] [deduce-infer]) are the
 ownership contract. Salvo source has no references; the Rust backend
 derives them mechanically:
 
-* **Parameter modes.** For each parameter of a fn with a deduction entry:
+* **Parameter modes** (decided by core, [param-mode]; this is their Rust
+  spelling). For each parameter of a fn with a deduction entry:
   * *consumed* (`=> !p`, or inferred so; `kept == false`) → the parameter is
     **moved**: it is passed **by value** (`T`). The Salvo checker
     guarantees the caller no longer uses the argument, so the move is

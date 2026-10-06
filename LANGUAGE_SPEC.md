@@ -7549,6 +7549,21 @@ between endpoints and delivers what arrives into the scheduler.
     stored, sent). Without this, `return get(numbers, i)` on a `List<Double>`
     was refused as a view of `numbers` and asked for a `copy` that neither
     backend would emit. A non-scalar element read is unaffected.
+* [param-mode] **How a callee holds a parameter is core's call** (built
+  2026-10-06, `salvo_core::param_mode`): *moved in* (consumed: `=> !p`, or
+  inferred so; also every scalar, variadic parameter and `once` fn group,
+  which a target can only pass by value), *lent* (kept, read by the callee),
+  or *lent mutably* (kept, and the declared type carries `Mut`, or its
+  elements do: `List<Mut T>` lends mutable handles [proj-mut]). A fn-typed
+  parameter is lent mutably unless the fn stores its callbacks (a fn-typed
+  parameter and a struct with a fn-typed field as the result), when it is
+  moved in. The inputs differ by family and stay so: a top-level fn reads the
+  checker's deductions; an effect member (and the handler members implementing
+  it) reads the clause written on it, and ignores element `Mut`; everything
+  else is kept. A position in a fn *type* follows the same rule from the
+  type's own clause (`fn_type_position`), which is how a lambda binds its
+  parameters. A backend whose values are all references ignores the modes; one
+  that spells ownership renders them ([rs-borrows]).
 * [copy-plan] **What `copy` duplicates is core's call** (built 2026-10-06,
   `salvo_core::copyplan`): a tree per type — share the value when no Salvo
   operation can mutate any part of it (scalars, `Str`, non-`Mut` structs of

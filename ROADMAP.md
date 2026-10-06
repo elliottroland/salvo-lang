@@ -241,16 +241,18 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
     small: the dot-notation normalization still asks `effect_of_fn` (step 13
     removes it), and the actor-send path (`a.send_fn(..)`) still reads
     `effect_member_calls` for its overload index.
-12. **The ownership plan, as side tables**: per parameter (moved, lent, lent
-    mutably, kept; fn-type parameters and implicits included), per read
-    (move, copy, borrow, take), per narrowing (is the subject a borrow), per
-    fn (lends mutably on its return path; which variants callers need), per
-    call (hoists). Rust code is deleted site by site as each table lands.
-    Absorbs §11 (the read-mode table says what a read produced) and §0h's
-    note that Rust's `__loc` variants depend on callers. The `rs-` rules
-    that state Salvo ownership (rs-borrows, rs-read-mode, rs-opt-borrow,
-    rs-proj-arm, rs-fn-param-convention) become neutral LANGUAGE_SPEC.md
-    rules; the Rust spellings stay in BACKEND_SPEC.rust.md.
+12. **The ownership plan, as side tables.** Done (COMPLETED.md, 2026-10-06):
+    the per-parameter modes, for fns, effect members, handler members and fn
+    types (`salvo_core::param_mode`, [param-mode]). Left, in this order:
+    per read (move, copy, borrow, take), per narrowing (is the subject a
+    borrow), per fn (lends mutably on its return path; which variants callers
+    need), per call (hoists), and the `Ty`-based fn-position renderings
+    (`fn_ty_param_renderings`, the implicit positions). Rust code is deleted
+    site by site as each table lands. Absorbs §11 (the read-mode table says
+    what a read produced) and §0h's note that Rust's `__loc` variants depend
+    on callers. The `rs-` rules that state Salvo ownership (rs-read-mode,
+    rs-opt-borrow, rs-proj-arm, rs-fn-param-convention) become neutral
+    LANGUAGE_SPEC.md rules; the Rust spellings stay in BACKEND_SPEC.rust.md.
 13. **A lowering pass for the rewrites**: argument hoists, fn variants,
     value-position `loop`/`if`/blocks, the iterator driver; possibly fn
     bodies only. Designed with 12's tables as its vocabulary. Absorbs the

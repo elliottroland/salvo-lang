@@ -1206,13 +1206,27 @@ enum BindKind {
     ElemMut,
 }
 
-/// How a callee expects one parameter [rs-borrows].
+/// How a callee expects one parameter [rs-borrows]: core's [`PassMode`]
+/// (`salvo_core::param_mode`), spelled.
 #[derive(Clone, Copy, PartialEq)]
 enum ParamMode {
     Owned,
     Ref,
     RefMut,
 }
+
+impl From<salvo_core::param_mode::PassMode> for ParamMode {
+    fn from(m: salvo_core::param_mode::PassMode) -> Self {
+        use salvo_core::param_mode::PassMode;
+        match m {
+            PassMode::Owned => ParamMode::Owned,
+            PassMode::Lent => ParamMode::Ref,
+            PassMode::LentMut => ParamMode::RefMut,
+        }
+    }
+}
+
+use salvo_core::param_mode::{is_fn_group, type_has_mut, PassMode};
 
 /// A handler registered in the effect environment: the Rust expression
 /// used at member-call sites and the one used when threading it as a
@@ -2542,21 +2556,7 @@ impl<'p> Emitter<'p> {
     }
 
     fn owns_callbacks(&self, key: salvo_core::FnKey) -> bool {
-        let Some(decl) = self.fn_by_key(key) else {
-            return false;
-        };
-        // [rs-lazy-adaptor] An implicit group spreads fn parameters too: a
-        // lazy adaptor keeps its source's `next`.
-        if !decl.params.iter().any(|p| matches!(p.ty, Type::Fn { .. })) && decl.implicit_groups.is_empty() {
-            return false;
-        }
-        let Some(ret) = decl.return_type.as_ref().and_then(type_base_name) else {
-            return false;
-        };
-        self.symbols
-            .structs
-            .get(ret)
-            .is_some_and(|s| s.fields.iter().any(|f| matches!(f.ty, Type::Fn { .. })))
+        self.modes().owns_callbacks(key)
     }
 
     /// The stable key of a checker-resolved fn declaration (needed to look
@@ -4106,29 +4106,7 @@ impl<'p> Emitter<'p> {
     /// rendering at call sites, because a disagreement between any two of
     /// them is a rustc type error rather than something Salvo would notice.
     fn member_param_mode(&mut self, member: &FnDecl, p: &Param) -> ParamMode {
-        if p.variadic || self.is_copy_ast_type(&p.ty) || is_fn_group(&p.ty) {
-            return ParamMode::Owned;
-        }
-        if matches!(p.ty, Type::Fn { .. }) {
-            // [fn-contract] Fn values are borrowed: `&mut impl FnMut`.
-            return ParamMode::RefMut;
-        }
-        let moved = member.deductions.iter().flatten().any(|d| {
-            d.param_name().is_some_and(|n| n.name == p.name.name)
-                && matches!(
-                    d.kind,
-                    // [defer-deduction] A deferral is consumed like a move.
-                    salvo_syntax::ast::DeductionKind::Moved
-                        | salvo_syntax::ast::DeductionKind::Deferred
-                )
-        });
-        if moved {
-            ParamMode::Owned
-        } else if type_has_mut(&p.ty) {
-            ParamMode::RefMut
-        } else {
-            ParamMode::Ref
-        }
+        self.modes().member_param(member, p).into()
     }
 
     /// [implicit-param] A member's implicit parameters, as its interface
@@ -5390,69 +5368,25 @@ impl<'p> Emitter<'p> {
     /// `&mut` when the declared type carries `Mut`), with the Copy-scalar
     /// and variadic exceptions.
     fn param_mode(&mut self, key: Option<salvo_core::FnKey>, param: &Param) -> ParamMode {
-        if param.variadic {
-            return ParamMode::Owned; // callers assemble a fresh Vec
-        }
         // [rs-loc] The lent parameter of a locator-variant call arrives
         // *read* — the search borrows nothing mutably — whatever the read
         // signature says (`List<Mut T>` is `&mut` there only because it
         // lends handles).
-        if !self.mut_call_lent.is_empty() && self.mut_call_lent.contains(&param.name.name) {
+        if !param.variadic && !self.mut_call_lent.is_empty() && self.mut_call_lent.contains(&param.name.name) {
             return ParamMode::Ref;
         }
-        if self.is_copy_ast_type(&param.ty) {
-            return ParamMode::Owned;
-        }
-        if is_fn_group(&param.ty) {
-            return ParamMode::Owned; // `once` closures pass by value
-        }
-        if matches!(param.ty, Type::Fn { .. }) {
-            // [rs-fn-field] A callback the callee **stores** arrives owned (and
-            // `Rc`-shared internally) rather than borrowed for the call: a
-            // composed pass calls it once per element, long after this returns.
-            if key.is_some_and(|k| self.owns_callbacks(k)) {
-                return ParamMode::Owned;
-            }
-            // [fn-contract] Fn values are borrowed: `&mut impl FnMut`.
-            return ParamMode::RefMut;
-        }
-        let kept = key
-            .and_then(|k| self.checked.deductions.get(&k))
-            .and_then(|ds| ds.iter().find(|d| d.param == param.name.name))
-            .map(|d| d.kept)
-            .unwrap_or(true); // default kept (lenient, like deduce.rs)
-        if !kept {
-            return ParamMode::Owned;
-        }
-        if type_has_mut(&param.ty) || type_has_elem_mut(&param.ty) {
-            // [rs-elem-mut] A container with `Mut` elements lends mutable
-            // handles, so it arrives `&mut` even when kept without its own
-            // `Mut` [proj-mut].
-            ParamMode::RefMut
-        } else {
-            ParamMode::Ref
-        }
+        self.modes().fn_param(key, param).into()
+    }
+
+    /// [param-mode] Core's parameter-mode decisions, over this emitter's tables.
+    fn modes(&self) -> salvo_core::param_mode::Modes<'_, 'p> {
+        salvo_core::param_mode::Modes { symbols: self.symbols, checked: self.checked, program: self.program }
     }
 
     /// The default kept rule for fns outside the deduction tables
     /// (qualifier/effect/handler members) [rs-borrows].
     fn default_param_mode(&mut self, ty: &Type, variadic: bool) -> ParamMode {
-        if variadic || self.is_copy_ast_type(ty) || is_fn_group(ty) {
-            return ParamMode::Owned;
-        }
-        if matches!(ty, Type::Fn { .. }) {
-            // [fn-contract] Fn values are borrowed: `&mut impl FnMut`.
-            return ParamMode::RefMut;
-        }
-        if type_has_mut(ty) || type_has_elem_mut(ty) {
-            // [rs-elem-mut] `List<Mut T>` lends mutable element handles, so
-            // the container parameter itself must arrive `&mut` even though
-            // no *structural* mutation is permitted — the handle's write
-            // reaches the caller's storage through it [proj-mut].
-            ParamMode::RefMut
-        } else {
-            ParamMode::Ref
-        }
+        self.modes().default_param(ty, variadic).into()
     }
 
     /// Renders a parameter's Rust type for its mode.
@@ -6740,15 +6674,12 @@ impl<'p> Emitter<'p> {
                     .iter()
                     .enumerate()
                     .map(|(i, p)| {
-                        let (kept, is_mut) =
-                            ast_fn_param_contract(params, param_names, deductions, i);
+                        let mode = self.modes().fn_type_position(params, param_names, deductions, i);
                         let base = self.emit_type(p);
-                        if kept && is_mut {
-                            format!("&mut {base}")
-                        } else if kept && !self.is_copy_ast_type(p) {
-                            format!("&{base}")
-                        } else {
-                            base
+                        match mode {
+                            PassMode::LentMut => format!("&mut {base}"),
+                            PassMode::Lent => format!("&{base}"),
+                            PassMode::Owned => base,
                         }
                     })
                     .collect();
@@ -7632,34 +7563,17 @@ impl<'p> Emitter<'p> {
         };
         (0..params.len())
             .map(|i| {
-                let (kept, is_mut) = ast_fn_param_contract(params, param_names, deductions, i);
-                if kept && is_mut {
-                    BindKind::RefMut
-                } else if kept && !self.is_copy_ast_type(&params[i]) {
-                    BindKind::Ref
-                } else {
-                    BindKind::Owned
+                match self.modes().fn_type_position(params, param_names, deductions, i) {
+                    PassMode::LentMut => BindKind::RefMut,
+                    PassMode::Lent => BindKind::Ref,
+                    PassMode::Owned => BindKind::Owned,
                 }
             })
             .collect()
     }
 
     fn is_copy_ast_type(&mut self, ty: &Type) -> bool {
-        let Type::Named { qualifiers, base } = ty else {
-            return false;
-        };
-        if !qualifiers.is_empty() || !base.args.is_empty() {
-            return false;
-        }
-        if let Some(alias) = self.symbols.type_aliases.get(self.checked.written_key(base)) {
-            if let Some(target) = &(*alias).alias.clone() {
-                return self.is_copy_ast_type(target);
-            }
-        }
-        matches!(
-            base.name.name.as_str(),
-            "Int" | "Long" | "Float" | "Double" | "Bool" | "Char" | "Byte"
-        )
+        self.modes().is_copy(ty)
     }
 }
 
@@ -13024,7 +12938,7 @@ impl<'p> Emitter<'p> {
                 // the declaration's actual mode. Illegal combinations are
                 // checker-rejected before emission [fn-contract].
                 let (in_kept, in_mut) =
-                    ast_fn_param_contract(exp_params, param_names, deductions, i);
+                    salvo_core::param_mode::fn_type_contract(exp_params, param_names, deductions, i);
                 let in_ref =
                     in_kept && !exp_params.get(i).is_some_and(|t| self.is_copy_ast_type(t));
                 let mode = self.param_mode(key, p);
@@ -17524,72 +17438,12 @@ fn binary_op(op: BinaryOp) -> &'static str {
 /// The (kept, mutable) contract of one fn-type parameter [fn-contract]:
 /// kept unless the written deduction list omits its name; mutable when
 /// the declared type carries `Mut`. Defaults keep everything.
-fn ast_fn_param_contract(
-    params: &[Type],
-    param_names: &[Option<salvo_syntax::ast::Ident>],
-    deductions: &Option<Vec<salvo_syntax::ast::Deduction>>,
-    i: usize,
-) -> (bool, bool) {
-    let is_mut = params
-        .get(i)
-        .map(|t| match t {
-            Type::Named { qualifiers, .. } | Type::QualifiedGroup { qualifiers, .. } => {
-                qualifiers.iter().any(|q| q.name.name == "Mut")
-            }
-            _ => false,
-        })
-        .unwrap_or(false);
-    // [deduce-syntax] Unmentioned in a fn type's group is kept; only a
-    // written move (`!x`) consumes.
-    let kept = match (param_names.get(i).and_then(|n| n.as_ref()), deductions) {
-        (Some(name), Some(list)) => !list.iter().any(|d| {
-            d.param_name().is_some_and(|n| n.name == name.name)
-                && matches!(
-                    d.kind,
-                    salvo_syntax::ast::DeductionKind::Moved
-                        | salvo_syntax::ast::DeductionKind::Deferred
-                )
-        }),
-        _ => true,
-    };
-    (kept, is_mut)
-}
-fn is_fn_group(ty: &Type) -> bool {
-    matches!(
-        ty,
-        Type::QualifiedGroup { base, .. } if matches!(base.as_ref(), Type::Fn { .. })
-    )
-}
 
 fn recv_name(decl: &FnDecl) -> Option<&str> {
     decl.params.first().and_then(|p| type_base_name(&p.ty))
 }
 
-/// Whether an AST type carries the `Mut` qualifier [rs-borrows].
-fn type_has_mut(ty: &Type) -> bool {
-    match ty {
-        Type::Named { qualifiers, .. } | Type::QualifiedGroup { qualifiers, .. } => {
-            qualifiers.iter().any(|q| q.name.name == "Mut")
-        }
-        Type::Nullable { inner, .. } => type_has_mut(inner),
-        _ => false,
-    }
-}
 
-/// [rs-elem-mut] Whether a container type's **elements** carry `Mut` —
-/// `List<Mut T>`, `Mut T[]` — which is what makes the container lend
-/// mutable handles [proj-mut]. Element depth only: a `Mut` further down
-/// (`List<Pair<Mut T>>`) is unreachable by a handle today.
-fn type_has_elem_mut(ty: &Type) -> bool {
-    match ty {
-        Type::Named { base, .. } if base.name.name == "List" => {
-            base.args.iter().any(type_has_mut)
-        }
-        Type::Array { elem, .. } => type_has_mut(elem),
-        Type::Nullable { inner, .. } => type_has_elem_mut(inner),
-        _ => false,
-    }
-}
 
 /// [rs-narrow-mut] Whether `Mut` is reachable in a type *by peeling a union
 /// arm* — `Ok Mut List<Int> | Err Str` as well as `Mut List<Int>` itself.

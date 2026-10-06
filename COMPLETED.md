@@ -136,6 +136,25 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-06 — Parameter modes in core (§0j step 12, first table)
+
+`salvo_core::param_mode` ([param-mode]) holds what `param_mode`,
+`member_param_mode`, `default_param_mode`, `is_copy_ast_type`, `owns_callbacks`,
+`ast_fn_param_contract`, `is_fn_group`, `type_has_mut` and `type_has_elem_mut`
+decided in the Rust emitter: `PassMode::{Owned, Lent, LentMut}` for a top-level
+fn, an effect member, a default (qualifier or handler-local) member, and a
+position of a fn type. The emitter keeps a `From<PassMode>` and the [rs-loc]
+overlay (`mut_call_lent` reads a lent parameter as `&`), which depends on the
+call site and so is not a fact about the declaration. Generated code is
+byte-identical. The survey behind it found three sources of "kept" (the
+checker's deductions, the clause written on an effect member, a fn type's own
+clause) and that effect members ignore element `Mut` while fns honour it; the
+split is kept as is and documented in [param-mode] rather than unified, since
+unifying changes emitted signatures. Not moved: the `Ty`-based fn-position
+renderings (`fn_ty_param_renderings`, implicit positions), which also decide
+lifetimes, and the call-site `hoist` analyses, which exist to satisfy rustc's
+borrow checker (E0502) and are not Salvo semantics.
+
 ### 2026-10-06 — Effect dispatch and copy plans as core tables (§0j step 11)
 
 Two decisions moved out of the emitters, each verified before the emitter code
