@@ -356,21 +356,21 @@ fn unions_emit_sealed_wrappers() {
         .unwrap();
     // Wrap at return boundaries, positional arm identity (the constructor
     // call is wrapped into the union arm).
-    assert!(main.content.contains("return Union2.U1<Int, String>(ok(input))"));
+    assert!(main.content.contains("return Union2.U1<Int, String>(salvo.core.result.ok(input))"));
     assert!(main
         .content
-        .contains("return Union2.U2<Int, String>(err(\"negative age\"))"));
+        .contains("return Union2.U2<Int, String>(salvo.core.result.err(\"negative age\"))"));
     // Qualifier-tagged wrap picks the right arm of the 3-union.
     assert!(main
         .content
-        .contains("Union3.U1<String, String, Boolean>(ok(\"yes\"))"));
+        .contains("Union3.U1<String, String, Boolean>(salvo.core.result.ok(\"yes\"))"));
     // Precise `is Err Str` tests a single arm; `is Ok` another.
     assert!(main.content.contains("precise is Union3.U2<*, *, *>"));
     assert!(main.content.contains("precise is Union3.U1<*, *, *>"));
-    // `when` lowers to a sealed when with unwrapped uses.
-    assert!(main.content.contains("when (result) {"));
-    assert!(main.content.contains("is Union2.U1<*, *> ->"));
-    assert!(main.content.contains("(result.value as Int)"));
+    // `when` lowers to a `when` over the arm tests, each arm reading the
+    // payload through its narrowing binding [ir-narrow].
+    assert!(main.content.contains("(result is Union2.U1<*, *>) ->"));
+    assert!(main.content.contains("((result as Union2.U1<*, *>).value as Int)"));
 }
 
 // [when-exhaustive]
@@ -559,19 +559,16 @@ fn qualifiers_lower_to_predicates_and_mangled_overloads() {
     assert!(main
         .content
         .contains("fun fullName__SurnamePerson(person: Person): String"));
-    assert!(main
-        .content
-        .contains("println(console, fullName__SurnamePerson(person))"));
+    assert!(main.content.contains("println(console, fullName__SurnamePerson(person))"));
     assert!(main.content.contains("println(console, fullName__Person(person))"));
-    // Field overrides cast + assert at the access site.
-    assert!(main.content.contains("(person.surname as String)"));
-    // `while x is T` lowers with a per-iteration binding.
-    assert!(main.content.contains("while (current != null) {"));
-    assert!(main.content.contains("val c = current as Int"));
+    // Field overrides read through a narrowing binding justified by the
+    // claim [qual-field-override].
+    assert!(main.content.contains(": String = person.surname!!"), "{}", main.content);
+    // `while x is T` lowers to a test-inside loop with a per-iteration binding.
+    assert!(main.content.contains("if (!((current != null))) {"), "{}", main.content);
+    assert!(main.content.contains("val c: Int = current!!"), "{}", main.content);
     // A qualified union group is physically the inner union.
-    assert!(main
-        .content
-        .contains("val back: Union2<String, Int> = (nested.value as Union2<String, Int>)"));
+    assert!(main.content.contains("val back: Union2<String, Int> = nested_"), "{}", main.content);
 }
 
 /// Full verification of the qualifiers demo under kotlinc (skipped when
@@ -668,16 +665,14 @@ fn a_pass_lowers_to_a_guarded_while_loop() {
         .expect("main.kt")
         .content;
     assert!(
-        src.contains("_pass = countdown(3)") && src.contains("_step = next"),
+        src.contains(": Countdown = countdown(3)") && src.contains(": Union2<Int, salvo.core.iterator.Finished> = next__Countdown("),
         "expected the driving loop in:\n{src}"
     );
+    // [ir-loop] The pass is driven by one `while (true)` testing the step's
+    // arm; `Finished` breaks.
     assert!(
-        src.contains("!is Union2.U1<Int, Finished>"),
-        "expected the arm spelled with real type arguments in:\n{src}"
-    );
-    assert!(
-        !src.contains(" as Int"),
-        "a concrete arm needs no cast; got:\n{src}"
+        src.contains("(__step_4 is Union2.U1<*, *>) ->") && src.contains("else -> {\n                break"),
+        "expected the step test and the break in:\n{src}"
     );
 }
 
@@ -794,7 +789,7 @@ fn a_flattened_qualifier_wraps_the_inner_union_first() {
         .find(|f| f.rel_path == std::path::Path::new("main.kt"))
         .expect("main.kt");
     for (arm, what) in [("Union2.U2", "err"), ("Union2.U1", "ok")] {
-        let needle = format!("Union2.U1<Union2<String, String>, Finished>({arm}<String, String>(");
+        let needle = format!("Union2.U1<Union2<String, String>, salvo.core.iterator.Finished>({arm}<String, String>(");
         assert!(
             main.content.contains(&needle),
             "expected the inner {what} arm to be wrapped before the outer one in:\n{}",
@@ -1742,7 +1737,7 @@ fn a_union_returning_implicit_renders_the_wrapper_type() {
         .expect("main.kt")
         .content;
     assert!(
-        src.contains("next: (It) -> Union2<T, Finished>"),
+        src.contains("next: (It) -> Union2<T, salvo.core.iterator.Finished>"),
         "expected the union wrapper in the spread position, got:\n{src}"
     );
     assert!(
@@ -2081,22 +2076,20 @@ fn effects_resolve_through_checker_tables() {
     // nothing to infer from.
     assert!(main
         .content
-        .contains("val random_int: Random<Int> = __Mon_Random(CyclicRandom<Int>(listOf<Int>(10, 20, 30), { __i0 -> __i0 }))"));
+        .contains(": CyclicRandom<Int> = CyclicRandom<Int>(values = listOf<Int>(10, 20, 30), copy = { __a0 -> __a0 })"), "{}", main.content);
     assert!(main
         .content
-        .contains("val random_string: Random<String> = __Mon_Random(CyclicRandom<String>(listOf<String>(\"a\", \"b\"), { __i0 -> __i0 }))"));
+        .contains(": CyclicRandom<String> = CyclicRandom<String>(values = listOf<String>(\"a\", \"b\"), copy = { __a0 -> __a0 })"), "{}", main.content);
+    // Each instance is bound behind the effect's handle [effect-handle].
+    assert!(main.content.contains(": Random<Int> = __Mon_Random<Int>(__use_"), "{}", main.content);
+    assert!(main.content.contains(": Random<String> = __Mon_Random<String>(__use_"), "{}", main.content);
     // Callee effect dependencies are threaded in declaration order.
-    assert!(main
-        .content
-        .contains("draw(random_int, random_string, console)"));
-    assert!(main.content.contains("luckyNumber(random_int)"));
-    // Expected-type disambiguation picks the right handler per call.
-    assert!(main
-        .content
-        .contains("val n: Int = random_int.nextRandom()"));
-    assert!(main
-        .content
-        .contains("val s: String = random_string.nextRandom()"));
+    assert!(main.content.contains("draw(__handle_4, __handle_6, __handle_2)"), "{}", main.content);
+    assert!(main.content.contains("luckyNumber(__handle_4)"), "{}", main.content);
+    // Expected-type disambiguation picks the right handler per call: the
+    // two `Random` instances are two parameters.
+    assert!(main.content.contains("val n: Int = random.nextRandom()"), "{}", main.content);
+    assert!(main.content.contains("val s: String = random__1.nextRandom()"), "{}", main.content);
 }
 
 /// Full verification of the effects demo under kotlinc (skipped when
@@ -2253,12 +2246,13 @@ fn a_generic_dependent_handler_holds_a_typed_dependency_field() {
     });
     let main = &files.iter().find(|f| f.rel_path.ends_with("main.kt")).unwrap().content;
     assert!(
-        main.contains("class Twice<T>(private val __dep_Store_T: Store<T>) : Store<T>"),
+        main.contains("class Twice<T>(private val __dep0: Store<T>) : Store<T>"),
         "expected the dependency as a typed field:\n{main}"
     );
+    // [effect-handle] The `use` passes the scope's handle of `Store<Int>`.
     assert!(
-        main.contains("val store_int2: Store<Int> = Twice<Int>(store_int)"),
-        "expected the `use` to pass the scope's binding (stateless: raw):\n{main}"
+        main.contains(": Twice<Int> = Twice<Int>(__handle_"),
+        "expected the `use` to pass the scope's binding:\n{main}"
     );
 }
 
@@ -5126,32 +5120,26 @@ fn loops_lower_to_run_blocks() {
         .iter()
         .find(|f| f.rel_path.to_string_lossy() == "main.kt")
         .unwrap();
-    // Value loops become `run {}` blocks with a nullable result local,
-    // unwrapped when the join type has no `None` arm.
-    assert!(main.content.contains("val last = run {"));
-    assert!(main.content.contains("var __loop1: Int? = null"));
-    assert!(main.content.contains("__loop1 = i * 10"));
-    assert!(main.content.contains("__loop1!!"));
+    // [ir-loop] Value loops become `run {}` blocks with a nullable result
+    // local, read narrowed after the loop when the join type has no `None`
+    // arm (`Justification::LoopValue`).
+    let c = &main.content;
+    assert!(c.contains("val last: Int = run {"), "{c}");
+    assert!(c.contains("var __loop_3: Int? = null"), "{c}");
+    assert!(c.contains("__loop_3 = (i * 10)"), "{c}");
+    assert!(c.contains("val __loop_value_6: Int = __loop_3!!"), "{c}");
     // The `else` runs (and assigns) only when the loop never did.
-    assert!(main.content.contains("var __loop1_ran = false"));
-    assert!(main.content.contains("if (!__loop1_ran) {"));
-    assert!(main.content.contains("__loop1 = -1"));
+    assert!(c.contains("var __ran_4: Boolean = false"), "{c}");
+    assert!(c.contains("if (!(__ran_4)) {"), "{c}");
+    assert!(c.contains("__loop_3 = (-1)"), "{c}");
     // `break value` assigns the result local before breaking.
-    assert!(main.content.contains("__loop3 = x\n    break"));
-    // Without `else` (or with a bare `break`) the local stays nullable:
-    // no `!!` unwrap on the `found`/`capped` loops.
-    assert!(main.content.contains("__loop3\n}"));
-    // The number shifted by one when a `for` over an `Iter<T>` started naming
-    // its pass: driving a producer costs one fresh loop name.
-    assert!(main.content.contains("__loop6\n}"));
-    // Statement-position `else` needs only the ran-flag, no `run {}`.
-    assert!(main.content.contains("var __loop4_ran = false"));
-    assert!(main.content.contains("if (!__loop4_ran) {"));
-    // A union-typed loop value re-wraps to the declared arm order.
-    assert!(main
-        .content
-        .contains("var __loop7: Union2<String, Int>? = null"));
-    assert!(main.content.contains("}.let { when (it) {"));
+    assert!(c.contains("__loop_10 = x\n                break"), "{c}");
+    // Without `else` (or with a bare `break`) the value stays nullable: no
+    // `!!` on the `found`/`capped` loops.
+    assert!(c.contains("val __loop_value_11: Int? = __loop_10\n"), "{c}");
+    assert!(c.contains("val __loop_value_18: Int? = __loop_16\n"), "{c}");
+    // A union-typed loop value keeps the declared arm order.
+    assert!(c.contains("var __loop_21: Union2<String, Int>? = null"), "{c}");
 }
 
 // [while-value]
@@ -5254,20 +5242,21 @@ fn modules_get_packages_and_generated_imports() {
         .find(|f| f.rel_path.to_string_lossy() == "main.kt")
         .unwrap();
     assert!(main.content.starts_with("package salvo.main\n"));
-    // One import per name used [kt-imports].
-    assert!(main.content.contains("import salvo.core.console.println"), "{}", main.content);
-    assert!(main.content.contains("import salvo.geometry.area"), "{}", main.content);
+    // [kt-ir] A foreign reference is fully qualified, so a module imports
+    // only the root runtime package.
+    assert!(main.content.contains("salvo.core.console.println("), "{}", main.content);
+    assert!(main.content.contains("salvo.geometry.area("), "{}", main.content);
     let geometry = files
         .iter()
         .find(|f| f.rel_path.to_string_lossy() == "geometry.kt")
         .unwrap();
     assert!(geometry.content.starts_with("package salvo.geometry\n"));
-    // `geometry` references nothing foreign: no generated imports.
-    assert!(!geometry.content.contains("import salvo."));
+    let imports: Vec<&str> = geometry.content.lines().filter(|l| l.starts_with("import ")).collect();
+    assert_eq!(imports, vec!["import salvo.*"], "{}", geometry.content);
 }
 
-// [kt-imports] Aliased Salvo imports become Kotlin alias imports, and the
-// call site keeps the alias.
+// [kt-imports] An aliased Salvo import leaves no trace: the call names the
+// declaration, fully qualified.
 #[test]
 fn aliased_imports_emit_kotlin_alias_imports() {
     let main = r#"
@@ -5287,15 +5276,15 @@ fn main() [use] -> None {
         .iter()
         .find(|f| f.rel_path.to_string_lossy() == "main.kt")
         .unwrap();
-    assert!(main
-        .content
-        .contains("import salvo.geometry.area as rectArea"));
-    assert!(main.content.contains("rectArea(3, 4)"));
+    // [kt-ir] An aliased import names the declaration: the reference is
+    // the declaration's own, fully qualified, and the alias is gone.
+    assert!(main.content.contains("salvo.geometry.area(3, 4)"), "{}", main.content);
+    assert!(!main.content.contains("rectArea"), "{}", main.content);
 }
 
-// [kt-imports] [fn-emit-name] An aliased import of a fn with a
-// mangled qualified overload emits one alias import per overload symbol,
-// and aliased call sites keep the mangling suffix.
+// [kt-imports] [fn-emit-name] An aliased import of a fn with a mangled
+// qualified overload: each call names its overload's mangled name, fully
+// qualified.
 const MANGLED_ALIAS_MAIN: &str = r#"
 import lib.shout as holler
 import lib.loud
@@ -5337,11 +5326,11 @@ fn aliased_import_of_mangled_overload_keeps_suffix() {
         .iter()
         .find(|f| f.rel_path.to_string_lossy() == "main.kt")
         .unwrap();
+    // [kt-ir] [fn-emit-name] The aliased calls name the mangled overloads
+    // of the declaring module, fully qualified.
     for needle in [
-        "import salvo.lib.shout__Str as holler__Str",
-        "import salvo.lib.shout__LoudStr as holler__LoudStr",
-        "holler__Str(\"hi\")",
-        "holler__LoudStr(l)",
+        "salvo.lib.shout__Str(\"hi\")",
+        "salvo.lib.shout__LoudStr(l)",
     ] {
         assert!(
             main.content.contains(needle),
@@ -5386,13 +5375,13 @@ export fn main() [use] -> None {
     // The generated effect parameter picks a fresh name.
     assert!(
         main.content
-            .contains("fun shadowed(console2: Console, console: String)"),
+            .contains("fun shadowed(console__1: salvo.core.console.Console, console: String)"),
         "unexpected: {}",
         main.content
     );
     assert!(main
         .content
-        .contains("println(console2, \"param: $console\")"));
+        .contains("println(console__1, \"param: ${console}\")"));
 }
 
 // [let-destructure] Two struct destructures in one block get unique temps.
@@ -5419,8 +5408,10 @@ export fn main() [use] -> None {
         .iter()
         .find(|f| f.rel_path.to_string_lossy() == "main.kt")
         .unwrap();
-    assert!(main.content.contains("val __destructured1 ="));
-    assert!(main.content.contains("val __destructured2 ="));
+    // [let-destructure] Each destructure has its own temporary.
+    let temps: Vec<&str> = main.content.lines().filter(|l| l.trim_start().starts_with("val __destructured_")).collect();
+    assert_eq!(temps.len(), 2, "{}", main.content);
+    assert_ne!(temps[0].split(':').next(), temps[1].split(':').next(), "{}", main.content);
 }
 
 /// Full verification of the multi-module program under kotlinc: packages,
@@ -5513,13 +5504,13 @@ export fn main() [use] -> None {
     // Positional arm identity: Ok -> first arm, Err -> second arm.
     assert!(
         main.content
-            .contains("describe(Union2.U1<String, String>(ok(\"x\")))"),
+            .contains("describe(Union2.U1<String, String>(salvo.core.result.ok(\"x\")))"),
         "content: {}",
         main.content
     );
     assert!(
         main.content
-            .contains("describe(Union2.U2<String, String>(err(\"y\")))"),
+            .contains("describe(Union2.U2<String, String>(salvo.core.result.err(\"y\")))"),
         "content: {}",
         main.content
     );
@@ -5573,25 +5564,25 @@ fn copy_lowers_type_directedly() {
         .expect("main.kt emitted");
     // Identity for a transitively immutable type (Str).
     assert!(
-        main.content.contains("val t = s\n"),
+        main.content.contains("val t: String = s\n"),
         "generated:\n{}",
         main.content
     );
     // A real copy for `Mut List<Int>`.
     assert!(
-        main.content.contains("val ys = xs.toMutableList()"),
+        main.content.contains("val ys: salvo.platform.core.list.MutList<Int> = xs.toMutableList()"),
         "generated:\n{}",
         main.content
     );
     // The data-class shallow copy for a `Mut` struct with immutable fields.
     assert!(
-        main.content.contains("val q = p.copy()"),
+        main.content.contains(": Person = p.copy()"),
         "generated:\n{}",
         main.content
     );
     // Arrays are index-assignable without `Mut`, so they copy for real.
     assert!(
-        main.content.contains("val brr = arr.copyOf()"),
+        main.content.contains(": Array<Int> = arr.copyOf()"),
         "generated:\n{}",
         main.content
     );
@@ -6407,11 +6398,13 @@ fn binary_rendering_preserves_grouping() {
         .iter()
         .find(|f| f.rel_path.ends_with("main.kt"))
         .expect("main.kt emitted");
+    // Every binary is parenthesized: the grouping is explicit rather than
+    // left to precedence.
     for needle in [
-        "(a - b) * c",
-        "a - (b - c)",
-        "-(a + b)",
-        "(a < b || b > c) && a > c",
+        "((a - b) * c)",
+        "(a - (b - c))",
+        "(-(a + b))",
+        "(((a < b) || (b > c)) && (a > c))",
     ] {
         assert!(
             main.content.contains(needle),
@@ -6576,18 +6569,20 @@ fn narrowed_field_reads_unwrap() {
         .iter()
         .find(|f| f.rel_path.ends_with("main.kt"))
         .unwrap();
+    // [ir-narrow] A narrowed projection is read through a narrowing binding
+    // made where the test held.
     assert!(
-        main.content.contains("\"${p.name} ${p.surname!!}\""),
+        main.content.contains(": String = p.surname!!"),
         "expected the narrowed field read to assert in:\n{}",
         main.content
     );
     assert!(
-        main.content.contains("${p.address.city!!}"),
+        main.content.contains(": String = p.address.city!!"),
         "expected the narrowed field *chain* read to assert in:\n{}",
         main.content
     );
     assert!(
-        main.content.contains("${(h.result.value as Int)}"),
+        main.content.contains(": Int = ((h.result as Union2.U1<*, *>).value as Int)"),
         "expected the narrowed wrapper-union field read to unwrap in:\n{}",
         main.content
     );
@@ -6639,14 +6634,12 @@ fn narrowed_val_field_relies_on_the_smart_cast() {
         .iter()
         .find(|f| f.rel_path.ends_with("main.kt"))
         .unwrap();
+    // [ir-narrow] One rule for `val` and `var` properties: the narrowing
+    // binding, which a `val` needs no more than a `var` does but costs
+    // nothing either.
     assert!(
-        main.content.contains("${r.value + 1}"),
-        "expected the plain smart-cast read in:\n{}",
-        main.content
-    );
-    assert!(
-        !main.content.contains("r.value!!"),
-        "a `val` property should not be asserted in:\n{}",
+        main.content.contains(": Int = r.value!!"),
+        "expected the narrowing binding in:\n{}",
         main.content
     );
 }
@@ -6703,7 +6696,7 @@ fn tuple_elements_emit_pair_components() {
         main.content
     );
     assert!(
-        main.content.contains("${maybe.first!!}"),
+        main.content.contains(": String = maybe.first!!"),
         "expected the narrowed element to assert in:\n{}",
         main.content
     );
@@ -7897,19 +7890,19 @@ fn loop_destructuring_binds_the_parts_of_a_temporary_kotlin() {
         .unwrap();
     let text = &main.content;
     assert!(
-        text.contains("as Pair<String, Int>"),
-        "the element temporary must be cast to its own type:\n{text}"
+        text.contains(": Pair<String, Int> = __emitted_"),
+        "the element temporary must be typed as itself:\n{text}"
     );
     assert!(
-        text.contains("val k = __elem.first") && text.contains("val v = __elem.second"),
+        text.contains("val k: String = __elem_6.first") && text.contains("val v: Int = __elem_6.second"),
         "expected the tuple parts by component name:\n{text}"
     );
     assert!(
-        text.contains("val who = __elem2.name") && text.contains("val score = __elem2.score"),
+        text.contains("val who: String = __elem_10.name") && text.contains("val score: Int = __elem_10.score"),
         "expected the struct fields by name, renamed:\n{text}"
     );
     assert!(
-        text.contains("var a = __elem3.first"),
+        text.contains("var a: Int = __elem_14.first"),
         "expected an assigned-to binding to be a `var`:\n{text}"
     );
 }
@@ -8197,14 +8190,13 @@ fn aliased_effect_types_resolve_to_the_same_handler() {
     // The `use` registers `Random<Int>`; `roll`'s `Random<Count>`
     // parameter and its call site must agree with it.
     assert!(
-        main.content.contains(
-            "val random_int: Random<Int> = __Mon_Random(CyclicRandom<Int>(listOf<Int>(7, 8), { __i0 -> __i0 }))"
-        ),
+        main.content.contains(": CyclicRandom<Int> = CyclicRandom<Int>(values = listOf<Int>(7, 8), copy = { __a0 -> __a0 })")
+            && main.content.contains(": Random<Int> = __Mon_Random<Int>("),
         "unexpected use lowering in:\n{}",
         main.content
     );
     assert!(
-        main.content.contains("roll(random_int)"),
+        main.content.contains("roll(__handle_"),
         "handler not threaded through the aliased effect in:\n{}",
         main.content
     );
@@ -8264,7 +8256,7 @@ fn array_std_functions_lower() {
         "nums.size",
         "nums.getOrNull(2)",
         "nums.firstOrNull()",
-        "__loop1_pass = iter(nums)",
+        "= salvo.core.array.iter(nums)",
         "values.size",
     ] {
         assert!(
@@ -8688,7 +8680,7 @@ fn throw_lowers_to_a_signal_and_try_to_a_catch() {
         .and_then(|s| s.split("\nfun ").next())
         .unwrap();
     assert!(
-        measure.contains("val n = parse(console, line)"),
+        measure.contains("val n: Int = parse(console, line)"),
         "expected plain propagation in:\n{measure}"
     );
     // The delimiter picks the arm at the catch, by tag.
@@ -8785,7 +8777,7 @@ fn fn_type_effects_thread_into_lambdas() {
     );
     // The lambda takes the effect rather than capturing it.
     assert!(
-        main.content.contains(": Logger, s ->"),
+        main.content.contains("fun(__leff0: Logger, s: String): String {"),
         "expected the effect as a leading lambda parameter:\n{}",
         main.content
     );
@@ -8897,7 +8889,7 @@ fn widening_materializes_the_peel_kotlin() {
         .unwrap();
     assert!(
         main.content
-            .contains("val nested = nested.value as Union2<Int, String>"),
+            .contains(": Union2<Int, String> = ((nested as Union2.U1<*, *>).value as Union2<Int, String>)"),
         "expected the widened value bound to a shadowing local:\n{}",
         main.content
     );
@@ -9006,17 +8998,20 @@ fn a_subjectless_when_emits_a_subjectless_kotlin_when() {
         .nth(1)
         .and_then(|s| s.split("\nfun ").next())
         .expect("classify emitted");
+    // [ir-branch] A subjectless `when` is a branch chain: an `if` expression
+    // whose conditions are the heads, closed by `else` — total, so no
+    // optional filler.
     assert!(
-        classify.contains("return when {") && classify.contains("n < 0 -> {"),
-        "expected a subject-less Kotlin `when`:\n{classify}"
+        classify.contains("return (if ((n < 0)) {") && classify.contains("} else if (((n) == (0))) {"),
+        "expected the branch chain:\n{classify}"
     );
     assert!(
-        classify.contains("else -> {") && !classify.contains("null"),
+        classify.contains("} else {") && !classify.contains("null"),
         "expected a plain `else` arm and no optional filler:\n{classify}"
     );
     // An `is` head still declares its binding at the top of the arm.
     assert!(
-        main.content.contains("val s = value.value as String"),
+        main.content.contains("val s: String = ((value as Union2.U1<*, *>).value as String)"),
         "expected the `is` binding inside the arm:\n{}",
         main.content
     );
@@ -9069,7 +9064,7 @@ fn a_variable_mutated_only_inside_a_try_body_is_declared_var() {
         .find(|f| f.rel_path.ends_with("main.kt"))
         .unwrap();
     assert!(
-        main.content.contains("var counter = 0"),
+        main.content.contains("var counter: Int = 0"),
         "expected `var` for a variable the `try` body assigns:\n{}",
         main.content
     );
@@ -9170,8 +9165,8 @@ fn a_platform_handler_emits_no_class_and_a_host_constructor() {
         "a platform handler must not emit a class of its own:\n{src}"
     );
     assert!(
-        src.contains("salvo.main.__Platform_HostRawClock(35)"),
-        "expected the `use` site to construct the host class, got:\n{src}"
+        src.contains("= __Platform_HostRawClock(offset = 35)") && src.contains("salvo.platform.main.HostRawClock(offset)"),
+        "expected the `use` site to construct the adapter over the host class, got:\n{src}"
     );
     // The ordinary handler beside it is still emitted, and `main` is still
     // the entry point.
@@ -9254,7 +9249,7 @@ fn an_undeclared_platform_handler_is_serialized_behind_the_monitor() {
         .expect("main.kt should be generated");
     let src = &main.content;
     assert!(
-        src.contains("__Mon_RawClock(salvo.main.__Platform_HostRawClock(35))"),
+        src.contains("= __Platform_HostRawClock(offset = 35)") && src.contains(": RawClock = __Mon_RawClock(__use_"),
         "expected the monitor wrapper around the undeclared host, got:\n{src}"
     );
 }
@@ -9328,8 +9323,7 @@ fn a_threadsafe_platform_handler_binds_raw_and_its_skeleton_prints_the_contract(
         .expect("main.kt should be generated");
     let src = &main.content;
     assert!(
-        src.contains("salvo.main.__Platform_HostRawClock(35)")
-            && !src.contains("__Mon_RawClock(salvo.main.__Platform_HostRawClock(35))"),
+        src.contains("= __Platform_HostRawClock(offset = 35)") && !src.contains("= __Mon_RawClock("),
         "a threadsafe host binds raw, got:\n{src}"
     );
     for expected in [
@@ -10340,7 +10334,7 @@ fn every_emitted_overload_gets_its_own_kotlin_name() {
         .expect("main.kt emitted")
         .content;
     assert!(
-        main.contains("fun twice__ListYield_Fn(p: ListYield<Int>") && main.contains("fun twice__List_Fn(xs: List<Int>"),
+        main.contains("fun twice__ListYield_Fn(p: salvo.core.list.ListYield<Int>") && main.contains("fun twice__List_Fn(xs: List<Int>"),
         "expected the second overload to be renamed in:\n{main}"
     );
     // The delegation calls the *other* overload, by its own name.
@@ -10410,7 +10404,7 @@ fn kotlinc_compiles_and_runs_the_combinator_surface() -> KotlinCase {
     // resolved, which arrives as an ordinary function parameter — no trait, no
     // bound [implicit-group].
     assert!(
-        seq.contains("next: (It) -> Union2<T, Finished>"),
+        seq.contains("next: (It) -> Union2<T, salvo.core.iterator.Finished>"),
         "expected the resolved `next` as a plain parameter in:\n{seq}"
     );
     kotlin_case(files, "seq-surface", SEQ_SURFACE_OUTPUT)
@@ -10609,8 +10603,8 @@ fn an_effect_member_carries_its_implicits_into_the_interface() {
     for expected in [
         "fun show(v: Int, fmt: (Int) -> String): String",
         "override fun show(v: Int, fmt: (Int) -> String): String {",
-        "show.show(7, ::fmt)",
-        "show.show(7, ::loud)",
+        ".show(7, ::fmt)",
+        ".show(7, ::loud)",
     ] {
         assert!(main.contains(expected), "expected `{expected}` in:\n{main}");
     }
@@ -10679,8 +10673,9 @@ fn a_generic_handler_is_constructed_at_its_type() {
         .expect("main.kt emitted")
         .content;
     for expected in [
-        "val show_int: Show<Int> = Plain<Int>()",
-        "val tag_int: Tag<Int> = Prefixed<Int>(\"p\")",
+        ": Plain<Int> = Plain<Int>()",
+        ": Show<Int> = __Mon_Show<Int>(",
+        ": Prefixed<Int> = Prefixed<Int>(prefix = \"p\")",
     ] {
         assert!(main.contains(expected), "expected `{expected}` in:\n{main}");
     }
@@ -10924,24 +10919,24 @@ fn mut_str_lowers_to_a_string_builder() {
     // Construction is asked for; the parts are joined, which is also what
     // makes a `...spread` work [fn-variadic].
     assert!(
-        main.contains(r#"val b = mutStr(arrayOf("he", "llo"))"#),
+        main.contains(r#"= salvo.core.string.mutStr(arrayOf<String>("he", "llo"))"#),
         "unexpected:\n{main}"
     );
     // [str-drop-mut] The conversion at a call argument, in interpolation,
     // and at an operator — a bare name takes the suffix without parens.
     assert!(main.contains("shout(b.toString())"), "unexpected:\n{main}");
     assert!(
-        main.contains("\"size: ${sizePlatform__core_string(b.toString())}\""),
+        main.contains("sizePlatform(b.toString())"),
         "unexpected:\n{main}"
     );
     assert!(
-        main.contains("\"equal: ${x.toString() == y.toString()}\""),
+        main.contains("(x.toString()) == (y.toString())"),
         "unexpected:\n{main}"
     );
     // [kt-copy] A builder's copy is a new builder: identity would alias the
     // buffer.
     assert!(
-        main.contains("val dup = StringBuilder(b)"),
+        main.contains(": salvo.platform.core.string.MutStr = StringBuilder(b)"),
         "unexpected:\n{main}"
     );
     // `setCharAt` throws out of range, so `set` guards — and binds its
@@ -10991,7 +10986,7 @@ export fn main() [use] {
     // [fn-variadic], so a lone spread reaches the purely variadic intrinsics.
     assert!(
         // [platform-value-type] `mut_str` is Salvo now; the spread is the array.
-        main.contains("val sb = mutStr(parts)"),
+        main.contains("= salvo.core.string.mutStr(parts)"),
         "unexpected:\n{main}"
     );
     kotlin_case(files, "strings-spread", "ab 2\n")
@@ -11136,16 +11131,17 @@ fn sequence_functions_lower_to_collection_operations() {
         .find(|f| f.rel_path.to_string_lossy() == "main.kt")
         .expect("main.kt emitted")
         .content;
+    // Lambdas are anonymous fns [kt-ir].
     assert!(
-        main.contains("(xs, { n -> n * 2 })")
-            && main.contains("filterPlatform(xs, { n -> n > 2 })")
-            && main.contains("(xs, 0, { a, b -> a + b })"),
+        main.contains("fun(n: Int): Int {\n        return (n * 2)")
+            && main.contains("filterPlatform(xs, fun(n: Int): Boolean {")
+            && main.contains("return (a + b)"),
         "unexpected:\n{main}"
     );
     // The generic overload for a pass subject gets the resolved `next` as its
     // implicit argument.
     assert!(
-        main.contains("map__It_Fn(iter__core_array(arr), { n -> n + 1 }, ::next__core_array)"),
+        main.contains("salvo.core.seq.map__It_Fn(salvo.core.array.iter(arr), fun(n: Int): Int {") && main.contains("{ __a0 -> salvo.core.array.next(__a0) })"),
         "expected the resolved `next` as the implicit in:\n{main}"
     );
     // A `params` group is not a value: nothing *declares* `Yield`.
@@ -11247,7 +11243,7 @@ fn scope_selectors_and_renames_are_erased() {
     // `size@core.list(xs)` is std's `size` — the mangled one, since this
     // program declares its own.
     assert!(
-        main.contains("println(console, \"core: ${sizePlatform(xs)}\")"),
+        main.contains("\"core: ${salvo.core.list.sizePlatform(xs)}\""),
         "unexpected:\n{main}"
     );
     // The renamed overload is called by its declaration's mangled name —
@@ -11260,7 +11256,7 @@ fn scope_selectors_and_renames_are_erased() {
     // A call reaching past a local of the same name needs nothing special
     // here: Kotlin keeps functions and properties in separate namespaces.
     assert!(
-        main.contains("println(console, describe(7))"),
+        main.contains(", describe(7))"),
         "unexpected:\n{main}"
     );
 }
@@ -11291,14 +11287,12 @@ fn a_kept_pass_is_driven_in_place() {
         .expect("main.kt")
         .content;
     assert!(
-        src.contains("val __loop1_step = next(it)"),
+        src.contains("= next(it)"),
         "expected the in-place drive in:\n{src}"
     );
-    // Precisely: no local for *this* loop. (A substring like `_pass = it` also
-    // matches a mint call — `__loop2_pass = iter__4(…)` — so the assertion names
-    // the loop.)
+    // Precisely: no local for *this* loop: the kept pass is the subject.
     assert!(
-        !src.contains("var __loop1_pass"),
+        !src.contains(": It = it"),
         "a kept pass must not be bound into a local in:\n{src}"
     );
 }
@@ -11614,7 +11608,7 @@ fn an_iter_fn_emits_a_plain_class_and_next() {
     // `core.deque` brought two more (2026-10-02).
     assert!(
         // The suffix is the overload's mangle, which moves as std grows.
-        src.contains("(console, __loop") && src.contains("= next__"),
+        src.contains("= next__Iter_iter_Noisy(__handle_"),
         "expected the handler threaded into the drive:\n{src}"
     );
 }
@@ -12817,7 +12811,7 @@ fn the_fs_surface_emits_a_host_seam_and_a_dependency_field() {
     // opens a file links none of it. [effect-prereq] `DefaultFs` reaches the
     // `Streams` in scope as a dependency it never wrote.
     let host = file("fs/host.kt");
-    for expected in ["interface RawFs {", "class DefaultFs(private val __dep_RawFs: RawFs, private val __dep_salvo_stream_Streams: salvo.stream.Streams) : Fs"] {
+    for expected in ["interface RawFs {", "class DefaultFs(private val __dep0: RawFs, private val __dep1: salvo.stream.Streams) : salvo.fs.Fs"] {
         assert!(host.contains(expected), "expected `{expected}` in:\n{host}");
     }
     assert!(
@@ -12832,7 +12826,7 @@ fn the_fs_surface_emits_a_host_seam_and_a_dependency_field() {
     // The `use` site constructs the shipped host class through its package.
     let main = file("main.kt");
     assert!(
-        main.contains("__Mon_RawFs(salvo.fs.host.__Platform_HostRawFs())"),
+        main.contains("= salvo.fs.host.__Platform_HostRawFs()") && main.contains("= salvo.fs.host.__Mon_RawFs(__use_"),
         "expected the shipped host class at the `use` site, got:\n{main}"
     );
     // std ships the host files, and they travel into the output.
@@ -13367,7 +13361,7 @@ fn a_monitor_lowers_to_a_lock_wrapper() {
         main.content
     );
     assert!(
-        main.content.contains("__Mon_Random(CyclicRandom(12345))"),
+        main.content.contains("__Mon_Random(CyclicRandom(seed = 12345))"),
         "the monitor spawn is missing:\n{}",
         main.content
     );
@@ -13617,7 +13611,7 @@ fn a_mixed_handler_lowers_to_a_servant_and_a_facade() {
         .find(|f| f.rel_path.to_string_lossy() == "main.kt")
         .expect("main.kt");
     assert!(
-        main.content.contains("sealed class __Msg_CyclicRandom {"),
+        main.content.contains("sealed class __Priv_CyclicRandom {"),
         "the servant's message class is missing:\n{}",
         main.content
     );
@@ -13635,7 +13629,7 @@ fn a_mixed_handler_lowers_to_a_servant_and_a_facade() {
     );
     assert!(
         main.content
-            .contains("salvo.SalvoSched.send(__addr, __Msg_CyclicRandom.Advance("),
+            .contains("salvo.SalvoSched.send(__addr, __Priv_CyclicRandom.Advance("),
         "the façade send is missing:\n{}",
         main.content
     );
@@ -13943,7 +13937,7 @@ fn draining_state_lowers_to_a_foreach_kotlin() {
         .find(|f| f.rel_path.to_string_lossy() == "main.kt")
         .expect("main.kt");
     assert!(
-        main.content.contains("(waiting, {") && main.content.contains("waiting = mutableListOf<"),
+        main.content.contains("salvo.core.list.drain(waiting, fun(") && main.content.contains("waiting = mutableListOf<"),
         "the drain is not std's drain over the field:\n{}",
         main.content
     );
@@ -14160,7 +14154,7 @@ fn an_inherited_effect_is_captured_at_the_mint() {
         "the handler is captured at the mint:\n{text}"
     );
     assert!(
-        text.contains("fun report(console: Console"),
+        text.contains("fun report(console: salvo.core.console.Console"),
         "a task body still takes the handler it performs through:\n{text}"
     );
 }
@@ -14633,7 +14627,7 @@ fn a_dependent_spawn_hands_the_child_its_dependencies() {
         .expect("main.kt");
     let text = &main.content;
     assert!(
-        text.contains("class Counting(private val __dep_Log: Log, private val __dep_Tally: Tally) : Counter"),
+        text.contains("class Counting(private val __dep0: Log, private val __dep1: Tally) : Counter"),
         "the dependencies are fields:\n{text}"
     );
     assert!(
@@ -14721,11 +14715,11 @@ fn an_is_binding_over_a_call_hoists_its_subject_kotlin() {
         .expect("main.kt");
     let text = &main.content;
     assert!(
-        text.contains("while (true) {") && text.contains("if (!(__is1 != null)) break"),
+        text.contains("while (true) {") && text.contains("if (!((__subject_1 != null))) {"),
         "the while did not become a test-inside loop:\n{text}"
     );
     assert!(
-        text.contains("val n = __is1 as Int"),
+        text.contains("val n: Int = __subject_1!!"),
         "the binding does not read the hoisted temporary:\n{text}"
     );
 }
@@ -15090,7 +15084,7 @@ fn a_deadline_lowers_to_the_runtime_modules_wheel() {
     let time = find("time.kt").expect("time.kt");
     assert!(time.contains("afterNanos("), "expected the deadline call in:\n{time}");
     let runtime = find("runtime/timers.kt").expect("runtime/timers.kt");
-    assert!(runtime.contains("private val __moduleUse1"), "{runtime}");
+    assert!(runtime.contains("val __module_use0: Deadlines by lazy {"), "{runtime}");
     let scheduler = find("scheduler.kt").expect("scheduler.kt");
     assert!(!scheduler.contains("fun after(") && !scheduler.contains("timers"), "the host scheduler keeps no timers");
     assert!(

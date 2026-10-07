@@ -4,39 +4,7 @@
 // salvo-abi 1 5cd1832c3b5d03f1
 package salvo.time
 
-import salvo.core.actor.Mailbox
-import salvo.core.actor.eq
-import salvo.core.bytes.addPlatform
-import salvo.core.bytes.getPlatform
-import salvo.core.bytes.sizePlatform
-import salvo.core.checked.toStr
-import salvo.core.compare.mixHash
-import salvo.core.deque.get
-import salvo.core.deque.getPlatform
-import salvo.core.deque.removeAtPlatform
-import salvo.core.deque.sizePlatform
-import salvo.core.deque.toStr
-import salvo.core.list.addPlatform
-import salvo.core.list.at
-import salvo.core.list.get
-import salvo.core.list.getPlatform
-import salvo.core.list.removeAtPlatform
-import salvo.core.list.sizePlatform
-import salvo.core.list.toStr
-import salvo.core.map.eq
-import salvo.core.map.get
-import salvo.core.map.getPlatform
-import salvo.core.map.sizePlatform
-import salvo.core.map.toStr
-import salvo.core.set.addPlatform
-import salvo.core.set.eq
-import salvo.core.set.sizePlatform
-import salvo.core.set.toStr
-import salvo.core.sorted.addPlatform
-import salvo.core.sorted.getPlatform
-import salvo.core.string.sizePlatform
-import salvo.runtime.nowNanos
+import salvo.*
 
-fun epochNanosPlatform(): Long {
-    return salvo.platform.time.epochNanos()
-}
+fun epochNanosPlatform(): Long = salvo.platform.time.epochNanos()
+

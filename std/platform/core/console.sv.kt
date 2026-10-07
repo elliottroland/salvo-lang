@@ -4,6 +4,7 @@
 // salvo-abi 1 5cd1832c3b5d03f1
 package salvo.core.console
 
+import salvo.*
 
 interface Console {
     fun print(message: String)
@@ -20,7 +21,6 @@ class __Mon_Console(
     }
 }
 
-// The interface a `platform handler` of `Console` implements [platform-abi].
 interface ConsolePlatform {
     fun print(message: String)
 }
@@ -29,4 +29,6 @@ open class __Platform_Console(private val impl: ConsolePlatform) : Console {
     override fun print(message: String) = impl.print(message)
 }
 
-class __Platform_StdOutConsole() : salvo.core.console.__Platform_Console(salvo.platform.core.console.StdOutConsole())
+
+class __Platform_StdOutConsole() : __Platform_Console(salvo.platform.core.console.StdOutConsole())
+

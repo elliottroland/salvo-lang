@@ -5,79 +5,6 @@
 package salvo.net
 
 import salvo.*
-import salvo.core.actor.Mailbox
-import salvo.core.actor.eq
-import salvo.core.actor.pool
-import salvo.core.bytes.addPlatform
-import salvo.core.bytes.getPlatform
-import salvo.core.bytes.sizePlatform
-import salvo.core.checked.detach
-import salvo.core.checked.toStr
-import salvo.core.compare.mixHash
-import salvo.core.deque.get
-import salvo.core.deque.getPlatform
-import salvo.core.deque.removeAtPlatform
-import salvo.core.deque.sizePlatform
-import salvo.core.deque.toStr
-import salvo.core.list.addPlatform
-import salvo.core.list.all
-import salvo.core.list.at
-import salvo.core.list.contains
-import salvo.core.list.count
-import salvo.core.list.get
-import salvo.core.list.getPlatform
-import salvo.core.list.last
-import salvo.core.list.removeAtPlatform
-import salvo.core.list.sizePlatform
-import salvo.core.list.toStr
-import salvo.core.map.containsKeyPlatform
-import salvo.core.map.eq
-import salvo.core.map.get
-import salvo.core.map.getPlatform
-import salvo.core.map.keysPlatform
-import salvo.core.map.mutMapOfPlatform
-import salvo.core.map.putPlatform
-import salvo.core.map.removePlatform
-import salvo.core.map.sizePlatform
-import salvo.core.map.toStr
-import salvo.core.set.addPlatform
-import salvo.core.set.containsPlatform
-import salvo.core.set.eq
-import salvo.core.set.mutSetOfPlatform
-import salvo.core.set.removePlatform
-import salvo.core.set.sizePlatform
-import salvo.core.set.toStr
-import salvo.core.sorted.addPlatform
-import salvo.core.sorted.containsKeyPlatform
-import salvo.core.sorted.containsPlatform
-import salvo.core.sorted.getPlatform
-import salvo.core.sorted.keysPlatform
-import salvo.core.sorted.putPlatform
-import salvo.core.string.containsPlatform
-import salvo.core.string.sizePlatform
-import salvo.runtime.routing.RemoteRef
-import salvo.runtime.routing.connected
-import salvo.runtime.routing.controlFrame
-import salvo.runtime.routing.credits
-import salvo.runtime.routing.deliver
-import salvo.runtime.routing.hereNode
-import salvo.runtime.routing.identity
-import salvo.runtime.routing.localProtocols
-import salvo.runtime.routing.newNode
-import salvo.runtime.routing.nodeLeft
-import salvo.runtime.routing.outboundBound
-import salvo.runtime.routing.peerProtocol
-import salvo.runtime.routing.pending
-import salvo.runtime.routing.poolAt
-import salvo.runtime.routing.route
-import salvo.runtime.routing.sendControl
-import salvo.runtime.routing.setPeerProtocols
-import salvo.runtime.routing.viewMembers
-import salvo.runtime.routing.viewRefresh
-import salvo.runtime.routing.viewSet
-import salvo.runtime.routing.viewVersion
-import salvo.runtime.routing.viewWait
-import salvo.runtime.routing.watchControl
 
 data class NodeEndpoint(
     val host: String,
@@ -116,6 +43,7 @@ object __Codec_WireFailed : salvo.WireCodec<WireFailed> {
     override fun dec(inp: salvo.WireIn): WireFailed = WireFailed(__Codec_NodeEndpoint.dec(inp), salvo.StrCodec.dec(inp))
 }
 
+
 // Factories for the host: one per arm of the union [platform-factory].
 object NetErrors {
     fun unreachable(value: Unreachable): Union2<Unreachable, WireFailed> = salvo.Union2.U1(value)
@@ -124,12 +52,6 @@ object NetErrors {
 
 interface Inbound {
     fun receiveFrame(from: NodeEndpoint, frame: salvo.platform.core.bytes.Bytes)
-}
-
-class __Stub_Inbound(private val addr: Int) : Inbound {
-    override fun receiveFrame(from: NodeEndpoint, frame: salvo.platform.core.bytes.Bytes) {
-        salvo.SalvoSched.sendWire(addr, __Msg_Inbound.ReceiveFrame(from, frame), __PROTO_Inbound, __Codec___Msg_Inbound)
-    }
 }
 
 class __Mon_Inbound(
@@ -159,8 +81,13 @@ object __Codec___Msg_Inbound : salvo.WireCodec<__Msg_Inbound> {
     }
 }
 
-/** [protocol-hash] The canonical hash of `Inbound`. */
 const val __PROTO_Inbound: String = "8e46ddb2a3e90b03"
+
+class __Stub_Inbound(private val addr: Int) : Inbound {
+    override fun receiveFrame(from: NodeEndpoint, frame: salvo.platform.core.bytes.Bytes) {
+        salvo.SalvoSched.sendWire(addr, __Msg_Inbound.ReceiveFrame(from, frame), __PROTO_Inbound, __Codec___Msg_Inbound)
+    }
+}
 
 interface Transport {
     fun listen(at: NodeEndpoint, sink: Int): Union2<Unit, Union2<Unreachable, WireFailed>>
@@ -195,7 +122,6 @@ class __Mon_Transport(
     }
 }
 
-// The interface a `platform handler` of `Transport` implements [platform-abi].
 interface TransportPlatform {
     fun listen(at: NodeEndpoint, sink: Int): Union2<Unit, Union2<Unreachable, WireFailed>>
     fun unlisten(at: NodeEndpoint)
@@ -222,8 +148,8 @@ object Deliver {
     fun err(value: Union2<Unreachable, WireFailed>): Union2<Unit, Union2<Unreachable, WireFailed>> = salvo.Union2.U2(value)
 }
 
-fun bindOutboundPlatform(node: Long, out: Int, hook: (Int, salvo.platform.core.bytes.Bytes, salvo.platform.core.bytes.Bytes) -> Unit) {
-    return salvo.platform.net.bindOutbound(node, out, hook)
-}
+fun bindOutboundPlatform(node: Long, out: Int, hook: (Int, salvo.platform.core.bytes.Bytes, salvo.platform.core.bytes.Bytes) -> Unit) = salvo.platform.net.bindOutbound(node, out, hook)
 
-class __Platform_HostTcpTransport(bind: NodeEndpoint) : salvo.net.__Platform_Transport(salvo.platform.net.HostTcpTransport(bind))
+
+class __Platform_HostTcpTransport(bind: NodeEndpoint) : __Platform_Transport(salvo.platform.net.HostTcpTransport(bind))
+

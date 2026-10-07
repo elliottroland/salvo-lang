@@ -8,25 +8,25 @@ linear struct FileHandle wire {
   name: Str
 }
 
-fn main::open_file(lent __eff0: Console; moved name: Str) -> FileHandle {
-  call core.console::println(read __eff0, concat("1. open ", read name))
+fn main::open_file(lent console: Console; moved name: Str) -> FileHandle {
+  call core.console::println(read console, concat("1. open ", read name))
   return construct FileHandle { name: read name }
 }
 
-fn main::close(lent __eff0: Console; moved handle: FileHandle) -> None {
-  call core.console::println(read __eff0, concat("1. close ", read handle.name))
+fn main::close(lent console: Console; moved handle: FileHandle) -> None {
+  call core.console::println(read console, concat("1. close ", read handle.name))
   call core.basic::discard<FileHandle>(!read handle)
 }
 
-fn main::read_size(lent __eff0: Console; moved name: Str, moved want: Int) -> Int {
+fn main::read_size(lent console: Console; moved name: Str, moved want: Int) -> Int {
   bind#1 let there_is: Int = call core.string::size(read name)
-  bind#2 let handle: FileHandle = call main::open_file(read __eff0, !read name)
+  bind#2 let handle: FileHandle = call main::open_file(read console, !read name)
   branch#3 cond#0 op Gt(call core.compare::cmp(Int, Int)(read want, read there_is), 0) {
-    call core.console::println(read __eff0, "1. asked for more than there is")
-    call main::close(read __eff0, !read handle)
+    call core.console::println(read console, "1. asked for more than there is")
+    call main::close(read console, !read handle)
     return !read there_is
   }
-  call main::close(read __eff0, !read handle)
+  call main::close(read console, !read handle)
   return !read want
 }
 
@@ -48,11 +48,11 @@ fn main::port_of(lent config: Str) -> Int throws Str {
   return op Mul(read port, 1)
 }
 
-fn main::port_from_file(lent __eff0: Console; moved name: Str, lent text: Str) -> Int throws Str {
-  bind#1 let handle: FileHandle = call main::open_file(read __eff0, !read name)
+fn main::port_from_file(lent console: Console; moved name: Str, lent text: Str) -> Int throws Str {
+  bind#1 let handle: FileHandle = call main::open_file(read console, !read name)
   bind#2 let from: Str = call core.basic::copy<Str>(read handle.name)
-  call main::close(read __eff0, !read handle)
-  call core.console::println(read __eff0, concat("2. reading a port out of ", read from))
+  call main::close(read console, !read handle)
+  call core.console::println(read console, concat("2. reading a port out of ", read from))
   return call main::parse_port(read text)
 }
 
@@ -68,25 +68,25 @@ fn main::strict_port(lent text: Str) -> Int throws Str | Int {
   return !read n~1
 }
 
-fn main::report(lent __eff0: Console; lent label: Str, lent config: Str) -> None {
+fn main::report(lent console: Console; lent label: Str, lent config: Str) -> None {
   bind#1 let outcome: Int | Str = try[Int | Str] {
     value call main::port_of(read config)
   }
   switch#2 read outcome {
     arm#0 (arm 0) {
       narrow#3[switch#2.arm#0] outcome~1: Int = outcome
-      call core.console::println(read __eff0, concat("3. ", read label, ": port ", call core.basic::to_str(Int)(read outcome~1)))
+      call core.console::println(read console, concat("3. ", read label, ": port ", call core.basic::to_str(Int)(read outcome~1)))
     }
     arm#1 (arm 1) {
       narrow#4[switch#2.arm#1] outcome~2: Str = outcome
-      call core.console::println(read __eff0, concat("3. ", read label, ": rejected — ", read outcome~2))
+      call core.console::println(read console, concat("3. ", read label, ": rejected — ", read outcome~2))
     }
   }
 }
 
 fn main::main() -> None {
   bind#1 let __use~1: StdOutConsole = construct StdOutConsole { }
-  bind#2 let __handle~2: Console = handle[Console](read __use~1)
+  bind#2 let __handle~2: Console = read __use~1
   bind#3 let small: Int = call main::read_size(read __handle~2, "notes.txt", 3)
   call core.console::println(read __handle~2, concat("1. read ", call core.basic::to_str(Int)(read small)))
   bind#4 let clamped: Int = call main::read_size(read __handle~2, "notes.txt", 99)

@@ -114,7 +114,8 @@ crates/
 ├── salvo-core/           # SourceSet, Program, Symbols + resolve.rs/types.rs/check.rs/deduce.rs/reach.rs
 ├── salvo-backend/        # Backend trait, BackendRegistry, BackendError; driver.rs (the
 │                         #   shared front half of emission), emit_util.rs (shared helpers)
-├── salvo-backend-kotlin/ # Kotlin emitter (emit.rs) + golden/kotlinc tests
+├── salvo-ir/             # the IR (IR.md): nodes, builder from Program+Checked, dump
+├── salvo-backend-kotlin/ # Kotlin emitter over the IR (ir_emit/) + golden/kotlinc tests
 ├── salvo-backend-rust/   # Rust emitter (emit.rs) + golden/rustc tests
 └── salvo-testkit/        # dev-dependency for the test crates: toolchain probing
                           #   (once per binary) + the e2e content-hash cache
@@ -135,6 +136,50 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-06 — The IR, step 2 done: Kotlin emits from the IR, and the AST emitter is gone
+
+The Kotlin backend's only emitter is `ir_emit/` (about 4,200 lines with the
+shared helpers, from 13,200): `emit.rs` keeps the entry points, Kotlin
+naming, literal spelling and the runtime-file generators, `imports.rs` is
+deleted ([kt-imports] is now "references are fully qualified", [kt-ir] is
+new), and the checked-in Kotlin of every example, both host projects and
+every golden were regenerated. Under it: all 1,713 tests pass, every
+kotlinc compile-and-run case included. The codegen tests' textual assertions
+were rewritten to the IR spelling — typed `val`s, `__handle_N` effect
+instances, `salvo.<module>.` qualification, anonymous `fun` lambdas, narrowing
+bindings in place of smart casts ([kt-narrow-field-assert] revised: one shape
+for locals and properties) — each asserting the same behaviour it did.
+
+Builder facts the remaining cases forced, all backend-neutral:
+
+* **Union arms that erase alike keep their tag** ([union-arm-identity]):
+  `Err Str | Thrown Str` erased to `Str | Str`, so a rewrap (`attempt(text)
+  ^Ok?: return _`) put a `Thrown` message in the `Err` arm — a silently wrong
+  output the kotlinc case caught. A rewrap matches the tagged arm exactly,
+  else the arm of the same runtime type (a lift drops the tag).
+* A lift without a binding (`if held is ^Ok`) narrows the subject to the
+  widened type ([qual-lift], from `widen_targets`).
+* `a.b?.c` binds the projection `a.b` for the inner read (a place alias), and
+  a test subject that is a projection reads as stored; before, the inner read
+  re-narrowed `a.b` with a `!!` hoisted outside the `?.` (an NPE).
+* A named fn passed where its fn type threads other effects is an adapter
+  lambda in the IR ([fn-effects], the variance rule).
+* A `qualifies` with effects gets them as leading arguments
+  ([is-qualifies-effects]); `_` binds a fresh unused local; a named pass is
+  driven in place ([iter-drive-in-place]); a private `with` instance and every
+  `use` bind behind the effect's handle unless `threadsafe`
+  ([threadsafe-platform]); effect parameters are named after their effect
+  (`console`, `console__1` beside a parameter of that name); a field read a
+  qualifier refines narrows by `Justification::Claim`
+  ([qual-field-override]); a module-level `use` is one static for the
+  instance and one per face.
+
+Kotlin-side: primitive `cmp` sign tests render as operators, scalars
+interpolate bare in templates, the platform `Mut<Name>` convention applies
+to `List`/`Str` too (`salvo.platform.core.list.MutList`), an intrinsic
+handler is a codegen error rather than skipped, and `@Suppress` marks any fn
+whose body casts.
 
 ### 2026-10-06 — The IR, step 2 continued: the actor phase, and every oracle green under the flag
 
@@ -198,7 +243,7 @@ now a rule the IR states rather than a backend habit.
 
 ### 2026-10-06 — The IR, step 2 begun: a Kotlin emitter over the IR
 
-`salvo-backend-kotlin/src/ir_emit.rs`, behind `SALVO_KOTLIN_IR=1`, renders
+`salvo-backend-kotlin/src/ir_emit.rs`, then behind `SALVO_KOTLIN_IR=1`, renders
 IR modules; the AST emitter stays until it passes everything. Seven of the
 eleven examples and the TOUR program compile and run correctly through it;
 every remaining failure is the actor/wire phase, which IR.md schedules last.
@@ -22288,7 +22333,7 @@ Recorded so nothing is left half-removed (no compatibility, per AGENTS.md):
   factories in a plural object (`FsErrors`), since a sealed `FsError` cannot
   extend `Union7` from another package.
 
-## Test inventory (all green: 1715; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1713 under nextest, the IR corpus test aside; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

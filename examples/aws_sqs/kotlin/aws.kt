@@ -1,8 +1,6 @@
 package salvo.aws
 
 import salvo.*
-import salvo.core.string.appendPlatform
-import salvo.core.string.mutStr
 
 data class ProfileCredentials(
     val profile: String = "default",
@@ -32,6 +30,7 @@ object __Codec_DefaultChain : salvo.WireCodec<DefaultChain> {
     }
     override fun dec(inp: salvo.WireIn): DefaultChain = DefaultChain()
 }
+
 
 // Factories for the host: one per arm of the union [platform-factory].
 object Credentialss {
@@ -80,11 +79,12 @@ object __Codec_AwsError : salvo.WireCodec<AwsError> {
 }
 
 fun toStr(value: ProfileCredentials): String {
-    val out: salvo.platform.core.string.MutStr = mutStr(arrayOf("ProfileCredentials {"))
-    appendPlatform(out, " ")
-    appendPlatform(out, "profile: ${value.profile}")
-    appendPlatform(out, ", ")
-    appendPlatform(out, "path: ${value.path}")
-    appendPlatform(out, " }")
+    val out: salvo.platform.core.string.MutStr = salvo.core.string.mutStr(arrayOf<String>("ProfileCredentials {"))
+    salvo.core.string.appendPlatform(out, " ")
+    salvo.core.string.appendPlatform(out, "profile: ${value.profile}")
+    salvo.core.string.appendPlatform(out, ", ")
+    salvo.core.string.appendPlatform(out, "path: ${value.path}")
+    salvo.core.string.appendPlatform(out, " }")
     return out.toString()
 }
+

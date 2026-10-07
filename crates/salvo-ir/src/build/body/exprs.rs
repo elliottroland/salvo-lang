@@ -133,6 +133,14 @@ impl<'a, 'p> Lower<'a, 'p> {
                     let nid = self.id();
                     let from_ty = s.ty.clone();
                     self.pending_after_test.push(Stmt::Narrow { id: nid, local, ty, from, from_ty, because: Justification::Test { test: id } });
+                } else if let (Some(target), AExpr::Ident(name), true) = (self.ctx.checked.widen_targets.get(&self.key(span)).map(erase), subject.as_ref(), self.in_condition) {
+                    // [qual-lift] A lift that peels a wrapper arm narrows the
+                    // subject to the widened type for the branch.
+                    if let Some(place) = self.stored_place_of(subject) {
+                        let from_ty = s.ty.clone();
+                        let narrow = self.narrow_in_arm(&name.name, place, from_ty, target, Justification::Test { test: id });
+                        self.pending_after_test.push(narrow);
+                    }
                 }
                 match test {
                     Some(t) => Expr { ty: Ty::named("Bool"), span, kind: ExprKind::Test { id, subject: Box::new(s), test: arm_test(&t) } },
@@ -260,6 +268,45 @@ impl<'a, 'p> Lower<'a, 'p> {
 
     // ------------------------------------------------------------- reads --
 
+    /// [fn-effects] A named fn as a value. Where the fn type it is passed as
+    /// threads other effects than the fn declares (a pure fn where effects
+    /// are threaded — the variance rule), an adapter lambda takes the
+    /// type's effects and passes on the ones the fn needs.
+    fn fn_value(&mut self, k: salvo_core::FnKey, span: Span) -> Expr {
+        let ty = self.ty_of(span);
+        let id = self.ctx.decl_id(k);
+        let taken: Vec<Ty> = self.ctx.checked.lambda_effects.get(&self.key(span)).map(|v| v.iter().map(erase).collect()).unwrap_or_default();
+        let declared: Vec<Ty> = self.ctx.checked.fn_effects.get(&k).map(|v| v.iter().map(erase).collect()).unwrap_or_default();
+        if taken == declared {
+            return Expr { ty, span, kind: ExprKind::FnValue(FnRef::Decl(id)) };
+        }
+        let (params, ret) = match ty.strip_quals() {
+            Ty::Fn { params, ret, .. } => (params.clone(), (**ret).clone()),
+            _ => (Vec::new(), Ty::Unknown),
+        };
+        let mut ps: Vec<Param> = Vec::new();
+        for (i, t) in taken.iter().enumerate() {
+            ps.push(Param { local: Local(format!("__fx{i}")), ty: t.clone(), mode: PassMode::Lent, variadic: false, check: None });
+        }
+        let mut args: Vec<Expr> = Vec::new();
+        for t in &declared {
+            match taken.iter().position(|x| x == t) {
+                Some(i) => args.push(Expr { ty: t.clone(), span, kind: ExprKind::Read { place: Place { root: Local(format!("__fx{i}")), steps: Vec::new() }, consume: false } }),
+                None => {
+                    self.error(span, format!("a fn needs effect `{t}`, which the fn type it is passed as does not declare"));
+                    return unsupported(ty, span, "fn value adapter");
+                }
+            }
+        }
+        for (i, t) in params.iter().enumerate() {
+            let l = Local(format!("__a{i}"));
+            ps.push(Param { local: l.clone(), ty: t.clone(), mode: PassMode::Lent, variadic: false, check: None });
+            args.push(Expr { ty: t.clone(), span, kind: ExprKind::Read { place: Place { root: l, steps: Vec::new() }, consume: false } });
+        }
+        let call = Expr { ty: ret.clone(), span, kind: ExprKind::Call { target: FnRef::Decl(id), type_args: Vec::new(), args } };
+        Expr { ty, span, kind: ExprKind::Lambda { params: ps, ret, body: Block { stmts: Vec::new(), value: Some(Box::new(call)) }, captures: Vec::new() } }
+    }
+
     fn ident(&mut self, id: &ast::Ident) -> Expr {
         let span = id.span;
         if id.name == "None" {
@@ -270,7 +317,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             return self.read(&AExpr::Ident(id.clone()));
         }
         if let Some(k) = self.ctx.checked.fn_refs.get(&self.key(span)).copied() {
-            return Expr { ty: self.ty_of(span), span, kind: ExprKind::FnValue(FnRef::Decl(self.ctx.decl_id(k))) };
+            return self.fn_value(k, span);
         }
         if let Some(local) = self.implicit_locals.get(&id.name).cloned() {
             return Expr { ty: self.ty_of(span), span, kind: ExprKind::FnValue(FnRef::Local(local)) };
@@ -317,9 +364,27 @@ impl<'a, 'p> Lower<'a, 'p> {
             };
         };
         let key = self.key(span);
+        // A projection whose prefix an enclosing safe call bound reads
+        // through that binding.
+        let place = self.through_alias(place);
         let consume = self.ctx.checked.linear_moves.contains(&key)
             || self.ctx.checked.state_takes.contains(&key)
             || self.ctx.checked.moved_projections.contains(&key);
+        // [qual-field-override] A field a qualifier of the subject refines
+        // is read through a narrowing binding justified by the claim.
+        if let (AExpr::Field { base, field, .. }, Some(over)) = (e, self.ctx.checked.field_casts.get(&key).map(erase)) {
+            let base_ty = self.ty_of(base.span());
+            let declared = match base_ty.strip_quals() {
+                Ty::Named { name, .. } => self.ctx.symbols.structs.get(name.as_str()).and_then(|sd| sd.fields.iter().find(|f| f.name.name == field.name).map(|f| self.ctx.written_ty(self.file_idx, &f.ty))),
+                _ => None,
+            };
+            if let Some(declared) = declared.filter(|d| *d != over) {
+                let local = self.fresh("__claimed");
+                let id = self.id();
+                self.pending.push(Stmt::Narrow { id, local: local.clone(), ty: over.clone(), from: place, from_ty: declared, because: Justification::Claim });
+                return Expr { ty: over, span, kind: ExprKind::Read { place: Place { root: local, steps: Vec::new() }, consume } };
+            }
+        }
         // [ir-narrow] A projection the flow narrowed (`p.inner` after a test
         // on it) is read through a narrowing binding, like a local.
         if !place.steps.is_empty() {
@@ -1086,7 +1151,44 @@ impl<'a, 'p> Lower<'a, 'p> {
                 return Expr { ty, span, kind: ExprKind::Read { place: Place { root: b.local, steps: Vec::new() }, consume: false } };
             }
         }
+        // A projection, read as stored too (its declared type), unless an
+        // enclosing safe call already bound it.
+        if matches!(subject, AExpr::Field { .. } | AExpr::TupleIndex { .. }) {
+            if let Some(place) = self.stored_place_of(subject) {
+                if let Some(alias) = self.place_alias(&place) {
+                    return alias;
+                }
+                if let Some(declared) = self.ctx.checked.repr_ty.get(&self.key(span)).map(erase) {
+                    return Expr { ty: declared, span, kind: ExprKind::Read { place, consume: false } };
+                }
+            }
+        }
         self.expr(subject)
+    }
+
+    /// `place` with its longest prefix an enclosing safe call bound replaced
+    /// by that binding.
+    fn through_alias(&self, place: Place) -> Place {
+        for n in (1..=place.steps.len()).rev() {
+            let prefix = Place { root: place.root.clone(), steps: place.steps[..n].to_vec() };
+            if let Some(Expr { kind: ExprKind::Read { place: alias, .. }, .. }) = self.place_alias(&prefix) {
+                return Place { root: alias.root, steps: place.steps[n..].to_vec() };
+            }
+        }
+        place
+    }
+
+    /// [ir-narrow] The narrowing binding an enclosing safe call made for a
+    /// projection place (`a.b?.c` binds `a.b`), as a read.
+    pub(crate) fn place_alias(&self, place: &Place) -> Option<Expr> {
+        self.place_aliases.iter().rev().find_map(|(p, l, t)| {
+            let same = p.root == place.root && p.steps.len() == place.steps.len() && p.steps.iter().zip(&place.steps).all(|(a, b)| match (a, b) {
+                (Step::Field(x), Step::Field(y)) => x == y,
+                (Step::Tuple(x), Step::Tuple(y)) => x == y,
+                _ => false,
+            });
+            same.then(|| Expr { ty: t.clone(), span: Span::default(), kind: ExprKind::Read { place: Place { root: l.clone(), steps: Vec::new() }, consume: false } })
+        })
     }
 
     /// The type a successful test narrows the subject to.
@@ -1112,7 +1214,32 @@ impl<'a, 'p> Lower<'a, 'p> {
             self.error(span, format!("qualifier `{}` has no `qualifies`", check.name));
             return unsupported(bool_ty, span, "qualifies");
         };
-        let mut args = vec![subject];
+        // [is-qualifies-effects] the effects a `qualifies` performs lead.
+        let mut args: Vec<Expr> = Vec::new();
+        let effects: Vec<Ty> = self
+            .ctx
+            .program
+            .files
+            .iter()
+            .position(|f| f.module == target.module)
+            .and_then(|fi| match self.ctx.program.modules[fi].items.get(target.item) {
+                Some(ast::Item::Qualifier(q)) => q.fns.get((target.sub as usize).wrapping_sub(1)).map(|f| {
+                    f.effects
+                        .iter()
+                        .flatten()
+                        .filter_map(|e| match e {
+                            ast::EffectRef::Effect(r) | ast::EffectRef::AnyEffect(r) => Some(Ty::Named { name: self.ctx.checked.written_key(r).to_string(), args: r.args.iter().map(|a| self.ctx.written_ty(fi, a)).collect() }),
+                            _ => None,
+                        })
+                        .collect()
+                }),
+                _ => None,
+            })
+            .unwrap_or_default();
+        for t in &effects {
+            args.push(self.effect_instance(t, span));
+        }
+        args.push(subject);
         for a in &check.args {
             let parts: Vec<&str> = a.path.split('.').collect();
             match self.lookup(parts[0]).cloned() {
@@ -1301,7 +1428,14 @@ impl<'a, 'p> Lower<'a, 'p> {
         if let AExpr::Ident(b) = base {
             self.rebind(&b.name, nar.clone(), subj_ty.without_none());
         }
+        let alias = self.stored_place_of(base).filter(|p| !p.steps.is_empty());
+        if let Some(p) = &alias {
+            self.place_aliases.push((p.clone(), nar.clone(), subj_ty.without_none()));
+        }
         let in_ = self.expr(inner);
+        if alias.is_some() {
+            self.place_aliases.pop();
+        }
         self.pop_scope();
         let none = Expr { ty: ty.clone(), span, kind: ExprKind::MakeNone };
         let sw = Expr {
@@ -1545,6 +1679,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 stmts.extend(me.destructure(other, tmp, &ty, span));
             }
         };
+        let mut pass_tys: Vec<(Local, Ty)> = Vec::new();
         match driver {
             Some(d) => {
                 // The pass: minted, or the subject itself.
@@ -1559,17 +1694,34 @@ impl<'a, 'p> Lower<'a, 'p> {
                     }
                     None => subject,
                 };
-                if !step_call {
-                    let mid = self.id();
-                    out.push(Stmt::Let { id: mid, local: pass.clone(), ty: minted.ty.clone(), value: minted });
-                }
+                // [iter-drive-in-place] A named pass is driven where it
+                // lives: the place itself, with no local of the loop's.
+                let in_place = match &minted.kind {
+                    ExprKind::Read { place, .. } if place.steps.is_empty() && !step_call => Some(place.root.clone()),
+                    _ => None,
+                };
+                let pass = match in_place {
+                    Some(root) => {
+                        let ty = minted.ty.clone();
+                        pass_tys.push((root.clone(), ty));
+                        root
+                    }
+                    None => {
+                        if !step_call {
+                            let mid = self.id();
+                            pass_tys.push((pass.clone(), minted.ty.clone()));
+                            out.push(Stmt::Let { id: mid, local: pass.clone(), ty: minted.ty.clone(), value: minted });
+                        }
+                        pass
+                    }
+                };
                 let step = self.fresh("__step");
                 let step_ty = Ty::Union(vec![elem_ty.clone(), Ty::named("Finished")]);
                 let sid = self.id();
                 let step_value = if step_call {
                     self.expr(iterable)
                 } else {
-                    let pass_ty = if step_call { Ty::Unknown } else { minted_ty_of(&out, &pass) };
+                    let pass_ty = pass_tys.iter().find(|(l, _)| *l == pass).map(|(_, t)| t.clone()).unwrap_or(Ty::Unknown);
                     let (next_target, _, effects) = self.pass_member_full(&d.next, &pass_ty);
                     let mut args: Vec<Expr> = effects.iter().map(|t| self.effect_instance(t, span)).collect();
                     args.push(Expr { ty: pass_ty, span, kind: ExprKind::Read { place: Place { root: pass.clone(), steps: Vec::new() }, consume: false } });
@@ -1668,12 +1820,19 @@ impl<'a, 'p> Lower<'a, 'p> {
         let inst = self.fresh("__use");
         let id = self.id();
         let mut out = vec![Stmt::Let { id, local: inst.clone(), ty: handler_ty.clone(), value: construct }];
-        // [effect-handle] one handle per face, over the one instance.
+        // [effect-handle] one handle per face, over the one instance — the
+        // instance itself for a `threadsafe platform handler`, which promises
+        // its own synchronization [threadsafe-platform].
+        let threadsafe = match handler_ty.strip_quals() {
+            Ty::Named { name, .. } => self.ctx.symbols.handlers.get(name.as_str()).is_some_and(|h| h.threadsafe),
+            _ => false,
+        };
         for f in faces {
             let h = self.fresh("__handle");
             let hid = self.id();
             let read = Expr { ty: handler_ty.clone(), span, kind: ExprKind::Read { place: Place { root: inst.clone(), steps: Vec::new() }, consume: false } };
-            out.push(Stmt::Let { id: hid, local: h.clone(), ty: f.clone(), value: Expr { ty: f.clone(), span, kind: ExprKind::Handle { instance: Box::new(read) } } });
+            let value = if threadsafe { Expr { ty: f.clone(), ..read } } else { Expr { ty: f.clone(), span, kind: ExprKind::Handle { instance: Box::new(read) } } };
+            out.push(Stmt::Let { id: hid, local: h.clone(), ty: f.clone(), value });
             self.effect_env.push((f, h));
         }
         out
@@ -1735,6 +1894,16 @@ impl<'a, 'p> Lower<'a, 'p> {
             if matches!(v.ty.strip_quals(), Ty::Named { name, .. } if name == "Addr") {
                 let vspan = v.span;
                 v = Expr { ty: d.clone(), span: vspan, kind: ExprKind::AddrInstance { addr: Box::new(v) } };
+            }
+            // [with-clause] [effect-handle] a private instance built for this
+            // binding alone is bound behind its handle, like any `use`.
+            if let Ty::Named { name, .. } = v.ty.strip_quals() {
+                if let Some(h) = self.ctx.symbols.handlers.get(name.as_str()) {
+                    if !h.threadsafe {
+                        let vspan = v.span;
+                        v = Expr { ty: d.clone(), span: vspan, kind: ExprKind::Handle { instance: Box::new(v) } };
+                    }
+                }
             }
             fields.push((format!("__dep{i}"), v));
         }
@@ -1872,16 +2041,6 @@ pub(crate) fn subst_map(t: &Ty, map: &std::collections::HashMap<String, Ty>) -> 
         Ty::Array(e) => Ty::Array(Box::new(subst_map(e, map))),
         other => other.clone(),
     }
-}
-
-fn minted_ty_of(out: &[Stmt], pass: &Local) -> Ty {
-    out.iter()
-        .rev()
-        .find_map(|s| match s {
-            Stmt::Let { local, ty, .. } if local == pass => Some(ty.clone()),
-            _ => None,
-        })
-        .unwrap_or(Ty::Unknown)
 }
 
 /// Whether `e` reads any local the statements `binds` bind (a narrowing

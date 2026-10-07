@@ -290,6 +290,7 @@ impl<'a> Dumper<'a> {
                     Justification::Cond { branch, arm } => format!("branch#{}.cond#{arm}", branch.0),
                     Justification::After { branch, arm } => format!("after branch#{}.cond#{arm}", branch.0),
                     Justification::LoopValue { loop_ } => format!("loop#{} value", loop_.0),
+                    Justification::Claim => "claim".to_string(),
                 };
                 let _ = write!(self.out, "narrow#{}[{why}] {}: {ty} = ", id.0, local.0);
                 self.place(from, indent);

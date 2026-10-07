@@ -1,36 +1,28 @@
 package salvo.core.compare
 
 import salvo.*
-import salvo.core.actor.eq
-import salvo.core.array.next
-import salvo.core.bytes.next
-import salvo.core.index.Idx_qualifies
-import salvo.core.iterator.Finished
-import salvo.core.list.Enumerated
-import salvo.core.list.__Iter_enumerate_List
-import salvo.core.list.enumerate
-import salvo.core.list.get
-import salvo.core.list.next__Iter_enumerate_List
-import salvo.core.list.sizePlatform
-import salvo.core.map.eq
-import salvo.core.set.eq
-import salvo.core.set.next
-import salvo.core.string.next
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun<T> eq__List_List(a: List<T>, b: List<T>, eq: (T, T) -> Boolean): Boolean {
-    if (sizePlatform(a) != sizePlatform(b)) {
+    if (!(((salvo.core.list.sizePlatform(a)) == (salvo.core.list.sizePlatform(b))))) {
         return false
     }
-    var __loop1_pass = enumerate(a)
+    val __pass_1: salvo.core.list.__Iter_enumerate_List<T> = salvo.core.list.enumerate(a)
     while (true) {
-        val __loop1_step = next__Iter_enumerate_List(__loop1_pass)
-        if (__loop1_step !is Union2.U1<*, *>) { break }
-        val p = __loop1_step.value as Enumerated<T>
-        val j = p.index
-        if (Idx_qualifies(j, b, ::sizePlatform)) {
-            if (!eq(p.elem, get(b, j))) {
-                return false
+        val __step_2: Union2<salvo.core.list.Enumerated<T>, salvo.core.iterator.Finished> = salvo.core.list.next__Iter_enumerate_List(__pass_1)
+        when {
+            (__step_2 is Union2.U1<*, *>) -> {
+                val __emitted_3: salvo.core.list.Enumerated<T> = ((__step_2 as Union2.U1<*, *>).value as salvo.core.list.Enumerated<T>)
+                val p: salvo.core.list.Enumerated<T> = __emitted_3
+                val j: Int = p.index
+                if (salvo.core.index.Idx_qualifies(j, b, { __a0 -> salvo.core.list.sizePlatform(__a0) })) {
+                    if (!(eq(p.elem, salvo.core.list.get(b, j)))) {
+                        return false
+                    }
+                }
+            }
+            else -> {
+                break
             }
         }
     }
@@ -39,29 +31,36 @@ fun<T> eq__List_List(a: List<T>, b: List<T>, eq: (T, T) -> Boolean): Boolean {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun<T> cmp__List_List(a: List<T>, b: List<T>, cmp: (T, T) -> Int): Int {
-    var __loop2_pass = enumerate(a)
+    val __pass_1: salvo.core.list.__Iter_enumerate_List<T> = salvo.core.list.enumerate(a)
     while (true) {
-        val __loop2_step = next__Iter_enumerate_List(__loop2_pass)
-        if (__loop2_step !is Union2.U1<*, *>) { break }
-        val p = __loop2_step.value as Enumerated<T>
-        val j = p.index
-        if (Idx_qualifies(j, b, ::sizePlatform)) {
-            val c = cmp(p.elem, get(b, j))
-            if (c != 0) {
-                return c
+        val __step_2: Union2<salvo.core.list.Enumerated<T>, salvo.core.iterator.Finished> = salvo.core.list.next__Iter_enumerate_List(__pass_1)
+        when {
+            (__step_2 is Union2.U1<*, *>) -> {
+                val __emitted_3: salvo.core.list.Enumerated<T> = ((__step_2 as Union2.U1<*, *>).value as salvo.core.list.Enumerated<T>)
+                val p: salvo.core.list.Enumerated<T> = __emitted_3
+                val j: Int = p.index
+                if (salvo.core.index.Idx_qualifies(j, b, { __a0 -> salvo.core.list.sizePlatform(__a0) })) {
+                    val c: Int = cmp(p.elem, salvo.core.list.get(b, j))
+                    if (!(((c) == (0)))) {
+                        return c
+                    }
+                } else {
+                    return 1
+                }
             }
-        } else {
-            return 1
+            else -> {
+                break
+            }
         }
     }
-    if (sizePlatform(a) < sizePlatform(b)) {
-        return -1
+    if ((salvo.core.list.sizePlatform(a) < salvo.core.list.sizePlatform(b))) {
+        return (-1)
     }
     return 0
 }
 
 fun<T> hash__List(value: List<T>, hash: (T) -> Long): Long {
-    var h = 7L
+    var h: Long = 7L
     for (x in salvo.platform.core.list.each(value)) {
         h = mixHash(h, hash(x))
     }
@@ -69,12 +68,12 @@ fun<T> hash__List(value: List<T>, hash: (T) -> Long): Long {
 }
 
 fun<A, B> eq__TupleAB_TupleAB(a: Pair<A, B>, b: Pair<A, B>, eq: (A, A) -> Boolean, eq__1: (B, B) -> Boolean): Boolean {
-    return eq(a.first, b.first) && eq__1(a.second, b.second)
+    return (eq(a.first, b.first) && eq__1(a.second, b.second))
 }
 
 fun<A, B> cmp__TupleAB_TupleAB(a: Pair<A, B>, b: Pair<A, B>, cmp: (A, A) -> Int, cmp__1: (B, B) -> Int): Int {
-    val c = cmp(a.first, b.first)
-    if (c != 0) {
+    val c: Int = cmp(a.first, b.first)
+    if (!(((c) == (0)))) {
         return c
     }
     return cmp__1(a.second, b.second)
@@ -85,16 +84,16 @@ fun<A, B> hash__TupleAB(value: Pair<A, B>, hash: (A) -> Long, hash__1: (B) -> Lo
 }
 
 fun<A, B, C> eq__TupleABC_TupleABC(a: Triple<A, B, C>, b: Triple<A, B, C>, eq: (A, A) -> Boolean, eq__1: (B, B) -> Boolean, eq__2: (C, C) -> Boolean): Boolean {
-    return eq(a.first, b.first) && eq__1(a.second, b.second) && eq__2(a.third, b.third)
+    return ((eq(a.first, b.first) && eq__1(a.second, b.second)) && eq__2(a.third, b.third))
 }
 
 fun<A, B, C> cmp__TupleABC_TupleABC(a: Triple<A, B, C>, b: Triple<A, B, C>, cmp: (A, A) -> Int, cmp__1: (B, B) -> Int, cmp__2: (C, C) -> Int): Int {
-    val c = cmp(a.first, b.first)
-    if (c != 0) {
+    val c: Int = cmp(a.first, b.first)
+    if (!(((c) == (0)))) {
         return c
     }
-    val d = cmp__1(a.second, b.second)
-    if (d != 0) {
+    val d: Int = cmp__1(a.second, b.second)
+    if (!(((d) == (0)))) {
         return d
     }
     return cmp__2(a.third, b.third)
@@ -105,5 +104,6 @@ fun<A, B, C> hash__TupleABC(value: Triple<A, B, C>, hash: (A) -> Long, hash__1: 
 }
 
 fun mixHash(seed: Long, value: Long): Long {
-    return seed * 31L + value
+    return ((seed * 31L) + value)
 }
+

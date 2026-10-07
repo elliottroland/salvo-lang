@@ -1,6 +1,5 @@
-//! [kt-ir] The Kotlin emitter over the IR (IR.md §10 step 2): renders
-//! `salvo_ir` modules. Beside the AST emitter until it passes every test;
-//! selected by `SALVO_KOTLIN_IR=1`.
+//! [kt-ir] The Kotlin emitter: renders `salvo_ir` modules (IR.md). It
+//! replaced the AST emitter on 2026-10-06.
 //!
 //! What it decides is representation and idiom only: how a union is laid out
 //! (`UnionN`), how an optional is spelled (`T?`), how `Mut Str` is held
@@ -312,8 +311,10 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 }
                 _ => self.decl(d),
             }
-            body.push_str(&self.out);
-            body.push('\n');
+            if !self.out.is_empty() {
+                body.push_str(&self.out);
+                body.push('\n');
+            }
         }
         // [kt-copy] The copy fn of each struct of this module that holds
         // itself; rendering one may ask for another.
@@ -425,6 +426,19 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             Ty::Qualified { quals, base } => {
                 if quals.iter().any(|q| q.name == "Mut") {
                     if let Ty::Named { name, args } = base.as_ref() {
+                        // [cmp-carry] an identity a container carries is not a type argument.
+                        let args: Vec<Ty> = args.iter().filter(|a| !matches!(a, Ty::FnName(_))).cloned().collect();
+                        let args = &args;
+                        // [platform-value-type] The host names a value type's
+                        // mutable kind `Mut<Name>` beside it.
+                        let platform_mut = self.s.symbols.intrinsic_types.get(name.as_str()).is_some_and(|t| t.platform && !t.linear && t.auto_qualifiers.iter().any(|q| q.name.name == "Mut"));
+                        if platform_mut {
+                            if let Some(m) = self.s.symbols.key_modules.get(name.as_str()) {
+                                let a: Vec<String> = args.iter().map(|x| self.ty(x)).collect();
+                                let base_name = format!("{}.Mut{}", host_package(m), salvo_core::typekey::plain(name));
+                                return if a.is_empty() { base_name } else { format!("{base_name}<{}>", a.join(", ")) };
+                            }
+                        }
                         if let Some(kt) = crate::intrinsics::mut_type_name(name) {
                             let a: Vec<String> = args.iter().map(|x| self.ty(x)).collect();
                             return if a.is_empty() { kt.to_string() } else { format!("{kt}<{}>", a.join(", ")) };
@@ -571,6 +585,15 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         } else {
             self.out.push_str(&format!("{pad}data class {name}{tps}(\n"));
             for f in &s.fields {
+                // [kt-field-canbe-mut] One property for both shapes, which
+                // needs the `Mut` rendering to be a subtype of the plain one.
+                if f.canbe_mut {
+                    if let Ty::Named { name, .. } = f.ty.strip_quals() {
+                        if crate::intrinsics::drop_mut_suffix(name).is_some() {
+                            self.error(format!("the kotlin backend cannot store `canbe Mut` field `{}` yet: its type's `Mut` form is not a subtype of the plain one [kt-field-canbe-mut]", f.name));
+                        }
+                    }
+                }
                 let ty = self.ty(&f.ty);
                 let kw = if s.canbe_mut { "var" } else { "val" };
                 // A field's default is the parameter's too, so a host can
@@ -677,6 +700,9 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
 
     fn impl_decl(&mut self, h: &ImplDecl) {
         if h.intrinsic {
+            // [backend-intrinsic] [backend-never-wrong] no intrinsic handler
+            // has a Kotlin lowering.
+            self.error(format!("intrinsic handler `{}` is not supported by the kotlin backend", h.name));
             return;
         }
         if h.platform {
@@ -722,7 +748,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let mixed = self.is_mixed(h);
         let face_tys: Vec<String> = h.faces.iter().map(|f| self.ty(f)).collect();
         let supers = if mixed || face_tys.is_empty() { String::new() } else { format!(" : {}", face_tys.join(", ")) };
-        self.out.push_str(&format!("class {}{tps}({}){supers} {{\n", h.name, ctor.join(", ")));
+        let ctor_list = if ctor.is_empty() { String::new() } else { format!("({})", ctor.join(", ")) };
+        self.out.push_str(&format!("class {}{tps}{ctor_list}{supers} {{\n", h.name));
         if is_actor || mixed {
             let fields = self.actor_fields(h);
             self.out.push_str(&fields);
@@ -850,7 +877,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             self.out.push_str(&format!("{pad}{kw}{tps} {name}({ps}){ret}\n"));
             return;
         };
-        self.out.push_str(&format!("{pad}{kw}{tps} {name}({ps}){ret} {{\n"));
+        let saved = std::mem::take(&mut self.out);
         if !is_member && f.name == "main" && indent == 0 {
             let prelude = self.protocol_prelude();
             self.out.push_str(&prelude);
@@ -860,7 +887,14 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             let code = self.expr(v, indent + 1);
             self.out.push_str(&format!("{}return {code}\n", "    ".repeat(indent + 1)));
         }
-        self.out.push_str(&format!("{pad}}}\n"));
+        let body_code = std::mem::replace(&mut self.out, saved);
+        // [kt-suppress-cast] A body that casts (a union payload, a `canbe
+        // Mut` field) is annotated: neither the unchecked nor the useless
+        // cast warning is the author's to silence.
+        if body_code.contains(" as ") {
+            self.out.push_str(&format!("{pad}@Suppress(\"UNCHECKED_CAST\", \"USELESS_CAST\", \"UNNECESSARY_SAFE_CALL\")\n"));
+        }
+        self.out.push_str(&format!("{pad}{kw}{tps} {name}({ps}){ret} {{\n{body_code}{pad}}}\n"));
     }
 
     // -------------------------------------------------------- statements --
@@ -1079,6 +1113,13 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 let a = self.exprs(args, indent);
                 format!("{inst}.{name}({})", a.join(", "))
             }
+            ExprKind::Op { op: op @ (Op::Lt | Op::Gt | Op::LtEq | Op::GtEq), args } if self.is_primitive_cmp_sign_test(args) => {
+                // The sign test of a primitive `cmp` is the primitive operator.
+                let (ExprKind::Call { args: inner, .. }, _) = (&args[0].kind, ()) else { unreachable!() };
+                let a = self.exprs(inner, indent);
+                let sym = match op { Op::Lt => "<", Op::Gt => ">", Op::LtEq => "<=", _ => ">=" };
+                format!("({} {sym} {})", a[0], a[1])
+            }
             ExprKind::Op { op, args } => {
                 let a = self.exprs(args, indent);
                 match op {
@@ -1180,8 +1221,26 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 format!("arrayOf<{elem}>({})", a.join(", "))
             }
             ExprKind::Concat(parts) => {
-                let a = self.exprs(parts, indent);
-                format!("({})", a.join(" + "))
+                // [interp-to-str] a Kotlin string template: literal text as
+                // is, every other part as `${…}`.
+                let mut out = String::from("\"");
+                for p in parts {
+                    match &p.kind {
+                        ExprKind::Str(text) => out.push_str(&escape_string(text)),
+                        _ => {
+                            // A scalar's `to_str` is the template's own
+                            // conversion [interp-float]: the scalar alone.
+                            let scalar = self.scalar_to_str_arg(p);
+                            let code = match scalar {
+                                Some(arg) => self.expr(arg, indent),
+                                None => self.expr(p, indent),
+                            };
+                            out.push_str(&format!("${{{code}}}"));
+                        }
+                    }
+                }
+                out.push('"');
+                out
             }
             ExprKind::Branch { arms, otherwise, .. } => self.branch(e, arms, otherwise.as_ref(), indent),
             ExprKind::Switch { subject, arms, .. } => self.switch(e, subject, arms, indent),
@@ -1562,18 +1621,27 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             let k = self.expr(&args[0], indent);
             return format!("salvo.SalvoSched.keyHash(salvo.salvoEncode({k}, {codec}).toByteArray())");
         }
-        let a: Vec<String> = args
-            .iter()
-            .map(|x| {
-                let code = self.expr(x, indent);
-                // A variadic tail arrives as one array; the lowering wants it spread.
-                if matches!(x.ty.strip_quals(), Ty::Array(_)) && f.params.iter().any(|p| p.variadic) {
-                    format!("*({code})")
-                } else {
-                    code
+        let variadic = f.params.iter().any(|p| p.variadic);
+        let mut a: Vec<String> = Vec::new();
+        for x in args {
+            // A variadic tail arrives as one array; the lowering wants it
+            // spread — an array literal's elements as they are.
+            match &x.kind {
+                ExprKind::Array(es) if variadic && matches!(x.ty.strip_quals(), Ty::Array(_)) => {
+                    for el in es {
+                        a.push(self.expr(el, indent));
+                    }
                 }
-            })
-            .collect();
+                _ => {
+                    let code = self.expr(x, indent);
+                    if variadic && matches!(x.ty.strip_quals(), Ty::Array(_)) {
+                        a.push(format!("*({code})"));
+                    } else {
+                        a.push(code);
+                    }
+                }
+            }
+        }
         let tas: Vec<String> = type_args.iter().map(|t| self.ty(t)).collect();
         match crate::intrinsics::fn_call(name, recv, &a, &tas) {
             Some(code) => code,
@@ -1583,6 +1651,33 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 "TODO()".to_string()
             }
         }
+    }
+
+    /// The argument of a `to_str` call on a scalar (whose Kotlin text is
+    /// `toString()`'s), for an interpolation part.
+    fn scalar_to_str_arg<'e>(&self, e: &'e Expr) -> Option<&'e Expr> {
+        let ExprKind::Call { target: FnRef::Decl(id), args, .. } = &e.kind else { return None };
+        let [arg] = args.as_slice() else { return None };
+        let file_idx = self.s.program.files.iter().position(|f| f.module == id.module)?;
+        let is_to_str = matches!(self.s.program.modules[file_idx].items.get(id.item), Some(salvo_syntax::ast::Item::Fn(f)) if f.intrinsic && f.name.name == "to_str");
+        let scalar = matches!(arg.ty.strip_quals(), Ty::Named { name, .. } if matches!(name.as_str(), "Int" | "Long" | "Byte" | "Char" | "Bool" | "Double" | "Float" | "Str"));
+        (is_to_str && scalar).then_some(arg)
+    }
+
+    /// Whether `args` is `cmp(a, b)` on a primitive, against `0`: the shape
+    /// a comparison operator lowered to.
+    fn is_primitive_cmp_sign_test(&self, args: &[Expr]) -> bool {
+        let [call, zero] = args else { return false };
+        if !matches!(zero.kind, ExprKind::Int(0)) {
+            return false;
+        }
+        let ExprKind::Call { target: FnRef::Decl(id), args: inner, .. } = &call.kind else { return false };
+        if inner.len() != 2 {
+            return false;
+        }
+        let file_idx = self.s.program.files.iter().position(|f| f.module == id.module);
+        let is_cmp = file_idx.and_then(|fi| self.s.program.modules[fi].items.get(id.item)).is_some_and(|i| matches!(i, salvo_syntax::ast::Item::Fn(f) if f.intrinsic && f.name.name == "cmp"));
+        is_cmp && matches!(inner[0].ty.strip_quals(), Ty::Named { name, .. } if matches!(name.as_str(), "Int" | "Long" | "Byte" | "Char" | "Double" | "Float"))
     }
 
     fn render_copy(&mut self, plan: &salvo_core::copyplan::CopyPlan, code: &str) -> String {
@@ -1646,7 +1741,13 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let n = from_arms.len();
         let mut arms = Vec::new();
         for (i, a) in from_arms.iter().enumerate() {
-            if let Some(j) = to_arms.iter().position(|b| b == a) {
+            // The same arm, tag and all; else the arm of the same runtime
+            // type (a lift drops the tag: `Ok Str` lands in `Str`).
+            let found = to_arms.iter().position(|b| b == a).or_else(|| {
+                let same: Vec<usize> = to_arms.iter().enumerate().filter(|(_, b)| erase_eq(b, a)).map(|(j, _)| j).collect();
+                (same.len() == 1).then(|| same[0])
+            });
+            if let Some(j) = found {
                 if let Some((ctor, _)) = self.union_arm(to, j) {
                     let at = self.ty(a);
                     let stars = vec!["*"; n].join(", ");

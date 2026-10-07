@@ -5,55 +5,40 @@
 package salvo.fs.host
 
 import salvo.*
-import salvo.core.checked.Checked
-import salvo.core.checked.checked
-import salvo.core.checked.toStr
-import salvo.core.deque.toStr
-import salvo.core.list.toStr
-import salvo.core.map.toStr
-import salvo.core.set.toStr
-import salvo.fs.AlreadyExists
-import salvo.fs.FileInfo
-import salvo.fs.IoError
-import salvo.fs.NotADirectory
-import salvo.fs.NotFound
-import salvo.fs.PathEscapes
-import salvo.fs.PermissionDenied
-import salvo.fs.Streaming
 
 interface RawFs {
-    fun rawOpenRead(path: String): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>
-    fun rawOpenReadAt(path: String, offset: Long): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>
-    fun rawOpenWrite(path: String): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>
-    fun rawOpenAppend(path: String): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>
+    fun rawOpenRead(path: String): Union2<Long, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>
+    fun rawOpenReadAt(path: String, offset: Long): Union2<Long, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>
+    fun rawOpenWrite(path: String): Union2<Long, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>
+    fun rawOpenAppend(path: String): Union2<Long, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>
     fun rawExists(path: String): Boolean
-    fun rawMetadata(path: String): Union2<FileInfo, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>
-    fun rawListDir(path: String): Union2<List<String>, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>
-    fun rawCreateDirs(path: String): Union2<Unit, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>
-    fun rawDelete(path: String): Union2<Unit, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>
-    fun rawRenamePath(from: String, to: String): Union2<Unit, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>
+    fun rawMetadata(path: String): Union2<salvo.fs.FileInfo, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>
+    fun rawListDir(path: String): Union2<List<String>, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>
+    fun rawCreateDirs(path: String): Union2<Unit, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>
+    fun rawDelete(path: String): Union2<Unit, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>
+    fun rawRenamePath(from: String, to: String): Union2<Unit, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>
 }
 
 class __Mon_RawFs(
     private val inner: RawFs,
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : RawFs {
-    override fun rawOpenRead(path: String): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+    override fun rawOpenRead(path: String): Union2<Long, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.rawOpenRead(path) } finally { lock.unlock() }
     }
-    override fun rawOpenReadAt(path: String, offset: Long): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+    override fun rawOpenReadAt(path: String, offset: Long): Union2<Long, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.rawOpenReadAt(path, offset) } finally { lock.unlock() }
     }
-    override fun rawOpenWrite(path: String): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+    override fun rawOpenWrite(path: String): Union2<Long, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.rawOpenWrite(path) } finally { lock.unlock() }
     }
-    override fun rawOpenAppend(path: String): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+    override fun rawOpenAppend(path: String): Union2<Long, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.rawOpenAppend(path) } finally { lock.unlock() }
@@ -63,112 +48,113 @@ class __Mon_RawFs(
         lock.lock()
         try { return inner.rawExists(path) } finally { lock.unlock() }
     }
-    override fun rawMetadata(path: String): Union2<FileInfo, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+    override fun rawMetadata(path: String): Union2<salvo.fs.FileInfo, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.rawMetadata(path) } finally { lock.unlock() }
     }
-    override fun rawListDir(path: String): Union2<List<String>, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+    override fun rawListDir(path: String): Union2<List<String>, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.rawListDir(path) } finally { lock.unlock() }
     }
-    override fun rawCreateDirs(path: String): Union2<Unit, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+    override fun rawCreateDirs(path: String): Union2<Unit, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.rawCreateDirs(path) } finally { lock.unlock() }
     }
-    override fun rawDelete(path: String): Union2<Unit, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+    override fun rawDelete(path: String): Union2<Unit, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.rawDelete(path) } finally { lock.unlock() }
     }
-    override fun rawRenamePath(from: String, to: String): Union2<Unit, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+    override fun rawRenamePath(from: String, to: String): Union2<Unit, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> {
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.rawRenamePath(from, to) } finally { lock.unlock() }
     }
 }
 
-// The interface a `platform handler` of `RawFs` implements [platform-abi].
 interface RawFsPlatform {
-    fun rawOpenRead(path: String): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>
-    fun rawOpenReadAt(path: String, offset: Long): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>
-    fun rawOpenWrite(path: String): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>
-    fun rawOpenAppend(path: String): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>
+    fun rawOpenRead(path: String): Union2<Long, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>
+    fun rawOpenReadAt(path: String, offset: Long): Union2<Long, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>
+    fun rawOpenWrite(path: String): Union2<Long, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>
+    fun rawOpenAppend(path: String): Union2<Long, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>
     fun rawExists(path: String): Boolean
-    fun rawMetadata(path: String): Union2<FileInfo, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>
-    fun rawListDir(path: String): Union2<List<String>, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>
-    fun rawCreateDirs(path: String): Union2<Unit, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>
-    fun rawDelete(path: String): Union2<Unit, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>
-    fun rawRenamePath(from: String, to: String): Union2<Unit, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>
+    fun rawMetadata(path: String): Union2<salvo.fs.FileInfo, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>
+    fun rawListDir(path: String): Union2<List<String>, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>
+    fun rawCreateDirs(path: String): Union2<Unit, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>
+    fun rawDelete(path: String): Union2<Unit, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>
+    fun rawRenamePath(from: String, to: String): Union2<Unit, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>
 }
 
 open class __Platform_RawFs(private val impl: RawFsPlatform) : RawFs {
-    override fun rawOpenRead(path: String): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = impl.rawOpenRead(path)
-    override fun rawOpenReadAt(path: String, offset: Long): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = impl.rawOpenReadAt(path, offset)
-    override fun rawOpenWrite(path: String): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = impl.rawOpenWrite(path)
-    override fun rawOpenAppend(path: String): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = impl.rawOpenAppend(path)
+    override fun rawOpenRead(path: String): Union2<Long, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> = impl.rawOpenRead(path)
+    override fun rawOpenReadAt(path: String, offset: Long): Union2<Long, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> = impl.rawOpenReadAt(path, offset)
+    override fun rawOpenWrite(path: String): Union2<Long, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> = impl.rawOpenWrite(path)
+    override fun rawOpenAppend(path: String): Union2<Long, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> = impl.rawOpenAppend(path)
     override fun rawExists(path: String): Boolean = impl.rawExists(path)
-    override fun rawMetadata(path: String): Union2<FileInfo, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = impl.rawMetadata(path)
-    override fun rawListDir(path: String): Union2<List<String>, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = impl.rawListDir(path)
-    override fun rawCreateDirs(path: String): Union2<Unit, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = impl.rawCreateDirs(path)
-    override fun rawDelete(path: String): Union2<Unit, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = impl.rawDelete(path)
-    override fun rawRenamePath(from: String, to: String): Union2<Unit, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = impl.rawRenamePath(from, to)
+    override fun rawMetadata(path: String): Union2<salvo.fs.FileInfo, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> = impl.rawMetadata(path)
+    override fun rawListDir(path: String): Union2<List<String>, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> = impl.rawListDir(path)
+    override fun rawCreateDirs(path: String): Union2<Unit, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> = impl.rawCreateDirs(path)
+    override fun rawDelete(path: String): Union2<Unit, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> = impl.rawDelete(path)
+    override fun rawRenamePath(from: String, to: String): Union2<Unit, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> = impl.rawRenamePath(from, to)
 }
 
 // Factories for the host: one per arm of the union [platform-factory].
 object RawOpenRead {
-    fun ok(value: Long): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = salvo.Union2.U1(value)
-    fun err(value: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = salvo.Union2.U2(value)
+    fun ok(value: Long): Union2<Long, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> = salvo.Union2.U1(value)
+    fun err(value: Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>): Union2<Long, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> = salvo.Union2.U2(value)
 }
 
 // Factories for the host: one per arm of the union [platform-factory].
 object RawOpenReadAt {
-    fun ok(value: Long): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = salvo.Union2.U1(value)
-    fun err(value: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = salvo.Union2.U2(value)
+    fun ok(value: Long): Union2<Long, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> = salvo.Union2.U1(value)
+    fun err(value: Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>): Union2<Long, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> = salvo.Union2.U2(value)
 }
 
 // Factories for the host: one per arm of the union [platform-factory].
 object RawOpenWrite {
-    fun ok(value: Long): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = salvo.Union2.U1(value)
-    fun err(value: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = salvo.Union2.U2(value)
+    fun ok(value: Long): Union2<Long, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> = salvo.Union2.U1(value)
+    fun err(value: Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>): Union2<Long, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> = salvo.Union2.U2(value)
 }
 
 // Factories for the host: one per arm of the union [platform-factory].
 object RawOpenAppend {
-    fun ok(value: Long): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = salvo.Union2.U1(value)
-    fun err(value: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>): Union2<Long, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = salvo.Union2.U2(value)
+    fun ok(value: Long): Union2<Long, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> = salvo.Union2.U1(value)
+    fun err(value: Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>): Union2<Long, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> = salvo.Union2.U2(value)
 }
 
 // Factories for the host: one per arm of the union [platform-factory].
 object RawMetadata {
-    fun ok(value: FileInfo): Union2<FileInfo, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = salvo.Union2.U1(value)
-    fun err(value: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>): Union2<FileInfo, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = salvo.Union2.U2(value)
+    fun ok(value: salvo.fs.FileInfo): Union2<salvo.fs.FileInfo, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> = salvo.Union2.U1(value)
+    fun err(value: Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>): Union2<salvo.fs.FileInfo, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> = salvo.Union2.U2(value)
 }
 
 // Factories for the host: one per arm of the union [platform-factory].
 object RawListDir {
-    fun ok(value: List<String>): Union2<List<String>, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = salvo.Union2.U1(value)
-    fun err(value: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>): Union2<List<String>, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = salvo.Union2.U2(value)
+    fun ok(value: List<String>): Union2<List<String>, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> = salvo.Union2.U1(value)
+    fun err(value: Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>): Union2<List<String>, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> = salvo.Union2.U2(value)
 }
 
 // Factories for the host: one per arm of the union [platform-factory].
 object RawCreateDirs {
-    fun ok(value: Unit): Union2<Unit, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = salvo.Union2.U1(value)
-    fun err(value: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>): Union2<Unit, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = salvo.Union2.U2(value)
+    fun ok(value: Unit): Union2<Unit, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> = salvo.Union2.U1(value)
+    fun err(value: Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>): Union2<Unit, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> = salvo.Union2.U2(value)
 }
 
 // Factories for the host: one per arm of the union [platform-factory].
 object RawDelete {
-    fun ok(value: Unit): Union2<Unit, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = salvo.Union2.U1(value)
-    fun err(value: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>): Union2<Unit, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = salvo.Union2.U2(value)
+    fun ok(value: Unit): Union2<Unit, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> = salvo.Union2.U1(value)
+    fun err(value: Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>): Union2<Unit, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> = salvo.Union2.U2(value)
 }
 
 // Factories for the host: one per arm of the union [platform-factory].
 object RawRenamePath {
-    fun ok(value: Unit): Union2<Unit, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = salvo.Union2.U1(value)
-    fun err(value: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>): Union2<Unit, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> = salvo.Union2.U2(value)
+    fun ok(value: Unit): Union2<Unit, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> = salvo.Union2.U1(value)
+    fun err(value: Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>): Union2<Unit, Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> = salvo.Union2.U2(value)
 }
 
-class __Platform_HostRawFs() : salvo.fs.host.__Platform_RawFs(salvo.platform.fs.host.HostRawFs())
+
+class __Platform_HostRawFs() : __Platform_RawFs(salvo.platform.fs.host.HostRawFs())
+

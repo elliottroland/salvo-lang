@@ -5,12 +5,6 @@
 package salvo.aws.sqs
 
 import salvo.*
-import salvo.aws.AwsError
-import salvo.core.bytes.addPlatform
-import salvo.core.checked.Checked
-import salvo.core.list.addPlatform
-import salvo.core.set.addPlatform
-import salvo.core.sorted.addPlatform
 
 data class CreateQueueInput(
     val queueName: String,
@@ -200,10 +194,11 @@ object __Codec_SqsError : salvo.WireCodec<SqsError> {
     override fun dec(inp: salvo.WireIn): SqsError = SqsError(salvo.StrCodec.dec(inp), salvo.StrCodec.dec(inp), salvo.IntCodec.dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp))
 }
 
+
 // Factories for the host: one per arm of the union [platform-factory].
 object SqsFailures {
-    fun sqsError(value: SqsError): Union2<SqsError, AwsError> = salvo.Union2.U1(value)
-    fun awsError(value: AwsError): Union2<SqsError, AwsError> = salvo.Union2.U2(value)
+    fun sqsError(value: SqsError): Union2<SqsError, salvo.aws.AwsError> = salvo.Union2.U1(value)
+    fun awsError(value: salvo.aws.AwsError): Union2<SqsError, salvo.aws.AwsError> = salvo.Union2.U2(value)
 }
 
 interface Sqs {
@@ -251,7 +246,6 @@ class __Mon_Sqs(
     }
 }
 
-// The interface a `platform handler` of `Sqs` implements [platform-abi].
 interface SqsPlatform {
     fun createQueue(input: CreateQueueInput, reply: salvo.SalvoReply)
     fun getQueueUrl(input: GetQueueUrlInput, reply: salvo.SalvoReply)
@@ -272,36 +266,37 @@ open class __Platform_Sqs(private val impl: SqsPlatform) : Sqs {
 
 // Factories for the host: one per arm of the union [platform-factory].
 object CreateQueue {
-    fun ok(value: CreateQueueOutput): Union2<CreateQueueOutput, Checked<Union2<SqsError, AwsError>>> = salvo.Union2.U1(value)
-    fun err(value: Checked<Union2<SqsError, AwsError>>): Union2<CreateQueueOutput, Checked<Union2<SqsError, AwsError>>> = salvo.Union2.U2(value)
+    fun ok(value: CreateQueueOutput): Union2<CreateQueueOutput, salvo.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>> = salvo.Union2.U1(value)
+    fun err(value: salvo.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>): Union2<CreateQueueOutput, salvo.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>> = salvo.Union2.U2(value)
 }
 
 // Factories for the host: one per arm of the union [platform-factory].
 object GetQueueUrl {
-    fun ok(value: GetQueueUrlOutput): Union2<GetQueueUrlOutput, Checked<Union2<SqsError, AwsError>>> = salvo.Union2.U1(value)
-    fun err(value: Checked<Union2<SqsError, AwsError>>): Union2<GetQueueUrlOutput, Checked<Union2<SqsError, AwsError>>> = salvo.Union2.U2(value)
+    fun ok(value: GetQueueUrlOutput): Union2<GetQueueUrlOutput, salvo.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>> = salvo.Union2.U1(value)
+    fun err(value: salvo.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>): Union2<GetQueueUrlOutput, salvo.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>> = salvo.Union2.U2(value)
 }
 
 // Factories for the host: one per arm of the union [platform-factory].
 object SendMessage {
-    fun ok(value: SendMessageOutput): Union2<SendMessageOutput, Checked<Union2<SqsError, AwsError>>> = salvo.Union2.U1(value)
-    fun err(value: Checked<Union2<SqsError, AwsError>>): Union2<SendMessageOutput, Checked<Union2<SqsError, AwsError>>> = salvo.Union2.U2(value)
+    fun ok(value: SendMessageOutput): Union2<SendMessageOutput, salvo.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>> = salvo.Union2.U1(value)
+    fun err(value: salvo.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>): Union2<SendMessageOutput, salvo.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>> = salvo.Union2.U2(value)
 }
 
 // Factories for the host: one per arm of the union [platform-factory].
 object ReceiveMessage {
-    fun ok(value: ReceiveMessageOutput): Union2<ReceiveMessageOutput, Checked<Union2<SqsError, AwsError>>> = salvo.Union2.U1(value)
-    fun err(value: Checked<Union2<SqsError, AwsError>>): Union2<ReceiveMessageOutput, Checked<Union2<SqsError, AwsError>>> = salvo.Union2.U2(value)
+    fun ok(value: ReceiveMessageOutput): Union2<ReceiveMessageOutput, salvo.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>> = salvo.Union2.U1(value)
+    fun err(value: salvo.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>): Union2<ReceiveMessageOutput, salvo.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>> = salvo.Union2.U2(value)
 }
 
 // Factories for the host: one per arm of the union [platform-factory].
 object DeleteMessage {
-    fun ok(value: Unit): Union2<Unit, Checked<Union2<SqsError, AwsError>>> = salvo.Union2.U1(value)
-    fun err(value: Checked<Union2<SqsError, AwsError>>): Union2<Unit, Checked<Union2<SqsError, AwsError>>> = salvo.Union2.U2(value)
+    fun ok(value: Unit): Union2<Unit, salvo.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>> = salvo.Union2.U1(value)
+    fun err(value: salvo.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>): Union2<Unit, salvo.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>> = salvo.Union2.U2(value)
 }
 
 // Factories for the host: one per arm of the union [platform-factory].
 object DeleteQueue {
-    fun ok(value: Unit): Union2<Unit, Checked<Union2<SqsError, AwsError>>> = salvo.Union2.U1(value)
-    fun err(value: Checked<Union2<SqsError, AwsError>>): Union2<Unit, Checked<Union2<SqsError, AwsError>>> = salvo.Union2.U2(value)
+    fun ok(value: Unit): Union2<Unit, salvo.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>> = salvo.Union2.U1(value)
+    fun err(value: salvo.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>): Union2<Unit, salvo.core.checked.Checked<Union2<SqsError, salvo.aws.AwsError>>> = salvo.Union2.U2(value)
 }
+

@@ -40,32 +40,20 @@ Conventions:
     found the day it left `core` (2026-09-26). Identifiers keep the backquote
     form; only path segments mangle, because a package is not an identifier
     position.
-* [kt-imports] Files get generated Kotlin imports, **one per name** (user
-  decision 2026-10-05): `import salvo.<module>.<name>` for each Salvo
-  declaration of a foreign emitted module the file refers to, written after
-  every module is emitted. What a file refers to comes from the checker
-  (`emit_util::checker_refs`, shared with the Rust backend) plus the names the
-  emitter registers as it synthesizes them (`imports::note`: `__Mon_E`,
-  `__Codec_M`, `__PROTO_E`, `Finished`, ...); `imports.rs` reads only what
-  each module *declares* off the emitted text. A fn the
-  emitter calls is imported from the module the checker resolved it to, under
-  its own name, or under `<name>__<module>` when the file uses a fn of the
-  same emitted name from two modules, or from another module and its own
-  ([fn-emit-name]; the clash is decided from the checker's resolutions, so a
-  name visible but unused never renames one that is used). A platform fn's
-  wrapper is named and imported the same way (`sizePlatform__core_list`). A
-  name several modules declare as a fn is imported from each — how a
-  predicate qualifier's `Q_qualifies` still overloads by subject — and one
-  where any is a class from none. Extension fns are imported wherever their
-  name appears. Only `import salvo.*`, the runtime package, stays a wildcard:
-  it declares no Salvo name. An aliased Salvo
-  import of a Kotlin-visible item (fn with body, struct, effect, handler)
-  emits `import salvo.<module>.<name> as <alias>`, and call sites keep
-  the alias; intrinsics (whose lowerings are fully qualified, so they
-  pull in no import [intrinsic-fn]), type aliases, and qualifiers need no
-  alias import.
-  * An aliased import of a suffixed overload keeps the suffix on the alias
-    (`shout__Str as holler__Str`), one import per overload [fn-emit-name].
+* [kt-ir] **The Kotlin emitter reads the IR** (IR.md; the AST emitter it
+  replaced was deleted 2026-10-06). It decides representation only — wrapper
+  unions, `T?`, `StringBuilder`, `when`/`if` chains, `while (true)` loops,
+  anonymous `fun`s for lambdas, `run {}` blocks for values, monitors, the
+  actor classes and codecs — and every fact it renders (which declaration a
+  reference names, which arm a narrowing reads, what a value's type is, what a
+  boundary checks) is the IR's.
+* [kt-imports] **References are fully qualified**, so a file imports only the
+  runtime package (`import salvo.*`): a foreign fn is `salvo.<module>.<fn>`,
+  a foreign type `salvo.<module>.<Type>`, and an aliased Salvo import leaves
+  no trace (the reference is the declaration's own). A fn value of another
+  module is a forwarding lambda, since a callable reference cannot name a
+  package. (Before the IR the backend wrote one import per name, with
+  renames for clashing names; qualification made all of that unnecessary.)
 * [kt-entry] `fn main() [use]` emits as `fun main()` with *no* effect
   parameters; the entry point is `salvo.<module>.MainKt` (`main.sv` →
   `salvo.main.MainKt`; the CLI prints it after compiling).
@@ -355,14 +343,14 @@ Conventions:
   * A `T?`-subject `when` lowers to a subject-less Kotlin `when` whose
     last branch becomes `else` (kotlinc demands one on expression `when`;
     sound because the checker proved exhaustiveness).
-* [kt-narrow-field-assert] A `T?`-representation **field** narrowed to its
-  value arm ([flow-place]) emits an explicit `!!` rather than relying on a
-  smart cast: Kotlin refuses to smart-cast a property ("could be mutated
-  concurrently"), and a `canbe Mut` struct's fields emit as `var`, so the
-  read would not compile. Local variables do smart-cast and keep the plain
-  read. The assert can never fire — the checker proved non-nullness and
-  invalidates the fact on any mutation ([flow-place-invalidate]) — it is
-  what keeps emitted Kotlin compilable ([backend-never-wrong]).
+* [kt-narrow-field-assert] A narrowing ([ir-narrow]) is a typed `val`
+  binding where the test held: `val n: Int = x!!` for a `T?`, the arm's
+  payload for a wrapper union (`((x as Union2.U1<*, *>).value as Int)`). One
+  shape for locals, `val` and `var` properties and projections alike, so no
+  read relies on a Kotlin smart cast (which a property refuses — "could be
+  mutated concurrently"). The `!!` can never fire: the checker proved
+  non-nullness, and an assignment through the name writes the storage and
+  ends the narrowing ([flow-place-invalidate]).
 * [kt-field-canbe-mut] A `canbe Mut T` field [field-canbe-mut] is one
   property for both shapes of its struct, declared at the **plain** `T`'s
   rendering (`var items: List<Int>`): a `Mut` struct stores a

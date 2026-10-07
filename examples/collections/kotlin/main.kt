@@ -1,64 +1,6 @@
 package salvo.main
 
 import salvo.*
-import salvo.core.checked.toStr
-import salvo.core.compare.mixHash
-import salvo.core.console.Console
-import salvo.core.console.__Platform_StdOutConsole
-import salvo.core.console.println
-import salvo.core.iterator.Finished
-import salvo.core.list.addPlatform
-import salvo.core.list.addPlatform as addPlatform__core_list
-import salvo.core.list.addSorted
-import salvo.core.list.at
-import salvo.core.list.binarySearch
-import salvo.core.list.first
-import salvo.core.list.get
-import salvo.core.list.iter
-import salvo.core.list.listBy
-import salvo.core.list.mutSort
-import salvo.core.list.sizePlatform
-import salvo.core.list.sizePlatform as sizePlatform__core_list
-import salvo.core.list.sort
-import salvo.core.list.toStr
-import salvo.core.list.toStr as toStr__core_list
-import salvo.core.map.MapKeyYield
-import salvo.core.map.eq
-import salvo.core.map.get
-import salvo.core.map.getPlatform
-import salvo.core.map.iter
-import salvo.core.map.iter as iter__core_map
-import salvo.core.map.mapOfPlatform
-import salvo.core.map.mutMapOfPlatform
-import salvo.core.map.next__MapKeyYield
-import salvo.core.map.putPlatform
-import salvo.core.map.sizePlatform
-import salvo.core.map.toMap
-import salvo.core.map.toStr
-import salvo.core.map.toStr as toStr__core_map
-import salvo.core.set.SetYield
-import salvo.core.set.addPlatform
-import salvo.core.set.addPlatform as addPlatform__core_set
-import salvo.core.set.eq
-import salvo.core.set.iter
-import salvo.core.set.iter as iter__core_set
-import salvo.core.set.mutSetOfPlatform
-import salvo.core.set.next
-import salvo.core.set.setOfPlatform
-import salvo.core.set.sizePlatform
-import salvo.core.set.sizePlatform as sizePlatform__core_set
-import salvo.core.set.toListPlatform
-import salvo.core.set.toSetPlatform
-import salvo.core.set.toStr
-import salvo.core.set.toStr as toStr__core_set
-import salvo.core.sorted.addPlatform
-import salvo.core.sorted.min
-import salvo.core.sorted.minPlatform
-import salvo.core.sorted.mutSortedSetOfPlatform
-import salvo.core.sorted.toStr__SortedSet
-import salvo.core.string.iter
-import salvo.core.string.sizePlatform
-import salvo.core.string.sizePlatform as sizePlatform__core_string
 
 data class Point(
     val x: Int,
@@ -85,141 +27,164 @@ object __Codec_Note : salvo.WireCodec<Note> {
 }
 
 fun byLen(a: String, b: String): Int {
-    return (sizePlatform__core_string(a)).compareTo(sizePlatform__core_string(b))
+    return (salvo.core.string.sizePlatform(a)).compareTo(salvo.core.string.sizePlatform(b))
 }
 
 fun countUnique(xs: List<Int>): Int {
-    return sizePlatform__core_list(xs)
+    return salvo.core.list.sizePlatform(xs)
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun main() {
-    val console: Console = salvo.core.console.__Platform_StdOutConsole()
-    val primes = listOf<Int>(2, 3, 5, 7)
-    val vowels = setOfPlatform(arrayOf("a", "e", "i", "o", "u"), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
-    val ages = mapOfPlatform(arrayOf(Pair("ada", 36), Pair("grace", 45)), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
-    println(console, "1. list ${toStr__core_list(primes, { __i0 -> (__i0).toString() })}")
-    println(console, "1. set ${toStr__core_set(vowels, { __i0 -> __i0 })} of ${sizePlatform__core_set(vowels)}")
-    println(console, "1. map ${toStr__core_map(ages, { __i0 -> __i0 }, { __i0 -> (__i0).toString() }, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })}")
+    val __use_1: salvo.core.console.__Platform_StdOutConsole = salvo.core.console.__Platform_StdOutConsole()
+    val __handle_2: salvo.core.console.Console = __use_1
+    val primes: List<Int> = listOf<Int>(2, 3, 5, 7)
+    val vowels: salvo.platform.core.set.Set<String> = salvo.core.set.setOfPlatform(arrayOf<String>("a", "e", "i", "o", "u"), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+    val ages: salvo.platform.core.map.Map<String, Int> = salvo.core.map.mapOfPlatform(arrayOf<Pair<String, Int>>(Pair("ada", 36), Pair("grace", 45)), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+    salvo.core.console.println(__handle_2, "1. list ${salvo.core.list.toStr(primes, { __a0 -> (__a0).toString() })}")
+    salvo.core.console.println(__handle_2, "1. set ${salvo.core.set.toStr(vowels, { __a0 -> __a0 })} of ${salvo.core.set.sizePlatform(vowels)}")
+    salvo.core.console.println(__handle_2, "1. map ${salvo.core.map.toStr(ages, { __a0 -> __a0 }, { __a0 -> (__a0).toString() }, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })}")
     val note: Note = Note(text = "still a struct literal")
-    println(console, "1. struct ${note.text}")
-    val seen: salvo.platform.core.set.MutSet<String> = mutSetOfPlatform(arrayOf(), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
-    addPlatform__core_set(seen, "first", { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
-    println(console, "1. empty then filled ${toStr__core_set(seen, { __i0 -> __i0 })}")
-    val tally: salvo.platform.core.map.MutMap<String, Int> = mutMapOfPlatform(arrayOf(Pair("pear", 1), Pair("apple", 2)), { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
-    putPlatform(tally, "fig", 3, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
-    putPlatform(tally, "pear", 99, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
-    println(console, "2. insertion order kept ${toStr__core_map(tally, { __i0 -> __i0 }, { __i0 -> (__i0).toString() }, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })}")
-    val ranked: salvo.platform.core.sorted.MutSortedSet<String> = mutSortedSetOfPlatform(arrayOf("pear", "apple", "fig"), { __i0, __i1 -> salvo.__salvoCompare(__i0, __i1) })
-    println(console, "2. key order ${toStr__SortedSet(ranked, { __i0 -> __i0 })}")
-    val smallest = minPlatform(ranked)
-    if (smallest != null) {
-        println(console, "2. min is cheap here $smallest")
+    salvo.core.console.println(__handle_2, "1. struct ${note.text}")
+    val seen: salvo.platform.core.set.MutSet<String> = salvo.core.set.mutSetOfPlatform(arrayOf<String>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+    salvo.core.set.addPlatform(seen, "first", { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+    salvo.core.console.println(__handle_2, "1. empty then filled ${salvo.core.set.toStr(seen, { __a0 -> __a0 })}")
+    val tally: salvo.platform.core.map.MutMap<String, Int> = salvo.core.map.mutMapOfPlatform(arrayOf<Pair<String, Int>>(Pair("pear", 1), Pair("apple", 2)), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+    salvo.core.map.putPlatform(tally, "fig", 3, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+    salvo.core.map.putPlatform(tally, "pear", 99, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+    salvo.core.console.println(__handle_2, "2. insertion order kept ${salvo.core.map.toStr(tally, { __a0 -> __a0 }, { __a0 -> (__a0).toString() }, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })}")
+    val ranked: salvo.platform.core.sorted.MutSortedSet<String> = salvo.core.sorted.mutSortedSetOfPlatform(arrayOf<String>("pear", "apple", "fig"), { __a0, __a1 -> salvo.__salvoCompare(__a0, __a1) })
+    salvo.core.console.println(__handle_2, "2. key order ${salvo.core.sorted.toStr__SortedSet(ranked, { __a0 -> __a0 })}")
+    val smallest: String? = salvo.core.sorted.minPlatform(ranked)
+    if ((smallest != null)) {
+        val smallest_3: String = smallest!!
+        salvo.core.console.println(__handle_2, "2. min is cheap here ${smallest_3}")
     }
-    val corners: salvo.platform.core.set.MutSet<Point> = mutSetOfPlatform(arrayOf(), ::hash, ::eq__Point_Point)
-    addPlatform__core_set(corners, Point(x = 0, y = 0), ::hash, ::eq__Point_Point)
-    val again = addPlatform__core_set(corners, Point(x = 0, y = 0), ::hash, ::eq__Point_Point)
-    println(console, "3. struct key: size ${sizePlatform__core_set(corners)}, second add $again")
-    val labels: salvo.platform.core.map.MutMap<Point, String> = mutMapOfPlatform(arrayOf(), ::hash, ::eq__Point_Point)
-    putPlatform(labels, Point(x = 1, y = 1), "diagonal", ::hash, ::eq__Point_Point)
-    val found = getPlatform(labels, Point(x = 1, y = 1), ::hash, ::eq__Point_Point)
-    if (found != null) {
-        println(console, "3. looked up by value $found")
+    val corners: salvo.platform.core.set.MutSet<Point> = salvo.core.set.mutSetOfPlatform(arrayOf<Point>(), ::hash, ::eq__Point_Point)
+    salvo.core.set.addPlatform(corners, Point(x = 0, y = 0), ::hash, ::eq__Point_Point)
+    val again: Boolean = salvo.core.set.addPlatform(corners, Point(x = 0, y = 0), ::hash, ::eq__Point_Point)
+    salvo.core.console.println(__handle_2, "3. struct key: size ${salvo.core.set.sizePlatform(corners)}, second add ${again}")
+    val labels: salvo.platform.core.map.MutMap<Point, String> = salvo.core.map.mutMapOfPlatform(arrayOf<Pair<Point, String>>(), ::hash, ::eq__Point_Point)
+    salvo.core.map.putPlatform(labels, Point(x = 1, y = 1), "diagonal", ::hash, ::eq__Point_Point)
+    val found: String? = salvo.core.map.getPlatform(labels, Point(x = 1, y = 1), ::hash, ::eq__Point_Point)
+    if ((found != null)) {
+        val found_4: String = found!!
+        salvo.core.console.println(__handle_2, "3. looked up by value ${found_4}")
     }
-    val a = Point(x = 1, y = 2)
-    val b = Point(x = 1, y = 2)
-    val c = Point(x = 1, y = 9)
-    val same = eq__Point_Point(a, b)
-    val before = cmp(a, c) < 0
-    println(console, "4. equal $same, ordered $before")
-    val n1 = Note(text = "same")
-    val n2 = Note(text = "same")
-    val notesEqual = eq__Note_Note(n1, n2)
-    println(console, "4. plain struct equality $notesEqual")
-    val squares = listBy(4, { i -> i * i })
-    println(console, "5. generated ${toStr__core_list(squares, { __i0 -> (__i0).toString() })}")
-    val deduped = toSetPlatform(primes, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
-    println(console, "5. to_set ${toStr__core_set(deduped, { __i0 -> (__i0).toString() })}")
-    val words = listOf<String>("alpha", "be")
-    val lengths = toMap(words, { w -> Pair(w, sizePlatform__core_string(w)) }, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
-    println(console, "5. to_map with a rule ${toStr__core_map(lengths, { __i0 -> __i0 }, { __i0 -> (__i0).toString() }, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })}")
-    val filled = listOf<String>("ada", "grace")
-    println(console, "6. first is ${first(filled)}, no optional")
+    val a: Point = Point(x = 1, y = 2)
+    val b: Point = Point(x = 1, y = 2)
+    val c: Point = Point(x = 1, y = 9)
+    val same: Boolean = eq__Point_Point(a, b)
+    val before: Boolean = (cmp(a, c) < 0)
+    salvo.core.console.println(__handle_2, "4. equal ${same}, ordered ${before}")
+    val n1: Note = Note(text = "same")
+    val n2: Note = Note(text = "same")
+    val notesEqual: Boolean = eq__Note_Note(n1, n2)
+    salvo.core.console.println(__handle_2, "4. plain struct equality ${notesEqual}")
+    val squares: List<Int> = salvo.core.list.listBy(4, fun(i: Int): Int {
+        return (i * i)
+    })
+    salvo.core.console.println(__handle_2, "5. generated ${salvo.core.list.toStr(squares, { __a0 -> (__a0).toString() })}")
+    val deduped: salvo.platform.core.set.Set<Int> = salvo.core.set.toSetPlatform(primes, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+    salvo.core.console.println(__handle_2, "5. to_set ${salvo.core.set.toStr(deduped, { __a0 -> (__a0).toString() })}")
+    val words: List<String> = listOf<String>("alpha", "be")
+    val lengths: salvo.platform.core.map.Map<String, Int> = salvo.core.map.toMap(words, fun(w: String): Pair<String, Int> {
+        return Pair(w, salvo.core.string.sizePlatform(w))
+    }, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+    salvo.core.console.println(__handle_2, "5. to_map with a rule ${salvo.core.map.toStr(lengths, { __a0 -> __a0 }, { __a0 -> (__a0).toString() }, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })}")
+    val filled: List<String> = listOf<String>("ada", "grace")
+    salvo.core.console.println(__handle_2, "6. first is ${salvo.core.list.first(filled)}, no optional")
     val growing: salvo.platform.core.list.MutList<Int> = mutableListOf<Int>()
-    addPlatform__core_list(growing, 7)
-    println(console, "6. after add, first is ${first(growing)}")
-    val ordered = sort(listOf<Int>(40, 10, 30, 20), { __i0, __i1 -> (__i0).compareTo(__i1) })
-    println(console, "6. sorted ${toStr__core_list(ordered, { __i0 -> (__i0).toString() })}")
-    var __is1 = binarySearch(ordered, 30, { __i0, __i1 -> (__i0).compareTo(__i1) })
-    if (__is1 != null) {
-        val at = __is1 as Int
-        println(console, "6. found 30 at $at")
+    salvo.core.list.addPlatform(growing, 7)
+    salvo.core.console.println(__handle_2, "6. after add, first is ${salvo.core.list.first(growing)}")
+    val ordered: List<Int> = salvo.core.list.sort(listOf<Int>(40, 10, 30, 20), { __a0, __a1 -> (__a0).compareTo(__a1) })
+    salvo.core.console.println(__handle_2, "6. sorted ${salvo.core.list.toStr(ordered, { __a0 -> (__a0).toString() })}")
+    val __subject_5: Int? = salvo.core.list.binarySearch(ordered, 30, { __a0, __a1 -> (__a0).compareTo(__a1) })
+    if ((__subject_5 != null)) {
+        val at: Int = __subject_5!!
+        salvo.core.console.println(__handle_2, "6. found 30 at ${at}")
     }
-    val live: salvo.platform.core.list.MutList<Int> = mutSort(listOf<Int>(10, 30), { __i0, __i1 -> (__i0).compareTo(__i1) })
-    addSorted(live, 20, { __i0, __i1 -> (__i0).compareTo(__i1) })
-    addSorted(live, 5, { __i0, __i1 -> (__i0).compareTo(__i1) })
-    println(console, "6. still sorted ${toStr__core_list(live, { __i0 -> (__i0).toString() })}")
-    val bylen = sort(listOf<String>("alpha", "be", "z"), ::byLen)
-    println(console, "6. by length ${toStr__core_list(bylen, { __i0 -> __i0 })}")
-    var __is2 = binarySearch(bylen, "hi", ::byLen)
-    if (__is2 != null) {
-        val atLen = __is2 as Int
-        println(console, "6. a two-letter word at $atLen")
+    val live: salvo.platform.core.list.MutList<Int> = salvo.core.list.mutSort(listOf<Int>(10, 30), { __a0, __a1 -> (__a0).compareTo(__a1) })
+    salvo.core.list.addSorted(live, 20, { __a0, __a1 -> (__a0).compareTo(__a1) })
+    salvo.core.list.addSorted(live, 5, { __a0, __a1 -> (__a0).compareTo(__a1) })
+    salvo.core.console.println(__handle_2, "6. still sorted ${salvo.core.list.toStr(live, { __a0 -> (__a0).toString() })}")
+    val bylen: List<String> = salvo.core.list.sort(listOf<String>("alpha", "be", "z"), ::byLen)
+    salvo.core.console.println(__handle_2, "6. by length ${salvo.core.list.toStr(bylen, { __a0 -> __a0 })}")
+    val __subject_6: Int? = salvo.core.list.binarySearch(bylen, "hi", ::byLen)
+    if ((__subject_6 != null)) {
+        val atLen: Int = __subject_6!!
+        salvo.core.console.println(__handle_2, "6. a two-letter word at ${atLen}")
     }
-    val unique = toListPlatform(deduped)
-    println(console, "6. distinct ${toStr__core_list(unique, { __i0 -> (__i0).toString() })} of ${countUnique(unique)}")
-    var __loop1_pass = iter__core_set(vowels)
+    val unique: List<Int> = salvo.core.set.toListPlatform(deduped)
+    salvo.core.console.println(__handle_2, "6. distinct ${salvo.core.list.toStr(unique, { __a0 -> (__a0).toString() })} of ${countUnique(unique)}")
+    val __pass_7: salvo.core.set.SetYield<String> = salvo.core.set.iter(vowels)
     while (true) {
-        val __loop1_step = next(__loop1_pass)
-        if (__loop1_step !is Union2.U1<*, *>) { break }
-        val v = __loop1_step.value as String
-        console.print(v)
+        val __step_8: Union2<String, salvo.core.iterator.Finished> = salvo.core.set.next(__pass_7)
+        when {
+            (__step_8 is Union2.U1<*, *>) -> {
+                val __emitted_9: String = ((__step_8 as Union2.U1<*, *>).value as String)
+                val v: String = __emitted_9
+                __handle_2.print(v)
+            }
+            else -> {
+                break
+            }
+        }
     }
-    println(console, "")
-    var __loop2_pass = iter__core_map(ages)
+    salvo.core.console.println(__handle_2, "")
+    val __pass_10: salvo.core.map.MapKeyYield<String> = salvo.core.map.iter(ages)
     while (true) {
-        val __loop2_step = next__MapKeyYield(__loop2_pass)
-        if (__loop2_step !is Union2.U1<*, *>) { break }
-        val name = __loop2_step.value as String
-        val age = getPlatform(ages, name, { __i0 -> (__i0).hashCode().toLong() }, { __i0, __i1 -> ((__i0) == (__i1)) })
-        if (age != null) {
-            println(console, "7. $name is $age")
+        val __step_11: Union2<String, salvo.core.iterator.Finished> = salvo.core.map.next__MapKeyYield(__pass_10)
+        when {
+            (__step_11 is Union2.U1<*, *>) -> {
+                val __emitted_12: String = ((__step_11 as Union2.U1<*, *>).value as String)
+                val name: String = __emitted_12
+                val age: Int? = salvo.core.map.getPlatform(ages, name, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+                if ((age != null)) {
+                    val age_13: Int = age!!
+                    salvo.core.console.println(__handle_2, "7. ${name} is ${age_13}")
+                }
+            }
+            else -> {
+                break
+            }
         }
     }
 }
 
 fun cmp(a: Point, b: Point): Int {
-    val c__c1 = (a.x).compareTo(b.x)
-    if (c__c1 != 0) {
+    val c__c1: Int = (a.x).compareTo(b.x)
+    if (!(((c__c1) == (0)))) {
         return c__c1
     }
-    val c__c2 = (a.y).compareTo(b.y)
-    if (c__c2 != 0) {
+    val c__c2: Int = (a.y).compareTo(b.y)
+    if (!(((c__c2) == (0)))) {
         return c__c2
     }
     return 0
 }
 
 fun hash(value: Point): Long {
-    var h = 17L
-    h = mixHash(h, (value.x).hashCode().toLong())
-    h = mixHash(h, (value.y).hashCode().toLong())
+    var h: Long = 17L
+    h = salvo.core.compare.mixHash(h, (value.x).hashCode().toLong())
+    h = salvo.core.compare.mixHash(h, (value.y).hashCode().toLong())
     return h
 }
 
 fun eq__Point_Point(a: Point, b: Point): Boolean {
-    if (!((a.x) == (b.x))) {
+    if (!(((a.x) == (b.x)))) {
         return false
     }
-    if (!((a.y) == (b.y))) {
+    if (!(((a.y) == (b.y)))) {
         return false
     }
     return true
 }
 
 fun eq__Note_Note(a: Note, b: Note): Boolean {
-    if (!((a.text) == (b.text))) {
+    if (!(((a.text) == (b.text)))) {
         return false
     }
     return true
 }
+

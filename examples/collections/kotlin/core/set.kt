@@ -1,81 +1,55 @@
 package salvo.core.set
 
 import salvo.*
-import salvo.core.iterator.Finished
-import salvo.core.iterator.emitted
-import salvo.core.iterator.finished
-import salvo.core.list.contains
-import salvo.core.string.appendPlatform
-import salvo.core.string.mutStr
 
-inline fun<T> setOfPlatform(elems: Array<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): salvo.platform.core.set.Set<T> {
-    return salvo.platform.core.set.setOf(elems, hash, eq)
-}
+fun<T> setOfPlatform(elems: Array<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): salvo.platform.core.set.Set<T> = salvo.platform.core.set.setOf(elems, hash, eq)
 
-inline fun<T> mutSetOfPlatform(elems: Array<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): salvo.platform.core.set.MutSet<T> {
-    return salvo.platform.core.set.mutSetOf(elems, hash, eq)
-}
+fun<T> mutSetOfPlatform(elems: Array<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): salvo.platform.core.set.MutSet<T> = salvo.platform.core.set.mutSetOf(elems, hash, eq)
 
-inline fun<T> setByPlatform(size: Int, init: (Int) -> T, hash: (T) -> Long, eq: (T, T) -> Boolean): salvo.platform.core.set.Set<T> {
-    return salvo.platform.core.set.setBy(size, init, hash, eq)
-}
+fun<T> setByPlatform(size: Int, init: (Int) -> T, hash: (T) -> Long, eq: (T, T) -> Boolean): salvo.platform.core.set.Set<T> = salvo.platform.core.set.setBy(size, init, hash, eq)
 
-inline fun<T> mutSetByPlatform(size: Int, init: (Int) -> T, hash: (T) -> Long, eq: (T, T) -> Boolean): salvo.platform.core.set.MutSet<T> {
-    return salvo.platform.core.set.mutSetBy(size, init, hash, eq)
-}
+fun<T> mutSetByPlatform(size: Int, init: (Int) -> T, hash: (T) -> Long, eq: (T, T) -> Boolean): salvo.platform.core.set.MutSet<T> = salvo.platform.core.set.mutSetBy(size, init, hash, eq)
 
-inline fun<T> toSetPlatform(list: List<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): salvo.platform.core.set.Set<T> {
-    return salvo.platform.core.set.toSet(list, hash, eq)
-}
+fun<T> toSetPlatform(list: List<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): salvo.platform.core.set.Set<T> = salvo.platform.core.set.toSet(list, hash, eq)
 
-inline fun<T> addPlatform(set: salvo.platform.core.set.MutSet<T>, elem: T, hash: (T) -> Long, eq: (T, T) -> Boolean): Boolean {
-    return salvo.platform.core.set.add(set, elem, hash, eq)
-}
+fun<T> addPlatform(set: salvo.platform.core.set.MutSet<T>, elem: T, hash: (T) -> Long, eq: (T, T) -> Boolean): Boolean = salvo.platform.core.set.add(set, elem, hash, eq)
 
-inline fun<T> removePlatform(set: salvo.platform.core.set.MutSet<T>, elem: T, hash: (T) -> Long, eq: (T, T) -> Boolean): Boolean {
-    return salvo.platform.core.set.remove(set, elem, hash, eq)
-}
+fun<T> removePlatform(set: salvo.platform.core.set.MutSet<T>, elem: T, hash: (T) -> Long, eq: (T, T) -> Boolean): Boolean = salvo.platform.core.set.remove(set, elem, hash, eq)
 
-inline fun<T> containsPlatform(set: salvo.platform.core.set.Set<T>, elem: T, hash: (T) -> Long, eq: (T, T) -> Boolean): Boolean {
-    return salvo.platform.core.set.contains(set, elem, hash, eq)
-}
+fun<T> containsPlatform(set: salvo.platform.core.set.Set<T>, elem: T, hash: (T) -> Long, eq: (T, T) -> Boolean): Boolean = salvo.platform.core.set.contains(set, elem, hash, eq)
 
-fun<T> sizePlatform(set: salvo.platform.core.set.Set<T>): Int {
-    return salvo.platform.core.set.size(set)
-}
+fun<T> sizePlatform(set: salvo.platform.core.set.Set<T>): Int = salvo.platform.core.set.size(set)
 
 fun<T> toStr(set: salvo.platform.core.set.Set<T>, toStr: (T) -> String): String {
-    val out = mutStr(arrayOf("{"))
-    var i = 0
+    val out: salvo.platform.core.string.MutStr = salvo.core.string.mutStr(arrayOf<String>("{"))
+    var i: Int = 0
     for (x in salvo.platform.core.set.each(set)) {
-        if (i > 0) {
-            appendPlatform(out, ", ")
+        if ((i > 0)) {
+            salvo.core.string.appendPlatform(out, ", ")
         }
-        appendPlatform(out, toStr(x))
-        i = i + 1
+        salvo.core.string.appendPlatform(out, toStr(x))
+        i = (i + 1)
     }
-    appendPlatform(out, "}")
+    salvo.core.string.appendPlatform(out, "}")
     return out.toString()
 }
 
 fun<T> eq(a: salvo.platform.core.set.Set<T>, b: salvo.platform.core.set.Set<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): Boolean {
-    if (sizePlatform(a) != sizePlatform(b)) {
+    if (!(((sizePlatform(a)) == (sizePlatform(b))))) {
         return false
     }
     for (x in salvo.platform.core.set.each(a)) {
-        if (!containsPlatform(b, x, hash, eq)) {
+        if (!(containsPlatform(b, x, hash, eq))) {
             return false
         }
     }
     return true
 }
 
-fun<T> toListPlatform(set: salvo.platform.core.set.Set<T>): List<T> {
-    return salvo.platform.core.set.toList(set)
-}
+fun<T> toListPlatform(set: salvo.platform.core.set.Set<T>): List<T> = salvo.platform.core.set.toList(set)
 
 fun<T> iter(set: salvo.platform.core.set.Set<T>): SetYield<T> {
-    return SetYield(items = toListPlatform(set), at = 0)
+    return SetYield<T>(items = toListPlatform(set), at = 0)
 }
 
 data class SetYield<T>(
@@ -91,15 +65,17 @@ class __Codec_SetYield<T>(private val __c_T: salvo.WireCodec<T>) : salvo.WireCod
     override fun dec(inp: salvo.WireIn): SetYield<T> = SetYield(salvo.ListCodec(__c_T).dec(inp), salvo.IntCodec.dec(inp))
 }
 
-fun<T> next(p: SetYield<T>): Union2<T, Finished> {
-    val elem = p.items.getOrNull(p.at)
-    if (elem == null) {
-        return Union2.U2<T, Finished>(finished())
+fun<T> next(p: SetYield<T>): Union2<T, salvo.core.iterator.Finished> {
+    val elem: T? = p.items.getOrNull(p.at)
+    if ((elem == null)) {
+        return Union2.U2<T, salvo.core.iterator.Finished>(salvo.core.iterator.finished())
     }
-    p.at = p.at + 1
-    return Union2.U1<T, Finished>(emitted(elem))
+    p.at = (p.at + 1)
+    val elem_1: T = elem!!
+    return Union2.U1<T, salvo.core.iterator.Finished>(salvo.core.iterator.emitted(elem_1))
 }
 
 fun<T> NonEmpty_qualifies(set: salvo.platform.core.set.Set<T>): Boolean {
-    return sizePlatform(set) > 0
+    return (sizePlatform(set) > 0)
 }
+

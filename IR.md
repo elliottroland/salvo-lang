@@ -450,11 +450,12 @@ provisional until reviewed:
   lowered type of every written type by span, so declarations copy the
   checker's types rather than lowering again.
 
-### Step 2, so far
+### Step 2 (done 2026-10-06)
 
-`crates/salvo-backend-kotlin/src/ir_emit/` (`mod.rs`, `actors.rs`; about
-2,000 lines) renders the IR to Kotlin, selected by `SALVO_KOTLIN_IR=1` (the
-`Backend` and the codegen tests both honour it). It decides representation
+`crates/salvo-backend-kotlin/src/ir_emit/` (`mod.rs`, `actors.rs`,
+`boundary.rs`, `skeletons.rs`; about 3,500 lines) renders the IR to Kotlin.
+It is the only Kotlin emitter: the AST one was deleted once every test
+passed under the IR (the step's later facts are in COMPLETED.md's log). It decides representation
 only: `UnionN` wrappers, `T?`, `StringBuilder`, fully qualified references (so
 it writes no imports), `when` for `Switch`, `while (true)` for `Loop`,
 anonymous `fun` for a lambda, `run {}` for a block in value position, the

@@ -4,66 +4,25 @@
 // salvo-abi 1 5cd1832c3b5d03f1
 package salvo.core.buffer
 
-import salvo.core.bytes.appendPlatform
-import salvo.core.bytes.iter
-import salvo.core.bytes.next
-import salvo.core.checked.toStr
-import salvo.core.deque.get
-import salvo.core.deque.iter
-import salvo.core.deque.toStr
-import salvo.core.iterator.Finished
-import salvo.core.iterator.emitted
-import salvo.core.iterator.finished
-import salvo.core.list.get
-import salvo.core.list.iter
-import salvo.core.list.toStr
-import salvo.core.map.get
-import salvo.core.map.iter
-import salvo.core.map.toStr
-import salvo.core.set.iter
-import salvo.core.set.next
-import salvo.core.set.toStr
-import salvo.core.string.appendPlatform
-import salvo.core.string.iter
-import salvo.core.string.mutStr
-import salvo.core.string.next
+import salvo.*
 
-fun newIntPlatform(size: Int, fill: Int): salvo.platform.core.buffer.MutIntBuffer {
-    return salvo.platform.core.buffer.newInt(size, fill)
-}
+fun newIntPlatform(size: Int, fill: Int): salvo.platform.core.buffer.MutIntBuffer = salvo.platform.core.buffer.newInt(size, fill)
 
-fun intSizePlatform(buf: salvo.platform.core.buffer.IntBuffer): Int {
-    return salvo.platform.core.buffer.intSize(buf)
-}
+fun intSizePlatform(buf: salvo.platform.core.buffer.IntBuffer): Int = salvo.platform.core.buffer.intSize(buf)
 
-fun intGetPlatform(buf: salvo.platform.core.buffer.IntBuffer, index: Int): Int {
-    return salvo.platform.core.buffer.intGet(buf, index)
-}
+fun intGetPlatform(buf: salvo.platform.core.buffer.IntBuffer, index: Int): Int = salvo.platform.core.buffer.intGet(buf, index)
 
-fun intReplacePlatform(buf: salvo.platform.core.buffer.MutIntBuffer, index: Int, value: Int): Int {
-    return salvo.platform.core.buffer.intReplace(buf, index, value)
-}
+fun intReplacePlatform(buf: salvo.platform.core.buffer.MutIntBuffer, index: Int, value: Int): Int = salvo.platform.core.buffer.intReplace(buf, index, value)
 
-fun intClearPlatform(buf: salvo.platform.core.buffer.MutIntBuffer, fill: Int) {
-    return salvo.platform.core.buffer.intClear(buf, fill)
-}
+fun intClearPlatform(buf: salvo.platform.core.buffer.MutIntBuffer, fill: Int) = salvo.platform.core.buffer.intClear(buf, fill)
 
-fun newLongPlatform(size: Int, fill: Long): salvo.platform.core.buffer.MutLongBuffer {
-    return salvo.platform.core.buffer.newLong(size, fill)
-}
+fun newLongPlatform(size: Int, fill: Long): salvo.platform.core.buffer.MutLongBuffer = salvo.platform.core.buffer.newLong(size, fill)
 
-fun longSizePlatform(buf: salvo.platform.core.buffer.LongBuffer): Int {
-    return salvo.platform.core.buffer.longSize(buf)
-}
+fun longSizePlatform(buf: salvo.platform.core.buffer.LongBuffer): Int = salvo.platform.core.buffer.longSize(buf)
 
-fun longGetPlatform(buf: salvo.platform.core.buffer.LongBuffer, index: Int): Long {
-    return salvo.platform.core.buffer.longGet(buf, index)
-}
+fun longGetPlatform(buf: salvo.platform.core.buffer.LongBuffer, index: Int): Long = salvo.platform.core.buffer.longGet(buf, index)
 
-fun longReplacePlatform(buf: salvo.platform.core.buffer.MutLongBuffer, index: Int, value: Long): Long {
-    return salvo.platform.core.buffer.longReplace(buf, index, value)
-}
+fun longReplacePlatform(buf: salvo.platform.core.buffer.MutLongBuffer, index: Int, value: Long): Long = salvo.platform.core.buffer.longReplace(buf, index, value)
 
-fun longClearPlatform(buf: salvo.platform.core.buffer.MutLongBuffer, fill: Long) {
-    return salvo.platform.core.buffer.longClear(buf, fill)
-}
+fun longClearPlatform(buf: salvo.platform.core.buffer.MutLongBuffer, fill: Long) = salvo.platform.core.buffer.longClear(buf, fill)
+

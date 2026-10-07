@@ -102,7 +102,7 @@ fn main::hoist(lent_mut camp: Mut Camp, moved banner: Str) -> None {
 
 fn main::main() -> None {
   bind#1 let __use~1: StdOutConsole = construct StdOutConsole { }
-  bind#2 let __handle~2: Console = handle[Console](read __use~1)
+  bind#2 let __handle~2: Console = read __use~1
   bind#3 let roster: List<Fighter> = call core.list::list_of(T, T[])<Fighter>(construct Fighter { name: "Ada", hp: 30, energy: 4 }, array[Fighter[]](construct Fighter { name: "Bo", hp: 8, energy: 9 }))
   bind#8 let ada: Fighter = branch#7 cond#0 true {
     bind#5 let __nn~3: Fighter? = call main::named(read roster, "Ada")

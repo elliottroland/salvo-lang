@@ -12,8 +12,8 @@ fn main::verdict(lent started: Tick, lent at: Tick, lent budget: Duration) -> St
   return concat("in time, ", call time::to_str(call time::minus(Duration, Duration)(read budget, read took)), " to spare")
 }
 
-fn main::overdue(lent __eff0: Ticker; lent started: Tick, lent budget: Duration) -> Bool {
-  return op Gt(call time::cmp(Duration, Duration)(call time::elapsed(read __eff0, read started), read budget), 0)
+fn main::overdue(lent ticker: Ticker; lent started: Tick, lent budget: Duration) -> Bool {
+  return op Gt(call time::cmp(Duration, Duration)(call time::elapsed(read ticker, read started), read budget), 0)
 }
 
 impl SteppingTicker(lent step: Duration) of Ticker stateful {
@@ -65,7 +65,7 @@ impl Napping() of Sleeper deps [Timer, Ticker] stateful {
 
 fn main::main() -> None {
   bind#1 let __use~1: StdOutConsole = construct StdOutConsole { }
-  bind#2 let __handle~2: Console = handle[Console](read __use~1)
+  bind#2 let __handle~2: Console = read __use~1
   bind#3 let budget: Duration = call time::millis(1500L)
   call core.console::println(read __handle~2, concat("budget ", call time::to_str(read budget), ", doubled ", call time::to_str(call time::times(read budget, 2L)), ", in millis ", call core.basic::to_str(Long)(call time::to_millis(read budget))))
   bind#4 let stamp: Instant = call time::epoch_milli(1700000000000L)
@@ -95,7 +95,7 @@ fn main::main() -> None {
     send time::TimerCtl#0(read ctl, call time::millis(2500L))
   }
   call core.console::println(read __handle~2, concat("session: ", read outcome))
-  bind#18 let sleeper: Addr<Sleeper> = spawn[Addr<Sleeper>](construct Napping { __dep0: instance_at(read timer), __dep1: construct TestTicker { timer: read timer } }, on: call core.actor::thread()) serves [Sleeper]
+  bind#18 let sleeper: Addr<Sleeper> = spawn[Addr<Sleeper>](construct Napping { __dep0: instance_at(read timer), __dep1: handle[Ticker](construct TestTicker { timer: read timer }) }, on: call core.actor::thread()) serves [Sleeper]
   bind#19 let napped: Str = waitfor answer: Reply<Str> {
     send main::Sleeper#0(read sleeper, call time::seconds(2L), !read answer)
     waitfor settled: Reply<Idle> {

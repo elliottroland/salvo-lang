@@ -217,7 +217,26 @@ pub fn erase(ty: &Ty) -> Ty {
             }
         }
         Ty::Named { name, args } => Ty::Named { name: name.clone(), args: args.iter().map(erase).collect() },
-        Ty::Union(arms) => Ty::Union(arms.iter().map(erase).collect()),
+        // [union-arm-identity] Arms are positional over the runtime union:
+        // two arms that erase alike (`Err Str | Thrown Str`) keep their tag,
+        // so a rewrap or a narrowing can still tell them apart.
+        Ty::Union(arms) => {
+            let erased: Vec<Ty> = arms.iter().map(erase).collect();
+            Ty::Union(
+                arms.iter()
+                    .zip(&erased)
+                    .map(|(orig, e)| {
+                        let clash = erased.iter().filter(|x| *x == e).count() > 1;
+                        match orig {
+                            Ty::Qualified { quals, base } if clash && !quals.is_empty() => {
+                                Ty::Qualified { quals: vec![Qual::plain(&quals[0].name, Vec::new())], base: Box::new(erase(base)) }
+                            }
+                            _ => e.clone(),
+                        }
+                    })
+                    .collect(),
+            )
+        }
         Ty::Tuple(es) => Ty::Tuple(es.iter().map(erase).collect()),
         Ty::Array(e) => Ty::Array(Box::new(erase(e))),
         Ty::Fn { params, ret, contract, effects } => Ty::Fn {

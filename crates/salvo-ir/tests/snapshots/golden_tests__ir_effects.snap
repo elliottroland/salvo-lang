@@ -16,13 +16,13 @@ impl TickingClock() of Clock stateful {
   }
 }
 
-fn main::stamp(lent __eff0: Clock, lent __eff1: Console; lent label: Str) -> None {
-  bind#1 let t: Int = member main::Clock#0(read __eff0)
-  call main::banner(read __eff1, concat(read label, " at t=", call core.basic::to_str(Int)(read t)))
+fn main::stamp(lent clock: Clock, lent console: Console; lent label: Str) -> None {
+  bind#1 let t: Int = member main::Clock#0(read clock)
+  call main::banner(read console, concat(read label, " at t=", call core.basic::to_str(Int)(read t)))
 }
 
-fn main::banner(lent __eff0: Console; lent text: Str) -> None {
-  call core.console::println(read __eff0, concat("   ", read text))
+fn main::banner(lent console: Console; lent text: Str) -> None {
+  call core.console::println(read console, concat("   ", read text))
 }
 
 interface Logger {
@@ -54,13 +54,13 @@ impl Numbered() of Logger deps [Logger] stateful {
   }
 }
 
-fn main::work(lent __eff0: Logger; lent step: Str) -> None {
-  member main::Logger#0(read __eff0, read step)
+fn main::work(lent logger: Logger; lent step: Str) -> None {
+  member main::Logger#0(read logger, read step)
 }
 
-fn main::interception(lent __eff0: Logger, lent __eff1: Clock) -> None {
-  call main::work(read __eff0, "4. plain")
-  bind#1 let __use~1: Stamped = construct Stamped { __dep0: read __eff0, __dep1: read __eff1 }
+fn main::interception(lent logger: Logger, lent clock: Clock) -> None {
+  call main::work(read logger, "4. plain")
+  bind#1 let __use~1: Stamped = construct Stamped { __dep0: read logger, __dep1: read clock }
   bind#2 let __handle~2: Logger = handle[Logger](read __use~1)
   call main::work(read __handle~2, "4. stamped")
   bind#3 let __use~3: Numbered = construct Numbered { __dep0: read __handle~2 }
@@ -69,14 +69,14 @@ fn main::interception(lent __eff0: Logger, lent __eff1: Clock) -> None {
   call main::work(read __handle~4, "4. and again")
 }
 
-fn main::scoping(lent __eff0: Logger) -> None {
-  call main::work(read __eff0, "5. before the block")
+fn main::scoping(lent logger: Logger) -> None {
+  call main::work(read logger, "5. before the block")
   branch#1 cond#0 true {
     bind#2 let __use~1: QuietLogger = construct QuietLogger { }
     bind#3 let __handle~2: Logger = handle[Logger](read __use~1)
     call main::work(read __handle~2, "5. this line is swallowed")
   }
-  call main::work(read __eff0, "5. after the block, logging again")
+  call main::work(read logger, "5. after the block, logging again")
 }
 
 interface Audit {
@@ -99,13 +99,13 @@ impl ConsoleMetrics() of Metrics deps [Console] {
   }
 }
 
-fn main::audit_only(lent __eff0: Audit; lent what: Str) -> None {
-  member main::Audit#0(read __eff0, read what)
+fn main::audit_only(lent audit: Audit; lent what: Str) -> None {
+  member main::Audit#0(read audit, read what)
 }
 
-fn main::audit_and_measure(lent __eff0: Audit, lent __eff1: Metrics; lent what: Str) -> None {
-  member main::Audit#0(read __eff0, read what)
-  member main::Metrics#0(read __eff1, read what)
+fn main::audit_and_measure(lent audit: Audit, lent metrics: Metrics; lent what: Str) -> None {
+  member main::Audit#0(read audit, read what)
+  member main::Metrics#0(read metrics, read what)
 }
 
 interface Setting<T> {
@@ -118,15 +118,15 @@ impl Fixed<T>(lent value: T) of Setting<T> {
   }
 }
 
-fn main::settings(lent __eff0: Setting<Int>, lent __eff1: Setting<Str>, lent __eff2: Console) -> None {
-  bind#1 let retries: Int = member main::Setting#0(read __eff0, fn core.basic::copy)
-  bind#2 let region: Str = member main::Setting#0(read __eff1, fn core.basic::copy)
-  call core.console::println(read __eff2, concat("   retries=", call core.basic::to_str(Int)(read retries), " region=", read region))
+fn main::settings(lent setting: Setting<Int>, lent setting__1: Setting<Str>, lent console: Console) -> None {
+  bind#1 let retries: Int = member main::Setting#0(read setting, fn core.basic::copy)
+  bind#2 let region: Str = member main::Setting#0(read setting__1, fn core.basic::copy)
+  call core.console::println(read console, concat("   retries=", call core.basic::to_str(Int)(read retries), " region=", read region))
 }
 
 fn main::main() -> None {
   bind#1 let __use~1: StdOutConsole = construct StdOutConsole { }
-  bind#2 let __handle~2: Console = handle[Console](read __use~1)
+  bind#2 let __handle~2: Console = read __use~1
   bind#3 let __use~3: TickingClock = construct TickingClock { }
   bind#4 let __handle~4: Clock = handle[Clock](read __use~3)
   call core.console::println(read __handle~2, concat("1. the clock reads ", call core.basic::to_str(Int)(member main::Clock#0(read __handle~4)), ", then ", call core.basic::to_str(Int)(member main::Clock#0(read __handle~4))))

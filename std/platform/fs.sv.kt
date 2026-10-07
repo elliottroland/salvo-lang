@@ -5,29 +5,7 @@
 package salvo.fs
 
 import salvo.*
-import salvo.core.bytes.addPlatform
-import salvo.core.bytes.mutBytes
-import salvo.core.bytes.next
-import salvo.core.checked.Checked
-import salvo.core.checked.checked
-import salvo.core.checked.detach
-import salvo.core.checked.ignore
-import salvo.core.checked.toStr
-import salvo.core.deque.toStr
-import salvo.core.iterator.Finished
-import salvo.core.list.addPlatform
-import salvo.core.list.toStr
-import salvo.core.map.toStr
-import salvo.core.set.addPlatform
-import salvo.core.set.next
-import salvo.core.set.toStr
-import salvo.core.sorted.addPlatform
-import salvo.core.string.lines
-import salvo.core.string.next
-import salvo.stream.InvalidUtf8
-import salvo.stream.StreamFailed
-import salvo.stream.__Codec_InvalidUtf8
-import salvo.stream.__Codec_StreamFailed
+
 
 // Factories for the host: one per arm of the union [platform-factory].
 object FsErrors {
@@ -109,14 +87,14 @@ object __Codec_IoError : salvo.WireCodec<IoError> {
 }
 
 data class Streaming(
-    val error: Union2<InvalidUtf8, StreamFailed>,
+    val error: Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>,
 )
 
 object __Codec_Streaming : salvo.WireCodec<Streaming> {
     override fun enc(v: Streaming, out: salvo.WireOut) {
-        salvo.Union2Codec(__Codec_InvalidUtf8, __Codec_StreamFailed).enc(v.error, out)
+        salvo.Union2Codec(salvo.stream.__Codec_InvalidUtf8, salvo.stream.__Codec_StreamFailed).enc(v.error, out)
     }
-    override fun dec(inp: salvo.WireIn): Streaming = Streaming(salvo.Union2Codec(__Codec_InvalidUtf8, __Codec_StreamFailed).dec(inp))
+    override fun dec(inp: salvo.WireIn): Streaming = Streaming(salvo.Union2Codec(salvo.stream.__Codec_InvalidUtf8, salvo.stream.__Codec_StreamFailed).dec(inp))
 }
 
 data class FileInfo(
@@ -131,3 +109,4 @@ object __Codec_FileInfo : salvo.WireCodec<FileInfo> {
     }
     override fun dec(inp: salvo.WireIn): FileInfo = FileInfo(salvo.LongCodec.dec(inp), salvo.BoolCodec.dec(inp))
 }
+

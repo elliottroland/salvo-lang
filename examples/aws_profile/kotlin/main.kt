@@ -1,16 +1,14 @@
 package salvo.main
 
-import salvo.aws.ProfileCredentials
-import salvo.aws.toStr
-import salvo.core.console.Console
-import salvo.core.console.__Platform_StdOutConsole
-import salvo.core.console.println
+import salvo.*
 
 fun main() {
-    val console: Console = salvo.core.console.__Platform_StdOutConsole()
-    val creds = ProfileCredentials()
-    println(console, "profile: ${creds.profile}")
-    println(console, "path:    ${creds.path}")
-    val staging = ProfileCredentials(profile = "staging", path = "/etc/aws/credentials")
-    println(console, "${toStr(staging)}")
+    val __use_1: salvo.core.console.__Platform_StdOutConsole = salvo.core.console.__Platform_StdOutConsole()
+    val __handle_2: salvo.core.console.Console = __use_1
+    val creds: salvo.aws.ProfileCredentials = salvo.aws.ProfileCredentials(profile = "default", path = "~/.aws/credentials")
+    salvo.core.console.println(__handle_2, "profile: ${creds.profile}")
+    salvo.core.console.println(__handle_2, "path:    ${creds.path}")
+    val staging: salvo.aws.ProfileCredentials = salvo.aws.ProfileCredentials(profile = "staging", path = "/etc/aws/credentials")
+    salvo.core.console.println(__handle_2, "${salvo.aws.toStr(staging)}")
 }
+

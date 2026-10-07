@@ -4,15 +4,10 @@
 // salvo-abi 1 023a4214a13ba612
 package salvo.core.actor
 
-import salvo.runtime.Token
-import salvo.runtime.newPoolOf
-import salvo.runtime.onIdle as onIdle__runtime
-import salvo.runtime.routing.adopt
-import salvo.runtime.routing.sameActor
-import salvo.runtime.watch as watch__runtime
+import salvo.*
 
 fun eq(a: Int, b: Int): Boolean {
-    return sameActor((a), (b))
+    return salvo.runtime.routing.sameActor((a), (b))
 }
 
 data class Mailbox(
@@ -27,8 +22,8 @@ object __Codec_Mailbox : salvo.WireCodec<Mailbox> {
 }
 
 fun pool(size: Int): Int {
-    val p = newPoolOf(size, -1)
-    adopt(p)
+    val p: Int = salvo.runtime.newPoolOf(size, (-1))
+    salvo.runtime.routing.adopt(p)
     return (p)
 }
 
@@ -45,12 +40,6 @@ object __Codec_Fault : salvo.WireCodec<Fault> {
 
 interface Faults {
     fun faulted(fault: Fault)
-}
-
-class __Stub_Faults(private val addr: Int) : Faults {
-    override fun faulted(fault: Fault) {
-        salvo.SalvoSched.sendWire(addr, __Msg_Faults.Faulted(fault), __PROTO_Faults, __Codec___Msg_Faults)
-    }
 }
 
 class __Mon_Faults(
@@ -80,8 +69,13 @@ object __Codec___Msg_Faults : salvo.WireCodec<__Msg_Faults> {
     }
 }
 
-/** [protocol-hash] The canonical hash of `Faults`. */
 const val __PROTO_Faults: String = "b2ab28f759af3855"
+
+class __Stub_Faults(private val addr: Int) : Faults {
+    override fun faulted(fault: Fault) {
+        salvo.SalvoSched.sendWire(addr, __Msg_Faults.Faulted(fault), __PROTO_Faults, __Codec___Msg_Faults)
+    }
+}
 
 data class Exit(
     val reason: String,
@@ -94,12 +88,11 @@ object __Codec_Exit : salvo.WireCodec<Exit> {
     override fun dec(inp: salvo.WireIn): Exit = Exit(salvo.StrCodec.dec(inp))
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun watch(target: Int, onExit: salvo.SalvoReply) {
-    var __is1 = (onExit).takeLocal()
-    if (__is1 != null) {
-        val t = __is1 as Token
-        watch__runtime((target), t)
+    val __subject_1: salvo.runtime.Token? = (onExit).takeLocal()
+    if ((__subject_1 != null)) {
+        val t: salvo.runtime.Token = __subject_1!!
+        salvo.runtime.watch((target), t)
     }
 }
 
@@ -116,11 +109,11 @@ object __Codec_Idle : salvo.WireCodec<Idle> {
     override fun dec(inp: salvo.WireIn): Idle = Idle(salvo.IntCodec.dec(inp), salvo.IntCodec.dec(inp))
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun onIdle(p: Int, notify: salvo.SalvoReply) {
-    var __is2 = (notify).takeLocal()
-    if (__is2 != null) {
-        val t = __is2 as Token
-        onIdle__runtime((p), t)
+    val __subject_1: salvo.runtime.Token? = (notify).takeLocal()
+    if ((__subject_1 != null)) {
+        val t: salvo.runtime.Token = __subject_1!!
+        salvo.runtime.onIdle((p), t)
     }
 }
+

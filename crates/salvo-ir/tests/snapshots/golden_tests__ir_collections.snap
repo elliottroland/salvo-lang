@@ -23,7 +23,7 @@ fn main::count_unique(lent xs: List<Int>) -> Int {
 
 fn main::main() -> None {
   bind#1 let __use~1: StdOutConsole = construct StdOutConsole { }
-  bind#2 let __handle~2: Console = handle[Console](read __use~1)
+  bind#2 let __handle~2: Console = read __use~1
   bind#3 let primes: List<Int> = list[List<Int>](2, 3, 5, 7)
   bind#4 let vowels: Set<Str> = call core.set::set_of<Str>(array[Str[]]("a", "e", "i", "o", "u"), fn core.compare::hash(Str), fn core.compare::eq(Str, Str))
   bind#5 let ages: Map<Str, Int> = call core.map::map_of<Str, Int>(array[(Str, Int)[]](tuple("ada", 36), tuple("grace", 45)), fn core.compare::hash(Str), fn core.compare::eq(Str, Str))

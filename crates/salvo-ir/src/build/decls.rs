@@ -26,39 +26,51 @@ pub fn build_module(ctx: &Ctx<'_>, file_idx: usize, file: &SourceFile, module: &
         // another, over it (`use addr` binds no handle: the one `Let` is the
         // face's). Every local the `use` bound is renamed to its static's.
         let inst_local = Local(format!("__module_use{i}"));
-        let has_handles = stmts.iter().any(|s| matches!(s, Stmt::Let { value, .. } if matches!(value.kind, ExprKind::Handle { .. })));
         let mut own: Vec<Stmt> = Vec::new();
         let mut inst_ty = Ty::Unknown;
-        let mut handles: Vec<StaticDecl> = Vec::new();
+        let mut orig_inst: Option<Local> = None;
+        let mut faces: Vec<StaticDecl> = Vec::new();
         for s in stmts {
             match s {
-                Stmt::Let { id, local, ty, value } => {
-                    if let ExprKind::Handle { instance } = value.kind {
-                        let j = handles.len();
-                        let sl = Local(format!("__module_use{i}_{j}"));
-                        let read = Expr { ty: instance.ty.clone(), span: instance.span, kind: ExprKind::Read { place: Place { root: inst_local.clone(), steps: Vec::new() }, consume: false } };
-                        let handle = Expr { ty: value.ty, span: value.span, kind: ExprKind::Handle { instance: Box::new(read) } };
-                        if let Some((t, _)) = bound.iter().find(|(_, l)| *l == local) {
-                            statics.push((t.clone(), sl.clone()));
-                        }
-                        handles.push(StaticDecl { id: DeclId { module: file.module.clone(), item: usize::MAX - i * 16 - 1 - j, sub: 0 }, local: sl.clone(), ty: ty.clone(), stmts: vec![Stmt::Let { id, local: sl, ty, value: handle }], span: u.span });
-                    } else {
-                        if !has_handles {
-                            for (t, l) in &bound {
-                                if *l == local {
-                                    statics.push((t.clone(), inst_local.clone()));
-                                }
-                            }
-                        }
-                        inst_ty = ty.clone();
-                        own.push(Stmt::Let { id, local: inst_local.clone(), ty, value });
+                Stmt::Let { id, local, ty, value } if orig_inst.is_none() => {
+                    // The first binding is the instance (or, for `use addr`,
+                    // the one face binding).
+                    orig_inst = Some(local.clone());
+                    if let Some((t, _)) = bound.iter().find(|(_, l)| *l == local) {
+                        statics.push((t.clone(), inst_local.clone()));
                     }
+                    inst_ty = ty.clone();
+                    own.push(Stmt::Let { id, local: inst_local.clone(), ty, value });
+                }
+                Stmt::Let { id, local, ty, value } => {
+                    // A face binding over the instance: its own static, its
+                    // read of the instance renamed to the instance's static.
+                    let j = faces.len();
+                    let sl = Local(format!("__module_use{i}_{j}"));
+                    let rename = |e: Expr| -> Expr {
+                        match e.kind {
+                            ExprKind::Read { place, consume } if Some(&place.root) == orig_inst.as_ref() => Expr { ty: e.ty, span: e.span, kind: ExprKind::Read { place: Place { root: inst_local.clone(), steps: place.steps }, consume } },
+                            ExprKind::Handle { instance } => {
+                                let inner = match instance.kind {
+                                    ExprKind::Read { place, consume } if Some(&place.root) == orig_inst.as_ref() => Expr { ty: instance.ty, span: instance.span, kind: ExprKind::Read { place: Place { root: inst_local.clone(), steps: place.steps }, consume } },
+                                    other => Expr { ty: instance.ty, span: instance.span, kind: other },
+                                };
+                                Expr { ty: e.ty, span: e.span, kind: ExprKind::Handle { instance: Box::new(inner) } }
+                            }
+                            other => Expr { ty: e.ty, span: e.span, kind: other },
+                        }
+                    };
+                    let value = rename(value);
+                    if let Some((t, _)) = bound.iter().find(|(_, l)| *l == local) {
+                        statics.push((t.clone(), sl.clone()));
+                    }
+                    faces.push(StaticDecl { id: DeclId { module: file.module.clone(), item: usize::MAX - i * 16 - 1 - j, sub: 0 }, local: sl.clone(), ty: ty.clone(), stmts: vec![Stmt::Let { id, local: sl, ty, value }], span: u.span });
                 }
                 other => own.push(other),
             }
         }
         out.decls.push(Decl::Static(StaticDecl { id: DeclId { module: file.module.clone(), item: usize::MAX - i * 16, sub: 0 }, local: inst_local, ty: inst_ty, stmts: own, span: u.span }));
-        out.decls.extend(handles.into_iter().map(Decl::Static));
+        out.decls.extend(faces.into_iter().map(Decl::Static));
     }
     for (item_idx, item) in module.items.iter().enumerate() {
         let id = ctx.item_id(file_idx, item_idx);
@@ -408,8 +420,20 @@ fn fn_decl(
             _ => None,
         })
     });
-    for (i, t) in effects.iter().enumerate() {
-        let local = Local(format!("__eff{i}"));
+    // Each named after its effect (`console`), away from the written
+    // parameters' names and from each other.
+    let taken: Vec<String> = f.params.iter().map(|p| p.name.name.clone()).collect();
+    let mut used: Vec<String> = Vec::new();
+    for t in &effects {
+        let mut name = effect_local_name(t);
+        let base = name.clone();
+        let mut n = 1;
+        while taken.contains(&name) || used.contains(&name) {
+            name = format!("{base}__{n}");
+            n += 1;
+        }
+        used.push(name.clone());
+        let local = Local(name);
         lower.effect_env.push((t.clone(), local.clone()));
         params.push(Param { local, ty: t.clone(), mode: PassMode::Lent, variadic: false, check: None });
     }
@@ -488,3 +512,24 @@ fn fn_decl(
 }
 
 pub(crate) fn _unused(_: &HashMap<String, Ty>) {}
+
+/// The local an effect instance parameter is named by: the effect's base
+/// name in snake case (`Console` → `console`, `Random<Int>` → `random`).
+pub(crate) fn effect_local_name(t: &Ty) -> String {
+    let base = match t.strip_quals() {
+        Ty::Named { name, .. } => salvo_core::typekey::plain(name).to_string(),
+        other => other.to_string(),
+    };
+    let mut out = String::new();
+    for c in base.chars() {
+        if c.is_uppercase() {
+            if out.chars().last().is_some_and(|p| p.is_lowercase() || p.is_ascii_digit()) {
+                out.push('_');
+            }
+            out.push(c.to_ascii_lowercase());
+        } else if c.is_alphanumeric() || c == '_' {
+            out.push(c);
+        }
+    }
+    if out.is_empty() { "effect".to_string() } else { out }
+}

@@ -4,19 +4,7 @@
 // salvo-abi 1 5cd1832c3b5d03f1
 package salvo.core.seq
 
-import salvo.core.bytes.addPlatform
-import salvo.core.bytes.next
-import salvo.core.deque.toList
-import salvo.core.iterator.Finished
-import salvo.core.iterator.emitted
-import salvo.core.iterator.finished
-import salvo.core.list.addPlatform
-import salvo.core.list.count
-import salvo.core.set.addPlatform
-import salvo.core.set.next
-import salvo.core.sorted.addPlatform
-import salvo.core.string.next
+import salvo.*
 
-fun<T> filterPlatform(list: List<T>, keep: (T) -> Boolean): salvo.platform.core.list.MutList<T> {
-    return salvo.platform.core.seq.filter(list, keep)
-}
+fun<T> filterPlatform(list: List<T>, keep: (T) -> Boolean): salvo.platform.core.list.MutList<T> = salvo.platform.core.seq.filter(list, keep)
+

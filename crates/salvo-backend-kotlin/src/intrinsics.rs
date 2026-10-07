@@ -266,17 +266,3 @@ pub fn drop_mut_suffix(name: &str) -> Option<&'static str> {
         _ => None,
     }
 }
-
-/// The body of an `intrinsic handler`'s member [backend-intrinsic]: the
-/// statements (or, for a value-returning member, the expression) that
-/// implement it, with the member's own parameter names in scope.
-///
-/// Names are fully qualified so the emitted file needs no imports, and so
-/// a member implementing `print` does not recurse into itself — it would
-/// otherwise resolve to std's own `println`.
-pub fn handler_member(handler: &str, member: &str, params: &[String]) -> Option<String> {
-    // std declares no intrinsic handler any more (ROADMAP 0.5): `StdOutConsole`
-    // is a platform handler and `DefaultRandom` is Salvo.
-    let _ = (handler, member, params);
-    None
-}

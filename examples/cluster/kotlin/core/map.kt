@@ -1,128 +1,115 @@
 package salvo.core.map
 
 import salvo.*
-import salvo.core.array.next
-import salvo.core.bytes.next
-import salvo.core.iterator.Finished
-import salvo.core.iterator.emitted
-import salvo.core.iterator.finished
-import salvo.core.list.drain as drain__core_list
-import salvo.core.set.next
-import salvo.core.string.appendPlatform
-import salvo.core.string.mutStr
-import salvo.core.string.next
 
-inline fun<K, V> mapOfPlatform(entries: Array<Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.Map<K, V> {
-    return salvo.platform.core.map.mapOf(entries, hash, eq)
-}
+fun<K, V> mapOfPlatform(entries: Array<Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.Map<K, V> = salvo.platform.core.map.mapOf(entries, hash, eq)
 
-inline fun<K, V> mutMapOfPlatform(entries: Array<Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.MutMap<K, V> {
-    return salvo.platform.core.map.mutMapOf(entries, hash, eq)
-}
+fun<K, V> mutMapOfPlatform(entries: Array<Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.MutMap<K, V> = salvo.platform.core.map.mutMapOf(entries, hash, eq)
 
-inline fun<K, V> mapByPlatform(size: Int, init: (Int) -> Pair<K, V>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.Map<K, V> {
-    return salvo.platform.core.map.mapBy(size, init, hash, eq)
-}
+fun<K, V> mapByPlatform(size: Int, init: (Int) -> Pair<K, V>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.Map<K, V> = salvo.platform.core.map.mapBy(size, init, hash, eq)
 
-inline fun<K, V> mutMapByPlatform(size: Int, init: (Int) -> Pair<K, V>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.MutMap<K, V> {
-    return salvo.platform.core.map.mutMapBy(size, init, hash, eq)
-}
+fun<K, V> mutMapByPlatform(size: Int, init: (Int) -> Pair<K, V>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.MutMap<K, V> = salvo.platform.core.map.mutMapBy(size, init, hash, eq)
 
-inline fun<K, V> toMapPlatform(pairs: List<Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.Map<K, V> {
-    return salvo.platform.core.map.toMap(pairs, hash, eq)
-}
+fun<K, V> toMapPlatform(pairs: List<Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.Map<K, V> = salvo.platform.core.map.toMap(pairs, hash, eq)
 
 fun<T, K, V> toMap(items: List<T>, entry: (T) -> Pair<K, V>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.Map<K, V> {
     val map: salvo.platform.core.map.MutMap<K, V> = mutMapOfPlatform(arrayOf<Pair<K, V>>(), hash, eq)
     for (x in salvo.platform.core.list.each(items)) {
-        val (k, v) = entry(x)
+        val __destructured_1: Pair<K, V> = entry(x)
+        val k: K = __destructured_1.first
+        val v: V = __destructured_1.second
         putPlatform(map, k, v, hash, eq)
     }
     return map
 }
 
-inline fun<K, V> getPlatform(map: salvo.platform.core.map.Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V? {
-    return salvo.platform.core.map.get(map, key, hash, eq)
-}
+fun<K, V> getPlatform(map: salvo.platform.core.map.Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V? = salvo.platform.core.map.get(map, key, hash, eq)
 
-inline fun<K, V> putPlatform(map: salvo.platform.core.map.MutMap<K, V>, key: K, value: V, hash: (K) -> Long, eq: (K, K) -> Boolean) {
-    return salvo.platform.core.map.put(map, key, value, hash, eq)
-}
+fun<K, V> putPlatform(map: salvo.platform.core.map.MutMap<K, V>, key: K, value: V, hash: (K) -> Long, eq: (K, K) -> Boolean) = salvo.platform.core.map.put(map, key, value, hash, eq)
 
-inline fun<K, V> replacePlatform(map: salvo.platform.core.map.MutMap<K, V>, key: K, value: V, hash: (K) -> Long, eq: (K, K) -> Boolean): V? {
-    return salvo.platform.core.map.replace(map, key, value, hash, eq)
-}
+fun<K, V> replacePlatform(map: salvo.platform.core.map.MutMap<K, V>, key: K, value: V, hash: (K) -> Long, eq: (K, K) -> Boolean): V? = salvo.platform.core.map.replace(map, key, value, hash, eq)
 
-inline fun<K, V> removePlatform(map: salvo.platform.core.map.MutMap<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V? {
-    return salvo.platform.core.map.remove(map, key, hash, eq)
-}
+fun<K, V> removePlatform(map: salvo.platform.core.map.MutMap<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V? = salvo.platform.core.map.remove(map, key, hash, eq)
 
-inline fun<K, V> containsKeyPlatform(map: salvo.platform.core.map.Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): Boolean {
-    return salvo.platform.core.map.containsKey(map, key, hash, eq)
-}
+fun<K, V> containsKeyPlatform(map: salvo.platform.core.map.Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): Boolean = salvo.platform.core.map.containsKey(map, key, hash, eq)
 
 fun<K, V> KeyOf_qualifies(key: K, map: salvo.platform.core.map.Map<K, V>, hash: (K) -> Long, eq: (K, K) -> Boolean): Boolean {
     return containsKeyPlatform(map, key, hash, eq)
 }
 
-inline fun<K, V> getPresentPlatform(map: salvo.platform.core.map.Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V {
-    return salvo.platform.core.map.getPresent(map, key, hash, eq)
-}
+fun<K, V> getPresentPlatform(map: salvo.platform.core.map.Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V = salvo.platform.core.map.getPresent(map, key, hash, eq)
 
 fun<K, V> get(map: salvo.platform.core.map.Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V {
     return getPresentPlatform(map, key, hash, eq)
 }
 
-fun<K, V> sizePlatform(map: salvo.platform.core.map.Map<K, V>): Int {
-    return salvo.platform.core.map.size(map)
-}
+fun<K, V> sizePlatform(map: salvo.platform.core.map.Map<K, V>): Int = salvo.platform.core.map.size(map)
 
 fun<K, V> drain(map: salvo.platform.core.map.Map<K, V>, each: (V) -> Unit) {
-    drain__core_list(intoValuesPlatform(map), each)
+    salvo.core.list.drain(intoValuesPlatform(map), each)
 }
 
-fun<K, V> intoValuesPlatform(map: salvo.platform.core.map.Map<K, V>): List<V> {
-    return salvo.platform.core.map.intoValues(map)
-}
+fun<K, V> intoValuesPlatform(map: salvo.platform.core.map.Map<K, V>): List<V> = salvo.platform.core.map.intoValues(map)
 
 fun<K, V> toStr(map: salvo.platform.core.map.Map<K, V>, toStr: (K) -> String, toStr__1: (V) -> String, hash: (K) -> Long, eq: (K, K) -> Boolean): String {
-    val out = mutStr(arrayOf("{"))
-    var i = 0
+    val out: salvo.platform.core.string.MutStr = salvo.core.string.mutStr(arrayOf<String>("{"))
+    var i: Int = 0
     for (k in salvo.platform.core.map.each(map)) {
-        if (i > 0) {
-            appendPlatform(out, ", ")
+        if ((i > 0)) {
+            salvo.core.string.appendPlatform(out, ", ")
         }
-        appendPlatform(out, toStr(k))
-        appendPlatform(out, ": ")
-        appendPlatform(out, toStr__1((getPlatform(map, k, hash, eq) ?: throw AssertionError("salvo: value is absent at core.map:164:28"))))
-        i = i + 1
+        salvo.core.string.appendPlatform(out, toStr(k))
+        salvo.core.string.appendPlatform(out, ": ")
+        salvo.core.string.appendPlatform(out, toStr__1(run {
+            val __nn_1: V? = getPlatform(map, k, hash, eq)
+            when {
+                (__nn_1 == null) -> {
+                    throw AssertionError(("salvo: " + ("value is absent") + " at core.map:164:28"))
+                }
+                else -> {
+                    val __some_2: V = __nn_1!!
+                    __some_2
+                }
+            }
+        }))
+        i = (i + 1)
     }
-    appendPlatform(out, "}")
+    salvo.core.string.appendPlatform(out, "}")
     return out.toString()
 }
 
 fun<K, V> eq(a: salvo.platform.core.map.Map<K, V>, b: salvo.platform.core.map.Map<K, V>, eq: (V, V) -> Boolean, hash: (K) -> Long, eq__1: (K, K) -> Boolean): Boolean {
-    if (sizePlatform(a) != sizePlatform(b)) {
+    if (!(((sizePlatform(a)) == (sizePlatform(b))))) {
         return false
     }
     for (k in salvo.platform.core.map.each(a)) {
-        val theirs = getPlatform(b, k, hash, eq__1)
-        if (theirs == null) {
+        val theirs: V? = getPlatform(b, k, hash, eq__1)
+        if ((theirs == null)) {
             return false
         }
-        if (!eq((getPlatform(a, k, hash, eq__1) ?: throw AssertionError("salvo: value is absent at core.map:186:16")), theirs)) {
+        val theirs_3: V = theirs!!
+        if (!(eq(run {
+            val __nn_1: V? = getPlatform(a, k, hash, eq__1)
+            when {
+                (__nn_1 == null) -> {
+                    throw AssertionError(("salvo: " + ("value is absent") + " at core.map:186:16"))
+                }
+                else -> {
+                    val __some_2: V = __nn_1!!
+                    __some_2
+                }
+            }
+        }, theirs_3))) {
             return false
         }
     }
     return true
 }
 
-fun<K, V> keysPlatform(map: salvo.platform.core.map.Map<K, V>): List<K> {
-    return salvo.platform.core.map.keys(map)
-}
+fun<K, V> keysPlatform(map: salvo.platform.core.map.Map<K, V>): List<K> = salvo.platform.core.map.keys(map)
 
 fun<K, V> iter(map: salvo.platform.core.map.Map<K, V>): MapKeyYield<K> {
-    return MapKeyYield(items = keysPlatform(map), at = 0)
+    return MapKeyYield<K>(items = keysPlatform(map), at = 0)
 }
 
 data class MapKeyYield<K>(
@@ -138,26 +125,21 @@ class __Codec_MapKeyYield<K>(private val __c_K: salvo.WireCodec<K>) : salvo.Wire
     override fun dec(inp: salvo.WireIn): MapKeyYield<K> = MapKeyYield(salvo.ListCodec(__c_K).dec(inp), salvo.IntCodec.dec(inp))
 }
 
-fun<K> next__MapKeyYield(p: MapKeyYield<K>): Union2<K, Finished> {
-    val key = p.items.getOrNull(p.at)
-    if (key == null) {
-        return Union2.U2<K, Finished>(finished())
+fun<K> next__MapKeyYield(p: MapKeyYield<K>): Union2<K, salvo.core.iterator.Finished> {
+    val key: K? = p.items.getOrNull(p.at)
+    if ((key == null)) {
+        return Union2.U2<K, salvo.core.iterator.Finished>(salvo.core.iterator.finished())
     }
-    p.at = p.at + 1
-    return Union2.U1<K, Finished>(emitted(key))
+    p.at = (p.at + 1)
+    val key_1: K = key!!
+    return Union2.U1<K, salvo.core.iterator.Finished>(salvo.core.iterator.emitted(key_1))
 }
 
-fun<K, V> slotCountPlatform(map: salvo.platform.core.map.Map<K, V>): Int {
-    return salvo.platform.core.map.slotCount(map)
-}
+fun<K, V> slotCountPlatform(map: salvo.platform.core.map.Map<K, V>): Int = salvo.platform.core.map.slotCount(map)
 
-fun<K, V> keyAtPlatform(map: salvo.platform.core.map.Map<K, V>, at: Int): K? {
-    return salvo.platform.core.map.keyAt(map, at)
-}
+fun<K, V> keyAtPlatform(map: salvo.platform.core.map.Map<K, V>, at: Int): K? = salvo.platform.core.map.keyAt(map, at)
 
-fun<K, V> valueAtPlatform(map: salvo.platform.core.map.Map<K, V>, at: Int): V {
-    return salvo.platform.core.map.valueAt(map, at)
-}
+fun<K, V> valueAtPlatform(map: salvo.platform.core.map.Map<K, V>, at: Int): V = salvo.platform.core.map.valueAt(map, at)
 
 data class MapEntry<K, V>(
     val key: K,
@@ -170,20 +152,24 @@ data class __Iter_entries_Map<K, V>(
 )
 
 fun<K, V> entries(map: salvo.platform.core.map.Map<K, V>): __Iter_entries_Map<K, V> {
-    return __Iter_entries_Map(map = map, at = 0)
+    return __Iter_entries_Map<K, V>(map = map, at = 0)
 }
 
-fun<K, V> next__Iter_entries_Map(__p: __Iter_entries_Map<K, V>): Union2<MapEntry<K, V>, Finished> {
-    while (__p.at < slotCountPlatform(__p.map)) {
-        val here = __p.at
-        __p.at = __p.at + 1
-        val key = keyAtPlatform(__p.map, here)
-        if (!(key == null)) {
-            val value = valueAtPlatform(__p.map, here)
-            return Union2.U1<MapEntry<K, V>, Finished>(emitted(MapEntry(key = key, value = value)))
+fun<K, V> next__Iter_entries_Map(__p: __Iter_entries_Map<K, V>): Union2<MapEntry<K, V>, salvo.core.iterator.Finished> {
+    while (true) {
+        if (!((__p.at < slotCountPlatform(__p.map)))) {
+            break
+        }
+        val here: Int = __p.at
+        __p.at = (__p.at + 1)
+        val key: K? = keyAtPlatform(__p.map, here)
+        if (!((key == null))) {
+            val value: V = valueAtPlatform(__p.map, here)
+            val key_1: K = key!!
+            return Union2.U1<MapEntry<K, V>, salvo.core.iterator.Finished>(salvo.core.iterator.emitted(MapEntry<K, V>(key = key_1, value = value)))
         }
     }
-    return Union2.U2<MapEntry<K, V>, Finished>(finished())
+    return Union2.U2<MapEntry<K, V>, salvo.core.iterator.Finished>(salvo.core.iterator.finished())
 }
 
 data class __Iter_values_Map<K, V>(
@@ -192,21 +178,25 @@ data class __Iter_values_Map<K, V>(
 )
 
 fun<K, V> values(map: salvo.platform.core.map.Map<K, V>): __Iter_values_Map<K, V> {
-    return __Iter_values_Map(map = map, at = 0)
+    return __Iter_values_Map<K, V>(map = map, at = 0)
 }
 
-fun<K, V> next__Iter_values_Map(__p: __Iter_values_Map<K, V>): Union2<V, Finished> {
-    while (__p.at < slotCountPlatform(__p.map)) {
-        val here = __p.at
-        __p.at = __p.at + 1
-        if (!(keyAtPlatform(__p.map, here) == null)) {
-            val value = valueAtPlatform(__p.map, here)
-            return Union2.U1<V, Finished>(emitted(value))
+fun<K, V> next__Iter_values_Map(__p: __Iter_values_Map<K, V>): Union2<V, salvo.core.iterator.Finished> {
+    while (true) {
+        if (!((__p.at < slotCountPlatform(__p.map)))) {
+            break
+        }
+        val here: Int = __p.at
+        __p.at = (__p.at + 1)
+        if (!((keyAtPlatform(__p.map, here) == null))) {
+            val value: V = valueAtPlatform(__p.map, here)
+            return Union2.U1<V, salvo.core.iterator.Finished>(salvo.core.iterator.emitted(value))
         }
     }
-    return Union2.U2<V, Finished>(finished())
+    return Union2.U2<V, salvo.core.iterator.Finished>(salvo.core.iterator.finished())
 }
 
 fun<K, V> NonEmpty_qualifies(map: salvo.platform.core.map.Map<K, V>): Boolean {
-    return sizePlatform(map) > 0
+    return (sizePlatform(map) > 0)
 }
+

@@ -166,17 +166,17 @@ impl LastHost(lent nodes: Addr<NodeGroup>, lent me: NodeEndpoint) of Leader {
   }
 }
 
-fn main::fresh_id(lent __eff0: Sequencer) -> Str {
+fn main::fresh_id(lent sequencer: Sequencer) -> Str {
   return waitfor out: Reply<Str> {
-    member main::Sequencer#0(read __eff0, !read out)
+    member main::Sequencer#0(read sequencer, !read out)
   }
 }
 
-fn main::checkout(lent __eff0: Inventory, lent __eff1: Console; lent skus: List<Str>) -> None {
+fn main::checkout(lent inventory: Inventory, lent console: Console; lent skus: List<Str>) -> None {
   bind#1 let shards: Mut List<Str> = call core.list::mut_list_of()<Str>()
   foreach#2 sku: Str in read skus {
     bind#3 let answer: Str = waitfor out: Reply<Str> {
-      member main::Inventory#0(read __eff0, call core.basic::copy<Str>(read sku), 1, !read out)
+      member main::Inventory#0(read inventory, call core.basic::copy<Str>(read sku), 1, !read out)
     }
     bind#4 let parts: Mut List<Str> = call core.string::split(read answer, ":")
     call core.list::add<Str>(read shards, call core.basic::copy<Str>(branch#8 cond#0 true {
@@ -191,7 +191,7 @@ fn main::checkout(lent __eff0: Inventory, lent __eff1: Console; lent skus: List<
         }
       }
     }))
-    call core.console::println(read __eff1, concat("  ", read sku, ": ", branch#12 cond#0 true {
+    call core.console::println(read console, concat("  ", read sku, ": ", branch#12 cond#0 true {
       bind#10 let __nn~3: Str? = call core.list::get(List<T>, Int)<Str>(drop_mut(read parts), 1)
       value switch#9 read __nn~3 {
         arm#0 (none) {
@@ -204,7 +204,7 @@ fn main::checkout(lent __eff0: Inventory, lent __eff1: Console; lent skus: List<
       }
     }, " reserved on its shard so far"))
   }
-  call core.console::println(read __eff1, concat("  apple and apple on one shard: ", call core.basic::to_str(Bool)(call core.compare::eq(Str, Str)(branch#16 cond#0 true {
+  call core.console::println(read console, concat("  apple and apple on one shard: ", call core.basic::to_str(Bool)(call core.compare::eq(Str, Str)(branch#16 cond#0 true {
     bind#14 let __nn~5: Str? = call core.list::get(List<T>, Int)<Str>(drop_mut(read shards), 0)
     value switch#13 read __nn~5 {
       arm#0 (none) {
@@ -227,7 +227,7 @@ fn main::checkout(lent __eff0: Inventory, lent __eff1: Console; lent skus: List<
       }
     }
   }))))
-  call core.console::println(read __eff1, concat("  apple and fig on one shard: ", call core.basic::to_str(Bool)(call core.compare::eq(Str, Str)(branch#24 cond#0 true {
+  call core.console::println(read console, concat("  apple and fig on one shard: ", call core.basic::to_str(Bool)(call core.compare::eq(Str, Str)(branch#24 cond#0 true {
     bind#22 let __nn~9: Str? = call core.list::get(List<T>, Int)<Str>(drop_mut(read shards), 0)
     value switch#21 read __nn~9 {
       arm#0 (none) {
@@ -250,7 +250,7 @@ fn main::checkout(lent __eff0: Inventory, lent __eff1: Console; lent skus: List<
       }
     }
   }))))
-  call core.console::println(read __eff1, concat("  apple and pear on one shard: ", call core.basic::to_str(Bool)(call core.compare::eq(Str, Str)(branch#32 cond#0 true {
+  call core.console::println(read console, concat("  apple and pear on one shard: ", call core.basic::to_str(Bool)(call core.compare::eq(Str, Str)(branch#32 cond#0 true {
     bind#30 let __nn~13: Str? = call core.list::get(List<T>, Int)<Str>(drop_mut(read shards), 0)
     value switch#29 read __nn~13 {
       arm#0 (none) {
@@ -275,32 +275,32 @@ fn main::checkout(lent __eff0: Inventory, lent __eff1: Console; lent skus: List<
   }))))
 }
 
-fn main::count(lent __eff0: Search; moved word: Str) -> Int {
+fn main::count(lent search: Search; moved word: Str) -> Int {
   return waitfor out: Reply<Int> {
-    member main::Search#0(read __eff0, !read word, !read out)
+    member main::Search#0(read search, !read word, !read out)
   }
 }
 
-fn main::find(lent __eff0: Lookup; moved key: Str) -> Str {
+fn main::find(lent lookup: Lookup; moved key: Str) -> Str {
   return waitfor out: Reply<Str> {
-    member main::Lookup#0(read __eff0, !read key, !read out)
+    member main::Lookup#0(read lookup, !read key, !read out)
   }
 }
 
-fn main::two_ids(lent __eff0: Leader, lent __eff1: Console; moved seq: Addr<ActorGroup<Sequencer>>) -> None {
-  bind#1 let __use~1: Elected<Sequencer> = construct Elected<Sequencer> { __dep0: read __eff0 }
+fn main::two_ids(lent leader: Leader, lent console: Console; moved seq: Addr<ActorGroup<Sequencer>>) -> None {
+  bind#1 let __use~1: Elected<Sequencer> = construct Elected<Sequencer> { __dep0: read leader }
   bind#2 let __handle~2: RouteSelector<Sequencer> = handle[RouteSelector<Sequencer>](read __use~1)
   bind#3 let __use~3: __Route_Sequencer = construct __Route_Sequencer { group: read seq, config: call net::default_route_config(), __dep0: read __handle~2 }
   bind#4 let __handle~4: Sequencer = handle[Sequencer](read __use~3)
-  call core.console::println(read __eff1, concat("  ", call main::fresh_id(read __handle~4), " ", call main::fresh_id(read __handle~4)))
+  call core.console::println(read console, concat("  ", call main::fresh_id(read __handle~4), " ", call main::fresh_id(read __handle~4)))
 }
 
-fn main::shop(lent __eff0: Console; moved stock: Addr<ActorGroup<Inventory>>) -> None {
+fn main::shop(lent console: Console; moved stock: Addr<ActorGroup<Inventory>>) -> None {
   bind#1 let __use~1: Sharded<Inventory> = construct Sharded<Inventory> { }
   bind#2 let __handle~2: RouteSelector<Inventory> = handle[RouteSelector<Inventory>](read __use~1)
   bind#3 let __use~3: __Route_Inventory = construct __Route_Inventory { group: read stock, config: call net::default_route_config(), __dep0: read __handle~2 }
   bind#4 let __handle~4: Inventory = handle[Inventory](read __use~3)
-  call main::checkout(read __handle~4, read __eff0, list[List<Str>]("apple", "pear", "apple", "fig", "pear"))
+  call main::checkout(read __handle~4, read console, list[List<Str>]("apple", "pear", "apple", "fig", "pear"))
 }
 
 actor interface Boot {
@@ -344,7 +344,7 @@ fn main::settle(lent timer: Addr<Timer>) -> None {
 
 fn main::main() -> None {
   bind#1 let __use~1: StdOutConsole = construct StdOutConsole { }
-  bind#2 let __handle~2: Console = handle[Console](read __use~1)
+  bind#2 let __handle~2: Console = read __use~1
   bind#3 let a: NodeEndpoint = construct NodeEndpoint { host: "a", port: 1 }
   bind#4 let b: NodeEndpoint = construct NodeEndpoint { host: "b", port: 1 }
   bind#5 let all: List<NodeEndpoint> = list[List<NodeEndpoint>](call core.basic::copy<NodeEndpoint>(read a), call core.basic::copy<NodeEndpoint>(read b))
@@ -362,7 +362,7 @@ fn main::main() -> None {
   bind#14 let looks: Addr<ActorGroup<Lookup>> = call net::actor_group(Addr<NodeGroup>)<Lookup>(call core.basic::copy<Addr<NodeGroup>>(read nodes), fn net::protocol)
   spawn[Addr<Lookup>](construct Looking { who: "a" }, on: read p, in: read looks) serves [Lookup]
   bind#15 let pb: Pool = call net::pool_at(call net::new_node(), 1)
-  bind#16 let booter: Addr<Boot> = spawn[Addr<Boot>](construct Booting { at: call core.basic::copy<NodeEndpoint>(read b), all: call core.basic::copy<List<NodeEndpoint>>(read all), net: call core.basic::copy<Addr<MemNet>>(read network), __dep0: construct MemTransport { me: call core.basic::copy<NodeEndpoint>(read b), net: call core.basic::copy<Addr<MemNet>>(read network) } }, on: read pb) serves [Boot]
+  bind#16 let booter: Addr<Boot> = spawn[Addr<Boot>](construct Booting { at: call core.basic::copy<NodeEndpoint>(read b), all: call core.basic::copy<List<NodeEndpoint>>(read all), net: call core.basic::copy<Addr<MemNet>>(read network), __dep0: handle[Transport](construct MemTransport { me: call core.basic::copy<NodeEndpoint>(read b), net: call core.basic::copy<Addr<MemNet>>(read network) }) }, on: read pb) serves [Boot]
   bind#17 let remote_seq: Addr<Sequencer> = waitfor done: Reply<Addr<Sequencer>> {
     send main::Boot#0(read booter, !read done)
   }

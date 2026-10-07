@@ -303,6 +303,9 @@ pub enum Justification {
     /// [ir-loop] `Loop` `loop_` ended with its value assigned on every path
     /// out (the checker's totality), so the result local is not `None`.
     LoopValue { loop_: NodeId },
+    /// [qual-field-override] A qualifier the subject carries refines the
+    /// field read: the claim is the proof.
+    Claim,
 }
 
 /// A storage location: a local and the steps into it.

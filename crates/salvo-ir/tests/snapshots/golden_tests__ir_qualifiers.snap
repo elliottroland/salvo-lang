@@ -78,7 +78,7 @@ fn main::handle(Fresh Request)(lent request: Request) -> Str {
 
 fn main::main() -> None {
   bind#1 let __use~1: StdOutConsole = construct StdOutConsole { }
-  bind#2 let __handle~2: Console = handle[Console](read __use~1)
+  bind#2 let __handle~2: Console = read __use~1
   bind#3 let xs: Mut List<Int> = call core.list::mut_list_of()<Int>()
   call core.list::add<Int>(read xs, 3)
   call core.console::println(read __handle~2, concat("1. head after add: ", call core.basic::to_str(Int)(call main::head(drop_mut(read xs)))))

@@ -32,215 +32,214 @@ fn main::kind_name(StreamError)(lent kind: InvalidUtf8 | StreamFailed) -> Str {
   return "other"
 }
 
-fn main::workflow(lent __eff0: Fs, lent __eff1: Console, lent __eff2: Streams) -> None {
-  bind#1 let wrote: Long | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = call fs::write_str(read __eff0, read __eff2, call fs.path::path("notes.txt"), "alpha\nbeta\ngamma\n")
+fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> None {
+  bind#1 let wrote: Long | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = call fs::write_str(read fs, read streams, call fs.path::path("notes.txt"), "alpha\nbeta\ngamma\n")
   switch#2 read wrote {
     arm#0 (arm 0) {
       narrow#3[switch#2.arm#0] wrote~1: Long = wrote
-      call core.console::println(read __eff1, concat("wrote ", call core.basic::to_str(Long)(read wrote~1), " bytes"))
+      call core.console::println(read console, concat("wrote ", call core.basic::to_str(Long)(read wrote~1), " bytes"))
     }
     arm#1 (arm 1) {
       narrow#4[switch#2.arm#1] wrote~2: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = wrote
-      call core.console::println(read __eff1, concat("write failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read wrote~2))))
+      call core.console::println(read console, concat("write failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read wrote~2))))
     }
   }
-  bind#5 let text: Str | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = call fs::read_to_str(read __eff0, read __eff2, call fs.path::path("notes.txt"))
+  bind#5 let text: Str | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = call fs::read_to_str(read fs, read streams, call fs.path::path("notes.txt"))
   switch#6 read text {
     arm#0 (arm 0) {
       narrow#7[switch#6.arm#0] text~3: Str = text
-      call core.console::println(read __eff1, concat("read back ", call core.basic::to_str(Long)(call core.string::byte_size(read text~3)), " bytes"))
+      call core.console::println(read console, concat("read back ", call core.basic::to_str(Long)(call core.string::byte_size(read text~3)), " bytes"))
     }
     arm#1 (arm 1) {
       narrow#8[switch#6.arm#1] text~4: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = text
-      call core.console::println(read __eff1, concat("read failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read text~4))))
+      call core.console::println(read console, concat("read failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read text~4))))
     }
   }
-  bind#9 let opened: InStream | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member fs::Fs#0(read __eff0, call fs.path::path("notes.txt"))
+  bind#9 let opened: InStream | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member fs::Fs#0(read fs, call fs.path::path("notes.txt"))
   switch#10 read opened {
     arm#0 (arm 0) {
       narrow#11[switch#10.arm#0] opened~5: InStream = opened
       bind#12 let p: Mut Lines = call stream::lines(!read opened~5)
-      bind#14 let __pass~6: Mut Lines = read p
       loop#13 {
-        bind#15 let __step~7: Str | Finished = call stream::next(Mut Lines)(read __eff2, read __pass~6)
-        switch#16 read __step~7 {
+        bind#14 let __step~7: Str | Finished = call stream::next(Mut Lines)(read streams, read p)
+        switch#15 read __step~7 {
           arm#0 (arm 0) {
-            narrow#17[switch#16.arm#0] __emitted~8: Str = __step~7
-            bind#18 let line: Str = !read __emitted~8
-            call core.console::println(read __eff1, concat("line: ", read line))
+            narrow#16[switch#15.arm#0] __emitted~8: Str = __step~7
+            bind#17 let line: Str = !read __emitted~8
+            call core.console::println(read console, concat("line: ", read line))
           }
           arm#1 (else) {
             break
           }
         }
       }
-      bind#19 let closed: Ok None | Checked<InvalidUtf8 | StreamFailed> = call stream::close(Lines)(read __eff2, drop_mut(!read p))
-      branch#20 cond#0 check#21 (read closed is arm 1) {
-        narrow#22[check#21] closed~9: Checked<InvalidUtf8 | StreamFailed> = closed
-        call core.console::println(read __eff1, concat("close failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read closed~9))))
+      bind#18 let closed: Ok None | Checked<InvalidUtf8 | StreamFailed> = call stream::close(Lines)(read streams, drop_mut(!read p))
+      branch#19 cond#0 check#20 (read closed is arm 1) {
+        narrow#21[check#20] closed~9: Checked<InvalidUtf8 | StreamFailed> = closed
+        call core.console::println(read console, concat("close failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read closed~9))))
       }
     }
     arm#1 (arm 1) {
-      narrow#23[switch#10.arm#1] opened~10: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = opened
-      call core.console::println(read __eff1, concat("open failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read opened~10))))
+      narrow#22[switch#10.arm#1] opened~10: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = opened
+      call core.console::println(read console, concat("open failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read opened~10))))
     }
   }
-  bind#24 let out: OutStream | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member fs::Fs#3(read __eff0, call fs.path::path("notes.txt"))
-  switch#25 read out {
+  bind#23 let out: OutStream | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member fs::Fs#3(read fs, call fs.path::path("notes.txt"))
+  switch#24 read out {
     arm#0 (arm 0) {
-      narrow#26[switch#25.arm#0] out~11: OutStream = out
-      bind#27 let w: OutStream = !read out~11
-      bind#28 let at: Long = member stream::Streams#11(read __eff2, read w)
-      bind#29 let n: Long = member stream::Streams#9(read __eff2, read w, "delta")
-      call core.console::println(read __eff1, concat("appended ", call core.basic::to_str(Long)(read n), " bytes at offset ", call core.basic::to_str(Long)(read at)))
-      bind#30 let shut: Ok None | Checked<InvalidUtf8 | StreamFailed> = member stream::Streams#13(read __eff2, !read w)
-      branch#31 cond#0 check#32 (read shut is arm 1) {
-        narrow#33[check#32] shut~12: Checked<InvalidUtf8 | StreamFailed> = shut
-        call core.console::println(read __eff1, concat("close failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read shut~12))))
+      narrow#25[switch#24.arm#0] out~11: OutStream = out
+      bind#26 let w: OutStream = !read out~11
+      bind#27 let at: Long = member stream::Streams#11(read streams, read w)
+      bind#28 let n: Long = member stream::Streams#9(read streams, read w, "delta")
+      call core.console::println(read console, concat("appended ", call core.basic::to_str(Long)(read n), " bytes at offset ", call core.basic::to_str(Long)(read at)))
+      bind#29 let shut: Ok None | Checked<InvalidUtf8 | StreamFailed> = member stream::Streams#13(read streams, !read w)
+      branch#30 cond#0 check#31 (read shut is arm 1) {
+        narrow#32[check#31] shut~12: Checked<InvalidUtf8 | StreamFailed> = shut
+        call core.console::println(read console, concat("close failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read shut~12))))
       }
-      bind#34 let resumed: InStream | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member fs::Fs#1(read __eff0, call fs.path::path("notes.txt"), read at)
-      switch#35 read resumed {
+      bind#33 let resumed: InStream | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member fs::Fs#1(read fs, call fs.path::path("notes.txt"), read at)
+      switch#34 read resumed {
         arm#0 (arm 0) {
-          narrow#36[switch#35.arm#0] resumed~13: InStream = resumed
-          bind#37 let s: InStream = !read resumed~13
-          bind#38 let line: Str? = member stream::Streams#0(read __eff2, read s)
-          switch#39 read line {
+          narrow#35[switch#34.arm#0] resumed~13: InStream = resumed
+          bind#36 let s: InStream = !read resumed~13
+          bind#37 let line: Str? = member stream::Streams#0(read streams, read s)
+          switch#38 read line {
             arm#0 (arm 0) {
-              narrow#40[switch#39.arm#0] line~14: Str = line
-              call core.console::println(read __eff1, concat("at ", call core.basic::to_str(Long)(read at), ": ", read line~14))
+              narrow#39[switch#38.arm#0] line~14: Str = line
+              call core.console::println(read console, concat("at ", call core.basic::to_str(Long)(read at), ": ", read line~14))
             }
             arm#1 (none) {
-              call core.console::println(read __eff1, concat("at ", call core.basic::to_str(Long)(read at), ": end of file"))
+              call core.console::println(read console, concat("at ", call core.basic::to_str(Long)(read at), ": end of file"))
             }
           }
-          bind#41 let done: Ok None | Checked<InvalidUtf8 | StreamFailed> = member stream::Streams#7(read __eff2, !read s)
-          branch#42 cond#0 check#43 (read done is arm 1) {
-            narrow#44[check#43] done~15: Checked<InvalidUtf8 | StreamFailed> = done
-            call core.console::println(read __eff1, concat("close failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read done~15))))
+          bind#40 let done: Ok None | Checked<InvalidUtf8 | StreamFailed> = member stream::Streams#7(read streams, !read s)
+          branch#41 cond#0 check#42 (read done is arm 1) {
+            narrow#43[check#42] done~15: Checked<InvalidUtf8 | StreamFailed> = done
+            call core.console::println(read console, concat("close failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read done~15))))
           }
         }
         arm#1 (arm 1) {
-          narrow#45[switch#35.arm#1] resumed~16: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = resumed
-          call core.console::println(read __eff1, concat("reopen failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read resumed~16))))
+          narrow#44[switch#34.arm#1] resumed~16: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = resumed
+          call core.console::println(read console, concat("reopen failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read resumed~16))))
         }
       }
     }
     arm#1 (arm 1) {
-      narrow#46[switch#25.arm#1] out~17: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = out
-      call core.console::println(read __eff1, concat("append failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read out~17))))
+      narrow#45[switch#24.arm#1] out~17: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = out
+      call core.console::println(read console, concat("append failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read out~17))))
     }
   }
-  bind#47 let bin: OutStream | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member fs::Fs#2(read __eff0, call fs.path::path("raw.bin"))
-  switch#48 read bin {
+  bind#46 let bin: OutStream | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member fs::Fs#2(read fs, call fs.path::path("raw.bin"))
+  switch#47 read bin {
     arm#0 (arm 0) {
-      narrow#49[switch#48.arm#0] bin~18: OutStream = bin
-      bind#50 let w: OutStream = !read bin~18
-      bind#51 let data: Bytes = call core.bytes::bytes_of(array[Byte[]](call core.basic::to_byte(0), call core.basic::to_byte(255), call core.basic::to_byte(200)))
-      bind#52 let n: Long = member stream::Streams#10(read __eff2, read w, read data)
-      bind#53 let m: Long = member stream::Streams#8(read __eff2, read w, "hé")
-      call core.console::println(read __eff1, concat("wrote ", call core.basic::to_str(Long)(read n), " raw bytes and ", call core.basic::to_str(Long)(read m), " encoded"))
-      bind#54 let shut: Ok None | Checked<InvalidUtf8 | StreamFailed> = member stream::Streams#13(read __eff2, !read w)
-      branch#55 cond#0 check#56 (read shut is arm 1) {
-        narrow#57[check#56] shut~19: Checked<InvalidUtf8 | StreamFailed> = shut
-        call core.console::println(read __eff1, concat("close failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read shut~19))))
+      narrow#48[switch#47.arm#0] bin~18: OutStream = bin
+      bind#49 let w: OutStream = !read bin~18
+      bind#50 let data: Bytes = call core.bytes::bytes_of(array[Byte[]](call core.basic::to_byte(0), call core.basic::to_byte(255), call core.basic::to_byte(200)))
+      bind#51 let n: Long = member stream::Streams#10(read streams, read w, read data)
+      bind#52 let m: Long = member stream::Streams#8(read streams, read w, "hé")
+      call core.console::println(read console, concat("wrote ", call core.basic::to_str(Long)(read n), " raw bytes and ", call core.basic::to_str(Long)(read m), " encoded"))
+      bind#53 let shut: Ok None | Checked<InvalidUtf8 | StreamFailed> = member stream::Streams#13(read streams, !read w)
+      branch#54 cond#0 check#55 (read shut is arm 1) {
+        narrow#56[check#55] shut~19: Checked<InvalidUtf8 | StreamFailed> = shut
+        call core.console::println(read console, concat("close failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read shut~19))))
       }
     }
     arm#1 (arm 1) {
-      narrow#58[switch#48.arm#1] bin~20: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = bin
-      call core.console::println(read __eff1, concat("raw open failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read bin~20))))
+      narrow#57[switch#47.arm#1] bin~20: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = bin
+      call core.console::println(read console, concat("raw open failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read bin~20))))
     }
   }
-  bind#59 let raw: InStream | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member fs::Fs#0(read __eff0, call fs.path::path("raw.bin"))
-  switch#60 read raw {
+  bind#58 let raw: InStream | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member fs::Fs#0(read fs, call fs.path::path("raw.bin"))
+  switch#59 read raw {
     arm#0 (arm 0) {
-      narrow#61[switch#60.arm#0] raw~21: InStream = raw
-      bind#62 let s: InStream = !read raw~21
-      bind#63 let head: Bytes | Checked<InvalidUtf8 | StreamFailed> = member stream::Streams#2(read __eff2, read s, 3)
-      switch#64 read head {
+      narrow#60[switch#59.arm#0] raw~21: InStream = raw
+      bind#61 let s: InStream = !read raw~21
+      bind#62 let head: Bytes | Checked<InvalidUtf8 | StreamFailed> = member stream::Streams#2(read streams, read s, 3)
+      switch#63 read head {
         arm#0 (arm 0) {
-          narrow#65[switch#64.arm#0] head~22: Bytes = head
-          call core.console::println(read __eff1, concat("first three: ", call core.bytes::to_str(read head~22), " = ", call core.bytes::to_hex(read head~22)))
+          narrow#64[switch#63.arm#0] head~22: Bytes = head
+          call core.console::println(read console, concat("first three: ", call core.bytes::to_str(read head~22), " = ", call core.bytes::to_hex(read head~22)))
         }
         arm#1 (arm 1) {
-          narrow#66[switch#64.arm#1] head~23: Checked<InvalidUtf8 | StreamFailed> = head
-          call core.console::println(read __eff1, concat("byte read failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read head~23))))
+          narrow#65[switch#63.arm#1] head~23: Checked<InvalidUtf8 | StreamFailed> = head
+          call core.console::println(read console, concat("byte read failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read head~23))))
         }
       }
-      bind#67 let tail: Str | Checked<InvalidUtf8 | StreamFailed> = member stream::Streams#1(read __eff2, read s)
-      switch#68 read tail {
+      bind#66 let tail: Str | Checked<InvalidUtf8 | StreamFailed> = member stream::Streams#1(read streams, read s)
+      switch#67 read tail {
         arm#0 (arm 0) {
-          narrow#69[switch#68.arm#0] tail~24: Str = tail
-          call core.console::println(read __eff1, concat("the rest, as text: ", read tail~24))
+          narrow#68[switch#67.arm#0] tail~24: Str = tail
+          call core.console::println(read console, concat("the rest, as text: ", read tail~24))
         }
         arm#1 (arm 1) {
-          narrow#70[switch#68.arm#1] tail~25: Checked<InvalidUtf8 | StreamFailed> = tail
-          call core.console::println(read __eff1, concat("decode failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read tail~25))))
+          narrow#69[switch#67.arm#1] tail~25: Checked<InvalidUtf8 | StreamFailed> = tail
+          call core.console::println(read console, concat("decode failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read tail~25))))
         }
       }
-      bind#71 let done: Ok None | Checked<InvalidUtf8 | StreamFailed> = member stream::Streams#7(read __eff2, !read s)
-      branch#72 cond#0 check#73 (read done is arm 1) {
-        narrow#74[check#73] done~26: Checked<InvalidUtf8 | StreamFailed> = done
-        call core.console::println(read __eff1, concat("close failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read done~26))))
+      bind#70 let done: Ok None | Checked<InvalidUtf8 | StreamFailed> = member stream::Streams#7(read streams, !read s)
+      branch#71 cond#0 check#72 (read done is arm 1) {
+        narrow#73[check#72] done~26: Checked<InvalidUtf8 | StreamFailed> = done
+        call core.console::println(read console, concat("close failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read done~26))))
       }
     }
     arm#1 (arm 1) {
-      narrow#75[switch#60.arm#1] raw~27: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = raw
-      call core.console::println(read __eff1, concat("raw read failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read raw~27))))
+      narrow#74[switch#59.arm#1] raw~27: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = raw
+      call core.console::println(read console, concat("raw read failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read raw~27))))
     }
   }
-  bind#76 let split: InStream | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member fs::Fs#1(read __eff0, call fs.path::path("raw.bin"), 5L)
-  switch#77 read split {
+  bind#75 let split: InStream | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member fs::Fs#1(read fs, call fs.path::path("raw.bin"), 5L)
+  switch#76 read split {
     arm#0 (arm 0) {
-      narrow#78[switch#77.arm#0] split~28: InStream = split
-      bind#79 let s: InStream = !read split~28
-      bind#80 let broken: Str | Checked<InvalidUtf8 | StreamFailed> = member stream::Streams#1(read __eff2, read s)
-      switch#81 read broken {
+      narrow#77[switch#76.arm#0] split~28: InStream = split
+      bind#78 let s: InStream = !read split~28
+      bind#79 let broken: Str | Checked<InvalidUtf8 | StreamFailed> = member stream::Streams#1(read streams, read s)
+      switch#80 read broken {
         arm#0 (arm 0) {
-          narrow#82[switch#81.arm#0] broken~29: Str = broken
-          call core.console::println(read __eff1, concat("unexpected: ", read broken~29, " decoded"))
+          narrow#81[switch#80.arm#0] broken~29: Str = broken
+          call core.console::println(read console, concat("unexpected: ", read broken~29, " decoded"))
         }
         arm#1 (arm 1) {
-          narrow#83[switch#81.arm#1] broken~30: Checked<InvalidUtf8 | StreamFailed> = broken
-          call core.console::println(read __eff1, concat("mid-character: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read broken~30))))
+          narrow#82[switch#80.arm#1] broken~30: Checked<InvalidUtf8 | StreamFailed> = broken
+          call core.console::println(read console, concat("mid-character: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read broken~30))))
         }
       }
-      bind#84 let done: Ok None | Checked<InvalidUtf8 | StreamFailed> = member stream::Streams#7(read __eff2, !read s)
-      switch#85 read done {
+      bind#83 let done: Ok None | Checked<InvalidUtf8 | StreamFailed> = member stream::Streams#7(read streams, !read s)
+      switch#84 read done {
         arm#0 (arm 0) {
-          narrow#86[switch#85.arm#0] done~31: Ok None = done
-          call core.console::println(read __eff1, "unexpected: the failure was not recorded")
+          narrow#85[switch#84.arm#0] done~31: Ok None = done
+          call core.console::println(read console, "unexpected: the failure was not recorded")
         }
         arm#1 (arm 1) {
-          narrow#87[switch#85.arm#1] done~32: Checked<InvalidUtf8 | StreamFailed> = done
-          call core.console::println(read __eff1, concat("and again at close: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read done~32))))
+          narrow#86[switch#84.arm#1] done~32: Checked<InvalidUtf8 | StreamFailed> = done
+          call core.console::println(read console, concat("and again at close: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read done~32))))
         }
       }
     }
     arm#1 (arm 1) {
-      narrow#88[switch#77.arm#1] split~33: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = split
-      call core.console::println(read __eff1, concat("split open failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read split~33))))
+      narrow#87[switch#76.arm#1] split~33: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = split
+      call core.console::println(read console, concat("split open failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read split~33))))
     }
   }
-  bind#89 let held: InStream | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member fs::Fs#0(read __eff0, call fs.path::path("raw.bin"))
-  switch#90 read held {
+  bind#88 let held: InStream | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member fs::Fs#0(read fs, call fs.path::path("raw.bin"))
+  switch#89 read held {
     arm#0 (arm 0) {
-      narrow#91[switch#90.arm#0] held~34: InStream = held
-      bind#92 let s: InStream = !read held~34
-      bind#93 let buf: Mut Bytes = call core.bytes::mut_bytes(array[Bytes[]]())
-      bind#94 let steps: Int = 0
-      bind#95 let moved: Int = 0
-      bind#96 let reading: Bool = true
-      loop#97 {
-        branch#98 cond#0 op Not(read reading) {
+      narrow#90[switch#89.arm#0] held~34: InStream = held
+      bind#91 let s: InStream = !read held~34
+      bind#92 let buf: Mut Bytes = call core.bytes::mut_bytes(array[Bytes[]]())
+      bind#93 let steps: Int = 0
+      bind#94 let moved: Int = 0
+      bind#95 let reading: Bool = true
+      loop#96 {
+        branch#97 cond#0 op Not(read reading) {
           break
         }
         call core.bytes::clear(read buf)
-        bind#99 let got: Int | Checked<InvalidUtf8 | StreamFailed> = member stream::Streams#3(read __eff2, read s, read buf, 4)
-        switch#100 read got {
+        bind#98 let got: Int | Checked<InvalidUtf8 | StreamFailed> = member stream::Streams#3(read streams, read s, read buf, 4)
+        switch#99 read got {
           arm#0 (arm 0) {
-            narrow#101[switch#100.arm#0] got~35: Int = got
-            bind#102 let n: Int = read got~35
-            branch#103 cond#0 call core.compare::eq(Int, Int)(read n, 0) {
+            narrow#100[switch#99.arm#0] got~35: Int = got
+            bind#101 let n: Int = read got~35
+            branch#102 cond#0 call core.compare::eq(Int, Int)(read n, 0) {
               assign reading = false
             } else {
               assign steps = op Add(read steps, 1)
@@ -248,70 +247,69 @@ fn main::workflow(lent __eff0: Fs, lent __eff1: Console, lent __eff2: Streams) -
             }
           }
           arm#1 (arm 1) {
-            narrow#104[switch#100.arm#1] got~36: Checked<InvalidUtf8 | StreamFailed> = got
-            call core.console::println(read __eff1, concat("fill failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read got~36))))
+            narrow#103[switch#99.arm#1] got~36: Checked<InvalidUtf8 | StreamFailed> = got
+            call core.console::println(read console, concat("fill failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read got~36))))
             assign reading = false
           }
         }
       }
-      call core.console::println(read __eff1, concat("filled ", call core.basic::to_str(Int)(read moved), " bytes in ", call core.basic::to_str(Int)(read steps), " reads, one buffer"))
-      bind#105 let done: Ok None | Checked<InvalidUtf8 | StreamFailed> = member stream::Streams#7(read __eff2, !read s)
-      branch#106 cond#0 check#107 (read done is arm 1) {
-        narrow#108[check#107] done~37: Checked<InvalidUtf8 | StreamFailed> = done
-        call core.console::println(read __eff1, concat("close failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read done~37))))
+      call core.console::println(read console, concat("filled ", call core.basic::to_str(Int)(read moved), " bytes in ", call core.basic::to_str(Int)(read steps), " reads, one buffer"))
+      bind#104 let done: Ok None | Checked<InvalidUtf8 | StreamFailed> = member stream::Streams#7(read streams, !read s)
+      branch#105 cond#0 check#106 (read done is arm 1) {
+        narrow#107[check#106] done~37: Checked<InvalidUtf8 | StreamFailed> = done
+        call core.console::println(read console, concat("close failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read done~37))))
       }
     }
     arm#1 (arm 1) {
-      narrow#109[switch#90.arm#1] held~38: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = held
-      call core.console::println(read __eff1, concat("fill open failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read held~38))))
+      narrow#108[switch#89.arm#1] held~38: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = held
+      call core.console::println(read console, concat("fill open failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read held~38))))
     }
   }
-  bind#110 let lined: InStream | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member fs::Fs#0(read __eff0, call fs.path::path("notes.txt"))
-  switch#111 read lined {
+  bind#109 let lined: InStream | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member fs::Fs#0(read fs, call fs.path::path("notes.txt"))
+  switch#110 read lined {
     arm#0 (arm 0) {
-      narrow#112[switch#111.arm#0] lined~39: InStream = lined
-      bind#113 let s: InStream = !read lined~39
-      bind#114 let line: Mut Str = call core.string::mut_str(array[Str[]]())
-      bind#115 let longest: Int = 0
-      bind#116 let reading: Bool = true
-      loop#117 {
-        branch#118 cond#0 op Not(read reading) {
+      narrow#111[switch#110.arm#0] lined~39: InStream = lined
+      bind#112 let s: InStream = !read lined~39
+      bind#113 let line: Mut Str = call core.string::mut_str(array[Str[]]())
+      bind#114 let longest: Int = 0
+      bind#115 let reading: Bool = true
+      loop#116 {
+        branch#117 cond#0 op Not(read reading) {
           break
         }
         call core.string::clear(read line)
-        branch#119 cond#0 member stream::Streams#5(read __eff2, read s, read line) {
-          branch#120 cond#0 op Gt(call core.compare::cmp(Int, Int)(call core.string::size(drop_mut(read line)), read longest), 0) {
+        branch#118 cond#0 member stream::Streams#5(read streams, read s, read line) {
+          branch#119 cond#0 op Gt(call core.compare::cmp(Int, Int)(call core.string::size(drop_mut(read line)), read longest), 0) {
             assign longest = call core.string::size(drop_mut(read line))
           }
         } else {
           assign reading = false
         }
       }
-      call core.console::println(read __eff1, concat("longest line: ", call core.basic::to_str(Int)(read longest), " characters"))
-      bind#121 let done: Ok None | Checked<InvalidUtf8 | StreamFailed> = member stream::Streams#7(read __eff2, !read s)
-      branch#122 cond#0 check#123 (read done is arm 1) {
-        narrow#124[check#123] done~40: Checked<InvalidUtf8 | StreamFailed> = done
-        call core.console::println(read __eff1, concat("close failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read done~40))))
+      call core.console::println(read console, concat("longest line: ", call core.basic::to_str(Int)(read longest), " characters"))
+      bind#120 let done: Ok None | Checked<InvalidUtf8 | StreamFailed> = member stream::Streams#7(read streams, !read s)
+      branch#121 cond#0 check#122 (read done is arm 1) {
+        narrow#123[check#122] done~40: Checked<InvalidUtf8 | StreamFailed> = done
+        call core.console::println(read console, concat("close failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read done~40))))
       }
     }
     arm#1 (arm 1) {
-      narrow#125[switch#111.arm#1] lined~41: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = lined
-      call core.console::println(read __eff1, concat("lines open failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read lined~41))))
+      narrow#124[switch#110.arm#1] lined~41: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = lined
+      call core.console::println(read console, concat("lines open failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read lined~41))))
     }
   }
-  bind#126 let ch: Mut Chunks | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = call fs::open_chunks(read __eff0, read __eff2, call fs.path::path("raw.bin"), 4)
-  switch#127 read ch {
+  bind#125 let ch: Mut Chunks | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = call fs::open_chunks(read fs, read streams, call fs.path::path("raw.bin"), 4)
+  switch#126 read ch {
     arm#0 (arm 0) {
-      narrow#128[switch#127.arm#0] ch~42: Mut Chunks = ch
-      bind#129 let p: Mut Chunks = !read ch~42
-      bind#130 let seen: Int = 0
-      bind#132 let __pass~43: Mut Chunks = read p
-      loop#131 {
-        bind#133 let __step~44: Bytes | Finished = call stream::next(Mut Chunks)(read __eff2, read __pass~43)
-        switch#134 read __step~44 {
+      narrow#127[switch#126.arm#0] ch~42: Mut Chunks = ch
+      bind#128 let p: Mut Chunks = !read ch~42
+      bind#129 let seen: Int = 0
+      loop#130 {
+        bind#131 let __step~44: Bytes | Finished = call stream::next(Mut Chunks)(read streams, read p)
+        switch#132 read __step~44 {
           arm#0 (arm 0) {
-            narrow#135[switch#134.arm#0] __emitted~45: Bytes = __step~44
-            bind#136 let chunk: Bytes = !read __emitted~45
+            narrow#133[switch#132.arm#0] __emitted~45: Bytes = __step~44
+            bind#134 let chunk: Bytes = !read __emitted~45
             assign seen = op Add(read seen, call core.bytes::size(read chunk))
           }
           arm#1 (else) {
@@ -319,123 +317,123 @@ fn main::workflow(lent __eff0: Fs, lent __eff1: Console, lent __eff2: Streams) -
           }
         }
       }
-      call core.console::println(read __eff1, concat("chunks saw ", call core.basic::to_str(Int)(read seen), " bytes"))
-      bind#137 let done: Ok None | Checked<InvalidUtf8 | StreamFailed> = call stream::close(Chunks)(read __eff2, drop_mut(!read p))
-      branch#138 cond#0 check#139 (read done is arm 1) {
-        narrow#140[check#139] done~46: Checked<InvalidUtf8 | StreamFailed> = done
-        call core.console::println(read __eff1, concat("close failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read done~46))))
+      call core.console::println(read console, concat("chunks saw ", call core.basic::to_str(Int)(read seen), " bytes"))
+      bind#135 let done: Ok None | Checked<InvalidUtf8 | StreamFailed> = call stream::close(Chunks)(read streams, drop_mut(!read p))
+      branch#136 cond#0 check#137 (read done is arm 1) {
+        narrow#138[check#137] done~46: Checked<InvalidUtf8 | StreamFailed> = done
+        call core.console::println(read console, concat("close failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read done~46))))
       }
     }
     arm#1 (arm 1) {
-      narrow#141[switch#127.arm#1] ch~47: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = ch
-      call core.console::println(read __eff1, concat("chunks failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read ch~47))))
+      narrow#139[switch#126.arm#1] ch~47: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = ch
+      call core.console::println(read console, concat("chunks failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read ch~47))))
     }
   }
-  bind#142 let copied: Long | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = call fs::copy_file(read __eff0, read __eff2, call fs.path::path("notes.txt"), call fs.path::path("notes-copy.txt"))
-  switch#143 read copied {
+  bind#140 let copied: Long | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = call fs::copy_file(read fs, read streams, call fs.path::path("notes.txt"), call fs.path::path("notes-copy.txt"))
+  switch#141 read copied {
     arm#0 (arm 0) {
-      narrow#144[switch#143.arm#0] copied~48: Long = copied
-      call core.console::println(read __eff1, concat("copied ", call core.basic::to_str(Long)(read copied~48), " bytes"))
+      narrow#142[switch#141.arm#0] copied~48: Long = copied
+      call core.console::println(read console, concat("copied ", call core.basic::to_str(Long)(read copied~48), " bytes"))
     }
     arm#1 (arm 1) {
-      narrow#145[switch#143.arm#1] copied~49: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = copied
-      call core.console::println(read __eff1, concat("copy failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read copied~49))))
+      narrow#143[switch#141.arm#1] copied~49: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = copied
+      call core.console::println(read console, concat("copy failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read copied~49))))
     }
   }
-  bind#146 let whole: Bytes | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = call fs::read_to_bytes(read __eff0, read __eff2, call fs.path::path("raw.bin"))
-  switch#147 read whole {
+  bind#144 let whole: Bytes | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = call fs::read_to_bytes(read fs, read streams, call fs.path::path("raw.bin"))
+  switch#145 read whole {
     arm#0 (arm 0) {
-      narrow#148[switch#147.arm#0] whole~50: Bytes = whole
-      call core.console::println(read __eff1, concat("raw.bin is ", call core.basic::to_str(Int)(call core.bytes::size(read whole~50)), " bytes: ", call core.bytes::to_hex(read whole~50)))
+      narrow#146[switch#145.arm#0] whole~50: Bytes = whole
+      call core.console::println(read console, concat("raw.bin is ", call core.basic::to_str(Int)(call core.bytes::size(read whole~50)), " bytes: ", call core.bytes::to_hex(read whole~50)))
     }
     arm#1 (arm 1) {
-      narrow#149[switch#147.arm#1] whole~51: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = whole
-      call core.console::println(read __eff1, concat("byte read failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read whole~51))))
+      narrow#147[switch#145.arm#1] whole~51: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = whole
+      call core.console::println(read console, concat("byte read failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read whole~51))))
     }
   }
-  bind#150 let failures: Mut List<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = call core.list::mut_list_of()<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>()
-  bind#151 let missing: Str | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = call fs::read_to_str(read __eff0, read __eff2, call fs.path::path("nope.txt"))
-  switch#152 read missing {
+  bind#148 let failures: Mut List<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = call core.list::mut_list_of()<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>()
+  bind#149 let missing: Str | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = call fs::read_to_str(read fs, read streams, call fs.path::path("nope.txt"))
+  switch#150 read missing {
     arm#0 (arm 0) {
-      narrow#153[switch#152.arm#0] missing~52: Str = missing
-      call core.console::println(read __eff1, concat("unexpected: ", read missing~52))
+      narrow#151[switch#150.arm#0] missing~52: Str = missing
+      call core.console::println(read console, concat("unexpected: ", read missing~52))
     }
     arm#1 (arm 1) {
-      narrow#154[switch#152.arm#1] missing~53: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = missing
+      narrow#152[switch#150.arm#1] missing~53: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = missing
       call core.list::add<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(read failures, call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read missing~53))
     }
   }
-  bind#155 let not_a_dir: List<Str> | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member fs::Fs#6(read __eff0, call fs.path::path("notes.txt"))
-  switch#156 read not_a_dir {
+  bind#153 let not_a_dir: List<Str> | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member fs::Fs#6(read fs, call fs.path::path("notes.txt"))
+  switch#154 read not_a_dir {
     arm#0 (arm 0) {
-      narrow#157[switch#156.arm#0] not_a_dir~54: List<Str> = not_a_dir
-      call core.console::println(read __eff1, concat("unexpected: ", call core.list::to_str(read not_a_dir~54, fn core.basic::to_str(Str))))
+      narrow#155[switch#154.arm#0] not_a_dir~54: List<Str> = not_a_dir
+      call core.console::println(read console, concat("unexpected: ", call core.list::to_str(read not_a_dir~54, fn core.basic::to_str(Str))))
     }
     arm#1 (arm 1) {
-      narrow#158[switch#156.arm#1] not_a_dir~55: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = not_a_dir
+      narrow#156[switch#154.arm#1] not_a_dir~55: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = not_a_dir
       call core.list::add<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(read failures, call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read not_a_dir~55))
     }
   }
-  call core.console::println(read __eff1, concat("failures: ", call core.basic::to_str(Int)(call core.list::size<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(drop_mut(read failures)))))
-  foreach#159 kind: NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming in read failures {
-    call core.console::println(read __eff1, concat("  ", call main::kind_name(FsError)(call core.basic::copy<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(read kind))))
+  call core.console::println(read console, concat("failures: ", call core.basic::to_str(Int)(call core.list::size<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(drop_mut(read failures)))))
+  foreach#157 kind: NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming in read failures {
+    call core.console::println(read console, concat("  ", call main::kind_name(FsError)(call core.basic::copy<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(read kind))))
   }
-  foreach#160 name: Str in list[List<Str>]("notes.txt", "notes-copy.txt", "raw.bin") {
-    bind#161 let gone: Ok None | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member fs::Fs#8(read __eff0, call fs.path::path(read name))
-    branch#162 cond#0 check#163 (read gone is arm 1) {
-      narrow#164[check#163] gone~56: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = gone
-      call core.console::println(read __eff1, concat("delete failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read gone~56))))
+  foreach#158 name: Str in list[List<Str>]("notes.txt", "notes-copy.txt", "raw.bin") {
+    bind#159 let gone: Ok None | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member fs::Fs#8(read fs, call fs.path::path(read name))
+    branch#160 cond#0 check#161 (read gone is arm 1) {
+      narrow#162[check#161] gone~56: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = gone
+      call core.console::println(read console, concat("delete failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read gone~56))))
     }
   }
-  call core.console::println(read __eff1, "cleaned up")
+  call core.console::println(read console, "cleaned up")
 }
 
-fn main::sandbox_edges(lent __eff0: Fs, lent __eff1: Console, lent __eff2: Streams) -> None {
-  bind#1 let inside: Long | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = call fs::write_str(read __eff0, read __eff2, call fs.path::path("sub/../probe.txt"), "inside\n")
+fn main::sandbox_edges(lent fs: Fs, lent console: Console, lent streams: Streams) -> None {
+  bind#1 let inside: Long | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = call fs::write_str(read fs, read streams, call fs.path::path("sub/../probe.txt"), "inside\n")
   switch#2 read inside {
     arm#0 (arm 0) {
       narrow#3[switch#2.arm#0] inside~1: Long = inside
-      call core.console::println(read __eff1, concat("through `..`: wrote ", call core.basic::to_str(Long)(read inside~1), " bytes"))
+      call core.console::println(read console, concat("through `..`: wrote ", call core.basic::to_str(Long)(read inside~1), " bytes"))
     }
     arm#1 (arm 1) {
       narrow#4[switch#2.arm#1] inside~2: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = inside
-      call core.console::println(read __eff1, concat("through `..`: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read inside~2))))
+      call core.console::println(read console, concat("through `..`: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read inside~2))))
     }
   }
-  bind#5 let up: Str | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = call fs::read_to_str(read __eff0, read __eff2, call fs.path::path("../secret.txt"))
+  bind#5 let up: Str | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = call fs::read_to_str(read fs, read streams, call fs.path::path("../secret.txt"))
   switch#6 read up {
     arm#0 (arm 0) {
       narrow#7[switch#6.arm#0] up~3: Str = up
-      call core.console::println(read __eff1, "unexpected: read outside the sandbox")
+      call core.console::println(read console, "unexpected: read outside the sandbox")
     }
     arm#1 (arm 1) {
       narrow#8[switch#6.arm#1] up~4: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = up
-      call core.console::println(read __eff1, concat("climbing out: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read up~4))))
+      call core.console::println(read console, concat("climbing out: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read up~4))))
     }
   }
-  bind#9 let absolute: Str | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = call fs::read_to_str(read __eff0, read __eff2, call fs.path::path("/etc/hosts"))
+  bind#9 let absolute: Str | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = call fs::read_to_str(read fs, read streams, call fs.path::path("/etc/hosts"))
   switch#10 read absolute {
     arm#0 (arm 0) {
       narrow#11[switch#10.arm#0] absolute~5: Str = absolute
-      call core.console::println(read __eff1, "unexpected: an absolute path resolved")
+      call core.console::println(read console, "unexpected: an absolute path resolved")
     }
     arm#1 (arm 1) {
       narrow#12[switch#10.arm#1] absolute~6: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = absolute
-      call core.console::println(read __eff1, concat("absolute path: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read absolute~6))))
+      call core.console::println(read console, concat("absolute path: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read absolute~6))))
     }
   }
   bind#13 let probe: Path = call fs.path::path("probe.txt")
-  call core.console::println(read __eff1, concat("probe still there: ", call core.basic::to_str(Bool)(member fs::Fs#4(read __eff0, read probe))))
-  bind#14 let gone: Ok None | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member fs::Fs#8(read __eff0, read probe)
+  call core.console::println(read console, concat("probe still there: ", call core.basic::to_str(Bool)(member fs::Fs#4(read fs, read probe))))
+  bind#14 let gone: Ok None | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member fs::Fs#8(read fs, read probe)
   branch#15 cond#0 check#16 (read gone is arm 1) {
     narrow#17[check#16] gone~7: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = gone
-    call core.console::println(read __eff1, concat("delete failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read gone~7))))
+    call core.console::println(read console, concat("delete failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read gone~7))))
   }
 }
 
 fn main::main() -> None {
   bind#1 let __use~1: StdOutConsole = construct StdOutConsole { }
-  bind#2 let __handle~2: Console = handle[Console](read __use~1)
+  bind#2 let __handle~2: Console = read __use~1
   bind#3 let __use~3: HostRawStreams = construct HostRawStreams { }
   bind#4 let __handle~4: RawStreams = handle[RawStreams](read __use~3)
   bind#5 let __use~5: DefaultStreams = construct DefaultStreams { __dep0: read __handle~4 }

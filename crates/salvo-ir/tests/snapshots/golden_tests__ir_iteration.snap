@@ -4,23 +4,23 @@ expression: text
 ---
 module main
 
-fn main::describe_container(lent __eff0: Console; lent xs: List<Int>) -> None {
+fn main::describe_container(lent console: Console; lent xs: List<Int>) -> None {
   bind#1 let sum: Int = 0
   foreach#2 n: Int in read xs {
     assign sum = op Add(read sum, read n)
   }
-  call core.console::println(read __eff0, concat("1. list of ", call core.basic::to_str(Int)(call core.list::size<Int>(read xs)), " sums to ", call core.basic::to_str(Int)(read sum)))
+  call core.console::println(read console, concat("1. list of ", call core.basic::to_str(Int)(call core.list::size<Int>(read xs)), " sums to ", call core.basic::to_str(Int)(read sum)))
   bind#3 let letters: Mut Str = call core.string::mut_str(array[Str[]]())
   foreach#4 c: Char in "salvo" {
     call core.string::append(read letters, concat(call core.basic::to_str(Char)(read c), "."))
   }
-  call core.console::println(read __eff0, concat("1. string: ", drop_mut(read letters)))
+  call core.console::println(read console, concat("1. string: ", drop_mut(read letters)))
   bind#5 let arr: Int[] = call core.array::array_of<Int>(array[Int[]](10, 20, 30))
   bind#6 let from_array: Int = 0
   foreach#7 n: Int in read arr {
     assign from_array = op Add(read from_array, read n)
   }
-  call core.console::println(read __eff0, concat("1. array sums to ", call core.basic::to_str(Int)(read from_array)))
+  call core.console::println(read console, concat("1. array sums to ", call core.basic::to_str(Int)(read from_array)))
 }
 
 struct Countdown canbe Mut wire {
@@ -49,18 +49,17 @@ fn main::skip(lent_mut p: Mut Countdown) -> Int | Finished {
   return make_union[Int | Finished]#0(call core.iterator::emitted<Int>(!read now))
 }
 
-fn main::take(lent __eff0: Console; lent_mut p: Mut Countdown, lent count: Int) -> None {
+fn main::take(lent console: Console; lent_mut p: Mut Countdown, lent count: Int) -> None {
   bind#1 let seen: Int = 0
-  bind#3 let __pass~1: Mut Countdown = read p
   loop#2 {
-    bind#4 let __step~2: Int | Finished = call main::next(Mut Countdown)(read __pass~1)
-    switch#5 read __step~2 {
+    bind#3 let __step~2: Int | Finished = call main::next(Mut Countdown)(read p)
+    switch#4 read __step~2 {
       arm#0 (arm 0) {
-        narrow#6[switch#5.arm#0] __emitted~3: Int = __step~2
-        bind#7 let n: Int = !read __emitted~3
-        call core.console::println(read __eff0, concat("2. got ", call core.basic::to_str(Int)(read n)))
+        narrow#5[switch#4.arm#0] __emitted~3: Int = __step~2
+        bind#6 let n: Int = !read __emitted~3
+        call core.console::println(read console, concat("2. got ", call core.basic::to_str(Int)(read n)))
         assign seen = op Add(read seen, 1)
-        branch#8 cond#0 call core.compare::eq(Int, Int)(read seen, read count) {
+        branch#7 cond#0 call core.compare::eq(Int, Int)(read seen, read count) {
           break
         }
       }
@@ -127,9 +126,9 @@ fn main::fibs(moved count: Int) -> Mut __Iter_fibs_Int {
   return construct Mut __Iter_fibs_Int { count: read count, a: 0, b: 1, made: 0 }
 }
 
-fn main::next(Mut __Iter_fibs_Int)(lent __eff0: Console; lent_mut __p: Mut __Iter_fibs_Int) -> Int | Finished {
+fn main::next(Mut __Iter_fibs_Int)(lent console: Console; lent_mut __p: Mut __Iter_fibs_Int) -> Int | Finished {
   branch#1 cond#0 op GtEq(call core.compare::cmp(Int, Int)(read __p.made, read __p.count), 0) {
-    call core.console::println(read __eff0, "3. finished")
+    call core.console::println(read console, "3. finished")
     return make_union[Int | Finished]#1(call core.iterator::finished())
   }
   bind#2 let now: Int = call core.basic::copy<Int>(read __p.a)
@@ -157,13 +156,12 @@ fn main::next(Mut __Iter_naturals_Int)(lent_mut __p: Mut __Iter_naturals_Int) ->
 
 fn main::sum_of<It>(lent_mut it: Mut It; ?lent next: (Mut It) -> Int | Finished) -> Int {
   bind#1 let total: Int = 0
-  bind#3 let __pass~1: Mut It = read it
   loop#2 {
-    bind#4 let __step~2: Int | Finished = call local next(read __pass~1)
-    switch#5 read __step~2 {
+    bind#3 let __step~2: Int | Finished = call local next(read it)
+    switch#4 read __step~2 {
       arm#0 (arm 0) {
-        narrow#6[switch#5.arm#0] __emitted~3: Int = __step~2
-        bind#7 let n: Int = !read __emitted~3
+        narrow#5[switch#4.arm#0] __emitted~3: Int = __step~2
+        bind#6 let n: Int = !read __emitted~3
         assign total = op Add(read total, read n)
       }
       arm#1 (else) {
@@ -194,13 +192,12 @@ fn main::total<C, __It0>(lent c: C; ?lent iter: (C) -> Mut __It0, lent next: (Mu
 }
 
 fn main::first<__It0>(lent_mut it: Mut __It0; ?lent next: (Mut __It0) -> Int | Finished) -> Int {
-  bind#2 let __pass~1: Mut __It0 = read it
   loop#1 {
-    bind#3 let __step~2: Int | Finished = call local next(read __pass~1)
-    switch#4 read __step~2 {
+    bind#2 let __step~2: Int | Finished = call local next(read it)
+    switch#3 read __step~2 {
       arm#0 (arm 0) {
-        narrow#5[switch#4.arm#0] __emitted~3: Int = __step~2
-        bind#6 let n: Int = !read __emitted~3
+        narrow#4[switch#3.arm#0] __emitted~3: Int = __step~2
+        bind#5 let n: Int = !read __emitted~3
         return !read n
       }
       arm#1 (else) {
@@ -213,7 +210,7 @@ fn main::first<__It0>(lent_mut it: Mut __It0; ?lent next: (Mut __It0) -> Int | F
 
 fn main::main() -> None {
   bind#1 let __use~1: StdOutConsole = construct StdOutConsole { }
-  bind#2 let __handle~2: Console = handle[Console](read __use~1)
+  bind#2 let __handle~2: Console = read __use~1
   bind#3 let xs: List<Int> = call core.list::list_of(T, T[])<Int>(1, array[Int[]](2, 3, 4))
   call main::describe_container(read __handle~2, read xs)
   bind#4 let p: Mut Countdown = call main::countdown(5)

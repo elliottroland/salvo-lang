@@ -5,9 +5,6 @@
 package salvo.aws
 
 import salvo.*
-import salvo.core.bytes.appendPlatform
-import salvo.core.string.appendPlatform
-import salvo.core.string.mutStr
 
 data class ProfileCredentials(
     val profile: String = "default",
@@ -37,6 +34,7 @@ object __Codec_DefaultChain : salvo.WireCodec<DefaultChain> {
     }
     override fun dec(inp: salvo.WireIn): DefaultChain = DefaultChain()
 }
+
 
 // Factories for the host: one per arm of the union [platform-factory].
 object Credentialss {
@@ -83,3 +81,4 @@ object __Codec_AwsError : salvo.WireCodec<AwsError> {
     }
     override fun dec(inp: salvo.WireIn): AwsError = AwsError(salvo.StrCodec.dec(inp), salvo.StrCodec.dec(inp))
 }
+

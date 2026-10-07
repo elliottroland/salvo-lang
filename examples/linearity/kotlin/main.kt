@@ -1,16 +1,6 @@
 package salvo.main
 
-import salvo.core.console.Console
-import salvo.core.console.__Platform_StdOutConsole
-import salvo.core.console.println
-import salvo.core.deque.addLastPlatform
-import salvo.core.deque.drain
-import salvo.core.deque.mutDequeOf
-import salvo.core.deque.removeFirstPlatform
-import salvo.core.deque.sizePlatform
-import salvo.core.list.first
-import salvo.core.set.next
-import salvo.core.string.next
+import salvo.*
 
 data class Ticket(
     val id: Int,
@@ -25,82 +15,89 @@ object __Codec_Ticket : salvo.WireCodec<Ticket> {
     override fun dec(inp: salvo.WireIn): Ticket = Ticket(salvo.IntCodec.dec(inp), salvo.StrCodec.dec(inp))
 }
 
-fun issue(console: Console, id: Int, seat: String): Ticket {
-    println(console, "1. issued #$id for $seat")
+fun issue(console: salvo.core.console.Console, id: Int, seat: String): Ticket {
+    salvo.core.console.println(console, "1. issued #${id} for ${seat}")
     return Ticket(id = id, seat = seat)
 }
 
-fun redeem(console: Console, ticket: Ticket) {
-    println(console, "1. redeemed #${ticket.id}")
-    (ticket).let {}
+fun redeem(console: salvo.core.console.Console, ticket: Ticket) {
+    salvo.core.console.println(console, "1. redeemed #${ticket.id}")
+    run { ticket; Unit }
 }
 
-fun oneUse(console: Console) {
-    val ticket = issue(console, 1, "12A")
+fun oneUse(console: salvo.core.console.Console) {
+    val ticket: Ticket = issue(console, 1, "12A")
     redeem(console, ticket)
-    println(console, "2. gone after one use")
+    salvo.core.console.println(console, "2. gone after one use")
 }
 
-fun describe(console: Console, ticket: Ticket) {
-    println(console, "3. still holding #${ticket.id} (${ticket.seat})")
+fun describe(console: salvo.core.console.Console, ticket: Ticket) {
+    salvo.core.console.println(console, "3. still holding #${ticket.id} (${ticket.seat})")
 }
 
-fun borrowThenUse(console: Console) {
-    val ticket = issue(console, 2, "3C")
+fun borrowThenUse(console: salvo.core.console.Console) {
+    val ticket: Ticket = issue(console, 2, "3C")
     describe(console, ticket)
     describe(console, ticket)
     redeem(console, ticket)
 }
 
-fun readAField(console: Console) {
-    val ticket = issue(console, 3, "1A")
-    val seat = ticket.seat
-    println(console, "4. read $seat, and #${ticket.id} is still owed")
+fun readAField(console: salvo.core.console.Console) {
+    val ticket: Ticket = issue(console, 3, "1A")
+    val seat: String = ticket.seat
+    salvo.core.console.println(console, "4. read ${seat}, and #${ticket.id} is still owed")
     redeem(console, ticket)
 }
 
-fun<T> handOver(console: Console, value: T, to: (Console, T) -> Unit) {
+fun<T> handOver(console: salvo.core.console.Console, value: T, to: (salvo.core.console.Console, T) -> Unit) {
     to(console, value)
 }
 
-fun genericHandoff(console: Console) {
-    val ticket = issue(console, 4, "9B")
-    handOver(console, ticket, { console2: Console, t -> redeem(console2, t) })
+fun genericHandoff(console: salvo.core.console.Console) {
+    val ticket: Ticket = issue(console, 4, "9B")
+    handOver(console, ticket, fun(__leff0: salvo.core.console.Console, t: Ticket) {
+        return redeem(__leff0, t)
+    })
 }
 
 fun scrap(ticket: Ticket) {
-    (ticket).let {}
+    run { ticket; Unit }
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun aQueueOfTickets(console: Console) {
-    val queue: salvo.platform.core.deque.MutDeque<Ticket> = mutDequeOf()
-    addLastPlatform(queue, issue(console, 5, "2B"))
-    addLastPlatform(queue, issue(console, 6, "2C"))
-    println(console, "6. queued ${sizePlatform(queue)}")
-    val first = removeFirstPlatform(queue)
+fun aQueueOfTickets(console: salvo.core.console.Console) {
+    val queue: salvo.platform.core.deque.MutDeque<Ticket> = salvo.core.deque.mutDequeOf()
+    salvo.core.deque.addLastPlatform(queue, issue(console, 5, "2B"))
+    salvo.core.deque.addLastPlatform(queue, issue(console, 6, "2C"))
+    salvo.core.console.println(console, "6. queued ${salvo.core.deque.sizePlatform(queue)}")
+    val first: Ticket? = salvo.core.deque.removeFirstPlatform(queue)
     when {
-        first != null -> {
-            redeem(console, first)
+        (first != null) -> {
+            val first_1: Ticket = first!!
+            redeem(console, first_1)
         }
-        else -> {
+        (first == null) -> {
         }
+        else -> throw IllegalStateException("salvo: unreachable arm")
     }
     while (true) {
-        var __is1 = removeFirstPlatform(queue)
-        if (!(__is1 != null)) break
-        val next = __is1 as Ticket
+        val __subject_2: Ticket? = salvo.core.deque.removeFirstPlatform(queue)
+        if (!((__subject_2 != null))) {
+            break
+        }
+        val next: Ticket = __subject_2!!
         redeem(console, next)
     }
-    drain(queue, ::scrap)
-    println(console, "6. queue drained")
+    salvo.core.deque.drain(queue, ::scrap)
+    salvo.core.console.println(console, "6. queue drained")
 }
 
 fun main() {
-    val console: Console = salvo.core.console.__Platform_StdOutConsole()
-    oneUse(console)
-    borrowThenUse(console)
-    readAField(console)
-    genericHandoff(console)
-    aQueueOfTickets(console)
+    val __use_1: salvo.core.console.__Platform_StdOutConsole = salvo.core.console.__Platform_StdOutConsole()
+    val __handle_2: salvo.core.console.Console = __use_1
+    oneUse(__handle_2)
+    borrowThenUse(__handle_2)
+    readAField(__handle_2)
+    genericHandoff(__handle_2)
+    aQueueOfTickets(__handle_2)
 }
+

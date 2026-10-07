@@ -9,47 +9,47 @@ linear struct Ticket wire {
   seat: Str
 }
 
-fn main::issue(lent __eff0: Console; moved id: Int, moved seat: Str) -> Ticket {
-  call core.console::println(read __eff0, concat("1. issued #", call core.basic::to_str(Int)(read id), " for ", read seat))
+fn main::issue(lent console: Console; moved id: Int, moved seat: Str) -> Ticket {
+  call core.console::println(read console, concat("1. issued #", call core.basic::to_str(Int)(read id), " for ", read seat))
   return construct Ticket { id: read id, seat: read seat }
 }
 
-fn main::redeem(lent __eff0: Console; moved ticket: Ticket) -> None {
-  call core.console::println(read __eff0, concat("1. redeemed #", call core.basic::to_str(Int)(read ticket.id)))
+fn main::redeem(lent console: Console; moved ticket: Ticket) -> None {
+  call core.console::println(read console, concat("1. redeemed #", call core.basic::to_str(Int)(read ticket.id)))
   call core.basic::discard<Ticket>(!read ticket)
 }
 
-fn main::one_use(lent __eff0: Console) -> None {
-  bind#1 let ticket: Ticket = call main::issue(read __eff0, 1, "12A")
-  call main::redeem(read __eff0, !read ticket)
-  call core.console::println(read __eff0, "2. gone after one use")
+fn main::one_use(lent console: Console) -> None {
+  bind#1 let ticket: Ticket = call main::issue(read console, 1, "12A")
+  call main::redeem(read console, !read ticket)
+  call core.console::println(read console, "2. gone after one use")
 }
 
-fn main::describe(lent __eff0: Console; lent ticket: Ticket) -> None {
-  call core.console::println(read __eff0, concat("3. still holding #", call core.basic::to_str(Int)(read ticket.id), " (", read ticket.seat, ")"))
+fn main::describe(lent console: Console; lent ticket: Ticket) -> None {
+  call core.console::println(read console, concat("3. still holding #", call core.basic::to_str(Int)(read ticket.id), " (", read ticket.seat, ")"))
 }
 
-fn main::borrow_then_use(lent __eff0: Console) -> None {
-  bind#1 let ticket: Ticket = call main::issue(read __eff0, 2, "3C")
-  call main::describe(read __eff0, read ticket)
-  call main::describe(read __eff0, read ticket)
-  call main::redeem(read __eff0, !read ticket)
+fn main::borrow_then_use(lent console: Console) -> None {
+  bind#1 let ticket: Ticket = call main::issue(read console, 2, "3C")
+  call main::describe(read console, read ticket)
+  call main::describe(read console, read ticket)
+  call main::redeem(read console, !read ticket)
 }
 
-fn main::read_a_field(lent __eff0: Console) -> None {
-  bind#1 let ticket: Ticket = call main::issue(read __eff0, 3, "1A")
+fn main::read_a_field(lent console: Console) -> None {
+  bind#1 let ticket: Ticket = call main::issue(read console, 3, "1A")
   bind#2 let seat: Str = read ticket.seat
-  call core.console::println(read __eff0, concat("4. read ", read seat, ", and #", call core.basic::to_str(Int)(read ticket.id), " is still owed"))
-  call main::redeem(read __eff0, !read ticket)
+  call core.console::println(read console, concat("4. read ", read seat, ", and #", call core.basic::to_str(Int)(read ticket.id), " is still owed"))
+  call main::redeem(read console, !read ticket)
 }
 
-fn main::hand_over<T canbe linear>(lent __eff0: Console; moved value: T, moved to: (T) [Console] -> None) -> None {
-  call local to(read __eff0, !read value)
+fn main::hand_over<T canbe linear>(lent console: Console; moved value: T, moved to: (T) [Console] -> None) -> None {
+  call local to(read console, !read value)
 }
 
-fn main::generic_handoff(lent __eff0: Console) -> None {
-  bind#1 let ticket: Ticket = call main::issue(read __eff0, 4, "9B")
-  call main::hand_over<Ticket>(read __eff0, !read ticket, lambda(lent __leff0: Console, lent t: Ticket) -> None {
+fn main::generic_handoff(lent console: Console) -> None {
+  bind#1 let ticket: Ticket = call main::issue(read console, 4, "9B")
+  call main::hand_over<Ticket>(read console, !read ticket, lambda(lent __leff0: Console, lent t: Ticket) -> None {
     value call main::redeem(read __leff0, !read t)
   })
 }
@@ -58,16 +58,16 @@ fn main::scrap(moved ticket: Ticket) -> None {
   call core.basic::discard<Ticket>(!read ticket)
 }
 
-fn main::a_queue_of_tickets(lent __eff0: Console) -> None {
+fn main::a_queue_of_tickets(lent console: Console) -> None {
   bind#1 let queue: Mut Deque<Ticket> = call core.deque::mut_deque_of()<Ticket>()
-  call core.deque::add_last<Ticket>(read queue, call main::issue(read __eff0, 5, "2B"))
-  call core.deque::add_last<Ticket>(read queue, call main::issue(read __eff0, 6, "2C"))
-  call core.console::println(read __eff0, concat("6. queued ", call core.basic::to_str(Int)(call core.deque::size<Ticket>(drop_mut(read queue)))))
+  call core.deque::add_last<Ticket>(read queue, call main::issue(read console, 5, "2B"))
+  call core.deque::add_last<Ticket>(read queue, call main::issue(read console, 6, "2C"))
+  call core.console::println(read console, concat("6. queued ", call core.basic::to_str(Int)(call core.deque::size<Ticket>(drop_mut(read queue)))))
   bind#2 let first: Ticket? = call core.deque::remove_first<Ticket>(read queue)
   switch#3 read first {
     arm#0 (arm 0) {
       narrow#4[switch#3.arm#0] first~1: Ticket = first
-      call main::redeem(read __eff0, !read first~1)
+      call main::redeem(read console, !read first~1)
     }
     arm#1 (none) {
     }
@@ -78,15 +78,15 @@ fn main::a_queue_of_tickets(lent __eff0: Console) -> None {
       break
     }
     narrow#8[check#6] next: Ticket = __subject~2
-    call main::redeem(read __eff0, !read next)
+    call main::redeem(read console, !read next)
   }
   call core.deque::drain<Ticket>(drop_mut(!read queue), fn main::scrap)
-  call core.console::println(read __eff0, "6. queue drained")
+  call core.console::println(read console, "6. queue drained")
 }
 
 fn main::main() -> None {
   bind#1 let __use~1: StdOutConsole = construct StdOutConsole { }
-  bind#2 let __handle~2: Console = handle[Console](read __use~1)
+  bind#2 let __handle~2: Console = read __use~1
   call main::one_use(read __handle~2)
   call main::borrow_then_use(read __handle~2)
   call main::read_a_field(read __handle~2)

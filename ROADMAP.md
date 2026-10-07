@@ -251,16 +251,15 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
     decisions, §10 the transition (builder and dump first, then Kotlin, then
     Rust, then actors). **Step 1 built 2026-10-06** (`salvo-ir`, `salvo ir`,
     corpus and golden tests; IR.md §9a lists the provisional calls). **Step 2
-    nearly done**: `ir_emit/` under `SALVO_KOTLIN_IR=1` runs every example,
-    the whole std, all CLI run tests and the codegen compile-and-run cases
-    (IR.md §9a). Left: make it the default Kotlin emitter — revise the
-    codegen tests' textual assertions and the Kotlin goldens to its spelling,
-    regenerate `examples/*/kotlin`, delete `emit.rs`'s AST path (moving
-    `kotlin_package`, `kt_ident`, the runtime-file generators and
-    `intrinsics.rs` out) — then Rust (step 3). Known deviations to settle in
-    step 4: the dispatch body and codecs are generated in the backend from
-    the interface/impl declarations (decision 2's hybrid); a module-level
-    multi-face `use` gets one monitor lock per face rather than one shared. The earlier plan, kept for reference: **rewrites as
+    done 2026-10-06**: Kotlin emits from the IR only; the AST emitter is
+    deleted. **Next, step 3: port Rust** (IR.md §10). Left over from step 2:
+    `BACKEND_SPEC.kotlin.md` still describes several AST-emitter spellings
+    (imports aside, which were rewritten) and wants a pass rule by rule;
+    `salvo-backend::emit_util` keeps walkers only the deleted emitter used,
+    to drop once Rust is ported; a single-face `use` takes a
+    `ReentrantLock` it does not need. Known deviations to settle in step 4:
+    the actor dispatch body and codecs are generated in the backend from the
+    interface/impl declarations (decision 2's hybrid). The earlier plan, kept for reference: **rewrites as
     opt-in helpers in `salvo-backend`**, in this order: argument
     hoists (AST-to-AST, registering checker-table entries for the nodes they
     create), the `__loc` fn variants, value-position control flow (a helper

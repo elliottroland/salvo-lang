@@ -1,5 +1,6 @@
 package salvo.core.iterator
 
+import salvo.*
 
 class Finished
 
@@ -16,3 +17,4 @@ fun<T> emitted(value: T): T {
 fun finished(): Finished {
     return Finished()
 }
+

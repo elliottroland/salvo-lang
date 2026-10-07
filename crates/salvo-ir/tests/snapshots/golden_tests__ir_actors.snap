@@ -101,7 +101,7 @@ fn main::report_line(moved counter: Addr<Counter>, moved label: Str, moved out: 
 
 fn main::main() -> None {
   bind#1 let __use~1: StdOutConsole = construct StdOutConsole { }
-  bind#2 let __handle~2: Console = handle[Console](read __use~1)
+  bind#2 let __handle~2: Console = read __use~1
   bind#3 let workers: Pool = call core.actor::pool(Int)(2)
   bind#4 let counter: Addr<Counter> = spawn[Addr<Counter>](construct Counting { }, on: read workers) serves [Counter]
   send main::Counter#0(read counter, 2)

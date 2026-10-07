@@ -1,14 +1,6 @@
 package salvo.fs.path
 
-import salvo.core.compare.mixHash
-import salvo.core.list.addPlatform
-import salvo.core.string.endsWithPlatform
-import salvo.core.string.isEmpty
-import salvo.core.string.sizePlatform
-import salvo.core.string.splitLast
-import salvo.core.string.splitPlatform
-import salvo.core.string.startsWithPlatform
-import salvo.core.string.trimSuffixPlatform
+import salvo.*
 
 data class Path(
     val text: String,
@@ -30,17 +22,17 @@ fun toStr(p: Path): String {
 }
 
 fun isAbsolute(p: Path): Boolean {
-    return startsWithPlatform(p.text, "/")
+    return salvo.core.string.startsWithPlatform(p.text, "/")
 }
 
 fun join__Path_Str(p: Path, child: String): Path {
-    if (startsWithPlatform(child, "/") || isEmpty(p.text)) {
+    if ((salvo.core.string.startsWithPlatform(child, "/") || salvo.core.string.isEmpty(p.text))) {
         return path(child)
     }
-    if (endsWithPlatform(p.text, "/")) {
-        return path("${p.text}$child")
+    if (salvo.core.string.endsWithPlatform(p.text, "/")) {
+        return path("${p.text}${child}")
     }
-    return path("${p.text}/$child")
+    return path("${p.text}/${child}")
 }
 
 fun join__Path_Path(p: Path, child: Path): Path {
@@ -48,14 +40,17 @@ fun join__Path_Path(p: Path, child: Path): Path {
 }
 
 fun parent(p: Path): Path? {
-    val text = trimTrailingSlashes(p.text)
-    val cut = splitLast(text, "/")
-    if (cut == null) {
+    val text: String = trimTrailingSlashes(p.text)
+    val cut: Pair<String, String>? = salvo.core.string.splitLast(text, "/")
+    if ((cut == null)) {
         return null
     }
-    val (dir, _name) = cut
-    if (isEmpty(dir)) {
-        if (startsWithPlatform(text, "/") && sizePlatform(text) > 1) {
+    val cut_1: Pair<String, String> = cut!!
+    val __destructured_2: Pair<String, String> = cut_1
+    val dir: String = __destructured_2.first
+    val _name: String = __destructured_2.second
+    if (salvo.core.string.isEmpty(dir)) {
+        if ((salvo.core.string.startsWithPlatform(text, "/") && (salvo.core.string.sizePlatform(text) > 1))) {
             return path("/")
         }
         return null
@@ -64,32 +59,37 @@ fun parent(p: Path): Path? {
 }
 
 fun fileName(p: Path): String? {
-    val text = trimTrailingSlashes(p.text)
-    val cut = splitLast(text, "/")
-    if (cut == null) {
-        if (isEmpty(text)) {
+    val text: String = trimTrailingSlashes(p.text)
+    val cut: Pair<String, String>? = salvo.core.string.splitLast(text, "/")
+    if ((cut == null)) {
+        if (salvo.core.string.isEmpty(text)) {
             return null
         }
         return text
     }
-    val (_dir, name) = cut
-    if (isEmpty(name)) {
+    val cut_1: Pair<String, String> = cut!!
+    val __destructured_2: Pair<String, String> = cut_1
+    val _dir: String = __destructured_2.first
+    val name: String = __destructured_2.second
+    if (salvo.core.string.isEmpty(name)) {
         return null
     }
     return name
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun extension(p: Path): String? {
-    val name = fileName(p)
-    if (name != null) {
-        val n = name as String
-        val cut = splitLast(n, ".")
-        if (cut == null) {
+    val name: String? = fileName(p)
+    if ((name != null)) {
+        val n: String = name!!
+        val cut: Pair<String, String>? = salvo.core.string.splitLast(n, ".")
+        if ((cut == null)) {
             return null
         }
-        val (stem, ext) = cut
-        if (isEmpty(stem)) {
+        val cut_1: Pair<String, String> = cut!!
+        val __destructured_2: Pair<String, String> = cut_1
+        val stem: String = __destructured_2.first
+        val ext: String = __destructured_2.second
+        if (salvo.core.string.isEmpty(stem)) {
             return null
         }
         return ext
@@ -97,17 +97,19 @@ fun extension(p: Path): String? {
     return null
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun stem(p: Path): String? {
-    val name = fileName(p)
-    if (name != null) {
-        val n = name as String
-        val cut = splitLast(n, ".")
-        if (cut == null) {
+    val name: String? = fileName(p)
+    if ((name != null)) {
+        val n: String = name!!
+        val cut: Pair<String, String>? = salvo.core.string.splitLast(n, ".")
+        if ((cut == null)) {
             return n
         }
-        val (stem, _ext) = cut
-        if (isEmpty(stem)) {
+        val cut_1: Pair<String, String> = cut!!
+        val __destructured_2: Pair<String, String> = cut_1
+        val stem: String = __destructured_2.first
+        val _ext: String = __destructured_2.second
+        if (salvo.core.string.isEmpty(stem)) {
             return n
         }
         return stem
@@ -115,19 +117,18 @@ fun stem(p: Path): String? {
     return null
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun withExtension(p: Path, ext: String): Path {
-    val s = stem(p)
-    if (s != null) {
-        val base = s as String
-        val name = if (isEmpty(ext)) {
+    val s: String? = stem(p)
+    if ((s != null)) {
+        val base: String = s!!
+        val name: String = (if (salvo.core.string.isEmpty(ext)) {
             base
         } else {
-            "$base.$ext"
-        }
-        val up = parent(p)
-        if (up != null) {
-            val dir = up as Path
+            "${base}.${ext}"
+        })
+        val up: Path? = parent(p)
+        if ((up != null)) {
+            val dir: Path = up!!
             return join__Path_Str(dir, name)
         }
         return path(name)
@@ -136,32 +137,36 @@ fun withExtension(p: Path, ext: String): Path {
 }
 
 fun segments(p: Path): salvo.platform.core.list.MutList<String> {
-    val out = mutableListOf<String>()
-    for (part in salvo.platform.core.list.each(splitPlatform(p.text, "/"))) {
-        if (!isEmpty(part)) {
-            addPlatform(out, part)
+    val out: salvo.platform.core.list.MutList<String> = mutableListOf<String>()
+    for (part in salvo.platform.core.list.each(salvo.core.string.splitPlatform(p.text, "/"))) {
+        if (!(salvo.core.string.isEmpty(part))) {
+            salvo.core.list.addPlatform(out, part)
         }
     }
     return out
 }
 
 fun trimTrailingSlashes(text: String): String {
-    var t = text
-    while (sizePlatform(t) > 1 && endsWithPlatform(t, "/")) {
-        t = trimSuffixPlatform(t, "/")
+    var t: String = text
+    while (true) {
+        if (!(((salvo.core.string.sizePlatform(t) > 1) && salvo.core.string.endsWithPlatform(t, "/")))) {
+            break
+        }
+        t = salvo.core.string.trimSuffixPlatform(t, "/")
     }
     return t
 }
 
 fun hash(value: Path): Long {
-    var h = 17L
-    h = mixHash(h, (value.text).hashCode().toLong())
+    var h: Long = 17L
+    h = salvo.core.compare.mixHash(h, (value.text).hashCode().toLong())
     return h
 }
 
 fun eq(a: Path, b: Path): Boolean {
-    if (!((a.text) == (b.text))) {
+    if (!(((a.text) == (b.text)))) {
         return false
     }
     return true
 }
+

@@ -5,83 +5,41 @@
 package salvo.runtime
 
 import salvo.*
-import salvo.core.actor.Exit
-import salvo.core.actor.Idle
-import salvo.core.actor.pool
-import salvo.core.bytes.getPlatform
-import salvo.core.bytes.sizePlatform
-import salvo.core.deque.addLastPlatform
-import salvo.core.deque.drain
-import salvo.core.deque.drain as drain__core_deque
-import salvo.core.deque.get
-import salvo.core.deque.getPlatform
-import salvo.core.deque.getPlatform as getPlatform__core_deque
-import salvo.core.deque.mutDequeOf
-import salvo.core.deque.removeAtPlatform
-import salvo.core.deque.removeFirstPlatform
-import salvo.core.deque.removeFirstPlatform as removeFirstPlatform__core_deque
-import salvo.core.deque.sizePlatform
-import salvo.core.deque.sizePlatform as sizePlatform__core_deque
-import salvo.core.list.addPlatform
-import salvo.core.list.any
-import salvo.core.list.at
-import salvo.core.list.drain
-import salvo.core.list.drain as drain__core_list
-import salvo.core.list.get
-import salvo.core.list.getPlatform
-import salvo.core.list.getPlatform as getPlatform__core_list
-import salvo.core.list.removeFirstPlatform
-import salvo.core.list.removeFirstPlatform as removeFirstPlatform__core_list
-import salvo.core.list.sizePlatform
-import salvo.core.list.sizePlatform as sizePlatform__core_list
-import salvo.core.map.drain
-import salvo.core.map.get
-import salvo.core.map.getPlatform
-import salvo.core.map.sizePlatform
-import salvo.core.set.sizePlatform
-import salvo.core.sorted.getPlatform
-import salvo.core.string.joinPlatform
-import salvo.core.string.sizePlatform
 
-// [mod-use] The module's `use` #0, bound on first use.
-private val __moduleUse0: RuntimeHost by lazy {
-    val runtime_host: RuntimeHost = salvo.runtime.__Platform_HostRuntime()
-    runtime_host
+val __module_use0: __Platform_HostRuntime by lazy {
+    val __module_use0: __Platform_HostRuntime = __Platform_HostRuntime()
+    __module_use0
 }
 
-// [mod-use] The module's `use` #1, bound on first use.
-private val __moduleUse1: SchedTable by lazy {
-    val sched_table: SchedTable = __Mon_SchedTable(Scheduler().also { it.init() })
-    sched_table
+val __module_use0_0: RuntimeHost by lazy {
+    val __module_use0_0: RuntimeHost = __module_use0
+    __module_use0_0
 }
 
-fun thisParkerPlatform(): salvo.platform.runtime.Parker {
-    return salvo.platform.runtime.thisParker()
+val __module_use1: Scheduler by lazy {
+    val __module_use1: Scheduler = Scheduler()
+    __module_use1
 }
 
-fun parkPlatform(p: salvo.platform.runtime.Parker) {
-    return salvo.platform.runtime.park(p)
+val __module_use1_0: SchedTable by lazy {
+    val __lock___module_use1 = java.util.concurrent.locks.ReentrantLock()
+    val __module_use1_0: SchedTable = __Mon_SchedTable(__module_use1, __lock___module_use1)
+    __module_use1_0
 }
 
-fun parkNanosPlatform(p: salvo.platform.runtime.Parker, nanos: Long) {
-    return salvo.platform.runtime.parkNanos(p, nanos)
-}
+fun thisParkerPlatform(): salvo.platform.runtime.Parker = salvo.platform.runtime.thisParker()
 
-fun unparkPlatform(p: salvo.platform.runtime.Parker) {
-    return salvo.platform.runtime.unpark(p)
-}
+fun parkPlatform(p: salvo.platform.runtime.Parker) = salvo.platform.runtime.park(p)
 
-fun startThreadPlatform(body: () -> Unit) {
-    return salvo.platform.runtime.startThread(body)
-}
+fun parkNanosPlatform(p: salvo.platform.runtime.Parker, nanos: Long) = salvo.platform.runtime.parkNanos(p, nanos)
 
-fun guardedPlatform(body: () -> Unit): String? {
-    return salvo.platform.runtime.guarded(body)
-}
+fun unparkPlatform(p: salvo.platform.runtime.Parker) = salvo.platform.runtime.unpark(p)
 
-fun trapBoundaryPlatform(body: () -> String?): String? {
-    return salvo.platform.runtime.trapBoundary(body)
-}
+fun startThreadPlatform(body: () -> Unit) = salvo.platform.runtime.startThread(body)
+
+fun guardedPlatform(body: () -> Unit): String? = salvo.platform.runtime.guarded(body)
+
+fun trapBoundaryPlatform(body: () -> String?): String? = salvo.platform.runtime.trapBoundary(body)
 
 interface RuntimeHost {
     fun secureBits(): Long
@@ -110,7 +68,6 @@ class __Mon_RuntimeHost(
     }
 }
 
-// The interface a `platform handler` of `RuntimeHost` implements [platform-abi].
 interface RuntimeHostPlatform {
     fun secureBits(): Long
     fun report(line: String)
@@ -123,57 +80,40 @@ open class __Platform_RuntimeHost(private val impl: RuntimeHostPlatform) : Runti
     override fun monoNanos(): Long = impl.monoNanos()
 }
 
-class __Platform_HostRuntime() : salvo.runtime.__Platform_RuntimeHost(salvo.platform.runtime.HostRuntime())
+
+class __Platform_HostRuntime() : __Platform_RuntimeHost(salvo.platform.runtime.HostRuntime())
 
 fun freshBits(): Long {
-    if (__moduleUse1.isVirtual()) {
-        return __moduleUse1.randomBits()
+    if (__module_use1_0.isVirtual()) {
+        return __module_use1_0.randomBits()
     }
-    return __moduleUse0.secureBits()
+    return __module_use0_0.secureBits()
 }
 
 fun nowNanos(): Long {
-    if (__moduleUse1.isVirtual()) {
-        return __moduleUse1.virtualNow()
+    if (__module_use1_0.isVirtual()) {
+        return __module_use1_0.virtualNow()
     }
-    return __moduleUse0.monoNanos()
+    return __module_use0_0.monoNanos()
 }
 
-fun<T> erasePlatform(v: T): salvo.platform.runtime.Dyn {
-    return salvo.platform.runtime.erase(v)
-}
+fun<T> erasePlatform(v: T): salvo.platform.runtime.Dyn = salvo.platform.runtime.erase(v)
 
-fun<T> unerasePlatform(d: salvo.platform.runtime.Dyn): T {
-    return salvo.platform.runtime.unerase(d)
-}
+fun<T> unerasePlatform(d: salvo.platform.runtime.Dyn): T = salvo.platform.runtime.unerase(d)
 
-fun dropDynPlatform(d: salvo.platform.runtime.Dyn) {
-    return salvo.platform.runtime.dropDyn(d)
-}
+fun dropDynPlatform(d: salvo.platform.runtime.Dyn) = salvo.platform.runtime.dropDyn(d)
 
-fun bodyOfPlatform(f: (Int, Long, salvo.platform.runtime.Dyn) -> Unit): salvo.platform.runtime.Body {
-    return salvo.platform.runtime.bodyOf(f)
-}
+fun bodyOfPlatform(f: (Int, Long, salvo.platform.runtime.Dyn) -> Unit): salvo.platform.runtime.Body = salvo.platform.runtime.bodyOf(f)
 
-fun activatePlatform(b: salvo.platform.runtime.Body, kind: Int, slot: Long, value: salvo.platform.runtime.Dyn): Ran {
-    return salvo.platform.runtime.activate(b, kind, slot, value)
-}
+fun activatePlatform(b: salvo.platform.runtime.Body, kind: Int, slot: Long, value: salvo.platform.runtime.Dyn): Ran = salvo.platform.runtime.activate(b, kind, slot, value)
 
-fun dropBodyPlatform(b: salvo.platform.runtime.Body) {
-    return salvo.platform.runtime.dropBody(b)
-}
+fun dropBodyPlatform(b: salvo.platform.runtime.Body) = salvo.platform.runtime.dropBody(b)
 
-fun grantedPlatform(addr: Int, pool: Int, from: Long) {
-    return salvo.platform.runtime.granted(addr, pool, from)
-}
+fun grantedPlatform(addr: Int, pool: Int, from: Long) = salvo.platform.runtime.granted(addr, pool, from)
 
-fun flushFramesPlatform() {
-    return salvo.platform.runtime.flushFrames()
-}
+fun flushFramesPlatform() = salvo.platform.runtime.flushFrames()
 
-fun exitProcessPlatform(code: Int): Nothing {
-    return salvo.platform.runtime.exitProcess(code)
-}
+fun exitProcessPlatform(code: Int): Nothing = salvo.platform.runtime.exitProcess(code)
 
 data class Ran(
     val body: salvo.platform.runtime.Body,
@@ -181,54 +121,38 @@ data class Ran(
 )
 
 fun dropRan(r: Ran) {
-    val __destructured1 = r
-    val body = __destructured1.body
-    val fault = __destructured1.fault
+    val __destructured_1: Ran = r
+    val body: salvo.platform.runtime.Body = __destructured_1.body
+    val fault: String? = __destructured_1.fault
     dropBodyPlatform(body)
 }
 
-fun<T> slotOfPlatform(v: T): salvo.platform.runtime.Slot<T> {
-    return salvo.platform.runtime.slotOf(v)
-}
+fun<T> slotOfPlatform(v: T): salvo.platform.runtime.Slot<T> = salvo.platform.runtime.slotOf(v)
 
-fun<T> slotEmptyPlatform(): salvo.platform.runtime.Slot<T> {
-    return salvo.platform.runtime.slotEmpty()
-}
+fun<T> slotEmptyPlatform(): salvo.platform.runtime.Slot<T> = salvo.platform.runtime.slotEmpty()
 
-fun<T> slotTakePlatform(s: salvo.platform.runtime.Slot<T>): T? {
-    return salvo.platform.runtime.slotTake(s)
-}
+fun<T> slotTakePlatform(s: salvo.platform.runtime.Slot<T>): T? = salvo.platform.runtime.slotTake(s)
 
-fun<T> slotPutPlatform(s: salvo.platform.runtime.Slot<T>, v: T) {
-    return salvo.platform.runtime.slotPut(s, v)
-}
+fun<T> slotPutPlatform(s: salvo.platform.runtime.Slot<T>, v: T) = salvo.platform.runtime.slotPut(s, v)
 
-fun<T> dropSlotPlatform(s: salvo.platform.runtime.Slot<T>) {
-    return salvo.platform.runtime.dropSlot(s)
-}
+fun<T> dropSlotPlatform(s: salvo.platform.runtime.Slot<T>) = salvo.platform.runtime.dropSlot(s)
 
-fun herePoolPlatform(): Int {
-    return salvo.platform.runtime.herePool()
-}
+fun herePoolPlatform(): Int = salvo.platform.runtime.herePool()
 
-fun hereActorPlatform(): Int {
-    return salvo.platform.runtime.hereActor()
-}
+fun hereActorPlatform(): Int = salvo.platform.runtime.hereActor()
 
-fun setHerePlatform(pool: Int, actor: Int) {
-    return salvo.platform.runtime.setHere(pool, actor)
-}
+fun setHerePlatform(pool: Int, actor: Int) = salvo.platform.runtime.setHere(pool, actor)
 
 fun mainPool(): Int {
     return 0
 }
 
 fun noFrame(): Int {
-    return -1
+    return (-1)
 }
 
 fun taskFrame(): Int {
-    return -2
+    return (-2)
 }
 
 data class Delivered(
@@ -253,29 +177,30 @@ object __Codec_Reported : salvo.WireCodec<Reported> {
 }
 
 fun dropDelivered(d: Delivered) {
-    val __destructured2 = d
-    val msg = __destructured2.msg
-    val from = __destructured2.from
+    val __destructured_1: Delivered = d
+    val msg: salvo.platform.runtime.Dyn = __destructured_1.msg
+    val from: Long = __destructured_1.from
     dropDynPlatform(msg)
 }
 
 fun dropAnswered(a: Answered) {
-    val __destructured3 = a
-    val slot = __destructured3.slot
-    val value = __destructured3.value
+    val __destructured_1: Answered = a
+    val slot: Long = __destructured_1.slot
+    val value: salvo.platform.runtime.Dyn = __destructured_1.value
     dropDynPlatform(value)
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun dropEntry(e: Union3<Delivered, Answered, Reported>) {
-    if (e is Union3.U1<*, *, *>) {
-        val d = e.value as Delivered
+    if ((e is Union3.U1<*, *, *>)) {
+        val d: Delivered = ((e as Union3.U1<*, *, *>).value as Delivered)
         dropDelivered(d)
-    } else if (e is Union3.U2<*, *, *>) {
-        val a = e.value as Answered
+    } else if ((e is Union3.U2<*, *, *>)) {
+        val a: Answered = ((e as Union3.U2<*, *, *>).value as Answered)
         dropAnswered(a)
     } else {
-        ((e.value as Reported)).let {}
+        val e_1: Reported = ((e as Union3.U3<*, *, *>).value as Reported)
+        run { e_1; Unit }
     }
 }
 
@@ -297,26 +222,31 @@ data class ActorRec(
     var proxy: Boolean,
 )
 
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun dropActorRec(a: ActorRec) {
-    val __destructured4 = a
-    val body = __destructured4.body
-    val pool = __destructured4.pool
-    val bound = __destructured4.bound
-    val queue = __destructured4.queue
-    val slots = __destructured4.slots
-    val userLen = __destructured4.userLen
-    val gate = __destructured4.gate
-    val running = __destructured4.running
-    val dead = __destructured4.dead
-    val exitReason = __destructured4.exitReason
-    val blocked = __destructured4.blocked
-    val watchers = __destructured4.watchers
-    val owed = __destructured4.owed
-    val ready = __destructured4.ready
-    val proxy = __destructured4.proxy
+    val __destructured_1: ActorRec = a
+    val body: salvo.platform.runtime.Slot<salvo.platform.runtime.Body> = __destructured_1.body
+    val pool: Int = __destructured_1.pool
+    val bound: Int = __destructured_1.bound
+    val queue: salvo.platform.core.deque.MutDeque<Union3<Delivered, Answered, Reported>> = (__destructured_1.queue as salvo.platform.core.deque.MutDeque<Union3<Delivered, Answered, Reported>>)
+    val slots: salvo.platform.core.deque.MutDeque<Long> = (__destructured_1.slots as salvo.platform.core.deque.MutDeque<Long>)
+    val userLen: Int = __destructured_1.userLen
+    val gate: Long? = __destructured_1.gate
+    val running: Boolean = __destructured_1.running
+    val dead: Boolean = __destructured_1.dead
+    val exitReason: String = __destructured_1.exitReason
+    val blocked: salvo.platform.core.list.MutList<salvo.platform.runtime.Parker> = (__destructured_1.blocked as salvo.platform.core.list.MutList<salvo.platform.runtime.Parker>)
+    val watchers: salvo.platform.core.list.MutList<Token> = (__destructured_1.watchers as salvo.platform.core.list.MutList<Token>)
+    val owed: Int = __destructured_1.owed
+    val ready: Boolean = __destructured_1.ready
+    val proxy: Boolean = __destructured_1.proxy
     dropSlotPlatform(body)
-    drain__core_deque(queue, { e -> dropEntry(e) })
-    drain__core_list(watchers, { t -> dropToken(t) })
+    salvo.core.deque.drain(queue, fun(e: Union3<Delivered, Answered, Reported>) {
+        return dropEntry(e)
+    })
+    salvo.core.list.drain(watchers, fun(t: Token) {
+        return dropToken(t)
+    })
 }
 
 data class WaiterRec(
@@ -330,14 +260,14 @@ data class WaiterRec(
 )
 
 fun dropWaiterRec(w: WaiterRec) {
-    val __destructured5 = w
-    val pool = __destructured5.pool
-    val value = __destructured5.value
-    val filled = __destructured5.filled
-    val parker = __destructured5.parker
-    val waiting = __destructured5.waiting
-    val waitingActor = __destructured5.waitingActor
-    val slot = __destructured5.slot
+    val __destructured_1: WaiterRec = w
+    val pool: Int = __destructured_1.pool
+    val value: salvo.platform.runtime.Slot<salvo.platform.runtime.Dyn> = __destructured_1.value
+    val filled: Boolean = __destructured_1.filled
+    val parker: salvo.platform.runtime.Parker? = __destructured_1.parker
+    val waiting: Int = __destructured_1.waiting
+    val waitingActor: Int = __destructured_1.waitingActor
+    val slot: Long = __destructured_1.slot
     dropSlotPlatform(value)
 }
 
@@ -347,9 +277,9 @@ data class TaskRun(
 )
 
 fun dropTaskRun(t: TaskRun) {
-    val __destructured6 = t
-    val body = __destructured6.body
-    val value = __destructured6.value
+    val __destructured_1: TaskRun = t
+    val body: salvo.platform.runtime.Body = __destructured_1.body
+    val value: salvo.platform.runtime.Dyn = __destructured_1.value
     dropBodyPlatform(body)
     dropDynPlatform(value)
 }
@@ -364,16 +294,19 @@ data class PoolRec(
     var retired: Boolean,
 )
 
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun dropPoolRec(p: PoolRec) {
-    val __destructured7 = p
-    val idle = __destructured7.idle
-    val tasks = __destructured7.tasks
-    val ready = __destructured7.ready
-    val sink = __destructured7.sink
-    val owed = __destructured7.owed
-    val dedicated = __destructured7.dedicated
-    val retired = __destructured7.retired
-    drain__core_deque(tasks, { t -> dropTaskRun(t) })
+    val __destructured_1: PoolRec = p
+    val idle: salvo.platform.core.list.MutList<salvo.platform.runtime.Parker> = (__destructured_1.idle as salvo.platform.core.list.MutList<salvo.platform.runtime.Parker>)
+    val tasks: salvo.platform.core.deque.MutDeque<TaskRun> = (__destructured_1.tasks as salvo.platform.core.deque.MutDeque<TaskRun>)
+    val ready: salvo.platform.core.deque.MutDeque<Int> = (__destructured_1.ready as salvo.platform.core.deque.MutDeque<Int>)
+    val sink: Int = __destructured_1.sink
+    val owed: Int = __destructured_1.owed
+    val dedicated: Boolean = __destructured_1.dedicated
+    val retired: Boolean = __destructured_1.retired
+    salvo.core.deque.drain(tasks, fun(t: TaskRun) {
+        return dropTaskRun(t)
+    })
 }
 
 data class ToActor(
@@ -404,9 +337,9 @@ data class ToTask(
 )
 
 fun dropToTask(t: ToTask) {
-    val __destructured8 = t
-    val pool = __destructured8.pool
-    val body = __destructured8.body
+    val __destructured_1: ToTask = t
+    val pool: Int = __destructured_1.pool
+    val body: salvo.platform.runtime.Body = __destructured_1.body
     dropBodyPlatform(body)
 }
 
@@ -426,9 +359,9 @@ data class WaiterMint(
 )
 
 fun dropWaiterMint(m: WaiterMint) {
-    val __destructured9 = m
-    val token = __destructured9.token
-    val wid = __destructured9.wid
+    val __destructured_1: WaiterMint = m
+    val token: Token = __destructured_1.token
+    val wid: Int = __destructured_1.wid
     dropToken(token)
 }
 
@@ -456,22 +389,22 @@ object __Codec_Retire : salvo.WireCodec<Retire> {
 }
 
 fun dropRunActor(a: RunActor) {
-    val __destructured10 = a
-    val addr = __destructured10.addr
-    val pool = __destructured10.pool
-    val kind = __destructured10.kind
-    val slot = __destructured10.slot
-    val value = __destructured10.value
-    val body = __destructured10.body
+    val __destructured_1: RunActor = a
+    val addr: Int = __destructured_1.addr
+    val pool: Int = __destructured_1.pool
+    val kind: Int = __destructured_1.kind
+    val slot: Long = __destructured_1.slot
+    val value: salvo.platform.runtime.Dyn = __destructured_1.value
+    val body: salvo.platform.runtime.Body = __destructured_1.body
     dropDynPlatform(value)
     dropBodyPlatform(body)
 }
 
 fun dropRunTask(t: RunTask) {
-    val __destructured11 = t
-    val pool = __destructured11.pool
-    val body = __destructured11.body
-    val value = __destructured11.value
+    val __destructured_1: RunTask = t
+    val pool: Int = __destructured_1.pool
+    val body: salvo.platform.runtime.Body = __destructured_1.body
+    val value: salvo.platform.runtime.Dyn = __destructured_1.value
     dropBodyPlatform(body)
     dropDynPlatform(value)
 }
@@ -501,14 +434,14 @@ data class Remote(
 )
 
 fun dropRemote(r: Remote) {
-    val __destructured12 = r
-    val msg = __destructured12.msg
+    val __destructured_1: Remote = r
+    val msg: salvo.platform.runtime.Dyn = __destructured_1.msg
     dropDynPlatform(msg)
 }
 
 fun dropFull(f: Full) {
-    val __destructured13 = f
-    val msg = __destructured13.msg
+    val __destructured_1: Full = f
+    val msg: salvo.platform.runtime.Dyn = __destructured_1.msg
     dropDynPlatform(msg)
 }
 
@@ -518,9 +451,9 @@ data class IdleHook(
 )
 
 fun dropIdleHook(h: IdleHook) {
-    val __destructured14 = h
-    val pool = __destructured14.pool
-    val token = __destructured14.token
+    val __destructured_1: IdleHook = h
+    val pool: Int = __destructured_1.pool
+    val token: Token = __destructured_1.token
     dropToken(token)
 }
 
@@ -556,8 +489,8 @@ object __Codec_Stuck : salvo.WireCodec<Stuck> {
 }
 
 fun dropGot(g: Got) {
-    val __destructured15 = g
-    val value = __destructured15.value
+    val __destructured_1: Got = g
+    val value: salvo.platform.runtime.Dyn = __destructured_1.value
     dropDynPlatform(value)
 }
 
@@ -763,39 +696,51 @@ class __Mon_SchedTable(
 }
 
 class Scheduler : SchedTable {
-    private var actors: salvo.platform.core.list.MutList<ActorRec> = mutableListOf<ActorRec>()
-    private var waiters: salvo.platform.core.list.MutList<WaiterRec> = mutableListOf<WaiterRec>()
-    private var freeWaiters: salvo.platform.core.list.MutList<Int> = mutableListOf<Int>()
-    private var pools: salvo.platform.core.list.MutList<PoolRec> = mutableListOf<PoolRec>()
-    private var idleHooks: salvo.platform.core.list.MutList<IdleHook> = mutableListOf<IdleHook>()
-    private var nextSlot: Long = 0L
-    private var active: Int = 0
-    private var parkedFrames: Int = 0
-    private var mainWaits: Int = 0
-    private var externals: Int = 0
-    private var retired: Int = 0
-    private var virtualMode: Boolean = false
-    private var vnow: Long = 0L
-    private var rng: Long = 1L
-    private var rngSeeded: Boolean = false
-    private var clockHooks: salvo.platform.core.list.MutList<Token> = mutableListOf<Token>()
-
+    var actors: salvo.platform.core.list.MutList<ActorRec> = mutableListOf<ActorRec>()
+    var waiters: salvo.platform.core.list.MutList<WaiterRec> = mutableListOf<WaiterRec>()
+    var freeWaiters: salvo.platform.core.list.MutList<Int> = mutableListOf<Int>()
+    var pools: salvo.platform.core.list.MutList<PoolRec> = mutableListOf<PoolRec>()
+    var idleHooks: salvo.platform.core.list.MutList<IdleHook> = mutableListOf<IdleHook>()
+    var nextSlot: Long = 0L
+    var active: Int = 0
+    var parkedFrames: Int = 0
+    var mainWaits: Int = 0
+    var externals: Int = 0
+    var retired: Int = 0
+    var virtualMode: Boolean = false
+    var vnow: Long = 0L
+    var rng: Long = 1L
+    var rngSeeded: Boolean = false
+    var clockHooks: salvo.platform.core.list.MutList<Token> = mutableListOf<Token>()
+    init {
+        salvo.core.list.addPlatform(pools, PoolRec(idle = mutableListOf<salvo.platform.runtime.Parker>(), tasks = salvo.core.deque.mutDequeOf(), ready = salvo.core.deque.mutDequeOf(), sink = (-1), owed = 0, dedicated = false, retired = false))
+    }
     override fun newPool(sink: Int, dedicated: Boolean): Int {
-        addPlatform(pools, PoolRec(idle = mutableListOf<salvo.platform.runtime.Parker>(), tasks = mutDequeOf(), ready = mutDequeOf(), sink = sink, owed = 0, dedicated = dedicated, retired = false))
-        return sizePlatform__core_list(pools) - 1
+        salvo.core.list.addPlatform(pools, PoolRec(idle = mutableListOf<salvo.platform.runtime.Parker>(), tasks = salvo.core.deque.mutDequeOf(), ready = salvo.core.deque.mutDequeOf(), sink = sink, owed = 0, dedicated = dedicated, retired = false))
+        return (salvo.core.list.sizePlatform(pools) - 1)
     }
-
     override fun newActor(pool: Int, bound: Int, body: salvo.platform.runtime.Body): Int {
-        addPlatform(actors, ActorRec(body = slotOfPlatform(body), pool = pool, bound = bound, queue = mutDequeOf(), slots = mutDequeOf(), userLen = 0, gate = null, running = false, dead = false, exitReason = "", blocked = mutableListOf<salvo.platform.runtime.Parker>(), watchers = mutableListOf<Token>(), owed = 0, ready = false, proxy = false))
-        return sizePlatform__core_list(actors) - 1
+        salvo.core.list.addPlatform(actors, ActorRec(body = slotOfPlatform(body), pool = pool, bound = bound, queue = salvo.core.deque.mutDequeOf(), slots = salvo.core.deque.mutDequeOf(), userLen = 0, gate = null, running = false, dead = false, exitReason = "", blocked = mutableListOf<salvo.platform.runtime.Parker>(), watchers = mutableListOf<Token>(), owed = 0, ready = false, proxy = false))
+        return (salvo.core.list.sizePlatform(actors) - 1)
     }
-
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun enqueue(addr: Int, msg: salvo.platform.runtime.Dyn, waiter: salvo.platform.runtime.Parker): Union4<Sent, Dead, Full, Remote> {
-        if (addr < 0 || addr >= sizePlatform__core_list(actors)) {
+        if (((addr < 0) || (addr >= salvo.core.list.sizePlatform(actors)))) {
             dropDynPlatform(msg)
             return Union4.U2<Sent, Dead, Full, Remote>(Dead())
         }
-        val a = (getPlatform__core_list(actors, addr) ?: throw AssertionError("salvo: value is absent at runtime:518:17"))
+        var a: ActorRec = run {
+            val __nn_1: ActorRec? = salvo.core.list.getPlatform(actors, addr)
+            when {
+                (__nn_1 == null) -> {
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:518:17"))
+                }
+                else -> {
+                    val __some_2: ActorRec = __nn_1!!
+                    __some_2
+                }
+            }
+        }
         if (a.dead) {
             dropDynPlatform(msg)
             return Union4.U2<Sent, Dead, Full, Remote>(Dead())
@@ -803,308 +748,534 @@ class Scheduler : SchedTable {
         if (a.proxy) {
             return Union4.U4<Sent, Dead, Full, Remote>(Remote(msg = msg))
         }
-        if (a.userLen >= a.bound) {
-            addPlatform(a.blocked, waiter)
+        if ((a.userLen >= a.bound)) {
+            salvo.core.list.addPlatform((a.blocked as salvo.platform.core.list.MutList<salvo.platform.runtime.Parker>), waiter)
             return Union4.U3<Sent, Dead, Full, Remote>(Full(msg = msg))
         }
-        val e: Union3<Delivered, Answered, Reported> = Union3.U1<Delivered, Answered, Reported>(Delivered(msg = msg, from = (-1).toLong()))
-        addLastPlatform(a.queue, e)
-        addLastPlatform(a.slots, (-1).toLong())
-        a.userLen = a.userLen + 1
+        val e: Union3<Delivered, Answered, Reported> = Union3.U1<Delivered, Answered, Reported>(Delivered(msg = msg, from = ((-1)).toLong()))
+        salvo.core.deque.addLastPlatform((a.queue as salvo.platform.core.deque.MutDeque<Union3<Delivered, Answered, Reported>>), e)
+        salvo.core.deque.addLastPlatform((a.slots as salvo.platform.core.deque.MutDeque<Long>), ((-1)).toLong())
+        a.userLen = (a.userLen + 1)
         if (markReady(a, pools, addr)) {
-            val pool = a.pool
+            val pool: Int = a.pool
             wakePool(pools, pool)
         }
         return Union4.U1<Sent, Dead, Full, Remote>(Sent())
     }
-
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun enqueueRemote(addr: Int, msg: salvo.platform.runtime.Dyn, from: Long): Boolean {
-        if (addr < 0 || addr >= sizePlatform__core_list(actors)) {
+        if (((addr < 0) || (addr >= salvo.core.list.sizePlatform(actors)))) {
             dropDynPlatform(msg)
             return false
         }
-        val a = (getPlatform__core_list(actors, addr) ?: throw AssertionError("salvo: value is absent at runtime:546:17"))
+        var a: ActorRec = run {
+            val __nn_1: ActorRec? = salvo.core.list.getPlatform(actors, addr)
+            when {
+                (__nn_1 == null) -> {
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:546:17"))
+                }
+                else -> {
+                    val __some_2: ActorRec = __nn_1!!
+                    __some_2
+                }
+            }
+        }
         if (a.dead) {
             dropDynPlatform(msg)
             return false
         }
         val e: Union3<Delivered, Answered, Reported> = Union3.U1<Delivered, Answered, Reported>(Delivered(msg = msg, from = from))
-        addLastPlatform(a.queue, e)
-        addLastPlatform(a.slots, (-1).toLong())
-        a.userLen = a.userLen + 1
+        salvo.core.deque.addLastPlatform((a.queue as salvo.platform.core.deque.MutDeque<Union3<Delivered, Answered, Reported>>), e)
+        salvo.core.deque.addLastPlatform((a.slots as salvo.platform.core.deque.MutDeque<Long>), ((-1)).toLong())
+        a.userLen = (a.userLen + 1)
         if (markReady(a, pools, addr)) {
-            val pool = a.pool
+            val pool: Int = a.pool
             wakePool(pools, pool)
         }
         return true
     }
-
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun kill(addr: Int, reason: String) {
-        val a = (getPlatform__core_list(actors, addr) ?: throw AssertionError("salvo: value is absent at runtime:563:17"))
+        var a: ActorRec = run {
+            val __nn_1: ActorRec? = salvo.core.list.getPlatform(actors, addr)
+            when {
+                (__nn_1 == null) -> {
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:563:17"))
+                }
+                else -> {
+                    val __some_2: ActorRec = __nn_1!!
+                    __some_2
+                }
+            }
+        }
         if (a.dead) {
             return
         }
         a.dead = true
         a.exitReason = reason
         while (true) {
-            var __is1 = removeFirstPlatform__core_list(a.blocked)
-            if (!(__is1 != null)) break
-            val b = __is1 as salvo.platform.runtime.Parker
+            val __subject_3: salvo.platform.runtime.Parker? = salvo.core.list.removeFirstPlatform((a.blocked as salvo.platform.core.list.MutList<salvo.platform.runtime.Parker>))
+            if (!((__subject_3 != null))) {
+                break
+            }
+            val b: salvo.platform.runtime.Parker = __subject_3!!
             unparkPlatform(b)
         }
         val watchers: salvo.platform.core.list.MutList<Token> = mutableListOf<Token>()
         while (true) {
-            var __is2 = removeFirstPlatform__core_list(a.watchers)
-            if (!(__is2 != null)) break
-            val t = __is2 as Token
-            addPlatform(watchers, t)
+            val __subject_4: Token? = salvo.core.list.removeFirstPlatform((a.watchers as salvo.platform.core.list.MutList<Token>))
+            if (!((__subject_4 != null))) {
+                break
+            }
+            val t: Token = __subject_4!!
+            salvo.core.list.addPlatform(watchers, t)
         }
         while (true) {
-            var __is3 = removeFirstPlatform__core_list(watchers)
-            if (!(__is3 != null)) break
-            val t = __is3 as Token
-            deliverTo(actors, waiters, pools, t, erasePlatform(Exit(reason = reason)))
+            val __subject_5: Token? = salvo.core.list.removeFirstPlatform(watchers)
+            if (!((__subject_5 != null))) {
+                break
+            }
+            val t: Token = __subject_5!!
+            deliverTo(actors, waiters, pools, t, erasePlatform(salvo.core.actor.Exit(reason = reason)))
         }
-        drain__core_list(watchers, { t -> dropToken(t) })
+        salvo.core.list.drain(watchers, fun(t: Token) {
+            return dropToken(t)
+        })
     }
-
     override fun mintActor(addr: Int, gated: Boolean): Token {
-        nextSlot = nextSlot + 1
-        val slot = nextSlot
-        val a = (getPlatform__core_list(actors, addr) ?: throw AssertionError("salvo: value is absent at runtime:585:17"))
+        nextSlot = (nextSlot + 1L)
+        val slot: Long = nextSlot
+        var a: ActorRec = run {
+            val __nn_1: ActorRec? = salvo.core.list.getPlatform(actors, addr)
+            when {
+                (__nn_1 == null) -> {
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:585:17"))
+                }
+                else -> {
+                    val __some_2: ActorRec = __nn_1!!
+                    __some_2
+                }
+            }
+        }
         if (gated) {
             a.gate = slot
         }
-        a.owed = a.owed + 1
+        a.owed = (a.owed + 1)
         return Token(target = Union3.U1<ToActor, ToWaiter, ToTask>(ToActor(addr = addr)), slot = slot, tracked = true)
     }
-
     override fun mintTask(pool: Int, body: salvo.platform.runtime.Body): Token {
-        nextSlot = nextSlot + 1
-        val p = (getPlatform__core_list(pools, pool) ?: throw AssertionError("salvo: value is absent at runtime:595:17"))
-        p.owed = p.owed + 1
+        nextSlot = (nextSlot + 1L)
+        var p: PoolRec = run {
+            val __nn_1: PoolRec? = salvo.core.list.getPlatform(pools, pool)
+            when {
+                (__nn_1 == null) -> {
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:595:17"))
+                }
+                else -> {
+                    val __some_2: PoolRec = __nn_1!!
+                    __some_2
+                }
+            }
+        }
+        p.owed = (p.owed + 1)
         return Token(target = Union3.U3<ToActor, ToWaiter, ToTask>(ToTask(pool = pool, body = body)), slot = nextSlot, tracked = true)
     }
-
     override fun mintWaiter(pool: Int): WaiterMint {
-        val p = (getPlatform__core_list(pools, pool) ?: throw AssertionError("salvo: value is absent at runtime:601:17"))
-        p.owed = p.owed + 1
-        nextSlot = nextSlot + 1
-        val wid = reuseWaiter(waiters, freeWaiters, pool, nextSlot)
-        val t = Token(target = Union3.U2<ToActor, ToWaiter, ToTask>(ToWaiter(wid = wid)), slot = nextSlot, tracked = true)
+        var p: PoolRec = run {
+            val __nn_1: PoolRec? = salvo.core.list.getPlatform(pools, pool)
+            when {
+                (__nn_1 == null) -> {
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:601:17"))
+                }
+                else -> {
+                    val __some_2: PoolRec = __nn_1!!
+                    __some_2
+                }
+            }
+        }
+        p.owed = (p.owed + 1)
+        nextSlot = (nextSlot + 1L)
+        val wid: Int = reuseWaiter(waiters, freeWaiters, pool, nextSlot)
+        val t: Token = Token(target = Union3.U2<ToActor, ToWaiter, ToTask>(ToWaiter(wid = wid)), slot = nextSlot, tracked = true)
         return WaiterMint(token = t, wid = wid)
     }
-
     override fun deliver(t: Token, value: salvo.platform.runtime.Dyn) {
         deliverTo(actors, waiters, pools, t, value)
     }
-
+    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun watchActor(addr: Int, t: Token) {
-        val watch = untrack(actors, waiters, pools, t)
-        val a = (getPlatform__core_list(actors, addr) ?: throw AssertionError("salvo: value is absent at runtime:615:17"))
+        val watch: Token = untrack(actors, waiters, pools, t)
+        val a: ActorRec = run {
+            val __nn_1: ActorRec? = salvo.core.list.getPlatform(actors, addr)
+            when {
+                (__nn_1 == null) -> {
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:615:17"))
+                }
+                else -> {
+                    val __some_2: ActorRec = __nn_1!!
+                    __some_2
+                }
+            }
+        }
         if (a.dead) {
-            val reason = a.exitReason
-            deliverTo(actors, waiters, pools, watch, erasePlatform(Exit(reason = reason)))
+            val reason: String = a.exitReason
+            deliverTo(actors, waiters, pools, watch, erasePlatform(salvo.core.actor.Exit(reason = reason)))
             return
         }
-        addPlatform(a.watchers, watch)
+        salvo.core.list.addPlatform((a.watchers as salvo.platform.core.list.MutList<Token>), watch)
     }
-
     override fun idleHook(pool: Int, t: Token) {
-        val hook = untrack(actors, waiters, pools, t)
-        addPlatform(idleHooks, IdleHook(pool = pool, token = hook))
+        val hook: Token = untrack(actors, waiters, pools, t)
+        salvo.core.list.addPlatform(idleHooks, IdleHook(pool = pool, token = hook))
         wakeAllPools(pools)
     }
-
     override fun waiterRecords(): Int {
-        return sizePlatform__core_list(waiters)
+        return salvo.core.list.sizePlatform(waiters)
     }
-
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun nextWork(pool: Int, idle: salvo.platform.runtime.Parker): Union3<RunActor, RunTask, Retire>? {
-        if ((getPlatform__core_list(pools, pool) ?: throw AssertionError("salvo: value is absent at runtime:635:12")).retired) {
-            retired = retired + 1
+        if (run {
+            val __proj_3: PoolRec = run {
+                val __nn_1: PoolRec? = salvo.core.list.getPlatform(pools, pool)
+                when {
+                    (__nn_1 == null) -> {
+                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime:635:12"))
+                    }
+                    else -> {
+                        val __some_2: PoolRec = __nn_1!!
+                        __some_2
+                    }
+                }
+            }
+            __proj_3.retired
+        }) {
+            retired = (retired + 1)
             return Union3.U3<RunActor, RunTask, Retire>(Retire())
         }
-        val w = takeWork(actors, pools, pool, -1)
-        if (w is Union2.U1<*, *>) {
-            val ra = w?.value as RunActor
-            active = active + 1
+        val w: Union2<RunActor, RunTask>? = takeWork(actors, pools, pool, (-1))
+        if ((w is Union2.U1<*, *>)) {
+            val ra: RunActor = ((w as Union2.U1<*, *>).value as RunActor)
+            active = (active + 1)
             return Union3.U1<RunActor, RunTask, Retire>(ra)
         }
-        if (w is Union2.U2<*, *>) {
-            val rt = w?.value as RunTask
-            active = active + 1
+        if ((w is Union2.U2<*, *>)) {
+            val rt: RunTask = ((w as Union2.U2<*, *>).value as RunTask)
+            active = (active + 1)
             return Union3.U2<RunActor, RunTask, Retire>(rt)
         }
-        val p = (getPlatform__core_list(pools, pool) ?: throw AssertionError("salvo: value is absent at runtime:648:17"))
-        addPlatform(p.idle, idle)
-        if (active == parkedFrames && quiet(actors, waiters, pools, externals)) {
-            if (!(sizePlatform__core_list(idleHooks) == 0) && active == 0) {
+        val p: PoolRec = run {
+            val __nn_4: PoolRec? = salvo.core.list.getPlatform(pools, pool)
+            when {
+                (__nn_4 == null) -> {
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:648:17"))
+                }
+                else -> {
+                    val __some_5: PoolRec = __nn_4!!
+                    __some_5
+                }
+            }
+        }
+        salvo.core.list.addPlatform((p.idle as salvo.platform.core.list.MutList<salvo.platform.runtime.Parker>), idle)
+        if ((((active) == (parkedFrames)) && quiet(actors, waiters, pools, externals))) {
+            if ((!(((salvo.core.list.sizePlatform(idleHooks)) == (0))) && ((active) == (0)))) {
                 fireIdle(actors, waiters, pools, idleHooks)
             }
             wakeWaiters(waiters)
         }
         return null
     }
-
     override fun retiredWorkers(): Int {
         return retired
     }
-
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun waitStep(wid: Int, pool: Int, own: Int, frame: Int, me: salvo.platform.runtime.Parker): Union6<Got, RunActor, RunTask, Sleep, Again, Stuck> {
-        val w = (getPlatform__core_list(waiters, wid) ?: throw AssertionError("salvo: value is absent at runtime:669:17"))
-        if (w.waiting == 0) {
-            w.waiting = frame
-            w.waitingActor = own
-            if (frame == 1) {
-                parkedFrames = parkedFrames + 1
-            } else {
-                mainWaits = mainWaits + 1
+        var w: WaiterRec = run {
+            val __nn_1: WaiterRec? = salvo.core.list.getPlatform(waiters, wid)
+            when {
+                (__nn_1 == null) -> {
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:669:17"))
+                }
+                else -> {
+                    val __some_2: WaiterRec = __nn_1!!
+                    __some_2
+                }
             }
         }
-        val got = slotTakePlatform(w.value)
-        if (got != null) {
-            val v = got as salvo.platform.runtime.Dyn
+        if (((w.waiting) == (0))) {
+            w.waiting = frame
+            w.waitingActor = own
+            if (((frame) == (1))) {
+                parkedFrames = (parkedFrames + 1)
+            } else {
+                mainWaits = (mainWaits + 1)
+            }
+        }
+        val got: salvo.platform.runtime.Dyn? = slotTakePlatform(w.value)
+        if ((got != null)) {
+            val v: salvo.platform.runtime.Dyn = got!!
             w.filled = false
             w.parker = null
-            if (w.waiting == 1) {
-                parkedFrames = parkedFrames - 1
+            if (((w.waiting) == (1))) {
+                parkedFrames = (parkedFrames - 1)
             } else {
-                mainWaits = mainWaits - 1
+                mainWaits = (mainWaits - 1)
             }
             w.waiting = 0
-            w.waitingActor = -1
-            addPlatform(freeWaiters, wid)
+            w.waitingActor = (-1)
+            salvo.core.list.addPlatform(freeWaiters, wid)
             wakePool(pools, pool)
             return Union6.U1<Got, RunActor, RunTask, Sleep, Again, Stuck>(Got(value = v))
         }
-        val work = takeFor(actors, pools, pool, own, virtualMode)
-        if (work is Union2.U1<*, *>) {
-            val ra = work?.value as RunActor
-            active = active + 1
+        val work: Union2<RunActor, RunTask>? = takeFor(actors, pools, pool, own, virtualMode)
+        if ((work is Union2.U1<*, *>)) {
+            val ra: RunActor = ((work as Union2.U1<*, *>).value as RunActor)
+            active = (active + 1)
             return Union6.U2<Got, RunActor, RunTask, Sleep, Again, Stuck>(ra)
         }
-        if (work is Union2.U2<*, *>) {
-            val rt = work?.value as RunTask
-            active = active + 1
+        if ((work is Union2.U2<*, *>)) {
+            val rt: RunTask = ((work as Union2.U2<*, *>).value as RunTask)
+            active = (active + 1)
             return Union6.U3<Got, RunActor, RunTask, Sleep, Again, Stuck>(rt)
         }
-        val q = quiet(actors, waiters, pools, externals)
-        if (virtualMode && sizePlatform__core_list(clockHooks) > 0 && q) {
+        val q: Boolean = quiet(actors, waiters, pools, externals)
+        if (((virtualMode && (salvo.core.list.sizePlatform(clockHooks) > 0)) && q)) {
             fireClock(actors, waiters, pools, clockHooks)
             return Union6.U5<Got, RunActor, RunTask, Sleep, Again, Stuck>(Again())
         }
-        if (!(sizePlatform__core_list(idleHooks) == 0) && active == 0 && q) {
+        if (((!(((salvo.core.list.sizePlatform(idleHooks)) == (0))) && ((active) == (0))) && q)) {
             fireIdle(actors, waiters, pools, idleHooks)
             return Union6.U5<Got, RunActor, RunTask, Sleep, Again, Stuck>(Again())
         }
-        if (virtualMode || active == parkedFrames && mainWaits > 0 && q) {
+        if ((virtualMode || ((((active) == (parkedFrames)) && (mainWaits > 0)) && q))) {
             return Union6.U6<Got, RunActor, RunTask, Sleep, Again, Stuck>(Stuck(report = deadlockReport(actors, waiters, own)))
         }
-        val parked = (getPlatform__core_list(waiters, wid) ?: throw AssertionError("salvo: value is absent at runtime:728:22"))
+        var parked: WaiterRec = run {
+            val __nn_3: WaiterRec? = salvo.core.list.getPlatform(waiters, wid)
+            when {
+                (__nn_3 == null) -> {
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:728:22"))
+                }
+                else -> {
+                    val __some_4: WaiterRec = __nn_3!!
+                    __some_4
+                }
+            }
+        }
         parked.parker = me
-        val p = (getPlatform__core_list(pools, pool) ?: throw AssertionError("salvo: value is absent at runtime:730:17"))
-        addPlatform(p.idle, me)
+        val p: PoolRec = run {
+            val __nn_5: PoolRec? = salvo.core.list.getPlatform(pools, pool)
+            when {
+                (__nn_5 == null) -> {
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:730:17"))
+                }
+                else -> {
+                    val __some_6: PoolRec = __nn_5!!
+                    __some_6
+                }
+            }
+        }
+        salvo.core.list.addPlatform((p.idle as salvo.platform.core.list.MutList<salvo.platform.runtime.Parker>), me)
         return Union6.U4<Got, RunActor, RunTask, Sleep, Again, Stuck>(Sleep())
     }
-
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun finish(addr: Int, body: salvo.platform.runtime.Body, fault: String?) {
-        active = active - 1
-        val a = (getPlatform__core_list(actors, addr) ?: throw AssertionError("salvo: value is absent at runtime:737:17"))
+        active = (active - 1)
+        var a: ActorRec = run {
+            val __nn_1: ActorRec? = salvo.core.list.getPlatform(actors, addr)
+            when {
+                (__nn_1 == null) -> {
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:737:17"))
+                }
+                else -> {
+                    val __some_2: ActorRec = __nn_1!!
+                    __some_2
+                }
+            }
+        }
         a.running = false
-        if (fault == null) {
+        if ((fault == null)) {
             slotPutPlatform(a.body, body)
-            val _again = markReady(a, pools, addr)
+            val _again: Boolean = markReady(a, pools, addr)
             return
         }
         dropBodyPlatform(body)
-        val reason = fault
+        val fault_3: String = fault!!
+        val reason: String = fault_3
         a.dead = true
         a.exitReason = reason
         a.gate = null
         a.userLen = 0
-        while (sizePlatform__core_deque(a.queue) > 0) {
-            dropEntry((removeFirstPlatform__core_deque(a.queue) ?: throw AssertionError("salvo: value is absent at runtime:753:24")))
-        }
-        while (sizePlatform__core_deque(a.slots) > 0) {
-            val _s = removeFirstPlatform__core_deque(a.slots)
+        while (true) {
+            if (!((salvo.core.deque.sizePlatform((a.queue as salvo.platform.core.deque.MutDeque<Union3<Delivered, Answered, Reported>>)) > 0))) {
+                break
+            }
+            dropEntry(run {
+                val __nn_4: Union3<Delivered, Answered, Reported>? = salvo.core.deque.removeFirstPlatform((a.queue as salvo.platform.core.deque.MutDeque<Union3<Delivered, Answered, Reported>>))
+                when {
+                    (__nn_4 == null) -> {
+                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime:753:24"))
+                    }
+                    else -> {
+                        val __some_5: Union3<Delivered, Answered, Reported> = __nn_4!!
+                        __some_5
+                    }
+                }
+            })
         }
         while (true) {
-            var __is4 = removeFirstPlatform__core_list(a.blocked)
-            if (!(__is4 != null)) break
-            val b = __is4 as salvo.platform.runtime.Parker
+            if (!((salvo.core.deque.sizePlatform((a.slots as salvo.platform.core.deque.MutDeque<Long>)) > 0))) {
+                break
+            }
+            val _s: Long? = salvo.core.deque.removeFirstPlatform((a.slots as salvo.platform.core.deque.MutDeque<Long>))
+        }
+        while (true) {
+            val __subject_6: salvo.platform.runtime.Parker? = salvo.core.list.removeFirstPlatform((a.blocked as salvo.platform.core.list.MutList<salvo.platform.runtime.Parker>))
+            if (!((__subject_6 != null))) {
+                break
+            }
+            val b: salvo.platform.runtime.Parker = __subject_6!!
             unparkPlatform(b)
         }
-        val pool = a.pool
+        val pool: Int = a.pool
         val watchers: salvo.platform.core.list.MutList<Token> = mutableListOf<Token>()
         while (true) {
-            var __is5 = removeFirstPlatform__core_list(a.watchers)
-            if (!(__is5 != null)) break
-            val t = __is5 as Token
-            addPlatform(watchers, t)
+            val __subject_7: Token? = salvo.core.list.removeFirstPlatform((a.watchers as salvo.platform.core.list.MutList<Token>))
+            if (!((__subject_7 != null))) {
+                break
+            }
+            val t: Token = __subject_7!!
+            salvo.core.list.addPlatform(watchers, t)
         }
-        if (sizePlatform__core_list(watchers) == 0) {
+        if (((salvo.core.list.sizePlatform(watchers)) == (0))) {
             reportFault(actors, pools, pool, reason)
         }
         while (true) {
-            var __is6 = removeFirstPlatform__core_list(watchers)
-            if (!(__is6 != null)) break
-            val t = __is6 as Token
-            deliverTo(actors, waiters, pools, t, erasePlatform(Exit(reason = reason)))
+            val __subject_8: Token? = salvo.core.list.removeFirstPlatform(watchers)
+            if (!((__subject_8 != null))) {
+                break
+            }
+            val t: Token = __subject_8!!
+            deliverTo(actors, waiters, pools, t, erasePlatform(salvo.core.actor.Exit(reason = reason)))
         }
-        drain__core_list(watchers, { t -> dropToken(t) })
+        salvo.core.list.drain(watchers, fun(t: Token) {
+            return dropToken(t)
+        })
         retireIfDone(actors, pools, pool)
         wakeAllPools(pools)
     }
-
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun taskDone(pool: Int, fault: String?) {
-        active = active - 1
-        if (fault != null) {
-            val reason = fault as String
+        active = (active - 1)
+        if ((fault != null)) {
+            val reason: String = fault!!
             reportFault(actors, pools, pool, reason)
         }
         retireIfDone(actors, pools, pool)
     }
-
     override fun poolOfActor(addr: Int): Int {
-        return (getPlatform__core_list(actors, addr) ?: throw AssertionError("salvo: value is absent at runtime:788:21")).pool
+        return run {
+            val __proj_3: ActorRec = run {
+                val __nn_1: ActorRec? = salvo.core.list.getPlatform(actors, addr)
+                when {
+                    (__nn_1 == null) -> {
+                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime:788:21"))
+                    }
+                    else -> {
+                        val __some_2: ActorRec = __nn_1!!
+                        __some_2
+                    }
+                }
+            }
+            __proj_3.pool
+        }
     }
-
     override fun setProxy(addr: Int) {
-        val a = (getPlatform__core_list(actors, addr) ?: throw AssertionError("salvo: value is absent at runtime:792:17"))
+        var a: ActorRec = run {
+            val __nn_1: ActorRec? = salvo.core.list.getPlatform(actors, addr)
+            when {
+                (__nn_1 == null) -> {
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:792:17"))
+                }
+                else -> {
+                    val __some_2: ActorRec = __nn_1!!
+                    __some_2
+                }
+            }
+        }
         a.proxy = true
     }
-
     override fun poolOfWaiter(wid: Int): Int {
-        return (getPlatform__core_list(waiters, wid) ?: throw AssertionError("salvo: value is absent at runtime:797:21")).pool
+        return run {
+            val __proj_3: WaiterRec = run {
+                val __nn_1: WaiterRec? = salvo.core.list.getPlatform(waiters, wid)
+                when {
+                    (__nn_1 == null) -> {
+                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime:797:21"))
+                    }
+                    else -> {
+                        val __some_2: WaiterRec = __nn_1!!
+                        __some_2
+                    }
+                }
+            }
+            __proj_3.pool
+        }
     }
-
     override fun room(addr: Int): Int {
-        val a = (getPlatform__core_list(actors, addr) ?: throw AssertionError("salvo: value is absent at runtime:801:17"))
-        return a.bound - a.userLen
+        val a: ActorRec = run {
+            val __nn_1: ActorRec? = salvo.core.list.getPlatform(actors, addr)
+            when {
+                (__nn_1 == null) -> {
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:801:17"))
+                }
+                else -> {
+                    val __some_2: ActorRec = __nn_1!!
+                    __some_2
+                }
+            }
+        }
+        return (a.bound - a.userLen)
     }
-
     override fun isDead(addr: Int): Boolean {
-        return (getPlatform__core_list(actors, addr) ?: throw AssertionError("salvo: value is absent at runtime:806:21")).dead
+        return run {
+            val __proj_3: ActorRec = run {
+                val __nn_1: ActorRec? = salvo.core.list.getPlatform(actors, addr)
+                when {
+                    (__nn_1 == null) -> {
+                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime:806:21"))
+                    }
+                    else -> {
+                        val __some_2: ActorRec = __nn_1!!
+                        __some_2
+                    }
+                }
+            }
+            __proj_3.dead
+        }
     }
-
     override fun queued(addr: Int): Int {
-        return (getPlatform__core_list(actors, addr) ?: throw AssertionError("salvo: value is absent at runtime:810:21")).userLen
+        return run {
+            val __proj_3: ActorRec = run {
+                val __nn_1: ActorRec? = salvo.core.list.getPlatform(actors, addr)
+                when {
+                    (__nn_1 == null) -> {
+                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime:810:21"))
+                    }
+                    else -> {
+                        val __some_2: ActorRec = __nn_1!!
+                        __some_2
+                    }
+                }
+            }
+            __proj_3.userLen
+        }
     }
-
     override fun external(delta: Int) {
-        externals = externals + delta
-        if (externals < 0) {
+        externals = (externals + delta)
+        if ((externals < 0)) {
             externals = 0
         }
         wakeAllPools(pools)
     }
-
     override fun goVirtual(seed: Long) {
         virtualMode = true
         vnow = 0L
@@ -1115,179 +1286,225 @@ class Scheduler : SchedTable {
         mainWaits = 0
         externals = 0
     }
-
     override fun isVirtual(): Boolean {
         return virtualMode
     }
-
     override fun virtualNow(): Long {
         return vnow
     }
-
     override fun advanceTo(at: Long) {
-        if (at > vnow) {
+        if ((at > vnow)) {
             vnow = at
         }
     }
-
     override fun randomUnit(): Double {
-        if (!virtualMode && !rngSeeded) {
-            rng = seedOf(__moduleUse0.secureBits())
+        if ((!(virtualMode) && !(rngSeeded))) {
+            rng = seedOf(__module_use0_0.secureBits())
             rngSeeded = true
         }
-        val hi = lehmer(rng)
-        val lo = lehmer(hi)
+        val hi: Long = lehmer(rng)
+        val lo: Long = lehmer(hi)
         rng = lo
-        val m = 2147483646L
-        return ((hi - 1L) * m + (lo - 1L)).toDouble() / ((m).toDouble() * (m).toDouble())
+        val m: Long = 2147483646L
+        return (((((hi - 1L) * m) + (lo - 1L))).toDouble() / ((m).toDouble() * (m).toDouble()))
     }
-
     override fun randomBits(): Long {
-        val hi = lehmer(rng)
-        val lo = lehmer(hi)
+        val hi: Long = lehmer(rng)
+        val lo: Long = lehmer(hi)
         rng = lo
-        return hi * 2147483647 + lo
+        return ((hi * 2147483647L) + lo)
     }
-
     override fun clockHook(t: Token) {
-        val hook = untrack(actors, waiters, pools, t)
-        addPlatform(clockHooks, hook)
+        val hook: Token = untrack(actors, waiters, pools, t)
+        salvo.core.list.addPlatform(clockHooks, hook)
     }
-
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun virtualWork(own: Int): Union2<RunActor, RunTask>? {
-        val w = takeFor(actors, pools, 0, own, true)
-        if (w is Union2.U1<*, *>) {
-            val ra = w?.value as RunActor
-            active = active + 1
+        val w: Union2<RunActor, RunTask>? = takeFor(actors, pools, 0, own, true)
+        if ((w is Union2.U1<*, *>)) {
+            val ra: RunActor = ((w as Union2.U1<*, *>).value as RunActor)
+            active = (active + 1)
             return Union2.U1<RunActor, RunTask>(ra)
         }
-        if (w is Union2.U2<*, *>) {
-            val rt = w?.value as RunTask
-            active = active + 1
+        if ((w is Union2.U2<*, *>)) {
+            val rt: RunTask = ((w as Union2.U2<*, *>).value as RunTask)
+            active = (active + 1)
             return Union2.U2<RunActor, RunTask>(rt)
         }
         return null
     }
-
-    fun init() {
-        addPlatform(pools, PoolRec(idle = mutableListOf<salvo.platform.runtime.Parker>(), tasks = mutDequeOf(), ready = mutDequeOf(), sink = -1, owed = 0, dedicated = false, retired = false))
-    }
-}
-
-sealed class __Priv_Scheduler {
-    object Init : __Priv_Scheduler()
 }
 
 fun lehmer(x: Long): Long {
-    return x * 48271 % 2147483647
+    return ((x * 48271L) % 2147483647L)
 }
 
 fun seedOf(seed: Long): Long {
-    var s = seed % 2147483646
-    if (s < 0) {
-        s = 0 - s
+    var s: Long = (seed % 2147483646L)
+    if ((s < 0L)) {
+        s = (0L - s)
     }
-    return s + 1
+    return (s + 1L)
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun resetAll(actors: salvo.platform.core.list.MutList<ActorRec>, pools: salvo.platform.core.list.MutList<PoolRec>, idleHooks: salvo.platform.core.list.MutList<IdleHook>, clockHooks: salvo.platform.core.list.MutList<Token>) {
-    var k = 0
-    while (k < sizePlatform__core_list(actors)) {
-        val a = (getPlatform__core_list(actors, k) ?: throw AssertionError("salvo: value is absent at runtime:909:17"))
-        k = k + 1
+    var k: Int = 0
+    while (true) {
+        if (!((k < salvo.core.list.sizePlatform(actors)))) {
+            break
+        }
+        var a: ActorRec = run {
+            val __nn_1: ActorRec? = salvo.core.list.getPlatform(actors, k)
+            when {
+                (__nn_1 == null) -> {
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:909:17"))
+                }
+                else -> {
+                    val __some_2: ActorRec = __nn_1!!
+                    __some_2
+                }
+            }
+        }
+        k = (k + 1)
         a.dead = true
         a.running = false
         a.ready = false
         a.gate = null
         a.userLen = 0
         a.owed = 0
-        while (sizePlatform__core_deque(a.queue) > 0) {
-            dropEntry((removeFirstPlatform__core_deque(a.queue) ?: throw AssertionError("salvo: value is absent at runtime:918:24")))
-        }
-        while (removeFirstPlatform__core_deque(a.slots) != null) {
+        while (true) {
+            if (!((salvo.core.deque.sizePlatform((a.queue as salvo.platform.core.deque.MutDeque<Union3<Delivered, Answered, Reported>>)) > 0))) {
+                break
+            }
+            dropEntry(run {
+                val __nn_3: Union3<Delivered, Answered, Reported>? = salvo.core.deque.removeFirstPlatform((a.queue as salvo.platform.core.deque.MutDeque<Union3<Delivered, Answered, Reported>>))
+                when {
+                    (__nn_3 == null) -> {
+                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime:918:24"))
+                    }
+                    else -> {
+                        val __some_4: Union3<Delivered, Answered, Reported> = __nn_3!!
+                        __some_4
+                    }
+                }
+            })
         }
         while (true) {
-            var __is7 = removeFirstPlatform__core_list(a.watchers)
-            if (!(__is7 != null)) break
-            val t = __is7 as Token
+            if (!((salvo.core.deque.removeFirstPlatform((a.slots as salvo.platform.core.deque.MutDeque<Long>)) != null))) {
+                break
+            }
+        }
+        while (true) {
+            val __subject_5: Token? = salvo.core.list.removeFirstPlatform((a.watchers as salvo.platform.core.list.MutList<Token>))
+            if (!((__subject_5 != null))) {
+                break
+            }
+            val t: Token = __subject_5!!
             dropToken(t)
         }
-        while (removeFirstPlatform__core_list(a.blocked) != null) {
+        while (true) {
+            if (!((salvo.core.list.removeFirstPlatform((a.blocked as salvo.platform.core.list.MutList<salvo.platform.runtime.Parker>)) != null))) {
+                break
+            }
         }
-        var __is8 = slotTakePlatform(a.body)
-        if (__is8 != null) {
-            val b = __is8 as salvo.platform.runtime.Body
+        val __subject_6: salvo.platform.runtime.Body? = slotTakePlatform(a.body)
+        if ((__subject_6 != null)) {
+            val b: salvo.platform.runtime.Body = __subject_6!!
             dropBodyPlatform(b)
         }
     }
-    var i = 0
-    while (i < sizePlatform__core_list(pools)) {
-        val p = (getPlatform__core_list(pools, i) ?: throw AssertionError("salvo: value is absent at runtime:933:17"))
+    var i: Int = 0
+    while (true) {
+        if (!((i < salvo.core.list.sizePlatform(pools)))) {
+            break
+        }
+        var p: PoolRec = run {
+            val __nn_7: PoolRec? = salvo.core.list.getPlatform(pools, i)
+            when {
+                (__nn_7 == null) -> {
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:933:17"))
+                }
+                else -> {
+                    val __some_8: PoolRec = __nn_7!!
+                    __some_8
+                }
+            }
+        }
         while (true) {
-            var __is9 = removeFirstPlatform__core_deque(p.tasks)
-            if (!(__is9 != null)) break
-            val t = __is9 as TaskRun
+            val __subject_9: TaskRun? = salvo.core.deque.removeFirstPlatform((p.tasks as salvo.platform.core.deque.MutDeque<TaskRun>))
+            if (!((__subject_9 != null))) {
+                break
+            }
+            val t: TaskRun = __subject_9!!
             dropTaskRun(t)
         }
-        while (removeFirstPlatform__core_deque(p.ready) != null) {
+        while (true) {
+            if (!((salvo.core.deque.removeFirstPlatform((p.ready as salvo.platform.core.deque.MutDeque<Int>)) != null))) {
+                break
+            }
         }
         p.owed = 0
-        if (i > 0) {
+        if ((i > 0)) {
             p.retired = true
         }
-        i = i + 1
+        i = (i + 1)
     }
     while (true) {
-        var __is10 = removeFirstPlatform__core_list(idleHooks)
-        if (!(__is10 != null)) break
-        val h = __is10 as IdleHook
+        val __subject_10: IdleHook? = salvo.core.list.removeFirstPlatform(idleHooks)
+        if (!((__subject_10 != null))) {
+            break
+        }
+        val h: IdleHook = __subject_10!!
         dropIdleHook(h)
     }
     while (true) {
-        var __is11 = removeFirstPlatform__core_list(clockHooks)
-        if (!(__is11 != null)) break
-        val t = __is11 as Token
+        val __subject_11: Token? = salvo.core.list.removeFirstPlatform(clockHooks)
+        if (!((__subject_11 != null))) {
+            break
+        }
+        val t: Token = __subject_11!!
         dropToken(t)
     }
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun fireClock(actors: salvo.platform.core.list.MutList<ActorRec>, waiters: salvo.platform.core.list.MutList<WaiterRec>, pools: salvo.platform.core.list.MutList<PoolRec>, hooks: salvo.platform.core.list.MutList<Token>) {
-    var __is12 = removeFirstPlatform__core_list(hooks)
-    if (__is12 != null) {
-        val t = __is12 as Token
+    val __subject_1: Token? = salvo.core.list.removeFirstPlatform(hooks)
+    if ((__subject_1 != null)) {
+        val t: Token = __subject_1!!
         deliverTo(actors, waiters, pools, t, erasePlatform(0))
     }
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun takeFor(actors: salvo.platform.core.list.MutList<ActorRec>, pools: salvo.platform.core.list.MutList<PoolRec>, pool: Int, exclude: Int, any: Boolean): Union2<RunActor, RunTask>? {
-    if (!any) {
+    if (!(any)) {
         return takeWork(actors, pools, pool, exclude)
     }
-    var i = 0
-    while (i < sizePlatform__core_list(pools)) {
-        val w = takeWork(actors, pools, i, exclude)
-        if (w is Union2.U1<*, *>) {
-            val ra = w?.value as RunActor
+    var i: Int = 0
+    while (true) {
+        if (!((i < salvo.core.list.sizePlatform(pools)))) {
+            break
+        }
+        val w: Union2<RunActor, RunTask>? = takeWork(actors, pools, i, exclude)
+        if ((w is Union2.U1<*, *>)) {
+            val ra: RunActor = ((w as Union2.U1<*, *>).value as RunActor)
             return Union2.U1<RunActor, RunTask>(ra)
         }
-        if (w is Union2.U2<*, *>) {
-            val rt = w?.value as RunTask
+        if ((w is Union2.U2<*, *>)) {
+            val rt: RunTask = ((w as Union2.U2<*, *>).value as RunTask)
             return Union2.U2<RunActor, RunTask>(rt)
         }
-        i = i + 1
+        i = (i + 1)
     }
     return null
 }
 
 fun untrack(actors: salvo.platform.core.list.MutList<ActorRec>, waiters: salvo.platform.core.list.MutList<WaiterRec>, pools: salvo.platform.core.list.MutList<PoolRec>, t: Token): Token {
-    val __destructured16 = t
-    val target = __destructured16.target
-    val slot = __destructured16.slot
-    val tracked = __destructured16.tracked
+    val __destructured_1: Token = t
+    val target: Union3<ToActor, ToWaiter, ToTask> = __destructured_1.target
+    val slot: Long = __destructured_1.slot
+    val tracked: Boolean = __destructured_1.tracked
     if (tracked) {
         release(actors, waiters, pools, target)
     }
@@ -1296,214 +1513,394 @@ fun untrack(actors: salvo.platform.core.list.MutList<ActorRec>, waiters: salvo.p
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun release(actors: salvo.platform.core.list.MutList<ActorRec>, waiters: salvo.platform.core.list.MutList<WaiterRec>, pools: salvo.platform.core.list.MutList<PoolRec>, target: Union3<ToActor, ToWaiter, ToTask>) {
-    if (target is Union3.U1<*, *, *>) {
-        val to = target.value as ToActor
-        val a = (getPlatform__core_list(actors, to.addr) ?: throw AssertionError("salvo: value is absent at runtime:997:17"))
-        if (a.owed > 0) {
-            a.owed = a.owed - 1
+    if ((target is Union3.U1<*, *, *>)) {
+        val to: ToActor = ((target as Union3.U1<*, *, *>).value as ToActor)
+        var a: ActorRec = run {
+            val __nn_1: ActorRec? = salvo.core.list.getPlatform(actors, to.addr)
+            when {
+                (__nn_1 == null) -> {
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:997:17"))
+                }
+                else -> {
+                    val __some_2: ActorRec = __nn_1!!
+                    __some_2
+                }
+            }
         }
-    } else if (target is Union3.U2<*, *, *>) {
-        val tw = target.value as ToWaiter
-        val pool = (getPlatform__core_list(waiters, tw.wid) ?: throw AssertionError("salvo: value is absent at runtime:1002:25")).pool
-        val p = (getPlatform__core_list(pools, pool) ?: throw AssertionError("salvo: value is absent at runtime:1003:17"))
-        if (p.owed > 0) {
-            p.owed = p.owed - 1
+        if ((a.owed > 0)) {
+            a.owed = (a.owed - 1)
+        }
+    } else if ((target is Union3.U2<*, *, *>)) {
+        val tw: ToWaiter = ((target as Union3.U2<*, *, *>).value as ToWaiter)
+        val pool: Int = run {
+            val __proj_5: WaiterRec = run {
+                val __nn_3: WaiterRec? = salvo.core.list.getPlatform(waiters, tw.wid)
+                when {
+                    (__nn_3 == null) -> {
+                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1002:25"))
+                    }
+                    else -> {
+                        val __some_4: WaiterRec = __nn_3!!
+                        __some_4
+                    }
+                }
+            }
+            __proj_5.pool
+        }
+        var p: PoolRec = run {
+            val __nn_6: PoolRec? = salvo.core.list.getPlatform(pools, pool)
+            when {
+                (__nn_6 == null) -> {
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1003:17"))
+                }
+                else -> {
+                    val __some_7: PoolRec = __nn_6!!
+                    __some_7
+                }
+            }
+        }
+        if ((p.owed > 0)) {
+            p.owed = (p.owed - 1)
         }
     } else {
-        val p = (getPlatform__core_list(pools, (target.value as ToTask).pool) ?: throw AssertionError("salvo: value is absent at runtime:1008:17"))
-        if (p.owed > 0) {
-            p.owed = p.owed - 1
+        val target_8: ToTask = ((target as Union3.U3<*, *, *>).value as ToTask)
+        var p: PoolRec = run {
+            val __nn_9: PoolRec? = salvo.core.list.getPlatform(pools, target_8.pool)
+            when {
+                (__nn_9 == null) -> {
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1008:17"))
+                }
+                else -> {
+                    val __some_10: PoolRec = __nn_9!!
+                    __some_10
+                }
+            }
+        }
+        if ((p.owed > 0)) {
+            p.owed = (p.owed - 1)
         }
     }
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun reuseWaiter(waiters: salvo.platform.core.list.MutList<WaiterRec>, free: salvo.platform.core.list.MutList<Int>, pool: Int, slot: Long): Int {
-    var __is13 = removeFirstPlatform__core_list(free)
-    if (__is13 != null) {
-        val wid = __is13 as Int
-        val w = (getPlatform__core_list(waiters, wid) ?: throw AssertionError("salvo: value is absent at runtime:1021:17"))
+    val __subject_1: Int? = salvo.core.list.removeFirstPlatform(free)
+    if ((__subject_1 != null)) {
+        val wid: Int = __subject_1!!
+        var w: WaiterRec = run {
+            val __nn_2: WaiterRec? = salvo.core.list.getPlatform(waiters, wid)
+            when {
+                (__nn_2 == null) -> {
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1021:17"))
+                }
+                else -> {
+                    val __some_3: WaiterRec = __nn_2!!
+                    __some_3
+                }
+            }
+        }
         w.pool = pool
         w.filled = false
         w.parker = null
         w.waiting = 0
-        w.waitingActor = -1
+        w.waitingActor = (-1)
         w.slot = slot
         return wid
     }
-    addPlatform(waiters, WaiterRec(pool = pool, value = slotEmptyPlatform(), filled = false, parker = null, waiting = 0, waitingActor = -1, slot = slot))
-    return sizePlatform__core_list(waiters) - 1
+    salvo.core.list.addPlatform(waiters, WaiterRec(pool = pool, value = slotEmptyPlatform(), filled = false, parker = null, waiting = 0, waitingActor = (-1), slot = slot))
+    return (salvo.core.list.sizePlatform(waiters) - 1)
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun deliverTo(actors: salvo.platform.core.list.MutList<ActorRec>, waiters: salvo.platform.core.list.MutList<WaiterRec>, pools: salvo.platform.core.list.MutList<PoolRec>, t: Token, value: salvo.platform.runtime.Dyn) {
-    val __destructured17 = t
-    val target = __destructured17.target
-    val slot = __destructured17.slot
-    val tracked = __destructured17.tracked
+    val __destructured_1: Token = t
+    val target: Union3<ToActor, ToWaiter, ToTask> = __destructured_1.target
+    val slot: Long = __destructured_1.slot
+    val tracked: Boolean = __destructured_1.tracked
     if (tracked) {
         release(actors, waiters, pools, target)
     }
-    if (target is Union3.U1<*, *, *>) {
-        val to = target.value as ToActor
-        val a = (getPlatform__core_list(actors, to.addr) ?: throw AssertionError("salvo: value is absent at runtime:1044:17"))
+    if ((target is Union3.U1<*, *, *>)) {
+        val to: ToActor = ((target as Union3.U1<*, *, *>).value as ToActor)
+        val a: ActorRec = run {
+            val __nn_2: ActorRec? = salvo.core.list.getPlatform(actors, to.addr)
+            when {
+                (__nn_2 == null) -> {
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1044:17"))
+                }
+                else -> {
+                    val __some_3: ActorRec = __nn_2!!
+                    __some_3
+                }
+            }
+        }
         if (a.dead) {
             dropDynPlatform(value)
             return
         }
-        addLastPlatform(a.slots, slot)
+        salvo.core.deque.addLastPlatform((a.slots as salvo.platform.core.deque.MutDeque<Long>), slot)
         val e: Union3<Delivered, Answered, Reported> = Union3.U2<Delivered, Answered, Reported>(Answered(slot = slot, value = value))
-        addLastPlatform(a.queue, e)
+        salvo.core.deque.addLastPlatform((a.queue as salvo.platform.core.deque.MutDeque<Union3<Delivered, Answered, Reported>>), e)
         if (markReady(a, pools, to.addr)) {
-            val pool = a.pool
+            val pool: Int = a.pool
             wakePool(pools, pool)
         }
-    } else if (target is Union3.U2<*, *, *>) {
-        val tw = target.value as ToWaiter
-        val w = (getPlatform__core_list(waiters, tw.wid) ?: throw AssertionError("salvo: value is absent at runtime:1057:17"))
-        if (w.slot != slot || w.filled) {
+    } else if ((target is Union3.U2<*, *, *>)) {
+        val tw: ToWaiter = ((target as Union3.U2<*, *, *>).value as ToWaiter)
+        var w: WaiterRec = run {
+            val __nn_4: WaiterRec? = salvo.core.list.getPlatform(waiters, tw.wid)
+            when {
+                (__nn_4 == null) -> {
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1057:17"))
+                }
+                else -> {
+                    val __some_5: WaiterRec = __nn_4!!
+                    __some_5
+                }
+            }
+        }
+        if ((!(((w.slot) == (slot))) || w.filled)) {
             dropDynPlatform(value)
             return
         }
         slotPutPlatform(w.value, value)
         w.filled = true
-        if (w.parker != null) {
-            val p = w.parker as salvo.platform.runtime.Parker
+        if ((w.parker != null)) {
+            val p: salvo.platform.runtime.Parker = w.parker!!
             unparkPlatform(p)
         }
     } else {
-        val __destructured18 = (target.value as ToTask)
-        val pool = __destructured18.pool
-        val body = __destructured18.body
-        val p = (getPlatform__core_list(pools, pool) ?: throw AssertionError("salvo: value is absent at runtime:1069:17"))
-        addLastPlatform(p.tasks, TaskRun(body = body, value = value))
+        val target_6: ToTask = ((target as Union3.U3<*, *, *>).value as ToTask)
+        val __destructured_7: ToTask = target_6
+        val pool: Int = __destructured_7.pool
+        val body: salvo.platform.runtime.Body = __destructured_7.body
+        val p: PoolRec = run {
+            val __nn_8: PoolRec? = salvo.core.list.getPlatform(pools, pool)
+            when {
+                (__nn_8 == null) -> {
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1069:17"))
+                }
+                else -> {
+                    val __some_9: PoolRec = __nn_8!!
+                    __some_9
+                }
+            }
+        }
+        salvo.core.deque.addLastPlatform((p.tasks as salvo.platform.core.deque.MutDeque<TaskRun>), TaskRun(body = body, value = value))
         wakePool(pools, pool)
     }
 }
 
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun reportFault(actors: salvo.platform.core.list.MutList<ActorRec>, pools: salvo.platform.core.list.MutList<PoolRec>, pool: Int, reason: String) {
-    val sink = (getPlatform__core_list(pools, pool) ?: throw AssertionError("salvo: value is absent at runtime:1080:21")).sink
-    if (sink >= 0) {
-        val s = (getPlatform__core_list(actors, sink) ?: throw AssertionError("salvo: value is absent at runtime:1082:17"))
-        if (!s.dead) {
+    val sink: Int = run {
+        val __proj_3: PoolRec = run {
+            val __nn_1: PoolRec? = salvo.core.list.getPlatform(pools, pool)
+            when {
+                (__nn_1 == null) -> {
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1080:21"))
+                }
+                else -> {
+                    val __some_2: PoolRec = __nn_1!!
+                    __some_2
+                }
+            }
+        }
+        __proj_3.sink
+    }
+    if ((sink >= 0)) {
+        val s: ActorRec = run {
+            val __nn_4: ActorRec? = salvo.core.list.getPlatform(actors, sink)
+            when {
+                (__nn_4 == null) -> {
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1082:17"))
+                }
+                else -> {
+                    val __some_5: ActorRec = __nn_4!!
+                    __some_5
+                }
+            }
+        }
+        if (!(s.dead)) {
             val e: Union3<Delivered, Answered, Reported> = Union3.U3<Delivered, Answered, Reported>(Reported(reason = reason))
-            addLastPlatform(s.queue, e)
-            addLastPlatform(s.slots, (-1).toLong())
+            salvo.core.deque.addLastPlatform((s.queue as salvo.platform.core.deque.MutDeque<Union3<Delivered, Answered, Reported>>), e)
+            salvo.core.deque.addLastPlatform((s.slots as salvo.platform.core.deque.MutDeque<Long>), ((-1)).toLong())
             if (markReady(s, pools, sink)) {
-                val sinkPool = s.pool
+                val sinkPool: Int = s.pool
                 wakePool(pools, sinkPool)
             }
             return
         }
     }
-    __moduleUse0.report("salvo: an uncaught fault on pool $pool: $reason")
+    __module_use0_0.report("salvo: an uncaught fault on pool ${pool}: ${reason}")
 }
 
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun quiet(actors: salvo.platform.core.list.MutList<ActorRec>, waiters: salvo.platform.core.list.MutList<WaiterRec>, pools: salvo.platform.core.list.MutList<PoolRec>, externals: Int): Boolean {
-    if (externals > 0) {
+    if ((externals > 0)) {
         return false
     }
     for (p in salvo.platform.core.list.each(pools)) {
-        if (sizePlatform__core_deque(p.tasks) > 0) {
+        if ((salvo.core.deque.sizePlatform((p.tasks as salvo.platform.core.deque.MutDeque<TaskRun>)) > 0)) {
             return false
         }
     }
     for (a in salvo.platform.core.list.each(actors)) {
-        if (!a.running && !a.dead && !(deliverable(a.slots, a.gate) == null)) {
+        if (((!(a.running) && !(a.dead)) && !((deliverable((a.slots as salvo.platform.core.deque.MutDeque<Long>), a.gate) == null)))) {
             return false
         }
     }
     for (w in salvo.platform.core.list.each(waiters)) {
-        if (w.waiting > 0 && w.filled) {
+        if (((w.waiting > 0) && w.filled)) {
             return false
         }
     }
     return true
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun fireIdle(actors: salvo.platform.core.list.MutList<ActorRec>, waiters: salvo.platform.core.list.MutList<WaiterRec>, pools: salvo.platform.core.list.MutList<PoolRec>, hooks: salvo.platform.core.list.MutList<IdleHook>) {
     while (true) {
-        var __is14 = removeFirstPlatform__core_list(hooks)
-        if (!(__is14 != null)) break
-        val h = __is14 as IdleHook
-        val __destructured19 = h
-        val pool = __destructured19.pool
-        val token = __destructured19.token
-        var gates = 0
-        var tokens = (getPlatform__core_list(pools, pool) ?: throw AssertionError("salvo: value is absent at runtime:1132:27")).owed
+        val __subject_1: IdleHook? = salvo.core.list.removeFirstPlatform(hooks)
+        if (!((__subject_1 != null))) {
+            break
+        }
+        val h: IdleHook = __subject_1!!
+        val __destructured_2: IdleHook = h
+        val pool: Int = __destructured_2.pool
+        val token: Token = __destructured_2.token
+        var gates: Int = 0
+        var tokens: Int = run {
+            val __proj_5: PoolRec = run {
+                val __nn_3: PoolRec? = salvo.core.list.getPlatform(pools, pool)
+                when {
+                    (__nn_3 == null) -> {
+                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1132:27"))
+                    }
+                    else -> {
+                        val __some_4: PoolRec = __nn_3!!
+                        __some_4
+                    }
+                }
+            }
+            __proj_5.owed
+        }
         for (a in salvo.platform.core.list.each(actors)) {
-            if (a.pool == pool) {
-                tokens = tokens + a.owed
-                if (!(a.gate == null) && !a.dead) {
-                    gates = gates + 1
+            if (((a.pool) == (pool))) {
+                tokens = (tokens + a.owed)
+                if ((!((a.gate == null)) && !(a.dead))) {
+                    gates = (gates + 1)
                 }
             }
         }
-        deliverTo(actors, waiters, pools, token, erasePlatform(Idle(parkedGates = gates, parkedTokens = tokens)))
+        deliverTo(actors, waiters, pools, token, erasePlatform(salvo.core.actor.Idle(parkedGates = gates, parkedTokens = tokens)))
     }
 }
 
 fun deadlockReport(actors: salvo.platform.core.list.MutList<ActorRec>, waiters: salvo.platform.core.list.MutList<WaiterRec>, own: Int): String {
     val occupied: salvo.platform.core.list.MutList<String> = mutableListOf<String>()
     for (w in salvo.platform.core.list.each(waiters)) {
-        if (w.waiting > 0 && w.waitingActor >= 0) {
-            addPlatform(occupied, "actor ${w.waitingActor}")
+        if (((w.waiting > 0) && (w.waitingActor >= 0))) {
+            salvo.core.list.addPlatform(occupied, "actor ${w.waitingActor}")
         }
     }
     val gated: salvo.platform.core.list.MutList<String> = mutableListOf<String>()
-    var i = 0
+    var i: Int = 0
     for (a in salvo.platform.core.list.each(actors)) {
-        if (!(a.gate == null) && !a.dead) {
-            addPlatform(gated, "actor $i")
+        if ((!((a.gate == null)) && !(a.dead))) {
+            salvo.core.list.addPlatform(gated, "actor ${i}")
         }
-        i = i + 1
+        i = (i + 1)
     }
-    val who = if (own >= 0) {
-        "actor $own"
+    val who: String = (if ((own >= 0)) {
+        "actor ${own}"
     } else {
         "main"
-    }
+    })
     val clauses: salvo.platform.core.list.MutList<String> = mutableListOf<String>()
-    if (sizePlatform__core_list(occupied) > 0) {
-        addPlatform(clauses, "parked in a wait: ${joinPlatform(occupied, ", ")}")
+    if ((salvo.core.list.sizePlatform(occupied) > 0)) {
+        salvo.core.list.addPlatform(clauses, "parked in a wait: ${salvo.core.string.joinPlatform(occupied, ", ")}")
     }
-    if (sizePlatform__core_list(gated) > 0) {
-        addPlatform(clauses, "parked gates: ${joinPlatform(gated, ", ")}")
+    if ((salvo.core.list.sizePlatform(gated) > 0)) {
+        salvo.core.list.addPlatform(clauses, "parked gates: ${salvo.core.string.joinPlatform(gated, ", ")}")
     }
-    val detail = if (sizePlatform__core_list(clauses) == 0) {
+    val detail: String = (if (((salvo.core.list.sizePlatform(clauses)) == (0))) {
         ""
     } else {
-        " (${joinPlatform(clauses, "; ")})"
-    }
-    return "salvo: deadlock: nothing can run while $who waits$detail"
+        " (${salvo.core.string.joinPlatform(clauses, "; ")})"
+    })
+    return "salvo: deadlock: nothing can run while ${who} waits${detail}"
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun takeWork(actors: salvo.platform.core.list.MutList<ActorRec>, pools: salvo.platform.core.list.MutList<PoolRec>, pool: Int, exclude: Int): Union2<RunActor, RunTask>? {
-    val p = (getPlatform__core_list(pools, pool) ?: throw AssertionError("salvo: value is absent at runtime:1181:13"))
-    val task = removeFirstPlatform__core_deque(p.tasks)
-    if (task != null) {
-        val t = task as TaskRun
-        val __destructured20 = t
-        val body = __destructured20.body
-        val value = __destructured20.value
+    val p: PoolRec = run {
+        val __nn_1: PoolRec? = salvo.core.list.getPlatform(pools, pool)
+        when {
+            (__nn_1 == null) -> {
+                throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1181:13"))
+            }
+            else -> {
+                val __some_2: PoolRec = __nn_1!!
+                __some_2
+            }
+        }
+    }
+    val task: TaskRun? = salvo.core.deque.removeFirstPlatform((p.tasks as salvo.platform.core.deque.MutDeque<TaskRun>))
+    if ((task != null)) {
+        val t: TaskRun = task!!
+        val __destructured_3: TaskRun = t
+        val body: salvo.platform.runtime.Body = __destructured_3.body
+        val value: salvo.platform.runtime.Dyn = __destructured_3.value
         return Union2.U2<RunActor, RunTask>(RunTask(pool = pool, body = body, value = value))
     }
     while (true) {
-        var __is15 = removeFirstPlatform__core_deque(p.ready)
-        if (!(__is15 != null)) break
-        val i = __is15 as Int
-        val a = (getPlatform__core_list(actors, i) ?: throw AssertionError("salvo: value is absent at runtime:1188:17"))
+        val __subject_4: Int? = salvo.core.deque.removeFirstPlatform((p.ready as salvo.platform.core.deque.MutDeque<Int>))
+        if (!((__subject_4 != null))) {
+            break
+        }
+        val i: Int = __subject_4!!
+        var a: ActorRec = run {
+            val __nn_5: ActorRec? = salvo.core.list.getPlatform(actors, i)
+            when {
+                (__nn_5 == null) -> {
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1188:17"))
+                }
+                else -> {
+                    val __some_6: ActorRec = __nn_5!!
+                    __some_6
+                }
+            }
+        }
         a.ready = false
-        if (i != exclude && !a.running && !a.dead) {
-            val at = deliverable(a.slots, a.gate)
-            if (at != null) {
-                val k = at as Int
-                val _slot = removeAtPlatform(a.slots, k)
-                val e = (removeAtPlatform(a.queue, k) ?: throw AssertionError("salvo: value is absent at runtime:1194:25"))
+        if (((!(((i) == (exclude))) && !(a.running)) && !(a.dead))) {
+            val at: Int? = deliverable((a.slots as salvo.platform.core.deque.MutDeque<Long>), a.gate)
+            if ((at != null)) {
+                val k: Int = at!!
+                val _slot: Long? = salvo.core.deque.removeAtPlatform((a.slots as salvo.platform.core.deque.MutDeque<Long>), k)
+                val e: Union3<Delivered, Answered, Reported> = run {
+                    val __nn_7: Union3<Delivered, Answered, Reported>? = salvo.core.deque.removeAtPlatform((a.queue as salvo.platform.core.deque.MutDeque<Union3<Delivered, Answered, Reported>>), k)
+                    when {
+                        (__nn_7 == null) -> {
+                            throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1194:25"))
+                        }
+                        else -> {
+                            val __some_8: Union3<Delivered, Answered, Reported> = __nn_7!!
+                            __some_8
+                        }
+                    }
+                }
                 a.running = true
-                val body = (slotTakePlatform(a.body) ?: throw AssertionError("salvo: value is absent at runtime:1196:28"))
+                val body: salvo.platform.runtime.Body = run {
+                    val __nn_9: salvo.platform.runtime.Body? = slotTakePlatform(a.body)
+                    when {
+                        (__nn_9 == null) -> {
+                            throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1196:28"))
+                        }
+                        else -> {
+                            val __some_10: salvo.platform.runtime.Body = __nn_9!!
+                            __some_10
+                        }
+                    }
+                }
                 return workOf(a, i, e, body)
             }
         }
@@ -1511,48 +1908,61 @@ fun takeWork(actors: salvo.platform.core.list.MutList<ActorRec>, pools: salvo.pl
     return null
 }
 
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun markReady(a: ActorRec, pools: salvo.platform.core.list.MutList<PoolRec>, addr: Int): Boolean {
-    if (a.ready || a.running || a.dead) {
+    if (((a.ready || a.running) || a.dead)) {
         return false
     }
-    if (deliverable(a.slots, a.gate) == null) {
+    if ((deliverable((a.slots as salvo.platform.core.deque.MutDeque<Long>), a.gate) == null)) {
         return false
     }
     a.ready = true
-    val p = (getPlatform__core_list(pools, a.pool) ?: throw AssertionError("salvo: value is absent at runtime:1215:13"))
-    addLastPlatform(p.ready, addr)
+    val p: PoolRec = run {
+        val __nn_1: PoolRec? = salvo.core.list.getPlatform(pools, a.pool)
+        when {
+            (__nn_1 == null) -> {
+                throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1215:13"))
+            }
+            else -> {
+                val __some_2: PoolRec = __nn_1!!
+                __some_2
+            }
+        }
+    }
+    salvo.core.deque.addLastPlatform((p.ready as salvo.platform.core.deque.MutDeque<Int>), addr)
     return true
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun workOf(a: ActorRec, addr: Int, e: Union3<Delivered, Answered, Reported>, body: salvo.platform.runtime.Body): Union2<RunActor, RunTask>? {
-    if (e is Union3.U1<*, *, *>) {
-        val d = e.value as Delivered
-        a.userLen = a.userLen - 1
-        val woken = removeFirstPlatform__core_list(a.blocked)
-        if (woken != null) {
-            val b = woken as salvo.platform.runtime.Parker
+    if ((e is Union3.U1<*, *, *>)) {
+        val d: Delivered = ((e as Union3.U1<*, *, *>).value as Delivered)
+        a.userLen = (a.userLen - 1)
+        val woken: salvo.platform.runtime.Parker? = salvo.core.list.removeFirstPlatform((a.blocked as salvo.platform.core.list.MutList<salvo.platform.runtime.Parker>))
+        if ((woken != null)) {
+            val b: salvo.platform.runtime.Parker = woken!!
             unparkPlatform(b)
         }
-        val __destructured21 = d
-        val msg = __destructured21.msg
-        val from = __destructured21.from
-        if (from >= 0) {
+        val __destructured_1: Delivered = d
+        val msg: salvo.platform.runtime.Dyn = __destructured_1.msg
+        val from: Long = __destructured_1.from
+        if ((from >= 0L)) {
             grantedPlatform(addr, a.pool, from)
         }
         return Union2.U1<RunActor, RunTask>(RunActor(addr = addr, pool = a.pool, kind = 0, slot = 0L, value = msg, body = body))
     }
-    if (e is Union3.U3<*, *, *>) {
-        val r = e.value as Reported
+    if ((e is Union3.U3<*, *, *>)) {
+        val r: Reported = ((e as Union3.U3<*, *, *>).value as Reported)
         return Union2.U1<RunActor, RunTask>(RunActor(addr = addr, pool = a.pool, kind = 2, slot = 0L, value = erasePlatform(r.reason), body = body))
     }
-    val __destructured22 = (e.value as Answered)
-    val slot = __destructured22.slot
-    val value = __destructured22.value
-    var opens = false
-    if (a.gate != null) {
-        val g = a.gate as Long
-        opens = g == slot
+    val e_2: Answered = ((e as Union3.U2<*, *, *>).value as Answered)
+    val __destructured_3: Answered = e_2
+    val slot: Long = __destructured_3.slot
+    val value: salvo.platform.runtime.Dyn = __destructured_3.value
+    var opens: Boolean = false
+    if ((a.gate != null)) {
+        val g: Long = a.gate!!
+        opens = ((g) == (slot))
     }
     if (opens) {
         a.gate = null
@@ -1561,60 +1971,110 @@ fun workOf(a: ActorRec, addr: Int, e: Union3<Delivered, Answered, Reported>, bod
 }
 
 fun deliverable(slots: kotlin.collections.ArrayDeque<Long>, gate: Long?): Int? {
-    if (sizePlatform__core_deque(slots) == 0) {
+    if (((salvo.core.deque.sizePlatform(slots)) == (0))) {
         return null
     }
-    if (gate == null) {
+    if ((gate == null)) {
         return 0
     }
-    var i = 0
-    while (i < sizePlatform__core_deque(slots)) {
-        if ((getPlatform__core_deque(slots, i) ?: throw AssertionError("salvo: value is absent at runtime:1263:12")) == gate) {
+    var i: Int = 0
+    while (true) {
+        if (!((i < salvo.core.deque.sizePlatform(slots)))) {
+            break
+        }
+        val gate_3: Long = gate!!
+        if (((run {
+            val __nn_1: Long? = salvo.core.deque.getPlatform(slots, i)
+            when {
+                (__nn_1 == null) -> {
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1263:12"))
+                }
+                else -> {
+                    val __some_2: Long = __nn_1!!
+                    __some_2
+                }
+            }
+        }) == (gate_3))) {
             return i
         }
-        i = i + 1
+        i = (i + 1)
     }
     return null
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun wakePool(pools: salvo.platform.core.list.MutList<PoolRec>, pool: Int) {
-    val p = (getPlatform__core_list(pools, pool) ?: throw AssertionError("salvo: value is absent at runtime:1278:13"))
-    var __is16 = removeFirstPlatform__core_list(p.idle)
-    if (__is16 != null) {
-        val w = __is16 as salvo.platform.runtime.Parker
+    val p: PoolRec = run {
+        val __nn_1: PoolRec? = salvo.core.list.getPlatform(pools, pool)
+        when {
+            (__nn_1 == null) -> {
+                throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1278:13"))
+            }
+            else -> {
+                val __some_2: PoolRec = __nn_1!!
+                __some_2
+            }
+        }
+    }
+    val __subject_3: salvo.platform.runtime.Parker? = salvo.core.list.removeFirstPlatform((p.idle as salvo.platform.core.list.MutList<salvo.platform.runtime.Parker>))
+    if ((__subject_3 != null)) {
+        val w: salvo.platform.runtime.Parker = __subject_3!!
         unparkPlatform(w)
     }
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun wakeEvery(pools: salvo.platform.core.list.MutList<PoolRec>, pool: Int) {
-    val p = (getPlatform__core_list(pools, pool) ?: throw AssertionError("salvo: value is absent at runtime:1286:13"))
+    val p: PoolRec = run {
+        val __nn_1: PoolRec? = salvo.core.list.getPlatform(pools, pool)
+        when {
+            (__nn_1 == null) -> {
+                throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1286:13"))
+            }
+            else -> {
+                val __some_2: PoolRec = __nn_1!!
+                __some_2
+            }
+        }
+    }
     while (true) {
-        var __is17 = removeFirstPlatform__core_list(p.idle)
-        if (!(__is17 != null)) break
-        val w = __is17 as salvo.platform.runtime.Parker
+        val __subject_3: salvo.platform.runtime.Parker? = salvo.core.list.removeFirstPlatform((p.idle as salvo.platform.core.list.MutList<salvo.platform.runtime.Parker>))
+        if (!((__subject_3 != null))) {
+            break
+        }
+        val w: salvo.platform.runtime.Parker = __subject_3!!
         unparkPlatform(w)
     }
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun wakeWaiters(waiters: salvo.platform.core.list.MutList<WaiterRec>) {
     for (w in salvo.platform.core.list.each(waiters)) {
-        if (w.waiting > 0 && (w.parker != null)) {
-            val p = w.parker as salvo.platform.runtime.Parker
+        if (((w.waiting > 0) && (w.parker != null))) {
+            val p: salvo.platform.runtime.Parker = w.parker!!
             unparkPlatform(p)
         }
     }
 }
 
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun retireIfDone(actors: salvo.platform.core.list.MutList<ActorRec>, pools: salvo.platform.core.list.MutList<PoolRec>, pool: Int) {
-    val p = (getPlatform__core_list(pools, pool) ?: throw AssertionError("salvo: value is absent at runtime:1308:13"))
-    if (!p.dedicated || p.retired || sizePlatform__core_deque(p.tasks) > 0 || p.owed > 0) {
+    var p: PoolRec = run {
+        val __nn_1: PoolRec? = salvo.core.list.getPlatform(pools, pool)
+        when {
+            (__nn_1 == null) -> {
+                throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1308:13"))
+            }
+            else -> {
+                val __some_2: PoolRec = __nn_1!!
+                __some_2
+            }
+        }
+    }
+    if ((((!(p.dedicated) || p.retired) || (salvo.core.deque.sizePlatform((p.tasks as salvo.platform.core.deque.MutDeque<TaskRun>)) > 0)) || (p.owed > 0))) {
         return
     }
     for (a in salvo.platform.core.list.each(actors)) {
-        if (a.pool == pool && !a.dead) {
+        if ((((a.pool) == (pool)) && !(a.dead))) {
             return
         }
     }
@@ -1623,10 +2083,13 @@ fun retireIfDone(actors: salvo.platform.core.list.MutList<ActorRec>, pools: salv
 }
 
 fun wakeAllPools(pools: salvo.platform.core.list.MutList<PoolRec>) {
-    var i = 0
-    while (i < sizePlatform__core_list(pools)) {
+    var i: Int = 0
+    while (true) {
+        if (!((i < salvo.core.list.sizePlatform(pools)))) {
+            break
+        }
         wakeEvery(pools, i)
-        i = i + 1
+        i = (i + 1)
     }
 }
 
@@ -1635,75 +2098,80 @@ fun newPoolOf(n: Int, sink: Int): Int {
 }
 
 fun newDedicatedPool(): Int {
-    return startPool(1, -1, true)
+    return startPool(1, (-1), true)
 }
 
 fun waiterRecordCount(): Int {
-    return __moduleUse1.waiterRecords()
+    return __module_use1_0.waiterRecords()
 }
 
 fun retiredWorkerCount(): Int {
-    return __moduleUse1.retiredWorkers()
+    return __module_use1_0.retiredWorkers()
 }
 
 fun startPool(n: Int, sink: Int, dedicated: Boolean): Int {
-    val id = __moduleUse1.newPool(sink, dedicated)
-    if (__moduleUse1.isVirtual()) {
+    val id: Int = __module_use1_0.newPool(sink, dedicated)
+    if (__module_use1_0.isVirtual()) {
         return id
     }
-    var i = 0
-    while (i < n) {
-        startThreadPlatform({  ->
-    servePool(id)
-})
-        i = i + 1
+    var i: Int = 0
+    while (true) {
+        if (!((i < n))) {
+            break
+        }
+        startThreadPlatform(fun() {
+            servePool(id)
+        })
+        i = (i + 1)
     }
     return id
 }
 
 fun spawnBody(pool: Int, bound: Int, body: salvo.platform.runtime.Body): Int {
-    return __moduleUse1.newActor(pool, bound, body)
+    return __module_use1_0.newActor(pool, bound, body)
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun sendDyn(addr: Int, msg: salvo.platform.runtime.Dyn) {
-    val back = sendOrBack(addr, msg)
-    if (back != null) {
-        val d = back as salvo.platform.runtime.Dyn
+    val back: salvo.platform.runtime.Dyn? = sendOrBack(addr, msg)
+    if ((back != null)) {
+        val d: salvo.platform.runtime.Dyn = back!!
         dropDynPlatform(d)
     }
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun sendOrBack(addr: Int, msg: salvo.platform.runtime.Dyn): salvo.platform.runtime.Dyn? {
-    var r = __moduleUse1.enqueue(addr, msg, thisParkerPlatform())
-    while (r is Union4.U3<*, *, *, *>) {
-        val full = r.value as Full
-        if (__moduleUse1.isVirtual()) {
+    var r: Union4<Sent, Dead, Full, Remote> = __module_use1_0.enqueue(addr, msg, thisParkerPlatform())
+    while (true) {
+        if (!((r is Union4.U3<*, *, *, *>))) {
+            break
+        }
+        val full: Full = ((r as Union4.U3<*, *, *, *>).value as Full)
+        if (__module_use1_0.isVirtual()) {
             makeRoom(addr)
-            val __destructured23 = full
-            val again = __destructured23.msg
-            r = __moduleUse1.enqueue(addr, again, thisParkerPlatform())
+            val __destructured_1: Full = full
+            val again: salvo.platform.runtime.Dyn = __destructured_1.msg
+            r = __module_use1_0.enqueue(addr, again, thisParkerPlatform())
             continue
         }
-        if (herePoolPlatform() == mainPool() && hereActorPlatform() == noFrame() && __moduleUse1.poolOfActor(addr) == mainPool()) {
-            __moduleUse0.report("salvo: deadlock: the main pool's actor $addr has a full mailbox and the only thread that could drain it is the one sending: the main pool has one worker, `main` itself, and it serves work only inside a `waitfor` — send fewer messages before waiting, raise the handler's `mailbox` capacity, or place the actor on a pool of its own")
+        if (((((herePoolPlatform()) == (mainPool())) && ((hereActorPlatform()) == (noFrame()))) && ((__module_use1_0.poolOfActor(addr)) == (mainPool())))) {
+            __module_use0_0.report("salvo: deadlock: the main pool's actor ${addr} has a full mailbox and the only thread that could drain it is the one sending: the main pool has one worker, `main` itself, and it serves work only inside a `waitfor` — send fewer messages before waiting, raise the handler's `mailbox` capacity, or place the actor on a pool of its own")
             exitProcessPlatform(1)
         }
         parkPlatform(thisParkerPlatform())
-        val __destructured24 = full
-        val back = __destructured24.msg
-        r = __moduleUse1.enqueue(addr, back, thisParkerPlatform())
+        val __destructured_2: Full = full
+        val back: salvo.platform.runtime.Dyn = __destructured_2.msg
+        r = __module_use1_0.enqueue(addr, back, thisParkerPlatform())
     }
-    if (r is Union4.U3<*, *, *, *>) {
-        val full = r.value as Full
+    if ((r is Union4.U3<*, *, *, *>)) {
+        val full: Full = ((r as Union4.U3<*, *, *, *>).value as Full)
         dropFull(full)
         return null
     }
-    if (r is Union4.U4<*, *, *, *>) {
-        val remote = r.value as Remote
-        val __destructured25 = remote
-        val back = __destructured25.msg
+    if ((r is Union4.U4<*, *, *, *>)) {
+        val remote: Remote = ((r as Union4.U4<*, *, *, *>).value as Remote)
+        val __destructured_3: Remote = remote
+        val back: salvo.platform.runtime.Dyn = __destructured_3.msg
         return back
     }
     return null
@@ -1711,109 +2179,113 @@ fun sendOrBack(addr: Int, msg: salvo.platform.runtime.Dyn): salvo.platform.runti
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun makeRoom(addr: Int) {
-    val w = __moduleUse1.virtualWork(hereActorPlatform())
-    if (w is Union2.U1<*, *>) {
-        val ra = w?.value as RunActor
+    val w: Union2<RunActor, RunTask>? = __module_use1_0.virtualWork(hereActorPlatform())
+    if ((w is Union2.U1<*, *>)) {
+        val ra: RunActor = ((w as Union2.U1<*, *>).value as RunActor)
         runActor(ra)
         return
     }
-    if (w is Union2.U2<*, *>) {
-        val rt = w?.value as RunTask
+    if ((w is Union2.U2<*, *>)) {
+        val rt: RunTask = ((w as Union2.U2<*, *>).value as RunTask)
         runTask(rt)
         return
     }
-    __moduleUse0.report("salvo: deadlock: actor $addr has a full mailbox and nothing can run to drain it: an actor test runs every pool on one thread")
+    __module_use0_0.report("salvo: deadlock: actor ${addr} has a full mailbox and nothing can run to drain it: an actor test runs every pool on one thread")
     exitProcessPlatform(1)
 }
 
 fun markProxy(addr: Int) {
-    __moduleUse1.setProxy(addr)
+    __module_use1_0.setProxy(addr)
 }
 
 fun mint(addr: Int, gated: Boolean): Token {
-    return __moduleUse1.mintActor(addr, gated)
+    return __module_use1_0.mintActor(addr, gated)
 }
 
 fun mintTaskOn(pool: Int, body: salvo.platform.runtime.Body): Token {
-    return __moduleUse1.mintTask(pool, body)
+    return __module_use1_0.mintTask(pool, body)
 }
 
 fun waiter(): WaiterMint {
-    return __moduleUse1.mintWaiter(herePoolPlatform())
+    return __module_use1_0.mintWaiter(herePoolPlatform())
 }
 
 fun answer(t: Token, value: salvo.platform.runtime.Dyn) {
-    __moduleUse1.deliver(t, value)
+    __module_use1_0.deliver(t, value)
 }
 
 fun watch(addr: Int, t: Token) {
-    __moduleUse1.watchActor(addr, t)
+    __module_use1_0.watchActor(addr, t)
 }
 
 fun onIdle(pool: Int, t: Token) {
-    __moduleUse1.idleHook(pool, t)
+    __module_use1_0.idleHook(pool, t)
 }
 
 fun externalBegin() {
-    if (__moduleUse1.isVirtual()) {
-        __moduleUse0.report("salvo: an actor test opened a host thread (a platform handler that reads or listens on a thread of its own): the virtual runtime runs everything on one thread, so its work would not be deterministic — use an in-memory fake (`MemTransport`, `MemFs`)")
+    if (__module_use1_0.isVirtual()) {
+        __module_use0_0.report("salvo: an actor test opened a host thread (a platform handler that reads or listens on a thread of its own): the virtual runtime runs everything on one thread, so its work would not be deterministic — use an in-memory fake (`MemTransport`, `MemFs`)")
         exitProcessPlatform(1)
     }
-    __moduleUse1.external(1)
+    __module_use1_0.external(1)
 }
 
 fun enterVirtual(seed: Long) {
-    __moduleUse1.goVirtual(seed)
+    __module_use1_0.goVirtual(seed)
 }
 
 fun randomDouble(): Double {
-    return __moduleUse1.randomUnit()
+    return __module_use1_0.randomUnit()
 }
 
 fun virtualRuntime(): Boolean {
-    return __moduleUse1.isVirtual()
+    return __module_use1_0.isVirtual()
 }
 
 fun setVirtualNow(at: Long) {
-    __moduleUse1.advanceTo(at)
+    __module_use1_0.advanceTo(at)
 }
 
 fun onClock(t: Token) {
-    __moduleUse1.clockHook(t)
+    __module_use1_0.clockHook(t)
 }
 
 fun externalEnd() {
-    __moduleUse1.external(-1)
+    __module_use1_0.external((-1))
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun awaitAnswer(wid: Int): salvo.platform.runtime.Dyn {
-    val pool = herePoolPlatform()
-    val own = hereActorPlatform()
-    val frame = if (own == noFrame()) {
+    val pool: Int = herePoolPlatform()
+    val own: Int = hereActorPlatform()
+    val frame: Int = (if (((own) == (noFrame()))) {
         2
     } else {
         1
-    }
+    })
     while (true) {
-        val step = __moduleUse1.waitStep(wid, pool, own, frame, thisParkerPlatform())
-        if (step is Union6.U1<*, *, *, *, *, *>) {
-            val g = step.value as Got
-            val __destructured26 = g
-            val value = __destructured26.value
+        if (!(true)) {
+            break
+        }
+        val step: Union6<Got, RunActor, RunTask, Sleep, Again, Stuck> = __module_use1_0.waitStep(wid, pool, own, frame, thisParkerPlatform())
+        if ((step is Union6.U1<*, *, *, *, *, *>)) {
+            val g: Got = ((step as Union6.U1<*, *, *, *, *, *>).value as Got)
+            val __destructured_1: Got = g
+            val value: salvo.platform.runtime.Dyn = __destructured_1.value
             return value
         }
-        if (step is Union6.U2<*, *, *, *, *, *>) {
-            val ra = step.value as RunActor
+        if ((step is Union6.U2<*, *, *, *, *, *>)) {
+            val ra: RunActor = ((step as Union6.U2<*, *, *, *, *, *>).value as RunActor)
             runActor(ra)
-        } else if (step is Union6.U3<*, *, *, *, *, *>) {
-            val rt = step.value as RunTask
+        } else if ((step is Union6.U3<*, *, *, *, *, *>)) {
+            val rt: RunTask = ((step as Union6.U3<*, *, *, *, *, *>).value as RunTask)
             runTask(rt)
-        } else if (step is Union6.U6<*, *, *, *, *, *>) {
-            val s = step.value as Stuck
-            __moduleUse0.report(s.report)
+        } else if ((step is Union6.U6<*, *, *, *, *, *>)) {
+            val s: Stuck = ((step as Union6.U6<*, *, *, *, *, *>).value as Stuck)
+            __module_use0_0.report(s.report)
             exitProcessPlatform(1)
-        } else if (step is Union6.U4<*, *, *, *, *, *>) {
+        } else if ((step is Union6.U4<*, *, *, *, *, *>)) {
+            val step_2: Sleep = ((step as Union6.U4<*, *, *, *, *, *>).value as Sleep)
             parkPlatform(thisParkerPlatform())
         }
     }
@@ -1822,53 +2294,57 @@ fun awaitAnswer(wid: Int): salvo.platform.runtime.Dyn {
 
 fun runActor(ra: RunActor) {
     flushFramesPlatform()
-    val __destructured27 = ra
-    val addr = __destructured27.addr
-    val pool = __destructured27.pool
-    val kind = __destructured27.kind
-    val slot = __destructured27.slot
-    val value = __destructured27.value
-    val body = __destructured27.body
-    val savedPool = herePoolPlatform()
-    val savedActor = hereActorPlatform()
+    val __destructured_1: RunActor = ra
+    val addr: Int = __destructured_1.addr
+    val pool: Int = __destructured_1.pool
+    val kind: Int = __destructured_1.kind
+    val slot: Long = __destructured_1.slot
+    val value: salvo.platform.runtime.Dyn = __destructured_1.value
+    val body: salvo.platform.runtime.Body = __destructured_1.body
+    val savedPool: Int = herePoolPlatform()
+    val savedActor: Int = hereActorPlatform()
     setHerePlatform(pool, addr)
-    val ran = activatePlatform(body, kind, slot, value)
+    val ran: Ran = activatePlatform(body, kind, slot, value)
     setHerePlatform(savedPool, savedActor)
-    val __destructured28 = ran
-    val back = __destructured28.body
-    val fault = __destructured28.fault
-    __moduleUse1.finish(addr, back, fault)
+    val __destructured_2: Ran = ran
+    val back: salvo.platform.runtime.Body = __destructured_2.body
+    val fault: String? = __destructured_2.fault
+    __module_use1_0.finish(addr, back, fault)
 }
 
 fun runTask(rt: RunTask) {
-    val __destructured29 = rt
-    val pool = __destructured29.pool
-    val body = __destructured29.body
-    val value = __destructured29.value
-    val savedPool = herePoolPlatform()
-    val savedActor = hereActorPlatform()
+    val __destructured_1: RunTask = rt
+    val pool: Int = __destructured_1.pool
+    val body: salvo.platform.runtime.Body = __destructured_1.body
+    val value: salvo.platform.runtime.Dyn = __destructured_1.value
+    val savedPool: Int = herePoolPlatform()
+    val savedActor: Int = hereActorPlatform()
     setHerePlatform(pool, taskFrame())
-    val ran = activatePlatform(body, 1, 0L, value)
+    val ran: Ran = activatePlatform(body, 1, 0L, value)
     setHerePlatform(savedPool, savedActor)
-    val __destructured30 = ran
-    val done = __destructured30.body
-    val fault = __destructured30.fault
+    val __destructured_2: Ran = ran
+    val done: salvo.platform.runtime.Body = __destructured_2.body
+    val fault: String? = __destructured_2.fault
     dropBodyPlatform(done)
-    __moduleUse1.taskDone(pool, fault)
+    __module_use1_0.taskDone(pool, fault)
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun servePool(pool: Int) {
     setHerePlatform(pool, noFrame())
     while (true) {
-        val w = __moduleUse1.nextWork(pool, thisParkerPlatform())
-        if (w is Union3.U1<*, *, *>) {
-            val ra = w?.value as RunActor
+        if (!(true)) {
+            break
+        }
+        val w: Union3<RunActor, RunTask, Retire>? = __module_use1_0.nextWork(pool, thisParkerPlatform())
+        if ((w is Union3.U1<*, *, *>)) {
+            val ra: RunActor = ((w as Union3.U1<*, *, *>).value as RunActor)
             runActor(ra)
-        } else if (w is Union3.U2<*, *, *>) {
-            val rt = w?.value as RunTask
+        } else if ((w is Union3.U2<*, *, *>)) {
+            val rt: RunTask = ((w as Union3.U2<*, *, *>).value as RunTask)
             runTask(rt)
-        } else if (w is Union3.U3<*, *, *>) {
+        } else if ((w is Union3.U3<*, *, *>)) {
+            val w_1: Retire = ((w as Union3.U3<*, *, *>).value as Retire)
             return
         } else {
             parkPlatform(thisParkerPlatform())
@@ -1893,57 +2369,56 @@ data class Exported(
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun exportToken(t: Token): Exported {
-    val __destructured31 = t
-    val target = __destructured31.target
-    val slot = __destructured31.slot
-    val tracked = __destructured31.tracked
-    if (target is Union3.U3<*, *, *>) {
-        val tt = target.value as ToTask
-        val __destructured32 = tt
-        val pool = __destructured32.pool
-        val body = __destructured32.body
+    val __destructured_1: Token = t
+    val target: Union3<ToActor, ToWaiter, ToTask> = __destructured_1.target
+    val slot: Long = __destructured_1.slot
+    val tracked: Boolean = __destructured_1.tracked
+    if ((target is Union3.U3<*, *, *>)) {
+        val tt: ToTask = ((target as Union3.U3<*, *, *>).value as ToTask)
+        val __destructured_2: ToTask = tt
+        val pool: Int = __destructured_2.pool
+        val body: salvo.platform.runtime.Body = __destructured_2.body
         return Exported(kind = 2, id = pool, slot = slot, body = body)
     }
-    var kind = 0
-    var id = 0
-    if (target is Union3.U1<*, *, *>) {
-        val to = target.value as ToActor
+    var kind: Int = 0
+    var id: Int = 0
+    if ((target is Union3.U1<*, *, *>)) {
+        val to: ToActor = ((target as Union3.U1<*, *, *>).value as ToActor)
         id = to.addr
-    } else if (target is Union3.U2<*, *, *>) {
-        val tw = target.value as ToWaiter
+    } else if ((target is Union3.U2<*, *, *>)) {
+        val tw: ToWaiter = ((target as Union3.U2<*, *, *>).value as ToWaiter)
         kind = 1
         id = tw.wid
     }
     return Exported(kind = kind, id = id, slot = slot, body = null)
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun dropExported(e: Exported) {
-    val __destructured33 = e
-    val kind = __destructured33.kind
-    val id = __destructured33.id
-    val slot = __destructured33.slot
-    val body = __destructured33.body
-    if (body != null) {
-        val b = body as salvo.platform.runtime.Body
+    val __destructured_1: Exported = e
+    val kind: Int = __destructured_1.kind
+    val id: Int = __destructured_1.id
+    val slot: Long = __destructured_1.slot
+    val body: salvo.platform.runtime.Body? = __destructured_1.body
+    if ((body != null)) {
+        val b: salvo.platform.runtime.Body = body!!
         dropBodyPlatform(b)
     }
 }
 
 fun deliverRemote(addr: Int, msg: salvo.platform.runtime.Dyn, from: Long): Boolean {
-    return __moduleUse1.enqueueRemote(addr, msg, from)
+    return __module_use1_0.enqueueRemote(addr, msg, from)
 }
 
 fun killActor(addr: Int, reason: String) {
-    __moduleUse1.kill(addr, reason)
+    __module_use1_0.kill(addr, reason)
 }
 
 fun mailboxRoom(addr: Int): Int {
-    return __moduleUse1.room(addr)
+    return __module_use1_0.room(addr)
 }
 
 fun mailboxQueued(addr: Int): Int {
-    return __moduleUse1.queued(addr)
+    return __module_use1_0.queued(addr)
 }
 
 fun currentPool(): Int {
@@ -1951,7 +2426,7 @@ fun currentPool(): Int {
 }
 
 fun mailboxDead(addr: Int): Boolean {
-    return __moduleUse1.isDead(addr)
+    return __module_use1_0.isDead(addr)
 }
 
 fun identityBits(): Long {
@@ -1959,13 +2434,16 @@ fun identityBits(): Long {
 }
 
 fun actorPool(addr: Int): Int {
-    return __moduleUse1.poolOfActor(addr)
+    return __module_use1_0.poolOfActor(addr)
 }
 
 fun waiterPool(wid: Int): Int {
-    return __moduleUse1.poolOfWaiter(wid)
+    return __module_use1_0.poolOfWaiter(wid)
 }
 
 fun spawnInert(): Int {
-    return spawnBody(0, 0, bodyOfPlatform({ kind, slot, value -> dropDynPlatform(value) }))
+    return spawnBody(0, 0, bodyOfPlatform(fun(kind: Int, slot: Long, value: salvo.platform.runtime.Dyn) {
+        return dropDynPlatform(value)
+    }))
 }
+

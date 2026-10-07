@@ -1,5 +1,6 @@
 package salvo.core.checked
 
+import salvo.*
 
 data class Checked<T>(
     val value: T,
@@ -13,11 +14,11 @@ class __Codec_Checked<T>(private val __c_T: salvo.WireCodec<T>) : salvo.WireCode
 }
 
 fun<T> checked(value: T): Checked<T> {
-    return Checked(value = value)
+    return Checked<T>(value = value)
 }
 
 fun<T> ignore(checked: Checked<T>) {
-    (checked).let {}
+    run { checked; Unit }
 }
 
 fun<T> detach(checked: Checked<T>): T {
@@ -27,3 +28,4 @@ fun<T> detach(checked: Checked<T>): T {
 fun<T> toStr(checked: Checked<T>, toStr: (T) -> String): String {
     return toStr(checked.value)
 }
+

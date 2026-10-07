@@ -1,20 +1,6 @@
 package salvo.time
 
-import salvo.core.actor.Mailbox
-import salvo.core.actor.eq
-import salvo.core.compare.mixHash
-import salvo.core.deque.get
-import salvo.core.list.addPlatform
-import salvo.core.list.at
-import salvo.core.list.get
-import salvo.core.list.getPlatform
-import salvo.core.list.removeAtPlatform
-import salvo.core.list.sizePlatform
-import salvo.core.map.eq
-import salvo.core.map.get
-import salvo.core.set.eq
-import salvo.runtime.nowNanos
-import salvo.runtime.timers.afterNanos
+import salvo.*
 
 data class Duration(
     val nanos: Long,
@@ -54,23 +40,23 @@ fun nanos(n: Long): Duration {
 }
 
 fun micros(n: Long): Duration {
-    return Duration(nanos = n * 1000L)
+    return Duration(nanos = (n * 1000L))
 }
 
 fun millis(n: Long): Duration {
-    return Duration(nanos = n * 1000000L)
+    return Duration(nanos = (n * 1000000L))
 }
 
 fun seconds(n: Long): Duration {
-    return Duration(nanos = n * 1000000000L)
+    return Duration(nanos = (n * 1000000000L))
 }
 
 fun minutes(n: Long): Duration {
-    return Duration(nanos = n * 60000000000L)
+    return Duration(nanos = (n * 60000000000L))
 }
 
 fun hours(n: Long): Duration {
-    return Duration(nanos = n * 3600000000000L)
+    return Duration(nanos = (n * 3600000000000L))
 }
 
 fun toNanos(d: Duration): Long {
@@ -78,52 +64,52 @@ fun toNanos(d: Duration): Long {
 }
 
 fun toMicros(d: Duration): Long {
-    return d.nanos / 1000L
+    return (d.nanos / 1000L)
 }
 
 fun toMillis(d: Duration): Long {
-    return d.nanos / 1000000L
+    return (d.nanos / 1000000L)
 }
 
 fun toSeconds(d: Duration): Long {
-    return d.nanos / 1000000000L
+    return (d.nanos / 1000000000L)
 }
 
 fun plus__Duration_Duration(d1: Duration, d2: Duration): Duration {
-    return Duration(nanos = d1.nanos + d2.nanos)
+    return Duration(nanos = (d1.nanos + d2.nanos))
 }
 
 fun minus__Duration_Duration(d1: Duration, d2: Duration): Duration {
-    return Duration(nanos = d1.nanos - d2.nanos)
+    return Duration(nanos = (d1.nanos - d2.nanos))
 }
 
 fun times(d: Duration, n: Long): Duration {
-    return Duration(nanos = d.nanos * n)
+    return Duration(nanos = (d.nanos * n))
 }
 
 fun abs(d: Duration): Duration {
-    if (d.nanos < 0) {
-        return Duration(nanos = 0L - d.nanos)
+    if ((d.nanos < 0L)) {
+        return Duration(nanos = (0L - d.nanos))
     }
     return d
 }
 
 fun toStr(d: Duration): String {
-    if (d.nanos < 0) {
-        val positive = Duration(nanos = 0L - d.nanos)
+    if ((d.nanos < 0L)) {
+        val positive: Duration = Duration(nanos = (0L - d.nanos))
         return "-${toStr(positive)}"
     }
-    if (d.nanos == (0).toLong()) {
+    if (((d.nanos) == (0L))) {
         return "0s"
     }
-    if (d.nanos % 1000000000 == (0).toLong()) {
-        return "${d.nanos / 1000000000L}s"
+    if ((((d.nanos % 1000000000L)) == (0L))) {
+        return "${(d.nanos / 1000000000L)}s"
     }
-    if (d.nanos % 1000000 == (0).toLong()) {
-        return "${d.nanos / 1000000L}ms"
+    if ((((d.nanos % 1000000L)) == (0L))) {
+        return "${(d.nanos / 1000000L)}ms"
     }
-    if (d.nanos % 1000 == (0).toLong()) {
-        return "${d.nanos / 1000L}us"
+    if ((((d.nanos % 1000L)) == (0L))) {
+        return "${(d.nanos / 1000L)}us"
     }
     return "${d.nanos}ns"
 }
@@ -133,11 +119,11 @@ fun epochNano(n: Long): Instant {
 }
 
 fun epochMilli(n: Long): Instant {
-    return Instant(nanos = n * 1000000L)
+    return Instant(nanos = (n * 1000000L))
 }
 
 fun epochSecond(n: Long): Instant {
-    return Instant(nanos = n * 1000000000L)
+    return Instant(nanos = (n * 1000000000L))
 }
 
 fun toEpochNano(at: Instant): Long {
@@ -145,35 +131,35 @@ fun toEpochNano(at: Instant): Long {
 }
 
 fun toEpochMilli(at: Instant): Long {
-    return at.nanos / 1000000L
+    return (at.nanos / 1000000L)
 }
 
 fun toEpochSecond(at: Instant): Long {
-    return at.nanos / 1000000000L
+    return (at.nanos / 1000000000L)
 }
 
 fun between__Instant_Instant(start: Instant, end: Instant): Duration {
-    return Duration(nanos = end.nanos - start.nanos)
+    return Duration(nanos = (end.nanos - start.nanos))
 }
 
 fun between__Tick_Tick(start: Tick, end: Tick): Duration {
-    return Duration(nanos = end.nanos - start.nanos)
+    return Duration(nanos = (end.nanos - start.nanos))
 }
 
 fun plus__Instant_Duration(at: Instant, d: Duration): Instant {
-    return Instant(nanos = at.nanos + d.nanos)
+    return Instant(nanos = (at.nanos + d.nanos))
 }
 
 fun minus__Instant_Duration(at: Instant, d: Duration): Instant {
-    return Instant(nanos = at.nanos - d.nanos)
+    return Instant(nanos = (at.nanos - d.nanos))
 }
 
 fun plus__Tick_Duration(at: Tick, d: Duration): Tick {
-    return Tick(nanos = at.nanos + d.nanos)
+    return Tick(nanos = (at.nanos + d.nanos))
 }
 
 fun minus__Tick_Duration(at: Tick, d: Duration): Tick {
-    return Tick(nanos = at.nanos - d.nanos)
+    return Tick(nanos = (at.nanos - d.nanos))
 }
 
 interface Ticker {
@@ -223,36 +209,30 @@ fun elapsed(ticker: Ticker, since: Tick): Duration {
 }
 
 class DefaultTicker : Ticker {
-
     override fun tick(): Tick {
         return Tick(nanos = monotonicNanos())
     }
 }
 
 class DefaultClock : Clock {
-    private var baseTick: Long = monotonicNanos()
-    private var baseEpoch: Long = epochNanosPlatform()
-
+    var baseTick: Long = monotonicNanos()
+    var baseEpoch: Long = epochNanosPlatform()
     override fun now(): Instant {
         return Instant(nanos = epochNanosPlatform())
     }
-
     override fun toInstant(at: Tick): Instant {
-        return Instant(nanos = baseEpoch + (at.nanos - baseTick))
+        return Instant(nanos = (baseEpoch + (at.nanos - baseTick)))
     }
-
     override fun toTick(at: Instant): Tick {
-        return Tick(nanos = baseTick + (at.nanos - baseEpoch))
+        return Tick(nanos = (baseTick + (at.nanos - baseEpoch)))
     }
 }
 
 fun monotonicNanos(): Long {
-    return nowNanos()
+    return salvo.runtime.nowNanos()
 }
 
-fun epochNanosPlatform(): Long {
-    return salvo.platform.time.epochNanos()
-}
+fun epochNanosPlatform(): Long = salvo.platform.time.epochNanos()
 
 data class Fired(
     val at: Tick,
@@ -267,12 +247,6 @@ object __Codec_Fired : salvo.WireCodec<Fired> {
 
 interface Timer {
     fun after(wait: Duration, done: salvo.SalvoReply)
-}
-
-class __Stub_Timer(private val addr: Int) : Timer {
-    override fun after(wait: Duration, done: salvo.SalvoReply) {
-        salvo.SalvoSched.sendWire(addr, __Msg_Timer.After(wait, done), __PROTO_Timer, __Codec___Msg_Timer)
-    }
 }
 
 class __Mon_Timer(
@@ -302,16 +276,20 @@ object __Codec___Msg_Timer : salvo.WireCodec<__Msg_Timer> {
     }
 }
 
-/** [protocol-hash] The canonical hash of `Timer`. */
 const val __PROTO_Timer: String = "d0432e460a159011"
+
+class __Stub_Timer(private val addr: Int) : Timer {
+    override fun after(wait: Duration, done: salvo.SalvoReply) {
+        salvo.SalvoSched.sendWire(addr, __Msg_Timer.After(wait, done), __PROTO_Timer, __Codec___Msg_Timer)
+    }
+}
 
 class DefaultTimer : Timer {
     val __mailboxCapacity: Int = 64
     var __addr: Int? = null
     val __parked: MutableMap<Long, __Cont_DefaultTimer> = mutableMapOf()
-
     override fun after(wait: Duration, done: salvo.SalvoReply) {
-        afterNanos(wait.nanos, done)
+        salvo.runtime.timers.afterNanos(wait.nanos, done)
     }
 }
 
@@ -322,10 +300,10 @@ sealed class __Cont_DefaultTimer {
 class __Actor_DefaultTimer(private val handler: DefaultTimer) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
-        __dispatch(msg as __Msg_Timer)
+        __dispatchTimer(msg as __Msg_Timer)
     }
 
-    private fun __dispatch(m: __Msg_Timer) {
+    private fun __dispatchTimer(m: __Msg_Timer) {
         when (m) {
             is __Msg_Timer.After -> handler.after(m.wait, m.done)
         }
@@ -333,7 +311,6 @@ class __Actor_DefaultTimer(private val handler: DefaultTimer) : salvo.SalvoActor
 
     override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
         handler.__addr = ctx.addr
-        // A reply whose continuation is gone: nothing to run.
         val c = handler.__parked.remove(slot) ?: return
         when (c) {
             is __Cont_DefaultTimer.After -> handler.after(c.wait, value as salvo.SalvoReply)
@@ -363,12 +340,6 @@ interface TimerCtl {
     fun advance(by: Duration)
 }
 
-class __Stub_TimerCtl(private val addr: Int) : TimerCtl {
-    override fun advance(by: Duration) {
-        salvo.SalvoSched.sendWire(addr, __Msg_TimerCtl.Advance(by), __PROTO_TimerCtl, __Codec___Msg_TimerCtl)
-    }
-}
-
 class __Mon_TimerCtl(
     private val inner: TimerCtl,
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
@@ -396,39 +367,54 @@ object __Codec___Msg_TimerCtl : salvo.WireCodec<__Msg_TimerCtl> {
     }
 }
 
-/** [protocol-hash] The canonical hash of `TimerCtl`. */
 const val __PROTO_TimerCtl: String = "93f92d20477305ad"
 
+class __Stub_TimerCtl(private val addr: Int) : TimerCtl {
+    override fun advance(by: Duration) {
+        salvo.SalvoSched.sendWire(addr, __Msg_TimerCtl.Advance(by), __PROTO_TimerCtl, __Codec___Msg_TimerCtl)
+    }
+}
+
 class ManualTime : Timer, TimerCtl {
-    private var now: Long = 0L
-    private var deadlines: salvo.platform.core.list.MutList<Long> = mutableListOf<Long>()
-    private var pending: salvo.platform.core.list.MutList<salvo.SalvoReply> = mutableListOf<salvo.SalvoReply>()
     val __mailboxCapacity: Int = 64
     var __addr: Int? = null
     val __parked: MutableMap<Long, __Cont_ManualTime> = mutableMapOf()
-
+    var now: Long = 0L
+    var deadlines: salvo.platform.core.list.MutList<Long> = mutableListOf<Long>()
+    var pending: salvo.platform.core.list.MutList<salvo.SalvoReply> = mutableListOf<salvo.SalvoReply>()
     override fun after(wait: Duration, done: salvo.SalvoReply) {
-        if (wait.nanos <= 0) {
+        if ((wait.nanos <= 0L)) {
             salvo.SalvoSched.replyWire(done, Fired(at = Tick(nanos = now)), __Codec_Fired)
         } else {
-            addPlatform(deadlines, now + wait.nanos)
-            addPlatform(pending, done)
+            salvo.core.list.addPlatform(deadlines, (now + wait.nanos))
+            salvo.core.list.addPlatform(pending, done)
         }
     }
-
-    @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun advance(by: Duration) {
-        val target = now + by.nanos
+        val target: Long = (now + by.nanos)
         while (true) {
-            var __is1 = earliestDue(deadlines, target)
-            if (!(__is1 != null)) break
-            val at = __is1 as Int
-            val deadline = (getPlatform(deadlines, at) ?: throw AssertionError("salvo: value is absent at time:477:33"))
-            removeAtPlatform(deadlines, at)
+            val __subject_1: Int? = earliestDue(deadlines, target)
+            if (!((__subject_1 != null))) {
+                break
+            }
+            val at: Int = __subject_1!!
+            val deadline: Long = run {
+                val __nn_2: Long? = salvo.core.list.getPlatform(deadlines, at)
+                when {
+                    (__nn_2 == null) -> {
+                        throw AssertionError(("salvo: " + ("value is absent") + " at time:477:33"))
+                    }
+                    else -> {
+                        val __some_3: Long = __nn_2!!
+                        __some_3
+                    }
+                }
+            }
+            salvo.core.list.removeAtPlatform(deadlines, at)
             now = deadline
-            var __is2 = removeAtPlatform(pending, at)
-            if (__is2 != null) {
-                val token = __is2 as salvo.SalvoReply
+            val __subject_4: salvo.SalvoReply? = salvo.core.list.removeAtPlatform(pending, at)
+            if ((__subject_4 != null)) {
+                val token: salvo.SalvoReply = __subject_4!!
                 salvo.SalvoSched.replyWire(token, Fired(at = Tick(nanos = deadline)), __Codec_Fired)
             }
         }
@@ -465,7 +451,6 @@ class __Actor_ManualTime(private val handler: ManualTime) : salvo.SalvoActor {
 
     override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
         handler.__addr = ctx.addr
-        // A reply whose continuation is gone: nothing to run.
         val c = handler.__parked.remove(slot) ?: return
         when (c) {
             is __Cont_ManualTime.After -> handler.after(c.wait, value as salvo.SalvoReply)
@@ -495,82 +480,97 @@ class __Actor_ManualTime(private val handler: ManualTime) : salvo.SalvoActor {
 }
 
 fun earliestDue(deadlines: List<Long>, target: Long): Int? {
-    var best = -1
-    var bestAt = 0L
-    var i = 0
-    while (i < sizePlatform(deadlines)) {
-        val at = (getPlatform(deadlines, i) ?: throw AssertionError("salvo: value is absent at time:501:23"))
-        if (at <= target && (best < 0 || at < bestAt)) {
+    var best: Int = (-1)
+    var bestAt: Long = 0L
+    var i: Int = 0
+    while (true) {
+        if (!((i < salvo.core.list.sizePlatform(deadlines)))) {
+            break
+        }
+        val at: Long = run {
+            val __nn_1: Long? = salvo.core.list.getPlatform(deadlines, i)
+            when {
+                (__nn_1 == null) -> {
+                    throw AssertionError(("salvo: " + ("value is absent") + " at time:501:23"))
+                }
+                else -> {
+                    val __some_2: Long = __nn_1!!
+                    __some_2
+                }
+            }
+        }
+        if (((at <= target) && ((best < 0) || (at < bestAt)))) {
             best = i
             bestAt = at
         }
-        i = i + 1
+        i = (i + 1)
     }
-    if (best < 0) {
+    if ((best < 0)) {
         return null
     }
     return best
 }
 
 fun cmp__Duration_Duration(a: Duration, b: Duration): Int {
-    val c__c1 = (a.nanos).compareTo(b.nanos)
-    if (c__c1 != 0) {
+    val c__c1: Int = (a.nanos).compareTo(b.nanos)
+    if (!(((c__c1) == (0)))) {
         return c__c1
     }
     return 0
 }
 
 fun hash__Duration(value: Duration): Long {
-    var h = 17L
-    h = mixHash(h, (value.nanos).hashCode().toLong())
+    var h: Long = 17L
+    h = salvo.core.compare.mixHash(h, (value.nanos).hashCode().toLong())
     return h
 }
 
 fun eq__Duration_Duration(a: Duration, b: Duration): Boolean {
-    if (!((a.nanos) == (b.nanos))) {
+    if (!(((a.nanos) == (b.nanos)))) {
         return false
     }
     return true
 }
 
 fun cmp__Instant_Instant(a: Instant, b: Instant): Int {
-    val c__c1 = (a.nanos).compareTo(b.nanos)
-    if (c__c1 != 0) {
+    val c__c1: Int = (a.nanos).compareTo(b.nanos)
+    if (!(((c__c1) == (0)))) {
         return c__c1
     }
     return 0
 }
 
 fun hash__Instant(value: Instant): Long {
-    var h = 17L
-    h = mixHash(h, (value.nanos).hashCode().toLong())
+    var h: Long = 17L
+    h = salvo.core.compare.mixHash(h, (value.nanos).hashCode().toLong())
     return h
 }
 
 fun eq__Instant_Instant(a: Instant, b: Instant): Boolean {
-    if (!((a.nanos) == (b.nanos))) {
+    if (!(((a.nanos) == (b.nanos)))) {
         return false
     }
     return true
 }
 
 fun cmp__Tick_Tick(a: Tick, b: Tick): Int {
-    val c__c1 = (a.nanos).compareTo(b.nanos)
-    if (c__c1 != 0) {
+    val c__c1: Int = (a.nanos).compareTo(b.nanos)
+    if (!(((c__c1) == (0)))) {
         return c__c1
     }
     return 0
 }
 
 fun hash__Tick(value: Tick): Long {
-    var h = 17L
-    h = mixHash(h, (value.nanos).hashCode().toLong())
+    var h: Long = 17L
+    h = salvo.core.compare.mixHash(h, (value.nanos).hashCode().toLong())
     return h
 }
 
 fun eq__Tick_Tick(a: Tick, b: Tick): Boolean {
-    if (!((a.nanos) == (b.nanos))) {
+    if (!(((a.nanos) == (b.nanos)))) {
         return false
     }
     return true
 }
+

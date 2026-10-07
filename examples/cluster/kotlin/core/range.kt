@@ -1,9 +1,6 @@
 package salvo.core.range
 
 import salvo.*
-import salvo.core.iterator.Finished
-import salvo.core.iterator.emitted
-import salvo.core.iterator.finished
 
 data class __Iter_range_Int_Int_Int(
     var start: Int,
@@ -26,37 +23,29 @@ fun range__Int_Int_Int(start: Int, end: Int, step: Int): __Iter_range_Int_Int_In
     return __Iter_range_Int_Int_Int(start = start, end = end, step = step, i = start)
 }
 
-fun next(__p: __Iter_range_Int_Int_Int): Union2<Int, Finished> {
-    val next = __p.i
-    return when {
-        __p.step == 0 -> {
-            Union2.U1<Finished, Int>(finished())
-        }
-        __p.step > 0 && __p.i >= __p.end -> {
-            Union2.U1<Finished, Int>(finished())
-        }
-        __p.step < 0 && __p.i <= __p.end -> {
-            Union2.U1<Finished, Int>(finished())
-        }
-        else -> {
-            __p.i = __p.i + __p.step
-            Union2.U2<Finished, Int>(emitted(next))
-        }
-    }.let { when (it) { is Union2.U1<*, *> -> Union2.U2<Int, Finished>(it.value as Finished); is Union2.U2<*, *> -> Union2.U1<Int, Finished>(it.value as Int); } }
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun next(__p: __Iter_range_Int_Int_Int): Union2<Int, salvo.core.iterator.Finished> {
+    val next: Int = __p.i
+    return (if (((__p.step) == (0))) {
+        Union2.U1<salvo.core.iterator.Finished, Int>(salvo.core.iterator.finished())
+    } else if (((__p.step > 0) && (__p.i >= __p.end))) {
+        Union2.U1<salvo.core.iterator.Finished, Int>(salvo.core.iterator.finished())
+    } else if (((__p.step < 0) && (__p.i <= __p.end))) {
+        Union2.U1<salvo.core.iterator.Finished, Int>(salvo.core.iterator.finished())
+    } else {
+        __p.i = (__p.i + __p.step)
+        Union2.U2<salvo.core.iterator.Finished, Int>(salvo.core.iterator.emitted(next))
+    }).let { when (it) { is Union2.U1<*, *> -> Union2.U2<Int, salvo.core.iterator.Finished>(it.value as salvo.core.iterator.Finished); is Union2.U2<*, *> -> Union2.U1<Int, salvo.core.iterator.Finished>(it.value as Int); else -> throw IllegalStateException("salvo: unreachable union arm") } }
 }
 
 fun range__Int_Int(start: Int, end: Int): __Iter_range_Int_Int_Int {
-    val step = when {
-        start < end -> {
-            1
-        }
-        start > end -> {
-            -1
-        }
-        else -> {
-            0
-        }
-    }
+    val step: Int = (if ((start < end)) {
+        1
+    } else if ((start > end)) {
+        (-1)
+    } else {
+        0
+    })
     return range__Int_Int_Int(start, end, step)
 }
 
@@ -65,5 +54,6 @@ fun range__Int(end: Int): __Iter_range_Int_Int_Int {
 }
 
 fun InRange_qualifies(n: Int, lo: Int, hi: Int): Boolean {
-    return n >= lo && n <= hi
+    return ((n >= lo) && (n <= hi))
 }
+

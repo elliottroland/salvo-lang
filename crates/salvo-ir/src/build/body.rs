@@ -62,6 +62,8 @@ pub struct Lower<'a, 'p> {
     pub(crate) storage: HashMap<Local, (Local, Ty)>,
     /// Inside a condition, where an `is` test narrows what follows.
     pub(crate) in_condition: bool,
+    /// [ir-narrow] Projection places an enclosing safe call bound.
+    pub(crate) place_aliases: Vec<(Place, Local, Ty)>,
 }
 
 impl<'a, 'p> Lower<'a, 'p> {
@@ -87,6 +89,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             placeholder: None,
             storage: HashMap::new(),
             in_condition: false,
+            place_aliases: Vec::new(),
         }
     }
 
@@ -113,6 +116,10 @@ impl<'a, 'p> Lower<'a, 'p> {
     }
 
     pub fn bind_owned(&mut self, name: &str, ty: Ty, owned: bool) -> Local {
+        // `_` binds nothing a program can read: a fresh local of its own.
+        if name == "_" {
+            return self.fresh("__unused");
+        }
         let local = Local(name.to_string());
         self.scopes.last_mut().unwrap().insert(name.to_string(), Bound { local: local.clone(), ty, owned });
         local

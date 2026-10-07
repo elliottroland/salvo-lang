@@ -4,6 +4,7 @@
 // salvo-abi 1 5cd1832c3b5d03f1
 package salvo.core.iterator
 
+import salvo.*
 
 class Finished
 
@@ -20,3 +21,4 @@ fun<T> emitted(value: T): T {
 fun finished(): Finished {
     return Finished()
 }
+
