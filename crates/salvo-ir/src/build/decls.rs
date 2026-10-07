@@ -22,21 +22,43 @@ pub fn build_module(ctx: &Ctx<'_>, file_idx: usize, file: &SourceFile, module: &
         let stmts = lower.use_stmt(&u.handler, &[], u.span);
         let bound: Vec<(Ty, Local)> = lower.effect_env.clone();
         errors.extend(lower.finish());
-        let local = Local(format!("__module_use{i}"));
-        let ty = bound.first().map(|(t, _)| t.clone()).unwrap_or(Ty::Unknown);
-        // The instance local the `use` bound is renamed to the static's.
-        let inner = bound.first().map(|(_, l)| l.clone());
-        let stmts: Vec<Stmt> = stmts
-            .into_iter()
-            .map(|s| match s {
-                Stmt::Let { id, local: l, ty, value } if Some(&l) == inner.as_ref() => Stmt::Let { id, local: local.clone(), ty, value },
-                other => other,
-            })
-            .collect();
-        for (t, _) in &bound {
-            statics.push((t.clone(), local.clone()));
+        // The instance is one static; each face's handle [effect-handle] is
+        // another, over it (`use addr` binds no handle: the one `Let` is the
+        // face's). Every local the `use` bound is renamed to its static's.
+        let inst_local = Local(format!("__module_use{i}"));
+        let has_handles = stmts.iter().any(|s| matches!(s, Stmt::Let { value, .. } if matches!(value.kind, ExprKind::Handle { .. })));
+        let mut own: Vec<Stmt> = Vec::new();
+        let mut inst_ty = Ty::Unknown;
+        let mut handles: Vec<StaticDecl> = Vec::new();
+        for s in stmts {
+            match s {
+                Stmt::Let { id, local, ty, value } => {
+                    if let ExprKind::Handle { instance } = value.kind {
+                        let j = handles.len();
+                        let sl = Local(format!("__module_use{i}_{j}"));
+                        let read = Expr { ty: instance.ty.clone(), span: instance.span, kind: ExprKind::Read { place: Place { root: inst_local.clone(), steps: Vec::new() }, consume: false } };
+                        let handle = Expr { ty: value.ty, span: value.span, kind: ExprKind::Handle { instance: Box::new(read) } };
+                        if let Some((t, _)) = bound.iter().find(|(_, l)| *l == local) {
+                            statics.push((t.clone(), sl.clone()));
+                        }
+                        handles.push(StaticDecl { id: DeclId { module: file.module.clone(), item: usize::MAX - i * 16 - 1 - j, sub: 0 }, local: sl.clone(), ty: ty.clone(), stmts: vec![Stmt::Let { id, local: sl, ty, value: handle }], span: u.span });
+                    } else {
+                        if !has_handles {
+                            for (t, l) in &bound {
+                                if *l == local {
+                                    statics.push((t.clone(), inst_local.clone()));
+                                }
+                            }
+                        }
+                        inst_ty = ty.clone();
+                        own.push(Stmt::Let { id, local: inst_local.clone(), ty, value });
+                    }
+                }
+                other => own.push(other),
+            }
         }
-        out.decls.push(Decl::Static(StaticDecl { id: DeclId { module: file.module.clone(), item: usize::MAX - i, sub: 0 }, local, ty, stmts, span: u.span }));
+        out.decls.push(Decl::Static(StaticDecl { id: DeclId { module: file.module.clone(), item: usize::MAX - i * 16, sub: 0 }, local: inst_local, ty: inst_ty, stmts: own, span: u.span }));
+        out.decls.extend(handles.into_iter().map(Decl::Static));
     }
     for (item_idx, item) in module.items.iter().enumerate() {
         let id = ctx.item_id(file_idx, item_idx);
@@ -63,6 +85,7 @@ pub fn build_module(ctx: &Ctx<'_>, file_idx: usize, file: &SourceFile, module: &
                         type_params: type_params(&t.generics, &t.generic_canbe),
                         linear: t.linear,
                         canbe_mut: t.auto_qualifiers.iter().any(|q| q.name.name == "Mut"),
+                        platform: t.platform,
                         span: t.span,
                     }));
                 }
@@ -152,21 +175,14 @@ fn interface_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, e: &ast::EffectDec
             _ => None,
         })
         .collect();
-    let members = e
+    let members: Vec<Member> = e
         .fns
         .iter()
         .enumerate()
         .map(|(i, m)| {
-            let mut params: Vec<Param> = prereqs
-                .iter()
-                .enumerate()
-                .map(|(j, t)| Param {
-                    local: Local(format!("__eff{j}")),
-                    ty: t.clone(),
-                    mode: PassMode::Lent,
-                    variadic: false,
-                })
-                .collect();
+            // [effect-prereq] A prerequisite is a handler's dependency, not
+            // a member's parameter: the members carry only what is written.
+            let mut params: Vec<Param> = Vec::new();
             for p in m.params.iter().filter(|p| !p.implicit) {
                 params.push(Param {
                     local: Local(p.name.name.clone()),
@@ -192,12 +208,21 @@ fn interface_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, e: &ast::EffectDec
             }
         })
         .collect();
+    // [protocol-hash] every message payload has a wire form (the types are
+    // the resolved ones, so a clashing name is told from its namesakes).
+    let has_wire = members.iter().filter(|m| m.send).all(|m| m.params.iter().all(|p| salvo_core::wire_blocker(ctx.symbols, p.ty.strip_quals()).is_none()));
+    let protocol_hash = if e.is_actor && has_wire {
+        ctx.checked.protocol_hashes.get(ctx.symbols.key_or(e, &e.name.name)).cloned()
+    } else {
+        None
+    };
     InterfaceDecl {
         id,
         name: e.name.name.clone(),
         exported: e.exported,
         type_params: type_params(&e.generics, &[]),
         actor: e.is_actor,
+        protocol_hash,
         prereqs,
         members,
         span: e.span,
@@ -427,6 +452,7 @@ fn fn_decl(
         name: f.name.name.clone(),
         exported: f.exported,
         kind,
+        send: f.is_send,
         type_params: {
             // A qualifier's fns are generic in the qualifier's parameters too.
             let mut tps = qualifier.map(|q| type_params(&q.generics, &q.generic_canbe)).unwrap_or_default();

@@ -84,6 +84,8 @@ fun activate(b: Body, kind: Int, slot: Long, msg: Dyn): salvo.runtime.Ran =
         b.f(kind, slot, msg)
         salvo.runtime.Ran(b, null)
     } catch (t: Throwable) {
+        // `SALVO_FAULT_TRACE=1` prints the host stack of a fault: a debugging aid.
+        if (System.getenv("SALVO_FAULT_TRACE") != null) t.printStackTrace()
         salvo.runtime.Ran(b, t.message ?: t.javaClass.simpleName)
     }
 

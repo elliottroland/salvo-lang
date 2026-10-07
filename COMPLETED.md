@@ -136,6 +136,56 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-06 — The IR, step 2 continued: the actor phase, and every oracle green under the flag
+
+The Kotlin IR emitter (`ir_emit/mod.rs`, `ir_emit/actors.rs`) now renders
+the actor phase in the hybrid shape the user approved (IR.md §9 decision 2):
+codecs, message classes, protocol constants and send stubs per actor
+interface, the dispatch classes per impl (several faces, private `send fn`s,
+`init` as the first message), the mixed handler's façade, `__Mon_E` per
+interface, and the scheduler primitives. Under `SALVO_KOTLIN_IR=1` every
+example prints its `expected.txt`, the whole std compiles, the 33 CLI run
+tests pass, and the codegen compile-and-run shards that reach kotlinc pass.
+Getting there added backend-neutral nodes (`Handle`, `AddrInstance`, `Widen`,
+`Spread`, `LitArm`, `Justification::LoopValue`; IR.md §9a lists them with
+their rules) and fixed builder facts a backend alone could reveal:
+
+* `Checked::written_types` was keyed by `(file, span)`, and a foreign
+  declaration's types are lowered under the *referencing* file — the same
+  span in two files collided (`add_node() -> Long` read as `Bool`). Keyed by
+  the AST node's address now; the IR is built from the checked program, not
+  the effect-generic-erased copy (whose nodes are different).
+* Narrowings a condition depends on were hoisted before the whole statement
+  and ran where their test had not held (a `rewrap` threw, `x!!` NPE'd). The
+  builder now nests the rest of an `if` chain in the preceding `else`, and
+  makes a `&&`/`||` right operand a `Branch` on the left, whenever such a
+  narrowing exists; a test's subject is read as stored; an assignment through
+  a narrowed name writes the storage. The `Test.bind` field this replaced is
+  gone.
+* A tagged `None` arm (`Ok None`) erased to the absent arm, making `Ok None |
+  Err E` nullable where the host's hand-written adapters have `Union2<Unit,
+  Kind>` [type-none-unit]; the tag now survives erasure.
+* Interface members carried the effect's prerequisites as leading parameters;
+  [effect-prereq] says a prerequisite is a handler's *dependency*.
+* `is Ok` on `Ok None | Err E` is a `None` test whatever arm index the checker
+  counted it under; same-typed arms (`Ok Int | Thrown Int`) narrow by the arm
+  the justification names, not by type equality.
+* Literals adopt the checker's type (`0` against a `Long`, `3` against a
+  `Double`); operand promotion is explicit (`Widen`).
+* Aliases are expanded, bare generic names become `Var`, and fn types are
+  built from the AST, in the builder's fallback for a written type the checker
+  never lowered in that file; a struct literal the checker typed nowhere
+  visible takes its written type; a `let`'s type is the written one.
+* A block lambda typed before its `return`s were known answers what they
+  return.
+
+Also: `std/platform/runtime.kt` prints a fault's host stack when
+`SALVO_FAULT_TRACE` is set (a debugging aid that found the deadline NPE).
+Cost and lesson in the timelog report: about half the session went to
+runtime-visible divergences (locks, narrowing placement, union arms) that no
+text diff of generated code would have ranked as risks, and each of them is
+now a rule the IR states rather than a backend habit.
+
 ### 2026-10-06 — The IR, step 2 begun: a Kotlin emitter over the IR
 
 `salvo-backend-kotlin/src/ir_emit.rs`, behind `SALVO_KOTLIN_IR=1`, renders

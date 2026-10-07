@@ -251,9 +251,16 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
     decisions, §10 the transition (builder and dump first, then Kotlin, then
     Rust, then actors). **Step 1 built 2026-10-06** (`salvo-ir`, `salvo ir`,
     corpus and golden tests; IR.md §9a lists the provisional calls). **Step 2
-    in progress**: `ir_emit.rs` under `SALVO_KOTLIN_IR=1` runs every
-    non-actor example; the actor and wire phase (§6) is what is left before
-    the AST Kotlin emitter can go, then Rust (step 3). The earlier plan, kept for reference: **rewrites as
+    nearly done**: `ir_emit/` under `SALVO_KOTLIN_IR=1` runs every example,
+    the whole std, all CLI run tests and the codegen compile-and-run cases
+    (IR.md §9a). Left: make it the default Kotlin emitter — revise the
+    codegen tests' textual assertions and the Kotlin goldens to its spelling,
+    regenerate `examples/*/kotlin`, delete `emit.rs`'s AST path (moving
+    `kotlin_package`, `kt_ident`, the runtime-file generators and
+    `intrinsics.rs` out) — then Rust (step 3). Known deviations to settle in
+    step 4: the dispatch body and codecs are generated in the backend from
+    the interface/impl declarations (decision 2's hybrid); a module-level
+    multi-face `use` gets one monitor lock per face rather than one shared. The earlier plan, kept for reference: **rewrites as
     opt-in helpers in `salvo-backend`**, in this order: argument
     hoists (AST-to-AST, registering checker-table entries for the nodes they
     create), the `__loc` fn variants, value-position control flow (a helper

@@ -391,11 +391,14 @@ Things to notice:
 1. **Effects as values: the instance's type** is the interface type itself
    (`console: Console`); how an instance is represented (Rust's handle struct,
    Kotlin's interface) is the backend's.
-2. **Actors**: the message union, dispatch fn and codec are generated as IR
-   declarations by the builder (§6), as the last phase, after the IR works for
-   programs without actors. Fallback, if a primitive turns up that Salvo
-   cannot express: rich `Spawn`/`Send`/`Reply` nodes with generation in the
-   backends. Decide that only on evidence.
+2. **Actors** (revised 2026-10-06 on the evidence of the Kotlin port, user
+   decision): a hybrid. The message union and the dispatch fn are behaviour
+   and become IR declarations the builder generates; the **codecs stay in the
+   backend** as per-type `__Codec_*` classes, since a struct's codec must agree
+   byte for byte with the `UnionN` codec, which is a representation choice the
+   backend owns; `Spawn`/`Send`/`ReplyTo`/`WaitFor` stay nodes, since they
+   bottom out in the scheduler's host primitives. To be revisited if a neater
+   split appears.
 3. **Generated-by-type code** (§7): behaviour (codecs, `copy`) is IR the
    builder writes; representation (`UnionN`, optionals) stays in the backend.
 4. **A `salvo-ir` crate** holds the node types, the builder from `Program +
@@ -448,23 +451,57 @@ provisional until reviewed:
 
 ### Step 2, so far
 
-`crates/salvo-backend-kotlin/src/ir_emit.rs` (about 900 lines) renders the IR
-to Kotlin, selected by `SALVO_KOTLIN_IR=1` (the `Backend` and the codegen
-tests both honour it). It decides representation only: `UnionN` wrappers,
-`T?`, `StringBuilder`, fully qualified references (so it writes no imports),
-`when` for `Switch`, `while (true)` for `Loop`, anonymous `fun` for a lambda,
-`run {}` for a block in value position, the platform adapter classes
-(`__Platform_E`, `__Platform_H`), `try`/`catch (ThrowSignal)` for `Try`. With
-it, the TOUR program and the `effects`, `qualifiers`, `iteration`,
-`borrowing`, `collections`, `linearity` and `throw-and-release` examples
-compile and print their `expected.txt`. What it does not render yet is the
-actor phase (§6, §10 step 4: `encode`/`decode`, message classes, dispatch,
-`Spawn`/`Send`/`ReplyTo`/`WaitFor`), which is why the `actors`, `time`,
-`cluster` and `files` examples and 15 of the 33 CLI run tests still fail under
-it; everything that fails, fails there. Builder facts the port forced:
-`Narrow` carries `from_ty`; a call through a fn-typed local or a pass member
-passes the effect instances its type declares; a `for`'s step call is lowered
-inside the loop; a struct's field types are recorded in their declared shape.
+`crates/salvo-backend-kotlin/src/ir_emit/` (`mod.rs`, `actors.rs`; about
+2,000 lines) renders the IR to Kotlin, selected by `SALVO_KOTLIN_IR=1` (the
+`Backend` and the codegen tests both honour it). It decides representation
+only: `UnionN` wrappers, `T?`, `StringBuilder`, fully qualified references (so
+it writes no imports), `when` for `Switch`, `while (true)` for `Loop`,
+anonymous `fun` for a lambda, `run {}` for a block in value position, the
+platform adapter classes (`__Platform_E`, `__Platform_H`), `try`/`catch
+(ThrowSignal)` for `Try`, and the actor phase of §9 decision 2: the wire
+codecs per type, `__Msg_E`/`__Codec___Msg_E`/`__PROTO_E`/`__Stub_E` per actor
+interface, `__Mon_E` per interface, `__Cont_H`/`__Priv_H`/`__Actor_H` per
+actor impl (several faces, private sends, `init` as the first message),
+`__Fac_H` for a mixed handler, and `Spawn`/`Send`/`ReplyTo`/`WaitFor`/
+`Handle`/`AddrInstance` as scheduler calls. With it, **every example** prints
+its `expected.txt`, the whole std compiles, all 33 CLI run tests pass, and
+the Kotlin codegen compile-and-run shards that reach kotlinc pass (two shards
+still stop at textual assertions on the AST emitter's spelling — `val x`
+versus a qualified name — which the flip to the IR path revises). The AST
+path is still the default.
+
+What the port added to the IR, all backend-neutral:
+
+* `Handle { instance }` [effect-handle]: a `use` binds one handle per face
+  over one instance (`__Mon_E` on Kotlin, `__Handle_E` on Rust); a module
+  `use` is one `Static` for the instance and one per face.
+* `AddrInstance { addr }` [actor-use-addr]: the instance behind an addr —
+  `use addr`, and a dependency given an addr. A plain effect's addr *is* its
+  handle [monitor-handler].
+* `Widen { value }` [op-promote]: a numeric operand widened within its class;
+  a literal is retyped instead (`0` against a `Long` is `0L`) [lit-adopt].
+* `Spread { value }` inside an `Array` literal [fn-variadic].
+* `ArmTest::Lit(Vec<LitArm>)`: per runtime arm, the literal values accepted
+  on it [type-literal].
+* `Justification::LoopValue`: a value loop's result local is `T?` while it
+  runs and read narrowed after it [ir-loop].
+* `InterfaceDecl.protocol_hash`, `FnDecl.send`, `PlatformTypeDecl.platform`.
+* `ReplyTarget::Task` for a free `send fn` [task-mint].
+* A tagged `None` arm (`Ok None`) keeps its tag through erasure: it is the
+  unit value arm, not the absent one [type-none-unit].
+* Interface members carry only their written parameters: a prerequisite
+  [effect-prereq] is a handler's dependency, not a member's parameter.
+* **Condition narrowings are scoped by nesting** [ir-narrow]: a narrowing a
+  later `elif` condition or the right operand of `&&`/`||` depends on makes
+  the rest of the chain a nested `Branch` in the preceding `else` (or the
+  operand a `Branch` on the left), so no narrowing runs where its test did
+  not hold. A test's subject is read *as stored* (no alias); an assignment
+  through a narrowed name writes the storage and ends the narrowing.
+* `Checked::written_types` is keyed by the AST node's address, not `(file,
+  span)`: a foreign declaration's types are lowered under the referencing
+  file, where spans collide. The IR is built from the checked program itself;
+  effect-generic erasure [effect-generic-decl] is applied where a type is
+  rendered.
 
 ## 10. Transition plan
 

@@ -665,11 +665,15 @@ pub struct Checked {
     /// exactly these; they no longer ask whether `f` could be a fn or a
     /// member.
     pub dot_calls: HashSet<Key>,
-    /// [ir-nodes] Every written type the checker lowered, keyed by the type's
-    /// span: what a declaration's parameters, fields and results *are*, so
-    /// the IR builder copies the checker's answer rather than lowering again.
-    /// Generic parameters appear as `Ty::Var`.
-    pub written_types: HashMap<Key, Ty>,
+    /// [ir-nodes] Every written type the checker lowered, keyed by the
+    /// **address of the AST node** (`written_type_key`): what a declaration's
+    /// parameters, fields and results *are*, so the IR builder copies the
+    /// checker's answer rather than lowering again. Generic parameters appear
+    /// as `Ty::Var`. The key is the node, not `(file, span)`, because a
+    /// foreign declaration's types are lowered under the *referencing* file,
+    /// where their spans collide with that file's own (found 2026-10-06:
+    /// `add_node() -> Long` read as `Bool`).
+    pub written_types: HashMap<usize, Ty>,
     /// [call-resolve] Call sites whose callee resolved to a **fn-typed
     /// local** (a parameter or `let`) rather than to a declaration, keyed
     /// by the call span.
@@ -16436,7 +16440,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let subst = HashMap::new();
         let lowered = self.lower_type_subst(ty, &subst, 0);
         if !lowered.is_unknown() {
-            self.out.written_types.insert(self.key(ty.span()), lowered.clone());
+            self.out.written_types.insert(written_type_key(ty), lowered.clone());
         }
         lowered
     }
@@ -16455,7 +16459,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // generics as variables — the first time, so the IR builder has a type
         // for every declaration's fields.
         if depth == 0 && !subst.is_empty() {
-            let key = self.key(ty.span());
+            let key = written_type_key(ty);
             if !self.out.written_types.contains_key(&key) {
                 let as_declared: HashMap<String, Ty> = subst.keys().map(|k| (k.clone(), Ty::Var(k.clone()))).collect();
                 let declared = self.lower_type_subst(ty, &as_declared, 1);
@@ -30409,6 +30413,13 @@ fn collect_binding_is<'a>(cond: &'a Expr, f: &mut impl FnMut(&'a Expr, Span)) {
 
 /// Whether two spans share any position (one written inside the other, as a
 /// parameter's name sits inside the parameter).
+/// [ir-nodes] The key of `Checked::written_types`: the AST node's address.
+/// The program's AST is immutable and shared by the checker and the IR
+/// builder, so the address identifies the written type across both.
+pub fn written_type_key(ty: &ast::Type) -> usize {
+    ty as *const ast::Type as usize
+}
+
 fn spans_overlap(a: Span, b: Span) -> bool {
     a.start <= b.end && b.start <= a.end
 }

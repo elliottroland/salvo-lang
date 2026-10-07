@@ -86,9 +86,10 @@ fn main::a_queue_of_tickets(lent __eff0: Console) -> None {
 
 fn main::main() -> None {
   bind#1 let __use~1: StdOutConsole = construct StdOutConsole { }
-  call main::one_use(read __use~1)
-  call main::borrow_then_use(read __use~1)
-  call main::read_a_field(read __use~1)
-  call main::generic_handoff(read __use~1)
-  call main::a_queue_of_tickets(read __use~1)
+  bind#2 let __handle~2: Console = handle[Console](read __use~1)
+  call main::one_use(read __handle~2)
+  call main::borrow_then_use(read __handle~2)
+  call main::read_a_field(read __handle~2)
+  call main::generic_handoff(read __handle~2)
+  call main::a_queue_of_tickets(read __handle~2)
 }

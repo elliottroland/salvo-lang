@@ -61,17 +61,20 @@ fn main::work(lent __eff0: Logger; lent step: Str) -> None {
 fn main::interception(lent __eff0: Logger, lent __eff1: Clock) -> None {
   call main::work(read __eff0, "4. plain")
   bind#1 let __use~1: Stamped = construct Stamped { __dep0: read __eff0, __dep1: read __eff1 }
-  call main::work(read __use~1, "4. stamped")
-  bind#2 let __use~2: Numbered = construct Numbered { __dep0: read __use~1 }
-  call main::work(read __use~2, "4. numbered, then stamped")
-  call main::work(read __use~2, "4. and again")
+  bind#2 let __handle~2: Logger = handle[Logger](read __use~1)
+  call main::work(read __handle~2, "4. stamped")
+  bind#3 let __use~3: Numbered = construct Numbered { __dep0: read __handle~2 }
+  bind#4 let __handle~4: Logger = handle[Logger](read __use~3)
+  call main::work(read __handle~4, "4. numbered, then stamped")
+  call main::work(read __handle~4, "4. and again")
 }
 
 fn main::scoping(lent __eff0: Logger) -> None {
   call main::work(read __eff0, "5. before the block")
   branch#1 cond#0 true {
     bind#2 let __use~1: QuietLogger = construct QuietLogger { }
-    call main::work(read __use~1, "5. this line is swallowed")
+    bind#3 let __handle~2: Logger = handle[Logger](read __use~1)
+    call main::work(read __handle~2, "5. this line is swallowed")
   }
   call main::work(read __eff0, "5. after the block, logging again")
 }
@@ -123,24 +126,31 @@ fn main::settings(lent __eff0: Setting<Int>, lent __eff1: Setting<Str>, lent __e
 
 fn main::main() -> None {
   bind#1 let __use~1: StdOutConsole = construct StdOutConsole { }
-  bind#2 let __use~2: TickingClock = construct TickingClock { }
-  call core.console::println(read __use~1, concat("1. the clock reads ", call core.basic::to_str(Int)(member main::Clock#0(read __use~2)), ", then ", call core.basic::to_str(Int)(member main::Clock#0(read __use~2))))
-  call core.console::println(read __use~1, "2. two effects in one signature:")
-  call main::stamp(read __use~2, read __use~1, "2. a labelled moment")
-  call core.console::println(read __use~1, "3. a logger whose handler needs the console:")
-  bind#3 let __use~3: PlainLogger = construct PlainLogger { __dep0: read __use~1 }
-  call main::work(read __use~3, "3. logged through the console")
-  call core.console::println(read __use~1, "4. interception — each `use` wraps the one before it:")
-  call main::interception(read __use~3, read __use~2)
-  call core.console::println(read __use~1, "5. shadowing is not wrapping:")
-  call main::scoping(read __use~3)
-  call core.console::println(read __use~1, "6. two effects, one member name:")
-  bind#4 let __use~4: ConsoleAudit = construct ConsoleAudit { __dep0: read __use~1 }
-  call main::audit_only(read __use~4, "6. audited only")
-  bind#5 let __use~5: ConsoleMetrics = construct ConsoleMetrics { __dep0: read __use~1 }
-  call main::audit_and_measure(read __use~4, read __use~5, "6. audited and measured")
-  call core.console::println(read __use~1, "7. two instances of one generic effect:")
-  bind#6 let __use~6: Fixed<Int> = construct Fixed<Int> { value: 3 }
-  bind#7 let __use~7: Fixed<Str> = construct Fixed<Str> { value: "eu-west-1" }
-  call main::settings(read __use~6, read __use~7, read __use~1)
+  bind#2 let __handle~2: Console = handle[Console](read __use~1)
+  bind#3 let __use~3: TickingClock = construct TickingClock { }
+  bind#4 let __handle~4: Clock = handle[Clock](read __use~3)
+  call core.console::println(read __handle~2, concat("1. the clock reads ", call core.basic::to_str(Int)(member main::Clock#0(read __handle~4)), ", then ", call core.basic::to_str(Int)(member main::Clock#0(read __handle~4))))
+  call core.console::println(read __handle~2, "2. two effects in one signature:")
+  call main::stamp(read __handle~4, read __handle~2, "2. a labelled moment")
+  call core.console::println(read __handle~2, "3. a logger whose handler needs the console:")
+  bind#5 let __use~5: PlainLogger = construct PlainLogger { __dep0: read __handle~2 }
+  bind#6 let __handle~6: Logger = handle[Logger](read __use~5)
+  call main::work(read __handle~6, "3. logged through the console")
+  call core.console::println(read __handle~2, "4. interception — each `use` wraps the one before it:")
+  call main::interception(read __handle~6, read __handle~4)
+  call core.console::println(read __handle~2, "5. shadowing is not wrapping:")
+  call main::scoping(read __handle~6)
+  call core.console::println(read __handle~2, "6. two effects, one member name:")
+  bind#7 let __use~7: ConsoleAudit = construct ConsoleAudit { __dep0: read __handle~2 }
+  bind#8 let __handle~8: Audit = handle[Audit](read __use~7)
+  call main::audit_only(read __handle~8, "6. audited only")
+  bind#9 let __use~9: ConsoleMetrics = construct ConsoleMetrics { __dep0: read __handle~2 }
+  bind#10 let __handle~10: Metrics = handle[Metrics](read __use~9)
+  call main::audit_and_measure(read __handle~8, read __handle~10, "6. audited and measured")
+  call core.console::println(read __handle~2, "7. two instances of one generic effect:")
+  bind#11 let __use~11: Fixed<Int> = construct Fixed<Int> { value: 3 }
+  bind#12 let __handle~12: Setting<Int> = handle[Setting<Int>](read __use~11)
+  bind#13 let __use~13: Fixed<Str> = construct Fixed<Str> { value: "eu-west-1" }
+  bind#14 let __handle~14: Setting<Str> = handle[Setting<Str>](read __use~13)
+  call main::settings(read __handle~12, read __handle~14, read __handle~2)
 }

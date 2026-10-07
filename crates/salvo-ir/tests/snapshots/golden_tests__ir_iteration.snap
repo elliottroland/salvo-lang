@@ -213,126 +213,127 @@ fn main::first<__It0>(lent_mut it: Mut __It0; ?lent next: (Mut __It0) -> Int | F
 
 fn main::main() -> None {
   bind#1 let __use~1: StdOutConsole = construct StdOutConsole { }
-  bind#2 let xs: List<Int> = call core.list::list_of(T, T[])<Int>(1, array[Int[]](2, 3, 4))
-  call main::describe_container(read __use~1, read xs)
-  bind#3 let p: Mut Countdown = call main::countdown(5)
-  call main::take(read __use~1, read p, 2)
-  call core.console::println(read __use~1, concat("2. rest sums to ", call core.basic::to_str(Int)(call main::sum_of<Countdown>(read p, fn main::next(Mut Countdown)))))
-  bind#4 let q: Mut Countdown = call main::countdown(6)
-  loop#5 {
-    bind#6 let __step~3: Int | Finished = call main::skip(read q)
-    switch#7 read __step~3 {
+  bind#2 let __handle~2: Console = handle[Console](read __use~1)
+  bind#3 let xs: List<Int> = call core.list::list_of(T, T[])<Int>(1, array[Int[]](2, 3, 4))
+  call main::describe_container(read __handle~2, read xs)
+  bind#4 let p: Mut Countdown = call main::countdown(5)
+  call main::take(read __handle~2, read p, 2)
+  call core.console::println(read __handle~2, concat("2. rest sums to ", call core.basic::to_str(Int)(call main::sum_of<Countdown>(read p, fn main::next(Mut Countdown)))))
+  bind#5 let q: Mut Countdown = call main::countdown(6)
+  loop#6 {
+    bind#7 let __step~4: Int | Finished = call main::skip(read q)
+    switch#8 read __step~4 {
       arm#0 (arm 0) {
-        narrow#8[switch#7.arm#0] __emitted~4: Int = __step~3
-        bind#9 let n: Int = !read __emitted~4
-        call core.console::println(read __use~1, concat("2. skip ", call core.basic::to_str(Int)(read n)))
+        narrow#9[switch#8.arm#0] __emitted~5: Int = __step~4
+        bind#10 let n: Int = !read __emitted~5
+        call core.console::println(read __handle~2, concat("2. skip ", call core.basic::to_str(Int)(read n)))
       }
       arm#1 (else) {
         break
       }
     }
   }
-  bind#11 let __pass~5: Mut __Iter_halving_Int = call main::halving(20)
-  loop#10 {
-    bind#12 let __step~6: Int | Finished = call main::next(Mut __Iter_halving_Int)(read __pass~5)
-    switch#13 read __step~6 {
+  bind#12 let __pass~6: Mut __Iter_halving_Int = call main::halving(20)
+  loop#11 {
+    bind#13 let __step~7: Int | Finished = call main::next(Mut __Iter_halving_Int)(read __pass~6)
+    switch#14 read __step~7 {
       arm#0 (arm 0) {
-        narrow#14[switch#13.arm#0] __emitted~7: Int = __step~6
-        bind#15 let n: Int = !read __emitted~7
-        call core.console::println(read __use~1, concat("2b. halving ", call core.basic::to_str(Int)(read n)))
+        narrow#15[switch#14.arm#0] __emitted~8: Int = __step~7
+        bind#16 let n: Int = !read __emitted~8
+        call core.console::println(read __handle~2, concat("2b. halving ", call core.basic::to_str(Int)(read n)))
       }
       arm#1 (else) {
         break
       }
     }
   }
-  bind#16 let hp: Mut __Iter_halving_Int = call main::halving(20)
-  call core.console::println(read __use~1, concat("2b. summed from a held iterator: ", call core.basic::to_str(Int)(call main::sum_of<__Iter_halving_Int>(read hp, fn main::next(Mut __Iter_halving_Int)))))
-  call core.console::println(read __use~1, concat("2b. first from a pattern-typed fn: ", call core.basic::to_str(Int)(call main::first<__Iter_halving_Int>(call main::halving_from_ten(), fn main::next(Mut __Iter_halving_Int)))))
-  bind#17 let bag: Bag = construct Bag { items: call core.list::list_of(T, T[])<Int>(7, array[Int[]](8)) }
-  bind#19 let __pass~8: Mut __Iter_iter_Bag = call main::iter(read bag)
-  loop#18 {
-    bind#20 let __step~9: Int | Finished = call main::next(Mut __Iter_iter_Bag)(read __pass~8)
-    switch#21 read __step~9 {
+  bind#17 let hp: Mut __Iter_halving_Int = call main::halving(20)
+  call core.console::println(read __handle~2, concat("2b. summed from a held iterator: ", call core.basic::to_str(Int)(call main::sum_of<__Iter_halving_Int>(read hp, fn main::next(Mut __Iter_halving_Int)))))
+  call core.console::println(read __handle~2, concat("2b. first from a pattern-typed fn: ", call core.basic::to_str(Int)(call main::first<__Iter_halving_Int>(call main::halving_from_ten(), fn main::next(Mut __Iter_halving_Int)))))
+  bind#18 let bag: Bag = construct Bag { items: call core.list::list_of(T, T[])<Int>(7, array[Int[]](8)) }
+  bind#20 let __pass~9: Mut __Iter_iter_Bag = call main::iter(read bag)
+  loop#19 {
+    bind#21 let __step~10: Int | Finished = call main::next(Mut __Iter_iter_Bag)(read __pass~9)
+    switch#22 read __step~10 {
       arm#0 (arm 0) {
-        narrow#22[switch#21.arm#0] __emitted~10: Int = __step~9
-        bind#23 let n: Int = !read __emitted~10
-        call core.console::println(read __use~1, concat("2c. bag ", call core.basic::to_str(Int)(read n)))
+        narrow#23[switch#22.arm#0] __emitted~11: Int = __step~10
+        bind#24 let n: Int = !read __emitted~11
+        call core.console::println(read __handle~2, concat("2c. bag ", call core.basic::to_str(Int)(read n)))
       }
       arm#1 (else) {
         break
       }
     }
   }
-  call core.console::println(read __use~1, concat("2c. total of a bag ", call core.basic::to_str(Int)(call main::total<Bag, __Iter_iter_Bag>(read bag, fn main::iter, fn main::next(Mut __Iter_iter_Bag))), ", of a list ", call core.basic::to_str(Int)(call main::total<List<Int>, ListYield<Int>>(read xs, fn core.list::iter, fn core.list::next(Mut ListYield<T>)))))
-  bind#25 let __pass~11: Mut __Iter_fibs_Int = call main::fibs(6)
-  loop#24 {
-    bind#26 let __step~12: Int | Finished = call main::next(Mut __Iter_fibs_Int)(read __use~1, read __pass~11)
-    switch#27 read __step~12 {
+  call core.console::println(read __handle~2, concat("2c. total of a bag ", call core.basic::to_str(Int)(call main::total<Bag, __Iter_iter_Bag>(read bag, fn main::iter, fn main::next(Mut __Iter_iter_Bag))), ", of a list ", call core.basic::to_str(Int)(call main::total<List<Int>, ListYield<Int>>(read xs, fn core.list::iter, fn core.list::next(Mut ListYield<T>)))))
+  bind#26 let __pass~12: Mut __Iter_fibs_Int = call main::fibs(6)
+  loop#25 {
+    bind#27 let __step~13: Int | Finished = call main::next(Mut __Iter_fibs_Int)(read __handle~2, read __pass~12)
+    switch#28 read __step~13 {
       arm#0 (arm 0) {
-        narrow#28[switch#27.arm#0] __emitted~13: Int = __step~12
-        bind#29 let n: Int = !read __emitted~13
-        call core.console::println(read __use~1, concat("3. fib ", call core.basic::to_str(Int)(read n)))
+        narrow#29[switch#28.arm#0] __emitted~14: Int = __step~13
+        bind#30 let n: Int = !read __emitted~14
+        call core.console::println(read __handle~2, concat("3. fib ", call core.basic::to_str(Int)(read n)))
       }
       arm#1 (else) {
         break
       }
     }
   }
-  bind#31 let __pass~14: Mut __Iter_naturals_Int = call main::naturals(10)
-  loop#30 {
-    bind#32 let __step~15: Int | Finished = call main::next(Mut __Iter_naturals_Int)(read __pass~14)
-    switch#33 read __step~15 {
+  bind#32 let __pass~15: Mut __Iter_naturals_Int = call main::naturals(10)
+  loop#31 {
+    bind#33 let __step~16: Int | Finished = call main::next(Mut __Iter_naturals_Int)(read __pass~15)
+    switch#34 read __step~16 {
       arm#0 (arm 0) {
-        narrow#34[switch#33.arm#0] __emitted~16: Int = __step~15
-        bind#35 let n: Int = !read __emitted~16
-        branch#36 cond#0 op Gt(call core.compare::cmp(Int, Int)(read n, 12), 0) {
+        narrow#35[switch#34.arm#0] __emitted~17: Int = __step~16
+        bind#36 let n: Int = !read __emitted~17
+        branch#37 cond#0 op Gt(call core.compare::cmp(Int, Int)(read n, 12), 0) {
           break
         }
-        call core.console::println(read __use~1, concat("3. natural ", call core.basic::to_str(Int)(read n)))
+        call core.console::println(read __handle~2, concat("3. natural ", call core.basic::to_str(Int)(read n)))
       }
       arm#1 (else) {
         break
       }
     }
   }
-  bind#37 let doubled: Mut List<Int> = call core.seq::map(List<T>, (T) -> U)<Int, Int>(read xs, lambda(lent n: Int) -> Int {
+  bind#38 let doubled: Mut List<Int> = call core.seq::map(List<T>, (T) -> U)<Int, Int>(read xs, lambda(lent n: Int) -> Int {
     value op Mul(read n, 2)
   })
-  bind#38 let odd: Mut List<Int> = call core.seq::filter(List<T>, (T) -> Bool)<Int>(read xs, lambda(lent n: Int) -> Bool {
+  bind#39 let odd: Mut List<Int> = call core.seq::filter(List<T>, (T) -> Bool)<Int>(read xs, lambda(lent n: Int) -> Bool {
     value call core.compare::eq(Int, Int)(op Rem(read n, 2), 1)
   })
-  bind#39 let total: Int = call core.seq::reduce(List<T>, A, (A, T) -> A)<Int, Int>(read xs, 0, lambda(lent acc: Int, lent n: Int) -> Int {
+  bind#40 let total: Int = call core.seq::reduce(List<T>, A, (A, T) -> A)<Int, Int>(read xs, 0, lambda(lent acc: Int, lent n: Int) -> Int {
     value op Add(read acc, read n)
   })
-  call core.console::println(read __use~1, concat("5. list: ", call core.basic::to_str(Int)(call core.list::size<Int>(drop_mut(read doubled))), " doubled, ", call core.basic::to_str(Int)(call core.list::size<Int>(drop_mut(read odd))), " odd, total ", call core.basic::to_str(Int)(read total)))
-  bind#40 let words: List<Str> = call core.list::list_of(T, T[])<Str>("ann", array[Str[]]("bo", "carol"))
-  bind#41 let lengths: Mut List<Int> = call core.seq::map(Mut It, (T) -> U)<ListYield<Str>, Str, Int>(call core.list::iter<Str>(read words), lambda(lent w: Str) -> Int {
+  call core.console::println(read __handle~2, concat("5. list: ", call core.basic::to_str(Int)(call core.list::size<Int>(drop_mut(read doubled))), " doubled, ", call core.basic::to_str(Int)(call core.list::size<Int>(drop_mut(read odd))), " odd, total ", call core.basic::to_str(Int)(read total)))
+  bind#41 let words: List<Str> = call core.list::list_of(T, T[])<Str>("ann", array[Str[]]("bo", "carol"))
+  bind#42 let lengths: Mut List<Int> = call core.seq::map(Mut It, (T) -> U)<ListYield<Str>, Str, Int>(call core.list::iter<Str>(read words), lambda(lent w: Str) -> Int {
     value call core.string::size(read w)
   }, fn core.list::next(Mut ListYield<T>))
-  call core.console::println(read __use~1, concat("5. lengths: ", call core.basic::to_str(Int)(call core.seq::reduce(Mut It, A, (A, T) -> A)<ListYield<Int>, Int, Int>(call core.list::iter<Int>(drop_mut(read lengths)), 0, lambda(lent acc: Int, lent n: Int) -> Int {
+  call core.console::println(read __handle~2, concat("5. lengths: ", call core.basic::to_str(Int)(call core.seq::reduce(Mut It, A, (A, T) -> A)<ListYield<Int>, Int, Int>(call core.list::iter<Int>(drop_mut(read lengths)), 0, lambda(lent acc: Int, lent n: Int) -> Int {
     value op Add(read acc, read n)
   }, fn core.list::next(Mut ListYield<T>)))))
-  bind#42 let word: Str = "iteration"
-  bind#43 let vowels: Mut List<Char> = call core.seq::filter(Mut It, (T) -> Bool)<StrYield, Char>(call core.string::iter(read word), lambda(lent c: Char) -> Bool {
+  bind#43 let word: Str = "iteration"
+  bind#44 let vowels: Mut List<Char> = call core.seq::filter(Mut It, (T) -> Bool)<StrYield, Char>(call core.string::iter(read word), lambda(lent c: Char) -> Bool {
     value op Or(call core.compare::eq(Char, Char)(read c, 'i'), call core.compare::eq(Char, Char)(read c, 'o'))
   }, fn core.string::next)
-  call core.console::println(read __use~1, concat("5. vowels: ", call core.basic::to_str(Int)(call core.list::size<Char>(drop_mut(read vowels)))))
-  call core.console::println(read __use~1, concat("5. halving total ", call core.basic::to_str(Int)(call core.seq::reduce(Mut It, A, (A, T) -> A)<__Iter_halving_Int, Int, Int>(call main::halving(20), 0, lambda(lent acc: Int, lent n: Int) -> Int {
+  call core.console::println(read __handle~2, concat("5. vowels: ", call core.basic::to_str(Int)(call core.list::size<Char>(drop_mut(read vowels)))))
+  call core.console::println(read __handle~2, concat("5. halving total ", call core.basic::to_str(Int)(call core.seq::reduce(Mut It, A, (A, T) -> A)<__Iter_halving_Int, Int, Int>(call main::halving(20), 0, lambda(lent acc: Int, lent n: Int) -> Int {
     value op Add(read acc, read n)
   }, fn main::next(Mut __Iter_halving_Int)))))
-  bind#44 let collected: Mut List<Int> = call core.seq::map_to<List<Int>, Countdown, Int, Int>(call core.list::mut_list_of()<Int>(), call main::countdown(3), lambda(lent n: Int) -> Int {
+  bind#45 let collected: Mut List<Int> = call core.seq::map_to<List<Int>, Countdown, Int, Int>(call core.list::mut_list_of()<Int>(), call main::countdown(3), lambda(lent n: Int) -> Int {
     value op Mul(read n, 10)
   }, fn core.list::add, fn main::next(Mut Countdown))
-  call core.console::println(read __use~1, concat("6. collected ", call core.basic::to_str(Int)(call core.list::size<Int>(drop_mut(read collected)))))
-  bind#45 let evens: Mut Str = call core.string::mut_str(array[Str[]]())
-  bind#47 let __pass~17: Mut __Iter_range_Int_Int_Int = call core.range::range(Int, Int, Int)(0, 10, 2)
-  loop#46 {
-    bind#48 let __step~18: Int | Finished = call core.range::next(read __pass~17)
-    switch#49 read __step~18 {
+  call core.console::println(read __handle~2, concat("6. collected ", call core.basic::to_str(Int)(call core.list::size<Int>(drop_mut(read collected)))))
+  bind#46 let evens: Mut Str = call core.string::mut_str(array[Str[]]())
+  bind#48 let __pass~18: Mut __Iter_range_Int_Int_Int = call core.range::range(Int, Int, Int)(0, 10, 2)
+  loop#47 {
+    bind#49 let __step~19: Int | Finished = call core.range::next(read __pass~18)
+    switch#50 read __step~19 {
       arm#0 (arm 0) {
-        narrow#50[switch#49.arm#0] __emitted~19: Int = __step~18
-        bind#51 let i: Int = !read __emitted~19
+        narrow#51[switch#50.arm#0] __emitted~20: Int = __step~19
+        bind#52 let i: Int = !read __emitted~20
         call core.string::append(read evens, concat(call core.basic::to_str(Int)(read i), " "))
       }
       arm#1 (else) {
@@ -340,5 +341,5 @@ fn main::main() -> None {
       }
     }
   }
-  call core.console::println(read __use~1, concat("7. evens ", drop_mut(read evens)))
+  call core.console::println(read __handle~2, concat("7. evens ", drop_mut(read evens)))
 }

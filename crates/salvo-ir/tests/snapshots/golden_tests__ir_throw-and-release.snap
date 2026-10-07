@@ -86,73 +86,74 @@ fn main::report(lent __eff0: Console; lent label: Str, lent config: Str) -> None
 
 fn main::main() -> None {
   bind#1 let __use~1: StdOutConsole = construct StdOutConsole { }
-  bind#2 let small: Int = call main::read_size(read __use~1, "notes.txt", 3)
-  call core.console::println(read __use~1, concat("1. read ", call core.basic::to_str(Int)(read small)))
-  bind#3 let clamped: Int = call main::read_size(read __use~1, "notes.txt", 99)
-  call core.console::println(read __use~1, concat("1. read ", call core.basic::to_str(Int)(read clamped)))
-  call main::report(read __use~1, "good", "8080")
-  call main::report(read __use~1, "bad", "http")
-  bind#4 let guarded: Int | Str = try[Int | Str] {
-    value call main::port_from_file(read __use~1, "ports.txt", "-1")
+  bind#2 let __handle~2: Console = handle[Console](read __use~1)
+  bind#3 let small: Int = call main::read_size(read __handle~2, "notes.txt", 3)
+  call core.console::println(read __handle~2, concat("1. read ", call core.basic::to_str(Int)(read small)))
+  bind#4 let clamped: Int = call main::read_size(read __handle~2, "notes.txt", 99)
+  call core.console::println(read __handle~2, concat("1. read ", call core.basic::to_str(Int)(read clamped)))
+  call main::report(read __handle~2, "good", "8080")
+  call main::report(read __handle~2, "bad", "http")
+  bind#5 let guarded: Int | Str = try[Int | Str] {
+    value call main::port_from_file(read __handle~2, "ports.txt", "-1")
   }
-  switch#5 read guarded {
+  switch#6 read guarded {
     arm#0 (arm 0) {
-      narrow#6[switch#5.arm#0] guarded~2: Int = guarded
-      call core.console::println(read __use~1, concat("3. guarded: ", call core.basic::to_str(Int)(read guarded~2)))
+      narrow#7[switch#6.arm#0] guarded~3: Int = guarded
+      call core.console::println(read __handle~2, concat("3. guarded: ", call core.basic::to_str(Int)(read guarded~3)))
     }
     arm#1 (arm 1) {
-      narrow#7[switch#5.arm#1] guarded~3: Str = guarded
-      call core.console::println(read __use~1, concat("3. guarded: rejected — ", read guarded~3))
+      narrow#8[switch#6.arm#1] guarded~4: Str = guarded
+      call core.console::println(read __handle~2, concat("3. guarded: rejected — ", read guarded~4))
     }
   }
-  bind#8 let mixed: Int | Str | Int = try[Int | Str | Int] {
+  bind#9 let mixed: Int | Str | Int = try[Int | Str | Int] {
     value call main::strict_port("")
   }
-  switch#9 read mixed {
+  switch#10 read mixed {
     arm#0 (arm 0) {
-      narrow#10[switch#9.arm#0] mixed~4: Int = mixed
-      call core.console::println(read __use~1, concat("3. mixed: ", call core.basic::to_str(Int)(read mixed~4)))
+      narrow#11[switch#10.arm#0] mixed~5: Int = mixed
+      call core.console::println(read __handle~2, concat("3. mixed: ", call core.basic::to_str(Int)(read mixed~5)))
     }
     arm#1 (arm 1) {
-      narrow#11[switch#9.arm#1] mixed~5: Str | Int = mixed
-      bind#12 let why: Str | Int = read mixed~5
-      switch#13 read why {
+      narrow#12[switch#10.arm#1] mixed~6: Str | Int = mixed
+      bind#13 let why: Str | Int = read mixed~6
+      switch#14 read why {
         arm#0 (arm 0) {
-          narrow#14[switch#13.arm#0] why~6: Str = why
-          call core.console::println(read __use~1, concat("3. mixed: message ", read why~6))
+          narrow#15[switch#14.arm#0] why~7: Str = why
+          call core.console::println(read __handle~2, concat("3. mixed: message ", read why~7))
         }
         arm#1 (arm 1) {
-          narrow#15[switch#13.arm#1] why~7: Int = why
-          call core.console::println(read __use~1, concat("3. mixed: length ", call core.basic::to_str(Int)(read why~7)))
+          narrow#16[switch#14.arm#1] why~8: Int = why
+          call core.console::println(read __handle~2, concat("3. mixed: length ", call core.basic::to_str(Int)(read why~8)))
         }
       }
     }
   }
-  bind#21 let outer: Int | Str = try[Int | Str] {
-    bind#16 let inner: Int | Str = try[Int | Str] {
+  bind#22 let outer: Int | Str = try[Int | Str] {
+    bind#17 let inner: Int | Str = try[Int | Str] {
       value call main::parse_port("nope")
     }
-    value switch#17 read inner {
+    value switch#18 read inner {
       arm#0 (arm 0) {
-        narrow#18[switch#17.arm#0] inner~8: Int = inner
-        bind#19 let got: Int = read inner~8
+        narrow#19[switch#18.arm#0] inner~9: Int = inner
+        bind#20 let got: Int = read inner~9
         value read got
       }
       arm#1 (arm 1) {
-        narrow#20[switch#17.arm#1] inner~9: Str = inner
-        call core.console::println(read __use~1, concat("3. inner caught: ", read inner~9))
+        narrow#21[switch#18.arm#1] inner~10: Str = inner
+        call core.console::println(read __handle~2, concat("3. inner caught: ", read inner~10))
         value call main::parse_port("also nope")
       }
     }
   }
-  switch#22 read outer {
+  switch#23 read outer {
     arm#0 (arm 0) {
-      narrow#23[switch#22.arm#0] outer~10: Int = outer
-      call core.console::println(read __use~1, concat("3. outer: ", call core.basic::to_str(Int)(read outer~10)))
+      narrow#24[switch#23.arm#0] outer~11: Int = outer
+      call core.console::println(read __handle~2, concat("3. outer: ", call core.basic::to_str(Int)(read outer~11)))
     }
     arm#1 (arm 1) {
-      narrow#24[switch#22.arm#1] outer~11: Str = outer
-      call core.console::println(read __use~1, concat("3. outer caught: ", read outer~11))
+      narrow#25[switch#23.arm#1] outer~12: Str = outer
+      call core.console::println(read __handle~2, concat("3. outer caught: ", read outer~12))
     }
   }
 }

@@ -57,6 +57,9 @@ pub struct Lower<'a, 'p> {
     pub(crate) pending_after_test: Vec<Stmt>,
     /// [placeholder] the subject local `_` reads inside a `?:` right side.
     pub(crate) placeholder: Option<Local>,
+    /// The storage local (and its declared type) behind each narrowing
+    /// alias, for assignments through a narrowed name.
+    pub(crate) storage: HashMap<Local, (Local, Ty)>,
 }
 
 impl<'a, 'p> Lower<'a, 'p> {
@@ -80,6 +83,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             loop_results: Vec::new(),
             pending_after_test: Vec::new(),
             placeholder: None,
+            storage: HashMap::new(),
         }
     }
 
@@ -111,8 +115,18 @@ impl<'a, 'p> Lower<'a, 'p> {
         local
     }
 
+    /// Rebinds `name` to a narrowing alias of what it was bound to: the
+    /// storage behind the alias is remembered, so an assignment through the
+    /// name writes the storage [ir-narrow].
     pub(crate) fn rebind(&mut self, name: &str, local: Local, ty: Ty) {
-        let owned = self.lookup(name).map(|b| b.owned).unwrap_or(true);
+        let prev = self.lookup(name).cloned();
+        let owned = prev.as_ref().map(|b| b.owned).unwrap_or(true);
+        if let Some(b) = prev {
+            if b.local != local {
+                let root = self.storage.get(&b.local).cloned().unwrap_or((b.local.clone(), b.ty.clone()));
+                self.storage.insert(local.clone(), root);
+            }
+        }
         self.scopes.last_mut().unwrap().insert(name.to_string(), Bound { local, ty, owned });
     }
 
@@ -197,10 +211,10 @@ impl<'a, 'p> Lower<'a, 'p> {
 
     pub(crate) fn stmt(&mut self, s: &AStmt) -> Vec<Stmt> {
         match s {
-            AStmt::Let { pattern, ty: _, value, span } => self.let_stmt(pattern, value, *span),
+            AStmt::Let { pattern, ty, value, span } => self.let_stmt(pattern, ty.as_ref(), value, *span),
             AStmt::Assign { target, value, .. } => {
                 let v = self.expr(value);
-                match self.place_of(target) {
+                match self.assign_place_of(target) {
                     Some(place) => vec![Stmt::Assign { place, value: v }],
                     None => {
                         let span = target.span();
@@ -262,8 +276,11 @@ impl<'a, 'p> Lower<'a, 'p> {
         }
     }
 
-    fn let_stmt(&mut self, pattern: &Pattern, value: &AExpr, span: Span) -> Vec<Stmt> {
+    fn let_stmt(&mut self, pattern: &Pattern, written: Option<&ast::Type>, value: &AExpr, span: Span) -> Vec<Stmt> {
         let v = self.expr(value);
+        // The binding's type is the written one when there is one: `let x:
+        // Int? = None` holds an `Int?`, whatever the initializer's type.
+        let declared: Option<Ty> = written.map(|w| self.ctx.written_ty(self.file_idx, w)).filter(|t| !t.is_unknown());
         let mut consumed_bind = self.ctx.checked.binding_modes.contains(&self.key(span));
         let mut v = v;
         if consumed_bind {
@@ -273,14 +290,14 @@ impl<'a, 'p> Lower<'a, 'p> {
         let _ = consumed_bind;
         match pattern {
             Pattern::Ident(name) => {
-                let ty = v.ty.clone();
+                let ty = declared.unwrap_or_else(|| v.ty.clone());
                 let local = self.bind(&name.name, ty.clone());
                 let id = self.id();
                 vec![Stmt::Let { id, local, ty, value: v }]
             }
             other => {
                 let tmp = self.fresh("__destructured");
-                let ty = v.ty.clone();
+                let ty = declared.unwrap_or_else(|| v.ty.clone());
                 let id = self.id();
                 let mut out = vec![Stmt::Let { id, local: tmp.clone(), ty: ty.clone(), value: v }];
                 out.extend(self.destructure(other, tmp, &ty, span));
@@ -377,6 +394,56 @@ impl<'a, 'p> Lower<'a, 'p> {
                 Some(p)
             }
             _ => None,
+        }
+    }
+
+    /// The place an expression names, read *as stored*: the binding in scope,
+    /// without a narrowing alias for this read. What a test's subject is
+    /// narrowed from [ir-narrow].
+    pub(crate) fn stored_place_of(&mut self, e: &AExpr) -> Option<Place> {
+        match e {
+            AExpr::Ident(id) => {
+                let b = self.lookup(&id.name)?.clone();
+                Some(Place { root: b.local, steps: Vec::new() })
+            }
+            AExpr::Field { base, field, .. } => {
+                let mut p = self.stored_place_of(base)?;
+                p.steps.push(Step::Field(field.name.clone()));
+                Some(p)
+            }
+            AExpr::TupleIndex { base, index, .. } => {
+                let mut p = self.stored_place_of(base)?;
+                p.steps.push(Step::Tuple(*index));
+                Some(p)
+            }
+            AExpr::Index { base, index, .. } => {
+                let mut p = self.stored_place_of(base)?;
+                let i = self.expr(index);
+                p.steps.push(Step::Index(Box::new(i)));
+                Some(p)
+            }
+            _ => None,
+        }
+    }
+
+    /// The place an assignment writes: the *storage* behind a narrowed name,
+    /// after which the name is the storage again (the narrowing no longer
+    /// holds) [ir-narrow].
+    pub(crate) fn assign_place_of(&mut self, e: &AExpr) -> Option<Place> {
+        match e {
+            AExpr::Ident(id) => {
+                let b = self.lookup(&id.name)?.clone();
+                match self.storage.get(&b.local).cloned() {
+                    Some((root, ty)) => {
+                        self.rebind(&id.name, root.clone(), ty);
+                        Some(Place { root, steps: Vec::new() })
+                    }
+                    None => Some(Place { root: b.local, steps: Vec::new() }),
+                }
+            }
+            // A projection writes into the value, which a narrowing alias
+            // shares with its storage.
+            other => self.place_of(other),
         }
     }
 

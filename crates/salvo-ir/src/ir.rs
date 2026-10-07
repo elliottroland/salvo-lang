@@ -3,7 +3,6 @@
 //! type, every narrowing is a binding, and nothing is left for a backend to
 //! infer. What a backend adds is representation and idiom (IR.md §1).
 
-use std::collections::BTreeMap;
 
 pub use salvo_core::param_mode::PassMode;
 pub use salvo_core::types::Ty;
@@ -33,7 +32,6 @@ pub struct Program {
     pub modules: Vec<Module>,
     /// The dump name of every declaration, program-wide.
     pub names: std::collections::HashMap<DeclId, String>,
-    pub facts: Facts,
 }
 
 pub struct Module {
@@ -137,14 +135,18 @@ pub struct InterfaceDecl {
     pub type_params: Vec<TypeParam>,
     /// [actor-effect-kind] members are messages.
     pub actor: bool,
+    /// [protocol-hash] the hash of an actor effect's canonical form, when
+    /// every message has a wire form; what two nodes compare before talking.
+    pub protocol_hash: Option<String>,
     /// [effect-prereq] effects every member needs in scope.
     pub prereqs: Vec<Ty>,
     pub members: Vec<Member>,
     pub span: Span,
 }
 
-/// An effect member's signature (effects as values: the prerequisites are
-/// leading parameters of every member).
+/// An effect member's signature. The effect's prerequisites
+/// [effect-prereq] are not parameters: a handler of the effect depends on
+/// them.
 pub struct Member {
     pub name: String,
     /// The emitted name when the effect overloads the name
@@ -193,6 +195,9 @@ pub struct PlatformTypeDecl {
     pub type_params: Vec<TypeParam>,
     pub linear: bool,
     pub canbe_mut: bool,
+    /// [platform-type] the host defines it (an `intrinsic type` is the
+    /// backend's own).
+    pub platform: bool,
     pub span: Span,
 }
 
@@ -215,6 +220,9 @@ pub struct FnDecl {
     pub name: String,
     pub exported: bool,
     pub kind: FnKind,
+    /// [actor-send-fn] a `send fn`: a free one is a task, a handler's one a
+    /// message (private when no face declares it [actor-private-send]).
+    pub send: bool,
     pub type_params: Vec<TypeParam>,
     /// Effects first (as `Param`s of interface type), then the declared
     /// parameters, then the implicit ones [implicit-param].
@@ -277,6 +285,9 @@ pub enum Justification {
     /// After `branch`'s arm `arm` left (returned, broke, threw): the test
     /// failed, so the subject is what remains.
     After { branch: NodeId, arm: usize },
+    /// [ir-loop] `Loop` `loop_` ended with its value assigned on every path
+    /// out (the checker's totality), so the result local is not `None`.
+    LoopValue { loop_: NodeId },
 }
 
 /// A storage location: a local and the steps into it.
@@ -332,10 +343,18 @@ pub enum ExprKind {
     Rewrap { from: Ty, value: Box<Expr> },
     /// [str-drop-mut] a `Mut` value used where the plain type is required.
     DropMut { value: Box<Expr> },
+    /// [op-promote] a numeric operand widened within its class to `ty`
+    /// (`Int` to `Long`, `Float` to `Double`).
+    Widen { value: Box<Expr> },
     Tuple(Vec<Expr>),
     /// A list literal, `ty` says `List<T>` or `Mut List<T>`.
     List(Vec<Expr>),
+    /// An array literal; an element may be a `Spread` of another array
+    /// [fn-variadic].
     Array(Vec<Expr>),
+    /// [fn-variadic] `...xs` among an array literal's elements: the array's
+    /// elements, in place. Only inside `Array`.
+    Spread { value: Box<Expr> },
     /// String concatenation; every part is a `Str` [interp-to-str].
     Concat(Vec<Expr>),
     /// [ir-branch] subjectless: ordered conditions.
@@ -343,7 +362,9 @@ pub enum ExprKind {
     /// [ir-switch] on a subject: one arm per test.
     Switch { id: NodeId, subject: Box<Expr>, arms: Vec<SwitchArm> },
     /// [ir-test] `subject is …` as a condition: `Bool`. Narrowing inside the
-    /// branch it guards is a `Narrow` justified by that branch's arm.
+    /// branch it guards is a `Narrow` justified by that branch's arm; a
+    /// conjunct after a binding test reads the binding inside a `Branch` on
+    /// the test [is-bind-once].
     Test { id: NodeId, subject: Box<Expr>, test: ArmTest },
     Lambda { params: Vec<Param>, ret: Ty, body: Block, captures: Vec<Capture> },
     /// A fn used as a value.
@@ -358,17 +379,33 @@ pub enum ExprKind {
     Spawn { handler: Box<Expr>, deps: Vec<Expr>, pool: Option<Box<Expr>>, join: Option<Box<Expr>>, effects: Vec<Ty> },
     /// A send to an actor through an addr.
     Send { addr: Box<Expr>, member: MemberRef, args: Vec<Expr> },
-    /// [actor-replyto] a reply token that delivers to `member` of the
-    /// enclosing handler with the captures as its leading arguments.
-    ReplyTo { member: String, captures: Vec<Expr>, gated: bool, pool: Option<Box<Expr>> },
+    /// [actor-replyto] a reply token that delivers to a member of the
+    /// enclosing handler, or to a free `send fn` run as a task, with the
+    /// captures as its leading arguments and the answer as its last.
+    ReplyTo { target: ReplyTarget, captures: Vec<Expr>, gated: bool, pool: Option<Box<Expr>> },
     /// [actor-waitfor] bind a fresh reply token, run the body, wait.
     WaitFor { local: Local, token_ty: Ty, body: Block },
     /// The enclosing actor's own address.
     SelfAddr,
+    /// [effect-handle] A handler instance bound as an effect's instance:
+    /// the shared handle, entered one member at a time, which is how every
+    /// `use` binds (Kotlin `__Mon_E`, Rust `__Handle_E`). `ty` is the face.
+    Handle { instance: Box<Expr> },
+    /// [actor-use-addr] The instance of the effect `ty` behind an address:
+    /// every member a send. `use addr` and a `with addr` item.
+    AddrInstance { addr: Box<Expr> },
     /// [actor-self-send] a message to the enclosing actor.
     SelfSend { member: String, args: Vec<Expr> },
     /// A construct the builder does not lower yet: never emitted silently.
     Unsupported(String),
+}
+
+#[derive(Clone)]
+pub enum ReplyTarget {
+    /// A `send` member of the enclosing handler, by name.
+    Member(String),
+    /// [task-mint] a free `send fn`, with the effect instances it inherits.
+    Task { target: DeclId, effects: Vec<Expr> },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -402,9 +439,19 @@ pub enum ArmTest {
     Arms(Vec<usize>),
     /// The subject is `None`.
     None,
-    /// The subject is one of these literal values [type-literal].
-    Lit(Vec<Lit>),
+    /// [type-literal] The subject is in one of these arms, each possibly
+    /// under a value condition (literals collapsed into a base's arm).
+    Lit(Vec<LitArm>),
     Else,
+}
+
+/// One arm of a literal test: the runtime arm, and the values on it the
+/// test accepts (`negate`: refuses); no values means the whole arm.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LitArm {
+    pub arm: usize,
+    pub negate: bool,
+    pub lits: Vec<Lit>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -442,9 +489,3 @@ pub struct Diagnostics {
     pub errors: Vec<String>,
 }
 
-/// Program-wide facts a backend reads beside the modules.
-#[derive(Default)]
-pub struct Facts {
-    /// [protocol-hash] per actor effect key.
-    pub protocol_hashes: BTreeMap<String, String>,
-}

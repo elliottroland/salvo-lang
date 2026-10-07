@@ -61,7 +61,7 @@ impl Looking(lent who: Str) of Lookup {
 impl SlowLooking(lent who: Str, lent timer: Addr<Timer>) of Lookup stateful {
   mailbox construct Mailbox { capacity: 16 }
   fn lookup(lent key: Str, lent out: Reply<Str>) -> None {
-    send time::Timer#0(read timer, call time::millis(150), replyto answer(read key, !read out))
+    send time::Timer#0(read timer, call time::millis(150L), replyto answer(read key, !read out))
   }
   fn answer(lent key: Str, lent out: Reply<Str>, lent fired: Fired) -> None {
     call core.actor::send<Str>(!read out, concat(read key, " from ", read who))
@@ -289,14 +289,18 @@ fn main::find(lent __eff0: Lookup; moved key: Str) -> Str {
 
 fn main::two_ids(lent __eff0: Leader, lent __eff1: Console; moved seq: Addr<ActorGroup<Sequencer>>) -> None {
   bind#1 let __use~1: Elected<Sequencer> = construct Elected<Sequencer> { __dep0: read __eff0 }
-  bind#2 let __use~2: __Route_Sequencer = construct __Route_Sequencer { group: read seq, config: call net::default_route_config(), __dep0: read __use~1 }
-  call core.console::println(read __eff1, concat("  ", call main::fresh_id(read __use~2), " ", call main::fresh_id(read __use~2)))
+  bind#2 let __handle~2: RouteSelector<Sequencer> = handle[RouteSelector<Sequencer>](read __use~1)
+  bind#3 let __use~3: __Route_Sequencer = construct __Route_Sequencer { group: read seq, config: call net::default_route_config(), __dep0: read __handle~2 }
+  bind#4 let __handle~4: Sequencer = handle[Sequencer](read __use~3)
+  call core.console::println(read __eff1, concat("  ", call main::fresh_id(read __handle~4), " ", call main::fresh_id(read __handle~4)))
 }
 
 fn main::shop(lent __eff0: Console; moved stock: Addr<ActorGroup<Inventory>>) -> None {
   bind#1 let __use~1: Sharded<Inventory> = construct Sharded<Inventory> { }
-  bind#2 let __use~2: __Route_Inventory = construct __Route_Inventory { group: read stock, config: call net::default_route_config(), __dep0: read __use~1 }
-  call main::checkout(read __use~2, read __eff0, list[List<Str>]("apple", "pear", "apple", "fig", "pear"))
+  bind#2 let __handle~2: RouteSelector<Inventory> = handle[RouteSelector<Inventory>](read __use~1)
+  bind#3 let __use~3: __Route_Inventory = construct __Route_Inventory { group: read stock, config: call net::default_route_config(), __dep0: read __handle~2 }
+  bind#4 let __handle~4: Inventory = handle[Inventory](read __use~3)
+  call main::checkout(read __handle~4, read __eff0, list[List<Str>]("apple", "pear", "apple", "fig", "pear"))
 }
 
 actor interface Boot {
@@ -334,60 +338,65 @@ impl Booting(lent at: NodeEndpoint, lent all: List<NodeEndpoint>, lent net: Addr
 
 fn main::settle(lent timer: Addr<Timer>) -> None {
   bind#1 let _f: Fired = waitfor f: Reply<Fired> {
-    send time::Timer#0(read timer, call time::millis(400), !read f)
+    send time::Timer#0(read timer, call time::millis(400L), !read f)
   }
 }
 
 fn main::main() -> None {
   bind#1 let __use~1: StdOutConsole = construct StdOutConsole { }
-  bind#2 let a: NodeEndpoint = construct NodeEndpoint { host: "a", port: 1 }
-  bind#3 let b: NodeEndpoint = construct NodeEndpoint { host: "b", port: 1 }
-  bind#4 let all: List<NodeEndpoint> = list[List<NodeEndpoint>](call core.basic::copy<NodeEndpoint>(read a), call core.basic::copy<NodeEndpoint>(read b))
-  bind#5 let network: Addr<MemNet> = spawn[Addr<MemNet>](construct MemNetwork { }, on: call core.actor::pool(Int)(1)) serves [MemNet]
-  bind#6 let __use~2: MemTransport = construct MemTransport { me: call core.basic::copy<NodeEndpoint>(read a), net: call core.basic::copy<Addr<MemNet>>(read network) }
-  bind#7 let p: Pool = call core.actor::pool(Int)(2)
-  bind#8 let nodes: Addr<NodeGroup> = spawn[Addr<NodeGroup>](construct StaticNodeGroup { name: "cluster", all: call core.basic::copy<List<NodeEndpoint>>(read all), __dep0: read __use~2 }, on: read p) serves [NodeGroup]
-  bind#9 let seq: Addr<ActorGroup<Sequencer>> = call net::actor_group(Addr<NodeGroup>)<Sequencer>(call core.basic::copy<Addr<NodeGroup>>(read nodes), fn net::protocol)
+  bind#2 let __handle~2: Console = handle[Console](read __use~1)
+  bind#3 let a: NodeEndpoint = construct NodeEndpoint { host: "a", port: 1 }
+  bind#4 let b: NodeEndpoint = construct NodeEndpoint { host: "b", port: 1 }
+  bind#5 let all: List<NodeEndpoint> = list[List<NodeEndpoint>](call core.basic::copy<NodeEndpoint>(read a), call core.basic::copy<NodeEndpoint>(read b))
+  bind#6 let network: Addr<MemNet> = spawn[Addr<MemNet>](construct MemNetwork { }, on: call core.actor::pool(Int)(1)) serves [MemNet]
+  bind#7 let __use~3: MemTransport = construct MemTransport { me: call core.basic::copy<NodeEndpoint>(read a), net: call core.basic::copy<Addr<MemNet>>(read network) }
+  bind#8 let __handle~4: Transport = handle[Transport](read __use~3)
+  bind#9 let p: Pool = call core.actor::pool(Int)(2)
+  bind#10 let nodes: Addr<NodeGroup> = spawn[Addr<NodeGroup>](construct StaticNodeGroup { name: "cluster", all: call core.basic::copy<List<NodeEndpoint>>(read all), __dep0: read __handle~4 }, on: read p) serves [NodeGroup]
+  bind#11 let seq: Addr<ActorGroup<Sequencer>> = call net::actor_group(Addr<NodeGroup>)<Sequencer>(call core.basic::copy<Addr<NodeGroup>>(read nodes), fn net::protocol)
   spawn[Addr<Sequencer>](construct Sequencing { who: "a" }, on: read p, in: read seq) serves [Sequencer]
-  bind#10 let stock: Addr<ActorGroup<Inventory>> = call net::actor_group(Addr<NodeGroup>)<Inventory>(call core.basic::copy<Addr<NodeGroup>>(read nodes), fn net::protocol)
+  bind#12 let stock: Addr<ActorGroup<Inventory>> = call net::actor_group(Addr<NodeGroup>)<Inventory>(call core.basic::copy<Addr<NodeGroup>>(read nodes), fn net::protocol)
   spawn[Addr<Inventory>](construct Stocking { shard: "shard-a" }, on: read p, in: read stock) serves [Inventory]
-  bind#11 let index: Addr<ActorGroup<Search>> = call net::actor_group(Addr<NodeGroup>)<Search>(call core.basic::copy<Addr<NodeGroup>>(read nodes), fn net::protocol)
+  bind#13 let index: Addr<ActorGroup<Search>> = call net::actor_group(Addr<NodeGroup>)<Search>(call core.basic::copy<Addr<NodeGroup>>(read nodes), fn net::protocol)
   spawn[Addr<Search>](construct Indexing { words: list[List<Str>]("salvo", "is", "salvo") }, on: read p, in: read index) serves [Search]
-  bind#12 let looks: Addr<ActorGroup<Lookup>> = call net::actor_group(Addr<NodeGroup>)<Lookup>(call core.basic::copy<Addr<NodeGroup>>(read nodes), fn net::protocol)
+  bind#14 let looks: Addr<ActorGroup<Lookup>> = call net::actor_group(Addr<NodeGroup>)<Lookup>(call core.basic::copy<Addr<NodeGroup>>(read nodes), fn net::protocol)
   spawn[Addr<Lookup>](construct Looking { who: "a" }, on: read p, in: read looks) serves [Lookup]
-  bind#13 let pb: Pool = call net::pool_at(call net::new_node(), 1)
-  bind#14 let booter: Addr<Boot> = spawn[Addr<Boot>](construct Booting { at: call core.basic::copy<NodeEndpoint>(read b), all: call core.basic::copy<List<NodeEndpoint>>(read all), net: call core.basic::copy<Addr<MemNet>>(read network), __dep0: construct MemTransport { me: call core.basic::copy<NodeEndpoint>(read b), net: call core.basic::copy<Addr<MemNet>>(read network) } }, on: read pb) serves [Boot]
-  bind#15 let remote_seq: Addr<Sequencer> = waitfor done: Reply<Addr<Sequencer>> {
+  bind#15 let pb: Pool = call net::pool_at(call net::new_node(), 1)
+  bind#16 let booter: Addr<Boot> = spawn[Addr<Boot>](construct Booting { at: call core.basic::copy<NodeEndpoint>(read b), all: call core.basic::copy<List<NodeEndpoint>>(read all), net: call core.basic::copy<Addr<MemNet>>(read network), __dep0: construct MemTransport { me: call core.basic::copy<NodeEndpoint>(read b), net: call core.basic::copy<Addr<MemNet>>(read network) } }, on: read pb) serves [Boot]
+  bind#17 let remote_seq: Addr<Sequencer> = waitfor done: Reply<Addr<Sequencer>> {
     send main::Boot#0(read booter, !read done)
   }
-  bind#16 let timer: Addr<Timer> = spawn[Addr<Timer>](construct DefaultTimer { }, on: call core.actor::pool(Int)(1)) serves [Timer]
+  bind#18 let timer: Addr<Timer> = spawn[Addr<Timer>](construct DefaultTimer { }, on: call core.actor::pool(Int)(1)) serves [Timer]
   call main::settle(call core.basic::copy<Addr<Timer>>(read timer))
-  bind#17 let members: List<Node> = waitfor out: Reply<List<Node>> {
+  bind#19 let members: List<Node> = waitfor out: Reply<List<Node>> {
     send net::NodeGroup#0(read nodes, !read out)
   }
-  call core.console::println(read __use~1, concat("nodes: ", call core.basic::to_str(Int)(op Add(call core.list::size<Node>(read members), 1)), ", sequencers: ", call core.basic::to_str(Int)(call core.list::size<Addr<Sequencer>>(waitfor out: Reply<List<Addr<Sequencer>>> {
+  call core.console::println(read __handle~2, concat("nodes: ", call core.basic::to_str(Int)(op Add(call core.list::size<Node>(read members), 1)), ", sequencers: ", call core.basic::to_str(Int)(call core.list::size<Addr<Sequencer>>(waitfor out: Reply<List<Addr<Sequencer>>> {
     send net::ActorGroup#2(read seq, !read out)
   }))))
-  call core.console::println(read __use~1, concat("singleton (b's sequencer is remote: ", call core.basic::to_str(Bool)(op Not(call net::eq(NodeId, NodeId)(call net::node_of<Sequencer>(read remote_seq), call net::this_node()))), "):"))
-  bind#18 let __use~3: LastHost = construct LastHost { nodes: call core.basic::copy<Addr<NodeGroup>>(read nodes), me: call core.basic::copy<NodeEndpoint>(read a) }
-  call main::two_ids(read __use~3, read __use~1, call core.basic::copy<Addr<ActorGroup<Sequencer>>>(read seq))
-  call core.console::println(read __use~1, "sharded:")
-  call main::shop(read __use~1, !read stock)
-  call core.console::println(read __use~1, "scatter:")
-  bind#19 let __use~4: Scattering = construct Scattering { group: call core.basic::copy<Addr<ActorGroup<Search>>>(read index), gather: spawn[Addr<Gather>](construct Gathering { }, on: read p) serves [Gather] }
-  call core.console::println(read __use~1, concat("  salvo: ", call core.basic::to_str(Int)(call main::count(read __use~4, "salvo")), ", actors: ", call core.basic::to_str(Int)(call main::count(read __use~4, "actors")), ", none: ", call core.basic::to_str(Int)(call main::count(read __use~4, "none"))))
-  call core.console::println(read __use~1, "hedge:")
-  bind#20 let __use~5: Hedging = construct Hedging { group: call core.basic::copy<Addr<ActorGroup<Lookup>>>(read looks), racer: spawn[Addr<Race>](construct Racing { }, on: read p) serves [Race] }
-  call core.console::println(read __use~1, concat("  ", call main::find(read __use~5, "k1")))
-  bind#21 let _stopped: Bool = waitfor done: Reply<Bool> {
+  call core.console::println(read __handle~2, concat("singleton (b's sequencer is remote: ", call core.basic::to_str(Bool)(op Not(call net::eq(NodeId, NodeId)(call net::node_of<Sequencer>(read remote_seq), call net::this_node()))), "):"))
+  bind#20 let __use~5: LastHost = construct LastHost { nodes: call core.basic::copy<Addr<NodeGroup>>(read nodes), me: call core.basic::copy<NodeEndpoint>(read a) }
+  bind#21 let __handle~6: Leader = handle[Leader](read __use~5)
+  call main::two_ids(read __handle~6, read __handle~2, call core.basic::copy<Addr<ActorGroup<Sequencer>>>(read seq))
+  call core.console::println(read __handle~2, "sharded:")
+  call main::shop(read __handle~2, !read stock)
+  call core.console::println(read __handle~2, "scatter:")
+  bind#22 let __use~7: Scattering = construct Scattering { group: call core.basic::copy<Addr<ActorGroup<Search>>>(read index), gather: spawn[Addr<Gather>](construct Gathering { }, on: read p) serves [Gather] }
+  bind#23 let __handle~8: Search = handle[Search](read __use~7)
+  call core.console::println(read __handle~2, concat("  salvo: ", call core.basic::to_str(Int)(call main::count(read __handle~8, "salvo")), ", actors: ", call core.basic::to_str(Int)(call main::count(read __handle~8, "actors")), ", none: ", call core.basic::to_str(Int)(call main::count(read __handle~8, "none"))))
+  call core.console::println(read __handle~2, "hedge:")
+  bind#24 let __use~9: Hedging = construct Hedging { group: call core.basic::copy<Addr<ActorGroup<Lookup>>>(read looks), racer: spawn[Addr<Race>](construct Racing { }, on: read p) serves [Race] }
+  bind#25 let __handle~10: Lookup = handle[Lookup](read __use~9)
+  call core.console::println(read __handle~2, concat("  ", call main::find(read __handle~10, "k1")))
+  bind#26 let _stopped: Bool = waitfor done: Reply<Bool> {
     send main::Boot#1(read booter, !read done)
   }
   call main::settle(call core.basic::copy<Addr<Timer>>(read timer))
-  call core.console::println(read __use~1, "after b left:")
-  call core.console::println(read __use~1, concat("  sequencers: ", call core.basic::to_str(Int)(call core.list::size<Addr<Sequencer>>(waitfor out: Reply<List<Addr<Sequencer>>> {
+  call core.console::println(read __handle~2, "after b left:")
+  call core.console::println(read __handle~2, concat("  sequencers: ", call core.basic::to_str(Int)(call core.list::size<Addr<Sequencer>>(waitfor out: Reply<List<Addr<Sequencer>>> {
     send net::ActorGroup#2(read seq, !read out)
   }))))
-  call main::two_ids(read __use~3, read __use~1, !read seq)
+  call main::two_ids(read __handle~6, read __handle~2, !read seq)
 }
 
 impl __Route_Inventory(lent group: Addr<ActorGroup<Inventory>>, lent config: RouteConfig) of any Inventory deps [RouteSelector<Inventory>] stateful {

@@ -19,9 +19,13 @@ use salvo_ir::{
 use crate::emit::{escape_string, host_package, kotlin_package, kt_ident};
 use crate::EmittedFile;
 
+mod actors;
+
 pub fn emit_program_ir(program: &Program) -> Result<(Vec<EmittedFile>, Vec<String>), Vec<String>> {
-    let (erased_program, _erased, mut checked, warnings) = salvo_backend::driver::check_for_emission(program)?;
-    let program = &erased_program;
+    // The IR is built from the *checked* program itself (the checker's
+    // `written_types` are keyed by AST node); effect-generic erasure
+    // [effect-generic-decl] is applied where a type is rendered.
+    let (_erased_program, erased, mut checked, warnings) = salvo_backend::driver::check_for_emission(program)?;
     let (symbols, resolution) = salvo_backend::driver::resolve_for_emission(program, &mut checked);
     let reach = salvo_backend::driver::reach(program, &resolution, &symbols, &checked, false);
     let wanted: HashSet<&ModulePath> = reach.emitted.iter().copied().collect();
@@ -33,6 +37,7 @@ pub fn emit_program_ir(program: &Program) -> Result<(Vec<EmittedFile>, Vec<Strin
     let mut shared = Shared {
         program,
         symbols: &symbols,
+        erased: &erased,
         ir: &ir,
         fn_names: &fn_names,
         union_sizes: BTreeSet::new(),
@@ -57,6 +62,21 @@ pub fn emit_program_ir(program: &Program) -> Result<(Vec<EmittedFile>, Vec<Strin
                     }
                 }
             }
+        }
+    }
+    // [platform-handler] [platform-fn] [platform-tree] A module whose
+    // platform declarations are emitted needs its host implementation file.
+    for m in &ir.modules {
+        let declares = m.decls.iter().any(|d| match d {
+            Decl::Fn(f) => f.kind == FnKind::Platform,
+            Decl::Impl(h) => h.platform,
+            Decl::PlatformType(t) => t.platform,
+            _ => false,
+        });
+        if declares && salvo_core::host_file(&program.companions, &m.path).is_none() {
+            let what: String = program.units().filter(|u| u.file.module == m.path).map(|u| salvo_core::platform_declarations(u.ast)).collect::<Vec<_>>().join(", ");
+            let rel = salvo_core::host_rel_path(&m.path, "kt");
+            shared.errors.push(salvo_core::missing_handler_host_error(&what, &m.path, &rel));
         }
     }
     let mut files = Vec::new();
@@ -107,13 +127,18 @@ pub fn emit_program_ir(program: &Program) -> Result<(Vec<EmittedFile>, Vec<Strin
         files.push(EmittedFile { rel_path: "bytes.kt".into(), content: crate::emit::generate_bytes_file() });
     }
     if features.wire {
-        files.push(EmittedFile { rel_path: "wire.kt".into(), content: include_str!("../runtime/wire.kt").to_string() });
+        files.push(EmittedFile { rel_path: "wire.kt".into(), content: include_str!("../../runtime/wire.kt").to_string() });
     }
     if features.scheduler {
         files.push(EmittedFile { rel_path: "scheduler.kt".into(), content: crate::emit::generate_scheduler_file() });
     }
     if features.time() {
         files.push(EmittedFile { rel_path: "hosttime.kt".into(), content: crate::emit::generate_time_file() });
+    }
+    // [stream-table] Host code's entry points into the stream table ship
+    // wherever the table (the Salvo service `runtime.streams`) does.
+    if reach.emitted.iter().any(|m| m.0 == ["runtime", "streams"]) {
+        files.push(EmittedFile { rel_path: "hoststreams.kt".into(), content: include_str!("../../runtime/hoststreams.kt").to_string() });
     }
     // Host companions travel with their module [backend-companion].
     for comp in &program.companions {
@@ -136,6 +161,8 @@ pub fn emit_program_ir(program: &Program) -> Result<(Vec<EmittedFile>, Vec<Strin
 struct Shared<'p> {
     program: &'p Program,
     symbols: &'p salvo_core::Symbols<'p>,
+    /// [effect-generic-decl] the declarations rendered without generics.
+    erased: &'p salvo_core::Erased,
     ir: &'p IrProgram,
     fn_names: &'p salvo_core::naming::FnNames,
     union_sizes: BTreeSet<usize>,
@@ -163,6 +190,17 @@ struct ModuleEmitter<'a, 'p> {
     narrowing_subject: Option<(String, Ty, ArmTest)>,
     /// The enclosing fn returns `None` (Kotlin `Unit`).
     ret_is_unit: bool,
+    /// The impl whose member is being rendered, for `replyto`.
+    current_impl: Option<String>,
+    /// [kt-monitor] the lock each handled instance's monitors share, per fn.
+    handle_locks: HashMap<Local, String>,
+    /// [kt-mixed] inside `__Fac_H`: a self-send goes to the servant's addr.
+    in_facade: bool,
+    /// The arm test behind each `Test` node (arm `usize::MAX`) and each
+    /// `Switch` arm, by node id: what a `Narrow`'s justification names.
+    test_arms: HashMap<(u32, usize), ArmTest>,
+    /// The locals the current fn assigns after binding (`var`, not `val`).
+    assigned: HashSet<Local>,
 }
 
 fn kt_local(l: &Local) -> String {
@@ -172,7 +210,7 @@ fn kt_local(l: &Local) -> String {
 
 impl<'a, 'p> ModuleEmitter<'a, 'p> {
     fn new(s: &'a mut Shared<'p>, module: &'a IrModule) -> Self {
-        ModuleEmitter { s, module, out: String::new(), aliases: HashMap::new(), in_fn_params: HashSet::new(), narrowing_subject: None, ret_is_unit: false }
+        ModuleEmitter { s, module, out: String::new(), aliases: HashMap::new(), in_fn_params: HashSet::new(), narrowing_subject: None, ret_is_unit: false, current_impl: None, handle_locks: HashMap::new(), in_facade: false, test_arms: HashMap::new(), assigned: HashSet::new() }
     }
 
     fn error(&mut self, msg: impl Into<String>) {
@@ -181,9 +219,40 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
 
     fn module(mut self) -> String {
         let mut body = String::new();
+        // [kt-nested-dot-name] Dot-named structs nest in their namespace:
+        // the namespace struct's body, or an `object` for a `type` namespace.
+        let nested: Vec<&StructDecl> = self.module.decls.iter().filter_map(|d| match d {
+            Decl::Struct(s) if s.name.contains('.') => Some(s),
+            _ => None,
+        }).collect();
+        let mut namespaces_done: HashSet<String> = HashSet::new();
         for d in &self.module.decls {
             self.out.clear();
-            self.decl(d);
+            match d {
+                Decl::Struct(s) if s.name.contains('.') => {
+                    let ns = s.name.split('.').next().unwrap().to_string();
+                    let has_struct = self.module.decls.iter().any(|d| matches!(d, Decl::Struct(x) if x.name == ns));
+                    if !has_struct && !namespaces_done.contains(&ns) {
+                        namespaces_done.insert(ns.clone());
+                        self.out.push_str(&format!("object {ns} {{\n"));
+                        let members: Vec<&StructDecl> = nested.iter().copied().filter(|x| x.name.split('.').next() == Some(ns.as_str())).collect();
+                        for m in &members {
+                            self.struct_class(m, 1);
+                        }
+                        self.out.push_str("}\n");
+                        for m in &members {
+                            if m.has_wire_form {
+                                self.struct_codec(m);
+                            }
+                        }
+                    }
+                }
+                Decl::Struct(s) if nested.iter().any(|x| x.name.split('.').next() == Some(s.name.as_str())) => {
+                    let members: Vec<&StructDecl> = nested.iter().copied().filter(|x| x.name.split('.').next() == Some(s.name.as_str())).collect();
+                    self.struct_decl_with(s, &members);
+                }
+                _ => self.decl(d),
+            }
             body.push_str(&self.out);
             body.push('\n');
         }
@@ -250,11 +319,23 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         match t {
             Ty::Named { name, args } => {
                 // [cmp-carry] an identity a container carries is not a type argument.
-                let args: Vec<Ty> = args.iter().filter(|a| !matches!(a, Ty::FnName(_))).cloned().collect();
+                // [effect-generic-decl] an erased declaration's arguments are dropped.
+                let erased = self.s.erased.is_erased(salvo_core::typekey::plain(name));
+                let args: Vec<Ty> = if erased { Vec::new() } else { args.iter().filter(|a| !matches!(a, Ty::FnName(_))).cloned().collect() };
                 let args = &args;
                 if let Some(kt) = crate::intrinsics::type_name(name) {
                     if name == "Bytes" {
                         self.s.needs_bytes = true;
+                    }
+                    if name == "Addr" && args.len() == 1 {
+                        // [monitor-handler] [kt-monitor] a plain effect's addr
+                        // is the effect's handle, not a scheduler index.
+                        if let Ty::Named { name: eff, .. } = args[0].strip_quals() {
+                            let plain = salvo_core::typekey::plain(eff).to_string();
+                            if self.interface_by_name(&plain).is_some_and(|i| !i.actor) {
+                                return self.ty(&args[0]);
+                            }
+                        }
                     }
                     if matches!(name.as_str(), "Addr" | "Pool" | "Reply") {
                         return kt.to_string();
@@ -348,6 +429,16 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
 
     // ------------------------------------------------------------- decls --
 
+    /// A declaration's generic parameter list; empty for an erased one
+    /// [effect-generic-decl].
+    fn decl_type_params(&self, name: &str, tps: &[salvo_ir::TypeParam]) -> String {
+        if self.s.erased.is_erased(name) {
+            String::new()
+        } else {
+            self.type_params(tps)
+        }
+    }
+
     fn type_params(&self, tps: &[salvo_ir::TypeParam]) -> String {
         if tps.is_empty() {
             String::new()
@@ -362,7 +453,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             Decl::Union(_) => {}
             Decl::Interface(i) => self.interface_decl(i),
             Decl::Impl(h) => self.impl_decl(h),
-            Decl::Fn(f) => self.fn_decl(f, 0, false),
+            Decl::Fn(f) => self.fn_decl(f, 0, None, false),
             Decl::PlatformType(_) => {}
             Decl::Static(st) => {
                 // [mod-use] a lazy module-level instance.
@@ -370,6 +461,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 let name = kt_local(&st.local);
                 let _ = &name;
                 self.out.push_str(&format!("val {name}: {ty} by lazy {{\n"));
+                self.assigned = assigned_locals(&Block { stmts: st.stmts.clone(), value: None });
                 let saved = std::mem::take(&mut self.out);
                 self.stmts(&st.stmts, 1);
                 let body = std::mem::replace(&mut self.out, saved);
@@ -380,18 +472,47 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     }
 
     fn struct_decl(&mut self, s: &StructDecl) {
-        let tps = self.type_params(&s.type_params);
+        self.struct_decl_with(s, &[]);
+    }
+
+    /// A struct, with the dot-named structs nested in it [kt-nested-dot-name].
+    fn struct_decl_with(&mut self, s: &StructDecl, members: &[&StructDecl]) {
+        self.struct_class(s, 0);
+        if !members.is_empty() {
+            // Reopen the class with a body for the nested members.
+            let trimmed = self.out.trim_end_matches('\n').to_string();
+            self.out = format!("{trimmed} {{\n");
+            for m in members {
+                self.struct_class(m, 1);
+            }
+            self.out.push_str("}\n");
+        }
+        if s.has_wire_form {
+            self.struct_codec(s);
+        }
+        for m in members {
+            if m.has_wire_form {
+                self.struct_codec(m);
+            }
+        }
+    }
+
+    /// The class line(s) of a struct, by its last name segment.
+    fn struct_class(&mut self, s: &StructDecl, indent: usize) {
+        let pad = "    ".repeat(indent);
+        let tps = self.decl_type_params(&s.name, &s.type_params);
+        let name = s.name.rsplit('.').next().unwrap_or(&s.name).to_string();
         if s.fields.is_empty() {
-            self.out.push_str(&format!("class {}{tps}\n", s.name));
-            return;
+            self.out.push_str(&format!("{pad}class {name}{tps}\n"));
+        } else {
+            self.out.push_str(&format!("{pad}data class {name}{tps}(\n"));
+            for f in &s.fields {
+                let ty = self.ty(&f.ty);
+                let kw = if s.canbe_mut { "var" } else { "val" };
+                self.out.push_str(&format!("{pad}    {kw} {}: {ty},\n", kt_ident(&f.name)));
+            }
+            self.out.push_str(&format!("{pad})\n"));
         }
-        self.out.push_str(&format!("data class {}{tps}(\n", s.name));
-        for f in &s.fields {
-            let ty = self.ty(&f.ty);
-            let kw = if s.canbe_mut { "var" } else { "val" };
-            self.out.push_str(&format!("    {kw} {}: {ty},\n", kt_ident(&f.name)));
-        }
-        self.out.push_str(")\n");
     }
 
     fn params(&mut self, params: &[salvo_ir::Param]) -> String {
@@ -405,7 +526,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     }
 
     fn interface_decl(&mut self, i: &InterfaceDecl) {
-        let tps = self.type_params(&i.type_params);
+        let tps = self.decl_type_params(&i.name, &i.type_params);
         self.out.push_str(&format!("interface {}{tps} {{\n", i.name));
         for m in &i.members {
             let ps = self.params(&m.params);
@@ -414,6 +535,10 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             self.out.push_str(&format!("    fun {mtps}{}({ps}){ret}\n", kt_ident(&m.emitted_name)));
         }
         self.out.push_str("}\n");
+        self.monitor_stub(i);
+        if i.actor {
+            self.actor_interface(i);
+        }
         // [platform-abi] The host-facing interface and adapter, when a
         // platform impl implements this interface.
         if let Some(impls) = self.s.platform_impls.get(&i.name).cloned() {
@@ -464,7 +589,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             // The adapter class is emitted beside the interface.
             return;
         }
-        let tps = self.type_params(&h.type_params);
+        let tps = self.decl_type_params(&h.name, &h.type_params);
         let mut ctor: Vec<String> = Vec::new();
         for p in &h.ctor_params {
             let ty = self.ty(&p.ty);
@@ -474,8 +599,23 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             let ty = self.ty(d);
             ctor.push(format!("private val __dep{i}: {ty}"));
         }
-        let faces: Vec<String> = h.faces.iter().map(|f| self.ty(f)).collect();
-        self.out.push_str(&format!("class {}{tps}({}) : {} {{\n", h.name, ctor.join(", "), faces.join(", ")));
+        let faces = self.actor_faces(h);
+        let is_actor = !faces.is_empty();
+        if is_actor && faces.len() != h.faces.len() {
+            self.error(format!("handler `{}` mixes actor and plain effects, which the IR emitter does not render yet", h.name));
+        }
+        // [mixed-handler] [kt-mixed] plain faces with `send fn` members: the
+        // class is the servant alone; the faces are worn by `__Fac_H`.
+        let mixed = self.is_mixed(h);
+        let face_tys: Vec<String> = h.faces.iter().map(|f| self.ty(f)).collect();
+        let supers = if mixed || face_tys.is_empty() { String::new() } else { format!(" : {}", face_tys.join(", ")) };
+        self.out.push_str(&format!("class {}{tps}({}){supers} {{\n", h.name, ctor.join(", ")));
+        if is_actor || mixed {
+            let fields = self.actor_fields(h);
+            self.out.push_str(&fields);
+        }
+        self.current_impl = Some(h.name.clone());
+        self.in_facade = false;
         for f in &h.state {
             let ty = self.ty(&f.ty);
             let init = match &f.default {
@@ -485,35 +625,87 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             self.out.push_str(&format!("    var {}: {ty} = {init}\n", kt_ident(&f.name)));
         }
         if let Some(init) = &h.init {
-            self.out.push_str("    init {\n");
+            if is_actor || mixed {
+                // [handler-init] an actor's `init` is its first activation,
+                // sent by the spawn as `__Priv_H.Init`.
+                self.in_fn_params.clear();
+                self.aliases.clear();
+                self.handle_locks.clear();
+                self.ret_is_unit = true;
+                self.out.push_str("    fun init() {\n");
+            } else {
+                self.out.push_str("    init {\n");
+            }
+            self.assigned = init.body.as_ref().map(assigned_locals).unwrap_or_default();
             if let Some(b) = &init.body {
                 self.block_stmts(b, 2);
             }
             self.out.push_str("    }\n");
         }
+        let privs: Vec<String> = Self::private_sends(h, &faces).iter().map(|m| m.name.clone()).collect();
         for m in &h.members {
-            self.fn_decl(m, 1, true);
+            if mixed && !m.send {
+                continue;
+            }
+            let private = privs.contains(&m.name);
+            let name = self.impl_member_name_of(h, &m.name, Some(m));
+            self.fn_decl(m, 1, Some(name), !private);
         }
         self.out.push_str("}\n");
+        if mixed {
+            // The façade: the sync members, sending to the servant.
+            let mut fac_ctor: Vec<String> = vec!["private val __addr: Int".to_string()];
+            for p in &h.ctor_params {
+                let ty = self.ty(&p.ty);
+                fac_ctor.push(format!("private val {}: {ty}", kt_local(&p.local)));
+            }
+            self.out.push_str(&format!("\nclass __Fac_{}{tps}({}) : {} {{\n", h.name, fac_ctor.join(", "), face_tys.join(", ")));
+            self.in_facade = true;
+            for m in h.members.iter().filter(|m| !m.send) {
+                let name = self.impl_member_name_of(h, &m.name, Some(m));
+                self.fn_decl(m, 1, Some(name), true);
+            }
+            self.in_facade = false;
+            self.out.push_str("}\n");
+        }
+        self.current_impl = None;
+        if is_actor || mixed {
+            self.actor_body(h, &faces);
+        }
     }
 
-    fn fn_decl(&mut self, f: &FnDecl, indent: usize, member: bool) {
+    /// [mixed-handler] Every face a plain effect, and a `send fn` member.
+    pub(crate) fn is_mixed(&self, h: &ImplDecl) -> bool {
+        !h.faces.is_empty() && h.members.iter().any(|m| m.send) && self.actor_faces(h).is_empty()
+    }
+
+    fn fn_decl(&mut self, f: &FnDecl, indent: usize, member: Option<String>, overrides: bool) {
         if f.kind == FnKind::Intrinsic {
             return;
         }
         let pad = "    ".repeat(indent);
-        let tps = self.type_params(&f.type_params);
+        // [effect-generic-decl] a fn generic only over effects is emitted without them.
+        let file_idx = self.s.program.files.iter().position(|x| x.module == f.id.module);
+        let erased_fn = file_idx.is_some_and(|fi| match self.s.program.modules[fi].items.get(f.id.item) {
+            Some(salvo_syntax::ast::Item::Fn(af)) => self.s.erased.fns.contains(&(fi, af.name.span.start)),
+            _ => false,
+        });
+        let tps = if erased_fn { String::new() } else { self.type_params(&f.type_params) };
         let ps = self.params(&f.params);
         let ret = self.ret_ty(&f.ret);
-        let name = if member {
-            kt_ident(&f.name)
-        } else {
-            let own = self.fn_name(&f.id);
-            own.rsplit('.').next().unwrap_or(&own).to_string()
+        let is_member = member.is_some();
+        let kw = if is_member && overrides { "override fun" } else { "fun" };
+        let name = match member {
+            Some(n) => n,
+            None => {
+                let own = self.fn_name(&f.id);
+                own.rsplit('.').next().unwrap_or(&own).to_string()
+            }
         };
-        let kw = if member { "override fun" } else { "fun" };
         self.in_fn_params = f.params.iter().map(|p| kt_local(&p.local)).collect();
+        self.assigned = f.body.as_ref().map(assigned_locals).unwrap_or_default();
         self.aliases.clear();
+        self.handle_locks.clear();
         self.ret_is_unit = f.ret.is_none_ty();
         if f.kind == FnKind::Platform {
             // [platform-fn] the host's fn, by its package.
@@ -536,6 +728,10 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             return;
         };
         self.out.push_str(&format!("{pad}{kw} {tps}{name}({ps}){ret} {{\n"));
+        if !is_member && f.name == "main" && indent == 0 {
+            let prelude = self.protocol_prelude();
+            self.out.push_str(&prelude);
+        }
         self.block_stmts(body, indent + 1);
         if let Some(v) = &body.value {
             let code = self.expr(v, indent + 1);
@@ -582,14 +778,39 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 self.out.push_str(&format!("{pad}}}\n"));
             }
             Stmt::Let { local, ty, value, .. } => {
+                if let ExprKind::Handle { instance } = &value.kind {
+                    if let ExprKind::Read { place, .. } = &instance.kind {
+                        if place.steps.is_empty() && !self.handle_locks.contains_key(&place.root) {
+                            let lock = format!("__lock_{}", kt_local(&place.root));
+                            self.out.push_str(&format!("{pad}val {lock} = java.util.concurrent.locks.ReentrantLock()\n"));
+                            self.handle_locks.insert(place.root.clone(), lock);
+                        }
+                    }
+                }
                 let code = self.expr(value, indent);
                 let t = self.ty(ty);
-                let kw = "var";
+                // `val` unless the fn assigns the local somewhere.
+                let kw = if self.assigned.contains(local) { "var" } else { "val" };
                 self.out.push_str(&format!("{pad}{kw} {}: {t} = {code}\n", kt_local(local)));
             }
-            Stmt::Narrow { local, ty, from, from_ty, .. } => {
+            Stmt::Narrow { local, ty, from, from_ty, because, .. } => {
                 let src = self.place(from, indent);
-                let code = self.narrow_code(&src, from_ty, ty);
+                // The arm the justification names tells same-typed arms
+                // apart (`Ok Int | Thrown Int`).
+                let test = match because {
+                    salvo_ir::Justification::Test { test } => self.test_arms.get(&(test.0, usize::MAX)).cloned(),
+                    salvo_ir::Justification::Arm { switch, arm } => self.test_arms.get(&(switch.0, *arm)).cloned(),
+                    _ => None,
+                };
+                let code = match test {
+                    Some(ArmTest::Arm(i)) if from_ty.strip_quals().value_arms().len() >= 2 => {
+                        let n = from_ty.strip_quals().value_arms().len();
+                        let stars = vec!["*"; n].join(", ");
+                        let t = self.ty(ty);
+                        format!("(({src} as Union{n}.U{}<{stars}>).value as {t})", i + 1)
+                    }
+                    _ => self.narrow_code(&src, from_ty, ty),
+                };
                 let t = self.ty(ty);
                 self.out.push_str(&format!("{pad}val {}: {t} = {code}\n", kt_local(local)));
             }
@@ -711,7 +932,23 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             ExprKind::Str(s) => format!("\"{}\"", escape_string(s)),
             ExprKind::Unit => "Unit".to_string(),
             ExprKind::MakeNone => "null".to_string(),
-            ExprKind::Read { place, .. } => self.place(place, indent),
+            ExprKind::Read { place, .. } => {
+                let code = self.place(place, indent);
+                // [kt-field-canbe-mut] a `canbe Mut` field is declared at the
+                // plain type; a read the checker typed `Mut` casts back.
+                if matches!(place.steps.last(), Some(Step::Field(_))) {
+                    if let Ty::Qualified { quals, base } = &e.ty {
+                        if quals.iter().any(|q| q.name == "Mut") {
+                            let mut_ty = self.ty(&e.ty);
+                            let plain_ty = self.ty(base);
+                            if mut_ty != plain_ty {
+                                return format!("({code} as {mut_ty})");
+                            }
+                        }
+                    }
+                }
+                code
+            }
             ExprKind::Call { target, type_args, args } => self.call(e, target, type_args, args, indent),
             ExprKind::MemberCall { instance, member, args, .. } => {
                 let inst = self.expr(instance, indent);
@@ -759,6 +996,20 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 let v = self.expr(value, indent);
                 self.rewrap(&v, from, &e.ty)
             }
+            ExprKind::Spread { value } => {
+                // [kt-variadic] Kotlin's spread of an array into a vararg.
+                let v = self.expr(value, indent);
+                format!("*({v})")
+            }
+            ExprKind::Widen { value } => {
+                // [kt-op-promote] the explicit conversion.
+                let v = self.expr(value, indent);
+                match e.ty.strip_quals() {
+                    Ty::Named { name, .. } if name == "Long" => format!("({v}).toLong()"),
+                    Ty::Named { name, .. } if name == "Double" => format!("({v}).toDouble()"),
+                    _ => v,
+                }
+            }
             ExprKind::DropMut { value } => {
                 let v = self.expr(value, indent);
                 match value.ty.strip_quals() {
@@ -792,10 +1043,17 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             }
             ExprKind::Array(es) => {
                 let a = self.exprs(es, indent);
-                let elem = match e.ty.strip_quals() {
-                    Ty::Array(el) => self.ty(el),
-                    _ => "Any".to_string(),
+                let elem_ty = match e.ty.strip_quals() {
+                    Ty::Array(el) => (**el).clone(),
+                    _ => Ty::Unknown,
                 };
+                let elem = if elem_ty.is_unknown() { "Any".to_string() } else { self.ty(&elem_ty) };
+                // [kt-variadic] `arrayOf` wants a reified element: over a bare
+                // type variable the elements go into an `Array<Any?>`, which is
+                // what an erased `Array<T>` is at run time.
+                if matches!(elem_ty.strip_quals(), Ty::Var(_)) {
+                    return format!("@Suppress(\"UNCHECKED_CAST\") (arrayOf<Any?>({}) as Array<{elem}>)", a.join(", "));
+                }
                 format!("arrayOf<{elem}>({})", a.join(", "))
             }
             ExprKind::Concat(parts) => {
@@ -804,7 +1062,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             }
             ExprKind::Branch { arms, otherwise, .. } => self.branch(e, arms, otherwise.as_ref(), indent),
             ExprKind::Switch { subject, arms, .. } => self.switch(e, subject, arms, indent),
-            ExprKind::Test { subject, test, .. } => {
+            ExprKind::Test { id, subject, test } => {
+                self.test_arms.insert((id.0, usize::MAX), test.clone());
                 let s = self.expr(subject, indent);
                 self.test_code(&s, &subject.ty, test)
             }
@@ -878,15 +1137,46 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 };
                 format!("throw AssertionError({m})")
             }
-            ExprKind::Spawn { .. }
-            | ExprKind::Send { .. }
-            | ExprKind::ReplyTo { .. }
-            | ExprKind::WaitFor { .. }
-            | ExprKind::SelfAddr
-            | ExprKind::SelfSend { .. } => {
-                self.error("actors are not rendered by the IR emitter yet");
-                "TODO()".to_string()
+            ExprKind::Spawn { handler, pool, join, .. } => self.spawn(e, handler, pool.as_deref(), join.as_deref(), indent),
+            ExprKind::Send { addr, member, args } => self.send(addr, member, args, indent),
+            ExprKind::ReplyTo { target, captures, gated, pool } => self.replyto(target, captures, *gated, pool.as_deref(), indent),
+            ExprKind::WaitFor { local, token_ty, body } => self.waitfor(local, token_ty, body, indent),
+            ExprKind::SelfAddr => "__addr!!".to_string(),
+            ExprKind::Handle { instance } => {
+                // [effect-handle] [kt-monitor] the effect's monitor over the
+                // instance; handles of one instance in one fn share a lock
+                // [effect-handler-multi].
+                let inst = self.expr(instance, indent);
+                let face = self.ty(&e.ty);
+                let mon = self.monitor_for(&face);
+                let root = match &instance.kind {
+                    ExprKind::Read { place, .. } if place.steps.is_empty() => Some(place.root.clone()),
+                    _ => None,
+                };
+                match root.and_then(|r| self.handle_locks.get(&r).cloned()) {
+                    Some(lock) => format!("{mon}({inst}, {lock})"),
+                    None => format!("{mon}({inst})"),
+                }
             }
+            ExprKind::AddrInstance { addr } => {
+                // [actor-use-addr] the send stub of the effect.
+                let a = self.expr(addr, indent);
+                let Ty::Named { name, .. } = e.ty.strip_quals() else {
+                    self.error("an addr instance of a non-effect type");
+                    return a;
+                };
+                let plain = salvo_core::typekey::plain(name).to_string();
+                match self.interface_by_name(&plain) {
+                    Some(iface) if iface.actor => format!("{}__Stub_{plain}({a})", self.pkg_prefix(&iface.id.module)),
+                    // [monitor-handler] a plain effect's addr is its handle already.
+                    Some(_) => a,
+                    None => {
+                        self.error(format!("`{plain}` is not an effect, so an addr is not an instance of it"));
+                        a
+                    }
+                }
+            }
+            ExprKind::SelfSend { member, args } => self.self_send(member, args, indent),
             ExprKind::Unsupported(what) => {
                 self.error(format!("unsupported IR node: {what}"));
                 "TODO()".to_string()
@@ -952,7 +1242,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     }
 
     fn construct_ty(&mut self, ty: &Ty) -> String {
-        match ty.strip_quals() {
+        // The slot may be optional; the construction is of the value type.
+        match ty.strip_quals().without_none().strip_quals() {
             Ty::Named { name, args } => {
                 // A platform handler constructs its adapter class.
                 let is_platform_handler = self.s.symbols.handlers.get(name.as_str()).is_some_and(|h| h.platform);
@@ -965,11 +1256,45 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 } else {
                     self.type_path(name)
                 };
-                let a: Vec<String> = args.iter().map(|x| self.ty(x)).collect();
+                // [effect-generic-decl] an erased declaration takes no arguments.
+                let a: Vec<String> = if self.s.erased.is_erased(salvo_core::typekey::plain(name)) { Vec::new() } else { args.iter().filter(|a| !matches!(a, Ty::FnName(_))).map(|x| self.ty(x)).collect() };
                 if a.is_empty() { base } else { format!("{base}<{}>", a.join(", ")) }
             }
             other => self.ty(other),
         }
+    }
+
+    /// The Kotlin name of an impl's member: the face member's emitted name
+    /// when a face declares it [effect-member-overload], its own otherwise.
+    pub(crate) fn impl_member_name(&self, h: &ImplDecl, member: &str) -> String {
+        let decl = h.members.iter().find(|m| m.name == member);
+        self.impl_member_name_of(h, member, decl)
+    }
+
+    /// The same for a known member declaration, which tells overloads apart.
+    pub(crate) fn impl_member_name_of(&self, h: &ImplDecl, member: &str, decl: Option<&FnDecl>) -> String {
+        let declared: Option<Vec<&Ty>> = decl.map(|m| m.params.iter().skip(m.effect_params).take(m.params.len() - m.effect_params - m.implicit_params).map(|p| &p.ty).collect());
+        for f in &h.faces {
+            if let Ty::Named { name, .. } = f.strip_quals() {
+                if let Some(i) = self.interface_by_name(&salvo_core::typekey::plain(name)) {
+                    let same: Vec<&salvo_ir::Member> = i.members.iter().filter(|m| m.name == member).collect();
+                    // [effect-member-overload] several members of the name:
+                    // the one whose parameters match.
+                    let pick = match (same.as_slice(), &declared) {
+                        ([one], _) => Some(*one),
+                        (many, Some(d)) => many.iter().copied().find(|m| {
+                            let ps: Vec<&Ty> = m.params.iter().map(|p| &p.ty).collect();
+                            ps.len() >= d.len() && d.iter().zip(&ps).all(|(a, b)| erase_eq(a, b))
+                        }),
+                        _ => None,
+                    };
+                    if let Some(m) = pick {
+                        return kt_ident(&m.emitted_name);
+                    }
+                }
+            }
+        }
+        kt_ident(member)
     }
 
     fn member_name(&self, m: &salvo_ir::MemberRef) -> String {
@@ -1028,8 +1353,77 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             let v = self.expr(&args[0], indent);
             return format!("run {{ {v}; Unit }}");
         }
+        // [kt-actor] a reply's answer travels encoded.
+        if name == "send" && recv == Some("Reply") && args.len() == 2 {
+            if let Ty::Named { name: r, args: targs } = args[0].ty.strip_quals() {
+                if r == "Reply" && targs.len() == 1 && salvo_core::wire_blocker(self.s.symbols, targs[0].strip_quals()).is_none() {
+                    let codec = self.codec(&targs[0]);
+                    let a0 = self.expr(&args[0], indent);
+                    let a1 = self.expr(&args[1], indent);
+                    return format!("salvo.SalvoSched.replyWire({a0}, {a1}, {codec})");
+                }
+            }
+        }
+        if matches!(name, "encode" | "decode") && args.len() == 1 {
+            let target = if name == "encode" { type_args.first().cloned().unwrap_or_else(|| args[0].ty.clone()) } else { type_args.first().cloned().unwrap_or(Ty::Unknown) };
+            let codec = self.codec(&target);
+            let v = self.expr(&args[0], indent);
+            return if name == "encode" { format!("salvo.salvoEncode({v}, {codec})") } else { format!("salvo.salvoDecode({v}, {codec})") };
+        }
         if name == "cmp" && recv == Some("Str") {
             self.s.needs_compare = true;
+        }
+        // [addr-routable] [kt-wire] The routing intrinsics of std `net`.
+        if name == "watch_control" && args.len() == 2 {
+            // [node-group] [actor-group] [actor-private-send] The control
+            // frames of the channel arrive as the handler's private
+            // `control(from, data)` message.
+            self.s.needs_bytes = true;
+            let channel = self.expr(&args[0], indent);
+            let sink = self.expr(&args[1], indent);
+            let Some(hname) = self.current_impl.clone() else {
+                self.error("`watch_control` is called from a handler's `init`");
+                return "TODO()".to_string();
+            };
+            let control = self.s.ir.modules.iter().flat_map(|m| &m.decls).find_map(|d| match d {
+                Decl::Impl(h) if h.name == hname => h.members.iter().find(|m| m.name == "control"),
+                _ => None,
+            });
+            let Some(control) = control else {
+                self.error(format!("`watch_control`: handler `{hname}` has no private `control(from, data)` member"));
+                return "TODO()".to_string();
+            };
+            let from_ty = control.params.get(control.effect_params).map(|p| p.ty.clone()).unwrap_or(Ty::Unknown);
+            let nid = self.ty(&from_ty);
+            return format!("salvo.SalvoSched.watchControl({channel}, {sink}) {{ __n, __d -> __Priv_{hname}.Control({nid}(__n), salvo.SalvoBytes(__d)) }}");
+        }
+        if name == "protocol" && args.is_empty() {
+            // [protocol-hash] [actor-group] the literal of the effect the
+            // result type names — the written type argument or the implicit
+            // position's type, both of which the call's type carries.
+            let effect = match e.ty.strip_quals() {
+                Ty::Named { name, args } if name == "Protocol" && args.len() == 1 => match args[0].strip_quals() {
+                    Ty::Named { name, .. } => Some(salvo_core::typekey::plain(name).to_string()),
+                    _ => None,
+                },
+                _ => None,
+            };
+            let Some(effect) = effect else {
+                self.error("`protocol` needs an effect as its type argument");
+                return "TODO()".to_string();
+            };
+            let Some(iface) = self.interface_by_name(&effect).filter(|i| i.protocol_hash.is_some()) else {
+                self.error(format!("`protocol<{effect}>`: `{effect}` has no wire form, so it cannot be a group's protocol"));
+                return "TODO()".to_string();
+            };
+            let st = self.ty(&e.ty);
+            let st = st.split('<').next().unwrap_or(&st).to_string();
+            return format!("{st}(\"{effect}\", {})", self.proto_const(iface));
+        }
+        if name == "key_hash" && args.len() == 1 {
+            let codec = self.codec(&args[0].ty);
+            let k = self.expr(&args[0], indent);
+            return format!("salvo.SalvoSched.keyHash(salvo.salvoEncode({k}, {codec}).toByteArray())");
         }
         let a: Vec<String> = args
             .iter()
@@ -1108,6 +1502,10 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         if to_arms.len() < 2 {
             return format!("({code} as {})", self.ty(to));
         }
+        if from_arms == to_arms {
+            // The same wrapper: only the `None` arm may go.
+            return if from.strip_quals().has_none_arm() && !to.strip_quals().has_none_arm() { format!("{code}!!") } else { code.to_string() };
+        }
         let n = from_arms.len();
         let mut arms = Vec::new();
         for (i, a) in from_arms.iter().enumerate() {
@@ -1119,7 +1517,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 }
             }
         }
-        if from.strip_quals().has_none_arm() {
+        if from.strip_quals().has_none_arm() && to.strip_quals().has_none_arm() {
             arms.push("null -> null".to_string());
         }
         arms.push("else -> throw IllegalStateException(\"salvo: unreachable union arm\")".to_string());
@@ -1144,17 +1542,40 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 let parts: Vec<String> = arms.iter().map(|a| format!("{subject} is Union{n}.U{}<{stars}>", a + 1)).collect();
                 format!("({})", parts.join(" || "))
             }
-            ArmTest::Lit(lits) => {
-                let parts: Vec<String> = lits
-                    .iter()
-                    .map(|l| match l {
-                        Lit::Str(s) => format!("{subject} == \"{}\"", escape_string(s)),
-                        Lit::Int(i) => format!("{subject} == {i}"),
-                        Lit::Long(i) => format!("{subject} == {i}L"),
-                        Lit::Bool(b) => format!("{subject} == {b}"),
-                    })
-                    .collect();
-                format!("({})", parts.join(" || "))
+            ArmTest::Lit(arms) => {
+                // [type-literal] the arm, then the value on it.
+                let wrapped = n >= 2;
+                let nullable = subj_ty.strip_quals().has_none_arm();
+                let stars = vec!["*"; n.max(1)].join(", ");
+                let lit = |l: &Lit| match l {
+                    Lit::Str(s) => format!("\"{}\"", escape_string(s)),
+                    Lit::Int(i) => i.to_string(),
+                    Lit::Long(i) => format!("{i}L"),
+                    Lit::Bool(b) => b.to_string(),
+                };
+                let mut parts: Vec<String> = Vec::new();
+                for a in arms {
+                    let (is_arm, value) = if wrapped {
+                        (format!("{subject} is Union{n}.U{}<{stars}>", a.arm + 1), format!("({subject} as Union{n}.U{}<{stars}>).value", a.arm + 1))
+                    } else if nullable {
+                        (format!("{subject} != null"), subject.to_string())
+                    } else {
+                        ("true".to_string(), subject.to_string())
+                    };
+                    if a.lits.is_empty() {
+                        parts.push(is_arm);
+                        continue;
+                    }
+                    let op = if a.negate { "!=" } else { "==" };
+                    let cmp: Vec<String> = a.lits.iter().map(|l| format!("{value} {op} {}", lit(l))).collect();
+                    let joined = cmp.join(if a.negate { " && " } else { " || " });
+                    parts.push(if is_arm == "true" { format!("({joined})") } else { format!("({is_arm} && ({joined}))") });
+                }
+                match parts.len() {
+                    0 => "false".to_string(),
+                    1 => parts.pop().unwrap(),
+                    _ => format!("({})", parts.join(" || ")),
+                }
             }
         }
     }
@@ -1215,7 +1636,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let value = !e.ty.is_none_ty() && arms.iter().any(|a| a.body.value.is_some());
         let s = self.expr(subject, indent);
         let mut out = String::from("when {\n");
-        for arm in arms {
+        for (i, arm) in arms.iter().enumerate() {
+            self.test_arms.insert((e_id(e), i), arm.test.clone());
             let cond = self.test_code(&s, &subject.ty, &arm.test);
             let cond = if matches!(arm.test, ArmTest::Else) { "else".to_string() } else { cond };
             out.push_str(&format!("{}{cond} -> {{\n", "    ".repeat(indent + 1)));
@@ -1232,10 +1654,12 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             out.push_str(&body);
             out.push_str(&format!("{}}}\n", "    ".repeat(indent + 1)));
         }
-        if !arms.iter().any(|a| matches!(a.test, ArmTest::Else)) && value {
-            // The checker proved the arms total; Kotlin wants an `else` anyway.
+        if !arms.iter().any(|a| matches!(a.test, ArmTest::Else)) {
+            // The checker proved the arms total; Kotlin wants an `else` anyway
+            // wherever the `when` is read as a value.
             out.push_str(&format!("{}else -> throw IllegalStateException(\"salvo: unreachable arm\")\n", "    ".repeat(indent + 1)));
         }
+        let _ = value;
         out.push_str(&pad);
         out.push('}');
         out
@@ -1245,4 +1669,75 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
 /// Two types equal up to qualifiers (the IR keeps only `Mut`).
 fn erase_eq(a: &Ty, b: &Ty) -> bool {
     a.strip_quals() == b.strip_quals()
+}
+
+/// The node id of a `Switch`/`Branch` expression.
+fn e_id(e: &Expr) -> u32 {
+    match &e.kind {
+        ExprKind::Switch { id, .. } | ExprKind::Branch { id, .. } | ExprKind::Test { id, .. } => id.0,
+        _ => 0,
+    }
+}
+
+/// Every local a block assigns (as a whole or through a projection),
+/// nested blocks and lambdas included.
+fn assigned_locals(b: &Block) -> HashSet<Local> {
+    fn block(b: &Block, out: &mut HashSet<Local>) {
+        for s in &b.stmts {
+            match s {
+                Stmt::Assign { place, value } => {
+                    out.insert(place.root.clone());
+                    expr(value, out);
+                }
+                Stmt::Let { value, .. } | Stmt::Expr(value) | Stmt::Return(Some(value)) => expr(value, out),
+                Stmt::Loop { body, .. } => block(body, out),
+                Stmt::ForEach { body, .. } => block(body, out),
+                _ => {}
+            }
+        }
+        if let Some(v) = &b.value {
+            expr(v, out);
+        }
+    }
+    fn expr(e: &Expr, out: &mut HashSet<Local>) {
+        match &e.kind {
+            ExprKind::Branch { arms, otherwise, .. } => {
+                for (c, b) in arms {
+                    expr(c, out);
+                    block(b, out);
+                }
+                if let Some(o) = otherwise {
+                    block(o, out);
+                }
+            }
+            ExprKind::Switch { subject, arms, .. } => {
+                expr(subject, out);
+                for a in arms {
+                    block(&a.body, out);
+                }
+            }
+            ExprKind::Lambda { body, .. } | ExprKind::Try { body } | ExprKind::WaitFor { body, .. } => block(body, out),
+            ExprKind::Call { args, .. } | ExprKind::Op { args, .. } | ExprKind::Tuple(args) | ExprKind::List(args) | ExprKind::Array(args) | ExprKind::Concat(args) => {
+                for a in args {
+                    expr(a, out);
+                }
+            }
+            ExprKind::MemberCall { instance, args, .. } => {
+                expr(instance, out);
+                for a in args {
+                    expr(a, out);
+                }
+            }
+            ExprKind::Construct { fields } => {
+                for (_, v) in fields {
+                    expr(v, out);
+                }
+            }
+            ExprKind::MakeUnion { value, .. } | ExprKind::Rewrap { value, .. } | ExprKind::DropMut { value } | ExprKind::Widen { value } | ExprKind::Spread { value } => expr(value, out),
+            _ => {}
+        }
+    }
+    let mut out = HashSet::new();
+    block(b, &mut out);
+    out
 }

@@ -59,12 +59,81 @@ impl<'p> Ctx<'p> {
     }
 
     pub fn written_ty(&self, file_idx: usize, ty: &ast::Type) -> Ty {
-        if let Some(t) = self.checked.written_types.get(&(file_idx, ty.span())) {
+        let _ = file_idx;
+        if let Some(t) = self.checked.written_types.get(&salvo_core::check::written_type_key(ty)) {
             return erase(t);
         }
-        match salvo_core::wire::approx_ty(ty, &HashMap::new()) {
+        match self.approx_keyed(ty, &HashMap::new(), 0) {
             Some(t) => erase(&t),
             None => Ty::Unknown,
+        }
+    }
+
+    /// A written type the checker never lowered (a struct field only ever
+    /// read through a substitution, say): approximated from the AST with
+    /// every name resolved to its key and every alias expanded
+    /// [type-identity], which is what the checker's lowering would give.
+    fn approx_keyed(&self, t: &ast::Type, subst: &HashMap<String, Ty>, depth: usize) -> Option<Ty> {
+        use salvo_core::types::Qual;
+        if depth > 32 {
+            return None;
+        }
+        match t {
+            ast::Type::Literal { value, .. } => Some(Ty::Lit(value.clone())),
+            ast::Type::Named { qualifiers, base } => {
+                if qualifiers.is_empty() && base.args.is_empty() {
+                    if let Some(ty) = subst.get(&base.name.name) {
+                        return Some(ty.clone());
+                    }
+                }
+                let args: Vec<Ty> = base.args.iter().map(|a| self.approx_keyed(a, subst, depth + 1)).collect::<Option<_>>()?;
+                let key = self.checked.written_key(base).to_string();
+                // A name that is no declaration and no builtin is a generic
+                // parameter in scope.
+                let builtin = matches!(key.as_str(), "None" | "Str" | "List" | "Array" | "Bytes" | "Addr" | "Reply" | "Pool" | "Map" | "Set" | "Deque" | "SortedSet" | "SortedMap" | "Heap");
+                if args.is_empty() && !builtin && !self.symbols.key_modules.contains_key(key.as_str()) && !self.symbols.intrinsic_types.contains_key(key.as_str()) && !self.symbols.structs.contains_key(key.as_str()) && !self.symbols.type_aliases.contains_key(key.as_str()) && !self.symbols.effects.contains_key(key.as_str()) {
+                    let quals: Vec<Qual> = qualifiers.iter().map(|q| Qual { effect: false, name: q.name.name.clone(), args: Vec::new() }).collect();
+                    return Some(Ty::Var(key).qualify(quals));
+                }
+                let named = match self.symbols.type_aliases.get(key.as_str()).copied().and_then(|a| a.alias.as_ref().map(|t| (a, t))) {
+                    Some((alias, target)) => {
+                        let inner: HashMap<String, Ty> = alias.generics.iter().map(|g| g.name.clone()).zip(args.iter().cloned()).collect();
+                        self.approx_keyed(target, &inner, depth + 1)?
+                    }
+                    None => Ty::Named { name: key, args },
+                };
+                let quals: Vec<Qual> = qualifiers.iter().map(|q| Qual { effect: false, name: q.name.name.clone(), args: Vec::new() }).collect();
+                Some(named.qualify(quals))
+            }
+            ast::Type::QualifiedGroup { qualifiers, base, .. } => {
+                let inner = self.approx_keyed(base, subst, depth + 1)?;
+                let quals: Vec<Qual> = qualifiers.iter().map(|q| Qual { effect: false, name: q.name.name.clone(), args: Vec::new() }).collect();
+                Some(inner.qualify(quals))
+            }
+            ast::Type::Union { arms, .. } => Some(Ty::union_of(arms.iter().map(|a| self.approx_keyed(a, subst, depth + 1)).collect::<Option<_>>()?)),
+            ast::Type::Tuple { elems, .. } => Some(Ty::Tuple(elems.iter().map(|e| self.approx_keyed(e, subst, depth + 1)).collect::<Option<_>>()?)),
+            ast::Type::Array { elem, .. } => Some(Ty::Array(Box::new(self.approx_keyed(elem, subst, depth + 1)?))),
+            ast::Type::Nullable { inner, .. } => Some(Ty::union_of(vec![self.approx_keyed(inner, subst, depth + 1)?, Ty::none()])),
+            ast::Type::Fn { params, effects, ret, .. } => {
+                // [fn-effects] the effects a fn value performs lead its type.
+                let effects: Vec<Ty> = effects
+                    .iter()
+                    .flatten()
+                    .filter_map(|e| match e {
+                        ast::EffectRef::Effect(r) | ast::EffectRef::AnyEffect(r) => Some(Ty::Named {
+                            name: self.checked.written_key(r).to_string(),
+                            args: r.args.iter().filter_map(|a| self.approx_keyed(a, subst, depth + 1)).collect(),
+                        }),
+                        _ => None,
+                    })
+                    .collect();
+                Some(Ty::Fn {
+                    params: params.iter().map(|p| self.approx_keyed(p, subst, depth + 1)).collect::<Option<_>>()?,
+                    ret: Box::new(self.approx_keyed(ret, subst, depth + 1)?),
+                    contract: None,
+                    effects,
+                })
+            }
         }
     }
 
@@ -134,6 +203,12 @@ pub fn erase(ty: &Ty) -> Ty {
     }
     match ty {
         Ty::Qualified { quals, base } => {
+            // [type-none-unit] A *tagged* `None` (`Ok None`) is a value arm —
+            // the unit — not the absent arm, so its tag survives erasure as
+            // the mark of that.
+            if base.is_none_ty() && !quals.is_empty() {
+                return Ty::Qualified { quals: vec![Qual::plain(&quals[0].name, Vec::new())], base: Box::new(Ty::none()) };
+            }
             let base = erase(base);
             if quals.iter().any(|q| q.name == "Mut") {
                 base.qualify(vec![Qual::plain("Mut", Vec::new())])
@@ -166,7 +241,7 @@ pub fn build_program<'p>(
     modules: Option<&HashSet<&salvo_core::ModulePath>>,
 ) -> (Program, Vec<String>) {
     let ctx = Ctx { program, symbols, resolution, checked, names: Ctx::compute_names(program) };
-    let mut out = Program { modules: Vec::new(), names: HashMap::new(), facts: Facts::default() };
+    let mut out = Program { modules: Vec::new(), names: HashMap::new() };
     let mut errors = Vec::new();
     for (file_idx, (file, module)) in program.files.iter().zip(&program.modules).enumerate() {
         if let Some(wanted) = modules {
@@ -179,7 +254,6 @@ pub fn build_program<'p>(
         errors.extend(errs.into_iter().map(|e| format!("{}: {e}", file.name)));
     }
     out.names = ctx.names;
-    out.facts.protocol_hashes = checked.protocol_hashes.clone();
     (out, errors)
 }
 

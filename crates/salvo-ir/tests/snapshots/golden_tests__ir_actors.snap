@@ -96,58 +96,60 @@ fn main::formatted(moved label: Str, moved out: Reply<Str>, moved total: Int) ->
 }
 
 fn main::report_line(moved counter: Addr<Counter>, moved label: Str, moved out: Reply<Str>) -> None {
-  send main::Counter#1(read counter, replyto formatted(read label, !read out))
+  send main::Counter#1(read counter, replyto task main::formatted(read label, !read out))
 }
 
 fn main::main() -> None {
   bind#1 let __use~1: StdOutConsole = construct StdOutConsole { }
-  bind#2 let workers: Pool = call core.actor::pool(Int)(2)
-  bind#3 let counter: Addr<Counter> = spawn[Addr<Counter>](construct Counting { }, on: read workers) serves [Counter]
+  bind#2 let __handle~2: Console = handle[Console](read __use~1)
+  bind#3 let workers: Pool = call core.actor::pool(Int)(2)
+  bind#4 let counter: Addr<Counter> = spawn[Addr<Counter>](construct Counting { }, on: read workers) serves [Counter]
   send main::Counter#0(read counter, 2)
   send main::Counter#0(read counter, 3)
-  bind#4 let sum: Int = waitfor out: Reply<Int> {
+  bind#5 let sum: Int = waitfor out: Reply<Int> {
     send main::Counter#1(read counter, !read out)
   }
-  call core.console::println(read __use~1, concat("1. counter total is ", call core.basic::to_str(Int)(read sum)))
-  bind#5 let ledger: Addr<Ledger> = spawn[Addr<Ledger>](construct Bookkeeping { __dep0: read counter }, on: read workers) serves [Ledger]
-  bind#6 let line: Str = waitfor out: Reply<Str> {
+  call core.console::println(read __handle~2, concat("1. counter total is ", call core.basic::to_str(Int)(read sum)))
+  bind#6 let ledger: Addr<Ledger> = spawn[Addr<Ledger>](construct Bookkeeping { __dep0: instance_at(read counter) }, on: read workers) serves [Ledger]
+  bind#7 let line: Str = waitfor out: Reply<Str> {
     send main::Ledger#0(read ledger, "counter", !read out)
   }
-  call core.console::println(read __use~1, concat("3. ledger says ", read line))
-  bind#7 let desk: Addr<Desk> = spawn[Addr<Desk>](construct Desking { room: 8 }, on: read workers) serves [Desk]
-  bind#9 let first: Str = waitfor a: Reply<Str> {
+  call core.console::println(read __handle~2, concat("3. ledger says ", read line))
+  bind#8 let desk: Addr<Desk> = spawn[Addr<Desk>](construct Desking { room: 8 }, on: read workers) serves [Desk]
+  bind#10 let first: Str = waitfor a: Reply<Str> {
     send main::Desk#0(read desk, !read a)
-    bind#8 let second: Str = waitfor b: Reply<Str> {
+    bind#9 let second: Str = waitfor b: Reply<Str> {
       send main::Desk#0(read desk, !read b)
       send main::Desk#1(read desk, "ada")
       send main::Desk#2(read desk, "end of day")
     }
-    call core.console::println(read __use~1, concat("4. second waiter got: ", read second))
+    call core.console::println(read __handle~2, concat("4. second waiter got: ", read second))
   }
-  call core.console::println(read __use~1, concat("4. first waiter got: ", read first))
-  bind#10 let fragile: Addr<Fragile> = spawn[Addr<Fragile>](construct Breaking { }, on: read workers) serves [Fragile]
-  bind#11 let exit: Exit = waitfor gone: Reply<Exit> {
+  call core.console::println(read __handle~2, concat("4. first waiter got: ", read first))
+  bind#11 let fragile: Addr<Fragile> = spawn[Addr<Fragile>](construct Breaking { }, on: read workers) serves [Fragile]
+  bind#12 let exit: Exit = waitfor gone: Reply<Exit> {
     call core.actor::watch<Fragile>(read fragile, !read gone)
     send main::Fragile#0(read fragile)
   }
-  call core.console::println(read __use~1, concat("5. it died with a reason: ", call core.basic::to_str(Bool)(op Gt(call core.compare::cmp(Int, Int)(call core.string::size(read exit.reason), 0), 0))))
+  call core.console::println(read __handle~2, concat("5. it died with a reason: ", call core.basic::to_str(Bool)(op Gt(call core.compare::cmp(Int, Int)(call core.string::size(read exit.reason), 0), 0))))
   send main::Fragile#0(read fragile)
-  bind#12 let __use~2: Counting = construct Counting { }
-  member main::Counter#0(read __use~2, 4)
-  member main::Counter#0(read __use~2, 5)
-  bind#13 let inline: Int = waitfor out: Reply<Int> {
-    member main::Counter#1(read __use~2, !read out)
+  bind#13 let __use~3: Counting = construct Counting { }
+  bind#14 let __handle~4: Counter = handle[Counter](read __use~3)
+  member main::Counter#0(read __handle~4, 4)
+  member main::Counter#0(read __handle~4, 5)
+  bind#15 let inline: Int = waitfor out: Reply<Int> {
+    member main::Counter#1(read __handle~4, !read out)
   }
-  call core.console::println(read __use~1, concat("6. inline total is ", call core.basic::to_str(Int)(read inline)))
-  bind#14 let mine: Addr<Counter> = spawn[Addr<Counter>](construct Counting { }) serves [Counter]
+  call core.console::println(read __handle~2, concat("6. inline total is ", call core.basic::to_str(Int)(read inline)))
+  bind#16 let mine: Addr<Counter> = spawn[Addr<Counter>](construct Counting { }) serves [Counter]
   send main::Counter#0(read mine, 6)
-  bind#15 let local: Int = waitfor out: Reply<Int> {
+  bind#17 let local: Int = waitfor out: Reply<Int> {
     send main::Counter#1(read mine, !read out)
   }
-  call core.console::println(read __use~1, concat("7. the main pool's own actor totalled ", call core.basic::to_str(Int)(read local)))
-  bind#16 let line8: Str = waitfor out: Reply<Str> {
+  call core.console::println(read __handle~2, concat("7. the main pool's own actor totalled ", call core.basic::to_str(Int)(read local)))
+  bind#18 let line8: Str = waitfor out: Reply<Str> {
     call main::report_line(!read mine, "the counter", !read out)
   }
-  call core.console::println(read __use~1, concat("8. ", read line8))
-  call core.console::println(read __use~1, "done")
+  call core.console::println(read __handle~2, concat("8. ", read line8))
+  call core.console::println(read __handle~2, "done")
 }

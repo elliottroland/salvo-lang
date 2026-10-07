@@ -17,7 +17,7 @@ fn main::overdue(lent __eff0: Ticker; lent started: Tick, lent budget: Duration)
 }
 
 impl SteppingTicker(lent step: Duration) of Ticker stateful {
-  state at: Long = 0
+  state at: Long = 0L
   fn tick() -> Tick {
     assign at = op Add(read at, read step.nanos)
     return construct Tick { nanos: read at }
@@ -32,7 +32,7 @@ actor interface Session {
 impl Sessions() of Session deps [Timer] stateful {
   mailbox construct Mailbox { capacity: 8 }
   fn open(lent started: Tick, lent budget: Duration, lent out: Reply<Str>) -> None {
-    member time::Timer#0(read __dep0, call time::plus(Duration, Duration)(read budget, call time::seconds(1)), replyto expire(read started, read budget, !read out))
+    member time::Timer#0(read __dep0, call time::plus(Duration, Duration)(read budget, call time::seconds(1L)), replyto expire(read started, read budget, !read out))
   }
   fn expire(lent started: Tick, lent budget: Duration, lent out: Reply<Str>, lent f: Fired) -> None {
     call core.actor::send<Str>(!read out, call main::verdict(read started, read f.at, read budget))
@@ -42,7 +42,7 @@ impl Sessions() of Session deps [Timer] stateful {
 impl TestTicker(lent timer: Addr<Timer>) of Ticker {
   fn tick() -> Tick {
     bind#1 let fired: Fired = waitfor answer: Reply<Fired> {
-      send time::Timer#0(read timer, call time::nanos(0), !read answer)
+      send time::Timer#0(read timer, call time::nanos(0L), !read answer)
     }
     return read fired.at
   }
@@ -65,39 +65,43 @@ impl Napping() of Sleeper deps [Timer, Ticker] stateful {
 
 fn main::main() -> None {
   bind#1 let __use~1: StdOutConsole = construct StdOutConsole { }
-  bind#2 let budget: Duration = call time::millis(1500)
-  call core.console::println(read __use~1, concat("budget ", call time::to_str(read budget), ", doubled ", call time::to_str(call time::times(read budget, 2)), ", in millis ", call core.basic::to_str(Long)(call time::to_millis(read budget))))
-  bind#3 let stamp: Instant = call time::epoch_milli(1700000000000)
-  call core.console::println(read __use~1, concat("stamp ", call core.basic::to_str(Long)(call time::to_epoch_second(read stamp)), "s, a minute later ", call core.basic::to_str(Long)(call time::to_epoch_second(call time::plus(Instant, Duration)(read stamp, call time::minutes(1)))), "s"))
-  bind#4 let __use~2: DefaultClock = construct DefaultClock { }
-  bind#5 let __use~3: DefaultTicker = construct DefaultTicker { }
-  call core.console::println(read __use~1, concat("wall clock is set: ", call core.basic::to_str(Bool)(op Gt(call core.compare::cmp(Long, Long)(call time::to_epoch_second(member time::Clock#0(read __use~2)), 1600000000), 0))))
-  bind#6 let __use~4: SteppingTicker = construct SteppingTicker { step: call time::millis(500) }
-  bind#7 let started: Tick = member time::Ticker#0(read __use~4)
-  call core.console::println(read __use~1, concat("overdue after one more read: ", call core.basic::to_str(Bool)(call main::overdue(read __use~4, read started, read budget))))
-  call core.console::println(read __use~1, concat("overdue after three: ", call core.basic::to_str(Bool)(call main::overdue(read __use~4, read started, read budget)), " ", call core.basic::to_str(Bool)(call main::overdue(read __use~4, read started, read budget)), " ", call core.basic::to_str(Bool)(call main::overdue(read __use~4, read started, read budget))))
-  call core.console::println(read __use~1, call main::verdict(construct Tick { nanos: 0 }, construct Tick { nanos: 1000000000 }, read budget))
-  call core.console::println(read __use~1, call main::verdict(construct Tick { nanos: 0 }, construct Tick { nanos: 2000000000 }, read budget))
-  bind#8 let p: Pool = call core.actor::pool(Int)(1)
-  bind#9 let __destructured~5: (Addr<Timer>, Addr<TimerCtl>) = spawn[(Addr<Timer>, Addr<TimerCtl>)](construct ManualTime { }, on: read p) serves [Timer, TimerCtl]
-  bind#10 let timer: Addr<Timer> = !read __destructured~5.0
-  bind#11 let ctl: Addr<TimerCtl> = !read __destructured~5.1
-  bind#12 let sessions: Addr<Session> = spawn[Addr<Session>](construct Sessions { __dep0: read timer }, on: read p) serves [Session]
-  bind#13 let outcome: Str = waitfor answer: Reply<Str> {
-    send main::Session#0(read sessions, construct Tick { nanos: 0 }, read budget, !read answer)
+  bind#2 let __handle~2: Console = handle[Console](read __use~1)
+  bind#3 let budget: Duration = call time::millis(1500L)
+  call core.console::println(read __handle~2, concat("budget ", call time::to_str(read budget), ", doubled ", call time::to_str(call time::times(read budget, 2L)), ", in millis ", call core.basic::to_str(Long)(call time::to_millis(read budget))))
+  bind#4 let stamp: Instant = call time::epoch_milli(1700000000000L)
+  call core.console::println(read __handle~2, concat("stamp ", call core.basic::to_str(Long)(call time::to_epoch_second(read stamp)), "s, a minute later ", call core.basic::to_str(Long)(call time::to_epoch_second(call time::plus(Instant, Duration)(read stamp, call time::minutes(1L)))), "s"))
+  bind#5 let __use~3: DefaultClock = construct DefaultClock { }
+  bind#6 let __handle~4: Clock = handle[Clock](read __use~3)
+  bind#7 let __use~5: DefaultTicker = construct DefaultTicker { }
+  bind#8 let __handle~6: Ticker = handle[Ticker](read __use~5)
+  call core.console::println(read __handle~2, concat("wall clock is set: ", call core.basic::to_str(Bool)(op Gt(call core.compare::cmp(Long, Long)(call time::to_epoch_second(member time::Clock#0(read __handle~4)), 1600000000L), 0))))
+  bind#9 let __use~7: SteppingTicker = construct SteppingTicker { step: call time::millis(500L) }
+  bind#10 let __handle~8: Ticker = handle[Ticker](read __use~7)
+  bind#11 let started: Tick = member time::Ticker#0(read __handle~8)
+  call core.console::println(read __handle~2, concat("overdue after one more read: ", call core.basic::to_str(Bool)(call main::overdue(read __handle~8, read started, read budget))))
+  call core.console::println(read __handle~2, concat("overdue after three: ", call core.basic::to_str(Bool)(call main::overdue(read __handle~8, read started, read budget)), " ", call core.basic::to_str(Bool)(call main::overdue(read __handle~8, read started, read budget)), " ", call core.basic::to_str(Bool)(call main::overdue(read __handle~8, read started, read budget))))
+  call core.console::println(read __handle~2, call main::verdict(construct Tick { nanos: 0L }, construct Tick { nanos: 1000000000L }, read budget))
+  call core.console::println(read __handle~2, call main::verdict(construct Tick { nanos: 0L }, construct Tick { nanos: 2000000000L }, read budget))
+  bind#12 let p: Pool = call core.actor::pool(Int)(1)
+  bind#13 let __destructured~9: (Addr<Timer>, Addr<TimerCtl>) = spawn[(Addr<Timer>, Addr<TimerCtl>)](construct ManualTime { }, on: read p) serves [Timer, TimerCtl]
+  bind#14 let timer: Addr<Timer> = !read __destructured~9.0
+  bind#15 let ctl: Addr<TimerCtl> = !read __destructured~9.1
+  bind#16 let sessions: Addr<Session> = spawn[Addr<Session>](construct Sessions { __dep0: instance_at(read timer) }, on: read p) serves [Session]
+  bind#17 let outcome: Str = waitfor answer: Reply<Str> {
+    send main::Session#0(read sessions, construct Tick { nanos: 0L }, read budget, !read answer)
     waitfor settled: Reply<Idle> {
       call core.actor::on_idle(read p, !read settled)
     }
-    send time::TimerCtl#0(read ctl, call time::millis(2500))
+    send time::TimerCtl#0(read ctl, call time::millis(2500L))
   }
-  call core.console::println(read __use~1, concat("session: ", read outcome))
-  bind#14 let sleeper: Addr<Sleeper> = spawn[Addr<Sleeper>](construct Napping { __dep0: read timer, __dep1: construct TestTicker { timer: read timer } }, on: call core.actor::thread()) serves [Sleeper]
-  bind#15 let napped: Str = waitfor answer: Reply<Str> {
-    send main::Sleeper#0(read sleeper, call time::seconds(2), !read answer)
+  call core.console::println(read __handle~2, concat("session: ", read outcome))
+  bind#18 let sleeper: Addr<Sleeper> = spawn[Addr<Sleeper>](construct Napping { __dep0: instance_at(read timer), __dep1: construct TestTicker { timer: read timer } }, on: call core.actor::thread()) serves [Sleeper]
+  bind#19 let napped: Str = waitfor answer: Reply<Str> {
+    send main::Sleeper#0(read sleeper, call time::seconds(2L), !read answer)
     waitfor settled: Reply<Idle> {
       call core.actor::on_idle(read p, !read settled)
     }
-    send time::TimerCtl#0(read ctl, call time::seconds(2))
+    send time::TimerCtl#0(read ctl, call time::seconds(2L))
   }
-  call core.console::println(read __use~1, read napped)
+  call core.console::println(read __handle~2, read napped)
 }

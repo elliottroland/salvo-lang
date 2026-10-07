@@ -289,6 +289,7 @@ impl<'a> Dumper<'a> {
                     Justification::Arm { switch, arm } => format!("switch#{}.arm#{arm}", switch.0),
                     Justification::Cond { branch, arm } => format!("branch#{}.cond#{arm}", branch.0),
                     Justification::After { branch, arm } => format!("after branch#{}.cond#{arm}", branch.0),
+                    Justification::LoopValue { loop_ } => format!("loop#{} value", loop_.0),
                 };
                 let _ = write!(self.out, "narrow#{}[{why}] {}: {ty} = ", id.0, local.0);
                 self.place(from, indent);
@@ -460,7 +461,7 @@ impl<'a> Dumper<'a> {
                         ArmTest::Arm(a) => format!("arm {a}"),
                         ArmTest::Arms(a) => format!("arms {a:?}"),
                         ArmTest::None => "none".to_string(),
-                        ArmTest::Lit(ls) => format!("lit {ls:?}"),
+                        ArmTest::Lit(ls) => format!("lit {}", ls.iter().map(|a| format!("{}{}{:?}", a.arm, if a.negate { " not " } else { " " }, a.lits)).collect::<Vec<_>>().join(" | ")),
                         ArmTest::Else => "else".to_string(),
                     };
                     let _ = write!(self.out, "{pad}arm#{i} ({test}) ");
@@ -474,7 +475,7 @@ impl<'a> Dumper<'a> {
                     ArmTest::Arm(a) => format!("arm {a}"),
                     ArmTest::Arms(a) => format!("arms {a:?}"),
                     ArmTest::None => "none".to_string(),
-                    ArmTest::Lit(ls) => format!("lit {ls:?}"),
+                    ArmTest::Lit(ls) => format!("lit {}", ls.iter().map(|a| format!("{}{}{:?}", a.arm, if a.negate { " not " } else { " " }, a.lits)).collect::<Vec<_>>().join(" | ")),
                     ArmTest::Else => "else".to_string(),
                 };
                 let _ = write!(self.out, "check#{} (", id.0);
@@ -561,8 +562,20 @@ impl<'a> Dumper<'a> {
                 }
                 self.out.push(')');
             }
-            ExprKind::ReplyTo { member, captures, gated, pool } => {
-                let _ = write!(self.out, "replyto{} {member}", if *gated { "!" } else { "" });
+            ExprKind::ReplyTo { target, captures, gated, pool } => {
+                let _ = write!(self.out, "replyto{} ", if *gated { "!" } else { "" });
+                match target {
+                    ReplyTarget::Member(m) => self.out.push_str(m),
+                    ReplyTarget::Task { target, effects } => {
+                        self.out.push_str("task ");
+                        let n = self.name_of(target);
+                        self.out.push_str(&n);
+                        if !effects.is_empty() {
+                            self.out.push_str(" effects");
+                            self.args(effects, indent);
+                        }
+                    }
+                }
                 self.args(captures, indent);
                 if let Some(p) = pool {
                     self.out.push_str(" on ");
@@ -572,6 +585,25 @@ impl<'a> Dumper<'a> {
             ExprKind::WaitFor { local, token_ty, body } => {
                 let _ = write!(self.out, "waitfor {}: {token_ty} ", local.0);
                 self.block(body, indent);
+            }
+            ExprKind::Spread { value } => {
+                self.out.push_str("...");
+                self.expr(value, indent);
+            }
+            ExprKind::Widen { value } => {
+                let _ = write!(self.out, "widen[{}](", e.ty);
+                self.expr(value, indent);
+                self.out.push(')');
+            }
+            ExprKind::Handle { instance } => {
+                let _ = write!(self.out, "handle[{}](", e.ty);
+                self.expr(instance, indent);
+                self.out.push(')');
+            }
+            ExprKind::AddrInstance { addr } => {
+                self.out.push_str("instance_at(");
+                self.expr(addr, indent);
+                self.out.push(')');
             }
             ExprKind::SelfAddr => self.out.push_str("self_addr"),
             ExprKind::SelfSend { member, args } => {

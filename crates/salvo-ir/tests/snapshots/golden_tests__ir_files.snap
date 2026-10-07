@@ -9,20 +9,17 @@ fn main::kind_name(FsError)(lent kind: NotFound | PermissionDenied | AlreadyExis
     narrow#3[check#2] kind~1: NotFound = kind
     return "not found"
   }
-  narrow#6[after branch#1.cond#0] kind~2: PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming = kind
   branch#4 cond#0 check#5 (read kind is arm 3) {
-    narrow#7[check#5] kind~3: NotADirectory = kind~2
+    narrow#6[check#5] kind~2: NotADirectory = kind
     return "not a directory"
   }
-  narrow#10[after branch#4.cond#0] kind~4: PermissionDenied | AlreadyExists | PathEscapes | IoError | Streaming = kind
-  branch#8 cond#0 check#9 (read kind is arm 4) {
-    narrow#11[check#9] kind~5: PathEscapes = kind~4
+  branch#7 cond#0 check#8 (read kind is arm 4) {
+    narrow#9[check#8] kind~3: PathEscapes = kind
     return "escapes the sandbox"
   }
-  narrow#14[after branch#8.cond#0] kind~6: PermissionDenied | AlreadyExists | IoError | Streaming = kind
-  branch#12 cond#0 check#13 (read kind is arm 6) {
-    narrow#15[check#13] kind~7: Streaming = kind~6
-    return call main::kind_name(StreamError)(read kind~7.error)
+  branch#10 cond#0 check#11 (read kind is arm 6) {
+    narrow#12[check#11] kind~4: Streaming = kind
+    return call main::kind_name(StreamError)(read kind~4.error)
   }
   return "other"
 }
@@ -77,9 +74,9 @@ fn main::workflow(lent __eff0: Fs, lent __eff1: Console, lent __eff2: Streams) -
           }
         }
       }
-      bind#19 let closed: Checked<InvalidUtf8 | StreamFailed>? = call stream::close(Lines)(read __eff2, drop_mut(!read p))
+      bind#19 let closed: Ok None | Checked<InvalidUtf8 | StreamFailed> = call stream::close(Lines)(read __eff2, drop_mut(!read p))
       branch#20 cond#0 check#21 (read closed is arm 1) {
-        narrow#22[branch#20.cond#0] closed~9: Checked<InvalidUtf8 | StreamFailed> = closed
+        narrow#22[check#21] closed~9: Checked<InvalidUtf8 | StreamFailed> = closed
         call core.console::println(read __eff1, concat("close failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read closed~9))))
       }
     }
@@ -96,9 +93,9 @@ fn main::workflow(lent __eff0: Fs, lent __eff1: Console, lent __eff2: Streams) -
       bind#28 let at: Long = member stream::Streams#11(read __eff2, read w)
       bind#29 let n: Long = member stream::Streams#9(read __eff2, read w, "delta")
       call core.console::println(read __eff1, concat("appended ", call core.basic::to_str(Long)(read n), " bytes at offset ", call core.basic::to_str(Long)(read at)))
-      bind#30 let shut: Checked<InvalidUtf8 | StreamFailed>? = member stream::Streams#13(read __eff2, !read w)
+      bind#30 let shut: Ok None | Checked<InvalidUtf8 | StreamFailed> = member stream::Streams#13(read __eff2, !read w)
       branch#31 cond#0 check#32 (read shut is arm 1) {
-        narrow#33[branch#31.cond#0] shut~12: Checked<InvalidUtf8 | StreamFailed> = shut
+        narrow#33[check#32] shut~12: Checked<InvalidUtf8 | StreamFailed> = shut
         call core.console::println(read __eff1, concat("close failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read shut~12))))
       }
       bind#34 let resumed: InStream | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member fs::Fs#1(read __eff0, call fs.path::path("notes.txt"), read at)
@@ -116,9 +113,9 @@ fn main::workflow(lent __eff0: Fs, lent __eff1: Console, lent __eff2: Streams) -
               call core.console::println(read __eff1, concat("at ", call core.basic::to_str(Long)(read at), ": end of file"))
             }
           }
-          bind#41 let done: Checked<InvalidUtf8 | StreamFailed>? = member stream::Streams#7(read __eff2, !read s)
+          bind#41 let done: Ok None | Checked<InvalidUtf8 | StreamFailed> = member stream::Streams#7(read __eff2, !read s)
           branch#42 cond#0 check#43 (read done is arm 1) {
-            narrow#44[branch#42.cond#0] done~15: Checked<InvalidUtf8 | StreamFailed> = done
+            narrow#44[check#43] done~15: Checked<InvalidUtf8 | StreamFailed> = done
             call core.console::println(read __eff1, concat("close failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read done~15))))
           }
         }
@@ -142,9 +139,9 @@ fn main::workflow(lent __eff0: Fs, lent __eff1: Console, lent __eff2: Streams) -
       bind#52 let n: Long = member stream::Streams#10(read __eff2, read w, read data)
       bind#53 let m: Long = member stream::Streams#8(read __eff2, read w, "hé")
       call core.console::println(read __eff1, concat("wrote ", call core.basic::to_str(Long)(read n), " raw bytes and ", call core.basic::to_str(Long)(read m), " encoded"))
-      bind#54 let shut: Checked<InvalidUtf8 | StreamFailed>? = member stream::Streams#13(read __eff2, !read w)
+      bind#54 let shut: Ok None | Checked<InvalidUtf8 | StreamFailed> = member stream::Streams#13(read __eff2, !read w)
       branch#55 cond#0 check#56 (read shut is arm 1) {
-        narrow#57[branch#55.cond#0] shut~19: Checked<InvalidUtf8 | StreamFailed> = shut
+        narrow#57[check#56] shut~19: Checked<InvalidUtf8 | StreamFailed> = shut
         call core.console::println(read __eff1, concat("close failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read shut~19))))
       }
     }
@@ -180,9 +177,9 @@ fn main::workflow(lent __eff0: Fs, lent __eff1: Console, lent __eff2: Streams) -
           call core.console::println(read __eff1, concat("decode failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read tail~25))))
         }
       }
-      bind#71 let done: Checked<InvalidUtf8 | StreamFailed>? = member stream::Streams#7(read __eff2, !read s)
+      bind#71 let done: Ok None | Checked<InvalidUtf8 | StreamFailed> = member stream::Streams#7(read __eff2, !read s)
       branch#72 cond#0 check#73 (read done is arm 1) {
-        narrow#74[branch#72.cond#0] done~26: Checked<InvalidUtf8 | StreamFailed> = done
+        narrow#74[check#73] done~26: Checked<InvalidUtf8 | StreamFailed> = done
         call core.console::println(read __eff1, concat("close failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read done~26))))
       }
     }
@@ -191,7 +188,7 @@ fn main::workflow(lent __eff0: Fs, lent __eff1: Console, lent __eff2: Streams) -
       call core.console::println(read __eff1, concat("raw read failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read raw~27))))
     }
   }
-  bind#76 let split: InStream | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member fs::Fs#1(read __eff0, call fs.path::path("raw.bin"), 5)
+  bind#76 let split: InStream | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member fs::Fs#1(read __eff0, call fs.path::path("raw.bin"), 5L)
   switch#77 read split {
     arm#0 (arm 0) {
       narrow#78[switch#77.arm#0] split~28: InStream = split
@@ -207,10 +204,10 @@ fn main::workflow(lent __eff0: Fs, lent __eff1: Console, lent __eff2: Streams) -
           call core.console::println(read __eff1, concat("mid-character: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read broken~30))))
         }
       }
-      bind#84 let done: Checked<InvalidUtf8 | StreamFailed>? = member stream::Streams#7(read __eff2, !read s)
+      bind#84 let done: Ok None | Checked<InvalidUtf8 | StreamFailed> = member stream::Streams#7(read __eff2, !read s)
       switch#85 read done {
         arm#0 (arm 0) {
-          narrow#86[switch#85.arm#0] done~31: Checked<InvalidUtf8 | StreamFailed> = done
+          narrow#86[switch#85.arm#0] done~31: Ok None = done
           call core.console::println(read __eff1, "unexpected: the failure was not recorded")
         }
         arm#1 (arm 1) {
@@ -258,9 +255,9 @@ fn main::workflow(lent __eff0: Fs, lent __eff1: Console, lent __eff2: Streams) -
         }
       }
       call core.console::println(read __eff1, concat("filled ", call core.basic::to_str(Int)(read moved), " bytes in ", call core.basic::to_str(Int)(read steps), " reads, one buffer"))
-      bind#105 let done: Checked<InvalidUtf8 | StreamFailed>? = member stream::Streams#7(read __eff2, !read s)
+      bind#105 let done: Ok None | Checked<InvalidUtf8 | StreamFailed> = member stream::Streams#7(read __eff2, !read s)
       branch#106 cond#0 check#107 (read done is arm 1) {
-        narrow#108[branch#106.cond#0] done~37: Checked<InvalidUtf8 | StreamFailed> = done
+        narrow#108[check#107] done~37: Checked<InvalidUtf8 | StreamFailed> = done
         call core.console::println(read __eff1, concat("close failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read done~37))))
       }
     }
@@ -291,9 +288,9 @@ fn main::workflow(lent __eff0: Fs, lent __eff1: Console, lent __eff2: Streams) -
         }
       }
       call core.console::println(read __eff1, concat("longest line: ", call core.basic::to_str(Int)(read longest), " characters"))
-      bind#121 let done: Checked<InvalidUtf8 | StreamFailed>? = member stream::Streams#7(read __eff2, !read s)
+      bind#121 let done: Ok None | Checked<InvalidUtf8 | StreamFailed> = member stream::Streams#7(read __eff2, !read s)
       branch#122 cond#0 check#123 (read done is arm 1) {
-        narrow#124[branch#122.cond#0] done~40: Checked<InvalidUtf8 | StreamFailed> = done
+        narrow#124[check#123] done~40: Checked<InvalidUtf8 | StreamFailed> = done
         call core.console::println(read __eff1, concat("close failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read done~40))))
       }
     }
@@ -323,9 +320,9 @@ fn main::workflow(lent __eff0: Fs, lent __eff1: Console, lent __eff2: Streams) -
         }
       }
       call core.console::println(read __eff1, concat("chunks saw ", call core.basic::to_str(Int)(read seen), " bytes"))
-      bind#137 let done: Checked<InvalidUtf8 | StreamFailed>? = call stream::close(Chunks)(read __eff2, drop_mut(!read p))
+      bind#137 let done: Ok None | Checked<InvalidUtf8 | StreamFailed> = call stream::close(Chunks)(read __eff2, drop_mut(!read p))
       branch#138 cond#0 check#139 (read done is arm 1) {
-        narrow#140[branch#138.cond#0] done~46: Checked<InvalidUtf8 | StreamFailed> = done
+        narrow#140[check#139] done~46: Checked<InvalidUtf8 | StreamFailed> = done
         call core.console::println(read __eff1, concat("close failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read done~46))))
       }
     }
@@ -384,9 +381,9 @@ fn main::workflow(lent __eff0: Fs, lent __eff1: Console, lent __eff2: Streams) -
     call core.console::println(read __eff1, concat("  ", call main::kind_name(FsError)(call core.basic::copy<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(read kind))))
   }
   foreach#160 name: Str in list[List<Str>]("notes.txt", "notes-copy.txt", "raw.bin") {
-    bind#161 let gone: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>? = member fs::Fs#8(read __eff0, call fs.path::path(read name))
+    bind#161 let gone: Ok None | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member fs::Fs#8(read __eff0, call fs.path::path(read name))
     branch#162 cond#0 check#163 (read gone is arm 1) {
-      narrow#164[branch#162.cond#0] gone~56: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = gone
+      narrow#164[check#163] gone~56: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = gone
       call core.console::println(read __eff1, concat("delete failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read gone~56))))
     }
   }
@@ -429,40 +426,48 @@ fn main::sandbox_edges(lent __eff0: Fs, lent __eff1: Console, lent __eff2: Strea
   }
   bind#13 let probe: Path = call fs.path::path("probe.txt")
   call core.console::println(read __eff1, concat("probe still there: ", call core.basic::to_str(Bool)(member fs::Fs#4(read __eff0, read probe))))
-  bind#14 let gone: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>? = member fs::Fs#8(read __eff0, read probe)
+  bind#14 let gone: Ok None | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member fs::Fs#8(read __eff0, read probe)
   branch#15 cond#0 check#16 (read gone is arm 1) {
-    narrow#17[branch#15.cond#0] gone~7: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = gone
+    narrow#17[check#16] gone~7: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = gone
     call core.console::println(read __eff1, concat("delete failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read gone~7))))
   }
 }
 
 fn main::main() -> None {
   bind#1 let __use~1: StdOutConsole = construct StdOutConsole { }
-  bind#2 let __use~2: HostRawStreams = construct HostRawStreams { }
-  bind#3 let __use~3: DefaultStreams = construct DefaultStreams { __dep0: read __use~2 }
-  bind#4 let __use~4: HostRawFs = construct HostRawFs { }
-  bind#5 let __use~5: DefaultFs = construct DefaultFs { __dep0: read __use~4, __dep1: read __use~3 }
-  bind#6 let root: Path = call fs.path::path("tmp/files-example")
-  bind#7 let made: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>? = member fs::Fs#7(read __use~5, read root)
-  branch#8 cond#0 check#9 (read made is arm 1) {
-    narrow#10[branch#8.cond#0] made~6: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = made
-    call core.console::println(read __use~1, concat("cannot create the working directory: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read made~6))))
+  bind#2 let __handle~2: Console = handle[Console](read __use~1)
+  bind#3 let __use~3: HostRawStreams = construct HostRawStreams { }
+  bind#4 let __handle~4: RawStreams = handle[RawStreams](read __use~3)
+  bind#5 let __use~5: DefaultStreams = construct DefaultStreams { __dep0: read __handle~4 }
+  bind#6 let __handle~6: Streams = handle[Streams](read __use~5)
+  bind#7 let __use~7: HostRawFs = construct HostRawFs { }
+  bind#8 let __handle~8: RawFs = handle[RawFs](read __use~7)
+  bind#9 let __use~9: DefaultFs = construct DefaultFs { __dep0: read __handle~8, __dep1: read __handle~6 }
+  bind#10 let __handle~10: Fs = handle[Fs](read __use~9)
+  bind#11 let root: Path = call fs.path::path("tmp/files-example")
+  bind#12 let made: Ok None | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member fs::Fs#7(read __handle~10, read root)
+  branch#13 cond#0 check#14 (read made is arm 1) {
+    narrow#15[check#14] made~11: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = made
+    call core.console::println(read __handle~2, concat("cannot create the working directory: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read made~11))))
     return none[None]
   }
-  call core.console::println(read __use~1, "-- the real filesystem, scoped to one directory --")
-  branch#11 cond#0 true {
-    bind#12 let __use~7: RestrictedFs = construct RestrictedFs { root: call core.basic::copy<Path>(read root), __dep0: read __use~5, __dep1: read __use~3 }
-    call main::workflow(read __use~7, read __use~1, read __use~3)
-    call main::sandbox_edges(read __use~7, read __use~1, read __use~3)
+  call core.console::println(read __handle~2, "-- the real filesystem, scoped to one directory --")
+  branch#16 cond#0 true {
+    bind#17 let __use~12: RestrictedFs = construct RestrictedFs { root: call core.basic::copy<Path>(read root), __dep0: read __handle~10, __dep1: read __handle~6 }
+    bind#18 let __handle~13: Fs = handle[Fs](read __use~12)
+    call main::workflow(read __handle~13, read __handle~2, read __handle~6)
+    call main::sandbox_edges(read __handle~13, read __handle~2, read __handle~6)
   }
-  bind#13 let gone: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>? = member fs::Fs#8(read __use~5, read root)
-  branch#14 cond#0 check#15 (read gone is arm 1) {
-    narrow#16[branch#14.cond#0] gone~8: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = gone
-    call core.console::println(read __use~1, concat("cleanup failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read gone~8))))
+  bind#19 let gone: Ok None | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member fs::Fs#8(read __handle~10, read root)
+  branch#20 cond#0 check#21 (read gone is arm 1) {
+    narrow#22[check#21] gone~14: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = gone
+    call core.console::println(read __handle~2, concat("cleanup failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read gone~14))))
   }
-  call core.console::println(read __use~1, "-- the same code, with no disk at all --")
-  branch#17 cond#0 true {
-    bind#18 let __use~9: MemFs = construct MemFs { }
-    call main::workflow(read __use~9, read __use~1, read __use~9)
+  call core.console::println(read __handle~2, "-- the same code, with no disk at all --")
+  branch#23 cond#0 true {
+    bind#24 let __use~15: MemFs = construct MemFs { }
+    bind#25 let __handle~16: Fs = handle[Fs](read __use~15)
+    bind#26 let __handle~17: Streams = handle[Streams](read __use~15)
+    call main::workflow(read __handle~16, read __handle~2, read __handle~17)
   }
 }

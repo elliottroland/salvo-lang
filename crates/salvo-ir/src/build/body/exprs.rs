@@ -29,12 +29,28 @@ impl<'a, 'p> Lower<'a, 'p> {
         let span = e.span();
         match e {
             AExpr::Int { value, long, .. } => {
-                let kind = if *long { ExprKind::Long(*value) } else { ExprKind::Int(*value) };
-                self.lit(span, kind)
+                // [lit-numeric] an `Int` literal the checker typed as `Long`
+                // (against a `Long` operand) is a `Long` value in the IR.
+                let ty = self.ty_of(span);
+                let base = match ty.strip_quals() {
+                    Ty::Named { name, .. } => name.as_str(),
+                    _ => "",
+                };
+                let kind = match base {
+                    _ if *long => ExprKind::Long(*value),
+                    "Long" => ExprKind::Long(*value),
+                    "Double" => ExprKind::Double(*value as f64),
+                    "Float" => ExprKind::Float(*value as f64),
+                    _ => ExprKind::Int(*value),
+                };
+                Expr { ty, span, kind }
             }
             AExpr::Float { value, single, .. } => {
-                let kind = if *single { ExprKind::Float(*value) } else { ExprKind::Double(*value) };
-                self.lit(span, kind)
+                // [lit-adopt] a literal the checker typed `Float` is one.
+                let ty = self.ty_of(span);
+                let is_float = *single || matches!(ty.strip_quals(), Ty::Named { name, .. } if name == "Float");
+                let kind = if is_float { ExprKind::Float(*value) } else { ExprKind::Double(*value) };
+                Expr { ty, span, kind }
             }
             AExpr::Bool { value, .. } => self.lit(span, ExprKind::Bool(*value)),
             AExpr::Char { value, .. } => self.lit(span, ExprKind::Char(*value)),
@@ -91,7 +107,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 }
                 Expr { ty, span, kind: ExprKind::Tuple(es) }
             }
-            AExpr::StructLit { fields, .. } => self.struct_lit(fields, span),
+            AExpr::StructLit { ty, fields, .. } => self.struct_lit(ty.as_ref(), fields, span),
             AExpr::Unary { op, operand, .. } => {
                 let x = self.expr(operand);
                 let op = match op {
@@ -111,7 +127,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 let id = self.id();
                 if let Some(b) = binding {
                     let ty = self.ty_of(b.span);
-                    let from = self.place_of(subject).unwrap_or(Place { root: Local("<subject>".into()), steps: Vec::new() });
+                    let from = self.stored_place_of(subject).unwrap_or(Place { root: Local("<subject>".into()), steps: Vec::new() });
                     let local = Local(b.name.clone());
                     self.rebind(&b.name, local.clone(), ty.clone());
                     let nid = self.id();
@@ -161,13 +177,13 @@ impl<'a, 'p> Lower<'a, 'p> {
                 let result = self.fresh("__loop");
                 let ty = self.ty_of(span);
                 let stmts = self.while_stmt(cond, body, else_block.as_ref(), span, Some((result.clone(), ty.clone())));
-                self.block_value(stmts, result, ty, span)
+                self.loop_value(stmts, result, ty, span)
             }
             AExpr::For { pattern, iterable, body, else_block, .. } => {
                 let result = self.fresh("__loop");
                 let ty = self.ty_of(span);
                 let stmts = self.for_stmt(pattern, iterable, body, else_block.as_ref(), span, Some((result.clone(), ty.clone())));
-                self.block_value(stmts, result, ty, span)
+                self.loop_value(stmts, result, ty, span)
             }
             AExpr::Lambda { params, body, .. } => self.lambda(params, body, span),
             AExpr::Try { body, .. } => {
@@ -217,9 +233,17 @@ impl<'a, 'p> Lower<'a, 'p> {
                 Expr { ty: self.ty_of(span), span, kind: ExprKind::Spawn { handler: Box::new(h), deps: Vec::new(), pool, join, effects } }
             }
             AExpr::ReplyTo { member, captures, gated, pool, .. } => {
+                let key = self.key(span);
                 let caps: Vec<Expr> = captures.iter().map(|x| self.expr(x)).collect();
                 let pool = pool.as_ref().map(|p| Box::new(self.expr(p)));
-                Expr { ty: self.ty_of(span), span, kind: ExprKind::ReplyTo { member: member.name.clone(), captures: caps, gated: *gated, pool } }
+                let target = match self.ctx.checked.replyto_tasks.get(&key).copied() {
+                    Some(k) => {
+                        let effects: Vec<Expr> = self.ctx.checked.task_mint_effects.get(&key).cloned().unwrap_or_default().iter().map(|t| self.effect_instance(t, span)).collect();
+                        ReplyTarget::Task { target: self.ctx.decl_id(k), effects }
+                    }
+                    None => ReplyTarget::Member(self.ctx.checked.replyto_members.get(&key).cloned().unwrap_or(member.name.clone())),
+                };
+                Expr { ty: self.ty_of(span), span, kind: ExprKind::ReplyTo { target, captures: caps, gated: *gated, pool } }
             }
             AExpr::WaitFor { binding, body, .. } => {
                 let ty = self.ty_of(span);
@@ -296,6 +320,23 @@ impl<'a, 'p> Lower<'a, 'p> {
         let consume = self.ctx.checked.linear_moves.contains(&key)
             || self.ctx.checked.state_takes.contains(&key)
             || self.ctx.checked.moved_projections.contains(&key);
+        // [ir-narrow] A projection the flow narrowed (`p.inner` after a test
+        // on it) is read through a narrowing binding, like a local.
+        if !place.steps.is_empty() {
+            if let Some(declared) = self.ctx.checked.repr_ty.get(&key).map(erase) {
+                if !ty.is_unknown() && declared != ty {
+                    let local = self.fresh("__narrowed");
+                    let because = match (self.current_test, self.last_branch) {
+                        (Some(j), _) => j,
+                        (None, Some(b)) => Justification::After { branch: b, arm: 0 },
+                        (None, None) => Justification::After { branch: NodeId(0), arm: 0 },
+                    };
+                    let id = self.id();
+                    self.pending.push(Stmt::Narrow { id, local: local.clone(), ty: ty.clone(), from: place, from_ty: declared, because });
+                    return Expr { ty, span, kind: ExprKind::Read { place: Place { root: local, steps: Vec::new() }, consume } };
+                }
+            }
+        }
         Expr { ty, span, kind: ExprKind::Read { place, consume } }
     }
 
@@ -313,6 +354,25 @@ impl<'a, 'p> Lower<'a, 'p> {
                 otherwise: None,
             },
         }
+    }
+
+    /// [ir-loop] A loop's value: the result local holds `T?` while it runs
+    /// (`None` until a `break value` or the `else`), and is read narrowed
+    /// afterwards, justified by the loop's totality.
+    fn loop_value(&mut self, stmts: Vec<Stmt>, result: Local, ty: Ty, span: Span) -> Expr {
+        let loop_id = stmts.iter().find_map(|s| match s { Stmt::Loop { id, .. } => Some(*id), _ => None }).unwrap_or(NodeId(0));
+        let opt = Ty::union_of(vec![ty.clone(), Ty::none()]);
+        let mut stmts: Vec<Stmt> = stmts
+            .into_iter()
+            .map(|s| match s {
+                Stmt::Let { id, local, ty: t, value } if local == result && t == ty => Stmt::Let { id, local, ty: opt.clone(), value },
+                other => other,
+            })
+            .collect();
+        let narrowed = self.fresh("__loop_value");
+        let id = self.id();
+        stmts.push(Stmt::Narrow { id, local: narrowed.clone(), ty: ty.clone(), from: Place { root: result, steps: Vec::new() }, from_ty: opt, because: Justification::LoopValue { loop_: loop_id } });
+        self.block_value(stmts, narrowed, ty, span)
     }
 
     pub(crate) fn block_value(&mut self, stmts: Vec<Stmt>, result: Local, ty: Ty, span: Span) -> Expr {
@@ -427,17 +487,60 @@ impl<'a, 'p> Lower<'a, 'p> {
 
     // --------------------------------------------------------- operators --
 
+    /// [op-promote] An operand, widened to the operator's class width when
+    /// the checker promoted it: a literal is retyped, anything else widened.
+    fn promoted(&mut self, operand: &AExpr) -> Expr {
+        let e = self.expr(operand);
+        let Some(target) = self.ctx.checked.promotions.get(&self.key(operand.span())).map(erase) else { return e };
+        let tname = match target.strip_quals() {
+            Ty::Named { name, .. } => name.as_str(),
+            _ => return e,
+        };
+        let span = e.span;
+        match (&e.kind, tname) {
+            (ExprKind::Int(v), "Long") => Expr { ty: target, span, kind: ExprKind::Long(*v) },
+            (ExprKind::Float(v), "Double") => Expr { ty: target, span, kind: ExprKind::Double(*v) },
+            _ => Expr { ty: target, span, kind: ExprKind::Widen { value: Box::new(e) } },
+        }
+    }
+
     fn binary(&mut self, op: BinaryOp, lhs: &AExpr, rhs: &AExpr, span: Span) -> Expr {
         let ty = self.ty_of(span);
         match op {
             BinaryOp::And | BinaryOp::Or => {
                 let l = self.expr(lhs);
+                // [ir-narrow] The right operand runs only when the left
+                // decided nothing, so what it reads may be narrowed by the
+                // left: a binding test's name (`&&`), or the failure of a
+                // `None` test (`||`). Such narrowings are scoped to it: the
+                // operand becomes a branch on the left.
+                let after_left: Vec<Stmt> = self.pending_after_test.clone();
+                let saved = std::mem::take(&mut self.pending);
                 let r = self.expr(rhs);
-                Expr { ty, span, kind: ExprKind::Op { op: if op == BinaryOp::And { Op::And } else { Op::Or }, args: vec![l, r] } }
+                let right_pending = std::mem::replace(&mut self.pending, saved);
+                let bool_ty = Ty::named("Bool");
+                let needs_scope = !right_pending.is_empty() || (op == BinaryOp::And && !after_left.is_empty() && reads_any(&r, &after_left));
+                if !needs_scope {
+                    return Expr { ty, span, kind: ExprKind::Op { op: if op == BinaryOp::And { Op::And } else { Op::Or }, args: vec![l, r] } };
+                }
+                let mut stmts = Vec::new();
+                if op == BinaryOp::And {
+                    stmts.extend(after_left);
+                }
+                stmts.extend(right_pending);
+                let right = Block { stmts, value: Some(Box::new(r)) };
+                let id = self.id();
+                let lit = |v: bool| Expr { ty: bool_ty.clone(), span, kind: ExprKind::Bool(v) };
+                let (arms, otherwise) = if op == BinaryOp::And {
+                    (vec![(l, right)], Some(Block { stmts: Vec::new(), value: Some(Box::new(lit(false))) }))
+                } else {
+                    (vec![(l, Block { stmts: Vec::new(), value: Some(Box::new(lit(true))) })], Some(right))
+                };
+                Expr { ty, span, kind: ExprKind::Branch { id, arms, otherwise } }
             }
             BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem => {
-                let l = self.expr(lhs);
-                let r = self.expr(rhs);
+                let l = self.promoted(lhs);
+                let r = self.promoted(rhs);
                 let o = match op {
                     BinaryOp::Add => Op::Add,
                     BinaryOp::Sub => Op::Sub,
@@ -448,8 +551,8 @@ impl<'a, 'p> Lower<'a, 'p> {
                 Expr { ty, span, kind: ExprKind::Op { op: o, args: vec![l, r] } }
             }
             BinaryOp::Eq | BinaryOp::NotEq | BinaryOp::Lt | BinaryOp::Gt | BinaryOp::LtEq | BinaryOp::GtEq => {
-                let l = self.expr(lhs);
-                let r = self.expr(rhs);
+                let l = self.promoted(lhs);
+                let r = self.promoted(rhs);
                 let equality = matches!(op, BinaryOp::Eq | BinaryOp::NotEq);
                 // `x == None` is a `None` test of the other side.
                 if equality && (l.ty.is_none_ty() || r.ty.is_none_ty()) {
@@ -602,6 +705,11 @@ impl<'a, 'p> Lower<'a, 'p> {
                 all_args.push(base);
             }
         }
+        // [fn-overload-at] [effect-at] the dot form of a scoped name: the
+        // receiver is the first argument.
+        if let AExpr::Scoped { base: Some(base), .. } | AExpr::EffectScoped { base: Some(base), .. } = callee {
+            all_args.push(base);
+        }
         all_args.extend(args.iter());
         // [effect-dispatch]
         if let Some(mc) = checked.member_calls.get(&key).cloned() {
@@ -714,11 +822,19 @@ impl<'a, 'p> Lower<'a, 'p> {
             }
             if is_tail {
                 if matches!(a, AExpr::Spread { .. }) {
-                    // `...xs` passes the list itself.
-                    out.push(x);
-                    return out;
+                    // `...xs` alone passes the array itself; among other
+                    // elements it spreads into the tail.
+                    let lone = args.len() == variadic_at.unwrap() + 1;
+                    if lone {
+                        out.push(x);
+                        return out;
+                    }
+                    let xt = x.ty.clone();
+                    let xs = x.span;
+                    tail.push(Expr { ty: xt, span: xs, kind: ExprKind::Spread { value: Box::new(x) } });
+                } else {
+                    tail.push(x);
                 }
-                tail.push(x);
             } else {
                 out.push(x);
             }
@@ -759,8 +875,15 @@ impl<'a, 'p> Lower<'a, 'p> {
 
     // ------------------------------------------------------------ structs --
 
-    fn struct_lit(&mut self, fields: &[ast::StructLitField], span: Span) -> Expr {
-        let ty = self.ty_of(span);
+    fn struct_lit(&mut self, written_ty: Option<&ast::Type>, fields: &[ast::StructLitField], span: Span) -> Expr {
+        let mut ty = self.ty_of(span);
+        // A literal the checker typed nowhere this file could see (a field
+        // default, read at a use in another module) is of its written type.
+        if ty.is_unknown() {
+            if let Some(w) = written_ty {
+                ty = self.ctx.written_ty(self.file_idx, w);
+            }
+        }
         let decl = match ty.strip_quals() {
             Ty::Named { name, .. } => self.ctx.symbols.structs.get(name.as_str()).copied(),
             _ => None,
@@ -867,6 +990,18 @@ impl<'a, 'p> Lower<'a, 'p> {
                     .collect()
             })
             .unwrap_or_default();
+        // A block lambda the checker typed before its `return`s were known
+        // answers what its returns answer.
+        let (ret, ty) = if ret.is_unknown() {
+            let found = returned_ty(&block).unwrap_or_else(Ty::none);
+            let ty = match ty.strip_quals() {
+                Ty::Fn { params, contract, effects, .. } => Ty::Fn { params: params.clone(), ret: Box::new(found.clone()), contract: contract.clone(), effects: effects.clone() },
+                _ => Ty::Fn { params: ps.iter().map(|p| p.ty.clone()).collect(), ret: Box::new(found.clone()), contract: None, effects: Vec::new() },
+            };
+            (found, ty)
+        } else {
+            (ret, ty)
+        };
         Expr { ty, span, kind: ExprKind::Lambda { params: ps, ret, body: block, captures } }
     }
 
@@ -877,16 +1012,16 @@ impl<'a, 'p> Lower<'a, 'p> {
         let bool_ty = Ty::named("Bool");
         if let Some(checks) = self.ctx.checked.predicate_tests.get(&self.key(span)).cloned() {
             // [qual-predicate] a conjunction of `qualifies` calls.
-            let subj_ty = self.ty_of(subject.span());
             let mut acc: Option<Expr> = None;
             for check in checks {
-                let call = self.qualifies_call(&check, subject, &subj_ty, span);
+                let subj = self.expr(subject);
+                let call = self.qualifies_call(&check, subj, span);
                 acc = Some(match acc {
                     None => call,
                     Some(prev) => Expr { ty: bool_ty.clone(), span, kind: ExprKind::Op { op: Op::And, args: vec![prev, call] } },
                 });
             }
-            if let (Some(b), Some(place)) = (binding, self.place_of(subject)) {
+            if let (Some(b), Some(place)) = (binding, self.stored_place_of(subject)) {
                 // The binding is the subject under a claim: an alias.
                 let ty = self.ty_of(b.span);
                 let local = self.bind(&b.name, ty.clone());
@@ -902,7 +1037,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         let mut s = self.expr_subject(subject);
         let id = self.id();
         let arm_ty = self.narrowed_ty_of_test(&s.ty, &test);
-        let mut place = self.place_of(subject);
+        let mut place = self.stored_place_of(subject);
         if place.is_none() && binding.is_some() {
             // [is-bind-once] a non-place subject is evaluated once, into a
             // temporary both the test and the binding read.
@@ -946,7 +1081,7 @@ impl<'a, 'p> Lower<'a, 'p> {
 
     /// The type a successful test narrows the subject to.
     pub(crate) fn narrowed_ty_of_test(&self, subject: &Ty, test: &UnionTest) -> Option<Ty> {
-        if test.match_none && test.arms.is_empty() {
+        if test.match_none {
             return Some(Ty::none());
         }
         let arms: Vec<&Ty> = subject.strip_quals().value_arms();
@@ -961,13 +1096,13 @@ impl<'a, 'p> Lower<'a, 'p> {
         }
     }
 
-    fn qualifies_call(&mut self, check: &salvo_core::check::PredicateCheck, subject: &AExpr, subj_ty: &Ty, span: Span) -> Expr {
+    fn qualifies_call(&mut self, check: &salvo_core::check::PredicateCheck, subject: Expr, span: Span) -> Expr {
         let bool_ty = Ty::named("Bool");
-        let Some(target) = self.qualifies_ref(&check.name, subj_ty) else {
+        let Some(target) = self.qualifies_ref(&check.name, &subject.ty) else {
             self.error(span, format!("qualifier `{}` has no `qualifies`", check.name));
             return unsupported(bool_ty, span, "qualifies");
         };
-        let mut args = vec![self.expr(subject)];
+        let mut args = vec![subject];
         for a in &check.args {
             let parts: Vec<&str> = a.path.split('.').collect();
             match self.lookup(parts[0]).cloned() {
@@ -1050,14 +1185,43 @@ impl<'a, 'p> Lower<'a, 'p> {
             let rest_ty = self.ctx.checked.pick_left.get(&self.key(span)).map(erase).unwrap_or(Ty::Unknown);
             let nar = self.fresh("__picked");
             let nid = self.id();
+            let picked_ty_c = picked_ty.clone();
             let narrow = Stmt::Narrow { id: nid, local: nar.clone(), ty: picked_ty.clone(), from: Place { root: tmp.clone(), steps: Vec::new() }, from_ty: subj_ty.clone(), because: Justification::Arm { switch: id, arm: 0 } };
-            let value = Expr { ty: picked_ty, span, kind: ExprKind::Read { place: Place { root: nar, steps: Vec::new() }, consume: true } };
+            let value = Expr { ty: picked_ty, span, kind: ExprKind::Read { place: Place { root: nar.clone(), steps: Vec::new() }, consume: true } };
             let rest = self.fresh("__rest");
             let rid = self.id();
+            let rest_c = rest.clone();
+            let rest_ty_c = rest_ty.clone();
             let rest_narrow = Stmt::Narrow { id: rid, local: rest.clone(), ty: rest_ty, from: Place { root: tmp.clone(), steps: Vec::new() }, from_ty: subj_ty.clone(), because: Justification::Arm { switch: id, arm: 1 } };
             let saved = self.placeholder.replace(rest);
             let r = self.expr(rhs);
             self.placeholder = saved;
+            if let Some(checks) = self.ctx.checked.predicate_tests.get(&self.key(span)).cloned() {
+                // [qual-predicate] a predicate pick: a branch on the
+                // `qualifies` conjunction, the rest in `otherwise`.
+                let read_tmp = |l: &Local| Expr { ty: subj_ty.clone(), span, kind: ExprKind::Read { place: Place { root: l.clone(), steps: Vec::new() }, consume: false } };
+                let mut cond: Option<Expr> = None;
+                for check in checks {
+                    let call = self.qualifies_call(&check, read_tmp(&tmp), span);
+                    cond = Some(match cond {
+                        None => call,
+                        Some(prev) => Expr { ty: Ty::named("Bool"), span, kind: ExprKind::Op { op: Op::And, args: vec![prev, call] } },
+                    });
+                }
+                let cond = cond.unwrap_or(Expr { ty: Ty::named("Bool"), span, kind: ExprKind::Bool(true) });
+                let narrow = Stmt::Narrow { id: nid, local: nar, ty: picked_ty_c.clone(), from: Place { root: tmp.clone(), steps: Vec::new() }, from_ty: subj_ty.clone(), because: Justification::Cond { branch: id, arm: 0 } };
+                let rest_narrow = Stmt::Narrow { id: rid, local: rest_c, ty: rest_ty_c, from: Place { root: tmp.clone(), steps: Vec::new() }, from_ty: subj_ty.clone(), because: Justification::After { branch: id, arm: 0 } };
+                let br = Expr {
+                    ty: ty.clone(),
+                    span,
+                    kind: ExprKind::Branch {
+                        id,
+                        arms: vec![(cond, Block { stmts: vec![narrow], value: Some(Box::new(value)) })],
+                        otherwise: Some(Block { stmts: vec![rest_narrow], value: Some(Box::new(r)) }),
+                    },
+                };
+                return self.block_expr(vec![bind], br, span);
+            }
             let arm_test_ = match &test {
                 Some(t) => arm_test(t),
                 None => ArmTest::Else,
@@ -1147,9 +1311,28 @@ impl<'a, 'p> Lower<'a, 'p> {
         let ty = if value { self.ty_of(span) } else { Ty::none() };
         let id = self.id();
         let mut arms = Vec::new();
+        let mut otherwise: Option<Block> = None;
         for (i, (cond, block)) in branches.iter().enumerate() {
             self.push_scope();
+            // [ir-narrow] A later arm's condition may read what the earlier
+            // arms' failure narrowed; such a narrowing holds only there, so
+            // the rest of the chain nests in this one's `else`, after it.
+            let saved = std::mem::take(&mut self.pending);
             let c = self.expr(cond);
+            let cond_pending = std::mem::replace(&mut self.pending, saved);
+            if i > 0 && !cond_pending.is_empty() {
+                // The arm's scope stays open for the nested chain's first arm.
+                let rest = self.if_chain_nested(&branches[i..], else_block, span, value, cond_pending, c);
+                otherwise = Some(match (value, rest) {
+                    (true, (stmts, e)) => Block { stmts, value: Some(Box::new(e)) },
+                    (false, (mut stmts, e)) => {
+                        stmts.push(Stmt::Expr(e));
+                        Block { stmts, value: None }
+                    }
+                });
+                break;
+            }
+            self.pending.extend(cond_pending);
             // Bindings the test introduced are in scope for the arm.
             let narrows = std::mem::take(&mut self.pending_after_test);
             let mut b = self.with_test(Some(Justification::Cond { branch: id, arm: i }), |me| me.block(block, value));
@@ -1158,10 +1341,38 @@ impl<'a, 'p> Lower<'a, 'p> {
             b.stmts = stmts;
             self.pop_scope();
             arms.push((c, b));
+            if i + 1 == branches.len() {
+                otherwise = else_block.map(|b| self.block(b, value));
+            }
         }
-        let otherwise = else_block.map(|b| self.block(b, value));
         self.set_last_branch(id);
         Expr { ty, span, kind: ExprKind::Branch { id, arms, otherwise } }
+    }
+
+    /// The tail of an `if` chain whose first condition `c` needed the
+    /// statements `pending` (narrowings) before it: those statements, then
+    /// the chain from that arm on.
+    fn if_chain_nested(&mut self, branches: &[(AExpr, ast::Block)], else_block: Option<&ast::Block>, span: Span, value: bool, pending: Vec<Stmt>, c: Expr) -> (Vec<Stmt>, Expr) {
+        let ty = if value { self.ty_of(span) } else { Ty::none() };
+        let id = self.id();
+        let mut arms = Vec::new();
+        let otherwise: Option<Block>;
+        // The first arm's condition is already lowered, in a scope still open.
+        let narrows = std::mem::take(&mut self.pending_after_test);
+        let mut b = self.with_test(Some(Justification::Cond { branch: id, arm: 0 }), |me| me.block(&branches[0].1, value));
+        let mut stmts = narrows;
+        stmts.append(&mut b.stmts);
+        b.stmts = stmts;
+        self.pop_scope();
+        arms.push((c, b));
+        if branches.len() == 1 {
+            otherwise = else_block.map(|b| self.block(b, value));
+        } else {
+            let e = self.if_expr(&branches[1..], else_block, span, value);
+            otherwise = Some(if value { Block { stmts: Vec::new(), value: Some(Box::new(e)) } } else { Block { stmts: vec![Stmt::Expr(e)], value: None } });
+        }
+        self.set_last_branch(id);
+        (pending, Expr { ty, span, kind: ExprKind::Branch { id, arms, otherwise } })
     }
 
     pub(crate) fn when_cond_expr(&mut self, branches: &[(AExpr, ast::Block)], else_block: Option<&ast::Block>, span: Span, value: bool) -> Expr {
@@ -1173,7 +1384,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         let s = self.expr_subject(subject);
         let subj_ty = s.ty.clone();
         let id = self.id();
-        let place = self.place_of(subject);
+        let place = self.stored_place_of(subject);
         let mut arms = Vec::new();
         for (i, br) in branches.iter().enumerate() {
             let test = self.ctx.checked.is_tests.get(&self.key(br.span)).cloned();
@@ -1412,7 +1623,8 @@ impl<'a, 'p> Lower<'a, 'p> {
             let local = self.fresh("__use");
             let id = self.id();
             self.effect_env.push((effect.clone(), local.clone()));
-            return vec![Stmt::Let { id, local, ty: effect, value: a }];
+            let inst = Expr { ty: effect.clone(), span, kind: ExprKind::AddrInstance { addr: Box::new(a) } };
+            return vec![Stmt::Let { id, local, ty: effect, value: inst }];
         }
         // `use H(args)`: a construct, then one instance per face.
         let deps: Vec<Ty> = self.ctx.checked.use_deps.get(&key).map(|v| v.iter().map(erase).collect()).unwrap_or_default();
@@ -1424,9 +1636,14 @@ impl<'a, 'p> Lower<'a, 'p> {
         let handler_ty = construct.ty.clone();
         let inst = self.fresh("__use");
         let id = self.id();
-        let out = vec![Stmt::Let { id, local: inst.clone(), ty: handler_ty, value: construct }];
+        let mut out = vec![Stmt::Let { id, local: inst.clone(), ty: handler_ty.clone(), value: construct }];
+        // [effect-handle] one handle per face, over the one instance.
         for f in faces {
-            self.effect_env.push((f, inst.clone()));
+            let h = self.fresh("__handle");
+            let hid = self.id();
+            let read = Expr { ty: handler_ty.clone(), span, kind: ExprKind::Read { place: Place { root: inst.clone(), steps: Vec::new() }, consume: false } };
+            out.push(Stmt::Let { id: hid, local: h.clone(), ty: f.clone(), value: Expr { ty: f.clone(), span, kind: ExprKind::Handle { instance: Box::new(read) } } });
+            self.effect_env.push((f, h));
         }
         out
     }
@@ -1479,10 +1696,15 @@ impl<'a, 'p> Lower<'a, 'p> {
             .collect();
         let deps: Vec<Ty> = if deps.is_empty() { declared } else { deps.to_vec() };
         for (i, d) in deps.iter().enumerate() {
-            let v = match items.get(i).copied().flatten().and_then(|w| with_items.get(w)) {
+            let mut v = match items.get(i).copied().flatten().and_then(|w| with_items.get(w)) {
                 Some(item) => self.with_item(item),
                 None => self.effect_instance(d, span),
             };
+            // [actor-use-addr] an addr given where an instance is wanted.
+            if matches!(v.ty.strip_quals(), Ty::Named { name, .. } if name == "Addr") {
+                let vspan = v.span;
+                v = Expr { ty: d.clone(), span: vspan, kind: ExprKind::AddrInstance { addr: Box::new(v) } };
+            }
             fields.push((format!("__dep{i}"), v));
         }
         Some(Expr { ty: handler_ty, span, kind: ExprKind::Construct { fields } })
@@ -1513,22 +1735,27 @@ pub(crate) enum Callee<'p> {
 
 /// The checker's union test, as an IR arm test.
 pub(crate) fn arm_test(t: &UnionTest) -> ArmTest {
-    if t.match_none && t.arms.is_empty() {
+    // A `None` test, whatever declared arm the checker counted it under
+    // (`is Ok` on `Ok None | Err E` is one).
+    if t.match_none {
         return ArmTest::None;
     }
     if !t.values.is_empty() {
-        let lits: Vec<Lit> = t
-            .values
+        let lit = |l: &ast::TypeLit| match l {
+            ast::TypeLit::Str(s) => Lit::Str(s.clone()),
+            ast::TypeLit::Int(i) => Lit::Int(*i),
+            ast::TypeLit::Long(i) => Lit::Long(*i),
+            ast::TypeLit::Bool(b) => Lit::Bool(*b),
+        };
+        let arms: Vec<LitArm> = t
+            .arms
             .iter()
-            .flat_map(|(_, _, ls)| ls.iter())
-            .map(|l| match l {
-                ast::TypeLit::Str(s) => Lit::Str(s.clone()),
-                ast::TypeLit::Int(i) => Lit::Int(*i),
-                ast::TypeLit::Long(i) => Lit::Long(*i),
-                ast::TypeLit::Bool(b) => Lit::Bool(*b),
+            .map(|a| match t.values.iter().find(|(arm, _, _)| arm == a) {
+                Some((_, negate, ls)) => LitArm { arm: *a, negate: *negate, lits: ls.iter().map(lit).collect() },
+                None => LitArm { arm: *a, negate: false, lits: Vec::new() },
             })
             .collect();
-        return ArmTest::Lit(lits);
+        return ArmTest::Lit(arms);
     }
     match t.arms.as_slice() {
         [one] => ArmTest::Arm(*one),
@@ -1624,4 +1851,152 @@ fn minted_ty_of(out: &[Stmt], pass: &Local) -> Ty {
             _ => None,
         })
         .unwrap_or(Ty::Unknown)
+}
+
+/// Whether `e` reads any local the statements `binds` bind (a narrowing
+/// binding a condition's later operand depends on).
+fn reads_any(e: &Expr, binds: &[Stmt]) -> bool {
+    let locals: Vec<&Local> = binds
+        .iter()
+        .filter_map(|s| match s {
+            Stmt::Narrow { local, .. } | Stmt::Let { local, .. } => Some(local),
+            _ => None,
+        })
+        .collect();
+    if locals.is_empty() {
+        return false;
+    }
+    let mut found = false;
+    visit_reads(e, &mut |l| {
+        if locals.contains(&l) {
+            found = true;
+        }
+    });
+    found
+}
+
+/// Every local a (statement-free) expression reads, shallowly through its
+/// sub-expressions; blocks inside are visited too.
+fn visit_reads(e: &Expr, f: &mut dyn FnMut(&Local)) {
+    fn block(b: &Block, f: &mut dyn FnMut(&Local)) {
+        for s in &b.stmts {
+            match s {
+                Stmt::Let { value, .. } => visit_reads(value, f),
+                Stmt::Narrow { from, .. } => f(&from.root),
+                Stmt::Assign { place, value } => {
+                    f(&place.root);
+                    visit_reads(value, f);
+                }
+                Stmt::Expr(e) | Stmt::Return(Some(e)) => visit_reads(e, f),
+                Stmt::Loop { body, .. } => block(body, f),
+                _ => {}
+            }
+        }
+        if let Some(v) = &b.value {
+            visit_reads(v, f);
+        }
+    }
+    match &e.kind {
+        ExprKind::Read { place, .. } => {
+            f(&place.root);
+            for st in &place.steps {
+                if let Step::Index(i) = st {
+                    visit_reads(i, f);
+                }
+            }
+        }
+        ExprKind::Call { args, .. } | ExprKind::Op { args, .. } | ExprKind::Tuple(args) | ExprKind::List(args) | ExprKind::Array(args) | ExprKind::Concat(args) => {
+            for a in args {
+                visit_reads(a, f);
+            }
+        }
+        ExprKind::MemberCall { instance, args, .. } => {
+            visit_reads(instance, f);
+            for a in args {
+                visit_reads(a, f);
+            }
+        }
+        ExprKind::Construct { fields } => {
+            for (_, v) in fields {
+                visit_reads(v, f);
+            }
+        }
+        ExprKind::MakeUnion { value, .. } | ExprKind::Rewrap { value, .. } | ExprKind::DropMut { value } | ExprKind::Widen { value } | ExprKind::Spread { value } => visit_reads(value, f),
+        ExprKind::Branch { arms, otherwise, .. } => {
+            for (c, b) in arms {
+                visit_reads(c, f);
+                block(b, f);
+            }
+            if let Some(o) = otherwise {
+                block(o, f);
+            }
+        }
+        ExprKind::Switch { subject, arms, .. } => {
+            visit_reads(subject, f);
+            for a in arms {
+                block(&a.body, f);
+            }
+        }
+        ExprKind::Test { subject, .. } => visit_reads(subject, f),
+        ExprKind::Lambda { body, .. } | ExprKind::Try { body } => block(body, f),
+        ExprKind::Throw { message } => visit_reads(message, f),
+        ExprKind::Assert { cond, message } => {
+            visit_reads(cond, f);
+            if let Some(m) = message {
+                visit_reads(m, f);
+            }
+        }
+        ExprKind::FnValue(FnRef::Local(l)) => f(l),
+        ExprKind::Handle { instance } => visit_reads(instance, f),
+        ExprKind::AddrInstance { addr } => visit_reads(addr, f),
+        ExprKind::Send { addr, args, .. } => {
+            visit_reads(addr, f);
+            for a in args {
+                visit_reads(a, f);
+            }
+        }
+        ExprKind::SelfSend { args, .. } => {
+            for a in args {
+                visit_reads(a, f);
+            }
+        }
+        ExprKind::ReplyTo { captures, .. } => {
+            for a in captures {
+                visit_reads(a, f);
+            }
+        }
+        ExprKind::WaitFor { body, .. } => block(body, f),
+        ExprKind::Spawn { handler, .. } => visit_reads(handler, f),
+        _ => {}
+    }
+}
+
+/// The type a block's `return`s (or its value) answer, when one is known;
+/// nested lambdas are their own fns and are not looked into.
+fn returned_ty(b: &Block) -> Option<Ty> {
+    fn in_block(b: &Block) -> Option<Ty> {
+        for s in &b.stmts {
+            if let Some(t) = in_stmt(s) {
+                return Some(t);
+            }
+        }
+        b.value.as_ref().map(|v| v.ty.clone()).filter(|t| !t.is_unknown() && *t != Ty::Never)
+    }
+    fn in_stmt(s: &Stmt) -> Option<Ty> {
+        match s {
+            Stmt::Return(Some(e)) if !e.ty.is_unknown() && e.ty != Ty::Never => Some(e.ty.clone()),
+            Stmt::Expr(e) | Stmt::Let { value: e, .. } => in_expr(e),
+            Stmt::Loop { body, .. } => in_block(body),
+            _ => None,
+        }
+    }
+    fn in_expr(e: &Expr) -> Option<Ty> {
+        match &e.kind {
+            ExprKind::Branch { arms, otherwise, .. } => arms.iter().find_map(|(_, b)| in_block(b)).or_else(|| otherwise.as_ref().and_then(in_block)),
+            ExprKind::Switch { arms, .. } => arms.iter().find_map(|a| in_block(&a.body)),
+            ExprKind::Try { body } => in_block(body),
+            _ => None,
+        }
+    }
+    in_block(b)
 }
