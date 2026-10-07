@@ -5,6 +5,7 @@ members = [
     "crates/salvo-syntax",
     "crates/salvo-core",
     "crates/salvo-backend",
+    "crates/salvo-ir",
     "crates/salvo-backend-kotlin",
     "crates/salvo-backend-rust",
     "crates/salvo-testkit",
@@ -20,6 +21,7 @@ license = "MIT"
 salvo-syntax = { path = "crates/salvo-syntax" }
 salvo-core = { path = "crates/salvo-core" }
 salvo-backend = { path = "crates/salvo-backend" }
+salvo-ir = { path = "crates/salvo-ir" }
 salvo-backend-kotlin = { path = "crates/salvo-backend-kotlin" }
 salvo-backend-rust = { path = "crates/salvo-backend-rust" }
 salvo-testkit = { path = "crates/salvo-testkit" }

@@ -1,0 +1,104 @@
+---
+source: crates/salvo-ir/tests/golden_tests.rs
+expression: text
+---
+module main
+
+qualifies fn main::NonEmpty.qualifies(lent list: List<T>) -> Bool {
+  return op Gt(call core.compare::cmp(Int, Int)(call core.list::size<T>(read list), 0), 0)
+}
+
+fn main::head(lent list: List<Int>) -> Int {
+  bind#1 let first: Int? = call core.list::get(List<T>, Int)<Int>(read list, 0)
+  return branch#5 cond#0 true {
+    bind#3 let __nn~1: Int? = read first
+    value switch#2 read __nn~1 {
+      arm#0 (none) {
+        unreachable("salvo: value is absent at main.sv:1343")
+      }
+      arm#1 (else) {
+        narrow#4[switch#2.arm#1] __some~2: Int = __nn~1
+        value !read __some~2
+      }
+    }
+  }
+}
+
+fn main::celsius(moved degrees: Int) -> Int {
+  return !read degrees
+}
+
+fn main::describe(Int)(lent temp: Int) -> Str {
+  return concat(call core.basic::to_str(Int)(read temp), " (no unit)")
+}
+
+fn main::describe(Celsius Int)(lent temp: Int) -> Str {
+  return concat(call core.basic::to_str(Int)(read temp), "°C")
+}
+
+fn main::sum(lent list: List<Int>) -> Int {
+  bind#1 let total: Int = 0
+  foreach#2 n: Int in read list {
+    assign total = op Add(read total, read n)
+  }
+  return !read total
+}
+
+fn main::compact(lent_mut list: Mut List<Int>) -> None {
+}
+
+struct Request canbe Mut wire {
+  path: Str
+  touches: Int
+}
+
+fn main::authenticate(moved request: Mut Request) -> Mut Request {
+  return !read request
+}
+
+fn main::freshen(moved request: Mut Request) -> Mut Request {
+  return !read request
+}
+
+fn main::touch(lent_mut request: Mut Request) -> None {
+  assign request.touches = op Add(read request.touches, 1)
+}
+
+fn main::handle(Request)(lent request: Request) -> Str {
+  return concat("plain ", read request.path)
+}
+
+fn main::handle(Authenticated Request)(lent request: Request) -> Str {
+  return concat("authenticated ", read request.path)
+}
+
+fn main::handle(Fresh Request)(lent request: Request) -> Str {
+  return concat("fresh ", read request.path)
+}
+
+fn main::main() -> None {
+  bind#1 let __use~1: StdOutConsole = construct StdOutConsole { }
+  bind#2 let xs: Mut List<Int> = call core.list::mut_list_of()<Int>()
+  call core.list::add<Int>(read xs, 3)
+  call core.console::println(read __use~1, concat("1. head after add: ", call core.basic::to_str(Int)(call main::head(drop_mut(read xs)))))
+  bind#3 let maybe_empty: List<Int> = call core.list::list_of(T, T[])<Int>(7, list[List<Int>](8))
+  branch#4 cond#0 call core.list::NonEmpty.qualifies(read maybe_empty) {
+    call core.console::println(read __use~1, concat("2. checked at run time, head is ", call core.basic::to_str(Int)(call main::head(read maybe_empty))))
+  }
+  bind#5 let plain: Int = 21
+  bind#6 let warm: Int = call main::celsius(21)
+  call core.console::println(read __use~1, concat("2. ", call main::describe(Int)(read plain), " vs ", call main::describe(Celsius Int)(read warm)))
+  branch#7 cond#0 true {
+    call core.console::println(read __use~1, concat("2. widened: ", call main::describe(Int)(read warm)))
+  }
+  call core.console::println(read __use~1, concat("3. sum ", call core.basic::to_str(Int)(call main::sum(drop_mut(read xs))), ", head still ", call core.basic::to_str(Int)(call main::head(drop_mut(read xs)))))
+  call main::compact(read xs)
+  call core.list::add<Int>(read xs, 9)
+  call core.console::println(read __use~1, concat("3. after compact and add, head is ", call core.basic::to_str(Int)(call main::head(drop_mut(read xs)))))
+  bind#9 let session: Mut Request = call main::authenticate(construct Mut Request { path: "/orders", touches: 0 })
+  bind#10 let fresh: Mut Request = call main::freshen(construct Mut Request { path: "/health", touches: 0 })
+  call core.console::println(read __use~1, concat("4. before: ", call main::handle(Authenticated Request)(drop_mut(read session)), " / ", call main::handle(Fresh Request)(drop_mut(read fresh))))
+  call main::touch(read session)
+  call main::touch(read fresh)
+  call core.console::println(read __use~1, concat("4. after:  ", call main::handle(Authenticated Request)(drop_mut(read session)), " / ", call main::handle(Request)(drop_mut(read fresh))))
+}

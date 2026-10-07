@@ -532,6 +532,7 @@ dependencies = [
  "salvo-backend-kotlin",
  "salvo-backend-rust",
  "salvo-core",
+ "salvo-ir",
  "salvo-syntax",
  "salvo-test",
  "salvo-testkit",
@@ -545,6 +546,15 @@ dependencies = [
  "salvo-syntax",
  "serde",
  "toml",
+]
+
+[[package]]
+name = "salvo-ir"
+version = "0.1.0"
+dependencies = [
+ "insta",
+ "salvo-core",
+ "salvo-syntax",
 ]
 
 [[package]]

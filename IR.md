@@ -415,6 +415,37 @@ Things to notice:
 Confirmed: nothing here changes the language. Treating `x is Person p` and
 `x is Person` as one narrowing binding is an implementation unification.
 
+## 9a. Built so far (2026-10-06)
+
+Step 1 of §10 is built: the `salvo-ir` crate (`ir.rs` nodes, `build/` the
+builder, `dump.rs`), `salvo ir [--all] [--module m]`, a corpus test that
+builds every inline program of both backends' codegen tests (about 350, none
+`Unsupported`), and golden snapshots of every example's IR
+(`crates/salvo-ir/tests/snapshots`). Decisions the build forced, all
+provisional until reviewed:
+
+* **`Op` exists after all.** `+ - * / %`, `and`/`or`, `!`, unary `-` have no
+  declaration in std to reference, so they are an `Op` node on scalars; `<`
+  and friends are `Op::Lt…` over the `Int` a `cmp` call answered, against 0
+  (the sign test). Comparisons themselves are calls. The alternative — std
+  declaring `intrinsic fn add(Int, Int)` etc. — makes `add(1, 2)` callable,
+  a surface change, so it was not taken without asking.
+* **`Test` node.** `x is T` as a *condition* (inside `if`/`while`, in an
+  `and` chain) is `Test { subject, test }` of type `Bool`; the narrowing it
+  justifies is a `Narrow` with `Justification::Test`. `Switch` is for the
+  subject forms (`when`, `?:`, `?.`, `!`, `for`).
+* **`ForEach`** for intrinsic containers (a list, an array, a `Str`), which
+  the checker records no driver for [iter-for-native]: the one loop form
+  with a subject. A `List<T>` has a Salvo `iter`/`next` pair, so this could
+  become the pass form; left as is because both backends iterate natively.
+* **`Static`** for a module-level `use`: an instance every fn of the module
+  reads as a local.
+* **Block expressions** are a `Branch` with one `true` arm (`x!`, `?:`, a
+  projection of a call result, `x++` as a value); the IR has no block node.
+* A checker table was added for the builder: `Checked::written_types`, the
+  lowered type of every written type by span, so declarations copy the
+  checker's types rather than lowering again.
+
 ## 10. Transition plan
 
 The e2e suite (1712 tests, same program compiled and run on both backends,

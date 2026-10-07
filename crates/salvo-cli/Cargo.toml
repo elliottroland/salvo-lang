@@ -13,6 +13,7 @@ path = "src/main.rs"
 salvo-syntax = { workspace = true }
 salvo-core = { workspace = true }
 salvo-backend = { workspace = true }
+salvo-ir = { workspace = true }
 salvo-backend-kotlin = { workspace = true }
 salvo-backend-rust = { workspace = true }
 salvo-test = { workspace = true }

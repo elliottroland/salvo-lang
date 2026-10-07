@@ -1,0 +1,103 @@
+---
+source: crates/salvo-ir/tests/golden_tests.rs
+expression: text
+---
+module main
+
+fn main::verdict(lent started: Tick, lent at: Tick, lent budget: Duration) -> Str {
+  bind#1 let took: Duration = call time::between(Tick, Tick)(read started, read at)
+  branch#2 cond#0 op Gt(call time::cmp(Duration, Duration)(read took, read budget), 0) {
+    return concat("late by ", call time::to_str(call time::minus(Duration, Duration)(read took, read budget)))
+  }
+  return concat("in time, ", call time::to_str(call time::minus(Duration, Duration)(read budget, read took)), " to spare")
+}
+
+fn main::overdue(lent __eff0: Ticker; lent started: Tick, lent budget: Duration) -> Bool {
+  return op Gt(call time::cmp(Duration, Duration)(call time::elapsed(read __eff0, read started), read budget), 0)
+}
+
+impl SteppingTicker(lent step: Duration) of Ticker stateful {
+  state at: Long = 0
+  fn tick() -> Tick {
+    assign at = op Add(read at, read step.nanos)
+    return construct Tick { nanos: read at }
+  }
+}
+
+actor interface Session {
+  send fn open(moved started: Tick, moved budget: Duration, moved out: Reply<Str>) -> None
+  send fn expire(moved started: Tick, moved budget: Duration, moved out: Reply<Str>, moved f: Fired) -> None
+}
+
+impl Sessions() of Session deps [Timer] stateful {
+  mailbox construct Mailbox { capacity: 8 }
+  fn open(lent started: Tick, lent budget: Duration, lent out: Reply<Str>) -> None {
+    member time::Timer#0(read __dep0, call time::plus(Duration, Duration)(read budget, call time::seconds(1)), replyto expire(read started, read budget, !read out))
+  }
+  fn expire(lent started: Tick, lent budget: Duration, lent out: Reply<Str>, lent f: Fired) -> None {
+    call core.actor::send<Str>(!read out, call main::verdict(read started, read f.at, read budget))
+  }
+}
+
+impl TestTicker(lent timer: Addr<Timer>) of Ticker {
+  fn tick() -> Tick {
+    bind#1 let fired: Fired = waitfor answer: Reply<Fired> {
+      send time::Timer#0(read timer, call time::nanos(0), !read answer)
+    }
+    return read fired.at
+  }
+}
+
+actor interface Sleeper {
+  send fn nap(moved wait: Duration, moved out: Reply<Str>) -> None
+  send fn woke(moved started: Tick, moved out: Reply<Str>, moved f: Fired) -> None
+}
+
+impl Napping() of Sleeper deps [Timer, Ticker] stateful {
+  mailbox construct Mailbox { capacity: 8 }
+  fn nap(lent wait: Duration, lent out: Reply<Str>) -> None {
+    member time::Timer#0(read __dep0, !read wait, replyto woke(member time::Ticker#0(read __dep1), !read out))
+  }
+  fn woke(lent started: Tick, lent out: Reply<Str>, lent f: Fired) -> None {
+    call core.actor::send<Str>(!read out, concat("napped ", call time::to_str(call time::elapsed(read __dep1, read started))))
+  }
+}
+
+fn main::main() -> None {
+  bind#1 let __use~1: StdOutConsole = construct StdOutConsole { }
+  bind#2 let budget: Duration = call time::millis(1500)
+  call core.console::println(read __use~1, concat("budget ", call time::to_str(read budget), ", doubled ", call time::to_str(call time::times(read budget, 2)), ", in millis ", call core.basic::to_str(Long)(call time::to_millis(read budget))))
+  bind#3 let stamp: Instant = call time::epoch_milli(1700000000000)
+  call core.console::println(read __use~1, concat("stamp ", call core.basic::to_str(Long)(call time::to_epoch_second(read stamp)), "s, a minute later ", call core.basic::to_str(Long)(call time::to_epoch_second(call time::plus(Instant, Duration)(read stamp, call time::minutes(1)))), "s"))
+  bind#4 let __use~2: DefaultClock = construct DefaultClock { }
+  bind#5 let __use~3: DefaultTicker = construct DefaultTicker { }
+  call core.console::println(read __use~1, concat("wall clock is set: ", call core.basic::to_str(Bool)(op Gt(call core.compare::cmp(Long, Long)(call time::to_epoch_second(member time::Clock#0(read __use~2)), 1600000000), 0))))
+  bind#6 let __use~4: SteppingTicker = construct SteppingTicker { step: call time::millis(500) }
+  bind#7 let started: Tick = member time::Ticker#0(read __use~4)
+  call core.console::println(read __use~1, concat("overdue after one more read: ", call core.basic::to_str(Bool)(call main::overdue(read __use~4, read started, read budget))))
+  call core.console::println(read __use~1, concat("overdue after three: ", call core.basic::to_str(Bool)(call main::overdue(read __use~4, read started, read budget)), " ", call core.basic::to_str(Bool)(call main::overdue(read __use~4, read started, read budget)), " ", call core.basic::to_str(Bool)(call main::overdue(read __use~4, read started, read budget))))
+  call core.console::println(read __use~1, call main::verdict(construct Tick { nanos: 0 }, construct Tick { nanos: 1000000000 }, read budget))
+  call core.console::println(read __use~1, call main::verdict(construct Tick { nanos: 0 }, construct Tick { nanos: 2000000000 }, read budget))
+  bind#8 let p: Pool = call core.actor::pool(Int)(1)
+  bind#9 let __destructured~5: (Addr<Timer>, Addr<TimerCtl>) = spawn[(Addr<Timer>, Addr<TimerCtl>)](construct ManualTime { }, on: read p) serves [Timer, TimerCtl]
+  bind#10 let timer: Addr<Timer> = !read __destructured~5.0
+  bind#11 let ctl: Addr<TimerCtl> = !read __destructured~5.1
+  bind#12 let sessions: Addr<Session> = spawn[Addr<Session>](construct Sessions { __dep0: read timer }, on: read p) serves [Session]
+  bind#13 let outcome: Str = waitfor answer: Reply<Str> {
+    send main::Session#0(read sessions, construct Tick { nanos: 0 }, read budget, !read answer)
+    waitfor settled: Reply<Idle> {
+      call core.actor::on_idle(read p, !read settled)
+    }
+    send time::TimerCtl#0(read ctl, call time::millis(2500))
+  }
+  call core.console::println(read __use~1, concat("session: ", read outcome))
+  bind#14 let sleeper: Addr<Sleeper> = spawn[Addr<Sleeper>](construct Napping { __dep0: read timer, __dep1: construct TestTicker { timer: read timer } }, on: call core.actor::thread()) serves [Sleeper]
+  bind#15 let napped: Str = waitfor answer: Reply<Str> {
+    send main::Sleeper#0(read sleeper, call time::seconds(2), !read answer)
+    waitfor settled: Reply<Idle> {
+      call core.actor::on_idle(read p, !read settled)
+    }
+    send time::TimerCtl#0(read ctl, call time::seconds(2))
+  }
+  call core.console::println(read __use~1, read napped)
+}

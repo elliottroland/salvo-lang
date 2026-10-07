@@ -249,7 +249,9 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
     plan): a minimal, decided form of the program that both emitters read
     instead of the AST plus side tables. Design in IR.md; its §9 lists the
     decisions, §10 the transition (builder and dump first, then Kotlin, then
-    Rust, then actors). The earlier plan, kept for reference: **rewrites as
+    Rust, then actors). **Step 1 built 2026-10-06** (`salvo-ir`, `salvo ir`,
+    corpus and golden tests; IR.md §9a lists the provisional calls). Next:
+    port the Kotlin emitter to the IR (§10 step 2). The earlier plan, kept for reference: **rewrites as
     opt-in helpers in `salvo-backend`**, in this order: argument
     hoists (AST-to-AST, registering checker-table entries for the nodes they
     create), the `__loc` fn variants, value-position control flow (a helper

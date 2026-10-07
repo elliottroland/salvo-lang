@@ -1,0 +1,154 @@
+---
+source: crates/salvo-ir/tests/golden_tests.rs
+expression: text
+---
+module main
+
+actor interface Counter {
+  send fn bump(moved n: Int) -> None
+  send fn total(moved out: Reply<Int>) -> None
+}
+
+impl Counting() of Counter stateful {
+  mailbox construct Mailbox { capacity: 8 }
+  state sum: Int = 0
+  fn bump(lent n: Int) -> None {
+    assign sum = op Add(read sum, read n)
+  }
+  fn total(lent out: Reply<Int>) -> None {
+    call core.actor::send<Int>(!read out, !read sum)
+  }
+}
+
+actor interface Ledger {
+  send fn report(moved label: Str, moved out: Reply<Str>) -> None
+  send fn reported(moved label: Str, moved out: Reply<Str>, moved total: Int) -> None
+}
+
+impl Bookkeeping() of Ledger deps [Counter] stateful {
+  mailbox construct Mailbox { capacity: 4 }
+  fn report(lent label: Str, lent out: Reply<Str>) -> None {
+    member main::Counter#1(read __dep0, replyto reported(read label, !read out))
+  }
+  fn reported(lent label: Str, lent out: Reply<Str>, lent total: Int) -> None {
+    call core.actor::send<Str>(!read out, concat(read label, "=", call core.basic::to_str(Int)(read total)))
+  }
+}
+
+actor interface Desk {
+  send fn ticket(moved out: Reply<Str>) -> None
+  send fn serve(moved name: Str) -> None
+  send fn close_up(moved reason: Str) -> None
+}
+
+impl Desking(lent room: Int) of Desk stateful {
+  mailbox construct Mailbox { capacity: read room }
+  state waiting: Mut Deque<Reply<Str>> = call core.deque::mut_deque_of()<Reply<Str>>()
+  fn ticket(lent out: Reply<Str>) -> None {
+    call core.deque::add_last<Reply<Str>>(read waiting, !read out)
+  }
+  fn serve(lent name: Str) -> None {
+    bind#1 let next: Reply<Str>? = call core.deque::remove_first<Reply<Str>>(read waiting)
+    switch#2 read next {
+      arm#0 (arm 0) {
+        narrow#3[switch#2.arm#0] next~1: Reply<Str> = next
+        call core.actor::send<Str>(!read next~1, concat("served ", read name))
+      }
+      arm#1 (none) {
+        narrow#4[switch#2.arm#1] next~2: None = next
+        call core.basic::discard<Str>(!read name)
+      }
+    }
+  }
+  fn close_up(lent reason: Str) -> None {
+    call core.deque::drain<Reply<Str>>(drop_mut(!read waiting), lambda(lent r: Reply<Str>) -> None captures [reason] {
+      value call core.actor::send<Str>(!read r, concat("closed: ", read reason))
+    })
+    assign waiting = call core.deque::mut_deque_of()<Reply<Str>>()
+  }
+}
+
+actor interface Fragile {
+  send fn crash() -> None
+}
+
+impl Breaking() of Fragile {
+  mailbox construct Mailbox { capacity: 1 }
+  fn crash() -> None {
+    bind#1 let empty: List<Int> = list[List<Int>]()
+    bind#6 let boom: Int = branch#5 cond#0 true {
+      bind#3 let __nn~1: Int? = call core.list::get(List<T>, Int)<Int>(read empty, 7)
+      value switch#2 read __nn~1 {
+        arm#0 (none) {
+          unreachable("salvo: value is absent at main.sv:5712")
+        }
+        arm#1 (else) {
+          narrow#4[switch#2.arm#1] __some~2: Int = __nn~1
+          value !read __some~2
+        }
+      }
+    }
+    call core.basic::discard<Int>(!read boom)
+  }
+}
+
+fn main::formatted(moved label: Str, moved out: Reply<Str>, moved total: Int) -> None {
+  call core.actor::send<Str>(!read out, concat(read label, " totalled ", call core.basic::to_str(Int)(read total)))
+}
+
+fn main::report_line(moved counter: Addr<Counter>, moved label: Str, moved out: Reply<Str>) -> None {
+  send main::Counter#1(read counter, replyto formatted(read label, !read out))
+}
+
+fn main::main() -> None {
+  bind#1 let __use~1: StdOutConsole = construct StdOutConsole { }
+  bind#2 let workers: Pool = call core.actor::pool(Int)(2)
+  bind#3 let counter: Addr<Counter> = spawn[Addr<Counter>](construct Counting { }, on: read workers) serves [Counter]
+  send main::Counter#0(read counter, 2)
+  send main::Counter#0(read counter, 3)
+  bind#4 let sum: Int = waitfor out: Reply<Int> {
+    send main::Counter#1(read counter, !read out)
+  }
+  call core.console::println(read __use~1, concat("1. counter total is ", call core.basic::to_str(Int)(read sum)))
+  bind#5 let ledger: Addr<Ledger> = spawn[Addr<Ledger>](construct Bookkeeping { __dep0: read counter }, on: read workers) serves [Ledger]
+  bind#6 let line: Str = waitfor out: Reply<Str> {
+    send main::Ledger#0(read ledger, "counter", !read out)
+  }
+  call core.console::println(read __use~1, concat("3. ledger says ", read line))
+  bind#7 let desk: Addr<Desk> = spawn[Addr<Desk>](construct Desking { room: 8 }, on: read workers) serves [Desk]
+  bind#9 let first: Str = waitfor a: Reply<Str> {
+    send main::Desk#0(read desk, !read a)
+    bind#8 let second: Str = waitfor b: Reply<Str> {
+      send main::Desk#0(read desk, !read b)
+      send main::Desk#1(read desk, "ada")
+      send main::Desk#2(read desk, "end of day")
+    }
+    call core.console::println(read __use~1, concat("4. second waiter got: ", read second))
+  }
+  call core.console::println(read __use~1, concat("4. first waiter got: ", read first))
+  bind#10 let fragile: Addr<Fragile> = spawn[Addr<Fragile>](construct Breaking { }, on: read workers) serves [Fragile]
+  bind#11 let exit: Exit = waitfor gone: Reply<Exit> {
+    call core.actor::watch<Fragile>(read fragile, !read gone)
+    send main::Fragile#0(read fragile)
+  }
+  call core.console::println(read __use~1, concat("5. it died with a reason: ", call core.basic::to_str(Bool)(op Gt(call core.compare::cmp(Int, Int)(call core.string::size(read exit.reason), 0), 0))))
+  send main::Fragile#0(read fragile)
+  bind#12 let __use~2: Counting = construct Counting { }
+  member main::Counter#0(read __use~2, 4)
+  member main::Counter#0(read __use~2, 5)
+  bind#13 let inline: Int = waitfor out: Reply<Int> {
+    member main::Counter#1(read __use~2, !read out)
+  }
+  call core.console::println(read __use~1, concat("6. inline total is ", call core.basic::to_str(Int)(read inline)))
+  bind#14 let mine: Addr<Counter> = spawn[Addr<Counter>](construct Counting { }) serves [Counter]
+  send main::Counter#0(read mine, 6)
+  bind#15 let local: Int = waitfor out: Reply<Int> {
+    send main::Counter#1(read mine, !read out)
+  }
+  call core.console::println(read __use~1, concat("7. the main pool's own actor totalled ", call core.basic::to_str(Int)(read local)))
+  bind#16 let line8: Str = waitfor out: Reply<Str> {
+    call main::report_line(!read mine, "the counter", !read out)
+  }
+  call core.console::println(read __use~1, concat("8. ", read line8))
+  call core.console::println(read __use~1, "done")
+}

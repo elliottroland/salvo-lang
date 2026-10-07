@@ -136,6 +136,23 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-06 — The IR, step 1: `salvo-ir` builds and dumps every program
+
+`crates/salvo-ir`: node types (IR.md §3 as built), a builder from `Program +
+Symbols + Resolution + Checked` that copies every checker answer into the tree
+(declarations in `build/decls.rs`, bodies in `build/body.rs`, expressions in
+`build/body/exprs.rs`), and the text form. `salvo ir` dumps a program's user
+modules (`--all` for the reached std too). Verified by building every inline
+program of both backends' codegen tests (about 350; the test fails on any
+builder error or `Unsupported` node) and by golden snapshots of eleven
+examples' IR. Fell out of the build: `Checked::written_types` (the checker's
+lowered type per written type span), the provisional `Op`/`Test`/`ForEach`/
+`Static` nodes (IR.md §9a), effects and handler dependencies as locals
+(`__eff0`, `__dep0`, `__module_use0`), implicits as trailing parameters named
+by the checker's `local`, a `Narrow` per narrowing with its justification, and
+the loop lowering with value and `else` locals only where present. Not yet
+verified: the IR against a backend (step 2).
+
 ### 2026-10-06 — The IR (user decisions; design in IR.md)
 
 The user's direction, superseding the helper-by-helper plan for §0j steps

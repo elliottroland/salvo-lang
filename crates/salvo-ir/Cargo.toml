@@ -1,0 +1,16 @@
+[package]
+name = "salvo-ir"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The IR: a minimal, decided form of a Salvo program, built from the checked AST"
+
+[lib]
+doctest = false
+
+[dependencies]
+salvo-syntax = { workspace = true }
+salvo-core = { workspace = true }
+
+[dev-dependencies]
+insta = { workspace = true }

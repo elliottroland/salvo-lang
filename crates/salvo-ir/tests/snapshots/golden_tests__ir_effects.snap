@@ -1,0 +1,146 @@
+---
+source: crates/salvo-ir/tests/golden_tests.rs
+expression: text
+---
+module main
+
+interface Clock {
+  fn now() -> Int
+}
+
+impl TickingClock() of Clock stateful {
+  state tick: Int = 0
+  fn now() -> Int {
+    assign tick = op Add(read tick, 5)
+    return !read tick
+  }
+}
+
+fn main::stamp(lent __eff0: Clock, lent __eff1: Console; lent label: Str) -> None {
+  bind#1 let t: Int = member main::Clock#0(read __eff0)
+  call main::banner(read __eff1, concat(read label, " at t=", call core.basic::to_str(Int)(read t)))
+}
+
+fn main::banner(lent __eff0: Console; lent text: Str) -> None {
+  call core.console::println(read __eff0, concat("   ", read text))
+}
+
+interface Logger {
+  fn log(lent message: Str) -> None
+}
+
+impl PlainLogger() of Logger deps [Console] {
+  fn log(lent message: Str) -> None {
+    call core.console::println(read __dep0, concat("   ", read message))
+  }
+}
+
+impl QuietLogger() of Logger {
+  fn log(lent message: Str) -> None {
+  }
+}
+
+impl Stamped() of Logger deps [Logger, Clock] {
+  fn log(lent message: Str) -> None {
+    member main::Logger#0(read __dep0, concat("[t=", call core.basic::to_str(Int)(member main::Clock#0(read __dep1)), "] ", read message))
+  }
+}
+
+impl Numbered() of Logger deps [Logger] stateful {
+  state seen: Int = 0
+  fn log(lent message: Str) -> None {
+    assign seen = op Add(read seen, 1)
+    member main::Logger#0(read __dep0, concat("#", call core.basic::to_str(Int)(read seen), " ", read message))
+  }
+}
+
+fn main::work(lent __eff0: Logger; lent step: Str) -> None {
+  member main::Logger#0(read __eff0, read step)
+}
+
+fn main::interception(lent __eff0: Logger, lent __eff1: Clock) -> None {
+  call main::work(read __eff0, "4. plain")
+  bind#1 let __use~1: Stamped = construct Stamped { __dep0: read __eff0, __dep1: read __eff1 }
+  call main::work(read __use~1, "4. stamped")
+  bind#2 let __use~2: Numbered = construct Numbered { __dep0: read __use~1 }
+  call main::work(read __use~2, "4. numbered, then stamped")
+  call main::work(read __use~2, "4. and again")
+}
+
+fn main::scoping(lent __eff0: Logger) -> None {
+  call main::work(read __eff0, "5. before the block")
+  branch#1 cond#0 true {
+    bind#2 let __use~1: QuietLogger = construct QuietLogger { }
+    call main::work(read __use~1, "5. this line is swallowed")
+  }
+  call main::work(read __eff0, "5. after the block, logging again")
+}
+
+interface Audit {
+  fn record(lent what: Str) -> None
+}
+
+interface Metrics {
+  fn record(lent what: Str) -> None
+}
+
+impl ConsoleAudit() of Audit deps [Console] {
+  fn record(lent what: Str) -> None {
+    call core.console::println(read __dep0, concat("   audit: ", read what))
+  }
+}
+
+impl ConsoleMetrics() of Metrics deps [Console] {
+  fn record(lent what: Str) -> None {
+    call core.console::println(read __dep0, concat("   metric: ", read what))
+  }
+}
+
+fn main::audit_only(lent __eff0: Audit; lent what: Str) -> None {
+  member main::Audit#0(read __eff0, read what)
+}
+
+fn main::audit_and_measure(lent __eff0: Audit, lent __eff1: Metrics; lent what: Str) -> None {
+  member main::Audit#0(read __eff0, read what)
+  member main::Metrics#0(read __eff1, read what)
+}
+
+interface Setting<T> {
+  fn setting(lent copy: (T) -> T, lent copy: (T) -> T) -> T
+}
+
+impl Fixed<T>(lent value: T) of Setting<T> {
+  fn setting(; ?lent copy: (T) -> T) -> T {
+    return call local copy(read value)
+  }
+}
+
+fn main::settings(lent __eff0: Setting<Int>, lent __eff1: Setting<Str>, lent __eff2: Console) -> None {
+  bind#1 let retries: Int = member main::Setting#0(read __eff0, fn core.basic::copy)
+  bind#2 let region: Str = member main::Setting#0(read __eff1, fn core.basic::copy)
+  call core.console::println(read __eff2, concat("   retries=", call core.basic::to_str(Int)(read retries), " region=", read region))
+}
+
+fn main::main() -> None {
+  bind#1 let __use~1: StdOutConsole = construct StdOutConsole { }
+  bind#2 let __use~2: TickingClock = construct TickingClock { }
+  call core.console::println(read __use~1, concat("1. the clock reads ", call core.basic::to_str(Int)(member main::Clock#0(read __use~2)), ", then ", call core.basic::to_str(Int)(member main::Clock#0(read __use~2))))
+  call core.console::println(read __use~1, "2. two effects in one signature:")
+  call main::stamp(read __use~2, read __use~1, "2. a labelled moment")
+  call core.console::println(read __use~1, "3. a logger whose handler needs the console:")
+  bind#3 let __use~3: PlainLogger = construct PlainLogger { __dep0: read __use~1 }
+  call main::work(read __use~3, "3. logged through the console")
+  call core.console::println(read __use~1, "4. interception — each `use` wraps the one before it:")
+  call main::interception(read __use~3, read __use~2)
+  call core.console::println(read __use~1, "5. shadowing is not wrapping:")
+  call main::scoping(read __use~3)
+  call core.console::println(read __use~1, "6. two effects, one member name:")
+  bind#4 let __use~4: ConsoleAudit = construct ConsoleAudit { __dep0: read __use~1 }
+  call main::audit_only(read __use~4, "6. audited only")
+  bind#5 let __use~5: ConsoleMetrics = construct ConsoleMetrics { __dep0: read __use~1 }
+  call main::audit_and_measure(read __use~4, read __use~5, "6. audited and measured")
+  call core.console::println(read __use~1, "7. two instances of one generic effect:")
+  bind#6 let __use~6: Fixed<Int> = construct Fixed<Int> { value: 3 }
+  bind#7 let __use~7: Fixed<Str> = construct Fixed<Str> { value: "eu-west-1" }
+  call main::settings(read __use~6, read __use~7, read __use~1)
+}

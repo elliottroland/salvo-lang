@@ -147,6 +147,19 @@ enum Command {
         #[arg(long, value_enum, default_value_t = Format::Text)]
         format: Format,
     },
+    /// Print the IR of the program's modules [cli-ir]: the decided form the
+    /// backends read (IR.md). Every user module, or with `--all` every module
+    /// the program reaches (std included).
+    Ir {
+        #[arg(long)]
+        src: Option<PathBuf>,
+        /// Also dump the std modules the program reaches.
+        #[arg(long)]
+        all: bool,
+        /// Dump only this module (dotted path).
+        #[arg(long)]
+        module: Option<String>,
+    },
     /// Start a language server speaking LSP over stdio [cli-lsp]. The
     /// workspace root comes from the client's `initialize` request.
     Lsp,
@@ -218,6 +231,7 @@ fn main() -> ExitCode {
             clean_target,
         } => run(backend, src, main_file, target, clean_target),
         Command::Analyze { src, format } => analyze(src, format),
+        Command::Ir { src, all, module } => ir_command(src, all, module),
         Command::Test {
             backend,
             src,
@@ -310,6 +324,46 @@ fn analyze(src: Option<PathBuf>, format: Format) -> ExitCode {
         ExitCode::FAILURE
     } else {
         ExitCode::SUCCESS
+    }
+}
+
+/// [cli-ir] Builds the IR of the checked program and prints each module's dump.
+fn ir_command(src: Option<PathBuf>, all: bool, module: Option<String>) -> ExitCode {
+    let inputs = match resolve_inputs(src, None, None, "rust", false) {
+        Ok(i) => i,
+        Err(msg) => {
+            eprintln!("error: {msg}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let analysis = match analysis::analyze_sources(&inputs.layout.src, inputs.project.clone(), "", &Default::default()) {
+        Ok(a) => a,
+        Err(msg) => {
+            eprintln!("error: {msg}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let program = &analysis.program;
+    if analysis.diagnostics.iter().any(|d| d.is_error()) {
+        for diag in &analysis.diagnostics {
+            eprintln!("{}", diag.render(&program.files));
+        }
+        return ExitCode::FAILURE;
+    }
+    match salvo_ir::dump_program(program, all, module.as_deref()) {
+        Ok((text, errors)) => {
+            print!("{text}");
+            for e in &errors {
+                eprintln!("ir: {e}");
+            }
+            if errors.is_empty() { ExitCode::SUCCESS } else { ExitCode::FAILURE }
+        }
+        Err(errors) => {
+            for e in errors {
+                eprintln!("error: {e}");
+            }
+            ExitCode::FAILURE
+        }
     }
 }
 

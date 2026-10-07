@@ -1,0 +1,160 @@
+---
+source: crates/salvo-ir/tests/golden_tests.rs
+expression: text
+---
+module main
+
+linear struct FileHandle wire {
+  name: Str
+}
+
+fn main::open_file(lent __eff0: Console; moved name: Str) -> FileHandle {
+  call core.console::println(read __eff0, concat("1. open ", read name))
+  return construct FileHandle { name: read name }
+}
+
+fn main::close(lent __eff0: Console; moved handle: FileHandle) -> None {
+  call core.console::println(read __eff0, concat("1. close ", read handle.name))
+  call core.basic::discard<FileHandle>(!read handle)
+}
+
+fn main::read_size(lent __eff0: Console; moved name: Str, moved want: Int) -> Int {
+  bind#1 let there_is: Int = call core.string::size(read name)
+  bind#2 let handle: FileHandle = call main::open_file(read __eff0, !read name)
+  branch#3 cond#0 op Gt(call core.compare::cmp(Int, Int)(read want, read there_is), 0) {
+    call core.console::println(read __eff0, "1. asked for more than there is")
+    call main::close(read __eff0, !read handle)
+    return !read there_is
+  }
+  call main::close(read __eff0, !read handle)
+  return !read want
+}
+
+fn main::parse_port(lent text: Str) -> Int throws Str {
+  bind#1 let n: Int? = call core.string::parse_int(read text)
+  branch#2 cond#0 check#3 (read n is none) {
+    narrow#4[check#3] n~1: None = n
+    throw(concat("not a number: ", read text))
+  }
+  narrow#6[after branch#2.cond#0] n~2: Int = n
+  branch#5 cond#0 op Lt(call core.compare::cmp(Int, Int)(read n~2, 1), 0) {
+    throw("port must be positive")
+  }
+  narrow#7[after branch#5.cond#0] n~3: Int = n
+  return !read n~3
+}
+
+fn main::port_of(lent config: Str) -> Int throws Str {
+  bind#1 let port: Int = call main::parse_port(read config)
+  return op Mul(read port, 1)
+}
+
+fn main::port_from_file(lent __eff0: Console; moved name: Str, lent text: Str) -> Int throws Str {
+  bind#1 let handle: FileHandle = call main::open_file(read __eff0, !read name)
+  bind#2 let from: Str = call core.basic::copy<Str>(read handle.name)
+  call main::close(read __eff0, !read handle)
+  call core.console::println(read __eff0, concat("2. reading a port out of ", read from))
+  return call main::parse_port(read text)
+}
+
+fn main::strict_port(lent text: Str) -> Int throws Str | Int {
+  branch#1 cond#0 call core.compare::eq(Int, Int)(call core.string::size(read text), 0) {
+    throw("empty")
+  }
+  bind#2 let n: Int? = call core.string::parse_int(read text)
+  branch#3 cond#0 check#4 (read n is none) {
+    narrow#5[check#4] n~1: None = n
+    throw(call core.string::size(read text))
+  }
+  narrow#6[after branch#3.cond#0] n~2: Int = n
+  return !read n~2
+}
+
+fn main::report(lent __eff0: Console; lent label: Str, lent config: Str) -> None {
+  bind#1 let outcome: Int | Str = try[Int | Str] {
+    value call main::port_of(read config)
+  }
+  switch#2 read outcome {
+    arm#0 (arm 0) {
+      narrow#3[switch#2.arm#0] outcome~1: Int = outcome
+      call core.console::println(read __eff0, concat("3. ", read label, ": port ", call core.basic::to_str(Int)(read outcome~1)))
+    }
+    arm#1 (arm 1) {
+      narrow#4[switch#2.arm#1] outcome~2: Str = outcome
+      call core.console::println(read __eff0, concat("3. ", read label, ": rejected — ", read outcome~2))
+    }
+  }
+}
+
+fn main::main() -> None {
+  bind#1 let __use~1: StdOutConsole = construct StdOutConsole { }
+  bind#2 let small: Int = call main::read_size(read __use~1, "notes.txt", 3)
+  call core.console::println(read __use~1, concat("1. read ", call core.basic::to_str(Int)(read small)))
+  bind#3 let clamped: Int = call main::read_size(read __use~1, "notes.txt", 99)
+  call core.console::println(read __use~1, concat("1. read ", call core.basic::to_str(Int)(read clamped)))
+  call main::report(read __use~1, "good", "8080")
+  call main::report(read __use~1, "bad", "http")
+  bind#4 let guarded: Int | Str = try[Int | Str] {
+    value call main::port_from_file(read __use~1, "ports.txt", "-1")
+  }
+  switch#5 read guarded {
+    arm#0 (arm 0) {
+      narrow#6[switch#5.arm#0] guarded~2: Int = guarded
+      call core.console::println(read __use~1, concat("3. guarded: ", call core.basic::to_str(Int)(read guarded~2)))
+    }
+    arm#1 (arm 1) {
+      narrow#7[switch#5.arm#1] guarded~3: Str = guarded
+      call core.console::println(read __use~1, concat("3. guarded: rejected — ", read guarded~3))
+    }
+  }
+  bind#8 let mixed: Int | Str | Int = try[Int | Str | Int] {
+    value call main::strict_port("")
+  }
+  switch#9 read mixed {
+    arm#0 (arm 0) {
+      narrow#10[switch#9.arm#0] mixed~4: Int = mixed
+      call core.console::println(read __use~1, concat("3. mixed: ", call core.basic::to_str(Int)(read mixed~4)))
+    }
+    arm#1 (arm 1) {
+      narrow#11[switch#9.arm#1] mixed~5: Str | Int = mixed
+      bind#12 let why: Str | Int = read mixed~5
+      switch#13 read why {
+        arm#0 (arm 0) {
+          narrow#14[switch#13.arm#0] why~6: Str = why
+          call core.console::println(read __use~1, concat("3. mixed: message ", read why~6))
+        }
+        arm#1 (arm 1) {
+          narrow#15[switch#13.arm#1] why~7: Int = why
+          call core.console::println(read __use~1, concat("3. mixed: length ", call core.basic::to_str(Int)(read why~7)))
+        }
+      }
+    }
+  }
+  bind#21 let outer: Int | Str = try[Int | Str] {
+    bind#16 let inner: Int | Str = try[Int | Str] {
+      value call main::parse_port("nope")
+    }
+    value switch#17 read inner {
+      arm#0 (arm 0) {
+        narrow#18[switch#17.arm#0] inner~8: Int = inner
+        bind#19 let got: Int = read inner~8
+        value read got
+      }
+      arm#1 (arm 1) {
+        narrow#20[switch#17.arm#1] inner~9: Str = inner
+        call core.console::println(read __use~1, concat("3. inner caught: ", read inner~9))
+        value call main::parse_port("also nope")
+      }
+    }
+  }
+  switch#22 read outer {
+    arm#0 (arm 0) {
+      narrow#23[switch#22.arm#0] outer~10: Int = outer
+      call core.console::println(read __use~1, concat("3. outer: ", call core.basic::to_str(Int)(read outer~10)))
+    }
+    arm#1 (arm 1) {
+      narrow#24[switch#22.arm#1] outer~11: Str = outer
+      call core.console::println(read __use~1, concat("3. outer caught: ", read outer~11))
+    }
+  }
+}

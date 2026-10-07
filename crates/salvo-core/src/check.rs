@@ -665,6 +665,11 @@ pub struct Checked {
     /// exactly these; they no longer ask whether `f` could be a fn or a
     /// member.
     pub dot_calls: HashSet<Key>,
+    /// [ir-nodes] Every written type the checker lowered, keyed by the type's
+    /// span: what a declaration's parameters, fields and results *are*, so
+    /// the IR builder copies the checker's answer rather than lowering again.
+    /// Generic parameters appear as `Ty::Var`.
+    pub written_types: HashMap<Key, Ty>,
     /// [call-resolve] Call sites whose callee resolved to a **fn-typed
     /// local** (a parameter or `let`) rather than to a declaration, keyed
     /// by the call span.
@@ -16429,7 +16434,11 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     fn lower_type(&mut self, ty: &ast::Type) -> Ty {
         let subst = HashMap::new();
-        self.lower_type_subst(ty, &subst, 0)
+        let lowered = self.lower_type_subst(ty, &subst, 0);
+        if !lowered.is_unknown() {
+            self.out.written_types.insert(self.key(ty.span()), lowered.clone());
+        }
+        lowered
     }
 
     fn lower_type_subst(
