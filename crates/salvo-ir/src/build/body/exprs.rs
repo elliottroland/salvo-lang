@@ -143,11 +143,11 @@ impl<'a, 'p> Lower<'a, 'p> {
             AExpr::Assert { cond, message, .. } => {
                 let c = self.expr(cond);
                 let m = message.as_ref().map(|m| Box::new(self.expr(m)));
-                Expr { ty: Ty::none(), span, kind: ExprKind::Assert { cond: Box::new(c), message: m } }
+                Expr { ty: Ty::none(), span, kind: ExprKind::Assert { cond: Box::new(c), message: m, at: self.location(span) } }
             }
             AExpr::Unreachable { message, .. } => {
                 let m = message.as_ref().map(|m| Box::new(self.expr(m)));
-                Expr { ty: self.ty_of(span), span, kind: ExprKind::Unreachable { message: m } }
+                Expr { ty: self.ty_of(span), span, kind: ExprKind::Unreachable { message: m, at: self.location(span) } }
             }
             AExpr::IncDec { operand, down, prefix, .. } => {
                 // `x++`: `x = x + 1`; as a value, the new (prefix) or old
@@ -572,6 +572,13 @@ impl<'a, 'p> Lower<'a, 'p> {
                     }
                 };
                 let Some(target) = target else {
+                    // [cmp-groups] `Double`/`Float` have no `cmp` (`NaN` has
+                    // no order): their ordering is the primitive comparison.
+                    let float = matches!(l.ty.strip_quals(), Ty::Named { name, .. } if name == "Double" || name == "Float");
+                    if !equality && float {
+                        let o = match op { BinaryOp::Lt => Op::Lt, BinaryOp::Gt => Op::Gt, BinaryOp::LtEq => Op::LtEq, _ => Op::GtEq };
+                        return Expr { ty, span, kind: ExprKind::Op { op: o, args: vec![l, r] } };
+                    }
                     self.error(span, format!("comparison on `{}` resolves to no `cmp`/`eq`", l.ty));
                     return unsupported(ty, span, "comparison");
                 };
@@ -633,7 +640,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                             Ty::Fn { params, ret, .. } => (params.clone(), (**ret).clone()),
                             _ => (Vec::new(), Ty::Unknown),
                         };
-                        let ps: Vec<Param> = params.iter().enumerate().map(|(i, t)| Param { local: Local(format!("__i{i}")), ty: t.clone(), mode: PassMode::Lent, variadic: false }).collect();
+                        let ps: Vec<Param> = params.iter().enumerate().map(|(i, t)| Param { local: Local(format!("__i{i}")), ty: t.clone(), mode: PassMode::Lent, variadic: false, check: None }).collect();
                         let mut args: Vec<Expr> = ps.iter().map(|p| Expr { ty: p.ty.clone(), span: at, kind: ExprKind::Read { place: Place { root: p.local.clone(), steps: Vec::new() }, consume: false } }).collect();
                         args.extend(self.implicit_list(nested, &[], at));
                         let call = Expr { ty: ret.clone(), span: at, kind: ExprKind::Call { target: FnRef::Decl(id), type_args: Vec::new(), args } };
@@ -956,7 +963,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 let local = Local(format!("__leff{i}"));
                 let t = erase(t);
                 self.effect_env.push((t.clone(), local.clone()));
-                ps.push(Param { local, ty: t, mode: PassMode::Lent, variadic: false });
+                ps.push(Param { local, ty: t, mode: PassMode::Lent, variadic: false, check: None });
             }
         }
         for (i, p) in params.iter().enumerate() {
@@ -967,7 +974,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 _ => PassMode::Lent,
             };
             let local = self.bind(&p.name.name, pty.clone());
-            ps.push(Param { local, ty: pty, mode, variadic: false });
+            ps.push(Param { local, ty: pty, mode, variadic: false, check: None });
         }
         let block = match body {
             LambdaBody::Expr(e) => {
@@ -1048,7 +1055,10 @@ impl<'a, 'p> Lower<'a, 'p> {
             s = Expr { ty: sty, span: subject.span(), kind: ExprKind::Read { place: Place { root: tmp.clone(), steps: Vec::new() }, consume: false } };
             place = Some(Place { root: tmp, steps: Vec::new() });
         }
-        if let Some(b) = binding {
+        if !self.in_condition {
+            // A test read as a value (`expect(x is T, …)`) narrows nothing
+            // afterwards: the flow does not branch on it.
+        } else if let Some(b) = binding {
             let from = place.clone().unwrap_or(Place { root: Local("<subject>".into()), steps: Vec::new() });
             let ty = self.ty_of(b.span).or_unknown(arm_ty.clone()).unwrap_or(Ty::Unknown);
             let local = Local(b.name.clone());
@@ -1110,7 +1120,11 @@ impl<'a, 'p> Lower<'a, 'p> {
                     let steps = parts[1..].iter().map(|s| Step::Field(s.to_string())).collect();
                     args.push(Expr { ty: Ty::Unknown, span, kind: ExprKind::Read { place: Place { root: b.local, steps }, consume: false } });
                 }
-                None => args.push(unsupported(Ty::Unknown, span, format!("qualifier argument `{}`", a.path))),
+                // [qual-value-args] a literal argument, as spelled.
+                None => match literal_arg(&a.path) {
+                    Some(e) => args.push(Expr { span, ..e }),
+                    None => args.push(unsupported(Ty::Unknown, span, format!("qualifier argument `{}`", a.path))),
+                },
             }
         }
         if let Some(at) = check.implicits_at {
@@ -1151,8 +1165,8 @@ impl<'a, 'p> Lower<'a, 'p> {
         let tmp = self.fresh("__nn");
         let lid = self.id();
         let bind = Stmt::Let { id: lid, local: tmp.clone(), ty: subj_ty.clone(), value: s };
-        let msg = format!("salvo: value is absent at {}:{}", self.ctx.program.files[self.file_idx].name, span.start);
-        let trap = Block { stmts: vec![Stmt::Expr(Expr { ty: Ty::Never, span, kind: ExprKind::Unreachable { message: Some(Box::new(Expr { ty: Ty::named("Str"), span, kind: ExprKind::Str(msg) })) } })], value: None };
+        let msg = "value is absent".to_string();
+        let trap = Block { stmts: vec![Stmt::Expr(Expr { ty: Ty::Never, span, kind: ExprKind::Unreachable { message: Some(Box::new(Expr { ty: Ty::named("Str"), span, kind: ExprKind::Str(msg) })), at: self.location(span) } })], value: None };
         let nar = self.fresh("__some");
         let nid = self.id();
         let narrow = Stmt::Narrow { id: nid, local: nar.clone(), ty: ty.clone(), from: Place { root: tmp.clone(), steps: Vec::new() }, from_ty: subj_ty.clone(), because: Justification::Arm { switch: id, arm: 1 } };
@@ -1318,7 +1332,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             // arms' failure narrowed; such a narrowing holds only there, so
             // the rest of the chain nests in this one's `else`, after it.
             let saved = std::mem::take(&mut self.pending);
-            let c = self.expr(cond);
+            let c = self.condition(cond);
             let cond_pending = std::mem::replace(&mut self.pending, saved);
             if i > 0 && !cond_pending.is_empty() {
                 // The arm's scope stays open for the nested chain's first arm.
@@ -1347,6 +1361,23 @@ impl<'a, 'p> Lower<'a, 'p> {
         }
         self.set_last_branch(id);
         Expr { ty, span, kind: ExprKind::Branch { id, arms, otherwise } }
+    }
+
+    /// [assert-trap] The Salvo location a trap names: `module:line:col` —
+    /// the module path, not the file name, which depends on the loader.
+    pub(crate) fn location(&self, span: Span) -> String {
+        let file = &self.ctx.program.files[self.file_idx];
+        let (line, col) = salvo_syntax::span::line_col(&file.content, span.start);
+        format!("{}:{line}:{col}", file.module)
+    }
+
+    /// A condition: an expression whose `is` tests narrow what follows
+    /// [ir-narrow].
+    pub(crate) fn condition(&mut self, cond: &AExpr) -> Expr {
+        let saved = std::mem::replace(&mut self.in_condition, true);
+        let c = self.expr(cond);
+        self.in_condition = saved;
+        c
     }
 
     /// The tail of an `if` chain whose first condition `c` needed the
@@ -1442,7 +1473,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         self.loop_results.push(result.as_ref().map(|(r, _)| r.clone()));
         let mut stmts = Vec::new();
         let saved_pending = std::mem::take(&mut self.pending);
-        let c = self.expr(cond);
+        let c = self.condition(cond);
         stmts.append(&mut self.pending);
         self.pending = saved_pending;
         let narrows = std::mem::take(&mut self.pending_after_test);
@@ -1940,7 +1971,7 @@ fn visit_reads(e: &Expr, f: &mut dyn FnMut(&Local)) {
         ExprKind::Test { subject, .. } => visit_reads(subject, f),
         ExprKind::Lambda { body, .. } | ExprKind::Try { body } => block(body, f),
         ExprKind::Throw { message } => visit_reads(message, f),
-        ExprKind::Assert { cond, message } => {
+        ExprKind::Assert { cond, message, .. } => {
             visit_reads(cond, f);
             if let Some(m) = message {
                 visit_reads(m, f);
@@ -1999,4 +2030,27 @@ fn returned_ty(b: &Block) -> Option<Ty> {
         }
     }
     in_block(b)
+}
+
+/// A qualifier's value argument spelled as a literal (`0`, `65535L`,
+/// `"name"`, `true`), as the expression it is.
+fn literal_arg(text: &str) -> Option<Expr> {
+    let span = Span::default();
+    let mk = |ty: &str, kind: ExprKind| Some(Expr { ty: Ty::named(ty), span, kind });
+    if text == "true" || text == "false" {
+        return mk("Bool", ExprKind::Bool(text == "true"));
+    }
+    if let Some(inner) = text.strip_prefix('"').and_then(|t| t.strip_suffix('"')) {
+        return mk("Str", ExprKind::Str(inner.to_string()));
+    }
+    if let Some(n) = text.strip_suffix('L') {
+        return n.replace('_', "").parse::<i64>().ok().and_then(|v| mk("Long", ExprKind::Long(v)));
+    }
+    if let Ok(v) = text.replace('_', "").parse::<i64>() {
+        return mk("Int", ExprKind::Int(v));
+    }
+    if let Some(n) = text.strip_suffix('f') {
+        return n.parse::<f64>().ok().and_then(|v| mk("Float", ExprKind::Float(v)));
+    }
+    text.parse::<f64>().ok().and_then(|v| mk("Double", ExprKind::Double(v)))
 }

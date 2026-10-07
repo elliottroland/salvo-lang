@@ -430,7 +430,8 @@ provisional until reviewed:
 * **`Op` exists after all.** `+ - * / %`, `and`/`or`, `!`, unary `-` have no
   declaration in std to reference, so they are an `Op` node on scalars; `<`
   and friends are `Op::Lt…` over the `Int` a `cmp` call answered, against 0
-  (the sign test). Comparisons themselves are calls. The alternative — std
+  (the sign test) — and directly over two `Double`/`Float` operands, which
+  have no `cmp` [cmp-groups]. Comparisons themselves are calls. The alternative — std
   declaring `intrinsic fn add(Int, Int)` etc. — makes `add(1, 2)` callable,
   a surface change, so it was not taken without asking.
 * **`Test` node.** `x is T` as a *condition* (inside `if`/`while`, in an
@@ -469,6 +470,18 @@ the Kotlin codegen compile-and-run shards that reach kotlinc pass (two shards
 still stop at textual assertions on the AST emitter's spelling — `val x`
 versus a qualified name — which the flip to the IR path revises). The AST
 path is still the default.
+
+The host boundary is rendered too: platform fn wrappers and the `__Platform_E`
+adapters check what the host hands back [platform-check] from the plans the
+IR declarations carry (`FnDecl.result_check`, `Member.result_check`,
+`Param.check`), the factory objects [platform-factory] come from
+`UnionDecl.factories`, `FnDecl.factories` and `Member.factories`, ABI mode
+(`emit_program_ir(program, true)`: a host project's declaration files) and
+`salvo platform generate`'s skeletons (`ir_emit/skeletons.rs`) are IR-based,
+and a trap names its Salvo location from `Assert`/`Unreachable`'s `at`
+[assert-trap]. Under the flag the std host project and the aws Gradle project
+compile, and every salvo-cli test binary passes except the one comparing
+against the checked-in (AST-generated) host projects.
 
 What the port added to the IR, all backend-neutral:
 

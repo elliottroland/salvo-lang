@@ -110,7 +110,11 @@ impl Backend for KotlinBackend {
         program: &Program,
         _entry: Option<&ModulePath>,
     ) -> Result<Vec<(PathBuf, String)>, BackendError> {
-        let files = emit::platform_skeletons(program).map_err(BackendError::Codegen)?;
+        let files = if std::env::var("SALVO_KOTLIN_IR").is_ok() {
+            emit::ir_emit_skeletons(program).map_err(BackendError::Codegen)?
+        } else {
+            emit::platform_skeletons(program).map_err(BackendError::Codegen)?
+        };
         Ok(salvo_backend::emit_util::as_pairs(files))
     }
 

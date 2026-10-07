@@ -74,6 +74,7 @@ pub fn build_module(ctx: &Ctx<'_>, file_idx: usize, file: &SourceFile, module: &
                             exported: t.exported,
                             type_params: type_params(&t.generics, &t.generic_canbe),
                             ty: ctx.written_ty(file_idx, alias),
+                            factories: ctx.checked.factories.get(&(file_idx, t.name.span)).cloned(),
                             span: t.span,
                         }));
                     }
@@ -189,13 +190,24 @@ fn interface_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, e: &ast::EffectDec
                     ty: ctx.written_ty(file_idx, &p.ty),
                     mode: modes.member_param(m, p),
                     variadic: p.variadic,
+                    // [platform-check] a `Reply<T>` the host answers on.
+                    check: ctx.checked.boundary_checks.get(&(file_idx, p.name.span)).cloned(),
                 });
             }
             // [implicit-param] a member's implicits are trailing parameters.
             if let Some(imps) = ctx.checked.implicit_members.get(&(file_idx, m.name.span)) {
                 for ip in imps {
-                    params.push(Param { local: Local(ip.local.clone()), ty: erase(&ip.ty), mode: PassMode::Lent, variadic: false });
+                    params.push(Param { local: Local(ip.local.clone()), ty: erase(&ip.ty), mode: PassMode::Lent, variadic: false, check: None });
                 }
+            }
+            // [platform-check] [platform-factory] the host boundary of a
+            // platform-handled member: its result check, and the factories of
+            // its result and reply payloads.
+            let result_check = ctx.checked.boundary_checks.get(&(file_idx, m.name.span)).cloned();
+            let mut factories: Vec<salvo_core::abi::Factories> = Vec::new();
+            factories.extend(ctx.checked.factories.get(&(file_idx, m.name.span)).cloned());
+            for p in &m.params {
+                factories.extend(ctx.checked.factories.get(&(file_idx, p.name.span)).cloned());
             }
             Member {
                 name: m.name.name.clone(),
@@ -204,6 +216,8 @@ fn interface_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, e: &ast::EffectDec
                 params,
                 ret: m.return_type.as_ref().map(|t| ctx.written_ty(file_idx, t)).unwrap_or_else(Ty::none),
                 send: m.is_send,
+                result_check,
+                factories,
                 span: m.span,
             }
         })
@@ -252,6 +266,7 @@ fn impl_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, h: &ast::HandlerDecl, s
             ty: ctx.written_ty(file_idx, &p.ty),
             mode: if p.implicit { PassMode::Lent } else { modes.default_param(&p.ty, p.variadic) },
             variadic: p.variadic,
+            check: None,
         })
         .collect();
     let state = fields(ctx, file_idx, &h.state, errors);
@@ -297,7 +312,7 @@ fn impl_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, h: &ast::HandlerDecl, s
                     None if f.is_send => modes.member_param(f, p),
                     None => modes.default_param(&p.ty, p.variadic),
                 };
-                params.push(Param { local: Local(p.name.name.clone()), ty: ctx.written_ty(file_idx, &p.ty), mode, variadic: p.variadic });
+                params.push(Param { local: Local(p.name.name.clone()), ty: ctx.written_ty(file_idx, &p.ty), mode, variadic: p.variadic, check: None });
             }
             for p in &params {
                 lower.bind_owned(&p.local.0, p.ty.clone(), p.mode == PassMode::Moved);
@@ -396,7 +411,7 @@ fn fn_decl(
     for (i, t) in effects.iter().enumerate() {
         let local = Local(format!("__eff{i}"));
         lower.effect_env.push((t.clone(), local.clone()));
-        params.push(Param { local, ty: t.clone(), mode: PassMode::Lent, variadic: false });
+        params.push(Param { local, ty: t.clone(), mode: PassMode::Lent, variadic: false, check: None });
     }
     let effect_params = params.len();
     for p in f.params.iter().filter(|p| !p.implicit) {
@@ -407,7 +422,7 @@ fn fn_decl(
         };
         let ty = ctx.written_ty(file_idx, &p.ty);
         lower.bind_owned(&p.name.name, ty.clone(), mode == PassMode::Moved);
-        params.push(Param { local: Local(p.name.name.clone()), ty, mode, variadic: p.variadic });
+        params.push(Param { local: Local(p.name.name.clone()), ty, mode, variadic: p.variadic, check: None });
     }
     let mut implicit_params = 0;
     if let Some(k) = key {
@@ -416,7 +431,7 @@ fn fn_decl(
                 let ty = erase(&ip.ty);
                 lower.bind(&ip.local, ty.clone());
                 lower.implicit_locals.insert(ip.name.clone(), Local(ip.local.clone()));
-                params.push(Param { local: Local(ip.local.clone()), ty, mode: PassMode::Lent, variadic: false });
+                params.push(Param { local: Local(ip.local.clone()), ty, mode: PassMode::Lent, variadic: false, check: None });
                 implicit_params += 1;
             }
         }
@@ -426,7 +441,7 @@ fn fn_decl(
             let ty = erase(&ip.ty);
             lower.bind(&ip.local, ty.clone());
             lower.implicit_locals.insert(ip.name.clone(), Local(ip.local.clone()));
-            params.push(Param { local: Local(ip.local.clone()), ty, mode: PassMode::Lent, variadic: false });
+            params.push(Param { local: Local(ip.local.clone()), ty, mode: PassMode::Lent, variadic: false, check: None });
             implicit_params += 1;
         }
     }
@@ -465,6 +480,8 @@ fn fn_decl(
         ret,
         borrows,
         throws,
+        result_check: if f.platform { ctx.checked.boundary_checks.get(&(file_idx, f.name.span)).cloned() } else { None },
+        factories: if f.platform { ctx.checked.factories.get(&(file_idx, f.name.span)).cloned() } else { None },
         body,
         span: f.span,
     }

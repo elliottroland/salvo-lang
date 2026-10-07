@@ -165,6 +165,19 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         }
         self.out.push_str("}\n");
         if !self.interface_has_wire(i) {
+            // [actor-use-addr] the stub still sends, in-process.
+            self.out.push_str(&format!("\nclass __Stub_{0}(private val addr: Int) : {0} {{\n", i.name));
+            for m in &sends {
+                let ps = self.params(&m.params);
+                let names: Vec<String> = m.params.iter().map(|p| kt_local(&p.local)).collect();
+                self.out.push_str(&format!(
+                    "    override fun {}({ps}) {{\n        salvo.SalvoSched.send(addr, {msg}.{}({}))\n    }}\n",
+                    kt_ident(&m.emitted_name),
+                    variant(&m.emitted_name),
+                    names.join(", ")
+                ));
+            }
+            self.out.push_str("}\n");
             return;
         }
         let mut enc = String::new();
@@ -385,7 +398,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             // [kt-monitor-reentry] re-entering the handle on its own thread
             // would deadlock on Rust, so it traps here [backend-parity].
             self.out.push_str(&format!(
-                "    override fun {mtps}{kt}({ps}){ret} {{\n        check(!lock.isHeldByCurrentThread) {{ \"salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]\" }}\n        lock.lock()\n        try {{ {}inner.{kt}({}) }} finally {{ lock.unlock() }}\n    }}\n",
+                "    override fun{mtps} {kt}({ps}){ret} {{\n        check(!lock.isHeldByCurrentThread) {{ \"salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]\" }}\n        lock.lock()\n        try {{ {}inner.{kt}({}) }} finally {{ lock.unlock() }}\n    }}\n",
                 if ret.is_empty() { "" } else { "return " },
                 args.join(", ")
             ));
@@ -534,13 +547,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     return "TODO()".to_string();
                 };
                 let g_code = self.expr(g, indent);
-                format!(
-                    "salvo.SalvoSched.sendWire({g_code}, {}.{}(__a), {}, {}); ",
-                    self.msg_class(group),
-                    variant(&group.members[idx].emitted_name),
-                    self.proto_const(group),
-                    self.msg_codec(group)
-                )
+                let built = format!("{}.{}(__a)", self.msg_class(group), variant(&group.members[idx].emitted_name));
+                format!("{}; ", self.send_call(group, &g_code, &built))
             }
             None => String::new(),
         };
@@ -590,13 +598,18 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         };
         let m = &iface.members[member.index];
         let args_code = self.exprs(args, indent);
-        let pkg = if iface.id.module == self.module.path { String::new() } else { format!("{}.", kotlin_package(&iface.id.module)) };
-        format!(
-            "salvo.SalvoSched.sendWire({a}, {pkg}__Msg_{0}.{1}({2}), {pkg}__PROTO_{0}, {pkg}__Codec___Msg_{0})",
-            iface.name,
-            variant(&m.emitted_name),
-            args_code.join(", ")
-        )
+        let built = format!("{}.{}({})", self.msg_class(iface), variant(&m.emitted_name), args_code.join(", "));
+        self.send_call(iface, &a, &built)
+    }
+
+    /// [kt-wire] A send: over the wire layer when the protocol has a wire
+    /// form, in-process otherwise.
+    pub(super) fn send_call(&mut self, iface: &InterfaceDecl, target: &str, built: &str) -> String {
+        if self.interface_has_wire(iface) {
+            format!("salvo.SalvoSched.sendWire({target}, {built}, {}, {})", self.proto_const(iface), self.msg_codec(iface))
+        } else {
+            format!("salvo.SalvoSched.send({target}, {built})")
+        }
     }
 
     pub(super) fn replyto(&mut self, target: &ReplyTarget, captures: &[Expr], gated: bool, pool: Option<&Expr>, indent: usize) -> String {

@@ -124,6 +124,9 @@ pub struct UnionDecl {
     pub exported: bool,
     pub type_params: Vec<TypeParam>,
     pub ty: Ty,
+    /// [platform-factory] the factories a host builds this union with, when
+    /// a platform signature reaches it.
+    pub factories: Option<salvo_core::abi::Factories>,
     pub span: Span,
 }
 
@@ -157,6 +160,11 @@ pub struct Member {
     pub ret: Ty,
     /// [actor-send-fn] a message: asynchronous, answers nothing.
     pub send: bool,
+    /// [platform-check] what a platform handler's answer is checked for.
+    pub result_check: Option<salvo_core::abi::BoundaryCheck>,
+    /// [platform-factory] the factories of the result and of the `Reply<T>`
+    /// payloads a host builds, when a platform handler implements the effect.
+    pub factories: Vec<salvo_core::abi::Factories>,
     pub span: Span,
 }
 
@@ -236,6 +244,10 @@ pub struct FnDecl {
     pub borrows: Vec<usize>,
     /// [throw] the message type this fn may throw, when it declares `[Throw<M>]`.
     pub throws: Option<Ty>,
+    /// [platform-check] a platform fn's result check.
+    pub result_check: Option<salvo_core::abi::BoundaryCheck>,
+    /// [platform-factory] a platform fn's result factories.
+    pub factories: Option<salvo_core::abi::Factories>,
     pub body: Option<Block>,
     pub span: Span,
 }
@@ -247,6 +259,9 @@ pub struct Param {
     pub mode: PassMode,
     /// [fn-variadic] the trailing list of the rest of the arguments.
     pub variadic: bool,
+    /// [platform-check] for a `Reply<T>` of a platform-handled member: what
+    /// the host's answer on it is checked for.
+    pub check: Option<salvo_core::abi::BoundaryCheck>,
 }
 
 #[derive(Clone)]
@@ -373,8 +388,13 @@ pub enum ExprKind {
     Throw { message: Box<Expr> },
     /// A conjunction of predicate-qualifier checks on a subject
     /// [qual-predicate]: calls to `qualifies` fns.
-    Assert { cond: Box<Expr>, message: Option<Box<Expr>> },
-    Unreachable { message: Option<Box<Expr>> },
+    /// [assert-trap] `at` is the Salvo location (`module:line:col`) the
+    /// trap names; a written `message` replaces the default text.
+    Assert { cond: Box<Expr>, message: Option<Box<Expr>>, at: String },
+    /// [assert-trap] A point the checker proved unreachable (`x!` on `None`,
+    /// a `when` with no arm left): a trap naming `at`, with `message` as the
+    /// text (`value is absent`).
+    Unreachable { message: Option<Box<Expr>>, at: String },
     // ---- actors (IR.md §6; host primitives until the actor phase) ----
     Spawn { handler: Box<Expr>, deps: Vec<Expr>, pool: Option<Box<Expr>>, join: Option<Box<Expr>>, effects: Vec<Ty> },
     /// A send to an actor through an addr.

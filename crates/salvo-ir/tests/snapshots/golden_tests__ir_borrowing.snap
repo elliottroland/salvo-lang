@@ -51,7 +51,7 @@ fn main::rally_at<L>(lent_mut squad: List<Mut Fighter>, lent l: L; ?lent at: (Li
     bind#2 let __nn~1: Mut Fighter? = call local at(read squad, read l)
     value switch#1 read __nn~1 {
       arm#0 (none) {
-        unreachable("salvo: value is absent at main.sv:4032")
+        unreachable("value is absent") at main:100:10
       }
       arm#1 (else) {
         narrow#3[switch#1.arm#1] __some~2: Mut Fighter = __nn~1
@@ -108,7 +108,7 @@ fn main::main() -> None {
     bind#5 let __nn~3: Fighter? = call main::named(read roster, "Ada")
     value switch#4 read __nn~3 {
       arm#0 (none) {
-        unreachable("salvo: value is absent at main.sv:7488")
+        unreachable("value is absent") at main:192:15
       }
       arm#1 (else) {
         narrow#6[switch#4.arm#1] __some~4: Fighter = __nn~3
@@ -127,7 +127,7 @@ fn main::main() -> None {
       bind#12 let __nn~5: Fighter? = call main::peek(drop_mut(read w))
       value switch#11 read __nn~5 {
         arm#0 (none) {
-          unreachable("salvo: value is absent at main.sv:8136")
+          unreachable("value is absent") at main:206:38
         }
         arm#1 (else) {
           narrow#13[switch#11.arm#1] __some~6: Fighter = __nn~5
@@ -149,7 +149,7 @@ fn main::main() -> None {
       bind#21 let __nn~8: Fighter? = call core.list::get(List<T>, Int)<Fighter>(drop_mut(read bench), 0)
       value switch#20 read __nn~8 {
         arm#0 (none) {
-          unreachable("salvo: value is absent at main.sv:8898")
+          unreachable("value is absent") at main:221:47
         }
         arm#1 (else) {
           narrow#22[switch#20.arm#1] __some~9: Fighter = __nn~8
@@ -164,7 +164,7 @@ fn main::main() -> None {
     bind#28 let __nn~11: Mut Fighter? = call core.list::get(List<T>, Int)<Mut Fighter>(read squad, 0)
     value switch#27 read __nn~11 {
       arm#0 (none) {
-        unreachable("salvo: value is absent at main.sv:9424")
+        unreachable("value is absent") at main:232:16
       }
       arm#1 (else) {
         narrow#29[switch#27.arm#1] __some~12: Mut Fighter = __nn~11
@@ -180,7 +180,7 @@ fn main::main() -> None {
       bind#34 let __nn~13: Mut Fighter? = call core.list::get(List<T>, Int)<Mut Fighter>(read squad, 0)
       value switch#33 read __nn~13 {
         arm#0 (none) {
-          unreachable("salvo: value is absent at main.sv:9533")
+          unreachable("value is absent") at main:236:19
         }
         arm#1 (else) {
           narrow#35[switch#33.arm#1] __some~14: Mut Fighter = __nn~13
@@ -194,7 +194,7 @@ fn main::main() -> None {
       bind#40 let __nn~16: Mut Fighter? = call core.list::get(List<T>, Int)<Mut Fighter>(read squad, 0)
       value switch#39 read __nn~16 {
         arm#0 (none) {
-          unreachable("salvo: value is absent at main.sv:9559")
+          unreachable("value is absent") at main:236:45
         }
         arm#1 (else) {
           narrow#41[switch#39.arm#1] __some~17: Mut Fighter = __nn~16
@@ -208,7 +208,7 @@ fn main::main() -> None {
     bind#46 let __nn~19: Mut Fighter? = call main::wounded(read squad)
     value switch#45 read __nn~19 {
       arm#0 (none) {
-        unreachable("salvo: value is absent at main.sv:9695")
+        unreachable("value is absent") at main:239:10
       }
       arm#1 (else) {
         narrow#47[switch#45.arm#1] __some~20: Mut Fighter = __nn~19
@@ -222,7 +222,7 @@ fn main::main() -> None {
       bind#50 let __nn~21: Mut Fighter? = call core.list::get(List<T>, Int)<Mut Fighter>(read squad, 0)
       value switch#49 read __nn~21 {
         arm#0 (none) {
-          unreachable("salvo: value is absent at main.sv:9924")
+          unreachable("value is absent") at main:244:39
         }
         arm#1 (else) {
           narrow#51[switch#49.arm#1] __some~22: Mut Fighter = __nn~21
@@ -236,7 +236,7 @@ fn main::main() -> None {
       bind#56 let __nn~24: Mut Fighter? = call core.list::get(List<T>, Int)<Mut Fighter>(read squad, 1)
       value switch#55 read __nn~24 {
         arm#0 (none) {
-          unreachable("salvo: value is absent at main.sv:9945")
+          unreachable("value is absent") at main:244:60
         }
         arm#1 (else) {
           narrow#57[switch#55.arm#1] __some~25: Mut Fighter = __nn~24
@@ -253,7 +253,7 @@ fn main::main() -> None {
       bind#65 let __nn~27: Mut Fighter? = call core.list::get(List<T>, Int)<Mut Fighter>(read squad, read i)
       value switch#64 read __nn~27 {
         arm#0 (none) {
-          unreachable("salvo: value is absent at main.sv:10570")
+          unreachable("value is absent") at main:260:17
         }
         arm#1 (else) {
           narrow#66[switch#64.arm#1] __some~28: Mut Fighter = __nn~27
@@ -265,7 +265,7 @@ fn main::main() -> None {
       bind#70 let __nn~29: Mut Fighter? = call core.list::get(List<T>, Int)<Mut Fighter>(read squad, read j)
       value switch#69 read __nn~29 {
         arm#0 (none) {
-          unreachable("salvo: value is absent at main.sv:10601")
+          unreachable("value is absent") at main:261:17
         }
         arm#1 (else) {
           narrow#71[switch#69.arm#1] __some~30: Mut Fighter = __nn~29
@@ -308,7 +308,7 @@ fn main::main() -> None {
       bind#84 let __nn~33: Mut Fighter? = call core.list::get(List<T>, Int)<Mut Fighter>(read squad, 0)
       value switch#83 read __nn~33 {
         arm#0 (none) {
-          unreachable("salvo: value is absent at main.sv:11809")
+          unreachable("value is absent") at main:294:19
         }
         arm#1 (else) {
           narrow#85[switch#83.arm#1] __some~34: Mut Fighter = __nn~33
@@ -322,7 +322,7 @@ fn main::main() -> None {
       bind#90 let __nn~36: Mut Fighter? = call core.list::get(List<T>, Int)<Mut Fighter>(read squad, 0)
       value switch#89 read __nn~36 {
         arm#0 (none) {
-          unreachable("salvo: value is absent at main.sv:11835")
+          unreachable("value is absent") at main:294:45
         }
         arm#1 (else) {
           narrow#91[switch#89.arm#1] __some~37: Mut Fighter = __nn~36
@@ -337,7 +337,7 @@ fn main::main() -> None {
     bind#97 let __nn~39: Mut Fighter? = call core.list::get(List<T>, Int)<Mut Fighter>(read team.members, read i)
     value switch#96 read __nn~39 {
       arm#0 (none) {
-        unreachable("salvo: value is absent at main.sv:12231")
+        unreachable("value is absent") at main:301:18
       }
       arm#1 (else) {
         narrow#98[switch#96.arm#1] __some~40: Mut Fighter = __nn~39
@@ -348,7 +348,7 @@ fn main::main() -> None {
     bind#101 let __nn~41: Mut Fighter? = call core.list::get(List<T>, Int)<Mut Fighter>(read team.members, read j)
     value switch#100 read __nn~41 {
       arm#0 (none) {
-        unreachable("salvo: value is absent at main.sv:12254")
+        unreachable("value is absent") at main:301:41
       }
       arm#1 (else) {
         narrow#102[switch#100.arm#1] __some~42: Mut Fighter = __nn~41
@@ -361,7 +361,7 @@ fn main::main() -> None {
       bind#105 let __nn~43: Mut Fighter? = call core.list::get(List<T>, Int)<Mut Fighter>(read team.members, 0)
       value switch#104 read __nn~43 {
         arm#0 (none) {
-          unreachable("salvo: value is absent at main.sv:12311")
+          unreachable("value is absent") at main:302:35
         }
         arm#1 (else) {
           narrow#106[switch#104.arm#1] __some~44: Mut Fighter = __nn~43
@@ -375,7 +375,7 @@ fn main::main() -> None {
       bind#111 let __nn~46: Mut Fighter? = call core.list::get(List<T>, Int)<Mut Fighter>(read team.members, 1)
       value switch#110 read __nn~46 {
         arm#0 (none) {
-          unreachable("salvo: value is absent at main.sv:12343")
+          unreachable("value is absent") at main:302:67
         }
         arm#1 (else) {
           narrow#112[switch#110.arm#1] __some~47: Mut Fighter = __nn~46

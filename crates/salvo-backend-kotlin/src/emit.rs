@@ -46,7 +46,7 @@ pub fn emit_program_reporting(
 ) -> Result<(Vec<EmittedFile>, Vec<String>), Vec<String>> {
     // [kt-ir] The IR emitter, while it is brought up beside this one.
     if std::env::var("SALVO_KOTLIN_IR").is_ok() {
-        return crate::ir_emit::emit_program_ir(program);
+        return crate::ir_emit::emit_program_ir(program, false);
     }
     emit_program_mode(program, false)
 }
@@ -59,6 +59,9 @@ pub fn emit_program_reporting(
 /// `<module path>.sv.kt`, the runtime under `salvo/`. Never read by the build
 /// (ABI D4).
 pub fn emit_abi(program: &Program) -> Result<Vec<EmittedFile>, Vec<String>> {
+    if std::env::var("SALVO_KOTLIN_IR").is_ok() {
+        return crate::ir_emit::emit_program_ir(program, true).map(|(files, _)| files);
+    }
     emit_program_mode(program, true).map(|(files, _)| files)
 }
 
@@ -715,7 +718,7 @@ pub(crate) fn generate_tuples_file(sizes: &BTreeSet<usize>) -> String {
 }
 
 /// [kt-tuple-component] The property a generated tuple gives position `i`.
-fn tuple_field(i: usize) -> String {
+pub(crate) fn tuple_field(i: usize) -> String {
     match i {
         0 => "first".to_string(),
         1 => "second".to_string(),
@@ -745,6 +748,11 @@ pub fn host_package(module: &ModulePath) -> String {
 /// exactly as `emit_program` does — the skeleton has to match the
 /// interfaces the emitter generates, member for member, so the two must be
 /// rendered by the same code against the same checked program.
+/// [kt-ir] The skeletons over the IR.
+pub fn ir_emit_skeletons(program: &Program) -> Result<Vec<EmittedFile>, Vec<String>> {
+    crate::ir_emit::skeletons::platform_skeletons_ir(program)
+}
+
 pub fn platform_skeletons(program: &Program) -> Result<Vec<EmittedFile>, Vec<String>> {
     // Errors only, never warnings [qual-refn-ambiguous]: the shared front.
     let (symbols, _resolution, checked) = salvo_backend::driver::check_for_skeletons(program)?;
@@ -9639,7 +9647,7 @@ fn escape_char(c: char) -> String {
 
 
 /// [type-literal] A literal type's value as a Kotlin literal.
-fn kt_literal(lit: &salvo_syntax::ast::TypeLit) -> String {
+pub(crate) fn kt_literal(lit: &salvo_syntax::ast::TypeLit) -> String {
     use salvo_syntax::ast::TypeLit;
     match lit {
         TypeLit::Str(v) => format!("{v:?}").replace('$', "\\$"),

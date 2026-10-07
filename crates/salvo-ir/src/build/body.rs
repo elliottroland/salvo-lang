@@ -60,6 +60,8 @@ pub struct Lower<'a, 'p> {
     /// The storage local (and its declared type) behind each narrowing
     /// alias, for assignments through a narrowed name.
     pub(crate) storage: HashMap<Local, (Local, Ty)>,
+    /// Inside a condition, where an `is` test narrows what follows.
+    pub(crate) in_condition: bool,
 }
 
 impl<'a, 'p> Lower<'a, 'p> {
@@ -84,6 +86,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             pending_after_test: Vec::new(),
             placeholder: None,
             storage: HashMap::new(),
+            in_condition: false,
         }
     }
 

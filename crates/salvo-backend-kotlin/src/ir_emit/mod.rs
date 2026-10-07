@@ -20,14 +20,16 @@ use crate::emit::{escape_string, host_package, kotlin_package, kt_ident};
 use crate::EmittedFile;
 
 mod actors;
+mod boundary;
+pub mod skeletons;
 
-pub fn emit_program_ir(program: &Program) -> Result<(Vec<EmittedFile>, Vec<String>), Vec<String>> {
+pub fn emit_program_ir(program: &Program, abi: bool) -> Result<(Vec<EmittedFile>, Vec<String>), Vec<String>> {
     // The IR is built from the *checked* program itself (the checker's
     // `written_types` are keyed by AST node); effect-generic erasure
     // [effect-generic-decl] is applied where a type is rendered.
     let (_erased_program, erased, mut checked, warnings) = salvo_backend::driver::check_for_emission(program)?;
     let (symbols, resolution) = salvo_backend::driver::resolve_for_emission(program, &mut checked);
-    let reach = salvo_backend::driver::reach(program, &resolution, &symbols, &checked, false);
+    let reach = salvo_backend::driver::reach(program, &resolution, &symbols, &checked, abi);
     let wanted: HashSet<&ModulePath> = reach.emitted.iter().copied().collect();
     let (ir, build_errors) = salvo_ir::build_program(program, &symbols, &resolution, &checked, Some(&wanted));
     if !build_errors.is_empty() {
@@ -38,6 +40,7 @@ pub fn emit_program_ir(program: &Program) -> Result<(Vec<EmittedFile>, Vec<Strin
         program,
         symbols: &symbols,
         erased: &erased,
+        abi,
         ir: &ir,
         fn_names: &fn_names,
         union_sizes: BTreeSet::new(),
@@ -67,6 +70,9 @@ pub fn emit_program_ir(program: &Program) -> Result<(Vec<EmittedFile>, Vec<Strin
     // [platform-handler] [platform-fn] [platform-tree] A module whose
     // platform declarations are emitted needs its host implementation file.
     for m in &ir.modules {
+        if abi {
+            break;
+        }
         let declares = m.decls.iter().any(|d| match d {
             Decl::Fn(f) => f.kind == FnKind::Platform,
             Decl::Impl(h) => h.platform,
@@ -81,12 +87,17 @@ pub fn emit_program_ir(program: &Program) -> Result<(Vec<EmittedFile>, Vec<Strin
     }
     let mut files = Vec::new();
     for m in &ir.modules {
-        let text = ModuleEmitter::new(&mut shared, m).module();
+        // [platform-abi] A host project's module carries the declarations the
+        // platform surface reaches (and its platform items); the runtime and
+        // the stream table's service travel whole.
+        let keep: Option<&BTreeSet<String>> = if abi && !reach.abi_full.contains(&m.path) { reach.closure.as_ref() } else { None };
+        let text = ModuleEmitter::new(&mut shared, m).module_with(keep);
         let mut rel_path = std::path::PathBuf::new();
         for part in &m.path.0 {
             rel_path.push(part);
         }
-        rel_path.set_extension("kt");
+        // [platform-abi] a host project's declaration files are `<m>.sv.kt`.
+        rel_path.set_extension(if abi { "sv.kt" } else { "kt" });
         files.push(EmittedFile { rel_path, content: text });
     }
     // Runtime files [kt-runtime].
@@ -94,7 +105,8 @@ pub fn emit_program_ir(program: &Program) -> Result<(Vec<EmittedFile>, Vec<Strin
         let mut f = salvo_core::features::RuntimeFeatures::default();
         for (file_idx, unit) in program.units().enumerate() {
             if wanted.contains(&unit.file.module) {
-                f.or(salvo_core::features::module_features(&symbols, &checked, file_idx, unit.ast, false, |_| true));
+                let keep = if abi && !reach.abi_full.contains(&unit.file.module) { reach.closure.as_ref() } else { None };
+                f.or(salvo_core::features::module_features(&symbols, &checked, file_idx, unit.ast, keep.is_some(), |i| salvo_backend::emit_util::abi_emits(i, keep)));
             }
         }
         f
@@ -140,9 +152,18 @@ pub fn emit_program_ir(program: &Program) -> Result<(Vec<EmittedFile>, Vec<Strin
     if reach.emitted.iter().any(|m| m.0 == ["runtime", "streams"]) {
         files.push(EmittedFile { rel_path: "hoststreams.kt".into(), content: include_str!("../../runtime/hoststreams.kt").to_string() });
     }
-    // Host companions travel with their module [backend-companion].
+    // Host companions travel with their module [backend-companion]. In ABI
+    // mode only the platform companions a host project needs: the runtime's
+    // and every other emitted module's that is not the project's own.
     for comp in &program.companions {
-        if !reach.reachable.contains(&comp.module) {
+        if abi
+            && !(comp.platform
+                && (reach.abi_full.contains(&comp.module)
+                    || (reach.emitted.contains(&comp.module) && !salvo_backend::emit_util::is_project_module(program, &comp.module))))
+        {
+            continue;
+        }
+        if !abi && !reach.reachable.contains(&comp.module) {
             continue;
         }
         if files.iter().any(|f| f.rel_path == comp.rel_path) {
@@ -150,6 +171,20 @@ pub fn emit_program_ir(program: &Program) -> Result<(Vec<EmittedFile>, Vec<Strin
             continue;
         }
         files.push(EmittedFile { rel_path: comp.rel_path.clone(), content: comp.content.clone() });
+    }
+    if abi {
+        // [platform-abi] The runtime lives under `salvo/` in the root, beside
+        // the module declaration files, every file as `.sv.kt`.
+        for f in &mut files {
+            if !f.rel_path.to_string_lossy().ends_with(".sv.kt") {
+                let mut rel = f.rel_path.clone();
+                if let Ok(rest) = rel.strip_prefix(salvo_core::source::PLATFORM_DIR) {
+                    rel = rest.to_path_buf();
+                }
+                rel.set_extension("sv.kt");
+                f.rel_path = std::path::PathBuf::from("salvo").join(rel);
+            }
+        }
     }
     if !shared.errors.is_empty() {
         return Err(shared.errors);
@@ -163,6 +198,8 @@ struct Shared<'p> {
     symbols: &'p salvo_core::Symbols<'p>,
     /// [effect-generic-decl] the declarations rendered without generics.
     erased: &'p salvo_core::Erased,
+    /// [platform-abi] writing a host project's declaration files.
+    abi: bool,
     ir: &'p IrProgram,
     fn_names: &'p salvo_core::naming::FnNames,
     union_sizes: BTreeSet<usize>,
@@ -217,7 +254,26 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         self.s.errors.push(format!("{}: {}", self.module.file_name, msg.into()));
     }
 
-    fn module(mut self) -> String {
+    #[cfg(test)]
+    fn module(self) -> String {
+        self.module_with(None)
+    }
+
+    /// The module's Kotlin; with `keep`, only the declarations named there
+    /// and the platform items, as declarations [platform-abi].
+    fn module_with(mut self, keep: Option<&BTreeSet<String>>) -> String {
+        let kept = |d: &Decl| -> bool {
+            let Some(keep) = keep else { return true };
+            match d {
+                Decl::Struct(x) => keep.contains(&x.name) && !x.name.contains('.'),
+                Decl::Union(x) => keep.contains(&x.name),
+                Decl::Interface(x) => keep.contains(&x.name),
+                Decl::Impl(h) => h.platform,
+                Decl::Fn(f) => f.kind == FnKind::Platform,
+                Decl::PlatformType(t) => t.platform,
+                Decl::Static(_) => false,
+            }
+        };
         let mut body = String::new();
         // [kt-nested-dot-name] Dot-named structs nest in their namespace:
         // the namespace struct's body, or an `object` for a `type` namespace.
@@ -227,6 +283,9 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         }).collect();
         let mut namespaces_done: HashSet<String> = HashSet::new();
         for d in &self.module.decls {
+            if !kept(d) {
+                continue;
+            }
             self.out.clear();
             match d {
                 Decl::Struct(s) if s.name.contains('.') => {
@@ -450,7 +509,12 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     fn decl(&mut self, d: &Decl) {
         match d {
             Decl::Struct(s) => self.struct_decl(s),
-            Decl::Union(_) => {}
+            Decl::Union(u) => {
+                // [platform-factory] a named union a host builds.
+                if let Some(fx) = u.factories.clone() {
+                    self.factory_object(&format!("{}s", u.name), &[fx]);
+                }
+            }
             Decl::Interface(i) => self.interface_decl(i),
             Decl::Impl(h) => self.impl_decl(h),
             Decl::Fn(f) => self.fn_decl(f, 0, None, false),
@@ -509,7 +573,13 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             for f in &s.fields {
                 let ty = self.ty(&f.ty);
                 let kw = if s.canbe_mut { "var" } else { "val" };
-                self.out.push_str(&format!("{pad}    {kw} {}: {ty},\n", kt_ident(&f.name)));
+                // A field's default is the parameter's too, so a host can
+                // leave it out [struct-defaults].
+                let default = match &f.default {
+                    Some(e) => format!(" = {}", self.expr(e, indent + 1)),
+                    None => String::new(),
+                };
+                self.out.push_str(&format!("{pad}    {kw} {}: {ty}{default},\n", kt_ident(&f.name)));
             }
             self.out.push_str(&format!("{pad})\n"));
         }
@@ -532,7 +602,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             let ps = self.params(&m.params);
             let ret = self.ret_ty(&m.ret);
             let mtps = self.type_params(&m.type_params);
-            self.out.push_str(&format!("    fun {mtps}{}({ps}){ret}\n", kt_ident(&m.emitted_name)));
+            self.out.push_str(&format!("    fun{mtps} {}({ps}){ret}\n", kt_ident(&m.emitted_name)));
         }
         self.out.push_str("}\n");
         self.monitor_stub(i);
@@ -553,26 +623,47 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             for m in &i.members {
                 let ps = self.params(&m.params);
                 let ret = self.ret_ty(&m.ret);
-                let names: Vec<String> = m.params.iter().map(|p| kt_local(&p.local)).collect();
-                self.out.push_str(&format!("    override fun {0}({ps}){ret} = impl.{0}({1})\n", kt_ident(&m.emitted_name), names.join(", ")));
+                // [platform-check] what the host hands back is checked (D7):
+                // the result, and what it sends on a `Reply<T>`. A host
+                // project's adapter only has to type-check the implementation.
+                let checking = !self.s.abi;
+                let mut args: Vec<String> = Vec::new();
+                for p in &m.params {
+                    let name = kt_local(&p.local);
+                    let payload = match p.ty.strip_quals() {
+                        Ty::Named { name: n, args } if n == "Reply" && args.len() == 1 => Some(args[0].clone()),
+                        _ => None,
+                    };
+                    match (p.check.as_ref().filter(|_| checking), payload) {
+                        (Some(plan), Some(payload)) => {
+                            let ty = self.ty(&payload);
+                            let what = format!("what the host sent on `{}.{}`", i.name, m.name);
+                            let body = self.boundary_check(plan, "__c", &what, 3);
+                            args.push(format!("{name}.checked {{ __any ->\n            @Suppress(\"UNCHECKED_CAST\") val __c = __any as {ty}\n{body}            __c\n        }}"));
+                        }
+                        _ => args.push(name),
+                    }
+                }
+                let call = format!("impl.{}({})", kt_ident(&m.emitted_name), args.join(", "));
+                match m.result_check.as_ref().filter(|_| checking) {
+                    Some(plan) => {
+                        let what = format!("`{}.{}`'s result", i.name, m.name);
+                        let body = self.boundary_check(plan, "__r", &what, 2);
+                        self.out.push_str(&format!("    override fun {}({ps}){ret} {{\n        val __r = {call}\n{body}        return __r\n    }}\n", kt_ident(&m.emitted_name)));
+                    }
+                    None => self.out.push_str(&format!("    override fun {}({ps}){ret} = {call}\n", kt_ident(&m.emitted_name))),
+                }
             }
             self.out.push_str("}\n");
-            for id in impls {
-                let Some(Decl::Impl(h)) = self.s.ir.modules.iter().flat_map(|m| &m.decls).find(|d| d.id() == &id) else { continue };
-                if h.id.module != self.module.path {
-                    continue;
+            // [platform-factory] the factories of each member's result and
+            // reply payloads.
+            for m in &i.members {
+                if !m.factories.is_empty() {
+                    let sets = m.factories.clone();
+                    self.factory_object(&salvo_core::abi::upper_camel(&m.name), &sets);
                 }
-                let ps = self.params(&h.ctor_params);
-                let args: Vec<String> = h.ctor_params.iter().map(|p| kt_local(&p.local)).collect();
-                self.out.push_str(&format!(
-                    "\nclass __Platform_{}({ps}) : __Platform_{}({}.{}({}))\n",
-                    h.name,
-                    i.name,
-                    host_package(&h.id.module),
-                    h.name,
-                    args.join(", ")
-                ));
             }
+            let _ = impls;
         }
     }
 
@@ -585,8 +676,30 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     }
 
     fn impl_decl(&mut self, h: &ImplDecl) {
-        if h.platform || h.intrinsic {
-            // The adapter class is emitted beside the interface.
+        if h.intrinsic {
+            return;
+        }
+        if h.platform {
+            // [platform-abi] [kt-platform-handler] A platform handler is its
+            // effect's adapter with the handler's constructor: what a `use`
+            // constructs, so the implementation is only reached through it.
+            let Some(Ty::Named { name: face, .. }) = h.faces.first().map(|f| f.strip_quals().clone()) else { return };
+            let plain = salvo_core::typekey::plain(&face).to_string();
+            let Some(iface) = self.interface_by_name(&plain) else {
+                self.error(format!("platform handler `{}` implements `{plain}`, whose declaration could not be located", h.name));
+                return;
+            };
+            let ps = self.params(&h.ctor_params);
+            let args: Vec<String> = h.ctor_params.iter().map(|p| kt_local(&p.local)).collect();
+            self.out.push_str(&format!(
+                "\nclass __Platform_{}({ps}) : {}__Platform_{}({}.{}({}))\n",
+                h.name,
+                self.pkg_prefix(&iface.id.module),
+                iface.name,
+                host_package(&h.id.module),
+                h.name,
+                args.join(", ")
+            ));
             return;
         }
         let tps = self.decl_type_params(&h.name, &h.type_params);
@@ -715,19 +828,29 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 .skip(f.effect_params)
                 .map(|p| kt_local(&p.local))
                 .collect();
-            self.out.push_str(&format!(
-                "{pad}{kw} {tps}{name}({ps}){ret} = {}.{}({})\n",
-                host_package(&f.id.module),
-                kt_ident(&f.name),
-                args.join(", ")
-            ));
+            let call = format!("{}.{}({})", host_package(&f.id.module), kt_ident(&f.name), args.join(", "));
+            // [platform-check] the wrapper checks the result (D7); a host
+            // project's wrappers carry no checks.
+            match f.result_check.as_ref().filter(|_| !self.s.abi) {
+                Some(plan) => {
+                    let what = format!("`platform fn {}`'s result", f.name);
+                    let body = self.boundary_check(plan, "__r", &what, indent + 1);
+                    let inner = "    ".repeat(indent + 1);
+                    self.out.push_str(&format!("{pad}{kw}{tps} {name}({ps}){ret} {{\n{inner}val __r = {call}\n{body}{inner}return __r\n{pad}}}\n"));
+                }
+                None => self.out.push_str(&format!("{pad}{kw}{tps} {name}({ps}){ret} = {call}\n")),
+            }
+            // [platform-factory] the result's factories, after the wrapper.
+            if let Some(fx) = f.factories.clone() {
+                self.factory_object(&salvo_core::abi::upper_camel(&f.name), &[fx]);
+            }
             return;
         }
         let Some(body) = &f.body else {
-            self.out.push_str(&format!("{pad}{kw} {tps}{name}({ps}){ret}\n"));
+            self.out.push_str(&format!("{pad}{kw}{tps} {name}({ps}){ret}\n"));
             return;
         };
-        self.out.push_str(&format!("{pad}{kw} {tps}{name}({ps}){ret} {{\n"));
+        self.out.push_str(&format!("{pad}{kw}{tps} {name}({ps}){ret} {{\n"));
         if !is_member && f.name == "main" && indent == 0 {
             let prelude = self.protocol_prelude();
             self.out.push_str(&prelude);
@@ -1122,18 +1245,26 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 let tag = message.ty.strip_quals().to_string();
                 format!("throw ThrowSignal({m}, \"{}\")", escape_string(&tag))
             }
-            ExprKind::Assert { cond, message } => {
+            ExprKind::Assert { cond, message, at } => {
+                // [assert-trap] [kt-assert-trap] Salvo's failure, naming the
+                // Salvo location; the message is composed only on failure.
                 let c = self.expr(cond, indent);
                 let m = match message {
-                    Some(m) => self.expr(m, indent),
-                    None => "\"assertion failed\"".to_string(),
+                    Some(m) => {
+                        let text = self.expr(m, indent);
+                        format!("(\"salvo: \" + ({text}) + \" at {at}\")")
+                    }
+                    None => format!("\"salvo: assertion failed at {at}\""),
                 };
                 format!("(if (!({c})) throw AssertionError({m}) else Unit)")
             }
-            ExprKind::Unreachable { message } => {
+            ExprKind::Unreachable { message, at } => {
                 let m = match message {
-                    Some(m) => self.expr(m, indent),
-                    None => "\"unreachable\"".to_string(),
+                    Some(m) => {
+                        let text = self.expr(m, indent);
+                        format!("(\"salvo: \" + ({text}) + \" at {at}\")")
+                    }
+                    None => format!("\"salvo: unreachable at {at}\""),
                 };
                 format!("throw AssertionError({m})")
             }
@@ -1365,7 +1496,13 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             }
         }
         if matches!(name, "encode" | "decode") && args.len() == 1 {
-            let target = if name == "encode" { type_args.first().cloned().unwrap_or_else(|| args[0].ty.clone()) } else { type_args.first().cloned().unwrap_or(Ty::Unknown) };
+            // The target type: written, or what the call answers (`decode`
+            // answers `T?`), or what is encoded.
+            let target = if name == "encode" {
+                type_args.first().cloned().unwrap_or_else(|| args[0].ty.clone())
+            } else {
+                type_args.first().cloned().unwrap_or_else(|| e.ty.strip_quals().without_none())
+            };
             let codec = self.codec(&target);
             let v = self.expr(&args[0], indent);
             return if name == "encode" { format!("salvo.salvoEncode({v}, {codec})") } else { format!("salvo.salvoDecode({v}, {codec})") };

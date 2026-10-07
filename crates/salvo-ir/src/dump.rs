@@ -516,21 +516,21 @@ impl<'a> Dumper<'a> {
                 self.expr(message, indent);
                 self.out.push(')');
             }
-            ExprKind::Assert { cond, message } => {
+            ExprKind::Assert { cond, message, at } => {
                 self.out.push_str("assert(");
                 self.expr(cond, indent);
                 if let Some(m) = message {
                     self.out.push_str(", ");
                     self.expr(m, indent);
                 }
-                self.out.push(')');
+                let _ = write!(self.out, ") at {at}");
             }
-            ExprKind::Unreachable { message } => {
+            ExprKind::Unreachable { message, at } => {
                 self.out.push_str("unreachable(");
                 if let Some(m) = message {
                     self.expr(m, indent);
                 }
-                self.out.push(')');
+                let _ = write!(self.out, ") at {at}");
             }
             ExprKind::Spawn { handler, deps, pool, join, effects } => {
                 let _ = write!(self.out, "spawn[{}](", e.ty);

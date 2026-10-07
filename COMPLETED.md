@@ -179,6 +179,16 @@ their rules) and fixed builder facts a backend alone could reveal:
 * A block lambda typed before its `return`s were known answers what they
   return.
 
+Then the host boundary (same day): boundary checks, factories, ABI mode and
+the platform skeletons over the IR, the checker's plans carried on the
+declarations (`result_check`, `factories`, `Param.check`); trap locations as
+`Assert`/`Unreachable`'s `at`; `Double`/`Float` ordering as the primitive
+comparison [cmp-groups]; literal qualifier arguments parsed from their
+spelling; an `is` read as a value (not in a condition) narrows nothing; a
+platform handler's adapter is emitted in the handler's own module (the aws
+glue declares `HostSqs` away from `Sqs`). Every salvo-cli test binary passes
+under the flag but the stale-check against the AST-generated host projects.
+
 Also: `std/platform/runtime.kt` prints a fault's host stack when
 `SALVO_FAULT_TRACE` is set (a debugging aid that found the deadline NPE).
 Cost and lesson in the timelog report: about half the session went to
