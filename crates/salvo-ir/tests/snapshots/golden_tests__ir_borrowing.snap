@@ -102,7 +102,7 @@ fn main::hoist(lent_mut camp: Mut Camp, moved banner: Str) -> None {
 
 fn main::main() -> None {
   bind#1 let __use~1: StdOutConsole = construct StdOutConsole { }
-  bind#2 let roster: List<Fighter> = call core.list::list_of(T, T[])<Fighter>(construct Fighter { name: "Ada", hp: 30, energy: 4 }, list[List<Fighter>](construct Fighter { name: "Bo", hp: 8, energy: 9 }))
+  bind#2 let roster: List<Fighter> = call core.list::list_of(T, T[])<Fighter>(construct Fighter { name: "Ada", hp: 30, energy: 4 }, array[Fighter[]](construct Fighter { name: "Bo", hp: 8, energy: 9 }))
   bind#7 let ada: Fighter = branch#6 cond#0 true {
     bind#4 let __nn~2: Fighter? = call main::named(read roster, "Ada")
     value switch#3 read __nn~2 {
@@ -141,7 +141,7 @@ fn main::main() -> None {
     return op Gt(call core.compare::cmp(Int, Int)(read f.hp, 10), 0)
   }, fn core.list::next(Mut ListYield<T>))
   call core.console::println(read __use~1, concat("1. ", call core.basic::to_str(Int)(call core.list::size<Fighter>(drop_mut(read standing))), " of ", call core.basic::to_str(Int)(call core.list::size<Fighter>(read roster)), " still standing"))
-  bind#18 let bench: Mut List<Fighter> = call core.list::mut_list_of(T, T[])<Fighter>(construct Fighter { name: "Cy", hp: 12, energy: 2 }, list[List<?>]())
+  bind#18 let bench: Mut List<Fighter> = call core.list::mut_list_of(T, T[])<Fighter>(construct Fighter { name: "Cy", hp: 12, energy: 2 }, array[Fighter[]]())
   call core.list::add<Fighter>(read bench, construct Fighter { name: "Dee", hp: 6, energy: 7 })
   call core.console::println(read __use~1, concat("2. bench ", call core.basic::to_str(Int)(call core.list::size<Fighter>(drop_mut(read bench))), ", front ", branch#24 cond#0 true {
     bind#23 let __proj~9: Fighter = branch#22 cond#0 true {
@@ -158,7 +158,7 @@ fn main::main() -> None {
     }
     value !read __proj~9.name
   }, " (a reading, not a handle)"))
-  bind#25 let squad: List<Mut Fighter> = call core.list::list_of(T, T[])<Mut Fighter>(construct Mut Fighter { name: "Ada", hp: 30, energy: 4 }, list[List<Mut Fighter>](construct Mut Fighter { name: "Bo", hp: 8, energy: 9 }))
+  bind#25 let squad: List<Mut Fighter> = call core.list::list_of(T, T[])<Mut Fighter>(construct Mut Fighter { name: "Ada", hp: 30, energy: 4 }, array[Mut Fighter[]](construct Mut Fighter { name: "Bo", hp: 8, energy: 9 }))
   bind#30 let boss: Mut Fighter = branch#29 cond#0 true {
     bind#27 let __nn~10: Mut Fighter? = call core.list::get(List<T>, Int)<Mut Fighter>(read squad, 0)
     value switch#26 read __nn~10 {
@@ -331,7 +331,7 @@ fn main::main() -> None {
     }
     value !read __proj~37.energy
   }), " energy after striking itself"))
-  bind#94 let team: Mut Squad = construct Mut Squad { banner: "Red", members: call core.list::list_of(T, T[])<Mut Fighter>(construct Mut Fighter { name: "Cy", hp: 12, energy: 2 }, list[List<Mut Fighter>](construct Mut Fighter { name: "Dee", hp: 6, energy: 7 })) }
+  bind#94 let team: Mut Squad = construct Mut Squad { banner: "Red", members: call core.list::list_of(T, T[])<Mut Fighter>(construct Mut Fighter { name: "Cy", hp: 12, energy: 2 }, array[Mut Fighter[]](construct Mut Fighter { name: "Dee", hp: 6, energy: 7 })) }
   call main::rotate(read team, branch#98 cond#0 true {
     bind#96 let __nn~38: Mut Fighter? = call core.list::get(List<T>, Int)<Mut Fighter>(read team.members, read i)
     value switch#95 read __nn~38 {
@@ -384,7 +384,7 @@ fn main::main() -> None {
     }
     value !read __proj~47.energy
   })))
-  bind#115 let camp: Mut Camp = construct Mut Camp { supplies: 10, banners: call core.list::mut_list_of(T, T[])<Str>("red", list[List<?>]()) }
+  bind#115 let camp: Mut Camp = construct Mut Camp { supplies: 10, banners: call core.list::mut_list_of(T, T[])<Str>("red", array[Str[]]()) }
   bind#116 let banners: Mut List<Str> = read camp.banners
   call main::spend(read camp, 3)
   call main::hoist(read camp, "blue")

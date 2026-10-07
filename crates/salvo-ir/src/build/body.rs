@@ -406,6 +406,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             local: local.clone(),
             ty: logical.clone(),
             from: Place { root: bound.local.clone(), steps: Vec::new() },
+            from_ty: bound.ty.clone(),
             because,
         });
         self.rebind(name, local.clone(), logical);
@@ -414,11 +415,12 @@ impl<'a, 'p> Lower<'a, 'p> {
 
     /// A narrowing binding at the top of an arm: `name` is the subject's
     /// name (or the `is` binding's), `ty` the arm's type.
-    pub(crate) fn narrow_in_arm(&mut self, name: &str, from: Place, ty: Ty, because: Justification) -> Stmt {
+    pub(crate) fn narrow_in_arm(&mut self, name: &str, from: Place, from_ty: Ty, ty: Ty, because: Justification) -> Stmt {
+        debug_assert!(!ty.is_none_ty());
         let local = self.fresh(name);
         self.rebind(name, local.clone(), ty.clone());
         let id = self.id();
-        Stmt::Narrow { id, local, ty, from, because }
+        Stmt::Narrow { id, local, ty, from, from_ty, because }
     }
 
     pub(crate) fn set_last_branch(&mut self, id: NodeId) {

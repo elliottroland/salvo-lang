@@ -55,7 +55,6 @@ impl Desking(lent room: Int) of Desk stateful {
         call core.actor::send<Str>(!read next~1, concat("served ", read name))
       }
       arm#1 (none) {
-        narrow#4[switch#2.arm#1] next~2: None = next
         call core.basic::discard<Str>(!read name)
       }
     }

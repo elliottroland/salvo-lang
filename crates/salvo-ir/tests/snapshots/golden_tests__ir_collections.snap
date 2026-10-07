@@ -24,32 +24,32 @@ fn main::count_unique(lent xs: List<Int>) -> Int {
 fn main::main() -> None {
   bind#1 let __use~1: StdOutConsole = construct StdOutConsole { }
   bind#2 let primes: List<Int> = list[List<Int>](2, 3, 5, 7)
-  bind#3 let vowels: Set<Str> = call core.set::set_of<Str>("a", "e", "i", "o", "u", fn core.compare::hash(Str), fn core.compare::eq(Str, Str))
-  bind#4 let ages: Map<Str, Int> = call core.map::map_of<Str, Int>(tuple("ada", 36), tuple("grace", 45), fn core.compare::hash(Str), fn core.compare::eq(Str, Str))
+  bind#3 let vowels: Set<Str> = call core.set::set_of<Str>(array[Str[]]("a", "e", "i", "o", "u"), fn core.compare::hash(Str), fn core.compare::eq(Str, Str))
+  bind#4 let ages: Map<Str, Int> = call core.map::map_of<Str, Int>(array[(Str, Int)[]](tuple("ada", 36), tuple("grace", 45)), fn core.compare::hash(Str), fn core.compare::eq(Str, Str))
   call core.console::println(read __use~1, concat("1. list ", call core.list::to_str<Int>(read primes, fn core.basic::to_str(Int))))
   call core.console::println(read __use~1, concat("1. set ", call core.set::to_str<Str>(read vowels, fn core.basic::to_str(Str)), " of ", call core.basic::to_str(Int)(call core.set::size<Str>(read vowels))))
   call core.console::println(read __use~1, concat("1. map ", call core.map::to_str<Str, Int>(read ages, fn core.basic::to_str(Str), fn core.basic::to_str(Int), fn core.compare::hash(Str), fn core.compare::eq(Str, Str))))
   bind#5 let note: Note = construct Note { text: "still a struct literal" }
   call core.console::println(read __use~1, concat("1. struct ", read note.text))
-  bind#6 let seen: Mut Set<Str> = call core.set::mut_set_of<Str>(fn core.compare::hash(Str), fn core.compare::eq(Str, Str))
+  bind#6 let seen: Mut Set<Str> = call core.set::mut_set_of<Str>(array[Str[]](), fn core.compare::hash(Str), fn core.compare::eq(Str, Str))
   call core.set::add<Str>(read seen, "first", fn core.compare::hash(Str), fn core.compare::eq(Str, Str))
   call core.console::println(read __use~1, concat("1. empty then filled ", call core.set::to_str<Str>(drop_mut(read seen), fn core.basic::to_str(Str))))
-  bind#7 let tally: Mut Map<Str, Int>(hash, eq) = call core.map::mut_map_of<Str, Int>(list[List<(Str, Int)>](tuple("pear", 1), tuple("apple", 2)), fn core.compare::hash(Str), fn core.compare::eq(Str, Str))
+  bind#7 let tally: Mut Map<Str, Int>(hash, eq) = call core.map::mut_map_of<Str, Int>(array[(Str, Int)[]](tuple("pear", 1), tuple("apple", 2)), fn core.compare::hash(Str), fn core.compare::eq(Str, Str))
   call core.map::put<Str, Int>(read tally, "fig", 3, fn core.compare::hash(Str), fn core.compare::eq(Str, Str))
   call core.map::put<Str, Int>(read tally, "pear", 99, fn core.compare::hash(Str), fn core.compare::eq(Str, Str))
   call core.console::println(read __use~1, concat("2. insertion order kept ", call core.map::to_str<Str, Int>(drop_mut(read tally), fn core.basic::to_str(Str), fn core.basic::to_str(Int), fn core.compare::hash(Str), fn core.compare::eq(Str, Str))))
-  bind#8 let ranked: Mut SortedSet<Str>(cmp) = call core.sorted::mut_sorted_set_of<Str>(list[List<Str>]("pear", "apple", "fig"), fn core.compare::cmp(Str, Str))
+  bind#8 let ranked: Mut SortedSet<Str>(cmp) = call core.sorted::mut_sorted_set_of<Str>(array[Str[]]("pear", "apple", "fig"), fn core.compare::cmp(Str, Str))
   call core.console::println(read __use~1, concat("2. key order ", call core.sorted::to_str(SortedSet<T>)<Str>(drop_mut(read ranked), fn core.basic::to_str(Str))))
   bind#9 let smallest: Str? = call core.sorted::min(SortedSet<T>)<Str>(drop_mut(read ranked))
   branch#10 cond#0 check#11 (read smallest is arm 0) {
     narrow#12[check#11] smallest~2: Str = smallest
     call core.console::println(read __use~1, concat("2. min is cheap here ", read smallest~2))
   }
-  bind#13 let corners: Mut Set<Point> = call core.set::mut_set_of<Point>(fn main::hash, fn main::eq(Point, Point))
+  bind#13 let corners: Mut Set<Point> = call core.set::mut_set_of<Point>(array[Point[]](), fn main::hash, fn main::eq(Point, Point))
   call core.set::add<Point>(read corners, construct Point { x: 0, y: 0 }, fn main::hash, fn main::eq(Point, Point))
   bind#14 let again: Bool = call core.set::add<Point>(read corners, construct Point { x: 0, y: 0 }, fn main::hash, fn main::eq(Point, Point))
   call core.console::println(read __use~1, concat("3. struct key: size ", call core.basic::to_str(Int)(call core.set::size<Point>(drop_mut(read corners))), ", second add ", call core.basic::to_str(Bool)(read again)))
-  bind#15 let labels: Mut Map<Point, Str> = call core.map::mut_map_of<Point, Str>(fn main::hash, fn main::eq(Point, Point))
+  bind#15 let labels: Mut Map<Point, Str> = call core.map::mut_map_of<Point, Str>(array[(Point, Str)[]](), fn main::hash, fn main::eq(Point, Point))
   call core.map::put<Point, Str>(read labels, construct Point { x: 1, y: 1 }, "diagonal", fn main::hash, fn main::eq(Point, Point))
   bind#16 let found: Str? = call core.map::get(Map<K, V>(?hash, ?eq), K)<Point, Str>(drop_mut(read labels), construct Point { x: 1, y: 1 }, fn main::hash, fn main::eq(Point, Point))
   branch#17 cond#0 check#18 (read found is arm 0) {
@@ -77,36 +77,38 @@ fn main::main() -> None {
     value tuple(read w, call core.string::size(read w))
   }, fn core.compare::hash(Str), fn core.compare::eq(Str, Str))
   call core.console::println(read __use~1, concat("5. to_map with a rule ", call core.map::to_str<Str, Int>(read lengths, fn core.basic::to_str(Str), fn core.basic::to_str(Int), fn core.compare::hash(Str), fn core.compare::eq(Str, Str))))
-  bind#32 let filled: List<Str> = call core.list::list_of(T, T[])<Str>("ada", list[List<Str>]("grace"))
+  bind#32 let filled: List<Str> = call core.list::list_of(T, T[])<Str>("ada", array[Str[]]("grace"))
   call core.console::println(read __use~1, concat("6. first is ", call core.list::first(NonEmpty List<T>)<Str>(read filled), ", no optional"))
   bind#33 let growing: Mut List<Int> = call core.list::mut_list_of()<Int>()
   call core.list::add<Int>(read growing, 7)
   call core.console::println(read __use~1, concat("6. after add, first is ", call core.basic::to_str(Int)(call core.list::first(NonEmpty List<T>)<Int>(drop_mut(read growing)))))
-  bind#34 let ordered: List<Int> = call core.list::sort<Int>(call core.list::list_of(T, T[])<Int>(40, list[List<Int>](10, 30, 20)), fn core.compare::cmp(Int, Int))
+  bind#34 let ordered: List<Int> = call core.list::sort<Int>(call core.list::list_of(T, T[])<Int>(40, array[Int[]](10, 30, 20)), fn core.compare::cmp(Int, Int))
   call core.console::println(read __use~1, concat("6. sorted ", call core.list::to_str<Int>(read ordered, fn core.basic::to_str(Int))))
-  branch#35 cond#0 check#36 (call core.list::binary_search<Int>(read ordered, 30, fn core.compare::cmp(Int, Int)) is arm 0) {
-    narrow#37[check#36] at: Int = <subject>
+  bind#37 let __subject~4: Int? = call core.list::binary_search<Int>(read ordered, 30, fn core.compare::cmp(Int, Int))
+  branch#35 cond#0 check#36 (read __subject~4 is arm 0) {
+    narrow#38[check#36] at: Int = __subject~4
     call core.console::println(read __use~1, concat("6. found 30 at ", call core.basic::to_str(Int)(read at)))
   }
-  bind#38 let live: Mut List<Int> = call core.list::mut_sort<Int>(call core.list::list_of(T, T[])<Int>(10, list[List<Int>](30)), fn core.compare::cmp(Int, Int))
+  bind#39 let live: Mut List<Int> = call core.list::mut_sort<Int>(call core.list::list_of(T, T[])<Int>(10, array[Int[]](30)), fn core.compare::cmp(Int, Int))
   call core.list::add_sorted<Int>(read live, 20, fn core.compare::cmp(Int, Int))
   call core.list::add_sorted<Int>(read live, 5, fn core.compare::cmp(Int, Int))
   call core.console::println(read __use~1, concat("6. still sorted ", call core.list::to_str<Int>(drop_mut(read live), fn core.basic::to_str(Int))))
-  bind#39 let bylen: List<Str> = call core.list::sort<Str>(call core.list::list_of(T, T[])<Str>("alpha", list[List<Str>]("be", "z")), fn main::by_len)
+  bind#40 let bylen: List<Str> = call core.list::sort<Str>(call core.list::list_of(T, T[])<Str>("alpha", array[Str[]]("be", "z")), fn main::by_len)
   call core.console::println(read __use~1, concat("6. by length ", call core.list::to_str<Str>(read bylen, fn core.basic::to_str(Str))))
-  branch#40 cond#0 check#41 (call core.list::binary_search<Str>(read bylen, "hi", fn main::by_len) is arm 0) {
-    narrow#42[check#41] at_len: Int = <subject>
+  bind#43 let __subject~5: Int? = call core.list::binary_search<Str>(read bylen, "hi", fn main::by_len)
+  branch#41 cond#0 check#42 (read __subject~5 is arm 0) {
+    narrow#44[check#42] at_len: Int = __subject~5
     call core.console::println(read __use~1, concat("6. a two-letter word at ", call core.basic::to_str(Int)(read at_len)))
   }
-  bind#43 let unique: List<Int> = call core.set::to_list<Int>(read deduped)
+  bind#45 let unique: List<Int> = call core.set::to_list<Int>(read deduped)
   call core.console::println(read __use~1, concat("6. distinct ", call core.list::to_str<Int>(read unique, fn core.basic::to_str(Int)), " of ", call core.basic::to_str(Int)(call main::count_unique(read unique))))
-  bind#45 let __pass~4: Mut SetYield<Str> = call core.set::iter<Str>(read vowels)
-  loop#44 {
-    bind#46 let __step~5: Str | Finished = call core.set::next(read __pass~4)
-    switch#47 read __step~5 {
+  bind#47 let __pass~6: Mut SetYield<Str> = call core.set::iter<Str>(read vowels)
+  loop#46 {
+    bind#48 let __step~7: Str | Finished = call core.set::next(read __pass~6)
+    switch#49 read __step~7 {
       arm#0 (arm 0) {
-        narrow#48[switch#47.arm#0] __emitted~6: Str = __step~5
-        bind#49 let v: Str = !read __emitted~6
+        narrow#50[switch#49.arm#0] __emitted~8: Str = __step~7
+        bind#51 let v: Str = !read __emitted~8
         member core.console::Console#0(read __use~1, read v)
       }
       arm#1 (else) {
@@ -115,17 +117,17 @@ fn main::main() -> None {
     }
   }
   call core.console::println(read __use~1, "")
-  bind#51 let __pass~7: Mut MapKeyYield<Str> = call core.map::iter<Str, Int>(read ages)
-  loop#50 {
-    bind#52 let __step~8: Str | Finished = call core.map::next(Mut MapKeyYield<K>)(read __pass~7)
-    switch#53 read __step~8 {
+  bind#53 let __pass~9: Mut MapKeyYield<Str> = call core.map::iter<Str, Int>(read ages)
+  loop#52 {
+    bind#54 let __step~10: Str | Finished = call core.map::next(Mut MapKeyYield<K>)(read __pass~9)
+    switch#55 read __step~10 {
       arm#0 (arm 0) {
-        narrow#54[switch#53.arm#0] __emitted~9: Str = __step~8
-        bind#55 let name: Str = !read __emitted~9
-        bind#56 let age: Int? = call core.map::get(Map<K, V>(?hash, ?eq), K)<Str, Int>(read ages, read name, fn core.compare::hash(Str), fn core.compare::eq(Str, Str))
-        branch#57 cond#0 check#58 (read age is arm 0) {
-          narrow#59[check#58] age~10: Int = age
-          call core.console::println(read __use~1, concat("7. ", read name, " is ", call core.basic::to_str(Int)(read age~10)))
+        narrow#56[switch#55.arm#0] __emitted~11: Str = __step~10
+        bind#57 let name: Str = !read __emitted~11
+        bind#58 let age: Int? = call core.map::get(Map<K, V>(?hash, ?eq), K)<Str, Int>(read ages, read name, fn core.compare::hash(Str), fn core.compare::eq(Str, Str))
+        branch#59 cond#0 check#60 (read age is arm 0) {
+          narrow#61[check#60] age~12: Int = age
+          call core.console::println(read __use~1, concat("7. ", read name, " is ", call core.basic::to_str(Int)(read age~12)))
         }
       }
       arm#1 (else) {

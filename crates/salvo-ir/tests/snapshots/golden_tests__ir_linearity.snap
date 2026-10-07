@@ -44,7 +44,7 @@ fn main::read_a_field(lent __eff0: Console) -> None {
 }
 
 fn main::hand_over<T canbe linear>(lent __eff0: Console; moved value: T, moved to: (T) [Console] -> None) -> None {
-  call local to(!read value)
+  call local to(read __eff0, !read value)
 }
 
 fn main::generic_handoff(lent __eff0: Console) -> None {
@@ -70,14 +70,14 @@ fn main::a_queue_of_tickets(lent __eff0: Console) -> None {
       call main::redeem(read __eff0, !read first~1)
     }
     arm#1 (none) {
-      narrow#5[switch#3.arm#1] first~2: None = first
     }
   }
-  loop#6 {
-    branch#9 cond#0 op Not(check#7 (call core.deque::remove_first<Ticket>(read queue) is arm 0)) {
+  loop#5 {
+    bind#7 let __subject~2: Ticket? = call core.deque::remove_first<Ticket>(read queue)
+    branch#9 cond#0 op Not(check#6 (read __subject~2 is arm 0)) {
       break
     }
-    narrow#8[check#7] next: Ticket = <subject>
+    narrow#8[check#6] next: Ticket = __subject~2
     call main::redeem(read __eff0, !read next)
   }
   call core.deque::drain<Ticket>(drop_mut(!read queue), fn main::scrap)

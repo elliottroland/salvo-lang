@@ -106,7 +106,6 @@ impl Gathering() of Gather stateful {
           call core.actor::send<Int>(!read out~1, call core.basic::copy<Int>(read total))
         }
         arm#1 (none) {
-          narrow#5[switch#3.arm#1] out~2: None = out
         }
       }
     }
@@ -144,7 +143,6 @@ impl Racing() of Race stateful {
         call core.actor::send<Str>(!read out~1, !read answer)
       }
       arm#1 (none) {
-        narrow#4[switch#2.arm#1] out~2: None = out
         call core.basic::discard<Str>(!read answer)
       }
     }
@@ -327,9 +325,8 @@ impl Booting(lent at: NodeEndpoint, lent all: List<NodeEndpoint>, lent net: Addr
   fn stop(lent done: Reply<Bool>) -> None {
     bind#1 let group: Addr<NodeGroup>? = read nodes
     branch#2 cond#0 op Not(check#3 (read group is none)) {
-      narrow#4[check#3] group~1: None = group
-      narrow#5[branch#2.cond#0] group~2: Addr<NodeGroup> = group~1
-      send net::NodeGroup#2(read group~2)
+      narrow#4[branch#2.cond#0] group~1: Addr<NodeGroup> = group
+      send net::NodeGroup#2(read group~1)
     }
     call core.actor::send<Bool>(!read done, true)
   }

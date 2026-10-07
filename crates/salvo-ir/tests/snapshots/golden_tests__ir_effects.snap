@@ -106,7 +106,7 @@ fn main::audit_and_measure(lent __eff0: Audit, lent __eff1: Metrics; lent what: 
 }
 
 interface Setting<T> {
-  fn setting(lent copy: (T) -> T, lent copy: (T) -> T) -> T
+  fn setting(lent copy: (T) -> T) -> T
 }
 
 impl Fixed<T>(lent value: T) of Setting<T> {

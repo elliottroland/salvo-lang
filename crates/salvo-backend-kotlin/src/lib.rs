@@ -4,6 +4,7 @@ mod emit;
 mod imports;
 mod intrinsics;
 pub mod stdlib;
+pub mod ir_emit;
 
 pub use emit::{
     emit_abi, emit_program, emit_program_reporting, host_package, platform_skeletons,

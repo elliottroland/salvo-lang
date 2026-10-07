@@ -33,15 +33,14 @@ fn main::read_size(lent __eff0: Console; moved name: Str, moved want: Int) -> In
 fn main::parse_port(lent text: Str) -> Int throws Str {
   bind#1 let n: Int? = call core.string::parse_int(read text)
   branch#2 cond#0 check#3 (read n is none) {
-    narrow#4[check#3] n~1: None = n
     throw(concat("not a number: ", read text))
   }
-  narrow#6[after branch#2.cond#0] n~2: Int = n
-  branch#5 cond#0 op Lt(call core.compare::cmp(Int, Int)(read n~2, 1), 0) {
+  narrow#5[after branch#2.cond#0] n~1: Int = n
+  branch#4 cond#0 op Lt(call core.compare::cmp(Int, Int)(read n~1, 1), 0) {
     throw("port must be positive")
   }
-  narrow#7[after branch#5.cond#0] n~3: Int = n
-  return !read n~3
+  narrow#6[after branch#4.cond#0] n~2: Int = n
+  return !read n~2
 }
 
 fn main::port_of(lent config: Str) -> Int throws Str {
@@ -63,11 +62,10 @@ fn main::strict_port(lent text: Str) -> Int throws Str | Int {
   }
   bind#2 let n: Int? = call core.string::parse_int(read text)
   branch#3 cond#0 check#4 (read n is none) {
-    narrow#5[check#4] n~1: None = n
     throw(call core.string::size(read text))
   }
-  narrow#6[after branch#3.cond#0] n~2: Int = n
-  return !read n~2
+  narrow#5[after branch#3.cond#0] n~1: Int = n
+  return !read n~1
 }
 
 fn main::report(lent __eff0: Console; lent label: Str, lent config: Str) -> None {

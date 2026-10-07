@@ -4,7 +4,7 @@ expression: text
 ---
 module main
 
-qualifies fn main::NonEmpty.qualifies(lent list: List<T>) -> Bool {
+qualifies fn main::NonEmpty.qualifies<T>(lent list: List<T>) -> Bool {
   return op Gt(call core.compare::cmp(Int, Int)(call core.list::size<T>(read list), 0), 0)
 }
 
@@ -81,7 +81,7 @@ fn main::main() -> None {
   bind#2 let xs: Mut List<Int> = call core.list::mut_list_of()<Int>()
   call core.list::add<Int>(read xs, 3)
   call core.console::println(read __use~1, concat("1. head after add: ", call core.basic::to_str(Int)(call main::head(drop_mut(read xs)))))
-  bind#3 let maybe_empty: List<Int> = call core.list::list_of(T, T[])<Int>(7, list[List<Int>](8))
+  bind#3 let maybe_empty: List<Int> = call core.list::list_of(T, T[])<Int>(7, array[Int[]](8))
   branch#4 cond#0 call core.list::NonEmpty.qualifies(read maybe_empty) {
     call core.console::println(read __use~1, concat("2. checked at run time, head is ", call core.basic::to_str(Int)(call main::head(read maybe_empty))))
   }

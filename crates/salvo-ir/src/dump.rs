@@ -283,7 +283,7 @@ impl<'a> Dumper<'a> {
                 let _ = write!(self.out, "bind#{} let {}: {ty} = ", id.0, local.0);
                 self.expr(value, indent);
             }
-            Stmt::Narrow { id, local, ty, from, because } => {
+            Stmt::Narrow { id, local, ty, from, from_ty: _, because } => {
                 let why = match because {
                     Justification::Test { test } => format!("check#{}", test.0),
                     Justification::Arm { switch, arm } => format!("switch#{}.arm#{arm}", switch.0),

@@ -136,6 +136,22 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-06 — The IR, step 2 begun: a Kotlin emitter over the IR
+
+`salvo-backend-kotlin/src/ir_emit.rs`, behind `SALVO_KOTLIN_IR=1`, renders
+IR modules; the AST emitter stays until it passes everything. Seven of the
+eleven examples and the TOUR program compile and run correctly through it;
+every remaining failure is the actor/wire phase, which IR.md schedules last.
+Bringing it up found builder gaps the corpus test could not (it never ran
+kotlinc): same-name implicits looked up by the wrong key, qualifier fns
+without their qualifier's generics, struct field types lowered only under a
+substitution (the checker now records their declared shape), a `for` over a
+step call, effect instances for calls through fn-typed locals and pass
+members, narrowing to `None`, the variadic tail as an array of the declared
+element type with the call's type arguments substituted, literal unions
+erasing to their base. Lesson: the dump and the corpus test prove the builder
+runs; only a backend proves the facts are the right ones.
+
 ### 2026-10-06 — The IR, step 1: `salvo-ir` builds and dumps every program
 
 `crates/salvo-ir`: node types (IR.md §3 as built), a builder from `Program +
@@ -22212,7 +22228,7 @@ Recorded so nothing is left half-removed (no compatibility, per AGENTS.md):
   factories in a plural object (`FsErrors`), since a sealed `FsError` cannot
   extend `Union7` from another package.
 
-## Test inventory (all green: 1712; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1715; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

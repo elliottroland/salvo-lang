@@ -16450,6 +16450,20 @@ impl<'p, 'r> Checker<'p, 'r> {
         if depth > 32 {
             return Ty::Unknown;
         }
+        // [ir-nodes] A written type reached only with a substitution (a
+        // struct's field at a use) is recorded in its *declared* shape — the
+        // generics as variables — the first time, so the IR builder has a type
+        // for every declaration's fields.
+        if depth == 0 && !subst.is_empty() {
+            let key = self.key(ty.span());
+            if !self.out.written_types.contains_key(&key) {
+                let as_declared: HashMap<String, Ty> = subst.keys().map(|k| (k.clone(), Ty::Var(k.clone()))).collect();
+                let declared = self.lower_type_subst(ty, &as_declared, 1);
+                if !declared.is_unknown() {
+                    self.out.written_types.insert(key, declared);
+                }
+            }
+        }
         // [iter-type] `iter T`: the placeholder for "an iterator struct
         // emitting `T`" [iter-type]. Qualifiers written *after* `iter` belong
         // to the element (`iter proj T`); anything written before it applies

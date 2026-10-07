@@ -127,6 +127,11 @@ impl Program {
 /// [ir-types] Qualifiers are erased from every type the IR carries, except
 /// `Mut`, the one a backend may represent as a different type.
 pub fn erase(ty: &Ty) -> Ty {
+    // [type-literal] literals collapse into their base first, so a union of
+    // literals of one base is that base.
+    if salvo_core::literal::mentions_lit(ty) {
+        return erase(&salvo_core::literal::collapse_ty(ty));
+    }
     match ty {
         Ty::Qualified { quals, base } => {
             let base = erase(base);

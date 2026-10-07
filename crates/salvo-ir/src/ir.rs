@@ -258,7 +258,7 @@ pub enum Stmt {
     ForEach { id: NodeId, local: Local, ty: Ty, iterable: Expr, body: Block },
     Let { id: NodeId, local: Local, ty: Ty, value: Expr },
     /// [ir-narrow] a new local of the narrowed type, justified by a test.
-    Narrow { id: NodeId, local: Local, ty: Ty, from: Place, because: Justification },
+    Narrow { id: NodeId, local: Local, ty: Ty, from: Place, from_ty: Ty, because: Justification },
     Assign { place: Place, value: Expr },
     Expr(Expr),
     Return(Option<Expr>),

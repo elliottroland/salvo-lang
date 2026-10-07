@@ -167,7 +167,7 @@ fn interface_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, e: &ast::EffectDec
                     variadic: false,
                 })
                 .collect();
-            for p in &m.params {
+            for p in m.params.iter().filter(|p| !p.implicit) {
                 params.push(Param {
                     local: Local(p.name.name.clone()),
                     ty: ctx.written_ty(file_idx, &p.ty),
@@ -260,7 +260,7 @@ fn impl_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, h: &ast::HandlerDecl, s
                 salvo_core::effect_member_index(e, f).map(|i| (*e, i))
             });
             let mut params: Vec<Param> = Vec::new();
-            for p in &f.params {
+            for p in f.params.iter().filter(|p| !p.implicit) {
                 let mode = match eff_member {
                     Some((e, i)) => {
                         let m = &e.fns[i];
@@ -405,7 +405,13 @@ fn fn_decl(
             implicit_params += 1;
         }
     }
-    let ret = f.return_type.as_ref().map(|t| ctx.written_ty(file_idx, t)).unwrap_or_else(Ty::none);
+    let mut ret = f.return_type.as_ref().map(|t| ctx.written_ty(file_idx, t)).unwrap_or_else(Ty::none);
+    // [iter-type] a written `iter T` is the iterator struct the checker resolved.
+    if ret.mentions_iter_marker() {
+        if let Some(r) = table_key.and_then(|k| ctx.checked.iter_returns.get(&k)) {
+            ret = erase(r);
+        }
+    }
     let borrows: Vec<usize> = table_key
         .and_then(|k| ctx.checked.fn_lends.get(&k))
         .map(|ls| ls.iter().map(|i| i + effect_params).collect())
@@ -421,7 +427,12 @@ fn fn_decl(
         name: f.name.name.clone(),
         exported: f.exported,
         kind,
-        type_params: type_params(&f.generics, &f.generic_canbe),
+        type_params: {
+            // A qualifier's fns are generic in the qualifier's parameters too.
+            let mut tps = qualifier.map(|q| type_params(&q.generics, &q.generic_canbe)).unwrap_or_default();
+            tps.extend(type_params(&f.generics, &f.generic_canbe));
+            tps
+        },
         params,
         effect_params,
         implicit_params,

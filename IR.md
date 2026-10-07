@@ -446,6 +446,26 @@ provisional until reviewed:
   lowered type of every written type by span, so declarations copy the
   checker's types rather than lowering again.
 
+### Step 2, so far
+
+`crates/salvo-backend-kotlin/src/ir_emit.rs` (about 900 lines) renders the IR
+to Kotlin, selected by `SALVO_KOTLIN_IR=1` (the `Backend` and the codegen
+tests both honour it). It decides representation only: `UnionN` wrappers,
+`T?`, `StringBuilder`, fully qualified references (so it writes no imports),
+`when` for `Switch`, `while (true)` for `Loop`, anonymous `fun` for a lambda,
+`run {}` for a block in value position, the platform adapter classes
+(`__Platform_E`, `__Platform_H`), `try`/`catch (ThrowSignal)` for `Try`. With
+it, the TOUR program and the `effects`, `qualifiers`, `iteration`,
+`borrowing`, `collections`, `linearity` and `throw-and-release` examples
+compile and print their `expected.txt`. What it does not render yet is the
+actor phase (§6, §10 step 4: `encode`/`decode`, message classes, dispatch,
+`Spawn`/`Send`/`ReplyTo`/`WaitFor`), which is why the `actors`, `time`,
+`cluster` and `files` examples and 15 of the 33 CLI run tests still fail under
+it; everything that fails, fails there. Builder facts the port forced:
+`Narrow` carries `from_ty`; a call through a fn-typed local or a pass member
+passes the effect instances its type declares; a `for`'s step call is lowered
+inside the loop; a struct's field types are recorded in their declared shape.
+
 ## 10. Transition plan
 
 The e2e suite (1712 tests, same program compiled and run on both backends,
