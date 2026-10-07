@@ -245,7 +245,12 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
     output types, not Salvo facts. **Open, for discussion in TOUR.md §9–10:**
     one new core table, the *demand* on each expression (moved / lent / lent
     mutably / discarded / returned), which is what `ValueMode` is a function of.
-13. **Rewrites as opt-in helpers in `salvo-backend`**, in this order: argument
+13. **The IR** (user direction 2026-10-06, superseding the helper-by-helper
+    plan): a minimal, decided form of the program that both emitters read
+    instead of the AST plus side tables. Design in IR.md; its §9 lists the
+    decisions, §10 the transition (builder and dump first, then Kotlin, then
+    Rust, then actors). The earlier plan, kept for reference: **rewrites as
+    opt-in helpers in `salvo-backend`**, in this order: argument
     hoists (AST-to-AST, registering checker-table entries for the nodes they
     create), the `__loc` fn variants, value-position control flow (a helper
     taking the target's native-construct set, so core stays target-free), then

@@ -136,6 +136,25 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-06 — The IR (user decisions; design in IR.md)
+
+The user's direction, superseding the helper-by-helper plan for §0j steps
+12–13: a minimal, decided form of the program that both emitters read instead
+of the AST plus side tables. No inference past the IR; references absolute (a
+`DeclId`, intrinsic or not, so imports are backend reconstruction); implicits
+and effects as ordinary parameters; two branch forms (subject, subjectless)
+with narrowing as a justified binding; every operator and interpolation part a
+resolved call; deductions as parameter/result annotations plus a per-read
+`consume` mark ("the IR marks consumption, never duplication"); qualifiers
+erased but `Mut` as a type flag; one unconditional `Loop` statement with the
+value rules lowered to explicit locals only where present. Effects' and
+handlers' *declarations* stay (interface, impl); actors' generated code becomes
+IR declarations in the last phase. A `salvo-ir` crate; Kotlin ported first.
+IR.md §9 has the nine decisions with the options considered. The user also
+relaxed the always-green rule for the duration of this rework: part-way
+commits may leave the workspace unbuildable; each transition step ends green
+(AGENTS.md).
+
 ### 2026-10-06 — The layering rule, and three corrections to the core tables (user decision)
 
 User decision: core states what Salvo means, `salvo-backend` holds opt-in
