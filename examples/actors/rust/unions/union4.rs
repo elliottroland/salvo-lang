@@ -89,6 +89,14 @@ impl<T1, T2, T3, T4> Union4<T1, T2, T3, T4> {
             _ => panic!("unreachable union arm"),
         }
     }
+    pub fn to_str(&self, f1: &mut dyn FnMut(&T1) -> String, f2: &mut dyn FnMut(&T2) -> String, f3: &mut dyn FnMut(&T3) -> String, f4: &mut dyn FnMut(&T4) -> String) -> String {
+        match self {
+            Union4::U1(v) => f1(v),
+            Union4::U2(v) => f2(v),
+            Union4::U3(v) => f3(v),
+            Union4::U4(v) => f4(v),
+        }
+    }
 }
 
 impl<T1, T2, T3, T4> std::fmt::Display for Union4<T1, T2, T3, T4>

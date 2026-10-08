@@ -8,4 +8,11 @@ sealed interface Union5<out T1, out T2, out T3, out T4, out T5> {
     data class U3<out T1, out T2, out T3, out T4, out T5>(override val value: T3) : Union5<T1, T2, T3, T4, T5>
     data class U4<out T1, out T2, out T3, out T4, out T5>(override val value: T4) : Union5<T1, T2, T3, T4, T5>
     data class U5<out T1, out T2, out T3, out T4, out T5>(override val value: T5) : Union5<T1, T2, T3, T4, T5>
+    fun toStr(f1: (T1) -> String, f2: (T2) -> String, f3: (T3) -> String, f4: (T4) -> String, f5: (T5) -> String): String = when (this) {
+        is U1 -> f1(this.value)
+        is U2 -> f2(this.value)
+        is U3 -> f3(this.value)
+        is U4 -> f4(this.value)
+        is U5 -> f5(this.value)
+    }
 }

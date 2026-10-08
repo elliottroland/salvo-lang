@@ -461,6 +461,10 @@ pub enum ExprKind {
     AddrInstance { addr: Box<Expr> },
     /// [actor-self-send] a message to the enclosing actor.
     SelfSend { member: String, args: Vec<Expr> },
+    /// [interp-union] The text of a union value: the function of the arm it
+    /// holds is called on its payload. `arms[i]` is a value of type
+    /// `(arm i) -> Str`; the backend owns the dispatch (`UnionN`'s `to_str`).
+    UnionToStr { value: Box<Expr>, arms: Vec<Expr> },
     /// A construct the builder does not lower yet: never emitted silently.
     Unsupported(String),
 }

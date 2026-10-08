@@ -107,6 +107,15 @@ impl<T1, T2, T3, T4, T5> Union5<T1, T2, T3, T4, T5> {
             _ => panic!("unreachable union arm"),
         }
     }
+    pub fn to_str(&self, f1: &mut dyn FnMut(&T1) -> String, f2: &mut dyn FnMut(&T2) -> String, f3: &mut dyn FnMut(&T3) -> String, f4: &mut dyn FnMut(&T4) -> String, f5: &mut dyn FnMut(&T5) -> String) -> String {
+        match self {
+            Union5::U1(v) => f1(v),
+            Union5::U2(v) => f2(v),
+            Union5::U3(v) => f3(v),
+            Union5::U4(v) => f4(v),
+            Union5::U5(v) => f5(v),
+        }
+    }
 }
 
 impl<T1, T2, T3, T4, T5> std::fmt::Display for Union5<T1, T2, T3, T4, T5>

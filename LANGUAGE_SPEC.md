@@ -190,8 +190,10 @@ Conventions:
     when there is one; otherwise every arm needs a text form of its own — a
     native one, or a `to_str` in scope (with its implicits filled, as for
     any interpolation) — and a missing one is an error naming the arm. The
-    IR builder renders it as a switch on the value whose arm `i` calls arm
-    `i`'s `to_str`; `Checked::interp_union` carries the per-arm forms.
+    IR carries it as one `UnionToStr { value, arms }` node — the value and
+    the function that renders each arm — and each backend's `UnionN` has a
+    `to_str` (Kotlin `toStr`) taking those functions and calling the one for
+    the arm held; `Checked::interp_union` carries the per-arm forms.
 * [interp-float] **A float's text is Salvo's rule, which is Kotlin's** (user
   decision 2026-09-25): the shortest digits that round-trip, **always a
   decimal point**, and computerized scientific notation outside

@@ -57,6 +57,12 @@ impl<T1, T2> Union2<T1, T2> {
             _ => panic!("unreachable union arm"),
         }
     }
+    pub fn to_str(&self, f1: &mut dyn FnMut(&T1) -> String, f2: &mut dyn FnMut(&T2) -> String) -> String {
+        match self {
+            Union2::U1(v) => f1(v),
+            Union2::U2(v) => f2(v),
+        }
+    }
 }
 
 impl<T1, T2> std::fmt::Display for Union2<T1, T2>
@@ -141,6 +147,13 @@ impl<T1, T2, T3> Union3<T1, T2, T3> {
         match self {
             Union3::U3(v) => v,
             _ => panic!("unreachable union arm"),
+        }
+    }
+    pub fn to_str(&self, f1: &mut dyn FnMut(&T1) -> String, f2: &mut dyn FnMut(&T2) -> String, f3: &mut dyn FnMut(&T3) -> String) -> String {
+        match self {
+            Union3::U1(v) => f1(v),
+            Union3::U2(v) => f2(v),
+            Union3::U3(v) => f3(v),
         }
     }
 }
@@ -247,6 +260,14 @@ impl<T1, T2, T3, T4> Union4<T1, T2, T3, T4> {
         match self {
             Union4::U4(v) => v,
             _ => panic!("unreachable union arm"),
+        }
+    }
+    pub fn to_str(&self, f1: &mut dyn FnMut(&T1) -> String, f2: &mut dyn FnMut(&T2) -> String, f3: &mut dyn FnMut(&T3) -> String, f4: &mut dyn FnMut(&T4) -> String) -> String {
+        match self {
+            Union4::U1(v) => f1(v),
+            Union4::U2(v) => f2(v),
+            Union4::U3(v) => f3(v),
+            Union4::U4(v) => f4(v),
         }
     }
 }
@@ -373,6 +394,15 @@ impl<T1, T2, T3, T4, T5> Union5<T1, T2, T3, T4, T5> {
         match self {
             Union5::U5(v) => v,
             _ => panic!("unreachable union arm"),
+        }
+    }
+    pub fn to_str(&self, f1: &mut dyn FnMut(&T1) -> String, f2: &mut dyn FnMut(&T2) -> String, f3: &mut dyn FnMut(&T3) -> String, f4: &mut dyn FnMut(&T4) -> String, f5: &mut dyn FnMut(&T5) -> String) -> String {
+        match self {
+            Union5::U1(v) => f1(v),
+            Union5::U2(v) => f2(v),
+            Union5::U3(v) => f3(v),
+            Union5::U4(v) => f4(v),
+            Union5::U5(v) => f5(v),
         }
     }
 }
@@ -519,6 +549,16 @@ impl<T1, T2, T3, T4, T5, T6> Union6<T1, T2, T3, T4, T5, T6> {
         match self {
             Union6::U6(v) => v,
             _ => panic!("unreachable union arm"),
+        }
+    }
+    pub fn to_str(&self, f1: &mut dyn FnMut(&T1) -> String, f2: &mut dyn FnMut(&T2) -> String, f3: &mut dyn FnMut(&T3) -> String, f4: &mut dyn FnMut(&T4) -> String, f5: &mut dyn FnMut(&T5) -> String, f6: &mut dyn FnMut(&T6) -> String) -> String {
+        match self {
+            Union6::U1(v) => f1(v),
+            Union6::U2(v) => f2(v),
+            Union6::U3(v) => f3(v),
+            Union6::U4(v) => f4(v),
+            Union6::U5(v) => f5(v),
+            Union6::U6(v) => f6(v),
         }
     }
 }
@@ -685,6 +725,17 @@ impl<T1, T2, T3, T4, T5, T6, T7> Union7<T1, T2, T3, T4, T5, T6, T7> {
         match self {
             Union7::U7(v) => v,
             _ => panic!("unreachable union arm"),
+        }
+    }
+    pub fn to_str(&self, f1: &mut dyn FnMut(&T1) -> String, f2: &mut dyn FnMut(&T2) -> String, f3: &mut dyn FnMut(&T3) -> String, f4: &mut dyn FnMut(&T4) -> String, f5: &mut dyn FnMut(&T5) -> String, f6: &mut dyn FnMut(&T6) -> String, f7: &mut dyn FnMut(&T7) -> String) -> String {
+        match self {
+            Union7::U1(v) => f1(v),
+            Union7::U2(v) => f2(v),
+            Union7::U3(v) => f3(v),
+            Union7::U4(v) => f4(v),
+            Union7::U5(v) => f5(v),
+            Union7::U6(v) => f6(v),
+            Union7::U7(v) => f7(v),
         }
     }
 }

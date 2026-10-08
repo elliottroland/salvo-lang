@@ -626,6 +626,15 @@ impl<'a> Dumper<'a> {
                 self.expr(value, indent);
                 self.out.push(')');
             }
+            ExprKind::UnionToStr { value, arms } => {
+                self.out.push_str("union_to_str(");
+                self.expr(value, indent);
+                for a in arms {
+                    self.out.push_str(", ");
+                    self.expr(a, indent);
+                }
+                self.out.push(')');
+            }
             ExprKind::Widen { value } => {
                 let _ = write!(self.out, "widen[{}](", e.ty);
                 self.expr(value, indent);

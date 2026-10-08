@@ -1172,6 +1172,12 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 format!("*({v})")
             }
             ExprKind::Present { value } => self.expr(value, indent),
+            // [interp-union] `UnionN.toStr`, given the function of each arm.
+            ExprKind::UnionToStr { value, arms } => {
+                let v = self.expr(value, indent);
+                let fs: Vec<String> = arms.iter().map(|a| self.expr(a, indent)).collect();
+                format!("({v}).toStr({})", fs.join(", "))
+            }
             ExprKind::Widen { value } => {
                 // [kt-op-promote] the explicit conversion.
                 let v = self.expr(value, indent);
@@ -1970,6 +1976,12 @@ fn assigned_locals(b: &Block) -> HashSet<Local> {
             ExprKind::MemberCall { instance, args, .. } => {
                 expr(instance, out);
                 for a in args {
+                    expr(a, out);
+                }
+            }
+            ExprKind::UnionToStr { value, arms } => {
+                expr(value, out);
+                for a in arms {
                     expr(a, out);
                 }
             }

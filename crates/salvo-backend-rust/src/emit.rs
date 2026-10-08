@@ -268,6 +268,13 @@ pub(crate) fn generate_unions_file(sizes: &BTreeSet<usize>, wire: bool) -> Strin
                  }}\n    }}\n"
             ));
         }
+        // [interp-union] The text of the arm held: `f{i}` renders arm `i`.
+        let fs: Vec<String> = (1..=n).map(|i| format!("f{i}: &mut dyn FnMut(&T{i}) -> String")).collect();
+        out.push_str(&format!("    pub fn to_str(&self, {}) -> String {{\n        match self {{\n", fs.join(", ")));
+        for i in 1..=n {
+            out.push_str(&format!("            Union{n}::U{i}(v) => f{i}(v),\n"));
+        }
+        out.push_str("        }\n    }\n");
         out.push_str("}\n");
         let bounds: Vec<String> = (1..=n)
             .map(|i| format!("T{i}: std::fmt::Display"))

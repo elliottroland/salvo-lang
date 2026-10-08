@@ -2024,6 +2024,12 @@ impl<T1, T2> Union2<T1, T2> {
             _ => panic!("unreachable union arm"),
         }
     }
+    pub fn to_str(&self, f1: &mut dyn FnMut(&T1) -> String, f2: &mut dyn FnMut(&T2) -> String) -> String {
+        match self {
+            Union2::U1(v) => f1(v),
+            Union2::U2(v) => f2(v),
+        }
+    }
 }
 
 impl<T1, T2> std::fmt::Display for Union2<T1, T2>

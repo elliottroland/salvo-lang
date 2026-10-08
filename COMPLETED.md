@@ -165,13 +165,12 @@ the arm's `to_str` for the arm the union is*.)
   `ArmText::{Native, Own, Fn{key, implicits}}`), and rejects an arm with none,
   naming it. A `to_str` that takes the union itself still wins when the arms
   are not all native (std's `to_str(FsError)`-style functions). The IR builder
-  renders it as a `Switch` whose arm `i` narrows and calls arm `i`'s `to_str`.
-  Considered: one `to_str` fn per `UnionN` arity in the generated union files
-  taking the arm functions as parameters. Not taken because it puts arm
-  dispatch in two backends where the IR already has the construct for it, and
-  the per-site switch is the same behaviour; the user's wording ("functions
-  for each UnionN") is met in effect, not in shape — say if the shared function
-  is wanted.
+  carries it as one `UnionToStr { value, arms }` node (first built as an inline
+  `Switch`; the user preferred a call per `UnionN` for readability), and
+  `UnionN` in each backend's generated union file has a `to_str` (Kotlin
+  `toStr`) taking the function of each arm. Rust takes every arm function by
+  reference (the method is generic in the arm), so the arm closures are
+  rendered against a slot whose parameter is a type variable.
 * **A handle from a lending effect member held across a read of the
   container.** A lending member now has a locator face (`m__loc`) in both
   traits, the handle, and every implementing handler (its body rendered in

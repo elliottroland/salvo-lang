@@ -1618,6 +1618,10 @@ sealed interface Union2<out T1, out T2> {
     val value: Any?
     data class U1<out T1, out T2>(override val value: T1) : Union2<T1, T2>
     data class U2<out T1, out T2>(override val value: T2) : Union2<T1, T2>
+    fun toStr(f1: (T1) -> String, f2: (T2) -> String): String = when (this) {
+        is U1 -> f1(this.value)
+        is U2 -> f2(this.value)
+    }
 }
 
 // ===== unions/Union2Codec.kt =====

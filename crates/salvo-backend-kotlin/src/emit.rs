@@ -131,6 +131,13 @@ pub(crate) fn generate_unions_file(sizes: &BTreeSet<usize>, wire: bool) -> Strin
                 args.join(", ")
             ));
         }
+        // [interp-union] The text of the arm held: `f{i}` renders arm `i`.
+        let fs: Vec<String> = (1..=n).map(|i| format!("f{i}: (T{i}) -> String")).collect();
+        out.push_str(&format!("    fun toStr({}): String = when (this) {{\n", fs.join(", ")));
+        for i in 1..=n {
+            out.push_str(&format!("        is U{i} -> f{i}(this.value)\n"));
+        }
+        out.push_str("    }\n");
         out.push_str("}\n");
         // [wire-format] [kt-wire] The union's codec: one tag byte holding
         // the arm's declared index, then the arm — the Rust `impl __Wire for

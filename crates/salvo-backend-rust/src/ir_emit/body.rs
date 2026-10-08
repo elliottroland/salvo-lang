@@ -234,6 +234,10 @@ pub(crate) fn walk_expr(e: &Expr, fs: &mut impl FnMut(&Stmt), fe: &mut impl FnMu
             sub(instance);
             args.iter().for_each(&mut sub);
         }
+        ExprKind::UnionToStr { value, arms } => {
+            sub(value);
+            arms.iter().for_each(&mut sub);
+        }
         ExprKind::Construct { fields } => fields.iter().for_each(|(_, v)| sub(v)),
         ExprKind::MakeUnion { value, .. } | ExprKind::Rewrap { value, .. } | ExprKind::DropMut { value } | ExprKind::Widen { value } | ExprKind::Spread { value } => sub(value),
         ExprKind::Handle { instance } => sub(instance),
@@ -978,6 +982,15 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 format!("{inst}.{}({})", rs_ident(&m.emitted_name), a.join(", "))
             }
             ExprKind::Op { op, args } => self.op(e, *op, args, indent),
+            // [interp-union] `UnionN::to_str`, given the function of each arm.
+            ExprKind::UnionToStr { value, arms } => {
+                let v = self.raw(value, indent);
+                // The method is generic in each arm, so every arm function
+                // takes its payload by reference, whatever the arm's type.
+                let slot = Ty::Fn { params: vec![Ty::Var("T".into())], ret: Box::new(Ty::named("Str")), contract: None, effects: Vec::new() };
+                let fs: Vec<String> = arms.iter().map(|a| self.fn_arg(a, &slot, FnPos::DynParam, indent)).collect();
+                format!("{v}.to_str({})", fs.join(", "))
+            }
             ExprKind::Construct { fields } => self.construct(e, fields, indent),
             ExprKind::MakeUnion { arm, value } => {
                 let arms: Vec<Ty> = e.ty.strip_quals().value_arms().into_iter().cloned().collect();

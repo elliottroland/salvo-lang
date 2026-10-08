@@ -143,6 +143,17 @@ impl<T1, T2, T3, T4, T5, T6, T7> Union7<T1, T2, T3, T4, T5, T6, T7> {
             _ => panic!("unreachable union arm"),
         }
     }
+    pub fn to_str(&self, f1: &mut dyn FnMut(&T1) -> String, f2: &mut dyn FnMut(&T2) -> String, f3: &mut dyn FnMut(&T3) -> String, f4: &mut dyn FnMut(&T4) -> String, f5: &mut dyn FnMut(&T5) -> String, f6: &mut dyn FnMut(&T6) -> String, f7: &mut dyn FnMut(&T7) -> String) -> String {
+        match self {
+            Union7::U1(v) => f1(v),
+            Union7::U2(v) => f2(v),
+            Union7::U3(v) => f3(v),
+            Union7::U4(v) => f4(v),
+            Union7::U5(v) => f5(v),
+            Union7::U6(v) => f6(v),
+            Union7::U7(v) => f7(v),
+        }
+    }
 }
 
 impl<T1, T2, T3, T4, T5, T6, T7> std::fmt::Display for Union7<T1, T2, T3, T4, T5, T6, T7>

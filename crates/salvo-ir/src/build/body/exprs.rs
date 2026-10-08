@@ -524,54 +524,43 @@ impl<'a, 'p> Lower<'a, 'p> {
         }
     }
 
-    /// [interp-union] `${u}` for a union `u`: evaluated once, then a switch
-    /// whose arm `i` narrows to that arm and renders it by its own text form.
+    /// [interp-union] `${u}` for a union `u`: the union's own `to_str`, given
+    /// the function that renders each arm (the backend dispatches on the arm
+    /// the value holds).
     fn interp_union(&mut self, value: Expr, arms: &[salvo_core::check::ArmText], span: Span) -> Expr {
         use salvo_core::check::ArmText;
         let str_ty = Ty::named("Str");
-        let uty = value.ty.clone();
-        let runtime: Vec<Ty> = uty.strip_quals().value_arms().into_iter().cloned().collect();
+        let runtime: Vec<Ty> = value.ty.strip_quals().value_arms().into_iter().cloned().collect();
         if runtime.len() != arms.len() {
-            self.error(span, format!("the arms of `{uty}` do not match the text forms the checker found"));
+            self.error(span, format!("the arms of `{}` do not match the text forms the checker found", value.ty));
             return unsupported(str_ty, span, "interpolation of a union");
         }
-        let tmp = self.fresh("__interp");
-        let lid = self.id();
-        let sid = self.id();
-        let stmts = vec![Stmt::Let { id: lid, local: tmp.clone(), ty: uty.clone(), value }];
-        let mut sw_arms = Vec::new();
-        for (i, (arm_ty, text)) in runtime.iter().zip(arms).enumerate() {
-            let local = self.fresh("__arm");
-            let nid = self.id();
-            let narrow = Stmt::Narrow { id: nid, local: local.clone(), ty: arm_ty.clone(), from: Place { root: tmp.clone(), steps: Vec::new() }, from_ty: uty.clone(), because: Justification::Arm { switch: sid, arm: i } };
-            let read = Expr { ty: arm_ty.clone(), span, kind: ExprKind::Read { place: Place { root: local, steps: Vec::new() }, consume: false } };
-            let call = |target: FnRef, args: Vec<Expr>| Expr { ty: str_ty.clone(), span, kind: ExprKind::Call { target, type_args: Vec::new(), args } };
-            let rendered = match text {
-                ArmText::Own(name) => call(FnRef::Local(Local(name.clone())), vec![read]),
+        let mut fns = Vec::new();
+        for (arm_ty, text) in runtime.iter().zip(arms) {
+            let fn_ty = Ty::Fn { params: vec![arm_ty.clone()], ret: Box::new(str_ty.clone()), contract: None, effects: Vec::new() };
+            let f = match text {
+                ArmText::Own(name) => Expr { ty: fn_ty, span, kind: ExprKind::FnValue(FnRef::Local(Local(name.clone()))) },
                 ArmText::Fn { key, implicits } => {
-                    let mut args = vec![read];
-                    args.extend(self.implicit_list(implicits, &[], span));
-                    call(FnRef::Decl(self.ctx.decl_id(*key)), args)
+                    let arg = ImplicitArg::Resolved { name: "to_str".into(), key: *key, nested: implicits.clone(), want: fn_ty };
+                    self.implicit_list(&[arg], &[], span).pop().unwrap()
                 }
-                ArmText::Native => {
-                    if matches!(arm_ty.strip_quals(), Ty::Named { name, .. } if name == "Str") {
-                        read
-                    } else {
-                        match self.intrinsic_fn("to_str", &[arm_ty.clone()]) {
-                            Some(id) => call(FnRef::Decl(id), vec![read]),
-                            None => {
-                                self.error(span, format!("no `to_str` for `{arm_ty}` in an interpolation"));
-                                unsupported(str_ty.clone(), span, "interpolation")
-                            }
-                        }
+                ArmText::Native if matches!(arm_ty.strip_quals(), Ty::Named { name, .. } if name == "Str") => {
+                    // A `Str` is its own text.
+                    let p = Param { local: Local("__s".into()), ty: arm_ty.clone(), mode: PassMode::Lent, variadic: false, check: None };
+                    let read = Expr { ty: arm_ty.clone(), span, kind: ExprKind::Read { place: Place { root: p.local.clone(), steps: Vec::new() }, consume: false } };
+                    Expr { ty: fn_ty, span, kind: ExprKind::Lambda { params: vec![p], ret: str_ty.clone(), body: Block { stmts: Vec::new(), value: Some(Box::new(read)) }, captures: Vec::new() } }
+                }
+                ArmText::Native => match self.intrinsic_fn("to_str", &[arm_ty.clone()]) {
+                    Some(id) => Expr { ty: fn_ty, span, kind: ExprKind::FnValue(FnRef::Decl(id)) },
+                    None => {
+                        self.error(span, format!("no `to_str` for `{arm_ty}` in an interpolation"));
+                        unsupported(fn_ty, span, "interpolation")
                     }
-                }
+                },
             };
-            sw_arms.push(SwitchArm { test: ArmTest::Arm(i), body: Block { stmts: vec![narrow], value: Some(Box::new(rendered)) } });
+            fns.push(f);
         }
-        let subject = Expr { ty: uty, span, kind: ExprKind::Read { place: Place { root: tmp, steps: Vec::new() }, consume: false } };
-        let switch = Expr { ty: str_ty, span, kind: ExprKind::Switch { id: sid, subject: Box::new(subject), arms: sw_arms } };
-        self.block_expr(stmts, switch, span)
+        Expr { ty: str_ty, span, kind: ExprKind::UnionToStr { value: Box::new(value), arms: fns } }
     }
 
     /// [iter-protocol] A pass member (`iter`, `next`): the fn reference and its
@@ -2227,6 +2216,12 @@ fn visit_reads(e: &Expr, f: &mut dyn FnMut(&Local)) {
         ExprKind::MemberCall { instance, args, .. } => {
             visit_reads(instance, f);
             for a in args {
+                visit_reads(a, f);
+            }
+        }
+        ExprKind::UnionToStr { value, arms } => {
+            visit_reads(value, f);
+            for a in arms {
                 visit_reads(a, f);
             }
         }

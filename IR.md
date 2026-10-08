@@ -149,6 +149,7 @@ pub enum Expr {
     MakeUnion { arm: usize, value: Box<Expr> },           // ty is the union
     MakeNone, Unit,
     Present { value: Box<Expr> },                         // a value in an optional's present arm
+    UnionToStr { value: Box<Expr>, arms: Vec<Expr> },     // the text of the arm a union holds [interp-union]
     Tuple(Vec<Expr>), List(Vec<Expr>), Array(Vec<Expr>),
     Concat(Vec<Expr>),                                    // every part is a Str
     Branch { arms: Vec<(Expr, Block)>, otherwise: Option<Block> },

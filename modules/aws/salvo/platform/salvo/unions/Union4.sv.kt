@@ -11,4 +11,10 @@ sealed interface Union4<out T1, out T2, out T3, out T4> {
     data class U2<out T1, out T2, out T3, out T4>(override val value: T2) : Union4<T1, T2, T3, T4>
     data class U3<out T1, out T2, out T3, out T4>(override val value: T3) : Union4<T1, T2, T3, T4>
     data class U4<out T1, out T2, out T3, out T4>(override val value: T4) : Union4<T1, T2, T3, T4>
+    fun toStr(f1: (T1) -> String, f2: (T2) -> String, f3: (T3) -> String, f4: (T4) -> String): String = when (this) {
+        is U1 -> f1(this.value)
+        is U2 -> f2(this.value)
+        is U3 -> f3(this.value)
+        is U4 -> f4(this.value)
+    }
 }
