@@ -324,10 +324,11 @@ pub fn next__SkippingWhile<It: Clone, T: Clone>(t: &mut crate::core_seq::Skippin
             let mut x_1 = match &x { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
             return crate::unions::Union2::U2(crate::core_iterator::finished());
         };
-        let mut x_2 = match x { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
-        if !(skip(&x_2)) {
+        let mut x_2 = match &x { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
+        if !(skip(x_2)) {
             t.started = true;
-            return crate::unions::Union2::U1(crate::core_iterator::emitted::<T>(x_2));
+            let mut x_3 = match x { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
+            return crate::unions::Union2::U1(crate::core_iterator::emitted::<T>(x_3));
         };
     }
     return crate::unions::Union2::U2(crate::core_iterator::finished());

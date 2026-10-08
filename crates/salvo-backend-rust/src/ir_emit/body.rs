@@ -2411,6 +2411,21 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 let pos = self.loc_call(id, f, args, indent);
                 Some((anchor, pos))
             }
+            // [rs-loc] A lending member: its locator face, on the instance.
+            ExprKind::MemberCall { instance, member, args, .. } => {
+                let m = self.member_decl(member)?;
+                let iface = self.s.interface_by_id(&member.interface)?;
+                if !self.s.member_lends_mut(iface, m) {
+                    return None;
+                }
+                let k = self.s.member_lend_param(m)?;
+                let anchor = anchor_of(self, args.get(k)?)?;
+                let inst = self.raw(instance, indent);
+                let mut ps = self.s.unalias_params(&m.params);
+                ps[k].mode = PassMode::Lent;
+                let a = self.args(&ps, args, FnPos::DynParam, indent);
+                Some((anchor, format!("{inst}.{}__loc({})", rs_ident(&m.emitted_name), a.join(", "))))
+            }
             // `x!`: the position, or the trap.
             ExprKind::Branch { arms, otherwise: None, .. } if arms.len() == 1 && matches!(arms[0].0.kind, ExprKind::Bool(true)) => {
                 let b = &arms[0].1;

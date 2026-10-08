@@ -270,6 +270,17 @@ pub fn resolved_fn_keys(checked: &crate::check::Checked, file_idx: usize) -> Has
     for (_, fn_key) in checked.interp_to_str.iter().filter(|(k, _)| mine(k)) {
         out.insert(*fn_key);
     }
+    // [interp-union] The text form of each arm of an interpolated union.
+    for (_, arms) in checked.interp_union.iter().filter(|(k, _)| mine(k)) {
+        for arm in arms {
+            if let crate::check::ArmText::Fn { key, implicits } = arm {
+                out.insert(*key);
+                for arg in implicits {
+                    walk(arg, &mut out);
+                }
+            }
+        }
+    }
     // [iter-resolve] The `next` a `for` drives and the `iter` it mints with.
     for (_, driver) in checked.for_drivers.iter().filter(|(k, _)| mine(k)) {
         if let Some(key) = driver.next.key() {

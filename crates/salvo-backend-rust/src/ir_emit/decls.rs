@@ -405,6 +405,28 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     }
 
     /// An interface member's signature, `RECV` standing for the receiver.
+    /// [rs-loc] The signature of a lending member's locator face: its
+    /// anchor lent, the answer a position.
+    pub(super) fn member_loc_sig(&mut self, m: &salvo_ir::Member) -> Option<String> {
+        let a = self.s.member_lend_param(m)?;
+        let mut params = self.s.unalias_params(&m.params);
+        params[a].mode = PassMode::Lent;
+        let loc = salvo_ir::Member {
+            name: m.name.clone(),
+            emitted_name: format!("{}__loc", m.emitted_name),
+            type_params: Vec::new(),
+            params,
+            ret: Ty::none(),
+            send: false,
+            result_check: None,
+            factories: Vec::new(),
+            span: m.span,
+        };
+        let sig = self.member_sig(&loc);
+        let position = if m.ret.strip_quals().has_none_arm() { "Option<usize>" } else { "usize" };
+        Some(format!("{sig} -> {position}"))
+    }
+
     pub(super) fn member_sig(&mut self, m: &salvo_ir::Member) -> String {
         let mut ps: Vec<String> = Vec::new();
         let params = self.s.unalias_params(&m.params);
@@ -468,7 +490,18 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 self.error(format!("effect member `{}` has its own generic parameters, which the rust backend cannot dispatch dynamically yet", m.name));
             }
         }
-        let sigs: Vec<String> = i.members.iter().map(|m| self.member_sig(m)).collect();
+        let mut sigs: Vec<String> = i.members.iter().map(|m| self.member_sig(m)).collect();
+        // [rs-loc] A lending member's locator face, beside its natural one.
+        let mut loc_sigs: Vec<(usize, String)> = Vec::new();
+        for (k, m) in i.members.iter().enumerate() {
+            if self.s.member_lends_mut(i, m) {
+                if let Some(sig) = self.member_loc_sig(m) {
+                    loc_sigs.push((k, sig));
+                }
+            }
+        }
+        let plain_sigs = sigs.len();
+        sigs.extend(loc_sigs.iter().map(|(_, s)| s.clone()));
         let stateless = stateless_trait_name(&i.name);
         let stateful = stateful_trait_name(&i.name);
         let mut out = format!("\npub trait {stateless}{g}: Send + Sync {{\n");
@@ -493,9 +526,15 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
              pub fn locked<__H: {stateful}{g} + 'static>(inner: __H) -> Self {{\n        Self {{ inner: {inner}::Locked(std::sync::Arc::new(std::sync::Mutex::new(inner))) }}\n    }}\n    \
              pub fn share_locked(inner: std::sync::Arc<std::sync::Mutex<dyn {stateful}{g}>>) -> Self {{\n        Self {{ inner: {inner}::Locked(inner) }}\n    }}\n"
         ));
-        for (m, sig) in i.members.iter().zip(&sigs) {
+        let forwarded: Vec<(&salvo_ir::Member, String, String)> = i
+            .members
+            .iter()
+            .zip(&sigs[..plain_sigs])
+            .map(|(m, sig)| (m, sig.clone(), rs_ident(&m.emitted_name)))
+            .chain(loc_sigs.iter().map(|(k, sig)| (&i.members[*k], sig.clone(), format!("{}__loc", rs_ident(&i.members[*k].emitted_name)))))
+            .collect();
+        for (m, sig, mname) in forwarded {
             let args: Vec<String> = m.params.iter().map(|p| rs_ident(&p.local.0)).collect();
-            let mname = rs_ident(&m.emitted_name);
             let a = args.join(", ");
             out.push_str(&format!(
                 "    pub {} {{\n        match &self.inner {{\n            {inner}::Shared(h) => h.{mname}({a}),\n            {inner}::Locked(h) => h.lock().unwrap().{mname}({a}),\n        }}\n    }}\n",
@@ -972,6 +1011,15 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     /// A handler member implementing an interface member: the trait's
     /// signature (substituted with the face's arguments), the body's code.
     fn member_fn(&mut self, h: &ImplDecl, f: &FnDecl, m: &salvo_ir::Member, stateful: bool, face_args: &[Ty], iface: &InterfaceDecl) -> String {
+        let mut out = self.member_fn_mode(h, f, m, stateful, face_args, iface, false);
+        // [rs-loc] A lending member also answers where its result is.
+        if self.s.member_lends_mut(iface, m) {
+            out.push_str(&self.member_fn_mode(h, f, m, stateful, face_args, iface, true));
+        }
+        out
+    }
+
+    fn member_fn_mode(&mut self, h: &ImplDecl, f: &FnDecl, m: &salvo_ir::Member, stateful: bool, face_args: &[Ty], iface: &InterfaceDecl, loc: bool) -> String {
         let subst: std::collections::HashMap<String, Ty> = iface.type_params.iter().map(|t| t.name.clone()).zip(face_args.iter().cloned()).collect();
         let sig_member = salvo_ir::Member {
             params: m.params.clone(),
@@ -985,7 +1033,13 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             span: m.span,
         };
         self.f.render_subst = subst.clone();
-        let sig = self.member_sig(&sig_member).replace("&RECV", if stateful { "&mut self" } else { "&self" });
+        let anchor = if loc { self.s.member_lend_param(m) } else { None };
+        let sig = if loc {
+            self.member_loc_sig(&sig_member).unwrap_or_default()
+        } else {
+            self.member_sig(&sig_member)
+        }
+        .replace("&RECV", if stateful { "&mut self" } else { "&self" });
         let facade = self.f.in_facade;
         self.f = super::body::FnState::default();
         self.f.in_facade = facade;
@@ -1003,8 +1057,18 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         }
         // The body's own parameters, under the trait's spelling.
         let own: Vec<&Param> = f.params.iter().skip(f.effect_params).collect();
-        for (p, tp) in own.iter().zip(&self.s.unalias_params(&sig_member.params)) {
+        let mut tparams = self.s.unalias_params(&sig_member.params);
+        if let Some(a) = anchor {
+            // [rs-loc] The locator reads its anchor.
+            tparams[a].mode = PassMode::Lent;
+        }
+        for (p, tp) in own.iter().zip(&tparams) {
             self.f.bind_param(&p.local.0, tp);
+        }
+        if let Some(a) = anchor {
+            if let Some(p) = own.get(a) {
+                self.f.loc = Some((p.local.0.clone(), sig_member.ret.strip_quals().has_none_arm()));
+            }
         }
         self.f.ret = Some(sig_member.ret.clone());
         self.f.ret_lt = self.s.holds_proj(&sig_member.ret);

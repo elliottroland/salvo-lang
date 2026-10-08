@@ -109,7 +109,18 @@ impl<'a, 'p> Lower<'a, 'p> {
             }
             AExpr::StructLit { ty, fields, .. } => self.struct_lit(ty.as_ref(), fields, span),
             AExpr::Unary { op, operand, .. } => {
+                // [ir-narrow] A test under `!` proves its opposite where it
+                // holds: nothing it narrows outlives the operand.
+                let negated = matches!(op, UnaryOp::Not);
+                let mark = self.pending_after_test.len();
+                if negated {
+                    self.push_scope();
+                }
                 let x = self.expr(operand);
+                if negated {
+                    self.pop_scope();
+                    self.pending_after_test.truncate(mark);
+                }
                 let op = match op {
                     UnaryOp::Neg => Op::Neg,
                     UnaryOp::Not => Op::Not,
@@ -133,13 +144,27 @@ impl<'a, 'p> Lower<'a, 'p> {
                     let nid = self.id();
                     let from_ty = s.ty.clone();
                     self.pending_after_test.push(Stmt::Narrow { id: nid, local, ty, from, from_ty, because: Justification::Test { test: id } });
-                } else if let (Some(target), AExpr::Ident(name), true) = (self.ctx.checked.widen_targets.get(&self.key(span)).map(erase), subject.as_ref(), self.in_condition) {
+                } else if let (Some(target), true) = (self.ctx.checked.widen_targets.get(&self.key(span)).map(erase), self.in_condition) {
                     // [qual-lift] A lift that peels a wrapper arm narrows the
                     // subject to the widened type for the branch.
                     if let Some(place) = self.stored_place_of(subject) {
                         let from_ty = s.ty.clone();
-                        let narrow = self.narrow_in_arm(&name.name, place, from_ty, target, Justification::Test { test: id });
-                        self.pending_after_test.push(narrow);
+                        match subject.as_ref() {
+                            AExpr::Ident(name) => {
+                                let narrow = self.narrow_in_arm(&name.name, place, from_ty, target, Justification::Test { test: id });
+                                self.pending_after_test.push(narrow);
+                            }
+                            // A projection has no name to rebind: the view is
+                            // a local the place reads through until the
+                            // branch closes.
+                            AExpr::Field { .. } | AExpr::TupleIndex { .. } => {
+                                let local = self.fresh("__lifted");
+                                let nid = self.id();
+                                self.pending_after_test.push(Stmt::Narrow { id: nid, local: local.clone(), ty: target.clone(), from: place.clone(), from_ty, because: Justification::Test { test: id } });
+                                self.scoped_aliases.push((self.scopes.len(), place, local, target));
+                            }
+                            _ => {}
+                        }
                     }
                 }
                 match test {
@@ -366,6 +391,8 @@ impl<'a, 'p> Lower<'a, 'p> {
         let key = self.key(span);
         // A projection whose prefix an enclosing safe call bound reads
         // through that binding.
+        let projected = !place.steps.is_empty();
+        let aliased = projected.then(|| self.place_alias(&place).map(|a| a.ty)).flatten();
         let place = self.through_alias(place);
         let consume = self.ctx.checked.linear_moves.contains(&key)
             || self.ctx.checked.state_takes.contains(&key)
@@ -387,8 +414,9 @@ impl<'a, 'p> Lower<'a, 'p> {
         }
         // [ir-narrow] A projection the flow narrowed (`p.inner` after a test
         // on it) is read through a narrowing binding, like a local.
-        if !place.steps.is_empty() {
-            if let Some(declared) = self.ctx.checked.repr_ty.get(&key).map(erase) {
+        if projected {
+            // A place read through a lifted view is narrowed from the view.
+            if let Some(declared) = aliased.clone().or_else(|| self.ctx.checked.repr_ty.get(&key).map(erase)) {
                 if !ty.is_unknown() && declared != ty {
                     let local = self.fresh("__narrowed");
                     let because = match (self.current_test, self.last_branch) {
@@ -472,6 +500,11 @@ impl<'a, 'p> Lower<'a, 'p> {
         if let Some(local) = self.ctx.checked.interp_implicit.get(&self.key(span)).cloned() {
             return Expr { ty: str_ty, span, kind: ExprKind::Call { target: FnRef::Local(Local(local)), type_args: Vec::new(), args: vec![value] } };
         }
+        // [interp-union] A union is the text of the arm it holds: a switch on
+        // the value, each arm calling its own `to_str`.
+        if let Some(arms) = self.ctx.checked.interp_union.get(&self.key(span)).cloned() {
+            return self.interp_union(value, &arms, span);
+        }
         if let Some(k) = self.ctx.checked.interp_to_str.get(&self.key(span)).copied() {
             let at = Span::new(span.end, span.end);
             let mut args = vec![value];
@@ -489,6 +522,56 @@ impl<'a, 'p> Lower<'a, 'p> {
                 unsupported(str_ty, span, "interpolation")
             }
         }
+    }
+
+    /// [interp-union] `${u}` for a union `u`: evaluated once, then a switch
+    /// whose arm `i` narrows to that arm and renders it by its own text form.
+    fn interp_union(&mut self, value: Expr, arms: &[salvo_core::check::ArmText], span: Span) -> Expr {
+        use salvo_core::check::ArmText;
+        let str_ty = Ty::named("Str");
+        let uty = value.ty.clone();
+        let runtime: Vec<Ty> = uty.strip_quals().value_arms().into_iter().cloned().collect();
+        if runtime.len() != arms.len() {
+            self.error(span, format!("the arms of `{uty}` do not match the text forms the checker found"));
+            return unsupported(str_ty, span, "interpolation of a union");
+        }
+        let tmp = self.fresh("__interp");
+        let lid = self.id();
+        let sid = self.id();
+        let stmts = vec![Stmt::Let { id: lid, local: tmp.clone(), ty: uty.clone(), value }];
+        let mut sw_arms = Vec::new();
+        for (i, (arm_ty, text)) in runtime.iter().zip(arms).enumerate() {
+            let local = self.fresh("__arm");
+            let nid = self.id();
+            let narrow = Stmt::Narrow { id: nid, local: local.clone(), ty: arm_ty.clone(), from: Place { root: tmp.clone(), steps: Vec::new() }, from_ty: uty.clone(), because: Justification::Arm { switch: sid, arm: i } };
+            let read = Expr { ty: arm_ty.clone(), span, kind: ExprKind::Read { place: Place { root: local, steps: Vec::new() }, consume: false } };
+            let call = |target: FnRef, args: Vec<Expr>| Expr { ty: str_ty.clone(), span, kind: ExprKind::Call { target, type_args: Vec::new(), args } };
+            let rendered = match text {
+                ArmText::Own(name) => call(FnRef::Local(Local(name.clone())), vec![read]),
+                ArmText::Fn { key, implicits } => {
+                    let mut args = vec![read];
+                    args.extend(self.implicit_list(implicits, &[], span));
+                    call(FnRef::Decl(self.ctx.decl_id(*key)), args)
+                }
+                ArmText::Native => {
+                    if matches!(arm_ty.strip_quals(), Ty::Named { name, .. } if name == "Str") {
+                        read
+                    } else {
+                        match self.intrinsic_fn("to_str", &[arm_ty.clone()]) {
+                            Some(id) => call(FnRef::Decl(id), vec![read]),
+                            None => {
+                                self.error(span, format!("no `to_str` for `{arm_ty}` in an interpolation"));
+                                unsupported(str_ty.clone(), span, "interpolation")
+                            }
+                        }
+                    }
+                }
+            };
+            sw_arms.push(SwitchArm { test: ArmTest::Arm(i), body: Block { stmts: vec![narrow], value: Some(Box::new(rendered)) } });
+        }
+        let subject = Expr { ty: uty, span, kind: ExprKind::Read { place: Place { root: tmp, steps: Vec::new() }, consume: false } };
+        let switch = Expr { ty: str_ty, span, kind: ExprKind::Switch { id: sid, subject: Box::new(subject), arms: sw_arms } };
+        self.block_expr(stmts, switch, span)
     }
 
     /// [iter-protocol] A pass member (`iter`, `next`): the fn reference and its
@@ -573,7 +656,18 @@ impl<'a, 'p> Lower<'a, 'p> {
         let ty = self.ty_of(span);
         match op {
             BinaryOp::And | BinaryOp::Or => {
+                // [ir-narrow] What a test proves holds where the test did:
+                // after `a && b`, not after `a || b`. A narrowing (or a
+                // binding) made inside an `||` does not outlive it.
+                let (mark, scoped) = (self.pending_after_test.len(), op == BinaryOp::Or);
+                if scoped {
+                    self.push_scope();
+                }
                 let l = self.expr(lhs);
+                if scoped {
+                    self.pop_scope();
+                    self.pending_after_test.truncate(mark);
+                }
                 // [ir-narrow] The right operand runs only when the left
                 // decided nothing, so what it reads may be narrowed by the
                 // left: a binding test's name (`&&`), or the failure of a
@@ -581,7 +675,14 @@ impl<'a, 'p> Lower<'a, 'p> {
                 // operand becomes a branch on the left.
                 let after_left: Vec<Stmt> = self.pending_after_test.clone();
                 let saved = std::mem::take(&mut self.pending);
+                if scoped {
+                    self.push_scope();
+                }
                 let r = self.expr(rhs);
+                if scoped {
+                    self.pop_scope();
+                    self.pending_after_test.truncate(mark);
+                }
                 let right_pending = std::mem::replace(&mut self.pending, saved);
                 let bool_ty = Ty::named("Bool");
                 let needs_scope = !right_pending.is_empty() || (op == BinaryOp::And && !after_left.is_empty() && reads_any(&r, &after_left));
@@ -1189,7 +1290,8 @@ impl<'a, 'p> Lower<'a, 'p> {
     /// [ir-narrow] The narrowing binding an enclosing safe call made for a
     /// projection place (`a.b?.c` binds `a.b`), as a read.
     pub(crate) fn place_alias(&self, place: &Place) -> Option<Expr> {
-        self.place_aliases.iter().rev().find_map(|(p, l, t)| {
+        let scoped = self.scoped_aliases.iter().rev().map(|(_, p, l, t)| (p, l, t));
+        scoped.chain(self.place_aliases.iter().rev().map(|(p, l, t)| (p, l, t))).find_map(|(p, l, t)| {
             let same = p.root == place.root && p.steps.len() == place.steps.len() && p.steps.iter().zip(&place.steps).all(|(a, b)| match (a, b) {
                 (Step::Field(x), Step::Field(y)) => x == y,
                 (Step::Tuple(x), Step::Tuple(y)) => x == y,

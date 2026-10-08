@@ -183,10 +183,15 @@ Conventions:
   non-renderable value reached rustc as "doesn't implement `Display`"
   [backend-never-wrong]).
   * **Native**: the scalars (`Int`, `Long`, `Float`, `Double`, `Bool`,
-    `Char`, `Byte`) and `Str`. A union is native when *every* arm is —
-    both backends reach the payload (Kotlin through the wrapper's
-    `.value`, Rust through the arm accessor). `Mut Str` never reaches the
-    question: a builder is converted first [str-drop-mut].
+    `Char`, `Byte`) and `Str`. `Mut Str` never reaches the question: a
+    builder is converted first [str-drop-mut].
+  * [interp-union] **A union is the text of the arm it holds** (user
+    decision 2026-10-06). A `to_str` that takes the union itself is used
+    when there is one; otherwise every arm needs a text form of its own — a
+    native one, or a `to_str` in scope (with its implicits filled, as for
+    any interpolation) — and a missing one is an error naming the arm. The
+    IR builder renders it as a switch on the value whose arm `i` calls arm
+    `i`'s `to_str`; `Checked::interp_union` carries the per-arm forms.
 * [interp-float] **A float's text is Salvo's rule, which is Kotlin's** (user
   decision 2026-09-25): the shortest digits that round-trip, **always a
   decimal point**, and computerized scientific notation outside
@@ -1292,6 +1297,16 @@ Conventions:
   * Places relate by *prefix* (an event on `h.a` reaches `h.a.b`) and
     *overlap* (either is a prefix of the other). Siblings (`h.a`, `h.b`)
     are independent.
+  * [flow-or-not] **What a test proves holds only where the test did**:
+    `a && b` narrows its then-branch by both, but `a || b` and `!a` narrow
+    nothing in the branch they guard, and a name an `is` binds inside one is
+    not in scope after it (the checker has always said so; the IR builder
+    used to narrow the branch anyway). The right operand of `a || b` sees
+    the *failure* of `a`.
+  * [qual-lift] on a projection: inside `if h.f is ^Ok { … }` a further test
+    of `h.f` reads the **lifted** view of the field (the wrapper peeled),
+    not the stored union; the IR names that view with a narrowing binding
+    until the branch closes.
   * A fact survives a branch join only when every fall-through path
     agrees on it exactly; otherwise the place falls back to its declared
     type, which is always a supertype.

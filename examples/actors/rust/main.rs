@@ -62,15 +62,7 @@ pub mod platform_runtime_routing;
 #[path = "platform/runtime.rs"]
 pub mod platform_runtime;
 
-use crate::__Msg_Counter::Bump;
-use crate::__Msg_Desk::CloseUp;
-use crate::__Msg_Fragile::Crash;
 use crate::core_actor::Exit;
-use crate::__Msg_Ledger::Report;
-use crate::__Msg_Ledger::Reported;
-use crate::__Msg_Desk::Serve;
-use crate::__Msg_Desk::Ticket;
-use crate::__Msg_Counter::Total;
 use crate::core_deque::add_last_platform;
 use crate::core_deque::drain;
 use crate::core_list::get_platform;

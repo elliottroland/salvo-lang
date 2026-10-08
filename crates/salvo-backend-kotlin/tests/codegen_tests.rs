@@ -4438,7 +4438,174 @@ fn kotlinc_compiles_and_runs_a_breaking_value_loop_and_ordered_arguments() -> Ko
     kotlin_case(files, "loop-break-order", LOOP_BREAK_ORDER_OUTPUT)
 }
 
+
+/// [ir-narrow] What a test proves holds where the test did: `a || b` and `!a` leave nothing narrowed in the branch they guard, and a binding made inside one is out of scope after it.
+const NARROW_OR_NOT_DEMO: &str = r#"
+fn pick(n: Int) -> Int | Str | Bool {
+    if n == 1 { return "one" }
+    if n == 2 { return true }
+    return n
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    for k in list_of(0, 1, 2) {
+        let v = pick(k)
+        if v is Int || v is Str { println("int or str") }
+        if v is Int n || v is Str s { println("bound") }
+        if !(v is Int) { println("not int") } else { println("int") }
+        if v is Bool b {
+            if b { println("true") }
+        }
+    }
+}
+"#;
+
+const NARROW_OR_NOT_OUTPUT: &str = "int or str\nbound\nint\nint or str\nbound\nnot int\nnot int\ntrue\n";
+
+fn kotlinc_compiles_and_runs_a_disjunction_and_a_negation_narrow_nothing_after_them() -> KotlinCase {
+    let program = build_program(&[("main.sv", NARROW_OR_NOT_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "or-fix", NARROW_OR_NOT_OUTPUT)
+}
+
+/// [qual-lift] `^` on a projection: a test inside the branch reads the lifted view of the field, not the stored union.
+const LIFT_FIELD_DEMO: &str = r#"
+import throw
+struct H { result: Ok (Ok Int | Err Str) | Thrown Str }
+
+fn wrapped(n: Int) [Throw<Str>] -> Ok Int | Err Str {
+    if n < 0 { throw("neg") }
+    if n == 7 { return err("bad") }
+    return ok(n)
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let h = H { result: try { wrapped(7) } }
+    if h.result is ^Ok {
+        if h.result is Ok { println("ok ${h.result}") } else { println("not ok") }
+        if h.result is Err { println("err ${h.result}") } else { println("not err") }
+    }
+}
+"#;
+
+const LIFT_FIELD_OUTPUT: &str = "not ok\nerr bad\n";
+
+fn kotlinc_compiles_and_runs_a_lifted_claim_on_a_field_narrows_what_follows() -> KotlinCase {
+    let program = build_program(&[("main.sv", LIFT_FIELD_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "lift-fix", LIFT_FIELD_OUTPUT)
+}
+
+/// A lambda argument of a handler constructor takes its parameter types from the constructor parameter's fn type, as a call's does.
+const CTOR_LAMBDA_DEMO: &str = r#"
+effect Calc { fn calc(n: Int) -> Int }
+handler Derived(step: (n: Int) -> Int) of Calc {
+    fn calc(n: Int) -> Int { return step(n) }
+}
+fn main() [use] {
+    use StdOutConsole()
+    use Derived(n -> n + 1)
+    println("${calc(1)}")
+}
+"#;
+
+const CTOR_LAMBDA_OUTPUT: &str = "2\n";
+
+fn kotlinc_compiles_and_runs_an_unannotated_lambda_takes_its_handler_constructor_parameters_type() -> KotlinCase {
+    let program = build_program(&[("main.sv", CTOR_LAMBDA_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "lam-fix", CTOR_LAMBDA_OUTPUT)
+}
+
+/// [interp-union] A union is interpolated by the `to_str` of the arm it holds: scalars, a user `to_str`, an arm needing implicits, through an alias.
+const UNION_TEXT_DEMO: &str = r#"
+struct P { x: Int }
+fn to_str(p: P) -> Str { return "P(${p.x})" }
+type Either = Int | Str | P
+
+fn widen(x: Int | Str) -> Int | Str | Bool { return x }
+fn either(n: Int) -> Either {
+    if n == 0 { return 5 }
+    if n == 1 { return "s" }
+    return P { x: n }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let x: Int | Str = 3
+    let y = widen(x)
+    println("${y}")
+    println("${widen("hi")}")
+    for k in list_of(0, 1, 2) { println("e=${either(k)}") }
+    let l: List<Int> | Str = list_of(1, 2)
+    println("l=${l}")
+}
+"#;
+
+const UNION_TEXT_OUTPUT: &str = "3\nhi\ne=5\ne=s\ne=P(2)\nl=[1, 2]\n";
+
+fn kotlinc_compiles_and_runs_a_union_interpolates_by_the_text_of_its_arm() -> KotlinCase {
+    let program = build_program(&[("main.sv", UNION_TEXT_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "union-fix", UNION_TEXT_OUTPUT)
+}
+
+/// [rs-loc] A handle bound from a lending effect member outlives a read of the container: the member answers a position.
+const LEND_HANDLE_DEMO: &str = r#"
+struct Entity canbe Mut { hp: Int }
+
+effect Lender {
+    fn lease(es: List<Mut Entity>) -> (proj(es) Mut Entity)? => es
+}
+
+handler FirstLender of Lender {
+    fn lease(es: List<Mut Entity>) -> (proj(es) Mut Entity)? => es {
+        return get(es, 0)
+    }
+}
+
+fn run(es: List<Mut Entity>) [Lender] -> None {
+    let e = lease(es)!
+    let n = size(es)
+    e.hp = e.hp + n
+    return None
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    use FirstLender()
+    let es: List<Mut Entity> = list_of(Mut Entity { hp: 5 }, Mut Entity { hp: 7 })
+    run(es)
+    println("${get(es, 0)!.hp} ${get(es, 1)!.hp}")
+}
+"#;
+
+const LEND_HANDLE_OUTPUT: &str = "7 7\n";
+
+fn kotlinc_compiles_and_runs_a_handle_from_a_lending_member_survives_a_read_of_its_container() -> KotlinCase {
+    let program = build_program(&[("main.sv", LEND_HANDLE_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "lend-fix", LEND_HANDLE_OUTPUT)
+}
+
 const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
+    kotlinc_compiles_and_runs_a_disjunction_and_a_negation_narrow_nothing_after_them,
+    kotlinc_compiles_and_runs_a_lifted_claim_on_a_field_narrows_what_follows,
+    kotlinc_compiles_and_runs_an_unannotated_lambda_takes_its_handler_constructor_parameters_type,
+    kotlinc_compiles_and_runs_a_union_interpolates_by_the_text_of_its_arm,
+    kotlinc_compiles_and_runs_a_handle_from_a_lending_member_survives_a_read_of_its_container,
     kotlinc_compiles_and_runs_a_breaking_value_loop_and_ordered_arguments,
     kotlinc_compiles_and_runs_effect_members_taking_fn_values,
     kotlinc_compiles_and_runs_comptime,

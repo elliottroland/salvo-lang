@@ -809,6 +809,10 @@ pub struct Checked {
     /// `to_str` the checker resolved for it at that site. The emitters call
     /// it instead of formatting the value directly.
     pub interp_to_str: HashMap<Key, FnKey>,
+    /// [interp-union] An interpolated **union**: how each of its runtime arms
+    /// (in arm order) reaches text. The emitters call the arm's own `to_str`
+    /// on the arm the value is.
+    pub interp_union: HashMap<Key, Vec<ArmText>>,
     /// [interp-to-str] [implicit-resolve-body] Interpolated values rendered by
     /// an **implicit** `to_str` of the enclosing fn (its name): `${v.value}`
     /// at a generic `T` inside a `to_str` stamped with `?ToStr<T>`.
@@ -1044,6 +1048,17 @@ pub struct ImplicitParam {
     /// -> Str`, legal since 2026-09-28), which are `to_str__1`, … — a call in
     /// the body picks among them by argument types.
     pub local: String,
+}
+
+/// [interp-union] How one arm of an interpolated union reaches text.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ArmText {
+    /// A scalar or `Str`, which the target renders natively.
+    Native,
+    /// An implicit `to_str` of the enclosing fn (its local's name).
+    Own(String),
+    /// A `to_str` in scope, with the implicits it needs filled.
+    Fn { key: FnKey, implicits: Vec<ImplicitArg> },
 }
 
 /// What a call site puts in an implicit parameter [implicit-resolve].
@@ -8909,7 +8924,20 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ),
             );
         }
-        let arg_tys: Vec<Ty> = args.iter().map(|a| self.check_expr(a, None)).collect();
+        // A lambda argument takes its parameter types from the constructor
+        // parameter's fn type, as a call's argument does — unless that type
+        // is still open in the handler's own generics.
+        let own_generics: HashSet<String> = decl.generics.iter().map(|g| g.name.clone()).collect();
+        let arg_tys: Vec<Ty> = args
+            .iter()
+            .enumerate()
+            .map(|(i, a)| {
+                let expected = param_tys
+                    .get(i)
+                    .filter(|t| matches!(a, Expr::Lambda { .. }) && !ty_mentions_vars(t, &own_generics));
+                self.check_expr(a, expected)
+            })
+            .collect();
         // A handler-constructor argument is stored in the handler for the
         // rest of the scope: passing a bare identifier moves it
         // [deduce-consume].
@@ -9846,33 +9874,6 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// in scope whose parameter accepts this type and which returns `Str`.
     /// std provides one for `List<T>`; `Mut Str` never arrives here (a
     /// builder is converted first [str-drop-mut]).
-    /// [interp-to-str] The `to_str` overload taking one argument of [ty] and
-    /// needing implicits, with those implicits filled at the zero-width span
-    /// after [expr] (`Checked::implicit_args` there); `None` when there is
-    /// none, or its implicits cannot be filled (which reports why).
-    fn interp_to_str_with_implicits(&mut self, expr: &'p Expr, ty: &Ty) -> Option<FnKey> {
-        let at = Span::new(expr.span().end, expr.span().end);
-        for entry in self.overloads_of("to_str") {
-            let decl = entry.decl;
-            let fixed: Vec<&ast::Param> = decl.params.iter().filter(|p| !p.implicit).collect();
-            let implicits = self.out.implicit_params.get(&entry.key).cloned().unwrap_or_default();
-            if fixed.len() != 1 || implicits.is_empty() {
-                continue;
-            }
-            let saved = self.enter_generics(&decl.generics);
-            let pattern = self.lower_type(&fixed[0].ty);
-            self.generics = saved;
-            let mut subst: HashMap<String, Ty> = HashMap::new();
-            if !unify(&pattern, ty.strip_quals(), &mut subst) {
-                continue;
-            }
-            let generics: HashSet<String> = decl.generics.iter().map(|g| g.name.clone()).collect();
-            self.fill_implicits(&implicits, "to_str", &mut subst, &generics, &[], at);
-            return Some(entry.key);
-        }
-        None
-    }
-
     /// [implicit-resolve] Fills the implicits of the fn `key` (a `name`
     /// overload) as a call with arguments `arg_tys` would, keyed at `at`.
     /// Nothing for a fn without implicits.
@@ -9897,10 +9898,11 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.fill_implicits(&implicits, name, &mut subst, &generics, &[], at);
     }
 
-    fn check_interpolable(&mut self, expr: &'p Expr, ty: &Ty) {
-        if ty.is_unknown() || matches!(ty, Ty::Never) || Self::interp_native(ty) {
-            return;
-        }
+    /// [interp-to-str] How a value of type `ty` reaches text when it is not
+    /// native: an implicit `to_str` of the enclosing fn, a `to_str` in scope
+    /// (its own implicits filled), or one that needs implicits of its own.
+    /// Nothing is recorded; `None` when there is no such form.
+    fn interp_text_form(&mut self, expr: &'p Expr, ty: &Ty) -> Option<ArmText> {
         let want = Ty::Fn {
             params: vec![ty.clone()],
             ret: Box::new(Ty::named("Str")),
@@ -9916,30 +9918,128 @@ impl<'p, 'r> Checker<'p, 'r> {
                     if params.len() == 1 && Self::arg_fits_fn_value(ty, &params[0]))
         });
         if let Some(own) = own {
-            let name = own.local.clone();
-            self.out.interp_implicit.insert(self.key(expr.span()), name);
-            return;
+            return Some(ArmText::Own(own.local.clone()));
         }
         self.resolve_as_call = true;
         let resolved = self.resolve_implicit_fn_at("to_str", None, &want);
         self.resolve_as_call = false;
-        match resolved {
-            Ok((key, _)) => {
-                self.out.interp_to_str.insert(self.key(expr.span()), key);
-                // A `to_str` with implicits of its own: filled where the
-                // emitters look for them, the zero-width span after the value.
-                let at = Span::new(expr.span().end, expr.span().end);
-                self.fill_resolved_implicits(key, "to_str", &[ty.clone()], at);
-                return;
-            }
-            Err(_) => {}
+        if let Ok((key, _)) = resolved {
+            // A `to_str` with implicits of its own is filled here too.
+            let implicits = self.implicits_of_text_form(expr, key, ty);
+            return Some(ArmText::Fn { key, implicits });
         }
         // [interp-to-str] A `to_str` with implicits of its own — a
-        // collection's, over its element's `to_str` [platform-value-type] —
-        // is a call made here: its implicits are filled at a zero-width span
-        // at the end of the value, which no other call can occupy.
-        if let Some(key) = self.interp_to_str_with_implicits(expr, ty) {
-            self.out.interp_to_str.insert(self.key(expr.span()), key);
+        // collection's, over its element's `to_str` [platform-value-type].
+        for entry in self.overloads_of("to_str") {
+            let decl = entry.decl;
+            let fixed: Vec<&ast::Param> = decl.params.iter().filter(|p| !p.implicit).collect();
+            let implicits = self.out.implicit_params.get(&entry.key).cloned().unwrap_or_default();
+            if fixed.len() != 1 || implicits.is_empty() {
+                continue;
+            }
+            let saved = self.enter_generics(&decl.generics);
+            let pattern = self.lower_type(&fixed[0].ty);
+            self.generics = saved;
+            let mut subst: HashMap<String, Ty> = HashMap::new();
+            if !unify(&pattern, ty.strip_quals(), &mut subst) {
+                continue;
+            }
+            let generics: HashSet<String> = decl.generics.iter().map(|g| g.name.clone()).collect();
+            let filled = self.fill_implicit_list(&implicits, "to_str", &mut subst, &generics, &[], expr.span()).unwrap_or_default();
+            return Some(ArmText::Fn { key: entry.key, implicits: filled });
+        }
+        None
+    }
+
+    /// The implicits `key` (a `to_str` overload) needs to take a `ty`, filled
+    /// at `expr`; empty for one with none.
+    fn implicits_of_text_form(&mut self, expr: &'p Expr, key: FnKey, ty: &Ty) -> Vec<ImplicitArg> {
+        let implicits = self.out.implicit_params.get(&key).cloned().unwrap_or_default();
+        if implicits.is_empty() {
+            return Vec::new();
+        }
+        let Some(entry) = self.overloads_of("to_str").into_iter().find(|e| e.key == key) else {
+            return Vec::new();
+        };
+        let decl = entry.decl;
+        let fixed: Vec<&ast::Param> = decl.params.iter().filter(|p| !p.implicit).collect();
+        let saved = self.enter_generics(&decl.generics);
+        let patterns: Vec<Ty> = fixed.iter().map(|p| self.lower_type(&p.ty)).collect();
+        self.generics = saved;
+        let mut subst: HashMap<String, Ty> = HashMap::new();
+        for p in &patterns {
+            unify(p, ty.strip_quals(), &mut subst);
+        }
+        let generics: HashSet<String> = decl.generics.iter().map(|g| g.name.clone()).collect();
+        self.fill_implicit_list(&implicits, "to_str", &mut subst, &generics, &[], expr.span()).unwrap_or_default()
+    }
+
+    /// Resolves and records the text form of the whole value; whether there
+    /// was one.
+    fn record_text_form(&mut self, expr: &'p Expr, ty: &Ty) -> bool {
+        let Some(form) = self.interp_text_form(expr, ty) else { return false };
+        match form {
+            ArmText::Own(name) => {
+                self.out.interp_implicit.insert(self.key(expr.span()), name);
+            }
+            ArmText::Fn { key, implicits } => {
+                self.out.interp_to_str.insert(self.key(expr.span()), key);
+                // Filled where the emitters look for them, the zero-width
+                // span after the value.
+                if !implicits.is_empty() {
+                    let at = Span::new(expr.span().end, expr.span().end);
+                    self.out.implicit_args.insert(self.key(at), implicits);
+                }
+            }
+            ArmText::Native => {}
+        }
+        true
+    }
+
+    fn check_interpolable(&mut self, expr: &'p Expr, ty: &Ty) {
+        if ty.is_unknown() || matches!(ty, Ty::Never) {
+            return;
+        }
+        // [interp-union] A union is text by the text of the arm it is: every
+        // arm needs a form of its own (the scalars and `Str` have one), and
+        // the emitters call it on the arm the value turns out to be.
+        let collapsed = crate::literal::collapse_ty(ty);
+        if let Ty::Union(arms) = collapsed.strip_quals() {
+            let arms: Vec<&Ty> = arms.iter().filter(|a| !a.is_none_ty()).collect();
+            // A `to_str` that takes the union itself (`to_str(FsError)`) wins
+            // when the arms are not all natively text.
+            let whole = !arms.iter().all(|a| Self::interp_native(a));
+            if arms.len() >= 2 && whole && self.record_text_form(expr, ty) {
+                return;
+            }
+            if arms.len() >= 2 {
+                let mut forms: Vec<ArmText> = Vec::new();
+                for arm in &arms {
+                    if Self::interp_native(arm) {
+                        forms.push(ArmText::Native);
+                    } else if let Some(form) = self.interp_text_form(expr, arm) {
+                        forms.push(form);
+                    } else {
+                        self.error(
+                            expr.span(),
+                            format!(
+                                "`{ty}` cannot be interpolated: its arm `{arm}` has no text form. \
+                                 Declare `fn to_str({arm}) -> Str` (or one that accepts it); a \
+                                 union is rendered by the `to_str` of the arm it holds \
+                                 [interp-union]"
+                            ),
+                        );
+                        return;
+                    }
+                }
+                self.out.interp_union.insert(self.key(expr.span()), forms);
+                return;
+            }
+        }
+        if Self::interp_native(ty) {
+            return;
+        }
+        if self.record_text_form(expr, ty) {
             return;
         }
         // [interp-to-str] No `to_str` in scope. A struct interpolates by

@@ -66,7 +66,7 @@ Everything else in `core.string` takes a plain `Str`, and a `Mut Str` reaches al
 
 **An interpolation may hold a string literal**, and that literal may interpolate in turn: `"${name ?: "unknown"}"` is an ordinary thing to write, and the inner quotes belong to the inner literal. Escapes work inside it as anywhere else.
 
-**Interpolation needs a text form.** `"${value}"` works directly for the scalars, `Str`, and a union whose every arm is one of those. Anything else needs a `to_str` — a function taking the value and returning `Str` — which the compiler looks for *at the interpolation site*, exactly as it fills an implicit parameter:
+**Interpolation needs a text form.** `"${value}"` works directly for the scalars and `Str`, and a union is the text of the arm it holds: it interpolates when every arm has a text form of its own (a scalar, `Str`, or a type with a `to_str`), and a `to_str` that takes the union itself takes precedence. Anything else needs a `to_str` — a function taking the value and returning `Str` — which the compiler looks for *at the interpolation site*, exactly as it fills an implicit parameter:
 
 ```
 struct Point { x: Int, y: Int }

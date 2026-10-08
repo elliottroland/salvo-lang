@@ -746,14 +746,18 @@ the blanket rule:
     `&mut`-returning `FnMut` would tie the borrow to the closure. The
     `?at`/`Locate` idiom [col-locate] rides it, with implicit positions
     rendered the same way.
-  * **Effect members** have **only the natural face**, explicitly
-    lifetime-tagged so the borrow ties to the source rather than to the
-    receiver:
+  * **Effect members** that lend mutably have both faces too. The natural
+    face is explicitly lifetime-tagged so the borrow ties to the source
+    rather than to the receiver:
     `fn lease<'a>(&mut self, es: &'a mut Vec<crate::Entity>) -> Option<&'a mut crate::Entity>;`
-    (`&self` on the stateless trait and the handle). The handle dispatches it
-    through either arm, the lock's guard included: the result borrows the
-    parameter, never handler state. A handle *held* across a read of the
-    container has no locator face to fall back on (recorded in ROADMAP.md).
+    (`&self` on the stateless trait and the handle), and the locator face
+    lends its anchor and answers the position:
+    `fn lease__loc(&mut self, es: &Vec<crate::Entity>) -> Option<usize>;`.
+    The handle dispatches both through either arm, the lock's guard
+    included: the result borrows the parameter, never handler state. A
+    handle bound from the member (`let e = lease(es)!`) is the position
+    `lender.lease__loc(&*es)`, so it survives a read of the container. A
+    platform effect's or an actor's members have the natural face only.
   * **Covered positions** ([canbe-entry], rung ④b): a callee whose clause
     declares `canbe` coverage renders its covered parameters as **one
     shared anchor plus a `usize` locator each** —

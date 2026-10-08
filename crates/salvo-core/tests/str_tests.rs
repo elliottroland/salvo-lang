@@ -264,6 +264,25 @@ fn interpolating_a_type_with_no_text_form_is_an_error() {
     );
 }
 
+/// [interp-union] A union is interpolated by the `to_str` of the arm it
+/// holds, so every arm needs a text form: the scalars and `Str` have one, a
+/// struct needs a `to_str` of its own, and the error names the arm.
+#[test]
+fn a_union_needs_a_text_form_for_every_arm() {
+    let src = "struct Opaque { n: Int }\n\
+               fn probe(u: Int | Opaque) -> None => u {\n    let _s = \"${u}\"\n}\n";
+    let msgs = messages(src);
+    assert!(
+        msgs.iter().any(|m| m.contains("its arm `Opaque` has no text form") && m.contains("[interp-union]")),
+        "got {msgs:?}"
+    );
+    let ok = "struct Opaque { n: Int }\n\
+              fn to_str(o: Opaque) [] -> Str => o { return \"op\" }\n\
+              fn probe(u: Int | Opaque | Str) -> None => u {\n    let _s = \"${u}\"\n}\n";
+    let msgs = messages(ok);
+    assert!(msgs.is_empty(), "expected a clean check, got {msgs:?}");
+}
+
 /// [interp-to-str] A `to_str` in scope is resolved *at the interpolation
 /// site* (user decision 2026-09-11), so declaring one is all it takes.
 #[test]

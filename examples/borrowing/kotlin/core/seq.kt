@@ -279,7 +279,8 @@ fun<It, T> next__SkippingWhile(t: SkippingWhile<It, T>): Union2<T, salvo.core.it
         val x_2: T = ((x as Union2.U1<*, *>).value as T)
         if (!(skip(x_2))) {
             t.started = true
-            return Union2.U1<T, salvo.core.iterator.Finished>(salvo.core.iterator.emitted(x_2))
+            val x_3: T = ((x as Union2.U1<*, *>).value as T)
+            return Union2.U1<T, salvo.core.iterator.Finished>(salvo.core.iterator.emitted(x_3))
         }
     }
     return Union2.U2<T, salvo.core.iterator.Finished>(salvo.core.iterator.finished())

@@ -87,35 +87,6 @@ and the `test actor` follow-ups recorded below:
 
 ### 0c — ✅ Emitter defects and gaps (closed 2026-10-04, COMPLETED.md)
 
-### 0k — Open defects found by the Rust spec sweep (2026-10-06)
-
-Repros are small programs; each fails the way described today.
-
-1. **`||` of two `is` tests** — `if v is Int || v is Str { … }` treats the
-   disjunction as a conjunction in the IR builder's narrowing: the right
-   operand's binding is read before it is defined and both arms are bound.
-   Both backends (rustc E0425/E0308; Kotlin the same broken shape).
-2. **`^` on a field is silently wrong, both backends** — with
-   `h.result: Ok (Ok Int | Err Str) | Thrown Str`, inside
-   `if h.result is ^Ok { … }` an inner `h.result is Err` tests the *outer*
-   wrapper's arm: `wrapped(7)` returning `err("bad")` prints "not err"
-   instead of "err bad" (an inner `is Ok` is E0507). `^` on a local works.
-   Violates [backend-never-wrong]; the highest priority here.
-3. **Unannotated lambda as a handler constructor argument** (Rust only) —
-   `use Derived(n -> n + 1)` fails with "a value of type `?` reached rust
-   code generation" and no location; `(n: Int) -> n + 1` works, Kotlin
-   compiles both.
-4. **Interpolating a union** — `println("${y}")` with `y: Int | Str | Bool`
-   fails in the IR build ("no to_str …") with a byte offset for a location.
-   Both backends; the union `Display` impls are emitted but unreachable.
-5. **A handle held across a read of its container through a lending effect
-   member** — `let e = lease(es)!; let n = size(es); e.hp = e.hp + n` does
-   not compile on either emitter (E0502): a member has only its natural
-   `Option<&mut T>` face, so there is no locator twin to fall back on. Needs
-   a locator face on `Interface` members (as `f__loc` for fns).
-6. **Host-file `use` lines pick up enum variants** (`use
-   crate::__Priv_H::Advance;`) — harmless, but noise.
-
 ### 0j — Shrinking the backends (user decisions 2026-10-05, not built)
 
 The aim: a third backend implements a short, straightforward list. Decided in

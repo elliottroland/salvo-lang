@@ -137,6 +137,58 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-06 — The six open defects of the Rust spec sweep, fixed
+
+(User: "fix all of the items mentioned as still open"; for union
+interpolation, *reject it if an arm has no `to_str` in scope, otherwise call
+the arm's `to_str` for the arm the union is*.)
+
+* **`||` and `!` narrowed their branch** (IR builder, both backends). The
+  positive narrowing of an `is` under `a || b` or `!a` leaked into the branch
+  the combinator guards, so `if v is Int || v is Str {…}` read `v` through a
+  narrowing that did not hold. The checker never narrowed there and already
+  kept `||` bindings out of scope; the builder now scopes the operands
+  (`push_scope` around the left of `||`, the right of `||`, and the operand of
+  `!`, and drops the pending narrowings). [flow-or-not]
+* **`^` on a field** (both backends, silently wrong). A lifted claim on a
+  projection had no name to rebind, so a later test of `h.f` read the stored
+  outer union with the inner union's arm index. The builder now binds the
+  lifted view (`__lifted`) and keeps it as a scope-bound alias of the place
+  (`scoped_aliases`, dropped by `pop_scope`); reads and tests of the place go
+  through it, and a read narrows from the alias's type.
+* **An unannotated lambda as a handler constructor argument** (Rust only,
+  where Kotlin's dynamic typing hid it). The checker passed no expected type
+  to constructor arguments; a lambda argument now takes the parameter's fn
+  type unless it mentions the handler's own generics.
+* **Interpolating a union** (user decision, above). The checker records, per
+  interpolated union, the text form of each runtime arm (`Checked::interp_union`,
+  `ArmText::{Native, Own, Fn{key, implicits}}`), and rejects an arm with none,
+  naming it. A `to_str` that takes the union itself still wins when the arms
+  are not all native (std's `to_str(FsError)`-style functions). The IR builder
+  renders it as a `Switch` whose arm `i` narrows and calls arm `i`'s `to_str`.
+  Considered: one `to_str` fn per `UnionN` arity in the generated union files
+  taking the arm functions as parameters. Not taken because it puts arm
+  dispatch in two backends where the IR already has the construct for it, and
+  the per-site switch is the same behaviour; the user's wording ("functions
+  for each UnionN") is met in effect, not in shape — say if the shared function
+  is wanted.
+* **A handle from a lending effect member held across a read of the
+  container.** A lending member now has a locator face (`m__loc`) in both
+  traits, the handle, and every implementing handler (its body rendered in
+  locator mode like a fn's), and a bound handle from the member is the
+  position `instance.m__loc(&anchor)`. Platform effects' and actors' members
+  keep the natural face only.
+* **Host-file `use` lines no longer name enum variants** (`__Priv_H::Advance`).
+
+Regression cases: five demos (`or`/`not` narrowing, lifted field, constructor
+lambda, union interpolation, lending-member handle) each run on both backends
+in `crates/salvo-backend-{rust,kotlin}/tests/codegen_tests.rs`, and a checker
+test in `str_tests.rs` for the arm-by-arm rule.
+
+Gotcha: a union's whole-value `to_str` has to be tried before the per-arm
+rule, or a `to_str(E)` over a union `E` is called with a bare arm (rustc
+E0308) — three std tests caught it.
+
 ### 2026-10-06 — The IR, step 3 done: Rust emits from the IR, and the AST emitter is gone
 
 The Rust backend's only emitter is `ir_emit/` (`mod.rs`, `decls.rs`, `body.rs`,
@@ -163,9 +215,8 @@ What it took, beyond the port itself:
   handlers. About 100 textual assertions and 5 golden snapshots were rewritten
   to the new shapes; `examples/*/rust`, `std/platform` and
   `modules/aws/salvo/platform` were regenerated.
-* **Behaviour that changed on purpose**: a lending effect member has only its
-  natural face (`Option<&mut T>`); a value-position distinct-pair call is
-  lowered rather than refused; the `x!` unwrap borrows where its position
+* **Behaviour that changed on purpose**: a value-position distinct-pair call
+  is lowered rather than refused; the `x!` unwrap borrows where its position
   borrows and `as_mut`s where it mutates (the AST emitter mutated a clone for
   `add(xs!, 3)` — silent, fixed here).
 * **Defects found by the spec sweep and fixed**: (1) a value loop whose body
@@ -185,9 +236,6 @@ Gotchas:
   temp counter and de-duplicate errors, or names and diagnostics double.
 * A hoisted argument must first bind every earlier argument that has effects
   [deduce-same-call].
-* Rendering a lending effect member's locator face needs a handle held across
-  a read of the container; with only the natural face that shape does not
-  compile on either emitter (ROADMAP).
 
 ### 2026-10-06 — Alias groups in the IR, with their own anchor-step type (user decision)
 
@@ -22403,7 +22451,7 @@ Recorded so nothing is left half-removed (no compatibility, per AGENTS.md):
   factories in a plural object (`FsErrors`), since a sealed `FsError` cannot
   extend `Union7` from another package.
 
-## Test inventory (all green: 1713 under nextest, the IR corpus test aside; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1722 under nextest, the IR corpus test aside; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

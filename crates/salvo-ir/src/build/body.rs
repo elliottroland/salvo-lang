@@ -64,6 +64,9 @@ pub struct Lower<'a, 'p> {
     pub(crate) in_condition: bool,
     /// [ir-narrow] Projection places an enclosing safe call bound.
     pub(crate) place_aliases: Vec<(Place, Local, Ty)>,
+    /// [ir-narrow] Projection places a test narrowed (a lifted claim,
+    /// `h.f is ^Ok`): the binding, valid until the scope at that depth closes.
+    pub(crate) scoped_aliases: Vec<(usize, Place, Local, Ty)>,
 }
 
 impl<'a, 'p> Lower<'a, 'p> {
@@ -90,6 +93,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             storage: HashMap::new(),
             in_condition: false,
             place_aliases: Vec::new(),
+            scoped_aliases: Vec::new(),
         }
     }
 
@@ -191,6 +195,8 @@ impl<'a, 'p> Lower<'a, 'p> {
     }
 
     pub(crate) fn pop_scope(&mut self) {
+        let depth = self.scopes.len();
+        self.scoped_aliases.retain(|(d, ..)| *d < depth);
         self.scopes.pop();
     }
 

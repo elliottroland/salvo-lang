@@ -449,6 +449,13 @@ impl<'p> Shared<'p> {
         })
     }
 
+    pub fn interface_by_id(&self, id: &DeclId) -> Option<&'p InterfaceDecl> {
+        match self.decls.get(id) {
+            Some(Decl::Interface(i)) => Some(i),
+            _ => None,
+        }
+    }
+
     pub fn impl_decl(&self, key: &str) -> Option<&'p ImplDecl> {
         if !self.symbols.handlers.contains_key(key) {
             return None;
@@ -599,6 +606,29 @@ impl<'p> Shared<'p> {
         f.params.iter().enumerate().skip(f.effect_params).find(|(_, p)| p.mode != salvo_ir::PassMode::Moved && !is_copy_ty(&p.ty)).map(|(i, _)| i)
     }
 
+    /// [rs-loc] An effect member whose result lends mutably from a
+    /// parameter, on an interface rendered as a plain trait: it has a
+    /// locator face (`m__loc`) beside its natural one, for a handle that
+    /// outlives a read of the container.
+    pub fn member_lends_mut(&self, iface: &InterfaceDecl, m: &salvo_ir::Member) -> bool {
+        if iface.actor || self.platform_effects.contains_key(&iface.name) || m.send {
+            return false;
+        }
+        let v = m.ret.strip_quals().without_none();
+        ((is_proj(&m.ret) && is_mut(&m.ret)) || (is_proj(&v) && is_mut(&v))) && self.member_lend_param(m).is_some()
+    }
+
+    /// The parameter (an index into the member's own) a lending member's
+    /// result borrows from: the one `proj(…)` names, else the first borrowed.
+    pub fn member_lend_param(&self, m: &salvo_ir::Member) -> Option<usize> {
+        let mut names = Vec::new();
+        decls::proj_sources(&m.ret, &mut names);
+        if let Some(i) = names.first().and_then(|n| m.params.iter().position(|p| &p.local.0 == n)) {
+            return Some(i);
+        }
+        m.params.iter().position(|p| p.mode != salvo_ir::PassMode::Moved && !is_copy_ty(&p.ty) && !matches!(self.unalias(&p.ty).strip_quals(), Ty::Fn { .. }))
+    }
+
     /// [rs-loc] Every fn some mutable lend reaches, and every fn those
     /// forward their result from.
     fn compute_locs(&mut self) {
@@ -640,42 +670,64 @@ impl<'p> Shared<'p> {
                 }
             });
         }
+        // A lending member's body forwards its result like a lender's does.
+        for m in &self.ir.modules {
+            for d in &m.decls {
+                let Decl::Impl(h) = d else { continue };
+                for face in &h.faces {
+                    let Ty::Named { name: fname, .. } = face.strip_quals() else { continue };
+                    let Some(iface) = self.interface(fname) else { continue };
+                    for im in iface.members.iter().filter(|im| self.member_lends_mut(iface, im)) {
+                        for f in h.members.iter().filter(|f| f.name == im.name) {
+                            if let Some(b) = &f.body {
+                                self.forwarded_callees(b, &mut work);
+                            }
+                        }
+                    }
+                }
+            }
+        }
         while let Some(id) = work.pop() {
             if !self.locs.insert(id.clone()) {
                 continue;
             }
             let Some(f) = self.fn_decl(&id) else { continue };
             let Some(b) = &f.body else { continue };
-            let mut rets: Vec<&salvo_ir::Expr> = Vec::new();
-            fn collect<'b>(b: &'b salvo_ir::Block, out: &mut Vec<&'b salvo_ir::Expr>) {
-                for s in &b.stmts {
-                    match s {
-                        salvo_ir::Stmt::Return(Some(e)) => out.push(e),
-                        salvo_ir::Stmt::Loop { body, .. } | salvo_ir::Stmt::ForEach { body, .. } => collect(body, out),
-                        salvo_ir::Stmt::Expr(salvo_ir::Expr { kind: salvo_ir::ExprKind::Branch { arms, otherwise, .. }, .. }) => {
-                            for (_, a) in arms {
-                                collect(a, out);
-                            }
-                            if let Some(o) = otherwise {
-                                collect(o, out);
-                            }
+            self.forwarded_callees(b, &mut work);
+        }
+    }
+
+    /// The fns whose result a body hands back as its own.
+    fn forwarded_callees(&self, b: &'p salvo_ir::Block, work: &mut Vec<DeclId>) {
+        let mut rets: Vec<&salvo_ir::Expr> = Vec::new();
+        fn collect<'b>(b: &'b salvo_ir::Block, out: &mut Vec<&'b salvo_ir::Expr>) {
+            for s in &b.stmts {
+                match s {
+                    salvo_ir::Stmt::Return(Some(e)) => out.push(e),
+                    salvo_ir::Stmt::Loop { body, .. } | salvo_ir::Stmt::ForEach { body, .. } => collect(body, out),
+                    salvo_ir::Stmt::Expr(salvo_ir::Expr { kind: salvo_ir::ExprKind::Branch { arms, otherwise, .. }, .. }) => {
+                        for (_, a) in arms {
+                            collect(a, out);
                         }
-                        _ => {}
+                        if let Some(o) = otherwise {
+                            collect(o, out);
+                        }
                     }
-                }
-                if let Some(v) = &b.value {
-                    out.push(v);
+                    _ => {}
                 }
             }
-            collect(b, &mut rets);
-            for mut e in rets {
-                while let salvo_ir::ExprKind::Present { value } = &e.kind {
-                    e = value;
-                }
-                if let salvo_ir::ExprKind::Call { target: salvo_ir::FnRef::Decl(g), .. } = &e.kind {
-                    if self.fn_decl(g).is_some_and(|g| g.kind != salvo_ir::FnKind::Intrinsic) {
-                        work.push(g.clone());
-                    }
+            if let Some(v) = &b.value {
+                out.push(v);
+            }
+        }
+        collect(b, &mut rets);
+        for mut e in rets {
+            while let salvo_ir::ExprKind::Present { value } = &e.kind {
+                e = value;
+            }
+            if let salvo_ir::ExprKind::Call { target: salvo_ir::FnRef::Decl(g), .. } = &e.kind {
+                if self.fn_decl(g).is_some_and(|g| g.kind != salvo_ir::FnKind::Intrinsic) {
+                    work.push(g.clone());
                 }
             }
         }
@@ -706,7 +758,7 @@ fn host_imports(body: &str) -> String {
             continue;
         }
         let (m, name) = (parts[0], parts[1]);
-        if name.is_empty() || name.starts_with("__") || m.starts_with("platform_") || matches!(m, "unions" | "scheduler" | "wire" | "seq" | "strings" | "hosttime" | "hoststreams") {
+        if name.is_empty() || name.starts_with("__") || m.starts_with("__") || m.starts_with("platform_") || matches!(m, "unions" | "scheduler" | "wire" | "seq" | "strings" | "hosttime" | "hoststreams") {
             continue;
         }
         if !name.chars().next().is_some_and(|c| c.is_alphabetic()) {
