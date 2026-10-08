@@ -253,9 +253,9 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
     corpus and golden tests; IR.md §9a lists the provisional calls). **Step 2
     done 2026-10-06**: Kotlin emits from the IR only; the AST emitter is
     deleted. **Step 3 done 2026-10-06**: Rust emits from the IR only, the
-    same way. **Next, step 4** (actors as IR; IR.md §10, decision 2's hybrid:
-    the actor dispatch body and codecs are still generated in each backend
-    from the interface/impl declarations) **and step 5** (retire the
+    same way. **Step 4 done 2026-10-06** (actor messages, dispatch and stubs are IR;
+    codecs, continuation/parking and the `__Actor_H` glue stay in the
+    backends; revisit codecs-in-IR with the user after step 5). **Next, step 5** (retire the
     span-keyed checker tables and `salvo-backend::emit_util` walkers the
     emitters no longer read). Left over: `BACKEND_SPEC.kotlin.md` still
     describes several AST-emitter spellings and wants a pass rule by rule; a
