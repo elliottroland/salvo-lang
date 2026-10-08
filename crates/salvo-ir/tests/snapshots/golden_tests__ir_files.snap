@@ -375,7 +375,7 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
     }
   }
   call core.console::println(read console, concat("failures: ", call core.basic::to_str(Int)(call core.list::size<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(drop_mut(read failures)))))
-  foreach#157 kind: NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming in read failures {
+  foreach#157 kind: proj (NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming) in read failures {
     call core.console::println(read console, concat("  ", call main::kind_name(FsError)(call core.basic::copy<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(read kind))))
   }
   foreach#158 name: Str in list[List<Str>]("notes.txt", "notes-copy.txt", "raw.bin") {

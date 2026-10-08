@@ -3,6 +3,7 @@
 mod emit;
 mod imports;
 mod intrinsics;
+mod ir_emit;
 
 pub use emit::{
     emit_abi, emit_program, emit_program_reporting, emit_program_with_entry,

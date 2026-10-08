@@ -305,6 +305,10 @@ pub enum Stmt {
     /// form with a subject.
     ForEach { id: NodeId, local: Local, ty: Ty, iterable: Expr, body: Block },
     Let { id: NodeId, local: Local, ty: Ty, value: Expr },
+    /// [ir-alias] [deduce-field] `local` names `place`: every read and write
+    /// of it is one of the place (a field handle that survives a write to
+    /// another field of its root).
+    Alias { id: NodeId, local: Local, ty: Ty, place: Place },
     /// [ir-narrow] a new local of the narrowed type, justified by a test.
     Narrow { id: NodeId, local: Local, ty: Ty, from: Place, from_ty: Ty, because: Justification },
     Assign { place: Place, value: Expr },
@@ -386,6 +390,9 @@ pub enum ExprKind {
     Rewrap { from: Ty, value: Box<Expr> },
     /// [str-drop-mut] a `Mut` value used where the plain type is required.
     DropMut { value: Box<Expr> },
+    /// [ir-coerce] a value placed into an optional's present arm (`ty` is
+    /// the optional): Rust's `Some`, nothing on Kotlin.
+    Present { value: Box<Expr> },
     /// [op-promote] a numeric operand widened within its class to `ty`
     /// (`Int` to `Long`, `Float` to `Double`).
     Widen { value: Box<Expr> },

@@ -97,7 +97,7 @@ struct Bag wire {
 }
 
 struct __Iter_iter_Bag canbe Mut {
-  items: List<Int>
+  items: proj List<Int>
   at: Int
 }
 
@@ -305,7 +305,7 @@ fn main::main() -> None {
   })
   call core.console::println(read __handle~2, concat("5. list: ", call core.basic::to_str(Int)(call core.list::size<Int>(drop_mut(read doubled))), " doubled, ", call core.basic::to_str(Int)(call core.list::size<Int>(drop_mut(read odd))), " odd, total ", call core.basic::to_str(Int)(read total)))
   bind#41 let words: List<Str> = call core.list::list_of(T, T[])<Str>("ann", array[Str[]]("bo", "carol"))
-  bind#42 let lengths: Mut List<Int> = call core.seq::map(Mut It, (T) -> U)<ListYield<Str>, Str, Int>(call core.list::iter<Str>(read words), lambda(lent w: Str) -> Int {
+  bind#42 let lengths: Mut List<Int> = call core.seq::map(Mut It, (T) -> U)<ListYield<Str>, proj Str, Int>(call core.list::iter<Str>(read words), lambda(lent w: proj Str) -> Int {
     value call core.string::size(read w)
   }, fn core.list::next(Mut ListYield<T>))
   call core.console::println(read __handle~2, concat("5. lengths: ", call core.basic::to_str(Int)(call core.seq::reduce(Mut It, A, (A, T) -> A)<ListYield<Int>, Int, Int>(call core.list::iter<Int>(drop_mut(read lengths)), 0, lambda(lent acc: Int, lent n: Int) -> Int {

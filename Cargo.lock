@@ -517,6 +517,7 @@ dependencies = [
  "insta",
  "salvo-backend",
  "salvo-core",
+ "salvo-ir",
  "salvo-syntax",
  "salvo-testkit",
 ]

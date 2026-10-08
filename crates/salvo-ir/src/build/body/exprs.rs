@@ -2111,7 +2111,7 @@ fn visit_reads(e: &Expr, f: &mut dyn FnMut(&Local)) {
                 visit_reads(v, f);
             }
         }
-        ExprKind::MakeUnion { value, .. } | ExprKind::Rewrap { value, .. } | ExprKind::DropMut { value } | ExprKind::Widen { value } | ExprKind::Spread { value } => visit_reads(value, f),
+        ExprKind::MakeUnion { value, .. } | ExprKind::Rewrap { value, .. } | ExprKind::DropMut { value } | ExprKind::Widen { value } | ExprKind::Present { value } | ExprKind::Spread { value } => visit_reads(value, f),
         ExprKind::Branch { arms, otherwise, .. } => {
             for (c, b) in arms {
                 visit_reads(c, f);

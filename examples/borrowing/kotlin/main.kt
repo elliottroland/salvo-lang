@@ -131,7 +131,6 @@ fun hoist(camp: Camp, banner: String) {
     return
 }
 
-@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun main() {
     val __use_1: salvo.core.console.__Platform_StdOutConsole = salvo.core.console.__Platform_StdOutConsole()
     val __handle_2: salvo.core.console.Console = __use_1
@@ -418,7 +417,7 @@ fun main() {
         __proj_48.energy
     }}")
     val camp: Camp = Camp(supplies = 10, banners = mutableListOf<String>("red"))
-    val banners: salvo.platform.core.list.MutList<String> = (camp.banners as salvo.platform.core.list.MutList<String>)
+    val banners: salvo.platform.core.list.MutList<String> = camp.banners
     spend(camp, 3)
     hoist(camp, "blue")
     salvo.core.console.println(__handle_2, "5. supplies ${camp.supplies}, banners ${salvo.core.list.toStr(banners, { __a0 -> __a0 })}")

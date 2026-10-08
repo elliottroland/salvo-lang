@@ -303,6 +303,12 @@ impl<'a, 'p> Lower<'a, 'p> {
                 let ty = declared.unwrap_or_else(|| v.ty.clone());
                 let local = self.bind(&name.name, ty.clone());
                 let id = self.id();
+                // [deduce-field] a binding the checker keeps as its place.
+                if self.ctx.checked.virtual_place_binds.contains_key(&self.key(span)) {
+                    if let ExprKind::Read { place, .. } = &v.kind {
+                        return vec![Stmt::Alias { id, local, ty, place: place.clone() }];
+                    }
+                }
                 vec![Stmt::Let { id, local, ty, value: v }]
             }
             other => {

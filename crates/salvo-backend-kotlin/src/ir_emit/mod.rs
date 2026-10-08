@@ -950,6 +950,12 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 let kw = if self.assigned.contains(local) { "var" } else { "val" };
                 self.out.push_str(&format!("{pad}{kw} {}: {t} = {code}\n", kt_local(local)));
             }
+            Stmt::Alias { local, ty, place, .. } => {
+                // [ir-alias] a reference to the place's object.
+                let code = self.place(place, indent);
+                let t = self.ty(ty);
+                self.out.push_str(&format!("{pad}val {}: {t} = {code}\n", kt_local(local)));
+            }
             Stmt::Narrow { local, ty, from, from_ty, because, .. } => {
                 let src = self.place(from, indent);
                 // The arm the justification names tells same-typed arms
@@ -1165,6 +1171,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 let v = self.expr(value, indent);
                 format!("*({v})")
             }
+            ExprKind::Present { value } => self.expr(value, indent),
             ExprKind::Widen { value } => {
                 // [kt-op-promote] the explicit conversion.
                 let v = self.expr(value, indent);
@@ -1971,7 +1978,7 @@ fn assigned_locals(b: &Block) -> HashSet<Local> {
                     expr(v, out);
                 }
             }
-            ExprKind::MakeUnion { value, .. } | ExprKind::Rewrap { value, .. } | ExprKind::DropMut { value } | ExprKind::Widen { value } | ExprKind::Spread { value } => expr(value, out),
+            ExprKind::MakeUnion { value, .. } | ExprKind::Rewrap { value, .. } | ExprKind::DropMut { value } | ExprKind::Widen { value } | ExprKind::Present { value } | ExprKind::Spread { value } => expr(value, out),
             _ => {}
         }
     }

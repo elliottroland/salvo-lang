@@ -27,7 +27,7 @@ use crate::imports::{explicit_imports, IMPORTS_MARK};
 /// Crate-root lint allowances [rs-crate]: the generator does not fight
 /// cosmetic lints (every local is `let mut`, Salvo naming is snake/camel
 /// mixed, defensive code may be unreachable).
-const CRATE_ATTRS: &str = "#![allow(non_snake_case, non_camel_case_types, unused_mut, \
+pub(crate) const CRATE_ATTRS: &str = "#![allow(non_snake_case, non_camel_case_types, unused_mut, \
                            unused_parens, unused_imports, dead_code, unreachable_code, \
                            unused_variables, path_statements, unused_must_use, suspicious_double_ref_op, \
                            non_upper_case_globals)]\n";
@@ -68,6 +68,9 @@ pub fn emit_program_reporting(
     program: &Program,
     entry: Option<&ModulePath>,
 ) -> Result<(Vec<EmittedFile>, Vec<String>), Vec<String>> {
+    if crate::ir_emit::enabled() {
+        return crate::ir_emit::emit_program_ir(program, entry, false);
+    }
     emit_program_mode(program, entry, false)
 }
 
@@ -85,12 +88,15 @@ pub fn emit_abi(
     program: &Program,
     entry: Option<&ModulePath>,
 ) -> Result<Vec<EmittedFile>, Vec<String>> {
+    if crate::ir_emit::enabled() {
+        return crate::ir_emit::emit_program_ir(program, entry, true).map(|(files, _)| files);
+    }
     emit_program_mode(program, entry, true).map(|(files, _)| files)
 }
 
 /// [platform-abi] The host-facing trait of an effect's platform handlers:
 /// `EPlatform` (`&mut self`), or `EPlatformSync` (`&self`) for `threadsafe`.
-fn platform_trait_name(effect: &str, threadsafe: bool) -> String {
+pub(crate) fn platform_trait_name(effect: &str, threadsafe: bool) -> String {
     // [type-identity] A path a clashing name renders with stays in front.
     if let Some((path, last)) = split_path(effect) {
         return format!("{path}::{}", platform_trait_name(last, threadsafe));
@@ -104,7 +110,7 @@ fn platform_trait_name(effect: &str, threadsafe: bool) -> String {
 
 /// [platform-abi] The adapter of an effect (`__Platform_E<T>`) or of one
 /// platform handler (`__Platform_H`): generated, never host-facing.
-fn platform_adapter_name(name: &str) -> String {
+pub(crate) fn platform_adapter_name(name: &str) -> String {
     // [type-identity] A path a clashing name renders with stays in front.
     if let Some((path, last)) = split_path(name) {
         return format!("{path}::{}", platform_adapter_name(last));
@@ -772,7 +778,7 @@ pub fn platform_skeletons(
 /// exactly the modules `emit_program` mounts: a skeleton naming
 /// `crate::core_console::…` where the crate calls it something else would
 /// be generated code that does not compile.
-fn module_mod_names(
+pub(crate) fn module_mod_names(
     emitted_modules: &HashSet<&ModulePath>,
 ) -> (BTreeMap<ModulePath, String>, HashSet<String>) {
     let mut mod_names: BTreeMap<ModulePath, String> = BTreeMap::new();
@@ -796,7 +802,7 @@ fn module_mod_names(
 /// [platform-tree] The Rust module name a module's host file is mounted
 /// under: the module's own name with a `platform_` prefix, so a host and
 /// the module it implements for can never collide.
-fn host_mod_name(module: &ModulePath) -> String {
+pub(crate) fn host_mod_name(module: &ModulePath) -> String {
     format!(
         "platform_{}",
         module
@@ -811,7 +817,7 @@ fn host_mod_name(module: &ModulePath) -> String {
 /// The path of `target` relative to the directory `from` (both relative to
 /// the output root): `#[path]` attributes resolve relative to the file
 /// that contains them [rs-crate].
-fn relative_path(from_dir: &std::path::Path, target: &std::path::Path) -> String {
+pub(crate) fn relative_path(from_dir: &std::path::Path, target: &std::path::Path) -> String {
     let ups = from_dir.components().count();
     let mut out = String::new();
     for _ in 0..ups {
@@ -929,7 +935,7 @@ fn generated_imports(
 /// receiver once, so a call argument is never evaluated twice.
 /// Source in `runtime/strings.rs`, included verbatim and compiled
 /// directly by `runtime_tests.rs`.
-fn generate_strings_file() -> String {
+pub(crate) fn generate_strings_file() -> String {
     include_str!("../runtime/strings.rs").to_string()
 }
 
@@ -950,7 +956,7 @@ fn generate_strings_file() -> String {
 /// is cloned but the elements a `filter` keeps.
 /// Source in `runtime/seq.rs`, included verbatim and compiled directly by
 /// `runtime_tests.rs`.
-fn generate_seq_file() -> String {
+pub(crate) fn generate_seq_file() -> String {
     include_str!("../runtime/seq.rs").to_string()
 }
 
@@ -961,7 +967,7 @@ fn generate_seq_file() -> String {
 /// generated code (user decision 2026-09-15) — emitted only when a program
 /// spawns. Source in `runtime/scheduler.rs`, included verbatim and compiled
 /// directly by `runtime_tests.rs`.
-fn generate_scheduler_file() -> String {
+pub(crate) fn generate_scheduler_file() -> String {
     include_str!("../runtime/scheduler.rs").to_string()
 }
 
@@ -969,12 +975,12 @@ fn generate_scheduler_file() -> String {
 /// on: the monotonic one (with the process-wide origin that makes two
 /// readings comparable) and the wall-clock one. Emitted only when a program
 /// reads time. Source in `runtime/hosttime.rs`.
-fn generate_time_file() -> String {
+pub(crate) fn generate_time_file() -> String {
     include_str!("../runtime/hosttime.rs").to_string()
 }
 /// [rs-host-abi] `UnionN` and its `U1`…`Un` variants are part of the host
 /// ABI: host code builds and matches them, so their shape is a contract.
-fn generate_unions_file(sizes: &BTreeSet<usize>, wire: bool) -> String {
+pub(crate) fn generate_unions_file(sizes: &BTreeSet<usize>, wire: bool) -> String {
     let mut out = String::from("// Generated by the Salvo compiler: enums for union types.\n");
     for &n in sizes {
         // [wire-format] [rs-wire] A union's codec: one tag byte holding the
@@ -1088,7 +1094,7 @@ const RUST_UNRAW: &[&str] = &["self", "Self", "super", "crate"];
 /// handle that crosses threads, and a Salvo lambda captures by value, so the
 /// bounds hold for every value the program can build — which is what let the
 /// checker's "holds a function value" unsendability arm go.
-fn rc_fn_type(rendered: &str) -> String {
+pub(crate) fn rc_fn_type(rendered: &str) -> String {
     // Each strip falls back to *its own* input: chaining them onto `rendered`
     // undid the prefix strip whenever the suffix was absent, which rendered
     // `Rc<dyn impl Fn(..)>` ("expected a trait, found type").
@@ -1100,7 +1106,7 @@ fn rc_fn_type(rendered: &str) -> String {
 
 /// [type-identity] A clashing name renders under its module
 /// (`crate::lib_a::Clock`): the path and the name, or `None` for a bare one.
-fn split_path(name: &str) -> Option<(&str, &str)> {
+pub(crate) fn split_path(name: &str) -> Option<(&str, &str)> {
     let base_end = name.find('<').unwrap_or(name.len());
     let i = name[..base_end].rfind("::")?;
     Some((&name[..i], &name[i + 2..]))
@@ -1108,13 +1114,13 @@ fn split_path(name: &str) -> Option<(&str, &str)> {
 
 /// [rs-handle] A dependency field's name fragment: the effect's own name,
 /// without the module path a clashing one renders with.
-fn dep_ident(base: &str) -> String {
+pub(crate) fn dep_ident(base: &str) -> String {
     let base_end = base.find('<').unwrap_or(base.len());
     let start = base[..base_end].rfind("::").map_or(0, |i| i + 2);
     sanitize_ident(&base[start..])
 }
 
-fn rs_ident(name: &str) -> String {
+pub(crate) fn rs_ident(name: &str) -> String {
     // [type-identity] A key is declared and spelled under the name it was
     // written as; its module path, where one is needed, comes from the
     // caller (`type_path`, `effect_path`).
@@ -7178,12 +7184,12 @@ fn protocol_const_name(effect: &str) -> String {
 /// [actor-use-addr] The forwarding stub of a protocol: `__Stub_Counter`, the
 /// effect implemented by sending to an addr.
 /// [rs-loc] The locator variant of a fn name, noted as used.
-fn loc_name(base: &str) -> String {
+pub(crate) fn loc_name(base: &str) -> String {
     let n = format!("{base}__loc");
     crate::imports::note(&n);
     n
 }
-fn stub_struct_name(effect: &str) -> String {
+pub(crate) fn stub_struct_name(effect: &str) -> String {
     // [type-identity] A path a clashing name renders with stays in front.
     if let Some((path, last)) = split_path(effect) {
         return format!("{path}::{}", stub_struct_name(last));
@@ -7194,7 +7200,7 @@ fn stub_struct_name(effect: &str) -> String {
 }
 
 /// An effect as a *type* (impl target, trait bound): `Random<i32>`.
-fn trait_type(name: &str, args: &[String]) -> String {
+pub(crate) fn trait_type(name: &str, args: &[String]) -> String {
     if args.is_empty() {
         rs_ident(name)
     } else {
@@ -7207,7 +7213,7 @@ fn trait_type(name: &str, args: &[String]) -> String {
 /// parameter, a `use` local and a dependency field are typed by — what a
 /// reader of the output sees — and the two traits handlers implement are
 /// the mangled names (`__Stateless_Random`, `__Stateful_Random`).
-fn monitor_struct_name(effect: &str) -> String {
+pub(crate) fn monitor_struct_name(effect: &str) -> String {
     // [type-identity] A path a clashing name renders with stays in front.
     if let Some((path, last)) = split_path(effect) {
         return format!("{path}::{}", monitor_struct_name(last));
@@ -7217,7 +7223,7 @@ fn monitor_struct_name(effect: &str) -> String {
 
 /// [rs-handle] The trait a **stateless** handler implements: the effect's
 /// members with `&self` receivers, shared through an `Arc` with no lock.
-fn stateless_trait_name(effect: &str) -> String {
+pub(crate) fn stateless_trait_name(effect: &str) -> String {
     // [type-identity] A path a clashing name renders with stays in front.
     if let Some((path, last)) = split_path(effect) {
         return format!("{path}::{}", stateless_trait_name(last));
@@ -7227,7 +7233,7 @@ fn stateless_trait_name(effect: &str) -> String {
 
 /// [rs-handle] The trait a **stateful** handler implements: the effect's
 /// members with `&mut self` receivers, reached through the handle's lock.
-fn stateful_trait_name(effect: &str) -> String {
+pub(crate) fn stateful_trait_name(effect: &str) -> String {
     // [type-identity] A path a clashing name renders with stays in front.
     if let Some((path, last)) = split_path(effect) {
         return format!("{path}::{}", stateful_trait_name(last));
@@ -7273,7 +7279,7 @@ fn facade_struct_name(handler: &str) -> String {
 
 /// [rs-actor] The message enum of a protocol: `__Msg_Counter`. Named after
 /// the *effect*, since that is what a sender knows [actor-types].
-fn msg_enum_name(effect: &str) -> String {
+pub(crate) fn msg_enum_name(effect: &str) -> String {
     // [type-identity] A path a clashing name renders with stays in front.
     if let Some((path, last)) = split_path(effect) {
         return format!("{path}::{}", msg_enum_name(last));
@@ -16987,7 +16993,7 @@ fn type_has_mut_arm(ty: &Type) -> bool {
 
 /// A parameter-ish name derived from a rendered effect type
 /// (`Random<i32>` -> `random_i32`).
-fn effect_param_name(effect_ty: &str) -> String {
+pub(crate) fn effect_param_name(effect_ty: &str) -> String {
     // [type-identity] A clashing effect renders with its module path; the
     // variable is named after the effect alone.
     let base_end = effect_ty.find('<').unwrap_or(effect_ty.len());
@@ -17023,7 +17029,7 @@ fn effect_param_name(effect_ty: &str) -> String {
 
 /// A rendered type turned into an identifier fragment for a generated
 /// name (`Random<i32>` -> `Random_i32`).
-fn sanitize_ident(text: &str) -> String {
+pub(crate) fn sanitize_ident(text: &str) -> String {
     let mut out = String::new();
     for c in text.chars() {
         if c.is_ascii_alphanumeric() || c == '_' {
@@ -17072,7 +17078,7 @@ fn split_rendered_generic(rendered: &str) -> (String, Vec<String>) {
     (base, args)
 }
 
-fn escape_string(text: &str) -> String {
+pub(crate) fn escape_string(text: &str) -> String {
     let mut out = String::new();
     for c in text.chars() {
         match c {
@@ -17088,7 +17094,7 @@ fn escape_string(text: &str) -> String {
 }
 
 /// `format!` literal text additionally escapes braces.
-fn escape_format_text(text: &str) -> String {
+pub(crate) fn escape_format_text(text: &str) -> String {
     let mut out = String::new();
     for c in text.chars() {
         match c {
@@ -17105,7 +17111,7 @@ fn escape_format_text(text: &str) -> String {
     out
 }
 
-fn escape_char(c: char) -> String {
+pub(crate) fn escape_char(c: char) -> String {
     match c {
         '\'' => "\\'".to_string(),
         '\\' => "\\\\".to_string(),

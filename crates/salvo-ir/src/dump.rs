@@ -305,6 +305,10 @@ impl<'a> Dumper<'a> {
                 let _ = write!(self.out, "bind#{} let {}: {ty} = ", id.0, local.0);
                 self.expr(value, indent);
             }
+            Stmt::Alias { id, local, ty, place } => {
+                let _ = write!(self.out, "alias#{} {}: {ty} = ", id.0, local.0);
+                self.place(place, indent);
+            }
             Stmt::Narrow { id, local, ty, from, from_ty: _, because } => {
                 let why = match because {
                     Justification::Test { test } => format!("check#{}", test.0),
@@ -612,6 +616,11 @@ impl<'a> Dumper<'a> {
             ExprKind::Spread { value } => {
                 self.out.push_str("...");
                 self.expr(value, indent);
+            }
+            ExprKind::Present { value } => {
+                self.out.push_str("present(");
+                self.expr(value, indent);
+                self.out.push(')');
             }
             ExprKind::Widen { value } => {
                 let _ = write!(self.out, "widen[{}](", e.ty);

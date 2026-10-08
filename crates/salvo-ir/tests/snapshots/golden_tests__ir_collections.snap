@@ -52,9 +52,9 @@ fn main::main() -> None {
   call core.console::println(read __handle~2, concat("3. struct key: size ", call core.basic::to_str(Int)(call core.set::size<Point>(drop_mut(read corners))), ", second add ", call core.basic::to_str(Bool)(read again)))
   bind#16 let labels: Mut Map<Point, Str> = call core.map::mut_map_of<Point, Str>(array[(Point, Str)[]](), fn main::hash, fn main::eq(Point, Point))
   call core.map::put<Point, Str>(read labels, construct Point { x: 1, y: 1 }, "diagonal", fn main::hash, fn main::eq(Point, Point))
-  bind#17 let found: Str? = call core.map::get(Map<K, V>(?hash, ?eq), K)<Point, Str>(drop_mut(read labels), construct Point { x: 1, y: 1 }, fn main::hash, fn main::eq(Point, Point))
+  bind#17 let found: proj Str? = call core.map::get(Map<K, V>(?hash, ?eq), K)<Point, Str>(drop_mut(read labels), construct Point { x: 1, y: 1 }, fn main::hash, fn main::eq(Point, Point))
   branch#18 cond#0 check#19 (read found is arm 0) {
-    narrow#20[check#19] found~4: Str = found
+    narrow#20[check#19] found~4: proj Str = found
     call core.console::println(read __handle~2, concat("3. looked up by value ", read found~4))
   }
   bind#21 let a: Point = construct Point { x: 1, y: 2 }

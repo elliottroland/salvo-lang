@@ -210,11 +210,17 @@ pub fn erase(ty: &Ty) -> Ty {
                 return Ty::Qualified { quals: vec![Qual::plain(&quals[0].name, Vec::new())], base: Box::new(Ty::none()) };
             }
             let base = erase(base);
+            // [ir-types] Two qualifiers survive: `Mut`, which a backend may
+            // represent differently, and `proj` [proj-type], which a backend
+            // with ownership renders as a borrow (its source list kept).
+            let mut kept = Vec::new();
             if quals.iter().any(|q| q.name == "Mut") {
-                base.qualify(vec![Qual::plain("Mut", Vec::new())])
-            } else {
-                base
+                kept.push(Qual::plain("Mut", Vec::new()));
             }
+            if let Some(p) = quals.iter().find(|q| q.name == "proj") {
+                kept.push(p.clone());
+            }
+            base.qualify(kept)
         }
         Ty::Named { name, args } => Ty::Named { name: name.clone(), args: args.iter().map(erase).collect() },
         // [union-arm-identity] Arms are positional over the runtime union:
@@ -293,9 +299,7 @@ pub fn apply_coercion(c: &Coercion, value: Expr, span: Span) -> Expr {
         Coercion::WrapOption { target } => {
             // The absent arm is `MakeNone`; a present value is itself, typed
             // at the optional.
-            let mut v = value;
-            v.ty = erase(target);
-            v
+            Expr { ty: erase(target), span, kind: ExprKind::Present { value: Box::new(value) } }
         }
         Coercion::NoneUnit => Expr { ty: Ty::none(), span, kind: ExprKind::Unit },
         Coercion::DropMut { from, then } => {
