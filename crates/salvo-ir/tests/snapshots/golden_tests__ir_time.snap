@@ -111,17 +111,43 @@ enum __Msg_Session [proto 7ed70285b7e6568c] {
   Expire(started: Tick, budget: Duration, out: Reply<Str>, f: Fired)
 }
 
-enum __Cont_Sessions {
-  Open(started: Tick, budget: Duration)
-  Expire(started: Tick, budget: Duration, out: Reply<Str>)
-}
-
 enum __Msg_Sleeper [proto 2385b53950dcbd9c] {
   Nap(wait: Duration, out: Reply<Str>)
   Woke(started: Tick, out: Reply<Str>, f: Fired)
 }
 
+enum __Cont_Sessions {
+  Open(started: Tick, budget: Duration)
+  Expire(started: Tick, budget: Duration, out: Reply<Str>)
+}
+
 enum __Cont_Napping {
   Nap(wait: Duration)
   Woke(started: Tick, out: Reply<Str>)
+}
+
+fn __dispatch_Sessions_Session(lent_mut __handler: Sessions, moved __msg: __Msg_Session) -> None {
+  switch#1 read __msg {
+    arm#0 (arm 0) {
+      unpack#2 (started: Tick, budget: Duration, out: Reply<Str>) = __msg as variant 0
+      handler_call main::Session#0(read __handler, !read started, !read budget, !read out)
+    }
+    arm#1 (arm 1) {
+      unpack#3 (started: Tick, budget: Duration, out: Reply<Str>, f: Fired) = __msg as variant 1
+      handler_call main::Session#1(read __handler, !read started, !read budget, !read out, !read f)
+    }
+  }
+}
+
+fn __dispatch_Napping_Sleeper(lent_mut __handler: Napping, moved __msg: __Msg_Sleeper) -> None {
+  switch#1 read __msg {
+    arm#0 (arm 0) {
+      unpack#2 (wait: Duration, out: Reply<Str>) = __msg as variant 0
+      handler_call main::Sleeper#0(read __handler, !read wait, !read out)
+    }
+    arm#1 (arm 1) {
+      unpack#3 (started: Tick, out: Reply<Str>, f: Fired) = __msg as variant 1
+      handler_call main::Sleeper#1(read __handler, !read started, !read out, !read f)
+    }
+  }
 }

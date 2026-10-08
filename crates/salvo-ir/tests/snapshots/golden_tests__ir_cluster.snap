@@ -455,6 +455,19 @@ enum __Msg_Lookup [proto 7c0f441570dc9a6f] {
   Lookup(key: Str, out: Reply<Str>)
 }
 
+enum __Msg_Gather [proto 98712ca205da344c] {
+  Scatter(word: Str, members: List<Addr<Search>>, out: Reply<Int>)
+}
+
+enum __Msg_Race [proto 5e0ec4d63d5f53dd] {
+  Race(key: Str, members: List<Addr<Lookup>>, out: Reply<Str>)
+}
+
+enum __Msg_Boot [proto 4b15e647d0ca92a7] {
+  Boot(done: Reply<Addr<Sequencer>>)
+  Stop(done: Reply<Bool>)
+}
+
 enum __Cont_Sequencing {
   Next()
 }
@@ -484,10 +497,6 @@ enum __Cont_Scattering {
   Query(word: Str)
 }
 
-enum __Msg_Gather [proto 98712ca205da344c] {
-  Scatter(word: Str, members: List<Addr<Search>>, out: Reply<Int>)
-}
-
 enum __Cont_Gathering {
   Scatter(word: Str, members: List<Addr<Search>>)
   Partial()
@@ -501,10 +510,6 @@ enum __Cont_Hedging {
   Lookup(key: Str)
 }
 
-enum __Msg_Race [proto 5e0ec4d63d5f53dd] {
-  Race(key: Str, members: List<Addr<Lookup>>, out: Reply<Str>)
-}
-
 enum __Cont_Racing {
   Race(key: Str, members: List<Addr<Lookup>>)
   First()
@@ -512,11 +517,6 @@ enum __Cont_Racing {
 
 enum __Priv_Racing {
   First(answer: Str)
-}
-
-enum __Msg_Boot [proto 4b15e647d0ca92a7] {
-  Boot(done: Reply<Addr<Sequencer>>)
-  Stop(done: Reply<Bool>)
 }
 
 enum __Cont_Booting {
@@ -538,4 +538,161 @@ enum __Cont___Route_Search {
 
 enum __Cont___Route_Sequencer {
   Next()
+}
+
+fn __dispatch_Sequencing_Sequencer(lent_mut __handler: Sequencing, moved __msg: __Msg_Sequencer) -> None {
+  switch#1 read __msg {
+    arm#0 (arm 0) {
+      unpack#2 (out: Reply<Str>) = __msg as variant 0
+      handler_call main::Sequencer#0(read __handler, !read out)
+    }
+  }
+}
+
+fn __dispatch_Stocking_Inventory(lent_mut __handler: Stocking, moved __msg: __Msg_Inventory) -> None {
+  switch#1 read __msg {
+    arm#0 (arm 0) {
+      unpack#2 (sku: Str, qty: Int, out: Reply<Str>) = __msg as variant 0
+      handler_call main::Inventory#0(read __handler, !read sku, !read qty, !read out)
+    }
+  }
+}
+
+fn __dispatch_Indexing_Search(lent_mut __handler: Indexing, moved __msg: __Msg_Search) -> None {
+  switch#1 read __msg {
+    arm#0 (arm 0) {
+      unpack#2 (word: Str, out: Reply<Int>) = __msg as variant 0
+      handler_call main::Search#0(read __handler, !read word, !read out)
+    }
+  }
+}
+
+fn __dispatch_Looking_Lookup(lent_mut __handler: Looking, moved __msg: __Msg_Lookup) -> None {
+  switch#1 read __msg {
+    arm#0 (arm 0) {
+      unpack#2 (key: Str, out: Reply<Str>) = __msg as variant 0
+      handler_call main::Lookup#0(read __handler, !read key, !read out)
+    }
+  }
+}
+
+fn __dispatch_SlowLooking_Lookup(lent_mut __handler: SlowLooking, moved __msg: __Msg_Lookup) -> None {
+  switch#1 read __msg {
+    arm#0 (arm 0) {
+      unpack#2 (key: Str, out: Reply<Str>) = __msg as variant 0
+      handler_call main::Lookup#0(read __handler, !read key, !read out)
+    }
+  }
+}
+
+fn __dispatch_priv_SlowLooking(lent_mut __handler: SlowLooking, moved __msg: __Priv_SlowLooking) -> None {
+  switch#1 read __msg {
+    arm#0 (arm 0) {
+      unpack#2 (key: Str, out: Reply<Str>, fired: Fired) = __msg as variant 0
+      handler_call answer(read __handler, !read key, !read out, !read fired)
+    }
+  }
+}
+
+fn __dispatch_Scattering_Search(lent_mut __handler: Scattering, moved __msg: __Msg_Search) -> None {
+  switch#1 read __msg {
+    arm#0 (arm 0) {
+      unpack#2 (word: Str, out: Reply<Int>) = __msg as variant 0
+      handler_call main::Search#0(read __handler, !read word, !read out)
+    }
+  }
+}
+
+fn __dispatch_Gathering_Gather(lent_mut __handler: Gathering, moved __msg: __Msg_Gather) -> None {
+  switch#1 read __msg {
+    arm#0 (arm 0) {
+      unpack#2 (word: Str, members: List<Addr<Search>>, out: Reply<Int>) = __msg as variant 0
+      handler_call main::Gather#0(read __handler, !read word, !read members, !read out)
+    }
+  }
+}
+
+fn __dispatch_priv_Gathering(lent_mut __handler: Gathering, moved __msg: __Priv_Gathering) -> None {
+  switch#1 read __msg {
+    arm#0 (arm 0) {
+      unpack#2 (n: Int) = __msg as variant 0
+      handler_call partial(read __handler, !read n)
+    }
+  }
+}
+
+fn __dispatch_Hedging_Lookup(lent_mut __handler: Hedging, moved __msg: __Msg_Lookup) -> None {
+  switch#1 read __msg {
+    arm#0 (arm 0) {
+      unpack#2 (key: Str, out: Reply<Str>) = __msg as variant 0
+      handler_call main::Lookup#0(read __handler, !read key, !read out)
+    }
+  }
+}
+
+fn __dispatch_Racing_Race(lent_mut __handler: Racing, moved __msg: __Msg_Race) -> None {
+  switch#1 read __msg {
+    arm#0 (arm 0) {
+      unpack#2 (key: Str, members: List<Addr<Lookup>>, out: Reply<Str>) = __msg as variant 0
+      handler_call main::Race#0(read __handler, !read key, !read members, !read out)
+    }
+  }
+}
+
+fn __dispatch_priv_Racing(lent_mut __handler: Racing, moved __msg: __Priv_Racing) -> None {
+  switch#1 read __msg {
+    arm#0 (arm 0) {
+      unpack#2 (answer: Str) = __msg as variant 0
+      handler_call first(read __handler, !read answer)
+    }
+  }
+}
+
+fn __dispatch_Booting_Boot(lent_mut __handler: Booting, moved __msg: __Msg_Boot) -> None {
+  switch#1 read __msg {
+    arm#0 (arm 0) {
+      unpack#2 (done: Reply<Addr<Sequencer>>) = __msg as variant 0
+      handler_call main::Boot#0(read __handler, !read done)
+    }
+    arm#1 (arm 1) {
+      unpack#3 (done: Reply<Bool>) = __msg as variant 1
+      handler_call main::Boot#1(read __handler, !read done)
+    }
+  }
+}
+
+fn __dispatch___Route_Inventory_Inventory(lent_mut __handler: __Route_Inventory, moved __msg: __Msg_Inventory) -> None {
+  switch#1 read __msg {
+    arm#0 (arm 0) {
+      unpack#2 (sku: Str, qty: Int, out: Reply<Str>) = __msg as variant 0
+      handler_call main::Inventory#0(read __handler, !read sku, !read qty, !read out)
+    }
+  }
+}
+
+fn __dispatch___Route_Lookup_Lookup(lent_mut __handler: __Route_Lookup, moved __msg: __Msg_Lookup) -> None {
+  switch#1 read __msg {
+    arm#0 (arm 0) {
+      unpack#2 (key: Str, out: Reply<Str>) = __msg as variant 0
+      handler_call main::Lookup#0(read __handler, !read key, !read out)
+    }
+  }
+}
+
+fn __dispatch___Route_Search_Search(lent_mut __handler: __Route_Search, moved __msg: __Msg_Search) -> None {
+  switch#1 read __msg {
+    arm#0 (arm 0) {
+      unpack#2 (word: Str, out: Reply<Int>) = __msg as variant 0
+      handler_call main::Search#0(read __handler, !read word, !read out)
+    }
+  }
+}
+
+fn __dispatch___Route_Sequencer_Sequencer(lent_mut __handler: __Route_Sequencer, moved __msg: __Msg_Sequencer) -> None {
+  switch#1 read __msg {
+    arm#0 (arm 0) {
+      unpack#2 (out: Reply<Str>) = __msg as variant 0
+      handler_call main::Sequencer#0(read __handler, !read out)
+    }
+  }
 }

@@ -209,13 +209,7 @@ class Wheeling : Wheel {
 class __Actor_Wheeling(private val handler: Wheeling) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
-        __dispatchWheel(msg as __Msg_Wheel)
-    }
-
-    private fun __dispatchWheel(m: __Msg_Wheel) {
-        when (m) {
-            is __Msg_Wheel.Run -> handler.run()
-        }
+        __dispatch_Wheeling_Wheel(handler, msg as __Msg_Wheel)
     }
 
     override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
@@ -312,5 +306,14 @@ const val __PROTO_Wheel: String = "df3353758a650c52"
 
 
 sealed class __Cont_Wheeling {
+}
+
+fun __dispatch_Wheeling_Wheel(__handler: Wheeling, __msg: __Msg_Wheel) {
+    when {
+        (__msg is __Msg_Wheel.Run) -> {
+            __handler.run()
+        }
+        else -> throw IllegalStateException("salvo: unreachable arm")
+    }
 }
 

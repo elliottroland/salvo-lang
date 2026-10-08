@@ -67,14 +67,7 @@ class Sessions(private val __dep0: salvo.time.Timer) : Session {
 class __Actor_Sessions(private val handler: Sessions) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
-        __dispatchSession(msg as __Msg_Session)
-    }
-
-    private fun __dispatchSession(m: __Msg_Session) {
-        when (m) {
-            is __Msg_Session.Open -> handler.open(m.started, m.budget, m.out)
-            is __Msg_Session.Expire -> handler.expire(m.started, m.budget, m.out, m.f)
-        }
+        __dispatch_Sessions_Session(handler, msg as __Msg_Session)
     }
 
     override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
@@ -164,14 +157,7 @@ class Napping(private val __dep0: salvo.time.Timer, private val __dep1: salvo.ti
 class __Actor_Napping(private val handler: Napping) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
-        __dispatchSleeper(msg as __Msg_Sleeper)
-    }
-
-    private fun __dispatchSleeper(m: __Msg_Sleeper) {
-        when (m) {
-            is __Msg_Sleeper.Nap -> handler.nap(m.wait, m.out)
-            is __Msg_Sleeper.Woke -> handler.woke(m.started, m.out, m.f)
-        }
+        __dispatch_Napping_Sleeper(handler, msg as __Msg_Sleeper)
     }
 
     override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
@@ -286,12 +272,6 @@ object __Codec___Msg_Session : salvo.WireCodec<__Msg_Session> {
 const val __PROTO_Session: String = "7ed70285b7e6568c"
 
 
-sealed class __Cont_Sessions {
-    class Open(val started: salvo.time.Tick, val budget: salvo.time.Duration) : __Cont_Sessions()
-    class Expire(val started: salvo.time.Tick, val budget: salvo.time.Duration, val out: salvo.SalvoReply) : __Cont_Sessions()
-}
-
-
 sealed class __Msg_Sleeper {
     class Nap(val wait: salvo.time.Duration, val out: salvo.SalvoReply) : __Msg_Sleeper()
     class Woke(val started: salvo.time.Tick, val out: salvo.SalvoReply, val f: salvo.time.Fired) : __Msg_Sleeper()
@@ -314,8 +294,52 @@ object __Codec___Msg_Sleeper : salvo.WireCodec<__Msg_Sleeper> {
 const val __PROTO_Sleeper: String = "2385b53950dcbd9c"
 
 
+sealed class __Cont_Sessions {
+    class Open(val started: salvo.time.Tick, val budget: salvo.time.Duration) : __Cont_Sessions()
+    class Expire(val started: salvo.time.Tick, val budget: salvo.time.Duration, val out: salvo.SalvoReply) : __Cont_Sessions()
+}
+
+
 sealed class __Cont_Napping {
     class Nap(val wait: salvo.time.Duration) : __Cont_Napping()
     class Woke(val started: salvo.time.Tick, val out: salvo.SalvoReply) : __Cont_Napping()
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun __dispatch_Sessions_Session(__handler: Sessions, __msg: __Msg_Session) {
+    when {
+        (__msg is __Msg_Session.Open) -> {
+            val started = (__msg as __Msg_Session.Open).started
+            val budget = (__msg as __Msg_Session.Open).budget
+            val out = (__msg as __Msg_Session.Open).out
+            __handler.open(started, budget, out)
+        }
+        (__msg is __Msg_Session.Expire) -> {
+            val started = (__msg as __Msg_Session.Expire).started
+            val budget = (__msg as __Msg_Session.Expire).budget
+            val out = (__msg as __Msg_Session.Expire).out
+            val f = (__msg as __Msg_Session.Expire).f
+            __handler.expire(started, budget, out, f)
+        }
+        else -> throw IllegalStateException("salvo: unreachable arm")
+    }
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun __dispatch_Napping_Sleeper(__handler: Napping, __msg: __Msg_Sleeper) {
+    when {
+        (__msg is __Msg_Sleeper.Nap) -> {
+            val wait = (__msg as __Msg_Sleeper.Nap).wait
+            val out = (__msg as __Msg_Sleeper.Nap).out
+            __handler.nap(wait, out)
+        }
+        (__msg is __Msg_Sleeper.Woke) -> {
+            val started = (__msg as __Msg_Sleeper.Woke).started
+            val out = (__msg as __Msg_Sleeper.Woke).out
+            val f = (__msg as __Msg_Sleeper.Woke).f
+            __handler.woke(started, out, f)
+        }
+        else -> throw IllegalStateException("salvo: unreachable arm")
+    }
 }
 

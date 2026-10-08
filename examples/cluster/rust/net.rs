@@ -447,18 +447,13 @@ impl __Actor_Sending {
     pub fn new(handler: Sending) -> Self {
         Self { handler }
     }
-    fn __dispatch(&mut self, msg: crate::net::__Msg_Outbound) {
-        match msg {
-            crate::net::__Msg_Outbound::SendFrame(to, frame) => crate::net::__Stateless_Outbound::send_frame(&mut self.handler, to, frame),
-        }
-    }
 }
 
 impl crate::scheduler::SalvoActor for __Actor_Sending {
     fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {
         self.handler.__addr = Some(_ctx.addr);
         let msg = *msg.downcast::<crate::net::__Msg_Outbound>().expect("message of this protocol");
-        self.__dispatch(msg);
+        crate::net::__dispatch_Sending_Outbound(&mut self.handler, msg);
     }
 
     fn resume(&mut self, _ctx: &crate::scheduler::SalvoCtx, slot: u64, value: crate::scheduler::SalvoMsg) {
@@ -467,7 +462,7 @@ impl crate::scheduler::SalvoActor for __Actor_Sending {
             return; // a reply whose continuation is gone: nothing to run
         };
         match __cont {
-            __Cont_Sending::SendFrame(to) => self.__dispatch(crate::net::__Msg_Outbound::SendFrame(to, *value.downcast::<crate::core_bytes::Bytes>().expect("the awaited answer"))),
+            __Cont_Sending::SendFrame(to) => crate::net::__dispatch_Sending_Outbound(&mut self.handler, crate::net::__Msg_Outbound::SendFrame(to, *value.downcast::<crate::core_bytes::Bytes>().expect("the awaited answer"))),
         }
     }
 
@@ -516,18 +511,13 @@ impl __Actor_Receiving {
     pub fn new(handler: Receiving) -> Self {
         Self { handler }
     }
-    fn __dispatch(&mut self, msg: crate::net::__Msg_Inbound) {
-        match msg {
-            crate::net::__Msg_Inbound::ReceiveFrame(from, frame) => crate::net::__Stateless_Inbound::receive_frame(&mut self.handler, from, frame),
-        }
-    }
 }
 
 impl crate::scheduler::SalvoActor for __Actor_Receiving {
     fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {
         self.handler.__addr = Some(_ctx.addr);
         let msg = *msg.downcast::<crate::net::__Msg_Inbound>().expect("message of this protocol");
-        self.__dispatch(msg);
+        crate::net::__dispatch_Receiving_Inbound(&mut self.handler, msg);
     }
 
     fn resume(&mut self, _ctx: &crate::scheduler::SalvoCtx, slot: u64, value: crate::scheduler::SalvoMsg) {
@@ -536,7 +526,7 @@ impl crate::scheduler::SalvoActor for __Actor_Receiving {
             return; // a reply whose continuation is gone: nothing to run
         };
         match __cont {
-            __Cont_Receiving::ReceiveFrame(from) => self.__dispatch(crate::net::__Msg_Inbound::ReceiveFrame(from, *value.downcast::<crate::core_bytes::Bytes>().expect("the awaited answer"))),
+            __Cont_Receiving::ReceiveFrame(from) => crate::net::__dispatch_Receiving_Inbound(&mut self.handler, crate::net::__Msg_Inbound::ReceiveFrame(from, *value.downcast::<crate::core_bytes::Bytes>().expect("the awaited answer"))),
         }
     }
 
@@ -1032,30 +1022,17 @@ impl __Actor_StaticNodeGroup {
     pub fn new(handler: StaticNodeGroup) -> Self {
         Self { handler }
     }
-    fn __dispatch_NodeGroup(&mut self, msg: crate::net::__Msg_NodeGroup) {
-        match msg {
-            crate::net::__Msg_NodeGroup::Members(out) => crate::net::__Stateful_NodeGroup::members(&mut self.handler, out),
-            crate::net::__Msg_NodeGroup::Subscribe(w) => crate::net::__Stateful_NodeGroup::subscribe(&mut self.handler, w),
-            crate::net::__Msg_NodeGroup::Leave => crate::net::__Stateful_NodeGroup::leave(&mut self.handler),
-        }
-    }
-    fn __dispatch_priv(&mut self, msg: __Priv_StaticNodeGroup) {
-        match msg {
-            __Priv_StaticNodeGroup::Init => self.handler.init(),
-            __Priv_StaticNodeGroup::Control(from, data) => self.handler.control(from, data),
-        }
-    }
 }
 
 impl crate::scheduler::SalvoActor for __Actor_StaticNodeGroup {
     fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {
         self.handler.__addr = Some(_ctx.addr);
         let msg = match msg.downcast::<crate::net::__Msg_NodeGroup>() {
-            Ok(__m) => return self.__dispatch_NodeGroup(*__m),
+            Ok(__m) => return crate::net::__dispatch_StaticNodeGroup_NodeGroup(&mut self.handler, *__m),
             Err(__m) => __m,
         };
         let msg = match msg.downcast::<__Priv_StaticNodeGroup>() {
-            Ok(__m) => return self.__dispatch_priv(*__m),
+            Ok(__m) => return crate::net::__dispatch_priv_StaticNodeGroup(&mut self.handler, *__m),
             Err(__m) => __m,
         };
         let _ = msg;
@@ -1068,9 +1045,9 @@ impl crate::scheduler::SalvoActor for __Actor_StaticNodeGroup {
             return; // a reply whose continuation is gone: nothing to run
         };
         match __cont {
-            __Cont_StaticNodeGroup::Members => self.__dispatch_NodeGroup(crate::net::__Msg_NodeGroup::Members(*value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
-            __Cont_StaticNodeGroup::Subscribe => self.__dispatch_NodeGroup(crate::net::__Msg_NodeGroup::Subscribe(*value.downcast::<usize>().expect("the awaited answer"))),
-            __Cont_StaticNodeGroup::Control(from) => self.__dispatch_priv(__Priv_StaticNodeGroup::Control(from, *value.downcast::<crate::core_bytes::Bytes>().expect("the awaited answer"))),
+            __Cont_StaticNodeGroup::Members => crate::net::__dispatch_StaticNodeGroup_NodeGroup(&mut self.handler, crate::net::__Msg_NodeGroup::Members(*value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
+            __Cont_StaticNodeGroup::Subscribe => crate::net::__dispatch_StaticNodeGroup_NodeGroup(&mut self.handler, crate::net::__Msg_NodeGroup::Subscribe(*value.downcast::<usize>().expect("the awaited answer"))),
+            __Cont_StaticNodeGroup::Control(from) => crate::net::__dispatch_priv_StaticNodeGroup(&mut self.handler, __Priv_StaticNodeGroup::Control(from, *value.downcast::<crate::core_bytes::Bytes>().expect("the awaited answer"))),
         }
     }
 
@@ -1207,30 +1184,17 @@ impl __Actor_GossipNodeGroup {
     pub fn new(handler: GossipNodeGroup) -> Self {
         Self { handler }
     }
-    fn __dispatch_NodeGroup(&mut self, msg: crate::net::__Msg_NodeGroup) {
-        match msg {
-            crate::net::__Msg_NodeGroup::Members(out) => crate::net::__Stateful_NodeGroup::members(&mut self.handler, out),
-            crate::net::__Msg_NodeGroup::Subscribe(w) => crate::net::__Stateful_NodeGroup::subscribe(&mut self.handler, w),
-            crate::net::__Msg_NodeGroup::Leave => crate::net::__Stateful_NodeGroup::leave(&mut self.handler),
-        }
-    }
-    fn __dispatch_priv(&mut self, msg: __Priv_GossipNodeGroup) {
-        match msg {
-            __Priv_GossipNodeGroup::Init => self.handler.init(),
-            __Priv_GossipNodeGroup::Control(from, data) => self.handler.control(from, data),
-        }
-    }
 }
 
 impl crate::scheduler::SalvoActor for __Actor_GossipNodeGroup {
     fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {
         self.handler.__addr = Some(_ctx.addr);
         let msg = match msg.downcast::<crate::net::__Msg_NodeGroup>() {
-            Ok(__m) => return self.__dispatch_NodeGroup(*__m),
+            Ok(__m) => return crate::net::__dispatch_GossipNodeGroup_NodeGroup(&mut self.handler, *__m),
             Err(__m) => __m,
         };
         let msg = match msg.downcast::<__Priv_GossipNodeGroup>() {
-            Ok(__m) => return self.__dispatch_priv(*__m),
+            Ok(__m) => return crate::net::__dispatch_priv_GossipNodeGroup(&mut self.handler, *__m),
             Err(__m) => __m,
         };
         let _ = msg;
@@ -1243,9 +1207,9 @@ impl crate::scheduler::SalvoActor for __Actor_GossipNodeGroup {
             return; // a reply whose continuation is gone: nothing to run
         };
         match __cont {
-            __Cont_GossipNodeGroup::Members => self.__dispatch_NodeGroup(crate::net::__Msg_NodeGroup::Members(*value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
-            __Cont_GossipNodeGroup::Subscribe => self.__dispatch_NodeGroup(crate::net::__Msg_NodeGroup::Subscribe(*value.downcast::<usize>().expect("the awaited answer"))),
-            __Cont_GossipNodeGroup::Control(from) => self.__dispatch_priv(__Priv_GossipNodeGroup::Control(from, *value.downcast::<crate::core_bytes::Bytes>().expect("the awaited answer"))),
+            __Cont_GossipNodeGroup::Members => crate::net::__dispatch_GossipNodeGroup_NodeGroup(&mut self.handler, crate::net::__Msg_NodeGroup::Members(*value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
+            __Cont_GossipNodeGroup::Subscribe => crate::net::__dispatch_GossipNodeGroup_NodeGroup(&mut self.handler, crate::net::__Msg_NodeGroup::Subscribe(*value.downcast::<usize>().expect("the awaited answer"))),
+            __Cont_GossipNodeGroup::Control(from) => crate::net::__dispatch_priv_GossipNodeGroup(&mut self.handler, __Priv_GossipNodeGroup::Control(from, *value.downcast::<crate::core_bytes::Bytes>().expect("the awaited answer"))),
         }
     }
 
@@ -1625,42 +1589,21 @@ impl __Actor_ActorGrouping {
     pub fn new(handler: ActorGrouping) -> Self {
         Self { handler }
     }
-    fn __dispatch_ActorGroup(&mut self, msg: crate::net::__Msg_ActorGroup) {
-        match msg {
-            crate::net::__Msg_ActorGroup::Join(member) => crate::net::__Stateful_ActorGroup::join(&mut self.handler, member),
-            crate::net::__Msg_ActorGroup::Leave(member) => crate::net::__Stateful_ActorGroup::leave(&mut self.handler, member),
-            crate::net::__Msg_ActorGroup::Members(out) => crate::net::__Stateful_ActorGroup::members(&mut self.handler, out),
-            crate::net::__Msg_ActorGroup::Subscribe(w) => crate::net::__Stateful_ActorGroup::subscribe(&mut self.handler, w),
-            crate::net::__Msg_ActorGroup::Refresh => crate::net::__Stateful_ActorGroup::refresh(&mut self.handler),
-        }
-    }
-    fn __dispatch_NodeGroupWatcher(&mut self, msg: crate::net::__Msg_NodeGroupWatcher) {
-        match msg {
-            crate::net::__Msg_NodeGroupWatcher::Joined(n) => crate::net::__Stateful_NodeGroupWatcher::joined(&mut self.handler, n),
-            crate::net::__Msg_NodeGroupWatcher::Left(n, why) => crate::net::__Stateful_NodeGroupWatcher::left(&mut self.handler, n, why),
-        }
-    }
-    fn __dispatch_priv(&mut self, msg: __Priv_ActorGrouping) {
-        match msg {
-            __Priv_ActorGrouping::Init => self.handler.init(),
-            __Priv_ActorGrouping::Control(from, data) => self.handler.control(from, data),
-        }
-    }
 }
 
 impl crate::scheduler::SalvoActor for __Actor_ActorGrouping {
     fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {
         self.handler.__addr = Some(_ctx.addr);
         let msg = match msg.downcast::<crate::net::__Msg_ActorGroup>() {
-            Ok(__m) => return self.__dispatch_ActorGroup(*__m),
+            Ok(__m) => return crate::net::__dispatch_ActorGrouping_ActorGroup(&mut self.handler, *__m),
             Err(__m) => __m,
         };
         let msg = match msg.downcast::<crate::net::__Msg_NodeGroupWatcher>() {
-            Ok(__m) => return self.__dispatch_NodeGroupWatcher(*__m),
+            Ok(__m) => return crate::net::__dispatch_ActorGrouping_NodeGroupWatcher(&mut self.handler, *__m),
             Err(__m) => __m,
         };
         let msg = match msg.downcast::<__Priv_ActorGrouping>() {
-            Ok(__m) => return self.__dispatch_priv(*__m),
+            Ok(__m) => return crate::net::__dispatch_priv_ActorGrouping(&mut self.handler, *__m),
             Err(__m) => __m,
         };
         let _ = msg;
@@ -1673,13 +1616,13 @@ impl crate::scheduler::SalvoActor for __Actor_ActorGrouping {
             return; // a reply whose continuation is gone: nothing to run
         };
         match __cont {
-            __Cont_ActorGrouping::Join => self.__dispatch_ActorGroup(crate::net::__Msg_ActorGroup::Join(*value.downcast::<usize>().expect("the awaited answer"))),
-            __Cont_ActorGrouping::Leave => self.__dispatch_ActorGroup(crate::net::__Msg_ActorGroup::Leave(*value.downcast::<usize>().expect("the awaited answer"))),
-            __Cont_ActorGrouping::Members => self.__dispatch_ActorGroup(crate::net::__Msg_ActorGroup::Members(*value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
-            __Cont_ActorGrouping::Subscribe => self.__dispatch_ActorGroup(crate::net::__Msg_ActorGroup::Subscribe(*value.downcast::<usize>().expect("the awaited answer"))),
-            __Cont_ActorGrouping::Joined => self.__dispatch_NodeGroupWatcher(crate::net::__Msg_NodeGroupWatcher::Joined(*value.downcast::<crate::net::Node>().expect("the awaited answer"))),
-            __Cont_ActorGrouping::Left(n) => self.__dispatch_NodeGroupWatcher(crate::net::__Msg_NodeGroupWatcher::Left(n, *value.downcast::<String>().expect("the awaited answer"))),
-            __Cont_ActorGrouping::Control(from) => self.__dispatch_priv(__Priv_ActorGrouping::Control(from, *value.downcast::<crate::core_bytes::Bytes>().expect("the awaited answer"))),
+            __Cont_ActorGrouping::Join => crate::net::__dispatch_ActorGrouping_ActorGroup(&mut self.handler, crate::net::__Msg_ActorGroup::Join(*value.downcast::<usize>().expect("the awaited answer"))),
+            __Cont_ActorGrouping::Leave => crate::net::__dispatch_ActorGrouping_ActorGroup(&mut self.handler, crate::net::__Msg_ActorGroup::Leave(*value.downcast::<usize>().expect("the awaited answer"))),
+            __Cont_ActorGrouping::Members => crate::net::__dispatch_ActorGrouping_ActorGroup(&mut self.handler, crate::net::__Msg_ActorGroup::Members(*value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
+            __Cont_ActorGrouping::Subscribe => crate::net::__dispatch_ActorGrouping_ActorGroup(&mut self.handler, crate::net::__Msg_ActorGroup::Subscribe(*value.downcast::<usize>().expect("the awaited answer"))),
+            __Cont_ActorGrouping::Joined => crate::net::__dispatch_ActorGrouping_NodeGroupWatcher(&mut self.handler, crate::net::__Msg_NodeGroupWatcher::Joined(*value.downcast::<crate::net::Node>().expect("the awaited answer"))),
+            __Cont_ActorGrouping::Left(n) => crate::net::__dispatch_ActorGrouping_NodeGroupWatcher(&mut self.handler, crate::net::__Msg_NodeGroupWatcher::Left(n, *value.downcast::<String>().expect("the awaited answer"))),
+            __Cont_ActorGrouping::Control(from) => crate::net::__dispatch_priv_ActorGrouping(&mut self.handler, __Priv_ActorGrouping::Control(from, *value.downcast::<crate::core_bytes::Bytes>().expect("the awaited answer"))),
         }
     }
 
@@ -2377,24 +2320,13 @@ impl __Actor_MemNetwork {
     pub fn new(handler: MemNetwork) -> Self {
         Self { handler }
     }
-    fn __dispatch(&mut self, msg: crate::net::__Msg_MemNet) {
-        match msg {
-            crate::net::__Msg_MemNet::Attach(at, sink) => crate::net::__Stateful_MemNet::attach(&mut self.handler, at, sink),
-            crate::net::__Msg_MemNet::Detach(at) => crate::net::__Stateful_MemNet::detach(&mut self.handler, at),
-            crate::net::__Msg_MemNet::Route(from, to, out) => crate::net::__Stateful_MemNet::route(&mut self.handler, from, to, out),
-            crate::net::__Msg_MemNet::Partition(a, b) => crate::net::__Stateful_MemNet::partition(&mut self.handler, a, b),
-            crate::net::__Msg_MemNet::Heal(a, b) => crate::net::__Stateful_MemNet::heal(&mut self.handler, a, b),
-            crate::net::__Msg_MemNet::Kill(node) => crate::net::__Stateful_MemNet::kill(&mut self.handler, node),
-            crate::net::__Msg_MemNet::Delivered(out) => crate::net::__Stateful_MemNet::delivered(&mut self.handler, out),
-        }
-    }
 }
 
 impl crate::scheduler::SalvoActor for __Actor_MemNetwork {
     fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {
         self.handler.__addr = Some(_ctx.addr);
         let msg = *msg.downcast::<crate::net::__Msg_MemNet>().expect("message of this protocol");
-        self.__dispatch(msg);
+        crate::net::__dispatch_MemNetwork_MemNet(&mut self.handler, msg);
     }
 
     fn resume(&mut self, _ctx: &crate::scheduler::SalvoCtx, slot: u64, value: crate::scheduler::SalvoMsg) {
@@ -2403,13 +2335,13 @@ impl crate::scheduler::SalvoActor for __Actor_MemNetwork {
             return; // a reply whose continuation is gone: nothing to run
         };
         match __cont {
-            __Cont_MemNetwork::Attach(at) => self.__dispatch(crate::net::__Msg_MemNet::Attach(at, *value.downcast::<usize>().expect("the awaited answer"))),
-            __Cont_MemNetwork::Detach => self.__dispatch(crate::net::__Msg_MemNet::Detach(*value.downcast::<crate::net::NodeEndpoint>().expect("the awaited answer"))),
-            __Cont_MemNetwork::Route(from, to) => self.__dispatch(crate::net::__Msg_MemNet::Route(from, to, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
-            __Cont_MemNetwork::Partition(a) => self.__dispatch(crate::net::__Msg_MemNet::Partition(a, *value.downcast::<crate::net::NodeEndpoint>().expect("the awaited answer"))),
-            __Cont_MemNetwork::Heal(a) => self.__dispatch(crate::net::__Msg_MemNet::Heal(a, *value.downcast::<crate::net::NodeEndpoint>().expect("the awaited answer"))),
-            __Cont_MemNetwork::Kill => self.__dispatch(crate::net::__Msg_MemNet::Kill(*value.downcast::<crate::net::NodeEndpoint>().expect("the awaited answer"))),
-            __Cont_MemNetwork::Delivered => self.__dispatch(crate::net::__Msg_MemNet::Delivered(*value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
+            __Cont_MemNetwork::Attach(at) => crate::net::__dispatch_MemNetwork_MemNet(&mut self.handler, crate::net::__Msg_MemNet::Attach(at, *value.downcast::<usize>().expect("the awaited answer"))),
+            __Cont_MemNetwork::Detach => crate::net::__dispatch_MemNetwork_MemNet(&mut self.handler, crate::net::__Msg_MemNet::Detach(*value.downcast::<crate::net::NodeEndpoint>().expect("the awaited answer"))),
+            __Cont_MemNetwork::Route(from, to) => crate::net::__dispatch_MemNetwork_MemNet(&mut self.handler, crate::net::__Msg_MemNet::Route(from, to, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
+            __Cont_MemNetwork::Partition(a) => crate::net::__dispatch_MemNetwork_MemNet(&mut self.handler, crate::net::__Msg_MemNet::Partition(a, *value.downcast::<crate::net::NodeEndpoint>().expect("the awaited answer"))),
+            __Cont_MemNetwork::Heal(a) => crate::net::__dispatch_MemNetwork_MemNet(&mut self.handler, crate::net::__Msg_MemNet::Heal(a, *value.downcast::<crate::net::NodeEndpoint>().expect("the awaited answer"))),
+            __Cont_MemNetwork::Kill => crate::net::__dispatch_MemNetwork_MemNet(&mut self.handler, crate::net::__Msg_MemNet::Kill(*value.downcast::<crate::net::NodeEndpoint>().expect("the awaited answer"))),
+            __Cont_MemNetwork::Delivered => crate::net::__dispatch_MemNetwork_MemNet(&mut self.handler, crate::net::__Msg_MemNet::Delivered(*value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
         }
     }
 
@@ -2589,14 +2521,6 @@ impl crate::wire::__Wire for __Msg_Outbound {
 /// [protocol-hash] The canonical hash of `Outbound`.
 pub const __PROTO_Outbound: &str = "e754249e848e9986";
 
-pub enum __Cont_Sending {
-    SendFrame(crate::net::NodeEndpoint),
-}
-
-pub enum __Cont_Receiving {
-    ReceiveFrame(crate::net::NodeEndpoint),
-}
-
 pub enum __Msg_NodeGroup {
     Members(crate::scheduler::SalvoReply),
     Subscribe(usize),
@@ -2660,28 +2584,6 @@ impl crate::wire::__Wire for __Msg_NodeGroupWatcher {
 
 /// [protocol-hash] The canonical hash of `NodeGroupWatcher`.
 pub const __PROTO_NodeGroupWatcher: &str = "db3e0aa5831c2e44";
-
-pub enum __Cont_StaticNodeGroup {
-    Members,
-    Subscribe,
-    Control(crate::net::NodeId),
-}
-
-pub enum __Priv_StaticNodeGroup {
-    Init,
-    Control(crate::net::NodeId, crate::core_bytes::Bytes),
-}
-
-pub enum __Cont_GossipNodeGroup {
-    Members,
-    Subscribe,
-    Control(crate::net::NodeId),
-}
-
-pub enum __Priv_GossipNodeGroup {
-    Init,
-    Control(crate::net::NodeId, crate::core_bytes::Bytes),
-}
 
 pub enum __Msg_ActorGroup {
     Join(usize),
@@ -2758,21 +2660,6 @@ impl crate::wire::__Wire for __Msg_ActorGroupWatcher {
 /// [protocol-hash] The canonical hash of `ActorGroupWatcher`.
 pub const __PROTO_ActorGroupWatcher: &str = "9fa424e5858bb3bd";
 
-pub enum __Cont_ActorGrouping {
-    Join,
-    Leave,
-    Members,
-    Subscribe,
-    Joined,
-    Left(crate::net::Node),
-    Control(crate::net::NodeId),
-}
-
-pub enum __Priv_ActorGrouping {
-    Init,
-    Control(crate::net::NodeId, crate::core_bytes::Bytes),
-}
-
 pub enum __Msg_MemNet {
     Attach(crate::net::NodeEndpoint, usize),
     Detach(crate::net::NodeEndpoint),
@@ -2838,6 +2725,51 @@ impl crate::wire::__Wire for __Msg_MemNet {
 /// [protocol-hash] The canonical hash of `MemNet`.
 pub const __PROTO_MemNet: &str = "2815c14392023d5e";
 
+pub enum __Cont_Sending {
+    SendFrame(crate::net::NodeEndpoint),
+}
+
+pub enum __Cont_Receiving {
+    ReceiveFrame(crate::net::NodeEndpoint),
+}
+
+pub enum __Cont_StaticNodeGroup {
+    Members,
+    Subscribe,
+    Control(crate::net::NodeId),
+}
+
+pub enum __Priv_StaticNodeGroup {
+    Init,
+    Control(crate::net::NodeId, crate::core_bytes::Bytes),
+}
+
+pub enum __Cont_GossipNodeGroup {
+    Members,
+    Subscribe,
+    Control(crate::net::NodeId),
+}
+
+pub enum __Priv_GossipNodeGroup {
+    Init,
+    Control(crate::net::NodeId, crate::core_bytes::Bytes),
+}
+
+pub enum __Cont_ActorGrouping {
+    Join,
+    Leave,
+    Members,
+    Subscribe,
+    Joined,
+    Left(crate::net::Node),
+    Control(crate::net::NodeId),
+}
+
+pub enum __Priv_ActorGrouping {
+    Init,
+    Control(crate::net::NodeId, crate::core_bytes::Bytes),
+}
+
 pub enum __Cont_MemNetwork {
     Attach(crate::net::NodeEndpoint),
     Detach,
@@ -2846,4 +2778,128 @@ pub enum __Cont_MemNetwork {
     Heal(crate::net::NodeEndpoint),
     Kill,
     Delivered,
+}
+
+pub fn __dispatch_Sending_Outbound(__handler: &mut crate::net::Sending, mut __msg: crate::net::__Msg_Outbound) {
+    if matches!(__msg, crate::net::__Msg_Outbound::SendFrame(..)) {
+        let crate::net::__Msg_Outbound::SendFrame(to, frame) = __msg else { unreachable!() };
+        crate::net::__Stateless_Outbound::send_frame(&mut *__handler, to, frame);
+    };
+}
+
+pub fn __dispatch_Receiving_Inbound(__handler: &mut crate::net::Receiving, mut __msg: crate::net::__Msg_Inbound) {
+    if matches!(__msg, crate::net::__Msg_Inbound::ReceiveFrame(..)) {
+        let crate::net::__Msg_Inbound::ReceiveFrame(from, frame) = __msg else { unreachable!() };
+        crate::net::__Stateless_Inbound::receive_frame(&mut *__handler, from, frame);
+    };
+}
+
+pub fn __dispatch_StaticNodeGroup_NodeGroup(__handler: &mut crate::net::StaticNodeGroup, mut __msg: crate::net::__Msg_NodeGroup) {
+    if matches!(__msg, crate::net::__Msg_NodeGroup::Members(..)) {
+        let crate::net::__Msg_NodeGroup::Members(out) = __msg else { unreachable!() };
+        crate::net::__Stateful_NodeGroup::members(&mut *__handler, out);
+    } else if matches!(__msg, crate::net::__Msg_NodeGroup::Subscribe(..)) {
+        let crate::net::__Msg_NodeGroup::Subscribe(w) = __msg else { unreachable!() };
+        crate::net::__Stateful_NodeGroup::subscribe(&mut *__handler, w);
+    } else {
+        let crate::net::__Msg_NodeGroup::Leave = __msg else { unreachable!() };
+        crate::net::__Stateful_NodeGroup::leave(&mut *__handler);
+    };
+}
+
+pub fn __dispatch_priv_StaticNodeGroup(__handler: &mut crate::net::StaticNodeGroup, mut __msg: crate::net::__Priv_StaticNodeGroup) {
+    if matches!(__msg, crate::net::__Priv_StaticNodeGroup::Init) {
+        let crate::net::__Priv_StaticNodeGroup::Init = __msg else { unreachable!() };
+        __handler.init();
+    } else {
+        let crate::net::__Priv_StaticNodeGroup::Control(from, data) = __msg else { unreachable!() };
+        __handler.control(from, data);
+    };
+}
+
+pub fn __dispatch_GossipNodeGroup_NodeGroup(__handler: &mut crate::net::GossipNodeGroup, mut __msg: crate::net::__Msg_NodeGroup) {
+    if matches!(__msg, crate::net::__Msg_NodeGroup::Members(..)) {
+        let crate::net::__Msg_NodeGroup::Members(out) = __msg else { unreachable!() };
+        crate::net::__Stateful_NodeGroup::members(&mut *__handler, out);
+    } else if matches!(__msg, crate::net::__Msg_NodeGroup::Subscribe(..)) {
+        let crate::net::__Msg_NodeGroup::Subscribe(w) = __msg else { unreachable!() };
+        crate::net::__Stateful_NodeGroup::subscribe(&mut *__handler, w);
+    } else {
+        let crate::net::__Msg_NodeGroup::Leave = __msg else { unreachable!() };
+        crate::net::__Stateful_NodeGroup::leave(&mut *__handler);
+    };
+}
+
+pub fn __dispatch_priv_GossipNodeGroup(__handler: &mut crate::net::GossipNodeGroup, mut __msg: crate::net::__Priv_GossipNodeGroup) {
+    if matches!(__msg, crate::net::__Priv_GossipNodeGroup::Init) {
+        let crate::net::__Priv_GossipNodeGroup::Init = __msg else { unreachable!() };
+        __handler.init();
+    } else {
+        let crate::net::__Priv_GossipNodeGroup::Control(from, data) = __msg else { unreachable!() };
+        __handler.control(from, data);
+    };
+}
+
+pub fn __dispatch_ActorGrouping_ActorGroup(__handler: &mut crate::net::ActorGrouping, mut __msg: crate::net::__Msg_ActorGroup) {
+    if matches!(__msg, crate::net::__Msg_ActorGroup::Join(..)) {
+        let crate::net::__Msg_ActorGroup::Join(member) = __msg else { unreachable!() };
+        crate::net::__Stateful_ActorGroup::join(&mut *__handler, member);
+    } else if matches!(__msg, crate::net::__Msg_ActorGroup::Leave(..)) {
+        let crate::net::__Msg_ActorGroup::Leave(member) = __msg else { unreachable!() };
+        crate::net::__Stateful_ActorGroup::leave(&mut *__handler, member);
+    } else if matches!(__msg, crate::net::__Msg_ActorGroup::Members(..)) {
+        let crate::net::__Msg_ActorGroup::Members(out) = __msg else { unreachable!() };
+        crate::net::__Stateful_ActorGroup::members(&mut *__handler, out);
+    } else if matches!(__msg, crate::net::__Msg_ActorGroup::Subscribe(..)) {
+        let crate::net::__Msg_ActorGroup::Subscribe(w) = __msg else { unreachable!() };
+        crate::net::__Stateful_ActorGroup::subscribe(&mut *__handler, w);
+    } else {
+        let crate::net::__Msg_ActorGroup::Refresh = __msg else { unreachable!() };
+        crate::net::__Stateful_ActorGroup::refresh(&mut *__handler);
+    };
+}
+
+pub fn __dispatch_ActorGrouping_NodeGroupWatcher(__handler: &mut crate::net::ActorGrouping, mut __msg: crate::net::__Msg_NodeGroupWatcher) {
+    if matches!(__msg, crate::net::__Msg_NodeGroupWatcher::Joined(..)) {
+        let crate::net::__Msg_NodeGroupWatcher::Joined(n) = __msg else { unreachable!() };
+        crate::net::__Stateful_NodeGroupWatcher::joined(&mut *__handler, n);
+    } else {
+        let crate::net::__Msg_NodeGroupWatcher::Left(n, why) = __msg else { unreachable!() };
+        crate::net::__Stateful_NodeGroupWatcher::left(&mut *__handler, n, why);
+    };
+}
+
+pub fn __dispatch_priv_ActorGrouping(__handler: &mut crate::net::ActorGrouping, mut __msg: crate::net::__Priv_ActorGrouping) {
+    if matches!(__msg, crate::net::__Priv_ActorGrouping::Init) {
+        let crate::net::__Priv_ActorGrouping::Init = __msg else { unreachable!() };
+        __handler.init();
+    } else {
+        let crate::net::__Priv_ActorGrouping::Control(from, data) = __msg else { unreachable!() };
+        __handler.control(from, data);
+    };
+}
+
+pub fn __dispatch_MemNetwork_MemNet(__handler: &mut crate::net::MemNetwork, mut __msg: crate::net::__Msg_MemNet) {
+    if matches!(__msg, crate::net::__Msg_MemNet::Attach(..)) {
+        let crate::net::__Msg_MemNet::Attach(at, sink) = __msg else { unreachable!() };
+        crate::net::__Stateful_MemNet::attach(&mut *__handler, at, sink);
+    } else if matches!(__msg, crate::net::__Msg_MemNet::Detach(..)) {
+        let crate::net::__Msg_MemNet::Detach(at) = __msg else { unreachable!() };
+        crate::net::__Stateful_MemNet::detach(&mut *__handler, at);
+    } else if matches!(__msg, crate::net::__Msg_MemNet::Route(..)) {
+        let crate::net::__Msg_MemNet::Route(from, to, out) = __msg else { unreachable!() };
+        crate::net::__Stateful_MemNet::route(&mut *__handler, from, to, out);
+    } else if matches!(__msg, crate::net::__Msg_MemNet::Partition(..)) {
+        let crate::net::__Msg_MemNet::Partition(a, b) = __msg else { unreachable!() };
+        crate::net::__Stateful_MemNet::partition(&mut *__handler, a, b);
+    } else if matches!(__msg, crate::net::__Msg_MemNet::Heal(..)) {
+        let crate::net::__Msg_MemNet::Heal(a, b) = __msg else { unreachable!() };
+        crate::net::__Stateful_MemNet::heal(&mut *__handler, a, b);
+    } else if matches!(__msg, crate::net::__Msg_MemNet::Kill(..)) {
+        let crate::net::__Msg_MemNet::Kill(node) = __msg else { unreachable!() };
+        crate::net::__Stateful_MemNet::kill(&mut *__handler, node);
+    } else {
+        let crate::net::__Msg_MemNet::Delivered(out) = __msg else { unreachable!() };
+        crate::net::__Stateful_MemNet::delivered(&mut *__handler, out);
+    };
 }

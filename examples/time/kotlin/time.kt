@@ -278,13 +278,7 @@ class DefaultTimer : Timer {
 class __Actor_DefaultTimer(private val handler: DefaultTimer) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
-        __dispatchTimer(msg as __Msg_Timer)
-    }
-
-    private fun __dispatchTimer(m: __Msg_Timer) {
-        when (m) {
-            is __Msg_Timer.After -> handler.after(m.wait, m.done)
-        }
+        __dispatch_DefaultTimer_Timer(handler, msg as __Msg_Timer)
     }
 
     override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
@@ -386,21 +380,9 @@ class __Actor_ManualTime(private val handler: ManualTime) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
         when (msg) {
-            is __Msg_Timer -> __dispatchTimer(msg)
-            is __Msg_TimerCtl -> __dispatchTimerCtl(msg)
+            is __Msg_Timer -> __dispatch_ManualTime_Timer(handler, msg)
+            is __Msg_TimerCtl -> __dispatch_ManualTime_TimerCtl(handler, msg)
             else -> error("a message of one of this actor's protocols")
-        }
-    }
-
-    private fun __dispatchTimer(m: __Msg_Timer) {
-        when (m) {
-            is __Msg_Timer.After -> handler.after(m.wait, m.done)
-        }
-    }
-
-    private fun __dispatchTimerCtl(m: __Msg_TimerCtl) {
-        when (m) {
-            is __Msg_TimerCtl.Advance -> handler.advance(m.by)
         }
     }
 
@@ -549,11 +531,6 @@ object __Codec___Msg_Timer : salvo.WireCodec<__Msg_Timer> {
 const val __PROTO_Timer: String = "d0432e460a159011"
 
 
-sealed class __Cont_DefaultTimer {
-    class After(val wait: Duration) : __Cont_DefaultTimer()
-}
-
-
 sealed class __Msg_TimerCtl {
     class Advance(val by: Duration) : __Msg_TimerCtl()
 }
@@ -573,8 +550,48 @@ object __Codec___Msg_TimerCtl : salvo.WireCodec<__Msg_TimerCtl> {
 const val __PROTO_TimerCtl: String = "93f92d20477305ad"
 
 
+sealed class __Cont_DefaultTimer {
+    class After(val wait: Duration) : __Cont_DefaultTimer()
+}
+
+
 sealed class __Cont_ManualTime {
     class After(val wait: Duration) : __Cont_ManualTime()
     class Advance() : __Cont_ManualTime()
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun __dispatch_DefaultTimer_Timer(__handler: DefaultTimer, __msg: __Msg_Timer) {
+    when {
+        (__msg is __Msg_Timer.After) -> {
+            val wait = (__msg as __Msg_Timer.After).wait
+            val done = (__msg as __Msg_Timer.After).done
+            __handler.after(wait, done)
+        }
+        else -> throw IllegalStateException("salvo: unreachable arm")
+    }
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun __dispatch_ManualTime_Timer(__handler: ManualTime, __msg: __Msg_Timer) {
+    when {
+        (__msg is __Msg_Timer.After) -> {
+            val wait = (__msg as __Msg_Timer.After).wait
+            val done = (__msg as __Msg_Timer.After).done
+            __handler.after(wait, done)
+        }
+        else -> throw IllegalStateException("salvo: unreachable arm")
+    }
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun __dispatch_ManualTime_TimerCtl(__handler: ManualTime, __msg: __Msg_TimerCtl) {
+    when {
+        (__msg is __Msg_TimerCtl.Advance) -> {
+            val by = (__msg as __Msg_TimerCtl.Advance).by
+            __handler.advance(by)
+        }
+        else -> throw IllegalStateException("salvo: unreachable arm")
+    }
 }
 

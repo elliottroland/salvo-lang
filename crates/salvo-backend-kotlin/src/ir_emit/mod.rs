@@ -370,8 +370,22 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let plain = salvo_core::typekey::plain(key);
         match self.s.symbols.key_modules.get(key) {
             Some(m) if **m != self.module.path => format!("{}.{plain}", kotlin_package(m)),
-            _ => plain.to_string(),
+            Some(_) => plain.to_string(),
+            // [actor-msg] A generated enum is keyed by its module.
+            None => match self.generated_enum(key) {
+                Some((_, m)) if m != self.module.path => format!("{}.{plain}", kotlin_package(&m)),
+                _ => plain.to_string(),
+            },
         }
+    }
+
+    /// [actor-msg] The generated enum a type key names, and its module.
+    fn generated_enum(&self, key: &str) -> Option<(&'p salvo_ir::EnumDecl, salvo_core::ModulePath)> {
+        let module = salvo_core::typekey::module_of(key)?;
+        self.s.ir.modules.iter().filter(|m| m.path.0.join(".") == module).flat_map(|m| &m.decls).find_map(|d| match d {
+            Decl::Enum(e) if salvo_ir::enum_key(&e.name, &e.id.module) == key => Some((e, e.id.module.clone())),
+            _ => None,
+        })
     }
 
     // ------------------------------------------------------------- types --
@@ -914,6 +928,19 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     fn stmt(&mut self, s: &Stmt, indent: usize) {
         let pad = "    ".repeat(indent);
         match s {
+            Stmt::Unpack { locals, from, from_ty, variant, .. } => {
+                // [actor-dispatch] The payload of the variant just tested.
+                let msg = kt_local(&from.root);
+                if let Ty::Named { name, .. } = from_ty.strip_quals() {
+                    if let Some((e, _)) = self.generated_enum(name) {
+                        let path = self.type_path(name);
+                        let v = &e.variants[*variant];
+                        for ((l, _), (field, _)) in locals.iter().zip(&v.fields) {
+                            self.out.push_str(&format!("{pad}val {} = ({msg} as {path}.{}).{}\n", kt_local(l), v.name, kt_local(&Local(field.clone()))));
+                        }
+                    }
+                }
+            }
             Stmt::Loop { body, .. } => {
                 self.out.push_str(&format!("{pad}while (true) {{\n"));
                 self.block_stmts(body, indent + 1);
@@ -1115,6 +1142,16 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 code
             }
             ExprKind::Call { target, type_args, args } => self.call(e, target, type_args, args, indent),
+            // [actor-dispatch] A member of a handler instance, called directly.
+            ExprKind::HandlerCall { instance, member, args } => {
+                let inst = self.expr(instance, indent);
+                let name = match member {
+                    salvo_ir::HandlerMember::Face(m) => self.member_name(m),
+                    salvo_ir::HandlerMember::Own(n) => kt_ident(n),
+                };
+                let a = self.exprs(args, indent);
+                format!("{inst}.{name}({})", a.join(", "))
+            }
             ExprKind::MemberCall { instance, member, args, .. } => {
                 let inst = self.expr(instance, indent);
                 let name = self.member_name(member);
@@ -1778,6 +1815,13 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     }
 
     fn test_code(&mut self, subject: &str, subj_ty: &Ty, test: &ArmTest) -> String {
+        // [actor-dispatch] A generated enum: its variant.
+        if let (Ty::Named { name, .. }, ArmTest::Arm(i)) = (subj_ty.strip_quals(), test) {
+            if let Some((e, _)) = self.generated_enum(name) {
+                let path = self.type_path(name);
+                return format!("({subject} is {path}.{})", e.variants[*i].name);
+            }
+        }
         let n = subj_ty.strip_quals().value_arms().len();
         match test {
             ArmTest::None => format!("({subject} == null)"),
@@ -1975,7 +2019,7 @@ fn assigned_locals(b: &Block) -> HashSet<Local> {
                     expr(a, out);
                 }
             }
-            ExprKind::MemberCall { instance, args, .. } => {
+            ExprKind::MemberCall { instance, args, .. } | ExprKind::HandlerCall { instance, args, .. } => {
                 expr(instance, out);
                 for a in args {
                     expr(a, out);

@@ -14517,13 +14517,13 @@ fn several_faces_lower_to_one_actor_with_a_dispatcher_each_kotlin() {
         "the class must implement both interfaces:\n{text}"
     );
     assert!(
-        text.contains("private fun __dispatchTimer(m: __Msg_Timer)")
-            && text.contains("private fun __dispatchTimerCtl(m: __Msg_TimerCtl)"),
+        text.contains("fun __dispatch_ManualTime_Timer(__handler: ManualTime, __msg: __Msg_Timer)")
+            && text.contains("fun __dispatch_ManualTime_TimerCtl(__handler: ManualTime, __msg: __Msg_TimerCtl)"),
         "one dispatcher per protocol is missing:\n{text}"
     );
     assert!(
-        text.contains("is __Msg_Timer -> __dispatchTimer(msg)")
-            && text.contains("is __Msg_TimerCtl -> __dispatchTimerCtl(msg)"),
+        text.contains("is __Msg_Timer -> __dispatch_ManualTime_Timer(handler, msg)")
+            && text.contains("is __Msg_TimerCtl -> __dispatch_ManualTime_TimerCtl(handler, msg)"),
         "the delivery must ask which protocol the message is:\n{text}"
     );
     assert!(

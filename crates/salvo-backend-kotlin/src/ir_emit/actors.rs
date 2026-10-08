@@ -320,37 +320,32 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             }
         }
         let has_priv = Self::has_private(h, faces);
-        // Dispatch: one fn per face, one for the private messages.
-        let mut dispatchers = String::new();
+        // Dispatch: the functions the builder generated, one per face and one
+        // for the private messages [actor-dispatch].
+        let dispatcher = |this: &mut Self, which: &dyn Fn(&salvo_ir::EnumKind) -> bool| -> Option<String> {
+            let id = h.dispatch.iter().find(|d| this.s.ir.modules.iter().flat_map(|m| &m.decls).any(|x| matches!(x, Decl::Enum(e) if e.id == d.message && which(&e.kind))))?.func.clone();
+            Some(this.fn_name(&id))
+        };
         let mut handle_arms = String::new();
+        let mut only: Option<(String, String)> = None;
         for face in faces {
             let msg = self.msg_class(face);
-            let fname = format!("__dispatch{}", face.name.replace('.', "_"));
-            let mut arms = String::new();
-            for fm in face.members.iter().filter(|m| m.send) {
-                let names: Vec<String> = fm.params.iter().map(|p| format!("m.{}", kt_local(&p.local))).collect();
-                arms.push_str(&format!("            is {msg}.{} -> handler.{}({})\n", variant(&fm.emitted_name), kt_ident(&fm.emitted_name), names.join(", ")));
-            }
-            dispatchers.push_str(&format!("\n    private fun {fname}(m: {msg}) {{\n        when (m) {{\n{arms}        }}\n    }}\n"));
-            handle_arms.push_str(&format!("            is {msg} -> {fname}(msg)\n"));
+            let Some(f) = dispatcher(self, &|k| matches!(k, salvo_ir::EnumKind::Message { interface } if *interface == face.id)) else {
+                self.error(format!("handler `{}` has no dispatcher for `{}`", h.name, face.name));
+                continue;
+            };
+            handle_arms.push_str(&format!("            is {msg} -> {f}(handler, msg)\n"));
+            only = Some((msg, f));
         }
         if has_priv {
-            let mut arms = String::new();
-            if h.init.is_some() {
-                arms.push_str(&format!("            is {priv_cls}.Init -> handler.init()\n"));
+            if let Some(f) = dispatcher(self, &|k| matches!(k, salvo_ir::EnumKind::Private { handler } if *handler == h.id)) {
+                handle_arms.push_str(&format!("            is {priv_cls} -> {f}(handler, msg)\n"));
             }
-            for m in &privs {
-                let names: Vec<String> = Self::declared_params(m).iter().map(|p| format!("m.{}", kt_local(&p.local))).collect();
-                arms.push_str(&format!("            is {priv_cls}.{} -> handler.{}({})\n", variant(&m.name), kt_ident(&m.name), names.join(", ")));
-            }
-            dispatchers.push_str(&format!("\n    private fun __dispatchPriv(m: {priv_cls}) {{\n        when (m) {{\n{arms}        }}\n    }}\n"));
-            handle_arms.push_str(&format!("            is {priv_cls} -> __dispatchPriv(msg)\n"));
         }
-        let handle = if faces.len() == 1 && !has_priv {
-            let msg = self.msg_class(faces[0]);
-            format!("        __dispatch{}(msg as {msg})\n", faces[0].name.replace('.', "_"))
-        } else {
-            format!("        when (msg) {{\n{handle_arms}            else -> error(\"a message of one of this actor's protocols\")\n        }}\n")
+        let dispatchers = String::new();
+        let handle = match (&only, faces.len() == 1 && !has_priv) {
+            (Some((msg, f)), true) => format!("        {f}(handler, msg as {msg})\n"),
+            _ => format!("        when (msg) {{\n{handle_arms}            else -> error(\"a message of one of this actor's protocols\")\n        }}\n"),
         };
         let mut resume = String::new();
         let mut decode = String::new();

@@ -183,19 +183,13 @@ impl __Actor_Counting {
     pub fn new(handler: Counting) -> Self {
         Self { handler }
     }
-    fn __dispatch(&mut self, msg: crate::__Msg_Counter) {
-        match msg {
-            crate::__Msg_Counter::Bump(n) => crate::__Stateful_Counter::bump(&mut self.handler, n),
-            crate::__Msg_Counter::Total(out) => crate::__Stateful_Counter::total(&mut self.handler, out),
-        }
-    }
 }
 
 impl crate::scheduler::SalvoActor for __Actor_Counting {
     fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {
         self.handler.__addr = Some(_ctx.addr);
         let msg = *msg.downcast::<crate::__Msg_Counter>().expect("message of this protocol");
-        self.__dispatch(msg);
+        crate::__dispatch_Counting_Counter(&mut self.handler, msg);
     }
 
     fn resume(&mut self, _ctx: &crate::scheduler::SalvoCtx, slot: u64, value: crate::scheduler::SalvoMsg) {
@@ -204,8 +198,8 @@ impl crate::scheduler::SalvoActor for __Actor_Counting {
             return; // a reply whose continuation is gone: nothing to run
         };
         match __cont {
-            __Cont_Counting::Bump => self.__dispatch(crate::__Msg_Counter::Bump(*value.downcast::<i32>().expect("the awaited answer"))),
-            __Cont_Counting::Total => self.__dispatch(crate::__Msg_Counter::Total(*value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
+            __Cont_Counting::Bump => crate::__dispatch_Counting_Counter(&mut self.handler, crate::__Msg_Counter::Bump(*value.downcast::<i32>().expect("the awaited answer"))),
+            __Cont_Counting::Total => crate::__dispatch_Counting_Counter(&mut self.handler, crate::__Msg_Counter::Total(*value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
         }
     }
 
@@ -334,19 +328,13 @@ impl __Actor_Bookkeeping {
     pub fn new(handler: Bookkeeping) -> Self {
         Self { handler }
     }
-    fn __dispatch(&mut self, msg: crate::__Msg_Ledger) {
-        match msg {
-            crate::__Msg_Ledger::Report(label, out) => crate::__Stateful_Ledger::report(&mut self.handler, label, out),
-            crate::__Msg_Ledger::Reported(label, out, total) => crate::__Stateful_Ledger::reported(&mut self.handler, label, out, total),
-        }
-    }
 }
 
 impl crate::scheduler::SalvoActor for __Actor_Bookkeeping {
     fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {
         self.handler.__addr = Some(_ctx.addr);
         let msg = *msg.downcast::<crate::__Msg_Ledger>().expect("message of this protocol");
-        self.__dispatch(msg);
+        crate::__dispatch_Bookkeeping_Ledger(&mut self.handler, msg);
     }
 
     fn resume(&mut self, _ctx: &crate::scheduler::SalvoCtx, slot: u64, value: crate::scheduler::SalvoMsg) {
@@ -355,8 +343,8 @@ impl crate::scheduler::SalvoActor for __Actor_Bookkeeping {
             return; // a reply whose continuation is gone: nothing to run
         };
         match __cont {
-            __Cont_Bookkeeping::Report(label) => self.__dispatch(crate::__Msg_Ledger::Report(label, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
-            __Cont_Bookkeeping::Reported(label, out) => self.__dispatch(crate::__Msg_Ledger::Reported(label, out, *value.downcast::<i32>().expect("the awaited answer"))),
+            __Cont_Bookkeeping::Report(label) => crate::__dispatch_Bookkeeping_Ledger(&mut self.handler, crate::__Msg_Ledger::Report(label, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
+            __Cont_Bookkeeping::Reported(label, out) => crate::__dispatch_Bookkeeping_Ledger(&mut self.handler, crate::__Msg_Ledger::Reported(label, out, *value.downcast::<i32>().expect("the awaited answer"))),
         }
     }
 
@@ -510,20 +498,13 @@ impl __Actor_Desking {
     pub fn new(handler: Desking) -> Self {
         Self { handler }
     }
-    fn __dispatch(&mut self, msg: crate::__Msg_Desk) {
-        match msg {
-            crate::__Msg_Desk::Ticket(out) => crate::__Stateful_Desk::ticket(&mut self.handler, out),
-            crate::__Msg_Desk::Serve(name) => crate::__Stateful_Desk::serve(&mut self.handler, name),
-            crate::__Msg_Desk::CloseUp(reason) => crate::__Stateful_Desk::close_up(&mut self.handler, reason),
-        }
-    }
 }
 
 impl crate::scheduler::SalvoActor for __Actor_Desking {
     fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {
         self.handler.__addr = Some(_ctx.addr);
         let msg = *msg.downcast::<crate::__Msg_Desk>().expect("message of this protocol");
-        self.__dispatch(msg);
+        crate::__dispatch_Desking_Desk(&mut self.handler, msg);
     }
 
     fn resume(&mut self, _ctx: &crate::scheduler::SalvoCtx, slot: u64, value: crate::scheduler::SalvoMsg) {
@@ -532,9 +513,9 @@ impl crate::scheduler::SalvoActor for __Actor_Desking {
             return; // a reply whose continuation is gone: nothing to run
         };
         match __cont {
-            __Cont_Desking::Ticket => self.__dispatch(crate::__Msg_Desk::Ticket(*value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
-            __Cont_Desking::Serve => self.__dispatch(crate::__Msg_Desk::Serve(*value.downcast::<String>().expect("the awaited answer"))),
-            __Cont_Desking::CloseUp => self.__dispatch(crate::__Msg_Desk::CloseUp(*value.downcast::<String>().expect("the awaited answer"))),
+            __Cont_Desking::Ticket => crate::__dispatch_Desking_Desk(&mut self.handler, crate::__Msg_Desk::Ticket(*value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
+            __Cont_Desking::Serve => crate::__dispatch_Desking_Desk(&mut self.handler, crate::__Msg_Desk::Serve(*value.downcast::<String>().expect("the awaited answer"))),
+            __Cont_Desking::CloseUp => crate::__dispatch_Desking_Desk(&mut self.handler, crate::__Msg_Desk::CloseUp(*value.downcast::<String>().expect("the awaited answer"))),
         }
     }
 
@@ -656,18 +637,13 @@ impl __Actor_Breaking {
     pub fn new(handler: Breaking) -> Self {
         Self { handler }
     }
-    fn __dispatch(&mut self, msg: crate::__Msg_Fragile) {
-        match msg {
-            crate::__Msg_Fragile::Crash => crate::__Stateless_Fragile::crash(&mut self.handler),
-        }
-    }
 }
 
 impl crate::scheduler::SalvoActor for __Actor_Breaking {
     fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {
         self.handler.__addr = Some(_ctx.addr);
         let msg = *msg.downcast::<crate::__Msg_Fragile>().expect("message of this protocol");
-        self.__dispatch(msg);
+        crate::__dispatch_Breaking_Fragile(&mut self.handler, msg);
     }
 
     fn resume(&mut self, _ctx: &crate::scheduler::SalvoCtx, _slot: u64, _value: crate::scheduler::SalvoMsg) {
@@ -801,11 +777,6 @@ impl crate::wire::__Wire for __Msg_Counter {
 /// [protocol-hash] The canonical hash of `Counter`.
 pub const __PROTO_Counter: &str = "f39d50f9ee8f9923";
 
-pub enum __Cont_Counting {
-    Bump,
-    Total,
-}
-
 pub enum __Msg_Ledger {
     Report(String, crate::scheduler::SalvoReply),
     Reported(String, crate::scheduler::SalvoReply, i32),
@@ -838,11 +809,6 @@ impl crate::wire::__Wire for __Msg_Ledger {
 
 /// [protocol-hash] The canonical hash of `Ledger`.
 pub const __PROTO_Ledger: &str = "4a99401c8b66babf";
-
-pub enum __Cont_Bookkeeping {
-    Report(String),
-    Reported(String, crate::scheduler::SalvoReply),
-}
 
 pub enum __Msg_Desk {
     Ticket(crate::scheduler::SalvoReply),
@@ -880,12 +846,6 @@ impl crate::wire::__Wire for __Msg_Desk {
 /// [protocol-hash] The canonical hash of `Desk`.
 pub const __PROTO_Desk: &str = "cb180ef2d1bfd753";
 
-pub enum __Cont_Desking {
-    Ticket,
-    Serve,
-    CloseUp,
-}
-
 pub enum __Msg_Fragile {
     Crash,
 }
@@ -906,3 +866,59 @@ impl crate::wire::__Wire for __Msg_Fragile {
 
 /// [protocol-hash] The canonical hash of `Fragile`.
 pub const __PROTO_Fragile: &str = "a8c912bc262644a0";
+
+pub enum __Cont_Counting {
+    Bump,
+    Total,
+}
+
+pub enum __Cont_Bookkeeping {
+    Report(String),
+    Reported(String, crate::scheduler::SalvoReply),
+}
+
+pub enum __Cont_Desking {
+    Ticket,
+    Serve,
+    CloseUp,
+}
+
+pub fn __dispatch_Counting_Counter(__handler: &mut crate::Counting, mut __msg: crate::__Msg_Counter) {
+    if matches!(__msg, crate::__Msg_Counter::Bump(..)) {
+        let crate::__Msg_Counter::Bump(n) = __msg else { unreachable!() };
+        crate::__Stateful_Counter::bump(&mut *__handler, n);
+    } else {
+        let crate::__Msg_Counter::Total(out) = __msg else { unreachable!() };
+        crate::__Stateful_Counter::total(&mut *__handler, out);
+    };
+}
+
+pub fn __dispatch_Bookkeeping_Ledger(__handler: &mut crate::Bookkeeping, mut __msg: crate::__Msg_Ledger) {
+    if matches!(__msg, crate::__Msg_Ledger::Report(..)) {
+        let crate::__Msg_Ledger::Report(label, out) = __msg else { unreachable!() };
+        crate::__Stateful_Ledger::report(&mut *__handler, label, out);
+    } else {
+        let crate::__Msg_Ledger::Reported(label, out, total) = __msg else { unreachable!() };
+        crate::__Stateful_Ledger::reported(&mut *__handler, label, out, total);
+    };
+}
+
+pub fn __dispatch_Desking_Desk(__handler: &mut crate::Desking, mut __msg: crate::__Msg_Desk) {
+    if matches!(__msg, crate::__Msg_Desk::Ticket(..)) {
+        let crate::__Msg_Desk::Ticket(out) = __msg else { unreachable!() };
+        crate::__Stateful_Desk::ticket(&mut *__handler, out);
+    } else if matches!(__msg, crate::__Msg_Desk::Serve(..)) {
+        let crate::__Msg_Desk::Serve(name) = __msg else { unreachable!() };
+        crate::__Stateful_Desk::serve(&mut *__handler, name);
+    } else {
+        let crate::__Msg_Desk::CloseUp(reason) = __msg else { unreachable!() };
+        crate::__Stateful_Desk::close_up(&mut *__handler, reason);
+    };
+}
+
+pub fn __dispatch_Breaking_Fragile(__handler: &mut crate::Breaking, mut __msg: crate::__Msg_Fragile) {
+    if matches!(__msg, crate::__Msg_Fragile::Crash) {
+        let crate::__Msg_Fragile::Crash = __msg else { unreachable!() };
+        crate::__Stateless_Fragile::crash(&mut *__handler);
+    };
+}

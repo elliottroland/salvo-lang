@@ -321,6 +321,12 @@ impl<'a> Dumper<'a> {
                 let _ = write!(self.out, "bind#{} let {}: {ty} = ", id.0, local.0);
                 self.expr(value, indent);
             }
+            Stmt::Unpack { id, locals, from, from_ty: _, variant } => {
+                let ls: Vec<String> = locals.iter().map(|(l, t)| format!("{}: {t}", l.0)).collect();
+                let _ = write!(self.out, "unpack#{} ({}) = ", id.0, ls.join(", "));
+                self.place(from, indent);
+                let _ = write!(self.out, " as variant {variant}");
+            }
             Stmt::Alias { id, local, ty, place } => {
                 let _ = write!(self.out, "alias#{} {}: {ty} = ", id.0, local.0);
                 self.place(place, indent);
@@ -421,6 +427,23 @@ impl<'a> Dumper<'a> {
                 self.fn_ref(target);
                 self.type_args(type_args);
                 self.args(args, indent);
+            }
+            ExprKind::HandlerCall { instance, member, args } => {
+                self.out.push_str("handler_call ");
+                match member {
+                    HandlerMember::Face(m) => {
+                        let n = self.name_of(&m.interface);
+                        let _ = write!(self.out, "{n}#{}", m.index);
+                    }
+                    HandlerMember::Own(n) => self.out.push_str(n),
+                }
+                self.out.push('(');
+                self.expr(instance, indent);
+                for a in args {
+                    self.out.push_str(", ");
+                    self.expr(a, indent);
+                }
+                self.out.push(')');
             }
             ExprKind::MemberCall { instance, member, type_args, args } => {
                 self.out.push_str("member ");

@@ -5,6 +5,7 @@ pub mod dump;
 pub mod ir;
 
 pub use build::build_program;
+pub use build::actors::enum_key;
 pub use ir::*;
 
 /// Checks `program` the way a build does, builds the IR of its modules and

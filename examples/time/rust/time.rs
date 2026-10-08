@@ -457,18 +457,13 @@ impl __Actor_DefaultTimer {
     pub fn new(handler: DefaultTimer) -> Self {
         Self { handler }
     }
-    fn __dispatch(&mut self, msg: crate::time::__Msg_Timer) {
-        match msg {
-            crate::time::__Msg_Timer::After(wait, done) => crate::time::__Stateless_Timer::after(&mut self.handler, wait, done),
-        }
-    }
 }
 
 impl crate::scheduler::SalvoActor for __Actor_DefaultTimer {
     fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {
         self.handler.__addr = Some(_ctx.addr);
         let msg = *msg.downcast::<crate::time::__Msg_Timer>().expect("message of this protocol");
-        self.__dispatch(msg);
+        crate::time::__dispatch_DefaultTimer_Timer(&mut self.handler, msg);
     }
 
     fn resume(&mut self, _ctx: &crate::scheduler::SalvoCtx, slot: u64, value: crate::scheduler::SalvoMsg) {
@@ -477,7 +472,7 @@ impl crate::scheduler::SalvoActor for __Actor_DefaultTimer {
             return; // a reply whose continuation is gone: nothing to run
         };
         match __cont {
-            __Cont_DefaultTimer::After(wait) => self.__dispatch(crate::time::__Msg_Timer::After(wait, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
+            __Cont_DefaultTimer::After(wait) => crate::time::__dispatch_DefaultTimer_Timer(&mut self.handler, crate::time::__Msg_Timer::After(wait, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
         }
     }
 
@@ -630,27 +625,17 @@ impl __Actor_ManualTime {
     pub fn new(handler: ManualTime) -> Self {
         Self { handler }
     }
-    fn __dispatch_Timer(&mut self, msg: crate::time::__Msg_Timer) {
-        match msg {
-            crate::time::__Msg_Timer::After(wait, done) => crate::time::__Stateful_Timer::after(&mut self.handler, wait, done),
-        }
-    }
-    fn __dispatch_TimerCtl(&mut self, msg: crate::time::__Msg_TimerCtl) {
-        match msg {
-            crate::time::__Msg_TimerCtl::Advance(by) => crate::time::__Stateful_TimerCtl::advance(&mut self.handler, by),
-        }
-    }
 }
 
 impl crate::scheduler::SalvoActor for __Actor_ManualTime {
     fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {
         self.handler.__addr = Some(_ctx.addr);
         let msg = match msg.downcast::<crate::time::__Msg_Timer>() {
-            Ok(__m) => return self.__dispatch_Timer(*__m),
+            Ok(__m) => return crate::time::__dispatch_ManualTime_Timer(&mut self.handler, *__m),
             Err(__m) => __m,
         };
         let msg = match msg.downcast::<crate::time::__Msg_TimerCtl>() {
-            Ok(__m) => return self.__dispatch_TimerCtl(*__m),
+            Ok(__m) => return crate::time::__dispatch_ManualTime_TimerCtl(&mut self.handler, *__m),
             Err(__m) => __m,
         };
         let _ = msg;
@@ -663,8 +648,8 @@ impl crate::scheduler::SalvoActor for __Actor_ManualTime {
             return; // a reply whose continuation is gone: nothing to run
         };
         match __cont {
-            __Cont_ManualTime::After(wait) => self.__dispatch_Timer(crate::time::__Msg_Timer::After(wait, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
-            __Cont_ManualTime::Advance => self.__dispatch_TimerCtl(crate::time::__Msg_TimerCtl::Advance(*value.downcast::<crate::time::Duration>().expect("the awaited answer"))),
+            __Cont_ManualTime::After(wait) => crate::time::__dispatch_ManualTime_Timer(&mut self.handler, crate::time::__Msg_Timer::After(wait, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
+            __Cont_ManualTime::Advance => crate::time::__dispatch_ManualTime_TimerCtl(&mut self.handler, crate::time::__Msg_TimerCtl::Advance(*value.downcast::<crate::time::Duration>().expect("the awaited answer"))),
         }
     }
 
@@ -804,10 +789,6 @@ impl crate::wire::__Wire for __Msg_Timer {
 /// [protocol-hash] The canonical hash of `Timer`.
 pub const __PROTO_Timer: &str = "d0432e460a159011";
 
-pub enum __Cont_DefaultTimer {
-    After(crate::time::Duration),
-}
-
 pub enum __Msg_TimerCtl {
     Advance(crate::time::Duration),
 }
@@ -832,7 +813,32 @@ impl crate::wire::__Wire for __Msg_TimerCtl {
 /// [protocol-hash] The canonical hash of `TimerCtl`.
 pub const __PROTO_TimerCtl: &str = "93f92d20477305ad";
 
+pub enum __Cont_DefaultTimer {
+    After(crate::time::Duration),
+}
+
 pub enum __Cont_ManualTime {
     After(crate::time::Duration),
     Advance,
+}
+
+pub fn __dispatch_DefaultTimer_Timer(__handler: &mut crate::time::DefaultTimer, mut __msg: crate::time::__Msg_Timer) {
+    if matches!(__msg, crate::time::__Msg_Timer::After(..)) {
+        let crate::time::__Msg_Timer::After(wait, done) = __msg else { unreachable!() };
+        crate::time::__Stateless_Timer::after(&mut *__handler, wait, done);
+    };
+}
+
+pub fn __dispatch_ManualTime_Timer(__handler: &mut crate::time::ManualTime, mut __msg: crate::time::__Msg_Timer) {
+    if matches!(__msg, crate::time::__Msg_Timer::After(..)) {
+        let crate::time::__Msg_Timer::After(wait, done) = __msg else { unreachable!() };
+        crate::time::__Stateful_Timer::after(&mut *__handler, wait, done);
+    };
+}
+
+pub fn __dispatch_ManualTime_TimerCtl(__handler: &mut crate::time::ManualTime, mut __msg: crate::time::__Msg_TimerCtl) {
+    if matches!(__msg, crate::time::__Msg_TimerCtl::Advance(..)) {
+        let crate::time::__Msg_TimerCtl::Advance(by) = __msg else { unreachable!() };
+        crate::time::__Stateful_TimerCtl::advance(&mut *__handler, by);
+    };
 }

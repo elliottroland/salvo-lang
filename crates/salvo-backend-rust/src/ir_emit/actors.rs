@@ -11,18 +11,6 @@ use super::body::rs_local;
 use super::{is_copy_ty, ModuleEmitter};
 use crate::emit::{rs_ident, stateful_trait_name, stateless_trait_name};
 
-/// A dispatched argument, as the member's parameter takes it.
-fn by_mode(p: &salvo_ir::Param, name: &str) -> String {
-    if is_copy_ty(&p.ty) || super::is_proj(&p.ty) {
-        return name.to_string();
-    }
-    match p.mode {
-        salvo_ir::PassMode::Moved => name.to_string(),
-        salvo_ir::PassMode::Lent => format!("&{name}"),
-        salvo_ir::PassMode::LentMut => format!("&mut {name}"),
-    }
-}
-
 pub(crate) fn variant(member: &str) -> String {
     salvo_backend::emit_util::msg_variant_name(member)
 }
@@ -208,7 +196,15 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         (fields, inits)
     }
 
-    /// [rs-actor] `__Cont_H`, `__Priv_H` and `__Actor_H` beside an actor impl.
+    /// [actor-dispatch] The path of the generated function delivering the
+    /// message enum `which` selects to `h`'s members.
+    fn dispatch_fn(&mut self, h: &ImplDecl, which: impl Fn(&salvo_ir::EnumKind) -> bool) -> Option<String> {
+        let id = h.dispatch.iter().find(|d| matches!(self.s.decls.get(&d.message), Some(Decl::Enum(e)) if which(&e.kind)))?.func.clone();
+        Some(self.fn_path(&id))
+    }
+
+    /// [rs-actor] `__Actor_H` beside an actor impl (its enums and dispatch
+    /// functions are the builder's).
     pub fn actor_body(&mut self, h: &ImplDecl, faces: &[&'p InterfaceDecl]) -> String {
         let hn = rs_ident(&h.name);
         let privs = Self::private_sends(h, faces);
@@ -220,51 +216,29 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let actor = format!("__Actor_{hn}");
         out.push_str(&format!("\npub struct {actor} {{\n    handler: {hn},\n}}\n\nimpl {actor} {{\n    pub fn new(handler: {hn}) -> Self {{\n        Self {{ handler }}\n    }}\n"));
         let single = faces.len() == 1 && !has_priv;
-        let stateful = h.stateful;
-        // One dispatcher per face, one for the private messages.
-        let mut dispatch_names = Vec::new();
+        // One dispatcher per face, one for the private messages: the
+        // functions the builder generated [actor-dispatch].
+        let mut dispatch_names: Vec<(String, String)> = Vec::new();
         for face in faces {
             let msg = self.path_in(&face.id.module, &format!("__Msg_{}", rs_ident(&face.name)));
-            let tr = self.path_in(&face.id.module, &if stateful { stateful_trait_name(&face.name) } else { stateless_trait_name(&face.name) });
-            let dname = if single { "__dispatch".to_string() } else { format!("__dispatch_{}", rs_ident(&face.name)) };
-            out.push_str(&format!("    fn {dname}(&mut self, msg: {msg}) {{\n        match msg {{\n"));
-            for fm in face.members.iter().filter(|m| m.send) {
-                let names: Vec<String> = fm.params.iter().map(|p| rs_ident(&p.local.0)).collect();
-                let bind = if names.is_empty() { String::new() } else { format!("({})", names.join(", ")) };
-                let mut args = vec!["&mut self.handler".to_string()];
-                args.extend(names);
-                out.push_str(&format!("            {msg}::{}{bind} => {tr}::{}({}),\n", variant(&fm.emitted_name), rs_ident(&fm.emitted_name), args.join(", ")));
+            match self.dispatch_fn(h, |k| matches!(k, salvo_ir::EnumKind::Message { interface } if *interface == face.id)) {
+                Some(f) => dispatch_names.push((msg, f)),
+                None => self.error(format!("handler `{}` has no dispatcher for `{}`", h.name, face.name)),
             }
-            out.push_str("        }\n    }\n");
-            dispatch_names.push((msg, dname));
         }
-        if has_priv {
-            out.push_str(&format!("    fn __dispatch_priv(&mut self, msg: {priv_enum}) {{\n        match msg {{\n"));
-            if h.init.is_some() {
-                out.push_str(&format!("            {priv_enum}::Init => self.handler.init(),\n"));
-            }
-            for m in &privs {
-                let ps = Self::declared_params(m);
-                let names: Vec<String> = ps.iter().map(|p| rs_ident(&p.local.0)).collect();
-                let bind = if names.is_empty() { String::new() } else { format!("({})", names.join(", ")) };
-                let args: Vec<String> = names.clone();
-                let _ = by_mode;
-                out.push_str(&format!("            {priv_enum}::{}{bind} => self.handler.{}({}),\n", variant(&m.name), rs_ident(&m.name), args.join(", ")));
-            }
-            out.push_str("        }\n    }\n");
-        }
+        let priv_fn = if has_priv { self.dispatch_fn(h, |k| matches!(k, salvo_ir::EnumKind::Private { handler } if *handler == h.id)) } else { None };
         out.push_str("}\n");
         // handle
         let mut handle = String::new();
         if single {
             let (msg, d) = &dispatch_names[0];
-            handle.push_str(&format!("        let msg = *msg.downcast::<{msg}>().expect(\"message of this protocol\");\n        self.{d}(msg);\n"));
+            handle.push_str(&format!("        let msg = *msg.downcast::<{msg}>().expect(\"message of this protocol\");\n        {d}(&mut self.handler, msg);\n"));
         } else {
             for (msg, d) in &dispatch_names {
-                handle.push_str(&format!("        let msg = match msg.downcast::<{msg}>() {{\n            Ok(__m) => return self.{d}(*__m),\n            Err(__m) => __m,\n        }};\n"));
+                handle.push_str(&format!("        let msg = match msg.downcast::<{msg}>() {{\n            Ok(__m) => return {d}(&mut self.handler, *__m),\n            Err(__m) => __m,\n        }};\n"));
             }
-            if has_priv {
-                handle.push_str(&format!("        let msg = match msg.downcast::<{priv_enum}>() {{\n            Ok(__m) => return self.__dispatch_priv(*__m),\n            Err(__m) => __m,\n        }};\n"));
+            if let Some(pf) = &priv_fn {
+                handle.push_str(&format!("        let msg = match msg.downcast::<{priv_enum}>() {{\n            Ok(__m) => return {pf}(&mut self.handler, *__m),\n            Err(__m) => __m,\n        }};\n"));
             }
             handle.push_str("        let _ = msg;\n        unreachable!(\"a message of one of this actor's protocols\")\n");
         }
@@ -290,9 +264,9 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     Some(face) => {
                         let fm = face.members.iter().find(|fm| fm.name == m.name).unwrap();
                         let (msg, d) = dispatch_names.iter().find(|(msg, _)| msg.ends_with(&format!("__Msg_{}", rs_ident(&face.name)))).cloned().unwrap();
-                        format!("self.{d}({msg}::{}({}))", variant(&fm.emitted_name), args.join(", "))
+                        format!("{d}(&mut self.handler, {msg}::{}({}))", variant(&fm.emitted_name), args.join(", "))
                     }
-                    None => format!("self.__dispatch_priv({priv_enum}::{}({}))", variant(&m.name), args.join(", ")),
+                    None => format!("{}(&mut self.handler, {priv_enum}::{}({}))", priv_fn.clone().unwrap_or_default(), variant(&m.name), args.join(", ")),
                 };
                 resume.push_str(&format!("            {cont}::{}{bind} => {call},\n", variant(&m.name)));
                 let dec = self.reply_decoder(&last.ty);

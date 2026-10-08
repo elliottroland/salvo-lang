@@ -100,13 +100,7 @@ class Sequencing(private val who: String) : Sequencer {
 class __Actor_Sequencing(private val handler: Sequencing) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
-        __dispatchSequencer(msg as __Msg_Sequencer)
-    }
-
-    private fun __dispatchSequencer(m: __Msg_Sequencer) {
-        when (m) {
-            is __Msg_Sequencer.Next -> handler.next(m.out)
-        }
+        __dispatch_Sequencing_Sequencer(handler, msg as __Msg_Sequencer)
     }
 
     override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
@@ -150,13 +144,7 @@ class Stocking(private val shard: String) : Inventory {
 class __Actor_Stocking(private val handler: Stocking) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
-        __dispatchInventory(msg as __Msg_Inventory)
-    }
-
-    private fun __dispatchInventory(m: __Msg_Inventory) {
-        when (m) {
-            is __Msg_Inventory.Reserve -> handler.reserve(m.sku, m.qty, m.out)
-        }
+        __dispatch_Stocking_Inventory(handler, msg as __Msg_Inventory)
     }
 
     override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
@@ -204,13 +192,7 @@ class Indexing(private val words: List<String>) : Search {
 class __Actor_Indexing(private val handler: Indexing) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
-        __dispatchSearch(msg as __Msg_Search)
-    }
-
-    private fun __dispatchSearch(m: __Msg_Search) {
-        when (m) {
-            is __Msg_Search.Query -> handler.query(m.word, m.out)
-        }
+        __dispatch_Indexing_Search(handler, msg as __Msg_Search)
     }
 
     override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
@@ -252,13 +234,7 @@ class Looking(private val who: String) : Lookup {
 class __Actor_Looking(private val handler: Looking) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
-        __dispatchLookup(msg as __Msg_Lookup)
-    }
-
-    private fun __dispatchLookup(m: __Msg_Lookup) {
-        when (m) {
-            is __Msg_Lookup.Lookup -> handler.lookup(m.key, m.out)
-        }
+        __dispatch_Looking_Lookup(handler, msg as __Msg_Lookup)
     }
 
     override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
@@ -304,21 +280,9 @@ class __Actor_SlowLooking(private val handler: SlowLooking) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
         when (msg) {
-            is __Msg_Lookup -> __dispatchLookup(msg)
-            is __Priv_SlowLooking -> __dispatchPriv(msg)
+            is __Msg_Lookup -> __dispatch_SlowLooking_Lookup(handler, msg)
+            is __Priv_SlowLooking -> __dispatch_priv_SlowLooking(handler, msg)
             else -> error("a message of one of this actor's protocols")
-        }
-    }
-
-    private fun __dispatchLookup(m: __Msg_Lookup) {
-        when (m) {
-            is __Msg_Lookup.Lookup -> handler.lookup(m.key, m.out)
-        }
-    }
-
-    private fun __dispatchPriv(m: __Priv_SlowLooking) {
-        when (m) {
-            is __Priv_SlowLooking.Answer -> handler.answer(m.key, m.out, m.fired)
         }
     }
 
@@ -370,13 +334,7 @@ class Scattering(private val group: Int, private val gather: Int) : Search {
 class __Actor_Scattering(private val handler: Scattering) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
-        __dispatchSearch(msg as __Msg_Search)
-    }
-
-    private fun __dispatchSearch(m: __Msg_Search) {
-        when (m) {
-            is __Msg_Search.Query -> handler.query(m.word, m.out)
-        }
+        __dispatch_Scattering_Search(handler, msg as __Msg_Search)
     }
 
     override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
@@ -464,21 +422,9 @@ class __Actor_Gathering(private val handler: Gathering) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
         when (msg) {
-            is __Msg_Gather -> __dispatchGather(msg)
-            is __Priv_Gathering -> __dispatchPriv(msg)
+            is __Msg_Gather -> __dispatch_Gathering_Gather(handler, msg)
+            is __Priv_Gathering -> __dispatch_priv_Gathering(handler, msg)
             else -> error("a message of one of this actor's protocols")
-        }
-    }
-
-    private fun __dispatchGather(m: __Msg_Gather) {
-        when (m) {
-            is __Msg_Gather.Scatter -> handler.scatter(m.word, m.members, m.out)
-        }
-    }
-
-    private fun __dispatchPriv(m: __Priv_Gathering) {
-        when (m) {
-            is __Priv_Gathering.Partial -> handler.partial(m.n)
         }
     }
 
@@ -530,13 +476,7 @@ class Hedging(private val group: Int, private val racer: Int) : Lookup {
 class __Actor_Hedging(private val handler: Hedging) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
-        __dispatchLookup(msg as __Msg_Lookup)
-    }
-
-    private fun __dispatchLookup(m: __Msg_Lookup) {
-        when (m) {
-            is __Msg_Lookup.Lookup -> handler.lookup(m.key, m.out)
-        }
+        __dispatch_Hedging_Lookup(handler, msg as __Msg_Lookup)
     }
 
     override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
@@ -617,21 +557,9 @@ class __Actor_Racing(private val handler: Racing) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
         when (msg) {
-            is __Msg_Race -> __dispatchRace(msg)
-            is __Priv_Racing -> __dispatchPriv(msg)
+            is __Msg_Race -> __dispatch_Racing_Race(handler, msg)
+            is __Priv_Racing -> __dispatch_priv_Racing(handler, msg)
             else -> error("a message of one of this actor's protocols")
-        }
-    }
-
-    private fun __dispatchRace(m: __Msg_Race) {
-        when (m) {
-            is __Msg_Race.Race -> handler.race(m.key, m.members, m.out)
-        }
-    }
-
-    private fun __dispatchPriv(m: __Priv_Racing) {
-        when (m) {
-            is __Priv_Racing.First -> handler.first(m.answer)
         }
     }
 
@@ -905,14 +833,7 @@ class Booting(private val at: salvo.net.NodeEndpoint, private val all: List<salv
 class __Actor_Booting(private val handler: Booting) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
-        __dispatchBoot(msg as __Msg_Boot)
-    }
-
-    private fun __dispatchBoot(m: __Msg_Boot) {
-        when (m) {
-            is __Msg_Boot.Boot -> handler.boot(m.done)
-            is __Msg_Boot.Stop -> handler.stop(m.done)
-        }
+        __dispatch_Booting_Boot(handler, msg as __Msg_Boot)
     }
 
     override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
@@ -1047,13 +968,7 @@ class __Route_Inventory(private val group: Int, private val config: salvo.net.Ro
 class __Actor___Route_Inventory(private val handler: __Route_Inventory) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
-        __dispatchInventory(msg as __Msg_Inventory)
-    }
-
-    private fun __dispatchInventory(m: __Msg_Inventory) {
-        when (m) {
-            is __Msg_Inventory.Reserve -> handler.reserve(m.sku, m.qty, m.out)
-        }
+        __dispatch___Route_Inventory_Inventory(handler, msg as __Msg_Inventory)
     }
 
     override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
@@ -1098,13 +1013,7 @@ class __Route_Lookup(private val group: Int, private val config: salvo.net.Route
 class __Actor___Route_Lookup(private val handler: __Route_Lookup) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
-        __dispatchLookup(msg as __Msg_Lookup)
-    }
-
-    private fun __dispatchLookup(m: __Msg_Lookup) {
-        when (m) {
-            is __Msg_Lookup.Lookup -> handler.lookup(m.key, m.out)
-        }
+        __dispatch___Route_Lookup_Lookup(handler, msg as __Msg_Lookup)
     }
 
     override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
@@ -1149,13 +1058,7 @@ class __Route_Search(private val group: Int, private val config: salvo.net.Route
 class __Actor___Route_Search(private val handler: __Route_Search) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
-        __dispatchSearch(msg as __Msg_Search)
-    }
-
-    private fun __dispatchSearch(m: __Msg_Search) {
-        when (m) {
-            is __Msg_Search.Query -> handler.query(m.word, m.out)
-        }
+        __dispatch___Route_Search_Search(handler, msg as __Msg_Search)
     }
 
     override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
@@ -1200,13 +1103,7 @@ class __Route_Sequencer(private val group: Int, private val config: salvo.net.Ro
 class __Actor___Route_Sequencer(private val handler: __Route_Sequencer) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
-        __dispatchSequencer(msg as __Msg_Sequencer)
-    }
-
-    private fun __dispatchSequencer(m: __Msg_Sequencer) {
-        when (m) {
-            is __Msg_Sequencer.Next -> handler.next(m.out)
-        }
+        __dispatch___Route_Sequencer_Sequencer(handler, msg as __Msg_Sequencer)
     }
 
     override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
@@ -1313,6 +1210,66 @@ object __Codec___Msg_Lookup : salvo.WireCodec<__Msg_Lookup> {
 const val __PROTO_Lookup: String = "7c0f441570dc9a6f"
 
 
+sealed class __Msg_Gather {
+    class Scatter(val word: String, val members: List<Int>, val out: salvo.SalvoReply) : __Msg_Gather()
+}
+
+object __Codec___Msg_Gather : salvo.WireCodec<__Msg_Gather> {
+    override fun enc(v: __Msg_Gather, out: salvo.WireOut) {
+        when (v) {
+            is __Msg_Gather.Scatter -> { out.u8(0); salvo.StrCodec.enc(v.word, out); salvo.ListCodec(salvo.AddrCodec).enc(v.members, out); salvo.ReplyCodec.enc(v.out, out) }
+        }
+    }
+    override fun dec(inp: salvo.WireIn): __Msg_Gather = when (inp.u8()) {
+            0 -> __Msg_Gather.Scatter(salvo.StrCodec.dec(inp), salvo.ListCodec(salvo.AddrCodec).dec(inp), salvo.ReplyCodec.dec(inp))
+        else -> throw salvo.WireError()
+    }
+}
+
+const val __PROTO_Gather: String = "98712ca205da344c"
+
+
+sealed class __Msg_Race {
+    class Race(val key: String, val members: List<Int>, val out: salvo.SalvoReply) : __Msg_Race()
+}
+
+object __Codec___Msg_Race : salvo.WireCodec<__Msg_Race> {
+    override fun enc(v: __Msg_Race, out: salvo.WireOut) {
+        when (v) {
+            is __Msg_Race.Race -> { out.u8(0); salvo.StrCodec.enc(v.key, out); salvo.ListCodec(salvo.AddrCodec).enc(v.members, out); salvo.ReplyCodec.enc(v.out, out) }
+        }
+    }
+    override fun dec(inp: salvo.WireIn): __Msg_Race = when (inp.u8()) {
+            0 -> __Msg_Race.Race(salvo.StrCodec.dec(inp), salvo.ListCodec(salvo.AddrCodec).dec(inp), salvo.ReplyCodec.dec(inp))
+        else -> throw salvo.WireError()
+    }
+}
+
+const val __PROTO_Race: String = "5e0ec4d63d5f53dd"
+
+
+sealed class __Msg_Boot {
+    class Boot(val done: salvo.SalvoReply) : __Msg_Boot()
+    class Stop(val done: salvo.SalvoReply) : __Msg_Boot()
+}
+
+object __Codec___Msg_Boot : salvo.WireCodec<__Msg_Boot> {
+    override fun enc(v: __Msg_Boot, out: salvo.WireOut) {
+        when (v) {
+            is __Msg_Boot.Boot -> { out.u8(0); salvo.ReplyCodec.enc(v.done, out) }
+            is __Msg_Boot.Stop -> { out.u8(1); salvo.ReplyCodec.enc(v.done, out) }
+        }
+    }
+    override fun dec(inp: salvo.WireIn): __Msg_Boot = when (inp.u8()) {
+            0 -> __Msg_Boot.Boot(salvo.ReplyCodec.dec(inp))
+            1 -> __Msg_Boot.Stop(salvo.ReplyCodec.dec(inp))
+        else -> throw salvo.WireError()
+    }
+}
+
+const val __PROTO_Boot: String = "4b15e647d0ca92a7"
+
+
 sealed class __Cont_Sequencing {
     class Next() : __Cont_Sequencing()
 }
@@ -1349,25 +1306,6 @@ sealed class __Cont_Scattering {
 }
 
 
-sealed class __Msg_Gather {
-    class Scatter(val word: String, val members: List<Int>, val out: salvo.SalvoReply) : __Msg_Gather()
-}
-
-object __Codec___Msg_Gather : salvo.WireCodec<__Msg_Gather> {
-    override fun enc(v: __Msg_Gather, out: salvo.WireOut) {
-        when (v) {
-            is __Msg_Gather.Scatter -> { out.u8(0); salvo.StrCodec.enc(v.word, out); salvo.ListCodec(salvo.AddrCodec).enc(v.members, out); salvo.ReplyCodec.enc(v.out, out) }
-        }
-    }
-    override fun dec(inp: salvo.WireIn): __Msg_Gather = when (inp.u8()) {
-            0 -> __Msg_Gather.Scatter(salvo.StrCodec.dec(inp), salvo.ListCodec(salvo.AddrCodec).dec(inp), salvo.ReplyCodec.dec(inp))
-        else -> throw salvo.WireError()
-    }
-}
-
-const val __PROTO_Gather: String = "98712ca205da344c"
-
-
 sealed class __Cont_Gathering {
     class Scatter(val word: String, val members: List<Int>) : __Cont_Gathering()
     class Partial() : __Cont_Gathering()
@@ -1384,25 +1322,6 @@ sealed class __Cont_Hedging {
 }
 
 
-sealed class __Msg_Race {
-    class Race(val key: String, val members: List<Int>, val out: salvo.SalvoReply) : __Msg_Race()
-}
-
-object __Codec___Msg_Race : salvo.WireCodec<__Msg_Race> {
-    override fun enc(v: __Msg_Race, out: salvo.WireOut) {
-        when (v) {
-            is __Msg_Race.Race -> { out.u8(0); salvo.StrCodec.enc(v.key, out); salvo.ListCodec(salvo.AddrCodec).enc(v.members, out); salvo.ReplyCodec.enc(v.out, out) }
-        }
-    }
-    override fun dec(inp: salvo.WireIn): __Msg_Race = when (inp.u8()) {
-            0 -> __Msg_Race.Race(salvo.StrCodec.dec(inp), salvo.ListCodec(salvo.AddrCodec).dec(inp), salvo.ReplyCodec.dec(inp))
-        else -> throw salvo.WireError()
-    }
-}
-
-const val __PROTO_Race: String = "5e0ec4d63d5f53dd"
-
-
 sealed class __Cont_Racing {
     class Race(val key: String, val members: List<Int>) : __Cont_Racing()
     class First() : __Cont_Racing()
@@ -1412,28 +1331,6 @@ sealed class __Cont_Racing {
 sealed class __Priv_Racing {
     class First(val answer: String) : __Priv_Racing()
 }
-
-
-sealed class __Msg_Boot {
-    class Boot(val done: salvo.SalvoReply) : __Msg_Boot()
-    class Stop(val done: salvo.SalvoReply) : __Msg_Boot()
-}
-
-object __Codec___Msg_Boot : salvo.WireCodec<__Msg_Boot> {
-    override fun enc(v: __Msg_Boot, out: salvo.WireOut) {
-        when (v) {
-            is __Msg_Boot.Boot -> { out.u8(0); salvo.ReplyCodec.enc(v.done, out) }
-            is __Msg_Boot.Stop -> { out.u8(1); salvo.ReplyCodec.enc(v.done, out) }
-        }
-    }
-    override fun dec(inp: salvo.WireIn): __Msg_Boot = when (inp.u8()) {
-            0 -> __Msg_Boot.Boot(salvo.ReplyCodec.dec(inp))
-            1 -> __Msg_Boot.Stop(salvo.ReplyCodec.dec(inp))
-        else -> throw salvo.WireError()
-    }
-}
-
-const val __PROTO_Boot: String = "4b15e647d0ca92a7"
 
 
 sealed class __Cont_Booting {
@@ -1459,5 +1356,213 @@ sealed class __Cont___Route_Search {
 
 sealed class __Cont___Route_Sequencer {
     class Next() : __Cont___Route_Sequencer()
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun __dispatch_Sequencing_Sequencer(__handler: Sequencing, __msg: __Msg_Sequencer) {
+    when {
+        (__msg is __Msg_Sequencer.Next) -> {
+            val out = (__msg as __Msg_Sequencer.Next).out
+            __handler.next(out)
+        }
+        else -> throw IllegalStateException("salvo: unreachable arm")
+    }
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun __dispatch_Stocking_Inventory(__handler: Stocking, __msg: __Msg_Inventory) {
+    when {
+        (__msg is __Msg_Inventory.Reserve) -> {
+            val sku = (__msg as __Msg_Inventory.Reserve).sku
+            val qty = (__msg as __Msg_Inventory.Reserve).qty
+            val out = (__msg as __Msg_Inventory.Reserve).out
+            __handler.reserve(sku, qty, out)
+        }
+        else -> throw IllegalStateException("salvo: unreachable arm")
+    }
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun __dispatch_Indexing_Search(__handler: Indexing, __msg: __Msg_Search) {
+    when {
+        (__msg is __Msg_Search.Query) -> {
+            val word = (__msg as __Msg_Search.Query).word
+            val out = (__msg as __Msg_Search.Query).out
+            __handler.query(word, out)
+        }
+        else -> throw IllegalStateException("salvo: unreachable arm")
+    }
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun __dispatch_Looking_Lookup(__handler: Looking, __msg: __Msg_Lookup) {
+    when {
+        (__msg is __Msg_Lookup.Lookup) -> {
+            val key = (__msg as __Msg_Lookup.Lookup).key
+            val out = (__msg as __Msg_Lookup.Lookup).out
+            __handler.lookup(key, out)
+        }
+        else -> throw IllegalStateException("salvo: unreachable arm")
+    }
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun __dispatch_SlowLooking_Lookup(__handler: SlowLooking, __msg: __Msg_Lookup) {
+    when {
+        (__msg is __Msg_Lookup.Lookup) -> {
+            val key = (__msg as __Msg_Lookup.Lookup).key
+            val out = (__msg as __Msg_Lookup.Lookup).out
+            __handler.lookup(key, out)
+        }
+        else -> throw IllegalStateException("salvo: unreachable arm")
+    }
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun __dispatch_priv_SlowLooking(__handler: SlowLooking, __msg: __Priv_SlowLooking) {
+    when {
+        (__msg is __Priv_SlowLooking.Answer) -> {
+            val key = (__msg as __Priv_SlowLooking.Answer).key
+            val out = (__msg as __Priv_SlowLooking.Answer).out
+            val fired = (__msg as __Priv_SlowLooking.Answer).fired
+            __handler.answer(key, out, fired)
+        }
+        else -> throw IllegalStateException("salvo: unreachable arm")
+    }
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun __dispatch_Scattering_Search(__handler: Scattering, __msg: __Msg_Search) {
+    when {
+        (__msg is __Msg_Search.Query) -> {
+            val word = (__msg as __Msg_Search.Query).word
+            val out = (__msg as __Msg_Search.Query).out
+            __handler.query(word, out)
+        }
+        else -> throw IllegalStateException("salvo: unreachable arm")
+    }
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun __dispatch_Gathering_Gather(__handler: Gathering, __msg: __Msg_Gather) {
+    when {
+        (__msg is __Msg_Gather.Scatter) -> {
+            val word = (__msg as __Msg_Gather.Scatter).word
+            val members = (__msg as __Msg_Gather.Scatter).members
+            val out = (__msg as __Msg_Gather.Scatter).out
+            __handler.scatter(word, members, out)
+        }
+        else -> throw IllegalStateException("salvo: unreachable arm")
+    }
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun __dispatch_priv_Gathering(__handler: Gathering, __msg: __Priv_Gathering) {
+    when {
+        (__msg is __Priv_Gathering.Partial) -> {
+            val n = (__msg as __Priv_Gathering.Partial).n
+            __handler.partial(n)
+        }
+        else -> throw IllegalStateException("salvo: unreachable arm")
+    }
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun __dispatch_Hedging_Lookup(__handler: Hedging, __msg: __Msg_Lookup) {
+    when {
+        (__msg is __Msg_Lookup.Lookup) -> {
+            val key = (__msg as __Msg_Lookup.Lookup).key
+            val out = (__msg as __Msg_Lookup.Lookup).out
+            __handler.lookup(key, out)
+        }
+        else -> throw IllegalStateException("salvo: unreachable arm")
+    }
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun __dispatch_Racing_Race(__handler: Racing, __msg: __Msg_Race) {
+    when {
+        (__msg is __Msg_Race.Race) -> {
+            val key = (__msg as __Msg_Race.Race).key
+            val members = (__msg as __Msg_Race.Race).members
+            val out = (__msg as __Msg_Race.Race).out
+            __handler.race(key, members, out)
+        }
+        else -> throw IllegalStateException("salvo: unreachable arm")
+    }
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun __dispatch_priv_Racing(__handler: Racing, __msg: __Priv_Racing) {
+    when {
+        (__msg is __Priv_Racing.First) -> {
+            val answer = (__msg as __Priv_Racing.First).answer
+            __handler.first(answer)
+        }
+        else -> throw IllegalStateException("salvo: unreachable arm")
+    }
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun __dispatch_Booting_Boot(__handler: Booting, __msg: __Msg_Boot) {
+    when {
+        (__msg is __Msg_Boot.Boot) -> {
+            val done = (__msg as __Msg_Boot.Boot).done
+            __handler.boot(done)
+        }
+        (__msg is __Msg_Boot.Stop) -> {
+            val done = (__msg as __Msg_Boot.Stop).done
+            __handler.stop(done)
+        }
+        else -> throw IllegalStateException("salvo: unreachable arm")
+    }
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun __dispatch___Route_Inventory_Inventory(__handler: __Route_Inventory, __msg: __Msg_Inventory) {
+    when {
+        (__msg is __Msg_Inventory.Reserve) -> {
+            val sku = (__msg as __Msg_Inventory.Reserve).sku
+            val qty = (__msg as __Msg_Inventory.Reserve).qty
+            val out = (__msg as __Msg_Inventory.Reserve).out
+            __handler.reserve(sku, qty, out)
+        }
+        else -> throw IllegalStateException("salvo: unreachable arm")
+    }
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun __dispatch___Route_Lookup_Lookup(__handler: __Route_Lookup, __msg: __Msg_Lookup) {
+    when {
+        (__msg is __Msg_Lookup.Lookup) -> {
+            val key = (__msg as __Msg_Lookup.Lookup).key
+            val out = (__msg as __Msg_Lookup.Lookup).out
+            __handler.lookup(key, out)
+        }
+        else -> throw IllegalStateException("salvo: unreachable arm")
+    }
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun __dispatch___Route_Search_Search(__handler: __Route_Search, __msg: __Msg_Search) {
+    when {
+        (__msg is __Msg_Search.Query) -> {
+            val word = (__msg as __Msg_Search.Query).word
+            val out = (__msg as __Msg_Search.Query).out
+            __handler.query(word, out)
+        }
+        else -> throw IllegalStateException("salvo: unreachable arm")
+    }
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun __dispatch___Route_Sequencer_Sequencer(__handler: __Route_Sequencer, __msg: __Msg_Sequencer) {
+    when {
+        (__msg is __Msg_Sequencer.Next) -> {
+            val out = (__msg as __Msg_Sequencer.Next).out
+            __handler.next(out)
+        }
+        else -> throw IllegalStateException("salvo: unreachable arm")
+    }
 }
 

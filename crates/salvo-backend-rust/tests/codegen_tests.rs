@@ -11338,7 +11338,7 @@ fn a_dependent_spawn_hands_the_actor_its_handles() {
     );
     assert!(
         text.contains("std::boxed::Box::new(crate::__Actor_Counting::new(__h))")
-            && text.contains("crate::__Stateless_Counter::bump(&mut self.handler, n)"),
+            && text.contains("crate::__Stateless_Counter::bump(&mut *__handler, n)"),
         "the actor body owns the handler and dispatches onto it:\n{text}"
     );
     // The clause's two kinds, in the handler's declaration order.
@@ -11866,8 +11866,8 @@ fn several_faces_lower_to_one_actor_with_a_dispatcher_each() {
         "one trait impl per face is missing:\n{text}"
     );
     assert!(
-        text.contains("fn __dispatch_Timer(&mut self, msg: crate::__Msg_Timer)")
-            && text.contains("fn __dispatch_TimerCtl(&mut self, msg: crate::__Msg_TimerCtl)"),
+        text.contains("pub fn __dispatch_ManualTime_Timer(__handler: &mut crate::ManualTime, mut __msg: crate::__Msg_Timer)")
+            && text.contains("pub fn __dispatch_ManualTime_TimerCtl(__handler: &mut crate::ManualTime, mut __msg: crate::__Msg_TimerCtl)"),
         "one dispatcher per protocol is missing:\n{text}"
     );
     assert!(

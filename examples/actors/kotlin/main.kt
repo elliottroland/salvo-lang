@@ -48,14 +48,7 @@ class Counting : Counter {
 class __Actor_Counting(private val handler: Counting) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
-        __dispatchCounter(msg as __Msg_Counter)
-    }
-
-    private fun __dispatchCounter(m: __Msg_Counter) {
-        when (m) {
-            is __Msg_Counter.Bump -> handler.bump(m.n)
-            is __Msg_Counter.Total -> handler.total(m.out)
-        }
+        __dispatch_Counting_Counter(handler, msg as __Msg_Counter)
     }
 
     override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
@@ -132,14 +125,7 @@ class Bookkeeping(private val __dep0: Counter) : Ledger {
 class __Actor_Bookkeeping(private val handler: Bookkeeping) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
-        __dispatchLedger(msg as __Msg_Ledger)
-    }
-
-    private fun __dispatchLedger(m: __Msg_Ledger) {
-        when (m) {
-            is __Msg_Ledger.Report -> handler.report(m.label, m.out)
-            is __Msg_Ledger.Reported -> handler.reported(m.label, m.out, m.total)
-        }
+        __dispatch_Bookkeeping_Ledger(handler, msg as __Msg_Ledger)
     }
 
     override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
@@ -242,15 +228,7 @@ class Desking(private val room: Int) : Desk {
 class __Actor_Desking(private val handler: Desking) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
-        __dispatchDesk(msg as __Msg_Desk)
-    }
-
-    private fun __dispatchDesk(m: __Msg_Desk) {
-        when (m) {
-            is __Msg_Desk.Ticket -> handler.ticket(m.out)
-            is __Msg_Desk.Serve -> handler.serve(m.name)
-            is __Msg_Desk.CloseUp -> handler.closeUp(m.reason)
-        }
+        __dispatch_Desking_Desk(handler, msg as __Msg_Desk)
     }
 
     override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
@@ -330,13 +308,7 @@ class Breaking : Fragile {
 class __Actor_Breaking(private val handler: Breaking) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
-        __dispatchFragile(msg as __Msg_Fragile)
-    }
-
-    private fun __dispatchFragile(m: __Msg_Fragile) {
-        when (m) {
-            is __Msg_Fragile.Crash -> handler.crash()
-        }
+        __dispatch_Breaking_Fragile(handler, msg as __Msg_Fragile)
     }
 
     override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
@@ -479,12 +451,6 @@ object __Codec___Msg_Counter : salvo.WireCodec<__Msg_Counter> {
 const val __PROTO_Counter: String = "f39d50f9ee8f9923"
 
 
-sealed class __Cont_Counting {
-    class Bump() : __Cont_Counting()
-    class Total() : __Cont_Counting()
-}
-
-
 sealed class __Msg_Ledger {
     class Report(val label: String, val out: salvo.SalvoReply) : __Msg_Ledger()
     class Reported(val label: String, val out: salvo.SalvoReply, val total: Int) : __Msg_Ledger()
@@ -505,12 +471,6 @@ object __Codec___Msg_Ledger : salvo.WireCodec<__Msg_Ledger> {
 }
 
 const val __PROTO_Ledger: String = "4a99401c8b66babf"
-
-
-sealed class __Cont_Bookkeeping {
-    class Report(val label: String) : __Cont_Bookkeeping()
-    class Reported(val label: String, val out: salvo.SalvoReply) : __Cont_Bookkeeping()
-}
 
 
 sealed class __Msg_Desk {
@@ -538,13 +498,6 @@ object __Codec___Msg_Desk : salvo.WireCodec<__Msg_Desk> {
 const val __PROTO_Desk: String = "cb180ef2d1bfd753"
 
 
-sealed class __Cont_Desking {
-    class Ticket() : __Cont_Desking()
-    class Serve() : __Cont_Desking()
-    class CloseUp() : __Cont_Desking()
-}
-
-
 sealed class __Msg_Fragile {
     class Crash() : __Msg_Fragile()
 }
@@ -564,6 +517,86 @@ object __Codec___Msg_Fragile : salvo.WireCodec<__Msg_Fragile> {
 const val __PROTO_Fragile: String = "a8c912bc262644a0"
 
 
+sealed class __Cont_Counting {
+    class Bump() : __Cont_Counting()
+    class Total() : __Cont_Counting()
+}
+
+
+sealed class __Cont_Bookkeeping {
+    class Report(val label: String) : __Cont_Bookkeeping()
+    class Reported(val label: String, val out: salvo.SalvoReply) : __Cont_Bookkeeping()
+}
+
+
+sealed class __Cont_Desking {
+    class Ticket() : __Cont_Desking()
+    class Serve() : __Cont_Desking()
+    class CloseUp() : __Cont_Desking()
+}
+
+
 sealed class __Cont_Breaking {
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun __dispatch_Counting_Counter(__handler: Counting, __msg: __Msg_Counter) {
+    when {
+        (__msg is __Msg_Counter.Bump) -> {
+            val n = (__msg as __Msg_Counter.Bump).n
+            __handler.bump(n)
+        }
+        (__msg is __Msg_Counter.Total) -> {
+            val out = (__msg as __Msg_Counter.Total).out
+            __handler.total(out)
+        }
+        else -> throw IllegalStateException("salvo: unreachable arm")
+    }
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun __dispatch_Bookkeeping_Ledger(__handler: Bookkeeping, __msg: __Msg_Ledger) {
+    when {
+        (__msg is __Msg_Ledger.Report) -> {
+            val label = (__msg as __Msg_Ledger.Report).label
+            val out = (__msg as __Msg_Ledger.Report).out
+            __handler.report(label, out)
+        }
+        (__msg is __Msg_Ledger.Reported) -> {
+            val label = (__msg as __Msg_Ledger.Reported).label
+            val out = (__msg as __Msg_Ledger.Reported).out
+            val total = (__msg as __Msg_Ledger.Reported).total
+            __handler.reported(label, out, total)
+        }
+        else -> throw IllegalStateException("salvo: unreachable arm")
+    }
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun __dispatch_Desking_Desk(__handler: Desking, __msg: __Msg_Desk) {
+    when {
+        (__msg is __Msg_Desk.Ticket) -> {
+            val out = (__msg as __Msg_Desk.Ticket).out
+            __handler.ticket(out)
+        }
+        (__msg is __Msg_Desk.Serve) -> {
+            val name = (__msg as __Msg_Desk.Serve).name
+            __handler.serve(name)
+        }
+        (__msg is __Msg_Desk.CloseUp) -> {
+            val reason = (__msg as __Msg_Desk.CloseUp).reason
+            __handler.closeUp(reason)
+        }
+        else -> throw IllegalStateException("salvo: unreachable arm")
+    }
+}
+
+fun __dispatch_Breaking_Fragile(__handler: Breaking, __msg: __Msg_Fragile) {
+    when {
+        (__msg is __Msg_Fragile.Crash) -> {
+            __handler.crash()
+        }
+        else -> throw IllegalStateException("salvo: unreachable arm")
+    }
 }
 

@@ -159,19 +159,9 @@ enum __Msg_Counter [proto f39d50f9ee8f9923] {
   Total(out: Reply<Int>)
 }
 
-enum __Cont_Counting {
-  Bump()
-  Total()
-}
-
 enum __Msg_Ledger [proto 4a99401c8b66babf] {
   Report(label: Str, out: Reply<Str>)
   Reported(label: Str, out: Reply<Str>, total: Int)
-}
-
-enum __Cont_Bookkeeping {
-  Report(label: Str)
-  Reported(label: Str, out: Reply<Str>)
 }
 
 enum __Msg_Desk [proto cb180ef2d1bfd753] {
@@ -180,15 +170,77 @@ enum __Msg_Desk [proto cb180ef2d1bfd753] {
   CloseUp(reason: Str)
 }
 
+enum __Msg_Fragile [proto a8c912bc262644a0] {
+  Crash()
+}
+
+enum __Cont_Counting {
+  Bump()
+  Total()
+}
+
+enum __Cont_Bookkeeping {
+  Report(label: Str)
+  Reported(label: Str, out: Reply<Str>)
+}
+
 enum __Cont_Desking {
   Ticket()
   Serve()
   CloseUp()
 }
 
-enum __Msg_Fragile [proto a8c912bc262644a0] {
-  Crash()
+enum __Cont_Breaking {
 }
 
-enum __Cont_Breaking {
+fn __dispatch_Counting_Counter(lent_mut __handler: Counting, moved __msg: __Msg_Counter) -> None {
+  switch#1 read __msg {
+    arm#0 (arm 0) {
+      unpack#2 (n: Int) = __msg as variant 0
+      handler_call main::Counter#0(read __handler, !read n)
+    }
+    arm#1 (arm 1) {
+      unpack#3 (out: Reply<Int>) = __msg as variant 1
+      handler_call main::Counter#1(read __handler, !read out)
+    }
+  }
+}
+
+fn __dispatch_Bookkeeping_Ledger(lent_mut __handler: Bookkeeping, moved __msg: __Msg_Ledger) -> None {
+  switch#1 read __msg {
+    arm#0 (arm 0) {
+      unpack#2 (label: Str, out: Reply<Str>) = __msg as variant 0
+      handler_call main::Ledger#0(read __handler, !read label, !read out)
+    }
+    arm#1 (arm 1) {
+      unpack#3 (label: Str, out: Reply<Str>, total: Int) = __msg as variant 1
+      handler_call main::Ledger#1(read __handler, !read label, !read out, !read total)
+    }
+  }
+}
+
+fn __dispatch_Desking_Desk(lent_mut __handler: Desking, moved __msg: __Msg_Desk) -> None {
+  switch#1 read __msg {
+    arm#0 (arm 0) {
+      unpack#2 (out: Reply<Str>) = __msg as variant 0
+      handler_call main::Desk#0(read __handler, !read out)
+    }
+    arm#1 (arm 1) {
+      unpack#3 (name: Str) = __msg as variant 1
+      handler_call main::Desk#1(read __handler, !read name)
+    }
+    arm#2 (arm 2) {
+      unpack#4 (reason: Str) = __msg as variant 2
+      handler_call main::Desk#2(read __handler, !read reason)
+    }
+  }
+}
+
+fn __dispatch_Breaking_Fragile(lent_mut __handler: Breaking, moved __msg: __Msg_Fragile) -> None {
+  switch#1 read __msg {
+    arm#0 (arm 0) {
+      unpack#2 () = __msg as variant 0
+      handler_call main::Fragile#0(read __handler)
+    }
+  }
 }

@@ -408,18 +408,13 @@ impl __Actor_Sequencing {
     pub fn new(handler: Sequencing) -> Self {
         Self { handler }
     }
-    fn __dispatch(&mut self, msg: crate::__Msg_Sequencer) {
-        match msg {
-            crate::__Msg_Sequencer::Next(out) => crate::__Stateful_Sequencer::next(&mut self.handler, out),
-        }
-    }
 }
 
 impl crate::scheduler::SalvoActor for __Actor_Sequencing {
     fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {
         self.handler.__addr = Some(_ctx.addr);
         let msg = *msg.downcast::<crate::__Msg_Sequencer>().expect("message of this protocol");
-        self.__dispatch(msg);
+        crate::__dispatch_Sequencing_Sequencer(&mut self.handler, msg);
     }
 
     fn resume(&mut self, _ctx: &crate::scheduler::SalvoCtx, slot: u64, value: crate::scheduler::SalvoMsg) {
@@ -428,7 +423,7 @@ impl crate::scheduler::SalvoActor for __Actor_Sequencing {
             return; // a reply whose continuation is gone: nothing to run
         };
         match __cont {
-            __Cont_Sequencing::Next => self.__dispatch(crate::__Msg_Sequencer::Next(*value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
+            __Cont_Sequencing::Next => crate::__dispatch_Sequencing_Sequencer(&mut self.handler, crate::__Msg_Sequencer::Next(*value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
         }
     }
 
@@ -482,18 +477,13 @@ impl __Actor_Stocking {
     pub fn new(handler: Stocking) -> Self {
         Self { handler }
     }
-    fn __dispatch(&mut self, msg: crate::__Msg_Inventory) {
-        match msg {
-            crate::__Msg_Inventory::Reserve(sku, qty, out) => crate::__Stateful_Inventory::reserve(&mut self.handler, sku, qty, out),
-        }
-    }
 }
 
 impl crate::scheduler::SalvoActor for __Actor_Stocking {
     fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {
         self.handler.__addr = Some(_ctx.addr);
         let msg = *msg.downcast::<crate::__Msg_Inventory>().expect("message of this protocol");
-        self.__dispatch(msg);
+        crate::__dispatch_Stocking_Inventory(&mut self.handler, msg);
     }
 
     fn resume(&mut self, _ctx: &crate::scheduler::SalvoCtx, slot: u64, value: crate::scheduler::SalvoMsg) {
@@ -502,7 +492,7 @@ impl crate::scheduler::SalvoActor for __Actor_Stocking {
             return; // a reply whose continuation is gone: nothing to run
         };
         match __cont {
-            __Cont_Stocking::Reserve(sku, qty) => self.__dispatch(crate::__Msg_Inventory::Reserve(sku, qty, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
+            __Cont_Stocking::Reserve(sku, qty) => crate::__dispatch_Stocking_Inventory(&mut self.handler, crate::__Msg_Inventory::Reserve(sku, qty, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
         }
     }
 
@@ -559,18 +549,13 @@ impl __Actor_Indexing {
     pub fn new(handler: Indexing) -> Self {
         Self { handler }
     }
-    fn __dispatch(&mut self, msg: crate::__Msg_Search) {
-        match msg {
-            crate::__Msg_Search::Query(word, out) => crate::__Stateless_Search::query(&mut self.handler, word, out),
-        }
-    }
 }
 
 impl crate::scheduler::SalvoActor for __Actor_Indexing {
     fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {
         self.handler.__addr = Some(_ctx.addr);
         let msg = *msg.downcast::<crate::__Msg_Search>().expect("message of this protocol");
-        self.__dispatch(msg);
+        crate::__dispatch_Indexing_Search(&mut self.handler, msg);
     }
 
     fn resume(&mut self, _ctx: &crate::scheduler::SalvoCtx, slot: u64, value: crate::scheduler::SalvoMsg) {
@@ -579,7 +564,7 @@ impl crate::scheduler::SalvoActor for __Actor_Indexing {
             return; // a reply whose continuation is gone: nothing to run
         };
         match __cont {
-            __Cont_Indexing::Query(word) => self.__dispatch(crate::__Msg_Search::Query(word, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
+            __Cont_Indexing::Query(word) => crate::__dispatch_Indexing_Search(&mut self.handler, crate::__Msg_Search::Query(word, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
         }
     }
 
@@ -630,18 +615,13 @@ impl __Actor_Looking {
     pub fn new(handler: Looking) -> Self {
         Self { handler }
     }
-    fn __dispatch(&mut self, msg: crate::__Msg_Lookup) {
-        match msg {
-            crate::__Msg_Lookup::Lookup(key, out) => crate::__Stateless_Lookup::lookup(&mut self.handler, key, out),
-        }
-    }
 }
 
 impl crate::scheduler::SalvoActor for __Actor_Looking {
     fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {
         self.handler.__addr = Some(_ctx.addr);
         let msg = *msg.downcast::<crate::__Msg_Lookup>().expect("message of this protocol");
-        self.__dispatch(msg);
+        crate::__dispatch_Looking_Lookup(&mut self.handler, msg);
     }
 
     fn resume(&mut self, _ctx: &crate::scheduler::SalvoCtx, slot: u64, value: crate::scheduler::SalvoMsg) {
@@ -650,7 +630,7 @@ impl crate::scheduler::SalvoActor for __Actor_Looking {
             return; // a reply whose continuation is gone: nothing to run
         };
         match __cont {
-            __Cont_Looking::Lookup(key) => self.__dispatch(crate::__Msg_Lookup::Lookup(key, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
+            __Cont_Looking::Lookup(key) => crate::__dispatch_Looking_Lookup(&mut self.handler, crate::__Msg_Lookup::Lookup(key, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
         }
     }
 
@@ -706,27 +686,17 @@ impl __Actor_SlowLooking {
     pub fn new(handler: SlowLooking) -> Self {
         Self { handler }
     }
-    fn __dispatch_Lookup(&mut self, msg: crate::__Msg_Lookup) {
-        match msg {
-            crate::__Msg_Lookup::Lookup(key, out) => crate::__Stateful_Lookup::lookup(&mut self.handler, key, out),
-        }
-    }
-    fn __dispatch_priv(&mut self, msg: __Priv_SlowLooking) {
-        match msg {
-            __Priv_SlowLooking::Answer(key, out, fired) => self.handler.answer(key, out, fired),
-        }
-    }
 }
 
 impl crate::scheduler::SalvoActor for __Actor_SlowLooking {
     fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {
         self.handler.__addr = Some(_ctx.addr);
         let msg = match msg.downcast::<crate::__Msg_Lookup>() {
-            Ok(__m) => return self.__dispatch_Lookup(*__m),
+            Ok(__m) => return crate::__dispatch_SlowLooking_Lookup(&mut self.handler, *__m),
             Err(__m) => __m,
         };
         let msg = match msg.downcast::<__Priv_SlowLooking>() {
-            Ok(__m) => return self.__dispatch_priv(*__m),
+            Ok(__m) => return crate::__dispatch_priv_SlowLooking(&mut self.handler, *__m),
             Err(__m) => __m,
         };
         let _ = msg;
@@ -739,8 +709,8 @@ impl crate::scheduler::SalvoActor for __Actor_SlowLooking {
             return; // a reply whose continuation is gone: nothing to run
         };
         match __cont {
-            __Cont_SlowLooking::Lookup(key) => self.__dispatch_Lookup(crate::__Msg_Lookup::Lookup(key, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
-            __Cont_SlowLooking::Answer(key, out) => self.__dispatch_priv(__Priv_SlowLooking::Answer(key, out, *value.downcast::<crate::time::Fired>().expect("the awaited answer"))),
+            __Cont_SlowLooking::Lookup(key) => crate::__dispatch_SlowLooking_Lookup(&mut self.handler, crate::__Msg_Lookup::Lookup(key, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
+            __Cont_SlowLooking::Answer(key, out) => crate::__dispatch_priv_SlowLooking(&mut self.handler, __Priv_SlowLooking::Answer(key, out, *value.downcast::<crate::time::Fired>().expect("the awaited answer"))),
         }
     }
 
@@ -800,18 +770,13 @@ impl __Actor_Scattering {
     pub fn new(handler: Scattering) -> Self {
         Self { handler }
     }
-    fn __dispatch(&mut self, msg: crate::__Msg_Search) {
-        match msg {
-            crate::__Msg_Search::Query(word, out) => crate::__Stateless_Search::query(&mut self.handler, word, out),
-        }
-    }
 }
 
 impl crate::scheduler::SalvoActor for __Actor_Scattering {
     fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {
         self.handler.__addr = Some(_ctx.addr);
         let msg = *msg.downcast::<crate::__Msg_Search>().expect("message of this protocol");
-        self.__dispatch(msg);
+        crate::__dispatch_Scattering_Search(&mut self.handler, msg);
     }
 
     fn resume(&mut self, _ctx: &crate::scheduler::SalvoCtx, slot: u64, value: crate::scheduler::SalvoMsg) {
@@ -820,7 +785,7 @@ impl crate::scheduler::SalvoActor for __Actor_Scattering {
             return; // a reply whose continuation is gone: nothing to run
         };
         match __cont {
-            __Cont_Scattering::Query(word) => self.__dispatch(crate::__Msg_Search::Query(word, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
+            __Cont_Scattering::Query(word) => crate::__dispatch_Scattering_Search(&mut self.handler, crate::__Msg_Search::Query(word, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
         }
     }
 
@@ -955,27 +920,17 @@ impl __Actor_Gathering {
     pub fn new(handler: Gathering) -> Self {
         Self { handler }
     }
-    fn __dispatch_Gather(&mut self, msg: crate::__Msg_Gather) {
-        match msg {
-            crate::__Msg_Gather::Scatter(word, members, out) => crate::__Stateful_Gather::scatter(&mut self.handler, word, members, out),
-        }
-    }
-    fn __dispatch_priv(&mut self, msg: __Priv_Gathering) {
-        match msg {
-            __Priv_Gathering::Partial(n) => self.handler.partial(n),
-        }
-    }
 }
 
 impl crate::scheduler::SalvoActor for __Actor_Gathering {
     fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {
         self.handler.__addr = Some(_ctx.addr);
         let msg = match msg.downcast::<crate::__Msg_Gather>() {
-            Ok(__m) => return self.__dispatch_Gather(*__m),
+            Ok(__m) => return crate::__dispatch_Gathering_Gather(&mut self.handler, *__m),
             Err(__m) => __m,
         };
         let msg = match msg.downcast::<__Priv_Gathering>() {
-            Ok(__m) => return self.__dispatch_priv(*__m),
+            Ok(__m) => return crate::__dispatch_priv_Gathering(&mut self.handler, *__m),
             Err(__m) => __m,
         };
         let _ = msg;
@@ -988,8 +943,8 @@ impl crate::scheduler::SalvoActor for __Actor_Gathering {
             return; // a reply whose continuation is gone: nothing to run
         };
         match __cont {
-            __Cont_Gathering::Scatter(word, members) => self.__dispatch_Gather(crate::__Msg_Gather::Scatter(word, members, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
-            __Cont_Gathering::Partial => self.__dispatch_priv(__Priv_Gathering::Partial(*value.downcast::<i32>().expect("the awaited answer"))),
+            __Cont_Gathering::Scatter(word, members) => crate::__dispatch_Gathering_Gather(&mut self.handler, crate::__Msg_Gather::Scatter(word, members, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
+            __Cont_Gathering::Partial => crate::__dispatch_priv_Gathering(&mut self.handler, __Priv_Gathering::Partial(*value.downcast::<i32>().expect("the awaited answer"))),
         }
     }
 
@@ -1049,18 +1004,13 @@ impl __Actor_Hedging {
     pub fn new(handler: Hedging) -> Self {
         Self { handler }
     }
-    fn __dispatch(&mut self, msg: crate::__Msg_Lookup) {
-        match msg {
-            crate::__Msg_Lookup::Lookup(key, out) => crate::__Stateless_Lookup::lookup(&mut self.handler, key, out),
-        }
-    }
 }
 
 impl crate::scheduler::SalvoActor for __Actor_Hedging {
     fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {
         self.handler.__addr = Some(_ctx.addr);
         let msg = *msg.downcast::<crate::__Msg_Lookup>().expect("message of this protocol");
-        self.__dispatch(msg);
+        crate::__dispatch_Hedging_Lookup(&mut self.handler, msg);
     }
 
     fn resume(&mut self, _ctx: &crate::scheduler::SalvoCtx, slot: u64, value: crate::scheduler::SalvoMsg) {
@@ -1069,7 +1019,7 @@ impl crate::scheduler::SalvoActor for __Actor_Hedging {
             return; // a reply whose continuation is gone: nothing to run
         };
         match __cont {
-            __Cont_Hedging::Lookup(key) => self.__dispatch(crate::__Msg_Lookup::Lookup(key, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
+            __Cont_Hedging::Lookup(key) => crate::__dispatch_Hedging_Lookup(&mut self.handler, crate::__Msg_Lookup::Lookup(key, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
         }
     }
 
@@ -1195,27 +1145,17 @@ impl __Actor_Racing {
     pub fn new(handler: Racing) -> Self {
         Self { handler }
     }
-    fn __dispatch_Race(&mut self, msg: crate::__Msg_Race) {
-        match msg {
-            crate::__Msg_Race::Race(key, members, out) => crate::__Stateful_Race::race(&mut self.handler, key, members, out),
-        }
-    }
-    fn __dispatch_priv(&mut self, msg: __Priv_Racing) {
-        match msg {
-            __Priv_Racing::First(answer) => self.handler.first(answer),
-        }
-    }
 }
 
 impl crate::scheduler::SalvoActor for __Actor_Racing {
     fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {
         self.handler.__addr = Some(_ctx.addr);
         let msg = match msg.downcast::<crate::__Msg_Race>() {
-            Ok(__m) => return self.__dispatch_Race(*__m),
+            Ok(__m) => return crate::__dispatch_Racing_Race(&mut self.handler, *__m),
             Err(__m) => __m,
         };
         let msg = match msg.downcast::<__Priv_Racing>() {
-            Ok(__m) => return self.__dispatch_priv(*__m),
+            Ok(__m) => return crate::__dispatch_priv_Racing(&mut self.handler, *__m),
             Err(__m) => __m,
         };
         let _ = msg;
@@ -1228,8 +1168,8 @@ impl crate::scheduler::SalvoActor for __Actor_Racing {
             return; // a reply whose continuation is gone: nothing to run
         };
         match __cont {
-            __Cont_Racing::Race(key, members) => self.__dispatch_Race(crate::__Msg_Race::Race(key, members, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
-            __Cont_Racing::First => self.__dispatch_priv(__Priv_Racing::First(*value.downcast::<String>().expect("the awaited answer"))),
+            __Cont_Racing::Race(key, members) => crate::__dispatch_Racing_Race(&mut self.handler, crate::__Msg_Race::Race(key, members, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
+            __Cont_Racing::First => crate::__dispatch_priv_Racing(&mut self.handler, __Priv_Racing::First(*value.downcast::<String>().expect("the awaited answer"))),
         }
     }
 
@@ -1543,19 +1483,13 @@ impl __Actor_Booting {
     pub fn new(handler: Booting) -> Self {
         Self { handler }
     }
-    fn __dispatch(&mut self, msg: crate::__Msg_Boot) {
-        match msg {
-            crate::__Msg_Boot::Boot(done) => crate::__Stateful_Boot::boot(&mut self.handler, done),
-            crate::__Msg_Boot::Stop(done) => crate::__Stateful_Boot::stop(&mut self.handler, done),
-        }
-    }
 }
 
 impl crate::scheduler::SalvoActor for __Actor_Booting {
     fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {
         self.handler.__addr = Some(_ctx.addr);
         let msg = *msg.downcast::<crate::__Msg_Boot>().expect("message of this protocol");
-        self.__dispatch(msg);
+        crate::__dispatch_Booting_Boot(&mut self.handler, msg);
     }
 
     fn resume(&mut self, _ctx: &crate::scheduler::SalvoCtx, slot: u64, value: crate::scheduler::SalvoMsg) {
@@ -1564,8 +1498,8 @@ impl crate::scheduler::SalvoActor for __Actor_Booting {
             return; // a reply whose continuation is gone: nothing to run
         };
         match __cont {
-            __Cont_Booting::Boot => self.__dispatch(crate::__Msg_Boot::Boot(*value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
-            __Cont_Booting::Stop => self.__dispatch(crate::__Msg_Boot::Stop(*value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
+            __Cont_Booting::Boot => crate::__dispatch_Booting_Boot(&mut self.handler, crate::__Msg_Boot::Boot(*value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
+            __Cont_Booting::Stop => crate::__dispatch_Booting_Boot(&mut self.handler, crate::__Msg_Boot::Stop(*value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
         }
     }
 
@@ -1707,18 +1641,13 @@ impl __Actor___Route_Inventory {
     pub fn new(handler: __Route_Inventory) -> Self {
         Self { handler }
     }
-    fn __dispatch(&mut self, msg: crate::__Msg_Inventory) {
-        match msg {
-            crate::__Msg_Inventory::Reserve(sku, qty, out) => crate::__Stateful_Inventory::reserve(&mut self.handler, sku, qty, out),
-        }
-    }
 }
 
 impl crate::scheduler::SalvoActor for __Actor___Route_Inventory {
     fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {
         self.handler.__addr = Some(_ctx.addr);
         let msg = *msg.downcast::<crate::__Msg_Inventory>().expect("message of this protocol");
-        self.__dispatch(msg);
+        crate::__dispatch___Route_Inventory_Inventory(&mut self.handler, msg);
     }
 
     fn resume(&mut self, _ctx: &crate::scheduler::SalvoCtx, slot: u64, value: crate::scheduler::SalvoMsg) {
@@ -1727,7 +1656,7 @@ impl crate::scheduler::SalvoActor for __Actor___Route_Inventory {
             return; // a reply whose continuation is gone: nothing to run
         };
         match __cont {
-            __Cont___Route_Inventory::Reserve(sku, qty) => self.__dispatch(crate::__Msg_Inventory::Reserve(sku, qty, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
+            __Cont___Route_Inventory::Reserve(sku, qty) => crate::__dispatch___Route_Inventory_Inventory(&mut self.handler, crate::__Msg_Inventory::Reserve(sku, qty, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
         }
     }
 
@@ -1786,18 +1715,13 @@ impl __Actor___Route_Lookup {
     pub fn new(handler: __Route_Lookup) -> Self {
         Self { handler }
     }
-    fn __dispatch(&mut self, msg: crate::__Msg_Lookup) {
-        match msg {
-            crate::__Msg_Lookup::Lookup(key, out) => crate::__Stateful_Lookup::lookup(&mut self.handler, key, out),
-        }
-    }
 }
 
 impl crate::scheduler::SalvoActor for __Actor___Route_Lookup {
     fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {
         self.handler.__addr = Some(_ctx.addr);
         let msg = *msg.downcast::<crate::__Msg_Lookup>().expect("message of this protocol");
-        self.__dispatch(msg);
+        crate::__dispatch___Route_Lookup_Lookup(&mut self.handler, msg);
     }
 
     fn resume(&mut self, _ctx: &crate::scheduler::SalvoCtx, slot: u64, value: crate::scheduler::SalvoMsg) {
@@ -1806,7 +1730,7 @@ impl crate::scheduler::SalvoActor for __Actor___Route_Lookup {
             return; // a reply whose continuation is gone: nothing to run
         };
         match __cont {
-            __Cont___Route_Lookup::Lookup(key) => self.__dispatch(crate::__Msg_Lookup::Lookup(key, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
+            __Cont___Route_Lookup::Lookup(key) => crate::__dispatch___Route_Lookup_Lookup(&mut self.handler, crate::__Msg_Lookup::Lookup(key, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
         }
     }
 
@@ -1865,18 +1789,13 @@ impl __Actor___Route_Search {
     pub fn new(handler: __Route_Search) -> Self {
         Self { handler }
     }
-    fn __dispatch(&mut self, msg: crate::__Msg_Search) {
-        match msg {
-            crate::__Msg_Search::Query(word, out) => crate::__Stateful_Search::query(&mut self.handler, word, out),
-        }
-    }
 }
 
 impl crate::scheduler::SalvoActor for __Actor___Route_Search {
     fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {
         self.handler.__addr = Some(_ctx.addr);
         let msg = *msg.downcast::<crate::__Msg_Search>().expect("message of this protocol");
-        self.__dispatch(msg);
+        crate::__dispatch___Route_Search_Search(&mut self.handler, msg);
     }
 
     fn resume(&mut self, _ctx: &crate::scheduler::SalvoCtx, slot: u64, value: crate::scheduler::SalvoMsg) {
@@ -1885,7 +1804,7 @@ impl crate::scheduler::SalvoActor for __Actor___Route_Search {
             return; // a reply whose continuation is gone: nothing to run
         };
         match __cont {
-            __Cont___Route_Search::Query(word) => self.__dispatch(crate::__Msg_Search::Query(word, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
+            __Cont___Route_Search::Query(word) => crate::__dispatch___Route_Search_Search(&mut self.handler, crate::__Msg_Search::Query(word, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
         }
     }
 
@@ -1944,18 +1863,13 @@ impl __Actor___Route_Sequencer {
     pub fn new(handler: __Route_Sequencer) -> Self {
         Self { handler }
     }
-    fn __dispatch(&mut self, msg: crate::__Msg_Sequencer) {
-        match msg {
-            crate::__Msg_Sequencer::Next(out) => crate::__Stateful_Sequencer::next(&mut self.handler, out),
-        }
-    }
 }
 
 impl crate::scheduler::SalvoActor for __Actor___Route_Sequencer {
     fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {
         self.handler.__addr = Some(_ctx.addr);
         let msg = *msg.downcast::<crate::__Msg_Sequencer>().expect("message of this protocol");
-        self.__dispatch(msg);
+        crate::__dispatch___Route_Sequencer_Sequencer(&mut self.handler, msg);
     }
 
     fn resume(&mut self, _ctx: &crate::scheduler::SalvoCtx, slot: u64, value: crate::scheduler::SalvoMsg) {
@@ -1964,7 +1878,7 @@ impl crate::scheduler::SalvoActor for __Actor___Route_Sequencer {
             return; // a reply whose continuation is gone: nothing to run
         };
         match __cont {
-            __Cont___Route_Sequencer::Next => self.__dispatch(crate::__Msg_Sequencer::Next(*value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
+            __Cont___Route_Sequencer::Next => crate::__dispatch___Route_Sequencer_Sequencer(&mut self.handler, crate::__Msg_Sequencer::Next(*value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
         }
     }
 
@@ -2083,35 +1997,6 @@ impl crate::wire::__Wire for __Msg_Lookup {
 /// [protocol-hash] The canonical hash of `Lookup`.
 pub const __PROTO_Lookup: &str = "7c0f441570dc9a6f";
 
-pub enum __Cont_Sequencing {
-    Next,
-}
-
-pub enum __Cont_Stocking {
-    Reserve(String, i32),
-}
-
-pub enum __Cont_Indexing {
-    Query(String),
-}
-
-pub enum __Cont_Looking {
-    Lookup(String),
-}
-
-pub enum __Cont_SlowLooking {
-    Lookup(String),
-    Answer(String, crate::scheduler::SalvoReply),
-}
-
-pub enum __Priv_SlowLooking {
-    Answer(String, crate::scheduler::SalvoReply, crate::time::Fired),
-}
-
-pub enum __Cont_Scattering {
-    Query(String),
-}
-
 pub enum __Msg_Gather {
     Scatter(String, Vec<usize>, crate::scheduler::SalvoReply),
 }
@@ -2138,19 +2023,6 @@ impl crate::wire::__Wire for __Msg_Gather {
 /// [protocol-hash] The canonical hash of `Gather`.
 pub const __PROTO_Gather: &str = "98712ca205da344c";
 
-pub enum __Cont_Gathering {
-    Scatter(String, Vec<usize>),
-    Partial,
-}
-
-pub enum __Priv_Gathering {
-    Partial(i32),
-}
-
-pub enum __Cont_Hedging {
-    Lookup(String),
-}
-
 pub enum __Msg_Race {
     Race(String, Vec<usize>, crate::scheduler::SalvoReply),
 }
@@ -2176,15 +2048,6 @@ impl crate::wire::__Wire for __Msg_Race {
 
 /// [protocol-hash] The canonical hash of `Race`.
 pub const __PROTO_Race: &str = "5e0ec4d63d5f53dd";
-
-pub enum __Cont_Racing {
-    Race(String, Vec<usize>),
-    First,
-}
-
-pub enum __Priv_Racing {
-    First(String),
-}
 
 pub enum __Msg_Boot {
     Boot(crate::scheduler::SalvoReply),
@@ -2216,6 +2079,57 @@ impl crate::wire::__Wire for __Msg_Boot {
 /// [protocol-hash] The canonical hash of `Boot`.
 pub const __PROTO_Boot: &str = "4b15e647d0ca92a7";
 
+pub enum __Cont_Sequencing {
+    Next,
+}
+
+pub enum __Cont_Stocking {
+    Reserve(String, i32),
+}
+
+pub enum __Cont_Indexing {
+    Query(String),
+}
+
+pub enum __Cont_Looking {
+    Lookup(String),
+}
+
+pub enum __Cont_SlowLooking {
+    Lookup(String),
+    Answer(String, crate::scheduler::SalvoReply),
+}
+
+pub enum __Priv_SlowLooking {
+    Answer(String, crate::scheduler::SalvoReply, crate::time::Fired),
+}
+
+pub enum __Cont_Scattering {
+    Query(String),
+}
+
+pub enum __Cont_Gathering {
+    Scatter(String, Vec<usize>),
+    Partial,
+}
+
+pub enum __Priv_Gathering {
+    Partial(i32),
+}
+
+pub enum __Cont_Hedging {
+    Lookup(String),
+}
+
+pub enum __Cont_Racing {
+    Race(String, Vec<usize>),
+    First,
+}
+
+pub enum __Priv_Racing {
+    First(String),
+}
+
 pub enum __Cont_Booting {
     Boot,
     Stop,
@@ -2235,4 +2149,126 @@ pub enum __Cont___Route_Search {
 
 pub enum __Cont___Route_Sequencer {
     Next,
+}
+
+pub fn __dispatch_Sequencing_Sequencer(__handler: &mut crate::Sequencing, mut __msg: crate::__Msg_Sequencer) {
+    if matches!(__msg, crate::__Msg_Sequencer::Next(..)) {
+        let crate::__Msg_Sequencer::Next(out) = __msg else { unreachable!() };
+        crate::__Stateful_Sequencer::next(&mut *__handler, out);
+    };
+}
+
+pub fn __dispatch_Stocking_Inventory(__handler: &mut crate::Stocking, mut __msg: crate::__Msg_Inventory) {
+    if matches!(__msg, crate::__Msg_Inventory::Reserve(..)) {
+        let crate::__Msg_Inventory::Reserve(sku, qty, out) = __msg else { unreachable!() };
+        crate::__Stateful_Inventory::reserve(&mut *__handler, sku, qty, out);
+    };
+}
+
+pub fn __dispatch_Indexing_Search(__handler: &mut crate::Indexing, mut __msg: crate::__Msg_Search) {
+    if matches!(__msg, crate::__Msg_Search::Query(..)) {
+        let crate::__Msg_Search::Query(word, out) = __msg else { unreachable!() };
+        crate::__Stateless_Search::query(&mut *__handler, word, out);
+    };
+}
+
+pub fn __dispatch_Looking_Lookup(__handler: &mut crate::Looking, mut __msg: crate::__Msg_Lookup) {
+    if matches!(__msg, crate::__Msg_Lookup::Lookup(..)) {
+        let crate::__Msg_Lookup::Lookup(key, out) = __msg else { unreachable!() };
+        crate::__Stateless_Lookup::lookup(&mut *__handler, key, out);
+    };
+}
+
+pub fn __dispatch_SlowLooking_Lookup(__handler: &mut crate::SlowLooking, mut __msg: crate::__Msg_Lookup) {
+    if matches!(__msg, crate::__Msg_Lookup::Lookup(..)) {
+        let crate::__Msg_Lookup::Lookup(key, out) = __msg else { unreachable!() };
+        crate::__Stateful_Lookup::lookup(&mut *__handler, key, out);
+    };
+}
+
+pub fn __dispatch_priv_SlowLooking(__handler: &mut crate::SlowLooking, mut __msg: crate::__Priv_SlowLooking) {
+    if matches!(__msg, crate::__Priv_SlowLooking::Answer(..)) {
+        let crate::__Priv_SlowLooking::Answer(key, out, fired) = __msg else { unreachable!() };
+        __handler.answer(key, out, fired);
+    };
+}
+
+pub fn __dispatch_Scattering_Search(__handler: &mut crate::Scattering, mut __msg: crate::__Msg_Search) {
+    if matches!(__msg, crate::__Msg_Search::Query(..)) {
+        let crate::__Msg_Search::Query(word, out) = __msg else { unreachable!() };
+        crate::__Stateless_Search::query(&mut *__handler, word, out);
+    };
+}
+
+pub fn __dispatch_Gathering_Gather(__handler: &mut crate::Gathering, mut __msg: crate::__Msg_Gather) {
+    if matches!(__msg, crate::__Msg_Gather::Scatter(..)) {
+        let crate::__Msg_Gather::Scatter(word, members, out) = __msg else { unreachable!() };
+        crate::__Stateful_Gather::scatter(&mut *__handler, word, members, out);
+    };
+}
+
+pub fn __dispatch_priv_Gathering(__handler: &mut crate::Gathering, mut __msg: crate::__Priv_Gathering) {
+    if matches!(__msg, crate::__Priv_Gathering::Partial(..)) {
+        let crate::__Priv_Gathering::Partial(n) = __msg else { unreachable!() };
+        __handler.partial(n);
+    };
+}
+
+pub fn __dispatch_Hedging_Lookup(__handler: &mut crate::Hedging, mut __msg: crate::__Msg_Lookup) {
+    if matches!(__msg, crate::__Msg_Lookup::Lookup(..)) {
+        let crate::__Msg_Lookup::Lookup(key, out) = __msg else { unreachable!() };
+        crate::__Stateless_Lookup::lookup(&mut *__handler, key, out);
+    };
+}
+
+pub fn __dispatch_Racing_Race(__handler: &mut crate::Racing, mut __msg: crate::__Msg_Race) {
+    if matches!(__msg, crate::__Msg_Race::Race(..)) {
+        let crate::__Msg_Race::Race(key, members, out) = __msg else { unreachable!() };
+        crate::__Stateful_Race::race(&mut *__handler, key, members, out);
+    };
+}
+
+pub fn __dispatch_priv_Racing(__handler: &mut crate::Racing, mut __msg: crate::__Priv_Racing) {
+    if matches!(__msg, crate::__Priv_Racing::First(..)) {
+        let crate::__Priv_Racing::First(answer) = __msg else { unreachable!() };
+        __handler.first(answer);
+    };
+}
+
+pub fn __dispatch_Booting_Boot(__handler: &mut crate::Booting, mut __msg: crate::__Msg_Boot) {
+    if matches!(__msg, crate::__Msg_Boot::Boot(..)) {
+        let crate::__Msg_Boot::Boot(done) = __msg else { unreachable!() };
+        crate::__Stateful_Boot::boot(&mut *__handler, done);
+    } else {
+        let crate::__Msg_Boot::Stop(done) = __msg else { unreachable!() };
+        crate::__Stateful_Boot::stop(&mut *__handler, done);
+    };
+}
+
+pub fn __dispatch___Route_Inventory_Inventory(__handler: &mut crate::__Route_Inventory, mut __msg: crate::__Msg_Inventory) {
+    if matches!(__msg, crate::__Msg_Inventory::Reserve(..)) {
+        let crate::__Msg_Inventory::Reserve(sku, qty, out) = __msg else { unreachable!() };
+        crate::__Stateful_Inventory::reserve(&mut *__handler, sku, qty, out);
+    };
+}
+
+pub fn __dispatch___Route_Lookup_Lookup(__handler: &mut crate::__Route_Lookup, mut __msg: crate::__Msg_Lookup) {
+    if matches!(__msg, crate::__Msg_Lookup::Lookup(..)) {
+        let crate::__Msg_Lookup::Lookup(key, out) = __msg else { unreachable!() };
+        crate::__Stateful_Lookup::lookup(&mut *__handler, key, out);
+    };
+}
+
+pub fn __dispatch___Route_Search_Search(__handler: &mut crate::__Route_Search, mut __msg: crate::__Msg_Search) {
+    if matches!(__msg, crate::__Msg_Search::Query(..)) {
+        let crate::__Msg_Search::Query(word, out) = __msg else { unreachable!() };
+        crate::__Stateful_Search::query(&mut *__handler, word, out);
+    };
+}
+
+pub fn __dispatch___Route_Sequencer_Sequencer(__handler: &mut crate::__Route_Sequencer, mut __msg: crate::__Msg_Sequencer) {
+    if matches!(__msg, crate::__Msg_Sequencer::Next(..)) {
+        let crate::__Msg_Sequencer::Next(out) = __msg else { unreachable!() };
+        crate::__Stateful_Sequencer::next(&mut *__handler, out);
+    };
 }

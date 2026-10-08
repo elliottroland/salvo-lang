@@ -238,13 +238,7 @@ class Sending(private val __dep0: Transport) : Outbound {
 class __Actor_Sending(private val handler: Sending) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
-        __dispatchOutbound(msg as __Msg_Outbound)
-    }
-
-    private fun __dispatchOutbound(m: __Msg_Outbound) {
-        when (m) {
-            is __Msg_Outbound.SendFrame -> handler.sendFrame(m.to, m.frame)
-        }
+        __dispatch_Sending_Outbound(handler, msg as __Msg_Outbound)
     }
 
     override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
@@ -286,13 +280,7 @@ class Receiving : Inbound {
 class __Actor_Receiving(private val handler: Receiving) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
-        __dispatchInbound(msg as __Msg_Inbound)
-    }
-
-    private fun __dispatchInbound(m: __Msg_Inbound) {
-        when (m) {
-            is __Msg_Inbound.ReceiveFrame -> handler.receiveFrame(m.from, m.frame)
-        }
+        __dispatch_Receiving_Inbound(handler, msg as __Msg_Inbound)
     }
 
     override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
@@ -653,24 +641,9 @@ class __Actor_StaticNodeGroup(private val handler: StaticNodeGroup) : salvo.Salv
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
         when (msg) {
-            is __Msg_NodeGroup -> __dispatchNodeGroup(msg)
-            is __Priv_StaticNodeGroup -> __dispatchPriv(msg)
+            is __Msg_NodeGroup -> __dispatch_StaticNodeGroup_NodeGroup(handler, msg)
+            is __Priv_StaticNodeGroup -> __dispatch_priv_StaticNodeGroup(handler, msg)
             else -> error("a message of one of this actor's protocols")
-        }
-    }
-
-    private fun __dispatchNodeGroup(m: __Msg_NodeGroup) {
-        when (m) {
-            is __Msg_NodeGroup.Members -> handler.members(m.out)
-            is __Msg_NodeGroup.Subscribe -> handler.subscribe(m.w)
-            is __Msg_NodeGroup.Leave -> handler.leave()
-        }
-    }
-
-    private fun __dispatchPriv(m: __Priv_StaticNodeGroup) {
-        when (m) {
-            is __Priv_StaticNodeGroup.Init -> handler.init()
-            is __Priv_StaticNodeGroup.Control -> handler.control(m.from, m.data)
         }
     }
 
@@ -802,24 +775,9 @@ class __Actor_GossipNodeGroup(private val handler: GossipNodeGroup) : salvo.Salv
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
         when (msg) {
-            is __Msg_NodeGroup -> __dispatchNodeGroup(msg)
-            is __Priv_GossipNodeGroup -> __dispatchPriv(msg)
+            is __Msg_NodeGroup -> __dispatch_GossipNodeGroup_NodeGroup(handler, msg)
+            is __Priv_GossipNodeGroup -> __dispatch_priv_GossipNodeGroup(handler, msg)
             else -> error("a message of one of this actor's protocols")
-        }
-    }
-
-    private fun __dispatchNodeGroup(m: __Msg_NodeGroup) {
-        when (m) {
-            is __Msg_NodeGroup.Members -> handler.members(m.out)
-            is __Msg_NodeGroup.Subscribe -> handler.subscribe(m.w)
-            is __Msg_NodeGroup.Leave -> handler.leave()
-        }
-    }
-
-    private fun __dispatchPriv(m: __Priv_GossipNodeGroup) {
-        when (m) {
-            is __Priv_GossipNodeGroup.Init -> handler.init()
-            is __Priv_GossipNodeGroup.Control -> handler.control(m.from, m.data)
         }
     }
 
@@ -1087,34 +1045,10 @@ class __Actor_ActorGrouping(private val handler: ActorGrouping) : salvo.SalvoAct
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
         when (msg) {
-            is __Msg_ActorGroup -> __dispatchActorGroup(msg)
-            is __Msg_NodeGroupWatcher -> __dispatchNodeGroupWatcher(msg)
-            is __Priv_ActorGrouping -> __dispatchPriv(msg)
+            is __Msg_ActorGroup -> __dispatch_ActorGrouping_ActorGroup(handler, msg)
+            is __Msg_NodeGroupWatcher -> __dispatch_ActorGrouping_NodeGroupWatcher(handler, msg)
+            is __Priv_ActorGrouping -> __dispatch_priv_ActorGrouping(handler, msg)
             else -> error("a message of one of this actor's protocols")
-        }
-    }
-
-    private fun __dispatchActorGroup(m: __Msg_ActorGroup) {
-        when (m) {
-            is __Msg_ActorGroup.Join -> handler.join(m.member)
-            is __Msg_ActorGroup.Leave -> handler.leave(m.member)
-            is __Msg_ActorGroup.Members -> handler.members(m.out)
-            is __Msg_ActorGroup.Subscribe -> handler.subscribe(m.w)
-            is __Msg_ActorGroup.Refresh -> handler.refresh()
-        }
-    }
-
-    private fun __dispatchNodeGroupWatcher(m: __Msg_NodeGroupWatcher) {
-        when (m) {
-            is __Msg_NodeGroupWatcher.Joined -> handler.joined(m.n)
-            is __Msg_NodeGroupWatcher.Left -> handler.left(m.n, m.why)
-        }
-    }
-
-    private fun __dispatchPriv(m: __Priv_ActorGrouping) {
-        when (m) {
-            is __Priv_ActorGrouping.Init -> handler.init()
-            is __Priv_ActorGrouping.Control -> handler.control(m.from, m.data)
         }
     }
 
@@ -1619,19 +1553,7 @@ class MemNetwork : MemNet {
 class __Actor_MemNetwork(private val handler: MemNetwork) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
-        __dispatchMemNet(msg as __Msg_MemNet)
-    }
-
-    private fun __dispatchMemNet(m: __Msg_MemNet) {
-        when (m) {
-            is __Msg_MemNet.Attach -> handler.attach(m.at, m.sink)
-            is __Msg_MemNet.Detach -> handler.detach(m.at)
-            is __Msg_MemNet.Route -> handler.route(m.from, m.to, m.out)
-            is __Msg_MemNet.Partition -> handler.partition(m.a, m.b)
-            is __Msg_MemNet.Heal -> handler.heal(m.a, m.b)
-            is __Msg_MemNet.Kill -> handler.kill(m.node)
-            is __Msg_MemNet.Delivered -> handler.delivered(m.out)
-        }
+        __dispatch_MemNetwork_MemNet(handler, msg as __Msg_MemNet)
     }
 
     override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
@@ -1803,16 +1725,6 @@ object __Codec___Msg_Outbound : salvo.WireCodec<__Msg_Outbound> {
 const val __PROTO_Outbound: String = "e754249e848e9986"
 
 
-sealed class __Cont_Sending {
-    class SendFrame(val to: NodeEndpoint) : __Cont_Sending()
-}
-
-
-sealed class __Cont_Receiving {
-    class ReceiveFrame(val from: NodeEndpoint) : __Cont_Receiving()
-}
-
-
 sealed class __Msg_NodeGroup {
     class Members(val out: salvo.SalvoReply) : __Msg_NodeGroup()
     class Subscribe(val w: Int) : __Msg_NodeGroup()
@@ -1858,32 +1770,6 @@ object __Codec___Msg_NodeGroupWatcher : salvo.WireCodec<__Msg_NodeGroupWatcher> 
 }
 
 const val __PROTO_NodeGroupWatcher: String = "db3e0aa5831c2e44"
-
-
-sealed class __Cont_StaticNodeGroup {
-    class Members() : __Cont_StaticNodeGroup()
-    class Subscribe() : __Cont_StaticNodeGroup()
-    class Control(val from: NodeId) : __Cont_StaticNodeGroup()
-}
-
-
-sealed class __Priv_StaticNodeGroup {
-    object Init : __Priv_StaticNodeGroup()
-    class Control(val from: NodeId, val data: salvo.platform.core.bytes.Bytes) : __Priv_StaticNodeGroup()
-}
-
-
-sealed class __Cont_GossipNodeGroup {
-    class Members() : __Cont_GossipNodeGroup()
-    class Subscribe() : __Cont_GossipNodeGroup()
-    class Control(val from: NodeId) : __Cont_GossipNodeGroup()
-}
-
-
-sealed class __Priv_GossipNodeGroup {
-    object Init : __Priv_GossipNodeGroup()
-    class Control(val from: NodeId, val data: salvo.platform.core.bytes.Bytes) : __Priv_GossipNodeGroup()
-}
 
 
 sealed class __Msg_ActorGroup {
@@ -1939,23 +1825,6 @@ object __Codec___Msg_ActorGroupWatcher : salvo.WireCodec<__Msg_ActorGroupWatcher
 const val __PROTO_ActorGroupWatcher: String = "9fa424e5858bb3bd"
 
 
-sealed class __Cont_ActorGrouping {
-    class Join() : __Cont_ActorGrouping()
-    class Leave() : __Cont_ActorGrouping()
-    class Members() : __Cont_ActorGrouping()
-    class Subscribe() : __Cont_ActorGrouping()
-    class Joined() : __Cont_ActorGrouping()
-    class Left(val n: Node) : __Cont_ActorGrouping()
-    class Control(val from: NodeId) : __Cont_ActorGrouping()
-}
-
-
-sealed class __Priv_ActorGrouping {
-    object Init : __Priv_ActorGrouping()
-    class Control(val from: NodeId, val data: salvo.platform.core.bytes.Bytes) : __Priv_ActorGrouping()
-}
-
-
 sealed class __Msg_MemNet {
     class Attach(val at: NodeEndpoint, val sink: Int) : __Msg_MemNet()
     class Detach(val at: NodeEndpoint) : __Msg_MemNet()
@@ -1993,6 +1862,59 @@ object __Codec___Msg_MemNet : salvo.WireCodec<__Msg_MemNet> {
 const val __PROTO_MemNet: String = "2815c14392023d5e"
 
 
+sealed class __Cont_Sending {
+    class SendFrame(val to: NodeEndpoint) : __Cont_Sending()
+}
+
+
+sealed class __Cont_Receiving {
+    class ReceiveFrame(val from: NodeEndpoint) : __Cont_Receiving()
+}
+
+
+sealed class __Cont_StaticNodeGroup {
+    class Members() : __Cont_StaticNodeGroup()
+    class Subscribe() : __Cont_StaticNodeGroup()
+    class Control(val from: NodeId) : __Cont_StaticNodeGroup()
+}
+
+
+sealed class __Priv_StaticNodeGroup {
+    object Init : __Priv_StaticNodeGroup()
+    class Control(val from: NodeId, val data: salvo.platform.core.bytes.Bytes) : __Priv_StaticNodeGroup()
+}
+
+
+sealed class __Cont_GossipNodeGroup {
+    class Members() : __Cont_GossipNodeGroup()
+    class Subscribe() : __Cont_GossipNodeGroup()
+    class Control(val from: NodeId) : __Cont_GossipNodeGroup()
+}
+
+
+sealed class __Priv_GossipNodeGroup {
+    object Init : __Priv_GossipNodeGroup()
+    class Control(val from: NodeId, val data: salvo.platform.core.bytes.Bytes) : __Priv_GossipNodeGroup()
+}
+
+
+sealed class __Cont_ActorGrouping {
+    class Join() : __Cont_ActorGrouping()
+    class Leave() : __Cont_ActorGrouping()
+    class Members() : __Cont_ActorGrouping()
+    class Subscribe() : __Cont_ActorGrouping()
+    class Joined() : __Cont_ActorGrouping()
+    class Left(val n: Node) : __Cont_ActorGrouping()
+    class Control(val from: NodeId) : __Cont_ActorGrouping()
+}
+
+
+sealed class __Priv_ActorGrouping {
+    object Init : __Priv_ActorGrouping()
+    class Control(val from: NodeId, val data: salvo.platform.core.bytes.Bytes) : __Priv_ActorGrouping()
+}
+
+
 sealed class __Cont_MemNetwork {
     class Attach(val at: NodeEndpoint) : __Cont_MemNetwork()
     class Detach() : __Cont_MemNetwork()
@@ -2001,5 +1923,192 @@ sealed class __Cont_MemNetwork {
     class Heal(val a: NodeEndpoint) : __Cont_MemNetwork()
     class Kill() : __Cont_MemNetwork()
     class Delivered() : __Cont_MemNetwork()
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun __dispatch_Sending_Outbound(__handler: Sending, __msg: __Msg_Outbound) {
+    when {
+        (__msg is __Msg_Outbound.SendFrame) -> {
+            val to = (__msg as __Msg_Outbound.SendFrame).to
+            val frame = (__msg as __Msg_Outbound.SendFrame).frame
+            __handler.sendFrame(to, frame)
+        }
+        else -> throw IllegalStateException("salvo: unreachable arm")
+    }
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun __dispatch_Receiving_Inbound(__handler: Receiving, __msg: __Msg_Inbound) {
+    when {
+        (__msg is __Msg_Inbound.ReceiveFrame) -> {
+            val from = (__msg as __Msg_Inbound.ReceiveFrame).from
+            val frame = (__msg as __Msg_Inbound.ReceiveFrame).frame
+            __handler.receiveFrame(from, frame)
+        }
+        else -> throw IllegalStateException("salvo: unreachable arm")
+    }
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun __dispatch_StaticNodeGroup_NodeGroup(__handler: StaticNodeGroup, __msg: __Msg_NodeGroup) {
+    when {
+        (__msg is __Msg_NodeGroup.Members) -> {
+            val out = (__msg as __Msg_NodeGroup.Members).out
+            __handler.members(out)
+        }
+        (__msg is __Msg_NodeGroup.Subscribe) -> {
+            val w = (__msg as __Msg_NodeGroup.Subscribe).w
+            __handler.subscribe(w)
+        }
+        (__msg is __Msg_NodeGroup.Leave) -> {
+            __handler.leave()
+        }
+        else -> throw IllegalStateException("salvo: unreachable arm")
+    }
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun __dispatch_priv_StaticNodeGroup(__handler: StaticNodeGroup, __msg: __Priv_StaticNodeGroup) {
+    when {
+        (__msg is __Priv_StaticNodeGroup.Init) -> {
+            __handler.init()
+        }
+        (__msg is __Priv_StaticNodeGroup.Control) -> {
+            val from = (__msg as __Priv_StaticNodeGroup.Control).from
+            val data = (__msg as __Priv_StaticNodeGroup.Control).data
+            __handler.control(from, data)
+        }
+        else -> throw IllegalStateException("salvo: unreachable arm")
+    }
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun __dispatch_GossipNodeGroup_NodeGroup(__handler: GossipNodeGroup, __msg: __Msg_NodeGroup) {
+    when {
+        (__msg is __Msg_NodeGroup.Members) -> {
+            val out = (__msg as __Msg_NodeGroup.Members).out
+            __handler.members(out)
+        }
+        (__msg is __Msg_NodeGroup.Subscribe) -> {
+            val w = (__msg as __Msg_NodeGroup.Subscribe).w
+            __handler.subscribe(w)
+        }
+        (__msg is __Msg_NodeGroup.Leave) -> {
+            __handler.leave()
+        }
+        else -> throw IllegalStateException("salvo: unreachable arm")
+    }
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun __dispatch_priv_GossipNodeGroup(__handler: GossipNodeGroup, __msg: __Priv_GossipNodeGroup) {
+    when {
+        (__msg is __Priv_GossipNodeGroup.Init) -> {
+            __handler.init()
+        }
+        (__msg is __Priv_GossipNodeGroup.Control) -> {
+            val from = (__msg as __Priv_GossipNodeGroup.Control).from
+            val data = (__msg as __Priv_GossipNodeGroup.Control).data
+            __handler.control(from, data)
+        }
+        else -> throw IllegalStateException("salvo: unreachable arm")
+    }
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun __dispatch_ActorGrouping_ActorGroup(__handler: ActorGrouping, __msg: __Msg_ActorGroup) {
+    when {
+        (__msg is __Msg_ActorGroup.Join) -> {
+            val member = (__msg as __Msg_ActorGroup.Join).member
+            __handler.join(member)
+        }
+        (__msg is __Msg_ActorGroup.Leave) -> {
+            val member = (__msg as __Msg_ActorGroup.Leave).member
+            __handler.leave(member)
+        }
+        (__msg is __Msg_ActorGroup.Members) -> {
+            val out = (__msg as __Msg_ActorGroup.Members).out
+            __handler.members(out)
+        }
+        (__msg is __Msg_ActorGroup.Subscribe) -> {
+            val w = (__msg as __Msg_ActorGroup.Subscribe).w
+            __handler.subscribe(w)
+        }
+        (__msg is __Msg_ActorGroup.Refresh) -> {
+            __handler.refresh()
+        }
+        else -> throw IllegalStateException("salvo: unreachable arm")
+    }
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun __dispatch_ActorGrouping_NodeGroupWatcher(__handler: ActorGrouping, __msg: __Msg_NodeGroupWatcher) {
+    when {
+        (__msg is __Msg_NodeGroupWatcher.Joined) -> {
+            val n = (__msg as __Msg_NodeGroupWatcher.Joined).n
+            __handler.joined(n)
+        }
+        (__msg is __Msg_NodeGroupWatcher.Left) -> {
+            val n = (__msg as __Msg_NodeGroupWatcher.Left).n
+            val why = (__msg as __Msg_NodeGroupWatcher.Left).why
+            __handler.left(n, why)
+        }
+        else -> throw IllegalStateException("salvo: unreachable arm")
+    }
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun __dispatch_priv_ActorGrouping(__handler: ActorGrouping, __msg: __Priv_ActorGrouping) {
+    when {
+        (__msg is __Priv_ActorGrouping.Init) -> {
+            __handler.init()
+        }
+        (__msg is __Priv_ActorGrouping.Control) -> {
+            val from = (__msg as __Priv_ActorGrouping.Control).from
+            val data = (__msg as __Priv_ActorGrouping.Control).data
+            __handler.control(from, data)
+        }
+        else -> throw IllegalStateException("salvo: unreachable arm")
+    }
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun __dispatch_MemNetwork_MemNet(__handler: MemNetwork, __msg: __Msg_MemNet) {
+    when {
+        (__msg is __Msg_MemNet.Attach) -> {
+            val at = (__msg as __Msg_MemNet.Attach).at
+            val sink = (__msg as __Msg_MemNet.Attach).sink
+            __handler.attach(at, sink)
+        }
+        (__msg is __Msg_MemNet.Detach) -> {
+            val at = (__msg as __Msg_MemNet.Detach).at
+            __handler.detach(at)
+        }
+        (__msg is __Msg_MemNet.Route) -> {
+            val from = (__msg as __Msg_MemNet.Route).from
+            val to = (__msg as __Msg_MemNet.Route).to
+            val out = (__msg as __Msg_MemNet.Route).out
+            __handler.route(from, to, out)
+        }
+        (__msg is __Msg_MemNet.Partition) -> {
+            val a = (__msg as __Msg_MemNet.Partition).a
+            val b = (__msg as __Msg_MemNet.Partition).b
+            __handler.partition(a, b)
+        }
+        (__msg is __Msg_MemNet.Heal) -> {
+            val a = (__msg as __Msg_MemNet.Heal).a
+            val b = (__msg as __Msg_MemNet.Heal).b
+            __handler.heal(a, b)
+        }
+        (__msg is __Msg_MemNet.Kill) -> {
+            val node = (__msg as __Msg_MemNet.Kill).node
+            __handler.kill(node)
+        }
+        (__msg is __Msg_MemNet.Delivered) -> {
+            val out = (__msg as __Msg_MemNet.Delivered).out
+            __handler.delivered(out)
+        }
+        else -> throw IllegalStateException("salvo: unreachable arm")
+    }
 }
 

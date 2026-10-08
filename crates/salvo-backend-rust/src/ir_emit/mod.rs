@@ -449,6 +449,15 @@ impl<'p> Shared<'p> {
         })
     }
 
+    /// [actor-msg] The generated enum a type key names, and its module.
+    pub fn generated_enum(&self, key: &str) -> Option<(&'p salvo_ir::EnumDecl, ModulePath)> {
+        let module = salvo_core::typekey::module_of(key)?;
+        self.ir.modules.iter().filter(|m| m.path.0.join(".") == module).flat_map(|m| &m.decls).find_map(|d| match d {
+            Decl::Enum(e) if salvo_ir::enum_key(&e.name, &e.id.module) == key => Some((e, e.id.module.clone())),
+            _ => None,
+        })
+    }
+
     pub fn interface_by_id(&self, id: &DeclId) -> Option<&'p InterfaceDecl> {
         match self.decls.get(id) {
             Some(Decl::Interface(i)) => Some(i),
@@ -937,7 +946,11 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let plain = salvo_core::typekey::plain(key);
         match self.s.symbols.key_modules.get(key) {
             Some(m) => format!("{}{}", self.s.prefix(m), rs_ident(plain)),
-            None => rs_ident(plain),
+            // [actor-msg] A generated enum is keyed by its module.
+            None => match self.s.generated_enum(key) {
+                Some((_, m)) => format!("{}{}", self.s.prefix(&m), rs_ident(plain)),
+                None => rs_ident(plain),
+            },
         }
     }
 }

@@ -13,7 +13,7 @@ use salvo_ir::{ArmTest, Block, Expr, ExprKind, FnKind, FnRef, Justification, Lit
 
 use super::decls::{fn_ty_param_mode, FnPos};
 use super::{is_copy_ty, is_mut, is_proj, ModuleEmitter};
-use crate::emit::{escape_char, escape_format_text, escape_string, rs_ident};
+use crate::emit::{escape_char, escape_format_text, escape_string, rs_ident, stateful_trait_name, stateless_trait_name};
 use crate::intrinsics::Spread;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -237,6 +237,10 @@ pub(crate) fn walk_expr(e: &Expr, fs: &mut impl FnMut(&Stmt), fe: &mut impl FnMu
         ExprKind::UnionToStr { value, arms } => {
             sub(value);
             arms.iter().for_each(&mut sub);
+        }
+        ExprKind::HandlerCall { instance, args, .. } => {
+            sub(instance);
+            args.iter().for_each(&mut sub);
         }
         ExprKind::Construct { fields } => fields.iter().for_each(|(_, v)| sub(v)),
         ExprKind::MakeUnion { value, .. } | ExprKind::Rewrap { value, .. } | ExprKind::DropMut { value } | ExprKind::Widen { value } | ExprKind::Spread { value } => sub(value),
@@ -469,6 +473,25 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             Stmt::ForEach { local, ty, iterable, body, .. } => self.for_each(local, ty, iterable, body, indent),
             Stmt::Let { local, ty, value, .. } => self.let_stmt(local, ty, value, indent),
             Stmt::Narrow { local, ty, from, from_ty, because, .. } => self.narrow(local, ty, from, from_ty, because, indent),
+            Stmt::Unpack { locals, from, from_ty, variant, .. } => {
+                // [actor-dispatch] The payload of the variant just tested.
+                let (text, _) = self.place_text(from, indent);
+                let Some((e, m)) = (match from_ty.strip_quals() {
+                    Ty::Named { name, .. } => self.s.generated_enum(name),
+                    _ => None,
+                }) else {
+                    self.error("an unpack of something that is not a generated enum");
+                    return String::new();
+                };
+                let v = &e.variants[*variant];
+                let names: Vec<String> = locals.iter().map(|(l, _)| rs_local(&l.0)).collect();
+                for (l, t) in locals {
+                    self.f.tys.insert(l.0.clone(), t.clone());
+                    self.f.kinds.insert(l.0.clone(), if is_proj(t) { Kind::Ref } else { Kind::Owned });
+                }
+                let pat = if names.is_empty() { String::new() } else { format!("({})", names.join(", ")) };
+                format!("{pad}let {}{}::{}{pat} = {text} else {{ unreachable!() }};\n", self.s.prefix(&m), rs_ident(&e.name), v.name)
+            }
             Stmt::Alias { local, ty, place, .. } => {
                 // [deduce-field] No binding: the place, at every use.
                 let (text, _) = self.place_text(place, indent);
@@ -982,6 +1005,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 format!("{inst}.{}({})", rs_ident(&m.emitted_name), a.join(", "))
             }
             ExprKind::Op { op, args } => self.op(e, *op, args, indent),
+            ExprKind::HandlerCall { instance, member, args } => self.handler_call(instance, member, args, indent),
             // [interp-union] `UnionN::to_str`, given the function of each arm.
             ExprKind::UnionToStr { value, arms } => {
                 let v = self.raw(value, indent);
@@ -1405,6 +1429,53 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         out
     }
 
+    /// [actor-dispatch] A member of a handler *instance*, called directly:
+    /// a face's through its trait (the instance is the implementing struct),
+    /// the handler's own as an inherent method.
+    fn handler_call(&mut self, instance: &Expr, member: &salvo_ir::HandlerMember, args: &[Expr], indent: usize) -> String {
+        let Ty::Named { name, .. } = instance.ty.strip_quals().clone() else {
+            self.error("a handler call on something that is not a handler");
+            return "()".to_string();
+        };
+        let Some(h) = self.s.impl_decl(&name) else {
+            self.error(format!("a handler call on `{name}`, which is not a handler"));
+            return "()".to_string();
+        };
+        match member {
+            salvo_ir::HandlerMember::Face(m) => {
+                let Some(mem) = self.member_decl(m) else {
+                    self.error("a handler call of an unknown member");
+                    return "()".to_string();
+                };
+                let Some(iface) = self.s.interface_by_id(&m.interface) else { return "()".to_string() };
+                let tr = if h.stateful { stateful_trait_name(&iface.name) } else { stateless_trait_name(&iface.name) };
+                let path = self.path_in(&m.interface.module, &tr);
+                let inst = self.borrow_mut(instance, indent);
+                let mut ps = self.s.unalias_params(&mem.params);
+                if mem.send {
+                    // A message is delivered by value.
+                    ps.iter_mut().for_each(|p| p.mode = PassMode::Moved);
+                }
+                let a = self.args(&ps, args, FnPos::DynParam, indent);
+                let all: Vec<String> = std::iter::once(inst).chain(a).collect();
+                format!("{path}::{}({})", rs_ident(&mem.emitted_name), all.join(", "))
+            }
+            salvo_ir::HandlerMember::Own(n) => {
+                let inst = self.raw(instance, indent);
+                let own = h.members.iter().chain(h.init.as_ref()).find(|f| &f.name == n);
+                let mut ps: Vec<Param> = own
+                    .map(|f| self.s.unalias_params(&f.params).into_iter().skip(f.effect_params).take(f.params.len() - f.effect_params - f.implicit_params).collect())
+                    .unwrap_or_default();
+                if own.is_some_and(|f| f.send) {
+                    // A message is delivered by value.
+                    ps.iter_mut().for_each(|p| p.mode = PassMode::Moved);
+                }
+                let a = self.args(&ps, args, FnPos::Param, indent);
+                format!("{inst}.{}({})", rs_ident(n), a.join(", "))
+            }
+        }
+    }
+
     /// The text a test reads its subject through.
     fn raw_subject(&mut self, subject: &Expr, indent: usize) -> String {
         match &subject.kind {
@@ -1455,6 +1526,14 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     }
 
     fn test_code(&mut self, subject: &str, st: &Ty, test: &ArmTest) -> String {
+        // [actor-dispatch] A generated enum: its variant.
+        if let (Ty::Named { name, .. }, ArmTest::Arm(i)) = (st.strip_quals(), test) {
+            if let Some((e, m)) = self.s.generated_enum(name) {
+                let v = &e.variants[*i];
+                let rest = if v.fields.is_empty() { "" } else { "(..)" };
+                return format!("matches!({subject}, {}{}::{}{rest})", self.s.prefix(&m), rs_ident(&e.name), v.name);
+            }
+        }
         let arms: Vec<Ty> = st.strip_quals().value_arms().into_iter().cloned().collect();
         let n = arms.len();
         let opt = st.strip_quals().has_none_arm();

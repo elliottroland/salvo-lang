@@ -339,18 +339,13 @@ impl __Actor_Wheeling {
     pub fn new(handler: Wheeling) -> Self {
         Self { handler }
     }
-    fn __dispatch(&mut self, msg: crate::runtime_timers::__Msg_Wheel) {
-        match msg {
-            crate::runtime_timers::__Msg_Wheel::Run => crate::runtime_timers::__Stateless_Wheel::run(&mut self.handler),
-        }
-    }
 }
 
 impl crate::scheduler::SalvoActor for __Actor_Wheeling {
     fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {
         self.handler.__addr = Some(_ctx.addr);
         let msg = *msg.downcast::<crate::runtime_timers::__Msg_Wheel>().expect("message of this protocol");
-        self.__dispatch(msg);
+        crate::runtime_timers::__dispatch_Wheeling_Wheel(&mut self.handler, msg);
     }
 
     fn resume(&mut self, _ctx: &crate::scheduler::SalvoCtx, _slot: u64, _value: crate::scheduler::SalvoMsg) {
@@ -433,3 +428,10 @@ impl crate::wire::__Wire for __Msg_Wheel {
 
 /// [protocol-hash] The canonical hash of `Wheel`.
 pub const __PROTO_Wheel: &str = "df3353758a650c52";
+
+pub fn __dispatch_Wheeling_Wheel(__handler: &mut crate::runtime_timers::Wheeling, mut __msg: crate::runtime_timers::__Msg_Wheel) {
+    if matches!(__msg, crate::runtime_timers::__Msg_Wheel::Run) {
+        let crate::runtime_timers::__Msg_Wheel::Run = __msg else { unreachable!() };
+        crate::runtime_timers::__Stateless_Wheel::run(&mut *__handler);
+    };
+}

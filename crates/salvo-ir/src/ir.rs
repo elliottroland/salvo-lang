@@ -231,7 +231,18 @@ pub struct ImplDecl {
     pub platform: bool,
     pub threadsafe: bool,
     pub intrinsic: bool,
+    /// [actor-dispatch] For an actor handler: the generated function that
+    /// delivers each message enum it serves to the handler's members.
+    pub dispatch: Vec<Dispatch>,
     pub span: Span,
+}
+
+/// [actor-dispatch] `func(handler, msg)` delivers a `message` to the handler.
+pub struct Dispatch {
+    /// The [`EnumDecl`] it dispatches.
+    pub message: DeclId,
+    /// The generated [`FnDecl`], in the handler's module.
+    pub func: DeclId,
 }
 
 pub struct PlatformTypeDecl {
@@ -359,6 +370,10 @@ pub enum Stmt {
     Alias { id: NodeId, local: Local, ty: Ty, place: Place },
     /// [ir-narrow] a new local of the narrowed type, justified by a test.
     Narrow { id: NodeId, local: Local, ty: Ty, from: Place, from_ty: Ty, because: Justification },
+    /// [actor-dispatch] The payload of a variant of an enum value, bound to
+    /// locals (one per field, in order); valid in the arm that tested the
+    /// variant.
+    Unpack { id: NodeId, locals: Vec<(Local, Ty)>, from: Place, from_ty: Ty, variant: usize },
     Assign { place: Place, value: Expr },
     Expr(Expr),
     Return(Option<Expr>),
@@ -499,12 +514,25 @@ pub enum ExprKind {
     AddrInstance { addr: Box<Expr> },
     /// [actor-self-send] a message to the enclosing actor.
     SelfSend { member: String, args: Vec<Expr> },
+    /// [actor-dispatch] A call of a member of a handler *instance* (not
+    /// through a handle): a face's member, or one of the handler's own
+    /// (`init`, a private `send fn`).
+    HandlerCall { instance: Box<Expr>, member: HandlerMember, args: Vec<Expr> },
     /// [interp-union] The text of a union value: the function of the arm it
     /// holds is called on its payload. `arms[i]` is a value of type
     /// `(arm i) -> Str`; the backend owns the dispatch (`UnionN`'s `to_str`).
     UnionToStr { value: Box<Expr>, arms: Vec<Expr> },
     /// A construct the builder does not lower yet: never emitted silently.
     Unsupported(String),
+}
+
+/// What a [`ExprKind::HandlerCall`] calls.
+#[derive(Clone, Debug, PartialEq)]
+pub enum HandlerMember {
+    /// A member of an interface the handler implements.
+    Face(MemberRef),
+    /// A member of the handler no face declares, by name.
+    Own(String),
 }
 
 #[derive(Clone)]

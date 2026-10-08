@@ -15,7 +15,7 @@ use salvo_syntax::Span;
 use crate::ir::*;
 
 mod body;
-mod actors;
+pub mod actors;
 mod decls;
 
 pub use body::Lower;
@@ -279,8 +279,9 @@ pub fn build_program<'p>(
         out.modules.push(m);
         errors.extend(errs.into_iter().map(|e| format!("{}: {e}", file.name)));
     }
-    actors::generate(&ctx, &mut out);
+    let generated = actors::generate(&ctx, &mut out);
     out.names = ctx.names;
+    out.names.extend(generated);
     (out, errors)
 }
 

@@ -245,19 +245,13 @@ impl __Actor_Sessions {
     pub fn new(handler: Sessions) -> Self {
         Self { handler }
     }
-    fn __dispatch(&mut self, msg: crate::__Msg_Session) {
-        match msg {
-            crate::__Msg_Session::Open(started, budget, out) => crate::__Stateful_Session::open(&mut self.handler, started, budget, out),
-            crate::__Msg_Session::Expire(started, budget, out, f) => crate::__Stateful_Session::expire(&mut self.handler, started, budget, out, f),
-        }
-    }
 }
 
 impl crate::scheduler::SalvoActor for __Actor_Sessions {
     fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {
         self.handler.__addr = Some(_ctx.addr);
         let msg = *msg.downcast::<crate::__Msg_Session>().expect("message of this protocol");
-        self.__dispatch(msg);
+        crate::__dispatch_Sessions_Session(&mut self.handler, msg);
     }
 
     fn resume(&mut self, _ctx: &crate::scheduler::SalvoCtx, slot: u64, value: crate::scheduler::SalvoMsg) {
@@ -266,8 +260,8 @@ impl crate::scheduler::SalvoActor for __Actor_Sessions {
             return; // a reply whose continuation is gone: nothing to run
         };
         match __cont {
-            __Cont_Sessions::Open(started, budget) => self.__dispatch(crate::__Msg_Session::Open(started, budget, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
-            __Cont_Sessions::Expire(started, budget, out) => self.__dispatch(crate::__Msg_Session::Expire(started, budget, out, *value.downcast::<crate::time::Fired>().expect("the awaited answer"))),
+            __Cont_Sessions::Open(started, budget) => crate::__dispatch_Sessions_Session(&mut self.handler, crate::__Msg_Session::Open(started, budget, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
+            __Cont_Sessions::Expire(started, budget, out) => crate::__dispatch_Sessions_Session(&mut self.handler, crate::__Msg_Session::Expire(started, budget, out, *value.downcast::<crate::time::Fired>().expect("the awaited answer"))),
         }
     }
 
@@ -423,19 +417,13 @@ impl __Actor_Napping {
     pub fn new(handler: Napping) -> Self {
         Self { handler }
     }
-    fn __dispatch(&mut self, msg: crate::__Msg_Sleeper) {
-        match msg {
-            crate::__Msg_Sleeper::Nap(wait, out) => crate::__Stateful_Sleeper::nap(&mut self.handler, wait, out),
-            crate::__Msg_Sleeper::Woke(started, out, f) => crate::__Stateful_Sleeper::woke(&mut self.handler, started, out, f),
-        }
-    }
 }
 
 impl crate::scheduler::SalvoActor for __Actor_Napping {
     fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {
         self.handler.__addr = Some(_ctx.addr);
         let msg = *msg.downcast::<crate::__Msg_Sleeper>().expect("message of this protocol");
-        self.__dispatch(msg);
+        crate::__dispatch_Napping_Sleeper(&mut self.handler, msg);
     }
 
     fn resume(&mut self, _ctx: &crate::scheduler::SalvoCtx, slot: u64, value: crate::scheduler::SalvoMsg) {
@@ -444,8 +432,8 @@ impl crate::scheduler::SalvoActor for __Actor_Napping {
             return; // a reply whose continuation is gone: nothing to run
         };
         match __cont {
-            __Cont_Napping::Nap(wait) => self.__dispatch(crate::__Msg_Sleeper::Nap(wait, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
-            __Cont_Napping::Woke(started, out) => self.__dispatch(crate::__Msg_Sleeper::Woke(started, out, *value.downcast::<crate::time::Fired>().expect("the awaited answer"))),
+            __Cont_Napping::Nap(wait) => crate::__dispatch_Napping_Sleeper(&mut self.handler, crate::__Msg_Sleeper::Nap(wait, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
+            __Cont_Napping::Woke(started, out) => crate::__dispatch_Napping_Sleeper(&mut self.handler, crate::__Msg_Sleeper::Woke(started, out, *value.downcast::<crate::time::Fired>().expect("the awaited answer"))),
         }
     }
 
@@ -556,11 +544,6 @@ impl crate::wire::__Wire for __Msg_Session {
 /// [protocol-hash] The canonical hash of `Session`.
 pub const __PROTO_Session: &str = "7ed70285b7e6568c";
 
-pub enum __Cont_Sessions {
-    Open(crate::time::Tick, crate::time::Duration),
-    Expire(crate::time::Tick, crate::time::Duration, crate::scheduler::SalvoReply),
-}
-
 pub enum __Msg_Sleeper {
     Nap(crate::time::Duration, crate::scheduler::SalvoReply),
     Woke(crate::time::Tick, crate::scheduler::SalvoReply, crate::time::Fired),
@@ -594,7 +577,32 @@ impl crate::wire::__Wire for __Msg_Sleeper {
 /// [protocol-hash] The canonical hash of `Sleeper`.
 pub const __PROTO_Sleeper: &str = "2385b53950dcbd9c";
 
+pub enum __Cont_Sessions {
+    Open(crate::time::Tick, crate::time::Duration),
+    Expire(crate::time::Tick, crate::time::Duration, crate::scheduler::SalvoReply),
+}
+
 pub enum __Cont_Napping {
     Nap(crate::time::Duration),
     Woke(crate::time::Tick, crate::scheduler::SalvoReply),
+}
+
+pub fn __dispatch_Sessions_Session(__handler: &mut crate::Sessions, mut __msg: crate::__Msg_Session) {
+    if matches!(__msg, crate::__Msg_Session::Open(..)) {
+        let crate::__Msg_Session::Open(started, budget, out) = __msg else { unreachable!() };
+        crate::__Stateful_Session::open(&mut *__handler, started, budget, out);
+    } else {
+        let crate::__Msg_Session::Expire(started, budget, out, f) = __msg else { unreachable!() };
+        crate::__Stateful_Session::expire(&mut *__handler, started, budget, out, f);
+    };
+}
+
+pub fn __dispatch_Napping_Sleeper(__handler: &mut crate::Napping, mut __msg: crate::__Msg_Sleeper) {
+    if matches!(__msg, crate::__Msg_Sleeper::Nap(..)) {
+        let crate::__Msg_Sleeper::Nap(wait, out) = __msg else { unreachable!() };
+        crate::__Stateful_Sleeper::nap(&mut *__handler, wait, out);
+    } else {
+        let crate::__Msg_Sleeper::Woke(started, out, f) = __msg else { unreachable!() };
+        crate::__Stateful_Sleeper::woke(&mut *__handler, started, out, f);
+    };
 }
