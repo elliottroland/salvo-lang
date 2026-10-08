@@ -68,7 +68,7 @@ fn main::duel(lent_mut a: Mut Fighter, lent_mut d: Mut Fighter) -> None {
   return none[None]
 }
 
-fn main::strike(lent_mut a: Mut Fighter, lent_mut d: Mut Fighter) -> None {
+fn main::strike(lent_mut a: Mut Fighter, lent_mut d: Mut Fighter) -> None => a canbe d {
   assign a.energy = op Sub(read a.energy, 1)
   assign d.hp = op Sub(read d.hp, 2)
   return none[None]
@@ -79,7 +79,7 @@ struct Squad canbe Mut wire {
   members: List<Mut Fighter>
 }
 
-fn main::rotate(lent_mut squad: Mut Squad, lent_mut from: Mut Fighter, lent_mut to: Mut Fighter) -> None {
+fn main::rotate(lent_mut squad: Mut Squad, lent_mut from: Mut Fighter, lent_mut to: Mut Fighter) -> None => from canbe in squad.members, to canbe in squad.members {
   assign from.energy = op Sub(read from.energy, 1)
   assign to.energy = op Add(read to.energy, 1)
   return none[None]

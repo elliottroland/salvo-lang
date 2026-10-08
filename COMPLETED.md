@@ -137,6 +137,24 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-06 — Alias groups in the IR, with their own anchor-step type (user decision)
+
+`[canbe-entry]` was the one ownership fact the IR did not carry: Kotlin
+never needed it, and Rust's shared-anchor rendering [rs-loc] does. It is now
+the fourth ownership mark, `FnDecl.may_alias: Vec<MayAlias>` (IR.md §5),
+built from the clause by IR parameter index (the AST's positions do not
+carry over, since effects lead `params`), and dumped as the source spells it
+(`=> from canbe in squad.members, to canbe in squad.members`).
+
+The user's call on the anchor path's type: **`AnchorStep { Field, Tuple }`,
+not `Step`**. Reusing `Step` would make every backend's exhaustive match carry
+an `Index` arm that cannot occur — defeating the exhaustiveness the type is
+for — and extending anchors to indexes is a surface change of its own.
+Considered and not taken: `Step<Ix>` generic over its index payload with
+`Step<Infallible>` for anchors (Rust lets a match omit an uninhabited arm), which
+shares the two trivial variants at the cost of a type parameter on every
+`Place`. The index form is parked in ROADMAP.
+
 ### 2026-10-06 — The IR, step 2 done: Kotlin emits from the IR, and the AST emitter is gone
 
 The Kotlin backend's only emitter is `ir_emit/` (about 4,200 lines with the

@@ -225,7 +225,7 @@ turns a `FnRef` into a target identifier, shared by Rust and Kotlin.
 
 ## 5. Ownership marks
 
-Three facts, all Salvo's, none a target's:
+Four facts, all Salvo's, none a target's:
 
 1. **Per parameter**, `PassMode`: `Moved`, `Lent`, `LentMut` (today's
    `param_mode.rs`, unchanged).
@@ -237,6 +237,19 @@ Three facts, all Salvo's, none a target's:
    root — the union of `linear_moves`, `state_takes`, `moved_projections`,
    move-mode `binding_modes` and the argument/return positions whose mode
    says so.
+4. **Per fn**, `may_alias: Vec<MayAlias>` [canbe-entry]: the parameters that
+   may name the same object, as the clause wrote them with its `|` lists
+   desugared — `Params(a, d)` for `a canbe d`, `In { param, root, path }` for
+   `a canbe in lib.tracks`, the path rooted at parameter `root` and made of
+   `AnchorStep`s (`Field`, `Tuple`). Symmetric, not transitive; a backend
+   with ownership renders a covered pair against a shared anchor [rs-loc].
+   `AnchorStep` is not `Step` (user decision 2026-10-06): a place's `Index`
+   step holds an expression of a call site, and an anchor is part of a
+   signature, so the two path types share only their field and tuple steps.
+   An index step for anchors would be `AnchorStep::Index(param)`, and is
+   parked with the surface it needs (`canbe in xs[i]`, ROADMAP). Effect
+   members and fn values carry no `canbe` surface yet, so only `FnDecl` has
+   the field.
 
 The principle: **the IR marks consumption, never duplication.** A backend
 with ownership (Rust) reads `consume: false` on a non-scalar read whose root

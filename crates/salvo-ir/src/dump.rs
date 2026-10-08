@@ -221,6 +221,28 @@ impl<'a> Dumper<'a> {
         if let Some(t) = &f.throws {
             let _ = write!(self.out, " throws {t}");
         }
+        // [canbe-entry] the alias relations, as the source spells them.
+        if !f.may_alias.is_empty() {
+            let name = |i: &usize| f.params[*i].local.0.clone();
+            let entries: Vec<String> = f
+                .may_alias
+                .iter()
+                .map(|m| match m {
+                    MayAlias::Params(a, b) => format!("{} canbe {}", name(a), name(b)),
+                    MayAlias::In { param, root, path } => {
+                        let mut p = name(root);
+                        for st in path {
+                            match st {
+                                AnchorStep::Field(f) => p.push_str(&format!(".{f}")),
+                                AnchorStep::Tuple(n) => p.push_str(&format!(".{n}")),
+                            }
+                        }
+                        format!("{} canbe in {p}", name(param))
+                    }
+                })
+                .collect();
+            let _ = write!(self.out, " => {}", entries.join(", "));
+        }
         match &f.body {
             None => self.out.push('\n'),
             Some(b) => {

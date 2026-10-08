@@ -1235,6 +1235,11 @@ backends**.
 Each was considered and deliberately parked. Nothing here is blocking, and
 several are "revisit only if a customer appears".
 
+- **Index steps in `canbe in` anchors** (user, 2026-10-06): `=> t canbe in
+  lib.tracks[i]`, `i` another parameter. Natural, rarely needed, and new
+  surface; in the IR it is one more variant, `AnchorStep::Index(param)`, which
+  every backend's exhaustive match would then flag (IR.md §5).
+
 - **The whole program in the host project** (user, 2026-10-01; ABI D4).
   The alternative to generating only the declarations the platform surface
   reaches: write the entire emitted program into the platform root as
