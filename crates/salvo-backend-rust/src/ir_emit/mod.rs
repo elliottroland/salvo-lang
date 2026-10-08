@@ -41,6 +41,7 @@ pub fn emit_program_ir(
     if !build_errors.is_empty() {
         return Err(build_errors);
     }
+    PLAIN_EFFECTS.with(|p| *p.borrow_mut() = symbols.effects.iter().filter(|(_, e)| !e.is_actor).map(|(k, _)| k.to_string()).collect());
     let (mod_names, mut used) = module_mod_names(&reach.emitted);
     // [rs-crate] The crate root: the module declaring `fn main` with a body,
     // the driver's choice winning.
@@ -379,16 +380,37 @@ impl<'p> Shared<'p> {
     }
 
     pub fn interface(&self, key: &str) -> Option<&'p InterfaceDecl> {
-        self.ir.modules.iter().flat_map(|m| &m.decls).find_map(|d| match d {
-            Decl::Interface(i) if self.key_of(&i.id, &i.name) == key || i.name == key => Some(i),
+        let all = || self.ir.modules.iter().flat_map(|m| &m.decls);
+        all().find_map(|d| match d {
+            Decl::Interface(i) if self.key_of(&i.id, &i.name) == key => Some(i),
             _ => None,
+        })
+        .or_else(|| {
+            if self.symbols.effects.contains_key(key) || !self.symbols.key_modules.contains_key(key) {
+                all().find_map(|d| match d {
+                    Decl::Interface(i) if i.name == salvo_core::typekey::plain(key) => Some(i),
+                    _ => None,
+                })
+            } else {
+                None
+            }
         })
     }
 
     pub fn impl_decl(&self, key: &str) -> Option<&'p ImplDecl> {
-        self.ir.modules.iter().flat_map(|m| &m.decls).find_map(|d| match d {
-            Decl::Impl(h) if self.key_of(&h.id, &h.name) == key || h.name == key => Some(h),
+        if !self.symbols.handlers.contains_key(key) {
+            return None;
+        }
+        let all = || self.ir.modules.iter().flat_map(|m| &m.decls);
+        all().find_map(|d| match d {
+            Decl::Impl(h) if self.key_of(&h.id, &h.name) == key => Some(h),
             _ => None,
+        })
+        .or_else(|| {
+            all().find_map(|d| match d {
+                Decl::Impl(h) if h.name == salvo_core::typekey::plain(key) => Some(h),
+                _ => None,
+            })
         })
     }
 
@@ -501,6 +523,16 @@ impl<'p> Shared<'p> {
         Some((runtime, once))
     }
 
+    /// [once-fn] Whether a fn's `i`th parameter is a `once` fn.
+    pub fn once_param(&self, f: &FnDecl, i: usize) -> bool {
+        if i < f.effect_params {
+            return false;
+        }
+        let Some(af) = self.ast_fn(&f.id) else { return false };
+        let Some(ap) = af.params.iter().filter(|p| !p.implicit).nth(i - f.effect_params) else { return false };
+        matches!(&ap.ty, salvo_syntax::ast::Type::QualifiedGroup { qualifiers, base, .. } if qualifiers.iter().any(|q| q.name.name == "once") && matches!(base.as_ref(), salvo_syntax::ast::Type::Fn { .. }))
+    }
+
     /// The parameter a fn's result borrows from.
     pub fn lend_param(&self, f: &FnDecl) -> Option<usize> {
         if let Some(i) = f.borrows.first() {
@@ -602,6 +634,52 @@ impl<'p> Shared<'p> {
     }
 }
 
+/// One `use` per foreign item a module's text names, unambiguous and not
+/// declared here.
+fn host_imports(body: &str) -> String {
+    let mut found: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    let bytes = body.as_bytes();
+    let mut i = 0;
+    while let Some(at) = body[i..].find("crate::") {
+        let start = i + at;
+        i = start + 7;
+        if start > 0 && (bytes[start - 1].is_ascii_alphanumeric() || bytes[start - 1] == b'_' || bytes[start - 1] == b':') {
+            continue;
+        }
+        let rest = &body[i..];
+        let end = rest.find(|c: char| !(c.is_alphanumeric() || c == '_' || c == ':')).unwrap_or(rest.len());
+        let path = rest[..end].trim_end_matches(':');
+        let parts: Vec<&str> = path.split("::").collect();
+        if parts.len() != 2 {
+            continue;
+        }
+        let (m, name) = (parts[0], parts[1]);
+        if name.is_empty() || name.starts_with("__") || m.starts_with("platform_") || matches!(m, "unions" | "scheduler" | "wire" | "seq" | "strings" | "hosttime" | "hoststreams") {
+            continue;
+        }
+        if !name.chars().next().is_some_and(|c| c.is_alphabetic()) {
+            continue;
+        }
+        found.entry(name.to_string()).or_default().insert(m.to_string());
+    }
+    let declared = |n: &str| -> bool {
+        ["fn", "struct", "trait", "enum", "type", "const"].iter().any(|k| body.contains(&format!("pub {k} {n}<")) || body.contains(&format!("pub {k} {n}(")) || body.contains(&format!("pub {k} {n} ")) || body.contains(&format!("pub {k} {n}:")))
+            || body.contains(&format!("::{n};\n")) && body.contains(&format!("pub use crate::"))
+    };
+    let mut out = String::new();
+    for (name, mods) in found {
+        if mods.len() != 1 || declared(&name) {
+            continue;
+        }
+        let m = mods.into_iter().next().unwrap();
+        out.push_str(&format!("use crate::{m}::{name};\n"));
+    }
+    if !out.is_empty() {
+        out.push('\n');
+    }
+    out
+}
+
 pub(crate) fn mentions_var(t: &Ty, v: &str) -> bool {
     match t {
         Ty::Var(x) => x == v,
@@ -654,11 +732,17 @@ pub(crate) fn strip_plain_proj(t: &Ty, vars: &HashSet<String>) -> Ty {
     }
 }
 
+thread_local! {
+    /// [monitor-handler] The plain effects of the program being emitted: an
+    /// `Addr` of one is its handle, not a scheduler index.
+    static PLAIN_EFFECTS: std::cell::RefCell<HashSet<String>> = std::cell::RefCell::new(HashSet::new());
+}
+
 pub(crate) fn is_copy_ty(t: &Ty) -> bool {
     match t.strip_quals() {
         Ty::Named { name, args } if args.is_empty() => matches!(name.as_str(), "Int" | "Long" | "Float" | "Double" | "Bool" | "Char" | "Byte" | "Pool"),
         // [runtime-handles] an actor's addr is a scheduler index.
-        Ty::Named { name, .. } => name == "Addr" || name == "Pool",
+        Ty::Named { name, args } if name == "Addr" => !matches!(args.first().map(|a| a.strip_quals()), Some(Ty::Named { name: e, .. }) if PLAIN_EFFECTS.with(|p| p.borrow().contains(e))),
         _ => false,
     }
 }
@@ -710,7 +794,10 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 body.push_str(&self.out);
             }
         }
-        body
+        // [rs-imports] The generated code names everything in full; these
+        // `use`s are for the host files, which `use crate::<module>::*` and
+        // name what the module's declarations mention unqualified.
+        format!("{}{body}", host_imports(&body))
     }
 
     // ------------------------------------------------------------- names --

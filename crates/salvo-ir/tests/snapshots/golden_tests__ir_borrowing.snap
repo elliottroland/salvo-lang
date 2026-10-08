@@ -10,7 +10,7 @@ struct Fighter canbe Mut wire {
   energy: Int
 }
 
-fn main::named(lent roster: List<Fighter>, lent name: Str) -> proj Fighter? {
+fn main::named(lent roster: List<Fighter>, lent name: Str) -> proj Fighter? borrows [roster] {
   foreach#1 f: proj Fighter in read roster {
     branch#2 cond#0 call core.compare::eq(Str, Str)(read f.name, read name) {
       return present(read f)
@@ -28,7 +28,7 @@ fn main::window(lent roster: List<Fighter>) -> Mut Window borrows [roster] {
   return construct Mut Window { roster: read roster, at: 0 }
 }
 
-fn main::peek(lent w: Window) -> proj Fighter? {
+fn main::peek(lent w: Window) -> proj Fighter? borrows [w] {
   return call core.list::get(List<T>, Int)<Fighter>(read w.roster, read w.at)
 }
 
@@ -37,7 +37,7 @@ fn main::heal(lent_mut f: Mut Fighter) -> None {
   return none[None]
 }
 
-fn main::wounded(lent_mut squad: List<Mut Fighter>) -> proj Mut Fighter? {
+fn main::wounded(lent_mut squad: List<Mut Fighter>) -> proj Mut Fighter? borrows [squad] {
   foreach#1 f: proj Mut Fighter in read squad {
     branch#2 cond#0 op Lt(call core.compare::cmp(Int, Int)(read f.hp, 10), 0) {
       return present(read f)

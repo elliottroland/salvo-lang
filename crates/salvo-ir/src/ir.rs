@@ -206,6 +206,13 @@ pub struct PlatformTypeDecl {
     /// [platform-type] the host defines it (an `intrinsic type` is the
     /// backend's own).
     pub platform: bool,
+    /// [platform-type] `threadsafe`: shared across threads at once.
+    pub threadsafe: bool,
+    /// [platform-slots] it keeps fn values by identity (so it is no key).
+    pub slots: bool,
+    /// [platform-iterable] a `for` loops over it, yielding `iter_elem`.
+    pub iterable: bool,
+    pub iter_elem: Option<Ty>,
     pub span: Span,
 }
 
@@ -247,6 +254,9 @@ pub struct FnDecl {
     /// subject): symmetric, not transitive. The fourth ownership mark
     /// (IR.md §5).
     pub may_alias: Vec<MayAlias>,
+    /// [deduce-field] `p.f: proj(q)`: after the call, parameter `.0` holds a
+    /// view of parameter `.1` (indices into `params`).
+    pub holds: Vec<(usize, usize)>,
     /// [throw] the message type this fn may throw, when it declares `[Throw<M>]`.
     pub throws: Option<Ty>,
     /// [platform-check] a platform fn's result check.

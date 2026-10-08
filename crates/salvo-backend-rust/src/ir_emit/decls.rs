@@ -66,6 +66,11 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     // ------------------------------------------------------------- types --
 
     pub fn ty(&mut self, t: &Ty) -> String {
+        if let Ty::Named { name, args } = t {
+            if args.is_empty() && self.f.render_subst.contains_key(name) {
+                return self.ty(&Ty::Var(name.clone()));
+            }
+        }
         if !self.f.plain_vars.is_empty() {
             let s = super::strip_plain_proj(t, &self.f.plain_vars);
             if &s != t {
@@ -153,7 +158,15 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             }
             Ty::Array(e) => format!("Vec<{}>", self.ty(e)),
             Ty::Fn { .. } => self.fn_ty(t, FnPos::Stored),
-            Ty::Var(v) => v.clone(),
+            Ty::Var(v) => match self.f.render_subst.get(v).cloned() {
+                Some(t) => {
+                    let saved = std::mem::take(&mut self.f.render_subst);
+                    let r = self.ty(&t);
+                    self.f.render_subst = saved;
+                    r
+                }
+                None => v.clone(),
+            },
             Ty::Never => "()".to_string(),
             Ty::FnName(_) | Ty::Any | Ty::Unknown => {
                 self.error(format!("a value of type `{t}` reached rust code generation"));
@@ -237,21 +250,35 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     pub fn decl(&mut self, d: &Decl) {
         match d {
             Decl::Struct(s) => self.struct_decl(s),
-            Decl::Union(_) => {}
+            Decl::Union(u) => {
+                // [platform-factory] a named union a host builds: the alias
+                // the factories hang off.
+                if let Some(f) = u.factories.clone() {
+                    if f.nullable {
+                        self.out.push_str(&format!("\n// No factories for `{}`: it admits `None`, and Rust has no inherent impl on an `Option` [platform-factory].\n", u.name));
+                    } else {
+                        let alias = rs_ident(&u.name);
+                        let union = self.ty(&f.union);
+                        self.out.push_str(&format!("\npub type {alias} = {union};\n"));
+                        let code = self.factory_impl(&alias, "Self", false, &[f]);
+                        self.out.push_str(&code);
+                    }
+                }
+            }
             Decl::Interface(i) => self.interface_decl(i),
             Decl::Impl(h) => self.impl_decl(h),
             Decl::Fn(f) => {
                 let code = self.fn_decl(f, None, 0);
                 self.out.push_str(&code);
+                if let Some(x) = f.factories.clone() {
+                    let code = self.factory_impl(&salvo_core::abi::upper_camel(&f.name), "", true, &[x]);
+                    self.out.push_str(&code);
+                }
             }
             Decl::PlatformType(t) => {
                 if t.platform {
-                    // [platform-type] the host's type, re-exported where Salvo declares it.
-                    let host = host_mod_name(&self.module.path);
-                    self.out.push_str(&format!("\n/// [platform-type] The host's `{0}`.\npub use crate::{host}::{0};\n", rs_ident(&t.name)));
-                    if t.canbe_mut && !t.linear {
-                        self.out.push_str(&format!("pub use crate::{host}::Mut{0};\n", rs_ident(&t.name)));
-                    }
+                    let code = self.platform_type(t);
+                    self.out.push_str(&code);
                 }
             }
             Decl::Static(st) => self.static_decl(st),
@@ -435,6 +462,11 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let g = if tps.is_empty() { String::new() } else { format!("<{}>", tps.join(", ")) };
         let gs = if tps.is_empty() { String::new() } else { format!("<{}>", tps.iter().map(|t| format!("{t}: 'static")).collect::<Vec<_>>().join(", ")) };
         let name = rs_ident(&i.name);
+        for m in &i.members {
+            if !m.type_params.is_empty() {
+                self.error(format!("effect member `{}` has its own generic parameters, which the rust backend cannot dispatch dynamically yet", m.name));
+            }
+        }
         let sigs: Vec<String> = i.members.iter().map(|m| self.member_sig(m)).collect();
         let stateless = stateless_trait_name(&i.name);
         let stateful = stateful_trait_name(&i.name);
@@ -475,6 +507,131 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             self.actor_interface(i);
         }
         self.platform_interface(i, &sigs);
+        // [platform-factory] [rs-platform-factory] a platform-handled member's
+        // factories: the result's and the `Reply<T>` payloads' together.
+        if self.s.platform_effects.contains_key(&i.name) {
+            for m in &i.members {
+                if !m.factories.is_empty() {
+                    let code = self.factory_impl(&salvo_core::abi::upper_camel(&m.name), "", true, &m.factories);
+                    self.out.push_str(&code);
+                }
+            }
+        }
+    }
+
+    /// [platform-type] [rs-platform-type] A platform type is the host's struct
+    /// of the same name, re-exported here, with a static assertion of the
+    /// contract its kind promises — so a host type that is not `Send` (or
+    /// `Clone`, or `Sync`) is the host compiler's error at this line.
+    fn platform_type(&mut self, t: &salvo_ir::PlatformTypeDecl) -> String {
+        let module = self.module.path.clone();
+        self.s.platform_hosts.insert(module.clone());
+        let name = rs_ident(&t.name);
+        let sfx = salvo_core::naming::each_suffix(self.s.program, &module, &t.name);
+        // [platform-generic] A generic one is asserted at a sample argument.
+        let sample = if t.type_params.is_empty() {
+            name.clone()
+        } else {
+            format!("{name}<{}>", t.type_params.iter().map(|_| "i32").collect::<Vec<_>>().join(", "))
+        };
+        let mut bounds = vec!["Send", "'static"];
+        if !t.linear {
+            bounds.push("Clone");
+        }
+        // [platform-value-type] A value type is printed, compared and hashed
+        // as part of the structs holding it.
+        if !t.linear && t.canbe_mut {
+            bounds.extend(["std::fmt::Debug", "PartialEq", "Eq"]);
+            if !t.slots {
+                bounds.push("std::hash::Hash");
+            }
+        }
+        if t.threadsafe {
+            bounds.push("Sync");
+        }
+        let host = host_mod_name(&module);
+        let mut out = format!(
+            "\n/// [platform-type] The host's `{name}`.\npub use crate::{host}::{name};\n\
+             const _: fn() = || {{ fn __contract<T: {}>() {{}} __contract::<{sample}>(); }};\n",
+            bounds.join(" + ")
+        );
+        // [platform-iterable] The host's loop, asserted at the sample.
+        if t.iterable {
+            let subst: std::collections::HashMap<String, Ty> =
+                t.type_params.iter().map(|g| (g.name.clone(), Ty::Named { name: "Int".to_string(), args: Vec::new() })).collect();
+            let elem = match &t.iter_elem {
+                Some(e) => {
+                    let e = subst_ty(e, &subst);
+                    self.ty(&e)
+                }
+                None => "()".to_string(),
+            };
+            out.push_str(&format!(
+                "const _: fn() = || {{ fn __each(x: &{sample}) -> impl Iterator<Item = {elem}> + '_ \
+                 {{ crate::{host}::each{sfx}(x).map(|e| e.clone()) }} let _ = __each; }};\n"
+            ));
+            if !t.type_params.is_empty() {
+                out.push_str(&format!(
+                    "const _: fn() = || {{ fn __each_ref(x: &{sample}) -> impl Iterator<Item = &{elem}> + '_ \
+                     {{ crate::{host}::each{sfx}(x) }} fn __each_mut(x: &mut {sample}) -> impl Iterator<Item = &mut {elem}> + '_ \
+                     {{ crate::{host}::each{sfx}_mut(x) }} fn __into_each(x: {sample}) -> impl Iterator<Item = {elem}> \
+                     {{ crate::{host}::into_each{sfx}(x) }} let _ = (__each_ref, __each_mut, __into_each); }};\n"
+                ));
+            }
+        }
+        out
+    }
+
+    /// [platform-factory] [rs-platform-factory] `impl Target { pub fn arm(value) -> Ret }`,
+    /// one per arm; `ret` empty means each set's own union type, `declare`
+    /// declares the unit struct the factories hang off.
+    fn factory_impl(&mut self, target: &str, ret: &str, declare: bool, sets: &[salvo_core::abi::Factories]) -> String {
+        let mut out = String::from("\n/// Factories for the host: one per arm of the union [platform-factory].\n");
+        if declare {
+            let taken = self.module.decls.iter().any(|d| match d {
+                Decl::Struct(s) => rs_ident(&s.name) == target,
+                Decl::Interface(i) => rs_ident(&i.name) == target,
+                Decl::Union(u) => rs_ident(&u.name) == target,
+                Decl::PlatformType(t) => rs_ident(&t.name) == target,
+                _ => false,
+            });
+            if taken {
+                self.error(format!("the factories of `{target}` would be named like the type `{target}`: rename one [platform-factory]"));
+                return String::new();
+            }
+            out.push_str(&format!("pub struct {target};\n\n"));
+        }
+        out.push_str(&format!("impl {target} {{\n"));
+        let mut seen: Vec<String> = Vec::new();
+        for set in sets {
+            self.s.union_sizes.insert(set.arity);
+            let ret = if ret.is_empty() { self.ty(&set.union) } else { ret.to_string() };
+            for name in &set.dropped {
+                out.push_str(&format!("    // no `{}`: two arms would share the name; build them as `Union{}::Uk(…)`\n", rs_ident(name), set.arity));
+            }
+            for f in &set.arms {
+                if seen.contains(&f.name) {
+                    continue;
+                }
+                seen.push(f.name.clone());
+                let param = self.ty(&f.param);
+                let mut build = format!("crate::unions::Union{}::U{}(value)", set.arity, f.arm + 1);
+                if set.nullable {
+                    build = format!("Some({build})");
+                }
+                let checks = match &f.check {
+                    Some(check) => {
+                        let what = format!("`{target}::{}`'s argument", rs_ident(&f.name));
+                        let body = self.boundary_check(check, "__c", &what, 3);
+                        format!("        {{\n            let __c = &value;\n{body}        }}\n")
+                    }
+                    None => String::new(),
+                };
+                out.push_str(&format!("    pub fn {}(value: {param}) -> {ret} {{\n{checks}        {build}\n    }}\n", rs_ident(&f.name)));
+            }
+        }
+        out.push_str("}\n");
+        out
     }
 
     /// [platform-abi] [rs-platform-handler] The host-facing traits and the
@@ -580,10 +737,10 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             self.error(format!("handler `{}` mixes actor and plain effects, which the rust backend does not render", h.name));
             return;
         }
-        if self.is_mixed(h) {
-            self.error(format!("mixed handler `{}` is not rendered by the rust IR emitter yet", h.name));
-            return;
-        }
+        // [mixed-handler] [rs-mixed] The servant is an actor of its send
+        // members; the faces are worn by the façade.
+        let mixed = self.is_mixed(h);
+        let is_actor = is_actor || mixed;
         let name = rs_ident(&h.name);
         let tps: Vec<String> = if self.s.erased.is_erased(&h.name) { Vec::new() } else { h.type_params.iter().map(|t| t.name.clone()).collect() };
         let g_args = if tps.is_empty() { String::new() } else { format!("<{}>", tps.join(", ")) };
@@ -725,6 +882,9 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         out.push_str(&format!("\nimpl{g_bounded} {name}{g_args} {{\n    pub fn new({}) -> Self {{\n{new_body}    }}\n{init_fn}{privs}}}\n", ctor.join(", ")));
         let stateful = h.stateful;
         for face in &h.faces {
+            if mixed {
+                break;
+            }
             let Ty::Named { name: fname, args } = face.strip_quals() else { continue };
             let Some(iface) = self.s.interface(fname) else {
                 self.error(format!("handler `{}`: face `{fname}` not found", h.name));
@@ -759,7 +919,40 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         if is_actor {
             out.push_str(&self.actor_body(h, &actor_faces));
         }
+        if mixed {
+            out.push_str(&self.facade(h));
+        }
         self.out.push_str(&out);
+    }
+
+    /// [mixed-handler] [rs-mixed] `__Fac_H`: the servant's addr and the
+    /// constructor parameters, wearing every face with the sync members.
+    fn facade(&mut self, h: &ImplDecl) -> String {
+        let hn = rs_ident(&h.name);
+        let fac = format!("__Fac_{hn}");
+        let mut out = format!("\n#[derive(Clone)]\npub struct {fac} {{\n    pub __addr: usize,\n");
+        for p in &h.ctor_params {
+            let t = self.ty(&p.ty);
+            out.push_str(&format!("    pub {}: {t},\n", rs_ident(&p.local.0)));
+        }
+        out.push_str("}\n");
+        for face in &h.faces {
+            let Ty::Named { name: fname, args } = face.strip_quals() else { continue };
+            let Some(iface) = self.s.interface(fname) else { continue };
+            let prefix = self.type_prefix(fname);
+            let tr = stateless_trait_name(&iface.name);
+            let ta: Vec<String> = if self.s.erased.is_erased(&iface.name) { Vec::new() } else { args.iter().map(|a| self.ty(a)).collect() };
+            let ta = if ta.is_empty() { String::new() } else { format!("<{}>", ta.join(", ")) };
+            out.push_str(&format!("\nimpl {prefix}{tr}{ta} for {fac} {{\n"));
+            for m in &iface.members {
+                let Some(body) = h.members.iter().find(|f| f.name == m.name && !f.send && self.member_matches(f, m)) else { continue };
+                self.f.in_facade = true;
+                let code = self.member_fn(h, body, m, false, args, iface);
+                out.push_str(&code);
+            }
+            out.push_str("}\n");
+        }
+        out
     }
 
     fn member_matches(&self, f: &FnDecl, m: &salvo_ir::Member) -> bool {
@@ -780,8 +973,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     fn member_fn(&mut self, h: &ImplDecl, f: &FnDecl, m: &salvo_ir::Member, stateful: bool, face_args: &[Ty], iface: &InterfaceDecl) -> String {
         let subst: std::collections::HashMap<String, Ty> = iface.type_params.iter().map(|t| t.name.clone()).zip(face_args.iter().cloned()).collect();
         let sig_member = salvo_ir::Member {
-            params: m.params.iter().map(|p| Param { ty: subst_ty(&p.ty, &subst), ..p.clone() }).collect(),
-            ret: subst_ty(&m.ret, &subst),
+            params: m.params.clone(),
+            ret: m.ret.clone(),
             name: m.name.clone(),
             emitted_name: m.emitted_name.clone(),
             type_params: Vec::new(),
@@ -790,8 +983,12 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             factories: Vec::new(),
             span: m.span,
         };
+        self.f.render_subst = subst.clone();
         let sig = self.member_sig(&sig_member).replace("&RECV", if stateful { "&mut self" } else { "&self" });
+        let facade = self.f.in_facade;
         self.f = super::body::FnState::default();
+        self.f.in_facade = facade;
+        self.f.render_subst = subst.clone();
         self.f.current_impl = Some(self.s.key_of(&h.id, &h.name));
         self.f.generics = h.type_params.iter().chain(&f.type_params).map(|t| t.name.clone()).collect();
         for p in &h.ctor_params {
@@ -917,8 +1114,22 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             let implicit = i >= f.params.len() - f.implicit_params;
             let borrowed = lt.as_ref().is_some_and(|(_, b)| b.contains(&p.local.0));
             self.f.lt = if borrowed { lt.as_ref().map(|(l, _)| l.clone()) } else { None };
+            // [deduce-field] a view stored into another parameter shares its lifetime.
+            if !loc {
+                if let Some(k) = f.holds.iter().position(|(a, b)| *a == i || *b == i) {
+                    let l = format!("'h{k}");
+                    if !tps.contains(&l) {
+                        tps.insert(0, l.clone());
+                    }
+                    self.f.lt = Some(l);
+                }
+            }
             let pos = if stores { FnPos::Owned } else if implicit || recv.is_some() { FnPos::DynParam } else { FnPos::Param };
             let mut t = self.param_ty(p, pos);
+            if self.s.once_param(f, i) && self.s.kept_param(f, i).is_none() {
+                let sig = self.fn_ty(&p.ty, FnPos::DynParam);
+                t = format!("impl FnOnce{}", sig.trim_start_matches("&mut dyn FnMut"));
+            }
             if let Some((boxed, once)) = self.s.kept_param(f, i) {
                 let sig = self.fn_ty(&p.ty, FnPos::DynParam);
                 let sig = sig.trim_start_matches("&mut dyn FnMut").to_string();
@@ -934,7 +1145,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 kind = super::body::Kind::Owned;
                 self.f.kinds.insert(p.local.0.clone(), kind);
             }
-            let mut_kw = if kind == super::body::Kind::Owned && (mutated.contains(&p.local.0) || is_mut(&p.ty) || p.mode == PassMode::LentMut) { "mut " } else { "" };
+            let _ = &mutated;
+            let mut_kw = if kind == super::body::Kind::Owned && !matches!(p.ty.strip_quals(), Ty::Fn { .. }) { "mut " } else { "" };
             ps.push(format!("{mut_kw}{n}: {t}"));
         }
         let body_tie = std::mem::take(&mut self.f.tie);
@@ -978,6 +1190,10 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             body.push_str(&format!("{pad}    return std::ops::ControlFlow::Continue(());\n"));
         }
         format!("\n{head} {{\n{body}{pad}}}\n")
+    }
+
+    pub fn stores_callbacks_only(&self, f: &FnDecl) -> bool {
+        self.stores_callbacks(f)
     }
 
     pub fn stores_callbacks_pub(&self, f: &FnDecl) -> bool {
@@ -1029,15 +1245,34 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let pad = "    ".repeat(indent);
         let module = f.id.module.clone();
         self.s.platform_hosts.insert(module.clone());
-        let args: Vec<String> = f.params.iter().skip(f.effect_params).map(|p| rs_ident(&p.local.0)).collect();
+        // A lent callback is handed on as `&mut &mut dyn FnMut`, which fits
+        // a host's `&mut impl FnMut` and coerces to its `&mut dyn FnMut`.
+        // (rebound `mut` first: the parameter itself is not).
+        let mut rebind = String::new();
+        let args: Vec<String> = f
+            .params
+            .iter()
+            .enumerate()
+            .skip(f.effect_params)
+            .map(|(i, p)| {
+                let n = rs_ident(&p.local.0);
+                let lent_fn = matches!(self.s.unalias(&p.ty).strip_quals(), Ty::Fn { .. }) && p.mode != PassMode::Moved && self.s.kept_param(f, i).is_none() && !self.s.once_param(f, i);
+                if lent_fn {
+                    rebind.push_str(&format!("{pad}let mut {n} = {n};\n"));
+                    format!("&mut {n}")
+                } else {
+                    n
+                }
+            })
+            .collect();
         let call = format!("crate::{}::{}({})", host_mod_name(&module), rs_ident(&f.name), args.join(", "));
         match f.result_check.clone().filter(|_| !self.s.abi) {
             Some(plan) => {
                 let what = format!("`platform fn {}`'s result", f.name);
                 let checks = self.boundary_check(&plan, "__c", &what, indent + 1);
-                format!("{pad}let __r = {call};\n{pad}{{\n{pad}    let __c = &__r;\n{checks}{pad}}}\n{pad}__r\n")
+                format!("{rebind}{pad}let __r = {call};\n{pad}{{\n{pad}    let __c = &__r;\n{checks}{pad}}}\n{pad}__r\n")
             }
-            None => format!("{pad}{call}\n"),
+            None => format!("{rebind}{pad}{call}\n"),
         }
     }
 
@@ -1065,9 +1300,88 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
 
     /// [platform-check] Checks on the value behind the reference `v`.
     pub fn boundary_check(&mut self, plan: &salvo_core::abi::BoundaryCheck, v: &str, what: &str, indent: usize) -> String {
-        let _ = (plan, v, what, indent);
-        self.error("platform boundary checks are not rendered by the rust IR emitter yet");
-        String::new()
+        use salvo_core::abi::BoundaryCheck as C;
+        let pad = "    ".repeat(indent);
+        let what_fmt = what.replace('{', "{{").replace('}', "}}");
+        let d = indent;
+        match plan {
+            C::OneOf(lits) => {
+                let pats: Vec<String> = lits.iter().map(rs_type_lit).collect();
+                let subject = if lits.iter().any(|l| matches!(l, salvo_syntax::ast::TypeLit::Str(_))) { format!("{v}.as_str()") } else { format!("*{v}") };
+                let listed = pats.join(", ").replace('{', "{{").replace('}', "}}").replace('"', "\\\"");
+                format!("{pad}if !matches!({subject}, {}) {{\n{pad}    panic!(\"salvo: {what_fmt} was {{:?}}, which is not one of {listed} [platform-check]\", {v});\n{pad}}}\n", pats.join(" | "))
+            }
+            C::Qualifies { quals, ty, inner } => {
+                let arg = if is_copy_ty(ty) { format!("*{v}") } else { v.to_string() };
+                let mut out = String::new();
+                for (q, m) in quals {
+                    let decl = self.s.symbols.qualifiers.get(q.as_str()).and_then(|ds| ds.iter().copied().find(|d| self.s.symbols.qualifier_module(d) == Some(m)));
+                    let Some(decl) = decl else {
+                        self.error(format!("internal: qualifier `{q}` of module `{m}` not found [platform-check]"));
+                        continue;
+                    };
+                    let base = match salvo_core::refine::of_base(&decl.of, &decl.generics) {
+                        Some(subject) => format!("{}__{}", decl.name.name.replace('.', ""), subject.replace('.', "")),
+                        None => decl.name.name.replace('.', ""),
+                    };
+                    let prefix = self.s.prefix(m);
+                    out.push_str(&format!("{pad}if !{prefix}{base}_qualifies({arg}) {{\n{pad}    panic!(\"salvo: {what_fmt} was {{:?}}, which is not `{q}` [platform-check]\", {v});\n{pad}}}\n"));
+                }
+                if let Some(inner) = inner {
+                    out.push_str(&self.boundary_check(inner, v, what, indent));
+                }
+                out
+            }
+            C::Elems(inner) => {
+                let e = format!("__e{d}");
+                let body = self.boundary_check(inner, &e, what, indent + 1);
+                format!("{pad}for {e} in {v}.iter() {{\n{body}{pad}}}\n")
+            }
+            C::Entries(k, val) => {
+                let (kn, vn) = (format!("__k{d}"), format!("__v{d}"));
+                let mut body = String::new();
+                if let Some(k) = k {
+                    body.push_str(&self.boundary_check(k, &kn, what, indent + 1));
+                }
+                if let Some(val) = val {
+                    body.push_str(&self.boundary_check(val, &vn, what, indent + 1));
+                }
+                format!("{pad}for ({kn}, {vn}) in {v}.iter() {{\n{body}{pad}}}\n")
+            }
+            C::Nullable(inner) => {
+                let n = format!("__n{d}");
+                let body = self.boundary_check(inner, &n, what, indent + 1);
+                format!("{pad}if let Some({n}) = {v} {{\n{body}{pad}}}\n")
+            }
+            C::Union { arity, arms } => {
+                self.s.union_sizes.insert(*arity);
+                let mut out = String::new();
+                for (i, _, inner) in arms {
+                    let a = format!("__a{d}_{i}");
+                    let body = self.boundary_check(inner, &a, what, indent + 1);
+                    out.push_str(&format!("{pad}if let crate::unions::Union{arity}::U{}({a}) = {v} {{\n{body}{pad}}}\n", i + 1));
+                }
+                out
+            }
+            C::Struct { fields, .. } => {
+                let mut out = String::new();
+                for (field, inner) in fields {
+                    let f = format!("__f{d}_{field}");
+                    out.push_str(&format!("{pad}let {f} = &{v}.{};\n", rs_ident(field)));
+                    out.push_str(&self.boundary_check(inner, &f, what, indent));
+                }
+                out
+            }
+            C::Tuple { elems, .. } => {
+                let mut out = String::new();
+                for (i, inner) in elems {
+                    let t = format!("__t{d}_{i}");
+                    out.push_str(&format!("{pad}let {t} = &{v}.{i};\n"));
+                    out.push_str(&self.boundary_check(inner, &t, what, indent));
+                }
+                out
+            }
+        }
     }
 
     /// [mod-use] A module-level `use`: a lazily built `'static`, reached
@@ -1141,6 +1455,17 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         self.out.push_str(&format!(
             "\npub fn {name}() -> &'static {ty} {{\n    static CELL: std::sync::OnceLock<{ty}> = std::sync::OnceLock::new();\n    CELL.get_or_init(|| {init})\n}}\n"
         ));
+    }
+}
+
+/// A literal type's value as a Rust pattern.
+fn rs_type_lit(l: &salvo_syntax::ast::TypeLit) -> String {
+    use salvo_syntax::ast::TypeLit;
+    match l {
+        TypeLit::Str(s) => format!("{s:?}"),
+        TypeLit::Int(i) => format!("{i}i32"),
+        TypeLit::Long(i) => format!("{i}i64"),
+        TypeLit::Bool(b) => b.to_string(),
     }
 }
 

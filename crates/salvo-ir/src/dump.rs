@@ -218,6 +218,10 @@ impl<'a> Dumper<'a> {
             let bs: Vec<String> = f.borrows.iter().map(|i| f.params[*i].local.0.clone()).collect();
             let _ = write!(self.out, " borrows [{}]", bs.join(", "));
         }
+        if !f.holds.is_empty() {
+            let hs: Vec<String> = f.holds.iter().map(|(a, b)| format!("{} <- {}", f.params[*a].local.0, f.params[*b].local.0)).collect();
+            let _ = write!(self.out, " holds [{}]", hs.join(", "));
+        }
         if let Some(t) = &f.throws {
             let _ = write!(self.out, " throws {t}");
         }

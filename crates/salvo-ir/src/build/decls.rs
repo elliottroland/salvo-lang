@@ -99,6 +99,15 @@ pub fn build_module(ctx: &Ctx<'_>, file_idx: usize, file: &SourceFile, module: &
                         linear: t.linear,
                         canbe_mut: t.auto_qualifiers.iter().any(|q| q.name.name == "Mut"),
                         platform: t.platform,
+                        threadsafe: t.threadsafe,
+                        slots: !t.fn_slots.is_empty(),
+                        iterable: t.iterable,
+                        iter_elem: t
+                            .obligations
+                            .iter()
+                            .find(|o| o.group.name.name == "Iter")
+                            .and_then(|o| o.group.args.get(1))
+                            .map(|a| ctx.written_ty(file_idx, a)),
                         span: t.span,
                     }));
                 }
@@ -476,10 +485,39 @@ fn fn_decl(
             ret = erase(r);
         }
     }
-    let borrows: Vec<usize> = table_key
+    let mut borrows: Vec<usize> = table_key
         .and_then(|k| ctx.checked.fn_lends.get(&k))
         .map(|ls| ls.iter().map(|i| i + effect_params).collect())
         .unwrap_or_default();
+    // [proj-anywhere] The sources a written `proj(…)` names, in the result
+    // type or a result entry of the clause.
+    let index_of = |n: &str| params.iter().position(|p| p.local.0 == n);
+    let mut sources: Vec<String> = Vec::new();
+    if let Some(rt) = &f.return_type {
+        proj_from(rt, &mut sources);
+    }
+    let mut holds: Vec<(usize, usize)> = Vec::new();
+    for d in f.deductions.iter().flatten() {
+        let Some(srcs) = d.proj_sources() else { continue };
+        match &d.target {
+            ast::DeductionTarget::Result { .. } | ast::DeductionTarget::Opaque => sources.extend(srcs.iter().map(|s| s.name.clone())),
+            ast::DeductionTarget::Param { name, path } if !path.is_empty() => {
+                for s in srcs {
+                    if let (Some(a), Some(b)) = (index_of(&name.name), index_of(&s.name)) {
+                        holds.push((a, b));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    for s in sources {
+        if let Some(i) = index_of(&s) {
+            if !borrows.contains(&i) {
+                borrows.push(i);
+            }
+        }
+    }
     let body = if matches!(kind, FnKind::Member { .. }) {
         None // filled by the caller with the handler's scope
     } else {
@@ -505,6 +543,7 @@ fn fn_decl(
         ret,
         borrows,
         may_alias,
+        holds,
         throws,
         result_check: if f.platform { ctx.checked.boundary_checks.get(&(file_idx, f.name.span)).cloned() } else { None },
         factories: if f.platform { ctx.checked.factories.get(&(file_idx, f.name.span)).cloned() } else { None },
@@ -514,6 +553,31 @@ fn fn_decl(
 }
 
 pub(crate) fn _unused(_: &HashMap<String, Ty>) {}
+
+/// The names every `proj(…)` in a written type borrows from.
+fn proj_from(t: &ast::Type, out: &mut Vec<String>) {
+    fn in_ref(r: &ast::TypeRef, out: &mut Vec<String>) {
+        if r.name.name == "proj" {
+            out.extend(r.from.iter().map(|i| i.name.clone()));
+        }
+        for a in &r.args {
+            proj_from(a, out);
+        }
+    }
+    match t {
+        ast::Type::Named { qualifiers, base } => {
+            qualifiers.iter().for_each(|q| in_ref(q, out));
+            in_ref(base, out);
+        }
+        ast::Type::QualifiedGroup { qualifiers, base, .. } => {
+            qualifiers.iter().for_each(|q| in_ref(q, out));
+            proj_from(base, out);
+        }
+        ast::Type::Union { arms, .. } | ast::Type::Tuple { elems: arms, .. } => arms.iter().for_each(|a| proj_from(a, out)),
+        ast::Type::Array { elem, .. } | ast::Type::Nullable { inner: elem, .. } => proj_from(elem, out),
+        _ => {}
+    }
+}
 
 /// The local an effect instance parameter is named by: the effect's base
 /// name in snake case (`Console` → `console`, `Random<Int>` → `random`).

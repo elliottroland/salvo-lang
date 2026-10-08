@@ -888,7 +888,15 @@ impl<'a, 'p> Lower<'a, 'p> {
                     Some(Callee::Member(m)) => modes.member_param(m, p),
                     None => modes.default_param(&p.ty, p.variadic),
                 };
-                if mode == PassMode::Moved || is_tail {
+                // A variadic tail moves its elements only when the callee's
+                // deduction consumes the parameter [fn-variadic].
+                let tail_moves = is_tail
+                    && match &callee {
+                        Some(Callee::Fn(k, _)) => self.ctx.checked.deductions.get(k).and_then(|ds| ds.iter().find(|d| d.param == p.name.name)).is_some_and(|d| !d.kept),
+                        Some(Callee::Member(m)) => m.deductions.iter().flatten().any(|d| d.param_name().is_some_and(|n| n.name == p.name.name) && matches!(d.kind, ast::DeductionKind::Moved | ast::DeductionKind::Deferred)),
+                        None => false,
+                    };
+                if (mode == PassMode::Moved && !is_tail) || tail_moves {
                     self.consume_if_owned(&mut x);
                 }
             }

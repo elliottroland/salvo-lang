@@ -64,6 +64,15 @@ pub(crate) struct FnState {
     pub tries: Vec<(String, Ty)>,
     /// The impl whose member is being rendered (its key).
     pub current_impl: Option<String>,
+    /// The callee's type parameters as instantiated, while its arguments
+    /// render: what a fn-typed slot means at this call.
+    pub call_subst: HashMap<String, Ty>,
+    /// [rs-mixed] Rendering a façade member: a self-send always enqueues.
+    pub in_facade: bool,
+    /// Type variables rendered as these types (a generic trait's member
+    /// implemented at an instantiation: its conventions are the
+    /// declaration's, its types the instance's).
+    pub render_subst: HashMap<String, Ty>,
     /// [rs-fn-lend] Parameter types a callback's result may borrow from,
     /// with the named lifetime they share in the signature.
     pub tie: Vec<(Ty, String)>,
@@ -390,7 +399,10 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 String::new()
             }
             Stmt::Assign { place, value } => {
-                let v = self.value(value, indent);
+                let v = match self.place_ty(place) {
+                    Some(t) => self.value_into(value, &t, indent),
+                    None => self.value(value, indent),
+                };
                 let p = self.lvalue(place, indent);
                 format!("{pad}{p} = {v};\n")
             }
@@ -477,10 +489,55 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             }
         }
         let kind = if is_proj(ty) { if is_mut(ty) { Kind::RefMut } else { Kind::Ref } } else { Kind::Owned };
+        // [rs-loop-temp] A borrow the binding keeps must not be of a
+        // temporary: such an argument is bound first.
+        let (pre, value) = self.hoist_borrowed_temps(value, indent);
+        let value = &value;
         let code = self.value_into(value, ty, indent);
+        if !pre.is_empty() {
+            self.f.kinds.insert(local.0.clone(), kind);
+            let annot = if self.annotatable(ty) { format!(": {}", self.ty(ty)) } else { String::new() };
+            return format!("{pre}{pad}let mut {n}{annot} = {code};\n");
+        }
         self.f.kinds.insert(local.0.clone(), kind);
-        let annot = if self.annotatable(ty) { format!(": {}", self.ty(ty)) } else { String::new() };
+        let annot = if self.annotatable(ty) && !self.nested_proj(ty) { format!(": {}", self.ty(ty)) } else { String::new() };
         format!("{pad}let mut {n}{annot} = {code};\n")
+    }
+
+    /// A container type over borrowed elements: its Rust type is the
+    /// value's to say (a generic producer may hand back owned ones).
+    fn nested_proj(&self, t: &Ty) -> bool {
+        match t.strip_quals() {
+            Ty::Named { args, .. } => args.iter().any(|a| self.s.holds_proj(a)),
+            _ => false,
+        }
+    }
+
+    /// The lent, non-place arguments of a call whose result keeps a borrow,
+    /// as `let`s before it.
+    fn hoist_borrowed_temps(&mut self, e: &Expr, indent: usize) -> (String, Expr) {
+        let ExprKind::Call { target: FnRef::Decl(id), type_args, args } = &e.kind else { return (String::new(), e.clone()) };
+        if !self.s.holds_proj(&e.ty) {
+            return (String::new(), e.clone());
+        }
+        let Some(f) = self.s.fn_decl(id) else { return (String::new(), e.clone()) };
+        let mut pre = String::new();
+        let mut new_args = Vec::new();
+        for (i, a) in args.iter().enumerate() {
+            let lent = f.params.get(i).is_some_and(|p| p.mode != PassMode::Moved && !is_copy_ty(&p.ty) && !matches!(p.ty.strip_quals(), Ty::Fn { .. }));
+            let place = matches!(a.kind, ExprKind::Read { .. } | ExprKind::DropMut { .. } | ExprKind::FnValue(_) | ExprKind::Lambda { .. });
+            if lent && !place && !is_proj(&a.ty) {
+                let t = self.fresh("tmp");
+                let v = self.value(a, indent);
+                pre.push_str(&format!("{}let mut {t} = {v};\n", Self::pad(indent)));
+                self.f.kinds.insert(t.clone(), Kind::Owned);
+                self.f.tys.insert(t.clone(), a.ty.clone());
+                new_args.push(Expr { ty: a.ty.clone(), span: a.span, kind: ExprKind::Read { place: Place { root: Local(t), steps: Vec::new() }, consume: false } });
+            } else {
+                new_args.push(a.clone());
+            }
+        }
+        (pre, Expr { ty: e.ty.clone(), span: e.span, kind: ExprKind::Call { target: FnRef::Decl(id.clone()), type_args: type_args.clone(), args: new_args } })
     }
 
     fn annotatable(&self, t: &Ty) -> bool {
@@ -580,6 +637,30 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         (out, kind)
     }
 
+    /// The type stored at a place, when it can be told.
+    fn place_ty(&self, p: &Place) -> Option<Ty> {
+        let t = self.place_ty_raw(p)?;
+        if super::body::foreign_var(&t, &self.f.generics) && !matches!(t, Ty::Var(_)) {
+            return None;
+        }
+        Some(t)
+    }
+
+    /// The declared type at a place, type variables and all.
+    fn place_ty_raw(&self, p: &Place) -> Option<Ty> {
+        let mut t = self.f.tys.get(&p.root.0).cloned()?;
+        for s in &p.steps {
+            t = match (s, t.strip_quals()) {
+                (Step::Field(f), Ty::Named { name, .. }) => self.s.struct_decl(name)?.fields.iter().find(|x| &x.name == f)?.ty.clone(),
+                (Step::Tuple(i), Ty::Tuple(es)) => es.get(*i)?.clone(),
+                (Step::Index(_), Ty::Named { args, .. }) => args.first()?.clone(),
+                (Step::Index(_), Ty::Array(e)) => (**e).clone(),
+                _ => return None,
+            };
+        }
+        Some(t)
+    }
+
     fn lvalue(&mut self, p: &Place, indent: usize) -> String {
         let (text, kind) = self.place_text(p, indent);
         if p.steps.is_empty() && matches!(kind, Kind::Ref | Kind::RefMut) {
@@ -593,8 +674,18 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     /// The value of `e` for a slot of type `slot`: a borrow where the slot
     /// is a `proj` the value is not.
     pub fn value_into(&mut self, e: &Expr, slot: &Ty, indent: usize) -> String {
+        // What a read actually holds: the place's stored type.
+        let ety = match &e.kind {
+            ExprKind::Read { place, .. } => self.place_ty(place).filter(|t| !matches!(t, Ty::Var(_)) && !t.is_unknown()).map(|t| self.s.unalias(&t)).unwrap_or_else(|| e.ty.clone()),
+            // A call answers its declaration's type, when that names no variable.
+            ExprKind::Call { target: FnRef::Decl(id), .. } => match self.s.fn_decl(id) {
+                Some(f) if !foreign_var(&f.ret, &HashSet::new()) && f.throws.is_none() => f.ret.clone(),
+                _ => e.ty.clone(),
+            },
+            _ => e.ty.clone(),
+        };
         // A present value into an optional slot.
-        if slot.strip_quals().has_none_arm() && !e.ty.strip_quals().has_none_arm() && !matches!(e.ty, Ty::Never | Ty::Unknown) && !e.ty.is_none_ty() && !matches!(e.kind, ExprKind::MakeNone | ExprKind::Unreachable { .. }) {
+        if slot.strip_quals().has_none_arm() && !ety.strip_quals().has_none_arm() && !e.ty.strip_quals().without_none().is_none_ty() && !matches!(ety, Ty::Never | Ty::Unknown) && !ety.is_none_ty() && !matches!(e.kind, ExprKind::MakeNone | ExprKind::Unreachable { .. }) && !diverges(e) {
             let inner = slot.strip_quals().without_none();
             let v = self.value_into(e, &inner, indent);
             return format!("Some({v})");
@@ -698,7 +789,9 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 let (text, kind) = self.place_text(place, indent);
                 let bare = place.steps.is_empty();
                 if is_copy_ty(&e.ty) {
-                    return if bare && matches!(kind, Kind::Ref | Kind::RefMut) { format!("*{text}") } else { text };
+                    // A scalar stored as a borrow (a `proj T` field at `T = Int`).
+                    let stored_ref = !bare && self.place_ty_raw(place).is_some_and(|t| is_proj(&t));
+                    return if (bare && matches!(kind, Kind::Ref | Kind::RefMut)) || stored_ref { format!("*{text}") } else { text };
                 }
                 if is_proj(&e.ty) {
                     if kind == Kind::Elem {
@@ -869,7 +962,9 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     /// [rs-host-fields] A value with no `Clone` (a reply token, a linear
     /// host value): a read of it is a move.
     pub fn uncloneable(&self, t: &Ty) -> bool {
-        self.host_limits_pub(t).1
+        // An opaque host object is moved, never cloned.
+        let opaque_host = matches!(t.strip_quals(), Ty::Named { name, .. } if self.s.symbols.intrinsic_types.get(name.as_str()).is_some_and(|d| d.platform && (d.linear || !d.auto_qualifiers.iter().any(|q| q.name.name == "Mut"))));
+        opaque_host || self.host_limits_pub(t).1
     }
 
     /// Whether a place's path passes through a reference (so a move out of
@@ -925,9 +1020,35 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             let text: String = parts.iter().map(|p| if let ExprKind::Str(s) = &p.kind { s.clone() } else { String::new() }).collect();
             return format!("String::from(\"{}\")", escape_string(&text));
         }
+        // [rs-mut-arg-hoist] `format!` borrows every argument at once, so a
+        // part that lends mutably evaluates the parts into temps, in order.
+        let lends_mut = parts.iter().any(|p| {
+            let mut hit = false;
+            walk_expr(p, &mut |_| {}, &mut |e| {
+                if let ExprKind::Call { target: FnRef::Decl(id), args, .. } = &e.kind {
+                    if let Some(f) = self.s.fn_decl(id) {
+                        hit |= f.params.iter().zip(args).any(|(p, _)| p.mode == PassMode::LentMut);
+                    }
+                }
+            });
+            hit
+        });
         let mut fmt = String::new();
         let mut args = Vec::new();
+        let mut lets = String::new();
         for p in parts {
+            if lends_mut && !matches!(p.kind, ExprKind::Str(_)) {
+                fmt.push_str("{}");
+                let scalar = self.scalar_to_str_arg(p);
+                let v = match scalar {
+                    Some(x) => self.value(x, indent),
+                    None => self.value(p, indent),
+                };
+                let t = self.fresh("part");
+                lets.push_str(&format!("let {t} = {v}; "));
+                args.push(t);
+                continue;
+            }
             match &p.kind {
                 ExprKind::Str(s) => fmt.push_str(&escape_format_text(s)),
                 _ => {
@@ -939,6 +1060,9 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     });
                 }
             }
+        }
+        if !lets.is_empty() {
+            return format!("{{ {lets}format!(\"{fmt}\", {}) }}", args.join(", "));
         }
         format!("format!(\"{fmt}\", {})", args.join(", "))
     }
@@ -1214,6 +1338,21 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             self.f.kinds.insert(local.0.clone(), Kind::Owned);
             return format!("{pad}let mut {n} = ();\n");
         }
+        // No narrowing at all (a value loop that may not assign): the
+        // storage, read in place.
+        if alike(ty, from_ty) {
+            if is_copy_ty(ty) {
+                self.f.kinds.insert(local.0.clone(), Kind::Owned);
+                return format!("{pad}let mut {n} = {src};\n");
+            }
+            if root_kind == Kind::Owned && from.steps.is_empty() && self.f.consumed.contains(&local.0) {
+                self.f.kinds.insert(local.0.clone(), Kind::Owned);
+                return format!("{pad}let mut {n} = {src};\n");
+            }
+            self.f.kinds.insert(local.0.clone(), Kind::Ref);
+            let r = if from.steps.is_empty() && matches!(root_kind, Kind::Ref | Kind::RefMut) { format!("&*{src}") } else { format!("&{src}") };
+            return format!("{pad}let mut {n} = {r};\n");
+        }
         let arm = match test {
             Some(ArmTest::Arm(i)) if nn >= 2 => Some(i),
             _ if nn >= 2 => arm_of(from_ty, ty),
@@ -1249,7 +1388,18 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let copy_or_ref = is_copy_ty(ty) || is_proj(ty);
         let owned_root = root_kind == Kind::Owned && !self.through_ref(from);
         let moves = !copy_or_ref && owned_root && self.f.consumed.contains(&local.0);
-        let (code, kind) = if copy_or_ref {
+        // Whether the storage's arm holds a borrow itself (an `Option<&T>`),
+        // or the borrow comes from reading owned storage in place.
+        let arm_holds_ref = from_arms.get(i).is_some_and(|a| is_proj(a));
+        let (code, kind) = if is_proj(ty) && !arm_holds_ref && !is_copy_ty(ty) {
+            if is_mut(ty) {
+                let code = if nn >= 2 { format!("match &mut {src} {{ {} => __v, _ => unreachable!() }}", pat(i, "__v")) } else { format!("{src}.as_mut().unwrap()") };
+                (code, Kind::RefMut)
+            } else {
+                let code = if nn >= 2 { format!("match &{src} {{ {} => __v, _ => unreachable!() }}", pat(i, "__v")) } else { format!("{src}.as_ref().unwrap()") };
+                (code, Kind::Ref)
+            }
+        } else if copy_or_ref {
             let k = if is_copy_ty(ty) { Kind::Owned } else if is_mut(ty) { Kind::RefMut } else { Kind::Ref };
             let code = if nn >= 2 {
                 if is_proj(ty) && is_mut(ty) && owned_root {
@@ -1269,6 +1419,10 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             let code = if nn >= 2 { format!("match {src} {{ {} => __v, _ => unreachable!() }}", pat(i, "__v")) } else { format!("{src}.unwrap()") };
             (code, Kind::Owned)
         } else if self.f.lent_mut.contains(&local.0) {
+            if root_kind == Kind::Ref {
+                let r = rs_local(&from.root.0);
+                self.error(format!("`{r}` is read-only here, so a `Mut` value cannot be mutated through its union arm: the arm's `Mut` is a claim about the arm, not about `{r}`, so this frame received it borrowed. Take the payload as its own parameter (`Mut List<T>`) and check the arm at the call site."));
+            }
             let code = if nn >= 2 { format!("match &mut {src} {{ {} => __v, _ => unreachable!() }}", pat(i, "__v")) } else { format!("{src}.as_mut().unwrap()") };
             (code, Kind::RefMut)
         } else {
@@ -1321,9 +1475,9 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                             let v = self.value(iterable, indent);
                             (format!("{host}::into_each{suffix}({v})"), Kind::Owned)
                         } else {
+                            // The host's items may be borrows or values.
                             let b = self.borrow(iterable, indent);
-                            let m = if is_copy_ty(ty) { "copied" } else { "cloned" };
-                            (format!("{host}::each{suffix}({b}).{m}()"), Kind::Owned)
+                            (format!("{host}::each{suffix}({b}).map(|__x| __x.clone())"), Kind::Owned)
                         }
                     }
                     None => {
@@ -1383,6 +1537,10 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     /// A call's arguments, with [rs-mut-arg-hoist]: a value read of a place
     /// a `LentMut` argument also borrows is evaluated first, into a temp.
     fn call_args(&mut self, params: &[Param], args: &[Expr], indent: usize) -> (Vec<String>, Vec<String>) {
+        self.call_args_with(params, args, &[], indent)
+    }
+
+    fn call_args_with(&mut self, params: &[Param], args: &[Expr], extra: &[String], indent: usize) -> (Vec<String>, Vec<String>) {
         // [rs-elem-mut] [elem-distinct] Two mutable lends of one anchor,
         // proven apart: one split borrow.
         // Elem handles of one anchor, passed mutably together.
@@ -1411,53 +1569,67 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             }
             return (lets, out);
         }
-        let lends: Vec<(usize, salvo_ir::DeclId, usize)> = args.iter().enumerate().filter_map(|(i, a)| self.s.mut_lend(a).map(|(id, k)| (i, id, k))).collect();
-        if lends.len() == 2 {
-            let root = |a: &Expr, k: usize| -> Option<String> {
-                match &a.kind {
-                    ExprKind::Call { args, .. } => args.get(k).and_then(read_root),
-                    _ => None,
-                }
-            };
-            let (r0, r1) = (root(&args[lends[0].0], lends[0].2), root(&args[lends[1].0], lends[1].2));
-            if r0.is_some() && r0 == r1 {
-                self.s.needs_seq = true;
-                let mut lets = Vec::new();
-                let mut locs = Vec::new();
-                let mut anchor = String::new();
-                for (i, id, k) in &lends {
-                    let ExprKind::Call { args: cargs, .. } = &args[*i].kind else { unreachable!() };
-                    let f = self.s.fn_decl(id).unwrap();
-                    let loc = self.loc_call(id, f, cargs, indent);
-                    let l = self.fresh("l");
-                    lets.push(format!("let {l} = {loc};"));
-                    locs.push(l);
-                    if let Some(ExprKind::Read { place, .. }) = cargs.get(*k).map(|a| match &a.kind {
-                        ExprKind::DropMut { value } => &value.kind,
-                        k => k,
-                    }) {
-                        anchor = self.place_text(place, indent).0;
+        // Two mutable lends of one anchor (direct or `x!`), proven apart.
+        let cands: Vec<usize> = args
+            .iter()
+            .enumerate()
+            .filter(|(_, a)| self.s.mut_lend(a).is_some() || matches!(&a.kind, ExprKind::Branch { arms, .. } if arms.len() == 1 && arms[0].1.stmts.len() == 1 && matches!(&arms[0].1.stmts[0], Stmt::Let { value, .. } if self.s.mut_lend(value).is_some())))
+            .map(|(i, _)| i)
+            .collect();
+        if cands.len() == 2 {
+            let saved_tmp = self.f.tmp;
+            let l0 = self.loc_of(&args[cands[0]], indent);
+            let l1 = self.loc_of(&args[cands[1]], indent);
+            if let (Some((a0, p0)), Some((a1, p1))) = (l0, l1) {
+                if a0 == a1 {
+                    self.s.needs_seq = true;
+                    let (x0, x1) = (self.fresh("l"), self.fresh("l"));
+                    let (m0, m1) = (self.fresh("pm"), self.fresh("pm"));
+                    let lets = vec![
+                        format!("let {x0} = {p0};"),
+                        format!("let {x1} = {p1};"),
+                        format!("let ({m0}, {m1}) = crate::seq::salvo_pair_mut(&mut {a0}[..], {x0}, {x1}).expect(\"salvo: value is absent\");"),
+                    ];
+                    let mut out = Vec::new();
+                    for (i, a) in args.iter().enumerate() {
+                        if i == cands[0] {
+                            out.push(m0.clone());
+                        } else if i == cands[1] {
+                            out.push(m1.clone());
+                        } else {
+                            match params.get(i) {
+                                Some(p) => out.push(self.arg(a, p, FnPos::Param, indent)),
+                                None => out.push(self.value(a, indent)),
+                            }
+                        }
                     }
+                    return (lets, out);
                 }
-                let (p0, p1) = (self.fresh("pm"), self.fresh("pm"));
-                lets.push(format!("let ({p0}, {p1}) = crate::seq::salvo_pair_mut(&mut {anchor}[..], {}, {}).expect(\"salvo: value is absent\");", locs[0], locs[1]));
-                let mut out = Vec::new();
-                for (i, a) in args.iter().enumerate() {
-                    if i == lends[0].0 {
-                        out.push(p0.clone());
-                    } else if i == lends[1].0 {
-                        out.push(p1.clone());
-                    } else {
-                        match params.get(i) {
-                            Some(p) => out.push(self.arg(a, p, FnPos::Param, indent)),
-                            None => out.push(self.value(a, indent)),
+            }
+            self.f.tmp = saved_tmp;
+        }
+        let mut mut_roots: Vec<String> = params.iter().zip(args).filter(|(p, _)| p.mode == PassMode::LentMut && !matches!(p.ty.strip_quals(), Ty::Fn { .. })).filter_map(|(_, a)| read_root(a)).collect();
+        mut_roots.extend(extra.iter().cloned());
+        // A mutable lend nested in an argument counts too.
+        for a in args {
+            let mut found: Vec<String> = Vec::new();
+            walk_expr(a, &mut |_| {}, &mut |e| {
+                if let ExprKind::Call { target: FnRef::Decl(id), args: inner, .. } = &e.kind {
+                    if let Some(f) = self.s.fn_decl(id) {
+                        for (p, x) in f.params.iter().zip(inner) {
+                            if p.mode == PassMode::LentMut && !matches!(p.ty.strip_quals(), Ty::Fn { .. }) {
+                                found.extend(read_root(x));
+                            }
                         }
                     }
                 }
-                return (lets, out);
+            });
+            if read_root(a).is_none() || !found.is_empty() {
+                mut_roots.extend(found);
             }
         }
-        let mut_roots: Vec<String> = params.iter().zip(args).filter(|(p, _)| p.mode == PassMode::LentMut && !matches!(p.ty.strip_quals(), Ty::Fn { .. })).filter_map(|(_, a)| read_root(a)).collect();
+        mut_roots.sort();
+        mut_roots.dedup();
         if mut_roots.is_empty() {
             return (Vec::new(), self.args(params, args, FnPos::Param, indent));
         }
@@ -1469,10 +1641,11 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             let reads_root = !lent_mut && {
                 let mut hit = false;
                 walk_expr(a, &mut |_| {}, &mut |e| {
-                    if let ExprKind::Read { place, .. } = &e.kind {
-                        if mut_roots.contains(&place.root.0) {
-                            hit = true;
-                        }
+                    match &e.kind {
+                        ExprKind::Read { place, .. } if mut_roots.contains(&place.root.0) => hit = true,
+                        ExprKind::FnValue(FnRef::Local(l)) if mut_roots.contains(&l.0) => hit = true,
+                        ExprKind::Call { target: FnRef::Local(l), .. } if mut_roots.contains(&l.0) => hit = true,
+                        _ => {}
                     }
                 });
                 hit
@@ -1482,10 +1655,17 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 None => self.value(a, indent),
             };
             let by_value = p.is_some_and(|p| p.mode == PassMode::Moved || is_copy_ty(&p.ty)) || is_copy_ty(&a.ty);
-            if reads_root && by_value && !matches!(a.kind, ExprKind::Read { .. }) {
+            if reads_root && by_value {
                 let t = self.fresh("arg");
                 lets.push(format!("let {t} = {code};"));
                 out.push(t);
+            } else if reads_root && p.is_some_and(|p| p.mode == PassMode::Lent && !is_proj(&p.ty) && !matches!(p.ty.strip_quals(), Ty::Fn { .. })) {
+                // A read before a mutable lend of its place sees the old
+                // value: an owned copy, lent.
+                let v = self.value(a, indent);
+                let t = self.fresh("arg");
+                lets.push(format!("let {t} = {v};"));
+                out.push(format!("&{t}"));
             } else {
                 out.push(code);
             }
@@ -1576,6 +1756,32 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             }
             ExprKind::Read { place, .. } => {
                 let (text, kind) = self.place_text(place, indent);
+                // [rs-fn-param-convention] A callback whose own conventions
+                // differ from the slot's is adapted.
+                if place.steps.is_empty() && matches!(pos, FnPos::Param | FnPos::DynParam) {
+                    if let Some(lt) = self.f.tys.get(&place.root.0).cloned() {
+                        let lt = self.s.unalias(&lt);
+                        let (_, lm) = self.closure_params(&lt);
+                        let (sp, sm) = self.closure_params(slot);
+                        if lm.len() == sm.len() && lm != sm && !self.s.fn_ty_lends_mut(slot) {
+                            let names: Vec<String> = sp.iter().map(|(n, _)| n.clone()).collect();
+                            let conv: Vec<String> = names
+                                .iter()
+                                .zip(sm.iter().zip(&lm))
+                                .map(|(n, (s, l))| match (s, l) {
+                                    (PassMode::Moved, PassMode::Moved) | (PassMode::Lent, PassMode::Lent) | (PassMode::LentMut, PassMode::LentMut) => n.clone(),
+                                    (PassMode::Lent | PassMode::LentMut, PassMode::Moved) => format!("(*{n}).clone()"),
+                                    (PassMode::Moved, PassMode::Lent) => format!("&{n}"),
+                                    (PassMode::Moved, PassMode::LentMut) => format!("&mut {n}"),
+                                    (PassMode::LentMut, PassMode::Lent) => format!("&*{n}"),
+                                    (PassMode::Lent, PassMode::LentMut) => n.clone(),
+                                })
+                                .collect();
+                            let callee = if kind == Kind::SelfField { format!("({text})") } else { text.clone() };
+                            return format!("&mut |{}| {callee}({})", names.join(", "), conv.join(", "));
+                        }
+                    }
+                }
                 match (pos, kind) {
                     (FnPos::Param | FnPos::DynParam, Kind::RefMut) if place.steps.is_empty() => format!("&mut *{text}"),
                     (FnPos::Param | FnPos::DynParam, Kind::Owned) if place.steps.is_empty() => format!("&mut {text}"),
@@ -1622,8 +1828,12 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             out.push((format!("__e{i}"), format!("&{h}")));
             modes.push(PassMode::Lent);
         }
+        let lends = self.s.fn_ty_lends_mut(slot);
         for (i, p) in sp.iter().enumerate() {
-            let mode = fn_ty_param_mode(slot, i);
+            let mut mode = fn_ty_param_mode(slot, i);
+            if lends && mode == PassMode::LentMut {
+                mode = PassMode::Lent;
+            }
             let inner = self.ty(&ip[i]);
             let by_value = is_copy_ty(p) || is_proj(p) || matches!(p.strip_quals(), Ty::Fn { .. });
             let (rt, m) = if by_value {
@@ -1642,8 +1852,16 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     }
 
     fn lambda(&mut self, params: &[Param], ret: &Ty, body: &Block, slot: &Ty, pos: FnPos, indent: usize) -> String {
+        let inst_slot = super::decls::subst_ty(slot, &self.f.call_subst);
+        let inst_params: Vec<Ty> = match inst_slot.strip_quals() {
+            Ty::Fn { params, effects, .. } => effects.iter().chain(params.iter()).cloned().collect(),
+            _ => Vec::new(),
+        };
         let saved_kinds = self.f.kinds.clone();
         let saved_ret = self.f.ret.replace(ret.clone());
+        // Closures do not throw [rs-throw-controlflow].
+        let saved_throws = self.f.throws.take();
+        let saved_tries = std::mem::take(&mut self.f.tries);
         let saved_lt = self.f.ret_lt;
         self.f.ret_lt = false;
         let slot_effects = match slot.strip_quals() {
@@ -1665,9 +1883,11 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             };
             // [rs-proj-generic] A borrowed element arriving by reference is
             // peeled to the borrow itself.
-            if is_proj(&p.ty) && mode != PassMode::Moved {
+            let p_proj = is_proj(&p.ty) || inst_params.get(i).is_some_and(is_proj);
+            if p_proj && mode != PassMode::Moved {
                 peel.push_str(&format!("{}let {n} = {}*{n};\n", Self::pad(indent + 1), if is_mut(&p.ty) { "&mut *" } else { "" }));
                 k = if is_mut(&p.ty) { Kind::RefMut } else { Kind::Ref };
+                self.f.tys.insert(p.local.0.clone(), inst_params.get(i).cloned().filter(is_proj).unwrap_or_else(|| p.ty.clone()));
             }
             self.f.kinds.insert(p.local.0.clone(), k);
             self.f.tys.insert(p.local.0.clone(), p.ty.clone());
@@ -1676,16 +1896,40 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 _ => ps.push(format!("mut {n}")),
             }
         }
+        // [rs-loc] A lambda in a lending slot is a locator: it answers the
+        // position in its anchor parameter.
+        let lends = self.s.fn_ty_lends_mut(slot);
+        let saved_loc = self.f.loc.take();
+        let saved_li = std::mem::take(&mut self.f.loc_index);
+        if lends {
+            let anchor = params.iter().zip(&modes).find(|(p, m)| !is_copy_ty(&p.ty) && **m != PassMode::Moved).map(|(p, _)| p.local.0.clone()).unwrap_or_default();
+            self.f.loc = Some((anchor, ret.strip_quals().has_none_arm()));
+        }
         let mut b = peel;
         b.push_str(&self.stmts(&body.stmts, indent + 1));
         if let Some(v) = &body.value {
-            let code = self.value_into(v, ret, indent + 1);
+            let code = if lends {
+                let opt = ret.strip_quals().has_none_arm();
+                self.loc_expr(v, opt, indent + 1)
+            } else {
+                self.value_into(v, ret, indent + 1)
+            };
             b.push_str(&format!("{}{code}\n", Self::pad(indent + 1)));
         }
+        self.f.loc = saved_loc;
+        self.f.loc_index = saved_li;
         self.f.kinds = saved_kinds;
         self.f.ret = saved_ret;
         self.f.ret_lt = saved_lt;
-        let r = if ret.is_none_ty() || foreign_var(ret, &self.f.generics) { String::new() } else { format!(" -> {}", self.ty(ret)) };
+        self.f.throws = saved_throws;
+        self.f.tries = saved_tries;
+        let r = if lends {
+            if ret.strip_quals().has_none_arm() { " -> Option<usize>".to_string() } else { " -> usize".to_string() }
+        } else if ret.is_none_ty() || foreign_var(ret, &self.f.generics) {
+            String::new()
+        } else {
+            format!(" -> {}", self.ty(ret))
+        };
         let mv = if matches!(pos, FnPos::Owned | FnPos::Stored) { "move " } else { "" };
         let _ = &cps;
         let closure = format!("{mv}|{}|{r} {{\n{b}{}}}", ps.join(", "), Self::pad(indent));
@@ -1710,8 +1954,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             let k = self.f.kinds[&c];
             let n = rs_local(&c);
             match k {
-                Kind::SelfField => pre.push_str(&format!("let {n} = self.{n}.clone(); ")),
-                _ => pre.push_str(&format!("let {n} = {n}.clone(); ")),
+                Kind::SelfField => pre.push_str(&format!("let mut {n} = self.{n}.clone(); ")),
+                _ => pre.push_str(&format!("let mut {n} = {n}.clone(); ")),
             }
         }
         if pre.is_empty() { closure } else { format!("{{ {pre}{closure} }}") }
@@ -1729,19 +1973,36 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             return "()".to_string();
         };
         let saved = self.f.kinds.clone();
+        let inst_params: Vec<Ty> = match super::decls::subst_ty(slot, &self.f.call_subst).strip_quals() {
+            Ty::Fn { params, effects, .. } => effects.iter().chain(params.iter()).cloned().collect(),
+            _ => Vec::new(),
+        };
         let mut args = Vec::new();
+        let mut peel = String::new();
         for (i, ((n, _), m)) in ps.iter().zip(&modes).enumerate() {
-            let t = if i < effects.len() { effects[i].clone() } else { params[i - effects.len()].clone() };
-            let k = match m {
+            let mut t = if i < effects.len() { effects[i].clone() } else { params[i - effects.len()].clone() };
+            let mut k = match m {
                 PassMode::Moved => Kind::Owned,
                 PassMode::Lent => Kind::Ref,
                 PassMode::LentMut => Kind::RefMut,
             };
+            // [rs-proj-generic] A borrowed element arrives one reference deeper.
+            if let Some(it) = inst_params.get(i).filter(|t| is_proj(t)) {
+                if *m != PassMode::Moved && !is_proj(&t) {
+                    peel.push_str(&format!("let {n} = *{n}; "));
+                    t = it.clone();
+                    k = Kind::Ref;
+                }
+            }
             self.f.kinds.insert(n.clone(), k);
             self.f.tys.insert(n.clone(), t.clone());
             args.push(Expr { ty: t, span: e.span, kind: ExprKind::Read { place: Place { root: Local(n.clone()), steps: Vec::new() }, consume: *m == PassMode::Moved } });
         }
-        let call = Expr { ty: (*ret).clone(), span: e.span, kind: ExprKind::Call { target: FnRef::Decl(id.clone()), type_args: Vec::new(), args } };
+        let want = match super::decls::subst_ty(slot, &self.f.call_subst).strip_quals() {
+            Ty::Fn { ret: r, .. } if !super::body::foreign_var(r, &self.f.generics) || self.f.call_subst.is_empty() => (**r).clone(),
+            _ => (*ret).clone(),
+        };
+        let call = Expr { ty: want, span: e.span, kind: ExprKind::Call { target: FnRef::Decl(id.clone()), type_args: Vec::new(), args } };
         let body = if self.s.fn_ty_lends_mut(slot) {
             // [rs-loc] The callee's locator.
             let ExprKind::Call { args, .. } = &call.kind else { unreachable!() };
@@ -1753,10 +2014,19 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             self.value(&call, indent)
         };
         self.f.kinds = saved;
-        let annotate = !matches!(pos, FnPos::Param | FnPos::DynParam);
+        // Annotated whenever the instantiated slot is concrete: inference
+        // through `&mut *` needs the type.
+        let inst_slot = super::decls::subst_ty(slot, &self.f.call_subst);
+        let concrete = !foreign_var(&inst_slot, &self.f.generics);
+        let annotate = !matches!(pos, FnPos::Param | FnPos::DynParam) || concrete;
+        let ps: Vec<(String, String)> = if concrete && matches!(pos, FnPos::Param | FnPos::DynParam) { self.closure_params_at(slot, &inst_slot).0 } else { ps };
         let typed: Vec<String> = ps.iter().map(|(n, t)| if annotate { format!("{n}: {t}") } else { n.clone() }).collect();
         let mv = if matches!(pos, FnPos::Owned | FnPos::Stored) { "move " } else { "" };
-        format!("{mv}|{}| {body}", typed.join(", "))
+        if peel.is_empty() {
+            format!("{mv}|{}| {body}", typed.join(", "))
+        } else {
+            format!("{mv}|{}| {{ {peel}{body} }}", typed.join(", "))
+        }
     }
 
     /// [copy-scalar-free] A borrow of a Copy scalar is the scalar: a call
@@ -2005,7 +2275,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                         Param { local: Local(String::new()), ty: pt, mode, variadic: false, check: None }
                     })
                     .collect();
-                let (lets, a) = self.call_args(&ps, args, indent);
+                let (lets, a) = self.call_args_with(&ps, args, &[l.0.clone()], indent);
                 let kind = self.f.kinds.get(&l.0).copied().unwrap_or(Kind::Owned);
                 let callee = match kind {
                     Kind::SelfField => format!("(self.{})", rs_local(&l.0)),
@@ -2050,8 +2320,20 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     self.error(format!("a call to `{}`, which has no declaration in the IR", self.s.ir.ref_name(id)));
                     return "()".to_string();
                 };
-                let ps = self.s.unalias_params(&f.params);
+                let mut ps = self.s.unalias_params(&f.params);
+                // [rs-fn-field] A callee keeping its callbacks takes them owned.
+                if self.stores_callbacks_only(f) {
+                    for p in ps.iter_mut() {
+                        if matches!(p.ty.strip_quals(), Ty::Fn { .. }) {
+                            p.mode = PassMode::Moved;
+                        }
+                    }
+                }
                 let covered = self.covered(f);
+                let saved_subst = std::mem::take(&mut self.f.call_subst);
+                if type_args.len() == f.type_params.len() {
+                    self.f.call_subst = f.type_params.iter().map(|t| t.name.clone()).zip(type_args.iter().cloned()).collect();
+                }
                 let (lets, mut a) = if covered.is_empty() { self.call_args(&ps, args, indent) } else { self.covered_args(&ps, args, &covered, indent) };
                 // [runtime-kept-fn] A kept callback: boxed and owned, or a
                 // plain fn.
@@ -2061,6 +2343,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                         a[i] = if boxed { format!("std::boxed::Box::new({c})") } else { c };
                     }
                 }
+                self.f.call_subst = saved_subst;
                 let path = self.fn_path(id);
                 let tps = f.type_params.len();
                 let erased = self.s.ast_fn(id).is_some_and(|af| {
@@ -2148,7 +2431,15 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             a.push(code);
         }
         match crate::intrinsics::fn_call(name, recv, &a, spread, false) {
-            Some(code) => code,
+            Some(code) => match self.s.fn_decl(id) {
+                Some(f) => {
+                    let vars = self.s.plain_proj_vars(&f.type_params, &f.params, &f.borrows);
+                    let tps: HashSet<String> = f.type_params.iter().map(|t| t.name.clone()).collect();
+                    let ret = super::strip_nested_var_proj_in(&super::strip_plain_proj(&f.ret, &vars), false, &tps);
+                    self.deref_scalar(code, &ret, &e.ty)
+                }
+                None => code,
+            },
             None => {
                 self.error(format!("intrinsic fn `{name}` has no rust lowering"));
                 let _ = e;

@@ -349,11 +349,53 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             return "()".to_string();
         };
         let faces = self.actor_faces(decl);
-        if faces.is_empty() {
-            if self.is_mixed(decl) {
-                self.error(format!("spawning the mixed handler `{}` is not rendered by the rust IR emitter yet", decl.name));
+        if faces.is_empty() && self.is_mixed(decl) {
+            // [mixed-handler] [rs-mixed] constructor arguments evaluated once,
+            // cloned into the servant and moved into the façade.
+            let ExprKind::Construct { fields } = &handler.kind else {
+                self.error("`spawn` of a mixed handler needs its construction");
                 return "()".to_string();
+            };
+            let mut lets = String::new();
+            let mut servant_args = Vec::new();
+            let mut fac_fields = vec!["__addr: __a".to_string()];
+            for (i, p) in decl.ctor_params.iter().enumerate() {
+                let Some((_, v)) = fields.iter().find(|(n, _)| *n == p.local.0) else { continue };
+                let code = self.value_into(v, &p.ty, indent);
+                lets.push_str(&format!("let __c{i} = {code}; "));
+                servant_args.push(format!("__c{i}.clone()"));
+                fac_fields.push(format!("{}: __c{i}", rs_ident(&p.local.0)));
             }
+            for i in 0..decl.deps.len() {
+                if let Some((_, v)) = fields.iter().find(|(n, _)| *n == format!("__dep{i}")) {
+                    servant_args.push(self.value(v, indent));
+                }
+            }
+            let pool_code = match pool {
+                Some(p) => self.value(p, indent),
+                None => "crate::scheduler::salvo_current_pool()".to_string(),
+            };
+            let m = decl.id.module.clone();
+            let hn = rs_ident(&decl.name);
+            let ctor = self.path_in(&m, &hn);
+            let actor = self.path_in(&m, &format!("__Actor_{hn}"));
+            let fac = self.path_in(&m, &format!("__Fac_{hn}"));
+            let face = match decl.faces.first().map(|f| f.strip_quals()) {
+                Some(Ty::Named { name, .. }) => self.type_path(name),
+                _ => String::new(),
+            };
+            let init = if decl.init.is_some() {
+                format!("crate::scheduler::salvo_send(__a, std::boxed::Box::new({}::Init)); ", self.path_in(&m, &format!("__Priv_{hn}")))
+            } else {
+                String::new()
+            };
+            return format!(
+                "({{ {lets}let __h = {ctor}::new({}); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn({pool_code}, __cap as usize, std::boxed::Box::new({actor}::new(__h)), None); {init}{face}::shared({fac} {{ {} }}) }})",
+                servant_args.join(", "),
+                fac_fields.join(", ")
+            );
+        }
+        if faces.is_empty() {
             // [monitor-handler] the instance shared behind its face's handle.
             if decl.faces.len() != 1 {
                 self.error(format!("handler `{}` implements several plain effects, and a shared instance behind several faces is not supported yet", decl.name));
@@ -366,6 +408,10 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             let h = self.value(handler, indent);
             let mk = if decl.stateful { "locked" } else { "shared" };
             return format!("{face}::{mk}({h})");
+        }
+        if !decl.type_params.is_empty() {
+            self.error(format!("spawning generic handler `{}` is not supported yet", decl.name));
+            return "()".to_string();
         }
         let h = self.value(handler, indent);
         let pool_code = match pool {
@@ -542,8 +588,11 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             inline_args.extend(names.iter().cloned());
             return format!("{{ {lets}match self.__addr {{ Some(__a) => {send}, None => {tr}::{}({}) }} }}", rs_ident(&fm.emitted_name), inline_args.join(", "));
         }
-        let priv_enum = format!("__Priv_{}", rs_ident(&h.name));
+        let priv_enum = self.path_in(&h.id.module, &format!("__Priv_{}", rs_ident(&h.name)));
         let built = if names.is_empty() { format!("{priv_enum}::{}", variant(member)) } else { format!("{priv_enum}::{}({})", variant(member), names.join(", ")) };
+        if self.f.in_facade {
+            return format!("{{ {lets}crate::scheduler::salvo_send(self.__addr, std::boxed::Box::new({built})) }}");
+        }
         format!("{{ {lets}match self.__addr {{ Some(__a) => crate::scheduler::salvo_send(__a, std::boxed::Box::new({built})), None => self.{}({}) }} }}", rs_ident(member), names.join(", "))
     }
 
