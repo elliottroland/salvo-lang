@@ -146,6 +146,60 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         i.protocol_hash.is_some()
     }
 
+    /// [actor-msg] A generated enum as a sealed class; a message enum with a
+    /// wire form also gets its codec and the protocol constant (the codec is
+    /// the backend's, IR.md §9 decision 2).
+    pub(super) fn enum_decl(&mut self, e: &salvo_ir::EnumDecl) {
+        use salvo_ir::EnumKind;
+        let name = e.name.clone();
+        if let EnumKind::Message { interface } = &e.kind {
+            let Some(i) = self.s.ir.modules.iter().flat_map(|m| &m.decls).find_map(|d| match d {
+                Decl::Interface(i) if i.id == *interface => Some(i),
+                _ => None,
+            }) else {
+                return;
+            };
+            // A generic protocol is refused where its stub is rendered.
+            if !self.decl_type_params(&i.name, &i.type_params).is_empty() {
+                return;
+            }
+        }
+        self.out.push_str(&format!("\nsealed class {name} {{\n"));
+        for v in &e.variants {
+            if v.fields.is_empty() && v.member.is_none() {
+                self.out.push_str(&format!("    object {} : {name}()\n", v.name));
+                continue;
+            }
+            let payload: Vec<String> = v.fields.iter().map(|(n, t)| format!("val {}: {}", kt_local(&salvo_ir::Local(n.clone())), self.ty(t))).collect();
+            self.out.push_str(&format!("    class {}({}) : {name}()\n", v.name, payload.join(", ")));
+        }
+        self.out.push_str("}\n");
+        if let (EnumKind::Message { interface }, Some(hash)) = (&e.kind, &e.protocol_hash) {
+            let msg = &name;
+            let mut enc = String::new();
+            let mut dec = String::new();
+            for (tag, v) in e.variants.iter().enumerate() {
+                let mut encs = vec![format!("out.u8({tag})")];
+                let mut decs = Vec::new();
+                for (n, t) in &v.fields {
+                    let c = self.codec(t);
+                    encs.push(format!("{c}.enc(v.{}, out)", kt_local(&salvo_ir::Local(n.clone()))));
+                    decs.push(format!("{c}.dec(inp)"));
+                }
+                enc.push_str(&format!("            is {msg}.{} -> {{ {} }}\n", v.name, encs.join("; ")));
+                dec.push_str(&format!("            {tag} -> {msg}.{}({})\n", v.name, decs.join(", ")));
+            }
+            self.out.push_str(&format!(
+                "\nobject __Codec_{msg} : salvo.WireCodec<{msg}> {{\n    override fun enc(v: {msg}, out: salvo.WireOut) {{\n        when (v) {{\n{enc}        }}\n    }}\n    override fun dec(inp: salvo.WireIn): {msg} = when (inp.u8()) {{\n{dec}        else -> throw salvo.WireError()\n    }}\n}}\n"
+            ));
+            let iname = self.s.ir.modules.iter().flat_map(|m| &m.decls).find_map(|d| match d {
+                Decl::Interface(i) if i.id == *interface => Some(i.name.clone()),
+                _ => None,
+            });
+            self.out.push_str(&format!("\nconst val __PROTO_{}: String = \"{hash}\"\n", iname.unwrap_or_default()));
+        }
+    }
+
     /// [kt-actor] The message classes, their codec, the protocol constant and
     /// the addr stub of an actor interface.
     pub(super) fn actor_interface(&mut self, i: &InterfaceDecl) {
@@ -158,12 +212,6 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             return;
         }
         let msg = format!("__Msg_{}", i.name);
-        self.out.push_str(&format!("\nsealed class {msg} {{\n"));
-        for m in &sends {
-            let payload: Vec<String> = m.params.iter().map(|p| format!("val {}: {}", kt_local(&p.local), self.ty(&p.ty))).collect();
-            self.out.push_str(&format!("    class {}({}) : {msg}()\n", variant(&m.emitted_name), payload.join(", ")));
-        }
-        self.out.push_str("}\n");
         if !self.interface_has_wire(i) {
             // [actor-use-addr] the stub still sends, in-process.
             self.out.push_str(&format!("\nclass __Stub_{0}(private val addr: Int) : {0} {{\n", i.name));
@@ -179,26 +227,6 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             }
             self.out.push_str("}\n");
             return;
-        }
-        let mut enc = String::new();
-        let mut dec = String::new();
-        for (tag, m) in sends.iter().enumerate() {
-            let v = variant(&m.emitted_name);
-            let mut encs = vec![format!("out.u8({tag})")];
-            let mut decs = Vec::new();
-            for p in &m.params {
-                let c = self.codec(&p.ty);
-                encs.push(format!("{c}.enc(v.{}, out)", kt_local(&p.local)));
-                decs.push(format!("{c}.dec(inp)"));
-            }
-            enc.push_str(&format!("            is {msg}.{v} -> {{ {} }}\n", encs.join("; ")));
-            dec.push_str(&format!("            {tag} -> {msg}.{v}({})\n", decs.join(", ")));
-        }
-        self.out.push_str(&format!(
-            "\nobject __Codec_{msg} : salvo.WireCodec<{msg}> {{\n    override fun enc(v: {msg}, out: salvo.WireOut) {{\n        when (v) {{\n{enc}        }}\n    }}\n    override fun dec(inp: salvo.WireIn): {msg} = when (inp.u8()) {{\n{dec}        else -> throw salvo.WireError()\n    }}\n}}\n"
-        ));
-        if let Some(hash) = i.protocol_hash.clone() {
-            self.out.push_str(&format!("\nconst val __PROTO_{}: String = \"{hash}\"\n", i.name));
         }
         // [actor-use-addr] the stub: the interface implemented by sending.
         self.out.push_str(&format!("\nclass __Stub_{0}(private val addr: Int) : {0} {{\n", i.name));
@@ -291,25 +319,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 parking.push(m);
             }
         }
-        self.out.push_str(&format!("\nsealed class {cont} {{\n"));
-        for m in &parking {
-            let declared = Self::declared_params(m);
-            let caps: Vec<String> = declared.iter().take(declared.len() - 1).map(|p| format!("val {}: {}", kt_local(&p.local), self.ty(&p.ty))).collect();
-            self.out.push_str(&format!("    class {}({}) : {cont}()\n", variant(&m.name), caps.join(", ")));
-        }
-        self.out.push_str("}\n");
         let has_priv = Self::has_private(h, faces);
-        if has_priv {
-            self.out.push_str(&format!("\nsealed class {priv_cls} {{\n"));
-            if h.init.is_some() {
-                self.out.push_str(&format!("    object Init : {priv_cls}()\n"));
-            }
-            for m in &privs {
-                let ps: Vec<String> = Self::declared_params(m).iter().map(|p| format!("val {}: {}", kt_local(&p.local), self.ty(&p.ty))).collect();
-                self.out.push_str(&format!("    class {}({}) : {priv_cls}()\n", variant(&m.name), ps.join(", ")));
-            }
-            self.out.push_str("}\n");
-        }
         // Dispatch: one fn per face, one for the private messages.
         let mut dispatchers = String::new();
         let mut handle_arms = String::new();

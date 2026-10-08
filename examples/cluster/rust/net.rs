@@ -148,31 +148,6 @@ impl Inbound {
     }
 }
 
-pub enum __Msg_Inbound {
-    ReceiveFrame(crate::net::NodeEndpoint, crate::core_bytes::Bytes),
-}
-
-impl crate::wire::__Wire for __Msg_Inbound {
-    fn __enc(&self, out: &mut Vec<u8>) {
-        match self {
-            __Msg_Inbound::ReceiveFrame(__p0, __p1) => {
-                out.push(0);
-                crate::wire::__Wire::__enc(__p0, out);
-                crate::wire::__Wire::__enc(__p1, out);
-            }
-        }
-    }
-    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
-        match r.u8()? {
-            0 => Some(__Msg_Inbound::ReceiveFrame(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
-            _ => None,
-        }
-    }
-}
-
-/// [protocol-hash] The canonical hash of `Inbound`.
-pub const __PROTO_Inbound: &str = "8e46ddb2a3e90b03";
-
 pub struct __Stub_Inbound {
     addr: usize,
 }
@@ -424,31 +399,6 @@ impl Outbound {
     }
 }
 
-pub enum __Msg_Outbound {
-    SendFrame(crate::net::NodeEndpoint, crate::core_bytes::Bytes),
-}
-
-impl crate::wire::__Wire for __Msg_Outbound {
-    fn __enc(&self, out: &mut Vec<u8>) {
-        match self {
-            __Msg_Outbound::SendFrame(__p0, __p1) => {
-                out.push(0);
-                crate::wire::__Wire::__enc(__p0, out);
-                crate::wire::__Wire::__enc(__p1, out);
-            }
-        }
-    }
-    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
-        match r.u8()? {
-            0 => Some(__Msg_Outbound::SendFrame(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
-            _ => None,
-        }
-    }
-}
-
-/// [protocol-hash] The canonical hash of `Outbound`.
-pub const __PROTO_Outbound: &str = "e754249e848e9986";
-
 pub struct __Stub_Outbound {
     addr: usize,
 }
@@ -487,10 +437,6 @@ impl crate::net::__Stateless_Outbound for Sending {
     fn send_frame(&self, to: crate::net::NodeEndpoint, frame: crate::core_bytes::Bytes) {
         let mut _sent: crate::unions::Union2<(), crate::unions::Union2<crate::net::Unreachable, crate::net::WireFailed>> = self.__dep0.deliver(&to, frame);
     }
-}
-
-pub enum __Cont_Sending {
-    SendFrame(crate::net::NodeEndpoint),
 }
 
 pub struct __Actor_Sending {
@@ -560,10 +506,6 @@ impl crate::net::__Stateless_Inbound for Receiving {
     fn receive_frame(&self, from: crate::net::NodeEndpoint, frame: crate::core_bytes::Bytes) {
         let mut _delivered: bool = crate::net::deliver_frame(&frame);
     }
-}
-
-pub enum __Cont_Receiving {
-    ReceiveFrame(crate::net::NodeEndpoint),
 }
 
 pub struct __Actor_Receiving {
@@ -715,39 +657,6 @@ impl NodeGroup {
     }
 }
 
-pub enum __Msg_NodeGroup {
-    Members(crate::scheduler::SalvoReply),
-    Subscribe(usize),
-    Leave,
-}
-
-impl crate::wire::__Wire for __Msg_NodeGroup {
-    fn __enc(&self, out: &mut Vec<u8>) {
-        match self {
-            __Msg_NodeGroup::Members(__p0) => {
-                out.push(0);
-                crate::wire::__Wire::__enc(__p0, out);
-            }
-            __Msg_NodeGroup::Subscribe(__p0) => {
-                out.push(1);
-                crate::wire::__Wire::__enc(__p0, out);
-            }
-            __Msg_NodeGroup::Leave => out.push(2),
-        }
-    }
-    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
-        match r.u8()? {
-            0 => Some(__Msg_NodeGroup::Members(crate::wire::__Wire::__dec(r)?)),
-            1 => Some(__Msg_NodeGroup::Subscribe(crate::wire::__Wire::__dec(r)?)),
-            2 => Some(__Msg_NodeGroup::Leave),
-            _ => None,
-        }
-    }
-}
-
-/// [protocol-hash] The canonical hash of `NodeGroup`.
-pub const __PROTO_NodeGroup: &str = "471318a2c85d1f6d";
-
 pub struct __Stub_NodeGroup {
     addr: usize,
 }
@@ -824,37 +733,6 @@ impl NodeGroupWatcher {
         }
     }
 }
-
-pub enum __Msg_NodeGroupWatcher {
-    Joined(crate::net::Node),
-    Left(crate::net::Node, String),
-}
-
-impl crate::wire::__Wire for __Msg_NodeGroupWatcher {
-    fn __enc(&self, out: &mut Vec<u8>) {
-        match self {
-            __Msg_NodeGroupWatcher::Joined(__p0) => {
-                out.push(0);
-                crate::wire::__Wire::__enc(__p0, out);
-            }
-            __Msg_NodeGroupWatcher::Left(__p0, __p1) => {
-                out.push(1);
-                crate::wire::__Wire::__enc(__p0, out);
-                crate::wire::__Wire::__enc(__p1, out);
-            }
-        }
-    }
-    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
-        match r.u8()? {
-            0 => Some(__Msg_NodeGroupWatcher::Joined(crate::wire::__Wire::__dec(r)?)),
-            1 => Some(__Msg_NodeGroupWatcher::Left(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
-            _ => None,
-        }
-    }
-}
-
-/// [protocol-hash] The canonical hash of `NodeGroupWatcher`.
-pub const __PROTO_NodeGroupWatcher: &str = "db3e0aa5831c2e44";
 
 pub struct __Stub_NodeGroupWatcher {
     addr: usize,
@@ -1146,17 +1024,6 @@ impl crate::net::__Stateful_NodeGroup for StaticNodeGroup {
     }
 }
 
-pub enum __Cont_StaticNodeGroup {
-    Members,
-    Subscribe,
-    Control(crate::net::NodeId),
-}
-
-pub enum __Priv_StaticNodeGroup {
-    Init,
-    Control(crate::net::NodeId, crate::core_bytes::Bytes),
-}
-
 pub struct __Actor_StaticNodeGroup {
     handler: StaticNodeGroup,
 }
@@ -1330,17 +1197,6 @@ impl crate::net::__Stateful_NodeGroup for GossipNodeGroup {
     fn leave(&mut self) {
         crate::net::leave_group(&self.known);
     }
-}
-
-pub enum __Cont_GossipNodeGroup {
-    Members,
-    Subscribe,
-    Control(crate::net::NodeId),
-}
-
-pub enum __Priv_GossipNodeGroup {
-    Init,
-    Control(crate::net::NodeId, crate::core_bytes::Bytes),
 }
 
 pub struct __Actor_GossipNodeGroup {
@@ -1520,51 +1376,6 @@ impl ActorGroup {
     }
 }
 
-pub enum __Msg_ActorGroup {
-    Join(usize),
-    Leave(usize),
-    Members(crate::scheduler::SalvoReply),
-    Subscribe(usize),
-    Refresh,
-}
-
-impl crate::wire::__Wire for __Msg_ActorGroup {
-    fn __enc(&self, out: &mut Vec<u8>) {
-        match self {
-            __Msg_ActorGroup::Join(__p0) => {
-                out.push(0);
-                crate::wire::__Wire::__enc(__p0, out);
-            }
-            __Msg_ActorGroup::Leave(__p0) => {
-                out.push(1);
-                crate::wire::__Wire::__enc(__p0, out);
-            }
-            __Msg_ActorGroup::Members(__p0) => {
-                out.push(2);
-                crate::wire::__Wire::__enc(__p0, out);
-            }
-            __Msg_ActorGroup::Subscribe(__p0) => {
-                out.push(3);
-                crate::wire::__Wire::__enc(__p0, out);
-            }
-            __Msg_ActorGroup::Refresh => out.push(4),
-        }
-    }
-    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
-        match r.u8()? {
-            0 => Some(__Msg_ActorGroup::Join(crate::wire::__Wire::__dec(r)?)),
-            1 => Some(__Msg_ActorGroup::Leave(crate::wire::__Wire::__dec(r)?)),
-            2 => Some(__Msg_ActorGroup::Members(crate::wire::__Wire::__dec(r)?)),
-            3 => Some(__Msg_ActorGroup::Subscribe(crate::wire::__Wire::__dec(r)?)),
-            4 => Some(__Msg_ActorGroup::Refresh),
-            _ => None,
-        }
-    }
-}
-
-/// [protocol-hash] The canonical hash of `ActorGroup`.
-pub const __PROTO_ActorGroup: &str = "695f43128bdada4a";
-
 pub struct __Stub_ActorGroup {
     addr: usize,
 }
@@ -1647,36 +1458,6 @@ impl ActorGroupWatcher {
         }
     }
 }
-
-pub enum __Msg_ActorGroupWatcher {
-    Joined(usize),
-    Left(usize),
-}
-
-impl crate::wire::__Wire for __Msg_ActorGroupWatcher {
-    fn __enc(&self, out: &mut Vec<u8>) {
-        match self {
-            __Msg_ActorGroupWatcher::Joined(__p0) => {
-                out.push(0);
-                crate::wire::__Wire::__enc(__p0, out);
-            }
-            __Msg_ActorGroupWatcher::Left(__p0) => {
-                out.push(1);
-                crate::wire::__Wire::__enc(__p0, out);
-            }
-        }
-    }
-    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
-        match r.u8()? {
-            0 => Some(__Msg_ActorGroupWatcher::Joined(crate::wire::__Wire::__dec(r)?)),
-            1 => Some(__Msg_ActorGroupWatcher::Left(crate::wire::__Wire::__dec(r)?)),
-            _ => None,
-        }
-    }
-}
-
-/// [protocol-hash] The canonical hash of `ActorGroupWatcher`.
-pub const __PROTO_ActorGroupWatcher: &str = "9fa424e5858bb3bd";
 
 pub struct __Stub_ActorGroupWatcher {
     addr: usize,
@@ -1834,21 +1615,6 @@ impl crate::net::__Stateful_NodeGroupWatcher for ActorGrouping {
             crate::net::mirror(self.__addr.expect("an actor's own addr"), &self.all);
         };
     }
-}
-
-pub enum __Cont_ActorGrouping {
-    Join,
-    Leave,
-    Members,
-    Subscribe,
-    Joined,
-    Left(crate::net::Node),
-    Control(crate::net::NodeId),
-}
-
-pub enum __Priv_ActorGrouping {
-    Init,
-    Control(crate::net::NodeId, crate::core_bytes::Bytes),
 }
 
 pub struct __Actor_ActorGrouping {
@@ -2506,71 +2272,6 @@ impl MemNet {
     }
 }
 
-pub enum __Msg_MemNet {
-    Attach(crate::net::NodeEndpoint, usize),
-    Detach(crate::net::NodeEndpoint),
-    Route(crate::net::NodeEndpoint, crate::net::NodeEndpoint, crate::scheduler::SalvoReply),
-    Partition(crate::net::NodeEndpoint, crate::net::NodeEndpoint),
-    Heal(crate::net::NodeEndpoint, crate::net::NodeEndpoint),
-    Kill(crate::net::NodeEndpoint),
-    Delivered(crate::scheduler::SalvoReply),
-}
-
-impl crate::wire::__Wire for __Msg_MemNet {
-    fn __enc(&self, out: &mut Vec<u8>) {
-        match self {
-            __Msg_MemNet::Attach(__p0, __p1) => {
-                out.push(0);
-                crate::wire::__Wire::__enc(__p0, out);
-                crate::wire::__Wire::__enc(__p1, out);
-            }
-            __Msg_MemNet::Detach(__p0) => {
-                out.push(1);
-                crate::wire::__Wire::__enc(__p0, out);
-            }
-            __Msg_MemNet::Route(__p0, __p1, __p2) => {
-                out.push(2);
-                crate::wire::__Wire::__enc(__p0, out);
-                crate::wire::__Wire::__enc(__p1, out);
-                crate::wire::__Wire::__enc(__p2, out);
-            }
-            __Msg_MemNet::Partition(__p0, __p1) => {
-                out.push(3);
-                crate::wire::__Wire::__enc(__p0, out);
-                crate::wire::__Wire::__enc(__p1, out);
-            }
-            __Msg_MemNet::Heal(__p0, __p1) => {
-                out.push(4);
-                crate::wire::__Wire::__enc(__p0, out);
-                crate::wire::__Wire::__enc(__p1, out);
-            }
-            __Msg_MemNet::Kill(__p0) => {
-                out.push(5);
-                crate::wire::__Wire::__enc(__p0, out);
-            }
-            __Msg_MemNet::Delivered(__p0) => {
-                out.push(6);
-                crate::wire::__Wire::__enc(__p0, out);
-            }
-        }
-    }
-    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
-        match r.u8()? {
-            0 => Some(__Msg_MemNet::Attach(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
-            1 => Some(__Msg_MemNet::Detach(crate::wire::__Wire::__dec(r)?)),
-            2 => Some(__Msg_MemNet::Route(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
-            3 => Some(__Msg_MemNet::Partition(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
-            4 => Some(__Msg_MemNet::Heal(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
-            5 => Some(__Msg_MemNet::Kill(crate::wire::__Wire::__dec(r)?)),
-            6 => Some(__Msg_MemNet::Delivered(crate::wire::__Wire::__dec(r)?)),
-            _ => None,
-        }
-    }
-}
-
-/// [protocol-hash] The canonical hash of `MemNet`.
-pub const __PROTO_MemNet: &str = "2815c14392023d5e";
-
 pub struct __Stub_MemNet {
     addr: usize,
 }
@@ -2666,16 +2367,6 @@ impl crate::net::__Stateful_MemNet for MemNetwork {
     fn delivered(&mut self, out: crate::scheduler::SalvoReply) {
         crate::scheduler::salvo_reply_wire::<i32>(out, self.count);
     }
-}
-
-pub enum __Cont_MemNetwork {
-    Attach(crate::net::NodeEndpoint),
-    Detach,
-    Route(crate::net::NodeEndpoint, crate::net::NodeEndpoint),
-    Partition(crate::net::NodeEndpoint),
-    Heal(crate::net::NodeEndpoint),
-    Kill,
-    Delivered,
 }
 
 pub struct __Actor_MemNetwork {
@@ -2846,4 +2537,313 @@ pub fn eq__Node_Node(a: &crate::net::Node, b: &crate::net::Node) -> bool {
         return false;
     };
     return true;
+}
+
+pub enum __Msg_Inbound {
+    ReceiveFrame(crate::net::NodeEndpoint, crate::core_bytes::Bytes),
+}
+
+impl crate::wire::__Wire for __Msg_Inbound {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        match self {
+            __Msg_Inbound::ReceiveFrame(__p0, __p1) => {
+                out.push(0);
+                crate::wire::__Wire::__enc(__p0, out);
+                crate::wire::__Wire::__enc(__p1, out);
+            }
+        }
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        match r.u8()? {
+            0 => Some(__Msg_Inbound::ReceiveFrame(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
+            _ => None,
+        }
+    }
+}
+
+/// [protocol-hash] The canonical hash of `Inbound`.
+pub const __PROTO_Inbound: &str = "8e46ddb2a3e90b03";
+
+pub enum __Msg_Outbound {
+    SendFrame(crate::net::NodeEndpoint, crate::core_bytes::Bytes),
+}
+
+impl crate::wire::__Wire for __Msg_Outbound {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        match self {
+            __Msg_Outbound::SendFrame(__p0, __p1) => {
+                out.push(0);
+                crate::wire::__Wire::__enc(__p0, out);
+                crate::wire::__Wire::__enc(__p1, out);
+            }
+        }
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        match r.u8()? {
+            0 => Some(__Msg_Outbound::SendFrame(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
+            _ => None,
+        }
+    }
+}
+
+/// [protocol-hash] The canonical hash of `Outbound`.
+pub const __PROTO_Outbound: &str = "e754249e848e9986";
+
+pub enum __Cont_Sending {
+    SendFrame(crate::net::NodeEndpoint),
+}
+
+pub enum __Cont_Receiving {
+    ReceiveFrame(crate::net::NodeEndpoint),
+}
+
+pub enum __Msg_NodeGroup {
+    Members(crate::scheduler::SalvoReply),
+    Subscribe(usize),
+    Leave,
+}
+
+impl crate::wire::__Wire for __Msg_NodeGroup {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        match self {
+            __Msg_NodeGroup::Members(__p0) => {
+                out.push(0);
+                crate::wire::__Wire::__enc(__p0, out);
+            }
+            __Msg_NodeGroup::Subscribe(__p0) => {
+                out.push(1);
+                crate::wire::__Wire::__enc(__p0, out);
+            }
+            __Msg_NodeGroup::Leave => out.push(2),
+        }
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        match r.u8()? {
+            0 => Some(__Msg_NodeGroup::Members(crate::wire::__Wire::__dec(r)?)),
+            1 => Some(__Msg_NodeGroup::Subscribe(crate::wire::__Wire::__dec(r)?)),
+            2 => Some(__Msg_NodeGroup::Leave),
+            _ => None,
+        }
+    }
+}
+
+/// [protocol-hash] The canonical hash of `NodeGroup`.
+pub const __PROTO_NodeGroup: &str = "471318a2c85d1f6d";
+
+pub enum __Msg_NodeGroupWatcher {
+    Joined(crate::net::Node),
+    Left(crate::net::Node, String),
+}
+
+impl crate::wire::__Wire for __Msg_NodeGroupWatcher {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        match self {
+            __Msg_NodeGroupWatcher::Joined(__p0) => {
+                out.push(0);
+                crate::wire::__Wire::__enc(__p0, out);
+            }
+            __Msg_NodeGroupWatcher::Left(__p0, __p1) => {
+                out.push(1);
+                crate::wire::__Wire::__enc(__p0, out);
+                crate::wire::__Wire::__enc(__p1, out);
+            }
+        }
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        match r.u8()? {
+            0 => Some(__Msg_NodeGroupWatcher::Joined(crate::wire::__Wire::__dec(r)?)),
+            1 => Some(__Msg_NodeGroupWatcher::Left(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
+            _ => None,
+        }
+    }
+}
+
+/// [protocol-hash] The canonical hash of `NodeGroupWatcher`.
+pub const __PROTO_NodeGroupWatcher: &str = "db3e0aa5831c2e44";
+
+pub enum __Cont_StaticNodeGroup {
+    Members,
+    Subscribe,
+    Control(crate::net::NodeId),
+}
+
+pub enum __Priv_StaticNodeGroup {
+    Init,
+    Control(crate::net::NodeId, crate::core_bytes::Bytes),
+}
+
+pub enum __Cont_GossipNodeGroup {
+    Members,
+    Subscribe,
+    Control(crate::net::NodeId),
+}
+
+pub enum __Priv_GossipNodeGroup {
+    Init,
+    Control(crate::net::NodeId, crate::core_bytes::Bytes),
+}
+
+pub enum __Msg_ActorGroup {
+    Join(usize),
+    Leave(usize),
+    Members(crate::scheduler::SalvoReply),
+    Subscribe(usize),
+    Refresh,
+}
+
+impl crate::wire::__Wire for __Msg_ActorGroup {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        match self {
+            __Msg_ActorGroup::Join(__p0) => {
+                out.push(0);
+                crate::wire::__Wire::__enc(__p0, out);
+            }
+            __Msg_ActorGroup::Leave(__p0) => {
+                out.push(1);
+                crate::wire::__Wire::__enc(__p0, out);
+            }
+            __Msg_ActorGroup::Members(__p0) => {
+                out.push(2);
+                crate::wire::__Wire::__enc(__p0, out);
+            }
+            __Msg_ActorGroup::Subscribe(__p0) => {
+                out.push(3);
+                crate::wire::__Wire::__enc(__p0, out);
+            }
+            __Msg_ActorGroup::Refresh => out.push(4),
+        }
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        match r.u8()? {
+            0 => Some(__Msg_ActorGroup::Join(crate::wire::__Wire::__dec(r)?)),
+            1 => Some(__Msg_ActorGroup::Leave(crate::wire::__Wire::__dec(r)?)),
+            2 => Some(__Msg_ActorGroup::Members(crate::wire::__Wire::__dec(r)?)),
+            3 => Some(__Msg_ActorGroup::Subscribe(crate::wire::__Wire::__dec(r)?)),
+            4 => Some(__Msg_ActorGroup::Refresh),
+            _ => None,
+        }
+    }
+}
+
+/// [protocol-hash] The canonical hash of `ActorGroup`.
+pub const __PROTO_ActorGroup: &str = "695f43128bdada4a";
+
+pub enum __Msg_ActorGroupWatcher {
+    Joined(usize),
+    Left(usize),
+}
+
+impl crate::wire::__Wire for __Msg_ActorGroupWatcher {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        match self {
+            __Msg_ActorGroupWatcher::Joined(__p0) => {
+                out.push(0);
+                crate::wire::__Wire::__enc(__p0, out);
+            }
+            __Msg_ActorGroupWatcher::Left(__p0) => {
+                out.push(1);
+                crate::wire::__Wire::__enc(__p0, out);
+            }
+        }
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        match r.u8()? {
+            0 => Some(__Msg_ActorGroupWatcher::Joined(crate::wire::__Wire::__dec(r)?)),
+            1 => Some(__Msg_ActorGroupWatcher::Left(crate::wire::__Wire::__dec(r)?)),
+            _ => None,
+        }
+    }
+}
+
+/// [protocol-hash] The canonical hash of `ActorGroupWatcher`.
+pub const __PROTO_ActorGroupWatcher: &str = "9fa424e5858bb3bd";
+
+pub enum __Cont_ActorGrouping {
+    Join,
+    Leave,
+    Members,
+    Subscribe,
+    Joined,
+    Left(crate::net::Node),
+    Control(crate::net::NodeId),
+}
+
+pub enum __Priv_ActorGrouping {
+    Init,
+    Control(crate::net::NodeId, crate::core_bytes::Bytes),
+}
+
+pub enum __Msg_MemNet {
+    Attach(crate::net::NodeEndpoint, usize),
+    Detach(crate::net::NodeEndpoint),
+    Route(crate::net::NodeEndpoint, crate::net::NodeEndpoint, crate::scheduler::SalvoReply),
+    Partition(crate::net::NodeEndpoint, crate::net::NodeEndpoint),
+    Heal(crate::net::NodeEndpoint, crate::net::NodeEndpoint),
+    Kill(crate::net::NodeEndpoint),
+    Delivered(crate::scheduler::SalvoReply),
+}
+
+impl crate::wire::__Wire for __Msg_MemNet {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        match self {
+            __Msg_MemNet::Attach(__p0, __p1) => {
+                out.push(0);
+                crate::wire::__Wire::__enc(__p0, out);
+                crate::wire::__Wire::__enc(__p1, out);
+            }
+            __Msg_MemNet::Detach(__p0) => {
+                out.push(1);
+                crate::wire::__Wire::__enc(__p0, out);
+            }
+            __Msg_MemNet::Route(__p0, __p1, __p2) => {
+                out.push(2);
+                crate::wire::__Wire::__enc(__p0, out);
+                crate::wire::__Wire::__enc(__p1, out);
+                crate::wire::__Wire::__enc(__p2, out);
+            }
+            __Msg_MemNet::Partition(__p0, __p1) => {
+                out.push(3);
+                crate::wire::__Wire::__enc(__p0, out);
+                crate::wire::__Wire::__enc(__p1, out);
+            }
+            __Msg_MemNet::Heal(__p0, __p1) => {
+                out.push(4);
+                crate::wire::__Wire::__enc(__p0, out);
+                crate::wire::__Wire::__enc(__p1, out);
+            }
+            __Msg_MemNet::Kill(__p0) => {
+                out.push(5);
+                crate::wire::__Wire::__enc(__p0, out);
+            }
+            __Msg_MemNet::Delivered(__p0) => {
+                out.push(6);
+                crate::wire::__Wire::__enc(__p0, out);
+            }
+        }
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        match r.u8()? {
+            0 => Some(__Msg_MemNet::Attach(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
+            1 => Some(__Msg_MemNet::Detach(crate::wire::__Wire::__dec(r)?)),
+            2 => Some(__Msg_MemNet::Route(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
+            3 => Some(__Msg_MemNet::Partition(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
+            4 => Some(__Msg_MemNet::Heal(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
+            5 => Some(__Msg_MemNet::Kill(crate::wire::__Wire::__dec(r)?)),
+            6 => Some(__Msg_MemNet::Delivered(crate::wire::__Wire::__dec(r)?)),
+            _ => None,
+        }
+    }
+}
+
+/// [protocol-hash] The canonical hash of `MemNet`.
+pub const __PROTO_MemNet: &str = "2815c14392023d5e";
+
+pub enum __Cont_MemNetwork {
+    Attach(crate::net::NodeEndpoint),
+    Detach,
+    Route(crate::net::NodeEndpoint, crate::net::NodeEndpoint),
+    Partition(crate::net::NodeEndpoint),
+    Heal(crate::net::NodeEndpoint),
+    Kill,
+    Delivered,
 }

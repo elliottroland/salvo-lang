@@ -438,3 +438,104 @@ impl __Route_Sequencer(lent group: Addr<ActorGroup<Sequencer>>, lent config: Rou
     send main::Sequencer#0(read __pick.to, !read out)
   }
 }
+
+enum __Msg_Sequencer [proto 7a5334482e5247f7] {
+  Next(out: Reply<Str>)
+}
+
+enum __Msg_Inventory [proto d3482a697a944808] {
+  Reserve(sku: Str, qty: Int, out: Reply<Str>)
+}
+
+enum __Msg_Search [proto ed817fc30774f01d] {
+  Query(word: Str, out: Reply<Int>)
+}
+
+enum __Msg_Lookup [proto 7c0f441570dc9a6f] {
+  Lookup(key: Str, out: Reply<Str>)
+}
+
+enum __Cont_Sequencing {
+  Next()
+}
+
+enum __Cont_Stocking {
+  Reserve(sku: Str, qty: Int)
+}
+
+enum __Cont_Indexing {
+  Query(word: Str)
+}
+
+enum __Cont_Looking {
+  Lookup(key: Str)
+}
+
+enum __Cont_SlowLooking {
+  Lookup(key: Str)
+  Answer(key: Str, out: Reply<Str>)
+}
+
+enum __Priv_SlowLooking {
+  Answer(key: Str, out: Reply<Str>, fired: Fired)
+}
+
+enum __Cont_Scattering {
+  Query(word: Str)
+}
+
+enum __Msg_Gather [proto 98712ca205da344c] {
+  Scatter(word: Str, members: List<Addr<Search>>, out: Reply<Int>)
+}
+
+enum __Cont_Gathering {
+  Scatter(word: Str, members: List<Addr<Search>>)
+  Partial()
+}
+
+enum __Priv_Gathering {
+  Partial(n: Int)
+}
+
+enum __Cont_Hedging {
+  Lookup(key: Str)
+}
+
+enum __Msg_Race [proto 5e0ec4d63d5f53dd] {
+  Race(key: Str, members: List<Addr<Lookup>>, out: Reply<Str>)
+}
+
+enum __Cont_Racing {
+  Race(key: Str, members: List<Addr<Lookup>>)
+  First()
+}
+
+enum __Priv_Racing {
+  First(answer: Str)
+}
+
+enum __Msg_Boot [proto 4b15e647d0ca92a7] {
+  Boot(done: Reply<Addr<Sequencer>>)
+  Stop(done: Reply<Bool>)
+}
+
+enum __Cont_Booting {
+  Boot()
+  Stop()
+}
+
+enum __Cont___Route_Inventory {
+  Reserve(sku: Str, qty: Int)
+}
+
+enum __Cont___Route_Lookup {
+  Lookup(key: Str)
+}
+
+enum __Cont___Route_Search {
+  Query(word: Str)
+}
+
+enum __Cont___Route_Sequencer {
+  Next()
+}

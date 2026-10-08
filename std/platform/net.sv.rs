@@ -118,31 +118,6 @@ impl Inbound {
     }
 }
 
-pub enum __Msg_Inbound {
-    ReceiveFrame(crate::net::NodeEndpoint, crate::core_bytes::Bytes),
-}
-
-impl crate::wire::__Wire for __Msg_Inbound {
-    fn __enc(&self, out: &mut Vec<u8>) {
-        match self {
-            __Msg_Inbound::ReceiveFrame(__p0, __p1) => {
-                out.push(0);
-                crate::wire::__Wire::__enc(__p0, out);
-                crate::wire::__Wire::__enc(__p1, out);
-            }
-        }
-    }
-    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
-        match r.u8()? {
-            0 => Some(__Msg_Inbound::ReceiveFrame(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
-            _ => None,
-        }
-    }
-}
-
-/// [protocol-hash] The canonical hash of `Inbound`.
-pub const __PROTO_Inbound: &str = "8e46ddb2a3e90b03";
-
 pub struct __Stub_Inbound {
     addr: usize,
 }
@@ -287,3 +262,28 @@ impl __Platform_HostTcpTransport {
         crate::net::__Platform_Transport(crate::platform_net::HostTcpTransport::new(bind))
     }
 }
+
+pub enum __Msg_Inbound {
+    ReceiveFrame(crate::net::NodeEndpoint, crate::core_bytes::Bytes),
+}
+
+impl crate::wire::__Wire for __Msg_Inbound {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        match self {
+            __Msg_Inbound::ReceiveFrame(__p0, __p1) => {
+                out.push(0);
+                crate::wire::__Wire::__enc(__p0, out);
+                crate::wire::__Wire::__enc(__p1, out);
+            }
+        }
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        match r.u8()? {
+            0 => Some(__Msg_Inbound::ReceiveFrame(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
+            _ => None,
+        }
+    }
+}
+
+/// [protocol-hash] The canonical hash of `Inbound`.
+pub const __PROTO_Inbound: &str = "8e46ddb2a3e90b03";

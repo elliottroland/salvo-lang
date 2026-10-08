@@ -17,24 +17,6 @@ class __Mon_Sequencer(
     }
 }
 
-sealed class __Msg_Sequencer {
-    class Next(val out: salvo.SalvoReply) : __Msg_Sequencer()
-}
-
-object __Codec___Msg_Sequencer : salvo.WireCodec<__Msg_Sequencer> {
-    override fun enc(v: __Msg_Sequencer, out: salvo.WireOut) {
-        when (v) {
-            is __Msg_Sequencer.Next -> { out.u8(0); salvo.ReplyCodec.enc(v.out, out) }
-        }
-    }
-    override fun dec(inp: salvo.WireIn): __Msg_Sequencer = when (inp.u8()) {
-            0 -> __Msg_Sequencer.Next(salvo.ReplyCodec.dec(inp))
-        else -> throw salvo.WireError()
-    }
-}
-
-const val __PROTO_Sequencer: String = "7a5334482e5247f7"
-
 class __Stub_Sequencer(private val addr: Int) : Sequencer {
     override fun next(out: salvo.SalvoReply) {
         salvo.SalvoSched.sendWire(addr, __Msg_Sequencer.Next(out), __PROTO_Sequencer, __Codec___Msg_Sequencer)
@@ -55,24 +37,6 @@ class __Mon_Inventory(
         try { inner.reserve(sku, qty, out) } finally { lock.unlock() }
     }
 }
-
-sealed class __Msg_Inventory {
-    class Reserve(val sku: String, val qty: Int, val out: salvo.SalvoReply) : __Msg_Inventory()
-}
-
-object __Codec___Msg_Inventory : salvo.WireCodec<__Msg_Inventory> {
-    override fun enc(v: __Msg_Inventory, out: salvo.WireOut) {
-        when (v) {
-            is __Msg_Inventory.Reserve -> { out.u8(0); salvo.StrCodec.enc(v.sku, out); salvo.IntCodec.enc(v.qty, out); salvo.ReplyCodec.enc(v.out, out) }
-        }
-    }
-    override fun dec(inp: salvo.WireIn): __Msg_Inventory = when (inp.u8()) {
-            0 -> __Msg_Inventory.Reserve(salvo.StrCodec.dec(inp), salvo.IntCodec.dec(inp), salvo.ReplyCodec.dec(inp))
-        else -> throw salvo.WireError()
-    }
-}
-
-const val __PROTO_Inventory: String = "d3482a697a944808"
 
 class __Stub_Inventory(private val addr: Int) : Inventory {
     override fun reserve(sku: String, qty: Int, out: salvo.SalvoReply) {
@@ -95,24 +59,6 @@ class __Mon_Search(
     }
 }
 
-sealed class __Msg_Search {
-    class Query(val word: String, val out: salvo.SalvoReply) : __Msg_Search()
-}
-
-object __Codec___Msg_Search : salvo.WireCodec<__Msg_Search> {
-    override fun enc(v: __Msg_Search, out: salvo.WireOut) {
-        when (v) {
-            is __Msg_Search.Query -> { out.u8(0); salvo.StrCodec.enc(v.word, out); salvo.ReplyCodec.enc(v.out, out) }
-        }
-    }
-    override fun dec(inp: salvo.WireIn): __Msg_Search = when (inp.u8()) {
-            0 -> __Msg_Search.Query(salvo.StrCodec.dec(inp), salvo.ReplyCodec.dec(inp))
-        else -> throw salvo.WireError()
-    }
-}
-
-const val __PROTO_Search: String = "ed817fc30774f01d"
-
 class __Stub_Search(private val addr: Int) : Search {
     override fun query(word: String, out: salvo.SalvoReply) {
         salvo.SalvoSched.sendWire(addr, __Msg_Search.Query(word, out), __PROTO_Search, __Codec___Msg_Search)
@@ -134,24 +80,6 @@ class __Mon_Lookup(
     }
 }
 
-sealed class __Msg_Lookup {
-    class Lookup(val key: String, val out: salvo.SalvoReply) : __Msg_Lookup()
-}
-
-object __Codec___Msg_Lookup : salvo.WireCodec<__Msg_Lookup> {
-    override fun enc(v: __Msg_Lookup, out: salvo.WireOut) {
-        when (v) {
-            is __Msg_Lookup.Lookup -> { out.u8(0); salvo.StrCodec.enc(v.key, out); salvo.ReplyCodec.enc(v.out, out) }
-        }
-    }
-    override fun dec(inp: salvo.WireIn): __Msg_Lookup = when (inp.u8()) {
-            0 -> __Msg_Lookup.Lookup(salvo.StrCodec.dec(inp), salvo.ReplyCodec.dec(inp))
-        else -> throw salvo.WireError()
-    }
-}
-
-const val __PROTO_Lookup: String = "7c0f441570dc9a6f"
-
 class __Stub_Lookup(private val addr: Int) : Lookup {
     override fun lookup(key: String, out: salvo.SalvoReply) {
         salvo.SalvoSched.sendWire(addr, __Msg_Lookup.Lookup(key, out), __PROTO_Lookup, __Codec___Msg_Lookup)
@@ -167,10 +95,6 @@ class Sequencing(private val who: String) : Sequencer {
         n = (n + 1)
         salvo.SalvoSched.replyWire(out, "${who}#${n}", salvo.StrCodec)
     }
-}
-
-sealed class __Cont_Sequencing {
-    class Next() : __Cont_Sequencing()
 }
 
 class __Actor_Sequencing(private val handler: Sequencing) : salvo.SalvoActor {
@@ -221,10 +145,6 @@ class Stocking(private val shard: String) : Inventory {
         served = (served + qty)
         salvo.SalvoSched.replyWire(out, "${shard}:${served}", salvo.StrCodec)
     }
-}
-
-sealed class __Cont_Stocking {
-    class Reserve(val sku: String, val qty: Int) : __Cont_Stocking()
 }
 
 class __Actor_Stocking(private val handler: Stocking) : salvo.SalvoActor {
@@ -281,10 +201,6 @@ class Indexing(private val words: List<String>) : Search {
     }
 }
 
-sealed class __Cont_Indexing {
-    class Query(val word: String) : __Cont_Indexing()
-}
-
 class __Actor_Indexing(private val handler: Indexing) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
@@ -331,10 +247,6 @@ class Looking(private val who: String) : Lookup {
     override fun lookup(key: String, out: salvo.SalvoReply) {
         salvo.SalvoSched.replyWire(out, "${key} from ${who}", salvo.StrCodec)
     }
-}
-
-sealed class __Cont_Looking {
-    class Lookup(val key: String) : __Cont_Looking()
 }
 
 class __Actor_Looking(private val handler: Looking) : salvo.SalvoActor {
@@ -386,15 +298,6 @@ class SlowLooking(private val who: String, private val timer: Int) : Lookup {
     fun answer(key: String, out: salvo.SalvoReply, fired: salvo.time.Fired) {
         salvo.SalvoSched.replyWire(out, "${key} from ${who}", salvo.StrCodec)
     }
-}
-
-sealed class __Cont_SlowLooking {
-    class Lookup(val key: String) : __Cont_SlowLooking()
-    class Answer(val key: String, val out: salvo.SalvoReply) : __Cont_SlowLooking()
-}
-
-sealed class __Priv_SlowLooking {
-    class Answer(val key: String, val out: salvo.SalvoReply, val fired: salvo.time.Fired) : __Priv_SlowLooking()
 }
 
 class __Actor_SlowLooking(private val handler: SlowLooking) : salvo.SalvoActor {
@@ -464,10 +367,6 @@ class Scattering(private val group: Int, private val gather: Int) : Search {
     }
 }
 
-sealed class __Cont_Scattering {
-    class Query(val word: String) : __Cont_Scattering()
-}
-
 class __Actor_Scattering(private val handler: Scattering) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
@@ -522,24 +421,6 @@ class __Mon_Gather(
     }
 }
 
-sealed class __Msg_Gather {
-    class Scatter(val word: String, val members: List<Int>, val out: salvo.SalvoReply) : __Msg_Gather()
-}
-
-object __Codec___Msg_Gather : salvo.WireCodec<__Msg_Gather> {
-    override fun enc(v: __Msg_Gather, out: salvo.WireOut) {
-        when (v) {
-            is __Msg_Gather.Scatter -> { out.u8(0); salvo.StrCodec.enc(v.word, out); salvo.ListCodec(salvo.AddrCodec).enc(v.members, out); salvo.ReplyCodec.enc(v.out, out) }
-        }
-    }
-    override fun dec(inp: salvo.WireIn): __Msg_Gather = when (inp.u8()) {
-            0 -> __Msg_Gather.Scatter(salvo.StrCodec.dec(inp), salvo.ListCodec(salvo.AddrCodec).dec(inp), salvo.ReplyCodec.dec(inp))
-        else -> throw salvo.WireError()
-    }
-}
-
-const val __PROTO_Gather: String = "98712ca205da344c"
-
 class __Stub_Gather(private val addr: Int) : Gather {
     override fun scatter(word: String, members: List<Int>, out: salvo.SalvoReply) {
         salvo.SalvoSched.sendWire(addr, __Msg_Gather.Scatter(word, members, out), __PROTO_Gather, __Codec___Msg_Gather)
@@ -577,15 +458,6 @@ class Gathering : Gather {
             }
         }
     }
-}
-
-sealed class __Cont_Gathering {
-    class Scatter(val word: String, val members: List<Int>) : __Cont_Gathering()
-    class Partial() : __Cont_Gathering()
-}
-
-sealed class __Priv_Gathering {
-    class Partial(val n: Int) : __Priv_Gathering()
 }
 
 class __Actor_Gathering(private val handler: Gathering) : salvo.SalvoActor {
@@ -655,10 +527,6 @@ class Hedging(private val group: Int, private val racer: Int) : Lookup {
     }
 }
 
-sealed class __Cont_Hedging {
-    class Lookup(val key: String) : __Cont_Hedging()
-}
-
 class __Actor_Hedging(private val handler: Hedging) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
@@ -713,24 +581,6 @@ class __Mon_Race(
     }
 }
 
-sealed class __Msg_Race {
-    class Race(val key: String, val members: List<Int>, val out: salvo.SalvoReply) : __Msg_Race()
-}
-
-object __Codec___Msg_Race : salvo.WireCodec<__Msg_Race> {
-    override fun enc(v: __Msg_Race, out: salvo.WireOut) {
-        when (v) {
-            is __Msg_Race.Race -> { out.u8(0); salvo.StrCodec.enc(v.key, out); salvo.ListCodec(salvo.AddrCodec).enc(v.members, out); salvo.ReplyCodec.enc(v.out, out) }
-        }
-    }
-    override fun dec(inp: salvo.WireIn): __Msg_Race = when (inp.u8()) {
-            0 -> __Msg_Race.Race(salvo.StrCodec.dec(inp), salvo.ListCodec(salvo.AddrCodec).dec(inp), salvo.ReplyCodec.dec(inp))
-        else -> throw salvo.WireError()
-    }
-}
-
-const val __PROTO_Race: String = "5e0ec4d63d5f53dd"
-
 class __Stub_Race(private val addr: Int) : Race {
     override fun race(key: String, members: List<Int>, out: salvo.SalvoReply) {
         salvo.SalvoSched.sendWire(addr, __Msg_Race.Race(key, members, out), __PROTO_Race, __Codec___Msg_Race)
@@ -761,15 +611,6 @@ class Racing : Race {
             else -> throw IllegalStateException("salvo: unreachable arm")
         }
     }
-}
-
-sealed class __Cont_Racing {
-    class Race(val key: String, val members: List<Int>) : __Cont_Racing()
-    class First() : __Cont_Racing()
-}
-
-sealed class __Priv_Racing {
-    class First(val answer: String) : __Priv_Racing()
 }
 
 class __Actor_Racing(private val handler: Racing) : salvo.SalvoActor {
@@ -1022,27 +863,6 @@ class __Mon_Boot(
     }
 }
 
-sealed class __Msg_Boot {
-    class Boot(val done: salvo.SalvoReply) : __Msg_Boot()
-    class Stop(val done: salvo.SalvoReply) : __Msg_Boot()
-}
-
-object __Codec___Msg_Boot : salvo.WireCodec<__Msg_Boot> {
-    override fun enc(v: __Msg_Boot, out: salvo.WireOut) {
-        when (v) {
-            is __Msg_Boot.Boot -> { out.u8(0); salvo.ReplyCodec.enc(v.done, out) }
-            is __Msg_Boot.Stop -> { out.u8(1); salvo.ReplyCodec.enc(v.done, out) }
-        }
-    }
-    override fun dec(inp: salvo.WireIn): __Msg_Boot = when (inp.u8()) {
-            0 -> __Msg_Boot.Boot(salvo.ReplyCodec.dec(inp))
-            1 -> __Msg_Boot.Stop(salvo.ReplyCodec.dec(inp))
-        else -> throw salvo.WireError()
-    }
-}
-
-const val __PROTO_Boot: String = "4b15e647d0ca92a7"
-
 class __Stub_Boot(private val addr: Int) : Boot {
     override fun boot(done: salvo.SalvoReply) {
         salvo.SalvoSched.sendWire(addr, __Msg_Boot.Boot(done), __PROTO_Boot, __Codec___Msg_Boot)
@@ -1080,11 +900,6 @@ class Booting(private val at: salvo.net.NodeEndpoint, private val all: List<salv
         }
         salvo.SalvoSched.replyWire(done, true, salvo.BoolCodec)
     }
-}
-
-sealed class __Cont_Booting {
-    class Boot() : __Cont_Booting()
-    class Stop() : __Cont_Booting()
 }
 
 class __Actor_Booting(private val handler: Booting) : salvo.SalvoActor {
@@ -1229,10 +1044,6 @@ class __Route_Inventory(private val group: Int, private val config: salvo.net.Ro
     }
 }
 
-sealed class __Cont___Route_Inventory {
-    class Reserve(val sku: String, val qty: Int) : __Cont___Route_Inventory()
-}
-
 class __Actor___Route_Inventory(private val handler: __Route_Inventory) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
@@ -1282,10 +1093,6 @@ class __Route_Lookup(private val group: Int, private val config: salvo.net.Route
         seen = __pick.version
         salvo.SalvoSched.sendWire(__pick.to, __Msg_Lookup.Lookup(key, out), __PROTO_Lookup, __Codec___Msg_Lookup)
     }
-}
-
-sealed class __Cont___Route_Lookup {
-    class Lookup(val key: String) : __Cont___Route_Lookup()
 }
 
 class __Actor___Route_Lookup(private val handler: __Route_Lookup) : salvo.SalvoActor {
@@ -1339,10 +1146,6 @@ class __Route_Search(private val group: Int, private val config: salvo.net.Route
     }
 }
 
-sealed class __Cont___Route_Search {
-    class Query(val word: String) : __Cont___Route_Search()
-}
-
 class __Actor___Route_Search(private val handler: __Route_Search) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
@@ -1394,10 +1197,6 @@ class __Route_Sequencer(private val group: Int, private val config: salvo.net.Ro
     }
 }
 
-sealed class __Cont___Route_Sequencer {
-    class Next() : __Cont___Route_Sequencer()
-}
-
 class __Actor___Route_Sequencer(private val handler: __Route_Sequencer) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
@@ -1435,5 +1234,230 @@ class __Actor___Route_Sequencer(private val handler: __Route_Sequencer) : salvo.
             }
         }
     }
+}
+
+
+sealed class __Msg_Sequencer {
+    class Next(val out: salvo.SalvoReply) : __Msg_Sequencer()
+}
+
+object __Codec___Msg_Sequencer : salvo.WireCodec<__Msg_Sequencer> {
+    override fun enc(v: __Msg_Sequencer, out: salvo.WireOut) {
+        when (v) {
+            is __Msg_Sequencer.Next -> { out.u8(0); salvo.ReplyCodec.enc(v.out, out) }
+        }
+    }
+    override fun dec(inp: salvo.WireIn): __Msg_Sequencer = when (inp.u8()) {
+            0 -> __Msg_Sequencer.Next(salvo.ReplyCodec.dec(inp))
+        else -> throw salvo.WireError()
+    }
+}
+
+const val __PROTO_Sequencer: String = "7a5334482e5247f7"
+
+
+sealed class __Msg_Inventory {
+    class Reserve(val sku: String, val qty: Int, val out: salvo.SalvoReply) : __Msg_Inventory()
+}
+
+object __Codec___Msg_Inventory : salvo.WireCodec<__Msg_Inventory> {
+    override fun enc(v: __Msg_Inventory, out: salvo.WireOut) {
+        when (v) {
+            is __Msg_Inventory.Reserve -> { out.u8(0); salvo.StrCodec.enc(v.sku, out); salvo.IntCodec.enc(v.qty, out); salvo.ReplyCodec.enc(v.out, out) }
+        }
+    }
+    override fun dec(inp: salvo.WireIn): __Msg_Inventory = when (inp.u8()) {
+            0 -> __Msg_Inventory.Reserve(salvo.StrCodec.dec(inp), salvo.IntCodec.dec(inp), salvo.ReplyCodec.dec(inp))
+        else -> throw salvo.WireError()
+    }
+}
+
+const val __PROTO_Inventory: String = "d3482a697a944808"
+
+
+sealed class __Msg_Search {
+    class Query(val word: String, val out: salvo.SalvoReply) : __Msg_Search()
+}
+
+object __Codec___Msg_Search : salvo.WireCodec<__Msg_Search> {
+    override fun enc(v: __Msg_Search, out: salvo.WireOut) {
+        when (v) {
+            is __Msg_Search.Query -> { out.u8(0); salvo.StrCodec.enc(v.word, out); salvo.ReplyCodec.enc(v.out, out) }
+        }
+    }
+    override fun dec(inp: salvo.WireIn): __Msg_Search = when (inp.u8()) {
+            0 -> __Msg_Search.Query(salvo.StrCodec.dec(inp), salvo.ReplyCodec.dec(inp))
+        else -> throw salvo.WireError()
+    }
+}
+
+const val __PROTO_Search: String = "ed817fc30774f01d"
+
+
+sealed class __Msg_Lookup {
+    class Lookup(val key: String, val out: salvo.SalvoReply) : __Msg_Lookup()
+}
+
+object __Codec___Msg_Lookup : salvo.WireCodec<__Msg_Lookup> {
+    override fun enc(v: __Msg_Lookup, out: salvo.WireOut) {
+        when (v) {
+            is __Msg_Lookup.Lookup -> { out.u8(0); salvo.StrCodec.enc(v.key, out); salvo.ReplyCodec.enc(v.out, out) }
+        }
+    }
+    override fun dec(inp: salvo.WireIn): __Msg_Lookup = when (inp.u8()) {
+            0 -> __Msg_Lookup.Lookup(salvo.StrCodec.dec(inp), salvo.ReplyCodec.dec(inp))
+        else -> throw salvo.WireError()
+    }
+}
+
+const val __PROTO_Lookup: String = "7c0f441570dc9a6f"
+
+
+sealed class __Cont_Sequencing {
+    class Next() : __Cont_Sequencing()
+}
+
+
+sealed class __Cont_Stocking {
+    class Reserve(val sku: String, val qty: Int) : __Cont_Stocking()
+}
+
+
+sealed class __Cont_Indexing {
+    class Query(val word: String) : __Cont_Indexing()
+}
+
+
+sealed class __Cont_Looking {
+    class Lookup(val key: String) : __Cont_Looking()
+}
+
+
+sealed class __Cont_SlowLooking {
+    class Lookup(val key: String) : __Cont_SlowLooking()
+    class Answer(val key: String, val out: salvo.SalvoReply) : __Cont_SlowLooking()
+}
+
+
+sealed class __Priv_SlowLooking {
+    class Answer(val key: String, val out: salvo.SalvoReply, val fired: salvo.time.Fired) : __Priv_SlowLooking()
+}
+
+
+sealed class __Cont_Scattering {
+    class Query(val word: String) : __Cont_Scattering()
+}
+
+
+sealed class __Msg_Gather {
+    class Scatter(val word: String, val members: List<Int>, val out: salvo.SalvoReply) : __Msg_Gather()
+}
+
+object __Codec___Msg_Gather : salvo.WireCodec<__Msg_Gather> {
+    override fun enc(v: __Msg_Gather, out: salvo.WireOut) {
+        when (v) {
+            is __Msg_Gather.Scatter -> { out.u8(0); salvo.StrCodec.enc(v.word, out); salvo.ListCodec(salvo.AddrCodec).enc(v.members, out); salvo.ReplyCodec.enc(v.out, out) }
+        }
+    }
+    override fun dec(inp: salvo.WireIn): __Msg_Gather = when (inp.u8()) {
+            0 -> __Msg_Gather.Scatter(salvo.StrCodec.dec(inp), salvo.ListCodec(salvo.AddrCodec).dec(inp), salvo.ReplyCodec.dec(inp))
+        else -> throw salvo.WireError()
+    }
+}
+
+const val __PROTO_Gather: String = "98712ca205da344c"
+
+
+sealed class __Cont_Gathering {
+    class Scatter(val word: String, val members: List<Int>) : __Cont_Gathering()
+    class Partial() : __Cont_Gathering()
+}
+
+
+sealed class __Priv_Gathering {
+    class Partial(val n: Int) : __Priv_Gathering()
+}
+
+
+sealed class __Cont_Hedging {
+    class Lookup(val key: String) : __Cont_Hedging()
+}
+
+
+sealed class __Msg_Race {
+    class Race(val key: String, val members: List<Int>, val out: salvo.SalvoReply) : __Msg_Race()
+}
+
+object __Codec___Msg_Race : salvo.WireCodec<__Msg_Race> {
+    override fun enc(v: __Msg_Race, out: salvo.WireOut) {
+        when (v) {
+            is __Msg_Race.Race -> { out.u8(0); salvo.StrCodec.enc(v.key, out); salvo.ListCodec(salvo.AddrCodec).enc(v.members, out); salvo.ReplyCodec.enc(v.out, out) }
+        }
+    }
+    override fun dec(inp: salvo.WireIn): __Msg_Race = when (inp.u8()) {
+            0 -> __Msg_Race.Race(salvo.StrCodec.dec(inp), salvo.ListCodec(salvo.AddrCodec).dec(inp), salvo.ReplyCodec.dec(inp))
+        else -> throw salvo.WireError()
+    }
+}
+
+const val __PROTO_Race: String = "5e0ec4d63d5f53dd"
+
+
+sealed class __Cont_Racing {
+    class Race(val key: String, val members: List<Int>) : __Cont_Racing()
+    class First() : __Cont_Racing()
+}
+
+
+sealed class __Priv_Racing {
+    class First(val answer: String) : __Priv_Racing()
+}
+
+
+sealed class __Msg_Boot {
+    class Boot(val done: salvo.SalvoReply) : __Msg_Boot()
+    class Stop(val done: salvo.SalvoReply) : __Msg_Boot()
+}
+
+object __Codec___Msg_Boot : salvo.WireCodec<__Msg_Boot> {
+    override fun enc(v: __Msg_Boot, out: salvo.WireOut) {
+        when (v) {
+            is __Msg_Boot.Boot -> { out.u8(0); salvo.ReplyCodec.enc(v.done, out) }
+            is __Msg_Boot.Stop -> { out.u8(1); salvo.ReplyCodec.enc(v.done, out) }
+        }
+    }
+    override fun dec(inp: salvo.WireIn): __Msg_Boot = when (inp.u8()) {
+            0 -> __Msg_Boot.Boot(salvo.ReplyCodec.dec(inp))
+            1 -> __Msg_Boot.Stop(salvo.ReplyCodec.dec(inp))
+        else -> throw salvo.WireError()
+    }
+}
+
+const val __PROTO_Boot: String = "4b15e647d0ca92a7"
+
+
+sealed class __Cont_Booting {
+    class Boot() : __Cont_Booting()
+    class Stop() : __Cont_Booting()
+}
+
+
+sealed class __Cont___Route_Inventory {
+    class Reserve(val sku: String, val qty: Int) : __Cont___Route_Inventory()
+}
+
+
+sealed class __Cont___Route_Lookup {
+    class Lookup(val key: String) : __Cont___Route_Lookup()
+}
+
+
+sealed class __Cont___Route_Search {
+    class Query(val word: String) : __Cont___Route_Search()
+}
+
+
+sealed class __Cont___Route_Sequencer {
+    class Next() : __Cont___Route_Sequencer()
 }
 

@@ -271,6 +271,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 Decl::Fn(f) => f.kind == FnKind::Platform,
                 Decl::PlatformType(t) => t.platform,
                 Decl::Static(_) => false,
+                Decl::Enum(e) => matches!(e.kind, salvo_ir::EnumKind::Message { .. }) && keep.contains(e.name.trim_start_matches("__Msg_")),
             }
         };
         let mut body = String::new();
@@ -533,6 +534,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             Decl::Impl(h) => self.impl_decl(h),
             Decl::Fn(f) => self.fn_decl(f, 0, None, false),
             Decl::PlatformType(_) => {}
+            Decl::Enum(e) => self.enum_decl(e),
             Decl::Static(st) => {
                 // [mod-use] a lazy module-level instance.
                 let ty = self.ty(&st.ty);

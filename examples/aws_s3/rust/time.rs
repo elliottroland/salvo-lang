@@ -411,31 +411,6 @@ impl Timer {
     }
 }
 
-pub enum __Msg_Timer {
-    After(crate::time::Duration, crate::scheduler::SalvoReply),
-}
-
-impl crate::wire::__Wire for __Msg_Timer {
-    fn __enc(&self, out: &mut Vec<u8>) {
-        match self {
-            __Msg_Timer::After(__p0, __p1) => {
-                out.push(0);
-                crate::wire::__Wire::__enc(__p0, out);
-                crate::wire::__Wire::__enc(__p1, out);
-            }
-        }
-    }
-    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
-        match r.u8()? {
-            0 => Some(__Msg_Timer::After(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
-            _ => None,
-        }
-    }
-}
-
-/// [protocol-hash] The canonical hash of `Timer`.
-pub const __PROTO_Timer: &str = "d0432e460a159011";
-
 pub struct __Stub_Timer {
     addr: usize,
 }
@@ -472,10 +447,6 @@ impl crate::time::__Stateless_Timer for DefaultTimer {
     fn after(&self, wait: crate::time::Duration, done: crate::scheduler::SalvoReply) {
         crate::runtime_timers::after_nanos(wait.nanos, done);
     }
-}
-
-pub enum __Cont_DefaultTimer {
-    After(crate::time::Duration),
 }
 
 pub struct __Actor_DefaultTimer {
@@ -572,30 +543,6 @@ impl TimerCtl {
     }
 }
 
-pub enum __Msg_TimerCtl {
-    Advance(crate::time::Duration),
-}
-
-impl crate::wire::__Wire for __Msg_TimerCtl {
-    fn __enc(&self, out: &mut Vec<u8>) {
-        match self {
-            __Msg_TimerCtl::Advance(__p0) => {
-                out.push(0);
-                crate::wire::__Wire::__enc(__p0, out);
-            }
-        }
-    }
-    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
-        match r.u8()? {
-            0 => Some(__Msg_TimerCtl::Advance(crate::wire::__Wire::__dec(r)?)),
-            _ => None,
-        }
-    }
-}
-
-/// [protocol-hash] The canonical hash of `TimerCtl`.
-pub const __PROTO_TimerCtl: &str = "93f92d20477305ad";
-
 pub struct __Stub_TimerCtl {
     addr: usize,
 }
@@ -673,11 +620,6 @@ impl crate::time::__Stateful_TimerCtl for ManualTime {
         }
         self.now = target;
     }
-}
-
-pub enum __Cont_ManualTime {
-    After(crate::time::Duration),
-    Advance,
 }
 
 pub struct __Actor_ManualTime {
@@ -835,4 +777,62 @@ pub fn eq__Tick_Tick(a: &crate::time::Tick, b: &crate::time::Tick) -> bool {
         return false;
     };
     return true;
+}
+
+pub enum __Msg_Timer {
+    After(crate::time::Duration, crate::scheduler::SalvoReply),
+}
+
+impl crate::wire::__Wire for __Msg_Timer {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        match self {
+            __Msg_Timer::After(__p0, __p1) => {
+                out.push(0);
+                crate::wire::__Wire::__enc(__p0, out);
+                crate::wire::__Wire::__enc(__p1, out);
+            }
+        }
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        match r.u8()? {
+            0 => Some(__Msg_Timer::After(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
+            _ => None,
+        }
+    }
+}
+
+/// [protocol-hash] The canonical hash of `Timer`.
+pub const __PROTO_Timer: &str = "d0432e460a159011";
+
+pub enum __Cont_DefaultTimer {
+    After(crate::time::Duration),
+}
+
+pub enum __Msg_TimerCtl {
+    Advance(crate::time::Duration),
+}
+
+impl crate::wire::__Wire for __Msg_TimerCtl {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        match self {
+            __Msg_TimerCtl::Advance(__p0) => {
+                out.push(0);
+                crate::wire::__Wire::__enc(__p0, out);
+            }
+        }
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        match r.u8()? {
+            0 => Some(__Msg_TimerCtl::Advance(crate::wire::__Wire::__dec(r)?)),
+            _ => None,
+        }
+    }
+}
+
+/// [protocol-hash] The canonical hash of `TimerCtl`.
+pub const __PROTO_TimerCtl: &str = "93f92d20477305ad";
+
+pub enum __Cont_ManualTime {
+    After(crate::time::Duration),
+    Advance,
 }

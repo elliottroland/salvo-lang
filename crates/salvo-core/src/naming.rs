@@ -317,3 +317,23 @@ pub fn each_suffix(program: &Program, module: &ModulePath, type_name: &str) -> S
     }
     out
 }
+
+/// [actor-types] A message variant's name, after the member: upper-camel,
+/// which both hosts accept without a warning.
+pub fn msg_variant_name(member: &str) -> String {
+    let mut out = String::new();
+    let mut upper = true;
+    for c in member.chars() {
+        if c == '_' {
+            upper = true;
+            continue;
+        }
+        if upper {
+            out.extend(c.to_uppercase());
+            upper = false;
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}

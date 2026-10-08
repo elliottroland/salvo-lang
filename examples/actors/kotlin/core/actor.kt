@@ -49,24 +49,6 @@ class __Mon_Faults(
     }
 }
 
-sealed class __Msg_Faults {
-    class Faulted(val fault: Fault) : __Msg_Faults()
-}
-
-object __Codec___Msg_Faults : salvo.WireCodec<__Msg_Faults> {
-    override fun enc(v: __Msg_Faults, out: salvo.WireOut) {
-        when (v) {
-            is __Msg_Faults.Faulted -> { out.u8(0); __Codec_Fault.enc(v.fault, out) }
-        }
-    }
-    override fun dec(inp: salvo.WireIn): __Msg_Faults = when (inp.u8()) {
-            0 -> __Msg_Faults.Faulted(__Codec_Fault.dec(inp))
-        else -> throw salvo.WireError()
-    }
-}
-
-const val __PROTO_Faults: String = "b2ab28f759af3855"
-
 class __Stub_Faults(private val addr: Int) : Faults {
     override fun faulted(fault: Fault) {
         salvo.SalvoSched.sendWire(addr, __Msg_Faults.Faulted(fault), __PROTO_Faults, __Codec___Msg_Faults)
@@ -112,4 +94,23 @@ fun onIdle(p: Int, notify: salvo.SalvoReply) {
         salvo.runtime.onIdle((p), t)
     }
 }
+
+
+sealed class __Msg_Faults {
+    class Faulted(val fault: Fault) : __Msg_Faults()
+}
+
+object __Codec___Msg_Faults : salvo.WireCodec<__Msg_Faults> {
+    override fun enc(v: __Msg_Faults, out: salvo.WireOut) {
+        when (v) {
+            is __Msg_Faults.Faulted -> { out.u8(0); __Codec_Fault.enc(v.fault, out) }
+        }
+    }
+    override fun dec(inp: salvo.WireIn): __Msg_Faults = when (inp.u8()) {
+            0 -> __Msg_Faults.Faulted(__Codec_Fault.dec(inp))
+        else -> throw salvo.WireError()
+    }
+}
+
+const val __PROTO_Faults: String = "b2ab28f759af3855"
 

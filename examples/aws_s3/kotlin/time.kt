@@ -260,24 +260,6 @@ class __Mon_Timer(
     }
 }
 
-sealed class __Msg_Timer {
-    class After(val wait: Duration, val done: salvo.SalvoReply) : __Msg_Timer()
-}
-
-object __Codec___Msg_Timer : salvo.WireCodec<__Msg_Timer> {
-    override fun enc(v: __Msg_Timer, out: salvo.WireOut) {
-        when (v) {
-            is __Msg_Timer.After -> { out.u8(0); __Codec_Duration.enc(v.wait, out); salvo.ReplyCodec.enc(v.done, out) }
-        }
-    }
-    override fun dec(inp: salvo.WireIn): __Msg_Timer = when (inp.u8()) {
-            0 -> __Msg_Timer.After(__Codec_Duration.dec(inp), salvo.ReplyCodec.dec(inp))
-        else -> throw salvo.WireError()
-    }
-}
-
-const val __PROTO_Timer: String = "d0432e460a159011"
-
 class __Stub_Timer(private val addr: Int) : Timer {
     override fun after(wait: Duration, done: salvo.SalvoReply) {
         salvo.SalvoSched.sendWire(addr, __Msg_Timer.After(wait, done), __PROTO_Timer, __Codec___Msg_Timer)
@@ -291,10 +273,6 @@ class DefaultTimer : Timer {
     override fun after(wait: Duration, done: salvo.SalvoReply) {
         salvo.runtime.timers.afterNanos(wait.nanos, done)
     }
-}
-
-sealed class __Cont_DefaultTimer {
-    class After(val wait: Duration) : __Cont_DefaultTimer()
 }
 
 class __Actor_DefaultTimer(private val handler: DefaultTimer) : salvo.SalvoActor {
@@ -351,24 +329,6 @@ class __Mon_TimerCtl(
     }
 }
 
-sealed class __Msg_TimerCtl {
-    class Advance(val by: Duration) : __Msg_TimerCtl()
-}
-
-object __Codec___Msg_TimerCtl : salvo.WireCodec<__Msg_TimerCtl> {
-    override fun enc(v: __Msg_TimerCtl, out: salvo.WireOut) {
-        when (v) {
-            is __Msg_TimerCtl.Advance -> { out.u8(0); __Codec_Duration.enc(v.by, out) }
-        }
-    }
-    override fun dec(inp: salvo.WireIn): __Msg_TimerCtl = when (inp.u8()) {
-            0 -> __Msg_TimerCtl.Advance(__Codec_Duration.dec(inp))
-        else -> throw salvo.WireError()
-    }
-}
-
-const val __PROTO_TimerCtl: String = "93f92d20477305ad"
-
 class __Stub_TimerCtl(private val addr: Int) : TimerCtl {
     override fun advance(by: Duration) {
         salvo.SalvoSched.sendWire(addr, __Msg_TimerCtl.Advance(by), __PROTO_TimerCtl, __Codec___Msg_TimerCtl)
@@ -420,11 +380,6 @@ class ManualTime : Timer, TimerCtl {
         }
         now = target
     }
-}
-
-sealed class __Cont_ManualTime {
-    class After(val wait: Duration) : __Cont_ManualTime()
-    class Advance() : __Cont_ManualTime()
 }
 
 class __Actor_ManualTime(private val handler: ManualTime) : salvo.SalvoActor {
@@ -572,5 +527,54 @@ fun eq__Tick_Tick(a: Tick, b: Tick): Boolean {
         return false
     }
     return true
+}
+
+
+sealed class __Msg_Timer {
+    class After(val wait: Duration, val done: salvo.SalvoReply) : __Msg_Timer()
+}
+
+object __Codec___Msg_Timer : salvo.WireCodec<__Msg_Timer> {
+    override fun enc(v: __Msg_Timer, out: salvo.WireOut) {
+        when (v) {
+            is __Msg_Timer.After -> { out.u8(0); __Codec_Duration.enc(v.wait, out); salvo.ReplyCodec.enc(v.done, out) }
+        }
+    }
+    override fun dec(inp: salvo.WireIn): __Msg_Timer = when (inp.u8()) {
+            0 -> __Msg_Timer.After(__Codec_Duration.dec(inp), salvo.ReplyCodec.dec(inp))
+        else -> throw salvo.WireError()
+    }
+}
+
+const val __PROTO_Timer: String = "d0432e460a159011"
+
+
+sealed class __Cont_DefaultTimer {
+    class After(val wait: Duration) : __Cont_DefaultTimer()
+}
+
+
+sealed class __Msg_TimerCtl {
+    class Advance(val by: Duration) : __Msg_TimerCtl()
+}
+
+object __Codec___Msg_TimerCtl : salvo.WireCodec<__Msg_TimerCtl> {
+    override fun enc(v: __Msg_TimerCtl, out: salvo.WireOut) {
+        when (v) {
+            is __Msg_TimerCtl.Advance -> { out.u8(0); __Codec_Duration.enc(v.by, out) }
+        }
+    }
+    override fun dec(inp: salvo.WireIn): __Msg_TimerCtl = when (inp.u8()) {
+            0 -> __Msg_TimerCtl.Advance(__Codec_Duration.dec(inp))
+        else -> throw salvo.WireError()
+    }
+}
+
+const val __PROTO_TimerCtl: String = "93f92d20477305ad"
+
+
+sealed class __Cont_ManualTime {
+    class After(val wait: Duration) : __Cont_ManualTime()
+    class Advance() : __Cont_ManualTime()
 }
 

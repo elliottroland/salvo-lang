@@ -43,27 +43,6 @@ class __Mon_Session(
     }
 }
 
-sealed class __Msg_Session {
-    class Open(val started: salvo.time.Tick, val budget: salvo.time.Duration, val out: salvo.SalvoReply) : __Msg_Session()
-    class Expire(val started: salvo.time.Tick, val budget: salvo.time.Duration, val out: salvo.SalvoReply, val f: salvo.time.Fired) : __Msg_Session()
-}
-
-object __Codec___Msg_Session : salvo.WireCodec<__Msg_Session> {
-    override fun enc(v: __Msg_Session, out: salvo.WireOut) {
-        when (v) {
-            is __Msg_Session.Open -> { out.u8(0); salvo.time.__Codec_Tick.enc(v.started, out); salvo.time.__Codec_Duration.enc(v.budget, out); salvo.ReplyCodec.enc(v.out, out) }
-            is __Msg_Session.Expire -> { out.u8(1); salvo.time.__Codec_Tick.enc(v.started, out); salvo.time.__Codec_Duration.enc(v.budget, out); salvo.ReplyCodec.enc(v.out, out); salvo.time.__Codec_Fired.enc(v.f, out) }
-        }
-    }
-    override fun dec(inp: salvo.WireIn): __Msg_Session = when (inp.u8()) {
-            0 -> __Msg_Session.Open(salvo.time.__Codec_Tick.dec(inp), salvo.time.__Codec_Duration.dec(inp), salvo.ReplyCodec.dec(inp))
-            1 -> __Msg_Session.Expire(salvo.time.__Codec_Tick.dec(inp), salvo.time.__Codec_Duration.dec(inp), salvo.ReplyCodec.dec(inp), salvo.time.__Codec_Fired.dec(inp))
-        else -> throw salvo.WireError()
-    }
-}
-
-const val __PROTO_Session: String = "7ed70285b7e6568c"
-
 class __Stub_Session(private val addr: Int) : Session {
     override fun open(started: salvo.time.Tick, budget: salvo.time.Duration, out: salvo.SalvoReply) {
         salvo.SalvoSched.sendWire(addr, __Msg_Session.Open(started, budget, out), __PROTO_Session, __Codec___Msg_Session)
@@ -83,11 +62,6 @@ class Sessions(private val __dep0: salvo.time.Timer) : Session {
     override fun expire(started: salvo.time.Tick, budget: salvo.time.Duration, out: salvo.SalvoReply, f: salvo.time.Fired) {
         salvo.SalvoSched.replyWire(out, verdict(started, f.at, budget), salvo.StrCodec)
     }
-}
-
-sealed class __Cont_Sessions {
-    class Open(val started: salvo.time.Tick, val budget: salvo.time.Duration) : __Cont_Sessions()
-    class Expire(val started: salvo.time.Tick, val budget: salvo.time.Duration, val out: salvo.SalvoReply) : __Cont_Sessions()
 }
 
 class __Actor_Sessions(private val handler: Sessions) : salvo.SalvoActor {
@@ -166,27 +140,6 @@ class __Mon_Sleeper(
     }
 }
 
-sealed class __Msg_Sleeper {
-    class Nap(val wait: salvo.time.Duration, val out: salvo.SalvoReply) : __Msg_Sleeper()
-    class Woke(val started: salvo.time.Tick, val out: salvo.SalvoReply, val f: salvo.time.Fired) : __Msg_Sleeper()
-}
-
-object __Codec___Msg_Sleeper : salvo.WireCodec<__Msg_Sleeper> {
-    override fun enc(v: __Msg_Sleeper, out: salvo.WireOut) {
-        when (v) {
-            is __Msg_Sleeper.Nap -> { out.u8(0); salvo.time.__Codec_Duration.enc(v.wait, out); salvo.ReplyCodec.enc(v.out, out) }
-            is __Msg_Sleeper.Woke -> { out.u8(1); salvo.time.__Codec_Tick.enc(v.started, out); salvo.ReplyCodec.enc(v.out, out); salvo.time.__Codec_Fired.enc(v.f, out) }
-        }
-    }
-    override fun dec(inp: salvo.WireIn): __Msg_Sleeper = when (inp.u8()) {
-            0 -> __Msg_Sleeper.Nap(salvo.time.__Codec_Duration.dec(inp), salvo.ReplyCodec.dec(inp))
-            1 -> __Msg_Sleeper.Woke(salvo.time.__Codec_Tick.dec(inp), salvo.ReplyCodec.dec(inp), salvo.time.__Codec_Fired.dec(inp))
-        else -> throw salvo.WireError()
-    }
-}
-
-const val __PROTO_Sleeper: String = "2385b53950dcbd9c"
-
 class __Stub_Sleeper(private val addr: Int) : Sleeper {
     override fun nap(wait: salvo.time.Duration, out: salvo.SalvoReply) {
         salvo.SalvoSched.sendWire(addr, __Msg_Sleeper.Nap(wait, out), __PROTO_Sleeper, __Codec___Msg_Sleeper)
@@ -206,11 +159,6 @@ class Napping(private val __dep0: salvo.time.Timer, private val __dep1: salvo.ti
     override fun woke(started: salvo.time.Tick, out: salvo.SalvoReply, f: salvo.time.Fired) {
         salvo.SalvoSched.replyWire(out, "napped ${salvo.time.toStr(salvo.time.elapsed(__dep1, started))}", salvo.StrCodec)
     }
-}
-
-sealed class __Cont_Napping {
-    class Nap(val wait: salvo.time.Duration) : __Cont_Napping()
-    class Woke(val started: salvo.time.Tick, val out: salvo.SalvoReply) : __Cont_Napping()
 }
 
 class __Actor_Napping(private val handler: Napping) : salvo.SalvoActor {
@@ -313,5 +261,61 @@ fun main() {
         salvo.SalvoSched.awaitReply(__wid) as String
     }
     salvo.core.console.println(__handle_2, napped)
+}
+
+
+sealed class __Msg_Session {
+    class Open(val started: salvo.time.Tick, val budget: salvo.time.Duration, val out: salvo.SalvoReply) : __Msg_Session()
+    class Expire(val started: salvo.time.Tick, val budget: salvo.time.Duration, val out: salvo.SalvoReply, val f: salvo.time.Fired) : __Msg_Session()
+}
+
+object __Codec___Msg_Session : salvo.WireCodec<__Msg_Session> {
+    override fun enc(v: __Msg_Session, out: salvo.WireOut) {
+        when (v) {
+            is __Msg_Session.Open -> { out.u8(0); salvo.time.__Codec_Tick.enc(v.started, out); salvo.time.__Codec_Duration.enc(v.budget, out); salvo.ReplyCodec.enc(v.out, out) }
+            is __Msg_Session.Expire -> { out.u8(1); salvo.time.__Codec_Tick.enc(v.started, out); salvo.time.__Codec_Duration.enc(v.budget, out); salvo.ReplyCodec.enc(v.out, out); salvo.time.__Codec_Fired.enc(v.f, out) }
+        }
+    }
+    override fun dec(inp: salvo.WireIn): __Msg_Session = when (inp.u8()) {
+            0 -> __Msg_Session.Open(salvo.time.__Codec_Tick.dec(inp), salvo.time.__Codec_Duration.dec(inp), salvo.ReplyCodec.dec(inp))
+            1 -> __Msg_Session.Expire(salvo.time.__Codec_Tick.dec(inp), salvo.time.__Codec_Duration.dec(inp), salvo.ReplyCodec.dec(inp), salvo.time.__Codec_Fired.dec(inp))
+        else -> throw salvo.WireError()
+    }
+}
+
+const val __PROTO_Session: String = "7ed70285b7e6568c"
+
+
+sealed class __Cont_Sessions {
+    class Open(val started: salvo.time.Tick, val budget: salvo.time.Duration) : __Cont_Sessions()
+    class Expire(val started: salvo.time.Tick, val budget: salvo.time.Duration, val out: salvo.SalvoReply) : __Cont_Sessions()
+}
+
+
+sealed class __Msg_Sleeper {
+    class Nap(val wait: salvo.time.Duration, val out: salvo.SalvoReply) : __Msg_Sleeper()
+    class Woke(val started: salvo.time.Tick, val out: salvo.SalvoReply, val f: salvo.time.Fired) : __Msg_Sleeper()
+}
+
+object __Codec___Msg_Sleeper : salvo.WireCodec<__Msg_Sleeper> {
+    override fun enc(v: __Msg_Sleeper, out: salvo.WireOut) {
+        when (v) {
+            is __Msg_Sleeper.Nap -> { out.u8(0); salvo.time.__Codec_Duration.enc(v.wait, out); salvo.ReplyCodec.enc(v.out, out) }
+            is __Msg_Sleeper.Woke -> { out.u8(1); salvo.time.__Codec_Tick.enc(v.started, out); salvo.ReplyCodec.enc(v.out, out); salvo.time.__Codec_Fired.enc(v.f, out) }
+        }
+    }
+    override fun dec(inp: salvo.WireIn): __Msg_Sleeper = when (inp.u8()) {
+            0 -> __Msg_Sleeper.Nap(salvo.time.__Codec_Duration.dec(inp), salvo.ReplyCodec.dec(inp))
+            1 -> __Msg_Sleeper.Woke(salvo.time.__Codec_Tick.dec(inp), salvo.ReplyCodec.dec(inp), salvo.time.__Codec_Fired.dec(inp))
+        else -> throw salvo.WireError()
+    }
+}
+
+const val __PROTO_Sleeper: String = "2385b53950dcbd9c"
+
+
+sealed class __Cont_Napping {
+    class Nap(val wait: salvo.time.Duration) : __Cont_Napping()
+    class Woke(val started: salvo.time.Tick, val out: salvo.SalvoReply) : __Cont_Napping()
 }
 

@@ -93,30 +93,6 @@ impl Faults {
     }
 }
 
-pub enum __Msg_Faults {
-    Faulted(crate::core_actor::Fault),
-}
-
-impl crate::wire::__Wire for __Msg_Faults {
-    fn __enc(&self, out: &mut Vec<u8>) {
-        match self {
-            __Msg_Faults::Faulted(__p0) => {
-                out.push(0);
-                crate::wire::__Wire::__enc(__p0, out);
-            }
-        }
-    }
-    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
-        match r.u8()? {
-            0 => Some(__Msg_Faults::Faulted(crate::wire::__Wire::__dec(r)?)),
-            _ => None,
-        }
-    }
-}
-
-/// [protocol-hash] The canonical hash of `Faults`.
-pub const __PROTO_Faults: &str = "b2ab28f759af3855";
-
 pub struct __Stub_Faults {
     addr: usize,
 }
@@ -183,3 +159,27 @@ pub fn on_idle(mut p: usize, mut notify: crate::scheduler::SalvoReply) {
         crate::runtime::on_idle((((p).clone()) as i32), t);
     };
 }
+
+pub enum __Msg_Faults {
+    Faulted(crate::core_actor::Fault),
+}
+
+impl crate::wire::__Wire for __Msg_Faults {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        match self {
+            __Msg_Faults::Faulted(__p0) => {
+                out.push(0);
+                crate::wire::__Wire::__enc(__p0, out);
+            }
+        }
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        match r.u8()? {
+            0 => Some(__Msg_Faults::Faulted(crate::wire::__Wire::__dec(r)?)),
+            _ => None,
+        }
+    }
+}
+
+/// [protocol-hash] The canonical hash of `Faults`.
+pub const __PROTO_Faults: &str = "b2ab28f759af3855";

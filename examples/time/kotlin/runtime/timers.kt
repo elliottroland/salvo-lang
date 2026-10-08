@@ -174,24 +174,6 @@ class __Mon_Wheel(
     }
 }
 
-sealed class __Msg_Wheel {
-    class Run() : __Msg_Wheel()
-}
-
-object __Codec___Msg_Wheel : salvo.WireCodec<__Msg_Wheel> {
-    override fun enc(v: __Msg_Wheel, out: salvo.WireOut) {
-        when (v) {
-            is __Msg_Wheel.Run -> { out.u8(0) }
-        }
-    }
-    override fun dec(inp: salvo.WireIn): __Msg_Wheel = when (inp.u8()) {
-            0 -> __Msg_Wheel.Run()
-        else -> throw salvo.WireError()
-    }
-}
-
-const val __PROTO_Wheel: String = "df3353758a650c52"
-
 class __Stub_Wheel(private val addr: Int) : Wheel {
     override fun run() {
         salvo.SalvoSched.sendWire(addr, __Msg_Wheel.Run(), __PROTO_Wheel, __Codec___Msg_Wheel)
@@ -222,9 +204,6 @@ class Wheeling : Wheel {
             }
         }
     }
-}
-
-sealed class __Cont_Wheeling {
 }
 
 class __Actor_Wheeling(private val handler: Wheeling) : salvo.SalvoActor {
@@ -310,5 +289,28 @@ fun advance() {
 
 fun resetTimers() {
     __module_use0_0.clear()
+}
+
+
+sealed class __Msg_Wheel {
+    class Run() : __Msg_Wheel()
+}
+
+object __Codec___Msg_Wheel : salvo.WireCodec<__Msg_Wheel> {
+    override fun enc(v: __Msg_Wheel, out: salvo.WireOut) {
+        when (v) {
+            is __Msg_Wheel.Run -> { out.u8(0) }
+        }
+    }
+    override fun dec(inp: salvo.WireIn): __Msg_Wheel = when (inp.u8()) {
+            0 -> __Msg_Wheel.Run()
+        else -> throw salvo.WireError()
+    }
+}
+
+const val __PROTO_Wheel: String = "df3353758a650c52"
+
+
+sealed class __Cont_Wheeling {
 }
 

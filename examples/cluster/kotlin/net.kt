@@ -80,24 +80,6 @@ class __Mon_Inbound(
     }
 }
 
-sealed class __Msg_Inbound {
-    class ReceiveFrame(val from: NodeEndpoint, val frame: salvo.platform.core.bytes.Bytes) : __Msg_Inbound()
-}
-
-object __Codec___Msg_Inbound : salvo.WireCodec<__Msg_Inbound> {
-    override fun enc(v: __Msg_Inbound, out: salvo.WireOut) {
-        when (v) {
-            is __Msg_Inbound.ReceiveFrame -> { out.u8(0); __Codec_NodeEndpoint.enc(v.from, out); salvo.BytesCodec.enc(v.frame, out) }
-        }
-    }
-    override fun dec(inp: salvo.WireIn): __Msg_Inbound = when (inp.u8()) {
-            0 -> __Msg_Inbound.ReceiveFrame(__Codec_NodeEndpoint.dec(inp), salvo.BytesCodec.dec(inp))
-        else -> throw salvo.WireError()
-    }
-}
-
-const val __PROTO_Inbound: String = "8e46ddb2a3e90b03"
-
 class __Stub_Inbound(private val addr: Int) : Inbound {
     override fun receiveFrame(from: NodeEndpoint, frame: salvo.platform.core.bytes.Bytes) {
         salvo.SalvoSched.sendWire(addr, __Msg_Inbound.ReceiveFrame(from, frame), __PROTO_Inbound, __Codec___Msg_Inbound)
@@ -238,24 +220,6 @@ class __Mon_Outbound(
     }
 }
 
-sealed class __Msg_Outbound {
-    class SendFrame(val to: NodeEndpoint, val frame: salvo.platform.core.bytes.Bytes) : __Msg_Outbound()
-}
-
-object __Codec___Msg_Outbound : salvo.WireCodec<__Msg_Outbound> {
-    override fun enc(v: __Msg_Outbound, out: salvo.WireOut) {
-        when (v) {
-            is __Msg_Outbound.SendFrame -> { out.u8(0); __Codec_NodeEndpoint.enc(v.to, out); salvo.BytesCodec.enc(v.frame, out) }
-        }
-    }
-    override fun dec(inp: salvo.WireIn): __Msg_Outbound = when (inp.u8()) {
-            0 -> __Msg_Outbound.SendFrame(__Codec_NodeEndpoint.dec(inp), salvo.BytesCodec.dec(inp))
-        else -> throw salvo.WireError()
-    }
-}
-
-const val __PROTO_Outbound: String = "e754249e848e9986"
-
 class __Stub_Outbound(private val addr: Int) : Outbound {
     override fun sendFrame(to: NodeEndpoint, frame: salvo.platform.core.bytes.Bytes) {
         salvo.SalvoSched.sendWire(addr, __Msg_Outbound.SendFrame(to, frame), __PROTO_Outbound, __Codec___Msg_Outbound)
@@ -269,10 +233,6 @@ class Sending(private val __dep0: Transport) : Outbound {
     override fun sendFrame(to: NodeEndpoint, frame: salvo.platform.core.bytes.Bytes) {
         val _sent: Union2<Unit, Union2<Unreachable, WireFailed>> = __dep0.deliver(to, frame)
     }
-}
-
-sealed class __Cont_Sending {
-    class SendFrame(val to: NodeEndpoint) : __Cont_Sending()
 }
 
 class __Actor_Sending(private val handler: Sending) : salvo.SalvoActor {
@@ -321,10 +281,6 @@ class Receiving : Inbound {
     override fun receiveFrame(from: NodeEndpoint, frame: salvo.platform.core.bytes.Bytes) {
         val _delivered: Boolean = deliverFrame(frame)
     }
-}
-
-sealed class __Cont_Receiving {
-    class ReceiveFrame(val from: NodeEndpoint) : __Cont_Receiving()
 }
 
 class __Actor_Receiving(private val handler: Receiving) : salvo.SalvoActor {
@@ -426,30 +382,6 @@ class __Mon_NodeGroup(
     }
 }
 
-sealed class __Msg_NodeGroup {
-    class Members(val out: salvo.SalvoReply) : __Msg_NodeGroup()
-    class Subscribe(val w: Int) : __Msg_NodeGroup()
-    class Leave() : __Msg_NodeGroup()
-}
-
-object __Codec___Msg_NodeGroup : salvo.WireCodec<__Msg_NodeGroup> {
-    override fun enc(v: __Msg_NodeGroup, out: salvo.WireOut) {
-        when (v) {
-            is __Msg_NodeGroup.Members -> { out.u8(0); salvo.ReplyCodec.enc(v.out, out) }
-            is __Msg_NodeGroup.Subscribe -> { out.u8(1); salvo.AddrCodec.enc(v.w, out) }
-            is __Msg_NodeGroup.Leave -> { out.u8(2) }
-        }
-    }
-    override fun dec(inp: salvo.WireIn): __Msg_NodeGroup = when (inp.u8()) {
-            0 -> __Msg_NodeGroup.Members(salvo.ReplyCodec.dec(inp))
-            1 -> __Msg_NodeGroup.Subscribe(salvo.AddrCodec.dec(inp))
-            2 -> __Msg_NodeGroup.Leave()
-        else -> throw salvo.WireError()
-    }
-}
-
-const val __PROTO_NodeGroup: String = "471318a2c85d1f6d"
-
 class __Stub_NodeGroup(private val addr: Int) : NodeGroup {
     override fun members(out: salvo.SalvoReply) {
         salvo.SalvoSched.sendWire(addr, __Msg_NodeGroup.Members(out), __PROTO_NodeGroup, __Codec___Msg_NodeGroup)
@@ -482,27 +414,6 @@ class __Mon_NodeGroupWatcher(
         try { inner.left(n, why) } finally { lock.unlock() }
     }
 }
-
-sealed class __Msg_NodeGroupWatcher {
-    class Joined(val n: Node) : __Msg_NodeGroupWatcher()
-    class Left(val n: Node, val why: String) : __Msg_NodeGroupWatcher()
-}
-
-object __Codec___Msg_NodeGroupWatcher : salvo.WireCodec<__Msg_NodeGroupWatcher> {
-    override fun enc(v: __Msg_NodeGroupWatcher, out: salvo.WireOut) {
-        when (v) {
-            is __Msg_NodeGroupWatcher.Joined -> { out.u8(0); __Codec_Node.enc(v.n, out) }
-            is __Msg_NodeGroupWatcher.Left -> { out.u8(1); __Codec_Node.enc(v.n, out); salvo.StrCodec.enc(v.why, out) }
-        }
-    }
-    override fun dec(inp: salvo.WireIn): __Msg_NodeGroupWatcher = when (inp.u8()) {
-            0 -> __Msg_NodeGroupWatcher.Joined(__Codec_Node.dec(inp))
-            1 -> __Msg_NodeGroupWatcher.Left(__Codec_Node.dec(inp), salvo.StrCodec.dec(inp))
-        else -> throw salvo.WireError()
-    }
-}
-
-const val __PROTO_NodeGroupWatcher: String = "db3e0aa5831c2e44"
 
 class __Stub_NodeGroupWatcher(private val addr: Int) : NodeGroupWatcher {
     override fun joined(n: Node) {
@@ -738,17 +649,6 @@ class StaticNodeGroup(private val name: String, private val all: List<NodeEndpoi
     }
 }
 
-sealed class __Cont_StaticNodeGroup {
-    class Members() : __Cont_StaticNodeGroup()
-    class Subscribe() : __Cont_StaticNodeGroup()
-    class Control(val from: NodeId) : __Cont_StaticNodeGroup()
-}
-
-sealed class __Priv_StaticNodeGroup {
-    object Init : __Priv_StaticNodeGroup()
-    class Control(val from: NodeId, val data: salvo.platform.core.bytes.Bytes) : __Priv_StaticNodeGroup()
-}
-
 class __Actor_StaticNodeGroup(private val handler: StaticNodeGroup) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
@@ -898,17 +798,6 @@ class GossipNodeGroup(private val name: String, private val seeds: List<NodeEndp
     }
 }
 
-sealed class __Cont_GossipNodeGroup {
-    class Members() : __Cont_GossipNodeGroup()
-    class Subscribe() : __Cont_GossipNodeGroup()
-    class Control(val from: NodeId) : __Cont_GossipNodeGroup()
-}
-
-sealed class __Priv_GossipNodeGroup {
-    object Init : __Priv_GossipNodeGroup()
-    class Control(val from: NodeId, val data: salvo.platform.core.bytes.Bytes) : __Priv_GossipNodeGroup()
-}
-
 class __Actor_GossipNodeGroup(private val handler: GossipNodeGroup) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
@@ -1030,36 +919,6 @@ class __Mon_ActorGroup(
     }
 }
 
-sealed class __Msg_ActorGroup {
-    class Join(val member: Int) : __Msg_ActorGroup()
-    class Leave(val member: Int) : __Msg_ActorGroup()
-    class Members(val out: salvo.SalvoReply) : __Msg_ActorGroup()
-    class Subscribe(val w: Int) : __Msg_ActorGroup()
-    class Refresh() : __Msg_ActorGroup()
-}
-
-object __Codec___Msg_ActorGroup : salvo.WireCodec<__Msg_ActorGroup> {
-    override fun enc(v: __Msg_ActorGroup, out: salvo.WireOut) {
-        when (v) {
-            is __Msg_ActorGroup.Join -> { out.u8(0); salvo.AddrCodec.enc(v.member, out) }
-            is __Msg_ActorGroup.Leave -> { out.u8(1); salvo.AddrCodec.enc(v.member, out) }
-            is __Msg_ActorGroup.Members -> { out.u8(2); salvo.ReplyCodec.enc(v.out, out) }
-            is __Msg_ActorGroup.Subscribe -> { out.u8(3); salvo.AddrCodec.enc(v.w, out) }
-            is __Msg_ActorGroup.Refresh -> { out.u8(4) }
-        }
-    }
-    override fun dec(inp: salvo.WireIn): __Msg_ActorGroup = when (inp.u8()) {
-            0 -> __Msg_ActorGroup.Join(salvo.AddrCodec.dec(inp))
-            1 -> __Msg_ActorGroup.Leave(salvo.AddrCodec.dec(inp))
-            2 -> __Msg_ActorGroup.Members(salvo.ReplyCodec.dec(inp))
-            3 -> __Msg_ActorGroup.Subscribe(salvo.AddrCodec.dec(inp))
-            4 -> __Msg_ActorGroup.Refresh()
-        else -> throw salvo.WireError()
-    }
-}
-
-const val __PROTO_ActorGroup: String = "695f43128bdada4a"
-
 class __Stub_ActorGroup(private val addr: Int) : ActorGroup {
     override fun join(member: Int) {
         salvo.SalvoSched.sendWire(addr, __Msg_ActorGroup.Join(member), __PROTO_ActorGroup, __Codec___Msg_ActorGroup)
@@ -1098,27 +957,6 @@ class __Mon_ActorGroupWatcher(
         try { inner.left(member) } finally { lock.unlock() }
     }
 }
-
-sealed class __Msg_ActorGroupWatcher {
-    class Joined(val member: Int) : __Msg_ActorGroupWatcher()
-    class Left(val member: Int) : __Msg_ActorGroupWatcher()
-}
-
-object __Codec___Msg_ActorGroupWatcher : salvo.WireCodec<__Msg_ActorGroupWatcher> {
-    override fun enc(v: __Msg_ActorGroupWatcher, out: salvo.WireOut) {
-        when (v) {
-            is __Msg_ActorGroupWatcher.Joined -> { out.u8(0); salvo.AddrCodec.enc(v.member, out) }
-            is __Msg_ActorGroupWatcher.Left -> { out.u8(1); salvo.AddrCodec.enc(v.member, out) }
-        }
-    }
-    override fun dec(inp: salvo.WireIn): __Msg_ActorGroupWatcher = when (inp.u8()) {
-            0 -> __Msg_ActorGroupWatcher.Joined(salvo.AddrCodec.dec(inp))
-            1 -> __Msg_ActorGroupWatcher.Left(salvo.AddrCodec.dec(inp))
-        else -> throw salvo.WireError()
-    }
-}
-
-const val __PROTO_ActorGroupWatcher: String = "9fa424e5858bb3bd"
 
 class __Stub_ActorGroupWatcher(private val addr: Int) : ActorGroupWatcher {
     override fun joined(member: Int) {
@@ -1243,21 +1081,6 @@ class ActorGrouping(private val name: String, private val proto: Protocol) : Act
             mirror(__addr!!, all)
         }
     }
-}
-
-sealed class __Cont_ActorGrouping {
-    class Join() : __Cont_ActorGrouping()
-    class Leave() : __Cont_ActorGrouping()
-    class Members() : __Cont_ActorGrouping()
-    class Subscribe() : __Cont_ActorGrouping()
-    class Joined() : __Cont_ActorGrouping()
-    class Left(val n: Node) : __Cont_ActorGrouping()
-    class Control(val from: NodeId) : __Cont_ActorGrouping()
-}
-
-sealed class __Priv_ActorGrouping {
-    object Init : __Priv_ActorGrouping()
-    class Control(val from: NodeId, val data: salvo.platform.core.bytes.Bytes) : __Priv_ActorGrouping()
 }
 
 class __Actor_ActorGrouping(private val handler: ActorGrouping) : salvo.SalvoActor {
@@ -1723,42 +1546,6 @@ class __Mon_MemNet(
     }
 }
 
-sealed class __Msg_MemNet {
-    class Attach(val at: NodeEndpoint, val sink: Int) : __Msg_MemNet()
-    class Detach(val at: NodeEndpoint) : __Msg_MemNet()
-    class Route(val from: NodeEndpoint, val to: NodeEndpoint, val out: salvo.SalvoReply) : __Msg_MemNet()
-    class Partition(val a: NodeEndpoint, val b: NodeEndpoint) : __Msg_MemNet()
-    class Heal(val a: NodeEndpoint, val b: NodeEndpoint) : __Msg_MemNet()
-    class Kill(val node: NodeEndpoint) : __Msg_MemNet()
-    class Delivered(val out: salvo.SalvoReply) : __Msg_MemNet()
-}
-
-object __Codec___Msg_MemNet : salvo.WireCodec<__Msg_MemNet> {
-    override fun enc(v: __Msg_MemNet, out: salvo.WireOut) {
-        when (v) {
-            is __Msg_MemNet.Attach -> { out.u8(0); __Codec_NodeEndpoint.enc(v.at, out); salvo.AddrCodec.enc(v.sink, out) }
-            is __Msg_MemNet.Detach -> { out.u8(1); __Codec_NodeEndpoint.enc(v.at, out) }
-            is __Msg_MemNet.Route -> { out.u8(2); __Codec_NodeEndpoint.enc(v.from, out); __Codec_NodeEndpoint.enc(v.to, out); salvo.ReplyCodec.enc(v.out, out) }
-            is __Msg_MemNet.Partition -> { out.u8(3); __Codec_NodeEndpoint.enc(v.a, out); __Codec_NodeEndpoint.enc(v.b, out) }
-            is __Msg_MemNet.Heal -> { out.u8(4); __Codec_NodeEndpoint.enc(v.a, out); __Codec_NodeEndpoint.enc(v.b, out) }
-            is __Msg_MemNet.Kill -> { out.u8(5); __Codec_NodeEndpoint.enc(v.node, out) }
-            is __Msg_MemNet.Delivered -> { out.u8(6); salvo.ReplyCodec.enc(v.out, out) }
-        }
-    }
-    override fun dec(inp: salvo.WireIn): __Msg_MemNet = when (inp.u8()) {
-            0 -> __Msg_MemNet.Attach(__Codec_NodeEndpoint.dec(inp), salvo.AddrCodec.dec(inp))
-            1 -> __Msg_MemNet.Detach(__Codec_NodeEndpoint.dec(inp))
-            2 -> __Msg_MemNet.Route(__Codec_NodeEndpoint.dec(inp), __Codec_NodeEndpoint.dec(inp), salvo.ReplyCodec.dec(inp))
-            3 -> __Msg_MemNet.Partition(__Codec_NodeEndpoint.dec(inp), __Codec_NodeEndpoint.dec(inp))
-            4 -> __Msg_MemNet.Heal(__Codec_NodeEndpoint.dec(inp), __Codec_NodeEndpoint.dec(inp))
-            5 -> __Msg_MemNet.Kill(__Codec_NodeEndpoint.dec(inp))
-            6 -> __Msg_MemNet.Delivered(salvo.ReplyCodec.dec(inp))
-        else -> throw salvo.WireError()
-    }
-}
-
-const val __PROTO_MemNet: String = "2815c14392023d5e"
-
 class __Stub_MemNet(private val addr: Int) : MemNet {
     override fun attach(at: NodeEndpoint, sink: Int) {
         salvo.SalvoSched.sendWire(addr, __Msg_MemNet.Attach(at, sink), __PROTO_MemNet, __Codec___Msg_MemNet)
@@ -1827,16 +1614,6 @@ class MemNetwork : MemNet {
     override fun delivered(out: salvo.SalvoReply) {
         salvo.SalvoSched.replyWire(out, count, salvo.IntCodec)
     }
-}
-
-sealed class __Cont_MemNetwork {
-    class Attach(val at: NodeEndpoint) : __Cont_MemNetwork()
-    class Detach() : __Cont_MemNetwork()
-    class Route(val from: NodeEndpoint, val to: NodeEndpoint) : __Cont_MemNetwork()
-    class Partition(val a: NodeEndpoint) : __Cont_MemNetwork()
-    class Heal(val a: NodeEndpoint) : __Cont_MemNetwork()
-    class Kill() : __Cont_MemNetwork()
-    class Delivered() : __Cont_MemNetwork()
 }
 
 class __Actor_MemNetwork(private val handler: MemNetwork) : salvo.SalvoActor {
@@ -1985,5 +1762,244 @@ fun eq__Node_Node(a: Node, b: Node): Boolean {
         return false
     }
     return true
+}
+
+
+sealed class __Msg_Inbound {
+    class ReceiveFrame(val from: NodeEndpoint, val frame: salvo.platform.core.bytes.Bytes) : __Msg_Inbound()
+}
+
+object __Codec___Msg_Inbound : salvo.WireCodec<__Msg_Inbound> {
+    override fun enc(v: __Msg_Inbound, out: salvo.WireOut) {
+        when (v) {
+            is __Msg_Inbound.ReceiveFrame -> { out.u8(0); __Codec_NodeEndpoint.enc(v.from, out); salvo.BytesCodec.enc(v.frame, out) }
+        }
+    }
+    override fun dec(inp: salvo.WireIn): __Msg_Inbound = when (inp.u8()) {
+            0 -> __Msg_Inbound.ReceiveFrame(__Codec_NodeEndpoint.dec(inp), salvo.BytesCodec.dec(inp))
+        else -> throw salvo.WireError()
+    }
+}
+
+const val __PROTO_Inbound: String = "8e46ddb2a3e90b03"
+
+
+sealed class __Msg_Outbound {
+    class SendFrame(val to: NodeEndpoint, val frame: salvo.platform.core.bytes.Bytes) : __Msg_Outbound()
+}
+
+object __Codec___Msg_Outbound : salvo.WireCodec<__Msg_Outbound> {
+    override fun enc(v: __Msg_Outbound, out: salvo.WireOut) {
+        when (v) {
+            is __Msg_Outbound.SendFrame -> { out.u8(0); __Codec_NodeEndpoint.enc(v.to, out); salvo.BytesCodec.enc(v.frame, out) }
+        }
+    }
+    override fun dec(inp: salvo.WireIn): __Msg_Outbound = when (inp.u8()) {
+            0 -> __Msg_Outbound.SendFrame(__Codec_NodeEndpoint.dec(inp), salvo.BytesCodec.dec(inp))
+        else -> throw salvo.WireError()
+    }
+}
+
+const val __PROTO_Outbound: String = "e754249e848e9986"
+
+
+sealed class __Cont_Sending {
+    class SendFrame(val to: NodeEndpoint) : __Cont_Sending()
+}
+
+
+sealed class __Cont_Receiving {
+    class ReceiveFrame(val from: NodeEndpoint) : __Cont_Receiving()
+}
+
+
+sealed class __Msg_NodeGroup {
+    class Members(val out: salvo.SalvoReply) : __Msg_NodeGroup()
+    class Subscribe(val w: Int) : __Msg_NodeGroup()
+    class Leave() : __Msg_NodeGroup()
+}
+
+object __Codec___Msg_NodeGroup : salvo.WireCodec<__Msg_NodeGroup> {
+    override fun enc(v: __Msg_NodeGroup, out: salvo.WireOut) {
+        when (v) {
+            is __Msg_NodeGroup.Members -> { out.u8(0); salvo.ReplyCodec.enc(v.out, out) }
+            is __Msg_NodeGroup.Subscribe -> { out.u8(1); salvo.AddrCodec.enc(v.w, out) }
+            is __Msg_NodeGroup.Leave -> { out.u8(2) }
+        }
+    }
+    override fun dec(inp: salvo.WireIn): __Msg_NodeGroup = when (inp.u8()) {
+            0 -> __Msg_NodeGroup.Members(salvo.ReplyCodec.dec(inp))
+            1 -> __Msg_NodeGroup.Subscribe(salvo.AddrCodec.dec(inp))
+            2 -> __Msg_NodeGroup.Leave()
+        else -> throw salvo.WireError()
+    }
+}
+
+const val __PROTO_NodeGroup: String = "471318a2c85d1f6d"
+
+
+sealed class __Msg_NodeGroupWatcher {
+    class Joined(val n: Node) : __Msg_NodeGroupWatcher()
+    class Left(val n: Node, val why: String) : __Msg_NodeGroupWatcher()
+}
+
+object __Codec___Msg_NodeGroupWatcher : salvo.WireCodec<__Msg_NodeGroupWatcher> {
+    override fun enc(v: __Msg_NodeGroupWatcher, out: salvo.WireOut) {
+        when (v) {
+            is __Msg_NodeGroupWatcher.Joined -> { out.u8(0); __Codec_Node.enc(v.n, out) }
+            is __Msg_NodeGroupWatcher.Left -> { out.u8(1); __Codec_Node.enc(v.n, out); salvo.StrCodec.enc(v.why, out) }
+        }
+    }
+    override fun dec(inp: salvo.WireIn): __Msg_NodeGroupWatcher = when (inp.u8()) {
+            0 -> __Msg_NodeGroupWatcher.Joined(__Codec_Node.dec(inp))
+            1 -> __Msg_NodeGroupWatcher.Left(__Codec_Node.dec(inp), salvo.StrCodec.dec(inp))
+        else -> throw salvo.WireError()
+    }
+}
+
+const val __PROTO_NodeGroupWatcher: String = "db3e0aa5831c2e44"
+
+
+sealed class __Cont_StaticNodeGroup {
+    class Members() : __Cont_StaticNodeGroup()
+    class Subscribe() : __Cont_StaticNodeGroup()
+    class Control(val from: NodeId) : __Cont_StaticNodeGroup()
+}
+
+
+sealed class __Priv_StaticNodeGroup {
+    object Init : __Priv_StaticNodeGroup()
+    class Control(val from: NodeId, val data: salvo.platform.core.bytes.Bytes) : __Priv_StaticNodeGroup()
+}
+
+
+sealed class __Cont_GossipNodeGroup {
+    class Members() : __Cont_GossipNodeGroup()
+    class Subscribe() : __Cont_GossipNodeGroup()
+    class Control(val from: NodeId) : __Cont_GossipNodeGroup()
+}
+
+
+sealed class __Priv_GossipNodeGroup {
+    object Init : __Priv_GossipNodeGroup()
+    class Control(val from: NodeId, val data: salvo.platform.core.bytes.Bytes) : __Priv_GossipNodeGroup()
+}
+
+
+sealed class __Msg_ActorGroup {
+    class Join(val member: Int) : __Msg_ActorGroup()
+    class Leave(val member: Int) : __Msg_ActorGroup()
+    class Members(val out: salvo.SalvoReply) : __Msg_ActorGroup()
+    class Subscribe(val w: Int) : __Msg_ActorGroup()
+    class Refresh() : __Msg_ActorGroup()
+}
+
+object __Codec___Msg_ActorGroup : salvo.WireCodec<__Msg_ActorGroup> {
+    override fun enc(v: __Msg_ActorGroup, out: salvo.WireOut) {
+        when (v) {
+            is __Msg_ActorGroup.Join -> { out.u8(0); salvo.AddrCodec.enc(v.member, out) }
+            is __Msg_ActorGroup.Leave -> { out.u8(1); salvo.AddrCodec.enc(v.member, out) }
+            is __Msg_ActorGroup.Members -> { out.u8(2); salvo.ReplyCodec.enc(v.out, out) }
+            is __Msg_ActorGroup.Subscribe -> { out.u8(3); salvo.AddrCodec.enc(v.w, out) }
+            is __Msg_ActorGroup.Refresh -> { out.u8(4) }
+        }
+    }
+    override fun dec(inp: salvo.WireIn): __Msg_ActorGroup = when (inp.u8()) {
+            0 -> __Msg_ActorGroup.Join(salvo.AddrCodec.dec(inp))
+            1 -> __Msg_ActorGroup.Leave(salvo.AddrCodec.dec(inp))
+            2 -> __Msg_ActorGroup.Members(salvo.ReplyCodec.dec(inp))
+            3 -> __Msg_ActorGroup.Subscribe(salvo.AddrCodec.dec(inp))
+            4 -> __Msg_ActorGroup.Refresh()
+        else -> throw salvo.WireError()
+    }
+}
+
+const val __PROTO_ActorGroup: String = "695f43128bdada4a"
+
+
+sealed class __Msg_ActorGroupWatcher {
+    class Joined(val member: Int) : __Msg_ActorGroupWatcher()
+    class Left(val member: Int) : __Msg_ActorGroupWatcher()
+}
+
+object __Codec___Msg_ActorGroupWatcher : salvo.WireCodec<__Msg_ActorGroupWatcher> {
+    override fun enc(v: __Msg_ActorGroupWatcher, out: salvo.WireOut) {
+        when (v) {
+            is __Msg_ActorGroupWatcher.Joined -> { out.u8(0); salvo.AddrCodec.enc(v.member, out) }
+            is __Msg_ActorGroupWatcher.Left -> { out.u8(1); salvo.AddrCodec.enc(v.member, out) }
+        }
+    }
+    override fun dec(inp: salvo.WireIn): __Msg_ActorGroupWatcher = when (inp.u8()) {
+            0 -> __Msg_ActorGroupWatcher.Joined(salvo.AddrCodec.dec(inp))
+            1 -> __Msg_ActorGroupWatcher.Left(salvo.AddrCodec.dec(inp))
+        else -> throw salvo.WireError()
+    }
+}
+
+const val __PROTO_ActorGroupWatcher: String = "9fa424e5858bb3bd"
+
+
+sealed class __Cont_ActorGrouping {
+    class Join() : __Cont_ActorGrouping()
+    class Leave() : __Cont_ActorGrouping()
+    class Members() : __Cont_ActorGrouping()
+    class Subscribe() : __Cont_ActorGrouping()
+    class Joined() : __Cont_ActorGrouping()
+    class Left(val n: Node) : __Cont_ActorGrouping()
+    class Control(val from: NodeId) : __Cont_ActorGrouping()
+}
+
+
+sealed class __Priv_ActorGrouping {
+    object Init : __Priv_ActorGrouping()
+    class Control(val from: NodeId, val data: salvo.platform.core.bytes.Bytes) : __Priv_ActorGrouping()
+}
+
+
+sealed class __Msg_MemNet {
+    class Attach(val at: NodeEndpoint, val sink: Int) : __Msg_MemNet()
+    class Detach(val at: NodeEndpoint) : __Msg_MemNet()
+    class Route(val from: NodeEndpoint, val to: NodeEndpoint, val out: salvo.SalvoReply) : __Msg_MemNet()
+    class Partition(val a: NodeEndpoint, val b: NodeEndpoint) : __Msg_MemNet()
+    class Heal(val a: NodeEndpoint, val b: NodeEndpoint) : __Msg_MemNet()
+    class Kill(val node: NodeEndpoint) : __Msg_MemNet()
+    class Delivered(val out: salvo.SalvoReply) : __Msg_MemNet()
+}
+
+object __Codec___Msg_MemNet : salvo.WireCodec<__Msg_MemNet> {
+    override fun enc(v: __Msg_MemNet, out: salvo.WireOut) {
+        when (v) {
+            is __Msg_MemNet.Attach -> { out.u8(0); __Codec_NodeEndpoint.enc(v.at, out); salvo.AddrCodec.enc(v.sink, out) }
+            is __Msg_MemNet.Detach -> { out.u8(1); __Codec_NodeEndpoint.enc(v.at, out) }
+            is __Msg_MemNet.Route -> { out.u8(2); __Codec_NodeEndpoint.enc(v.from, out); __Codec_NodeEndpoint.enc(v.to, out); salvo.ReplyCodec.enc(v.out, out) }
+            is __Msg_MemNet.Partition -> { out.u8(3); __Codec_NodeEndpoint.enc(v.a, out); __Codec_NodeEndpoint.enc(v.b, out) }
+            is __Msg_MemNet.Heal -> { out.u8(4); __Codec_NodeEndpoint.enc(v.a, out); __Codec_NodeEndpoint.enc(v.b, out) }
+            is __Msg_MemNet.Kill -> { out.u8(5); __Codec_NodeEndpoint.enc(v.node, out) }
+            is __Msg_MemNet.Delivered -> { out.u8(6); salvo.ReplyCodec.enc(v.out, out) }
+        }
+    }
+    override fun dec(inp: salvo.WireIn): __Msg_MemNet = when (inp.u8()) {
+            0 -> __Msg_MemNet.Attach(__Codec_NodeEndpoint.dec(inp), salvo.AddrCodec.dec(inp))
+            1 -> __Msg_MemNet.Detach(__Codec_NodeEndpoint.dec(inp))
+            2 -> __Msg_MemNet.Route(__Codec_NodeEndpoint.dec(inp), __Codec_NodeEndpoint.dec(inp), salvo.ReplyCodec.dec(inp))
+            3 -> __Msg_MemNet.Partition(__Codec_NodeEndpoint.dec(inp), __Codec_NodeEndpoint.dec(inp))
+            4 -> __Msg_MemNet.Heal(__Codec_NodeEndpoint.dec(inp), __Codec_NodeEndpoint.dec(inp))
+            5 -> __Msg_MemNet.Kill(__Codec_NodeEndpoint.dec(inp))
+            6 -> __Msg_MemNet.Delivered(salvo.ReplyCodec.dec(inp))
+        else -> throw salvo.WireError()
+    }
+}
+
+const val __PROTO_MemNet: String = "2815c14392023d5e"
+
+
+sealed class __Cont_MemNetwork {
+    class Attach(val at: NodeEndpoint) : __Cont_MemNetwork()
+    class Detach() : __Cont_MemNetwork()
+    class Route(val from: NodeEndpoint, val to: NodeEndpoint) : __Cont_MemNetwork()
+    class Partition(val a: NodeEndpoint) : __Cont_MemNetwork()
+    class Heal(val a: NodeEndpoint) : __Cont_MemNetwork()
+    class Kill() : __Cont_MemNetwork()
+    class Delivered() : __Cont_MemNetwork()
 }
 

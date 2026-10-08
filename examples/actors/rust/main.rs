@@ -129,36 +129,6 @@ impl Counter {
     }
 }
 
-pub enum __Msg_Counter {
-    Bump(i32),
-    Total(crate::scheduler::SalvoReply),
-}
-
-impl crate::wire::__Wire for __Msg_Counter {
-    fn __enc(&self, out: &mut Vec<u8>) {
-        match self {
-            __Msg_Counter::Bump(__p0) => {
-                out.push(0);
-                crate::wire::__Wire::__enc(__p0, out);
-            }
-            __Msg_Counter::Total(__p0) => {
-                out.push(1);
-                crate::wire::__Wire::__enc(__p0, out);
-            }
-        }
-    }
-    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
-        match r.u8()? {
-            0 => Some(__Msg_Counter::Bump(crate::wire::__Wire::__dec(r)?)),
-            1 => Some(__Msg_Counter::Total(crate::wire::__Wire::__dec(r)?)),
-            _ => None,
-        }
-    }
-}
-
-/// [protocol-hash] The canonical hash of `Counter`.
-pub const __PROTO_Counter: &str = "f39d50f9ee8f9923";
-
 pub struct __Stub_Counter {
     addr: usize,
 }
@@ -203,11 +173,6 @@ impl crate::__Stateful_Counter for Counting {
     fn total(&mut self, out: crate::scheduler::SalvoReply) {
         crate::scheduler::salvo_reply_wire::<i32>(out, self.sum);
     }
-}
-
-pub enum __Cont_Counting {
-    Bump,
-    Total,
 }
 
 pub struct __Actor_Counting {
@@ -315,39 +280,6 @@ impl Ledger {
     }
 }
 
-pub enum __Msg_Ledger {
-    Report(String, crate::scheduler::SalvoReply),
-    Reported(String, crate::scheduler::SalvoReply, i32),
-}
-
-impl crate::wire::__Wire for __Msg_Ledger {
-    fn __enc(&self, out: &mut Vec<u8>) {
-        match self {
-            __Msg_Ledger::Report(__p0, __p1) => {
-                out.push(0);
-                crate::wire::__Wire::__enc(__p0, out);
-                crate::wire::__Wire::__enc(__p1, out);
-            }
-            __Msg_Ledger::Reported(__p0, __p1, __p2) => {
-                out.push(1);
-                crate::wire::__Wire::__enc(__p0, out);
-                crate::wire::__Wire::__enc(__p1, out);
-                crate::wire::__Wire::__enc(__p2, out);
-            }
-        }
-    }
-    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
-        match r.u8()? {
-            0 => Some(__Msg_Ledger::Report(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
-            1 => Some(__Msg_Ledger::Reported(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
-            _ => None,
-        }
-    }
-}
-
-/// [protocol-hash] The canonical hash of `Ledger`.
-pub const __PROTO_Ledger: &str = "4a99401c8b66babf";
-
 pub struct __Stub_Ledger {
     addr: usize,
 }
@@ -392,11 +324,6 @@ impl crate::__Stateful_Ledger for Bookkeeping {
     fn reported(&mut self, label: String, out: crate::scheduler::SalvoReply, total: i32) {
         crate::scheduler::salvo_reply_wire::<String>(out, format!("{}={}", label, total));
     }
-}
-
-pub enum __Cont_Bookkeeping {
-    Report(String),
-    Reported(String, crate::scheduler::SalvoReply),
 }
 
 pub struct __Actor_Bookkeeping {
@@ -512,42 +439,6 @@ impl Desk {
     }
 }
 
-pub enum __Msg_Desk {
-    Ticket(crate::scheduler::SalvoReply),
-    Serve(String),
-    CloseUp(String),
-}
-
-impl crate::wire::__Wire for __Msg_Desk {
-    fn __enc(&self, out: &mut Vec<u8>) {
-        match self {
-            __Msg_Desk::Ticket(__p0) => {
-                out.push(0);
-                crate::wire::__Wire::__enc(__p0, out);
-            }
-            __Msg_Desk::Serve(__p0) => {
-                out.push(1);
-                crate::wire::__Wire::__enc(__p0, out);
-            }
-            __Msg_Desk::CloseUp(__p0) => {
-                out.push(2);
-                crate::wire::__Wire::__enc(__p0, out);
-            }
-        }
-    }
-    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
-        match r.u8()? {
-            0 => Some(__Msg_Desk::Ticket(crate::wire::__Wire::__dec(r)?)),
-            1 => Some(__Msg_Desk::Serve(crate::wire::__Wire::__dec(r)?)),
-            2 => Some(__Msg_Desk::CloseUp(crate::wire::__Wire::__dec(r)?)),
-            _ => None,
-        }
-    }
-}
-
-/// [protocol-hash] The canonical hash of `Desk`.
-pub const __PROTO_Desk: &str = "cb180ef2d1bfd753";
-
 pub struct __Stub_Desk {
     addr: usize,
 }
@@ -609,12 +500,6 @@ impl crate::__Stateful_Desk for Desking {
         });
         self.waiting = crate::core_deque::mut_deque_of::<crate::scheduler::SalvoReply>();
     }
-}
-
-pub enum __Cont_Desking {
-    Ticket,
-    Serve,
-    CloseUp,
 }
 
 pub struct __Actor_Desking {
@@ -716,27 +601,6 @@ impl Fragile {
         }
     }
 }
-
-pub enum __Msg_Fragile {
-    Crash,
-}
-
-impl crate::wire::__Wire for __Msg_Fragile {
-    fn __enc(&self, out: &mut Vec<u8>) {
-        match self {
-            __Msg_Fragile::Crash => out.push(0),
-        }
-    }
-    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
-        match r.u8()? {
-            0 => Some(__Msg_Fragile::Crash),
-            _ => None,
-        }
-    }
-}
-
-/// [protocol-hash] The canonical hash of `Fragile`.
-pub const __PROTO_Fragile: &str = "a8c912bc262644a0";
 
 pub struct __Stub_Fragile {
     addr: usize,
@@ -906,3 +770,139 @@ pub fn main() {
     crate::core_console::println(&__handle_2, &format!("8. {}", line8));
     crate::core_console::println(&__handle_2, &String::from("done"));
 }
+
+pub enum __Msg_Counter {
+    Bump(i32),
+    Total(crate::scheduler::SalvoReply),
+}
+
+impl crate::wire::__Wire for __Msg_Counter {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        match self {
+            __Msg_Counter::Bump(__p0) => {
+                out.push(0);
+                crate::wire::__Wire::__enc(__p0, out);
+            }
+            __Msg_Counter::Total(__p0) => {
+                out.push(1);
+                crate::wire::__Wire::__enc(__p0, out);
+            }
+        }
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        match r.u8()? {
+            0 => Some(__Msg_Counter::Bump(crate::wire::__Wire::__dec(r)?)),
+            1 => Some(__Msg_Counter::Total(crate::wire::__Wire::__dec(r)?)),
+            _ => None,
+        }
+    }
+}
+
+/// [protocol-hash] The canonical hash of `Counter`.
+pub const __PROTO_Counter: &str = "f39d50f9ee8f9923";
+
+pub enum __Cont_Counting {
+    Bump,
+    Total,
+}
+
+pub enum __Msg_Ledger {
+    Report(String, crate::scheduler::SalvoReply),
+    Reported(String, crate::scheduler::SalvoReply, i32),
+}
+
+impl crate::wire::__Wire for __Msg_Ledger {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        match self {
+            __Msg_Ledger::Report(__p0, __p1) => {
+                out.push(0);
+                crate::wire::__Wire::__enc(__p0, out);
+                crate::wire::__Wire::__enc(__p1, out);
+            }
+            __Msg_Ledger::Reported(__p0, __p1, __p2) => {
+                out.push(1);
+                crate::wire::__Wire::__enc(__p0, out);
+                crate::wire::__Wire::__enc(__p1, out);
+                crate::wire::__Wire::__enc(__p2, out);
+            }
+        }
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        match r.u8()? {
+            0 => Some(__Msg_Ledger::Report(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
+            1 => Some(__Msg_Ledger::Reported(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
+            _ => None,
+        }
+    }
+}
+
+/// [protocol-hash] The canonical hash of `Ledger`.
+pub const __PROTO_Ledger: &str = "4a99401c8b66babf";
+
+pub enum __Cont_Bookkeeping {
+    Report(String),
+    Reported(String, crate::scheduler::SalvoReply),
+}
+
+pub enum __Msg_Desk {
+    Ticket(crate::scheduler::SalvoReply),
+    Serve(String),
+    CloseUp(String),
+}
+
+impl crate::wire::__Wire for __Msg_Desk {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        match self {
+            __Msg_Desk::Ticket(__p0) => {
+                out.push(0);
+                crate::wire::__Wire::__enc(__p0, out);
+            }
+            __Msg_Desk::Serve(__p0) => {
+                out.push(1);
+                crate::wire::__Wire::__enc(__p0, out);
+            }
+            __Msg_Desk::CloseUp(__p0) => {
+                out.push(2);
+                crate::wire::__Wire::__enc(__p0, out);
+            }
+        }
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        match r.u8()? {
+            0 => Some(__Msg_Desk::Ticket(crate::wire::__Wire::__dec(r)?)),
+            1 => Some(__Msg_Desk::Serve(crate::wire::__Wire::__dec(r)?)),
+            2 => Some(__Msg_Desk::CloseUp(crate::wire::__Wire::__dec(r)?)),
+            _ => None,
+        }
+    }
+}
+
+/// [protocol-hash] The canonical hash of `Desk`.
+pub const __PROTO_Desk: &str = "cb180ef2d1bfd753";
+
+pub enum __Cont_Desking {
+    Ticket,
+    Serve,
+    CloseUp,
+}
+
+pub enum __Msg_Fragile {
+    Crash,
+}
+
+impl crate::wire::__Wire for __Msg_Fragile {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        match self {
+            __Msg_Fragile::Crash => out.push(0),
+        }
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        match r.u8()? {
+            0 => Some(__Msg_Fragile::Crash),
+            _ => None,
+        }
+    }
+}
+
+/// [protocol-hash] The canonical hash of `Fragile`.
+pub const __PROTO_Fragile: &str = "a8c912bc262644a0";

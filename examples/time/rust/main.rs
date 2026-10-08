@@ -191,41 +191,6 @@ impl Session {
     }
 }
 
-pub enum __Msg_Session {
-    Open(crate::time::Tick, crate::time::Duration, crate::scheduler::SalvoReply),
-    Expire(crate::time::Tick, crate::time::Duration, crate::scheduler::SalvoReply, crate::time::Fired),
-}
-
-impl crate::wire::__Wire for __Msg_Session {
-    fn __enc(&self, out: &mut Vec<u8>) {
-        match self {
-            __Msg_Session::Open(__p0, __p1, __p2) => {
-                out.push(0);
-                crate::wire::__Wire::__enc(__p0, out);
-                crate::wire::__Wire::__enc(__p1, out);
-                crate::wire::__Wire::__enc(__p2, out);
-            }
-            __Msg_Session::Expire(__p0, __p1, __p2, __p3) => {
-                out.push(1);
-                crate::wire::__Wire::__enc(__p0, out);
-                crate::wire::__Wire::__enc(__p1, out);
-                crate::wire::__Wire::__enc(__p2, out);
-                crate::wire::__Wire::__enc(__p3, out);
-            }
-        }
-    }
-    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
-        match r.u8()? {
-            0 => Some(__Msg_Session::Open(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
-            1 => Some(__Msg_Session::Expire(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
-            _ => None,
-        }
-    }
-}
-
-/// [protocol-hash] The canonical hash of `Session`.
-pub const __PROTO_Session: &str = "7ed70285b7e6568c";
-
 pub struct __Stub_Session {
     addr: usize,
 }
@@ -270,11 +235,6 @@ impl crate::__Stateful_Session for Sessions {
     fn expire(&mut self, started: crate::time::Tick, budget: crate::time::Duration, out: crate::scheduler::SalvoReply, f: crate::time::Fired) {
         crate::scheduler::salvo_reply_wire::<String>(out, crate::verdict(&started, &f.at, &budget));
     }
-}
-
-pub enum __Cont_Sessions {
-    Open(crate::time::Tick, crate::time::Duration),
-    Expire(crate::time::Tick, crate::time::Duration, crate::scheduler::SalvoReply),
 }
 
 pub struct __Actor_Sessions {
@@ -407,39 +367,6 @@ impl Sleeper {
     }
 }
 
-pub enum __Msg_Sleeper {
-    Nap(crate::time::Duration, crate::scheduler::SalvoReply),
-    Woke(crate::time::Tick, crate::scheduler::SalvoReply, crate::time::Fired),
-}
-
-impl crate::wire::__Wire for __Msg_Sleeper {
-    fn __enc(&self, out: &mut Vec<u8>) {
-        match self {
-            __Msg_Sleeper::Nap(__p0, __p1) => {
-                out.push(0);
-                crate::wire::__Wire::__enc(__p0, out);
-                crate::wire::__Wire::__enc(__p1, out);
-            }
-            __Msg_Sleeper::Woke(__p0, __p1, __p2) => {
-                out.push(1);
-                crate::wire::__Wire::__enc(__p0, out);
-                crate::wire::__Wire::__enc(__p1, out);
-                crate::wire::__Wire::__enc(__p2, out);
-            }
-        }
-    }
-    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
-        match r.u8()? {
-            0 => Some(__Msg_Sleeper::Nap(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
-            1 => Some(__Msg_Sleeper::Woke(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
-            _ => None,
-        }
-    }
-}
-
-/// [protocol-hash] The canonical hash of `Sleeper`.
-pub const __PROTO_Sleeper: &str = "2385b53950dcbd9c";
-
 pub struct __Stub_Sleeper {
     addr: usize,
 }
@@ -486,11 +413,6 @@ impl crate::__Stateful_Sleeper for Napping {
     fn woke(&mut self, started: crate::time::Tick, out: crate::scheduler::SalvoReply, f: crate::time::Fired) {
         crate::scheduler::salvo_reply_wire::<String>(out, format!("napped {}", crate::time::to_str(&crate::time::elapsed(&self.__dep1, &started))));
     }
-}
-
-pub enum __Cont_Napping {
-    Nap(crate::time::Duration),
-    Woke(crate::time::Tick, crate::scheduler::SalvoReply),
 }
 
 pub struct __Actor_Napping {
@@ -597,4 +519,82 @@ pub fn main() {
         *crate::scheduler::salvo_wait(__wid).downcast::<String>().expect("the awaited answer")
     };
     crate::core_console::println(&__handle_2, &napped);
+}
+
+pub enum __Msg_Session {
+    Open(crate::time::Tick, crate::time::Duration, crate::scheduler::SalvoReply),
+    Expire(crate::time::Tick, crate::time::Duration, crate::scheduler::SalvoReply, crate::time::Fired),
+}
+
+impl crate::wire::__Wire for __Msg_Session {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        match self {
+            __Msg_Session::Open(__p0, __p1, __p2) => {
+                out.push(0);
+                crate::wire::__Wire::__enc(__p0, out);
+                crate::wire::__Wire::__enc(__p1, out);
+                crate::wire::__Wire::__enc(__p2, out);
+            }
+            __Msg_Session::Expire(__p0, __p1, __p2, __p3) => {
+                out.push(1);
+                crate::wire::__Wire::__enc(__p0, out);
+                crate::wire::__Wire::__enc(__p1, out);
+                crate::wire::__Wire::__enc(__p2, out);
+                crate::wire::__Wire::__enc(__p3, out);
+            }
+        }
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        match r.u8()? {
+            0 => Some(__Msg_Session::Open(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
+            1 => Some(__Msg_Session::Expire(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
+            _ => None,
+        }
+    }
+}
+
+/// [protocol-hash] The canonical hash of `Session`.
+pub const __PROTO_Session: &str = "7ed70285b7e6568c";
+
+pub enum __Cont_Sessions {
+    Open(crate::time::Tick, crate::time::Duration),
+    Expire(crate::time::Tick, crate::time::Duration, crate::scheduler::SalvoReply),
+}
+
+pub enum __Msg_Sleeper {
+    Nap(crate::time::Duration, crate::scheduler::SalvoReply),
+    Woke(crate::time::Tick, crate::scheduler::SalvoReply, crate::time::Fired),
+}
+
+impl crate::wire::__Wire for __Msg_Sleeper {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        match self {
+            __Msg_Sleeper::Nap(__p0, __p1) => {
+                out.push(0);
+                crate::wire::__Wire::__enc(__p0, out);
+                crate::wire::__Wire::__enc(__p1, out);
+            }
+            __Msg_Sleeper::Woke(__p0, __p1, __p2) => {
+                out.push(1);
+                crate::wire::__Wire::__enc(__p0, out);
+                crate::wire::__Wire::__enc(__p1, out);
+                crate::wire::__Wire::__enc(__p2, out);
+            }
+        }
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        match r.u8()? {
+            0 => Some(__Msg_Sleeper::Nap(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
+            1 => Some(__Msg_Sleeper::Woke(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
+            _ => None,
+        }
+    }
+}
+
+/// [protocol-hash] The canonical hash of `Sleeper`.
+pub const __PROTO_Sleeper: &str = "2385b53950dcbd9c";
+
+pub enum __Cont_Napping {
+    Nap(crate::time::Duration),
+    Woke(crate::time::Tick, crate::scheduler::SalvoReply),
 }

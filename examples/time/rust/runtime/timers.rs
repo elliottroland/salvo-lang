@@ -278,27 +278,6 @@ impl Wheel {
     }
 }
 
-pub enum __Msg_Wheel {
-    Run,
-}
-
-impl crate::wire::__Wire for __Msg_Wheel {
-    fn __enc(&self, out: &mut Vec<u8>) {
-        match self {
-            __Msg_Wheel::Run => out.push(0),
-        }
-    }
-    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
-        match r.u8()? {
-            0 => Some(__Msg_Wheel::Run),
-            _ => None,
-        }
-    }
-}
-
-/// [protocol-hash] The canonical hash of `Wheel`.
-pub const __PROTO_Wheel: &str = "df3353758a650c52";
-
 pub struct __Stub_Wheel {
     addr: usize,
 }
@@ -433,3 +412,24 @@ pub fn advance() {
 pub fn reset_timers() {
     crate::runtime_timers::__module_use0_0().clear();
 }
+
+pub enum __Msg_Wheel {
+    Run,
+}
+
+impl crate::wire::__Wire for __Msg_Wheel {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        match self {
+            __Msg_Wheel::Run => out.push(0),
+        }
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        match r.u8()? {
+            0 => Some(__Msg_Wheel::Run),
+            _ => None,
+        }
+    }
+}
+
+/// [protocol-hash] The canonical hash of `Wheel`.
+pub const __PROTO_Wheel: &str = "df3353758a650c52";

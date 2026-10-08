@@ -23,27 +23,6 @@ class __Mon_Counter(
     }
 }
 
-sealed class __Msg_Counter {
-    class Bump(val n: Int) : __Msg_Counter()
-    class Total(val out: salvo.SalvoReply) : __Msg_Counter()
-}
-
-object __Codec___Msg_Counter : salvo.WireCodec<__Msg_Counter> {
-    override fun enc(v: __Msg_Counter, out: salvo.WireOut) {
-        when (v) {
-            is __Msg_Counter.Bump -> { out.u8(0); salvo.IntCodec.enc(v.n, out) }
-            is __Msg_Counter.Total -> { out.u8(1); salvo.ReplyCodec.enc(v.out, out) }
-        }
-    }
-    override fun dec(inp: salvo.WireIn): __Msg_Counter = when (inp.u8()) {
-            0 -> __Msg_Counter.Bump(salvo.IntCodec.dec(inp))
-            1 -> __Msg_Counter.Total(salvo.ReplyCodec.dec(inp))
-        else -> throw salvo.WireError()
-    }
-}
-
-const val __PROTO_Counter: String = "f39d50f9ee8f9923"
-
 class __Stub_Counter(private val addr: Int) : Counter {
     override fun bump(n: Int) {
         salvo.SalvoSched.sendWire(addr, __Msg_Counter.Bump(n), __PROTO_Counter, __Codec___Msg_Counter)
@@ -64,11 +43,6 @@ class Counting : Counter {
     override fun total(out: salvo.SalvoReply) {
         salvo.SalvoSched.replyWire(out, sum, salvo.IntCodec)
     }
-}
-
-sealed class __Cont_Counting {
-    class Bump() : __Cont_Counting()
-    class Total() : __Cont_Counting()
 }
 
 class __Actor_Counting(private val handler: Counting) : salvo.SalvoActor {
@@ -134,27 +108,6 @@ class __Mon_Ledger(
     }
 }
 
-sealed class __Msg_Ledger {
-    class Report(val label: String, val out: salvo.SalvoReply) : __Msg_Ledger()
-    class Reported(val label: String, val out: salvo.SalvoReply, val total: Int) : __Msg_Ledger()
-}
-
-object __Codec___Msg_Ledger : salvo.WireCodec<__Msg_Ledger> {
-    override fun enc(v: __Msg_Ledger, out: salvo.WireOut) {
-        when (v) {
-            is __Msg_Ledger.Report -> { out.u8(0); salvo.StrCodec.enc(v.label, out); salvo.ReplyCodec.enc(v.out, out) }
-            is __Msg_Ledger.Reported -> { out.u8(1); salvo.StrCodec.enc(v.label, out); salvo.ReplyCodec.enc(v.out, out); salvo.IntCodec.enc(v.total, out) }
-        }
-    }
-    override fun dec(inp: salvo.WireIn): __Msg_Ledger = when (inp.u8()) {
-            0 -> __Msg_Ledger.Report(salvo.StrCodec.dec(inp), salvo.ReplyCodec.dec(inp))
-            1 -> __Msg_Ledger.Reported(salvo.StrCodec.dec(inp), salvo.ReplyCodec.dec(inp), salvo.IntCodec.dec(inp))
-        else -> throw salvo.WireError()
-    }
-}
-
-const val __PROTO_Ledger: String = "4a99401c8b66babf"
-
 class __Stub_Ledger(private val addr: Int) : Ledger {
     override fun report(label: String, out: salvo.SalvoReply) {
         salvo.SalvoSched.sendWire(addr, __Msg_Ledger.Report(label, out), __PROTO_Ledger, __Codec___Msg_Ledger)
@@ -174,11 +127,6 @@ class Bookkeeping(private val __dep0: Counter) : Ledger {
     override fun reported(label: String, out: salvo.SalvoReply, total: Int) {
         salvo.SalvoSched.replyWire(out, "${label}=${total}", salvo.StrCodec)
     }
-}
-
-sealed class __Cont_Bookkeeping {
-    class Report(val label: String) : __Cont_Bookkeeping()
-    class Reported(val label: String, val out: salvo.SalvoReply) : __Cont_Bookkeeping()
 }
 
 class __Actor_Bookkeeping(private val handler: Bookkeeping) : salvo.SalvoActor {
@@ -250,30 +198,6 @@ class __Mon_Desk(
     }
 }
 
-sealed class __Msg_Desk {
-    class Ticket(val out: salvo.SalvoReply) : __Msg_Desk()
-    class Serve(val name: String) : __Msg_Desk()
-    class CloseUp(val reason: String) : __Msg_Desk()
-}
-
-object __Codec___Msg_Desk : salvo.WireCodec<__Msg_Desk> {
-    override fun enc(v: __Msg_Desk, out: salvo.WireOut) {
-        when (v) {
-            is __Msg_Desk.Ticket -> { out.u8(0); salvo.ReplyCodec.enc(v.out, out) }
-            is __Msg_Desk.Serve -> { out.u8(1); salvo.StrCodec.enc(v.name, out) }
-            is __Msg_Desk.CloseUp -> { out.u8(2); salvo.StrCodec.enc(v.reason, out) }
-        }
-    }
-    override fun dec(inp: salvo.WireIn): __Msg_Desk = when (inp.u8()) {
-            0 -> __Msg_Desk.Ticket(salvo.ReplyCodec.dec(inp))
-            1 -> __Msg_Desk.Serve(salvo.StrCodec.dec(inp))
-            2 -> __Msg_Desk.CloseUp(salvo.StrCodec.dec(inp))
-        else -> throw salvo.WireError()
-    }
-}
-
-const val __PROTO_Desk: String = "cb180ef2d1bfd753"
-
 class __Stub_Desk(private val addr: Int) : Desk {
     override fun ticket(out: salvo.SalvoReply) {
         salvo.SalvoSched.sendWire(addr, __Msg_Desk.Ticket(out), __PROTO_Desk, __Codec___Msg_Desk)
@@ -313,12 +237,6 @@ class Desking(private val room: Int) : Desk {
         })
         waiting = salvo.core.deque.mutDequeOf()
     }
-}
-
-sealed class __Cont_Desking {
-    class Ticket() : __Cont_Desking()
-    class Serve() : __Cont_Desking()
-    class CloseUp() : __Cont_Desking()
 }
 
 class __Actor_Desking(private val handler: Desking) : salvo.SalvoActor {
@@ -381,24 +299,6 @@ class __Mon_Fragile(
     }
 }
 
-sealed class __Msg_Fragile {
-    class Crash() : __Msg_Fragile()
-}
-
-object __Codec___Msg_Fragile : salvo.WireCodec<__Msg_Fragile> {
-    override fun enc(v: __Msg_Fragile, out: salvo.WireOut) {
-        when (v) {
-            is __Msg_Fragile.Crash -> { out.u8(0) }
-        }
-    }
-    override fun dec(inp: salvo.WireIn): __Msg_Fragile = when (inp.u8()) {
-            0 -> __Msg_Fragile.Crash()
-        else -> throw salvo.WireError()
-    }
-}
-
-const val __PROTO_Fragile: String = "a8c912bc262644a0"
-
 class __Stub_Fragile(private val addr: Int) : Fragile {
     override fun crash() {
         salvo.SalvoSched.sendWire(addr, __Msg_Fragile.Crash(), __PROTO_Fragile, __Codec___Msg_Fragile)
@@ -425,9 +325,6 @@ class Breaking : Fragile {
         }
         run { boom; Unit }
     }
-}
-
-sealed class __Cont_Breaking {
 }
 
 class __Actor_Breaking(private val handler: Breaking) : salvo.SalvoActor {
@@ -557,5 +454,116 @@ fun main() {
     }
     salvo.core.console.println(__handle_2, "8. ${line8}")
     salvo.core.console.println(__handle_2, "done")
+}
+
+
+sealed class __Msg_Counter {
+    class Bump(val n: Int) : __Msg_Counter()
+    class Total(val out: salvo.SalvoReply) : __Msg_Counter()
+}
+
+object __Codec___Msg_Counter : salvo.WireCodec<__Msg_Counter> {
+    override fun enc(v: __Msg_Counter, out: salvo.WireOut) {
+        when (v) {
+            is __Msg_Counter.Bump -> { out.u8(0); salvo.IntCodec.enc(v.n, out) }
+            is __Msg_Counter.Total -> { out.u8(1); salvo.ReplyCodec.enc(v.out, out) }
+        }
+    }
+    override fun dec(inp: salvo.WireIn): __Msg_Counter = when (inp.u8()) {
+            0 -> __Msg_Counter.Bump(salvo.IntCodec.dec(inp))
+            1 -> __Msg_Counter.Total(salvo.ReplyCodec.dec(inp))
+        else -> throw salvo.WireError()
+    }
+}
+
+const val __PROTO_Counter: String = "f39d50f9ee8f9923"
+
+
+sealed class __Cont_Counting {
+    class Bump() : __Cont_Counting()
+    class Total() : __Cont_Counting()
+}
+
+
+sealed class __Msg_Ledger {
+    class Report(val label: String, val out: salvo.SalvoReply) : __Msg_Ledger()
+    class Reported(val label: String, val out: salvo.SalvoReply, val total: Int) : __Msg_Ledger()
+}
+
+object __Codec___Msg_Ledger : salvo.WireCodec<__Msg_Ledger> {
+    override fun enc(v: __Msg_Ledger, out: salvo.WireOut) {
+        when (v) {
+            is __Msg_Ledger.Report -> { out.u8(0); salvo.StrCodec.enc(v.label, out); salvo.ReplyCodec.enc(v.out, out) }
+            is __Msg_Ledger.Reported -> { out.u8(1); salvo.StrCodec.enc(v.label, out); salvo.ReplyCodec.enc(v.out, out); salvo.IntCodec.enc(v.total, out) }
+        }
+    }
+    override fun dec(inp: salvo.WireIn): __Msg_Ledger = when (inp.u8()) {
+            0 -> __Msg_Ledger.Report(salvo.StrCodec.dec(inp), salvo.ReplyCodec.dec(inp))
+            1 -> __Msg_Ledger.Reported(salvo.StrCodec.dec(inp), salvo.ReplyCodec.dec(inp), salvo.IntCodec.dec(inp))
+        else -> throw salvo.WireError()
+    }
+}
+
+const val __PROTO_Ledger: String = "4a99401c8b66babf"
+
+
+sealed class __Cont_Bookkeeping {
+    class Report(val label: String) : __Cont_Bookkeeping()
+    class Reported(val label: String, val out: salvo.SalvoReply) : __Cont_Bookkeeping()
+}
+
+
+sealed class __Msg_Desk {
+    class Ticket(val out: salvo.SalvoReply) : __Msg_Desk()
+    class Serve(val name: String) : __Msg_Desk()
+    class CloseUp(val reason: String) : __Msg_Desk()
+}
+
+object __Codec___Msg_Desk : salvo.WireCodec<__Msg_Desk> {
+    override fun enc(v: __Msg_Desk, out: salvo.WireOut) {
+        when (v) {
+            is __Msg_Desk.Ticket -> { out.u8(0); salvo.ReplyCodec.enc(v.out, out) }
+            is __Msg_Desk.Serve -> { out.u8(1); salvo.StrCodec.enc(v.name, out) }
+            is __Msg_Desk.CloseUp -> { out.u8(2); salvo.StrCodec.enc(v.reason, out) }
+        }
+    }
+    override fun dec(inp: salvo.WireIn): __Msg_Desk = when (inp.u8()) {
+            0 -> __Msg_Desk.Ticket(salvo.ReplyCodec.dec(inp))
+            1 -> __Msg_Desk.Serve(salvo.StrCodec.dec(inp))
+            2 -> __Msg_Desk.CloseUp(salvo.StrCodec.dec(inp))
+        else -> throw salvo.WireError()
+    }
+}
+
+const val __PROTO_Desk: String = "cb180ef2d1bfd753"
+
+
+sealed class __Cont_Desking {
+    class Ticket() : __Cont_Desking()
+    class Serve() : __Cont_Desking()
+    class CloseUp() : __Cont_Desking()
+}
+
+
+sealed class __Msg_Fragile {
+    class Crash() : __Msg_Fragile()
+}
+
+object __Codec___Msg_Fragile : salvo.WireCodec<__Msg_Fragile> {
+    override fun enc(v: __Msg_Fragile, out: salvo.WireOut) {
+        when (v) {
+            is __Msg_Fragile.Crash -> { out.u8(0) }
+        }
+    }
+    override fun dec(inp: salvo.WireIn): __Msg_Fragile = when (inp.u8()) {
+            0 -> __Msg_Fragile.Crash()
+        else -> throw salvo.WireError()
+    }
+}
+
+const val __PROTO_Fragile: String = "a8c912bc262644a0"
+
+
+sealed class __Cont_Breaking {
 }
 

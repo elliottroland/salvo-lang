@@ -87,6 +87,62 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         out
     }
 
+    /// [actor-msg] A generated enum: its variants, and — for a message enum
+    /// with a wire form — the codec and the protocol constant (the codec is
+    /// the backend's, IR.md §9 decision 2).
+    pub fn enum_decl(&mut self, e: &salvo_ir::EnumDecl) {
+        let name = rs_ident(&e.name);
+        match &e.kind {
+            salvo_ir::EnumKind::Message { interface } => {
+                // A generic protocol is refused where its stub is rendered.
+                let Some(i) = self.iface_by_id(interface) else { return };
+                if !i.type_params.is_empty() && !self.s.erased.is_erased(&i.name) {
+                    return;
+                }
+            }
+            // Nothing parks: nothing to resume into.
+            salvo_ir::EnumKind::Continuation { .. } if e.variants.is_empty() => return,
+            _ => {}
+        }
+        let mut out = format!("\npub enum {name} {{\n");
+        for v in &e.variants {
+            let payload: Vec<String> = v.fields.iter().map(|(_, t)| self.ty(t)).collect();
+            if payload.is_empty() {
+                out.push_str(&format!("    {},\n", v.name));
+            } else {
+                out.push_str(&format!("    {}({}),\n", v.name, payload.join(", ")));
+            }
+        }
+        out.push_str("}\n");
+        if let (salvo_ir::EnumKind::Message { interface }, Some(hash)) = (&e.kind, &e.protocol_hash) {
+            let msg = &name;
+            let mut enc = String::new();
+            let mut dec = String::new();
+            for (tag, v) in e.variants.iter().enumerate() {
+                let vn = &v.name;
+                let ps: Vec<String> = (0..v.fields.len()).map(|k| format!("__p{k}")).collect();
+                if ps.is_empty() {
+                    enc.push_str(&format!("            {msg}::{vn} => out.push({tag}),\n"));
+                    dec.push_str(&format!("            {tag} => Some({msg}::{vn}),\n"));
+                } else {
+                    enc.push_str(&format!("            {msg}::{vn}({}) => {{\n                out.push({tag});\n", ps.join(", ")));
+                    for p in &ps {
+                        enc.push_str(&format!("                crate::wire::__Wire::__enc({p}, out);\n"));
+                    }
+                    enc.push_str("            }\n");
+                    let ds: Vec<&str> = ps.iter().map(|_| "crate::wire::__Wire::__dec(r)?").collect();
+                    dec.push_str(&format!("            {tag} => Some({msg}::{vn}({})),\n", ds.join(", ")));
+                }
+            }
+            out.push_str(&format!(
+                "\nimpl crate::wire::__Wire for {msg} {{\n    fn __enc(&self, out: &mut Vec<u8>) {{\n        match self {{\n{enc}        }}\n    }}\n    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {{\n        match r.u8()? {{\n{dec}            _ => None,\n        }}\n    }}\n}}\n"
+            ));
+            let iname = self.iface_by_id(interface).map(|i| i.name.clone()).unwrap_or_default();
+            out.push_str(&format!("\n/// [protocol-hash] The canonical hash of `{iname}`.\npub const __PROTO_{}: &str = \"{hash}\";\n", rs_ident(&iname)));
+        }
+        self.out.push_str(&out);
+    }
+
     /// [rs-actor] The actor parts of an interface: message enum, codec and
     /// hash constant, and the addr stub.
     pub fn actor_interface(&mut self, i: &InterfaceDecl) {
@@ -100,40 +156,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         }
         let name = rs_ident(&i.name);
         let msg = format!("__Msg_{name}");
-        let mut out = format!("\npub enum {msg} {{\n");
-        for m in &sends {
-            let payload: Vec<String> = m.params.iter().map(|p| self.ty(&p.ty)).collect();
-            if payload.is_empty() {
-                out.push_str(&format!("    {},\n", variant(&m.emitted_name)));
-            } else {
-                out.push_str(&format!("    {}({}),\n", variant(&m.emitted_name), payload.join(", ")));
-            }
-        }
-        out.push_str("}\n");
-        if let Some(hash) = &i.protocol_hash {
-            let mut enc = String::new();
-            let mut dec = String::new();
-            for (tag, m) in sends.iter().enumerate() {
-                let v = variant(&m.emitted_name);
-                let ps: Vec<String> = (0..m.params.len()).map(|k| format!("__p{k}")).collect();
-                if ps.is_empty() {
-                    enc.push_str(&format!("            {msg}::{v} => out.push({tag}),\n"));
-                    dec.push_str(&format!("            {tag} => Some({msg}::{v}),\n"));
-                } else {
-                    enc.push_str(&format!("            {msg}::{v}({}) => {{\n                out.push({tag});\n", ps.join(", ")));
-                    for p in &ps {
-                        enc.push_str(&format!("                crate::wire::__Wire::__enc({p}, out);\n"));
-                    }
-                    enc.push_str("            }\n");
-                    let ds: Vec<&str> = ps.iter().map(|_| "crate::wire::__Wire::__dec(r)?").collect();
-                    dec.push_str(&format!("            {tag} => Some({msg}::{v}({})),\n", ds.join(", ")));
-                }
-            }
-            out.push_str(&format!(
-                "\nimpl crate::wire::__Wire for {msg} {{\n    fn __enc(&self, out: &mut Vec<u8>) {{\n        match self {{\n{enc}        }}\n    }}\n    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {{\n        match r.u8()? {{\n{dec}            _ => None,\n        }}\n    }}\n}}\n"
-            ));
-            out.push_str(&format!("\n/// [protocol-hash] The canonical hash of `{}`.\npub const __PROTO_{name}: &str = \"{hash}\";\n", i.name));
-        }
+        let mut out = String::new();
         // [actor-use-addr] The stub: the effect implemented by sending.
         let stub = format!("__Stub_{name}");
         out.push_str(&format!(
@@ -193,35 +216,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let cont = format!("__Cont_{hn}");
         let priv_enum = format!("__Priv_{hn}");
         let mut out = String::new();
-        if !parking.is_empty() {
-            out.push_str(&format!("\npub enum {cont} {{\n"));
-            for m in &parking {
-                let declared = Self::declared_params(m);
-                let caps: Vec<String> = declared[..declared.len() - 1].iter().map(|p| self.ty(&p.ty)).collect();
-                if caps.is_empty() {
-                    out.push_str(&format!("    {},\n", variant(&m.name)));
-                } else {
-                    out.push_str(&format!("    {}({}),\n", variant(&m.name), caps.join(", ")));
-                }
-            }
-            out.push_str("}\n");
-        }
         let has_priv = h.init.is_some() || !privs.is_empty();
-        if has_priv {
-            out.push_str(&format!("\npub enum {priv_enum} {{\n"));
-            if h.init.is_some() {
-                out.push_str("    Init,\n");
-            }
-            for m in &privs {
-                let ps: Vec<String> = Self::declared_params(m).iter().map(|p| self.ty(&p.ty)).collect();
-                if ps.is_empty() {
-                    out.push_str(&format!("    {},\n", variant(&m.name)));
-                } else {
-                    out.push_str(&format!("    {}({}),\n", variant(&m.name), ps.join(", ")));
-                }
-            }
-            out.push_str("}\n");
-        }
         let actor = format!("__Actor_{hn}");
         out.push_str(&format!("\npub struct {actor} {{\n    handler: {hn},\n}}\n\nimpl {actor} {{\n    pub fn new(handler: {hn}) -> Self {{\n        Self {{ handler }}\n    }}\n"));
         let single = faces.len() == 1 && !has_priv;

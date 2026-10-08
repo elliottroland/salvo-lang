@@ -153,3 +153,42 @@ fn main::main() -> None {
   call core.console::println(read __handle~2, concat("8. ", read line8))
   call core.console::println(read __handle~2, "done")
 }
+
+enum __Msg_Counter [proto f39d50f9ee8f9923] {
+  Bump(n: Int)
+  Total(out: Reply<Int>)
+}
+
+enum __Cont_Counting {
+  Bump()
+  Total()
+}
+
+enum __Msg_Ledger [proto 4a99401c8b66babf] {
+  Report(label: Str, out: Reply<Str>)
+  Reported(label: Str, out: Reply<Str>, total: Int)
+}
+
+enum __Cont_Bookkeeping {
+  Report(label: Str)
+  Reported(label: Str, out: Reply<Str>)
+}
+
+enum __Msg_Desk [proto cb180ef2d1bfd753] {
+  Ticket(out: Reply<Str>)
+  Serve(name: Str)
+  CloseUp(reason: Str)
+}
+
+enum __Cont_Desking {
+  Ticket()
+  Serve()
+  CloseUp()
+}
+
+enum __Msg_Fragile [proto a8c912bc262644a0] {
+  Crash()
+}
+
+enum __Cont_Breaking {
+}

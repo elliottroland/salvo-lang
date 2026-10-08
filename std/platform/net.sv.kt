@@ -65,24 +65,6 @@ class __Mon_Inbound(
     }
 }
 
-sealed class __Msg_Inbound {
-    class ReceiveFrame(val from: NodeEndpoint, val frame: salvo.platform.core.bytes.Bytes) : __Msg_Inbound()
-}
-
-object __Codec___Msg_Inbound : salvo.WireCodec<__Msg_Inbound> {
-    override fun enc(v: __Msg_Inbound, out: salvo.WireOut) {
-        when (v) {
-            is __Msg_Inbound.ReceiveFrame -> { out.u8(0); __Codec_NodeEndpoint.enc(v.from, out); salvo.BytesCodec.enc(v.frame, out) }
-        }
-    }
-    override fun dec(inp: salvo.WireIn): __Msg_Inbound = when (inp.u8()) {
-            0 -> __Msg_Inbound.ReceiveFrame(__Codec_NodeEndpoint.dec(inp), salvo.BytesCodec.dec(inp))
-        else -> throw salvo.WireError()
-    }
-}
-
-const val __PROTO_Inbound: String = "8e46ddb2a3e90b03"
-
 class __Stub_Inbound(private val addr: Int) : Inbound {
     override fun receiveFrame(from: NodeEndpoint, frame: salvo.platform.core.bytes.Bytes) {
         salvo.SalvoSched.sendWire(addr, __Msg_Inbound.ReceiveFrame(from, frame), __PROTO_Inbound, __Codec___Msg_Inbound)
@@ -152,4 +134,23 @@ fun bindOutboundPlatform(node: Long, out: Int, hook: (Int, salvo.platform.core.b
 
 
 class __Platform_HostTcpTransport(bind: NodeEndpoint) : __Platform_Transport(salvo.platform.net.HostTcpTransport(bind))
+
+
+sealed class __Msg_Inbound {
+    class ReceiveFrame(val from: NodeEndpoint, val frame: salvo.platform.core.bytes.Bytes) : __Msg_Inbound()
+}
+
+object __Codec___Msg_Inbound : salvo.WireCodec<__Msg_Inbound> {
+    override fun enc(v: __Msg_Inbound, out: salvo.WireOut) {
+        when (v) {
+            is __Msg_Inbound.ReceiveFrame -> { out.u8(0); __Codec_NodeEndpoint.enc(v.from, out); salvo.BytesCodec.enc(v.frame, out) }
+        }
+    }
+    override fun dec(inp: salvo.WireIn): __Msg_Inbound = when (inp.u8()) {
+            0 -> __Msg_Inbound.ReceiveFrame(__Codec_NodeEndpoint.dec(inp), salvo.BytesCodec.dec(inp))
+        else -> throw salvo.WireError()
+    }
+}
+
+const val __PROTO_Inbound: String = "8e46ddb2a3e90b03"
 

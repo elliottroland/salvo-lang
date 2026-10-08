@@ -81,6 +81,18 @@ impl<'a> Dumper<'a> {
                 }
                 self.out.push_str("}\n");
             }
+            Decl::Enum(e) => {
+                let _ = write!(self.out, "enum {}", e.name);
+                if let Some(h) = &e.protocol_hash {
+                    let _ = write!(self.out, " [proto {h}]");
+                }
+                self.out.push_str(" {\n");
+                for v in &e.variants {
+                    let fs: Vec<String> = v.fields.iter().map(|(n, t)| format!("{n}: {t}")).collect();
+                    let _ = writeln!(self.out, "  {}({})", v.name, fs.join(", "));
+                }
+                self.out.push_str("}\n");
+            }
             Decl::Union(u) => {
                 let _ = write!(self.out, "{}union {}", if u.exported { "export " } else { "" }, u.name);
                 self.type_params(&u.type_params);

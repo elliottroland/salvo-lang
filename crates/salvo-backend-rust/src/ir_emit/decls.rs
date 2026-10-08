@@ -282,6 +282,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 }
             }
             Decl::Static(st) => self.static_decl(st),
+            Decl::Enum(e) => self.enum_decl(e),
         }
     }
 

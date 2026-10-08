@@ -51,6 +51,42 @@ pub enum Decl {
     /// [mod-use] a module-level `use`: an instance every fn of the module
     /// reads as a local, constructed once (when, is the backend's).
     Static(StaticDecl),
+    /// [actor-msg] A generated enum with named variants: an actor
+    /// interface's messages, a handler's private messages or continuations.
+    /// The builder writes it (IR.md §6); the backend picks the layout.
+    Enum(EnumDecl),
+}
+
+/// What an [`EnumDecl`] stands for.
+#[derive(Clone, Debug, PartialEq)]
+pub enum EnumKind {
+    /// `__Msg_E`: one variant per `send` member of the actor interface.
+    Message { interface: DeclId },
+    /// `__Priv_H`: `Init`, and one variant per `send fn` no face declares.
+    Private { handler: DeclId },
+    /// `__Cont_H`: one variant per member that parks on a reply, holding
+    /// what the member had captured when it parked.
+    Continuation { handler: DeclId },
+}
+
+pub struct EnumDecl {
+    pub id: DeclId,
+    pub name: String,
+    pub kind: EnumKind,
+    pub variants: Vec<Variant>,
+    /// [protocol-hash] the canonical hash of a message enum with a wire form.
+    pub protocol_hash: Option<String>,
+    pub span: Span,
+}
+
+pub struct Variant {
+    /// The variant's name (`Bump` for member `bump`; `Init` for the init).
+    pub name: String,
+    /// The member this variant carries: the emitted name for a message, the
+    /// source name for a private or continuation variant; `None` for `Init`.
+    pub member: Option<String>,
+    /// The payload: the member's parameter names and types.
+    pub fields: Vec<(String, Ty)>,
 }
 
 pub struct StaticDecl {
@@ -72,6 +108,7 @@ impl Decl {
             Decl::Fn(d) => &d.id,
             Decl::PlatformType(d) => &d.id,
             Decl::Static(d) => &d.id,
+            Decl::Enum(d) => &d.id,
         }
     }
     pub fn name(&self) -> &str {
@@ -83,6 +120,7 @@ impl Decl {
             Decl::Fn(d) => &d.name,
             Decl::PlatformType(d) => &d.name,
             Decl::Static(d) => &d.local.0,
+            Decl::Enum(d) => &d.name,
         }
     }
 }

@@ -168,30 +168,6 @@ impl Sequencer {
     }
 }
 
-pub enum __Msg_Sequencer {
-    Next(crate::scheduler::SalvoReply),
-}
-
-impl crate::wire::__Wire for __Msg_Sequencer {
-    fn __enc(&self, out: &mut Vec<u8>) {
-        match self {
-            __Msg_Sequencer::Next(__p0) => {
-                out.push(0);
-                crate::wire::__Wire::__enc(__p0, out);
-            }
-        }
-    }
-    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
-        match r.u8()? {
-            0 => Some(__Msg_Sequencer::Next(crate::wire::__Wire::__dec(r)?)),
-            _ => None,
-        }
-    }
-}
-
-/// [protocol-hash] The canonical hash of `Sequencer`.
-pub const __PROTO_Sequencer: &str = "7a5334482e5247f7";
-
 pub struct __Stub_Sequencer {
     addr: usize,
 }
@@ -254,32 +230,6 @@ impl Inventory {
         }
     }
 }
-
-pub enum __Msg_Inventory {
-    Reserve(String, i32, crate::scheduler::SalvoReply),
-}
-
-impl crate::wire::__Wire for __Msg_Inventory {
-    fn __enc(&self, out: &mut Vec<u8>) {
-        match self {
-            __Msg_Inventory::Reserve(__p0, __p1, __p2) => {
-                out.push(0);
-                crate::wire::__Wire::__enc(__p0, out);
-                crate::wire::__Wire::__enc(__p1, out);
-                crate::wire::__Wire::__enc(__p2, out);
-            }
-        }
-    }
-    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
-        match r.u8()? {
-            0 => Some(__Msg_Inventory::Reserve(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
-            _ => None,
-        }
-    }
-}
-
-/// [protocol-hash] The canonical hash of `Inventory`.
-pub const __PROTO_Inventory: &str = "d3482a697a944808";
 
 pub struct __Stub_Inventory {
     addr: usize,
@@ -344,31 +294,6 @@ impl Search {
     }
 }
 
-pub enum __Msg_Search {
-    Query(String, crate::scheduler::SalvoReply),
-}
-
-impl crate::wire::__Wire for __Msg_Search {
-    fn __enc(&self, out: &mut Vec<u8>) {
-        match self {
-            __Msg_Search::Query(__p0, __p1) => {
-                out.push(0);
-                crate::wire::__Wire::__enc(__p0, out);
-                crate::wire::__Wire::__enc(__p1, out);
-            }
-        }
-    }
-    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
-        match r.u8()? {
-            0 => Some(__Msg_Search::Query(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
-            _ => None,
-        }
-    }
-}
-
-/// [protocol-hash] The canonical hash of `Search`.
-pub const __PROTO_Search: &str = "ed817fc30774f01d";
-
 pub struct __Stub_Search {
     addr: usize,
 }
@@ -432,31 +357,6 @@ impl Lookup {
     }
 }
 
-pub enum __Msg_Lookup {
-    Lookup(String, crate::scheduler::SalvoReply),
-}
-
-impl crate::wire::__Wire for __Msg_Lookup {
-    fn __enc(&self, out: &mut Vec<u8>) {
-        match self {
-            __Msg_Lookup::Lookup(__p0, __p1) => {
-                out.push(0);
-                crate::wire::__Wire::__enc(__p0, out);
-                crate::wire::__Wire::__enc(__p1, out);
-            }
-        }
-    }
-    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
-        match r.u8()? {
-            0 => Some(__Msg_Lookup::Lookup(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
-            _ => None,
-        }
-    }
-}
-
-/// [protocol-hash] The canonical hash of `Lookup`.
-pub const __PROTO_Lookup: &str = "7c0f441570dc9a6f";
-
 pub struct __Stub_Lookup {
     addr: usize,
 }
@@ -498,10 +398,6 @@ impl crate::__Stateful_Sequencer for Sequencing {
         self.n = i32::wrapping_add(self.n, 1i32);
         crate::scheduler::salvo_reply_wire::<String>(out, format!("{}#{}", self.who, self.n));
     }
-}
-
-pub enum __Cont_Sequencing {
-    Next,
 }
 
 pub struct __Actor_Sequencing {
@@ -576,10 +472,6 @@ impl crate::__Stateful_Inventory for Stocking {
         self.served = i32::wrapping_add(self.served, qty);
         crate::scheduler::salvo_reply_wire::<String>(out, format!("{}:{}", self.shard, self.served));
     }
-}
-
-pub enum __Cont_Stocking {
-    Reserve(String, i32),
 }
 
 pub struct __Actor_Stocking {
@@ -659,10 +551,6 @@ impl crate::__Stateless_Search for Indexing {
     }
 }
 
-pub enum __Cont_Indexing {
-    Query(String),
-}
-
 pub struct __Actor_Indexing {
     handler: Indexing,
 }
@@ -732,10 +620,6 @@ impl crate::__Stateless_Lookup for Looking {
     fn lookup(&self, key: String, out: crate::scheduler::SalvoReply) {
         crate::scheduler::salvo_reply_wire::<String>(out, format!("{} from {}", key, self.who));
     }
-}
-
-pub enum __Cont_Looking {
-    Lookup(String),
 }
 
 pub struct __Actor_Looking {
@@ -812,15 +696,6 @@ impl crate::__Stateful_Lookup for SlowLooking {
     fn lookup(&mut self, key: String, out: crate::scheduler::SalvoReply) {
         crate::scheduler::salvo_send_wire(self.timer, crate::time::__Msg_Timer::After(crate::time::millis(150i64), { let (__r, __s) = crate::scheduler::salvo_mint(self.__addr.expect("a parking handler runs as an actor")); self.__parked.insert(__s, __Cont_SlowLooking::Answer(key.clone(), out)); __r }), crate::time::__PROTO_Timer);
     }
-}
-
-pub enum __Cont_SlowLooking {
-    Lookup(String),
-    Answer(String, crate::scheduler::SalvoReply),
-}
-
-pub enum __Priv_SlowLooking {
-    Answer(String, crate::scheduler::SalvoReply, crate::time::Fired),
 }
 
 pub struct __Actor_SlowLooking {
@@ -917,10 +792,6 @@ impl crate::__Stateless_Search for Scattering {
     }
 }
 
-pub enum __Cont_Scattering {
-    Query(String),
-}
-
 pub struct __Actor_Scattering {
     handler: Scattering,
 }
@@ -1015,32 +886,6 @@ impl Gather {
     }
 }
 
-pub enum __Msg_Gather {
-    Scatter(String, Vec<usize>, crate::scheduler::SalvoReply),
-}
-
-impl crate::wire::__Wire for __Msg_Gather {
-    fn __enc(&self, out: &mut Vec<u8>) {
-        match self {
-            __Msg_Gather::Scatter(__p0, __p1, __p2) => {
-                out.push(0);
-                crate::wire::__Wire::__enc(__p0, out);
-                crate::wire::__Wire::__enc(__p1, out);
-                crate::wire::__Wire::__enc(__p2, out);
-            }
-        }
-    }
-    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
-        match r.u8()? {
-            0 => Some(__Msg_Gather::Scatter(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
-            _ => None,
-        }
-    }
-}
-
-/// [protocol-hash] The canonical hash of `Gather`.
-pub const __PROTO_Gather: &str = "98712ca205da344c";
-
 pub struct __Stub_Gather {
     addr: usize,
 }
@@ -1100,15 +945,6 @@ impl crate::__Stateful_Gather for Gathering {
             crate::scheduler::salvo_send_wire(m, crate::__Msg_Search::Query((word).clone(), { let (__r, __s) = crate::scheduler::salvo_mint(self.__addr.expect("a parking handler runs as an actor")); self.__parked.insert(__s, __Cont_Gathering::Partial); __r }), crate::__PROTO_Search);
         }
     }
-}
-
-pub enum __Cont_Gathering {
-    Scatter(String, Vec<usize>),
-    Partial,
-}
-
-pub enum __Priv_Gathering {
-    Partial(i32),
 }
 
 pub struct __Actor_Gathering {
@@ -1205,10 +1041,6 @@ impl crate::__Stateless_Lookup for Hedging {
     }
 }
 
-pub enum __Cont_Hedging {
-    Lookup(String),
-}
-
 pub struct __Actor_Hedging {
     handler: Hedging,
 }
@@ -1303,32 +1135,6 @@ impl Race {
     }
 }
 
-pub enum __Msg_Race {
-    Race(String, Vec<usize>, crate::scheduler::SalvoReply),
-}
-
-impl crate::wire::__Wire for __Msg_Race {
-    fn __enc(&self, out: &mut Vec<u8>) {
-        match self {
-            __Msg_Race::Race(__p0, __p1, __p2) => {
-                out.push(0);
-                crate::wire::__Wire::__enc(__p0, out);
-                crate::wire::__Wire::__enc(__p1, out);
-                crate::wire::__Wire::__enc(__p2, out);
-            }
-        }
-    }
-    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
-        match r.u8()? {
-            0 => Some(__Msg_Race::Race(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
-            _ => None,
-        }
-    }
-}
-
-/// [protocol-hash] The canonical hash of `Race`.
-pub const __PROTO_Race: &str = "5e0ec4d63d5f53dd";
-
 pub struct __Stub_Race {
     addr: usize,
 }
@@ -1379,15 +1185,6 @@ impl crate::__Stateful_Race for Racing {
             crate::scheduler::salvo_send_wire(m, crate::__Msg_Lookup::Lookup((key).clone(), { let (__r, __s) = crate::scheduler::salvo_mint(self.__addr.expect("a parking handler runs as an actor")); self.__parked.insert(__s, __Cont_Racing::First); __r }), crate::__PROTO_Lookup);
         }
     }
-}
-
-pub enum __Cont_Racing {
-    Race(String, Vec<usize>),
-    First,
-}
-
-pub enum __Priv_Racing {
-    First(String),
 }
 
 pub struct __Actor_Racing {
@@ -1667,36 +1464,6 @@ impl Boot {
     }
 }
 
-pub enum __Msg_Boot {
-    Boot(crate::scheduler::SalvoReply),
-    Stop(crate::scheduler::SalvoReply),
-}
-
-impl crate::wire::__Wire for __Msg_Boot {
-    fn __enc(&self, out: &mut Vec<u8>) {
-        match self {
-            __Msg_Boot::Boot(__p0) => {
-                out.push(0);
-                crate::wire::__Wire::__enc(__p0, out);
-            }
-            __Msg_Boot::Stop(__p0) => {
-                out.push(1);
-                crate::wire::__Wire::__enc(__p0, out);
-            }
-        }
-    }
-    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
-        match r.u8()? {
-            0 => Some(__Msg_Boot::Boot(crate::wire::__Wire::__dec(r)?)),
-            1 => Some(__Msg_Boot::Stop(crate::wire::__Wire::__dec(r)?)),
-            _ => None,
-        }
-    }
-}
-
-/// [protocol-hash] The canonical hash of `Boot`.
-pub const __PROTO_Boot: &str = "4b15e647d0ca92a7";
-
 pub struct __Stub_Boot {
     addr: usize,
 }
@@ -1766,11 +1533,6 @@ impl crate::__Stateful_Boot for Booting {
         };
         crate::scheduler::salvo_reply_wire::<bool>(done, true);
     }
-}
-
-pub enum __Cont_Booting {
-    Boot,
-    Stop,
 }
 
 pub struct __Actor_Booting {
@@ -1937,10 +1699,6 @@ impl crate::__Stateful_Inventory for __Route_Inventory {
     }
 }
 
-pub enum __Cont___Route_Inventory {
-    Reserve(String, i32),
-}
-
 pub struct __Actor___Route_Inventory {
     handler: __Route_Inventory,
 }
@@ -2018,10 +1776,6 @@ impl crate::__Stateful_Lookup for __Route_Lookup {
         self.seen = __pick.version;
         crate::scheduler::salvo_send_wire(__pick.to, crate::__Msg_Lookup::Lookup(key.clone(), out), crate::__PROTO_Lookup);
     }
-}
-
-pub enum __Cont___Route_Lookup {
-    Lookup(String),
 }
 
 pub struct __Actor___Route_Lookup {
@@ -2103,10 +1857,6 @@ impl crate::__Stateful_Search for __Route_Search {
     }
 }
 
-pub enum __Cont___Route_Search {
-    Query(String),
-}
-
 pub struct __Actor___Route_Search {
     handler: __Route_Search,
 }
@@ -2186,10 +1936,6 @@ impl crate::__Stateful_Sequencer for __Route_Sequencer {
     }
 }
 
-pub enum __Cont___Route_Sequencer {
-    Next,
-}
-
 pub struct __Actor___Route_Sequencer {
     handler: __Route_Sequencer,
 }
@@ -2235,4 +1981,258 @@ fn __decode_msg___Route_Sequencer(proto: &str, payload: &[u8]) -> Option<crate::
         return crate::wire::salvo_decode::<crate::__Msg_Sequencer>(payload).map(|__m| std::boxed::Box::new(__m) as crate::scheduler::SalvoMsg);
     }
     None
+}
+
+pub enum __Msg_Sequencer {
+    Next(crate::scheduler::SalvoReply),
+}
+
+impl crate::wire::__Wire for __Msg_Sequencer {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        match self {
+            __Msg_Sequencer::Next(__p0) => {
+                out.push(0);
+                crate::wire::__Wire::__enc(__p0, out);
+            }
+        }
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        match r.u8()? {
+            0 => Some(__Msg_Sequencer::Next(crate::wire::__Wire::__dec(r)?)),
+            _ => None,
+        }
+    }
+}
+
+/// [protocol-hash] The canonical hash of `Sequencer`.
+pub const __PROTO_Sequencer: &str = "7a5334482e5247f7";
+
+pub enum __Msg_Inventory {
+    Reserve(String, i32, crate::scheduler::SalvoReply),
+}
+
+impl crate::wire::__Wire for __Msg_Inventory {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        match self {
+            __Msg_Inventory::Reserve(__p0, __p1, __p2) => {
+                out.push(0);
+                crate::wire::__Wire::__enc(__p0, out);
+                crate::wire::__Wire::__enc(__p1, out);
+                crate::wire::__Wire::__enc(__p2, out);
+            }
+        }
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        match r.u8()? {
+            0 => Some(__Msg_Inventory::Reserve(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
+            _ => None,
+        }
+    }
+}
+
+/// [protocol-hash] The canonical hash of `Inventory`.
+pub const __PROTO_Inventory: &str = "d3482a697a944808";
+
+pub enum __Msg_Search {
+    Query(String, crate::scheduler::SalvoReply),
+}
+
+impl crate::wire::__Wire for __Msg_Search {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        match self {
+            __Msg_Search::Query(__p0, __p1) => {
+                out.push(0);
+                crate::wire::__Wire::__enc(__p0, out);
+                crate::wire::__Wire::__enc(__p1, out);
+            }
+        }
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        match r.u8()? {
+            0 => Some(__Msg_Search::Query(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
+            _ => None,
+        }
+    }
+}
+
+/// [protocol-hash] The canonical hash of `Search`.
+pub const __PROTO_Search: &str = "ed817fc30774f01d";
+
+pub enum __Msg_Lookup {
+    Lookup(String, crate::scheduler::SalvoReply),
+}
+
+impl crate::wire::__Wire for __Msg_Lookup {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        match self {
+            __Msg_Lookup::Lookup(__p0, __p1) => {
+                out.push(0);
+                crate::wire::__Wire::__enc(__p0, out);
+                crate::wire::__Wire::__enc(__p1, out);
+            }
+        }
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        match r.u8()? {
+            0 => Some(__Msg_Lookup::Lookup(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
+            _ => None,
+        }
+    }
+}
+
+/// [protocol-hash] The canonical hash of `Lookup`.
+pub const __PROTO_Lookup: &str = "7c0f441570dc9a6f";
+
+pub enum __Cont_Sequencing {
+    Next,
+}
+
+pub enum __Cont_Stocking {
+    Reserve(String, i32),
+}
+
+pub enum __Cont_Indexing {
+    Query(String),
+}
+
+pub enum __Cont_Looking {
+    Lookup(String),
+}
+
+pub enum __Cont_SlowLooking {
+    Lookup(String),
+    Answer(String, crate::scheduler::SalvoReply),
+}
+
+pub enum __Priv_SlowLooking {
+    Answer(String, crate::scheduler::SalvoReply, crate::time::Fired),
+}
+
+pub enum __Cont_Scattering {
+    Query(String),
+}
+
+pub enum __Msg_Gather {
+    Scatter(String, Vec<usize>, crate::scheduler::SalvoReply),
+}
+
+impl crate::wire::__Wire for __Msg_Gather {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        match self {
+            __Msg_Gather::Scatter(__p0, __p1, __p2) => {
+                out.push(0);
+                crate::wire::__Wire::__enc(__p0, out);
+                crate::wire::__Wire::__enc(__p1, out);
+                crate::wire::__Wire::__enc(__p2, out);
+            }
+        }
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        match r.u8()? {
+            0 => Some(__Msg_Gather::Scatter(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
+            _ => None,
+        }
+    }
+}
+
+/// [protocol-hash] The canonical hash of `Gather`.
+pub const __PROTO_Gather: &str = "98712ca205da344c";
+
+pub enum __Cont_Gathering {
+    Scatter(String, Vec<usize>),
+    Partial,
+}
+
+pub enum __Priv_Gathering {
+    Partial(i32),
+}
+
+pub enum __Cont_Hedging {
+    Lookup(String),
+}
+
+pub enum __Msg_Race {
+    Race(String, Vec<usize>, crate::scheduler::SalvoReply),
+}
+
+impl crate::wire::__Wire for __Msg_Race {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        match self {
+            __Msg_Race::Race(__p0, __p1, __p2) => {
+                out.push(0);
+                crate::wire::__Wire::__enc(__p0, out);
+                crate::wire::__Wire::__enc(__p1, out);
+                crate::wire::__Wire::__enc(__p2, out);
+            }
+        }
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        match r.u8()? {
+            0 => Some(__Msg_Race::Race(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
+            _ => None,
+        }
+    }
+}
+
+/// [protocol-hash] The canonical hash of `Race`.
+pub const __PROTO_Race: &str = "5e0ec4d63d5f53dd";
+
+pub enum __Cont_Racing {
+    Race(String, Vec<usize>),
+    First,
+}
+
+pub enum __Priv_Racing {
+    First(String),
+}
+
+pub enum __Msg_Boot {
+    Boot(crate::scheduler::SalvoReply),
+    Stop(crate::scheduler::SalvoReply),
+}
+
+impl crate::wire::__Wire for __Msg_Boot {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        match self {
+            __Msg_Boot::Boot(__p0) => {
+                out.push(0);
+                crate::wire::__Wire::__enc(__p0, out);
+            }
+            __Msg_Boot::Stop(__p0) => {
+                out.push(1);
+                crate::wire::__Wire::__enc(__p0, out);
+            }
+        }
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        match r.u8()? {
+            0 => Some(__Msg_Boot::Boot(crate::wire::__Wire::__dec(r)?)),
+            1 => Some(__Msg_Boot::Stop(crate::wire::__Wire::__dec(r)?)),
+            _ => None,
+        }
+    }
+}
+
+/// [protocol-hash] The canonical hash of `Boot`.
+pub const __PROTO_Boot: &str = "4b15e647d0ca92a7";
+
+pub enum __Cont_Booting {
+    Boot,
+    Stop,
+}
+
+pub enum __Cont___Route_Inventory {
+    Reserve(String, i32),
+}
+
+pub enum __Cont___Route_Lookup {
+    Lookup(String),
+}
+
+pub enum __Cont___Route_Search {
+    Query(String),
+}
+
+pub enum __Cont___Route_Sequencer {
+    Next,
 }

@@ -105,3 +105,23 @@ fn main::main() -> None {
   }
   call core.console::println(read __handle~2, read napped)
 }
+
+enum __Msg_Session [proto 7ed70285b7e6568c] {
+  Open(started: Tick, budget: Duration, out: Reply<Str>)
+  Expire(started: Tick, budget: Duration, out: Reply<Str>, f: Fired)
+}
+
+enum __Cont_Sessions {
+  Open(started: Tick, budget: Duration)
+  Expire(started: Tick, budget: Duration, out: Reply<Str>)
+}
+
+enum __Msg_Sleeper [proto 2385b53950dcbd9c] {
+  Nap(wait: Duration, out: Reply<Str>)
+  Woke(started: Tick, out: Reply<Str>, f: Fired)
+}
+
+enum __Cont_Napping {
+  Nap(wait: Duration)
+  Woke(started: Tick, out: Reply<Str>)
+}

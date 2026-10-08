@@ -885,6 +885,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 Decl::Interface(x) => keep.contains(&x.name),
                 Decl::Impl(h) => h.platform,
                 Decl::Fn(_) | Decl::Static(_) | Decl::PlatformType(_) => false,
+                // A message enum travels with its interface.
+                Decl::Enum(e) => matches!(e.kind, salvo_ir::EnumKind::Message { .. }) && keep.contains(e.name.trim_start_matches("__Msg_")),
             }
         };
         let mut body = String::new();
