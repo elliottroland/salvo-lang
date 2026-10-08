@@ -1,6 +1,6 @@
 //! [kt-ir] [kt-actor] Actors over the IR: the wire codecs per type, the
 //! message classes and codec per actor interface, the dispatch body per actor
-//! impl, and the scheduler primitives (IR.md §6, §9 decision 2: the codecs
+//! impl, and the scheduler primitives (IR record §6, §9 decision 2: the codecs
 //! and the dispatch body are the backend's for now).
 
 use std::collections::HashMap;
@@ -148,7 +148,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
 
     /// [actor-msg] A generated enum as a sealed class; a message enum with a
     /// wire form also gets its codec and the protocol constant (the codec is
-    /// the backend's, IR.md §9 decision 2).
+    /// the backend's, IR record §9 decision 2).
     pub(super) fn enum_decl(&mut self, e: &salvo_ir::EnumDecl) {
         use salvo_ir::EnumKind;
         let name = e.name.clone();

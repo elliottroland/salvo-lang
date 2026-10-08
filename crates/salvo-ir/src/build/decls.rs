@@ -1,5 +1,5 @@
 //! Declarations: structs, unions, interfaces (effects), impls (handlers),
-//! fns and platform types (IR.md §3, §6).
+//! fns and platform types (IR record §3, §6).
 
 use std::collections::HashMap;
 

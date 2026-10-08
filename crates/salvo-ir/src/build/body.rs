@@ -1,5 +1,5 @@
 //! Fn bodies: statements, places, reads and the narrowing bindings
-//! (IR.md §3, §5). Expressions are in `exprs.rs`.
+//! (IR record §3, §5). Expressions are in `exprs.rs`.
 
 use std::collections::HashMap;
 

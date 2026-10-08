@@ -1,4 +1,4 @@
-//! The text form of the IR (IR.md §8): for inspection and golden tests, not
+//! The text form of the IR (IR record §8): for inspection and golden tests, not
 //! for parsing back.
 
 use std::fmt::Write;

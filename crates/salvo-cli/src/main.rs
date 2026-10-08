@@ -148,7 +148,7 @@ enum Command {
         format: Format,
     },
     /// Print the IR of the program's modules [cli-ir]: the decided form the
-    /// backends read (IR.md). Every user module, or with `--all` every module
+    /// backends read (IR record). Every user module, or with `--all` every module
     /// the program reaches (std included).
     Ir {
         #[arg(long)]

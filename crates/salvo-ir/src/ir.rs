@@ -1,7 +1,7 @@
 //! The IR node set [ir-nodes]: a minimal, decided form of a Salvo program
-//! (IR.md §3). Every reference is absolute, every expression carries its
+//! (IR record §3). Every reference is absolute, every expression carries its
 //! type, every narrowing is a binding, and nothing is left for a backend to
-//! infer. What a backend adds is representation and idiom (IR.md §1).
+//! infer. What a backend adds is representation and idiom (IR record §1).
 
 
 pub use salvo_core::param_mode::PassMode;
@@ -53,7 +53,7 @@ pub enum Decl {
     Static(StaticDecl),
     /// [actor-msg] A generated enum with named variants: an actor
     /// interface's messages, a handler's private messages or continuations.
-    /// The builder writes it (IR.md §6); the backend picks the layout.
+    /// The builder writes it (IR record §6); the backend picks the layout.
     Enum(EnumDecl),
 }
 
@@ -304,7 +304,7 @@ pub struct FnDecl {
     /// [canbe-entry] the parameters that may name the same object, as the
     /// clause wrote them (`|` lists desugared to one entry per pair or
     /// subject): symmetric, not transitive. The fourth ownership mark
-    /// (IR.md §5).
+    /// (IR record §5).
     pub may_alias: Vec<MayAlias>,
     /// [deduce-field] `p.f: proj(q)`: after the call, parameter `.0` holds a
     /// view of parameter `.1` (indices into `params`).
@@ -496,7 +496,7 @@ pub enum ExprKind {
     /// a `when` with no arm left): a trap naming `at`, with `message` as the
     /// text (`value is absent`).
     Unreachable { message: Option<Box<Expr>>, at: String },
-    // ---- actors (IR.md §6; host primitives until the actor phase) ----
+    // ---- actors (IR record §6; host primitives until the actor phase) ----
     Spawn { handler: Box<Expr>, deps: Vec<Expr>, pool: Option<Box<Expr>>, join: Option<Box<Expr>>, effects: Vec<Ty> },
     /// A send to an actor through an addr.
     Send { addr: Box<Expr>, member: MemberRef, args: Vec<Expr> },

@@ -1,7 +1,7 @@
 //! [actor-msg] The declarations an actor needs that no source wrote: the
 //! message enum of an actor interface, the private-message and continuation
 //! enums of an actor handler, and the functions that deliver a message to
-//! the handler's members (IR.md §6, step 4). Generated after every module is
+//! the handler's members (IR record §6, step 4). Generated after every module is
 //! built, since a handler's faces live in other modules.
 
 use salvo_core::naming::msg_variant_name;

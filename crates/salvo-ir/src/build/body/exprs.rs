@@ -1,4 +1,4 @@
-//! Expressions (IR.md §2): every construct lowered to the node set, every
+//! Expressions (IR record §2): every construct lowered to the node set, every
 //! resolution copied from the checker.
 
 use salvo_core::check::{CompareVia, ImplicitArg, UnionTest};

@@ -14,7 +14,7 @@ Conventions:
   to *compile*, never silently misbehaves at runtime
   ([backend-never-wrong]).
 
-* [rs-ir] **The Rust emitter reads the IR** (IR.md), and only the IR
+* [rs-ir] **The Rust emitter reads the IR** (IR record), and only the IR
   (`crates/salvo-backend-rust/src/ir_emit/`: `mod.rs` for the program and
   names, `decls.rs` for declarations, `body.rs` for statements and
   expressions, `actors.rs` for the actor machinery, `skeleton.rs` for host

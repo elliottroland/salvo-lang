@@ -1,4 +1,4 @@
-//! [rs-ir] The Rust emitter: it reads the IR (IR.md) and nothing of the AST
+//! [rs-ir] The Rust emitter: it reads the IR (IR record) and nothing of the AST
 //! but the intrinsic tables keyed off a declaration.
 //!
 //! What it decides is representation and ownership idiom: `UnionN` enums and

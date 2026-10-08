@@ -1,5 +1,5 @@
 //! The IR builder [ir-build]: from the checked program to the IR, copying
-//! every answer the checker recorded (IR.md §2). Nothing here infers; where
+//! every answer the checker recorded (IR record §2). Nothing here infers; where
 //! the checker left no answer the node is `Unsupported` and an error names it.
 
 use std::collections::{HashMap, HashSet};

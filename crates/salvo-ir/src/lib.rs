@@ -1,4 +1,4 @@
-//! The IR: a minimal, decided form of a Salvo program (IR.md).
+//! The IR: a minimal, decided form of a Salvo program (IR record).
 
 pub mod build;
 pub mod dump;

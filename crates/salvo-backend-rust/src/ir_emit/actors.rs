@@ -1,7 +1,7 @@
 //! [rs-actor] Actors over the IR: the message enum, codec, protocol constant
 //! and addr stub per actor interface; the continuation and private enums and
 //! the `SalvoActor` body per actor impl; and the scheduler primitives
-//! (IR.md §6, §9 decision 2: the dispatch body and codecs are the
+//! (IR record §6, §9 decision 2: the dispatch body and codecs are the
 //! backend's for now).
 
 use salvo_core::types::Ty;
@@ -81,7 +81,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
 
     /// [actor-msg] A generated enum: its variants, and — for a message enum
     /// with a wire form — the codec and the protocol constant (the codec is
-    /// the backend's, IR.md §9 decision 2).
+    /// the backend's, IR record §9 decision 2).
     pub fn enum_decl(&mut self, e: &salvo_ir::EnumDecl) {
         let name = rs_ident(&e.name);
         match &e.kind {

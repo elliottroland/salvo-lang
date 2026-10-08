@@ -55,7 +55,6 @@ which rules are in play and where they live in the code*.
 | `BACKEND_SPEC.rust.md` | Rust interpretation of the rules + `rs-` rules (deductions → borrows) | Only when working on the Rust backend (`salvo-backend-rust`, `std/**/*.rust.sv`) |
 | `ROADMAP.md` | What is left, as one sequence: steps, open defects, decisions, and the parked tail | Always |
 | `COMPLETED.md` | The record: decision log, milestone history, abandoned options, closed defects, test inventory, gotchas | Always |
-| `IR.md` | The IR design proposal (node set, references, ownership marks, text form, open decisions, transition plan); retires into COMPLETED.md when built | Before any work on the IR or the emitters' structure |
 | `TOUR.md` | A guided tour of the compiler with snippets: the pipeline, a map of `salvo-core`, the `Checked` tables, both emitters, and what the IR work would change | When you need to find where a decision is made, or before design work on ownership and lowering |
 | `AGENTS.md` | This file — how to work on the repo | Always |
 | `examples/README.md` | The worked examples: layout, how to regenerate them, and the conventions they must keep | When adding or touching an example, or when a language change invalidates one |
@@ -106,7 +105,7 @@ crates/
 │   └── tests/corpus/     # language-docs example .sv files + insta snapshots
 ├── salvo-core/           # SourceSet, Program, Symbols, resolve.rs, types.rs, check.rs
 ├── salvo-backend/        # Backend trait, BackendRegistry, BackendError
-├── salvo-ir/             # the IR (IR.md): nodes, builder from Program+Checked, dump, `salvo ir`
+├── salvo-ir/             # the IR (IR record): nodes, builder from Program+Checked, dump, `salvo ir`
 ├── salvo-backend-kotlin/ # Kotlin emitter over the IR (ir_emit/) + golden/kotlinc tests
 ├── salvo-backend-rust/   # Rust emitter (emit.rs) + golden/rustc tests
 └── salvo-testkit/        # dev-dependency: toolchain probing + the e2e content cache
@@ -159,12 +158,6 @@ with the terminal's Developer Tools exemption, ~12s without it. See the
 Gatekeeper gotcha in COMPLETED.md; never take a perf number from the first
 run after a relink.)
 
-- **During the IR rework (IR.md), commits need not build** (user decision
-  2026-10-06): nothing depends on this code base yet, so a part-way commit
-  that leaves the workspace unbuildable is fine when it makes the work
-  easier. What must hold: each *transition step* in IR.md §10 ends with the
-  whole suite green, and the final state works again. Say in the commit
-  message when a commit does not build.
 - **Always run `cargo build` and `cargo test` before presenting changes**, and
   a **warm** `cargo nextest run --no-fail-fast` before a commit (user decision
   2026-10-05; ~1m when little changed, up to ~5m after an emitter or std

@@ -1,4 +1,4 @@
-//! [kt-ir] The Kotlin emitter: renders `salvo_ir` modules (IR.md). It
+//! [kt-ir] The Kotlin emitter: renders `salvo_ir` modules (IR record). It
 //! replaced the AST emitter on 2026-10-06.
 //!
 //! What it decides is representation and idiom only: how a union is laid out

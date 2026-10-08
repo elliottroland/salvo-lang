@@ -245,29 +245,16 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
     output types, not Salvo facts. **Open, for discussion in TOUR.md §9–10:**
     one new core table, the *demand* on each expression (moved / lent / lent
     mutably / discarded / returned), which is what `ValueMode` is a function of.
-13. **The IR** (user direction 2026-10-06, superseding the helper-by-helper
-    plan): a minimal, decided form of the program that both emitters read
-    instead of the AST plus side tables. Design in IR.md; its §9 lists the
-    decisions, §10 the transition (builder and dump first, then Kotlin, then
-    Rust, then actors). **Step 1 built 2026-10-06** (`salvo-ir`, `salvo ir`,
-    corpus and golden tests; IR.md §9a lists the provisional calls). **Step 2
-    done 2026-10-06**: Kotlin emits from the IR only; the AST emitter is
-    deleted. **Step 3 done 2026-10-06**: Rust emits from the IR only, the
-    same way. **Step 4 done 2026-10-06** (actor messages, dispatch and stubs are IR;
-    codecs, continuation/parking and the `__Actor_H` glue stay in the
-    backends; revisit codecs-in-IR with the user after step 5). **Next, step 5** (retire the
-    span-keyed checker tables and `salvo-backend::emit_util` walkers the
-    emitters no longer read). Left over: `BACKEND_SPEC.kotlin.md` still
-    describes several AST-emitter spellings and wants a pass rule by rule; a
-    single-face `use` takes a `ReentrantLock` it does not need. The earlier plan, kept for reference: **rewrites as
-    opt-in helpers in `salvo-backend`**, in this order: argument
-    hoists (AST-to-AST, registering checker-table entries for the nodes they
-    create), the `__loc` fn variants, value-position control flow (a helper
-    taking the target's native-construct set, so core stays target-free), then
-    the IR as the named output of these. Dot-notation is done
-    (`Checked::dot_calls`). An `iter fn` is a syntax-crate desugaring with no
-    state machine ([iter-fn]); the only generated control flow is the `for`
-    loop calling `next`. TOUR.md §10 lists the decisions still open.
+13. **The IR** (user direction 2026-10-06; built, steps 1–5 done 2026-10-06,
+    record in COMPLETED.md "Design record: the IR"). Both emitters read only
+    the IR. **Open:** (a) with the user, revisit whether the actor *codecs*
+    belong in the IR (consistency between backends against their tie to the
+    `UnionN` layout); (b) the ~80 remaining span-keyed `Checked` tables are
+    read only by the IR builder and could become builder inputs; (c)
+    `BACKEND_SPEC.kotlin.md` still describes several AST-emitter spellings
+    and wants a pass rule by rule; (d) a single-face `use` takes a
+    `ReentrantLock` it does not need. TOUR.md §10 lists the decisions still
+    open.
 
 What a garbage-collected third backend then writes: expression, statement
 and type rendering; the `UnionN` generator and union renderers; `try`/throw;
@@ -1238,7 +1225,7 @@ several are "revisit only if a customer appears".
 - **Index steps in `canbe in` anchors** (user, 2026-10-06): `=> t canbe in
   lib.tracks[i]`, `i` another parameter. Natural, rarely needed, and new
   surface; in the IR it is one more variant, `AnchorStep::Index(param)`, which
-  every backend's exhaustive match would then flag (IR.md §5).
+  every backend's exhaustive match would then flag (IR record §5).
 
 - **The whole program in the host project** (user, 2026-10-01; ABI D4).
   The alternative to generating only the declarations the platform surface

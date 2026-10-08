@@ -17,7 +17,7 @@
 //! cascading errors. Hard errors are reserved for union/`when` misuse,
 //! shadowing, widening assignments, and unresolvable overloads.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 
 use salvo_syntax::ast::{self, *};
 use salvo_syntax::Span;
@@ -459,12 +459,6 @@ pub struct Checked {
     /// index from the declaration, is exactly the checker/emitter
     /// disagreement the invariants forbid.
     pub for_drivers: HashMap<Key, PassDriver>,
-    /// [fn-rename] Call sites (and fn-value uses) written with a **renamed**
-    /// name, keyed the same way as `call_fn`. A rename is erased, so the
-    /// emitters must spell the declaration's own name rather than the one in
-    /// the source — and they cannot tell a rename from an import alias, which
-    /// they *do* keep, without being told.
-    pub renamed_calls: HashSet<Key>,
     /// [qual-refn] Every qualifier refinement that applies, keyed by the
     /// file a call is written in and the overload it resolves to.
     /// Scope-dependent by design: opting into a qualifier opts into what
@@ -483,12 +477,6 @@ pub struct Checked {
     /// they construct (`__Route_E`): the emitters build that handler where the
     /// program wrote `route`.
     pub route_stubs: HashMap<Key, String>,
-    /// [threadsafe-platform] The handlers some `use` statement in the
-    /// program constructs, by name. What lets a backend emit a platform
-    /// handler's sharing adapter — which names the host class, and so
-    /// demands the host companion — only for handlers a program actually
-    /// binds, rather than for every one a reachable module declares.
-    pub used_handlers: std::collections::HashSet<String>,
     /// [actor-replyto] [effect-handle] The handlers whose members **mint** a
     /// continuation (`replyto`), by name: they write their parked-continuation
     /// table, which makes them stateful for the handle's purposes
@@ -531,10 +519,6 @@ pub struct Checked {
     /// none. The clause items themselves stay in the AST; this records what
     /// each *resolved to*, which is what the child's construction needs.
     pub spawn_deps: HashMap<Key, Vec<Ty>>,
-    /// [actor-group] `spawn H(…) on p in group`: the index of the face the
-    /// group is of, among the addrs the spawn answers — which element the
-    /// emitters `join`.
-    pub spawn_joins: HashMap<Key, usize>,
     /// [actor-spawn-expr] **Which clause item satisfied which declared
     /// dependency**: one index into the spawn's written `use` clause per
     /// declared dependency, in the *handler's declaration* order (keyed by
@@ -706,8 +690,6 @@ pub struct Checked {
     /// type. The backends' intrinsic lowerings render these
     /// [backend-intrinsic].
     pub call_type_args: HashMap<Key, Vec<Ty>>,
-    /// Wrapper union sizes needed by the program (for `unions.kt`).
-    pub union_sizes: BTreeSet<usize>,
     /// [fn-effects] The effect values a lambda takes as leading
     /// parameters, in order (keyed by the lambda expression's span): the
     /// declared set of the fn type it was checked against, or the set
@@ -721,27 +703,9 @@ pub struct Checked {
     /// shadowing local for the branch, so reads and any nested `when` see it
     /// at this type.
     pub widen_targets: HashMap<Key, Ty>,
-    /// [rewrap] The source union for a pick's **unpicked** side, when it spans
-    /// several arms. Separate from `rewrap_from` because `_` never lifts: the
-    /// unpicked arms keep their tags [pick].
-    pub pick_left_from: HashMap<Key, Ty>,
-    /// [rewrap] Where a **sub-union value** is produced out of a wider storage,
-    /// the storage type it comes from — keyed by the site the emitters build the
-    /// value at (a lift binding, a pick's picked or unpicked side). With the
-    /// target type, which each site already records, this is the arm mapping
-    /// [let-infer]'s `Rewrap` coercion performs; these sites need it without
-    /// having a slot to hang a coercion on.
-    pub rewrap_from: HashMap<Key, Ty>,
-    /// [pick] The unpicked arm's **test** at each qualifier pick — how the
-    /// emitters reach `_`'s payload out of the subject.
-    pub pick_else_tests: HashMap<Key, UnionTest>,
     /// [pick] The **unpicked** arm at each qualifier pick — the type `_` reads
     /// as on the right-hand side, tag and all. Keyed by the operator's span.
     pub pick_left: HashMap<Key, Ty>,
-    /// [safe-call] The `?.` spans whose member is **already optional**, so the
-    /// result needs no second wrapper. Recorded because the inner access shares
-    /// the operator's span, leaving the emitters nothing to read it off.
-    pub safe_already_optional: HashSet<Key>,
     /// [safe-call] The receiver type a `?.` stripped, keyed by the receiver's
     /// span. Present only while the inner access is being typed; the checker
     /// reads it back instead of re-typing the receiver, which is also what keeps
@@ -865,11 +829,6 @@ pub struct Checked {
     pub factories: HashMap<Key, crate::abi::Factories>,
     /// [platform-factory] What every module's platform signatures reach.
     pub platform_closure_all: std::collections::BTreeSet<String>,
-    /// [iter-type] Every written `iter T` **pattern** that was filled from a
-    /// value — a `let` annotation, a fn's return type — keyed by the span of
-    /// the written type, with the concrete type it stands for. What the
-    /// emitters render in its place, and what hover shows.
-    pub iter_types: HashMap<Key, Ty>,
     /// The captured outer locals of each lambda [fate-lambda], keyed by
     /// the lambda expression's span (for tooling and future emission
     /// refinements; both emitters currently capture lexically, which is
@@ -6278,10 +6237,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         let entry = pool[0];
         // [fn-ref-table]
         self.out.fn_refs.insert(self.key(name_span), entry.key);
-        // [fn-rename] A renamed *value* is erased too.
-        if self.renamed(name).is_some() {
-            self.out.renamed_calls.insert(self.key(name_span));
-        }
         let decl = entry.decl;
         let saved = self.enter_generics(&decl.generics);
         let mut params: Vec<Ty> = decl.params.iter().map(|p| self.lower_type(&p.ty)).collect();
@@ -8643,7 +8598,6 @@ impl<'p, 'r> Checker<'p, 'r> {
             ));
         }
         let _ = mixed;
-        self.out.used_handlers.insert(id.name.clone());
         self.finish_use(id, concrete, deps, with_items, span);
     }
 
@@ -13401,7 +13355,6 @@ impl<'p, 'r> Checker<'p, 'r> {
             let arms = target.value_arms();
             match arms.iter().position(|arm| **arm == *message) {
                 Some(i) => {
-                    self.out.union_sizes.insert(arms.len());
                     return Some(i);
                 }
                 None => {
@@ -13890,7 +13843,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// `Addr<ActorGroup<E>>` for one of the faces the spawn answers, and that
     /// face's addr is what joins. A place, not a placement: the actor still
     /// runs on its pool, and the clause adds the one `join` send.
-    fn check_spawn_join(&mut self, group: &'p Expr, spawned: &Ty, span: Span) {
+    fn check_spawn_join(&mut self, group: &'p Expr, spawned: &Ty) {
         let gty = self.check_expr(group, None);
         if gty.is_unknown() || spawned.is_unknown() {
             return;
@@ -13913,9 +13866,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             other => addr_effect(other).into_iter().collect(),
         };
         match faces.iter().position(|f| *f == of) {
-            Some(i) => {
-                self.out.spawn_joins.insert(self.key(span), i);
-            }
+            Some(_) => {}
             None => {
                 let names: Vec<String> = faces.iter().map(|f| f.to_string()).collect();
                 self.error(
@@ -17672,9 +17623,6 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// Builds a union, recording the wrapper size when one is needed.
     fn mk_union(&mut self, arms: Vec<Ty>) -> Ty {
         let ty = Ty::union_of(arms);
-        if ty.is_wrapper_union() {
-            self.out.union_sizes.insert(ty.value_arms().len());
-        }
         ty
     }
 
@@ -20430,8 +20378,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         // *sub-union* of the storage, built by mapping arm to arm rather than by
         // reading one payload — the same mapping [let-infer]'s `Rewrap` performs
         // for an annotated slot, recorded here because these values have no slot.
-        let multi_picked = matched.len() > 1;
-        let multi_left = remaining.len() > 1;
         // The picked value: the arms, lifted when the pick said `^`.
         let lift_arm = |c: &mut Self, arm: &Ty| -> Option<Ty> {
             if pick.lift {
@@ -20461,66 +20407,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         } else {
             self.mk_union(remaining.clone())
         };
-        // The source unions for the two mappings, with the lift applied where it
-        // applies: the mapping pairs arms by type equality, and a lifted arm's
-        // type is the arm without its qualifier. Positions stay the storage's.
-        if multi_picked || multi_left {
-            let lifted_source: Vec<Ty> = match &subj_ty {
-                Ty::Union(arms) => arms
-                    .iter()
-                    .map(|a| {
-                        if self.arm_matches(a, &pat) && pick.lift {
-                            strip_quals_named(a, &pat.quals).unwrap_or_else(|| a.clone())
-                        } else {
-                            a.clone()
-                        }
-                    })
-                    .collect(),
-                other => vec![other.clone()],
-            };
-            if multi_picked {
-                self.out
-                    .rewrap_from
-                    .insert(self.key(span), Ty::Union(lifted_source.clone()));
-            }
-            if multi_left {
-                // `_`'s mapping never lifts: the unpicked arms keep their tags.
-                let left_source: Vec<Ty> = match &subj_ty {
-                    Ty::Union(arms) => arms.to_vec(),
-                    other => vec![other.clone()],
-                };
-                self.out
-                    .pick_left_from
-                    .insert(self.key(span), Ty::Union(left_source));
-            }
-        }
         // The arm tests the emitters need: which arm is picked, and what the
         // other one reads as. Expressed in [union-arm-identity]'s indices.
         if let Some(test) = self.union_test_for(&subj_ty, &pat) {
             self.out.is_tests.insert(self.key(span), test);
-        }
-        // The unpicked arm's test as well: the emitters read `_` out of the
-        // subject at *its* arm index, and only the checker knows the union's
-        // positional identity [union-arm-identity].
-        let value_arms = subj_ty.value_arms();
-        // Every unpicked arm's index, not just one: `_` may span several.
-        let left_idx: Vec<usize> = value_arms
-            .iter()
-            .enumerate()
-            .filter(|(_, a)| remaining.iter().any(|r| r == **a))
-            .map(|(i, _)| i)
-            .collect();
-        if !left_idx.is_empty() {
-            self.out.pick_else_tests.insert(
-                self.key(span),
-                UnionTest {
-                    size: value_arms.len(),
-                    arms: left_idx,
-                    nullable: subj_ty.has_none_arm(),
-                    match_none: false,
-                    values: Vec::new(),
-                },
-            );
         }
         self.out.elvis_picks.insert(self.key(span), picked.clone());
         self.out.pick_left.insert(self.key(span), left.clone());
@@ -20701,30 +20591,6 @@ impl<'p, 'r> Checker<'p, 'r> {
             // than the storage, so it is not a payload read: the emitters map
             // arm to arm. Recorded against the binding, which is where they
             // build it.
-            if multi_arm {
-                // The arms are recorded **as the lift leaves them**: the mapping
-                // pairs source to target by type *equality*, and a lifted arm's
-                // type is the arm without the qualifier. Positions are the
-                // storage's own, since qualifiers erase — so `Ok Int | Ok Str |
-                // Err Str` is recorded as `Int | Str | Err Str`, which maps arm
-                // 0 to 0, arm 1 to 1, and arm 2 to unreachable.
-                let lifted_arms: Vec<Ty> = match &subj_ty {
-                    Ty::Union(arms) => arms
-                        .iter()
-                        .map(|arm| {
-                            if self.arm_matches(arm, &pat) {
-                                strip_quals_named(arm, &pat.quals).unwrap_or_else(|| arm.clone())
-                            } else {
-                                arm.clone()
-                            }
-                        })
-                        .collect(),
-                    other => vec![other.clone()],
-                };
-                self.out
-                    .rewrap_from
-                    .insert(self.key(b.span), Ty::Union(lifted_arms));
-            }
             if self.ty_own_linear(&bty) {
                 self.out.linear_moves.insert(self.key(b.span));
             }
@@ -20862,9 +20728,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                     let vty = self.check_expr(value, None);
                     if let Err(why) = self.fills_iter_pattern(&vty, iter_pattern.as_ref().unwrap()) {
                         self.error(value.span(), why);
-                    }
-                    if let Some(t) = ty {
-                        self.out.iter_types.insert(self.key(t.span()), vty.clone());
                     }
                     annotated = None;
                     vty
@@ -22603,7 +22466,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // it off the inner node's type — the inner access shares this
                 // expression's span by construction.
                 if inner_ty.has_none_arm() {
-                    self.out.safe_already_optional.insert(self.key(*span));
+                    let _ = span;
                 }
                 Ty::union_of(vec![inner_ty, Ty::named("None")])
             }
@@ -22809,7 +22672,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             } => {
                 let ty = self.check_spawn(handler, with_items, pool.as_deref(), *span);
                 if let Some(group) = join {
-                    self.check_spawn_join(group, &ty, *span);
+                    self.check_spawn_join(group, &ty);
                 }
                 ty
             }
@@ -23853,16 +23716,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         match self.out.iter_returns.get(&key).cloned() {
             None => {
                 self.out.iter_returns.insert(key, vty.clone());
-                if let Some(span) = self.own_iter_ret {
-                    self.out.iter_types.insert(self.key(span), vty.clone());
-                }
             }
             Some(prior) if prior.strip_quals() == stripped => {
                 // Pre-resolved by the pre-pass: the emitters' record is this
                 // pass's to write.
-                if let Some(span) = self.own_iter_ret {
-                    self.out.iter_types.insert(self.key(span), prior);
-                }
             }
             Some(prior) => self.error(
                 at,
@@ -25334,9 +25191,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         let value_arms = repr.value_arms();
         let size = value_arms.len();
         let nullable = repr.has_none_arm();
-        if size >= 2 {
-            self.out.union_sizes.insert(size);
-        }
         if pat.is_none {
             return Some(UnionTest {
                 size,
@@ -25370,9 +25224,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         let declared = repr.value_arms();
         let size = crate::literal::runtime_size(repr);
         let nullable = repr.has_none_arm();
-        if size >= 2 {
-            self.out.union_sizes.insert(size);
-        }
         if pat.is_none {
             return Some(UnionTest { size, arms: Vec::new(), nullable, match_none: true, values: Vec::new() });
         }
@@ -25895,7 +25746,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if expected.is_wrapper_union() {
                     let arms = expected.value_arms();
                     if let Some(i) = arms.iter().position(|arm| **arm == effective) {
-                        self.out.union_sizes.insert(arms.len());
                         self.out.coerce.insert(
                             self.key(span),
                             Coercion::WrapUnion {
@@ -25924,10 +25774,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                 {
                     return;
                 }
-                self.out
-                    .union_sizes
-                    .insert(effective.value_arms().len().max(2));
-                self.out.union_sizes.insert(expected.value_arms().len());
                 self.out.coerce.insert(
                     self.key(span),
                     Coercion::Rewrap {
@@ -25952,14 +25798,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .collect();
             match matches.len() {
                 1 => {
-                    self.out.union_sizes.insert(arms.len());
                     // [qual-group] A value whose qualifier list flattened
                     // (`emitted(ok("x"))` for an `Emitted (Ok Str | Err Str)`
                     // arm) is physically the bare inner value: wrap it into
                     // the inner union first.
                     let inner = crate::types::nested_group_arm(&effective, arms[matches[0]]).map(
                         |(inner_ty, inner_arm)| {
-                            self.out.union_sizes.insert(inner_ty.value_arms().len());
                             Box::new(Coercion::WrapUnion {
                                 target: inner_ty,
                                 arm: inner_arm,
@@ -27777,8 +27621,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         // a rename, exactly the overload it points at.
         let candidates: Vec<crate::resolve::FnEntry<'p>> = self.overloads_of(name);
         if self.renamed(name).is_some() {
-            let key = self.key(span);
-            self.out.renamed_calls.insert(key);
             if at.is_some() {
                 self.error(
                     span,

@@ -40,7 +40,7 @@ Conventions:
     found the day it left `core` (2026-09-26). Identifiers keep the backquote
     form; only path segments mangle, because a package is not an identifier
     position.
-* [kt-ir] **The Kotlin emitter reads the IR** (IR.md; the AST emitter it
+* [kt-ir] **The Kotlin emitter reads the IR** (IR record; the AST emitter it
   replaced was deleted 2026-10-06). It decides representation only — wrapper
   unions, `T?`, `StringBuilder`, `when`/`if` chains, `while (true)` loops,
   anonymous `fun`s for lambdas, `run {}` blocks for values, monitors, the
