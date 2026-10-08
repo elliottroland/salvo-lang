@@ -19,6 +19,7 @@ use crate::emit::{
 };
 use crate::EmittedFile;
 
+mod actors;
 mod body;
 mod decls;
 
@@ -73,10 +74,14 @@ pub fn emit_program_ir(
         platform_hosts: BTreeSet::new(),
         borrowing: HashSet::new(),
         locs: HashSet::new(),
+        statics: HashMap::new(),
     };
     for m in &ir.modules {
         for d in &m.decls {
             shared.decls.insert(d.id().clone(), d);
+            if let Decl::Static(st) = d {
+                shared.statics.entry(m.path.clone()).or_default().insert(st.local.0.clone());
+            }
         }
     }
     // [rs-proj-struct] A struct holding a `proj` field (or a struct that
@@ -346,6 +351,8 @@ pub(crate) struct Shared<'p> {
     pub borrowing: HashSet<String>,
     /// [rs-loc] fns that get a locator variant (`f__loc`).
     pub locs: HashSet<DeclId>,
+    /// [mod-use] Per module, its statics' locals.
+    pub statics: HashMap<ModulePath, HashSet<String>>,
 }
 
 impl<'p> Shared<'p> {
@@ -471,6 +478,27 @@ impl<'p> Shared<'p> {
             borrows.iter().filter_map(|i| params.get(*i)).collect()
         };
         tps.iter().map(|t| t.name.clone()).filter(|v| !sources.iter().any(|p| mentions_var(&p.ty, v))).collect()
+    }
+
+    /// [runtime-kept-fn] [platform-fn-value] A fn-typed parameter of a
+    /// platform fn that the host keeps: `Some(boxed, once)` — boxed and
+    /// `Send + 'static` in the runtime, a plain `fn` pointer elsewhere.
+    pub fn kept_param(&self, f: &FnDecl, i: usize) -> Option<(bool, bool)> {
+        if f.kind != salvo_ir::FnKind::Platform || i < f.effect_params {
+            return None;
+        }
+        let af = self.ast_fn(&f.id)?;
+        let ap = af.params.iter().filter(|p| !p.implicit).nth(i - f.effect_params)?;
+        let once = matches!(&ap.ty, salvo_syntax::ast::Type::QualifiedGroup { qualifiers, base, .. } if qualifiers.iter().any(|q| q.name.name == "once") && matches!(base.as_ref(), salvo_syntax::ast::Type::Fn { .. }));
+        if !(matches!(ap.ty, salvo_syntax::ast::Type::Fn { .. }) || once) || !salvo_core::check::platform_keeps_param(af, ap) {
+            return None;
+        }
+        let file = self.program.files.iter().find(|x| x.module == f.id.module)?;
+        let runtime = file.is_std && file.module.0.first().is_some_and(|m| m == salvo_core::STD_INTERNAL);
+        if !runtime && !matches!(ap.ty, salvo_syntax::ast::Type::Fn { .. }) {
+            return None;
+        }
+        Some((runtime, once))
     }
 
     /// The parameter a fn's result borrows from.
@@ -627,7 +655,12 @@ pub(crate) fn strip_plain_proj(t: &Ty, vars: &HashSet<String>) -> Ty {
 }
 
 pub(crate) fn is_copy_ty(t: &Ty) -> bool {
-    matches!(t.strip_quals(), Ty::Named { name, args } if args.is_empty() && matches!(name.as_str(), "Int" | "Long" | "Float" | "Double" | "Bool" | "Char" | "Byte"))
+    match t.strip_quals() {
+        Ty::Named { name, args } if args.is_empty() => matches!(name.as_str(), "Int" | "Long" | "Float" | "Double" | "Bool" | "Char" | "Byte" | "Pool"),
+        // [runtime-handles] an actor's addr is a scheduler index.
+        Ty::Named { name, .. } => name == "Addr" || name == "Pool",
+        _ => false,
+    }
 }
 
 pub(crate) fn is_proj(t: &Ty) -> bool {

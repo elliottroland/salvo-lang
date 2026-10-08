@@ -62,6 +62,8 @@ pub(crate) struct FnState {
     pub throws: Option<Ty>,
     /// The enclosing `try`s: label and outcome type.
     pub tries: Vec<(String, Ty)>,
+    /// The impl whose member is being rendered (its key).
+    pub current_impl: Option<String>,
     /// [rs-fn-lend] Parameter types a callback's result may borrow from,
     /// with the named lifetime they share in the signature.
     pub tie: Vec<(Ty, String)>,
@@ -230,6 +232,18 @@ pub(crate) fn walk_expr(e: &Expr, fs: &mut impl FnMut(&Stmt), fe: &mut impl FnMu
     }
 }
 
+/// Whether an expression never yields (a block ending in a jump).
+pub(crate) fn diverges(e: &Expr) -> bool {
+    match &e.kind {
+        ExprKind::Throw { .. } | ExprKind::Unreachable { .. } => true,
+        ExprKind::Branch { arms, otherwise, .. } => {
+            let blk = |b: &Block| b.value.as_ref().map(|v| diverges(v)).unwrap_or_else(|| matches!(b.stmts.last(), Some(Stmt::Return(_) | Stmt::Break | Stmt::Continue)) || matches!(b.stmts.last(), Some(Stmt::Expr(x)) if diverges(x)));
+            arms.iter().all(|(_, b)| blk(b)) && otherwise.as_ref().map_or(arms.len() == 1 && matches!(arms[0].0.kind, ExprKind::Bool(true)), blk)
+        }
+        _ => false,
+    }
+}
+
 fn read_root(e: &Expr) -> Option<String> {
     match &e.kind {
         ExprKind::Read { place, .. } => Some(place.root.0.clone()),
@@ -343,6 +357,10 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             }
         }
         out
+    }
+
+    pub fn block_stmts_pub(&mut self, b: &Block, indent: usize) -> String {
+        self.stmts(&b.stmts, indent)
     }
 
     fn stmts(&mut self, stmts: &[Stmt], indent: usize) -> String {
@@ -518,6 +536,24 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
 
     /// The place's text and the kind of its root.
     fn place_text(&mut self, p: &Place, indent: usize) -> (String, Kind) {
+        // [mod-use] A module's static, through its accessor.
+        if !self.f.kinds.contains_key(&p.root.0) && self.s.statics.get(&self.module.path).is_some_and(|s| s.contains(&p.root.0)) {
+            let mut out = format!("{}{}()", self.s.prefix(&self.module.path), rs_local(&p.root.0));
+            for s in &p.steps {
+                match s {
+                    Step::Field(f) => {
+                        out.push('.');
+                        out.push_str(&rs_ident(f));
+                    }
+                    Step::Tuple(i) => out.push_str(&format!(".{i}")),
+                    Step::Index(e) => {
+                        let i = self.value(e, indent);
+                        out.push_str(&format!("[({i}) as usize]"));
+                    }
+                }
+            }
+            return (out, Kind::Ref);
+        }
         let kind = self.f.kinds.get(&p.root.0).copied().unwrap_or(Kind::Owned);
         let mut out = match kind {
             Kind::SelfField => format!("self.{}", rs_local(&p.root.0)),
@@ -574,6 +610,9 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         if let ExprKind::DropMut { value } = &e.kind {
             return self.borrow(value, indent);
         }
+        if diverges(e) {
+            return self.value(e, indent);
+        }
         if let ExprKind::Read { place, .. } = &e.kind {
             if self.f.kinds.get(&place.root.0) == Some(&Kind::Elem) {
                 let (text, _) = self.place_text(place, indent);
@@ -603,6 +642,9 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     pub fn borrow_mut(&mut self, e: &Expr, indent: usize) -> String {
         if let ExprKind::DropMut { value } = &e.kind {
             return self.borrow_mut(value, indent);
+        }
+        if diverges(e) {
+            return self.value(e, indent);
         }
         if let ExprKind::Read { place, .. } = &e.kind {
             let (text, kind) = self.place_text(place, indent);
@@ -638,7 +680,6 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
 
     /// An owned value of `e`'s type (a reference, for a `proj` type).
     pub fn value(&mut self, e: &Expr, indent: usize) -> String {
-        let pad = Self::pad(indent);
         match &e.kind {
             ExprKind::Int(v) => match e.ty.strip_quals() {
                 Ty::Named { name, .. } if name == "Long" => format!("{v}i64"),
@@ -669,8 +710,11 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     // An owned callback moves; a stored one is a shared `Arc`.
                     return if bare && kind == Kind::Owned { text } else if bare && kind == Kind::RefMut { text } else { format!("{text}.clone()") };
                 }
-                if *consume && kind == Kind::Owned && !self.through_ref(place) {
+                if (*consume || self.uncloneable(&e.ty)) && kind == Kind::Owned && !self.through_ref(place) {
                     text
+                } else if *consume && kind == Kind::SelfField && bare {
+                    // [state-take] a state field handed over, refilled before use.
+                    format!("std::mem::take(&mut {text})")
                 } else {
                     format!("{text}.clone()")
                 }
@@ -785,6 +829,13 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 None => format!("panic!(\"salvo: unreachable at {at}\")"),
             },
             ExprKind::Handle { .. } => self.handle(&e.ty.clone(), e, indent),
+            ExprKind::Spawn { handler, pool, join, .. } => self.spawn(handler, pool.as_deref(), join.as_deref(), indent),
+            ExprKind::Send { addr, member, args } => self.send(addr, member, args, indent),
+            ExprKind::ReplyTo { target, captures, gated, pool } => self.replyto(target, captures, *gated, pool.as_deref(), indent),
+            ExprKind::WaitFor { local, token_ty, body } => self.waitfor(local, token_ty, body, indent),
+            ExprKind::SelfAddr => "self.__addr.expect(\"an actor's own addr\")".to_string(),
+            ExprKind::SelfSend { member, args } => self.self_send(member, args, indent),
+            ExprKind::AddrInstance { addr } => self.addr_instance(e, addr, indent),
             ExprKind::Throw { message } => {
                 let mt = message.ty.clone();
                 let m = self.value(message, indent);
@@ -812,12 +863,13 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 self.error(format!("unsupported IR node: {what}"));
                 "()".to_string()
             }
-            _ => {
-                let _ = pad;
-                self.error(format!("the rust IR emitter does not render `{}` yet", kind_name(&e.kind)));
-                "()".to_string()
-            }
         }
+    }
+
+    /// [rs-host-fields] A value with no `Clone` (a reply token, a linear
+    /// host value): a read of it is a move.
+    pub fn uncloneable(&self, t: &Ty) -> bool {
+        self.host_limits_pub(t).1
     }
 
     /// Whether a place's path passes through a reference (so a move out of
@@ -1183,7 +1235,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 return format!("{pad}let mut {n} = {code};\n");
             }
             self.f.kinds.insert(local.0.clone(), Kind::Ref);
-            return format!("{pad}let mut {n} = &*{src};\n");
+            let r = if from.steps.is_empty() && matches!(root_kind, Kind::Ref | Kind::RefMut) { format!("&*{src}") } else { format!("&{src}") };
+            return format!("{pad}let mut {n} = {r};\n");
         }
         let pat = |i: usize, inner: &str| -> String {
             let p = format!("crate::unions::Union{nn}::U{}({inner})", i + 1);
@@ -1999,7 +2052,15 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 };
                 let ps = self.s.unalias_params(&f.params);
                 let covered = self.covered(f);
-                let (lets, a) = if covered.is_empty() { self.call_args(&ps, args, indent) } else { self.covered_args(&ps, args, &covered, indent) };
+                let (lets, mut a) = if covered.is_empty() { self.call_args(&ps, args, indent) } else { self.covered_args(&ps, args, &covered, indent) };
+                // [runtime-kept-fn] A kept callback: boxed and owned, or a
+                // plain fn.
+                for i in 0..args.len() {
+                    if let Some((boxed, _)) = self.s.kept_param(f, i) {
+                        let c = self.fn_arg(&args[i], &ps[i].ty, if boxed { FnPos::Owned } else { FnPos::Local }, indent);
+                        a[i] = if boxed { format!("std::boxed::Box::new({c})") } else { c };
+                    }
+                }
                 let path = self.fn_path(id);
                 let tps = f.type_params.len();
                 let erased = self.s.ast_fn(id).is_some_and(|af| {
@@ -2046,7 +2107,10 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         }
         if name == "discard" {
             let v = self.value(&args[0], indent);
-            return format!("std::mem::drop({v})");
+            return if is_copy_ty(&args[0].ty) { format!("{{ let _ = {v}; }}") } else { format!("std::mem::drop({v})") };
+        }
+        if let Some(code) = self.actor_intrinsic(e, name, recv, type_args, args, indent) {
+            return code;
         }
         if name == "to_str" && matches!(recv, Some("Double" | "Float")) {
             self.s.needs_str = true;
@@ -2112,17 +2176,3 @@ fn lit_code(l: &Lit) -> String {
     }
 }
 
-fn kind_name(k: &ExprKind) -> &'static str {
-    match k {
-        ExprKind::Try { .. } => "try",
-        ExprKind::Throw { .. } => "throw",
-        ExprKind::Spawn { .. } => "spawn",
-        ExprKind::Send { .. } => "send",
-        ExprKind::ReplyTo { .. } => "replyto",
-        ExprKind::WaitFor { .. } => "waitfor",
-        ExprKind::SelfAddr => "self addr",
-        ExprKind::AddrInstance { .. } => "addr instance",
-        ExprKind::SelfSend { .. } => "self send",
-        _ => "expression",
-    }
-}

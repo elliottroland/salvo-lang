@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 
 use salvo_core::types::Ty;
-use salvo_ir::{Decl, FnDecl, FnKind, ImplDecl, InterfaceDecl, Param, PassMode, StructDecl, TypeParam};
+use salvo_ir::{Decl, ExprKind, FnDecl, FnKind, ImplDecl, InterfaceDecl, Param, PassMode, Stmt, StructDecl, TypeParam};
 
 use super::{is_copy_ty, is_mut, is_proj, ModuleEmitter};
 use crate::emit::{
@@ -228,7 +228,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
 
     fn generics(&self, tps: &[TypeParam], bound: &str) -> Vec<String> {
         tps.iter()
-            .map(|t| if t.canbe_linear || bound.is_empty() { t.name.clone() } else { format!("{}: {bound}", t.name) })
+            .map(|t| if (t.canbe_linear && bound == "Clone") || bound.is_empty() { t.name.clone() } else { format!("{}: {bound}", t.name) })
             .collect()
     }
 
@@ -331,6 +331,10 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 "\nimpl{g} crate::wire::__Wire for {name}{args} {{\n    fn __enc(&self, out: &mut Vec<u8>) {{\n{enc}    }}\n    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {{\n        Some(Self {{\n{dec}        }})\n    }}\n}}\n"
             ));
         }
+    }
+
+    pub fn host_limits_pub(&self, t: &Ty) -> (bool, bool) {
+        self.host_limits(t, 0)
     }
 
     /// [rs-host-fields] (no `Debug`/`PartialEq`, no `Clone`) of a field type.
@@ -468,7 +472,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         out.push_str("}\n");
         self.out.push_str(&out);
         if i.actor {
-            self.error(format!("actor effect `{}` is not rendered by the rust IR emitter yet", i.name));
+            self.actor_interface(i);
         }
         self.platform_interface(i, &sigs);
     }
@@ -570,8 +574,14 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             ));
             return;
         }
-        if h.faces.iter().any(|f| self.face_is_actor(f)) || h.members.iter().any(|m| m.send) {
-            self.error(format!("actor handler `{}` is not rendered by the rust IR emitter yet", h.name));
+        let actor_faces = self.actor_faces(h);
+        let is_actor = !actor_faces.is_empty();
+        if is_actor && actor_faces.len() != h.faces.len() {
+            self.error(format!("handler `{}` mixes actor and plain effects, which the rust backend does not render", h.name));
+            return;
+        }
+        if self.is_mixed(h) {
+            self.error(format!("mixed handler `{}` is not rendered by the rust IR emitter yet", h.name));
             return;
         }
         let name = rs_ident(&h.name);
@@ -617,9 +627,15 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             };
             state_inits.push(format!("{}: {init}", rs_ident(&f.name)));
         }
+        let mut actor_inits = Vec::new();
+        if is_actor {
+            let (fs, is) = self.actor_fields(h, &actor_faces);
+            fields.extend(fs);
+            actor_inits = is;
+        }
         let all: String = fields.iter().map(|(_, t)| t.as_str()).collect::<Vec<_>>().join(" ");
         let phantom: Vec<&String> = tps.iter().filter(|t| !mentions_word(&all, t)).collect();
-        let shareable = h.state.is_empty() && !h.ctor_params.iter().any(|p| matches!(p.ty.strip_quals(), Ty::Fn { .. }));
+        let shareable = !is_actor && h.state.is_empty() && !h.ctor_params.iter().any(|p| matches!(p.ty.strip_quals(), Ty::Fn { .. }));
         let mut out = format!("\n{}pub struct {name}{g_bounded} {{\n", if shareable { "#[derive(Clone)]\n" } else { "" });
         for (n, t) in &fields {
             out.push_str(&format!("    {n}: {t},\n"));
@@ -641,14 +657,72 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             }
         }
         field_inits.extend(state_inits);
+        field_inits.extend(actor_inits);
         for t in &phantom {
             field_inits.push(format!("__phantom_{t}: std::marker::PhantomData"));
         }
-        new_body.push_str(&format!("        Self {{\n            {}\n        }}\n", field_inits.join(",\n            ")));
-        out.push_str(&format!("\nimpl{g_bounded} {name}{g_args} {{\n    pub fn new({}) -> Self {{\n{new_body}    }}\n}}\n", ctor.join(", ")));
-        if h.init.is_some() {
-            self.error(format!("handler `{}`: `init` is not rendered by the rust IR emitter yet", h.name));
+        let built = format!("Self {{\n            {}\n        }}", field_inits.join(",\n            "));
+        // [handler-init] run once, right after construction.
+        let mut init_fn = String::new();
+        if let Some(init) = &h.init {
+            // An actor's `init` is its first message [handler-init].
+            if is_actor {
+                new_body.push_str(&format!("        {built}\n"));
+            } else {
+                new_body.push_str(&format!("        let mut __s = {built};\n        __s.init();\n        __s\n"));
+            }
+            self.f = super::body::FnState::default();
+            self.f.current_impl = Some(self.s.key_of(&h.id, &h.name));
+            self.f.generics = h.type_params.iter().map(|t| t.name.clone()).collect();
+            for p in &h.ctor_params {
+                self.f.kinds.insert(p.local.0.clone(), super::body::Kind::SelfField);
+            }
+            for (i, _) in h.deps.iter().enumerate() {
+                self.f.kinds.insert(format!("__dep{i}"), super::body::Kind::SelfField);
+            }
+            for s in &h.state {
+                self.f.kinds.insert(s.name.clone(), super::body::Kind::SelfField);
+            }
+            self.f.ret = Some(Ty::none());
+            let body = match &init.body {
+                Some(b) => self.fn_body(b, 2),
+                None => String::new(),
+            };
+            init_fn = format!("    fn init(&mut self) {{\n{body}    }}\n");
+        } else {
+            new_body.push_str(&format!("        {built}\n"));
         }
+        // [actor-private-send] Private send members are inherent methods.
+        let mut privs = String::new();
+        for m in Self::private_sends(h, &actor_faces) {
+            self.f = super::body::FnState::default();
+            self.f.current_impl = Some(self.s.key_of(&h.id, &h.name));
+            self.f.generics = h.type_params.iter().map(|t| t.name.clone()).collect();
+            for p in &h.ctor_params {
+                self.f.kinds.insert(p.local.0.clone(), super::body::Kind::SelfField);
+            }
+            for (i, _) in h.deps.iter().enumerate() {
+                self.f.kinds.insert(format!("__dep{i}"), super::body::Kind::SelfField);
+            }
+            for s in &h.state {
+                self.f.kinds.insert(s.name.clone(), super::body::Kind::SelfField);
+            }
+            let mut ps = Vec::new();
+            for p in m.params.iter().skip(m.effect_params) {
+                // A message's payload is owned.
+                let p = &Param { mode: PassMode::Moved, ..p.clone() };
+                self.f.bind_param(&p.local.0, p);
+                let t = self.param_ty(p, FnPos::DynParam);
+                ps.push(format!(", {}: {t}", rs_ident(&p.local.0)));
+            }
+            self.f.ret = Some(m.ret.clone());
+            let body = match &m.body {
+                Some(b) => self.fn_body(b, 2),
+                None => String::new(),
+            };
+            privs.push_str(&format!("    fn {}(&mut self{}) {{\n{body}    }}\n", rs_ident(&m.name), ps.join("")));
+        }
+        out.push_str(&format!("\nimpl{g_bounded} {name}{g_args} {{\n    pub fn new({}) -> Self {{\n{new_body}    }}\n{init_fn}{privs}}}\n", ctor.join(", ")));
         let stateful = h.stateful;
         for face in &h.faces {
             let Ty::Named { name: fname, args } = face.strip_quals() else { continue };
@@ -662,7 +736,18 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             let ta = if ta.is_empty() { String::new() } else { format!("<{}>", ta.join(", ")) };
             out.push_str(&format!("\nimpl{g_bounded} {prefix}{tr}{ta} for {name}{g_args} {{\n"));
             for m in &iface.members {
-                let Some(body) = h.members.iter().find(|f| f.name == m.name && self.member_matches(f, m)) else {
+                // [effect-member-overload] the body whose parameters match.
+                let subst: std::collections::HashMap<String, Ty> = iface.type_params.iter().map(|t| t.name.clone()).zip(args.iter().cloned()).collect();
+                let cands: Vec<&FnDecl> = h.members.iter().filter(|f| f.name == m.name && self.member_matches(f, m)).collect();
+                let pick = if cands.len() > 1 {
+                    cands.iter().copied().find(|f| {
+                        let own: Vec<&Param> = f.params.iter().skip(f.effect_params).collect();
+                        own.iter().zip(&m.params).all(|(a, b)| super::body::strip_all_pub(&a.ty) == super::body::strip_all_pub(&subst_ty(&b.ty, &subst)))
+                    })
+                } else {
+                    cands.first().copied()
+                };
+                let Some(body) = pick else {
                     self.error(format!("handler `{}` has no member `{}`", h.name, m.name));
                     continue;
                 };
@@ -671,19 +756,15 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             }
             out.push_str("}\n");
         }
+        if is_actor {
+            out.push_str(&self.actor_body(h, &actor_faces));
+        }
         self.out.push_str(&out);
     }
 
     fn member_matches(&self, f: &FnDecl, m: &salvo_ir::Member) -> bool {
         let declared = f.params.len() - f.effect_params;
         declared == m.params.len() || f.params.len() == m.params.len()
-    }
-
-    pub fn face_is_actor(&self, f: &Ty) -> bool {
-        match f.strip_quals() {
-            Ty::Named { name, .. } => self.s.symbols.effects.get(name.as_str()).is_some_and(|e| e.is_actor),
-            _ => false,
-        }
     }
 
     /// The module prefix of a type key.
@@ -711,6 +792,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         };
         let sig = self.member_sig(&sig_member).replace("&RECV", if stateful { "&mut self" } else { "&self" });
         self.f = super::body::FnState::default();
+        self.f.current_impl = Some(self.s.key_of(&h.id, &h.name));
         self.f.generics = h.type_params.iter().chain(&f.type_params).map(|t| t.name.clone()).collect();
         for p in &h.ctor_params {
             self.f.kinds.insert(p.local.0.clone(), super::body::Kind::SelfField);
@@ -836,7 +918,16 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             let borrowed = lt.as_ref().is_some_and(|(_, b)| b.contains(&p.local.0));
             self.f.lt = if borrowed { lt.as_ref().map(|(l, _)| l.clone()) } else { None };
             let pos = if stores { FnPos::Owned } else if implicit || recv.is_some() { FnPos::DynParam } else { FnPos::Param };
-            let t = self.param_ty(p, pos);
+            let mut t = self.param_ty(p, pos);
+            if let Some((boxed, once)) = self.s.kept_param(f, i) {
+                let sig = self.fn_ty(&p.ty, FnPos::DynParam);
+                let sig = sig.trim_start_matches("&mut dyn FnMut").to_string();
+                t = if boxed {
+                    format!("std::boxed::Box<dyn {}{sig} + Send + 'static>", if once { "FnOnce" } else { "FnMut" })
+                } else {
+                    format!("fn{sig}")
+                };
+            }
             self.f.lt = None;
             let mut kind = self.f.bind_param(&p.local.0, p);
             if pos == FnPos::Owned && matches!(p.ty.strip_quals(), Ty::Fn { .. }) {
@@ -880,6 +971,9 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let Some(b) = &f.body else { return String::new() };
         let _ = is_main;
         let mut body = self.fn_body(b, indent + 1);
+        if is_main && indent == 0 && !loc {
+            body = format!("{}{body}", self.protocol_prelude());
+        }
         if self.f.throws.is_some() && f.ret.is_none_ty() {
             body.push_str(&format!("{pad}    return std::ops::ControlFlow::Continue(());\n"));
         }
@@ -976,9 +1070,77 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         String::new()
     }
 
+    /// [mod-use] A module-level `use`: a lazily built `'static`, reached
+    /// through an accessor fn. A handler instance is held shared (its faces'
+    /// handles share it); a face is its handle.
     fn static_decl(&mut self, st: &salvo_ir::StaticDecl) {
-        let _ = st;
-        self.error("module-level `use` is not rendered by the rust IR emitter yet");
+        self.f = super::body::FnState::default();
+        let name = super::body::rs_local(&st.local.0);
+        let Some(Stmt::Let { value, .. }) = st.stmts.first() else {
+            self.error("a module-level `use` with no binding");
+            return;
+        };
+        let is_instance = matches!(st.ty.strip_quals(), Ty::Named { name, .. } if self.s.symbols.handlers.contains_key(name.as_str()));
+        let (ty, init) = if is_instance {
+            let h = self.ty(&st.ty);
+            let stateful = match st.ty.strip_quals() {
+                Ty::Named { name, .. } => match self.s.impl_decl(name) {
+                    Some(h) if h.platform => !h.threadsafe,
+                    Some(h) => h.stateful,
+                    None => true,
+                },
+                _ => true,
+            };
+            let v = self.value(value, 2);
+            if stateful {
+                (format!("std::sync::Arc<std::sync::Mutex<{h}>>"), format!("std::sync::Arc::new(std::sync::Mutex::new({v}))"))
+            } else {
+                (format!("std::sync::Arc<{h}>"), format!("std::sync::Arc::new({v})"))
+            }
+        } else {
+            let face = match st.ty.strip_quals() {
+                Ty::Named { name, .. } => self.type_path(name),
+                _ => self.ty(&st.ty),
+            };
+            let t = self.ty(&st.ty);
+            let inst = match &value.kind {
+                ExprKind::Handle { instance } => instance.as_ref(),
+                ExprKind::Read { .. } => value,
+                _ => {
+                    // The face itself (an addr's instance).
+                    let v = self.value(value, 2);
+                    self.out.push_str(&format!(
+                        "\npub fn {name}() -> &'static {t} {{\n    static CELL: std::sync::OnceLock<{t}> = std::sync::OnceLock::new();\n    CELL.get_or_init(|| {v})\n}}\n"
+                    ));
+                    return;
+                }
+            };
+            let (src, _) = match &inst.kind {
+                ExprKind::Read { place, .. } => (format!("{}{}()", self.s.prefix(&self.module.path), super::body::rs_local(&place.root.0)), ()),
+                _ => (self.value(inst, 2), ()),
+            };
+            let inst_ty = match &inst.kind {
+                ExprKind::Read { place, .. } => self.module.decls.iter().find_map(|d| match d {
+                    Decl::Static(s) if s.local == place.root => Some(s.ty.clone()),
+                    _ => None,
+                }),
+                _ => None,
+            }
+            .unwrap_or_else(|| inst.ty.clone());
+            let stateful = match inst_ty.strip_quals() {
+                Ty::Named { name, .. } => match self.s.impl_decl(name) {
+                    Some(h) if h.platform => !h.threadsafe,
+                    Some(h) => h.stateful,
+                    None => true,
+                },
+                _ => true,
+            };
+            let mk = if stateful { "share_locked" } else { "share_shared" };
+            (t, format!("{face}::{mk}({src}.clone())"))
+        };
+        self.out.push_str(&format!(
+            "\npub fn {name}() -> &'static {ty} {{\n    static CELL: std::sync::OnceLock<{ty}> = std::sync::OnceLock::new();\n    CELL.get_or_init(|| {init})\n}}\n"
+        ));
     }
 }
 
