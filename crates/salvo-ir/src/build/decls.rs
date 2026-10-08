@@ -364,6 +364,7 @@ fn impl_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, h: &ast::HandlerDecl, s
     let parks = ctx.checked.parking_handlers.contains(&h.name.name);
     ImplDecl {
         dispatch: Vec::new(),
+        stub: false,
         id,
         name: h.name.name.clone(),
         exported: h.exported,

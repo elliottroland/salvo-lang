@@ -211,43 +211,16 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             self.error(format!("actor effect `{}` is generic over values, which the IR emitter cannot make a protocol of yet", i.name));
             return;
         }
-        let msg = format!("__Msg_{}", i.name);
-        if !self.interface_has_wire(i) {
-            // [actor-use-addr] the stub still sends, in-process.
-            self.out.push_str(&format!("\nclass __Stub_{0}(private val addr: Int) : {0} {{\n", i.name));
-            for m in &sends {
-                let ps = self.params(&m.params);
-                let names: Vec<String> = m.params.iter().map(|p| kt_local(&p.local)).collect();
-                self.out.push_str(&format!(
-                    "    override fun {}({ps}) {{\n        salvo.SalvoSched.send(addr, {msg}.{}({}))\n    }}\n",
-                    kt_ident(&m.emitted_name),
-                    variant(&m.emitted_name),
-                    names.join(", ")
-                ));
-            }
-            self.out.push_str("}\n");
-            return;
-        }
-        // [actor-use-addr] the stub: the interface implemented by sending.
-        self.out.push_str(&format!("\nclass __Stub_{0}(private val addr: Int) : {0} {{\n", i.name));
-        for m in &sends {
-            let ps = self.params(&m.params);
-            let names: Vec<String> = m.params.iter().map(|p| kt_local(&p.local)).collect();
-            self.out.push_str(&format!(
-                "    override fun {}({ps}) {{\n        salvo.SalvoSched.sendWire(addr, {msg}.{}({}), __PROTO_{}, __Codec_{msg})\n    }}\n",
-                kt_ident(&m.emitted_name),
-                variant(&m.emitted_name),
-                names.join(", "),
-                i.name
-            ));
-        }
-        self.out.push_str("}\n");
     }
 
     /// The actor interfaces an impl serves, in face order. Empty for a
     /// handler of plain effects; a handler mixing the two kinds is refused by
     /// the caller ([mixed-handler] is not rendered over the IR yet).
     pub(super) fn actor_faces(&self, h: &ImplDecl) -> Vec<&'p InterfaceDecl> {
+        // A stub implements an actor interface without being an actor.
+        if h.stub {
+            return Vec::new();
+        }
         h.faces
             .iter()
             .filter_map(|f| match f.strip_quals() {

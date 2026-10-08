@@ -80,12 +80,6 @@ class __Mon_Inbound(
     }
 }
 
-class __Stub_Inbound(private val addr: Int) : Inbound {
-    override fun receiveFrame(from: NodeEndpoint, frame: salvo.platform.core.bytes.Bytes) {
-        salvo.SalvoSched.sendWire(addr, __Msg_Inbound.ReceiveFrame(from, frame), __PROTO_Inbound, __Codec___Msg_Inbound)
-    }
-}
-
 interface Transport {
     fun listen(at: NodeEndpoint, sink: Int): Union2<Unit, Union2<Unreachable, WireFailed>>
     fun unlisten(at: NodeEndpoint)
@@ -217,12 +211,6 @@ class __Mon_Outbound(
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.sendFrame(to, frame) } finally { lock.unlock() }
-    }
-}
-
-class __Stub_Outbound(private val addr: Int) : Outbound {
-    override fun sendFrame(to: NodeEndpoint, frame: salvo.platform.core.bytes.Bytes) {
-        salvo.SalvoSched.sendWire(addr, __Msg_Outbound.SendFrame(to, frame), __PROTO_Outbound, __Codec___Msg_Outbound)
     }
 }
 
@@ -370,18 +358,6 @@ class __Mon_NodeGroup(
     }
 }
 
-class __Stub_NodeGroup(private val addr: Int) : NodeGroup {
-    override fun members(out: salvo.SalvoReply) {
-        salvo.SalvoSched.sendWire(addr, __Msg_NodeGroup.Members(out), __PROTO_NodeGroup, __Codec___Msg_NodeGroup)
-    }
-    override fun subscribe(w: Int) {
-        salvo.SalvoSched.sendWire(addr, __Msg_NodeGroup.Subscribe(w), __PROTO_NodeGroup, __Codec___Msg_NodeGroup)
-    }
-    override fun leave() {
-        salvo.SalvoSched.sendWire(addr, __Msg_NodeGroup.Leave(), __PROTO_NodeGroup, __Codec___Msg_NodeGroup)
-    }
-}
-
 interface NodeGroupWatcher {
     fun joined(n: Node)
     fun left(n: Node, why: String)
@@ -400,15 +376,6 @@ class __Mon_NodeGroupWatcher(
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.left(n, why) } finally { lock.unlock() }
-    }
-}
-
-class __Stub_NodeGroupWatcher(private val addr: Int) : NodeGroupWatcher {
-    override fun joined(n: Node) {
-        salvo.SalvoSched.sendWire(addr, __Msg_NodeGroupWatcher.Joined(n), __PROTO_NodeGroupWatcher, __Codec___Msg_NodeGroupWatcher)
-    }
-    override fun left(n: Node, why: String) {
-        salvo.SalvoSched.sendWire(addr, __Msg_NodeGroupWatcher.Left(n, why), __PROTO_NodeGroupWatcher, __Codec___Msg_NodeGroupWatcher)
     }
 }
 
@@ -877,24 +844,6 @@ class __Mon_ActorGroup(
     }
 }
 
-class __Stub_ActorGroup(private val addr: Int) : ActorGroup {
-    override fun join(member: Int) {
-        salvo.SalvoSched.sendWire(addr, __Msg_ActorGroup.Join(member), __PROTO_ActorGroup, __Codec___Msg_ActorGroup)
-    }
-    override fun leave(member: Int) {
-        salvo.SalvoSched.sendWire(addr, __Msg_ActorGroup.Leave(member), __PROTO_ActorGroup, __Codec___Msg_ActorGroup)
-    }
-    override fun members(out: salvo.SalvoReply) {
-        salvo.SalvoSched.sendWire(addr, __Msg_ActorGroup.Members(out), __PROTO_ActorGroup, __Codec___Msg_ActorGroup)
-    }
-    override fun subscribe(w: Int) {
-        salvo.SalvoSched.sendWire(addr, __Msg_ActorGroup.Subscribe(w), __PROTO_ActorGroup, __Codec___Msg_ActorGroup)
-    }
-    override fun refresh() {
-        salvo.SalvoSched.sendWire(addr, __Msg_ActorGroup.Refresh(), __PROTO_ActorGroup, __Codec___Msg_ActorGroup)
-    }
-}
-
 interface ActorGroupWatcher {
     fun joined(member: Int)
     fun left(member: Int)
@@ -913,15 +862,6 @@ class __Mon_ActorGroupWatcher(
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.left(member) } finally { lock.unlock() }
-    }
-}
-
-class __Stub_ActorGroupWatcher(private val addr: Int) : ActorGroupWatcher {
-    override fun joined(member: Int) {
-        salvo.SalvoSched.sendWire(addr, __Msg_ActorGroupWatcher.Joined(member), __PROTO_ActorGroupWatcher, __Codec___Msg_ActorGroupWatcher)
-    }
-    override fun left(member: Int) {
-        salvo.SalvoSched.sendWire(addr, __Msg_ActorGroupWatcher.Left(member), __PROTO_ActorGroupWatcher, __Codec___Msg_ActorGroupWatcher)
     }
 }
 
@@ -1480,30 +1420,6 @@ class __Mon_MemNet(
     }
 }
 
-class __Stub_MemNet(private val addr: Int) : MemNet {
-    override fun attach(at: NodeEndpoint, sink: Int) {
-        salvo.SalvoSched.sendWire(addr, __Msg_MemNet.Attach(at, sink), __PROTO_MemNet, __Codec___Msg_MemNet)
-    }
-    override fun detach(at: NodeEndpoint) {
-        salvo.SalvoSched.sendWire(addr, __Msg_MemNet.Detach(at), __PROTO_MemNet, __Codec___Msg_MemNet)
-    }
-    override fun route(from: NodeEndpoint, to: NodeEndpoint, out: salvo.SalvoReply) {
-        salvo.SalvoSched.sendWire(addr, __Msg_MemNet.Route(from, to, out), __PROTO_MemNet, __Codec___Msg_MemNet)
-    }
-    override fun partition(a: NodeEndpoint, b: NodeEndpoint) {
-        salvo.SalvoSched.sendWire(addr, __Msg_MemNet.Partition(a, b), __PROTO_MemNet, __Codec___Msg_MemNet)
-    }
-    override fun heal(a: NodeEndpoint, b: NodeEndpoint) {
-        salvo.SalvoSched.sendWire(addr, __Msg_MemNet.Heal(a, b), __PROTO_MemNet, __Codec___Msg_MemNet)
-    }
-    override fun kill(node: NodeEndpoint) {
-        salvo.SalvoSched.sendWire(addr, __Msg_MemNet.Kill(node), __PROTO_MemNet, __Codec___Msg_MemNet)
-    }
-    override fun delivered(out: salvo.SalvoReply) {
-        salvo.SalvoSched.sendWire(addr, __Msg_MemNet.Delivered(out), __PROTO_MemNet, __Codec___Msg_MemNet)
-    }
-}
-
 class MemNetwork : MemNet {
     val __mailboxCapacity: Int = 64
     var __addr: Int? = null
@@ -1923,6 +1839,90 @@ sealed class __Cont_MemNetwork {
     class Heal(val a: NodeEndpoint) : __Cont_MemNetwork()
     class Kill() : __Cont_MemNetwork()
     class Delivered() : __Cont_MemNetwork()
+}
+
+class __Stub_Inbound(private val addr: Int) : Inbound {
+    override fun receiveFrame(from: NodeEndpoint, frame: salvo.platform.core.bytes.Bytes) {
+        salvo.SalvoSched.sendWire(addr, __Msg_Inbound.ReceiveFrame(from, frame), __PROTO_Inbound, __Codec___Msg_Inbound)
+    }
+}
+
+class __Stub_Outbound(private val addr: Int) : Outbound {
+    override fun sendFrame(to: NodeEndpoint, frame: salvo.platform.core.bytes.Bytes) {
+        salvo.SalvoSched.sendWire(addr, __Msg_Outbound.SendFrame(to, frame), __PROTO_Outbound, __Codec___Msg_Outbound)
+    }
+}
+
+class __Stub_NodeGroup(private val addr: Int) : NodeGroup {
+    override fun members(out: salvo.SalvoReply) {
+        salvo.SalvoSched.sendWire(addr, __Msg_NodeGroup.Members(out), __PROTO_NodeGroup, __Codec___Msg_NodeGroup)
+    }
+    override fun subscribe(w: Int) {
+        salvo.SalvoSched.sendWire(addr, __Msg_NodeGroup.Subscribe(w), __PROTO_NodeGroup, __Codec___Msg_NodeGroup)
+    }
+    override fun leave() {
+        salvo.SalvoSched.sendWire(addr, __Msg_NodeGroup.Leave(), __PROTO_NodeGroup, __Codec___Msg_NodeGroup)
+    }
+}
+
+class __Stub_NodeGroupWatcher(private val addr: Int) : NodeGroupWatcher {
+    override fun joined(n: Node) {
+        salvo.SalvoSched.sendWire(addr, __Msg_NodeGroupWatcher.Joined(n), __PROTO_NodeGroupWatcher, __Codec___Msg_NodeGroupWatcher)
+    }
+    override fun left(n: Node, why: String) {
+        salvo.SalvoSched.sendWire(addr, __Msg_NodeGroupWatcher.Left(n, why), __PROTO_NodeGroupWatcher, __Codec___Msg_NodeGroupWatcher)
+    }
+}
+
+class __Stub_ActorGroup(private val addr: Int) : ActorGroup {
+    override fun join(member: Int) {
+        salvo.SalvoSched.sendWire(addr, __Msg_ActorGroup.Join(member), __PROTO_ActorGroup, __Codec___Msg_ActorGroup)
+    }
+    override fun leave(member: Int) {
+        salvo.SalvoSched.sendWire(addr, __Msg_ActorGroup.Leave(member), __PROTO_ActorGroup, __Codec___Msg_ActorGroup)
+    }
+    override fun members(out: salvo.SalvoReply) {
+        salvo.SalvoSched.sendWire(addr, __Msg_ActorGroup.Members(out), __PROTO_ActorGroup, __Codec___Msg_ActorGroup)
+    }
+    override fun subscribe(w: Int) {
+        salvo.SalvoSched.sendWire(addr, __Msg_ActorGroup.Subscribe(w), __PROTO_ActorGroup, __Codec___Msg_ActorGroup)
+    }
+    override fun refresh() {
+        salvo.SalvoSched.sendWire(addr, __Msg_ActorGroup.Refresh(), __PROTO_ActorGroup, __Codec___Msg_ActorGroup)
+    }
+}
+
+class __Stub_ActorGroupWatcher(private val addr: Int) : ActorGroupWatcher {
+    override fun joined(member: Int) {
+        salvo.SalvoSched.sendWire(addr, __Msg_ActorGroupWatcher.Joined(member), __PROTO_ActorGroupWatcher, __Codec___Msg_ActorGroupWatcher)
+    }
+    override fun left(member: Int) {
+        salvo.SalvoSched.sendWire(addr, __Msg_ActorGroupWatcher.Left(member), __PROTO_ActorGroupWatcher, __Codec___Msg_ActorGroupWatcher)
+    }
+}
+
+class __Stub_MemNet(private val addr: Int) : MemNet {
+    override fun attach(at: NodeEndpoint, sink: Int) {
+        salvo.SalvoSched.sendWire(addr, __Msg_MemNet.Attach(at, sink), __PROTO_MemNet, __Codec___Msg_MemNet)
+    }
+    override fun detach(at: NodeEndpoint) {
+        salvo.SalvoSched.sendWire(addr, __Msg_MemNet.Detach(at), __PROTO_MemNet, __Codec___Msg_MemNet)
+    }
+    override fun route(from: NodeEndpoint, to: NodeEndpoint, out: salvo.SalvoReply) {
+        salvo.SalvoSched.sendWire(addr, __Msg_MemNet.Route(from, to, out), __PROTO_MemNet, __Codec___Msg_MemNet)
+    }
+    override fun partition(a: NodeEndpoint, b: NodeEndpoint) {
+        salvo.SalvoSched.sendWire(addr, __Msg_MemNet.Partition(a, b), __PROTO_MemNet, __Codec___Msg_MemNet)
+    }
+    override fun heal(a: NodeEndpoint, b: NodeEndpoint) {
+        salvo.SalvoSched.sendWire(addr, __Msg_MemNet.Heal(a, b), __PROTO_MemNet, __Codec___Msg_MemNet)
+    }
+    override fun kill(node: NodeEndpoint) {
+        salvo.SalvoSched.sendWire(addr, __Msg_MemNet.Kill(node), __PROTO_MemNet, __Codec___Msg_MemNet)
+    }
+    override fun delivered(out: salvo.SalvoReply) {
+        salvo.SalvoSched.sendWire(addr, __Msg_MemNet.Delivered(out), __PROTO_MemNet, __Codec___Msg_MemNet)
+    }
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")

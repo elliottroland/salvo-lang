@@ -129,25 +129,6 @@ impl Counter {
     }
 }
 
-pub struct __Stub_Counter {
-    addr: usize,
-}
-
-impl __Stub_Counter {
-    pub fn new(addr: usize) -> Self {
-        Self { addr }
-    }
-}
-
-impl __Stateless_Counter for __Stub_Counter {
-    fn bump(&self, n: i32) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_Counter::Bump(n), crate::__PROTO_Counter);
-    }
-    fn total(&self, out: crate::scheduler::SalvoReply) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_Counter::Total(out), crate::__PROTO_Counter);
-    }
-}
-
 pub struct Counting {
     sum: i32,
     pub __mailbox_capacity: i32,
@@ -271,25 +252,6 @@ impl Ledger {
             __Inner_Ledger::Shared(h) => h.reported(label, out, total),
             __Inner_Ledger::Locked(h) => h.lock().unwrap().reported(label, out, total),
         }
-    }
-}
-
-pub struct __Stub_Ledger {
-    addr: usize,
-}
-
-impl __Stub_Ledger {
-    pub fn new(addr: usize) -> Self {
-        Self { addr }
-    }
-}
-
-impl __Stateless_Ledger for __Stub_Ledger {
-    fn report(&self, label: String, out: crate::scheduler::SalvoReply) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_Ledger::Report(label, out), crate::__PROTO_Ledger);
-    }
-    fn reported(&self, label: String, out: crate::scheduler::SalvoReply, total: i32) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_Ledger::Reported(label, out, total), crate::__PROTO_Ledger);
     }
 }
 
@@ -427,28 +389,6 @@ impl Desk {
     }
 }
 
-pub struct __Stub_Desk {
-    addr: usize,
-}
-
-impl __Stub_Desk {
-    pub fn new(addr: usize) -> Self {
-        Self { addr }
-    }
-}
-
-impl __Stateless_Desk for __Stub_Desk {
-    fn ticket(&self, out: crate::scheduler::SalvoReply) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_Desk::Ticket(out), crate::__PROTO_Desk);
-    }
-    fn serve(&self, name: String) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_Desk::Serve(name), crate::__PROTO_Desk);
-    }
-    fn close_up(&self, reason: String) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_Desk::CloseUp(reason), crate::__PROTO_Desk);
-    }
-}
-
 pub struct Desking {
     room: i32,
     waiting: std::collections::VecDeque<crate::scheduler::SalvoReply>,
@@ -580,22 +520,6 @@ impl Fragile {
             __Inner_Fragile::Shared(h) => h.crash(),
             __Inner_Fragile::Locked(h) => h.lock().unwrap().crash(),
         }
-    }
-}
-
-pub struct __Stub_Fragile {
-    addr: usize,
-}
-
-impl __Stub_Fragile {
-    pub fn new(addr: usize) -> Self {
-        Self { addr }
-    }
-}
-
-impl __Stateless_Fragile for __Stub_Fragile {
-    fn crash(&self) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_Fragile::Crash, crate::__PROTO_Fragile);
     }
 }
 
@@ -881,6 +805,94 @@ pub enum __Cont_Desking {
     Ticket,
     Serve,
     CloseUp,
+}
+
+#[derive(Clone)]
+pub struct __Stub_Counter {
+    addr: usize,
+}
+
+impl __Stub_Counter {
+    pub fn new(addr: usize) -> Self {
+        Self {
+            addr
+        }
+    }
+}
+
+impl crate::__Stateless_Counter for __Stub_Counter {
+    fn bump(&self, n: i32) {
+        crate::scheduler::salvo_send_wire(self.addr, crate::__Msg_Counter::Bump(n), crate::__PROTO_Counter);
+    }
+    fn total(&self, out: crate::scheduler::SalvoReply) {
+        crate::scheduler::salvo_send_wire(self.addr, crate::__Msg_Counter::Total(out), crate::__PROTO_Counter);
+    }
+}
+
+#[derive(Clone)]
+pub struct __Stub_Ledger {
+    addr: usize,
+}
+
+impl __Stub_Ledger {
+    pub fn new(addr: usize) -> Self {
+        Self {
+            addr
+        }
+    }
+}
+
+impl crate::__Stateless_Ledger for __Stub_Ledger {
+    fn report(&self, label: String, out: crate::scheduler::SalvoReply) {
+        crate::scheduler::salvo_send_wire(self.addr, crate::__Msg_Ledger::Report(label, out), crate::__PROTO_Ledger);
+    }
+    fn reported(&self, label: String, out: crate::scheduler::SalvoReply, total: i32) {
+        crate::scheduler::salvo_send_wire(self.addr, crate::__Msg_Ledger::Reported(label, out, total), crate::__PROTO_Ledger);
+    }
+}
+
+#[derive(Clone)]
+pub struct __Stub_Desk {
+    addr: usize,
+}
+
+impl __Stub_Desk {
+    pub fn new(addr: usize) -> Self {
+        Self {
+            addr
+        }
+    }
+}
+
+impl crate::__Stateless_Desk for __Stub_Desk {
+    fn ticket(&self, out: crate::scheduler::SalvoReply) {
+        crate::scheduler::salvo_send_wire(self.addr, crate::__Msg_Desk::Ticket(out), crate::__PROTO_Desk);
+    }
+    fn serve(&self, name: String) {
+        crate::scheduler::salvo_send_wire(self.addr, crate::__Msg_Desk::Serve(name), crate::__PROTO_Desk);
+    }
+    fn close_up(&self, reason: String) {
+        crate::scheduler::salvo_send_wire(self.addr, crate::__Msg_Desk::CloseUp(reason), crate::__PROTO_Desk);
+    }
+}
+
+#[derive(Clone)]
+pub struct __Stub_Fragile {
+    addr: usize,
+}
+
+impl __Stub_Fragile {
+    pub fn new(addr: usize) -> Self {
+        Self {
+            addr
+        }
+    }
+}
+
+impl crate::__Stateless_Fragile for __Stub_Fragile {
+    fn crash(&self) {
+        crate::scheduler::salvo_send_wire(self.addr, crate::__Msg_Fragile::Crash, crate::__PROTO_Fragile);
+    }
 }
 
 pub fn __dispatch_Counting_Counter(__handler: &mut crate::Counting, mut __msg: crate::__Msg_Counter) {

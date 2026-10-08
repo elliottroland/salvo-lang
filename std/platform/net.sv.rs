@@ -118,22 +118,6 @@ impl Inbound {
     }
 }
 
-pub struct __Stub_Inbound {
-    addr: usize,
-}
-
-impl __Stub_Inbound {
-    pub fn new(addr: usize) -> Self {
-        Self { addr }
-    }
-}
-
-impl __Stateless_Inbound for __Stub_Inbound {
-    fn receive_frame(&self, from: crate::net::NodeEndpoint, frame: crate::core_bytes::Bytes) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_Inbound::ReceiveFrame(from, frame), crate::net::__PROTO_Inbound);
-    }
-}
-
 pub trait __Stateless_Transport: Send + Sync {
     fn listen(&self, at: &crate::net::NodeEndpoint, sink: usize) -> crate::unions::Union2<(), crate::unions::Union2<crate::net::Unreachable, crate::net::WireFailed>>;
     fn unlisten(&self, at: &crate::net::NodeEndpoint);

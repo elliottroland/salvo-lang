@@ -17,12 +17,6 @@ class __Mon_Sequencer(
     }
 }
 
-class __Stub_Sequencer(private val addr: Int) : Sequencer {
-    override fun next(out: salvo.SalvoReply) {
-        salvo.SalvoSched.sendWire(addr, __Msg_Sequencer.Next(out), __PROTO_Sequencer, __Codec___Msg_Sequencer)
-    }
-}
-
 interface Inventory {
     fun reserve(sku: String, qty: Int, out: salvo.SalvoReply)
 }
@@ -35,12 +29,6 @@ class __Mon_Inventory(
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.reserve(sku, qty, out) } finally { lock.unlock() }
-    }
-}
-
-class __Stub_Inventory(private val addr: Int) : Inventory {
-    override fun reserve(sku: String, qty: Int, out: salvo.SalvoReply) {
-        salvo.SalvoSched.sendWire(addr, __Msg_Inventory.Reserve(sku, qty, out), __PROTO_Inventory, __Codec___Msg_Inventory)
     }
 }
 
@@ -59,12 +47,6 @@ class __Mon_Search(
     }
 }
 
-class __Stub_Search(private val addr: Int) : Search {
-    override fun query(word: String, out: salvo.SalvoReply) {
-        salvo.SalvoSched.sendWire(addr, __Msg_Search.Query(word, out), __PROTO_Search, __Codec___Msg_Search)
-    }
-}
-
 interface Lookup {
     fun lookup(key: String, out: salvo.SalvoReply)
 }
@@ -77,12 +59,6 @@ class __Mon_Lookup(
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.lookup(key, out) } finally { lock.unlock() }
-    }
-}
-
-class __Stub_Lookup(private val addr: Int) : Lookup {
-    override fun lookup(key: String, out: salvo.SalvoReply) {
-        salvo.SalvoSched.sendWire(addr, __Msg_Lookup.Lookup(key, out), __PROTO_Lookup, __Codec___Msg_Lookup)
     }
 }
 
@@ -379,12 +355,6 @@ class __Mon_Gather(
     }
 }
 
-class __Stub_Gather(private val addr: Int) : Gather {
-    override fun scatter(word: String, members: List<Int>, out: salvo.SalvoReply) {
-        salvo.SalvoSched.sendWire(addr, __Msg_Gather.Scatter(word, members, out), __PROTO_Gather, __Codec___Msg_Gather)
-    }
-}
-
 class Gathering : Gather {
     val __mailboxCapacity: Int = 16
     var __addr: Int? = null
@@ -518,12 +488,6 @@ class __Mon_Race(
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.race(key, members, out) } finally { lock.unlock() }
-    }
-}
-
-class __Stub_Race(private val addr: Int) : Race {
-    override fun race(key: String, members: List<Int>, out: salvo.SalvoReply) {
-        salvo.SalvoSched.sendWire(addr, __Msg_Race.Race(key, members, out), __PROTO_Race, __Codec___Msg_Race)
     }
 }
 
@@ -788,15 +752,6 @@ class __Mon_Boot(
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.stop(done) } finally { lock.unlock() }
-    }
-}
-
-class __Stub_Boot(private val addr: Int) : Boot {
-    override fun boot(done: salvo.SalvoReply) {
-        salvo.SalvoSched.sendWire(addr, __Msg_Boot.Boot(done), __PROTO_Boot, __Codec___Msg_Boot)
-    }
-    override fun stop(done: salvo.SalvoReply) {
-        salvo.SalvoSched.sendWire(addr, __Msg_Boot.Stop(done), __PROTO_Boot, __Codec___Msg_Boot)
     }
 }
 
@@ -1356,6 +1311,51 @@ sealed class __Cont___Route_Search {
 
 sealed class __Cont___Route_Sequencer {
     class Next() : __Cont___Route_Sequencer()
+}
+
+class __Stub_Sequencer(private val addr: Int) : Sequencer {
+    override fun next(out: salvo.SalvoReply) {
+        salvo.SalvoSched.sendWire(addr, __Msg_Sequencer.Next(out), __PROTO_Sequencer, __Codec___Msg_Sequencer)
+    }
+}
+
+class __Stub_Inventory(private val addr: Int) : Inventory {
+    override fun reserve(sku: String, qty: Int, out: salvo.SalvoReply) {
+        salvo.SalvoSched.sendWire(addr, __Msg_Inventory.Reserve(sku, qty, out), __PROTO_Inventory, __Codec___Msg_Inventory)
+    }
+}
+
+class __Stub_Search(private val addr: Int) : Search {
+    override fun query(word: String, out: salvo.SalvoReply) {
+        salvo.SalvoSched.sendWire(addr, __Msg_Search.Query(word, out), __PROTO_Search, __Codec___Msg_Search)
+    }
+}
+
+class __Stub_Lookup(private val addr: Int) : Lookup {
+    override fun lookup(key: String, out: salvo.SalvoReply) {
+        salvo.SalvoSched.sendWire(addr, __Msg_Lookup.Lookup(key, out), __PROTO_Lookup, __Codec___Msg_Lookup)
+    }
+}
+
+class __Stub_Gather(private val addr: Int) : Gather {
+    override fun scatter(word: String, members: List<Int>, out: salvo.SalvoReply) {
+        salvo.SalvoSched.sendWire(addr, __Msg_Gather.Scatter(word, members, out), __PROTO_Gather, __Codec___Msg_Gather)
+    }
+}
+
+class __Stub_Race(private val addr: Int) : Race {
+    override fun race(key: String, members: List<Int>, out: salvo.SalvoReply) {
+        salvo.SalvoSched.sendWire(addr, __Msg_Race.Race(key, members, out), __PROTO_Race, __Codec___Msg_Race)
+    }
+}
+
+class __Stub_Boot(private val addr: Int) : Boot {
+    override fun boot(done: salvo.SalvoReply) {
+        salvo.SalvoSched.sendWire(addr, __Msg_Boot.Boot(done), __PROTO_Boot, __Codec___Msg_Boot)
+    }
+    override fun stop(done: salvo.SalvoReply) {
+        salvo.SalvoSched.sendWire(addr, __Msg_Boot.Stop(done), __PROTO_Boot, __Codec___Msg_Boot)
+    }
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")

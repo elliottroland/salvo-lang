@@ -278,22 +278,6 @@ impl Wheel {
     }
 }
 
-pub struct __Stub_Wheel {
-    addr: usize,
-}
-
-impl __Stub_Wheel {
-    pub fn new(addr: usize) -> Self {
-        Self { addr }
-    }
-}
-
-impl __Stateless_Wheel for __Stub_Wheel {
-    fn run(&self) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_Wheel::Run, crate::runtime_timers::__PROTO_Wheel);
-    }
-}
-
 pub struct Wheeling {
     pub __mailbox_capacity: i32,
     __addr: Option<usize>,
@@ -428,6 +412,25 @@ impl crate::wire::__Wire for __Msg_Wheel {
 
 /// [protocol-hash] The canonical hash of `Wheel`.
 pub const __PROTO_Wheel: &str = "df3353758a650c52";
+
+#[derive(Clone)]
+pub struct __Stub_Wheel {
+    addr: usize,
+}
+
+impl __Stub_Wheel {
+    pub fn new(addr: usize) -> Self {
+        Self {
+            addr
+        }
+    }
+}
+
+impl crate::runtime_timers::__Stateless_Wheel for __Stub_Wheel {
+    fn run(&self) {
+        crate::scheduler::salvo_send_wire(self.addr, crate::runtime_timers::__Msg_Wheel::Run, crate::runtime_timers::__PROTO_Wheel);
+    }
+}
 
 pub fn __dispatch_Wheeling_Wheel(__handler: &mut crate::runtime_timers::Wheeling, mut __msg: crate::runtime_timers::__Msg_Wheel) {
     if matches!(__msg, crate::runtime_timers::__Msg_Wheel::Run) {

@@ -260,12 +260,6 @@ class __Mon_Timer(
     }
 }
 
-class __Stub_Timer(private val addr: Int) : Timer {
-    override fun after(wait: Duration, done: salvo.SalvoReply) {
-        salvo.SalvoSched.sendWire(addr, __Msg_Timer.After(wait, done), __PROTO_Timer, __Codec___Msg_Timer)
-    }
-}
-
 class DefaultTimer : Timer {
     val __mailboxCapacity: Int = 64
     var __addr: Int? = null
@@ -320,12 +314,6 @@ class __Mon_TimerCtl(
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.advance(by) } finally { lock.unlock() }
-    }
-}
-
-class __Stub_TimerCtl(private val addr: Int) : TimerCtl {
-    override fun advance(by: Duration) {
-        salvo.SalvoSched.sendWire(addr, __Msg_TimerCtl.Advance(by), __PROTO_TimerCtl, __Codec___Msg_TimerCtl)
     }
 }
 
@@ -558,6 +546,18 @@ sealed class __Cont_DefaultTimer {
 sealed class __Cont_ManualTime {
     class After(val wait: Duration) : __Cont_ManualTime()
     class Advance() : __Cont_ManualTime()
+}
+
+class __Stub_Timer(private val addr: Int) : Timer {
+    override fun after(wait: Duration, done: salvo.SalvoReply) {
+        salvo.SalvoSched.sendWire(addr, __Msg_Timer.After(wait, done), __PROTO_Timer, __Codec___Msg_Timer)
+    }
+}
+
+class __Stub_TimerCtl(private val addr: Int) : TimerCtl {
+    override fun advance(by: Duration) {
+        salvo.SalvoSched.sendWire(addr, __Msg_TimerCtl.Advance(by), __PROTO_TimerCtl, __Codec___Msg_TimerCtl)
+    }
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")

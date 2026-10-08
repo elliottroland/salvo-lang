@@ -540,6 +540,51 @@ enum __Cont___Route_Sequencer {
   Next()
 }
 
+impl __Stub_Sequencer(moved addr: Addr<Sequencer>) of Sequencer {
+  fn next(moved out: Reply<Str>) -> None {
+    send main::Sequencer#0(read addr, !read out)
+  }
+}
+
+impl __Stub_Inventory(moved addr: Addr<Inventory>) of Inventory {
+  fn reserve(moved sku: Str, moved qty: Int, moved out: Reply<Str>) -> None {
+    send main::Inventory#0(read addr, !read sku, !read qty, !read out)
+  }
+}
+
+impl __Stub_Search(moved addr: Addr<Search>) of Search {
+  fn query(moved word: Str, moved out: Reply<Int>) -> None {
+    send main::Search#0(read addr, !read word, !read out)
+  }
+}
+
+impl __Stub_Lookup(moved addr: Addr<Lookup>) of Lookup {
+  fn lookup(moved key: Str, moved out: Reply<Str>) -> None {
+    send main::Lookup#0(read addr, !read key, !read out)
+  }
+}
+
+impl __Stub_Gather(moved addr: Addr<Gather>) of Gather {
+  fn scatter(moved word: Str, moved members: List<Addr<Search>>, moved out: Reply<Int>) -> None {
+    send main::Gather#0(read addr, !read word, !read members, !read out)
+  }
+}
+
+impl __Stub_Race(moved addr: Addr<Race>) of Race {
+  fn race(moved key: Str, moved members: List<Addr<Lookup>>, moved out: Reply<Str>) -> None {
+    send main::Race#0(read addr, !read key, !read members, !read out)
+  }
+}
+
+impl __Stub_Boot(moved addr: Addr<Boot>) of Boot {
+  fn boot(moved done: Reply<Addr<Sequencer>>) -> None {
+    send main::Boot#0(read addr, !read done)
+  }
+  fn stop(moved done: Reply<Bool>) -> None {
+    send main::Boot#1(read addr, !read done)
+  }
+}
+
 fn __dispatch_Sequencing_Sequencer(lent_mut __handler: Sequencing, moved __msg: __Msg_Sequencer) -> None {
   switch#1 read __msg {
     arm#0 (arm 0) {

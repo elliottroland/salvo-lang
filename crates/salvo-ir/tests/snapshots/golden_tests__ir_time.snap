@@ -126,6 +126,24 @@ enum __Cont_Napping {
   Woke(started: Tick, out: Reply<Str>)
 }
 
+impl __Stub_Session(moved addr: Addr<Session>) of Session {
+  fn open(moved started: Tick, moved budget: Duration, moved out: Reply<Str>) -> None {
+    send main::Session#0(read addr, !read started, !read budget, !read out)
+  }
+  fn expire(moved started: Tick, moved budget: Duration, moved out: Reply<Str>, moved f: Fired) -> None {
+    send main::Session#1(read addr, !read started, !read budget, !read out, !read f)
+  }
+}
+
+impl __Stub_Sleeper(moved addr: Addr<Sleeper>) of Sleeper {
+  fn nap(moved wait: Duration, moved out: Reply<Str>) -> None {
+    send main::Sleeper#0(read addr, !read wait, !read out)
+  }
+  fn woke(moved started: Tick, moved out: Reply<Str>, moved f: Fired) -> None {
+    send main::Sleeper#1(read addr, !read started, !read out, !read f)
+  }
+}
+
 fn __dispatch_Sessions_Session(lent_mut __handler: Sessions, moved __msg: __Msg_Session) -> None {
   switch#1 read __msg {
     arm#0 (arm 0) {

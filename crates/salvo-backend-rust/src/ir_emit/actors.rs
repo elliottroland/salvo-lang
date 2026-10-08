@@ -30,6 +30,10 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
 
     /// The actor interfaces an impl serves, in face order.
     pub fn actor_faces(&self, h: &ImplDecl) -> Vec<&'p InterfaceDecl> {
+        // A stub implements an actor interface without being an actor.
+        if h.stub {
+            return Vec::new();
+        }
         h.faces
             .iter()
             .filter_map(|f| match f.strip_quals() {
@@ -131,8 +135,9 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         self.out.push_str(&out);
     }
 
-    /// [rs-actor] The actor parts of an interface: message enum, codec and
-    /// hash constant, and the addr stub.
+    /// [rs-actor] The actor parts of an interface: a generic protocol is
+    /// refused (its enum, codec, hash and stub are the builder's and
+    /// [`enum_decl`]'s).
     pub fn actor_interface(&mut self, i: &InterfaceDecl) {
         let sends: Vec<&salvo_ir::Member> = i.members.iter().filter(|m| m.send).collect();
         if sends.is_empty() {
@@ -142,28 +147,6 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             self.error(format!("effect `{}` is generic, which the rust backend cannot make an actor protocol of yet", i.name));
             return;
         }
-        let name = rs_ident(&i.name);
-        let msg = format!("__Msg_{name}");
-        let mut out = String::new();
-        // [actor-use-addr] The stub: the effect implemented by sending.
-        let stub = format!("__Stub_{name}");
-        out.push_str(&format!(
-            "\npub struct {stub} {{\n    addr: usize,\n}}\n\nimpl {stub} {{\n    pub fn new(addr: usize) -> Self {{\n        Self {{ addr }}\n    }}\n}}\n\nimpl {} for {stub} {{\n",
-            stateless_trait_name(&i.name)
-        ));
-        for m in &sends {
-            let mut ps = Vec::new();
-            for p in &m.params {
-                let t = self.ty(&p.ty);
-                ps.push(format!(", {}: {t}", rs_ident(&p.local.0)));
-            }
-            let args: Vec<String> = m.params.iter().map(|p| rs_ident(&p.local.0)).collect();
-            let built = if args.is_empty() { format!("{msg}::{}", variant(&m.emitted_name)) } else { format!("{msg}::{}({})", variant(&m.emitted_name), args.join(", ")) };
-            let call = self.send_call(i, "self.addr", &built);
-            out.push_str(&format!("    fn {}(&self{}) {{\n        {call};\n    }}\n", rs_ident(&m.emitted_name), ps.join("")));
-        }
-        out.push_str("}\n");
-        self.out.push_str(&out);
     }
 
     /// [addr-routable] A send: the typed wire path when the protocol has a

@@ -97,22 +97,6 @@ impl Faults {
     }
 }
 
-pub struct __Stub_Faults {
-    addr: usize,
-}
-
-impl __Stub_Faults {
-    pub fn new(addr: usize) -> Self {
-        Self { addr }
-    }
-}
-
-impl __Stateless_Faults for __Stub_Faults {
-    fn faulted(&self, fault: crate::core_actor::Fault) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_Faults::Faulted(fault), crate::core_actor::__PROTO_Faults);
-    }
-}
-
 #[derive(Clone, Debug, PartialEq)]
 pub struct Exit {
     pub reason: String,
@@ -187,3 +171,22 @@ impl crate::wire::__Wire for __Msg_Faults {
 
 /// [protocol-hash] The canonical hash of `Faults`.
 pub const __PROTO_Faults: &str = "b2ab28f759af3855";
+
+#[derive(Clone)]
+pub struct __Stub_Faults {
+    addr: usize,
+}
+
+impl __Stub_Faults {
+    pub fn new(addr: usize) -> Self {
+        Self {
+            addr
+        }
+    }
+}
+
+impl crate::core_actor::__Stateless_Faults for __Stub_Faults {
+    fn faulted(&self, fault: crate::core_actor::Fault) {
+        crate::scheduler::salvo_send_wire(self.addr, crate::core_actor::__Msg_Faults::Faulted(fault), crate::core_actor::__PROTO_Faults);
+    }
+}

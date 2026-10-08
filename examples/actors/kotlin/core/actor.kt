@@ -49,12 +49,6 @@ class __Mon_Faults(
     }
 }
 
-class __Stub_Faults(private val addr: Int) : Faults {
-    override fun faulted(fault: Fault) {
-        salvo.SalvoSched.sendWire(addr, __Msg_Faults.Faulted(fault), __PROTO_Faults, __Codec___Msg_Faults)
-    }
-}
-
 data class Exit(
     val reason: String,
 )
@@ -113,4 +107,10 @@ object __Codec___Msg_Faults : salvo.WireCodec<__Msg_Faults> {
 }
 
 const val __PROTO_Faults: String = "b2ab28f759af3855"
+
+class __Stub_Faults(private val addr: Int) : Faults {
+    override fun faulted(fault: Fault) {
+        salvo.SalvoSched.sendWire(addr, __Msg_Faults.Faulted(fault), __PROTO_Faults, __Codec___Msg_Faults)
+    }
+}
 

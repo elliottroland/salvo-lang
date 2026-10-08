@@ -168,22 +168,6 @@ impl Sequencer {
     }
 }
 
-pub struct __Stub_Sequencer {
-    addr: usize,
-}
-
-impl __Stub_Sequencer {
-    pub fn new(addr: usize) -> Self {
-        Self { addr }
-    }
-}
-
-impl __Stateless_Sequencer for __Stub_Sequencer {
-    fn next(&self, out: crate::scheduler::SalvoReply) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_Sequencer::Next(out), crate::__PROTO_Sequencer);
-    }
-}
-
 pub trait __Stateless_Inventory: Send + Sync {
     fn reserve(&self, sku: String, qty: i32, out: crate::scheduler::SalvoReply);
 }
@@ -228,22 +212,6 @@ impl Inventory {
             __Inner_Inventory::Shared(h) => h.reserve(sku, qty, out),
             __Inner_Inventory::Locked(h) => h.lock().unwrap().reserve(sku, qty, out),
         }
-    }
-}
-
-pub struct __Stub_Inventory {
-    addr: usize,
-}
-
-impl __Stub_Inventory {
-    pub fn new(addr: usize) -> Self {
-        Self { addr }
-    }
-}
-
-impl __Stateless_Inventory for __Stub_Inventory {
-    fn reserve(&self, sku: String, qty: i32, out: crate::scheduler::SalvoReply) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_Inventory::Reserve(sku, qty, out), crate::__PROTO_Inventory);
     }
 }
 
@@ -294,22 +262,6 @@ impl Search {
     }
 }
 
-pub struct __Stub_Search {
-    addr: usize,
-}
-
-impl __Stub_Search {
-    pub fn new(addr: usize) -> Self {
-        Self { addr }
-    }
-}
-
-impl __Stateless_Search for __Stub_Search {
-    fn query(&self, word: String, out: crate::scheduler::SalvoReply) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_Search::Query(word, out), crate::__PROTO_Search);
-    }
-}
-
 pub trait __Stateless_Lookup: Send + Sync {
     fn lookup(&self, key: String, out: crate::scheduler::SalvoReply);
 }
@@ -354,22 +306,6 @@ impl Lookup {
             __Inner_Lookup::Shared(h) => h.lookup(key, out),
             __Inner_Lookup::Locked(h) => h.lock().unwrap().lookup(key, out),
         }
-    }
-}
-
-pub struct __Stub_Lookup {
-    addr: usize,
-}
-
-impl __Stub_Lookup {
-    pub fn new(addr: usize) -> Self {
-        Self { addr }
-    }
-}
-
-impl __Stateless_Lookup for __Stub_Lookup {
-    fn lookup(&self, key: String, out: crate::scheduler::SalvoReply) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_Lookup::Lookup(key, out), crate::__PROTO_Lookup);
     }
 }
 
@@ -851,22 +787,6 @@ impl Gather {
     }
 }
 
-pub struct __Stub_Gather {
-    addr: usize,
-}
-
-impl __Stub_Gather {
-    pub fn new(addr: usize) -> Self {
-        Self { addr }
-    }
-}
-
-impl __Stateless_Gather for __Stub_Gather {
-    fn scatter(&self, word: String, members: Vec<usize>, out: crate::scheduler::SalvoReply) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_Gather::Scatter(word, members, out), crate::__PROTO_Gather);
-    }
-}
-
 pub struct Gathering {
     pending: std::collections::VecDeque<crate::scheduler::SalvoReply>,
     left: i32,
@@ -1082,22 +1002,6 @@ impl Race {
             __Inner_Race::Shared(h) => h.race(key, members, out),
             __Inner_Race::Locked(h) => h.lock().unwrap().race(key, members, out),
         }
-    }
-}
-
-pub struct __Stub_Race {
-    addr: usize,
-}
-
-impl __Stub_Race {
-    pub fn new(addr: usize) -> Self {
-        Self { addr }
-    }
-}
-
-impl __Stateless_Race for __Stub_Race {
-    fn race(&self, key: String, members: Vec<usize>, out: crate::scheduler::SalvoReply) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_Race::Race(key, members, out), crate::__PROTO_Race);
     }
 }
 
@@ -1401,25 +1305,6 @@ impl Boot {
             __Inner_Boot::Shared(h) => h.stop(done),
             __Inner_Boot::Locked(h) => h.lock().unwrap().stop(done),
         }
-    }
-}
-
-pub struct __Stub_Boot {
-    addr: usize,
-}
-
-impl __Stub_Boot {
-    pub fn new(addr: usize) -> Self {
-        Self { addr }
-    }
-}
-
-impl __Stateless_Boot for __Stub_Boot {
-    fn boot(&self, done: crate::scheduler::SalvoReply) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_Boot::Boot(done), crate::__PROTO_Boot);
-    }
-    fn stop(&self, done: crate::scheduler::SalvoReply) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_Boot::Stop(done), crate::__PROTO_Boot);
     }
 }
 
@@ -2149,6 +2034,142 @@ pub enum __Cont___Route_Search {
 
 pub enum __Cont___Route_Sequencer {
     Next,
+}
+
+#[derive(Clone)]
+pub struct __Stub_Sequencer {
+    addr: usize,
+}
+
+impl __Stub_Sequencer {
+    pub fn new(addr: usize) -> Self {
+        Self {
+            addr
+        }
+    }
+}
+
+impl crate::__Stateless_Sequencer for __Stub_Sequencer {
+    fn next(&self, out: crate::scheduler::SalvoReply) {
+        crate::scheduler::salvo_send_wire(self.addr, crate::__Msg_Sequencer::Next(out), crate::__PROTO_Sequencer);
+    }
+}
+
+#[derive(Clone)]
+pub struct __Stub_Inventory {
+    addr: usize,
+}
+
+impl __Stub_Inventory {
+    pub fn new(addr: usize) -> Self {
+        Self {
+            addr
+        }
+    }
+}
+
+impl crate::__Stateless_Inventory for __Stub_Inventory {
+    fn reserve(&self, sku: String, qty: i32, out: crate::scheduler::SalvoReply) {
+        crate::scheduler::salvo_send_wire(self.addr, crate::__Msg_Inventory::Reserve(sku, qty, out), crate::__PROTO_Inventory);
+    }
+}
+
+#[derive(Clone)]
+pub struct __Stub_Search {
+    addr: usize,
+}
+
+impl __Stub_Search {
+    pub fn new(addr: usize) -> Self {
+        Self {
+            addr
+        }
+    }
+}
+
+impl crate::__Stateless_Search for __Stub_Search {
+    fn query(&self, word: String, out: crate::scheduler::SalvoReply) {
+        crate::scheduler::salvo_send_wire(self.addr, crate::__Msg_Search::Query(word, out), crate::__PROTO_Search);
+    }
+}
+
+#[derive(Clone)]
+pub struct __Stub_Lookup {
+    addr: usize,
+}
+
+impl __Stub_Lookup {
+    pub fn new(addr: usize) -> Self {
+        Self {
+            addr
+        }
+    }
+}
+
+impl crate::__Stateless_Lookup for __Stub_Lookup {
+    fn lookup(&self, key: String, out: crate::scheduler::SalvoReply) {
+        crate::scheduler::salvo_send_wire(self.addr, crate::__Msg_Lookup::Lookup(key, out), crate::__PROTO_Lookup);
+    }
+}
+
+#[derive(Clone)]
+pub struct __Stub_Gather {
+    addr: usize,
+}
+
+impl __Stub_Gather {
+    pub fn new(addr: usize) -> Self {
+        Self {
+            addr
+        }
+    }
+}
+
+impl crate::__Stateless_Gather for __Stub_Gather {
+    fn scatter(&self, word: String, members: Vec<usize>, out: crate::scheduler::SalvoReply) {
+        crate::scheduler::salvo_send_wire(self.addr, crate::__Msg_Gather::Scatter(word, members, out), crate::__PROTO_Gather);
+    }
+}
+
+#[derive(Clone)]
+pub struct __Stub_Race {
+    addr: usize,
+}
+
+impl __Stub_Race {
+    pub fn new(addr: usize) -> Self {
+        Self {
+            addr
+        }
+    }
+}
+
+impl crate::__Stateless_Race for __Stub_Race {
+    fn race(&self, key: String, members: Vec<usize>, out: crate::scheduler::SalvoReply) {
+        crate::scheduler::salvo_send_wire(self.addr, crate::__Msg_Race::Race(key, members, out), crate::__PROTO_Race);
+    }
+}
+
+#[derive(Clone)]
+pub struct __Stub_Boot {
+    addr: usize,
+}
+
+impl __Stub_Boot {
+    pub fn new(addr: usize) -> Self {
+        Self {
+            addr
+        }
+    }
+}
+
+impl crate::__Stateless_Boot for __Stub_Boot {
+    fn boot(&self, done: crate::scheduler::SalvoReply) {
+        crate::scheduler::salvo_send_wire(self.addr, crate::__Msg_Boot::Boot(done), crate::__PROTO_Boot);
+    }
+    fn stop(&self, done: crate::scheduler::SalvoReply) {
+        crate::scheduler::salvo_send_wire(self.addr, crate::__Msg_Boot::Stop(done), crate::__PROTO_Boot);
+    }
 }
 
 pub fn __dispatch_Sequencing_Sequencer(__handler: &mut crate::Sequencing, mut __msg: crate::__Msg_Sequencer) {

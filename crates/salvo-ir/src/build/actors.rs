@@ -56,6 +56,7 @@ pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
     };
 
     let mut made: Vec<(usize, EnumDecl)> = Vec::new();
+    let mut stubs: Vec<(usize, ImplDecl)> = Vec::new();
     let mut counter = 0usize;
     let mut next_id = |module: &salvo_core::ModulePath| -> DeclId {
         counter += 1;
@@ -80,6 +81,65 @@ pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
             let id = next_id(&m.path);
             message_of.push((i.id.clone(), id.clone(), m.path.clone()));
             made.push((mi, EnumDecl { id, name: format!("__Msg_{}", i.name), kind: EnumKind::Message { interface: i.id.clone() }, variants, protocol_hash: i.protocol_hash.clone(), span: i.span }));
+            // [actor-use-addr] The stub: the interface implemented by sending.
+            let face = Ty::Named { name: key_of(&i.id, &i.name), args: Vec::new() };
+            let addr_ty = Ty::Named { name: "Addr".into(), args: vec![face.clone()] };
+            let addr = Local("addr".into());
+            let members: Vec<FnDecl> = i
+                .members
+                .iter()
+                .enumerate()
+                .filter(|(_, x)| x.send)
+                .map(|(index, x)| {
+                    let reads: Vec<Expr> = x.params.iter().map(|p| Expr { ty: p.ty.clone(), span: x.span, kind: ExprKind::Read { place: Place { root: p.local.clone(), steps: Vec::new() }, consume: true } }).collect();
+                    let to = Expr { ty: addr_ty.clone(), span: x.span, kind: ExprKind::Read { place: Place { root: addr.clone(), steps: Vec::new() }, consume: false } };
+                    let send = Expr { ty: Ty::none(), span: x.span, kind: ExprKind::Send { addr: Box::new(to), member: MemberRef { interface: i.id.clone(), index }, args: reads } };
+                    FnDecl {
+                        id: DeclId { module: m.path.clone(), item: GENERATED_BASE + 1_000_000 + index, sub: 0 },
+                        name: x.name.clone(),
+                        exported: false,
+                        kind: FnKind::Member { faces: 0 },
+                        send: false,
+                        type_params: Vec::new(),
+                        params: x.params.clone(),
+                        effect_params: 0,
+                        implicit_params: 0,
+                        ret: Ty::none(),
+                        borrows: Vec::new(),
+                        may_alias: Vec::new(),
+                        holds: Vec::new(),
+                        throws: None,
+                        result_check: None,
+                        factories: None,
+                        body: Some(Block { stmts: vec![Stmt::Expr(send)], value: None }),
+                        span: x.span,
+                    }
+                })
+                .collect();
+            stubs.push((
+                mi,
+                ImplDecl {
+                    id: next_id(&m.path),
+                    name: format!("__Stub_{}", i.name),
+                    exported: false,
+                    type_params: Vec::new(),
+                    faces: vec![face],
+                    face_any: vec![false],
+                    ctor_params: vec![Param { local: addr, ty: addr_ty, mode: salvo_core::param_mode::PassMode::Moved, variadic: false, check: None }],
+                    deps: Vec::new(),
+                    state: Vec::new(),
+                    mailbox: None,
+                    init: None,
+                    members,
+                    stateful: false,
+                    platform: false,
+                    threadsafe: false,
+                    intrinsic: false,
+                    dispatch: Vec::new(),
+                    stub: true,
+                    span: i.span,
+                },
+            ));
         }
     }
     // Phase 2: an actor handler's own enums, and its dispatch functions.
@@ -89,7 +149,7 @@ pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
     for (mi, m) in program.modules.iter().enumerate() {
         for (di, d) in m.decls.iter().enumerate() {
             let Decl::Impl(h) = d else { continue };
-            if h.platform || h.intrinsic {
+            if h.platform || h.intrinsic || h.stub {
                 continue;
             }
             let faces: Vec<usize> = h.faces.iter().filter_map(|f| find(f)).filter(|i| ifaces[*i].actor).collect();
@@ -211,6 +271,9 @@ pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
     }
     for (mi, e) in made {
         program.modules[mi].decls.push(Decl::Enum(e));
+    }
+    for (mi, s) in stubs {
+        program.modules[mi].decls.push(Decl::Impl(s));
     }
     for (mi, f) in fns {
         program.modules[mi].decls.push(Decl::Fn(f));

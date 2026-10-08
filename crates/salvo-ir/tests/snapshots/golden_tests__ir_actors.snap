@@ -193,6 +193,42 @@ enum __Cont_Desking {
 enum __Cont_Breaking {
 }
 
+impl __Stub_Counter(moved addr: Addr<Counter>) of Counter {
+  fn bump(moved n: Int) -> None {
+    send main::Counter#0(read addr, !read n)
+  }
+  fn total(moved out: Reply<Int>) -> None {
+    send main::Counter#1(read addr, !read out)
+  }
+}
+
+impl __Stub_Ledger(moved addr: Addr<Ledger>) of Ledger {
+  fn report(moved label: Str, moved out: Reply<Str>) -> None {
+    send main::Ledger#0(read addr, !read label, !read out)
+  }
+  fn reported(moved label: Str, moved out: Reply<Str>, moved total: Int) -> None {
+    send main::Ledger#1(read addr, !read label, !read out, !read total)
+  }
+}
+
+impl __Stub_Desk(moved addr: Addr<Desk>) of Desk {
+  fn ticket(moved out: Reply<Str>) -> None {
+    send main::Desk#0(read addr, !read out)
+  }
+  fn serve(moved name: Str) -> None {
+    send main::Desk#1(read addr, !read name)
+  }
+  fn close_up(moved reason: Str) -> None {
+    send main::Desk#2(read addr, !read reason)
+  }
+}
+
+impl __Stub_Fragile(moved addr: Addr<Fragile>) of Fragile {
+  fn crash() -> None {
+    send main::Fragile#0(read addr)
+  }
+}
+
 fn __dispatch_Counting_Counter(lent_mut __handler: Counting, moved __msg: __Msg_Counter) -> None {
   switch#1 read __msg {
     arm#0 (arm 0) {

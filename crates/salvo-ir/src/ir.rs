@@ -234,6 +234,9 @@ pub struct ImplDecl {
     /// [actor-dispatch] For an actor handler: the generated function that
     /// delivers each message enum it serves to the handler's members.
     pub dispatch: Vec<Dispatch>,
+    /// [actor-use-addr] The generated `__Stub_E`: the effect implemented by
+    /// sending each member to an address. Not an actor itself.
+    pub stub: bool,
     pub span: Span,
 }
 

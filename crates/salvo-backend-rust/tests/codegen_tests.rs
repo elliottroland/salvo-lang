@@ -12534,7 +12534,7 @@ fn a_stub_implements_the_effect_by_sending() {
         .expect("main.rs");
     assert!(
         main.content.contains("pub struct __Stub_Log {")
-            && main.content.contains("impl __Stateless_Log for __Stub_Log"),
+            && main.content.contains("impl crate::__Stateless_Log for __Stub_Log"),
         "the forwarding stub is missing:\n{}",
         main.content
     );

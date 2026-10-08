@@ -411,22 +411,6 @@ impl Timer {
     }
 }
 
-pub struct __Stub_Timer {
-    addr: usize,
-}
-
-impl __Stub_Timer {
-    pub fn new(addr: usize) -> Self {
-        Self { addr }
-    }
-}
-
-impl __Stateless_Timer for __Stub_Timer {
-    fn after(&self, wait: crate::time::Duration, done: crate::scheduler::SalvoReply) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_Timer::After(wait, done), crate::time::__PROTO_Timer);
-    }
-}
-
 pub struct DefaultTimer {
     pub __mailbox_capacity: i32,
     __addr: Option<usize>,
@@ -535,22 +519,6 @@ impl TimerCtl {
             __Inner_TimerCtl::Shared(h) => h.advance(by),
             __Inner_TimerCtl::Locked(h) => h.lock().unwrap().advance(by),
         }
-    }
-}
-
-pub struct __Stub_TimerCtl {
-    addr: usize,
-}
-
-impl __Stub_TimerCtl {
-    pub fn new(addr: usize) -> Self {
-        Self { addr }
-    }
-}
-
-impl __Stateless_TimerCtl for __Stub_TimerCtl {
-    fn advance(&self, by: crate::time::Duration) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_TimerCtl::Advance(by), crate::time::__PROTO_TimerCtl);
     }
 }
 
@@ -820,6 +788,44 @@ pub enum __Cont_DefaultTimer {
 pub enum __Cont_ManualTime {
     After(crate::time::Duration),
     Advance,
+}
+
+#[derive(Clone)]
+pub struct __Stub_Timer {
+    addr: usize,
+}
+
+impl __Stub_Timer {
+    pub fn new(addr: usize) -> Self {
+        Self {
+            addr
+        }
+    }
+}
+
+impl crate::time::__Stateless_Timer for __Stub_Timer {
+    fn after(&self, wait: crate::time::Duration, done: crate::scheduler::SalvoReply) {
+        crate::scheduler::salvo_send_wire(self.addr, crate::time::__Msg_Timer::After(wait, done), crate::time::__PROTO_Timer);
+    }
+}
+
+#[derive(Clone)]
+pub struct __Stub_TimerCtl {
+    addr: usize,
+}
+
+impl __Stub_TimerCtl {
+    pub fn new(addr: usize) -> Self {
+        Self {
+            addr
+        }
+    }
+}
+
+impl crate::time::__Stateless_TimerCtl for __Stub_TimerCtl {
+    fn advance(&self, by: crate::time::Duration) {
+        crate::scheduler::salvo_send_wire(self.addr, crate::time::__Msg_TimerCtl::Advance(by), crate::time::__PROTO_TimerCtl);
+    }
 }
 
 pub fn __dispatch_DefaultTimer_Timer(__handler: &mut crate::time::DefaultTimer, mut __msg: crate::time::__Msg_Timer) {

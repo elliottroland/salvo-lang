@@ -65,12 +65,6 @@ class __Mon_Inbound(
     }
 }
 
-class __Stub_Inbound(private val addr: Int) : Inbound {
-    override fun receiveFrame(from: NodeEndpoint, frame: salvo.platform.core.bytes.Bytes) {
-        salvo.SalvoSched.sendWire(addr, __Msg_Inbound.ReceiveFrame(from, frame), __PROTO_Inbound, __Codec___Msg_Inbound)
-    }
-}
-
 interface Transport {
     fun listen(at: NodeEndpoint, sink: Int): Union2<Unit, Union2<Unreachable, WireFailed>>
     fun unlisten(at: NodeEndpoint)

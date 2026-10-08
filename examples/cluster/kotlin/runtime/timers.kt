@@ -174,12 +174,6 @@ class __Mon_Wheel(
     }
 }
 
-class __Stub_Wheel(private val addr: Int) : Wheel {
-    override fun run() {
-        salvo.SalvoSched.sendWire(addr, __Msg_Wheel.Run(), __PROTO_Wheel, __Codec___Msg_Wheel)
-    }
-}
-
 class Wheeling : Wheel {
     val __mailboxCapacity: Int = 2
     var __addr: Int? = null
@@ -306,6 +300,12 @@ const val __PROTO_Wheel: String = "df3353758a650c52"
 
 
 sealed class __Cont_Wheeling {
+}
+
+class __Stub_Wheel(private val addr: Int) : Wheel {
+    override fun run() {
+        salvo.SalvoSched.sendWire(addr, __Msg_Wheel.Run(), __PROTO_Wheel, __Codec___Msg_Wheel)
+    }
 }
 
 fun __dispatch_Wheeling_Wheel(__handler: Wheeling, __msg: __Msg_Wheel) {

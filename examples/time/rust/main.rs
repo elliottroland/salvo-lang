@@ -191,25 +191,6 @@ impl Session {
     }
 }
 
-pub struct __Stub_Session {
-    addr: usize,
-}
-
-impl __Stub_Session {
-    pub fn new(addr: usize) -> Self {
-        Self { addr }
-    }
-}
-
-impl __Stateless_Session for __Stub_Session {
-    fn open(&self, started: crate::time::Tick, budget: crate::time::Duration, out: crate::scheduler::SalvoReply) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_Session::Open(started, budget, out), crate::__PROTO_Session);
-    }
-    fn expire(&self, started: crate::time::Tick, budget: crate::time::Duration, out: crate::scheduler::SalvoReply, f: crate::time::Fired) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_Session::Expire(started, budget, out, f), crate::__PROTO_Session);
-    }
-}
-
 pub struct Sessions {
     __dep0: crate::time::Timer,
     pub __mailbox_capacity: i32,
@@ -358,25 +339,6 @@ impl Sleeper {
             __Inner_Sleeper::Shared(h) => h.woke(started, out, f),
             __Inner_Sleeper::Locked(h) => h.lock().unwrap().woke(started, out, f),
         }
-    }
-}
-
-pub struct __Stub_Sleeper {
-    addr: usize,
-}
-
-impl __Stub_Sleeper {
-    pub fn new(addr: usize) -> Self {
-        Self { addr }
-    }
-}
-
-impl __Stateless_Sleeper for __Stub_Sleeper {
-    fn nap(&self, wait: crate::time::Duration, out: crate::scheduler::SalvoReply) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_Sleeper::Nap(wait, out), crate::__PROTO_Sleeper);
-    }
-    fn woke(&self, started: crate::time::Tick, out: crate::scheduler::SalvoReply, f: crate::time::Fired) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_Sleeper::Woke(started, out, f), crate::__PROTO_Sleeper);
     }
 }
 
@@ -585,6 +547,50 @@ pub enum __Cont_Sessions {
 pub enum __Cont_Napping {
     Nap(crate::time::Duration),
     Woke(crate::time::Tick, crate::scheduler::SalvoReply),
+}
+
+#[derive(Clone)]
+pub struct __Stub_Session {
+    addr: usize,
+}
+
+impl __Stub_Session {
+    pub fn new(addr: usize) -> Self {
+        Self {
+            addr
+        }
+    }
+}
+
+impl crate::__Stateless_Session for __Stub_Session {
+    fn open(&self, started: crate::time::Tick, budget: crate::time::Duration, out: crate::scheduler::SalvoReply) {
+        crate::scheduler::salvo_send_wire(self.addr, crate::__Msg_Session::Open(started, budget, out), crate::__PROTO_Session);
+    }
+    fn expire(&self, started: crate::time::Tick, budget: crate::time::Duration, out: crate::scheduler::SalvoReply, f: crate::time::Fired) {
+        crate::scheduler::salvo_send_wire(self.addr, crate::__Msg_Session::Expire(started, budget, out, f), crate::__PROTO_Session);
+    }
+}
+
+#[derive(Clone)]
+pub struct __Stub_Sleeper {
+    addr: usize,
+}
+
+impl __Stub_Sleeper {
+    pub fn new(addr: usize) -> Self {
+        Self {
+            addr
+        }
+    }
+}
+
+impl crate::__Stateless_Sleeper for __Stub_Sleeper {
+    fn nap(&self, wait: crate::time::Duration, out: crate::scheduler::SalvoReply) {
+        crate::scheduler::salvo_send_wire(self.addr, crate::__Msg_Sleeper::Nap(wait, out), crate::__PROTO_Sleeper);
+    }
+    fn woke(&self, started: crate::time::Tick, out: crate::scheduler::SalvoReply, f: crate::time::Fired) {
+        crate::scheduler::salvo_send_wire(self.addr, crate::__Msg_Sleeper::Woke(started, out, f), crate::__PROTO_Sleeper);
+    }
 }
 
 pub fn __dispatch_Sessions_Session(__handler: &mut crate::Sessions, mut __msg: crate::__Msg_Session) {

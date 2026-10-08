@@ -148,22 +148,6 @@ impl Inbound {
     }
 }
 
-pub struct __Stub_Inbound {
-    addr: usize,
-}
-
-impl __Stub_Inbound {
-    pub fn new(addr: usize) -> Self {
-        Self { addr }
-    }
-}
-
-impl __Stateless_Inbound for __Stub_Inbound {
-    fn receive_frame(&self, from: crate::net::NodeEndpoint, frame: crate::core_bytes::Bytes) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_Inbound::ReceiveFrame(from, frame), crate::net::__PROTO_Inbound);
-    }
-}
-
 pub trait __Stateless_Transport: Send + Sync {
     fn listen(&self, at: &crate::net::NodeEndpoint, sink: usize) -> crate::unions::Union2<(), crate::unions::Union2<crate::net::Unreachable, crate::net::WireFailed>>;
     fn unlisten(&self, at: &crate::net::NodeEndpoint);
@@ -399,22 +383,6 @@ impl Outbound {
     }
 }
 
-pub struct __Stub_Outbound {
-    addr: usize,
-}
-
-impl __Stub_Outbound {
-    pub fn new(addr: usize) -> Self {
-        Self { addr }
-    }
-}
-
-impl __Stateless_Outbound for __Stub_Outbound {
-    fn send_frame(&self, to: crate::net::NodeEndpoint, frame: crate::core_bytes::Bytes) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_Outbound::SendFrame(to, frame), crate::net::__PROTO_Outbound);
-    }
-}
-
 pub struct Sending {
     __dep0: crate::net::Transport,
     pub __mailbox_capacity: i32,
@@ -647,28 +615,6 @@ impl NodeGroup {
     }
 }
 
-pub struct __Stub_NodeGroup {
-    addr: usize,
-}
-
-impl __Stub_NodeGroup {
-    pub fn new(addr: usize) -> Self {
-        Self { addr }
-    }
-}
-
-impl __Stateless_NodeGroup for __Stub_NodeGroup {
-    fn members(&self, out: crate::scheduler::SalvoReply) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_NodeGroup::Members(out), crate::net::__PROTO_NodeGroup);
-    }
-    fn subscribe(&self, w: usize) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_NodeGroup::Subscribe(w), crate::net::__PROTO_NodeGroup);
-    }
-    fn leave(&self) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_NodeGroup::Leave, crate::net::__PROTO_NodeGroup);
-    }
-}
-
 pub trait __Stateless_NodeGroupWatcher: Send + Sync {
     fn joined(&self, n: crate::net::Node);
     fn left(&self, n: crate::net::Node, why: String);
@@ -721,25 +667,6 @@ impl NodeGroupWatcher {
             __Inner_NodeGroupWatcher::Shared(h) => h.left(n, why),
             __Inner_NodeGroupWatcher::Locked(h) => h.lock().unwrap().left(n, why),
         }
-    }
-}
-
-pub struct __Stub_NodeGroupWatcher {
-    addr: usize,
-}
-
-impl __Stub_NodeGroupWatcher {
-    pub fn new(addr: usize) -> Self {
-        Self { addr }
-    }
-}
-
-impl __Stateless_NodeGroupWatcher for __Stub_NodeGroupWatcher {
-    fn joined(&self, n: crate::net::Node) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_NodeGroupWatcher::Joined(n), crate::net::__PROTO_NodeGroupWatcher);
-    }
-    fn left(&self, n: crate::net::Node, why: String) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_NodeGroupWatcher::Left(n, why), crate::net::__PROTO_NodeGroupWatcher);
     }
 }
 
@@ -1340,34 +1267,6 @@ impl ActorGroup {
     }
 }
 
-pub struct __Stub_ActorGroup {
-    addr: usize,
-}
-
-impl __Stub_ActorGroup {
-    pub fn new(addr: usize) -> Self {
-        Self { addr }
-    }
-}
-
-impl __Stateless_ActorGroup for __Stub_ActorGroup {
-    fn join(&self, member: usize) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_ActorGroup::Join(member), crate::net::__PROTO_ActorGroup);
-    }
-    fn leave(&self, member: usize) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_ActorGroup::Leave(member), crate::net::__PROTO_ActorGroup);
-    }
-    fn members(&self, out: crate::scheduler::SalvoReply) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_ActorGroup::Members(out), crate::net::__PROTO_ActorGroup);
-    }
-    fn subscribe(&self, w: usize) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_ActorGroup::Subscribe(w), crate::net::__PROTO_ActorGroup);
-    }
-    fn refresh(&self) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_ActorGroup::Refresh, crate::net::__PROTO_ActorGroup);
-    }
-}
-
 pub trait __Stateless_ActorGroupWatcher: Send + Sync {
     fn joined(&self, member: usize);
     fn left(&self, member: usize);
@@ -1420,25 +1319,6 @@ impl ActorGroupWatcher {
             __Inner_ActorGroupWatcher::Shared(h) => h.left(member),
             __Inner_ActorGroupWatcher::Locked(h) => h.lock().unwrap().left(member),
         }
-    }
-}
-
-pub struct __Stub_ActorGroupWatcher {
-    addr: usize,
-}
-
-impl __Stub_ActorGroupWatcher {
-    pub fn new(addr: usize) -> Self {
-        Self { addr }
-    }
-}
-
-impl __Stateless_ActorGroupWatcher for __Stub_ActorGroupWatcher {
-    fn joined(&self, member: usize) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_ActorGroupWatcher::Joined(member), crate::net::__PROTO_ActorGroupWatcher);
-    }
-    fn left(&self, member: usize) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_ActorGroupWatcher::Left(member), crate::net::__PROTO_ActorGroupWatcher);
     }
 }
 
@@ -2215,40 +2095,6 @@ impl MemNet {
     }
 }
 
-pub struct __Stub_MemNet {
-    addr: usize,
-}
-
-impl __Stub_MemNet {
-    pub fn new(addr: usize) -> Self {
-        Self { addr }
-    }
-}
-
-impl __Stateless_MemNet for __Stub_MemNet {
-    fn attach(&self, at: crate::net::NodeEndpoint, sink: usize) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_MemNet::Attach(at, sink), crate::net::__PROTO_MemNet);
-    }
-    fn detach(&self, at: crate::net::NodeEndpoint) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_MemNet::Detach(at), crate::net::__PROTO_MemNet);
-    }
-    fn route(&self, from: crate::net::NodeEndpoint, to: crate::net::NodeEndpoint, out: crate::scheduler::SalvoReply) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_MemNet::Route(from, to, out), crate::net::__PROTO_MemNet);
-    }
-    fn partition(&self, a: crate::net::NodeEndpoint, b: crate::net::NodeEndpoint) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_MemNet::Partition(a, b), crate::net::__PROTO_MemNet);
-    }
-    fn heal(&self, a: crate::net::NodeEndpoint, b: crate::net::NodeEndpoint) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_MemNet::Heal(a, b), crate::net::__PROTO_MemNet);
-    }
-    fn kill(&self, node: crate::net::NodeEndpoint) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_MemNet::Kill(node), crate::net::__PROTO_MemNet);
-    }
-    fn delivered(&self, out: crate::scheduler::SalvoReply) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_MemNet::Delivered(out), crate::net::__PROTO_MemNet);
-    }
-}
-
 pub struct MemNetwork {
     listeners: crate::core_map::Map<crate::net::NodeEndpoint, usize>,
     cuts: crate::core_set::Set<String>,
@@ -2778,6 +2624,181 @@ pub enum __Cont_MemNetwork {
     Heal(crate::net::NodeEndpoint),
     Kill,
     Delivered,
+}
+
+#[derive(Clone)]
+pub struct __Stub_Inbound {
+    addr: usize,
+}
+
+impl __Stub_Inbound {
+    pub fn new(addr: usize) -> Self {
+        Self {
+            addr
+        }
+    }
+}
+
+impl crate::net::__Stateless_Inbound for __Stub_Inbound {
+    fn receive_frame(&self, from: crate::net::NodeEndpoint, frame: crate::core_bytes::Bytes) {
+        crate::scheduler::salvo_send_wire(self.addr, crate::net::__Msg_Inbound::ReceiveFrame(from, frame), crate::net::__PROTO_Inbound);
+    }
+}
+
+#[derive(Clone)]
+pub struct __Stub_Outbound {
+    addr: usize,
+}
+
+impl __Stub_Outbound {
+    pub fn new(addr: usize) -> Self {
+        Self {
+            addr
+        }
+    }
+}
+
+impl crate::net::__Stateless_Outbound for __Stub_Outbound {
+    fn send_frame(&self, to: crate::net::NodeEndpoint, frame: crate::core_bytes::Bytes) {
+        crate::scheduler::salvo_send_wire(self.addr, crate::net::__Msg_Outbound::SendFrame(to, frame), crate::net::__PROTO_Outbound);
+    }
+}
+
+#[derive(Clone)]
+pub struct __Stub_NodeGroup {
+    addr: usize,
+}
+
+impl __Stub_NodeGroup {
+    pub fn new(addr: usize) -> Self {
+        Self {
+            addr
+        }
+    }
+}
+
+impl crate::net::__Stateless_NodeGroup for __Stub_NodeGroup {
+    fn members(&self, out: crate::scheduler::SalvoReply) {
+        crate::scheduler::salvo_send_wire(self.addr, crate::net::__Msg_NodeGroup::Members(out), crate::net::__PROTO_NodeGroup);
+    }
+    fn subscribe(&self, w: usize) {
+        crate::scheduler::salvo_send_wire(self.addr, crate::net::__Msg_NodeGroup::Subscribe(w), crate::net::__PROTO_NodeGroup);
+    }
+    fn leave(&self) {
+        crate::scheduler::salvo_send_wire(self.addr, crate::net::__Msg_NodeGroup::Leave, crate::net::__PROTO_NodeGroup);
+    }
+}
+
+#[derive(Clone)]
+pub struct __Stub_NodeGroupWatcher {
+    addr: usize,
+}
+
+impl __Stub_NodeGroupWatcher {
+    pub fn new(addr: usize) -> Self {
+        Self {
+            addr
+        }
+    }
+}
+
+impl crate::net::__Stateless_NodeGroupWatcher for __Stub_NodeGroupWatcher {
+    fn joined(&self, n: crate::net::Node) {
+        crate::scheduler::salvo_send_wire(self.addr, crate::net::__Msg_NodeGroupWatcher::Joined(n), crate::net::__PROTO_NodeGroupWatcher);
+    }
+    fn left(&self, n: crate::net::Node, why: String) {
+        crate::scheduler::salvo_send_wire(self.addr, crate::net::__Msg_NodeGroupWatcher::Left(n, why), crate::net::__PROTO_NodeGroupWatcher);
+    }
+}
+
+#[derive(Clone)]
+pub struct __Stub_ActorGroup {
+    addr: usize,
+}
+
+impl __Stub_ActorGroup {
+    pub fn new(addr: usize) -> Self {
+        Self {
+            addr
+        }
+    }
+}
+
+impl crate::net::__Stateless_ActorGroup for __Stub_ActorGroup {
+    fn join(&self, member: usize) {
+        crate::scheduler::salvo_send_wire(self.addr, crate::net::__Msg_ActorGroup::Join(member), crate::net::__PROTO_ActorGroup);
+    }
+    fn leave(&self, member: usize) {
+        crate::scheduler::salvo_send_wire(self.addr, crate::net::__Msg_ActorGroup::Leave(member), crate::net::__PROTO_ActorGroup);
+    }
+    fn members(&self, out: crate::scheduler::SalvoReply) {
+        crate::scheduler::salvo_send_wire(self.addr, crate::net::__Msg_ActorGroup::Members(out), crate::net::__PROTO_ActorGroup);
+    }
+    fn subscribe(&self, w: usize) {
+        crate::scheduler::salvo_send_wire(self.addr, crate::net::__Msg_ActorGroup::Subscribe(w), crate::net::__PROTO_ActorGroup);
+    }
+    fn refresh(&self) {
+        crate::scheduler::salvo_send_wire(self.addr, crate::net::__Msg_ActorGroup::Refresh, crate::net::__PROTO_ActorGroup);
+    }
+}
+
+#[derive(Clone)]
+pub struct __Stub_ActorGroupWatcher {
+    addr: usize,
+}
+
+impl __Stub_ActorGroupWatcher {
+    pub fn new(addr: usize) -> Self {
+        Self {
+            addr
+        }
+    }
+}
+
+impl crate::net::__Stateless_ActorGroupWatcher for __Stub_ActorGroupWatcher {
+    fn joined(&self, member: usize) {
+        crate::scheduler::salvo_send_wire(self.addr, crate::net::__Msg_ActorGroupWatcher::Joined(member), crate::net::__PROTO_ActorGroupWatcher);
+    }
+    fn left(&self, member: usize) {
+        crate::scheduler::salvo_send_wire(self.addr, crate::net::__Msg_ActorGroupWatcher::Left(member), crate::net::__PROTO_ActorGroupWatcher);
+    }
+}
+
+#[derive(Clone)]
+pub struct __Stub_MemNet {
+    addr: usize,
+}
+
+impl __Stub_MemNet {
+    pub fn new(addr: usize) -> Self {
+        Self {
+            addr
+        }
+    }
+}
+
+impl crate::net::__Stateless_MemNet for __Stub_MemNet {
+    fn attach(&self, at: crate::net::NodeEndpoint, sink: usize) {
+        crate::scheduler::salvo_send_wire(self.addr, crate::net::__Msg_MemNet::Attach(at, sink), crate::net::__PROTO_MemNet);
+    }
+    fn detach(&self, at: crate::net::NodeEndpoint) {
+        crate::scheduler::salvo_send_wire(self.addr, crate::net::__Msg_MemNet::Detach(at), crate::net::__PROTO_MemNet);
+    }
+    fn route(&self, from: crate::net::NodeEndpoint, to: crate::net::NodeEndpoint, out: crate::scheduler::SalvoReply) {
+        crate::scheduler::salvo_send_wire(self.addr, crate::net::__Msg_MemNet::Route(from, to, out), crate::net::__PROTO_MemNet);
+    }
+    fn partition(&self, a: crate::net::NodeEndpoint, b: crate::net::NodeEndpoint) {
+        crate::scheduler::salvo_send_wire(self.addr, crate::net::__Msg_MemNet::Partition(a, b), crate::net::__PROTO_MemNet);
+    }
+    fn heal(&self, a: crate::net::NodeEndpoint, b: crate::net::NodeEndpoint) {
+        crate::scheduler::salvo_send_wire(self.addr, crate::net::__Msg_MemNet::Heal(a, b), crate::net::__PROTO_MemNet);
+    }
+    fn kill(&self, node: crate::net::NodeEndpoint) {
+        crate::scheduler::salvo_send_wire(self.addr, crate::net::__Msg_MemNet::Kill(node), crate::net::__PROTO_MemNet);
+    }
+    fn delivered(&self, out: crate::scheduler::SalvoReply) {
+        crate::scheduler::salvo_send_wire(self.addr, crate::net::__Msg_MemNet::Delivered(out), crate::net::__PROTO_MemNet);
+    }
 }
 
 pub fn __dispatch_Sending_Outbound(__handler: &mut crate::net::Sending, mut __msg: crate::net::__Msg_Outbound) {

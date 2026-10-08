@@ -23,15 +23,6 @@ class __Mon_Counter(
     }
 }
 
-class __Stub_Counter(private val addr: Int) : Counter {
-    override fun bump(n: Int) {
-        salvo.SalvoSched.sendWire(addr, __Msg_Counter.Bump(n), __PROTO_Counter, __Codec___Msg_Counter)
-    }
-    override fun total(out: salvo.SalvoReply) {
-        salvo.SalvoSched.sendWire(addr, __Msg_Counter.Total(out), __PROTO_Counter, __Codec___Msg_Counter)
-    }
-}
-
 class Counting : Counter {
     val __mailboxCapacity: Int = 8
     var __addr: Int? = null
@@ -98,15 +89,6 @@ class __Mon_Ledger(
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.reported(label, out, total) } finally { lock.unlock() }
-    }
-}
-
-class __Stub_Ledger(private val addr: Int) : Ledger {
-    override fun report(label: String, out: salvo.SalvoReply) {
-        salvo.SalvoSched.sendWire(addr, __Msg_Ledger.Report(label, out), __PROTO_Ledger, __Codec___Msg_Ledger)
-    }
-    override fun reported(label: String, out: salvo.SalvoReply, total: Int) {
-        salvo.SalvoSched.sendWire(addr, __Msg_Ledger.Reported(label, out, total), __PROTO_Ledger, __Codec___Msg_Ledger)
     }
 }
 
@@ -181,18 +163,6 @@ class __Mon_Desk(
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.closeUp(reason) } finally { lock.unlock() }
-    }
-}
-
-class __Stub_Desk(private val addr: Int) : Desk {
-    override fun ticket(out: salvo.SalvoReply) {
-        salvo.SalvoSched.sendWire(addr, __Msg_Desk.Ticket(out), __PROTO_Desk, __Codec___Msg_Desk)
-    }
-    override fun serve(name: String) {
-        salvo.SalvoSched.sendWire(addr, __Msg_Desk.Serve(name), __PROTO_Desk, __Codec___Msg_Desk)
-    }
-    override fun closeUp(reason: String) {
-        salvo.SalvoSched.sendWire(addr, __Msg_Desk.CloseUp(reason), __PROTO_Desk, __Codec___Msg_Desk)
     }
 }
 
@@ -274,12 +244,6 @@ class __Mon_Fragile(
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.crash() } finally { lock.unlock() }
-    }
-}
-
-class __Stub_Fragile(private val addr: Int) : Fragile {
-    override fun crash() {
-        salvo.SalvoSched.sendWire(addr, __Msg_Fragile.Crash(), __PROTO_Fragile, __Codec___Msg_Fragile)
     }
 }
 
@@ -537,6 +501,42 @@ sealed class __Cont_Desking {
 
 
 sealed class __Cont_Breaking {
+}
+
+class __Stub_Counter(private val addr: Int) : Counter {
+    override fun bump(n: Int) {
+        salvo.SalvoSched.sendWire(addr, __Msg_Counter.Bump(n), __PROTO_Counter, __Codec___Msg_Counter)
+    }
+    override fun total(out: salvo.SalvoReply) {
+        salvo.SalvoSched.sendWire(addr, __Msg_Counter.Total(out), __PROTO_Counter, __Codec___Msg_Counter)
+    }
+}
+
+class __Stub_Ledger(private val addr: Int) : Ledger {
+    override fun report(label: String, out: salvo.SalvoReply) {
+        salvo.SalvoSched.sendWire(addr, __Msg_Ledger.Report(label, out), __PROTO_Ledger, __Codec___Msg_Ledger)
+    }
+    override fun reported(label: String, out: salvo.SalvoReply, total: Int) {
+        salvo.SalvoSched.sendWire(addr, __Msg_Ledger.Reported(label, out, total), __PROTO_Ledger, __Codec___Msg_Ledger)
+    }
+}
+
+class __Stub_Desk(private val addr: Int) : Desk {
+    override fun ticket(out: salvo.SalvoReply) {
+        salvo.SalvoSched.sendWire(addr, __Msg_Desk.Ticket(out), __PROTO_Desk, __Codec___Msg_Desk)
+    }
+    override fun serve(name: String) {
+        salvo.SalvoSched.sendWire(addr, __Msg_Desk.Serve(name), __PROTO_Desk, __Codec___Msg_Desk)
+    }
+    override fun closeUp(reason: String) {
+        salvo.SalvoSched.sendWire(addr, __Msg_Desk.CloseUp(reason), __PROTO_Desk, __Codec___Msg_Desk)
+    }
+}
+
+class __Stub_Fragile(private val addr: Int) : Fragile {
+    override fun crash() {
+        salvo.SalvoSched.sendWire(addr, __Msg_Fragile.Crash(), __PROTO_Fragile, __Codec___Msg_Fragile)
+    }
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")

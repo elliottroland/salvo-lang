@@ -43,15 +43,6 @@ class __Mon_Session(
     }
 }
 
-class __Stub_Session(private val addr: Int) : Session {
-    override fun open(started: salvo.time.Tick, budget: salvo.time.Duration, out: salvo.SalvoReply) {
-        salvo.SalvoSched.sendWire(addr, __Msg_Session.Open(started, budget, out), __PROTO_Session, __Codec___Msg_Session)
-    }
-    override fun expire(started: salvo.time.Tick, budget: salvo.time.Duration, out: salvo.SalvoReply, f: salvo.time.Fired) {
-        salvo.SalvoSched.sendWire(addr, __Msg_Session.Expire(started, budget, out, f), __PROTO_Session, __Codec___Msg_Session)
-    }
-}
-
 class Sessions(private val __dep0: salvo.time.Timer) : Session {
     val __mailboxCapacity: Int = 8
     var __addr: Int? = null
@@ -130,15 +121,6 @@ class __Mon_Sleeper(
         check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.woke(started, out, f) } finally { lock.unlock() }
-    }
-}
-
-class __Stub_Sleeper(private val addr: Int) : Sleeper {
-    override fun nap(wait: salvo.time.Duration, out: salvo.SalvoReply) {
-        salvo.SalvoSched.sendWire(addr, __Msg_Sleeper.Nap(wait, out), __PROTO_Sleeper, __Codec___Msg_Sleeper)
-    }
-    override fun woke(started: salvo.time.Tick, out: salvo.SalvoReply, f: salvo.time.Fired) {
-        salvo.SalvoSched.sendWire(addr, __Msg_Sleeper.Woke(started, out, f), __PROTO_Sleeper, __Codec___Msg_Sleeper)
     }
 }
 
@@ -303,6 +285,24 @@ sealed class __Cont_Sessions {
 sealed class __Cont_Napping {
     class Nap(val wait: salvo.time.Duration) : __Cont_Napping()
     class Woke(val started: salvo.time.Tick, val out: salvo.SalvoReply) : __Cont_Napping()
+}
+
+class __Stub_Session(private val addr: Int) : Session {
+    override fun open(started: salvo.time.Tick, budget: salvo.time.Duration, out: salvo.SalvoReply) {
+        salvo.SalvoSched.sendWire(addr, __Msg_Session.Open(started, budget, out), __PROTO_Session, __Codec___Msg_Session)
+    }
+    override fun expire(started: salvo.time.Tick, budget: salvo.time.Duration, out: salvo.SalvoReply, f: salvo.time.Fired) {
+        salvo.SalvoSched.sendWire(addr, __Msg_Session.Expire(started, budget, out, f), __PROTO_Session, __Codec___Msg_Session)
+    }
+}
+
+class __Stub_Sleeper(private val addr: Int) : Sleeper {
+    override fun nap(wait: salvo.time.Duration, out: salvo.SalvoReply) {
+        salvo.SalvoSched.sendWire(addr, __Msg_Sleeper.Nap(wait, out), __PROTO_Sleeper, __Codec___Msg_Sleeper)
+    }
+    override fun woke(started: salvo.time.Tick, out: salvo.SalvoReply, f: salvo.time.Fired) {
+        salvo.SalvoSched.sendWire(addr, __Msg_Sleeper.Woke(started, out, f), __PROTO_Sleeper, __Codec___Msg_Sleeper)
+    }
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
