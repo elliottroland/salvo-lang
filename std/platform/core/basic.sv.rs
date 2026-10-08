@@ -2,7 +2,6 @@
 // the declarations the platform code uses, as the build emits them. Rewritten
 // by every build — do not edit; the build never reads this file.
 // salvo-abi 1 5cd1832c3b5d03f1
-use crate::core_string::Str;
 
 pub fn to_str__TupleAB<A: Clone, B: Clone>(value: &(A, B), to_str: &mut dyn FnMut(&A) -> String, to_str__1: &mut dyn FnMut(&B) -> String) -> String {
     return format!("({}, {})", to_str(&value.0), to_str__1(&value.1));

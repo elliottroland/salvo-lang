@@ -1,4 +1,4 @@
-#![allow(non_snake_case, non_camel_case_types, unused_mut, unused_parens, unused_imports, dead_code, unreachable_code, unused_variables, path_statements, unused_must_use, suspicious_double_ref_op, non_upper_case_globals)]
+#![allow(non_snake_case, non_camel_case_types, unused_mut, unused_parens, unused_imports, dead_code, unreachable_code, unused_variables, path_statements, unused_must_use, suspicious_double_ref_op, non_upper_case_globals, unused_braces)]
 #[path = "unions/mod.rs"]
 pub mod unions;
 #[path = "seq.rs"]
@@ -42,40 +42,45 @@ pub mod platform_core_sorted;
 #[path = "platform/core/string.rs"]
 pub mod platform_core_string;
 
-use crate::core_console::Console;
-use crate::core_console::ConsolePlatformSync as _;
-use crate::core_console::__Stateful_Console as _;
-use crate::core_console::__Stateless_Console as _;
+use crate::core_list::add_platform;
+use crate::core_list::get_platform;
 use crate::core_console::println;
-use crate::core_list::List;
-use crate::core_list::first;
-use crate::core_string::Str;
+use crate::core_list::size_platform;
+
 
 pub fn NonEmpty__List_qualifies<T: Clone>(list: &Vec<T>) -> bool {
-    return crate::core_list::size_platform(list) > 0;
+    return (crate::core_list::size_platform::<T>(list) > 0i32);
 }
 
 pub fn head(list: &Vec<i32>) -> i32 {
-    let mut first = crate::core_list::get_platform(list, 0);
-    return *first.expect("salvo: value is absent at main:30:12");
+    let mut first: Option<i32> = crate::core_list::get_platform::<i32>(list, 0i32).copied();
+    return {
+        let mut __nn_1 = &first;
+        if __nn_1.is_none() {
+            panic!("salvo: value is absent at main:30:12");
+        } else {
+            let mut __some_2 = __nn_1.unwrap();
+            __some_2
+        }
+    };
 }
 
-pub fn celsius(degrees: i32) -> i32 {
+pub fn celsius(mut degrees: i32) -> i32 {
     return degrees;
 }
 
-pub fn describe__Int(temp: i32) -> String {
+pub fn describe__Int(mut temp: i32) -> String {
     return format!("{} (no unit)", temp);
 }
 
-pub fn describe__CelsiusInt(temp: &i32) -> String {
-    return format!("{}°C", *temp);
+pub fn describe__CelsiusInt(mut temp: i32) -> String {
+    return format!("{}°C", temp);
 }
 
 pub fn sum(list: &Vec<i32>) -> i32 {
-    let mut total = 0;
-    for n in crate::platform_core_list::each(list) {
-        total = i32::wrapping_add(total, *n);
+    let mut total: i32 = 0i32;
+    for mut n in list.iter().copied() {
+        total = i32::wrapping_add(total, n);
     }
     return total;
 }
@@ -102,53 +107,54 @@ impl crate::wire::__Wire for Request {
     }
 }
 
-pub fn authenticate(mut request: Request) -> Request {
+pub fn authenticate(mut request: crate::Request) -> crate::Request {
     return request;
 }
 
-pub fn freshen(mut request: Request) -> Request {
+pub fn freshen(mut request: crate::Request) -> crate::Request {
     return request;
 }
 
-pub fn touch(request: &mut Request) {
-    request.touches = i32::wrapping_add(request.touches, 1);
+pub fn touch(request: &mut crate::Request) {
+    request.touches = i32::wrapping_add(request.touches, 1i32);
 }
 
-pub fn handle__Request(request: &Request) -> String {
-    return format!("plain {}", request.path.clone());
+pub fn handle__Request(request: &crate::Request) -> String {
+    return format!("plain {}", request.path);
 }
 
-pub fn handle__AuthenticatedRequest(request: &Request) -> String {
-    return format!("authenticated {}", request.path.clone());
+pub fn handle__AuthenticatedRequest(request: &crate::Request) -> String {
+    return format!("authenticated {}", request.path);
 }
 
-pub fn handle__FreshRequest(request: &Request) -> String {
-    return format!("fresh {}", request.path.clone());
+pub fn handle__FreshRequest(request: &crate::Request) -> String {
+    return format!("fresh {}", request.path);
 }
 
 pub fn main() {
-    let console = crate::core_console::Console::shared(crate::core_console::__Platform_StdOutConsole::new());
+    let mut __use_1: crate::core_console::__Platform_StdOutConsole = crate::core_console::__Platform_StdOutConsole::new();
+    let __handle_2 = crate::core_console::Console::shared(__use_1);
     let mut xs: Vec<i32> = vec![];
-    crate::core_list::add_platform(&mut xs, 3);
-    println(&console, &(format!("1. head after add: {}", head(&xs))));
-    let mut maybe_empty = vec![7, 8];
-    if NonEmpty__List_qualifies(&maybe_empty) {
-        println(&console, &(format!("2. checked at run time, head is {}", head(&maybe_empty))));
-    }
-    let mut plain = 21;
-    let mut warm = celsius(21);
-    println(&console, &(format!("2. {} vs {}", describe__Int(plain), describe__CelsiusInt(&warm))));
-    if true {
-        println(&console, &(format!("2. widened: {}", describe__Int(warm))));
-    }
-    println(&console, &(format!("3. sum {}, head still {}", sum(&xs), head(&xs))));
-    compact(&mut xs);
-    crate::core_list::add_platform(&mut xs, 9);
-    println(&console, &(format!("3. after compact and add, head is {}", head(&xs))));
-    let mut session = authenticate(Request { path: "/orders".to_string(), touches: 0 });
-    let mut fresh = freshen(Request { path: "/health".to_string(), touches: 0 });
-    println(&console, &(format!("4. before: {} / {}", handle__AuthenticatedRequest(&session), handle__FreshRequest(&fresh))));
-    touch(&mut session);
-    touch(&mut fresh);
-    println(&console, &(format!("4. after:  {} / {}", handle__AuthenticatedRequest(&session), handle__Request(&fresh))));
+    crate::core_list::add_platform::<i32>(&mut xs, 3i32);
+    crate::core_console::println(&__handle_2, &format!("1. head after add: {}", crate::head(&xs)));
+    let mut maybe_empty: Vec<i32> = vec![7i32, 8i32];
+    if crate::core_list::NonEmpty__List_qualifies(&maybe_empty) {
+        crate::core_console::println(&__handle_2, &format!("2. checked at run time, head is {}", crate::head(&maybe_empty)));
+    };
+    let mut plain: i32 = 21i32;
+    let mut warm: i32 = crate::celsius(21i32);
+    crate::core_console::println(&__handle_2, &format!("2. {} vs {}", crate::describe__Int(plain), crate::describe__CelsiusInt(warm)));
+    {
+        crate::core_console::println(&__handle_2, &format!("2. widened: {}", crate::describe__Int(warm)));
+    };
+    crate::core_console::println(&__handle_2, &format!("3. sum {}, head still {}", crate::sum(&xs), crate::head(&xs)));
+    crate::compact(&mut xs);
+    crate::core_list::add_platform::<i32>(&mut xs, 9i32);
+    crate::core_console::println(&__handle_2, &format!("3. after compact and add, head is {}", crate::head(&xs)));
+    let mut session: crate::Request = crate::authenticate(crate::Request { path: String::from("/orders"), touches: 0i32 });
+    let mut fresh: crate::Request = crate::freshen(crate::Request { path: String::from("/health"), touches: 0i32 });
+    crate::core_console::println(&__handle_2, &format!("4. before: {} / {}", crate::handle__AuthenticatedRequest(&session), crate::handle__FreshRequest(&fresh)));
+    crate::touch(&mut session);
+    crate::touch(&mut fresh);
+    crate::core_console::println(&__handle_2, &format!("4. after:  {} / {}", crate::handle__AuthenticatedRequest(&session), crate::handle__Request(&fresh)));
 }

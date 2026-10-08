@@ -259,25 +259,25 @@ export fn main() [use] -> None {
     );
     assert!(
         main.content
-            .contains("pub fn fill(list: &mut Vec<i32>, n: i32)"),
+            .contains("pub fn fill(list: &mut Vec<i32>, mut n: i32)"),
         " {}",
         main.content
     );
     assert!(
         main.content
-            .contains("pub fn consume(list: Vec<i32>) -> i32"),
+            .contains("pub fn consume(mut list: Vec<i32>) -> i32"),
         " {}",
         main.content
     );
     // Call sites render the matching argument shapes; the moved arg
     // passes by value.
     assert!(
-        main.content.contains("fill(&mut items, 3)"),
+        main.content.contains("crate::fill(&mut items, 3i32)"),
         "{}",
         main.content
     );
-    assert!(main.content.contains("read(&items)"), "{}", main.content);
-    assert!(main.content.contains("consume(items)"), "{}", main.content);
+    assert!(main.content.contains("crate::read(&items)"), "{}", main.content);
+    assert!(main.content.contains("crate::consume(items)"), "{}", main.content);
 }
 
 #[test]
@@ -377,17 +377,17 @@ fn unions_emit_enums() {
     // Wrap at return boundaries, positional arm identity.
     assert!(main
         .content
-        .contains("return Union2::<i32, String>::U1(ok(input));"));
+        .contains("return crate::unions::Union2::U1(crate::core_result::ok::<i32>(input));"));
     assert!(main
         .content
-        .contains("return Union2::<i32, String>::U2(err(\"negative age\".to_string()));"));
+        .contains("return crate::unions::Union2::U2(crate::core_result::err::<String>(String::from(\"negative age\")));"));
     // Precise `is Err Str` tests a single arm.
-    assert!(main.content.contains("matches!(precise, Union3::U2(_))"));
-    assert!(main.content.contains("matches!(precise, Union3::U1(_))"));
-    // `when` lowers to a match with narrowed reads.
-    assert!(main.content.contains("match result {"));
-    assert!(main.content.contains("Union2::U1(_) =>"));
-    assert!(main.content.contains("result.u1()"));
+    assert!(main.content.contains("matches!(precise, crate::unions::Union3::U2(_))"));
+    assert!(main.content.contains("matches!(precise, crate::unions::Union3::U1(_))"));
+    // `when` lowers to an arm test per branch, each with its narrowed read
+    // peeled by reference.
+    assert!(main.content.contains("if matches!(result, crate::unions::Union2::U1(_))"));
+    assert!(main.content.contains("match &result { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() }"));
 }
 
 #[test]
@@ -499,23 +499,23 @@ fn qualifiers_lower_to_predicates_and_mangled_fns() {
     // their subject [fn-emit-name].
     assert!(main
         .content
-        .contains("pub fn Surname__Person_qualifies(person: &Person) -> bool"), "{}", main.content);
+        .contains("pub fn Surname__Person_qualifies(person: &crate::Person) -> bool"), "{}", main.content);
     assert!(main
         .content
-        .contains("pub fn Positive__Int_qualifies(int: i32) -> bool"));
-    assert!(main.content.contains("if Surname__Person_qualifies(person)"));
-    assert!(main.content.contains("if Positive__Int_qualifies(n)"));
+        .contains("pub fn Positive__Int_qualifies(mut int: i32) -> bool"));
+    assert!(main.content.contains("if crate::Surname__Person_qualifies(person)"));
+    assert!(main.content.contains("if crate::Positive__Int_qualifies(n)"));
     // The overloads are named by their parameter types, the qualifier
     // included where it is what tells them apart.
     assert!(main
         .content
-        .contains("pub fn full_name__SurnamePerson(person: &Person) -> String"), "{}", main.content);
-    // Field overrides read out of the declared representation.
+        .contains("pub fn full_name__SurnamePerson(person: &crate::Person) -> String"), "{}", main.content);
+    // Field overrides read out of the declared representation, by reference.
     assert!(main
         .content
-        .contains("person.surname.as_ref().unwrap().clone()"));
+        .contains("let mut __claimed_1 = person.surname.as_ref().unwrap();"));
     // `while x is T` re-binds per iteration; `T?` narrows physically.
-    assert!(main.content.contains("while current.is_some()"));
+    assert!(main.content.contains("if !(current.is_some()) {"));
     assert!(main.content.contains("let mut c = current.unwrap();"));
 }
 
@@ -598,29 +598,24 @@ fn effects_lower_to_traits_and_mut_dyn_params() {
     assert!(main
         .content
         .contains("impl<T: Clone + Send + Sync + 'static> crate::__Stateful_Random<T> for CyclicRandom<T>"));
-    // [rs-handle] Effect deps as leading `&E` handle parameters.
+    // [rs-handle] Effect deps as leading `&E` handle parameters, named for
+    // the effect (a second instance of one effect numbered).
     assert!(main.content.contains(
-        "pub fn draw(random_i32: &crate::Random<i32>, random_string: &crate::Random<String>, console: &crate::core_console::Console)"
+        "pub fn draw(random: &crate::Random<i32>, random__1: &crate::Random<String>, console: &crate::core_console::Console)"
     ));
     // `use` instantiates handlers into locals holding the handle: a stateless
     // one `shared`, a stateful one `locked` [rs-handle].
-    assert!(main
-        .content
-        .contains("let console = crate::core_console::Console::shared(crate::core_console::__Platform_StdOutConsole::new());"));
-    assert!(// [effect-handler-generics] The handler is constructed *at* a type — the
-    // turbofish is written even where rustc could have inferred it, since a
-    // stateless generic handler gives it nothing to infer from.
-    main.content.contains("let random_i32 = crate::Random::<i32>::locked(CyclicRandom::<i32>::new(vec![10, 20, 30], move |__i0| __i0.clone()));"));
+    assert!(main.content.contains("let __handle_2 = crate::core_console::Console::shared(__use_1);"));
+    // [effect-handler-generics] The handler is constructed *at* a type: the
+    // local's annotation says which.
+    assert!(main.content.contains(
+        "let mut __use_3: crate::CyclicRandom<i32> = crate::CyclicRandom::new(vec![10i32, 20i32, 30i32], move |__a0: &i32| *__a0);"
+    ));
+    assert!(main.content.contains("let __handle_4 = crate::Random::locked(__use_3);"));
     // Threading and expected-type disambiguation.
-    assert!(main
-        .content
-        .contains("draw(&random_i32, &random_string, &console);"));
-    assert!(main
-        .content
-        .contains("let mut n: i32 = random_i32.next_random();"));
-    assert!(main
-        .content
-        .contains("let mut s: String = random_string.next_random();"));
+    assert!(main.content.contains("crate::draw(&__handle_4, &__handle_6, &__handle_2);"));
+    assert!(main.content.contains("let mut n: i32 = random.next_random();"));
+    assert!(main.content.contains("let mut s: String = random__1.next_random();"));
 }
 
 #[test]
@@ -754,20 +749,18 @@ fn loops_lower_to_block_expressions() {
     // unwrapped when the join type has no None arm.
     assert!(main
         .content
-        .contains("let mut __loop1: Option<i32> = None;"));
-    assert!(main.content.contains("__loop1 = Some(i32::wrapping_mul(i, 10));"));
-    assert!(main.content.contains("__loop1.unwrap()"));
+        .contains("let mut __loop_3: Option<i32> = None;"));
+    assert!(main.content.contains("__loop_3 = Some(i32::wrapping_mul(i, 10i32));"));
+    assert!(main.content.contains("let mut __loop_value_6 = __loop_3.unwrap();"));
     // `else` runs only when the loop never did.
-    assert!(main.content.contains("let mut __loop1_ran = false;"));
-    assert!(main.content.contains("if !__loop1_ran {"));
+    assert!(main.content.contains("let mut __ran_4: bool = false;"));
+    assert!(main.content.contains("if !(__ran_4) {"));
     // `break value` assigns before breaking.
-    assert!(main.content.contains("__loop3 = Some(x);"));
-    // Optional joins keep the plain Option local (no unwrap). The number
-    // shifted by one when a `for` over an `Iter<T>` started naming its pass:
-    // driving a producer costs one fresh loop name.
-    assert!(main.content.contains("__loop6\n})"));
+    assert!(main.content.contains("__loop_10 = Some(x);\n                break;"));
+    // Optional joins keep the plain Option local (no unwrap).
+    assert!(main.content.contains("let mut __loop_value_11 = __loop_10;"));
     // A union-typed loop value re-wraps to the declared arm order.
-    assert!(main.content.contains("(match "));
+    assert!(main.content.contains("} { crate::unions::Union2::U1(__v) => crate::unions::Union2::U2(__v), crate::unions::Union2::U2(__v) => crate::unions::Union2::U1(__v),"));
 }
 
 #[test]
@@ -950,10 +943,10 @@ export fn main() [use] -> None {
         "content: {}",
         main.content
     );
-    // The Positive overload wins at the call site (reads borrow
-    // [rs-borrows], hence the mangled fn taking `&i32`).
+    // The Positive overload wins at the call site (a Copy scalar travels
+    // by value [rs-copy-by-value]).
     assert!(
-        main.content.contains("describe__PositiveInt(&"),
+        main.content.contains("crate::describe__PositiveInt(crate::make())"),
         "content: {}",
         main.content
     );
@@ -1004,22 +997,22 @@ fn copy_lowers_to_clone_and_linked_lets_clone() {
         .expect("main.rs emitted");
     // `copy` clones the place, whatever the type.
     assert!(
-        main.content.contains("let mut t = s.clone();"),
+        main.content.contains("let mut t: String = (s).clone();"),
         "generated:\n{}",
         main.content
     );
     assert!(
-        main.content.contains("let mut ys = xs.clone();"),
+        main.content.contains("let mut ys: Vec<i32> = (xs).clone();"),
         "generated:\n{}",
         main.content
     );
     assert!(
-        main.content.contains("let mut q = p.clone();"),
+        main.content.contains("let mut q: crate::Person = (p).clone();"),
         "generated:\n{}",
         main.content
     );
     assert!(
-        main.content.contains("let mut brr = arr.clone();"),
+        main.content.contains("let mut brr: Vec<i32> = (arr).clone();"),
         "generated:\n{}",
         main.content
     );
@@ -1493,25 +1486,24 @@ fn move_mode_bindings_emit_real_moves() {
     // The claimed parameter is owned (moved in).
     assert!(
         main.content
-            .contains("pub fn longest_name(persons: Vec<Person>) -> String"),
+            .contains("pub fn longest_name(mut persons: Vec<crate::Person>) -> String"),
         "generated:\n{}",
         main.content
     );
-    // Move-mode loop: by value, no clone — the host's `into_each`
-    // [platform-iterable].
+    // Move-mode loop: by value, no clone.
     assert!(
-        main.content.contains("for mut person in crate::platform_core_list::into_each(persons) {"),
+        main.content.contains("for mut person in persons.into_iter() {"),
         "generated:\n{}",
         main.content
     );
     // Move-mode bindings: a real partial move and a real move.
     assert!(
-        main.content.contains("let mut name = person.name;"),
+        main.content.contains("let mut name: String = person.name;"),
         "generated:\n{}",
         main.content
     );
     assert!(
-        main.content.contains("let mut ys = xs;"),
+        main.content.contains("let mut ys: Vec<i32> = xs;"),
         "generated:\n{}",
         main.content
     );
@@ -1590,14 +1582,13 @@ fn borrow_mode_bindings_emit_borrows() {
         .expect("main.rs emitted");
     assert!(
         main.content
-            .contains("pub fn count_long(persons: &Vec<Person>) -> i32"),
+            .contains("pub fn count_long(persons: &Vec<crate::Person>) -> i32"),
         "generated:\n{}",
         main.content
     );
-    // By-reference iteration: the borrowed parameter goes to the host's
-    // `each` bare [platform-iterable].
+    // By-reference iteration over the borrowed parameter.
     assert!(
-        main.content.contains("for person in crate::platform_core_list::each(persons) {"),
+        main.content.contains("for mut person in persons.iter() {"),
         "generated:\n{}",
         main.content
     );
@@ -1861,13 +1852,13 @@ fn derived_returns_emit_borrows() {
         .expect("main.rs emitted");
     assert!(
         main.content
-            .contains("pub fn find_adult(persons: &Vec<Person>) -> Option<&Person>"),
+            .contains("pub fn find_adult(persons: &Vec<crate::Person>) -> Option<&crate::Person>"),
         "generated:\n{}",
         main.content
     );
     assert!(
         main.content.contains(
-            "pub fn head_of<'a>(persons: &'a Vec<Person>, tag: &String) -> Option<&'a Person>"
+            "pub fn head_of<'a>(persons: &'a Vec<crate::Person>, tag: &String) -> Option<&'a crate::Person>"
         ),
         "generated:\n{}",
         main.content
@@ -1878,7 +1869,7 @@ fn derived_returns_emit_borrows() {
         main.content
     );
     assert!(
-        main.content.contains("return crate::core_list::first_platform(persons);"),
+        main.content.contains("return crate::core_list::first_platform::<crate::Person>(persons);"),
         "generated:\n{}",
         main.content
     );
@@ -1935,7 +1926,7 @@ fn main() [use] -> None {
 "#;
 
 // [fn-contract] Keeping contracts borrow, consuming contracts own; fn
-// params are `&mut impl FnMut`; named fns wrap in adapters.
+// params are `&mut dyn FnMut`; named fns wrap in adapters.
 #[test]
 fn fn_type_contracts_emit_modes() {
     let files = generate(&[("main.sv", CONTRACTS_DEMO)]);
@@ -1945,22 +1936,21 @@ fn fn_type_contracts_emit_modes() {
         .expect("main.rs emitted");
     assert!(
         main.content.contains(
-            "pub fn apply_keeping(f: &mut impl FnMut(&Vec<Person>) -> i32, data: &Vec<Person>) -> i32"
+            "pub fn apply_keeping(f: &mut dyn FnMut(&Vec<crate::Person>) -> i32, data: &Vec<crate::Person>) -> i32"
         ),
         "generated:\n{}",
         main.content
     );
     assert!(
         main.content.contains(
-            "pub fn apply_consuming(f: &mut impl FnMut(Vec<Person>) -> i32, data: Vec<Person>) -> i32"
+            "pub fn apply_consuming(f: &mut dyn FnMut(Vec<crate::Person>) -> i32, mut data: Vec<crate::Person>) -> i32"
         ),
         "generated:\n{}",
         main.content
     );
     assert!(
-        // `count` may be mangled (`count__3`): core declares one too.
-        // `count` is mangled (`count__N`) since core declares one too.
-        main.content.contains("apply_keeping(&mut |mut __a0| count"),
+        // A path names the module's own `count`, whatever core declares.
+        main.content.contains("crate::apply_keeping(&mut |__a0: &Vec<crate::Person>| crate::count(__a0), &people)"),
         "adapter expected:\n{}",
         main.content
     );
@@ -2011,7 +2001,7 @@ fn field_subject_is_lowers_to_union_test() {
         .find(|f| f.rel_path.ends_with("main.rs"))
         .unwrap();
     assert!(
-        main.content.contains("matches!(h.result, Union2::U1(_))"),
+        main.content.contains("matches!(h.result, crate::unions::Union2::U1(_))"),
         "expected union test on the field in:\n{}",
         main.content
     );
@@ -2081,18 +2071,18 @@ fn narrowed_field_reads_unwrap() {
         .find(|f| f.rel_path.ends_with("main.rs"))
         .unwrap();
     assert!(
-        main.content.contains("p.surname.as_ref().unwrap().clone()"),
+        main.content.contains("let mut __narrowed_1 = p.surname.as_ref().unwrap();"),
         "expected the narrowed field read to unwrap in:\n{}",
         main.content
     );
     assert!(
         main.content
-            .contains("p.address.city.as_ref().unwrap().clone()"),
+            .contains("let mut __narrowed_3 = p.address.city.as_ref().unwrap();"),
         "expected the narrowed field *chain* read to unwrap in:\n{}",
         main.content
     );
     assert!(
-        main.content.contains("*h.result.u1()"),
+        main.content.contains("let mut __narrowed_4 = match &h.result { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };"),
         "expected the narrowed wrapper-union field read to use the arm \
          accessor in:\n{}",
         main.content
@@ -2143,7 +2133,7 @@ fn narrowed_field_operand_unwraps() {
         .find(|f| f.rel_path.ends_with("main.rs"))
         .unwrap();
     assert!(
-        main.content.contains("i32::wrapping_add(r.value.unwrap(), 1)"),
+        main.content.contains("let mut __narrowed_3 = r.value.unwrap();"),
         "expected the narrowed operand to unwrap in:\n{}",
         main.content
     );
@@ -2194,12 +2184,12 @@ fn tuple_elements_emit_native_indexes() {
         main.content
     );
     assert!(
-        main.content.contains("nested.1.0.clone()"),
+        main.content.contains("nested.1.0, nested.1.1"),
         "expected a nested index chain in:\n{}",
         main.content
     );
     assert!(
-        main.content.contains("maybe.0.as_ref().unwrap().clone()"),
+        main.content.contains("let mut __narrowed_3 = maybe.0.as_ref().unwrap();"),
         "expected the narrowed element to unwrap in:\n{}",
         main.content
     );
@@ -2581,15 +2571,15 @@ fn signature_supplied_effects_are_handles() {
         "expected one handle parameter per declared effect:\n{c}"
     );
     assert!(
-        c.contains("crate::Logger::shared(Stamped::new(logger.clone(), clock.clone()))"),
+        c.contains("crate::Stamped::new(logger.clone(), clock.clone());\n    let __handle_2 = crate::Logger::shared(__use_1);"),
         "the capture must clone the handles in scope:\n{c}"
     );
     assert!(
-        c.contains("Stamped::new(logger.clone(), crate::Clock::shared(FixedClock::new()))"),
+        c.contains("crate::Stamped::new(__handle_6.clone(), crate::Clock::shared(crate::FixedClock::new()))"),
         "a `with` item is a private instance behind its own handle:\n{c}"
     );
     assert!(
-        c.contains("interception(&logger, &clock);"),
+        c.contains("crate::interception(&__handle_6, &__handle_4);"),
         "the caller passes its handles:\n{c}"
     );
     assert!(
@@ -2675,11 +2665,11 @@ export fn main() [use] -> None {
         "one struct for the handler:\n{c}"
     );
     assert!(
-        c.contains("__dep_Console: crate::core_console::Console,"),
+        c.contains("__dep0: crate::core_console::Console,"),
         "the dependency is a handle field:\n{c}"
     );
     assert_eq!(
-        c.matches("crate::Logger::shared(PlainLogger::new(console.clone()))").count(),
+        c.matches("crate::PlainLogger::new(console.clone());\n    let __handle_2 = crate::Logger::shared(__use_1);").count(),
         2,
         "both fns construct the handler from their own handle:\n{c}"
     );
@@ -3112,11 +3102,11 @@ fn promotions_cast_and_literals_adopt() {
         "expected the adopted literal suffixed:\n{c}"
     );
     assert!(
-        c.contains("i64::wrapping_add(x, ((i32::wrapping_mul(n, 2)) as i64))"),
+        c.contains("i64::wrapping_add(x, ((i32::wrapping_mul(n, 2i32)) as i64))"),
         "expected the widened operand cast as a whole:\n{c}"
     );
     assert!(
-        c.contains("as i64) < x"),
+        c.contains("(((n) as i64) < x)"),
         "expected the ordering operand cast:\n{c}"
     );
     // [op-convert] The operand is parenthesized inside the cast: `as` binds
@@ -3262,15 +3252,15 @@ fn loop_destructuring_binds_the_parts_of_a_temporary() {
         .expect("main.rs");
     let text = &main.content;
     assert!(
-        text.contains("let k = &__elem.0;") && text.contains("let v = &__elem.1;"),
-        "expected the tuple parts bound by reference:\n{text}"
+        text.contains("let mut k = &__elem_6.0;") && text.contains("let mut v: i32 = __elem_6.1;"),
+        "expected the tuple parts bound by reference (a scalar copied):\n{text}"
     );
     assert!(
-        text.contains("let who = &__elem2.name;") && text.contains("let score = &__elem2.score;"),
+        text.contains("let mut who = &__elem_10.name;") && text.contains("let mut score: i32 = __elem_10.score;"),
         "expected the struct fields bound by reference, renamed:\n{text}"
     );
     assert!(
-        text.contains("let mut a = __elem3.0.clone();"),
+        text.contains("let mut a: i32 = __elem_14.0;"),
         "expected an assigned-to binding to own its copy:\n{text}"
     );
 }
@@ -3371,9 +3361,10 @@ fn union_coercion_in_array_tuple_lambda() {
         main.content
     );
     for needle in [
-        "Union2::<i32, String>::U1(tag_ok(1))",
-        "Union2::<i32, String>::U2(tag_err(\"a\".to_string()))",
-        "Union2::<i32, String>::U1(tag_ok(2))",
+        "crate::unions::Union2::U1(crate::tag_ok::<i32>(1i32))",
+        "crate::unions::Union2::U2(crate::tag_err::<String>(String::from(\"a\")))",
+        "crate::unions::Union2::U1(crate::tag_ok::<i32>(2i32))",
+        "crate::unions::Union2::U1(crate::tag_ok::<i32>(3i32))",
     ] {
         assert!(
             main.content.contains(needle),
@@ -3472,7 +3463,7 @@ fn aliased_effect_types_resolve_to_the_same_handler() {
         .find(|f| f.rel_path.ends_with("main.rs"))
         .unwrap();
     assert!(
-        main.content.contains("roll(&random_i32)"),
+        main.content.contains("crate::roll(&__handle_4), crate::roll(&__handle_4)"),
         "handler not threaded through the aliased effect in:\n{}",
         main.content
     );
@@ -3528,9 +3519,9 @@ fn array_std_functions_lower() {
         .find(|f| f.rel_path.ends_with("main.rs"))
         .unwrap();
     for needle in [
-        "nums.len() as i32",
-        "nums.get((2) as i64 as usize)",
-        "nums.first()",
+        "(nums.len() as i32)",
+        "nums.get((2i32) as i64 as usize).copied()",
+        "nums.first().copied()",
     ] {
         assert!(
             main.content.contains(needle),
@@ -3620,7 +3611,7 @@ fn dot_names_flatten() {
         main.content
     );
     assert!(
-        main.content.contains("pub id: EnvironmentId,"),
+        main.content.contains("pub id: crate::EnvironmentId,"),
         "generated:\n{}",
         main.content
     );
@@ -3901,19 +3892,19 @@ fn throw_lowers_to_controlflow() {
         .unwrap();
     assert!(
         main.content.contains(
-            "pub fn parse(console: &crate::core_console::Console, line: String) -> ControlFlow<String, i32>"
+            "pub fn parse(console: &crate::core_console::Console, mut line: String) -> std::ops::ControlFlow<String, i32>"
         ),
         "expected a ControlFlow return shape in:\n{}",
         main.content
     );
     assert!(
         main.content
-            .contains("return ControlFlow::Break(\"empty line\".to_string());"),
+            .contains("return std::ops::ControlFlow::Break(String::from(\"empty line\"));"),
         "expected `throw` to return Break in:\n{}",
         main.content
     );
     assert!(
-        main.content.contains("return ControlFlow::Continue("),
+        main.content.contains("return std::ops::ControlFlow::Continue("),
         "expected returns to wrap in Continue in:\n{}",
         main.content
     );
@@ -3928,10 +3919,8 @@ fn throw_lowers_to_controlflow() {
         "expected no trait for the throw effect in:\n{std_throw}"
     );
     // [rs-exit-splice] With nothing pending at the exit, propagation is the
-    // plain `?`: the release was written before the call, so the throw path
-    // owes nothing. (Until 2026-09-10 a `defer` here forced the long form —
-    // a `match` on the `ControlFlow` with the release spliced into the
-    // `Break` arm.)
+    // plain re-raise: the release was written before the call, so the throw
+    // path owes nothing.
     let measure = main
         .content
         .split("pub fn measure")
@@ -3939,7 +3928,7 @@ fn throw_lowers_to_controlflow() {
         .and_then(|s| s.split("pub fn").next())
         .unwrap();
     assert!(
-        measure.contains("close_file(console, h);")
+        measure.contains("crate::close_file(console, h);\n    let mut n: i32 = (match crate::parse(console, line) { std::ops::ControlFlow::Continue(__v) => __v, std::ops::ControlFlow::Break(__m) => return std::ops::ControlFlow::Break(__m) });")
             && !measure.contains("ControlFlow::Break(__m) => {"),
         "expected plain `?` propagation with the release ahead of the call in:\n{measure}"
     );
@@ -3968,7 +3957,9 @@ fn try_lowers_to_a_labelled_block() {
     // Two message types meeting at one delimiter wrap into the message
     // union's arms [union-arm-identity]; a single type stays bare.
     assert!(
-        main.content.contains("Union2::<String, i32>::U2(__m)"),
+        main.content.contains("break 'try_3 crate::unions::Union2::U2(crate::unions::Union2::U1(__m))")
+            && main.content.contains("break 'try_3 crate::unions::Union2::U2(crate::unions::Union2::U2(__m))")
+            && main.content.contains("break 'try_1 crate::unions::Union2::U2(__m)"),
         "expected the message wrapped into its arm in:\n{}",
         main.content
     );
@@ -4047,22 +4038,22 @@ fn fn_type_effects_thread_into_closures() {
         .expect("main.rs emitted");
     assert!(
         main.content
-            .contains("f: &mut impl FnMut(&crate::Logger, &String) -> String"),
+            .contains("f: &mut dyn FnMut(&crate::Logger, &String) -> String"),
         "expected the handle in the closure type:\n{}",
         main.content
     );
     assert!(
-        main.content.contains("|logger2: &crate::Logger, s|"),
+        main.content.contains("&mut |mut __leff0, mut s| -> String {\n        __leff0.log("),
         "expected the handle as a leading closure parameter:\n{}",
         main.content
     );
     assert!(
-        main.content.contains("|__fx0: &crate::Logger, mut __a0| shout(__fx0, __a0)"),
+        main.content.contains("|__e0: &crate::Logger, __a0: &String| crate::shout(__e0, __a0)"),
         "expected the named-fn adapter to forward the handle:\n{}",
         main.content
     );
     assert!(
-        main.content.contains("plain(__a0)"),
+        main.content.contains("|mut __fx0, mut __a0| -> String {\n        crate::plain(__a0)"),
         "expected the pure fn to ignore the threaded effect:\n{}",
         main.content
     );
@@ -4164,21 +4155,21 @@ fn widening_materializes_the_peel() {
         .expect("main.rs emitted");
     assert!(
         main.content
-            .contains("let mut nested = nested.u1().clone();"),
-        "expected the widened value bound to a shadowing local:\n{}",
+            .contains("let mut nested_1 = match &nested { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };"),
+        "expected the widened value peeled into a local, by reference:\n{}",
         main.content
     );
-    // The nested `when` then matches on the shadowed (inner) value.
+    // The nested `when` then tests the peeled (inner) value.
     let describe = main
         .content
         .split("pub fn describe")
         .nth(1)
         .and_then(|s| s.split("pub fn").next())
         .unwrap();
-    assert_eq!(
-        describe.matches("match nested {").count(),
-        2,
-        "expected an outer and an inner match in:\n{describe}"
+    assert!(
+        describe.contains("if matches!(nested, crate::unions::Union2::U1(_))")
+            && describe.contains("if matches!(nested_1, crate::unions::Union2::U1(_))"),
+        "expected an outer and an inner test in:\n{describe}"
     );
 }
 
@@ -4285,7 +4276,7 @@ fn a_subjectless_when_emits_an_if_chain() {
         .and_then(|s| s.split("\npub fn ").next())
         .expect("classify emitted");
     assert!(
-        classify.contains("if n < 0 {") && classify.contains("} else if n == 0 {"),
+        classify.contains("if (n < 0i32) {") && classify.contains("} else if ((n) == (0i32)) {"),
         "expected an if/else-if chain:\n{classify}"
     );
     assert!(
@@ -4293,13 +4284,12 @@ fn a_subjectless_when_emits_an_if_chain() {
         "expected a plain `else` and no optional filler:\n{classify}"
     );
     assert!(
-        !main.content.contains("unreachable!"),
-        "a total chain needs no filler arm:\n{}",
-        main.content
+        !classify.contains("unreachable!"),
+        "a total chain needs no filler arm:\n{classify}"
     );
     // An `is` head still declares its binding at the top of the branch.
     assert!(
-        main.content.contains("let mut s = value.u1().clone();"),
+        main.content.contains("let mut s = match &value { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };"),
         "expected the `is` binding inside the branch:\n{}",
         main.content
     );
@@ -4436,7 +4426,7 @@ fn a_platform_handler_emits_no_struct_and_a_host_constructor() {
         "a platform handler must not emit a struct of its own:\n{src}"
     );
     assert!(
-        src.contains("crate::__Platform_HostRawClock::new(35)"),
+        src.contains("crate::__Platform_HostRawClock::new(35i32)"),
         "expected the `use` site to construct the host struct, got:\n{src}"
     );
     // The host companion is mounted, and `main` is still generated.
@@ -4527,7 +4517,7 @@ fn an_undeclared_platform_handler_is_serialized_behind_the_handle() {
         .expect("main.rs should be generated");
     let src = &main.content;
     assert!(
-        src.contains("RawClock::locked(crate::__Platform_HostRawClock::new(35))"),
+        src.contains("crate::__Platform_HostRawClock::new(35i32);\n    let __handle_4 = crate::RawClock::locked(__use_3);"),
         "expected the handle around the host, got:\n{src}"
     );
 }
@@ -4601,7 +4591,7 @@ fn a_threadsafe_platform_handler_binds_like_any_other() {
         .expect("main.rs should be generated");
     let src = &main.content;
     assert!(
-        src.contains("RawClock::shared(crate::__Platform_HostRawClock::new(35))"),
+        src.contains("crate::__Platform_HostRawClock::new(35i32);\n    let __handle_4 = crate::RawClock::shared(__use_3);"),
         "expected the handle around the host, got:\n{src}"
     );
     assert!(
@@ -4709,12 +4699,13 @@ fn a_lambda_binds_a_generic_fn_parameter_by_reference() {
         .content;
     for expected in [
         // The plain generic higher-order fn: borrowed `FnMut`.
-        "f: &mut impl FnMut(&T) -> U",
-        // The lambda's *inner* convention follows the declaration.
-        "|n: &i32|",
-        // [yield-proj] The element is a borrow, so the retagged
-        // parameter is one reference deeper than the annotation.
-        "|s: &&String|",
+        "f: &mut dyn FnMut(&'value T) -> U",
+        // The lambda's *inner* convention follows the declaration: its
+        // parameter arrives borrowed, whatever the annotation says.
+        "&mut |mut n| -> i32 {\n        i32::wrapping_mul(*n, 3i32)",
+        // [yield-proj] The element is a borrow, so the parameter is one
+        // reference deeper than the annotation, and is peeled once.
+        "&mut |mut s| -> String {\n        let s = *s;\n        crate::shout(s)",
     ] {
         assert!(src.contains(expected), "expected `{expected}` in:\n{src}");
     }
@@ -4783,7 +4774,7 @@ fn rustc_compiles_and_runs_the_combinator_surface() {
     // The generic body drives its subject through the `next` the call site
     // resolved, which arrives as an ordinary borrowed callback [implicit-group].
     assert!(
-        seq.contains("next: &mut dyn FnMut(&mut It) -> Union2<T, Finished>"),
+        seq.contains("next: &mut dyn FnMut(&mut It) -> crate::unions::Union2<T, crate::core_iterator::Finished>"),
         "expected the resolved `next` as a borrowed callback in:\n{seq}"
     );
     // [fn-contract] A kept `Mut` position of an implicit's fn type borrows
@@ -4800,7 +4791,7 @@ fn rustc_compiles_and_runs_the_combinator_surface() {
     // [rs-implicit-turbofish] The instantiation is spelled out, or the adapter
     // closures have nothing to infer their parameter types from.
     assert!(
-        main.contains("map_to::<"),
+        main.contains("crate::core_seq::map_to::<Vec<i32>, crate::core_list::ListYield<'_, i32>, i32, i32>("),
         "expected the type arguments spelled out in:\n{main}"
     );
     run_rust_files(&files, "seq-surface", SEQ_SURFACE_OUTPUT);
@@ -5170,13 +5161,13 @@ fn a_mut_implicit_position_is_not_borrowed_twice() {
         .find(|f| f.rel_path.to_string_lossy() == "main.rs")
         .expect("main.rs emitted");
     assert!(
-        main.content.contains("&mut |__i0| next"),
+        main.content.contains("&mut |__a0: &mut crate::Slice<'_, i32>| (match crate::next(&mut *__a0) {"),
         "expected the adapter to pass the `&mut` parameter through, got:\n{}",
         main.content
     );
     assert!(
         main.content
-            .contains("next: &mut dyn FnMut(&mut It) -> Union2<T, Finished>"),
+            .contains("next: &mut dyn FnMut(&mut It) -> crate::unions::Union2<T, crate::core_iterator::Finished>"),
         "expected the spread position to be a `&mut`-taking, union-returning fn, got:\n{}",
         main.content
     );
@@ -5286,7 +5277,7 @@ fn main() [use] {
     );
     // …and the call from *above* it fills the position rather than omitting it.
     assert!(
-        src.contains("bigger::<String>(a, b, &mut |__i0, __i1|"),
+        src.contains("crate::bigger::<String>(a, b, &mut |__a0: &String, __a1: &String|"),
         "expected the call to pass its implicit argument in:\n{src}"
     );
 }
@@ -5313,13 +5304,11 @@ fn implicit_parameters_lower_to_trailing_fn_arguments() {
          zero: &mut dyn FnMut() -> T)",
         // A resolved default is passed as an adapter closure over the fn,
         // which bridges the position's convention to the callee's own: `add`
-        // takes its `Int`s by value, so the adapter clones out of the
-        // borrows (free for a scalar). Plain names: the program's module
-        // declares one of each [fn-emit-name].
-        "&mut |__i0, __i1| add((__i0).clone(), (__i1).clone())",
+        // takes its `Int`s by value, so the adapter derefs the borrows.
+        "&mut |__a0: &i32, __a1: &i32| crate::add(*__a0, *__a1)",
         // The same bridging for an override written at the call site
         // [implicit-override].
-        "&mut |__i0, __i1| times((__i0).clone(), (__i1).clone())",
+        "&mut |__a0: &i32, __a1: &i32| crate::times(*__a0, *__a1)",
         // Forwarding reborrows the enclosing fn's own parameter.
         "&mut *add",
     ] {
@@ -5433,13 +5422,13 @@ fn the_comparison_groups_lower_to_host_operations() {
     for expected in [
         // `Ordering` is a fieldless `#[repr(i8)]` enum whose discriminants are
         // the sign convention `cmp` answers, so the cast is the lowering.
-        "(Ord::cmp(&(1), &(2)) as i32)",
+        "(Ord::cmp(&(1i32), &(2i32)) as i32)",
         "(Ord::cmp(&ab[..], &b[..]) as i32)",
         "(&ab[..] == &b[..])",
         "std::hash::DefaultHasher::new()",
         // [rs-fn-param-convention] A kept position borrows: the generic body
         // compares `a` and `b` and still owns them afterwards.
-        "pub fn min_of<T: Clone>(a: T, b: T, cmp: &mut dyn FnMut(&T, &T) -> i32) -> T",
+        "pub fn min_of<T: Clone>(mut a: T, mut b: T, cmp: &mut dyn FnMut(&T, &T) -> i32) -> T",
     ] {
         assert!(src.contains(expected), "expected `{expected}` in:\n{src}");
     }
@@ -5613,7 +5602,8 @@ fn default_obligations_lower_to_salvo_fns() {
     for expected in [
         "#[derive(Clone, Debug, PartialEq)]\npub struct Point",
         // The stamped body is field-wise Salvo: one per-field `cmp`, then `0`.
-        "return 0;",
+        "let mut c__c1: i32 = (Ord::cmp(&(a.x), &(b.x)) as i32);",
+        "return 0i32;",
         // The hand-written generic `eq` takes its implicit.
         "pub fn eq__",
     ] {
@@ -6122,7 +6112,7 @@ fn a_function_in_a_struct_field_is_an_arc_dyn_fn() {
         main.content
     );
     assert!(
-        main.content.contains("f: std::sync::Arc::new(twice)"),
+        main.content.contains("f: std::sync::Arc::new(move |__a0: i32| crate::twice(__a0))"),
         "expected the store to wrap in Arc::new, got:\n{}",
         main.content
     );
@@ -6197,11 +6187,10 @@ fn main() [use] {
 pub const PASS_OUTPUT: &str = "n 3\nn 2\nn 1\nada is 36\ngrace is 45\ndone\n";
 
 /// The driving loop: the subject is moved into a mutable local and each turn
-/// calls the resolved `next`, matching the `Emitted` arm the *checker* chose
-/// [union-arm-identity]. A `while let`, so the condition is re-evaluated per
-/// turn and `Finished` needs no arm of its own.
+/// calls the resolved `next`, testing for the `Emitted` arm the *checker*
+/// chose [union-arm-identity]; any other arm ends the loop.
 #[test]
-fn a_pass_lowers_to_a_while_let_driving_loop() {
+fn a_pass_lowers_to_a_driving_loop() {
     let files = generate(&[("main.sv", PASS_DEMO)]);
     let src = &files
         .iter()
@@ -6209,12 +6198,12 @@ fn a_pass_lowers_to_a_while_let_driving_loop() {
         .expect("main.rs")
         .content;
     assert!(
-        src.contains("_pass = countdown(3);"),
+        src.contains("let mut __pass_3: crate::Countdown = crate::countdown(3i32);"),
         "expected the subject bound to a local in:\n{src}"
     );
     assert!(
-        src.contains("while let Union2::U1(mut n) = next"),
-        "expected a while-let driving loop in:\n{src}"
+        src.contains("crate::next__Countdown(&mut __pass_3);\n        if matches!(__step_4, crate::unions::Union2::U1(_)) {"),
+        "expected a driving loop in:\n{src}"
     );
     assert!(
         !src.contains("for mut n in countdown"),
@@ -6312,9 +6301,7 @@ fn a_flattened_qualifier_wraps_the_inner_union_first() {
         .find(|f| f.rel_path == std::path::Path::new("main.rs"))
         .expect("main.rs");
     for (arm, what) in [("U2", "err"), ("U1", "ok")] {
-        let needle = format!(
-            "Union2::<Union2<String, String>, Finished>::U1(Union2::<String, String>::{arm}("
-        );
+        let needle = format!("crate::unions::Union2::U1(crate::unions::Union2::{arm}(crate::core_iterator::emitted::<String>(");
         assert!(
             main.content.contains(&needle),
             "expected the inner {what} arm to be wrapped before the outer one in:\n{}",
@@ -6464,13 +6451,15 @@ fn a_mutable_use_of_a_narrowed_place_borrows_the_storage() {
         .expect("main.rs");
     let src = &main.content;
     for needle in [
-        // The optional, and the `state` slot inside the generated pass.
-        "next__ListYield(p.as_mut().unwrap())",
-        "next__ListYield(__p.inner.as_mut().unwrap())",
+        // The optional, and the `state` slot inside the generated pass:
+        // each narrowed into a `&mut` binding of the storage.
+        "let mut p_3 = p.as_mut().unwrap();",
+        "next__ListYield::<i32>(&mut *p_3)",
+        "let mut __narrowed_1 = __p.inner.as_mut().unwrap();",
         // The union arm.
-        "next__ListYield(q.u1_mut())",
+        "let mut q_4 = match &mut q { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };",
         // The assignment base.
-        "r.as_mut().unwrap().at = 2",
+        "let mut r_5 = r.as_mut().unwrap();\n        r_5.at = 2i32;",
     ] {
         assert!(src.contains(needle), "expected `{needle}` in:\n{src}");
     }
@@ -6593,20 +6582,19 @@ fn a_mut_payload_is_peeled_by_borrowing_the_storage() {
         .expect("main.rs");
     let src = &main.content;
     for needle in [
-        // The intrinsic path: a variable and a field over the nullable repr.
-        "add_platform(a.as_mut().unwrap(), 9)",
-        "add_platform(b.items.as_mut().unwrap(), 9)",
-        // The intrinsic path over a wrapper arm, narrowed by `when`/`is`.
-        "add_platform(d.u1_mut(), 9)",
-        // The `^` shadow: a borrow into the storage, and no `mut` on a binding
-        // that is already a reference.
-        "let c = c.u1_mut();",
-        "let e = e.as_mut().unwrap().u1_mut();",
+        // A variable and a field over the nullable repr, each narrowed into
+        // a `&mut` binding of the storage.
+        "let mut a_5 = a.as_mut().unwrap();\n        crate::core_list::add_platform::<i32>(&mut *a_5, 9i32);",
+        "let mut __narrowed_7 = b.items.as_mut().unwrap();",
+        // A wrapper arm, narrowed by `when`/`is`.
+        "let mut d_11 = match &mut d { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };",
+        // The `^` shadow: a borrow into the storage.
+        "let mut c_9 = match &mut c { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };",
+        "let mut e_14 = match &mut e { Some(crate::unions::Union2::U1(__v)) => __v, _ => unreachable!() };",
         // A moved union parameter binds `mut`, or the peel cannot borrow it.
         "pub fn eat(mut o: ",
-        // A handler state field peels through `self`, shadowing the field's
-        // name for the branch.
-        "let held = self.held.u1_mut();",
+        // A handler state field peels through `self`.
+        "let mut held_1 = match &mut self.held { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };",
     ] {
         assert!(src.contains(needle), "expected `{needle}` in:\n{src}");
     }
@@ -7097,7 +7085,7 @@ fn an_effect_member_carries_its_implicits_into_the_trait() {
         // The implementation has to match it exactly (stateless: `&self`).
         "fn show(&self, v: i32, fmt: &mut dyn FnMut(i32) -> String) -> String {",
         // And the call site fills it.
-        "show.show(7, &mut |__i0| fmt(__i0))",
+        "__handle_4.show(7i32, &mut |__a0: i32| crate::fmt(__a0))",
     ] {
         assert!(src.contains(expected), "expected `{expected}` in:\n{src}");
     }
@@ -7165,14 +7153,14 @@ fn a_generic_handler_is_constructed_at_its_type() {
         .expect("main.rs")
         .content;
     for expected in [
-        // The turbofish, from the written type argument alone...
-        "let show_i32 = crate::Show::<i32>::shared(Plain::<i32>::new());",
+        // The instance's annotation, from the written type argument alone...
+        "let mut __use_3: crate::Plain<i32> = crate::Plain::new();",
         // ...and where a constructor argument could also have bound it.
-        "let tag_i32 = crate::Tag::<i32>::shared(Prefixed::<i32>::new(\"p\".to_string()));",
+        "let mut __use_5: crate::Prefixed<i32> = crate::Prefixed::new(String::from(\"p\"));",
         // A type parameter no field mentions needs `PhantomData`, or the
         // struct itself does not compile (`E0392`).
         "__phantom_T: std::marker::PhantomData<T>,",
-        "__phantom_T: std::marker::PhantomData,",
+        "__phantom_T: std::marker::PhantomData\n",
     ] {
         assert!(src.contains(expected), "expected `{expected}` in:\n{src}");
     }
@@ -7449,7 +7437,7 @@ fn mut_str_is_a_plain_string() {
         .content;
     // [str-drop-mut] No conversion anywhere: the argument is borrowed as it
     // stands, and interpolation prints the `String` itself.
-    assert!(main.contains("shout(&b)"), "unexpected:\n{main}");
+    assert!(main.contains("crate::shout(&b)"), "unexpected:\n{main}");
     assert!(
         main.contains(r#"format!("{} / {}", b, dup)"#),
         "unexpected:\n{main}"
@@ -7458,7 +7446,7 @@ fn mut_str_is_a_plain_string() {
     // the flow analysis, so an owned `vec![pa]` would move a variable the
     // checker still considers live.
     assert!(
-        main.contains(r#"let mut x = mut_str(vec![pa.clone()]);"#),
+        main.contains(r#"let mut x: String = crate::core_string::mut_str(vec![pa.clone()]);"#),
         "unexpected:\n{main}"
     );
     // [platform-value-type] The operations are std's host code
@@ -7468,7 +7456,7 @@ fn mut_str_is_a_plain_string() {
         main.contains("crate::core_string::index_of_platform(&hay, &ll)"),
         "unexpected:\n{main}"
     );
-    assert!(main.contains("crate::core_string::set_platform(&mut b, 0, 'H')"), "unexpected:\n{main}");
+    assert!(main.contains("crate::core_string::set_platform(&mut b, 0i32, 'H')"), "unexpected:\n{main}");
     // The support file is only generated when something needs it.
     let plain = generate(&[("main.sv", "export fn main() {\n}\n")]);
     assert!(
@@ -7511,7 +7499,7 @@ export fn main() [use] {
     // [fn-variadic], so a lone spread reaches the purely variadic intrinsics —
     // which is where this lowering lives anyway.
     assert!(
-        main.contains("let mut sb = mut_str(parts.clone());")
+        main.contains("let mut sb: String = crate::core_string::mut_str(parts.clone());")
             && main.contains("set_of_platform::<String>(parts.clone(), "),
         "unexpected:\n{main}"
     );
@@ -7555,14 +7543,13 @@ fn rustc_compiles_and_runs_mut_str_places() {
         .find(|f| f.rel_path.to_string_lossy() == "main.rs")
         .expect("main.rs emitted")
         .content;
-    // A `Mut Str` parameter is a `&mut String`, and the helper is reached by
-    // method syntax on it.
+    // A `Mut Str` parameter is a `&mut String`, reborrowed for the helper.
     assert!(
-        main.contains("pub fn grow(s: &mut String)") && main.contains("crate::core_string::set_platform(s, 0, 'G')"),
+        main.contains("pub fn grow(s: &mut String)") && main.contains("crate::core_string::set_platform(&mut *s, 0i32, 'G')"),
         "unexpected:\n{main}"
     );
     assert!(
-        main.contains("crate::core_string::set_platform(&mut buf.text, 0, 'I')"),
+        main.contains("crate::core_string::set_platform(&mut buf.text, 0i32, 'I')"),
         "unexpected:\n{main}"
     );
     run_rust_files(&files, "mut-str-places", "grown 5\nIn-struct!\n");
@@ -7665,15 +7652,15 @@ fn sequence_functions_lower_to_helpers() {
         .expect("main.rs emitted")
         .content;
     assert!(
-        main.contains("(&xs, &mut (|n| i32::wrapping_mul(*n, 2)))")
-            && main.contains("(&xs, 0, &mut (|a, b| i32::wrapping_add(*a, *b)))")
-            && main.contains("filter_platform(&xs, &mut (|n| *n > 2))"),
+        main.contains("map__List_Fn::<i32, i32>(&xs, &mut |mut n| -> i32 {\n        i32::wrapping_mul(*n, 2i32)")
+            && main.contains("reduce__List_A_Fn::<i32, i32>(&xs, 0i32, &mut |mut a, mut b| -> i32 {\n        i32::wrapping_add(*a, *b)")
+            && main.contains("filter_platform::<i32>(&xs, &mut |mut n| -> bool {\n        (*n > 2i32)"),
         "unexpected:\n{main}"
     );
     // A named fn as the callback wraps in an adapter: a fn item's own
     // convention is by value, and `map` hands it `&T` [fn-contract].
     assert!(
-        main.contains("(&xs, &mut |mut __a0| double(__a0.clone()))"),
+        main.contains("(&xs, &mut |__a0: &i32| crate::double(*__a0))"),
         "unexpected:\n{main}"
     );
     // [iter-fn] A pass subject reaches the generic overload through its `iter`,
@@ -7770,17 +7757,17 @@ fn scope_selectors_and_renames_are_erased() {
     // `@core.list` is std's `size`, a platform fn's wrapper called by its
     // module's path.
     assert!(
-        main.contains("crate::core_list::size_platform(&xs)"),
+        main.contains("crate::core_list::size_platform::<i32>(&xs)"),
         "expected the core lowering:\n{main}"
     );
     // The renamed overload is called by its declaration's mangled name.
     assert!(
-        main.contains("label__SmallInt(&n)") || main.contains("label__SmallInt(n)"),
+        main.contains("crate::label__SmallInt(n)"),
         "unexpected:\n{main}"
     );
     // The shadowed call goes through the crate path.
     assert!(
-        main.contains("crate::describe(7)"),
+        main.contains("crate::describe(7i32)"),
         "expected a path past the local:\n{main}"
     );
 }
@@ -7807,14 +7794,13 @@ fn a_kept_pass_is_driven_in_place() {
         .expect("main.rs")
         .content;
     assert!(
-        src.contains("while let Union2::U1(mut n) = next(it)"),
+        src.contains("= next(&mut *it);"),
         "expected the in-place drive in:\n{src}"
     );
-    // Precisely: no local for *this* loop. (A substring like `_pass = it` also
-    // matches a mint call — `__loop2_pass = iter__4(…)` — so the assertion names
-    // the loop.)
+    // Precisely: no local for *this* loop's pass.
+    let take = src.split("pub fn take").nth(1).and_then(|s| s.split("\npub fn ").next()).expect("take");
     assert!(
-        !src.contains("let mut __loop1_pass"),
+        !take.contains("__pass"),
         "a kept pass must not be bound into a local in:\n{src}"
     );
 }
@@ -8007,8 +7993,8 @@ fn an_iter_fn_emits_a_plain_struct_and_next() {
     // snapshot keeps the field's own name.
     assert!(
         main.contains("pub struct __Iter_iter_Fibs {\n    pub count: i32,")
-            && main.contains("__Iter_iter_Fibs { count: f.count, a: 0, b: 1, made: 0 }")
-            && !main.contains("pub f: Fibs"),
+            && main.contains("__Iter_iter_Fibs { count: f.count, a: 0i32, b: 1i32, made: 0i32 }")
+            && !main.contains("pub f: crate::Fibs"),
         "expected a per-field snapshot:\n{main}"
     );
     // Tier 3 — the body hands the *whole* subject to `describe`, so no snapshot
@@ -8016,7 +8002,7 @@ fn an_iter_fn_emits_a_plain_struct_and_next() {
     // `proj` field [proj-field]: the struct carries a lifetime and the mint
     // clones nothing [copy-opt-in].
     assert!(
-        main.contains("pub struct __Iter_iter_Row<'s> {\n    pub r: &'s Row,")
+        main.contains("pub struct __Iter_iter_Row<'s> {\n    pub r: &'s crate::Row,")
             && main.contains("__Iter_iter_Row { r: r, left: r.times }"),
         "expected the whole subject to be borrowed:\n{main}"
     );
@@ -8025,22 +8011,9 @@ fn an_iter_fn_emits_a_plain_struct_and_next() {
         "an `iter fn` needs no state machine:\n{main}"
     );
     // [fn-effects] An effectful `next` takes its handlers as leading arguments,
-    // threaded into every turn of the loop. The mangling index counts the
-    // visible `next` overloads, so it moved when std's lazy pair (two of them)
-    // was removed 2026-09-10, again when `Set` and `Map` brought their own
-    // passes (two more) 2026-09-13, again when `Bytes` and the fs chunk
-    // pass brought two more 2026-09-15, and again when `core.range` joined std
-    // 2026-09-23 (its `next` counts even though the module is private), and
-    // again when `reversed`/`enumerate` (then `indices`) brought more (the
-    // refinement-types sequence, step 0, 2026-09-23), and again when
-    // `indices`/`rev_indices` and `enumerate`/`enumerate_rev` became separate
-    // `iter fn`s (the iterator redesign, 2026-09-27), and again when
-    // `core.deque` brought its pass and `reversed` (2026-10-02), and again
-    // when `core.seq`'s lazy adaptors brought four (2026-10-03).
+    // threaded into every turn of the loop.
     assert!(
-        // The suffix is the overload's mangle, which moves whenever std
-        // gains a `next`: what matters is the handler threaded in.
-        main.contains("(&console, &mut __loop") && main.contains("= next__"),
+        main.contains("crate::next__Iter_iter_Noisy(&__handle_2, &mut __pass_14);"),
         "expected the handler threaded into the drive:\n{main}"
     );
 }
@@ -8174,7 +8147,7 @@ fn rustc_compiles_and_runs_field_disjoint_access() {
         .expect("main.rs")
         .content;
     assert!(
-        main.contains("let mut n = &p.name;") && main.contains("add_platform(&mut p.tags, "),
+        main.contains("let mut n = &p.name;") && main.contains("add_platform::<String>(&mut p.tags, "),
         "expected a disjoint-field borrow held across the mutation in:\n{main}"
     );
     run_rust_files(&files, "field-disjoint", FIELD_DISJOINT_OUTPUT);
@@ -8182,7 +8155,7 @@ fn rustc_compiles_and_runs_field_disjoint_access() {
 
 /// [fate-partial-move] L5's move half end to end: a field handed to a
 /// consuming fn is a **real partial move** in the emitted Rust
-/// (`eat(p.tags);` then `p.name.clone()`), and reassigning the moved field
+/// (`crate::eat(p.tags);` then a read of `p.name`), and reassigning the moved field
 /// is rustc's reinitialization — both accepted by borrowck. These programs
 /// were checker-rejected before the move half landed.
 ///
@@ -8232,7 +8205,8 @@ fn rustc_compiles_and_runs_a_partial_move() {
     // The field moves out as a raw place (no clone), and the sibling is
     // still read afterwards: a genuine partial move.
     assert!(
-        main.contains("eat(p.tags);") && main.contains("p.name.clone()"),
+        main.contains("crate::eat(p.tags);\n    crate::core_console::println(&__handle_2, &format!(\"1 {}\", p.name));")
+            && main.contains("let mut t: Vec<String> = q.tags;"),
         "expected a partial move with a live sibling read in:\n{main}"
     );
     run_rust_files(&files, "partial-move", PARTIAL_MOVE_OUTPUT);
@@ -8312,7 +8286,8 @@ fn rustc_compiles_and_runs_an_optional_borrow_unwrap() {
         .expect("main.rs")
         .content;
     assert!(
-        main.contains("head.unwrap().clone()") && !main.contains("head.as_ref().unwrap()"),
+        main.contains("let mut head_3 = head.unwrap();\n    crate::core_console::println(&__handle_2, &format!(\"{}\", crate::take((head_3).clone())));")
+            && !main.contains("head.as_ref().unwrap()"),
         "expected the reference unwrap, not a clone of the reference, in:\n{main}"
     );
     run_rust_files(&files, "opt-borrow", "ann\nann\n");
@@ -8481,7 +8456,9 @@ fn rustc_compiles_and_runs_a_capture_rooted_projection() {
     // is deref'd for the cast — which goes through `i64`, so a negative
     // literal index stays an *answer* rather than rustc's E0600 [col-bounds].
     assert!(
-        main.contains("|i| crate::core_list::get_platform(&all, *i).expect(\"salvo: value is absent"),
+        main.contains("&mut |mut i| -> &String {")
+            && main.contains("let mut __nn_3: Option<&String> = crate::core_list::get_platform::<String>(&all, *i);")
+            && !main.contains("__some_4.clone()"),
         "expected a clone-free, deref'd pick lambda:\n{main}"
     );
     run_rust_files(&files, "pick-list", PICK_LIST_OUTPUT);
@@ -9492,8 +9469,7 @@ export fn main() [use] {
     // real parameters now, so the lowering starts from `vec![…]` and extends
     // with the tail rather than pushing each leading element.
     assert!(
-        main.contains("let mut __v = vec![1];")
-            && main.contains("__v.extend(rest.iter().cloned());"),
+        main.contains("{ let mut __v = vec![1i32]; __v.extend(rest.clone().into_iter()); __v }"),
         "the tail should be assembled in order:\n{main}"
     );
     assert!(
@@ -9678,20 +9654,20 @@ fn effect_member_overloads_get_distinct_names() {
         // [rs-borrows] The **consuming** overloads take their parameter by
         // value (`=> !f`) while the keeping `describe` borrows — a member's
         // written clause is its whole contract.
-        "fn close__InFile(&mut self, f: InFile) -> String;",
-        "fn close__OutFile(&mut self, f: OutFile) -> String;",
-        "fn describe(&mut self, f: &InFile) -> String;",
+        "fn close__InFile(&mut self, f: crate::InFile) -> String;",
+        "fn close__OutFile(&mut self, f: crate::OutFile) -> String;",
+        "fn describe(&mut self, f: &crate::InFile) -> String;",
         // The handler implements both under the trait's names, with the
         // trait's modes.
         "impl crate::__Stateless_Vault for Files {",
-        "fn close__InFile(&self, f: InFile) -> String {",
-        "fn close__OutFile(&self, f: OutFile) -> String {",
+        "fn close__InFile(&self, f: crate::InFile) -> String {",
+        "fn close__OutFile(&self, f: crate::OutFile) -> String {",
     ] {
         assert!(src.contains(expected), "expected `{expected}` in:\n{src}");
     }
     // The call sites, the `OutFile` one written with the `@Vault` selector.
     assert!(
-        src.contains(".close__InFile(InFile {") && src.contains(".close__OutFile(OutFile {"),
+        src.contains(".close__InFile(crate::InFile {") && src.contains(".close__OutFile(crate::OutFile {"),
         "expected both call sites to name their own overload and pass the \
          consumed argument owned, got:\n{src}"
     );
@@ -9770,11 +9746,11 @@ fn effect_member_modes_follow_the_declared_clause() {
         .content;
     for expected in [
         // The trait.
-        "fn take(&mut self, t: Token) -> i32;",
-        "fn bump(&mut self, t: &mut Token);",
+        "fn take(&mut self, t: crate::Token) -> i32;",
+        "fn bump(&mut self, t: &mut crate::Token);",
         // The handlers, independent and dependent alike (stateless: `&self`).
-        "fn take(&self, t: Token) -> i32 {",
-        "fn bump(&self, t: &mut Token) {",
+        "fn take(&self, t: crate::Token) -> i32 {",
+        "fn bump(&self, t: &mut crate::Token) {",
     ] {
         assert!(src.contains(expected), "expected `{expected}` in:\n{src}");
     }
@@ -9869,13 +9845,13 @@ fn a_linear_token_is_discharged_by_an_effect_member() {
     for expected in [
         // The consuming overloads own their token; the mutating members
         // borrow it mutably.
-        "fn close__InTape(&mut self, s: InTape) -> String;",
-        "fn close__OutTape(&mut self, s: OutTape) -> String;",
-        "fn read_line(&mut self, s: &mut InTape) -> String;",
+        "fn close__InTape(&mut self, s: crate::InTape) -> String;",
+        "fn close__OutTape(&mut self, s: crate::OutTape) -> String;",
+        "fn read_line(&mut self, s: &mut crate::InTape) -> String;",
         // A discharged token is dropped, so `discard` emits nothing that
         // could resurrect it: the value simply ends there. (The handler is
         // stateless, so its receiver is `&self` [rs-handle].)
-        "fn close__InTape(&self, s: InTape) -> String {",
+        "fn close__InTape(&self, s: crate::InTape) -> String {",
     ] {
         assert!(src.contains(expected), "expected `{expected}` in:\n{src}");
     }
@@ -10323,12 +10299,12 @@ fn the_fs_surface_emits_a_host_seam_and_owned_tokens() {
     for expected in [
         "pub trait __Stateful_Streams: Send {",
         // The token is consumed: by value, not `&InStream`.
-        "fn close__InStream(&mut self, s: InStream)",
+        "fn close__InStream(&mut self, s: crate::stream::InStream)",
         // …and kept members borrow it.
-        "fn read_line(&mut self, s: &InStream) -> Option<String>",
+        "fn read_line(&mut self, s: &crate::stream::InStream) -> Option<String>",
         // [effect-available] One overload set: the pass's discharger is a
         // *fn* named `close`, beside the two members of that name.
-        "pub fn close__Lines(streams: &crate::stream::Streams, p: Lines)",
+        "pub fn close__Lines(streams: &crate::stream::Streams, mut p: crate::stream::Lines)",
     ] {
         assert!(
             surface.contains(expected),
@@ -10929,7 +10905,7 @@ fn a_monitor_lowers_to_the_effects_handle() {
         main.content
     );
     assert!(
-        main.content.contains("crate::Random::locked(CyclicRandom::new("),
+        main.content.contains("let mut rng: crate::Random = crate::Random::locked(crate::CyclicRandom::new(12345i32));"),
         "the monitor spawn is missing:\n{}",
         main.content
     );
@@ -11200,7 +11176,7 @@ fn a_mixed_handler_lowers_to_a_servant_and_a_facade() {
         .find(|f| f.rel_path.to_string_lossy() == "main.rs")
         .expect("main.rs");
     assert!(
-        main.content.contains("pub enum __Msg_CyclicRandom {"),
+        main.content.contains("pub enum __Priv_CyclicRandom {"),
         "the servant's message enum is missing:\n{}",
         main.content
     );
@@ -11222,14 +11198,14 @@ fn a_mixed_handler_lowers_to_a_servant_and_a_facade() {
     );
     assert!(
         main.content.contains(
-            "crate::scheduler::salvo_send(self.__addr, std::boxed::Box::new(__Msg_CyclicRandom::Advance("
+            "crate::scheduler::salvo_send(self.__addr, std::boxed::Box::new(crate::__Priv_CyclicRandom::Advance("
         ),
         "the façade send is missing:\n{}",
         main.content
     );
     assert!(
         main.content
-            .contains("Random::shared(__Fac_CyclicRandom {"),
+            .contains("crate::Random::shared(crate::__Fac_CyclicRandom { __addr: __a, seed: __c0 })"),
         "the mixed spawn does not answer the handle over the façade:\n{}",
         main.content
     );
@@ -11352,23 +11328,23 @@ fn a_dependent_spawn_hands_the_actor_its_handles() {
         .expect("main.rs");
     let text = &main.content;
     assert!(
-        text.contains("__dep_Log: crate::Log,")
-            && text.contains("__dep_Tally: crate::Tally,"),
+        text.contains("__dep0: crate::Log,")
+            && text.contains("__dep1: crate::Tally,"),
         "the dependencies are handle fields:\n{text}"
     );
     assert!(
-        text.contains("self.__dep_Log.note(") && text.contains("self.__dep_Tally.tick(n)"),
+        text.contains("self.__dep0.note(") && text.contains("self.__dep1.tick(n)"),
         "members reach their dependencies through the fields:\n{text}"
     );
     assert!(
-        text.contains("Box::new(__Actor_Counting::new(__h))")
+        text.contains("std::boxed::Box::new(crate::__Actor_Counting::new(__h))")
             && text.contains("crate::__Stateless_Counter::bump(&mut self.handler, n)"),
         "the actor body owns the handler and dispatches onto it:\n{text}"
     );
     // The clause's two kinds, in the handler's declaration order.
     assert!(
         text.contains(
-            "Counting::new(crate::Log::locked(Recording::new()), crate::Tally::shared(__Stub_Tally::new(tally)))"
+            "crate::Counting::new(crate::Log::locked(crate::Recording::new()), crate::Tally::shared(crate::__Stub_Tally::new(tally)))"
         ),
         "the spawn does not build the handles from its clause:\n{text}"
     );
@@ -11748,17 +11724,14 @@ fn draining_state_lowers_to_a_take() {
         .expect("main.rs");
     assert!(
         main.content
-            .contains("(std::mem::take(&mut self.waiting), "),
+            .contains("drain::<crate::scheduler::SalvoReply>(std::mem::take(&mut self.waiting), "),
         "the drain of a state field is not a take:\n{}",
         main.content
     );
     // [addr-routable] A `send(reply, v)` with a payload that has a wire form
     // takes the typed path, which receives the token by value all the same.
     assert!(
-        main.content.contains("(first.unwrap()).send(")
-            || main.content.contains("(next.unwrap()).send(")
-            || main.content.contains("salvo_reply_wire::<String>(next.unwrap(), ")
-            || main.content.contains("salvo_reply_wire::<String>(first.unwrap(), "),
+        main.content.contains("let mut next_1 = next.unwrap();\n            crate::scheduler::salvo_reply_wire::<String>(next_1, "),
         "a taken obligation must be moved, not cloned:\n{}",
         main.content
     );
@@ -12388,7 +12361,7 @@ fn rustc_compiles_and_runs_an_inferred_lend() {
 /// the container and by the slot's matching parameter, so the pass the slot
 /// mints can hold it.
 #[test]
-fn an_opaque_returning_slot_ties_one_lifetime() {
+fn an_opaque_returning_slot_ties_the_parameters_lifetimes() {
     let files = generate(&[("main.sv", INFERRED_LEND)]);
     let main = files
         .iter()
@@ -12396,9 +12369,9 @@ fn an_opaque_returning_slot_ties_one_lifetime() {
         .expect("main.rs");
     let text = &main.content;
     assert!(
-        // `count` is mangled when core declares one too.
-        text.contains("<'c, C: Clone, K: Clone, It: Clone, T: Clone>(c: &'c C, k: &'c K, iter: &mut dyn FnMut(&'c C, &'c K) -> It"),
-        "both parameters share one lifetime with the slot's:\n{text}"
+        // Each lent parameter names its lifetime, and the slot takes both.
+        text.contains("pub fn count<'k, 'c, C: Clone, K: Clone, It: Clone, T: Clone>(c: &'c C, k: &'k K, iter: &mut dyn FnMut(&'c C, &'k K) -> It"),
+        "both parameters tie their lifetimes to the slot's:\n{text}"
     );
     assert!(
         text.contains("pub fn total<'c, C: Clone, It: Clone, T: Clone>(c: &'c C, iter: &mut dyn FnMut(&'c C) -> It"),
@@ -12491,14 +12464,14 @@ fn an_inherited_effect_travels_as_an_owned_handle() {
         .find(|f| f.rel_path.to_string_lossy() == "main.rs")
         .expect("main.rs");
     let text = &main.content;
-    // A task body takes the handle, not a `&mut dyn`.
+    // A task body takes the handle like any fn.
     assert!(
-        text.contains("pub fn report(mut console: crate::core_console::Console"),
-        "a task's effect parameter is an owned handle:\n{text}"
+        text.contains("pub fn report(console: &crate::core_console::Console"),
+        "a task's effect parameter is a handle:\n{text}"
     );
-    // The mint binds it outside the closure and clones it in.
+    // The mint clones the handle outside the closure, which owns the clone.
     assert!(
-        text.contains("let __e0 = ") && text.contains("report(__e0.clone()"),
+        text.contains("let __e0 = console.clone();") && text.contains("std::boxed::Box::new(move |__v| crate::report(&__e0, "),
         "the mint hands over an owned clone:\n{text}"
     );
     // And nothing borrowed the frame for it.
@@ -12533,7 +12506,7 @@ fn a_task_mint_lowers_to_a_scheduled_closure() {
         "an omitted `on` clause must inherit the current pool:\n{text}"
     );
     assert!(
-        text.contains("Box::new(move |__v| finish("),
+        text.contains("std::boxed::Box::new(move |__v| crate::finish(__c0, __c1, "),
         "the continuation must be a moved one-shot closure:\n{text}"
     );
     assert!(
@@ -12651,7 +12624,7 @@ fn an_is_binding_over_a_call_hoists_its_subject() {
         .expect("main.rs");
     let text = &main.content;
     assert!(
-        text.contains("loop {") && text.contains("if !(__is1.is_some()) {"),
+        text.contains("loop {\n        let mut __subject_1: Option<i32> = crate::core_list::remove_first_platform::<i32>(&mut *xs);\n        if !(__subject_1.is_some()) {"),
         "the while did not become a test-inside loop:\n{text}"
     );
     assert!(
@@ -12660,7 +12633,7 @@ fn an_is_binding_over_a_call_hoists_its_subject() {
     );
     // The binding reads the temporary, not a second call.
     assert!(
-        text.contains("let mut n = __is1.unwrap()") || text.contains("let mut n = *__is1"),
+        text.contains("let mut n = __subject_1.unwrap();"),
         "the binding does not read the hoisted temporary:\n{text}"
     );
 }
@@ -13189,7 +13162,8 @@ fn rustc_compiles_and_runs_the_tcp_transport_on_localhost() {
     let files = generate(&[("main.sv", NET_TCP_SMOKE)]);
     let all: String = files.iter().map(|f| f.content.as_str()).collect();
     assert!(
-        all.contains("Transport::shared(crate::net::__Platform_HostTcpTransport::new("),
+        all.contains("= crate::net::__Platform_HostTcpTransport::new((me).clone());")
+            && all.contains("= crate::net::Transport::shared(__use_"),
         "expected the host behind the effect's handle:\n{all}"
     );
     run_rust_files(&files, "net-tcp-smoke", NET_TCP_SMOKE_OUTPUT);
@@ -13265,7 +13239,7 @@ fn a_protocol_with_a_wire_form_gets_a_codec_and_a_hash() {
         "impl crate::wire::__Wire for __Msg_Ledger {",
         "pub const __PROTO_Ledger: &str = \"",
         "crate::wire::salvo_encode(&",
-        "crate::wire::salvo_decode::<Pin>(&",
+        "crate::wire::salvo_decode::<crate::Pin>(&",
     ] {
         assert!(src.contains(expected), "expected `{expected}` in:\n{src}");
     }
@@ -14149,7 +14123,7 @@ fn a_deadline_lowers_to_the_runtime_modules_wheel() {
     let time = find("time.rs").expect("time.rs");
     assert!(time.contains("after_nanos("), "expected the deadline call in:\n{time}");
     let runtime = find("runtime/timers.rs").expect("runtime/timers.rs");
-    assert!(runtime.contains("fn __module_use_1() -> &'static"), "{runtime}");
+    assert!(runtime.contains("fn __module_use0() -> &'static") && runtime.contains("std::sync::OnceLock"), "{runtime}");
     let scheduler = find("scheduler.rs").expect("scheduler.rs");
     assert!(!scheduler.contains("salvo_after") && !scheduler.contains("timers"), "the host scheduler keeps no timers");
     // [time-types] [rs-time] And the clock readings come from the time runtime,
@@ -14201,28 +14175,20 @@ fn an_owned_optional_local_is_read_through_a_borrow() {
     // Non-Copy payload: borrowed, unwrapped, cloned — so the second read still
     // has something to read.
     // Four reads of the same local, every one of them borrowing the `Option`.
-    assert_eq!(
-        main.matches("maybe.as_ref().expect(\"salvo: value is absent").count(),
-        4,
-        "expected every read to borrow:\n{main}"
-    );
-    assert!(!main.contains("maybe.expect("), "a read moved the local:\n{main}");
-    // A Copy payload needs none of it: the `Option` is Copy, so `.expect` moves
-    // nothing and the shorter form stands.
-    assert_eq!(
-        main.matches("n.expect(\"salvo: value is absent").count(),
-        2,
-        "expected the Copy payload to stay direct:\n{main}"
-    );
+    assert_eq!(main.matches("= &maybe;").count(), 4, "expected every read to borrow:\n{main}");
+    assert!(!main.contains("maybe.unwrap()"), "a read moved the local:\n{main}");
+    // A Copy payload needs none of it: the `Option` is Copy, so `.unwrap`
+    // moves nothing.
+    assert!(main.contains("let mut __some_12 = __nn_11.unwrap();"), "expected the Copy payload to stay direct:\n{main}");
     // [rs-read-mode] A **kept** parameter is a read: the unwrap answers the
     // `&String` straight into the position — no clone, and no second `&`.
     assert!(
-        main.contains("len_of(maybe.as_ref().expect(\"salvo: value is absent"),
+        main.contains("crate::len_of({") && main.contains("let mut __some_8 = __nn_7.as_ref().unwrap();\n            __some_8\n"),
         "a kept argument cloned:\n{main}"
     );
     // …and a *consuming* one still gets a value of its own.
     assert!(
-        main.contains("shout(maybe.as_ref().expect(\"salvo: value is absent at main:16:28\").clone())"),
+        main.contains("let mut __some_10 = __nn_9.as_ref().unwrap();\n            __some_10.clone()\n"),
         "a consumed argument did not get an owned value:\n{main}"
     );
     run_rust_files(
@@ -14260,9 +14226,7 @@ fn an_intrinsic_argument_takes_the_intrinsics_own_mode() {
         .content;
     // A kept parameter: the unwrap's `&String` goes straight into the template.
     assert!(
-        main.contains(
-            "if crate::core_string::contains_platform(maybe.as_ref().expect(\"salvo: value is absent at main:5:17\"), "
-        ),
+        main.contains("let mut __some_4 = __nn_3.as_ref().unwrap();\n            __some_4\n        }\n    }, &String::from(\"ell\"))"),
         "a kept intrinsic argument cloned:\n{main}"
     );
     assert!(
@@ -14278,9 +14242,11 @@ fn an_intrinsic_argument_takes_the_intrinsics_own_mode() {
     // `xs.as_ref().expect(…).clone().push(3)`, which appends to the clone and
     // prints `xs 1` where Kotlin prints `xs 2`.
     assert!(
-        main.contains("add_platform(xs.as_mut().expect(\"salvo: value is absent at main:8:9\"), 3)"),
+        main.contains("let mut __nn_7 = &mut xs;")
+            && main.contains("let mut __some_8 = __nn_7.as_mut().unwrap();\n            &mut *__some_8\n"),
         "a `Mut` intrinsic argument did not reach the storage:\n{main}"
     );
+    assert!(!main.contains(".clone()"), "{main}");
     run_rust_files(
         &files,
         "intrinsic-optional-args",
@@ -14326,33 +14292,27 @@ fn a_narrowed_read_borrows_unless_the_position_owns() {
         .find(|f| f.rel_path.to_string_lossy() == "main.rs")
         .expect("main.rs emitted")
         .content;
-    // A kept intrinsic parameter and a kept declared one: the unwrap's `&String`
-    // stands as the argument — no clone, and no `&` in front of it either.
+    // The narrowing is consumed by its last use, so the payload is moved out
+    // once; kept positions borrow it — no clone anywhere.
     assert!(
-        main.contains("crate::core_string::size_platform(name.as_ref().unwrap())"),
-        "a narrowed intrinsic argument cloned:\n{main}"
-    );
-    assert!(
-        main.contains("len_of(name.as_ref().unwrap())"),
+        main.contains("let mut name_3 = name.unwrap();")
+            && main.contains("crate::core_string::size_platform(&name_3)")
+            && main.contains("crate::len_of(&name_3)"),
         "a narrowed kept argument cloned:\n{main}"
     );
-    // A narrowed **field** read reaches a `&T` position the same way.
+    // A narrowed **field** read is a borrow of the field's payload.
     assert!(
-        main.contains("len_of(b.label.as_ref().unwrap())"),
+        main.contains("let mut __narrowed_4 = b.label.as_ref().unwrap();")
+            && main.contains("crate::len_of(__narrowed_4)"),
         "a narrowed field argument cloned:\n{main}"
     );
-    // The owning positions still get a value: a `let` and a consuming parameter.
+    // A binding never consumed borrows; the consuming parameter takes the value.
+    assert!(main.contains("let mut held = &name_3;"), "{main}");
+    assert!(main.contains("crate::shout(name_3)"), "a consumed argument took a reference:\n{main}");
+    assert!(!main.contains(".clone()"), "{main}");
+    // A Copy payload is copied out of the representation.
     assert!(
-        main.contains("let mut held: String = name.as_ref().unwrap().clone()"),
-        "a binding took a reference:\n{main}"
-    );
-    assert!(
-        main.contains("shout(name.as_ref().unwrap().clone())"),
-        "a consumed argument took a reference:\n{main}"
-    );
-    // A Copy payload is copied out of the representation in either mode.
-    assert!(
-        main.contains("i32::wrapping_add(n.unwrap(), n.unwrap())"),
+        main.contains("let mut n_5 = n.unwrap();") && main.contains("i32::wrapping_add(n_5, n_5)"),
         "a Copy narrowed read grew an `as_ref`:\n{main}"
     );
     run_rust_files(
@@ -14403,27 +14363,28 @@ fn elem_mut_handles_render_as_get_mut_and_captured_indices() {
     let files = generate(&[("main.sv", ELEM_MUT_DEMO)]);
     let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
     assert!(
-        main.content.contains("pub fn poke(xs: &mut Vec<Counter>)"),
+        main.content.contains("pub fn poke(xs: &mut Vec<crate::Counter>)"),
         "{}",
         main.content
     );
     assert!(
-        main.content.contains("let __h0 = (1) as usize;"),
+        main.content.contains("let __h1: usize = crate::core_list::get_platform__loc(&*xs, 1i32).expect("),
         "{}",
         main.content
     );
     assert!(
-        main.content.contains("xs[__h0].n = i32::wrapping_add(xs[__h0].n, 10);"),
+        main.content.contains("xs[__h1].n = i32::wrapping_add(xs[__h1].n, 10i32);"),
         "{}",
         main.content
     );
     assert!(
-        main.content.contains("bump(&mut xs[__h0]);"),
+        main.content.contains("crate::bump(&mut xs[__h1]);"),
         "{}",
         main.content
     );
+    // A temporary handle is the element borrowed through its position.
     assert!(
-        main.content.contains(".get_mut((0) as usize)"),
+        main.content.contains("match crate::core_list::get_platform__loc(&xs, 0i32) { Some(__l1) => Some(&mut xs[__l1]), None => None }"),
         "{}",
         main.content
     );
@@ -14475,17 +14436,17 @@ fn a_search_loop_returns_the_found_position() {
     let files = generate(&[("main.sv", SEARCH_LOOP_DEMO)]);
     let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
     assert!(
-        main.content.contains("pub fn wounded__loc(es: &Vec<Entity>) -> Option<usize>"),
+        main.content.contains("pub fn wounded__loc(es: &Vec<crate::Entity>) -> Option<usize>"),
         "{}",
         main.content
     );
     assert!(
-        main.content.contains("for __li0 in 0..es.len()"),
+        main.content.contains("for __li1 in 0..es.len()"),
         "{}",
         main.content
     );
     assert!(
-        main.content.contains("return Some(__li0);"),
+        main.content.contains("return Some(__li1);"),
         "{}",
         main.content
     );
@@ -14526,13 +14487,14 @@ fn a_borrowed_copy_scalar_derefs_in_a_comparison_only() {
     let files = generate(&[("main.sv", CMP_DEREF_DEMO)]);
     let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
     assert!(
-        main.content.contains("if *get") && main.content.contains("== 20"),
+        main.content.contains("if (((*crate::core_list::get::<i32>(&xs, i))) == (20i32)) {")
+            && main.content.contains("if ((*crate::core_list::get::<i32>(&xs, i)) < 30i32) {"),
         "{}",
         main.content
     );
-    // Arithmetic keeps the borrow: no deref grew there.
+    // Arithmetic takes the scalar the same way.
     assert!(
-        main.content.contains("i32::wrapping_add(*get(&xs, &i), 1)"),
+        main.content.contains("i32::wrapping_add((*crate::core_list::get::<i32>(&xs, i)), 1i32)"),
         "{}",
         main.content
     );
@@ -14586,7 +14548,7 @@ fn a_surviving_field_derivation_renders_as_a_virtual_place() {
         main.content
     );
     assert!(
-        main.content.contains("size_platform(&e.rings)"),
+        main.content.contains("size_platform::<crate::Ring>(&e.rings)"),
         "{}",
         main.content
     );
@@ -14678,17 +14640,17 @@ fn covered_positions_render_as_anchor_and_locators() {
     let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
     assert!(
         main.content
-            .contains("pub fn attack(__anchor: &mut Vec<Entity>, __c0: usize, __c1: usize)"),
+            .contains("pub fn attack(__anchor: &mut Vec<crate::Entity>, __c0: usize, __c1: usize)"),
         "{}",
         main.content
     );
     assert!(
-        main.content.contains("__anchor[__c0].energy = i32::wrapping_sub(__anchor[__c0].energy, 1);"),
+        main.content.contains("__anchor[__c0].energy = i32::wrapping_sub(__anchor[__c0].energy, 1i32);"),
         "{}",
         main.content
     );
     assert!(
-        main.content.contains("attack(&mut es,"),
+        main.content.contains("crate::attack(&mut es, __c1, __c2)"),
         "{}",
         main.content
     );
@@ -15232,12 +15194,12 @@ fn a_loops_temporary_subject_is_hoisted() {
     let files = generate(&[("main.sv", LOOP_TEMP_DEMO)]);
     let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
     assert!(
-        main.content.contains("let __t1 = vec![1, 2];"),
+        main.content.contains("let mut __tmp1 = vec![1i32, 2i32];"),
         "the temporary must be bound before the loop:\n{}",
         main.content
     );
     assert!(
-        main.content.contains("let mut __loop1_pass = iter(&__t1);"),
+        main.content.contains("let mut __pass_3: crate::core_list::ListYield<'_, i32> = crate::core_list::iter::<i32>(&__tmp1);"),
         "…and the pass must borrow the local:\n{}",
         main.content
     );
@@ -15246,7 +15208,7 @@ fn a_loops_temporary_subject_is_hoisted() {
     // the `for` statement and needs nothing, and the place subject (`xs`) is
     // already a local.
     assert_eq!(
-        main.content.matches("let __t").count(),
+        main.content.matches("let mut __tmp").count(),
         1,
         "only the pass-driving loop over a temporary hoists:\n{}",
         main.content
@@ -15490,7 +15452,7 @@ fn an_anchored_canbe_indexes_the_anchor_parameter() {
     // the anchor is a parameter the callee already has.
     assert!(
         main.content
-            .contains("pub fn trade(squad: &mut Squad, __c1: usize, __c2: usize)"),
+            .contains("pub fn trade(squad: &mut crate::Squad, __c1: usize, __c2: usize)"),
         "{}",
         main.content
     );
@@ -15500,12 +15462,12 @@ fn an_anchored_canbe_indexes_the_anchor_parameter() {
         main.content
     );
     assert!(
-        main.content.contains("squad.members[__c1].energy = i32::wrapping_sub(squad.members[__c1].energy, 1);"),
+        main.content.contains("squad.members[__c1].energy = i32::wrapping_sub(squad.members[__c1].energy, 1i32);"),
         "{}",
         main.content
     );
     assert!(
-        main.content.contains("trade(&mut squad, (i) as usize, (j) as usize);"),
+        main.content.contains("crate::trade(&mut squad, __c1, __c2) };"),
         "{}",
         main.content
     );
@@ -15558,22 +15520,22 @@ fn a_read_before_a_mutation_is_hoisted_out_of_the_expression() {
     // The interpolation reads the local, not the place.
     assert!(
         main.content
-            .contains("{ let __r1 = b.n; format!(\"1. {} {}\", __r1, bumped(&mut b)) }"),
+            .contains("{ let __part3 = b.n; let __part4 = crate::bumped(&mut b); format!(\"1. {} {}\", __part3, __part4) }"),
         "{}",
         main.content
     );
     // The call argument does too — owned here, since a borrow is what
-    // collided; `&__r2` is what the position takes.
+    // collided; `&__arg9` is what the position takes.
     assert!(
         main.content
-            .contains("{ let __r2 = b.tag.clone(); label(&__r2, bumped(&mut b)) }"),
+            .contains("{ let __arg9 = b.tag.clone(); let __arg10 = crate::bumped(&mut b); crate::label(&__arg9, __arg10) }"),
         "{}",
         main.content
     );
-    // …and the read *after* the mutation is untouched: it must see the new
-    // value, on both backends.
+    // …and the read *after* the mutation is read after it: it must see the
+    // new value, on both backends.
     assert!(
-        main.content.contains("format!(\"3. {} {}\", bumped(&mut b), b.n)"),
+        main.content.contains("{ let __part15 = crate::bumped(&mut b); let __part16 = b.n; format!(\"3. {} {}\", __part15, __part16) }"),
         "{}",
         main.content
     );
@@ -15671,7 +15633,7 @@ fn a_distinct_pair_call_splits_the_container_once() {
     let splices = main.content.matches("salvo_pair_mut(&mut es[..],").count();
     assert_eq!(splices, 2, "one preamble per pair call:\n{}", main.content);
     assert!(
-        main.content.contains("attack(__pm0, __pm1);"),
+        main.content.contains("crate::attack(__pm3, __pm4)") && main.content.contains("salvo_pair_mut(&mut es[..], __h5, __h6)"),
         "{}",
         main.content
     );
@@ -15721,29 +15683,25 @@ fn a_mut_used_lender_gets_a_demand_driven_locator_variant() {
     let files = generate(&[("main.sv", LEND_MUT_DEMO)]);
     let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
     assert!(
-        main.content.contains("pub fn front(es: &mut Vec<Entity>) -> Option<&Entity>"),
+        main.content.contains("pub fn front(es: &mut Vec<crate::Entity>) -> Option<&mut crate::Entity>"),
         "{}",
         main.content
     );
     assert!(
         main.content
-            .contains("pub fn front__loc(es: &Vec<Entity>) -> Option<usize>"),
+            .contains("pub fn front__loc(es: &Vec<crate::Entity>) -> Option<usize>"),
         "{}",
         main.content
     );
+    // The mutable use consumes the natural face's `&mut` where it stands.
     assert!(
-        main.content.contains("heal({ let __l0 = front__loc(&es)"),
+        main.content.contains("crate::heal({\n        let mut __nn_3: Option<&mut crate::Entity> = crate::front(&mut es);"),
         "{}",
         main.content
     );
+    // A handle read later is a position: the read borrow ends at once.
     assert!(
-        main.content.contains("&mut es[__l0] })"),
-        "{}",
-        main.content
-    );
-    // The read call site keeps the read emission.
-    assert!(
-        main.content.contains("front(&mut es)"),
+        main.content.contains("let __h1: usize = crate::front__loc(&es).expect(") && main.content.contains("es[__h1].hp"),
         "{}",
         main.content
     );
@@ -15776,12 +15734,12 @@ fn a_bound_accessor_handle_is_a_captured_locator() {
     let files = generate(&[("main.sv", BOUND_ACCESSOR_DEMO)]);
     let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
     assert!(
-        main.content.contains("let __h0 = front__loc(&es)"),
+        main.content.contains("let __h1: usize = crate::front__loc(&es).expect("),
         "{}",
         main.content
     );
     assert!(
-        main.content.contains("es[__h0].hp = i32::wrapping_add(es[__h0].hp"),
+        main.content.contains("es[__h1].hp = i32::wrapping_add(es[__h1].hp"),
         "{}",
         main.content
     );
@@ -15879,7 +15837,12 @@ fn a_lending_fn_value_renders_as_a_locator_closure() {
         main.content
     );
     assert!(
-        main.content.contains("&mut es[__l0] }") || main.content.contains("&mut es[__l1] }"),
+        main.content.contains("match at(&*es, i) { Some(__l1) => Some(&mut es[__l1]), None => None }"),
+        "{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("&mut |mut c, mut k| -> Option<usize> {\n        crate::core_list::get_platform__loc(c, k)"),
         "{}",
         main.content
     );
@@ -15924,12 +15887,12 @@ fn a_locate_implicit_renders_as_a_locator_closure() {
     let files = generate(&[("main.sv", LOCATE_BUNDLE_DEMO)]);
     let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
     assert!(
-        main.content.contains("at: &mut dyn FnMut(&Vec<Entity>, &L) -> Option<usize>"),
+        main.content.contains("at: &mut dyn FnMut(&Vec<crate::Entity>, &L) -> Option<usize>"),
         "{}",
         main.content
     );
     assert!(
-        main.content.contains("at__loc("),
+        main.content.contains("crate::core_list::at__loc(__a0, *__a1)"),
         "{}",
         main.content
     );
@@ -15981,23 +15944,19 @@ fn main() [use] {
 }
 "#;
 
+/// A lending effect member lends through the trait: its result is a `&mut`
+/// tied to the container, consumed where it stands. (A handle *held* across a
+/// read of the container has no locator face to fall back on: see ROADMAP.)
 #[test]
-fn a_lending_effect_member_carries_both_faces() {
+fn a_lending_effect_member_lends_through_the_trait() {
     let files = generate(&[("main.sv", LENDING_MEMBER_DEMO)]);
     let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
     assert!(
         main.content
-            .contains("fn lease<'a>(&mut self, es: &'a mut Vec<Entity>) -> Option<&'a Entity>;"),
+            .contains("fn lease<'a>(&mut self, es: &'a mut Vec<crate::Entity>) -> Option<&'a mut crate::Entity>;"),
         "{}",
         main.content
     );
-    assert!(
-        main.content
-            .contains("fn lease__loc(&mut self, es: &mut Vec<Entity>) -> Option<usize>;"),
-        "{}",
-        main.content
-    );
-    assert!(main.content.contains("lease__loc(es)"), "{}", main.content);
 }
 
 #[test]
@@ -16011,11 +15970,11 @@ fn rustc_compiles_and_runs_a_lending_effect_member() {
 }
 
 
-/// [rs-elem-mut] The v1 cut, loud: a proven pair call in a *value*
-/// position is refused with a codegen error naming the remedy — never
-/// silently wrong output [backend-never-wrong].
+/// [rs-elem-mut] A proven pair call in a *value* position: the split is a
+/// block expression around the call, so the position needs no statement of
+/// its own.
 #[test]
-fn a_distinct_pair_call_in_a_value_position_is_refused() {
+fn a_distinct_pair_call_in_a_value_position_splits_in_place() {
     let src = r#"
 struct Entity canbe Mut { hp: Int }
 
@@ -16036,16 +15995,15 @@ fn main() [use] {
     }
 }
 "#;
-    let program = build_program(&[("main.sv", src)]);
-    let errors = salvo_backend_rust::emit_program(&program)
-        .err()
-        .expect("a value-position pair call must be a codegen error");
+    let files = generate(&[("main.sv", src)]);
+    let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
     assert!(
-        errors
-            .iter()
-            .any(|e| e.contains("give the call its own statement")),
-        "got {errors:?}"
+        main.content.contains("let mut x: i32 = { let __l1 = ")
+            && main.content.contains("crate::seq::salvo_pair_mut(&mut es[..], __l1, __l2)"),
+        "expected the split around the call in:\n{}",
+        main.content
     );
+    run_rust_files(&files, "pair-value-position", "2\n");
 }
 
 /// [placeholder] `for _ in …` binds nothing: `mut _` is not a binding Rust
@@ -16103,7 +16061,7 @@ fn union_text(files: &[salvo_backend_rust::EmittedFile]) -> UnionText {
 /// builds `Exit` and `Idle` itself, so no builder travels with the call.
 #[test]
 fn watch_and_on_idle_are_salvo_over_the_core_token() {
-    for (src, call) in [(WATCH, "watch(&c, out)"), (ON_IDLE, "on_idle(&p, i)")] {
+    for (src, call) in [(WATCH, "crate::core_actor::watch(c, out)"), (ON_IDLE, "crate::core_actor::on_idle(")] {
         let files = generate(&[("main.sv", src)]);
         let main = files.iter().find(|f| f.rel_path.to_string_lossy() == "main.rs").expect("main.rs");
         assert!(main.content.contains(call) && !main.content.contains("salvo_watch("), "{}", main.content);

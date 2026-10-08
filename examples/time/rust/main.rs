@@ -1,4 +1,4 @@
-#![allow(non_snake_case, non_camel_case_types, unused_mut, unused_parens, unused_imports, dead_code, unreachable_code, unused_variables, path_statements, unused_must_use, suspicious_double_ref_op, non_upper_case_globals)]
+#![allow(non_snake_case, non_camel_case_types, unused_mut, unused_parens, unused_imports, dead_code, unreachable_code, unused_variables, path_statements, unused_must_use, suspicious_double_ref_op, non_upper_case_globals, unused_braces)]
 #[path = "unions/mod.rs"]
 pub mod unions;
 #[path = "seq.rs"]
@@ -74,41 +74,19 @@ pub mod platform_runtime;
 #[path = "platform/time.rs"]
 pub mod platform_time;
 
-use crate::core_actor::Idle;
-use crate::core_actor::Mailbox;
-use crate::core_actor::__Stateful_Faults as _;
-use crate::core_actor::__Stateless_Faults as _;
-use crate::core_actor::on_idle;
-use crate::core_actor::pool;
-use crate::core_console::Console;
-use crate::core_console::ConsolePlatformSync as _;
-use crate::core_console::__Stateful_Console as _;
-use crate::core_console::__Stateless_Console as _;
-use crate::core_console::println;
-use crate::core_list::at;
-use crate::core_string::Str;
-use crate::time::Clock;
 use crate::time::DefaultClock;
 use crate::time::DefaultTicker;
 use crate::time::Duration;
+use crate::__Msg_Session::Expire;
 use crate::time::Fired;
+use crate::core_actor::Idle;
 use crate::time::Instant;
-use crate::time::ManualTime;
+use crate::__Msg_Sleeper::Nap;
+use crate::__Msg_Session::Open;
 use crate::time::Tick;
 use crate::time::Ticker;
 use crate::time::Timer;
-use crate::time::TimerCtl;
-use crate::time::__Actor_ManualTime;
-use crate::time::__DECODE_ManualTime;
-use crate::time::__Stateful_Clock as _;
-use crate::time::__Stateful_Ticker as _;
-use crate::time::__Stateful_Timer as _;
-use crate::time::__Stateful_TimerCtl as _;
-use crate::time::__Stateless_Clock as _;
-use crate::time::__Stateless_Ticker as _;
-use crate::time::__Stateless_Timer as _;
-use crate::time::__Stateless_TimerCtl as _;
-use crate::time::__Stub_Timer;
+use crate::__Msg_Sleeper::Woke;
 use crate::time::between__Tick_Tick;
 use crate::time::cmp__Duration_Duration;
 use crate::time::elapsed;
@@ -117,75 +95,59 @@ use crate::time::millis;
 use crate::time::minus__Duration_Duration;
 use crate::time::minutes;
 use crate::time::nanos;
+use crate::core_actor::on_idle;
 use crate::time::plus__Duration_Duration;
 use crate::time::plus__Instant_Duration;
+use crate::core_actor::pool;
+use crate::core_console::println;
 use crate::time::seconds;
 use crate::time::times;
 use crate::time::to_epoch_second;
 use crate::time::to_millis;
 use crate::time::to_str;
 
-pub fn verdict(started: &Tick, at: &Tick, budget: &Duration) -> String {
-    let mut took = between__Tick_Tick(started, at);
-    if cmp__Duration_Duration(&took, budget) > 0 {
-        return format!("late by {}", to_str(&minus__Duration_Duration(&took, budget)));
-    }
-    return format!("in time, {} to spare", to_str(&minus__Duration_Duration(budget, &took)));
+
+pub fn verdict(started: &crate::time::Tick, at: &crate::time::Tick, budget: &crate::time::Duration) -> String {
+    let mut took: crate::time::Duration = crate::time::between__Tick_Tick(started, at);
+    if (crate::time::cmp__Duration_Duration(&took, budget) > 0i32) {
+        return format!("late by {}", crate::time::to_str(&crate::time::minus__Duration_Duration(&took, budget)));
+    };
+    return format!("in time, {} to spare", crate::time::to_str(&crate::time::minus__Duration_Duration(budget, &took)));
 }
 
-pub fn overdue(ticker: &crate::time::Ticker, started: &Tick, budget: &Duration) -> bool {
-    return cmp__Duration_Duration(&(elapsed(ticker, started)), budget) > 0;
+pub fn overdue(ticker: &crate::time::Ticker, started: &crate::time::Tick, budget: &crate::time::Duration) -> bool {
+    return (crate::time::cmp__Duration_Duration(&crate::time::elapsed(ticker, started), budget) > 0i32);
 }
 
 pub struct SteppingTicker {
-    step: Duration,
+    step: crate::time::Duration,
     at: i64,
 }
 
 impl SteppingTicker {
-    pub fn new(step: Duration) -> Self {
+    pub fn new(step: crate::time::Duration) -> Self {
         Self {
-            step,
-            at: 0i64,
+            step: step.clone(),
+            at: 0i64
         }
     }
 }
 
 impl crate::time::__Stateful_Ticker for SteppingTicker {
-
-    fn tick(&mut self) -> Tick {
+    fn tick(&mut self) -> crate::time::Tick {
         self.at = i64::wrapping_add(self.at, self.step.nanos);
-        return Tick { nanos: self.at };
+        return crate::time::Tick { nanos: self.at };
     }
 }
 
 pub trait __Stateless_Session: Send + Sync {
-    fn open(&self, started: Tick, budget: Duration, out: crate::scheduler::SalvoReply);
-    fn expire(&self, started: Tick, budget: Duration, out: crate::scheduler::SalvoReply, f: Fired);
+    fn open(&self, started: crate::time::Tick, budget: crate::time::Duration, out: crate::scheduler::SalvoReply);
+    fn expire(&self, started: crate::time::Tick, budget: crate::time::Duration, out: crate::scheduler::SalvoReply, f: crate::time::Fired);
 }
 
 pub trait __Stateful_Session: Send {
-    fn open(&mut self, started: Tick, budget: Duration, out: crate::scheduler::SalvoReply);
-    fn expire(&mut self, started: Tick, budget: Duration, out: crate::scheduler::SalvoReply, f: Fired);
-}
-
-pub struct __Stub_Session {
-    addr: usize,
-}
-
-impl __Stub_Session {
-    pub fn new(addr: usize) -> Self {
-        Self { addr }
-    }
-}
-
-impl __Stateless_Session for __Stub_Session {
-    fn open(&self, started: Tick, budget: Duration, out: crate::scheduler::SalvoReply) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_Session::Open(started, budget, out), crate::__PROTO_Session);
-    }
-    fn expire(&self, started: Tick, budget: Duration, out: crate::scheduler::SalvoReply, f: Fired) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_Session::Expire(started, budget, out, f), crate::__PROTO_Session);
-    }
+    fn open(&mut self, started: crate::time::Tick, budget: crate::time::Duration, out: crate::scheduler::SalvoReply);
+    fn expire(&mut self, started: crate::time::Tick, budget: crate::time::Duration, out: crate::scheduler::SalvoReply, f: crate::time::Fired);
 }
 
 pub struct Session {
@@ -219,13 +181,13 @@ impl Session {
     pub fn share_locked(inner: std::sync::Arc<std::sync::Mutex<dyn __Stateful_Session>>) -> Self {
         Self { inner: __Inner_Session::Locked(inner) }
     }
-    pub fn open(&self, started: Tick, budget: Duration, out: crate::scheduler::SalvoReply) {
+    pub fn open(&self, started: crate::time::Tick, budget: crate::time::Duration, out: crate::scheduler::SalvoReply) {
         match &self.inner {
             __Inner_Session::Shared(h) => h.open(started, budget, out),
             __Inner_Session::Locked(h) => h.lock().unwrap().open(started, budget, out),
         }
     }
-    pub fn expire(&self, started: Tick, budget: Duration, out: crate::scheduler::SalvoReply, f: Fired) {
+    pub fn expire(&self, started: crate::time::Tick, budget: crate::time::Duration, out: crate::scheduler::SalvoReply, f: crate::time::Fired) {
         match &self.inner {
             __Inner_Session::Shared(h) => h.expire(started, budget, out, f),
             __Inner_Session::Locked(h) => h.lock().unwrap().expire(started, budget, out, f),
@@ -234,8 +196,8 @@ impl Session {
 }
 
 pub enum __Msg_Session {
-    Open(Tick, Duration, crate::scheduler::SalvoReply),
-    Expire(Tick, Duration, crate::scheduler::SalvoReply, Fired),
+    Open(crate::time::Tick, crate::time::Duration, crate::scheduler::SalvoReply),
+    Expire(crate::time::Tick, crate::time::Duration, crate::scheduler::SalvoReply, crate::time::Fired),
 }
 
 impl crate::wire::__Wire for __Msg_Session {
@@ -268,38 +230,55 @@ impl crate::wire::__Wire for __Msg_Session {
 /// [protocol-hash] The canonical hash of `Session`.
 pub const __PROTO_Session: &str = "7ed70285b7e6568c";
 
+pub struct __Stub_Session {
+    addr: usize,
+}
+
+impl __Stub_Session {
+    pub fn new(addr: usize) -> Self {
+        Self { addr }
+    }
+}
+
+impl __Stateless_Session for __Stub_Session {
+    fn open(&self, started: crate::time::Tick, budget: crate::time::Duration, out: crate::scheduler::SalvoReply) {
+        crate::scheduler::salvo_send_wire(self.addr, __Msg_Session::Open(started, budget, out), crate::__PROTO_Session);
+    }
+    fn expire(&self, started: crate::time::Tick, budget: crate::time::Duration, out: crate::scheduler::SalvoReply, f: crate::time::Fired) {
+        crate::scheduler::salvo_send_wire(self.addr, __Msg_Session::Expire(started, budget, out, f), crate::__PROTO_Session);
+    }
+}
+
 pub struct Sessions {
-    __dep_Timer: crate::time::Timer,
+    __dep0: crate::time::Timer,
     pub __mailbox_capacity: i32,
     __addr: Option<usize>,
     __parked: std::collections::HashMap<u64, __Cont_Sessions>,
 }
 
 impl Sessions {
-    pub fn new(__dep_Timer: crate::time::Timer) -> Self {
+    pub fn new(__dep0: crate::time::Timer) -> Self {
         Self {
-            __dep_Timer,
-            __mailbox_capacity: 8,
+            __dep0,
+            __mailbox_capacity: 8i32,
             __addr: None,
-            __parked: std::collections::HashMap::new(),
+            __parked: std::collections::HashMap::new()
         }
     }
 }
 
 impl crate::__Stateful_Session for Sessions {
-
-    fn open(&mut self, started: Tick, budget: Duration, out: crate::scheduler::SalvoReply) {
-        self.__dep_Timer.after(plus__Duration_Duration(&budget, &(seconds(1i64))), { let (__r, __s) = crate::scheduler::salvo_mint(self.__addr.expect("a parking handler runs as an actor")); self.__parked.insert(__s, __Cont_Sessions::Expire(started, budget, out)); __r });
+    fn open(&mut self, started: crate::time::Tick, budget: crate::time::Duration, out: crate::scheduler::SalvoReply) {
+        self.__dep0.after(crate::time::plus__Duration_Duration(&budget, &crate::time::seconds(1i64)), { let (__r, __s) = crate::scheduler::salvo_mint(self.__addr.expect("a parking handler runs as an actor")); self.__parked.insert(__s, __Cont_Sessions::Expire(started.clone(), budget.clone(), out)); __r });
     }
-
-    fn expire(&mut self, started: Tick, budget: Duration, out: crate::scheduler::SalvoReply, f: Fired) {
-        crate::scheduler::salvo_reply_wire::<String>(out, verdict(&started, &f.at, &budget));
+    fn expire(&mut self, started: crate::time::Tick, budget: crate::time::Duration, out: crate::scheduler::SalvoReply, f: crate::time::Fired) {
+        crate::scheduler::salvo_reply_wire::<String>(out, crate::verdict(&started, &f.at, &budget));
     }
 }
 
 pub enum __Cont_Sessions {
-    Open(Tick, Duration),
-    Expire(Tick, Duration, crate::scheduler::SalvoReply),
+    Open(crate::time::Tick, crate::time::Duration),
+    Expire(crate::time::Tick, crate::time::Duration, crate::scheduler::SalvoReply),
 }
 
 pub struct __Actor_Sessions {
@@ -310,9 +289,6 @@ impl __Actor_Sessions {
     pub fn new(handler: Sessions) -> Self {
         Self { handler }
     }
-}
-
-impl __Actor_Sessions {
     fn __dispatch(&mut self, msg: crate::__Msg_Session) {
         match msg {
             crate::__Msg_Session::Open(started, budget, out) => crate::__Stateful_Session::open(&mut self.handler, started, budget, out),
@@ -335,24 +311,23 @@ impl crate::scheduler::SalvoActor for __Actor_Sessions {
         };
         match __cont {
             __Cont_Sessions::Open(started, budget) => self.__dispatch(crate::__Msg_Session::Open(started, budget, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
-            __Cont_Sessions::Expire(started, budget, out) => self.__dispatch(crate::__Msg_Session::Expire(started, budget, out, *value.downcast::<Fired>().expect("the awaited answer"))),
+            __Cont_Sessions::Expire(started, budget, out) => self.__dispatch(crate::__Msg_Session::Expire(started, budget, out, *value.downcast::<crate::time::Fired>().expect("the awaited answer"))),
         }
     }
 
     fn decode_reply(&self, slot: u64, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {
         match self.handler.__parked.get(&slot)? {
             __Cont_Sessions::Open{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<crate::scheduler::SalvoReply>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
-            __Cont_Sessions::Expire{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<Fired>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
+            __Cont_Sessions::Expire{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<crate::time::Fired>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
         }
     }
 }
 
 pub const __DECODE_Sessions: Option<crate::scheduler::MsgDecoder> = Some(__decode_msg_Sessions);
 fn __decode_msg_Sessions(proto: &str, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {
-        if proto == crate::__PROTO_Session {
-            return crate::wire::salvo_decode::<crate::__Msg_Session>(payload)
-                .map(|__m| std::boxed::Box::new(__m) as crate::scheduler::SalvoMsg);
-        }
+    if proto == crate::__PROTO_Session {
+        return crate::wire::salvo_decode::<crate::__Msg_Session>(payload).map(|__m| std::boxed::Box::new(__m) as crate::scheduler::SalvoMsg);
+    }
     None
 }
 
@@ -364,51 +339,31 @@ pub struct TestTicker {
 impl TestTicker {
     pub fn new(timer: usize) -> Self {
         Self {
-            timer,
+            timer
         }
     }
 }
 
 impl crate::time::__Stateless_Ticker for TestTicker {
-
-    fn tick(&self) -> Tick {
-        let mut fired = {
+    fn tick(&self) -> crate::time::Tick {
+        let mut fired: crate::time::Fired = {
             let (mut answer, __wid) = crate::scheduler::salvo_waiter();
-            crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<Fired>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg)));
-            crate::scheduler::salvo_send_wire(self.timer.clone(), crate::time::__Msg_Timer::After(nanos(0i64), answer), crate::time::__PROTO_Timer);
-            *crate::scheduler::salvo_wait(__wid).downcast::<Fired>().expect("the awaited answer")
+            crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<crate::time::Fired>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg)));
+            crate::scheduler::salvo_send_wire(self.timer, crate::time::__Msg_Timer::After(crate::time::nanos(0i64), answer), crate::time::__PROTO_Timer);
+            *crate::scheduler::salvo_wait(__wid).downcast::<crate::time::Fired>().expect("the awaited answer")
         };
         return fired.at.clone();
     }
 }
 
 pub trait __Stateless_Sleeper: Send + Sync {
-    fn nap(&self, wait: Duration, out: crate::scheduler::SalvoReply);
-    fn woke(&self, started: Tick, out: crate::scheduler::SalvoReply, f: Fired);
+    fn nap(&self, wait: crate::time::Duration, out: crate::scheduler::SalvoReply);
+    fn woke(&self, started: crate::time::Tick, out: crate::scheduler::SalvoReply, f: crate::time::Fired);
 }
 
 pub trait __Stateful_Sleeper: Send {
-    fn nap(&mut self, wait: Duration, out: crate::scheduler::SalvoReply);
-    fn woke(&mut self, started: Tick, out: crate::scheduler::SalvoReply, f: Fired);
-}
-
-pub struct __Stub_Sleeper {
-    addr: usize,
-}
-
-impl __Stub_Sleeper {
-    pub fn new(addr: usize) -> Self {
-        Self { addr }
-    }
-}
-
-impl __Stateless_Sleeper for __Stub_Sleeper {
-    fn nap(&self, wait: Duration, out: crate::scheduler::SalvoReply) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_Sleeper::Nap(wait, out), crate::__PROTO_Sleeper);
-    }
-    fn woke(&self, started: Tick, out: crate::scheduler::SalvoReply, f: Fired) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_Sleeper::Woke(started, out, f), crate::__PROTO_Sleeper);
-    }
+    fn nap(&mut self, wait: crate::time::Duration, out: crate::scheduler::SalvoReply);
+    fn woke(&mut self, started: crate::time::Tick, out: crate::scheduler::SalvoReply, f: crate::time::Fired);
 }
 
 pub struct Sleeper {
@@ -442,13 +397,13 @@ impl Sleeper {
     pub fn share_locked(inner: std::sync::Arc<std::sync::Mutex<dyn __Stateful_Sleeper>>) -> Self {
         Self { inner: __Inner_Sleeper::Locked(inner) }
     }
-    pub fn nap(&self, wait: Duration, out: crate::scheduler::SalvoReply) {
+    pub fn nap(&self, wait: crate::time::Duration, out: crate::scheduler::SalvoReply) {
         match &self.inner {
             __Inner_Sleeper::Shared(h) => h.nap(wait, out),
             __Inner_Sleeper::Locked(h) => h.lock().unwrap().nap(wait, out),
         }
     }
-    pub fn woke(&self, started: Tick, out: crate::scheduler::SalvoReply, f: Fired) {
+    pub fn woke(&self, started: crate::time::Tick, out: crate::scheduler::SalvoReply, f: crate::time::Fired) {
         match &self.inner {
             __Inner_Sleeper::Shared(h) => h.woke(started, out, f),
             __Inner_Sleeper::Locked(h) => h.lock().unwrap().woke(started, out, f),
@@ -457,8 +412,8 @@ impl Sleeper {
 }
 
 pub enum __Msg_Sleeper {
-    Nap(Duration, crate::scheduler::SalvoReply),
-    Woke(Tick, crate::scheduler::SalvoReply, Fired),
+    Nap(crate::time::Duration, crate::scheduler::SalvoReply),
+    Woke(crate::time::Tick, crate::scheduler::SalvoReply, crate::time::Fired),
 }
 
 impl crate::wire::__Wire for __Msg_Sleeper {
@@ -489,40 +444,57 @@ impl crate::wire::__Wire for __Msg_Sleeper {
 /// [protocol-hash] The canonical hash of `Sleeper`.
 pub const __PROTO_Sleeper: &str = "2385b53950dcbd9c";
 
+pub struct __Stub_Sleeper {
+    addr: usize,
+}
+
+impl __Stub_Sleeper {
+    pub fn new(addr: usize) -> Self {
+        Self { addr }
+    }
+}
+
+impl __Stateless_Sleeper for __Stub_Sleeper {
+    fn nap(&self, wait: crate::time::Duration, out: crate::scheduler::SalvoReply) {
+        crate::scheduler::salvo_send_wire(self.addr, __Msg_Sleeper::Nap(wait, out), crate::__PROTO_Sleeper);
+    }
+    fn woke(&self, started: crate::time::Tick, out: crate::scheduler::SalvoReply, f: crate::time::Fired) {
+        crate::scheduler::salvo_send_wire(self.addr, __Msg_Sleeper::Woke(started, out, f), crate::__PROTO_Sleeper);
+    }
+}
+
 pub struct Napping {
-    __dep_Timer: crate::time::Timer,
-    __dep_Ticker: crate::time::Ticker,
+    __dep0: crate::time::Timer,
+    __dep1: crate::time::Ticker,
     pub __mailbox_capacity: i32,
     __addr: Option<usize>,
     __parked: std::collections::HashMap<u64, __Cont_Napping>,
 }
 
 impl Napping {
-    pub fn new(__dep_Timer: crate::time::Timer, __dep_Ticker: crate::time::Ticker) -> Self {
+    pub fn new(__dep0: crate::time::Timer, __dep1: crate::time::Ticker) -> Self {
         Self {
-            __dep_Timer,
-            __dep_Ticker,
-            __mailbox_capacity: 8,
+            __dep0,
+            __dep1,
+            __mailbox_capacity: 8i32,
             __addr: None,
-            __parked: std::collections::HashMap::new(),
+            __parked: std::collections::HashMap::new()
         }
     }
 }
 
 impl crate::__Stateful_Sleeper for Napping {
-
-    fn nap(&mut self, wait: Duration, out: crate::scheduler::SalvoReply) {
-        self.__dep_Timer.after(wait, { let (__r, __s) = crate::scheduler::salvo_mint(self.__addr.expect("a parking handler runs as an actor")); self.__parked.insert(__s, __Cont_Napping::Woke(self.__dep_Ticker.tick(), out)); __r });
+    fn nap(&mut self, wait: crate::time::Duration, out: crate::scheduler::SalvoReply) {
+        self.__dep0.after(wait, { let (__r, __s) = crate::scheduler::salvo_mint(self.__addr.expect("a parking handler runs as an actor")); self.__parked.insert(__s, __Cont_Napping::Woke(self.__dep1.tick(), out)); __r });
     }
-
-    fn woke(&mut self, started: Tick, out: crate::scheduler::SalvoReply, f: Fired) {
-        crate::scheduler::salvo_reply_wire::<String>(out, format!("napped {}", to_str(&elapsed(&self.__dep_Ticker, &started))));
+    fn woke(&mut self, started: crate::time::Tick, out: crate::scheduler::SalvoReply, f: crate::time::Fired) {
+        crate::scheduler::salvo_reply_wire::<String>(out, format!("napped {}", crate::time::to_str(&crate::time::elapsed(&self.__dep1, &started))));
     }
 }
 
 pub enum __Cont_Napping {
-    Nap(Duration),
-    Woke(Tick, crate::scheduler::SalvoReply),
+    Nap(crate::time::Duration),
+    Woke(crate::time::Tick, crate::scheduler::SalvoReply),
 }
 
 pub struct __Actor_Napping {
@@ -533,9 +505,6 @@ impl __Actor_Napping {
     pub fn new(handler: Napping) -> Self {
         Self { handler }
     }
-}
-
-impl __Actor_Napping {
     fn __dispatch(&mut self, msg: crate::__Msg_Sleeper) {
         match msg {
             crate::__Msg_Sleeper::Nap(wait, out) => crate::__Stateful_Sleeper::nap(&mut self.handler, wait, out),
@@ -558,73 +527,78 @@ impl crate::scheduler::SalvoActor for __Actor_Napping {
         };
         match __cont {
             __Cont_Napping::Nap(wait) => self.__dispatch(crate::__Msg_Sleeper::Nap(wait, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
-            __Cont_Napping::Woke(started, out) => self.__dispatch(crate::__Msg_Sleeper::Woke(started, out, *value.downcast::<Fired>().expect("the awaited answer"))),
+            __Cont_Napping::Woke(started, out) => self.__dispatch(crate::__Msg_Sleeper::Woke(started, out, *value.downcast::<crate::time::Fired>().expect("the awaited answer"))),
         }
     }
 
     fn decode_reply(&self, slot: u64, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {
         match self.handler.__parked.get(&slot)? {
             __Cont_Napping::Nap{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<crate::scheduler::SalvoReply>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
-            __Cont_Napping::Woke{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<Fired>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
+            __Cont_Napping::Woke{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<crate::time::Fired>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
         }
     }
 }
 
 pub const __DECODE_Napping: Option<crate::scheduler::MsgDecoder> = Some(__decode_msg_Napping);
 fn __decode_msg_Napping(proto: &str, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {
-        if proto == crate::__PROTO_Sleeper {
-            return crate::wire::salvo_decode::<crate::__Msg_Sleeper>(payload)
-                .map(|__m| std::boxed::Box::new(__m) as crate::scheduler::SalvoMsg);
-        }
+    if proto == crate::__PROTO_Sleeper {
+        return crate::wire::salvo_decode::<crate::__Msg_Sleeper>(payload).map(|__m| std::boxed::Box::new(__m) as crate::scheduler::SalvoMsg);
+    }
     None
 }
 
 pub fn main() {
     crate::scheduler::salvo_set_protocols(vec![("Faults".to_string(), crate::core_actor::__PROTO_Faults.to_string()), ("Session".to_string(), crate::__PROTO_Session.to_string()), ("Sleeper".to_string(), crate::__PROTO_Sleeper.to_string()), ("Timer".to_string(), crate::time::__PROTO_Timer.to_string()), ("TimerCtl".to_string(), crate::time::__PROTO_TimerCtl.to_string()), ("Wheel".to_string(), crate::runtime_timers::__PROTO_Wheel.to_string())]);
-    let console = crate::core_console::Console::shared(crate::core_console::__Platform_StdOutConsole::new());
-    let mut budget = millis(1500i64);
-    println(&console, &(format!("budget {}, doubled {}, in millis {}", to_str(&budget), to_str(&times(&budget, 2i64)), to_millis(&budget))));
-    let mut stamp = epoch_milli(1700000000000i64);
-    println(&console, &(format!("stamp {}s, a minute later {}s", to_epoch_second(&stamp), to_epoch_second(&(plus__Instant_Duration(&stamp, &(minutes(1i64))))))));
-    let clock = crate::time::Clock::locked(DefaultClock::new());
-    let ticker = crate::time::Ticker::shared(DefaultTicker::new());
-    println(&console, &(format!("wall clock is set: {}", to_epoch_second(&(clock.now())) > ((1600000000) as i64))));
-    let ticker2 = crate::time::Ticker::locked(SteppingTicker::new(millis(500i64)));
-    let mut started = ticker2.tick();
-    println(&console, &(format!("overdue after one more read: {}", overdue(&ticker2, &started, &budget))));
-    println(&console, &(format!("overdue after three: {} {} {}", overdue(&ticker2, &started, &budget), overdue(&ticker2, &started, &budget), overdue(&ticker2, &started, &budget))));
-    println(&console, &(verdict(&(Tick { nanos: 0i64 }), &(Tick { nanos: 1000000000i64 }), &budget)));
-    println(&console, &(verdict(&(Tick { nanos: 0i64 }), &(Tick { nanos: 2000000000i64 }), &budget)));
-    let mut p = pool(1);
-    let (mut timer, mut ctl) = ({ let __h = ManualTime::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, std::boxed::Box::new(__Actor_ManualTime::new(__h)), __DECODE_ManualTime); (__a, __a) });
-    let mut sessions = ({ let __h = Sessions::new(crate::time::Timer::shared(__Stub_Timer::new(timer))); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, std::boxed::Box::new(__Actor_Sessions::new(__h)), __DECODE_Sessions); __a });
-    let mut outcome = {
+    let mut __use_1: crate::core_console::__Platform_StdOutConsole = crate::core_console::__Platform_StdOutConsole::new();
+    let __handle_2 = crate::core_console::Console::shared(__use_1);
+    let mut budget: crate::time::Duration = crate::time::millis(1500i64);
+    crate::core_console::println(&__handle_2, &format!("budget {}, doubled {}, in millis {}", crate::time::to_str(&budget), crate::time::to_str(&crate::time::times(&budget, 2i64)), crate::time::to_millis(&budget)));
+    let mut stamp: crate::time::Instant = crate::time::epoch_milli(1700000000000i64);
+    crate::core_console::println(&__handle_2, &format!("stamp {}s, a minute later {}s", crate::time::to_epoch_second(&stamp), crate::time::to_epoch_second(&crate::time::plus__Instant_Duration(&stamp, &crate::time::minutes(1i64)))));
+    let mut __use_3: crate::time::DefaultClock = crate::time::DefaultClock::new();
+    let __handle_4 = crate::time::Clock::locked(__use_3);
+    let mut __use_5: crate::time::DefaultTicker = crate::time::DefaultTicker::new();
+    let __handle_6 = crate::time::Ticker::shared(__use_5);
+    crate::core_console::println(&__handle_2, &format!("wall clock is set: {}", (crate::time::to_epoch_second(&__handle_4.now()) > 1600000000i64)));
+    let mut __use_7: crate::SteppingTicker = crate::SteppingTicker::new(crate::time::millis(500i64));
+    let __handle_8 = crate::time::Ticker::locked(__use_7);
+    let mut started: crate::time::Tick = __handle_8.tick();
+    crate::core_console::println(&__handle_2, &format!("overdue after one more read: {}", crate::overdue(&__handle_8, &started, &budget)));
+    crate::core_console::println(&__handle_2, &format!("overdue after three: {} {} {}", crate::overdue(&__handle_8, &started, &budget), crate::overdue(&__handle_8, &started, &budget), crate::overdue(&__handle_8, &started, &budget)));
+    crate::core_console::println(&__handle_2, &crate::verdict(&crate::time::Tick { nanos: 0i64 }, &crate::time::Tick { nanos: 1000000000i64 }, &budget));
+    crate::core_console::println(&__handle_2, &crate::verdict(&crate::time::Tick { nanos: 0i64 }, &crate::time::Tick { nanos: 2000000000i64 }, &budget));
+    let mut p: usize = crate::core_actor::pool(1i32);
+    let mut __destructured_9: (usize, usize) = ({ let __h = crate::time::ManualTime::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, std::boxed::Box::new(crate::time::__Actor_ManualTime::new(__h)), crate::time::__DECODE_ManualTime); (__a, __a) });
+    let mut timer: usize = __destructured_9.0;
+    let mut ctl: usize = __destructured_9.1;
+    let mut sessions: usize = ({ let __h = crate::Sessions::new(crate::time::Timer::shared(crate::time::__Stub_Timer::new(timer))); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, std::boxed::Box::new(crate::__Actor_Sessions::new(__h)), crate::__DECODE_Sessions); __a });
+    let mut outcome: String = {
         let (mut answer, __wid) = crate::scheduler::salvo_waiter();
         crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<String>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg)));
-        crate::scheduler::salvo_send_wire(sessions, crate::__Msg_Session::Open(Tick { nanos: 0i64 }, budget, answer), crate::__PROTO_Session);
+        crate::scheduler::salvo_send_wire(sessions, crate::__Msg_Session::Open(crate::time::Tick { nanos: 0i64 }, budget.clone(), answer), crate::__PROTO_Session);
         {
             let (mut settled, __wid) = crate::scheduler::salvo_waiter();
-            crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<Idle>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg)));
-            on_idle(&p, settled);
-            *crate::scheduler::salvo_wait(__wid).downcast::<Idle>().expect("the awaited answer")
+            crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<crate::core_actor::Idle>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg)));
+            crate::core_actor::on_idle(p, settled);
+            *crate::scheduler::salvo_wait(__wid).downcast::<crate::core_actor::Idle>().expect("the awaited answer")
         };
-        crate::scheduler::salvo_send_wire(ctl, crate::time::__Msg_TimerCtl::Advance(millis(2500i64)), crate::time::__PROTO_TimerCtl);
+        crate::scheduler::salvo_send_wire(ctl, crate::time::__Msg_TimerCtl::Advance(crate::time::millis(2500i64)), crate::time::__PROTO_TimerCtl);
         *crate::scheduler::salvo_wait(__wid).downcast::<String>().expect("the awaited answer")
     };
-    println(&console, &(format!("session: {}", outcome)));
-    let mut sleeper = ({ let __h = Napping::new(crate::time::Timer::shared(__Stub_Timer::new(timer)), crate::time::Ticker::shared(TestTicker::new(timer))); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(crate::scheduler::salvo_thread(), __cap as usize, std::boxed::Box::new(__Actor_Napping::new(__h)), __DECODE_Napping); __a });
-    let mut napped = {
+    crate::core_console::println(&__handle_2, &format!("session: {}", outcome));
+    let mut sleeper: usize = ({ let __h = crate::Napping::new(crate::time::Timer::shared(crate::time::__Stub_Timer::new(timer)), crate::time::Ticker::shared(crate::TestTicker::new(timer))); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(crate::scheduler::salvo_thread(), __cap as usize, std::boxed::Box::new(crate::__Actor_Napping::new(__h)), crate::__DECODE_Napping); __a });
+    let mut napped: String = {
         let (mut answer, __wid) = crate::scheduler::salvo_waiter();
         crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<String>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg)));
-        crate::scheduler::salvo_send_wire(sleeper, crate::__Msg_Sleeper::Nap(seconds(2i64), answer), crate::__PROTO_Sleeper);
+        crate::scheduler::salvo_send_wire(sleeper, crate::__Msg_Sleeper::Nap(crate::time::seconds(2i64), answer), crate::__PROTO_Sleeper);
         {
             let (mut settled, __wid) = crate::scheduler::salvo_waiter();
-            crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<Idle>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg)));
-            on_idle(&p, settled);
-            *crate::scheduler::salvo_wait(__wid).downcast::<Idle>().expect("the awaited answer")
+            crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<crate::core_actor::Idle>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg)));
+            crate::core_actor::on_idle(p, settled);
+            *crate::scheduler::salvo_wait(__wid).downcast::<crate::core_actor::Idle>().expect("the awaited answer")
         };
-        crate::scheduler::salvo_send_wire(ctl, crate::time::__Msg_TimerCtl::Advance(seconds(2i64)), crate::time::__PROTO_TimerCtl);
+        crate::scheduler::salvo_send_wire(ctl, crate::time::__Msg_TimerCtl::Advance(crate::time::seconds(2i64)), crate::time::__PROTO_TimerCtl);
         *crate::scheduler::salvo_wait(__wid).downcast::<String>().expect("the awaited answer")
     };
-    println(&console, &napped);
+    crate::core_console::println(&__handle_2, &napped);
 }

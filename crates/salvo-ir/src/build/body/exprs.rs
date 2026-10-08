@@ -1663,11 +1663,19 @@ impl<'a, 'p> Lower<'a, 'p> {
         // [iter-step-call] a step call is re-invoked each turn, so it is
         // lowered inside the loop; every other subject is evaluated once.
         let step_call = driver.as_ref().is_some_and(|d| d.step_call);
-        let subject = if step_call { Expr { ty: Ty::Unknown, span, kind: ExprKind::Unit } } else { self.expr(iterable) };
-        let elem_ty = match pattern {
+        let mut subject = if step_call { Expr { ty: Ty::Unknown, span, kind: ExprKind::Unit } } else { self.expr(iterable) };
+        let mut elem_ty = match pattern {
             Pattern::Ident(id) => self.ty_of(id.span),
             other => self.ty_of(pattern_span(other)),
         };
+        // [fate-move-mode] a body that consumes the loop variable makes the
+        // loop iterate by value: the subject is consumed, each element owned.
+        if driver.is_none() && self.ctx.checked.binding_modes.contains(&self.key(iterable.span())) {
+            self.consume_if_owned(&mut subject);
+            if matches!(subject.kind, ExprKind::Read { consume: true, .. }) {
+                elem_ty = elem_ty.remove_quals(&std::iter::once("proj".to_string()).collect());
+            }
+        }
         self.push_scope();
         self.loops += 1;
         self.loop_results.push(result.as_ref().map(|(r, _)| r.clone()));

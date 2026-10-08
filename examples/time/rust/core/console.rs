@@ -1,4 +1,3 @@
-use crate::core_string::Str;
 
 pub trait __Stateless_Console: Send + Sync {
     fn print(&self, message: &String);
@@ -71,5 +70,5 @@ impl __Platform_StdOutConsole {
 
 pub fn println(console: &crate::core_console::Console, message: &String) {
     console.print(message);
-    console.print(&("\n".to_string()));
+    console.print(&String::from("\n"));
 }

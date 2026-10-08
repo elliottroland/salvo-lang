@@ -1,64 +1,25 @@
-use crate::unions::*;
-use crate::core_actor::Mailbox;
-use crate::core_actor::__Stateful_Faults as _;
-use crate::core_actor::__Stateless_Faults as _;
-use crate::core_actor::eq;
-use crate::core_actor::pool;
 use crate::core_bytes::Bytes;
-use crate::core_checked::detach;
-use crate::core_compare::mix_hash;
-use crate::core_list::List;
-use crate::core_list::all;
-use crate::core_list::at;
-use crate::core_list::contains;
-use crate::core_list::last;
+use crate::time::Duration;
 use crate::core_map::Map;
-use crate::core_map::mut_map_of_platform;
-use crate::core_result::err;
-use crate::core_result::ok;
-use crate::core_set::Set;
-use crate::core_set::mut_set_of_platform;
-use crate::core_string::Str;
-use crate::runtime::RuntimeHostPlatformSync as _;
-use crate::runtime::__Stateful_RuntimeHost as _;
-use crate::runtime::__Stateful_SchedTable as _;
-use crate::runtime::__Stateless_RuntimeHost as _;
-use crate::runtime::__Stateless_SchedTable as _;
 use crate::runtime_routing::RemoteRef;
-use crate::runtime_routing::__Stateful_RouteTable as _;
-use crate::runtime_routing::__Stateless_RouteTable as _;
-use crate::runtime_routing::connected as connected__runtime_routing;
+use crate::core_set::Set;
+use crate::core_map::contains_key_platform;
+use crate::core_set::contains_platform;
 use crate::runtime_routing::control_frame;
-use crate::runtime_routing::credits as credits__runtime_routing;
-use crate::runtime_routing::deliver;
+use crate::core_actor::eq;
 use crate::runtime_routing::here_node;
 use crate::runtime_routing::identity;
+use crate::core_map::keys_platform;
 use crate::runtime_routing::local_protocols;
-use crate::runtime_routing::new_node as new_node__runtime_routing;
-use crate::runtime_routing::node_left as node_left__runtime_routing;
+use crate::core_compare::mix_hash;
+use crate::core_map::mut_map_of_platform;
+use crate::core_set::mut_set_of_platform;
 use crate::runtime_routing::outbound_bound;
-use crate::runtime_routing::peer_protocol as peer_protocol__runtime_routing;
-use crate::runtime_routing::pending as pending__runtime_routing;
-use crate::runtime_routing::pool_at as pool_at__runtime_routing;
-use crate::runtime_routing::route;
-use crate::runtime_routing::send_control as send_control__runtime_routing;
-use crate::runtime_routing::set_peer_protocols as set_peer_protocols__runtime_routing;
-use crate::runtime_routing::view_members as view_members__runtime_routing;
-use crate::runtime_routing::view_refresh as view_refresh__runtime_routing;
-use crate::runtime_routing::view_set as view_set__runtime_routing;
-use crate::runtime_routing::view_version as view_version__runtime_routing;
-use crate::runtime_routing::view_wait as view_wait__runtime_routing;
-use crate::runtime_routing::watch_control;
-use crate::time::Duration;
-use crate::time::__Stateful_Clock as _;
-use crate::time::__Stateful_Ticker as _;
-use crate::time::__Stateful_Timer as _;
-use crate::time::__Stateful_TimerCtl as _;
-use crate::time::__Stateless_Clock as _;
-use crate::time::__Stateless_Ticker as _;
-use crate::time::__Stateless_Timer as _;
-use crate::time::__Stateless_TimerCtl as _;
-use crate::time::nanos;
+use crate::core_actor::pool;
+use crate::core_map::put_platform;
+use crate::core_list::remove_at_platform;
+use crate::core_list::size_platform;
+
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct NodeEndpoint {
@@ -79,13 +40,13 @@ impl crate::wire::__Wire for NodeEndpoint {
     }
 }
 
-pub fn to_str__NodeEndpoint(e: &NodeEndpoint) -> String {
-    return format!("{}:{}", e.host.clone(), e.port);
+pub fn to_str__NodeEndpoint(e: &crate::net::NodeEndpoint) -> String {
+    return format!("{}:{}", e.host, e.port);
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Unreachable {
-    pub to: NodeEndpoint,
+    pub to: crate::net::NodeEndpoint,
 }
 
 impl crate::wire::__Wire for Unreachable {
@@ -101,7 +62,7 @@ impl crate::wire::__Wire for Unreachable {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct WireFailed {
-    pub to: NodeEndpoint,
+    pub to: crate::net::NodeEndpoint,
     pub reason: String,
 }
 
@@ -118,51 +79,34 @@ impl crate::wire::__Wire for WireFailed {
     }
 }
 
-pub type NetError = Union2<Unreachable, WireFailed>;
+pub type NetError = crate::unions::Union2<crate::net::Unreachable, crate::net::WireFailed>;
 
 /// Factories for the host: one per arm of the union [platform-factory].
 impl NetError {
-    pub fn unreachable(value: Unreachable) -> Self {
+    pub fn unreachable(value: crate::net::Unreachable) -> Self {
         crate::unions::Union2::U1(value)
     }
-    pub fn wire_failed(value: WireFailed) -> Self {
+    pub fn wire_failed(value: crate::net::WireFailed) -> Self {
         crate::unions::Union2::U2(value)
     }
 }
 
-pub fn to_str__NetError(e: &Union2<Unreachable, WireFailed>) -> String {
-    match e {
-        Union2::U1(_) => {
-            return format!("unreachable: {}", to_str__NodeEndpoint(&e.u1().clone().to));
-        }
-        Union2::U2(_) => {
-            return format!("wire failed to {}: {}", to_str__NodeEndpoint(&e.u2().clone().to), e.u2().clone().reason.clone());
-        }
-    }
+pub fn to_str__NetError(e: &crate::unions::Union2<crate::net::Unreachable, crate::net::WireFailed>) -> String {
+    return if matches!(e, crate::unions::Union2::U1(_)) {
+        let mut e_1 = match &e { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
+        return format!("unreachable: {}", crate::net::to_str__NodeEndpoint(&e_1.to));
+    } else {
+        let mut e_2 = match &e { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
+        return format!("wire failed to {}: {}", crate::net::to_str__NodeEndpoint(&e_2.to), e_2.reason);
+    };
 }
 
 pub trait __Stateless_Inbound: Send + Sync {
-    fn receive_frame(&self, from: NodeEndpoint, frame: Bytes);
+    fn receive_frame(&self, from: crate::net::NodeEndpoint, frame: crate::core_bytes::Bytes);
 }
 
 pub trait __Stateful_Inbound: Send {
-    fn receive_frame(&mut self, from: NodeEndpoint, frame: Bytes);
-}
-
-pub struct __Stub_Inbound {
-    addr: usize,
-}
-
-impl __Stub_Inbound {
-    pub fn new(addr: usize) -> Self {
-        Self { addr }
-    }
-}
-
-impl __Stateless_Inbound for __Stub_Inbound {
-    fn receive_frame(&self, from: NodeEndpoint, frame: Bytes) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_Inbound::ReceiveFrame(from, frame), crate::net::__PROTO_Inbound);
-    }
+    fn receive_frame(&mut self, from: crate::net::NodeEndpoint, frame: crate::core_bytes::Bytes);
 }
 
 pub struct Inbound {
@@ -196,7 +140,7 @@ impl Inbound {
     pub fn share_locked(inner: std::sync::Arc<std::sync::Mutex<dyn __Stateful_Inbound>>) -> Self {
         Self { inner: __Inner_Inbound::Locked(inner) }
     }
-    pub fn receive_frame(&self, from: NodeEndpoint, frame: Bytes) {
+    pub fn receive_frame(&self, from: crate::net::NodeEndpoint, frame: crate::core_bytes::Bytes) {
         match &self.inner {
             __Inner_Inbound::Shared(h) => h.receive_frame(from, frame),
             __Inner_Inbound::Locked(h) => h.lock().unwrap().receive_frame(from, frame),
@@ -205,7 +149,7 @@ impl Inbound {
 }
 
 pub enum __Msg_Inbound {
-    ReceiveFrame(NodeEndpoint, Bytes),
+    ReceiveFrame(crate::net::NodeEndpoint, crate::core_bytes::Bytes),
 }
 
 impl crate::wire::__Wire for __Msg_Inbound {
@@ -229,18 +173,34 @@ impl crate::wire::__Wire for __Msg_Inbound {
 /// [protocol-hash] The canonical hash of `Inbound`.
 pub const __PROTO_Inbound: &str = "8e46ddb2a3e90b03";
 
+pub struct __Stub_Inbound {
+    addr: usize,
+}
+
+impl __Stub_Inbound {
+    pub fn new(addr: usize) -> Self {
+        Self { addr }
+    }
+}
+
+impl __Stateless_Inbound for __Stub_Inbound {
+    fn receive_frame(&self, from: crate::net::NodeEndpoint, frame: crate::core_bytes::Bytes) {
+        crate::scheduler::salvo_send_wire(self.addr, __Msg_Inbound::ReceiveFrame(from, frame), crate::net::__PROTO_Inbound);
+    }
+}
+
 pub trait __Stateless_Transport: Send + Sync {
-    fn listen(&self, at: &NodeEndpoint, sink: usize) -> Union2<(), Union2<Unreachable, WireFailed>>;
-    fn unlisten(&self, at: &NodeEndpoint);
-    fn deliver(&self, to: &NodeEndpoint, frame: Bytes) -> Union2<(), Union2<Unreachable, WireFailed>>;
-    fn local_endpoint(&self) -> NodeEndpoint;
+    fn listen(&self, at: &crate::net::NodeEndpoint, sink: usize) -> crate::unions::Union2<(), crate::unions::Union2<crate::net::Unreachable, crate::net::WireFailed>>;
+    fn unlisten(&self, at: &crate::net::NodeEndpoint);
+    fn deliver(&self, to: &crate::net::NodeEndpoint, frame: crate::core_bytes::Bytes) -> crate::unions::Union2<(), crate::unions::Union2<crate::net::Unreachable, crate::net::WireFailed>>;
+    fn local_endpoint(&self) -> crate::net::NodeEndpoint;
 }
 
 pub trait __Stateful_Transport: Send {
-    fn listen(&mut self, at: &NodeEndpoint, sink: usize) -> Union2<(), Union2<Unreachable, WireFailed>>;
-    fn unlisten(&mut self, at: &NodeEndpoint);
-    fn deliver(&mut self, to: &NodeEndpoint, frame: Bytes) -> Union2<(), Union2<Unreachable, WireFailed>>;
-    fn local_endpoint(&mut self) -> NodeEndpoint;
+    fn listen(&mut self, at: &crate::net::NodeEndpoint, sink: usize) -> crate::unions::Union2<(), crate::unions::Union2<crate::net::Unreachable, crate::net::WireFailed>>;
+    fn unlisten(&mut self, at: &crate::net::NodeEndpoint);
+    fn deliver(&mut self, to: &crate::net::NodeEndpoint, frame: crate::core_bytes::Bytes) -> crate::unions::Union2<(), crate::unions::Union2<crate::net::Unreachable, crate::net::WireFailed>>;
+    fn local_endpoint(&mut self) -> crate::net::NodeEndpoint;
 }
 
 pub struct Transport {
@@ -274,25 +234,25 @@ impl Transport {
     pub fn share_locked(inner: std::sync::Arc<std::sync::Mutex<dyn __Stateful_Transport>>) -> Self {
         Self { inner: __Inner_Transport::Locked(inner) }
     }
-    pub fn listen(&self, at: &NodeEndpoint, sink: usize) -> Union2<(), Union2<Unreachable, WireFailed>> {
+    pub fn listen(&self, at: &crate::net::NodeEndpoint, sink: usize) -> crate::unions::Union2<(), crate::unions::Union2<crate::net::Unreachable, crate::net::WireFailed>> {
         match &self.inner {
             __Inner_Transport::Shared(h) => h.listen(at, sink),
             __Inner_Transport::Locked(h) => h.lock().unwrap().listen(at, sink),
         }
     }
-    pub fn unlisten(&self, at: &NodeEndpoint) {
+    pub fn unlisten(&self, at: &crate::net::NodeEndpoint) {
         match &self.inner {
             __Inner_Transport::Shared(h) => h.unlisten(at),
             __Inner_Transport::Locked(h) => h.lock().unwrap().unlisten(at),
         }
     }
-    pub fn deliver(&self, to: &NodeEndpoint, frame: Bytes) -> Union2<(), Union2<Unreachable, WireFailed>> {
+    pub fn deliver(&self, to: &crate::net::NodeEndpoint, frame: crate::core_bytes::Bytes) -> crate::unions::Union2<(), crate::unions::Union2<crate::net::Unreachable, crate::net::WireFailed>> {
         match &self.inner {
             __Inner_Transport::Shared(h) => h.deliver(to, frame),
             __Inner_Transport::Locked(h) => h.lock().unwrap().deliver(to, frame),
         }
     }
-    pub fn local_endpoint(&self) -> NodeEndpoint {
+    pub fn local_endpoint(&self) -> crate::net::NodeEndpoint {
         match &self.inner {
             __Inner_Transport::Shared(h) => h.local_endpoint(),
             __Inner_Transport::Locked(h) => h.lock().unwrap().local_endpoint(),
@@ -305,23 +265,23 @@ pub struct __Platform_Transport<T>(pub T);
 
 /// What a `threadsafe platform handler` of `Transport` implements [platform-abi].
 pub trait TransportPlatformSync: Send + Sync {
-    fn listen(&self, at: &NodeEndpoint, sink: usize) -> Union2<(), Union2<Unreachable, WireFailed>>;
-    fn unlisten(&self, at: &NodeEndpoint);
-    fn deliver(&self, to: &NodeEndpoint, frame: Bytes) -> Union2<(), Union2<Unreachable, WireFailed>>;
-    fn local_endpoint(&self) -> NodeEndpoint;
+    fn listen(&self, at: &crate::net::NodeEndpoint, sink: usize) -> crate::unions::Union2<(), crate::unions::Union2<crate::net::Unreachable, crate::net::WireFailed>>;
+    fn unlisten(&self, at: &crate::net::NodeEndpoint);
+    fn deliver(&self, to: &crate::net::NodeEndpoint, frame: crate::core_bytes::Bytes) -> crate::unions::Union2<(), crate::unions::Union2<crate::net::Unreachable, crate::net::WireFailed>>;
+    fn local_endpoint(&self) -> crate::net::NodeEndpoint;
 }
 
 impl<T: TransportPlatformSync> __Stateless_Transport for __Platform_Transport<T> {
-    fn listen(&self, at: &NodeEndpoint, sink: usize) -> Union2<(), Union2<Unreachable, WireFailed>> {
+    fn listen(&self, at: &crate::net::NodeEndpoint, sink: usize) -> crate::unions::Union2<(), crate::unions::Union2<crate::net::Unreachable, crate::net::WireFailed>> {
         self.0.listen(at, sink)
     }
-    fn unlisten(&self, at: &NodeEndpoint) {
+    fn unlisten(&self, at: &crate::net::NodeEndpoint) {
         self.0.unlisten(at)
     }
-    fn deliver(&self, to: &NodeEndpoint, frame: Bytes) -> Union2<(), Union2<Unreachable, WireFailed>> {
+    fn deliver(&self, to: &crate::net::NodeEndpoint, frame: crate::core_bytes::Bytes) -> crate::unions::Union2<(), crate::unions::Union2<crate::net::Unreachable, crate::net::WireFailed>> {
         self.0.deliver(to, frame)
     }
-    fn local_endpoint(&self) -> NodeEndpoint {
+    fn local_endpoint(&self) -> crate::net::NodeEndpoint {
         self.0.local_endpoint()
     }
 }
@@ -330,10 +290,10 @@ impl<T: TransportPlatformSync> __Stateless_Transport for __Platform_Transport<T>
 pub struct Listen;
 
 impl Listen {
-    pub fn ok(value: ()) -> Union2<(), Union2<Unreachable, WireFailed>> {
+    pub fn ok(value: ()) -> crate::unions::Union2<(), crate::unions::Union2<crate::net::Unreachable, crate::net::WireFailed>> {
         crate::unions::Union2::U1(value)
     }
-    pub fn err(value: Union2<Unreachable, WireFailed>) -> Union2<(), Union2<Unreachable, WireFailed>> {
+    pub fn err(value: crate::unions::Union2<crate::net::Unreachable, crate::net::WireFailed>) -> crate::unions::Union2<(), crate::unions::Union2<crate::net::Unreachable, crate::net::WireFailed>> {
         crate::unions::Union2::U2(value)
     }
 }
@@ -342,10 +302,10 @@ impl Listen {
 pub struct Deliver;
 
 impl Deliver {
-    pub fn ok(value: ()) -> Union2<(), Union2<Unreachable, WireFailed>> {
+    pub fn ok(value: ()) -> crate::unions::Union2<(), crate::unions::Union2<crate::net::Unreachable, crate::net::WireFailed>> {
         crate::unions::Union2::U1(value)
     }
-    pub fn err(value: Union2<Unreachable, WireFailed>) -> Union2<(), Union2<Unreachable, WireFailed>> {
+    pub fn err(value: crate::unions::Union2<crate::net::Unreachable, crate::net::WireFailed>) -> crate::unions::Union2<(), crate::unions::Union2<crate::net::Unreachable, crate::net::WireFailed>> {
         crate::unions::Union2::U2(value)
     }
 }
@@ -366,77 +326,63 @@ impl crate::wire::__Wire for NodeId {
     }
 }
 
-pub fn this_node() -> NodeId {
-    return NodeId { id: here_node() };
+pub fn this_node() -> crate::net::NodeId {
+    return crate::net::NodeId { id: crate::runtime_routing::here_node() };
 }
 
-pub fn new_node() -> NodeId {
-    return NodeId { id: new_node__runtime_routing() };
+pub fn new_node() -> crate::net::NodeId {
+    return crate::net::NodeId { id: crate::runtime_routing::new_node() };
 }
 
-pub fn pool_at(node: &NodeId, size: i32) -> usize {
-    return ((pool_at__runtime_routing(node.id, size)) as usize);
+pub fn pool_at(node: &crate::net::NodeId, mut size: i32) -> usize {
+    return ((crate::runtime_routing::pool_at(node.id, size)) as usize);
 }
 
-pub fn add_route(node: &NodeId, at: &NodeEndpoint) {
-    route(node.id, crate::wire::salvo_encode(&at.clone()));
+pub fn add_route(node: &crate::net::NodeId, at: &crate::net::NodeEndpoint) {
+    crate::runtime_routing::route(node.id, { let __enc: crate::net::NodeEndpoint = (at).clone(); crate::wire::salvo_encode(&__enc) });
 }
 
-pub fn route_frames(out: usize) {
-    bind_outbound_platform(here_node(), (((out).clone()) as i32), |mut __a0, mut __a1, mut __a2| forward_frame(__a0, __a1, __a2));
-    outbound_bound();
+pub fn route_frames(mut out: usize) {
+    crate::net::bind_outbound_platform(crate::runtime_routing::here_node(), (((out).clone()) as i32), |__a0: i32, __a1: &crate::core_bytes::Bytes, __a2: crate::core_bytes::Bytes| crate::net::forward_frame(__a0, __a1, __a2));
+    crate::runtime_routing::outbound_bound();
 }
 
-pub fn forward_frame(out: i32, to: &Bytes, frame: Bytes) {
-    let mut __is1 = crate::wire::salvo_decode::<NodeEndpoint>(&to.clone());
-    if __is1.is_some() {
-        let mut ep = __is1.as_ref().unwrap().clone();
+pub fn forward_frame(mut out: i32, to: &crate::core_bytes::Bytes, mut frame: crate::core_bytes::Bytes) {
+    let mut __subject_1: Option<crate::net::NodeEndpoint> = crate::wire::salvo_decode::<crate::net::NodeEndpoint>(&to);
+    if __subject_1.is_some() {
+        let mut ep = __subject_1.as_ref().unwrap();
         let mut sending: usize = ((out) as usize);
-        crate::scheduler::salvo_send_wire(sending, crate::net::__Msg_Outbound::SendFrame(ep, frame), crate::net::__PROTO_Outbound);
-    }
+        crate::scheduler::salvo_send_wire(sending, crate::net::__Msg_Outbound::SendFrame(ep.clone(), frame.clone()), crate::net::__PROTO_Outbound);
+    };
 }
 
-pub fn bind_outbound_platform(node: i64, out: i32, hook: fn(i32, &Bytes, Bytes)) {
+pub fn bind_outbound_platform(mut node: i64, mut out: i32, hook: fn(i32, &crate::core_bytes::Bytes, crate::core_bytes::Bytes)) {
     crate::platform_net::bind_outbound(node, out, hook)
 }
 
-pub fn deliver_frame(data: &Bytes) -> bool {
-    return deliver(data);
+pub fn deliver_frame(data: &crate::core_bytes::Bytes) -> bool {
+    return crate::runtime_routing::deliver(data);
 }
 
-pub fn credits(a: &usize) -> Option<i32> {
-    let mut c = credits__runtime_routing((((a).clone()) as i32));
+pub fn credits(mut a: usize) -> Option<i32> {
+    let mut c: Option<i32> = crate::runtime_routing::credits((((a).clone()) as i32));
     if c.is_none() {
         return None;
-    }
-    if c.unwrap() < 0 {
-        return Some(0);
-    }
-    return Some(c.unwrap());
+    };
+    let mut c_1 = c.unwrap();
+    if (c_1 < 0i32) {
+        return Some(0i32);
+    };
+    let mut c_2 = c.unwrap();
+    return Some(c_2);
 }
 
 pub trait __Stateless_Outbound: Send + Sync {
-    fn send_frame(&self, to: NodeEndpoint, frame: Bytes);
+    fn send_frame(&self, to: crate::net::NodeEndpoint, frame: crate::core_bytes::Bytes);
 }
 
 pub trait __Stateful_Outbound: Send {
-    fn send_frame(&mut self, to: NodeEndpoint, frame: Bytes);
-}
-
-pub struct __Stub_Outbound {
-    addr: usize,
-}
-
-impl __Stub_Outbound {
-    pub fn new(addr: usize) -> Self {
-        Self { addr }
-    }
-}
-
-impl __Stateless_Outbound for __Stub_Outbound {
-    fn send_frame(&self, to: NodeEndpoint, frame: Bytes) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_Outbound::SendFrame(to, frame), crate::net::__PROTO_Outbound);
-    }
+    fn send_frame(&mut self, to: crate::net::NodeEndpoint, frame: crate::core_bytes::Bytes);
 }
 
 pub struct Outbound {
@@ -470,7 +416,7 @@ impl Outbound {
     pub fn share_locked(inner: std::sync::Arc<std::sync::Mutex<dyn __Stateful_Outbound>>) -> Self {
         Self { inner: __Inner_Outbound::Locked(inner) }
     }
-    pub fn send_frame(&self, to: NodeEndpoint, frame: Bytes) {
+    pub fn send_frame(&self, to: crate::net::NodeEndpoint, frame: crate::core_bytes::Bytes) {
         match &self.inner {
             __Inner_Outbound::Shared(h) => h.send_frame(to, frame),
             __Inner_Outbound::Locked(h) => h.lock().unwrap().send_frame(to, frame),
@@ -479,7 +425,7 @@ impl Outbound {
 }
 
 pub enum __Msg_Outbound {
-    SendFrame(NodeEndpoint, Bytes),
+    SendFrame(crate::net::NodeEndpoint, crate::core_bytes::Bytes),
 }
 
 impl crate::wire::__Wire for __Msg_Outbound {
@@ -503,33 +449,48 @@ impl crate::wire::__Wire for __Msg_Outbound {
 /// [protocol-hash] The canonical hash of `Outbound`.
 pub const __PROTO_Outbound: &str = "e754249e848e9986";
 
+pub struct __Stub_Outbound {
+    addr: usize,
+}
+
+impl __Stub_Outbound {
+    pub fn new(addr: usize) -> Self {
+        Self { addr }
+    }
+}
+
+impl __Stateless_Outbound for __Stub_Outbound {
+    fn send_frame(&self, to: crate::net::NodeEndpoint, frame: crate::core_bytes::Bytes) {
+        crate::scheduler::salvo_send_wire(self.addr, __Msg_Outbound::SendFrame(to, frame), crate::net::__PROTO_Outbound);
+    }
+}
+
 pub struct Sending {
-    __dep_Transport: crate::net::Transport,
+    __dep0: crate::net::Transport,
     pub __mailbox_capacity: i32,
     __addr: Option<usize>,
     __parked: std::collections::HashMap<u64, __Cont_Sending>,
 }
 
 impl Sending {
-    pub fn new(__dep_Transport: crate::net::Transport) -> Self {
+    pub fn new(__dep0: crate::net::Transport) -> Self {
         Self {
-            __dep_Transport,
-            __mailbox_capacity: 256,
+            __dep0,
+            __mailbox_capacity: 256i32,
             __addr: None,
-            __parked: std::collections::HashMap::new(),
+            __parked: std::collections::HashMap::new()
         }
     }
 }
 
 impl crate::net::__Stateless_Outbound for Sending {
-
-    fn send_frame(&self, to: NodeEndpoint, frame: Bytes) {
-        let mut _sent = self.__dep_Transport.deliver(&to, frame);
+    fn send_frame(&self, to: crate::net::NodeEndpoint, frame: crate::core_bytes::Bytes) {
+        let mut _sent: crate::unions::Union2<(), crate::unions::Union2<crate::net::Unreachable, crate::net::WireFailed>> = self.__dep0.deliver(&to, frame);
     }
 }
 
 pub enum __Cont_Sending {
-    SendFrame(NodeEndpoint),
+    SendFrame(crate::net::NodeEndpoint),
 }
 
 pub struct __Actor_Sending {
@@ -540,9 +501,6 @@ impl __Actor_Sending {
     pub fn new(handler: Sending) -> Self {
         Self { handler }
     }
-}
-
-impl __Actor_Sending {
     fn __dispatch(&mut self, msg: crate::net::__Msg_Outbound) {
         match msg {
             crate::net::__Msg_Outbound::SendFrame(to, frame) => crate::net::__Stateless_Outbound::send_frame(&mut self.handler, to, frame),
@@ -563,23 +521,22 @@ impl crate::scheduler::SalvoActor for __Actor_Sending {
             return; // a reply whose continuation is gone: nothing to run
         };
         match __cont {
-            __Cont_Sending::SendFrame(to) => self.__dispatch(crate::net::__Msg_Outbound::SendFrame(to, *value.downcast::<Bytes>().expect("the awaited answer"))),
+            __Cont_Sending::SendFrame(to) => self.__dispatch(crate::net::__Msg_Outbound::SendFrame(to, *value.downcast::<crate::core_bytes::Bytes>().expect("the awaited answer"))),
         }
     }
 
     fn decode_reply(&self, slot: u64, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {
         match self.handler.__parked.get(&slot)? {
-            __Cont_Sending::SendFrame{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<Bytes>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
+            __Cont_Sending::SendFrame{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<crate::core_bytes::Bytes>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
         }
     }
 }
 
 pub const __DECODE_Sending: Option<crate::scheduler::MsgDecoder> = Some(__decode_msg_Sending);
 fn __decode_msg_Sending(proto: &str, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {
-        if proto == crate::net::__PROTO_Outbound {
-            return crate::wire::salvo_decode::<crate::net::__Msg_Outbound>(payload)
-                .map(|__m| std::boxed::Box::new(__m) as crate::scheduler::SalvoMsg);
-        }
+    if proto == crate::net::__PROTO_Outbound {
+        return crate::wire::salvo_decode::<crate::net::__Msg_Outbound>(payload).map(|__m| std::boxed::Box::new(__m) as crate::scheduler::SalvoMsg);
+    }
     None
 }
 
@@ -592,22 +549,21 @@ pub struct Receiving {
 impl Receiving {
     pub fn new() -> Self {
         Self {
-            __mailbox_capacity: 256,
+            __mailbox_capacity: 256i32,
             __addr: None,
-            __parked: std::collections::HashMap::new(),
+            __parked: std::collections::HashMap::new()
         }
     }
 }
 
 impl crate::net::__Stateless_Inbound for Receiving {
-
-    fn receive_frame(&self, from: NodeEndpoint, frame: Bytes) {
-        let mut _delivered = deliver_frame(&frame);
+    fn receive_frame(&self, from: crate::net::NodeEndpoint, frame: crate::core_bytes::Bytes) {
+        let mut _delivered: bool = crate::net::deliver_frame(&frame);
     }
 }
 
 pub enum __Cont_Receiving {
-    ReceiveFrame(NodeEndpoint),
+    ReceiveFrame(crate::net::NodeEndpoint),
 }
 
 pub struct __Actor_Receiving {
@@ -618,9 +574,6 @@ impl __Actor_Receiving {
     pub fn new(handler: Receiving) -> Self {
         Self { handler }
     }
-}
-
-impl __Actor_Receiving {
     fn __dispatch(&mut self, msg: crate::net::__Msg_Inbound) {
         match msg {
             crate::net::__Msg_Inbound::ReceiveFrame(from, frame) => crate::net::__Stateless_Inbound::receive_frame(&mut self.handler, from, frame),
@@ -641,50 +594,49 @@ impl crate::scheduler::SalvoActor for __Actor_Receiving {
             return; // a reply whose continuation is gone: nothing to run
         };
         match __cont {
-            __Cont_Receiving::ReceiveFrame(from) => self.__dispatch(crate::net::__Msg_Inbound::ReceiveFrame(from, *value.downcast::<Bytes>().expect("the awaited answer"))),
+            __Cont_Receiving::ReceiveFrame(from) => self.__dispatch(crate::net::__Msg_Inbound::ReceiveFrame(from, *value.downcast::<crate::core_bytes::Bytes>().expect("the awaited answer"))),
         }
     }
 
     fn decode_reply(&self, slot: u64, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {
         match self.handler.__parked.get(&slot)? {
-            __Cont_Receiving::ReceiveFrame{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<Bytes>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
+            __Cont_Receiving::ReceiveFrame{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<crate::core_bytes::Bytes>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
         }
     }
 }
 
 pub const __DECODE_Receiving: Option<crate::scheduler::MsgDecoder> = Some(__decode_msg_Receiving);
 fn __decode_msg_Receiving(proto: &str, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {
-        if proto == crate::net::__PROTO_Inbound {
-            return crate::wire::salvo_decode::<crate::net::__Msg_Inbound>(payload)
-                .map(|__m| std::boxed::Box::new(__m) as crate::scheduler::SalvoMsg);
-        }
+    if proto == crate::net::__PROTO_Inbound {
+        return crate::wire::salvo_decode::<crate::net::__Msg_Inbound>(payload).map(|__m| std::boxed::Box::new(__m) as crate::scheduler::SalvoMsg);
+    }
     None
 }
 
 pub fn connected() -> bool {
-    return connected__runtime_routing();
+    return crate::runtime_routing::connected();
 }
 
-pub fn connect__NodeEndpoint(transport: &crate::net::Transport, me: NodeEndpoint) -> bool {
-    return connect__NodeEndpoint_Pool(transport, me, pool(1));
+pub fn connect__NodeEndpoint(transport: &crate::net::Transport, mut me: crate::net::NodeEndpoint) -> bool {
+    return crate::net::connect__NodeEndpoint_Pool(transport, me, crate::core_actor::pool(1i32));
 }
 
-pub fn connect__NodeEndpoint_Pool(transport: &crate::net::Transport, me: NodeEndpoint, on: usize) -> bool {
-    if connected() {
+pub fn connect__NodeEndpoint_Pool(transport: &crate::net::Transport, mut me: crate::net::NodeEndpoint, mut on: usize) -> bool {
+    if crate::net::connected() {
         return false;
-    }
-    let mut sending = ({ let __h = Sending::new(transport.clone()); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(on, __cap as usize, std::boxed::Box::new(__Actor_Sending::new(__h)), __DECODE_Sending); __a });
-    let mut receiving = ({ let __h = Receiving::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(on, __cap as usize, std::boxed::Box::new(__Actor_Receiving::new(__h)), __DECODE_Receiving); __a });
-    route_frames(sending);
-    let mut _listening = transport.listen(&(me.clone()), receiving);
-    add_route(&(this_node()), &me);
+    };
+    let mut sending: usize = ({ let __h = crate::net::Sending::new(transport.clone()); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(on, __cap as usize, std::boxed::Box::new(crate::net::__Actor_Sending::new(__h)), crate::net::__DECODE_Sending); __a });
+    let mut receiving: usize = ({ let __h = crate::net::Receiving::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(on, __cap as usize, std::boxed::Box::new(crate::net::__Actor_Receiving::new(__h)), crate::net::__DECODE_Receiving); __a });
+    crate::net::route_frames(sending);
+    let mut _listening: crate::unions::Union2<(), crate::unions::Union2<crate::net::Unreachable, crate::net::WireFailed>> = transport.listen(&(me).clone(), receiving);
+    crate::net::add_route(&crate::net::this_node(), &me);
     return true;
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Node {
-    pub id: NodeId,
-    pub at: NodeEndpoint,
+    pub id: crate::net::NodeId,
+    pub at: crate::net::NodeEndpoint,
 }
 
 impl crate::wire::__Wire for Node {
@@ -710,28 +662,6 @@ pub trait __Stateful_NodeGroup: Send {
     fn members(&mut self, out: crate::scheduler::SalvoReply);
     fn subscribe(&mut self, w: usize);
     fn leave(&mut self);
-}
-
-pub struct __Stub_NodeGroup {
-    addr: usize,
-}
-
-impl __Stub_NodeGroup {
-    pub fn new(addr: usize) -> Self {
-        Self { addr }
-    }
-}
-
-impl __Stateless_NodeGroup for __Stub_NodeGroup {
-    fn members(&self, out: crate::scheduler::SalvoReply) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_NodeGroup::Members(out), crate::net::__PROTO_NodeGroup);
-    }
-    fn subscribe(&self, w: usize) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_NodeGroup::Subscribe(w), crate::net::__PROTO_NodeGroup);
-    }
-    fn leave(&self) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_NodeGroup::Leave, crate::net::__PROTO_NodeGroup);
-    }
 }
 
 pub struct NodeGroup {
@@ -818,33 +748,36 @@ impl crate::wire::__Wire for __Msg_NodeGroup {
 /// [protocol-hash] The canonical hash of `NodeGroup`.
 pub const __PROTO_NodeGroup: &str = "471318a2c85d1f6d";
 
-pub trait __Stateless_NodeGroupWatcher: Send + Sync {
-    fn joined(&self, n: Node);
-    fn left(&self, n: Node, why: String);
-}
-
-pub trait __Stateful_NodeGroupWatcher: Send {
-    fn joined(&mut self, n: Node);
-    fn left(&mut self, n: Node, why: String);
-}
-
-pub struct __Stub_NodeGroupWatcher {
+pub struct __Stub_NodeGroup {
     addr: usize,
 }
 
-impl __Stub_NodeGroupWatcher {
+impl __Stub_NodeGroup {
     pub fn new(addr: usize) -> Self {
         Self { addr }
     }
 }
 
-impl __Stateless_NodeGroupWatcher for __Stub_NodeGroupWatcher {
-    fn joined(&self, n: Node) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_NodeGroupWatcher::Joined(n), crate::net::__PROTO_NodeGroupWatcher);
+impl __Stateless_NodeGroup for __Stub_NodeGroup {
+    fn members(&self, out: crate::scheduler::SalvoReply) {
+        crate::scheduler::salvo_send_wire(self.addr, __Msg_NodeGroup::Members(out), crate::net::__PROTO_NodeGroup);
     }
-    fn left(&self, n: Node, why: String) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_NodeGroupWatcher::Left(n, why), crate::net::__PROTO_NodeGroupWatcher);
+    fn subscribe(&self, w: usize) {
+        crate::scheduler::salvo_send_wire(self.addr, __Msg_NodeGroup::Subscribe(w), crate::net::__PROTO_NodeGroup);
     }
+    fn leave(&self) {
+        crate::scheduler::salvo_send_wire(self.addr, __Msg_NodeGroup::Leave, crate::net::__PROTO_NodeGroup);
+    }
+}
+
+pub trait __Stateless_NodeGroupWatcher: Send + Sync {
+    fn joined(&self, n: crate::net::Node);
+    fn left(&self, n: crate::net::Node, why: String);
+}
+
+pub trait __Stateful_NodeGroupWatcher: Send {
+    fn joined(&mut self, n: crate::net::Node);
+    fn left(&mut self, n: crate::net::Node, why: String);
 }
 
 pub struct NodeGroupWatcher {
@@ -878,13 +811,13 @@ impl NodeGroupWatcher {
     pub fn share_locked(inner: std::sync::Arc<std::sync::Mutex<dyn __Stateful_NodeGroupWatcher>>) -> Self {
         Self { inner: __Inner_NodeGroupWatcher::Locked(inner) }
     }
-    pub fn joined(&self, n: Node) {
+    pub fn joined(&self, n: crate::net::Node) {
         match &self.inner {
             __Inner_NodeGroupWatcher::Shared(h) => h.joined(n),
             __Inner_NodeGroupWatcher::Locked(h) => h.lock().unwrap().joined(n),
         }
     }
-    pub fn left(&self, n: Node, why: String) {
+    pub fn left(&self, n: crate::net::Node, why: String) {
         match &self.inner {
             __Inner_NodeGroupWatcher::Shared(h) => h.left(n, why),
             __Inner_NodeGroupWatcher::Locked(h) => h.lock().unwrap().left(n, why),
@@ -893,8 +826,8 @@ impl NodeGroupWatcher {
 }
 
 pub enum __Msg_NodeGroupWatcher {
-    Joined(Node),
-    Left(Node, String),
+    Joined(crate::net::Node),
+    Left(crate::net::Node, String),
 }
 
 impl crate::wire::__Wire for __Msg_NodeGroupWatcher {
@@ -923,10 +856,29 @@ impl crate::wire::__Wire for __Msg_NodeGroupWatcher {
 /// [protocol-hash] The canonical hash of `NodeGroupWatcher`.
 pub const __PROTO_NodeGroupWatcher: &str = "db3e0aa5831c2e44";
 
+pub struct __Stub_NodeGroupWatcher {
+    addr: usize,
+}
+
+impl __Stub_NodeGroupWatcher {
+    pub fn new(addr: usize) -> Self {
+        Self { addr }
+    }
+}
+
+impl __Stateless_NodeGroupWatcher for __Stub_NodeGroupWatcher {
+    fn joined(&self, n: crate::net::Node) {
+        crate::scheduler::salvo_send_wire(self.addr, __Msg_NodeGroupWatcher::Joined(n), crate::net::__PROTO_NodeGroupWatcher);
+    }
+    fn left(&self, n: crate::net::Node, why: String) {
+        crate::scheduler::salvo_send_wire(self.addr, __Msg_NodeGroupWatcher::Left(n, why), crate::net::__PROTO_NodeGroupWatcher);
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Hello {
     pub group: String,
-    pub at: NodeEndpoint,
+    pub at: crate::net::NodeEndpoint,
     pub protocols: Vec<(String, String)>,
 }
 
@@ -948,7 +900,7 @@ impl crate::wire::__Wire for Hello {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Ack {
     pub group: String,
-    pub at: NodeEndpoint,
+    pub at: crate::net::NodeEndpoint,
     pub protocols: Vec<(String, String)>,
 }
 
@@ -982,7 +934,7 @@ impl crate::wire::__Wire for Leaving {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Intro {
-    pub peers: Vec<NodeEndpoint>,
+    pub peers: Vec<crate::net::NodeEndpoint>,
 }
 
 impl crate::wire::__Wire for Intro {
@@ -996,31 +948,31 @@ impl crate::wire::__Wire for Intro {
     }
 }
 
-pub fn send_control(to: &NodeId, channel: &String, payload: Bytes) {
-    send_control__runtime_routing(to.id, channel.clone(), payload);
+pub fn send_control(to: &crate::net::NodeId, channel: &String, mut payload: crate::core_bytes::Bytes) {
+    crate::runtime_routing::send_control(to.id, (channel).clone(), payload);
 }
 
-pub fn node_left(node: &NodeId) {
-    node_left__runtime_routing(node.id);
+pub fn node_left(node: &crate::net::NodeId) {
+    crate::runtime_routing::node_left(node.id);
 }
 
-pub fn set_peer_protocols(node: &NodeId, table: &Vec<(String, String)>) {
-    set_peer_protocols__runtime_routing(node.id, table.clone());
+pub fn set_peer_protocols(node: &crate::net::NodeId, table: &Vec<(String, String)>) {
+    crate::runtime_routing::set_peer_protocols(node.id, (table).clone());
 }
 
-pub fn peer_protocol(node: &NodeId, protocol: &String) -> Option<String> {
-    return peer_protocol__runtime_routing(node.id, protocol);
+pub fn peer_protocol(node: &crate::net::NodeId, protocol: &String) -> Option<String> {
+    return crate::runtime_routing::peer_protocol(node.id, protocol);
 }
 
-pub fn hello_frame(transport: &crate::net::Transport, group: &String) -> Bytes {
-    let mut hello: Union4<Hello, Ack, Leaving, Intro> = Union4::<Hello, Ack, Leaving, Intro>::U1(Hello { group: group.clone(), at: transport.local_endpoint(), protocols: local_protocols() });
-    return control_frame("".to_string(), crate::wire::salvo_encode(&hello));
+pub fn hello_frame(transport: &crate::net::Transport, group: &String) -> crate::core_bytes::Bytes {
+    let mut hello: crate::unions::Union4<crate::net::Hello, crate::net::Ack, crate::net::Leaving, crate::net::Intro> = crate::unions::Union4::U1(crate::net::Hello { group: (group).clone(), at: transport.local_endpoint(), protocols: crate::runtime_routing::local_protocols() });
+    return crate::runtime_routing::control_frame(String::from(""), crate::wire::salvo_encode(&hello));
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PeerHello {
-    pub node: NodeId,
-    pub at: NodeEndpoint,
+    pub node: crate::net::NodeId,
+    pub at: crate::net::NodeEndpoint,
 }
 
 impl crate::wire::__Wire for PeerHello {
@@ -1038,7 +990,7 @@ impl crate::wire::__Wire for PeerHello {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PeerGone {
-    pub node: NodeId,
+    pub node: crate::net::NodeId,
 }
 
 impl crate::wire::__Wire for PeerGone {
@@ -1054,7 +1006,7 @@ impl crate::wire::__Wire for PeerGone {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PeerIntro {
-    pub peers: Vec<NodeEndpoint>,
+    pub peers: Vec<crate::net::NodeEndpoint>,
 }
 
 impl crate::wire::__Wire for PeerIntro {
@@ -1068,151 +1020,141 @@ impl crate::wire::__Wire for PeerIntro {
     }
 }
 
-pub fn handshake(transport: &crate::net::Transport, group: &String, from: NodeId, data: Bytes) -> Option<Union3<PeerHello, PeerGone, PeerIntro>> {
-    let mut msg = crate::wire::salvo_decode::<Union4<Hello, Ack, Leaving, Intro>>(&data);
-    match msg {
-        Some(Union4::U1(_)) => {
-            if !(&msg.as_ref().unwrap().u1().group[..] == &group[..]) {
-                return None;
-            }
-            add_route(&(from.clone()), &(msg.as_ref().unwrap().u1().clone().at.clone()));
-            set_peer_protocols(&(from.clone()), &(msg.as_ref().unwrap().u1().clone().protocols.clone()));
-            let mut ack: Union4<Hello, Ack, Leaving, Intro> = Union4::<Hello, Ack, Leaving, Intro>::U2(Ack { group: group.clone(), at: transport.local_endpoint(), protocols: local_protocols() });
-            send_control(&(from.clone()), &("".to_string()), crate::wire::salvo_encode(&ack));
-            return Some(Union3::<PeerHello, PeerGone, PeerIntro>::U1(PeerHello { node: from, at: msg.as_ref().unwrap().u1().clone().at.clone() }));
-        }
-        Some(Union4::U2(_)) => {
-            if !(&msg.as_ref().unwrap().u2().group[..] == &group[..]) {
-                return None;
-            }
-            add_route(&(from.clone()), &(msg.as_ref().unwrap().u2().clone().at.clone()));
-            set_peer_protocols(&(from.clone()), &(msg.as_ref().unwrap().u2().clone().protocols.clone()));
-            return Some(Union3::<PeerHello, PeerGone, PeerIntro>::U1(PeerHello { node: from, at: msg.as_ref().unwrap().u2().clone().at.clone() }));
-        }
-        Some(Union4::U3(_)) => {
-            node_left(&(from.clone()));
-            return Some(Union3::<PeerHello, PeerGone, PeerIntro>::U2(PeerGone { node: from }));
-        }
-        Some(Union4::U4(_)) => {
-            return Some(Union3::<PeerHello, PeerGone, PeerIntro>::U3(PeerIntro { peers: msg.as_ref().unwrap().u4().clone().peers.clone() }));
-        }
-        None => {
+pub fn handshake(transport: &crate::net::Transport, group: &String, mut from: crate::net::NodeId, mut data: crate::core_bytes::Bytes) -> Option<crate::unions::Union3<crate::net::PeerHello, crate::net::PeerGone, crate::net::PeerIntro>> {
+    let mut msg: Option<crate::unions::Union4<crate::net::Hello, crate::net::Ack, crate::net::Leaving, crate::net::Intro>> = crate::wire::salvo_decode::<crate::unions::Union4<crate::net::Hello, crate::net::Ack, crate::net::Leaving, crate::net::Intro>>(&data);
+    return if matches!(msg, Some(crate::unions::Union4::U1(_))) {
+        let mut msg_1 = match &msg { Some(crate::unions::Union4::U1(__v)) => __v, _ => unreachable!() };
+        if !((&msg_1.group[..] == &group[..])) {
             return None;
-        }
-    }
+        };
+        crate::net::add_route(&(from).clone(), &(msg_1.at).clone());
+        crate::net::set_peer_protocols(&(from).clone(), &(msg_1.protocols).clone());
+        let mut ack: crate::unions::Union4<crate::net::Hello, crate::net::Ack, crate::net::Leaving, crate::net::Intro> = crate::unions::Union4::U2(crate::net::Ack { group: (group).clone(), at: transport.local_endpoint(), protocols: crate::runtime_routing::local_protocols() });
+        crate::net::send_control(&(from).clone(), &String::from(""), crate::wire::salvo_encode(&ack));
+        return Some(crate::unions::Union3::U1(crate::net::PeerHello { node: from.clone(), at: (msg_1.at).clone() }));
+    } else if matches!(msg, Some(crate::unions::Union4::U2(_))) {
+        let mut msg_2 = match &msg { Some(crate::unions::Union4::U2(__v)) => __v, _ => unreachable!() };
+        if !((&msg_2.group[..] == &group[..])) {
+            return None;
+        };
+        crate::net::add_route(&(from).clone(), &(msg_2.at).clone());
+        crate::net::set_peer_protocols(&(from).clone(), &(msg_2.protocols).clone());
+        return Some(crate::unions::Union3::U1(crate::net::PeerHello { node: from.clone(), at: (msg_2.at).clone() }));
+    } else if matches!(msg, Some(crate::unions::Union4::U3(_))) {
+        let mut msg_3 = match &msg { Some(crate::unions::Union4::U3(__v)) => __v, _ => unreachable!() };
+        crate::net::node_left(&(from).clone());
+        return Some(crate::unions::Union3::U2(crate::net::PeerGone { node: from.clone() }));
+    } else if matches!(msg, Some(crate::unions::Union4::U4(_))) {
+        let mut msg_4 = match &msg { Some(crate::unions::Union4::U4(__v)) => __v, _ => unreachable!() };
+        return Some(crate::unions::Union3::U3(crate::net::PeerIntro { peers: (msg_4.peers).clone() }));
+    } else {
+        return None;
+    };
 }
 
-pub fn introduce(node: &NodeId, peers: &Vec<NodeEndpoint>) {
-    let mut intro: Union4<Hello, Ack, Leaving, Intro> = Union4::<Hello, Ack, Leaving, Intro>::U4(Intro { peers: peers.clone() });
-    send_control(&(node.clone()), &("".to_string()), crate::wire::salvo_encode(&intro));
+pub fn introduce(node: &crate::net::NodeId, peers: &Vec<crate::net::NodeEndpoint>) {
+    let mut intro: crate::unions::Union4<crate::net::Hello, crate::net::Ack, crate::net::Leaving, crate::net::Intro> = crate::unions::Union4::U4(crate::net::Intro { peers: (peers).clone() });
+    crate::net::send_control(&(node).clone(), &String::from(""), crate::wire::salvo_encode(&intro));
 }
 
-pub fn leave_group(known: &Map<NodeId, Node>) {
-    for mut id in crate::platform_core_list::each(&(crate::core_map::keys_platform(known))).map(|__x| __x.clone()) {
-        let mut leaving: Union4<Hello, Ack, Leaving, Intro> = Union4::<Hello, Ack, Leaving, Intro>::U3(Leaving {  });
-        send_control(&(id.clone()), &("".to_string()), crate::wire::salvo_encode(&leaving));
+pub fn leave_group(known: &crate::core_map::Map<crate::net::NodeId, crate::net::Node>) {
+    for mut id in crate::core_map::keys_platform::<crate::net::NodeId, crate::net::Node>(known).into_iter() {
+        let mut leaving: crate::unions::Union4<crate::net::Hello, crate::net::Ack, crate::net::Leaving, crate::net::Intro> = crate::unions::Union4::U3(crate::net::Leaving {});
+        crate::net::send_control(&(id).clone(), &String::from(""), crate::wire::salvo_encode(&leaving));
     }
 }
 
 pub struct StaticNodeGroup {
     name: String,
-    all: Vec<NodeEndpoint>,
-    known: Map<NodeId, Node>,
+    all: Vec<crate::net::NodeEndpoint>,
+    __dep0: crate::net::Transport,
+    known: crate::core_map::Map<crate::net::NodeId, crate::net::Node>,
     watchers: Vec<usize>,
-    __dep_Transport: crate::net::Transport,
     pub __mailbox_capacity: i32,
     __addr: Option<usize>,
     __parked: std::collections::HashMap<u64, __Cont_StaticNodeGroup>,
 }
 
 impl StaticNodeGroup {
-    pub fn new(name: String, all: Vec<NodeEndpoint>, __dep_Transport: crate::net::Transport) -> Self {
+    pub fn new(name: String, all: Vec<crate::net::NodeEndpoint>, __dep0: crate::net::Transport) -> Self {
         Self {
-            name,
-            all,
-            known: crate::core_map::mut_map_of_platform::<NodeId, Node>(vec![], &mut |__i0| hash__NodeId(__i0), &mut |__i0, __i1| eq__NodeId_NodeId(__i0, __i1)),
+            name: name.clone(),
+            all: all.clone(),
+            __dep0,
+            known: crate::core_map::mut_map_of_platform::<crate::net::NodeId, crate::net::Node>(vec![], &mut |__a0: &crate::net::NodeId| crate::net::hash__NodeId(__a0), &mut |__a0: &crate::net::NodeId, __a1: &crate::net::NodeId| crate::net::eq__NodeId_NodeId(__a0, __a1)),
             watchers: vec![],
-            __dep_Transport,
-            __mailbox_capacity: 64,
+            __mailbox_capacity: 64i32,
             __addr: None,
-            __parked: std::collections::HashMap::new(),
+            __parked: std::collections::HashMap::new()
         }
+    }
+    fn init(&mut self) {
+        let mut me: crate::net::NodeEndpoint = self.__dep0.local_endpoint();
+        let mut _connected: bool = crate::net::connect__NodeEndpoint(&self.__dep0, (me).clone());
+        crate::scheduler::salvo_watch_control((String::from("")).clone(), (self.__addr.expect("an actor's own addr")).clone(), |__n, __d| std::boxed::Box::new(crate::net::__Priv_StaticNodeGroup::Control(crate::net::NodeId { id: __n as i64 }, __d)));
+        for mut e in self.all.iter() {
+            if !(crate::net::eq__NodeEndpoint_NodeEndpoint(e, &me)) {
+                let mut _sent: crate::unions::Union2<(), crate::unions::Union2<crate::net::Unreachable, crate::net::WireFailed>> = self.__dep0.deliver(&(e).clone(), crate::net::hello_frame(&self.__dep0, &self.name));
+            };
+        }
+    }
+    fn control(&mut self, from: crate::net::NodeId, data: crate::core_bytes::Bytes) {
+        let mut event: Option<crate::unions::Union3<crate::net::PeerHello, crate::net::PeerGone, crate::net::PeerIntro>> = crate::net::handshake(&self.__dep0, &self.name, from, data);
+        if matches!(event, Some(crate::unions::Union3::U1(_))) {
+            let mut event_1 = match &event { Some(crate::unions::Union3::U1(__v)) => __v, _ => unreachable!() };
+            if crate::core_map::contains_key_platform::<crate::net::NodeId, crate::net::Node>(&self.known, &event_1.node, &mut |__a0: &crate::net::NodeId| crate::net::hash__NodeId(__a0), &mut |__a0: &crate::net::NodeId, __a1: &crate::net::NodeId| crate::net::eq__NodeId_NodeId(__a0, __a1)) {
+                return;
+            };
+            let mut n: crate::net::Node = crate::net::Node { id: (event_1.node).clone(), at: (event_1.at).clone() };
+            crate::core_map::put_platform::<crate::net::NodeId, crate::net::Node>(&mut self.known, (event_1.node).clone(), (n).clone(), &mut |__a0: &crate::net::NodeId| crate::net::hash__NodeId(__a0), &mut |__a0: &crate::net::NodeId, __a1: &crate::net::NodeId| crate::net::eq__NodeId_NodeId(__a0, __a1));
+            for mut w in self.watchers.iter().copied() {
+                crate::scheduler::salvo_send_wire(w, crate::net::__Msg_NodeGroupWatcher::Joined((n).clone()), crate::net::__PROTO_NodeGroupWatcher);
+            }
+        } else if matches!(event, Some(crate::unions::Union3::U2(_))) {
+            let mut event_2 = match &event { Some(crate::unions::Union3::U2(__v)) => __v, _ => unreachable!() };
+            let mut n: Option<crate::net::Node> = crate::core_map::remove_platform::<crate::net::NodeId, crate::net::Node>(&mut self.known, &event_2.node, &mut |__a0: &crate::net::NodeId| crate::net::hash__NodeId(__a0), &mut |__a0: &crate::net::NodeId, __a1: &crate::net::NodeId| crate::net::eq__NodeId_NodeId(__a0, __a1));
+            if n.is_none() {
+                return;
+            };
+            for mut w in self.watchers.iter().copied() {
+                let mut n_3 = n.as_ref().unwrap();
+                crate::scheduler::salvo_send_wire(w, crate::net::__Msg_NodeGroupWatcher::Left((n_3).clone(), String::from("left")), crate::net::__PROTO_NodeGroupWatcher);
+            }
+        } else if matches!(event, Some(crate::unions::Union3::U3(_))) {
+            let mut event_4 = match &event { Some(crate::unions::Union3::U3(__v)) => __v, _ => unreachable!() };
+        } else {
+        };
     }
 }
 
 impl crate::net::__Stateful_NodeGroup for StaticNodeGroup {
-
     fn members(&mut self, out: crate::scheduler::SalvoReply) {
-        crate::scheduler::salvo_reply_wire::<Vec<Node>>(out, known_nodes(&self.known));
+        crate::scheduler::salvo_reply_wire::<Vec<crate::net::Node>>(out, crate::net::known_nodes(&self.known));
     }
-
     fn subscribe(&mut self, w: usize) {
-        for mut id in crate::platform_core_list::each(&(crate::core_map::keys_platform(&self.known))).map(|__x| __x.clone()) {
-            let mut n = crate::core_map::get_platform::<NodeId, Node>(&self.known, &id, &mut |__i0| hash__NodeId(__i0), &mut |__i0, __i1| eq__NodeId_NodeId(__i0, __i1));
+        for mut id in crate::core_map::keys_platform::<crate::net::NodeId, crate::net::Node>(&self.known).into_iter() {
+            let mut n: Option<&crate::net::Node> = crate::core_map::get_platform::<crate::net::NodeId, crate::net::Node>(&self.known, &id, &mut |__a0: &crate::net::NodeId| crate::net::hash__NodeId(__a0), &mut |__a0: &crate::net::NodeId, __a1: &crate::net::NodeId| crate::net::eq__NodeId_NodeId(__a0, __a1));
             if !(n.is_none()) {
-                crate::scheduler::salvo_send_wire(w, crate::net::__Msg_NodeGroupWatcher::Joined(n.unwrap().clone()), crate::net::__PROTO_NodeGroupWatcher);
-            }
+                let mut n_1 = n.unwrap();
+                crate::scheduler::salvo_send_wire(w, crate::net::__Msg_NodeGroupWatcher::Joined((n_1).clone()), crate::net::__PROTO_NodeGroupWatcher);
+            };
         }
-        crate::core_list::add_platform(&mut self.watchers, w);
+        crate::core_list::add_platform::<usize>(&mut self.watchers, w);
     }
-
     fn leave(&mut self) {
-        leave_group(&self.known);
-    }
-}
-
-impl StaticNodeGroup {
-
-    fn init(&mut self) {
-        let mut me = self.__dep_Transport.local_endpoint();
-        let mut _connected = connect__NodeEndpoint(&self.__dep_Transport, me.clone());
-        crate::scheduler::salvo_watch_control(("".to_string()).clone(), (self.__addr.expect("a handler naming its own address runs as an actor")).clone(), |__n, __d| std::boxed::Box::new(__Priv_StaticNodeGroup::Control(NodeId { id: __n as i64 }, __d)));
-        for e in crate::platform_core_list::each(&self.all) {
-            if !eq__NodeEndpoint_NodeEndpoint(e, &me) {
-                let mut _sent = { let __a1 = hello_frame(&self.__dep_Transport, &self.name); self.__dep_Transport.deliver(&(e.clone()), __a1) };
-            }
-        }
-    }
-
-    fn control(&mut self, from: NodeId, data: Bytes) {
-        let mut event = handshake(&self.__dep_Transport, &self.name, from, data);
-        match event {
-            Some(Union3::U1(_)) => {
-                if crate::core_map::contains_key_platform::<NodeId, Node>(&self.known, &event.as_ref().unwrap().u1().clone().node, &mut |__i0| hash__NodeId(__i0), &mut |__i0, __i1| eq__NodeId_NodeId(__i0, __i1)) {
-                    return;
-                }
-                let mut n = Node { id: event.as_ref().unwrap().u1().clone().node.clone(), at: event.as_ref().unwrap().u1().clone().at.clone() };
-                crate::core_map::put_platform::<NodeId, Node>(&mut self.known, event.as_ref().unwrap().u1().clone().node.clone(), n.clone(), &mut |__i0| hash__NodeId(__i0), &mut |__i0, __i1| eq__NodeId_NodeId(__i0, __i1));
-                for w in crate::platform_core_list::each(&self.watchers) {
-                    crate::scheduler::salvo_send_wire(w.clone(), crate::net::__Msg_NodeGroupWatcher::Joined(n.clone()), crate::net::__PROTO_NodeGroupWatcher);
-                }
-            }
-            Some(Union3::U2(_)) => {
-                let mut n = crate::core_map::remove_platform::<NodeId, Node>(&mut self.known, &event.as_ref().unwrap().u2().clone().node, &mut |__i0| hash__NodeId(__i0), &mut |__i0, __i1| eq__NodeId_NodeId(__i0, __i1));
-                if n.is_none() {
-                    return;
-                }
-                for w in crate::platform_core_list::each(&self.watchers) {
-                    crate::scheduler::salvo_send_wire(w.clone(), crate::net::__Msg_NodeGroupWatcher::Left(n.as_ref().unwrap().clone(), "left".to_string()), crate::net::__PROTO_NodeGroupWatcher);
-                }
-            }
-            Some(Union3::U3(_)) => {
-            }
-            None => {
-            }
-        }
+        crate::net::leave_group(&self.known);
     }
 }
 
 pub enum __Cont_StaticNodeGroup {
     Members,
     Subscribe,
-    Control(NodeId),
+    Control(crate::net::NodeId),
 }
 
 pub enum __Priv_StaticNodeGroup {
     Init,
-    Control(NodeId, Bytes),
+    Control(crate::net::NodeId, crate::core_bytes::Bytes),
 }
 
 pub struct __Actor_StaticNodeGroup {
@@ -1223,9 +1165,6 @@ impl __Actor_StaticNodeGroup {
     pub fn new(handler: StaticNodeGroup) -> Self {
         Self { handler }
     }
-}
-
-impl __Actor_StaticNodeGroup {
     fn __dispatch_NodeGroup(&mut self, msg: crate::net::__Msg_NodeGroup) {
         match msg {
             crate::net::__Msg_NodeGroup::Members(out) => crate::net::__Stateful_NodeGroup::members(&mut self.handler, out),
@@ -1264,7 +1203,7 @@ impl crate::scheduler::SalvoActor for __Actor_StaticNodeGroup {
         match __cont {
             __Cont_StaticNodeGroup::Members => self.__dispatch_NodeGroup(crate::net::__Msg_NodeGroup::Members(*value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
             __Cont_StaticNodeGroup::Subscribe => self.__dispatch_NodeGroup(crate::net::__Msg_NodeGroup::Subscribe(*value.downcast::<usize>().expect("the awaited answer"))),
-            __Cont_StaticNodeGroup::Control(from) => self.__dispatch_priv(__Priv_StaticNodeGroup::Control(from, *value.downcast::<Bytes>().expect("the awaited answer"))),
+            __Cont_StaticNodeGroup::Control(from) => self.__dispatch_priv(__Priv_StaticNodeGroup::Control(from, *value.downcast::<crate::core_bytes::Bytes>().expect("the awaited answer"))),
         }
     }
 
@@ -1272,143 +1211,136 @@ impl crate::scheduler::SalvoActor for __Actor_StaticNodeGroup {
         match self.handler.__parked.get(&slot)? {
             __Cont_StaticNodeGroup::Members{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<crate::scheduler::SalvoReply>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
             __Cont_StaticNodeGroup::Subscribe{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<usize>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
-            __Cont_StaticNodeGroup::Control{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<Bytes>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
+            __Cont_StaticNodeGroup::Control{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<crate::core_bytes::Bytes>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
         }
     }
 }
 
 pub const __DECODE_StaticNodeGroup: Option<crate::scheduler::MsgDecoder> = Some(__decode_msg_StaticNodeGroup);
 fn __decode_msg_StaticNodeGroup(proto: &str, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {
-        if proto == crate::net::__PROTO_NodeGroup {
-            return crate::wire::salvo_decode::<crate::net::__Msg_NodeGroup>(payload)
-                .map(|__m| std::boxed::Box::new(__m) as crate::scheduler::SalvoMsg);
-        }
+    if proto == crate::net::__PROTO_NodeGroup {
+        return crate::wire::salvo_decode::<crate::net::__Msg_NodeGroup>(payload).map(|__m| std::boxed::Box::new(__m) as crate::scheduler::SalvoMsg);
+    }
     None
 }
 
-pub fn known_nodes(known: &Map<NodeId, Node>) -> Vec<Node> {
-    let mut all_known: Vec<Node> = vec![];
-    for mut id in crate::platform_core_list::each(&(crate::core_map::keys_platform(known))).map(|__x| __x.clone()) {
-        let mut n = crate::core_map::get_platform::<NodeId, Node>(known, &id, &mut |__i0| hash__NodeId(__i0), &mut |__i0, __i1| eq__NodeId_NodeId(__i0, __i1));
+pub fn known_nodes(known: &crate::core_map::Map<crate::net::NodeId, crate::net::Node>) -> Vec<crate::net::Node> {
+    let mut all_known: Vec<crate::net::Node> = vec![];
+    for mut id in crate::core_map::keys_platform::<crate::net::NodeId, crate::net::Node>(known).into_iter() {
+        let mut n: Option<&crate::net::Node> = crate::core_map::get_platform::<crate::net::NodeId, crate::net::Node>(known, &id, &mut |__a0: &crate::net::NodeId| crate::net::hash__NodeId(__a0), &mut |__a0: &crate::net::NodeId, __a1: &crate::net::NodeId| crate::net::eq__NodeId_NodeId(__a0, __a1));
         if !(n.is_none()) {
-            crate::core_list::add_platform(&mut all_known, n.unwrap().clone());
-        }
+            let mut n_1 = n.unwrap();
+            crate::core_list::add_platform::<crate::net::Node>(&mut all_known, (n_1).clone());
+        };
     }
     return all_known;
 }
 
 pub struct GossipNodeGroup {
     name: String,
-    seeds: Vec<NodeEndpoint>,
-    known: Map<NodeId, Node>,
-    dialed: Set<String>,
+    seeds: Vec<crate::net::NodeEndpoint>,
+    __dep0: crate::net::Transport,
+    known: crate::core_map::Map<crate::net::NodeId, crate::net::Node>,
+    dialed: crate::core_set::Set<String>,
     watchers: Vec<usize>,
-    __dep_Transport: crate::net::Transport,
     pub __mailbox_capacity: i32,
     __addr: Option<usize>,
     __parked: std::collections::HashMap<u64, __Cont_GossipNodeGroup>,
 }
 
 impl GossipNodeGroup {
-    pub fn new(name: String, seeds: Vec<NodeEndpoint>, __dep_Transport: crate::net::Transport) -> Self {
+    pub fn new(name: String, seeds: Vec<crate::net::NodeEndpoint>, __dep0: crate::net::Transport) -> Self {
         Self {
-            name,
-            seeds,
-            known: crate::core_map::mut_map_of_platform::<NodeId, Node>(vec![], &mut |__i0| hash__NodeId(__i0), &mut |__i0, __i1| eq__NodeId_NodeId(__i0, __i1)),
-            dialed: crate::core_set::mut_set_of_platform::<String>(vec![], &mut |__i0| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__i0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__i0, __i1| (&__i0[..] == &__i1[..])),
+            name: name.clone(),
+            seeds: seeds.clone(),
+            __dep0,
+            known: crate::core_map::mut_map_of_platform::<crate::net::NodeId, crate::net::Node>(vec![], &mut |__a0: &crate::net::NodeId| crate::net::hash__NodeId(__a0), &mut |__a0: &crate::net::NodeId, __a1: &crate::net::NodeId| crate::net::eq__NodeId_NodeId(__a0, __a1)),
+            dialed: crate::core_set::mut_set_of_platform::<String>(vec![], &mut |__a0: &String| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__a0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &String, __a1: &String| (&__a0[..] == &__a1[..])),
             watchers: vec![],
-            __dep_Transport,
-            __mailbox_capacity: 64,
+            __mailbox_capacity: 64i32,
             __addr: None,
-            __parked: std::collections::HashMap::new(),
+            __parked: std::collections::HashMap::new()
         }
+    }
+    fn init(&mut self) {
+        let mut me: crate::net::NodeEndpoint = self.__dep0.local_endpoint();
+        let mut _connected: bool = crate::net::connect__NodeEndpoint(&self.__dep0, (me).clone());
+        crate::scheduler::salvo_watch_control((String::from("")).clone(), (self.__addr.expect("an actor's own addr")).clone(), |__n, __d| std::boxed::Box::new(crate::net::__Priv_GossipNodeGroup::Control(crate::net::NodeId { id: __n as i64 }, __d)));
+        for mut e in self.seeds.iter() {
+            crate::net::dial(&self.__dep0, &mut self.dialed, &self.name, (e).clone());
+        }
+    }
+    fn control(&mut self, from: crate::net::NodeId, data: crate::core_bytes::Bytes) {
+        let mut event: Option<crate::unions::Union3<crate::net::PeerHello, crate::net::PeerGone, crate::net::PeerIntro>> = crate::net::handshake(&self.__dep0, &self.name, from, data);
+        if matches!(event, Some(crate::unions::Union3::U1(_))) {
+            let mut event_1 = match &event { Some(crate::unions::Union3::U1(__v)) => __v, _ => unreachable!() };
+            if crate::core_map::contains_key_platform::<crate::net::NodeId, crate::net::Node>(&self.known, &event_1.node, &mut |__a0: &crate::net::NodeId| crate::net::hash__NodeId(__a0), &mut |__a0: &crate::net::NodeId, __a1: &crate::net::NodeId| crate::net::eq__NodeId_NodeId(__a0, __a1)) {
+                return;
+            };
+            let mut others: Vec<crate::net::NodeEndpoint> = vec![];
+            for mut id in crate::core_map::keys_platform::<crate::net::NodeId, crate::net::Node>(&self.known).into_iter() {
+                let mut n: Option<&crate::net::Node> = crate::core_map::get_platform::<crate::net::NodeId, crate::net::Node>(&self.known, &id, &mut |__a0: &crate::net::NodeId| crate::net::hash__NodeId(__a0), &mut |__a0: &crate::net::NodeId, __a1: &crate::net::NodeId| crate::net::eq__NodeId_NodeId(__a0, __a1));
+                if !(n.is_none()) {
+                    let mut n_2 = n.unwrap();
+                    crate::core_list::add_platform::<crate::net::NodeEndpoint>(&mut others, (n_2.at).clone());
+                };
+                crate::net::introduce(&(id).clone(), &vec![(event_1.at).clone()]);
+            }
+            crate::net::introduce(&(event_1.node).clone(), &others);
+            crate::core_set::add_platform::<String>(&mut self.dialed, crate::net::to_str__NodeEndpoint(&event_1.at), &mut |__a0: &String| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__a0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &String, __a1: &String| (&__a0[..] == &__a1[..]));
+            let mut n: crate::net::Node = crate::net::Node { id: (event_1.node).clone(), at: (event_1.at).clone() };
+            crate::core_map::put_platform::<crate::net::NodeId, crate::net::Node>(&mut self.known, (event_1.node).clone(), (n).clone(), &mut |__a0: &crate::net::NodeId| crate::net::hash__NodeId(__a0), &mut |__a0: &crate::net::NodeId, __a1: &crate::net::NodeId| crate::net::eq__NodeId_NodeId(__a0, __a1));
+            for mut w in self.watchers.iter().copied() {
+                crate::scheduler::salvo_send_wire(w, crate::net::__Msg_NodeGroupWatcher::Joined((n).clone()), crate::net::__PROTO_NodeGroupWatcher);
+            }
+        } else if matches!(event, Some(crate::unions::Union3::U2(_))) {
+            let mut event_3 = match &event { Some(crate::unions::Union3::U2(__v)) => __v, _ => unreachable!() };
+            let mut n: Option<crate::net::Node> = crate::core_map::remove_platform::<crate::net::NodeId, crate::net::Node>(&mut self.known, &event_3.node, &mut |__a0: &crate::net::NodeId| crate::net::hash__NodeId(__a0), &mut |__a0: &crate::net::NodeId, __a1: &crate::net::NodeId| crate::net::eq__NodeId_NodeId(__a0, __a1));
+            if n.is_none() {
+                return;
+            };
+            for mut w in self.watchers.iter().copied() {
+                let mut n_4 = n.as_ref().unwrap();
+                crate::scheduler::salvo_send_wire(w, crate::net::__Msg_NodeGroupWatcher::Left((n_4).clone(), String::from("left")), crate::net::__PROTO_NodeGroupWatcher);
+            }
+        } else if matches!(event, Some(crate::unions::Union3::U3(_))) {
+            let mut event_5 = match &event { Some(crate::unions::Union3::U3(__v)) => __v, _ => unreachable!() };
+            for mut e in event_5.peers.iter() {
+                crate::net::dial(&self.__dep0, &mut self.dialed, &self.name, (e).clone());
+            }
+        } else {
+        };
     }
 }
 
 impl crate::net::__Stateful_NodeGroup for GossipNodeGroup {
-
     fn members(&mut self, out: crate::scheduler::SalvoReply) {
-        crate::scheduler::salvo_reply_wire::<Vec<Node>>(out, known_nodes(&self.known));
+        crate::scheduler::salvo_reply_wire::<Vec<crate::net::Node>>(out, crate::net::known_nodes(&self.known));
     }
-
     fn subscribe(&mut self, w: usize) {
-        for mut id in crate::platform_core_list::each(&(crate::core_map::keys_platform(&self.known))).map(|__x| __x.clone()) {
-            let mut n = crate::core_map::get_platform::<NodeId, Node>(&self.known, &id, &mut |__i0| hash__NodeId(__i0), &mut |__i0, __i1| eq__NodeId_NodeId(__i0, __i1));
+        for mut id in crate::core_map::keys_platform::<crate::net::NodeId, crate::net::Node>(&self.known).into_iter() {
+            let mut n: Option<&crate::net::Node> = crate::core_map::get_platform::<crate::net::NodeId, crate::net::Node>(&self.known, &id, &mut |__a0: &crate::net::NodeId| crate::net::hash__NodeId(__a0), &mut |__a0: &crate::net::NodeId, __a1: &crate::net::NodeId| crate::net::eq__NodeId_NodeId(__a0, __a1));
             if !(n.is_none()) {
-                crate::scheduler::salvo_send_wire(w, crate::net::__Msg_NodeGroupWatcher::Joined(n.unwrap().clone()), crate::net::__PROTO_NodeGroupWatcher);
-            }
+                let mut n_1 = n.unwrap();
+                crate::scheduler::salvo_send_wire(w, crate::net::__Msg_NodeGroupWatcher::Joined((n_1).clone()), crate::net::__PROTO_NodeGroupWatcher);
+            };
         }
-        crate::core_list::add_platform(&mut self.watchers, w);
+        crate::core_list::add_platform::<usize>(&mut self.watchers, w);
     }
-
     fn leave(&mut self) {
-        leave_group(&self.known);
-    }
-}
-
-impl GossipNodeGroup {
-
-    fn init(&mut self) {
-        let mut me = self.__dep_Transport.local_endpoint();
-        let mut _connected = connect__NodeEndpoint(&self.__dep_Transport, me.clone());
-        crate::scheduler::salvo_watch_control(("".to_string()).clone(), (self.__addr.expect("a handler naming its own address runs as an actor")).clone(), |__n, __d| std::boxed::Box::new(__Priv_GossipNodeGroup::Control(NodeId { id: __n as i64 }, __d)));
-        for e in crate::platform_core_list::each(&self.seeds) {
-            dial(&self.__dep_Transport, &mut self.dialed, &self.name, e.clone());
-        }
-    }
-
-    fn control(&mut self, from: NodeId, data: Bytes) {
-        let mut event = handshake(&self.__dep_Transport, &self.name, from, data);
-        match event {
-            Some(Union3::U1(_)) => {
-                if crate::core_map::contains_key_platform::<NodeId, Node>(&self.known, &event.as_ref().unwrap().u1().clone().node, &mut |__i0| hash__NodeId(__i0), &mut |__i0, __i1| eq__NodeId_NodeId(__i0, __i1)) {
-                    return;
-                }
-                let mut others: Vec<NodeEndpoint> = vec![];
-                for mut id in crate::platform_core_list::each(&(crate::core_map::keys_platform(&self.known))).map(|__x| __x.clone()) {
-                    let mut n = crate::core_map::get_platform::<NodeId, Node>(&self.known, &id, &mut |__i0| hash__NodeId(__i0), &mut |__i0, __i1| eq__NodeId_NodeId(__i0, __i1));
-                    if !(n.is_none()) {
-                        crate::core_list::add_platform(&mut others, n.unwrap().clone().at.clone());
-                    }
-                    introduce(&(id.clone()), &(vec![event.as_ref().unwrap().u1().clone().at.clone()]));
-                }
-                introduce(&(event.as_ref().unwrap().u1().clone().node.clone()), &others);
-                crate::core_set::add_platform::<String>(&mut self.dialed, to_str__NodeEndpoint(&event.as_ref().unwrap().u1().clone().at), &mut |__i0| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__i0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__i0, __i1| (&__i0[..] == &__i1[..]));
-                let mut n = Node { id: event.as_ref().unwrap().u1().clone().node.clone(), at: event.as_ref().unwrap().u1().clone().at.clone() };
-                crate::core_map::put_platform::<NodeId, Node>(&mut self.known, event.as_ref().unwrap().u1().clone().node.clone(), n.clone(), &mut |__i0| hash__NodeId(__i0), &mut |__i0, __i1| eq__NodeId_NodeId(__i0, __i1));
-                for w in crate::platform_core_list::each(&self.watchers) {
-                    crate::scheduler::salvo_send_wire(w.clone(), crate::net::__Msg_NodeGroupWatcher::Joined(n.clone()), crate::net::__PROTO_NodeGroupWatcher);
-                }
-            }
-            Some(Union3::U2(_)) => {
-                let mut n = crate::core_map::remove_platform::<NodeId, Node>(&mut self.known, &event.as_ref().unwrap().u2().clone().node, &mut |__i0| hash__NodeId(__i0), &mut |__i0, __i1| eq__NodeId_NodeId(__i0, __i1));
-                if n.is_none() {
-                    return;
-                }
-                for w in crate::platform_core_list::each(&self.watchers) {
-                    crate::scheduler::salvo_send_wire(w.clone(), crate::net::__Msg_NodeGroupWatcher::Left(n.as_ref().unwrap().clone(), "left".to_string()), crate::net::__PROTO_NodeGroupWatcher);
-                }
-            }
-            Some(Union3::U3(_)) => {
-                for mut e in crate::platform_core_list::each(&(event.as_ref().unwrap().u3().clone().peers.clone())).map(|__x| __x.clone()) {
-                    dial(&self.__dep_Transport, &mut self.dialed, &self.name, e.clone());
-                }
-            }
-            None => {
-            }
-        }
+        crate::net::leave_group(&self.known);
     }
 }
 
 pub enum __Cont_GossipNodeGroup {
     Members,
     Subscribe,
-    Control(NodeId),
+    Control(crate::net::NodeId),
 }
 
 pub enum __Priv_GossipNodeGroup {
     Init,
-    Control(NodeId, Bytes),
+    Control(crate::net::NodeId, crate::core_bytes::Bytes),
 }
 
 pub struct __Actor_GossipNodeGroup {
@@ -1419,9 +1351,6 @@ impl __Actor_GossipNodeGroup {
     pub fn new(handler: GossipNodeGroup) -> Self {
         Self { handler }
     }
-}
-
-impl __Actor_GossipNodeGroup {
     fn __dispatch_NodeGroup(&mut self, msg: crate::net::__Msg_NodeGroup) {
         match msg {
             crate::net::__Msg_NodeGroup::Members(out) => crate::net::__Stateful_NodeGroup::members(&mut self.handler, out),
@@ -1460,7 +1389,7 @@ impl crate::scheduler::SalvoActor for __Actor_GossipNodeGroup {
         match __cont {
             __Cont_GossipNodeGroup::Members => self.__dispatch_NodeGroup(crate::net::__Msg_NodeGroup::Members(*value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
             __Cont_GossipNodeGroup::Subscribe => self.__dispatch_NodeGroup(crate::net::__Msg_NodeGroup::Subscribe(*value.downcast::<usize>().expect("the awaited answer"))),
-            __Cont_GossipNodeGroup::Control(from) => self.__dispatch_priv(__Priv_GossipNodeGroup::Control(from, *value.downcast::<Bytes>().expect("the awaited answer"))),
+            __Cont_GossipNodeGroup::Control(from) => self.__dispatch_priv(__Priv_GossipNodeGroup::Control(from, *value.downcast::<crate::core_bytes::Bytes>().expect("the awaited answer"))),
         }
     }
 
@@ -1468,29 +1397,29 @@ impl crate::scheduler::SalvoActor for __Actor_GossipNodeGroup {
         match self.handler.__parked.get(&slot)? {
             __Cont_GossipNodeGroup::Members{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<crate::scheduler::SalvoReply>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
             __Cont_GossipNodeGroup::Subscribe{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<usize>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
-            __Cont_GossipNodeGroup::Control{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<Bytes>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
+            __Cont_GossipNodeGroup::Control{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<crate::core_bytes::Bytes>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
         }
     }
 }
 
 pub const __DECODE_GossipNodeGroup: Option<crate::scheduler::MsgDecoder> = Some(__decode_msg_GossipNodeGroup);
 fn __decode_msg_GossipNodeGroup(proto: &str, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {
-        if proto == crate::net::__PROTO_NodeGroup {
-            return crate::wire::salvo_decode::<crate::net::__Msg_NodeGroup>(payload)
-                .map(|__m| std::boxed::Box::new(__m) as crate::scheduler::SalvoMsg);
-        }
+    if proto == crate::net::__PROTO_NodeGroup {
+        return crate::wire::salvo_decode::<crate::net::__Msg_NodeGroup>(payload).map(|__m| std::boxed::Box::new(__m) as crate::scheduler::SalvoMsg);
+    }
     None
 }
 
-pub fn dial(transport: &crate::net::Transport, dialed: &mut Set<String>, group: &String, e: NodeEndpoint) {
-    if eq__NodeEndpoint_NodeEndpoint(&e, &(transport.local_endpoint())) || crate::core_set::contains_platform::<String>(dialed, &(to_str__NodeEndpoint(&e)), &mut |__i0| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__i0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__i0, __i1| (&__i0[..] == &__i1[..])) {
+pub fn dial(transport: &crate::net::Transport, dialed: &mut crate::core_set::Set<String>, group: &String, mut e: crate::net::NodeEndpoint) {
+    if (crate::net::eq__NodeEndpoint_NodeEndpoint(&e, &transport.local_endpoint()) || crate::core_set::contains_platform::<String>(&*dialed, &crate::net::to_str__NodeEndpoint(&e), &mut |__a0: &String| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__a0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &String, __a1: &String| (&__a0[..] == &__a1[..]))) {
         return;
-    }
-    crate::core_set::add_platform::<String>(dialed, to_str__NodeEndpoint(&e), &mut |__i0| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__i0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__i0, __i1| (&__i0[..] == &__i1[..]));
-    let mut sent = { let __a1 = hello_frame(transport, group); transport.deliver(&(e.clone()), __a1) };
-    if matches!(sent, Union2::U2(_)) {
-        let mut _forgot = crate::core_set::remove_platform::<String>(dialed, &(to_str__NodeEndpoint(&e)), &mut |__i0| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__i0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__i0, __i1| (&__i0[..] == &__i1[..]));
-    }
+    };
+    crate::core_set::add_platform::<String>(&mut *dialed, crate::net::to_str__NodeEndpoint(&e), &mut |__a0: &String| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__a0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &String, __a1: &String| (&__a0[..] == &__a1[..]));
+    let mut sent: crate::unions::Union2<(), crate::unions::Union2<crate::net::Unreachable, crate::net::WireFailed>> = transport.deliver(&(e).clone(), crate::net::hello_frame(transport, group));
+    if matches!(sent, crate::unions::Union2::U2(_)) {
+        let mut sent_1 = match &sent { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
+        let mut _forgot: bool = crate::core_set::remove_platform::<String>(&mut *dialed, &crate::net::to_str__NodeEndpoint(&e), &mut |__a0: &String| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__a0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &String, __a1: &String| (&__a0[..] == &__a1[..]));
+    };
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1526,34 +1455,6 @@ pub trait __Stateful_ActorGroup: Send {
     fn members(&mut self, out: crate::scheduler::SalvoReply);
     fn subscribe(&mut self, w: usize);
     fn refresh(&mut self);
-}
-
-pub struct __Stub_ActorGroup {
-    addr: usize,
-}
-
-impl __Stub_ActorGroup {
-    pub fn new(addr: usize) -> Self {
-        Self { addr }
-    }
-}
-
-impl __Stateless_ActorGroup for __Stub_ActorGroup {
-    fn join(&self, member: usize) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_ActorGroup::Join(member), crate::net::__PROTO_ActorGroup);
-    }
-    fn leave(&self, member: usize) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_ActorGroup::Leave(member), crate::net::__PROTO_ActorGroup);
-    }
-    fn members(&self, out: crate::scheduler::SalvoReply) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_ActorGroup::Members(out), crate::net::__PROTO_ActorGroup);
-    }
-    fn subscribe(&self, w: usize) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_ActorGroup::Subscribe(w), crate::net::__PROTO_ActorGroup);
-    }
-    fn refresh(&self) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_ActorGroup::Refresh, crate::net::__PROTO_ActorGroup);
-    }
 }
 
 pub struct ActorGroup {
@@ -1664,6 +1565,34 @@ impl crate::wire::__Wire for __Msg_ActorGroup {
 /// [protocol-hash] The canonical hash of `ActorGroup`.
 pub const __PROTO_ActorGroup: &str = "695f43128bdada4a";
 
+pub struct __Stub_ActorGroup {
+    addr: usize,
+}
+
+impl __Stub_ActorGroup {
+    pub fn new(addr: usize) -> Self {
+        Self { addr }
+    }
+}
+
+impl __Stateless_ActorGroup for __Stub_ActorGroup {
+    fn join(&self, member: usize) {
+        crate::scheduler::salvo_send_wire(self.addr, __Msg_ActorGroup::Join(member), crate::net::__PROTO_ActorGroup);
+    }
+    fn leave(&self, member: usize) {
+        crate::scheduler::salvo_send_wire(self.addr, __Msg_ActorGroup::Leave(member), crate::net::__PROTO_ActorGroup);
+    }
+    fn members(&self, out: crate::scheduler::SalvoReply) {
+        crate::scheduler::salvo_send_wire(self.addr, __Msg_ActorGroup::Members(out), crate::net::__PROTO_ActorGroup);
+    }
+    fn subscribe(&self, w: usize) {
+        crate::scheduler::salvo_send_wire(self.addr, __Msg_ActorGroup::Subscribe(w), crate::net::__PROTO_ActorGroup);
+    }
+    fn refresh(&self) {
+        crate::scheduler::salvo_send_wire(self.addr, __Msg_ActorGroup::Refresh, crate::net::__PROTO_ActorGroup);
+    }
+}
+
 pub trait __Stateless_ActorGroupWatcher: Send + Sync {
     fn joined(&self, member: usize);
     fn left(&self, member: usize);
@@ -1672,25 +1601,6 @@ pub trait __Stateless_ActorGroupWatcher: Send + Sync {
 pub trait __Stateful_ActorGroupWatcher: Send {
     fn joined(&mut self, member: usize);
     fn left(&mut self, member: usize);
-}
-
-pub struct __Stub_ActorGroupWatcher {
-    addr: usize,
-}
-
-impl __Stub_ActorGroupWatcher {
-    pub fn new(addr: usize) -> Self {
-        Self { addr }
-    }
-}
-
-impl __Stateless_ActorGroupWatcher for __Stub_ActorGroupWatcher {
-    fn joined(&self, member: usize) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_ActorGroupWatcher::Joined(member), crate::net::__PROTO_ActorGroupWatcher);
-    }
-    fn left(&self, member: usize) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_ActorGroupWatcher::Left(member), crate::net::__PROTO_ActorGroupWatcher);
-    }
 }
 
 pub struct ActorGroupWatcher {
@@ -1768,35 +1678,56 @@ impl crate::wire::__Wire for __Msg_ActorGroupWatcher {
 /// [protocol-hash] The canonical hash of `ActorGroupWatcher`.
 pub const __PROTO_ActorGroupWatcher: &str = "9fa424e5858bb3bd";
 
-pub fn share_members(name: &String, hash: &String, node: &NodeId, members: &Vec<usize>) {
-    send_control(&(node.clone()), &(name.clone()), crate::wire::salvo_encode(&(hash.clone(), members.clone())));
+pub struct __Stub_ActorGroupWatcher {
+    addr: usize,
 }
 
-pub fn pending(a: &usize) -> i32 {
-    return pending__runtime_routing((((a).clone()) as i32));
+impl __Stub_ActorGroupWatcher {
+    pub fn new(addr: usize) -> Self {
+        Self { addr }
+    }
 }
 
-pub fn actor_group__Addr(nodes: usize, protocol: &mut dyn FnMut() -> Protocol) -> usize {
-    let mut proto = protocol();
-    let mut name = proto.name.clone();
-    return actor_group__Str_Addr(name, nodes, &mut *protocol);
+impl __Stateless_ActorGroupWatcher for __Stub_ActorGroupWatcher {
+    fn joined(&self, member: usize) {
+        crate::scheduler::salvo_send_wire(self.addr, __Msg_ActorGroupWatcher::Joined(member), crate::net::__PROTO_ActorGroupWatcher);
+    }
+    fn left(&self, member: usize) {
+        crate::scheduler::salvo_send_wire(self.addr, __Msg_ActorGroupWatcher::Left(member), crate::net::__PROTO_ActorGroupWatcher);
+    }
 }
 
-pub fn actor_group__Str_Addr(name: String, nodes: usize, protocol: &mut dyn FnMut() -> Protocol) -> usize {
-    let (mut group, mut watcher) = ({ let __h = ActorGrouping::new(name, protocol()); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(pool(1), __cap as usize, std::boxed::Box::new(__Actor_ActorGrouping::new(__h)), __DECODE_ActorGrouping); crate::scheduler::salvo_send(__a, std::boxed::Box::new(__Priv_ActorGrouping::Init)); (__a, __a) });
+pub fn share_members(name: &String, hash: &String, node: &crate::net::NodeId, members: &Vec<usize>) {
+    crate::net::send_control(&(node).clone(), &(name).clone(), { let __enc: (String, Vec<usize>) = ((hash).clone(), (members).clone()); crate::wire::salvo_encode(&__enc) });
+}
+
+pub fn pending(mut a: usize) -> i32 {
+    return crate::runtime_routing::pending((((a).clone()) as i32));
+}
+
+pub fn actor_group__Addr(mut nodes: usize, protocol: &mut dyn FnMut() -> crate::net::Protocol) -> usize {
+    let mut proto: crate::net::Protocol = protocol();
+    let mut name: String = (proto.name).clone();
+    return crate::net::actor_group__Str_Addr(name, nodes, &mut *protocol);
+}
+
+pub fn actor_group__Str_Addr(mut name: String, mut nodes: usize, protocol: &mut dyn FnMut() -> crate::net::Protocol) -> usize {
+    let mut __destructured_1: (usize, usize) = ({ let __h = crate::net::ActorGrouping::new(name.clone(), protocol()); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(crate::core_actor::pool(1i32), __cap as usize, std::boxed::Box::new(crate::net::__Actor_ActorGrouping::new(__h)), crate::net::__DECODE_ActorGrouping); crate::scheduler::salvo_send(__a, std::boxed::Box::new(crate::net::__Priv_ActorGrouping::Init)); (__a, __a) });
+    let mut group: usize = __destructured_1.0;
+    let mut watcher: usize = __destructured_1.1;
     crate::scheduler::salvo_send_wire(nodes, crate::net::__Msg_NodeGroup::Subscribe(watcher), crate::net::__PROTO_NodeGroup);
     return group;
 }
 
-pub fn join(group: &usize, member: usize) {
-    crate::scheduler::salvo_send_wire(group.clone(), crate::net::__Msg_ActorGroup::Join(member), crate::net::__PROTO_ActorGroup);
+pub fn join(mut group: usize, mut member: usize) {
+    crate::scheduler::salvo_send_wire(group, crate::net::__Msg_ActorGroup::Join(member), crate::net::__PROTO_ActorGroup);
 }
 
 pub struct ActorGrouping {
     name: String,
-    proto: Protocol,
+    proto: crate::net::Protocol,
     all: Vec<usize>,
-    peers: Vec<NodeId>,
+    peers: Vec<crate::net::NodeId>,
     watchers: Vec<usize>,
     pub __mailbox_capacity: i32,
     __addr: Option<usize>,
@@ -1804,130 +1735,120 @@ pub struct ActorGrouping {
 }
 
 impl ActorGrouping {
-    pub fn new(name: String, proto: Protocol) -> Self {
+    pub fn new(name: String, proto: crate::net::Protocol) -> Self {
         Self {
-            name,
-            proto,
+            name: name.clone(),
+            proto: proto.clone(),
             all: vec![],
             peers: vec![],
             watchers: vec![],
-            __mailbox_capacity: 64,
+            __mailbox_capacity: 64i32,
             __addr: None,
-            __parked: std::collections::HashMap::new(),
+            __parked: std::collections::HashMap::new()
         }
+    }
+    fn init(&mut self) {
+        crate::scheduler::salvo_watch_control(((self.name).clone()).clone(), (self.__addr.expect("an actor's own addr")).clone(), |__n, __d| std::boxed::Box::new(crate::net::__Priv_ActorGrouping::Control(crate::net::NodeId { id: __n as i64 }, __d)));
+    }
+    fn control(&mut self, from: crate::net::NodeId, data: crate::core_bytes::Bytes) {
+        let mut got: Option<(String, Vec<usize>)> = crate::wire::salvo_decode::<(String, Vec<usize>)>(&data);
+        if got.is_none() {
+            return;
+        };
+        let mut got_1 = got.as_ref().unwrap();
+        if !((&got_1.0[..] == &self.proto.hash[..])) {
+            return;
+        };
+        if !(crate::net::contains_node(&self.peers, &(from).clone())) {
+            crate::core_list::add_platform::<crate::net::NodeId>(&mut self.peers, (from).clone());
+            crate::net::share_members(&self.name, &self.proto.hash, &(from).clone(), &self.all);
+        };
+        let mut changed: bool = false;
+        let mut got_2 = got.as_ref().unwrap();
+        for mut m in got_2.1.iter().copied() {
+            if crate::net::admit(&mut self.all, m) {
+                changed = true;
+                for mut w in self.watchers.iter().copied() {
+                    crate::scheduler::salvo_send_wire(w, crate::net::__Msg_ActorGroupWatcher::Joined(m), crate::net::__PROTO_ActorGroupWatcher);
+                }
+            };
+        }
+        if changed {
+            crate::net::mirror(self.__addr.expect("an actor's own addr"), &self.all);
+        };
     }
 }
 
 impl crate::net::__Stateful_ActorGroup for ActorGrouping {
-
     fn join(&mut self, member: usize) {
-        if !admit(&mut self.all, member.clone()) {
+        if !(crate::net::admit(&mut self.all, member)) {
             return;
+        };
+        crate::net::mirror(self.__addr.expect("an actor's own addr"), &self.all);
+        for mut w in self.watchers.iter().copied() {
+            crate::scheduler::salvo_send_wire(w, crate::net::__Msg_ActorGroupWatcher::Joined(member), crate::net::__PROTO_ActorGroupWatcher);
         }
-        mirror(&(self.__addr.expect("a handler naming its own address runs as an actor")), &self.all);
-        for w in crate::platform_core_list::each(&self.watchers) {
-            crate::scheduler::salvo_send_wire(w.clone(), crate::net::__Msg_ActorGroupWatcher::Joined(member.clone()), crate::net::__PROTO_ActorGroupWatcher);
-        }
-        for p in crate::platform_core_list::each(&self.peers) {
-            share_members(&self.name, &self.proto.hash, &(p.clone()), &(vec![member.clone()]));
+        for mut p in self.peers.iter() {
+            crate::net::share_members(&self.name, &self.proto.hash, &(p).clone(), &vec![member]);
         }
     }
-
     fn leave(&mut self, member: usize) {
-        if !withdraw(&mut self.all, member.clone()) {
+        if !(crate::net::withdraw(&mut self.all, member)) {
             return;
-        }
-        mirror(&(self.__addr.expect("a handler naming its own address runs as an actor")), &self.all);
-        for w in crate::platform_core_list::each(&self.watchers) {
-            crate::scheduler::salvo_send_wire(w.clone(), crate::net::__Msg_ActorGroupWatcher::Left(member.clone()), crate::net::__PROTO_ActorGroupWatcher);
+        };
+        crate::net::mirror(self.__addr.expect("an actor's own addr"), &self.all);
+        for mut w in self.watchers.iter().copied() {
+            crate::scheduler::salvo_send_wire(w, crate::net::__Msg_ActorGroupWatcher::Left(member), crate::net::__PROTO_ActorGroupWatcher);
         }
     }
-
     fn members(&mut self, out: crate::scheduler::SalvoReply) {
-        crate::scheduler::salvo_reply_wire::<Vec<usize>>(out, self.all.clone());
+        crate::scheduler::salvo_reply_wire::<Vec<usize>>(out, (self.all).clone());
     }
-
-    fn refresh(&mut self) {
-        view_refresh(&(self.__addr.expect("a handler naming its own address runs as an actor")));
-    }
-
     fn subscribe(&mut self, w: usize) {
-        crate::core_list::add_platform(&mut self.watchers, w);
+        crate::core_list::add_platform::<usize>(&mut self.watchers, w);
+    }
+    fn refresh(&mut self) {
+        crate::net::view_refresh(self.__addr.expect("an actor's own addr"));
     }
 }
 
 impl crate::net::__Stateful_NodeGroupWatcher for ActorGrouping {
-
-    fn joined(&mut self, n: Node) {
-        share_members(&self.name, &self.proto.hash, &n.id, &self.all);
+    fn joined(&mut self, n: crate::net::Node) {
+        crate::net::share_members(&self.name, &self.proto.hash, &n.id, &self.all);
     }
-
-    fn left(&mut self, n: Node, why: String) {
+    fn left(&mut self, n: crate::net::Node, why: String) {
         let mut gone: Vec<usize> = vec![];
-        for m in crate::platform_core_list::each(&self.all) {
-            if eq__NodeId_NodeId(&(node_of(m)), &n.id) {
-                crate::core_list::add_platform(&mut gone, m.clone());
-            }
+        for mut m in self.all.iter().copied() {
+            if crate::net::eq__NodeId_NodeId(&crate::net::node_of(m), &n.id) {
+                crate::core_list::add_platform::<usize>(&mut gone, m);
+            };
         }
-        for m in crate::platform_core_list::each(&gone) {
-            if withdraw(&mut self.all, m.clone()) {
-                for w in crate::platform_core_list::each(&self.watchers) {
-                    crate::scheduler::salvo_send_wire(w.clone(), crate::net::__Msg_ActorGroupWatcher::Left(m.clone()), crate::net::__PROTO_ActorGroupWatcher);
+        for mut m in gone.iter().copied() {
+            if crate::net::withdraw(&mut self.all, m) {
+                for mut w in self.watchers.iter().copied() {
+                    crate::scheduler::salvo_send_wire(w, crate::net::__Msg_ActorGroupWatcher::Left(m), crate::net::__PROTO_ActorGroupWatcher);
                 }
-            }
+            };
         }
-        if crate::core_list::size_platform(&gone) > 0 {
-            mirror(&(self.__addr.expect("a handler naming its own address runs as an actor")), &self.all);
-        }
-    }
-}
-
-impl ActorGrouping {
-
-    fn init(&mut self) {
-        crate::scheduler::salvo_watch_control((self.name.clone()).clone(), (self.__addr.expect("a handler naming its own address runs as an actor")).clone(), |__n, __d| std::boxed::Box::new(__Priv_ActorGrouping::Control(NodeId { id: __n as i64 }, __d)));
-    }
-
-    fn control(&mut self, from: NodeId, data: Bytes) {
-        let mut got = crate::wire::salvo_decode::<(String, Vec<usize>)>(&data);
-        if got.is_none() {
-            return;
-        }
-        if !(&got.as_ref().unwrap().0[..] == &self.proto.hash[..]) {
-            return;
-        }
-        if !contains_node(&self.peers, &(from.clone())) {
-            crate::core_list::add_platform(&mut self.peers, from.clone());
-            share_members(&self.name, &self.proto.hash, &(from.clone()), &self.all);
-        }
-        let mut changed = false;
-        for mut m in crate::platform_core_list::each(&(got.as_ref().unwrap().clone().1.clone())).map(|__x| __x.clone()) {
-            if admit(&mut self.all, m.clone()) {
-                changed = true;
-                for w in crate::platform_core_list::each(&self.watchers) {
-                    crate::scheduler::salvo_send_wire(w.clone(), crate::net::__Msg_ActorGroupWatcher::Joined(m.clone()), crate::net::__PROTO_ActorGroupWatcher);
-                }
-            }
-        }
-        if changed {
-            mirror(&(self.__addr.expect("a handler naming its own address runs as an actor")), &self.all);
-        }
+        if (crate::core_list::size_platform::<usize>(&gone) > 0i32) {
+            crate::net::mirror(self.__addr.expect("an actor's own addr"), &self.all);
+        };
     }
 }
 
 pub enum __Cont_ActorGrouping {
     Join,
     Leave,
-    Joined,
-    Left(Node),
     Members,
     Subscribe,
-    Control(NodeId),
+    Joined,
+    Left(crate::net::Node),
+    Control(crate::net::NodeId),
 }
 
 pub enum __Priv_ActorGrouping {
     Init,
-    Control(NodeId, Bytes),
+    Control(crate::net::NodeId, crate::core_bytes::Bytes),
 }
 
 pub struct __Actor_ActorGrouping {
@@ -1938,9 +1859,6 @@ impl __Actor_ActorGrouping {
     pub fn new(handler: ActorGrouping) -> Self {
         Self { handler }
     }
-}
-
-impl __Actor_ActorGrouping {
     fn __dispatch_ActorGroup(&mut self, msg: crate::net::__Msg_ActorGroup) {
         match msg {
             crate::net::__Msg_ActorGroup::Join(member) => crate::net::__Stateful_ActorGroup::join(&mut self.handler, member),
@@ -1993,9 +1911,9 @@ impl crate::scheduler::SalvoActor for __Actor_ActorGrouping {
             __Cont_ActorGrouping::Leave => self.__dispatch_ActorGroup(crate::net::__Msg_ActorGroup::Leave(*value.downcast::<usize>().expect("the awaited answer"))),
             __Cont_ActorGrouping::Members => self.__dispatch_ActorGroup(crate::net::__Msg_ActorGroup::Members(*value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
             __Cont_ActorGrouping::Subscribe => self.__dispatch_ActorGroup(crate::net::__Msg_ActorGroup::Subscribe(*value.downcast::<usize>().expect("the awaited answer"))),
-            __Cont_ActorGrouping::Joined => self.__dispatch_NodeGroupWatcher(crate::net::__Msg_NodeGroupWatcher::Joined(*value.downcast::<Node>().expect("the awaited answer"))),
+            __Cont_ActorGrouping::Joined => self.__dispatch_NodeGroupWatcher(crate::net::__Msg_NodeGroupWatcher::Joined(*value.downcast::<crate::net::Node>().expect("the awaited answer"))),
             __Cont_ActorGrouping::Left(n) => self.__dispatch_NodeGroupWatcher(crate::net::__Msg_NodeGroupWatcher::Left(n, *value.downcast::<String>().expect("the awaited answer"))),
-            __Cont_ActorGrouping::Control(from) => self.__dispatch_priv(__Priv_ActorGrouping::Control(from, *value.downcast::<Bytes>().expect("the awaited answer"))),
+            __Cont_ActorGrouping::Control(from) => self.__dispatch_priv(__Priv_ActorGrouping::Control(from, *value.downcast::<crate::core_bytes::Bytes>().expect("the awaited answer"))),
         }
     }
 
@@ -2005,95 +1923,97 @@ impl crate::scheduler::SalvoActor for __Actor_ActorGrouping {
             __Cont_ActorGrouping::Leave{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<usize>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
             __Cont_ActorGrouping::Members{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<crate::scheduler::SalvoReply>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
             __Cont_ActorGrouping::Subscribe{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<usize>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
-            __Cont_ActorGrouping::Joined{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<Node>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
+            __Cont_ActorGrouping::Joined{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<crate::net::Node>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
             __Cont_ActorGrouping::Left{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<String>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
-            __Cont_ActorGrouping::Control{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<Bytes>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
+            __Cont_ActorGrouping::Control{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<crate::core_bytes::Bytes>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
         }
     }
 }
 
 pub const __DECODE_ActorGrouping: Option<crate::scheduler::MsgDecoder> = Some(__decode_msg_ActorGrouping);
 fn __decode_msg_ActorGrouping(proto: &str, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {
-        if proto == crate::net::__PROTO_ActorGroup {
-            return crate::wire::salvo_decode::<crate::net::__Msg_ActorGroup>(payload)
-                .map(|__m| std::boxed::Box::new(__m) as crate::scheduler::SalvoMsg);
-        }
-        if proto == crate::net::__PROTO_NodeGroupWatcher {
-            return crate::wire::salvo_decode::<crate::net::__Msg_NodeGroupWatcher>(payload)
-                .map(|__m| std::boxed::Box::new(__m) as crate::scheduler::SalvoMsg);
-        }
+    if proto == crate::net::__PROTO_ActorGroup {
+        return crate::wire::salvo_decode::<crate::net::__Msg_ActorGroup>(payload).map(|__m| std::boxed::Box::new(__m) as crate::scheduler::SalvoMsg);
+    }
+    if proto == crate::net::__PROTO_NodeGroupWatcher {
+        return crate::wire::salvo_decode::<crate::net::__Msg_NodeGroupWatcher>(payload).map(|__m| std::boxed::Box::new(__m) as crate::scheduler::SalvoMsg);
+    }
     None
 }
 
-pub fn mirror(group: &usize, members: &Vec<usize>) {
-    view_set(group.clone(), members.clone());
+pub fn mirror(mut group: usize, members: &Vec<usize>) {
+    crate::net::view_set(group, (members).clone());
 }
 
-pub fn admit(list: &mut Vec<usize>, a: usize) -> bool {
-    for x in crate::platform_core_list::each(&*list) {
-        if eq(x, &a) {
+pub fn admit(list: &mut Vec<usize>, mut a: usize) -> bool {
+    for mut x in list.iter().copied() {
+        if crate::core_actor::eq(x, a) {
             return false;
-        }
+        };
     }
-    crate::core_list::add_platform(list, a);
+    crate::core_list::add_platform::<usize>(&mut *list, a);
     return true;
 }
 
-pub fn contains_node(list: &Vec<NodeId>, n: &NodeId) -> bool {
-    for x in crate::platform_core_list::each(list) {
-        if eq__NodeId_NodeId(x, n) {
+pub fn contains_node(list: &Vec<crate::net::NodeId>, n: &crate::net::NodeId) -> bool {
+    for mut x in list.iter() {
+        if crate::net::eq__NodeId_NodeId(x, n) {
             return true;
-        }
+        };
     }
     return false;
 }
 
-pub fn withdraw(list: &mut Vec<usize>, a: usize) -> bool {
+pub fn withdraw(list: &mut Vec<usize>, mut a: usize) -> bool {
     let mut mut_index: Option<i32> = None;
-    let mut i = 0;
-    for x in crate::platform_core_list::each(&*list) {
-        if eq(x, &a) {
+    let mut i: i32 = 0i32;
+    for mut x in list.iter().copied() {
+        if crate::core_actor::eq(x, a) {
             mut_index = Some(i);
-        }
-        i = i32::wrapping_add(i, 1);
+        };
+        i = i32::wrapping_add(i, 1i32);
     }
     if mut_index.is_none() {
         return false;
-    }
-    let mut _removed = crate::core_list::remove_at_platform(list, mut_index.unwrap());
+    };
+    let mut mut_index_1 = mut_index.unwrap();
+    let mut _removed: Option<usize> = crate::core_list::remove_at_platform::<usize>(&mut *list, mut_index_1);
     return true;
 }
 
-pub fn node_of(a: &usize) -> NodeId {
-    return NodeId { id: identity((((a).clone()) as i32)).node };
+pub fn node_of(mut a: usize) -> crate::net::NodeId {
+    return crate::net::NodeId { id: {
+        let mut __proj_1: crate::runtime_routing::RemoteRef = crate::runtime_routing::identity((((a).clone()) as i32));
+        __proj_1.node
+    } };
 }
 
-pub fn view_set(group: usize, members: Vec<usize>) {
-    let mut ixs = vec![];
-    for m in crate::platform_core_list::each(&members) {
-        crate::core_list::add_platform(&mut ixs, (((m).clone()) as i32));
+pub fn view_set(mut group: usize, mut members: Vec<usize>) {
+    let mut ixs: Vec<i32> = vec![];
+    for mut m in members.iter().copied() {
+        crate::core_list::add_platform::<i32>(&mut ixs, (((m).clone()) as i32));
     }
-    view_set__runtime_routing((((group).clone()) as i32), ixs);
+    crate::runtime_routing::view_set((((group).clone()) as i32), ixs);
 }
 
-pub fn view_members(group: &usize) -> Vec<usize> {
-    let mut out = vec![];
-    for mut ix in crate::platform_core_list::each(&(view_members__runtime_routing((((group).clone()) as i32)))).map(|__x| __x.clone()) {
-        crate::core_list::add_platform(&mut out, ((ix) as usize));
+pub fn view_members(mut group: usize) -> Vec<usize> {
+    let mut out: Vec<usize> = vec![];
+    for mut ix in crate::runtime_routing::view_members((((group).clone()) as i32)).iter().copied() {
+        crate::core_list::add_platform::<usize>(&mut out, ((ix) as usize));
     }
     return out;
 }
 
-pub fn view_version(group: &usize) -> i64 {
-    return view_version__runtime_routing((((group).clone()) as i32));
+pub fn view_version(mut group: usize) -> i64 {
+    return crate::runtime_routing::view_version((((group).clone()) as i32));
 }
 
-pub fn view_refresh(group: &usize) {
-    view_refresh__runtime_routing((((group).clone()) as i32));
+pub fn view_refresh(mut group: usize) {
+    crate::runtime_routing::view_refresh((((group).clone()) as i32));
 }
 
-pub fn view_wait(group: &usize, seen: i64, nanos: i64) {
-    view_wait__runtime_routing((((group).clone()) as i32), seen, nanos);
+pub fn view_wait(mut group: usize, mut seen: i64, mut nanos: i64) {
+    crate::runtime_routing::view_wait((((group).clone()) as i32), seen, nanos);
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -2117,7 +2037,7 @@ impl crate::wire::__Wire for RouteMember {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct RouteView {
-    pub members: Vec<RouteMember>,
+    pub members: Vec<crate::net::RouteMember>,
 }
 
 impl crate::wire::__Wire for RouteView {
@@ -2131,14 +2051,14 @@ impl crate::wire::__Wire for RouteView {
     }
 }
 
-pub fn default_route_config() -> RouteConfig {
-    return RouteConfig { first_wait: Duration { nanos: 1000000i64 }, max_wait: Duration { nanos: 5000000000i64 } };
+pub fn default_route_config() -> crate::net::RouteConfig {
+    return crate::net::RouteConfig { first_wait: crate::time::Duration { nanos: 1000000i64 }, max_wait: crate::time::Duration { nanos: 5000000000i64 } };
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct RouteConfig {
-    pub first_wait: Duration,
-    pub max_wait: Duration,
+    pub first_wait: crate::time::Duration,
+    pub max_wait: crate::time::Duration,
 }
 
 impl crate::wire::__Wire for RouteConfig {
@@ -2155,13 +2075,13 @@ impl crate::wire::__Wire for RouteConfig {
 }
 
 pub trait __Stateless_RouteSelector: Send + Sync {
-    fn changed(&self, view: &RouteView);
-    fn select(&self, view: &RouteView, key: &Option<i64>) -> Option<usize>;
+    fn changed(&self, view: &crate::net::RouteView);
+    fn select(&self, view: &crate::net::RouteView, key: &Option<i64>) -> Option<usize>;
 }
 
 pub trait __Stateful_RouteSelector: Send {
-    fn changed(&mut self, view: &RouteView);
-    fn select(&mut self, view: &RouteView, key: &Option<i64>) -> Option<usize>;
+    fn changed(&mut self, view: &crate::net::RouteView);
+    fn select(&mut self, view: &crate::net::RouteView, key: &Option<i64>) -> Option<usize>;
 }
 
 pub struct RouteSelector {
@@ -2195,13 +2115,13 @@ impl RouteSelector {
     pub fn share_locked(inner: std::sync::Arc<std::sync::Mutex<dyn __Stateful_RouteSelector>>) -> Self {
         Self { inner: __Inner_RouteSelector::Locked(inner) }
     }
-    pub fn changed(&self, view: &RouteView) {
+    pub fn changed(&self, view: &crate::net::RouteView) {
         match &self.inner {
             __Inner_RouteSelector::Shared(h) => h.changed(view),
             __Inner_RouteSelector::Locked(h) => h.lock().unwrap().changed(view),
         }
     }
-    pub fn select(&self, view: &RouteView, key: &Option<i64>) -> Option<usize> {
+    pub fn select(&self, view: &crate::net::RouteView, key: &Option<i64>) -> Option<usize> {
         match &self.inner {
             __Inner_RouteSelector::Shared(h) => h.select(view, key),
             __Inner_RouteSelector::Locked(h) => h.lock().unwrap().select(view, key),
@@ -2228,44 +2148,48 @@ impl crate::wire::__Wire for RoutePick {
     }
 }
 
-pub fn route_pick__Addr_RouteConfig_Long(route_selector: &crate::net::RouteSelector, group: &usize, config: &RouteConfig, seen: i64) -> RoutePick {
-    return route_keyed(route_selector, group, config, seen, None);
+pub fn route_pick__Addr_RouteConfig_Long(route_selector: &crate::net::RouteSelector, mut group: usize, config: &crate::net::RouteConfig, mut seen: i64) -> crate::net::RoutePick {
+    return crate::net::route_keyed(route_selector, group, config, seen, None);
 }
 
-pub fn route_pick__Addr_RouteConfig_Long_Long(route_selector: &crate::net::RouteSelector, group: &usize, config: &RouteConfig, seen: i64, key: i64) -> RoutePick {
-    return route_keyed(route_selector, group, config, seen, Some(key));
+pub fn route_pick__Addr_RouteConfig_Long_Long(route_selector: &crate::net::RouteSelector, mut group: usize, config: &crate::net::RouteConfig, mut seen: i64, mut key: i64) -> crate::net::RoutePick {
+    return crate::net::route_keyed(route_selector, group, config, seen, Some(key));
 }
 
-pub fn route_keyed(route_selector: &crate::net::RouteSelector, group: &usize, config: &RouteConfig, seen: i64, key: Option<i64>) -> RoutePick {
-    let mut wait = config.first_wait.nanos;
-    let mut cap = config.max_wait.nanos;
-    let mut last = seen.clone();
+pub fn route_keyed(route_selector: &crate::net::RouteSelector, mut group: usize, config: &crate::net::RouteConfig, mut seen: i64, mut key: Option<i64>) -> crate::net::RoutePick {
+    let mut wait: i64 = config.first_wait.nanos;
+    let mut cap: i64 = config.max_wait.nanos;
+    let mut last: i64 = seen;
     loop {
-        let mut version = view_version(&(group.clone()));
-        let mut view = route_view(&(group.clone()));
-        if version != last {
-            route_selector.changed(&(view.clone()));
-            last = version.clone();
-        }
-        let mut picked = route_selector.select(&view, &(key.clone()));
+        if !(true) {
+            break;
+        };
+        let mut version: i64 = crate::net::view_version(group);
+        let mut view: crate::net::RouteView = crate::net::route_view(group);
+        if !(((version) == (last))) {
+            route_selector.changed(&(view).clone());
+            last = version;
+        };
+        let mut picked: Option<usize> = route_selector.select(&view, &(key).clone());
         if !(picked.is_none()) {
-            return RoutePick { to: picked.as_ref().unwrap().clone(), version: last.clone() };
-        }
-        view_wait(&(group.clone()), version.clone(), wait.clone());
-        wait = i64::wrapping_mul(wait, ((2) as i64));
-        if wait > cap {
-            wait = cap.clone();
-        }
+            let mut picked_1 = picked.unwrap();
+            return crate::net::RoutePick { to: picked_1, version: last };
+        };
+        crate::net::view_wait(group, version, wait);
+        wait = i64::wrapping_mul(wait, 2i64);
+        if (wait > cap) {
+            wait = cap;
+        };
     }
-    return route_keyed(route_selector, group, config, seen, key);
+    return crate::net::route_keyed(route_selector, group, config, seen, key);
 }
 
-pub fn route_view(group: &usize) -> RouteView {
-    let mut members: Vec<RouteMember> = vec![];
-    for mut m in crate::platform_core_list::each(&(view_members(&(group.clone())))).map(|__x| __x.clone()) {
-        crate::core_list::add_platform(&mut members, RouteMember { addr: m.clone(), local: eq__NodeId_NodeId(&(node_of(&m)), &(this_node())) });
+pub fn route_view(mut group: usize) -> crate::net::RouteView {
+    let mut members: Vec<crate::net::RouteMember> = vec![];
+    for mut m in crate::net::view_members(group).iter().copied() {
+        crate::core_list::add_platform::<crate::net::RouteMember>(&mut members, crate::net::RouteMember { addr: m, local: crate::net::eq__NodeId_NodeId(&crate::net::node_of(m), &crate::net::this_node()) });
     }
-    return RouteView { members: members.clone() };
+    return crate::net::RouteView { members: (members).clone() };
 }
 
 #[derive(Clone)]
@@ -2276,41 +2200,50 @@ pub struct LeastLoaded {
 impl LeastLoaded {
     pub fn new(prefer_local: bool) -> Self {
         Self {
-            prefer_local,
+            prefer_local
         }
     }
 }
 
 impl crate::net::__Stateless_RouteSelector for LeastLoaded {
-
-    fn changed(&self, view: &RouteView) {
+    fn changed(&self, view: &crate::net::RouteView) {
     }
-
-    fn select(&self, view: &RouteView, key: &Option<i64>) -> Option<usize> {
-        let mut best: Option<RouteMember> = None;
-        let mut best_pending = 0;
-        for a in crate::platform_core_list::each(&view.members) {
-            let mut load = pending(&(a.addr.clone()));
+    fn select(&self, view: &crate::net::RouteView, key: &Option<i64>) -> Option<usize> {
+        let mut best: Option<crate::net::RouteMember> = None;
+        let mut best_pending: i32 = 0i32;
+        for mut a in view.members.iter() {
+            let mut load: i32 = crate::net::pending(a.addr);
             if best.is_none() {
-                best = Some(a.clone());
+                best = Some((a).clone());
                 best_pending = load;
             } else {
-                let mut b: RouteMember = best.as_ref().unwrap().clone();
-                let mut take = if self.prefer_local && a.local && !b.local {
+                let mut best_1 = best.as_ref().unwrap();
+                let mut b = best_1;
+                let mut take: bool = if ((self.prefer_local && a.local) && !(b.local)) {
                     true
-                } else if self.prefer_local && !a.local && b.local {
+                } else if ((self.prefer_local && !(a.local)) && b.local) {
                     false
                 } else {
-                    load < best_pending
+                    (load < best_pending)
                 };
                 if take {
-                    best = Some(a.clone());
+                    best = Some((a).clone());
                     best_pending = load;
-                }
-            }
+                };
+            };
         }
-        let mut chosen: RouteMember = if best.is_some() { best.as_ref().unwrap().clone() } else { return None };
-        return Some(chosen.addr.clone());
+        let mut chosen: crate::net::RouteMember = {
+            let mut __elv_2 = &best;
+            if __elv_2.is_none() {
+                {
+                    return None;
+                }
+            } else {
+                let mut __some_3 = __elv_2.as_ref().unwrap();
+                __some_3.clone()
+            }
+        };
+        return Some(chosen.addr);
     }
 }
 
@@ -2321,38 +2254,55 @@ pub struct Sharded {
 impl Sharded {
     pub fn new() -> Self {
         Self {
+            
         }
     }
 }
 
 impl crate::net::__Stateless_RouteSelector for Sharded {
-
-    fn changed(&self, view: &RouteView) {
+    fn changed(&self, view: &crate::net::RouteView) {
     }
-
-    fn select(&self, view: &RouteView, key: &Option<i64>) -> Option<usize> {
-        let mut n = crate::core_list::size_platform(&view.members);
-        if n == 0 {
+    fn select(&self, view: &crate::net::RouteView, key: &Option<i64>) -> Option<usize> {
+        let mut n: i32 = crate::core_list::size_platform::<crate::net::RouteMember>(&view.members);
+        if ((n) == (0i32)) {
             return None;
-        }
-        let mut k = if key.is_some() { key.unwrap() } else { 0i64 };
-        let mut magnitude = if k < 0i64 {
+        };
+        let mut k: i64 = {
+            let mut __elv_1 = key;
+            if __elv_1.is_none() {
+                0i64
+            } else {
+                let mut __some_2 = __elv_1.unwrap();
+                __some_2
+            }
+        };
+        let mut magnitude: i64 = if (k < 0i64) {
             i64::wrapping_sub(0i64, k)
         } else {
             k
         };
-        let mut slot = ((magnitude % ((n) as i64)) as i32);
-        let mut picked = { let __pick1 = crate::core_list::get_platform(&view.members, slot); if __pick1.is_some() { __pick1.unwrap() } else { return None } };
-        return Some(picked.addr.clone());
+        let mut slot: i32 = ((i64::wrapping_rem(magnitude, ((n) as i64))) as i32);
+        let mut picked: &crate::net::RouteMember = {
+            let mut __elv_3: Option<&crate::net::RouteMember> = crate::core_list::get_platform::<crate::net::RouteMember>(&view.members, slot);
+            if __elv_3.is_none() {
+                {
+                    return None;
+                }
+            } else {
+                let mut __some_4 = __elv_3.unwrap();
+                __some_4
+            }
+        };
+        return Some(picked.addr);
     }
 }
 
 pub trait __Stateless_Leader: Send + Sync {
-    fn leader(&self) -> Option<NodeId>;
+    fn leader(&self) -> Option<crate::net::NodeId>;
 }
 
 pub trait __Stateful_Leader: Send {
-    fn leader(&mut self) -> Option<NodeId>;
+    fn leader(&mut self) -> Option<crate::net::NodeId>;
 }
 
 pub struct Leader {
@@ -2386,7 +2336,7 @@ impl Leader {
     pub fn share_locked(inner: std::sync::Arc<std::sync::Mutex<dyn __Stateful_Leader>>) -> Self {
         Self { inner: __Inner_Leader::Locked(inner) }
     }
-    pub fn leader(&self) -> Option<NodeId> {
+    pub fn leader(&self) -> Option<crate::net::NodeId> {
         match &self.inner {
             __Inner_Leader::Shared(h) => h.leader(),
             __Inner_Leader::Locked(h) => h.lock().unwrap().leader(),
@@ -2396,116 +2346,89 @@ impl Leader {
 
 #[derive(Clone)]
 pub struct StaticLeader {
-    node: NodeId,
+    node: crate::net::NodeId,
 }
 
 impl StaticLeader {
-    pub fn new(node: NodeId) -> Self {
+    pub fn new(node: crate::net::NodeId) -> Self {
         Self {
-            node,
+            node
         }
     }
 }
 
 impl crate::net::__Stateless_Leader for StaticLeader {
-
-    fn leader(&self) -> Option<NodeId> {
-        return Some(self.node.clone());
+    fn leader(&self) -> Option<crate::net::NodeId> {
+        return Some((self.node).clone());
     }
 }
 
 pub struct Elected {
+    __dep0: crate::net::Leader,
     chosen: Option<usize>,
-    __dep_Leader: crate::net::Leader,
 }
 
 impl Elected {
-    pub fn new(__dep_Leader: crate::net::Leader) -> Self {
+    pub fn new(__dep0: crate::net::Leader) -> Self {
         Self {
-            chosen: None,
-            __dep_Leader,
+            __dep0,
+            chosen: None
         }
     }
 }
 
 impl crate::net::__Stateful_RouteSelector for Elected {
-
-    fn changed(&mut self, view: &RouteView) {
+    fn changed(&mut self, view: &crate::net::RouteView) {
         self.chosen = None;
-        let mut l = { let __pick2 = self.__dep_Leader.leader(); if __pick2.is_some() { __pick2.as_ref().unwrap().clone() } else { return } };
-        for a in crate::platform_core_list::each(&view.members) {
-            if eq__NodeId_NodeId(&(node_of(&(a.addr.clone()))), &l) {
-                self.chosen = Some(a.addr.clone());
-                return;
+        let mut l: crate::net::NodeId = {
+            let mut __elv_1: Option<crate::net::NodeId> = self.__dep0.leader();
+            if __elv_1.is_none() {
+                {
+                    return;
+                }
+            } else {
+                let mut __some_2 = __elv_1.unwrap();
+                __some_2
             }
+        };
+        for mut a in view.members.iter() {
+            if crate::net::eq__NodeId_NodeId(&crate::net::node_of(a.addr), &l) {
+                self.chosen = Some(a.addr);
+                return;
+            };
         }
     }
-
-    fn select(&mut self, view: &RouteView, key: &Option<i64>) -> Option<usize> {
-        return self.chosen.clone();
+    fn select(&mut self, view: &crate::net::RouteView, key: &Option<i64>) -> Option<usize> {
+        return (self.chosen).clone();
     }
 }
 
 pub type __Platform_HostTcpTransport = crate::net::__Platform_Transport<crate::platform_net::HostTcpTransport>;
 
 impl __Platform_HostTcpTransport {
-    pub fn new(bind: NodeEndpoint) -> Self {
+    pub fn new(bind: crate::net::NodeEndpoint) -> Self {
         crate::net::__Platform_Transport(crate::platform_net::HostTcpTransport::new(bind))
     }
 }
 
 pub trait __Stateless_MemNet: Send + Sync {
-    fn attach(&self, at: NodeEndpoint, sink: usize);
-    fn detach(&self, at: NodeEndpoint);
-    fn route(&self, from: NodeEndpoint, to: NodeEndpoint, out: crate::scheduler::SalvoReply);
-    fn partition(&self, a: NodeEndpoint, b: NodeEndpoint);
-    fn heal(&self, a: NodeEndpoint, b: NodeEndpoint);
-    fn kill(&self, node: NodeEndpoint);
+    fn attach(&self, at: crate::net::NodeEndpoint, sink: usize);
+    fn detach(&self, at: crate::net::NodeEndpoint);
+    fn route(&self, from: crate::net::NodeEndpoint, to: crate::net::NodeEndpoint, out: crate::scheduler::SalvoReply);
+    fn partition(&self, a: crate::net::NodeEndpoint, b: crate::net::NodeEndpoint);
+    fn heal(&self, a: crate::net::NodeEndpoint, b: crate::net::NodeEndpoint);
+    fn kill(&self, node: crate::net::NodeEndpoint);
     fn delivered(&self, out: crate::scheduler::SalvoReply);
 }
 
 pub trait __Stateful_MemNet: Send {
-    fn attach(&mut self, at: NodeEndpoint, sink: usize);
-    fn detach(&mut self, at: NodeEndpoint);
-    fn route(&mut self, from: NodeEndpoint, to: NodeEndpoint, out: crate::scheduler::SalvoReply);
-    fn partition(&mut self, a: NodeEndpoint, b: NodeEndpoint);
-    fn heal(&mut self, a: NodeEndpoint, b: NodeEndpoint);
-    fn kill(&mut self, node: NodeEndpoint);
+    fn attach(&mut self, at: crate::net::NodeEndpoint, sink: usize);
+    fn detach(&mut self, at: crate::net::NodeEndpoint);
+    fn route(&mut self, from: crate::net::NodeEndpoint, to: crate::net::NodeEndpoint, out: crate::scheduler::SalvoReply);
+    fn partition(&mut self, a: crate::net::NodeEndpoint, b: crate::net::NodeEndpoint);
+    fn heal(&mut self, a: crate::net::NodeEndpoint, b: crate::net::NodeEndpoint);
+    fn kill(&mut self, node: crate::net::NodeEndpoint);
     fn delivered(&mut self, out: crate::scheduler::SalvoReply);
-}
-
-pub struct __Stub_MemNet {
-    addr: usize,
-}
-
-impl __Stub_MemNet {
-    pub fn new(addr: usize) -> Self {
-        Self { addr }
-    }
-}
-
-impl __Stateless_MemNet for __Stub_MemNet {
-    fn attach(&self, at: NodeEndpoint, sink: usize) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_MemNet::Attach(at, sink), crate::net::__PROTO_MemNet);
-    }
-    fn detach(&self, at: NodeEndpoint) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_MemNet::Detach(at), crate::net::__PROTO_MemNet);
-    }
-    fn route(&self, from: NodeEndpoint, to: NodeEndpoint, out: crate::scheduler::SalvoReply) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_MemNet::Route(from, to, out), crate::net::__PROTO_MemNet);
-    }
-    fn partition(&self, a: NodeEndpoint, b: NodeEndpoint) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_MemNet::Partition(a, b), crate::net::__PROTO_MemNet);
-    }
-    fn heal(&self, a: NodeEndpoint, b: NodeEndpoint) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_MemNet::Heal(a, b), crate::net::__PROTO_MemNet);
-    }
-    fn kill(&self, node: NodeEndpoint) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_MemNet::Kill(node), crate::net::__PROTO_MemNet);
-    }
-    fn delivered(&self, out: crate::scheduler::SalvoReply) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_MemNet::Delivered(out), crate::net::__PROTO_MemNet);
-    }
 }
 
 pub struct MemNet {
@@ -2539,37 +2462,37 @@ impl MemNet {
     pub fn share_locked(inner: std::sync::Arc<std::sync::Mutex<dyn __Stateful_MemNet>>) -> Self {
         Self { inner: __Inner_MemNet::Locked(inner) }
     }
-    pub fn attach(&self, at: NodeEndpoint, sink: usize) {
+    pub fn attach(&self, at: crate::net::NodeEndpoint, sink: usize) {
         match &self.inner {
             __Inner_MemNet::Shared(h) => h.attach(at, sink),
             __Inner_MemNet::Locked(h) => h.lock().unwrap().attach(at, sink),
         }
     }
-    pub fn detach(&self, at: NodeEndpoint) {
+    pub fn detach(&self, at: crate::net::NodeEndpoint) {
         match &self.inner {
             __Inner_MemNet::Shared(h) => h.detach(at),
             __Inner_MemNet::Locked(h) => h.lock().unwrap().detach(at),
         }
     }
-    pub fn route(&self, from: NodeEndpoint, to: NodeEndpoint, out: crate::scheduler::SalvoReply) {
+    pub fn route(&self, from: crate::net::NodeEndpoint, to: crate::net::NodeEndpoint, out: crate::scheduler::SalvoReply) {
         match &self.inner {
             __Inner_MemNet::Shared(h) => h.route(from, to, out),
             __Inner_MemNet::Locked(h) => h.lock().unwrap().route(from, to, out),
         }
     }
-    pub fn partition(&self, a: NodeEndpoint, b: NodeEndpoint) {
+    pub fn partition(&self, a: crate::net::NodeEndpoint, b: crate::net::NodeEndpoint) {
         match &self.inner {
             __Inner_MemNet::Shared(h) => h.partition(a, b),
             __Inner_MemNet::Locked(h) => h.lock().unwrap().partition(a, b),
         }
     }
-    pub fn heal(&self, a: NodeEndpoint, b: NodeEndpoint) {
+    pub fn heal(&self, a: crate::net::NodeEndpoint, b: crate::net::NodeEndpoint) {
         match &self.inner {
             __Inner_MemNet::Shared(h) => h.heal(a, b),
             __Inner_MemNet::Locked(h) => h.lock().unwrap().heal(a, b),
         }
     }
-    pub fn kill(&self, node: NodeEndpoint) {
+    pub fn kill(&self, node: crate::net::NodeEndpoint) {
         match &self.inner {
             __Inner_MemNet::Shared(h) => h.kill(node),
             __Inner_MemNet::Locked(h) => h.lock().unwrap().kill(node),
@@ -2584,12 +2507,12 @@ impl MemNet {
 }
 
 pub enum __Msg_MemNet {
-    Attach(NodeEndpoint, usize),
-    Detach(NodeEndpoint),
-    Route(NodeEndpoint, NodeEndpoint, crate::scheduler::SalvoReply),
-    Partition(NodeEndpoint, NodeEndpoint),
-    Heal(NodeEndpoint, NodeEndpoint),
-    Kill(NodeEndpoint),
+    Attach(crate::net::NodeEndpoint, usize),
+    Detach(crate::net::NodeEndpoint),
+    Route(crate::net::NodeEndpoint, crate::net::NodeEndpoint, crate::scheduler::SalvoReply),
+    Partition(crate::net::NodeEndpoint, crate::net::NodeEndpoint),
+    Heal(crate::net::NodeEndpoint, crate::net::NodeEndpoint),
+    Kill(crate::net::NodeEndpoint),
     Delivered(crate::scheduler::SalvoReply),
 }
 
@@ -2648,10 +2571,44 @@ impl crate::wire::__Wire for __Msg_MemNet {
 /// [protocol-hash] The canonical hash of `MemNet`.
 pub const __PROTO_MemNet: &str = "2815c14392023d5e";
 
+pub struct __Stub_MemNet {
+    addr: usize,
+}
+
+impl __Stub_MemNet {
+    pub fn new(addr: usize) -> Self {
+        Self { addr }
+    }
+}
+
+impl __Stateless_MemNet for __Stub_MemNet {
+    fn attach(&self, at: crate::net::NodeEndpoint, sink: usize) {
+        crate::scheduler::salvo_send_wire(self.addr, __Msg_MemNet::Attach(at, sink), crate::net::__PROTO_MemNet);
+    }
+    fn detach(&self, at: crate::net::NodeEndpoint) {
+        crate::scheduler::salvo_send_wire(self.addr, __Msg_MemNet::Detach(at), crate::net::__PROTO_MemNet);
+    }
+    fn route(&self, from: crate::net::NodeEndpoint, to: crate::net::NodeEndpoint, out: crate::scheduler::SalvoReply) {
+        crate::scheduler::salvo_send_wire(self.addr, __Msg_MemNet::Route(from, to, out), crate::net::__PROTO_MemNet);
+    }
+    fn partition(&self, a: crate::net::NodeEndpoint, b: crate::net::NodeEndpoint) {
+        crate::scheduler::salvo_send_wire(self.addr, __Msg_MemNet::Partition(a, b), crate::net::__PROTO_MemNet);
+    }
+    fn heal(&self, a: crate::net::NodeEndpoint, b: crate::net::NodeEndpoint) {
+        crate::scheduler::salvo_send_wire(self.addr, __Msg_MemNet::Heal(a, b), crate::net::__PROTO_MemNet);
+    }
+    fn kill(&self, node: crate::net::NodeEndpoint) {
+        crate::scheduler::salvo_send_wire(self.addr, __Msg_MemNet::Kill(node), crate::net::__PROTO_MemNet);
+    }
+    fn delivered(&self, out: crate::scheduler::SalvoReply) {
+        crate::scheduler::salvo_send_wire(self.addr, __Msg_MemNet::Delivered(out), crate::net::__PROTO_MemNet);
+    }
+}
+
 pub struct MemNetwork {
-    listeners: Map<NodeEndpoint, usize>,
-    cuts: Set<String>,
-    dead: Set<NodeEndpoint>,
+    listeners: crate::core_map::Map<crate::net::NodeEndpoint, usize>,
+    cuts: crate::core_set::Set<String>,
+    dead: crate::core_set::Set<crate::net::NodeEndpoint>,
     count: i32,
     pub __mailbox_capacity: i32,
     __addr: Option<usize>,
@@ -2661,68 +2618,62 @@ pub struct MemNetwork {
 impl MemNetwork {
     pub fn new() -> Self {
         Self {
-            listeners: crate::core_map::mut_map_of_platform::<NodeEndpoint, usize>(vec![], &mut |__i0| hash__NodeEndpoint(__i0), &mut |__i0, __i1| eq__NodeEndpoint_NodeEndpoint(__i0, __i1)),
-            cuts: crate::core_set::mut_set_of_platform::<String>(vec![], &mut |__i0| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__i0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__i0, __i1| (&__i0[..] == &__i1[..])),
-            dead: crate::core_set::mut_set_of_platform::<NodeEndpoint>(vec![], &mut |__i0| hash__NodeEndpoint(__i0), &mut |__i0, __i1| eq__NodeEndpoint_NodeEndpoint(__i0, __i1)),
-            count: 0,
-            __mailbox_capacity: 64,
+            listeners: crate::core_map::mut_map_of_platform::<crate::net::NodeEndpoint, usize>(vec![], &mut |__a0: &crate::net::NodeEndpoint| crate::net::hash__NodeEndpoint(__a0), &mut |__a0: &crate::net::NodeEndpoint, __a1: &crate::net::NodeEndpoint| crate::net::eq__NodeEndpoint_NodeEndpoint(__a0, __a1)),
+            cuts: crate::core_set::mut_set_of_platform::<String>(vec![], &mut |__a0: &String| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__a0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &String, __a1: &String| (&__a0[..] == &__a1[..])),
+            dead: crate::core_set::mut_set_of_platform::<crate::net::NodeEndpoint>(vec![], &mut |__a0: &crate::net::NodeEndpoint| crate::net::hash__NodeEndpoint(__a0), &mut |__a0: &crate::net::NodeEndpoint, __a1: &crate::net::NodeEndpoint| crate::net::eq__NodeEndpoint_NodeEndpoint(__a0, __a1)),
+            count: 0i32,
+            __mailbox_capacity: 64i32,
             __addr: None,
-            __parked: std::collections::HashMap::new(),
+            __parked: std::collections::HashMap::new()
         }
     }
 }
 
 impl crate::net::__Stateful_MemNet for MemNetwork {
-
-    fn attach(&mut self, at: NodeEndpoint, sink: usize) {
-        crate::core_set::remove_platform::<NodeEndpoint>(&mut self.dead, &at, &mut |__i0| hash__NodeEndpoint(__i0), &mut |__i0, __i1| eq__NodeEndpoint_NodeEndpoint(__i0, __i1));
-        crate::core_map::put_platform::<NodeEndpoint, usize>(&mut self.listeners, at, sink, &mut |__i0| hash__NodeEndpoint(__i0), &mut |__i0, __i1| eq__NodeEndpoint_NodeEndpoint(__i0, __i1));
+    fn attach(&mut self, at: crate::net::NodeEndpoint, sink: usize) {
+        crate::core_set::remove_platform::<crate::net::NodeEndpoint>(&mut self.dead, &at, &mut |__a0: &crate::net::NodeEndpoint| crate::net::hash__NodeEndpoint(__a0), &mut |__a0: &crate::net::NodeEndpoint, __a1: &crate::net::NodeEndpoint| crate::net::eq__NodeEndpoint_NodeEndpoint(__a0, __a1));
+        crate::core_map::put_platform::<crate::net::NodeEndpoint, usize>(&mut self.listeners, at, sink, &mut |__a0: &crate::net::NodeEndpoint| crate::net::hash__NodeEndpoint(__a0), &mut |__a0: &crate::net::NodeEndpoint, __a1: &crate::net::NodeEndpoint| crate::net::eq__NodeEndpoint_NodeEndpoint(__a0, __a1));
     }
-
-    fn detach(&mut self, at: NodeEndpoint) {
-        crate::core_map::remove_platform::<NodeEndpoint, usize>(&mut self.listeners, &at, &mut |__i0| hash__NodeEndpoint(__i0), &mut |__i0, __i1| eq__NodeEndpoint_NodeEndpoint(__i0, __i1));
+    fn detach(&mut self, at: crate::net::NodeEndpoint) {
+        crate::core_map::remove_platform::<crate::net::NodeEndpoint, usize>(&mut self.listeners, &at, &mut |__a0: &crate::net::NodeEndpoint| crate::net::hash__NodeEndpoint(__a0), &mut |__a0: &crate::net::NodeEndpoint, __a1: &crate::net::NodeEndpoint| crate::net::eq__NodeEndpoint_NodeEndpoint(__a0, __a1));
     }
-
-    fn route(&mut self, from: NodeEndpoint, to: NodeEndpoint, out: crate::scheduler::SalvoReply) {
-        if crate::core_set::contains_platform::<NodeEndpoint>(&self.dead, &to, &mut |__i0| hash__NodeEndpoint(__i0), &mut |__i0, __i1| eq__NodeEndpoint_NodeEndpoint(__i0, __i1)) || crate::core_set::contains_platform::<String>(&self.cuts, &(cut_key(&from, &to)), &mut |__i0| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__i0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__i0, __i1| (&__i0[..] == &__i1[..])) {
+    fn route(&mut self, from: crate::net::NodeEndpoint, to: crate::net::NodeEndpoint, out: crate::scheduler::SalvoReply) {
+        if (crate::core_set::contains_platform::<crate::net::NodeEndpoint>(&self.dead, &to, &mut |__a0: &crate::net::NodeEndpoint| crate::net::hash__NodeEndpoint(__a0), &mut |__a0: &crate::net::NodeEndpoint, __a1: &crate::net::NodeEndpoint| crate::net::eq__NodeEndpoint_NodeEndpoint(__a0, __a1)) || crate::core_set::contains_platform::<String>(&self.cuts, &crate::net::cut_key(&from, &to), &mut |__a0: &String| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__a0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &String, __a1: &String| (&__a0[..] == &__a1[..]))) {
             crate::scheduler::salvo_reply_wire::<Option<usize>>(out, None);
             return;
-        }
-        let mut sink = crate::core_map::get_platform::<NodeEndpoint, usize>(&self.listeners, &to, &mut |__i0| hash__NodeEndpoint(__i0), &mut |__i0, __i1| eq__NodeEndpoint_NodeEndpoint(__i0, __i1));
+        };
+        let mut sink: Option<usize> = crate::core_map::get_platform::<crate::net::NodeEndpoint, usize>(&self.listeners, &to, &mut |__a0: &crate::net::NodeEndpoint| crate::net::hash__NodeEndpoint(__a0), &mut |__a0: &crate::net::NodeEndpoint, __a1: &crate::net::NodeEndpoint| crate::net::eq__NodeEndpoint_NodeEndpoint(__a0, __a1)).copied();
         if sink.is_none() {
             crate::scheduler::salvo_reply_wire::<Option<usize>>(out, None);
             return;
-        }
-        self.count = i32::wrapping_add(self.count, 1);
-        crate::scheduler::salvo_reply_wire::<Option<usize>>(out, Some(sink.unwrap().clone()));
+        };
+        self.count = i32::wrapping_add(self.count, 1i32);
+        let mut sink_1 = sink.unwrap();
+        crate::scheduler::salvo_reply_wire::<Option<usize>>(out, Some(sink_1));
     }
-
-    fn partition(&mut self, a: NodeEndpoint, b: NodeEndpoint) {
-        crate::core_set::add_platform::<String>(&mut self.cuts, cut_key(&a, &b), &mut |__i0| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__i0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__i0, __i1| (&__i0[..] == &__i1[..]));
-        crate::core_set::add_platform::<String>(&mut self.cuts, cut_key(&b, &a), &mut |__i0| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__i0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__i0, __i1| (&__i0[..] == &__i1[..]));
+    fn partition(&mut self, a: crate::net::NodeEndpoint, b: crate::net::NodeEndpoint) {
+        crate::core_set::add_platform::<String>(&mut self.cuts, crate::net::cut_key(&a, &b), &mut |__a0: &String| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__a0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &String, __a1: &String| (&__a0[..] == &__a1[..]));
+        crate::core_set::add_platform::<String>(&mut self.cuts, crate::net::cut_key(&b, &a), &mut |__a0: &String| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__a0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &String, __a1: &String| (&__a0[..] == &__a1[..]));
     }
-
-    fn heal(&mut self, a: NodeEndpoint, b: NodeEndpoint) {
-        crate::core_set::remove_platform::<String>(&mut self.cuts, &(cut_key(&a, &b)), &mut |__i0| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__i0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__i0, __i1| (&__i0[..] == &__i1[..]));
-        crate::core_set::remove_platform::<String>(&mut self.cuts, &(cut_key(&b, &a)), &mut |__i0| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__i0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__i0, __i1| (&__i0[..] == &__i1[..]));
+    fn heal(&mut self, a: crate::net::NodeEndpoint, b: crate::net::NodeEndpoint) {
+        crate::core_set::remove_platform::<String>(&mut self.cuts, &crate::net::cut_key(&a, &b), &mut |__a0: &String| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__a0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &String, __a1: &String| (&__a0[..] == &__a1[..]));
+        crate::core_set::remove_platform::<String>(&mut self.cuts, &crate::net::cut_key(&b, &a), &mut |__a0: &String| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__a0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &String, __a1: &String| (&__a0[..] == &__a1[..]));
     }
-
-    fn kill(&mut self, node: NodeEndpoint) {
-        crate::core_map::remove_platform::<NodeEndpoint, usize>(&mut self.listeners, &node, &mut |__i0| hash__NodeEndpoint(__i0), &mut |__i0, __i1| eq__NodeEndpoint_NodeEndpoint(__i0, __i1));
-        crate::core_set::add_platform::<NodeEndpoint>(&mut self.dead, node, &mut |__i0| hash__NodeEndpoint(__i0), &mut |__i0, __i1| eq__NodeEndpoint_NodeEndpoint(__i0, __i1));
+    fn kill(&mut self, node: crate::net::NodeEndpoint) {
+        crate::core_map::remove_platform::<crate::net::NodeEndpoint, usize>(&mut self.listeners, &node, &mut |__a0: &crate::net::NodeEndpoint| crate::net::hash__NodeEndpoint(__a0), &mut |__a0: &crate::net::NodeEndpoint, __a1: &crate::net::NodeEndpoint| crate::net::eq__NodeEndpoint_NodeEndpoint(__a0, __a1));
+        crate::core_set::add_platform::<crate::net::NodeEndpoint>(&mut self.dead, node, &mut |__a0: &crate::net::NodeEndpoint| crate::net::hash__NodeEndpoint(__a0), &mut |__a0: &crate::net::NodeEndpoint, __a1: &crate::net::NodeEndpoint| crate::net::eq__NodeEndpoint_NodeEndpoint(__a0, __a1));
     }
-
     fn delivered(&mut self, out: crate::scheduler::SalvoReply) {
         crate::scheduler::salvo_reply_wire::<i32>(out, self.count);
     }
 }
 
 pub enum __Cont_MemNetwork {
-    Attach(NodeEndpoint),
+    Attach(crate::net::NodeEndpoint),
     Detach,
-    Route(NodeEndpoint, NodeEndpoint),
-    Partition(NodeEndpoint),
-    Heal(NodeEndpoint),
+    Route(crate::net::NodeEndpoint, crate::net::NodeEndpoint),
+    Partition(crate::net::NodeEndpoint),
+    Heal(crate::net::NodeEndpoint),
     Kill,
     Delivered,
 }
@@ -2735,9 +2686,6 @@ impl __Actor_MemNetwork {
     pub fn new(handler: MemNetwork) -> Self {
         Self { handler }
     }
-}
-
-impl __Actor_MemNetwork {
     fn __dispatch(&mut self, msg: crate::net::__Msg_MemNet) {
         match msg {
             crate::net::__Msg_MemNet::Attach(at, sink) => crate::net::__Stateful_MemNet::attach(&mut self.handler, at, sink),
@@ -2765,11 +2713,11 @@ impl crate::scheduler::SalvoActor for __Actor_MemNetwork {
         };
         match __cont {
             __Cont_MemNetwork::Attach(at) => self.__dispatch(crate::net::__Msg_MemNet::Attach(at, *value.downcast::<usize>().expect("the awaited answer"))),
-            __Cont_MemNetwork::Detach => self.__dispatch(crate::net::__Msg_MemNet::Detach(*value.downcast::<NodeEndpoint>().expect("the awaited answer"))),
+            __Cont_MemNetwork::Detach => self.__dispatch(crate::net::__Msg_MemNet::Detach(*value.downcast::<crate::net::NodeEndpoint>().expect("the awaited answer"))),
             __Cont_MemNetwork::Route(from, to) => self.__dispatch(crate::net::__Msg_MemNet::Route(from, to, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
-            __Cont_MemNetwork::Partition(a) => self.__dispatch(crate::net::__Msg_MemNet::Partition(a, *value.downcast::<NodeEndpoint>().expect("the awaited answer"))),
-            __Cont_MemNetwork::Heal(a) => self.__dispatch(crate::net::__Msg_MemNet::Heal(a, *value.downcast::<NodeEndpoint>().expect("the awaited answer"))),
-            __Cont_MemNetwork::Kill => self.__dispatch(crate::net::__Msg_MemNet::Kill(*value.downcast::<NodeEndpoint>().expect("the awaited answer"))),
+            __Cont_MemNetwork::Partition(a) => self.__dispatch(crate::net::__Msg_MemNet::Partition(a, *value.downcast::<crate::net::NodeEndpoint>().expect("the awaited answer"))),
+            __Cont_MemNetwork::Heal(a) => self.__dispatch(crate::net::__Msg_MemNet::Heal(a, *value.downcast::<crate::net::NodeEndpoint>().expect("the awaited answer"))),
+            __Cont_MemNetwork::Kill => self.__dispatch(crate::net::__Msg_MemNet::Kill(*value.downcast::<crate::net::NodeEndpoint>().expect("the awaited answer"))),
             __Cont_MemNetwork::Delivered => self.__dispatch(crate::net::__Msg_MemNet::Delivered(*value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
         }
     }
@@ -2777,11 +2725,11 @@ impl crate::scheduler::SalvoActor for __Actor_MemNetwork {
     fn decode_reply(&self, slot: u64, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {
         match self.handler.__parked.get(&slot)? {
             __Cont_MemNetwork::Attach{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<usize>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
-            __Cont_MemNetwork::Detach{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<NodeEndpoint>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
+            __Cont_MemNetwork::Detach{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<crate::net::NodeEndpoint>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
             __Cont_MemNetwork::Route{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<crate::scheduler::SalvoReply>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
-            __Cont_MemNetwork::Partition{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<NodeEndpoint>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
-            __Cont_MemNetwork::Heal{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<NodeEndpoint>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
-            __Cont_MemNetwork::Kill{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<NodeEndpoint>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
+            __Cont_MemNetwork::Partition{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<crate::net::NodeEndpoint>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
+            __Cont_MemNetwork::Heal{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<crate::net::NodeEndpoint>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
+            __Cont_MemNetwork::Kill{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<crate::net::NodeEndpoint>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
             __Cont_MemNetwork::Delivered{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<crate::scheduler::SalvoReply>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
         }
     }
@@ -2789,117 +2737,113 @@ impl crate::scheduler::SalvoActor for __Actor_MemNetwork {
 
 pub const __DECODE_MemNetwork: Option<crate::scheduler::MsgDecoder> = Some(__decode_msg_MemNetwork);
 fn __decode_msg_MemNetwork(proto: &str, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {
-        if proto == crate::net::__PROTO_MemNet {
-            return crate::wire::salvo_decode::<crate::net::__Msg_MemNet>(payload)
-                .map(|__m| std::boxed::Box::new(__m) as crate::scheduler::SalvoMsg);
-        }
+    if proto == crate::net::__PROTO_MemNet {
+        return crate::wire::salvo_decode::<crate::net::__Msg_MemNet>(payload).map(|__m| std::boxed::Box::new(__m) as crate::scheduler::SalvoMsg);
+    }
     None
 }
 
 #[derive(Clone)]
 pub struct MemTransport {
-    me: NodeEndpoint,
+    me: crate::net::NodeEndpoint,
     net: usize,
 }
 
 impl MemTransport {
-    pub fn new(me: NodeEndpoint, net: usize) -> Self {
+    pub fn new(me: crate::net::NodeEndpoint, net: usize) -> Self {
         Self {
             me,
-            net,
+            net
         }
     }
 }
 
 impl crate::net::__Stateless_Transport for MemTransport {
-
-    fn listen(&self, at: &NodeEndpoint, sink: usize) -> Union2<(), Union2<Unreachable, WireFailed>> {
-        crate::scheduler::salvo_send_wire(self.net.clone(), crate::net::__Msg_MemNet::Attach(at.clone(), sink), crate::net::__PROTO_MemNet);
-        return Union2::<(), Union2<Unreachable, WireFailed>>::U1(ok(()));
+    fn listen(&self, at: &crate::net::NodeEndpoint, sink: usize) -> crate::unions::Union2<(), crate::unions::Union2<crate::net::Unreachable, crate::net::WireFailed>> {
+        crate::scheduler::salvo_send_wire(self.net, crate::net::__Msg_MemNet::Attach((at).clone(), sink), crate::net::__PROTO_MemNet);
+        return crate::unions::Union2::U1(crate::core_result::ok::<()>(()));
     }
-
-    fn unlisten(&self, at: &NodeEndpoint) {
-        crate::scheduler::salvo_send_wire(self.net.clone(), crate::net::__Msg_MemNet::Detach(at.clone()), crate::net::__PROTO_MemNet);
+    fn unlisten(&self, at: &crate::net::NodeEndpoint) {
+        crate::scheduler::salvo_send_wire(self.net, crate::net::__Msg_MemNet::Detach((at).clone()), crate::net::__PROTO_MemNet);
     }
-
-    fn deliver(&self, to: &NodeEndpoint, frame: Bytes) -> Union2<(), Union2<Unreachable, WireFailed>> {
-        let mut sink = {
+    fn deliver(&self, to: &crate::net::NodeEndpoint, frame: crate::core_bytes::Bytes) -> crate::unions::Union2<(), crate::unions::Union2<crate::net::Unreachable, crate::net::WireFailed>> {
+        let mut sink: Option<usize> = {
             let (mut out, __wid) = crate::scheduler::salvo_waiter();
             crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<Option<usize>>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg)));
-            crate::scheduler::salvo_send_wire(self.net.clone(), crate::net::__Msg_MemNet::Route(self.me.clone(), to.clone(), out), crate::net::__PROTO_MemNet);
+            crate::scheduler::salvo_send_wire(self.net, crate::net::__Msg_MemNet::Route((self.me).clone(), (to).clone(), out), crate::net::__PROTO_MemNet);
             *crate::scheduler::salvo_wait(__wid).downcast::<Option<usize>>().expect("the awaited answer")
         };
         if sink.is_none() {
-            return Union2::<(), Union2<Unreachable, WireFailed>>::U2(Union2::<Unreachable, WireFailed>::U1(err(Unreachable { to: to.clone() })));
-        }
-        crate::scheduler::salvo_send_wire(sink.as_ref().unwrap().clone(), crate::net::__Msg_Inbound::ReceiveFrame(self.me.clone(), frame), crate::net::__PROTO_Inbound);
-        return Union2::<(), Union2<Unreachable, WireFailed>>::U1(ok(()));
+            return crate::unions::Union2::U2(crate::unions::Union2::U1(crate::core_result::err::<crate::net::Unreachable>(crate::net::Unreachable { to: (to).clone() })));
+        };
+        let mut sink_1 = sink.unwrap();
+        crate::scheduler::salvo_send_wire(sink_1, crate::net::__Msg_Inbound::ReceiveFrame((self.me).clone(), frame.clone()), crate::net::__PROTO_Inbound);
+        return crate::unions::Union2::U1(crate::core_result::ok::<()>(()));
     }
-
-    fn local_endpoint(&self) -> NodeEndpoint {
-        return self.me.clone();
+    fn local_endpoint(&self) -> crate::net::NodeEndpoint {
+        return (self.me).clone();
     }
 }
 
-pub fn cut_key(a: &NodeEndpoint, b: &NodeEndpoint) -> String {
-    return format!("{}>{}", to_str__NodeEndpoint(a), to_str__NodeEndpoint(b));
+pub fn cut_key(a: &crate::net::NodeEndpoint, b: &crate::net::NodeEndpoint) -> String {
+    return format!("{}>{}", crate::net::to_str__NodeEndpoint(a), crate::net::to_str__NodeEndpoint(b));
 }
 
-pub fn cmp(a: &NodeEndpoint, b: &NodeEndpoint) -> i32 {
-    let mut c__c1 = (Ord::cmp(&a.host[..], &b.host[..]) as i32);
-    if c__c1 != 0 {
+pub fn cmp(a: &crate::net::NodeEndpoint, b: &crate::net::NodeEndpoint) -> i32 {
+    let mut c__c1: i32 = (Ord::cmp(&a.host[..], &b.host[..]) as i32);
+    if !(((c__c1) == (0i32))) {
         return c__c1;
-    }
-    let mut c__c2 = (Ord::cmp(&(a.port), &(b.port)) as i32);
-    if c__c2 != 0 {
+    };
+    let mut c__c2: i32 = (Ord::cmp(&(a.port), &(b.port)) as i32);
+    if !(((c__c2) == (0i32))) {
         return c__c2;
-    }
-    return 0;
+    };
+    return 0i32;
 }
 
-pub fn hash__NodeEndpoint(value: &NodeEndpoint) -> i64 {
-    let mut h = 17i64;
-    h = mix_hash(h, { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&value.host[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) });
-    h = mix_hash(h, { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.port), &mut __h); (std::hash::Hasher::finish(&__h) as i64) });
+pub fn hash__NodeEndpoint(value: &crate::net::NodeEndpoint) -> i64 {
+    let mut h: i64 = 17i64;
+    h = crate::core_compare::mix_hash(h, { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&value.host[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) });
+    h = crate::core_compare::mix_hash(h, { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.port), &mut __h); (std::hash::Hasher::finish(&__h) as i64) });
     return h;
 }
 
-pub fn eq__NodeEndpoint_NodeEndpoint(a: &NodeEndpoint, b: &NodeEndpoint) -> bool {
-    if !(&a.host[..] == &b.host[..]) {
+pub fn eq__NodeEndpoint_NodeEndpoint(a: &crate::net::NodeEndpoint, b: &crate::net::NodeEndpoint) -> bool {
+    if !((&a.host[..] == &b.host[..])) {
         return false;
-    }
-    if !((a.port) == (b.port)) {
+    };
+    if !(((a.port) == (b.port))) {
         return false;
-    }
+    };
     return true;
 }
 
-pub fn hash__NodeId(value: &NodeId) -> i64 {
-    let mut h = 17i64;
-    h = mix_hash(h, { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.id), &mut __h); (std::hash::Hasher::finish(&__h) as i64) });
+pub fn hash__NodeId(value: &crate::net::NodeId) -> i64 {
+    let mut h: i64 = 17i64;
+    h = crate::core_compare::mix_hash(h, { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.id), &mut __h); (std::hash::Hasher::finish(&__h) as i64) });
     return h;
 }
 
-pub fn eq__NodeId_NodeId(a: &NodeId, b: &NodeId) -> bool {
-    if !((a.id) == (b.id)) {
+pub fn eq__NodeId_NodeId(a: &crate::net::NodeId, b: &crate::net::NodeId) -> bool {
+    if !(((a.id) == (b.id))) {
         return false;
-    }
+    };
     return true;
 }
 
-pub fn hash__Node(value: &Node) -> i64 {
-    let mut h = 17i64;
-    h = mix_hash(h, hash__NodeId(&value.id));
-    h = mix_hash(h, hash__NodeEndpoint(&value.at));
+pub fn hash__Node(value: &crate::net::Node) -> i64 {
+    let mut h: i64 = 17i64;
+    h = crate::core_compare::mix_hash(h, crate::net::hash__NodeId(&value.id));
+    h = crate::core_compare::mix_hash(h, crate::net::hash__NodeEndpoint(&value.at));
     return h;
 }
 
-pub fn eq__Node_Node(a: &Node, b: &Node) -> bool {
-    if !eq__NodeId_NodeId(&a.id, &b.id) {
+pub fn eq__Node_Node(a: &crate::net::Node, b: &crate::net::Node) -> bool {
+    if !(crate::net::eq__NodeId_NodeId(&a.id, &b.id)) {
         return false;
-    }
-    if !eq__NodeEndpoint_NodeEndpoint(&a.at, &b.at) {
+    };
+    if !(crate::net::eq__NodeEndpoint_NodeEndpoint(&a.at, &b.at)) {
         return false;
-    }
+    };
     return true;
 }

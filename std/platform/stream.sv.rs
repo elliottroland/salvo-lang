@@ -2,36 +2,15 @@
 // the declarations the platform code uses, as the build emits them. Rewritten
 // by every build — do not edit; the build never reads this file.
 // salvo-abi 1 5cd1832c3b5d03f1
-use crate::unions::*;
-use crate::core_actor::__Stateful_Faults as _;
-use crate::core_actor::__Stateless_Faults as _;
-use crate::core_bytes::Bytes;
-use crate::core_bytes::mut_bytes;
-use crate::core_checked::Checked;
-use crate::core_checked::checked;
-use crate::core_checked::ignore;
-use crate::core_iterator::Finished;
-use crate::core_iterator::emitted;
-use crate::core_iterator::finished;
-use crate::core_list::first;
-use crate::core_string::Str;
-use crate::core_string::lines;
-use crate::runtime_streams::Streams;
-use crate::runtime_streams::__Stateful_StreamTable as _;
-use crate::runtime_streams::__Stateless_StreamTable as _;
-use crate::runtime_streams::decode;
-use crate::runtime_streams::fresh_handle;
-use crate::runtime_streams::read_line;
-use crate::runtime_streams::receive;
 
-pub type StreamError = Union2<InvalidUtf8, StreamFailed>;
+pub type StreamError = crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>;
 
 /// Factories for the host: one per arm of the union [platform-factory].
 impl StreamError {
-    pub fn invalid_utf8(value: InvalidUtf8) -> Self {
+    pub fn invalid_utf8(value: crate::stream::InvalidUtf8) -> Self {
         crate::unions::Union2::U1(value)
     }
-    pub fn stream_failed(value: StreamFailed) -> Self {
+    pub fn stream_failed(value: crate::stream::StreamFailed) -> Self {
         crate::unions::Union2::U2(value)
     }
 }

@@ -2,9 +2,6 @@
 // the declarations the platform code uses, as the build emits them. Rewritten
 // by every build — do not edit; the build never reads this file.
 // salvo-abi 1 023a4214a13ba612
-use crate::unions::*;
-use crate::core_string::Str;
-use crate::core_string::mut_str;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProfileCredentials {
@@ -51,17 +48,17 @@ impl crate::wire::__Wire for DefaultChain {
     }
 }
 
-pub type Credentials = Union3<ProfileCredentials, EnvironmentCredentials, DefaultChain>;
+pub type Credentials = crate::unions::Union3<crate::aws::ProfileCredentials, crate::aws::EnvironmentCredentials, crate::aws::DefaultChain>;
 
 /// Factories for the host: one per arm of the union [platform-factory].
 impl Credentials {
-    pub fn profile_credentials(value: ProfileCredentials) -> Self {
+    pub fn profile_credentials(value: crate::aws::ProfileCredentials) -> Self {
         crate::unions::Union3::U1(value)
     }
-    pub fn environment_credentials(value: EnvironmentCredentials) -> Self {
+    pub fn environment_credentials(value: crate::aws::EnvironmentCredentials) -> Self {
         crate::unions::Union3::U2(value)
     }
-    pub fn default_chain(value: DefaultChain) -> Self {
+    pub fn default_chain(value: crate::aws::DefaultChain) -> Self {
         crate::unions::Union3::U3(value)
     }
 }
@@ -84,8 +81,8 @@ impl crate::wire::__Wire for Region {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct AwsConfig {
-    pub credentials: Union3<ProfileCredentials, EnvironmentCredentials, DefaultChain>,
-    pub region: Region,
+    pub credentials: crate::unions::Union3<crate::aws::ProfileCredentials, crate::aws::EnvironmentCredentials, crate::aws::DefaultChain>,
+    pub region: crate::aws::Region,
     pub endpoint: Option<String>,
 }
 

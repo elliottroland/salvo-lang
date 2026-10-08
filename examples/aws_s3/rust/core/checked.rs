@@ -1,4 +1,3 @@
-use crate::core_string::Str;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Checked<T> {
@@ -16,18 +15,18 @@ impl<T: Clone + 'static + crate::wire::__Wire> crate::wire::__Wire for Checked<T
     }
 }
 
-pub fn checked<T>(value: T) -> Checked<T> {
-    return Checked { value: value };
+pub fn checked<T>(mut value: T) -> crate::core_checked::Checked<T> {
+    return crate::core_checked::Checked { value: value };
 }
 
-pub fn ignore<T: Clone>(checked: Checked<T>) {
-    drop(checked);
+pub fn ignore<T: Clone>(mut checked: crate::core_checked::Checked<T>) {
+    std::mem::drop(checked);
 }
 
-pub fn detach<T>(checked: Checked<T>) -> T {
+pub fn detach<T>(mut checked: crate::core_checked::Checked<T>) -> T {
     return checked.value;
 }
 
-pub fn to_str<T: Clone>(checked: &Checked<T>, to_str: &mut dyn FnMut(&T) -> String) -> String {
+pub fn to_str<T: Clone>(checked: &crate::core_checked::Checked<T>, to_str: &mut dyn FnMut(&T) -> String) -> String {
     return to_str(&checked.value);
 }

@@ -9,7 +9,7 @@
 use std::collections::{HashMap, HashSet};
 
 use salvo_core::types::Ty;
-use salvo_ir::{ArmTest, Block, Expr, ExprKind, FnRef, Justification, Lit, Local, Op, Param, PassMode, Place, Stmt, Step};
+use salvo_ir::{ArmTest, Block, Expr, ExprKind, FnKind, FnRef, Justification, Lit, Local, Op, Param, PassMode, Place, Stmt, Step};
 
 use super::decls::{fn_ty_param_mode, FnPos};
 use super::{is_copy_ty, is_mut, is_proj, ModuleEmitter};
@@ -76,6 +76,19 @@ pub(crate) struct FnState {
     /// [rs-fn-lend] Parameter types a callback's result may borrow from,
     /// with the named lifetime they share in the signature.
     pub tie: Vec<(Ty, String)>,
+    /// Locals some `Assign` writes.
+    pub assigned: HashSet<String>,
+    /// A branch expression being rendered as a borrow: its arms' tails are
+    /// borrowed (`Some(true)`: mutably) rather than owned.
+    pub borrow_tail: Option<bool>,
+    /// Set when a tail rendered under `borrow_tail` is owned by its own
+    /// block, so the borrow would dangle: the branch is rendered again owned.
+    pub borrow_tail_failed: bool,
+    /// Block-local bindings of a place that a mutable borrow of their
+    /// branch reaches through: bound `&mut`.
+    pub mut_alias: HashSet<String>,
+    /// Locals a lambda or a `replyto` captures.
+    pub captured: HashSet<String>,
 }
 
 pub(crate) fn strip_all_pub(t: &Ty) -> Ty {
@@ -114,6 +127,39 @@ impl FnState {
         self.tys.insert(name.to_string(), p.ty.clone());
         k
     }
+}
+
+/// Whether every arm of a branch ends in a read of a place that outlives
+/// the arm (not a local the arm owns), or does not end at all.
+fn tails_lendable(e: &Expr) -> bool {
+    let blocks: Vec<&Block> = match &e.kind {
+        ExprKind::Branch { arms, otherwise, .. } => arms.iter().map(|(_, b)| b).chain(otherwise.iter()).collect(),
+        ExprKind::Switch { arms, .. } => arms.iter().map(|a| &a.body).collect(),
+        _ => return false,
+    };
+    blocks.into_iter().all(|b| match b.value.as_deref() {
+        None => true,
+        Some(v) if diverges(v) => true,
+        Some(v) => match &v.kind {
+            ExprKind::Read { place, .. } => !b.stmts.iter().any(|s| matches!(s, Stmt::Let { local, ty, .. } if *local == place.root && !is_proj(ty))),
+            ExprKind::Branch { .. } | ExprKind::Switch { .. } => tails_lendable(v),
+            _ => false,
+        },
+    })
+}
+
+/// A read's place as the program wrote it (`h.items`), for a diagnostic.
+fn read_place_text(e: &Expr) -> Option<String> {
+    let ExprKind::Read { place, .. } = &e.kind else { return None };
+    let mut out = place.root.0.split('~').next().unwrap_or("").to_string();
+    for s in &place.steps {
+        match s {
+            Step::Field(f) => out.push_str(&format!(".{f}")),
+            Step::Tuple(i) => out.push_str(&format!(".{i}")),
+            _ => return None,
+        }
+    }
+    Some(out)
 }
 
 pub(crate) fn rs_local(l: &str) -> String {
@@ -305,14 +351,41 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         format!("__{base}{}", self.f.tmp)
     }
 
+    /// `module:line:col` of a span in this module's source.
+    pub fn location(&self, span: salvo_syntax::Span) -> String {
+        match self.s.program.files.iter().find(|f| f.module == self.module.path) {
+            Some(file) => {
+                let (line, col) = salvo_syntax::span::line_col(&file.content, span.start);
+                format!("{}:{line}:{col}", file.module)
+            }
+            None => format!("{}", self.module.path),
+        }
+    }
+
     /// Pre-scans a body for what its bindings need to know.
     fn scan(&mut self, b: &Block) {
         let mut consumed = HashSet::new();
         let mut handles: HashMap<String, usize> = HashMap::new();
         let mut calls: Vec<Expr> = Vec::new();
-        walk_block(b, &mut |_| {}, &mut |e| match &e.kind {
+        let mut assigned = HashSet::new();
+        let mut captured = HashSet::new();
+        walk_block(b, &mut |s| {
+            if let Stmt::Assign { place, .. } = s {
+                assigned.insert(place.root.0.clone());
+            }
+        }, &mut |e| match &e.kind {
             ExprKind::Read { place, consume: true } => {
                 consumed.insert(place.root.0.clone());
+            }
+            ExprKind::Lambda { captures, .. } => {
+                captured.extend(captures.iter().map(|c| c.local.0.clone()));
+            }
+            ExprKind::ReplyTo { captures, .. } => {
+                for c in captures {
+                    if let Some(r) = bare(c) {
+                        captured.insert(r.0.clone());
+                    }
+                }
             }
             ExprKind::Handle { instance } => {
                 if let Some(r) = bare(instance) {
@@ -337,6 +410,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             }
         }
         self.f.consumed.extend(consumed);
+        self.f.assigned.extend(assigned);
+        self.f.captured.extend(captured);
         for (k, v) in handles {
             *self.f.handles.entry(k).or_default() += v;
         }
@@ -488,6 +563,15 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 return format!("{pad}let {p}: usize = {pos};\n");
             }
         }
+        // [rs-borrow-locals] A borrow-mode binding of a pure place, never
+        // reassigned, mutated through, captured or consumed, is a borrow
+        // of the place: the checker poisons it before any write the
+        // borrow would outlive [fate-poison].
+        if let Some(code) = self.borrow_local(local, ty, value, indent) {
+            let k = if self.f.mut_alias.contains(&local.0) { Kind::RefMut } else { Kind::Ref };
+            self.f.kinds.insert(local.0.clone(), k);
+            return format!("{pad}let mut {n} = {code};\n");
+        }
         let kind = if is_proj(ty) { if is_mut(ty) { Kind::RefMut } else { Kind::Ref } } else { Kind::Owned };
         // [rs-loop-temp] A borrow the binding keeps must not be of a
         // temporary: such an argument is bound first.
@@ -502,6 +586,35 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         self.f.kinds.insert(local.0.clone(), kind);
         let annot = if self.annotatable(ty) && !self.nested_proj(ty) { format!(": {}", self.ty(ty)) } else { String::new() };
         format!("{pad}let mut {n}{annot} = {code};\n")
+    }
+
+    fn borrow_local(&mut self, local: &Local, ty: &Ty, value: &Expr, indent: usize) -> Option<String> {
+        let ExprKind::Read { place, consume } = &value.kind else { return None };
+        // A consuming read of a borrowed root cannot move: it borrows too.
+        if *consume && !matches!(self.f.kinds.get(&place.root.0), Some(Kind::Ref | Kind::RefMut)) {
+            return None;
+        }
+        if is_proj(ty) || is_copy_ty(ty) || is_proj(&value.ty) || matches!(ty.strip_quals(), Ty::Fn { .. }) || self.s.holds_proj(ty) {
+            return None;
+        }
+        let l = &local.0;
+        if self.f.assigned.contains(l) || self.f.captured.contains(l) || self.f.consumed.contains(l) || self.f.lent_mut.contains(l) {
+            return None;
+        }
+        if !place.steps.iter().all(|s| matches!(s, Step::Field(_) | Step::Tuple(_))) || self.f.loc.is_some() {
+            return None;
+        }
+        match self.f.kinds.get(&place.root.0) {
+            Some(Kind::Owned | Kind::Ref | Kind::RefMut | Kind::SelfField) => {}
+            _ => return None,
+        }
+        if self.f.loc_index.contains_key(&place.root.0) {
+            return None;
+        }
+        if self.f.mut_alias.contains(l) {
+            return Some(self.borrow_mut(value, indent));
+        }
+        Some(self.borrow(value, indent))
     }
 
     /// A container type over borrowed elements: its Rust type is the
@@ -714,6 +827,21 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             let v = self.value(e, indent);
             return if is_mut(&e.ty) { format!("&*{v}") } else { v };
         }
+        // A branch's value borrowed: each arm's tail borrowed where it stands.
+        if matches!(e.kind, ExprKind::Branch { .. } | ExprKind::Switch { .. }) && !is_copy_ty(&e.ty) && tails_lendable(e) {
+            let (tmp, errs, failed) = (self.f.tmp, self.s.errors.len(), self.f.borrow_tail_failed);
+            self.f.borrow_tail = Some(false);
+            self.f.borrow_tail_failed = false;
+            let v = self.value(e, indent);
+            self.f.borrow_tail = None;
+            if !std::mem::replace(&mut self.f.borrow_tail_failed, failed) {
+                return v;
+            }
+            self.f.tmp = tmp;
+            self.s.errors.truncate(errs);
+            let v = self.value(e, indent);
+            return format!("&{v}");
+        }
         if let ExprKind::Read { place, .. } = &e.kind {
             let (text, kind) = self.place_text(place, indent);
             if place.steps.is_empty() {
@@ -735,6 +863,32 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             return self.borrow_mut(value, indent);
         }
         if diverges(e) {
+            return self.value(e, indent);
+        }
+        // [rs-narrow-mut] A branch's value lent mutably (`add(xs!, 3)`): each
+        // arm's tail is the storage reached `&mut`, never a clone of it.
+        if matches!(e.kind, ExprKind::Branch { .. } | ExprKind::Switch { .. }) && !is_copy_ty(&e.ty) && tails_lendable(e) {
+            let mut narrows: Vec<(String, String)> = Vec::new();
+            walk_expr(e, &mut |st| {
+                if let Stmt::Narrow { local, from, .. } = st {
+                    narrows.push((local.0.clone(), from.root.0.clone()));
+                }
+            }, &mut |_| {});
+            for (l, from) in narrows {
+                self.f.lent_mut.insert(l);
+                self.f.mut_alias.insert(from);
+            }
+            let (tmp, errs, failed) = (self.f.tmp, self.s.errors.len(), self.f.borrow_tail_failed);
+            self.f.borrow_tail = Some(true);
+            self.f.borrow_tail_failed = false;
+            let v = self.value(e, indent);
+            self.f.borrow_tail = None;
+            if !std::mem::replace(&mut self.f.borrow_tail_failed, failed) {
+                return v;
+            }
+            self.f.tmp = tmp;
+            self.s.errors.truncate(errs);
+            self.error("cannot lower this mutable use: the value it would mutate is a temporary of its own expression [backend-never-wrong]");
             return self.value(e, indent);
         }
         if let ExprKind::Read { place, .. } = &e.kind {
@@ -1184,11 +1338,22 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     fn block(&mut self, b: &Block, slot: Option<&Ty>, indent: usize) -> String {
         let pad = Self::pad(indent);
         let saved = self.f.kinds.clone();
+        let tail = self.f.borrow_tail.take();
         let mut out = self.stmts(&b.stmts, indent + 1);
+        if tail.is_some() {
+            if let Some(r) = b.value.as_deref().and_then(read_root) {
+                let here = b.stmts.iter().any(|s| matches!(s, Stmt::Let { local, .. } | Stmt::Narrow { local, .. } | Stmt::Alias { local, .. } if local.0 == r));
+                if here && matches!(self.f.kinds.get(&r), Some(Kind::Owned) | None) {
+                    self.f.borrow_tail_failed = true;
+                }
+            }
+        }
         if let Some(v) = &b.value {
-            let code = match slot {
-                Some(t) => self.value_into(v, t, indent + 1),
-                None => self.value(v, indent + 1),
+            let code = match (tail, slot) {
+                (Some(true), _) => self.borrow_mut(v, indent + 1),
+                (Some(false), _) => self.borrow(v, indent + 1),
+                (None, Some(t)) => self.value_into(v, t, indent + 1),
+                (None, None) => self.value(v, indent + 1),
             };
             out.push_str(&format!("{}{code}\n", Self::pad(indent + 1)));
         }
@@ -1199,13 +1364,16 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     fn branch(&mut self, e: &Expr, id: salvo_ir::NodeId, arms: &[(Expr, Block)], otherwise: Option<&Block>, indent: usize) -> String {
         let _ = id;
         let slot = (!e.ty.is_none_ty()).then(|| e.ty.clone());
+        let tail = self.f.borrow_tail.take();
         // A block expression: one `true` arm.
         if arms.len() == 1 && otherwise.is_none() && matches!(arms[0].0.kind, ExprKind::Bool(true)) {
+            self.f.borrow_tail = tail;
             return self.block(&arms[0].1, slot.as_ref(), indent);
         }
         let mut out = String::new();
         for (i, (c, b)) in arms.iter().enumerate() {
             let cond = self.value(c, indent);
+            self.f.borrow_tail = tail;
             let body = self.block(b, slot.as_ref(), indent);
             if i > 0 {
                 out.push_str(" else ");
@@ -1214,6 +1382,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         }
         match otherwise {
             Some(o) => {
+                self.f.borrow_tail = tail;
                 let body = self.block(o, slot.as_ref(), indent);
                 out.push_str(&format!(" else {body}"));
             }
@@ -1236,6 +1405,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
 
     fn switch(&mut self, e: &Expr, id: salvo_ir::NodeId, subject: &Expr, arms: &[salvo_ir::SwitchArm], indent: usize) -> String {
         let slot = (!e.ty.is_none_ty()).then(|| e.ty.clone());
+        let tail = self.f.borrow_tail.take();
         let (subj, prelude) = match &subject.kind {
             ExprKind::Read { .. } => (self.raw_subject(subject, indent), None),
             _ => {
@@ -1247,6 +1417,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let mut out = String::new();
         for (i, a) in arms.iter().enumerate() {
             self.f.test_arms.insert((id.0, i), a.test.clone());
+            self.f.borrow_tail = tail;
             let body = self.block(&a.body, slot.as_ref(), indent);
             let last = i + 1 == arms.len();
             if i > 0 {
@@ -1661,7 +1832,38 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 out.push(t);
             } else if reads_root && p.is_some_and(|p| p.mode == PassMode::Lent && !is_proj(&p.ty) && !matches!(p.ty.strip_quals(), Ty::Fn { .. })) {
                 // A read before a mutable lend of its place sees the old
-                // value: an owned copy, lent.
+                // value: an owned copy, lent. Only of what copies
+                // unobservably — a scalar or immutable data: a copy of
+                // mutable data would be a snapshot here and a live handle
+                // on Kotlin [backend-never-wrong].
+                let root = read_root(a);
+                let later = args.iter().enumerate().skip(i + 1).any(|(j, b)| {
+                    let mut roots: Vec<String> = Vec::new();
+                    if params.get(j).is_some_and(|p| p.mode == PassMode::LentMut) {
+                        roots.extend(read_root(b));
+                    }
+                    walk_expr(b, &mut |_| {}, &mut |e| {
+                        if let ExprKind::Call { target: FnRef::Decl(id), args: inner, .. } = &e.kind {
+                            if let Some(f) = self.s.fn_decl(id) {
+                                for (p, x) in f.params.iter().zip(inner) {
+                                    if p.mode == PassMode::LentMut {
+                                        roots.extend(read_root(x));
+                                    }
+                                }
+                            }
+                        }
+                    });
+                    root.as_ref().is_some_and(|r| roots.contains(r))
+                });
+                let inner = match &a.kind { ExprKind::DropMut { value } => value.as_ref(), _ => a };
+                if later && !is_copy_ty(&a.ty) && super::decls::ty_carries_mut(&inner.ty) {
+                    if let Some(place) = read_place_text(inner) {
+                        let at = self.location(a.span);
+                        self.error(format!(
+                            "cannot lower this call: `{place}` is read here while a later argument mutates it, and it is mutable data — a copy would be a snapshot on one backend and a live handle on the other, so the program has to choose: `copy({place})` for the snapshot, or give the mutating call its own statement first [rs-mut-arg-hoist] (at {at})"
+                        ));
+                    }
+                }
                 let v = self.value(a, indent);
                 let t = self.fresh("arg");
                 lets.push(format!("let {t} = {v};"));
@@ -2351,9 +2553,16 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     self.s.erased.fns.contains(&(fi, af.name.span.start))
                 });
                 let impl_params = self.stores_callbacks_pub(f);
-                let ta = if !erased && tps > 0 && type_args.len() == tps && type_args.iter().all(|t| !t.is_unknown() && !super::body::foreign_var(t, &self.f.generics) && !self.s.holds_proj(t)) && !impl_params {
+                let ta = if !erased && tps > 0 && type_args.len() == tps && type_args.iter().all(|t| !t.is_unknown() && !super::body::foreign_var(t, &self.f.generics) && (f.kind == FnKind::Plain || !self.s.holds_proj(t))) && !impl_params {
                     let ts: Vec<String> = type_args.iter().map(|t| self.ty(t)).collect();
-                    format!("::<{}>", ts.join(", "))
+                    // A borrowed argument (to a Salvo fn: a host's answers
+                    // owned) names no lifetime of its own here (`&Fighter`,
+                    // `ListYield<'_, Fighter>`), or none is said.
+                    if ts.iter().all(|t| !t.replace("'_", "").contains('\'')) {
+                        format!("::<{}>", ts.join(", "))
+                    } else {
+                        String::new()
+                    }
                 } else {
                     String::new()
                 };

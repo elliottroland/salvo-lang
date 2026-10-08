@@ -2,43 +2,33 @@
 // the declarations the platform code uses, as the build emits them. Rewritten
 // by every build — do not edit; the build never reads this file.
 // salvo-abi 1 5cd1832c3b5d03f1
-use crate::unions::*;
-use crate::core_bytes::Bytes;
-use crate::core_bytes::mut_bytes;
-use crate::core_checked::Checked;
-use crate::core_checked::checked;
-use crate::core_checked::detach;
-use crate::core_checked::ignore;
-use crate::core_list::List;
-use crate::core_string::Str;
-use crate::core_string::lines;
 use crate::stream::InvalidUtf8;
-use crate::stream::StreamError;
 use crate::stream::StreamFailed;
 
-pub type FsError = Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>;
+
+pub type FsError = crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>;
 
 /// Factories for the host: one per arm of the union [platform-factory].
 impl FsError {
-    pub fn not_found(value: NotFound) -> Self {
+    pub fn not_found(value: crate::fs::NotFound) -> Self {
         crate::unions::Union7::U1(value)
     }
-    pub fn permission_denied(value: PermissionDenied) -> Self {
+    pub fn permission_denied(value: crate::fs::PermissionDenied) -> Self {
         crate::unions::Union7::U2(value)
     }
-    pub fn already_exists(value: AlreadyExists) -> Self {
+    pub fn already_exists(value: crate::fs::AlreadyExists) -> Self {
         crate::unions::Union7::U3(value)
     }
-    pub fn not_a_directory(value: NotADirectory) -> Self {
+    pub fn not_a_directory(value: crate::fs::NotADirectory) -> Self {
         crate::unions::Union7::U4(value)
     }
-    pub fn path_escapes(value: PathEscapes) -> Self {
+    pub fn path_escapes(value: crate::fs::PathEscapes) -> Self {
         crate::unions::Union7::U5(value)
     }
-    pub fn io_error(value: IoError) -> Self {
+    pub fn io_error(value: crate::fs::IoError) -> Self {
         crate::unions::Union7::U6(value)
     }
-    pub fn streaming(value: Streaming) -> Self {
+    pub fn streaming(value: crate::fs::Streaming) -> Self {
         crate::unions::Union7::U7(value)
     }
 }
@@ -144,7 +134,7 @@ impl crate::wire::__Wire for IoError {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Streaming {
-    pub error: Union2<InvalidUtf8, StreamFailed>,
+    pub error: crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>,
 }
 
 impl crate::wire::__Wire for Streaming {

@@ -2,15 +2,13 @@
 // the declarations the platform code uses, as the build emits them. Rewritten
 // by every build — do not edit; the build never reads this file.
 // salvo-abi 1 5cd1832c3b5d03f1
-use crate::unions::*;
 use crate::core_iterator::Finished;
+use crate::core_list::add_platform;
+use crate::core_string::append_platform;
 use crate::core_iterator::emitted;
 use crate::core_iterator::finished;
-use crate::core_list::List;
-use crate::core_list::first;
-use crate::core_list::last;
-use crate::core_string::Str;
 use crate::core_string::mut_str;
+
 
 /// [platform-type] The host's `Deque`.
 pub use crate::platform_core_deque::Deque;
@@ -22,11 +20,11 @@ pub fn empty_deque_platform<T>() -> std::collections::VecDeque<T> {
     crate::platform_core_deque::empty_deque()
 }
 
-pub fn deque_from_platform<T: Clone>(first: T, rest: Vec<T>) -> std::collections::VecDeque<T> {
+pub fn deque_from_platform<T: Clone>(mut first: T, mut rest: Vec<T>) -> std::collections::VecDeque<T> {
     crate::platform_core_deque::deque_from(first, rest)
 }
 
-pub fn into_mut_platform<T>(d: std::collections::VecDeque<T>) -> std::collections::VecDeque<T> {
+pub fn into_mut_platform<T>(mut d: std::collections::VecDeque<T>) -> std::collections::VecDeque<T> {
     crate::platform_core_deque::into_mut(d)
 }
 
@@ -35,52 +33,55 @@ pub fn end_empty_platform<T>(mut d: std::collections::VecDeque<T>) {
 }
 
 pub fn deque_of<T>() -> std::collections::VecDeque<T> {
-    return empty_deque_platform();
+    return crate::core_deque::empty_deque_platform::<T>();
 }
 
-pub fn deque_of__T<T>(first: T) -> std::collections::VecDeque<T> {
-    let mut d = empty_deque_platform();
-    add_last_platform(&mut d, first);
+pub fn deque_of__T<T>(mut first: T) -> std::collections::VecDeque<T> {
+    let mut d: std::collections::VecDeque<T> = crate::core_deque::empty_deque_platform::<T>();
+    crate::core_deque::add_last_platform::<T>(&mut d, first);
     return d;
 }
 
-pub fn deque_of__T_TArray<T: Clone>(first: T, rest: Vec<T>) -> std::collections::VecDeque<T> {
-    return deque_from_platform(first, rest);
+pub fn deque_of__T_TArray<T: Clone>(mut first: T, mut rest: Vec<T>) -> std::collections::VecDeque<T> {
+    return crate::core_deque::deque_from_platform::<T>(first, rest);
 }
 
 pub fn mut_deque_of<T>() -> std::collections::VecDeque<T> {
-    return empty_deque_platform();
+    return crate::core_deque::empty_deque_platform::<T>();
 }
 
-pub fn mut_deque_of__T<T>(first: T) -> std::collections::VecDeque<T> {
-    let mut d = empty_deque_platform();
-    add_last_platform(&mut d, first);
+pub fn mut_deque_of__T<T>(mut first: T) -> std::collections::VecDeque<T> {
+    let mut d: std::collections::VecDeque<T> = crate::core_deque::empty_deque_platform::<T>();
+    crate::core_deque::add_last_platform::<T>(&mut d, first);
     return d;
 }
 
-pub fn mut_deque_of__T_TArray<T: Clone>(first: T, rest: Vec<T>) -> std::collections::VecDeque<T> {
-    return deque_from_platform(first, rest);
+pub fn mut_deque_of__T_TArray<T: Clone>(mut first: T, mut rest: Vec<T>) -> std::collections::VecDeque<T> {
+    return crate::core_deque::deque_from_platform::<T>(first, rest);
 }
 
-pub fn deque_by<T: Clone>(size: i32, init: &mut impl FnMut(i32) -> T) -> std::collections::VecDeque<T> {
-    return mut_deque_by(size, init);
+pub fn deque_by<T: Clone>(mut size: i32, init: &mut dyn FnMut(i32) -> T) -> std::collections::VecDeque<T> {
+    return crate::core_deque::mut_deque_by::<T>(size, &mut *init);
 }
 
-pub fn mut_deque_by<T: Clone>(size: i32, init: &mut impl FnMut(i32) -> T) -> std::collections::VecDeque<T> {
-    let mut d = empty_deque_platform();
-    let mut i = 0;
-    while i < size {
-        add_last_platform(&mut d, init(i.clone()));
-        i = i32::wrapping_add(i, 1);
+pub fn mut_deque_by<T: Clone>(mut size: i32, init: &mut dyn FnMut(i32) -> T) -> std::collections::VecDeque<T> {
+    let mut d: std::collections::VecDeque<T> = crate::core_deque::empty_deque_platform::<T>();
+    let mut i: i32 = 0i32;
+    loop {
+        if !((i < size)) {
+            break;
+        };
+        crate::core_deque::add_last_platform::<T>(&mut d, init(i));
+        i = i32::wrapping_add(i, 1i32);
     }
     return d;
 }
 
-pub fn add_last_platform<T>(d: &mut std::collections::VecDeque<T>, elem: T) {
+pub fn add_last_platform<T>(d: &mut std::collections::VecDeque<T>, mut elem: T) {
     crate::platform_core_deque::add_last(d, elem)
 }
 
-pub fn add_first_platform<T>(d: &mut std::collections::VecDeque<T>, elem: T) {
+pub fn add_first_platform<T>(d: &mut std::collections::VecDeque<T>, mut elem: T) {
     crate::platform_core_deque::add_first(d, elem)
 }
 
@@ -92,24 +93,24 @@ pub fn remove_last_platform<T>(d: &mut std::collections::VecDeque<T>) -> Option<
     crate::platform_core_deque::remove_last(d)
 }
 
-pub fn remove_at_platform<T>(d: &mut std::collections::VecDeque<T>, index: i32) -> Option<T> {
+pub fn remove_at_platform<T>(d: &mut std::collections::VecDeque<T>, mut index: i32) -> Option<T> {
     crate::platform_core_deque::remove_at(d, index)
 }
 
-pub fn get_platform<T>(d: &std::collections::VecDeque<T>, index: i32) -> Option<&T> {
+pub fn get_platform<T>(d: &std::collections::VecDeque<T>, mut index: i32) -> Option<&T> {
     crate::platform_core_deque::get(d, index)
 }
 
-pub fn get<'a, T>(d: &'a std::collections::VecDeque<T>, index: &i32) -> &'a T {
-    return get_at_platform(d, i32::wrapping_add(*index, 0));
+pub fn get<T>(d: &std::collections::VecDeque<T>, mut index: i32) -> &T {
+    return crate::core_deque::get_at_platform::<T>(d, i32::wrapping_add(index, 0i32));
 }
 
-pub fn get_at_platform<T>(d: &std::collections::VecDeque<T>, index: i32) -> &T {
+pub fn get_at_platform<T>(d: &std::collections::VecDeque<T>, mut index: i32) -> &T {
     crate::platform_core_deque::get_at(d, index)
 }
 
-pub fn replace_platform<T>(d: &mut std::collections::VecDeque<T>, index: &i32, value: T) -> T {
-    crate::platform_core_deque::replace(d, *index, value)
+pub fn replace_platform<T>(d: &mut std::collections::VecDeque<T>, mut index: i32, mut value: T) -> T {
+    crate::platform_core_deque::replace(d, index, value)
 }
 
 pub fn first_platform<T>(d: &std::collections::VecDeque<T>) -> Option<&T> {
@@ -124,46 +125,57 @@ pub fn size_platform<T>(d: &std::collections::VecDeque<T>) -> i32 {
     crate::platform_core_deque::size(d)
 }
 
-pub fn drain<T>(d: std::collections::VecDeque<T>, each: &mut impl FnMut(T)) {
-    let mut m = into_mut_platform(d);
-    while size_platform(&m) > 0 {
-        each(remove_first_platform(&mut m).expect("salvo: value is absent at core.deque:116:14"));
+pub fn drain<T>(mut d: std::collections::VecDeque<T>, each: &mut dyn FnMut(T)) {
+    let mut m: std::collections::VecDeque<T> = crate::core_deque::into_mut_platform::<T>(d);
+    loop {
+        if !((crate::core_deque::size_platform::<T>(&m) > 0i32)) {
+            break;
+        };
+        { let __arg1 = {
+            let mut __nn_1: Option<T> = crate::core_deque::remove_first_platform::<T>(&mut m);
+            if __nn_1.is_none() {
+                panic!("salvo: value is absent at core.deque:116:14");
+            } else {
+                let mut __some_2 = __nn_1.unwrap();
+                __some_2
+            }
+        }; each(__arg1) };
     }
-    end_empty_platform(m);
+    crate::core_deque::end_empty_platform::<T>(m);
 }
 
 pub fn to_str<T: Clone>(d: &std::collections::VecDeque<T>, to_str: &mut dyn FnMut(&T) -> String) -> String {
-    let mut out = mut_str(vec!["[".to_string()]);
-    let mut i = 0;
-    for mut x in crate::platform_core_deque::each(d).map(|__x| __x.clone()) {
-        if i > 0 {
-            crate::core_string::append_platform(&mut out, &(", ".to_string()));
-        }
-        crate::core_string::append_platform(&mut out, &(to_str(&x)));
-        i = i32::wrapping_add(i, 1);
+    let mut out: String = crate::core_string::mut_str(vec![String::from("[")]);
+    let mut i: i32 = 0i32;
+    for mut x in d.iter() {
+        if (i > 0i32) {
+            crate::core_string::append_platform(&mut out, &String::from(", "));
+        };
+        crate::core_string::append_platform(&mut out, &to_str(x));
+        i = i32::wrapping_add(i, 1i32);
     }
-    crate::core_string::append_platform(&mut out, &("]".to_string()));
+    crate::core_string::append_platform(&mut out, &String::from("]"));
     return out;
 }
 
 pub fn to_list<T: Clone>(d: &std::collections::VecDeque<T>, copy: &mut dyn FnMut(&T) -> T) -> Vec<T> {
-    let mut out = vec![];
-    for mut x in crate::platform_core_deque::each(d).map(|__x| __x.clone()) {
-        crate::core_list::add_platform(&mut out, copy(&x));
+    let mut out: Vec<T> = vec![];
+    for mut x in d.iter() {
+        crate::core_list::add_platform::<T>(&mut out, copy(x));
     }
     return out;
 }
 
 pub fn to_deque<T: Clone>(list: &Vec<T>, copy: &mut dyn FnMut(&T) -> T) -> std::collections::VecDeque<T> {
-    let mut out = empty_deque_platform();
-    for mut x in crate::platform_core_list::each(list).map(|__x| __x.clone()) {
-        add_last_platform(&mut out, copy(&x));
+    let mut out: std::collections::VecDeque<T> = crate::core_deque::empty_deque_platform::<T>();
+    for mut x in list.iter() {
+        crate::core_deque::add_last_platform::<T>(&mut out, copy(x));
     }
     return out;
 }
 
-pub fn iter<T: Clone>(d: &std::collections::VecDeque<T>) -> DequeYield<'_, T> {
-    return DequeYield { items: d, at: 0 };
+pub fn iter<T: Clone>(d: &std::collections::VecDeque<T>) -> crate::core_deque::DequeYield<'_, T> {
+    return crate::core_deque::DequeYield { items: d, at: 0i32 };
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -172,13 +184,14 @@ pub struct DequeYield<'s, T> {
     pub at: i32,
 }
 
-pub fn next__DequeYield<'s, T: Clone>(p: &mut DequeYield<'s, T>) -> Union2<&'s T, Finished> {
-    let mut elem = get_platform(&p.items, p.at);
+pub fn next__DequeYield<'a, T: Clone>(p: &mut crate::core_deque::DequeYield<'a, T>) -> crate::unions::Union2<&'a T, crate::core_iterator::Finished> {
+    let mut elem: Option<&T> = crate::core_deque::get_platform::<T>(p.items, p.at);
     if elem.is_none() {
-        return Union2::U2(finished());
-    }
-    p.at = i32::wrapping_add(p.at, 1);
-    return Union2::U1(emitted(elem.unwrap()));
+        return crate::unions::Union2::U2(crate::core_iterator::finished());
+    };
+    p.at = i32::wrapping_add(p.at, 1i32);
+    let mut elem_1 = elem.unwrap();
+    return crate::unions::Union2::U1(crate::core_iterator::emitted::<&T>(elem_1));
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -187,15 +200,16 @@ pub struct __Iter_reversed_Deque<'s, T> {
     pub at: i32,
 }
 
-pub fn reversed<T: Clone>(d: &std::collections::VecDeque<T>) -> __Iter_reversed_Deque<'_, T> {
-    return __Iter_reversed_Deque { d: d, at: i32::wrapping_sub(size_platform(d), 1) };
+pub fn reversed<T: Clone>(d: &std::collections::VecDeque<T>) -> crate::core_deque::__Iter_reversed_Deque<'_, T> {
+    return crate::core_deque::__Iter_reversed_Deque { d: d, at: i32::wrapping_sub(crate::core_deque::size_platform::<T>(d), 1i32) };
 }
 
-pub fn next__Iter_reversed_Deque<'s, T: Clone>(__p: &mut __Iter_reversed_Deque<'s, T>) -> Union2<&'s T, Finished> {
-    let mut elem = get_platform(&__p.d, __p.at);
+pub fn next__Iter_reversed_Deque<'a, T: Clone>(__p: &mut crate::core_deque::__Iter_reversed_Deque<'a, T>) -> crate::unions::Union2<&'a T, crate::core_iterator::Finished> {
+    let mut elem: Option<&T> = crate::core_deque::get_platform::<T>(__p.d, __p.at);
     if elem.is_none() {
-        return Union2::U2(finished());
-    }
-    __p.at = i32::wrapping_sub(__p.at, 1);
-    return Union2::U1(emitted(elem.unwrap()));
+        return crate::unions::Union2::U2(crate::core_iterator::finished());
+    };
+    __p.at = i32::wrapping_sub(__p.at, 1i32);
+    let mut elem_1 = elem.unwrap();
+    return crate::unions::Union2::U1(crate::core_iterator::emitted::<&T>(elem_1));
 }

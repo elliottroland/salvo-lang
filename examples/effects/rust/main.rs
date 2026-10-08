@@ -1,4 +1,4 @@
-#![allow(non_snake_case, non_camel_case_types, unused_mut, unused_parens, unused_imports, dead_code, unreachable_code, unused_variables, path_statements, unused_must_use, suspicious_double_ref_op, non_upper_case_globals)]
+#![allow(non_snake_case, non_camel_case_types, unused_mut, unused_parens, unused_imports, dead_code, unreachable_code, unused_variables, path_statements, unused_must_use, suspicious_double_ref_op, non_upper_case_globals, unused_braces)]
 #[path = "unions/mod.rs"]
 pub mod unions;
 #[path = "seq.rs"]
@@ -43,11 +43,8 @@ pub mod platform_core_sorted;
 pub mod platform_core_string;
 
 use crate::core_console::Console;
-use crate::core_console::ConsolePlatformSync as _;
-use crate::core_console::__Stateful_Console as _;
-use crate::core_console::__Stateless_Console as _;
 use crate::core_console::println;
-use crate::core_string::Str;
+
 
 pub trait __Stateless_Clock: Send + Sync {
     fn now(&self) -> i32;
@@ -103,26 +100,25 @@ pub struct TickingClock {
 impl TickingClock {
     pub fn new() -> Self {
         Self {
-            tick: 0,
+            tick: 0i32
         }
     }
 }
 
 impl crate::__Stateful_Clock for TickingClock {
-
     fn now(&mut self) -> i32 {
-        self.tick = i32::wrapping_add(self.tick, 5);
+        self.tick = i32::wrapping_add(self.tick, 5i32);
         return self.tick;
     }
 }
 
 pub fn stamp(clock: &crate::Clock, console: &crate::core_console::Console, label: &String) {
-    let mut t = clock.now();
-    banner(console, &(format!("{} at t={}", label.clone(), t)));
+    let mut t: i32 = clock.now();
+    crate::banner(console, &format!("{} at t={}", label, t));
 }
 
 pub fn banner(console: &crate::core_console::Console, text: &String) {
-    println(console, &(format!("   {}", text.clone())));
+    crate::core_console::println(console, &format!("   {}", text));
 }
 
 pub trait __Stateless_Logger: Send + Sync {
@@ -174,21 +170,20 @@ impl Logger {
 
 #[derive(Clone)]
 pub struct PlainLogger {
-    __dep_Console: crate::core_console::Console,
+    __dep0: crate::core_console::Console,
 }
 
 impl PlainLogger {
-    pub fn new(__dep_Console: crate::core_console::Console) -> Self {
+    pub fn new(__dep0: crate::core_console::Console) -> Self {
         Self {
-            __dep_Console,
+            __dep0
         }
     }
 }
 
 impl crate::__Stateless_Logger for PlainLogger {
-
     fn log(&self, message: &String) {
-        println(&self.__dep_Console, &(format!("   {}", message.clone())));
+        crate::core_console::println(&self.__dep0, &format!("   {}", message));
     }
 }
 
@@ -199,57 +194,55 @@ pub struct QuietLogger {
 impl QuietLogger {
     pub fn new() -> Self {
         Self {
+            
         }
     }
 }
 
 impl crate::__Stateless_Logger for QuietLogger {
-
     fn log(&self, message: &String) {
     }
 }
 
 #[derive(Clone)]
 pub struct Stamped {
-    __dep_Logger: crate::Logger,
-    __dep_Clock: crate::Clock,
+    __dep0: crate::Logger,
+    __dep1: crate::Clock,
 }
 
 impl Stamped {
-    pub fn new(__dep_Logger: crate::Logger, __dep_Clock: crate::Clock) -> Self {
+    pub fn new(__dep0: crate::Logger, __dep1: crate::Clock) -> Self {
         Self {
-            __dep_Logger,
-            __dep_Clock,
+            __dep0,
+            __dep1
         }
     }
 }
 
 impl crate::__Stateless_Logger for Stamped {
-
     fn log(&self, message: &String) {
-        self.__dep_Logger.log(&(format!("[t={}] {}", self.__dep_Clock.now(), message.clone())));
+        self.__dep0.log(&format!("[t={}] {}", self.__dep1.now(), message));
     }
 }
 
 pub struct Numbered {
+    __dep0: crate::Logger,
     seen: i32,
-    __dep_Logger: crate::Logger,
 }
 
 impl Numbered {
-    pub fn new(__dep_Logger: crate::Logger) -> Self {
+    pub fn new(__dep0: crate::Logger) -> Self {
         Self {
-            seen: 0,
-            __dep_Logger,
+            __dep0,
+            seen: 0i32
         }
     }
 }
 
 impl crate::__Stateful_Logger for Numbered {
-
     fn log(&mut self, message: &String) {
-        self.seen = i32::wrapping_add(self.seen, 1);
-        self.__dep_Logger.log(&(format!("#{} {}", self.seen, message.clone())));
+        self.seen = i32::wrapping_add(self.seen, 1i32);
+        self.__dep0.log(&format!("#{} {}", self.seen, message));
     }
 }
 
@@ -258,21 +251,24 @@ pub fn work(logger: &crate::Logger, step: &String) {
 }
 
 pub fn interception(logger: &crate::Logger, clock: &crate::Clock) {
-    work(logger, &("4. plain".to_string()));
-    let logger2 = crate::Logger::shared(Stamped::new(logger.clone(), clock.clone()));
-    work(&logger2, &("4. stamped".to_string()));
-    let logger3 = crate::Logger::locked(Numbered::new(logger2.clone()));
-    work(&logger3, &("4. numbered, then stamped".to_string()));
-    work(&logger3, &("4. and again".to_string()));
+    crate::work(logger, &String::from("4. plain"));
+    let mut __use_1: crate::Stamped = crate::Stamped::new(logger.clone(), clock.clone());
+    let __handle_2 = crate::Logger::shared(__use_1);
+    crate::work(&__handle_2, &String::from("4. stamped"));
+    let mut __use_3: crate::Numbered = crate::Numbered::new(__handle_2.clone());
+    let __handle_4 = crate::Logger::locked(__use_3);
+    crate::work(&__handle_4, &String::from("4. numbered, then stamped"));
+    crate::work(&__handle_4, &String::from("4. and again"));
 }
 
 pub fn scoping(logger: &crate::Logger) {
-    work(logger, &("5. before the block".to_string()));
-    if true {
-        let logger2 = crate::Logger::shared(QuietLogger::new());
-        work(&logger2, &("5. this line is swallowed".to_string()));
-    }
-    work(logger, &("5. after the block, logging again".to_string()));
+    crate::work(logger, &String::from("5. before the block"));
+    {
+        let mut __use_1: crate::QuietLogger = crate::QuietLogger::new();
+        let __handle_2 = crate::Logger::shared(__use_1);
+        crate::work(&__handle_2, &String::from("5. this line is swallowed"));
+    };
+    crate::work(logger, &String::from("5. after the block, logging again"));
 }
 
 pub trait __Stateless_Audit: Send + Sync {
@@ -371,41 +367,39 @@ impl Metrics {
 
 #[derive(Clone)]
 pub struct ConsoleAudit {
-    __dep_Console: crate::core_console::Console,
+    __dep0: crate::core_console::Console,
 }
 
 impl ConsoleAudit {
-    pub fn new(__dep_Console: crate::core_console::Console) -> Self {
+    pub fn new(__dep0: crate::core_console::Console) -> Self {
         Self {
-            __dep_Console,
+            __dep0
         }
     }
 }
 
 impl crate::__Stateless_Audit for ConsoleAudit {
-
     fn record(&self, what: &String) {
-        println(&self.__dep_Console, &(format!("   audit: {}", what.clone())));
+        crate::core_console::println(&self.__dep0, &format!("   audit: {}", what));
     }
 }
 
 #[derive(Clone)]
 pub struct ConsoleMetrics {
-    __dep_Console: crate::core_console::Console,
+    __dep0: crate::core_console::Console,
 }
 
 impl ConsoleMetrics {
-    pub fn new(__dep_Console: crate::core_console::Console) -> Self {
+    pub fn new(__dep0: crate::core_console::Console) -> Self {
         Self {
-            __dep_Console,
+            __dep0
         }
     }
 }
 
 impl crate::__Stateless_Metrics for ConsoleMetrics {
-
     fn record(&self, what: &String) {
-        println(&self.__dep_Console, &(format!("   metric: {}", what.clone())));
+        crate::core_console::println(&self.__dep0, &format!("   metric: {}", what));
     }
 }
 
@@ -473,44 +467,50 @@ pub struct Fixed<T: Clone + Send + Sync + 'static> {
 impl<T: Clone + Send + Sync + 'static> Fixed<T> {
     pub fn new(value: T) -> Self {
         Self {
-            value,
+            value
         }
     }
 }
 
 impl<T: Clone + Send + Sync + 'static> crate::__Stateless_Setting<T> for Fixed<T> {
-
     fn setting(&self, copy: &mut dyn FnMut(&T) -> T) -> T {
         return copy(&self.value);
     }
 }
 
-pub fn settings(setting_i32: &crate::Setting<i32>, setting_string: &crate::Setting<String>, console: &crate::core_console::Console) {
-    let mut retries: i32 = setting_i32.setting(&mut |__i0| __i0.clone());
-    let mut region = setting_string.setting(&mut |__i0| __i0.clone());
-    println(console, &(format!("   retries={} region={}", retries, region)));
+pub fn settings(setting: &crate::Setting<i32>, setting__1: &crate::Setting<String>, console: &crate::core_console::Console) {
+    let mut retries: i32 = setting.setting(&mut |__a0| *__a0);
+    let mut region: String = setting__1.setting(&mut |__a0| (__a0).clone());
+    crate::core_console::println(console, &format!("   retries={} region={}", retries, region));
 }
 
 pub fn main() {
-    let console = crate::core_console::Console::shared(crate::core_console::__Platform_StdOutConsole::new());
-    let clock = crate::Clock::locked(TickingClock::new());
-    println(&console, &(format!("1. the clock reads {}, then {}", clock.now(), clock.now())));
-    println(&console, &("2. two effects in one signature:".to_string()));
-    stamp(&clock, &console, &("2. a labelled moment".to_string()));
-    { let __a1 = &("3. a logger whose handler needs the console:".to_string()); println(&console, __a1) };
-    let logger = crate::Logger::shared(PlainLogger::new(console.clone()));
-    work(&logger, &("3. logged through the console".to_string()));
-    println(&console, &("4. interception — each `use` wraps the one before it:".to_string()));
-    interception(&logger, &clock);
-    println(&console, &("5. shadowing is not wrapping:".to_string()));
-    scoping(&logger);
-    println(&console, &("6. two effects, one member name:".to_string()));
-    let audit = crate::Audit::shared(ConsoleAudit::new(console.clone()));
-    audit_only(&audit, &("6. audited only".to_string()));
-    let metrics = crate::Metrics::shared(ConsoleMetrics::new(console.clone()));
-    audit_and_measure(&audit, &metrics, &("6. audited and measured".to_string()));
-    println(&console, &("7. two instances of one generic effect:".to_string()));
-    let setting_i32 = crate::Setting::<i32>::shared(Fixed::<i32>::new(3));
-    let setting_string = crate::Setting::<String>::shared(Fixed::<String>::new("eu-west-1".to_string()));
-    settings(&setting_i32, &setting_string, &console);
+    let mut __use_1: crate::core_console::__Platform_StdOutConsole = crate::core_console::__Platform_StdOutConsole::new();
+    let __handle_2 = crate::core_console::Console::shared(__use_1);
+    let mut __use_3: crate::TickingClock = crate::TickingClock::new();
+    let __handle_4 = crate::Clock::locked(__use_3);
+    crate::core_console::println(&__handle_2, &format!("1. the clock reads {}, then {}", __handle_4.now(), __handle_4.now()));
+    crate::core_console::println(&__handle_2, &String::from("2. two effects in one signature:"));
+    crate::stamp(&__handle_4, &__handle_2, &String::from("2. a labelled moment"));
+    crate::core_console::println(&__handle_2, &String::from("3. a logger whose handler needs the console:"));
+    let mut __use_5: crate::PlainLogger = crate::PlainLogger::new(__handle_2.clone());
+    let __handle_6 = crate::Logger::shared(__use_5);
+    crate::work(&__handle_6, &String::from("3. logged through the console"));
+    crate::core_console::println(&__handle_2, &String::from("4. interception — each `use` wraps the one before it:"));
+    crate::interception(&__handle_6, &__handle_4);
+    crate::core_console::println(&__handle_2, &String::from("5. shadowing is not wrapping:"));
+    crate::scoping(&__handle_6);
+    crate::core_console::println(&__handle_2, &String::from("6. two effects, one member name:"));
+    let mut __use_7: crate::ConsoleAudit = crate::ConsoleAudit::new(__handle_2.clone());
+    let __handle_8 = crate::Audit::shared(__use_7);
+    crate::audit_only(&__handle_8, &String::from("6. audited only"));
+    let mut __use_9: crate::ConsoleMetrics = crate::ConsoleMetrics::new(__handle_2.clone());
+    let __handle_10 = crate::Metrics::shared(__use_9);
+    crate::audit_and_measure(&__handle_8, &__handle_10, &String::from("6. audited and measured"));
+    crate::core_console::println(&__handle_2, &String::from("7. two instances of one generic effect:"));
+    let mut __use_11: crate::Fixed<i32> = crate::Fixed::new(3i32);
+    let __handle_12 = crate::Setting::shared(__use_11);
+    let mut __use_13: crate::Fixed<String> = crate::Fixed::new(String::from("eu-west-1"));
+    let __handle_14 = crate::Setting::shared(__use_13);
+    crate::settings(&__handle_12, &__handle_14, &__handle_2);
 }

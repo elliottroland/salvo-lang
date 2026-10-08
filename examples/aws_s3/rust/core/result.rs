@@ -1,8 +1,8 @@
 
-pub fn ok<T>(value: T) -> T {
+pub fn ok<T>(mut value: T) -> T {
     return value;
 }
 
-pub fn err<T>(value: T) -> T {
+pub fn err<T>(mut value: T) -> T {
     return value;
 }

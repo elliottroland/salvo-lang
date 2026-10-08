@@ -409,7 +409,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             let mk = if decl.stateful { "locked" } else { "shared" };
             return format!("{face}::{mk}({h})");
         }
-        if !decl.type_params.is_empty() {
+        if !decl.type_params.is_empty() && !self.s.erased.is_erased(&decl.name) {
             self.error(format!("spawning generic handler `{}` is not supported yet", decl.name));
             return "()".to_string();
         }

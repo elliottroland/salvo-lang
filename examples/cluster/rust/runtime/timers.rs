@@ -1,62 +1,45 @@
-use crate::core_actor::Mailbox;
-use crate::core_actor::__Stateful_Faults as _;
-use crate::core_actor::__Stateless_Faults as _;
-use crate::core_list::List;
-use crate::core_list::at;
-use crate::core_list::drain;
-use crate::runtime::Body;
 use crate::runtime::Dyn;
+use crate::time::Fired;
 use crate::runtime::Parker;
-use crate::runtime::RuntimeHostPlatformSync as _;
-use crate::runtime::Token;
-use crate::runtime::__Stateful_RuntimeHost as _;
-use crate::runtime::__Stateful_SchedTable as _;
-use crate::runtime::__Stateless_RuntimeHost as _;
-use crate::runtime::__Stateless_SchedTable as _;
+use crate::time::Tick;
+use crate::core_list::add_platform;
 use crate::runtime::body_of_platform;
+use crate::core_list::drain;
 use crate::runtime::drop_dyn_platform;
+use crate::core_list::get_platform;
 use crate::runtime::main_pool;
 use crate::runtime::mint_task_on;
 use crate::runtime::now_nanos;
 use crate::runtime::on_clock;
 use crate::runtime::park_nanos_platform;
+use crate::core_list::remove_at_platform;
+use crate::core_list::remove_first_platform;
 use crate::runtime::set_virtual_now;
+use crate::core_list::size_platform;
 use crate::runtime::this_parker_platform;
 use crate::runtime::unpark_platform;
 use crate::runtime::virtual_runtime;
-use crate::time::Fired;
-use crate::time::Tick;
-use crate::time::__Stateful_Clock as _;
-use crate::time::__Stateful_Ticker as _;
-use crate::time::__Stateful_Timer as _;
-use crate::time::__Stateful_TimerCtl as _;
-use crate::time::__Stateless_Clock as _;
-use crate::time::__Stateless_Ticker as _;
-use crate::time::__Stateless_Timer as _;
-use crate::time::__Stateless_TimerCtl as _;
 
-/// [mod-use] The module's `use` #0, bound on first use.
-fn __module_use_0() -> &'static crate::runtime_timers::DeadlineTable {
-    static CELL: std::sync::OnceLock<crate::runtime_timers::DeadlineTable> = std::sync::OnceLock::new();
-    CELL.get_or_init(|| {
-            let deadline_table = crate::runtime_timers::DeadlineTable::locked(Deadlines::new());
-        deadline_table
-    })
+
+pub fn __module_use0() -> &'static std::sync::Arc<std::sync::Mutex<crate::runtime_timers::Deadlines>> {
+    static CELL: std::sync::OnceLock<std::sync::Arc<std::sync::Mutex<crate::runtime_timers::Deadlines>>> = std::sync::OnceLock::new();
+    CELL.get_or_init(|| std::sync::Arc::new(std::sync::Mutex::new(crate::runtime_timers::Deadlines::new())))
 }
 
-/// [mod-use] The module's `use` #1, bound on first use.
-fn __module_use_1() -> &'static crate::runtime_timers::Wheel {
+pub fn __module_use0_0() -> &'static crate::runtime_timers::DeadlineTable {
+    static CELL: std::sync::OnceLock<crate::runtime_timers::DeadlineTable> = std::sync::OnceLock::new();
+    CELL.get_or_init(|| crate::runtime_timers::DeadlineTable::share_locked(crate::runtime_timers::__module_use0().clone()))
+}
+
+pub fn __module_use1() -> &'static crate::runtime_timers::Wheel {
     static CELL: std::sync::OnceLock<crate::runtime_timers::Wheel> = std::sync::OnceLock::new();
-    CELL.get_or_init(|| {
-            let mut wheel = crate::runtime_timers::Wheel::shared(__Stub_Wheel::new(({ let __h = Wheeling::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(crate::scheduler::salvo_thread(), __cap as usize, std::boxed::Box::new(__Actor_Wheeling::new(__h)), __DECODE_Wheeling); __a })));
-        wheel
-    })
+    CELL.get_or_init(|| crate::runtime_timers::Wheel::shared(crate::runtime_timers::__Stub_Wheel::new(({ let __h = crate::runtime_timers::Wheeling::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(crate::scheduler::salvo_thread(), __cap as usize, std::boxed::Box::new(crate::runtime_timers::__Actor_Wheeling::new(__h)), crate::runtime_timers::__DECODE_Wheeling); __a }))))
 }
 
 pub trait __Stateless_DeadlineTable: Send + Sync {
     fn register(&self, at: i64, done: crate::scheduler::SalvoReply) -> bool;
-    fn wheel_parker(&self, p: Parker);
-    fn waker(&self) -> Option<Parker>;
+    fn wheel_parker(&self, p: crate::runtime::Parker);
+    fn waker(&self) -> Option<crate::runtime::Parker>;
     fn take_due(&self, now: i64) -> Vec<crate::scheduler::SalvoReply>;
     fn next_deadline(&self) -> Option<i64>;
     fn clear(&self);
@@ -64,8 +47,8 @@ pub trait __Stateless_DeadlineTable: Send + Sync {
 
 pub trait __Stateful_DeadlineTable: Send {
     fn register(&mut self, at: i64, done: crate::scheduler::SalvoReply) -> bool;
-    fn wheel_parker(&mut self, p: Parker);
-    fn waker(&mut self) -> Option<Parker>;
+    fn wheel_parker(&mut self, p: crate::runtime::Parker);
+    fn waker(&mut self) -> Option<crate::runtime::Parker>;
     fn take_due(&mut self, now: i64) -> Vec<crate::scheduler::SalvoReply>;
     fn next_deadline(&mut self) -> Option<i64>;
     fn clear(&mut self);
@@ -108,13 +91,13 @@ impl DeadlineTable {
             __Inner_DeadlineTable::Locked(h) => h.lock().unwrap().register(at, done),
         }
     }
-    pub fn wheel_parker(&self, p: Parker) {
+    pub fn wheel_parker(&self, p: crate::runtime::Parker) {
         match &self.inner {
             __Inner_DeadlineTable::Shared(h) => h.wheel_parker(p),
             __Inner_DeadlineTable::Locked(h) => h.lock().unwrap().wheel_parker(p),
         }
     }
-    pub fn waker(&self) -> Option<Parker> {
+    pub fn waker(&self) -> Option<crate::runtime::Parker> {
         match &self.inner {
             __Inner_DeadlineTable::Shared(h) => h.waker(),
             __Inner_DeadlineTable::Locked(h) => h.lock().unwrap().waker(),
@@ -144,7 +127,7 @@ pub struct Deadlines {
     ats: Vec<i64>,
     dones: Vec<crate::scheduler::SalvoReply>,
     running: bool,
-    parker: Option<Parker>,
+    parker: Option<crate::runtime::Parker>,
     forgotten: Vec<crate::scheduler::SalvoReply>,
 }
 
@@ -155,82 +138,97 @@ impl Deadlines {
             dones: vec![],
             running: false,
             parker: None,
-            forgotten: vec![],
+            forgotten: vec![]
         }
     }
 }
 
 impl crate::runtime_timers::__Stateful_DeadlineTable for Deadlines {
-
     fn register(&mut self, at: i64, done: crate::scheduler::SalvoReply) -> bool {
-        crate::core_list::add_platform(&mut self.ats, at);
-        crate::core_list::add_platform(&mut self.dones, done);
+        crate::core_list::add_platform::<i64>(&mut self.ats, at);
+        crate::core_list::add_platform::<crate::scheduler::SalvoReply>(&mut self.dones, done);
         if self.running {
             return false;
-        }
+        };
         self.running = true;
         return true;
     }
-
-    fn wheel_parker(&mut self, p: Parker) {
-        self.parker = Some(p.clone());
+    fn wheel_parker(&mut self, p: crate::runtime::Parker) {
+        self.parker = Some(p);
     }
-
-    fn waker(&mut self) -> Option<Parker> {
+    fn waker(&mut self) -> Option<crate::runtime::Parker> {
         if self.running {
-            return self.parker.clone();
-        }
+            return (self.parker).clone();
+        };
         return None;
     }
-
     fn take_due(&mut self, now: i64) -> Vec<crate::scheduler::SalvoReply> {
         let mut due: Vec<crate::scheduler::SalvoReply> = vec![];
-        let mut i = 0;
-        while i < crate::core_list::size_platform(&self.ats) {
-            if *crate::core_list::get_platform(&self.ats, i).expect("salvo: value is absent at runtime.timers:72:16") <= now {
-                let mut _at = crate::core_list::remove_at_platform(&mut self.ats, i);
-                let mut __is1 = crate::core_list::remove_at_platform(&mut self.dones, i);
-                if __is1.is_some() {
-                    let mut r = __is1.unwrap();
-                    crate::core_list::add_platform(&mut due, r);
+        let mut i: i32 = 0i32;
+        loop {
+            if !((i < crate::core_list::size_platform::<i64>(&self.ats))) {
+                break;
+            };
+            if ({
+                let mut __nn_1: Option<i64> = crate::core_list::get_platform::<i64>(&self.ats, i).copied();
+                if __nn_1.is_none() {
+                    panic!("salvo: value is absent at runtime.timers:72:16");
+                } else {
+                    let mut __some_2 = __nn_1.unwrap();
+                    __some_2
                 }
+            } <= now) {
+                let mut _at: Option<i64> = crate::core_list::remove_at_platform::<i64>(&mut self.ats, i);
+                let mut __subject_3: Option<crate::scheduler::SalvoReply> = crate::core_list::remove_at_platform::<crate::scheduler::SalvoReply>(&mut self.dones, i);
+                if __subject_3.is_some() {
+                    let mut r = __subject_3.unwrap();
+                    crate::core_list::add_platform::<crate::scheduler::SalvoReply>(&mut due, r);
+                };
             } else {
-                i = i32::wrapping_add(i, 1);
-            }
+                i = i32::wrapping_add(i, 1i32);
+            };
         }
         return due;
     }
-
     fn next_deadline(&mut self) -> Option<i64> {
         let mut earliest: Option<i64> = None;
-        for at in crate::platform_core_list::each(&self.ats) {
-            if ((earliest.is_none()) || *at < earliest.unwrap()) {
-                earliest = Some(at.clone());
-            }
+        for mut at in self.ats.iter().copied() {
+            if if earliest.is_none() {
+                true
+            } else {
+                let mut earliest_1 = earliest.unwrap();
+                (at < earliest_1)
+            } {
+                earliest = Some(at);
+            };
         }
         if earliest.is_none() {
             self.running = false;
-        }
+        };
         return earliest;
     }
-
     fn clear(&mut self) {
         loop {
-            let mut __is2 = crate::core_list::remove_first_platform(&mut self.dones);
-            if !(__is2.is_some()) {
+            let mut __subject_1: Option<crate::scheduler::SalvoReply> = crate::core_list::remove_first_platform::<crate::scheduler::SalvoReply>(&mut self.dones);
+            if !(__subject_1.is_some()) {
                 break;
-            }
-            let mut r = __is2.unwrap();
-            crate::core_list::add_platform(&mut self.forgotten, r);
+            };
+            let mut r = __subject_1.unwrap();
+            crate::core_list::add_platform::<crate::scheduler::SalvoReply>(&mut self.forgotten, r);
         }
-        while crate::core_list::remove_first_platform(&mut self.ats).is_some() {
+        loop {
+            if !((crate::core_list::remove_first_platform::<i64>(&mut self.ats)).is_some()) {
+                break;
+            };
         }
         self.running = false;
     }
 }
 
-pub fn answer_all(mut due: Vec<crate::scheduler::SalvoReply>, now: i64) {
-    drain(due, &mut (|r| crate::scheduler::salvo_reply_wire::<Fired>(r, Fired { at: Tick { nanos: now.clone() } })));
+pub fn answer_all(mut due: Vec<crate::scheduler::SalvoReply>, mut now: i64) {
+    crate::core_list::drain::<crate::scheduler::SalvoReply>(due, &mut |mut r| {
+        crate::scheduler::salvo_reply_wire::<crate::time::Fired>(r, crate::time::Fired { at: crate::time::Tick { nanos: now } })
+    });
 }
 
 pub trait __Stateless_Wheel: Send + Sync {
@@ -239,22 +237,6 @@ pub trait __Stateless_Wheel: Send + Sync {
 
 pub trait __Stateful_Wheel: Send {
     fn run(&mut self);
-}
-
-pub struct __Stub_Wheel {
-    addr: usize,
-}
-
-impl __Stub_Wheel {
-    pub fn new(addr: usize) -> Self {
-        Self { addr }
-    }
-}
-
-impl __Stateless_Wheel for __Stub_Wheel {
-    fn run(&self) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_Wheel::Run, crate::runtime_timers::__PROTO_Wheel);
-    }
 }
 
 pub struct Wheel {
@@ -317,6 +299,22 @@ impl crate::wire::__Wire for __Msg_Wheel {
 /// [protocol-hash] The canonical hash of `Wheel`.
 pub const __PROTO_Wheel: &str = "df3353758a650c52";
 
+pub struct __Stub_Wheel {
+    addr: usize,
+}
+
+impl __Stub_Wheel {
+    pub fn new(addr: usize) -> Self {
+        Self { addr }
+    }
+}
+
+impl __Stateless_Wheel for __Stub_Wheel {
+    fn run(&self) {
+        crate::scheduler::salvo_send_wire(self.addr, __Msg_Wheel::Run, crate::runtime_timers::__PROTO_Wheel);
+    }
+}
+
 pub struct Wheeling {
     pub __mailbox_capacity: i32,
     __addr: Option<usize>,
@@ -325,28 +323,31 @@ pub struct Wheeling {
 impl Wheeling {
     pub fn new() -> Self {
         Self {
-            __mailbox_capacity: 2,
-            __addr: None,
+            __mailbox_capacity: 2i32,
+            __addr: None
         }
     }
 }
 
 impl crate::runtime_timers::__Stateless_Wheel for Wheeling {
-
     fn run(&self) {
-        __module_use_0().wheel_parker(crate::runtime::this_parker_platform());
+        crate::runtime_timers::__module_use0_0().wheel_parker(crate::runtime::this_parker_platform());
         loop {
-            let mut now = now_nanos();
-            let mut due = __module_use_0().take_due(now);
-            answer_all(due, now);
-            let mut until = __module_use_0().next_deadline();
+            if !(true) {
+                break;
+            };
+            let mut now: i64 = crate::runtime::now_nanos();
+            let mut due: Vec<crate::scheduler::SalvoReply> = crate::runtime_timers::__module_use0_0().take_due(now);
+            crate::runtime_timers::answer_all(due, now);
+            let mut until: Option<i64> = crate::runtime_timers::__module_use0_0().next_deadline();
             if until.is_none() {
                 return;
-            }
-            let mut wait = i64::wrapping_sub(until.unwrap(), now_nanos());
-            if wait > ((0) as i64) {
-                crate::runtime::park_nanos_platform(&(crate::runtime::this_parker_platform()), wait);
-            }
+            };
+            let mut until_1 = until.unwrap();
+            let mut wait: i64 = i64::wrapping_sub(until_1, crate::runtime::now_nanos());
+            if (wait > 0i64) {
+                crate::runtime::park_nanos_platform(&crate::runtime::this_parker_platform(), wait);
+            };
         }
     }
 }
@@ -359,9 +360,6 @@ impl __Actor_Wheeling {
     pub fn new(handler: Wheeling) -> Self {
         Self { handler }
     }
-}
-
-impl __Actor_Wheeling {
     fn __dispatch(&mut self, msg: crate::runtime_timers::__Msg_Wheel) {
         match msg {
             crate::runtime_timers::__Msg_Wheel::Run => crate::runtime_timers::__Stateless_Wheel::run(&mut self.handler),
@@ -383,55 +381,55 @@ impl crate::scheduler::SalvoActor for __Actor_Wheeling {
 
 pub const __DECODE_Wheeling: Option<crate::scheduler::MsgDecoder> = Some(__decode_msg_Wheeling);
 fn __decode_msg_Wheeling(proto: &str, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {
-        if proto == crate::runtime_timers::__PROTO_Wheel {
-            return crate::wire::salvo_decode::<crate::runtime_timers::__Msg_Wheel>(payload)
-                .map(|__m| std::boxed::Box::new(__m) as crate::scheduler::SalvoMsg);
-        }
+    if proto == crate::runtime_timers::__PROTO_Wheel {
+        return crate::wire::salvo_decode::<crate::runtime_timers::__Msg_Wheel>(payload).map(|__m| std::boxed::Box::new(__m) as crate::scheduler::SalvoMsg);
+    }
     None
 }
 
-pub fn after_nanos(delay: i64, done: crate::scheduler::SalvoReply) {
-    let mut wait = delay;
-    if wait < ((0) as i64) {
+pub fn after_nanos(mut delay: i64, mut done: crate::scheduler::SalvoReply) {
+    let mut wait: i64 = delay;
+    if (wait < 0i64) {
         wait = 0i64;
-    }
-    if virtual_runtime() {
-        if __module_use_0().register(i64::wrapping_add(now_nanos(), wait), done) {
-            arm_clock();
-        }
+    };
+    if crate::runtime::virtual_runtime() {
+        if crate::runtime_timers::__module_use0_0().register(i64::wrapping_add(crate::runtime::now_nanos(), wait), done) {
+            crate::runtime_timers::arm_clock();
+        };
         return;
-    }
-    if __module_use_0().register(i64::wrapping_add(now_nanos(), wait), done) {
-        __module_use_1().run();
+    };
+    if crate::runtime_timers::__module_use0_0().register(i64::wrapping_add(crate::runtime::now_nanos(), wait), done) {
+        crate::runtime_timers::__module_use1().run();
         return;
-    }
-    let mut p = __module_use_0().waker();
+    };
+    let mut p: Option<crate::runtime::Parker> = crate::runtime_timers::__module_use0_0().waker();
     if p.is_some() {
-        crate::runtime::unpark_platform(p.as_ref().unwrap());
-    }
+        let mut p_1 = p.as_ref().unwrap();
+        crate::runtime::unpark_platform(p_1);
+    };
 }
 
 pub fn arm_clock() {
-    on_clock(mint_task_on(main_pool(), crate::runtime::body_of_platform(std::boxed::Box::new(move |kind, slot, value| {
-    crate::runtime::drop_dyn_platform(value);
-    advance();
-}))));
+    crate::runtime::on_clock(crate::runtime::mint_task_on(crate::runtime::main_pool(), crate::runtime::body_of_platform(std::boxed::Box::new(move |mut kind: i32, mut slot: i64, mut value: crate::runtime::Dyn| {
+        crate::runtime::drop_dyn_platform(value);
+        crate::runtime_timers::advance();
+    }))));
 }
 
 pub fn advance() {
-    let mut until = __module_use_0().next_deadline();
+    let mut until: Option<i64> = crate::runtime_timers::__module_use0_0().next_deadline();
     if until.is_some() {
         let mut at = until.unwrap();
-        set_virtual_now(at);
-        let mut now = now_nanos();
-        let mut due = __module_use_0().take_due(now.clone());
-        answer_all(due, now);
-        if __module_use_0().next_deadline().is_some() {
-            arm_clock();
-        }
-    }
+        crate::runtime::set_virtual_now(at);
+        let mut now: i64 = crate::runtime::now_nanos();
+        let mut due: Vec<crate::scheduler::SalvoReply> = crate::runtime_timers::__module_use0_0().take_due(now);
+        crate::runtime_timers::answer_all(due, now);
+        if (crate::runtime_timers::__module_use0_0().next_deadline()).is_some() {
+            crate::runtime_timers::arm_clock();
+        };
+    };
 }
 
 pub fn reset_timers() {
-    __module_use_0().clear();
+    crate::runtime_timers::__module_use0_0().clear();
 }

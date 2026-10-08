@@ -2,14 +2,8 @@
 // the declarations the platform code uses, as the build emits them. Rewritten
 // by every build — do not edit; the build never reads this file.
 // salvo-abi 1 5cd1832c3b5d03f1
-use crate::unions::*;
-use crate::core_checked::Checked;
-use crate::core_checked::checked;
-use crate::core_list::List;
-use crate::core_string::Str;
 use crate::fs::AlreadyExists;
 use crate::fs::FileInfo;
-use crate::fs::FsError;
 use crate::fs::IoError;
 use crate::fs::NotADirectory;
 use crate::fs::NotFound;
@@ -17,30 +11,31 @@ use crate::fs::PathEscapes;
 use crate::fs::PermissionDenied;
 use crate::fs::Streaming;
 
+
 pub trait __Stateless_RawFs: Send + Sync {
-    fn raw_open_read(&self, path: &String) -> Union2<i64, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>;
-    fn raw_open_read_at(&self, path: &String, offset: i64) -> Union2<i64, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>;
-    fn raw_open_write(&self, path: &String) -> Union2<i64, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>;
-    fn raw_open_append(&self, path: &String) -> Union2<i64, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>;
+    fn raw_open_read(&self, path: &String) -> crate::unions::Union2<i64, crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>;
+    fn raw_open_read_at(&self, path: &String, offset: i64) -> crate::unions::Union2<i64, crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>;
+    fn raw_open_write(&self, path: &String) -> crate::unions::Union2<i64, crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>;
+    fn raw_open_append(&self, path: &String) -> crate::unions::Union2<i64, crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>;
     fn raw_exists(&self, path: &String) -> bool;
-    fn raw_metadata(&self, path: &String) -> Union2<FileInfo, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>;
-    fn raw_list_dir(&self, path: &String) -> Union2<Vec<String>, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>;
-    fn raw_create_dirs(&self, path: &String) -> Union2<(), Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>;
-    fn raw_delete(&self, path: &String) -> Union2<(), Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>;
-    fn raw_rename_path(&self, from: &String, to: &String) -> Union2<(), Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>;
+    fn raw_metadata(&self, path: &String) -> crate::unions::Union2<crate::fs::FileInfo, crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>;
+    fn raw_list_dir(&self, path: &String) -> crate::unions::Union2<Vec<String>, crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>;
+    fn raw_create_dirs(&self, path: &String) -> crate::unions::Union2<(), crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>;
+    fn raw_delete(&self, path: &String) -> crate::unions::Union2<(), crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>;
+    fn raw_rename_path(&self, from: &String, to: &String) -> crate::unions::Union2<(), crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>;
 }
 
 pub trait __Stateful_RawFs: Send {
-    fn raw_open_read(&mut self, path: &String) -> Union2<i64, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>;
-    fn raw_open_read_at(&mut self, path: &String, offset: i64) -> Union2<i64, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>;
-    fn raw_open_write(&mut self, path: &String) -> Union2<i64, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>;
-    fn raw_open_append(&mut self, path: &String) -> Union2<i64, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>;
+    fn raw_open_read(&mut self, path: &String) -> crate::unions::Union2<i64, crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>;
+    fn raw_open_read_at(&mut self, path: &String, offset: i64) -> crate::unions::Union2<i64, crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>;
+    fn raw_open_write(&mut self, path: &String) -> crate::unions::Union2<i64, crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>;
+    fn raw_open_append(&mut self, path: &String) -> crate::unions::Union2<i64, crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>;
     fn raw_exists(&mut self, path: &String) -> bool;
-    fn raw_metadata(&mut self, path: &String) -> Union2<FileInfo, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>;
-    fn raw_list_dir(&mut self, path: &String) -> Union2<Vec<String>, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>;
-    fn raw_create_dirs(&mut self, path: &String) -> Union2<(), Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>;
-    fn raw_delete(&mut self, path: &String) -> Union2<(), Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>;
-    fn raw_rename_path(&mut self, from: &String, to: &String) -> Union2<(), Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>;
+    fn raw_metadata(&mut self, path: &String) -> crate::unions::Union2<crate::fs::FileInfo, crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>;
+    fn raw_list_dir(&mut self, path: &String) -> crate::unions::Union2<Vec<String>, crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>;
+    fn raw_create_dirs(&mut self, path: &String) -> crate::unions::Union2<(), crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>;
+    fn raw_delete(&mut self, path: &String) -> crate::unions::Union2<(), crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>;
+    fn raw_rename_path(&mut self, from: &String, to: &String) -> crate::unions::Union2<(), crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>;
 }
 
 pub struct RawFs {
@@ -74,25 +69,25 @@ impl RawFs {
     pub fn share_locked(inner: std::sync::Arc<std::sync::Mutex<dyn __Stateful_RawFs>>) -> Self {
         Self { inner: __Inner_RawFs::Locked(inner) }
     }
-    pub fn raw_open_read(&self, path: &String) -> Union2<i64, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+    pub fn raw_open_read(&self, path: &String) -> crate::unions::Union2<i64, crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>> {
         match &self.inner {
             __Inner_RawFs::Shared(h) => h.raw_open_read(path),
             __Inner_RawFs::Locked(h) => h.lock().unwrap().raw_open_read(path),
         }
     }
-    pub fn raw_open_read_at(&self, path: &String, offset: i64) -> Union2<i64, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+    pub fn raw_open_read_at(&self, path: &String, offset: i64) -> crate::unions::Union2<i64, crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>> {
         match &self.inner {
             __Inner_RawFs::Shared(h) => h.raw_open_read_at(path, offset),
             __Inner_RawFs::Locked(h) => h.lock().unwrap().raw_open_read_at(path, offset),
         }
     }
-    pub fn raw_open_write(&self, path: &String) -> Union2<i64, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+    pub fn raw_open_write(&self, path: &String) -> crate::unions::Union2<i64, crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>> {
         match &self.inner {
             __Inner_RawFs::Shared(h) => h.raw_open_write(path),
             __Inner_RawFs::Locked(h) => h.lock().unwrap().raw_open_write(path),
         }
     }
-    pub fn raw_open_append(&self, path: &String) -> Union2<i64, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+    pub fn raw_open_append(&self, path: &String) -> crate::unions::Union2<i64, crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>> {
         match &self.inner {
             __Inner_RawFs::Shared(h) => h.raw_open_append(path),
             __Inner_RawFs::Locked(h) => h.lock().unwrap().raw_open_append(path),
@@ -104,31 +99,31 @@ impl RawFs {
             __Inner_RawFs::Locked(h) => h.lock().unwrap().raw_exists(path),
         }
     }
-    pub fn raw_metadata(&self, path: &String) -> Union2<FileInfo, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+    pub fn raw_metadata(&self, path: &String) -> crate::unions::Union2<crate::fs::FileInfo, crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>> {
         match &self.inner {
             __Inner_RawFs::Shared(h) => h.raw_metadata(path),
             __Inner_RawFs::Locked(h) => h.lock().unwrap().raw_metadata(path),
         }
     }
-    pub fn raw_list_dir(&self, path: &String) -> Union2<Vec<String>, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+    pub fn raw_list_dir(&self, path: &String) -> crate::unions::Union2<Vec<String>, crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>> {
         match &self.inner {
             __Inner_RawFs::Shared(h) => h.raw_list_dir(path),
             __Inner_RawFs::Locked(h) => h.lock().unwrap().raw_list_dir(path),
         }
     }
-    pub fn raw_create_dirs(&self, path: &String) -> Union2<(), Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+    pub fn raw_create_dirs(&self, path: &String) -> crate::unions::Union2<(), crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>> {
         match &self.inner {
             __Inner_RawFs::Shared(h) => h.raw_create_dirs(path),
             __Inner_RawFs::Locked(h) => h.lock().unwrap().raw_create_dirs(path),
         }
     }
-    pub fn raw_delete(&self, path: &String) -> Union2<(), Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+    pub fn raw_delete(&self, path: &String) -> crate::unions::Union2<(), crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>> {
         match &self.inner {
             __Inner_RawFs::Shared(h) => h.raw_delete(path),
             __Inner_RawFs::Locked(h) => h.lock().unwrap().raw_delete(path),
         }
     }
-    pub fn raw_rename_path(&self, from: &String, to: &String) -> Union2<(), Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+    pub fn raw_rename_path(&self, from: &String, to: &String) -> crate::unions::Union2<(), crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>> {
         match &self.inner {
             __Inner_RawFs::Shared(h) => h.raw_rename_path(from, to),
             __Inner_RawFs::Locked(h) => h.lock().unwrap().raw_rename_path(from, to),
@@ -141,47 +136,47 @@ pub struct __Platform_RawFs<T>(pub T);
 
 /// What a `platform handler` of `RawFs` implements [platform-abi].
 pub trait RawFsPlatform: Send {
-    fn raw_open_read(&mut self, path: &String) -> Union2<i64, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>;
-    fn raw_open_read_at(&mut self, path: &String, offset: i64) -> Union2<i64, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>;
-    fn raw_open_write(&mut self, path: &String) -> Union2<i64, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>;
-    fn raw_open_append(&mut self, path: &String) -> Union2<i64, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>;
+    fn raw_open_read(&mut self, path: &String) -> crate::unions::Union2<i64, crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>;
+    fn raw_open_read_at(&mut self, path: &String, offset: i64) -> crate::unions::Union2<i64, crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>;
+    fn raw_open_write(&mut self, path: &String) -> crate::unions::Union2<i64, crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>;
+    fn raw_open_append(&mut self, path: &String) -> crate::unions::Union2<i64, crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>;
     fn raw_exists(&mut self, path: &String) -> bool;
-    fn raw_metadata(&mut self, path: &String) -> Union2<FileInfo, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>;
-    fn raw_list_dir(&mut self, path: &String) -> Union2<Vec<String>, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>;
-    fn raw_create_dirs(&mut self, path: &String) -> Union2<(), Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>;
-    fn raw_delete(&mut self, path: &String) -> Union2<(), Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>;
-    fn raw_rename_path(&mut self, from: &String, to: &String) -> Union2<(), Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>>;
+    fn raw_metadata(&mut self, path: &String) -> crate::unions::Union2<crate::fs::FileInfo, crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>;
+    fn raw_list_dir(&mut self, path: &String) -> crate::unions::Union2<Vec<String>, crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>;
+    fn raw_create_dirs(&mut self, path: &String) -> crate::unions::Union2<(), crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>;
+    fn raw_delete(&mut self, path: &String) -> crate::unions::Union2<(), crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>;
+    fn raw_rename_path(&mut self, from: &String, to: &String) -> crate::unions::Union2<(), crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>;
 }
 
 impl<T: RawFsPlatform> __Stateful_RawFs for __Platform_RawFs<T> {
-    fn raw_open_read(&mut self, path: &String) -> Union2<i64, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+    fn raw_open_read(&mut self, path: &String) -> crate::unions::Union2<i64, crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>> {
         self.0.raw_open_read(path)
     }
-    fn raw_open_read_at(&mut self, path: &String, offset: i64) -> Union2<i64, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+    fn raw_open_read_at(&mut self, path: &String, offset: i64) -> crate::unions::Union2<i64, crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>> {
         self.0.raw_open_read_at(path, offset)
     }
-    fn raw_open_write(&mut self, path: &String) -> Union2<i64, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+    fn raw_open_write(&mut self, path: &String) -> crate::unions::Union2<i64, crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>> {
         self.0.raw_open_write(path)
     }
-    fn raw_open_append(&mut self, path: &String) -> Union2<i64, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+    fn raw_open_append(&mut self, path: &String) -> crate::unions::Union2<i64, crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>> {
         self.0.raw_open_append(path)
     }
     fn raw_exists(&mut self, path: &String) -> bool {
         self.0.raw_exists(path)
     }
-    fn raw_metadata(&mut self, path: &String) -> Union2<FileInfo, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+    fn raw_metadata(&mut self, path: &String) -> crate::unions::Union2<crate::fs::FileInfo, crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>> {
         self.0.raw_metadata(path)
     }
-    fn raw_list_dir(&mut self, path: &String) -> Union2<Vec<String>, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+    fn raw_list_dir(&mut self, path: &String) -> crate::unions::Union2<Vec<String>, crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>> {
         self.0.raw_list_dir(path)
     }
-    fn raw_create_dirs(&mut self, path: &String) -> Union2<(), Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+    fn raw_create_dirs(&mut self, path: &String) -> crate::unions::Union2<(), crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>> {
         self.0.raw_create_dirs(path)
     }
-    fn raw_delete(&mut self, path: &String) -> Union2<(), Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+    fn raw_delete(&mut self, path: &String) -> crate::unions::Union2<(), crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>> {
         self.0.raw_delete(path)
     }
-    fn raw_rename_path(&mut self, from: &String, to: &String) -> Union2<(), Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+    fn raw_rename_path(&mut self, from: &String, to: &String) -> crate::unions::Union2<(), crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>> {
         self.0.raw_rename_path(from, to)
     }
 }
@@ -190,10 +185,10 @@ impl<T: RawFsPlatform> __Stateful_RawFs for __Platform_RawFs<T> {
 pub struct RawOpenRead;
 
 impl RawOpenRead {
-    pub fn ok(value: i64) -> Union2<i64, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+    pub fn ok(value: i64) -> crate::unions::Union2<i64, crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>> {
         crate::unions::Union2::U1(value)
     }
-    pub fn err(value: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>) -> Union2<i64, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+    pub fn err(value: crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>) -> crate::unions::Union2<i64, crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>> {
         crate::unions::Union2::U2(value)
     }
 }
@@ -202,10 +197,10 @@ impl RawOpenRead {
 pub struct RawOpenReadAt;
 
 impl RawOpenReadAt {
-    pub fn ok(value: i64) -> Union2<i64, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+    pub fn ok(value: i64) -> crate::unions::Union2<i64, crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>> {
         crate::unions::Union2::U1(value)
     }
-    pub fn err(value: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>) -> Union2<i64, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+    pub fn err(value: crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>) -> crate::unions::Union2<i64, crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>> {
         crate::unions::Union2::U2(value)
     }
 }
@@ -214,10 +209,10 @@ impl RawOpenReadAt {
 pub struct RawOpenWrite;
 
 impl RawOpenWrite {
-    pub fn ok(value: i64) -> Union2<i64, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+    pub fn ok(value: i64) -> crate::unions::Union2<i64, crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>> {
         crate::unions::Union2::U1(value)
     }
-    pub fn err(value: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>) -> Union2<i64, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+    pub fn err(value: crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>) -> crate::unions::Union2<i64, crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>> {
         crate::unions::Union2::U2(value)
     }
 }
@@ -226,10 +221,10 @@ impl RawOpenWrite {
 pub struct RawOpenAppend;
 
 impl RawOpenAppend {
-    pub fn ok(value: i64) -> Union2<i64, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+    pub fn ok(value: i64) -> crate::unions::Union2<i64, crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>> {
         crate::unions::Union2::U1(value)
     }
-    pub fn err(value: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>) -> Union2<i64, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+    pub fn err(value: crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>) -> crate::unions::Union2<i64, crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>> {
         crate::unions::Union2::U2(value)
     }
 }
@@ -238,10 +233,10 @@ impl RawOpenAppend {
 pub struct RawMetadata;
 
 impl RawMetadata {
-    pub fn ok(value: FileInfo) -> Union2<FileInfo, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+    pub fn ok(value: crate::fs::FileInfo) -> crate::unions::Union2<crate::fs::FileInfo, crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>> {
         crate::unions::Union2::U1(value)
     }
-    pub fn err(value: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>) -> Union2<FileInfo, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+    pub fn err(value: crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>) -> crate::unions::Union2<crate::fs::FileInfo, crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>> {
         crate::unions::Union2::U2(value)
     }
 }
@@ -250,10 +245,10 @@ impl RawMetadata {
 pub struct RawListDir;
 
 impl RawListDir {
-    pub fn ok(value: Vec<String>) -> Union2<Vec<String>, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+    pub fn ok(value: Vec<String>) -> crate::unions::Union2<Vec<String>, crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>> {
         crate::unions::Union2::U1(value)
     }
-    pub fn err(value: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>) -> Union2<Vec<String>, Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+    pub fn err(value: crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>) -> crate::unions::Union2<Vec<String>, crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>> {
         crate::unions::Union2::U2(value)
     }
 }
@@ -262,10 +257,10 @@ impl RawListDir {
 pub struct RawCreateDirs;
 
 impl RawCreateDirs {
-    pub fn ok(value: ()) -> Union2<(), Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+    pub fn ok(value: ()) -> crate::unions::Union2<(), crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>> {
         crate::unions::Union2::U1(value)
     }
-    pub fn err(value: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>) -> Union2<(), Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+    pub fn err(value: crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>) -> crate::unions::Union2<(), crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>> {
         crate::unions::Union2::U2(value)
     }
 }
@@ -274,10 +269,10 @@ impl RawCreateDirs {
 pub struct RawDelete;
 
 impl RawDelete {
-    pub fn ok(value: ()) -> Union2<(), Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+    pub fn ok(value: ()) -> crate::unions::Union2<(), crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>> {
         crate::unions::Union2::U1(value)
     }
-    pub fn err(value: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>) -> Union2<(), Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+    pub fn err(value: crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>) -> crate::unions::Union2<(), crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>> {
         crate::unions::Union2::U2(value)
     }
 }
@@ -286,10 +281,10 @@ impl RawDelete {
 pub struct RawRenamePath;
 
 impl RawRenamePath {
-    pub fn ok(value: ()) -> Union2<(), Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+    pub fn ok(value: ()) -> crate::unions::Union2<(), crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>> {
         crate::unions::Union2::U1(value)
     }
-    pub fn err(value: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>) -> Union2<(), Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, IoError, Streaming>> {
+    pub fn err(value: crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>) -> crate::unions::Union2<(), crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>> {
         crate::unions::Union2::U2(value)
     }
 }

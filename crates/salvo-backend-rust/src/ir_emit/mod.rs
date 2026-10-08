@@ -25,8 +25,9 @@ mod decls;
 
 /// Whether the IR path is selected.
 pub fn enabled() -> bool {
-    std::env::var("SALVO_RUST_IR").is_ok_and(|v| v == "1")
+    !std::env::var("SALVO_RUST_IR").is_ok_and(|v| v == "0")
 }
+
 
 pub fn emit_program_ir(
     program: &Program,
@@ -153,6 +154,9 @@ pub fn emit_program_ir(
         && (!abi || reach.abi_full.iter().any(|m| m.0 == ["runtime", "streams"]));
     let needs_time = features.time();
     let mut errors = std::mem::take(&mut shared.errors);
+    // A construct rendered twice (a retried borrow, a hoist) reports once.
+    let mut seen_errors = HashSet::new();
+    errors.retain(|e| seen_errors.insert(e.clone()));
     if needs_scheduler && !salvo_core::runtime_module(program).is_some_and(|m| reach.emitted.contains(m)) {
         errors.push("internal: this program uses actors but the runtime module (`std/runtime.sv`) was not reached [runtime-sched]".to_string());
     }

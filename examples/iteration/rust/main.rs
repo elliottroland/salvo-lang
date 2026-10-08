@@ -1,4 +1,4 @@
-#![allow(non_snake_case, non_camel_case_types, unused_mut, unused_parens, unused_imports, dead_code, unreachable_code, unused_variables, path_statements, unused_must_use, suspicious_double_ref_op, non_upper_case_globals)]
+#![allow(non_snake_case, non_camel_case_types, unused_mut, unused_parens, unused_imports, dead_code, unreachable_code, unused_variables, path_statements, unused_must_use, suspicious_double_ref_op, non_upper_case_globals, unused_braces)]
 #[path = "unions/mod.rs"]
 pub mod unions;
 #[path = "seq.rs"]
@@ -50,53 +50,45 @@ pub mod platform_core_sorted;
 #[path = "platform/core/string.rs"]
 pub mod platform_core_string;
 
-use crate::unions::*;
 use crate::core_console::Console;
-use crate::core_console::ConsolePlatformSync as _;
-use crate::core_console::__Stateful_Console as _;
-use crate::core_console::__Stateless_Console as _;
-use crate::core_console::println;
 use crate::core_iterator::Finished;
-use crate::core_iterator::emitted;
-use crate::core_iterator::finished;
-use crate::core_list::List;
 use crate::core_list::ListYield;
-use crate::core_list::iter as iter__core_list;
-use crate::core_list::next__ListYield;
-use crate::core_range::__Iter_range_Int_Int_Int;
-use crate::core_range::next as next__core_range;
-use crate::core_range::range__Int_Int_Int;
+use crate::core_string::StrYield;
+use crate::core_list::add_platform;
+use crate::core_string::append_platform;
+use crate::core_iterator::emitted;
 use crate::core_seq::filter;
 use crate::core_seq::filter_platform;
+use crate::core_iterator::finished;
+use crate::core_list::get_platform;
 use crate::core_seq::map__It_Fn;
 use crate::core_seq::map__List_Fn;
 use crate::core_seq::map_to;
+use crate::core_string::mut_str;
+use crate::core_list::next__ListYield;
+use crate::core_console::println;
+use crate::core_range::range__Int_Int_Int;
 use crate::core_seq::reduce__It_A_Fn;
 use crate::core_seq::reduce__List_A_Fn;
-use crate::core_string::Str;
-use crate::core_string::StrYield;
-use crate::core_string::append_platform;
-use crate::core_string::iter as iter__core_string;
-use crate::core_string::mut_str;
-use crate::core_string::next as next__core_string;
+
 
 pub fn describe_container(console: &crate::core_console::Console, xs: &Vec<i32>) {
-    let mut sum = 0;
-    for n in crate::platform_core_list::each(xs) {
-        sum = i32::wrapping_add(sum, *n);
+    let mut sum: i32 = 0i32;
+    for mut n in xs.iter().copied() {
+        sum = i32::wrapping_add(sum, n);
     }
-    println(console, &(format!("1. list of {} sums to {}", crate::core_list::size_platform(xs), sum)));
-    let mut letters = mut_str(vec![]);
-    for mut c in crate::platform_core_string::each(&("salvo".to_string())).map(|__x| __x.clone()) {
-        crate::core_string::append_platform(&mut letters, &(format!("{}.", c)));
+    crate::core_console::println(console, &format!("1. list of {} sums to {}", crate::core_list::size_platform::<i32>(xs), sum));
+    let mut letters: String = crate::core_string::mut_str(vec![]);
+    for mut c in String::from("salvo").chars() {
+        crate::core_string::append_platform(&mut letters, &format!("{}.", c));
     }
-    println(console, &(format!("1. string: {}", letters)));
-    let mut arr = vec![10, 20, 30];
-    let mut from_array = 0;
-    for n in &arr {
-        from_array = i32::wrapping_add(from_array, *n);
+    crate::core_console::println(console, &format!("1. string: {}", letters));
+    let mut arr: Vec<i32> = vec![10i32, 20i32, 30i32];
+    let mut from_array: i32 = 0i32;
+    for mut n in arr.iter().copied() {
+        from_array = i32::wrapping_add(from_array, n);
     }
-    println(console, &(format!("1. array sums to {}", from_array)));
+    crate::core_console::println(console, &format!("1. array sums to {}", from_array));
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -115,36 +107,43 @@ impl crate::wire::__Wire for Countdown {
     }
 }
 
-pub fn countdown(from: i32) -> Countdown {
-    return Countdown { at: from };
+pub fn countdown(mut from: i32) -> crate::Countdown {
+    return crate::Countdown { at: from };
 }
 
-pub fn next__Countdown(p: &mut Countdown) -> Union2<i32, Finished> {
-    if p.at <= 0 {
-        return Union2::<i32, Finished>::U2(finished());
-    }
-    let mut now = p.at;
-    p.at = i32::wrapping_sub(p.at, 1);
-    return Union2::<i32, Finished>::U1(emitted(now));
+pub fn next__Countdown(p: &mut crate::Countdown) -> crate::unions::Union2<i32, crate::core_iterator::Finished> {
+    if (p.at <= 0i32) {
+        return crate::unions::Union2::U2(crate::core_iterator::finished());
+    };
+    let mut now: i32 = p.at;
+    p.at = i32::wrapping_sub(p.at, 1i32);
+    return crate::unions::Union2::U1(crate::core_iterator::emitted::<i32>(now));
 }
 
-pub fn skip(p: &mut Countdown) -> Union2<i32, Finished> {
-    if p.at <= 1 {
-        return Union2::<i32, Finished>::U2(finished());
-    }
-    let mut now = p.at;
-    p.at = i32::wrapping_sub(p.at, 2);
-    return Union2::<i32, Finished>::U1(emitted(now));
+pub fn skip(p: &mut crate::Countdown) -> crate::unions::Union2<i32, crate::core_iterator::Finished> {
+    if (p.at <= 1i32) {
+        return crate::unions::Union2::U2(crate::core_iterator::finished());
+    };
+    let mut now: i32 = p.at;
+    p.at = i32::wrapping_sub(p.at, 2i32);
+    return crate::unions::Union2::U1(crate::core_iterator::emitted::<i32>(now));
 }
 
-pub fn take(console: &crate::core_console::Console, p: &mut Countdown, count: i32) {
-    let mut seen = 0;
-    while let Union2::U1(mut n) = next__Countdown(p) {
-        println(console, &(format!("2. got {}", n)));
-        seen = i32::wrapping_add(seen, 1);
-        if seen == count {
+pub fn take(console: &crate::core_console::Console, p: &mut crate::Countdown, mut count: i32) {
+    let mut seen: i32 = 0i32;
+    loop {
+        let mut __step_2: crate::unions::Union2<i32, crate::core_iterator::Finished> = crate::next__Countdown(&mut *p);
+        if matches!(__step_2, crate::unions::Union2::U1(_)) {
+            let mut __emitted_3 = match &__step_2 { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
+            let mut n: i32 = __emitted_3;
+            crate::core_console::println(console, &format!("2. got {}", n));
+            seen = i32::wrapping_add(seen, 1i32);
+            if ((seen) == (count)) {
+                break;
+            };
+        } else {
             break;
-        }
+        };
     }
 }
 
@@ -167,21 +166,21 @@ impl crate::wire::__Wire for __Iter_halving_Int {
     }
 }
 
-pub fn halving(start: i32) -> __Iter_halving_Int {
-    return __Iter_halving_Int { start: start, at: start };
+pub fn halving(mut start: i32) -> crate::__Iter_halving_Int {
+    return crate::__Iter_halving_Int { start: start, at: start };
 }
 
-pub fn next__Iter_halving_Int(__p: &mut __Iter_halving_Int) -> Union2<i32, Finished> {
-    if __p.at <= 0 {
-        return Union2::<i32, Finished>::U2(finished());
-    }
-    let mut now = __p.at;
-    __p.at = __p.at / 2;
-    return Union2::<i32, Finished>::U1(emitted(now));
+pub fn next__Iter_halving_Int(__p: &mut crate::__Iter_halving_Int) -> crate::unions::Union2<i32, crate::core_iterator::Finished> {
+    if (__p.at <= 0i32) {
+        return crate::unions::Union2::U2(crate::core_iterator::finished());
+    };
+    let mut now: i32 = __p.at;
+    __p.at = i32::wrapping_div(__p.at, 2i32);
+    return crate::unions::Union2::U1(crate::core_iterator::emitted::<i32>(now));
 }
 
-pub fn halving_from_ten() -> __Iter_halving_Int {
-    return halving(10);
+pub fn halving_from_ten() -> crate::__Iter_halving_Int {
+    return crate::halving(10i32);
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -206,17 +205,18 @@ pub struct __Iter_iter_Bag<'s> {
     pub at: i32,
 }
 
-pub fn iter(bag: &Bag) -> __Iter_iter_Bag<'_> {
-    return __Iter_iter_Bag { items: &bag.items, at: 0 };
+pub fn iter(bag: &crate::Bag) -> crate::__Iter_iter_Bag<'_> {
+    return crate::__Iter_iter_Bag { items: &bag.items, at: 0i32 };
 }
 
-pub fn next__Iter_iter_Bag(__p: &mut __Iter_iter_Bag<'_>) -> Union2<i32, Finished> {
-    let mut e = crate::core_list::get_platform(&__p.items, __p.at);
+pub fn next__Iter_iter_Bag(__p: &mut crate::__Iter_iter_Bag<'_>) -> crate::unions::Union2<i32, crate::core_iterator::Finished> {
+    let mut e: Option<i32> = crate::core_list::get_platform::<i32>(__p.items, __p.at).copied();
     if e.is_none() {
-        return Union2::<i32, Finished>::U2(finished());
-    }
-    __p.at = i32::wrapping_add(__p.at, 1);
-    return Union2::<i32, Finished>::U1(emitted(*e.unwrap()));
+        return crate::unions::Union2::U2(crate::core_iterator::finished());
+    };
+    __p.at = i32::wrapping_add(__p.at, 1i32);
+    let mut e_1 = e.unwrap();
+    return crate::unions::Union2::U1(crate::core_iterator::emitted::<i32>(e_1));
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -244,21 +244,21 @@ impl crate::wire::__Wire for __Iter_fibs_Int {
     }
 }
 
-pub fn fibs(count: i32) -> __Iter_fibs_Int {
-    return __Iter_fibs_Int { count: count, a: 0, b: 1, made: 0 };
+pub fn fibs(mut count: i32) -> crate::__Iter_fibs_Int {
+    return crate::__Iter_fibs_Int { count: count, a: 0i32, b: 1i32, made: 0i32 };
 }
 
-pub fn next__Iter_fibs_Int(console: &crate::core_console::Console, __p: &mut __Iter_fibs_Int) -> Union2<i32, Finished> {
-    if __p.made >= __p.count {
-        println(console, &("3. finished".to_string()));
-        return Union2::<i32, Finished>::U2(finished());
-    }
-    let mut now = __p.a;
-    let mut sum = i32::wrapping_add(__p.a, __p.b);
+pub fn next__Iter_fibs_Int(console: &crate::core_console::Console, __p: &mut crate::__Iter_fibs_Int) -> crate::unions::Union2<i32, crate::core_iterator::Finished> {
+    if (__p.made >= __p.count) {
+        crate::core_console::println(console, &String::from("3. finished"));
+        return crate::unions::Union2::U2(crate::core_iterator::finished());
+    };
+    let mut now: i32 = __p.a;
+    let mut sum: i32 = i32::wrapping_add(__p.a, __p.b);
     __p.a = __p.b;
-    __p.b = sum.clone();
-    __p.made = i32::wrapping_add(__p.made, 1);
-    return Union2::<i32, Finished>::U1(emitted(now));
+    __p.b = sum;
+    __p.made = i32::wrapping_add(__p.made, 1i32);
+    return crate::unions::Union2::U1(crate::core_iterator::emitted::<i32>(now));
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -280,92 +280,173 @@ impl crate::wire::__Wire for __Iter_naturals_Int {
     }
 }
 
-pub fn naturals(from: i32) -> __Iter_naturals_Int {
-    return __Iter_naturals_Int { from: from, at: from };
+pub fn naturals(mut from: i32) -> crate::__Iter_naturals_Int {
+    return crate::__Iter_naturals_Int { from: from, at: from };
 }
 
-pub fn next__Iter_naturals_Int(__p: &mut __Iter_naturals_Int) -> Union2<i32, Finished> {
-    let mut now = __p.at;
-    __p.at = i32::wrapping_add(__p.at, 1);
-    return Union2::<i32, Finished>::U1(emitted(now));
+pub fn next__Iter_naturals_Int(__p: &mut crate::__Iter_naturals_Int) -> crate::unions::Union2<i32, crate::core_iterator::Finished> {
+    let mut now: i32 = __p.at;
+    __p.at = i32::wrapping_add(__p.at, 1i32);
+    return crate::unions::Union2::U1(crate::core_iterator::emitted::<i32>(now));
 }
 
-pub fn sum_of<It: Clone>(it: &mut It, next: &mut dyn FnMut(&mut It) -> Union2<i32, Finished>) -> i32 {
-    let mut total = 0;
-    while let Union2::U1(mut n) = next(it) {
-        total = i32::wrapping_add(total, n);
+pub fn sum_of<It: Clone>(it: &mut It, next: &mut dyn FnMut(&mut It) -> crate::unions::Union2<i32, crate::core_iterator::Finished>) -> i32 {
+    let mut total: i32 = 0i32;
+    loop {
+        let mut __step_2: crate::unions::Union2<i32, crate::core_iterator::Finished> = next(&mut *it);
+        if matches!(__step_2, crate::unions::Union2::U1(_)) {
+            let mut __emitted_3 = match &__step_2 { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
+            let mut n: i32 = __emitted_3;
+            total = i32::wrapping_add(total, n);
+        } else {
+            break;
+        };
     }
     return total;
 }
 
-pub fn total<'c, C: Clone, __It0: Clone>(c: &'c C, iter: &mut dyn FnMut(&'c C) -> __It0, next: &mut dyn FnMut(&mut __It0) -> Union2<i32, Finished>) -> i32 {
-    let mut total = 0;
-    let mut __loop3_pass = iter(c);
-    while let Union2::U1(mut n) = next(&mut __loop3_pass) {
-        total = i32::wrapping_add(total, n);
+pub fn total<'c, C: Clone, __It0: Clone>(c: &'c C, iter: &mut dyn FnMut(&'c C) -> __It0, next: &mut dyn FnMut(&mut __It0) -> crate::unions::Union2<i32, crate::core_iterator::Finished>) -> i32 {
+    let mut total: i32 = 0i32;
+    let mut __pass_1: __It0 = iter(c);
+    loop {
+        let mut __step_2: crate::unions::Union2<i32, crate::core_iterator::Finished> = next(&mut __pass_1);
+        if matches!(__step_2, crate::unions::Union2::U1(_)) {
+            let mut __emitted_3 = match &__step_2 { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
+            let mut n: i32 = __emitted_3;
+            total = i32::wrapping_add(total, n);
+        } else {
+            break;
+        };
     }
     return total;
 }
 
-pub fn first<__It0: Clone>(it: &mut __It0, next: &mut dyn FnMut(&mut __It0) -> Union2<i32, Finished>) -> i32 {
-    while let Union2::U1(mut n) = next(it) {
-        return n;
+pub fn first<__It0: Clone>(it: &mut __It0, next: &mut dyn FnMut(&mut __It0) -> crate::unions::Union2<i32, crate::core_iterator::Finished>) -> i32 {
+    loop {
+        let mut __step_2: crate::unions::Union2<i32, crate::core_iterator::Finished> = next(&mut *it);
+        if matches!(__step_2, crate::unions::Union2::U1(_)) {
+            let mut __emitted_3 = match &__step_2 { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
+            let mut n: i32 = __emitted_3;
+            return n;
+        } else {
+            break;
+        };
     }
-    return -1;
+    return i32::wrapping_neg(1i32);
 }
 
 pub fn main() {
-    let console = crate::core_console::Console::shared(crate::core_console::__Platform_StdOutConsole::new());
-    let mut xs = vec![1, 2, 3, 4];
-    describe_container(&console, &xs);
-    let mut p = countdown(5);
-    take(&console, &mut p, 2);
-    println(&console, &(format!("2. rest sums to {}", sum_of::<Countdown>(&mut p, &mut |__i0| next__Countdown(__i0)))));
-    let mut q = countdown(6);
-    while let Union2::U1(mut n) = skip(&mut q) {
-        println(&console, &(format!("2. skip {}", n)));
-    }
-    let mut __loop5_pass = halving(20);
-    while let Union2::U1(mut n) = next__Iter_halving_Int(&mut __loop5_pass) {
-        println(&console, &(format!("2b. halving {}", n)));
-    }
-    let mut hp = halving(20);
-    println(&console, &(format!("2b. summed from a held iterator: {}", sum_of::<__Iter_halving_Int>(&mut hp, &mut |__i0| next__Iter_halving_Int(__i0)))));
-    println(&console, &(format!("2b. first from a pattern-typed fn: {}", first::<__Iter_halving_Int>(&mut (halving_from_ten()), &mut |__i0| next__Iter_halving_Int(__i0)))));
-    let mut bag = Bag { items: vec![7, 8] };
-    let mut __loop6_pass = iter(&bag);
-    while let Union2::U1(mut n) = next__Iter_iter_Bag(&mut __loop6_pass) {
-        println(&console, &(format!("2c. bag {}", n)));
-    }
-    println(&console, &(format!("2c. total of a bag {}, of a list {}", total::<Bag, __Iter_iter_Bag<'_>>(&bag, &mut |__i0| iter(__i0), &mut |__i0| next__Iter_iter_Bag(__i0)), total::<Vec<i32>, ListYield<'_, i32>>(&xs, &mut |__i0| iter__core_list(__i0), &mut |__i0| match next__ListYield(__i0) { Union2::U1(__e) => Union2::U1(*__e), Union2::U2(__f) => Union2::U2(__f) }))));
-    let mut __loop7_pass = fibs(6);
-    while let Union2::U1(mut n) = next__Iter_fibs_Int(&console, &mut __loop7_pass) {
-        println(&console, &(format!("3. fib {}", n)));
-    }
-    let mut __loop8_pass = naturals(10);
-    while let Union2::U1(mut n) = next__Iter_naturals_Int(&mut __loop8_pass) {
-        if n > 12 {
+    let mut __use_1: crate::core_console::__Platform_StdOutConsole = crate::core_console::__Platform_StdOutConsole::new();
+    let __handle_2 = crate::core_console::Console::shared(__use_1);
+    let mut xs: Vec<i32> = vec![1i32, 2i32, 3i32, 4i32];
+    crate::describe_container(&__handle_2, &xs);
+    let mut p: crate::Countdown = crate::countdown(5i32);
+    crate::take(&__handle_2, &mut p, 2i32);
+    { let __arg3 = { let __part2 = crate::sum_of::<crate::Countdown>(&mut p, &mut |__a0: &mut crate::Countdown| crate::next__Countdown(&mut *__a0)); format!("2. rest sums to {}", __part2) }; crate::core_console::println(&__handle_2, &__arg3) };
+    let mut q: crate::Countdown = crate::countdown(6i32);
+    loop {
+        let mut __step_4: crate::unions::Union2<i32, crate::core_iterator::Finished> = crate::skip(&mut q);
+        if matches!(__step_4, crate::unions::Union2::U1(_)) {
+            let mut __emitted_5 = match &__step_4 { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
+            let mut n: i32 = __emitted_5;
+            crate::core_console::println(&__handle_2, &format!("2. skip {}", n));
+        } else {
             break;
-        }
-        println(&console, &(format!("3. natural {}", n)));
+        };
     }
-    let mut doubled = map__List_Fn(&xs, &mut (|n| i32::wrapping_mul(*n, 2)));
-    let mut odd = crate::core_seq::filter_platform(&xs, &mut (|n| *n % 2 == 1));
-    let mut total = reduce__List_A_Fn(&xs, 0, &mut (|acc, n| i32::wrapping_add(*acc, *n)));
-    println(&console, &(format!("5. list: {} doubled, {} odd, total {}", crate::core_list::size_platform(&doubled), crate::core_list::size_platform(&odd), total)));
-    let mut words = vec!["ann".to_string(), "bo".to_string(), "carol".to_string()];
-    let mut lengths = map__It_Fn::<ListYield<'_, String>, &String, i32>(&mut (iter__core_list(&words)), &mut (|w| { let w = *w; crate::core_string::size_platform(w) }), &mut |__i0| next__ListYield(__i0));
-    println(&console, &(format!("5. lengths: {}", reduce__It_A_Fn::<ListYield<'_, i32>, &i32, i32>(&mut (iter__core_list(&lengths)), &(0), &mut (|acc, n| { let n = *n; i32::wrapping_add(*acc, *n) }), &mut |__i0| next__ListYield(__i0)))));
-    let mut word = "iteration".to_string();
-    let mut vowels = filter::<StrYield<'_>, char>(&mut (iter__core_string(&word)), &mut (|c| *c == 'i' || *c == 'o'), &mut |__i0| next__core_string(__i0));
-    println(&console, &(format!("5. vowels: {}", crate::core_list::size_platform(&vowels))));
-    println(&console, &(format!("5. halving total {}", reduce__It_A_Fn::<__Iter_halving_Int, i32, i32>(&mut (halving(20)), &(0), &mut (|acc, n| i32::wrapping_add(*acc, *n)), &mut |__i0| next__Iter_halving_Int(__i0)))));
-    let mut collected = map_to::<Vec<i32>, Countdown, i32, i32>(vec![], &mut (countdown(3)), &mut (|n: &i32| i32::wrapping_mul(*n, 10)), &mut |__i0, __i1| crate::core_list::add_platform(__i0, __i1), &mut |__i0| next__Countdown(__i0));
-    println(&console, &(format!("6. collected {}", crate::core_list::size_platform(&collected))));
-    let mut evens = mut_str(vec![]);
-    let mut __loop9_pass = range__Int_Int_Int(0, 10, 2);
-    while let Union2::U1(mut i) = next__core_range(&mut __loop9_pass) {
-        crate::core_string::append_platform(&mut evens, &(format!("{} ", i)));
+    let mut __pass_6: crate::__Iter_halving_Int = crate::halving(20i32);
+    loop {
+        let mut __step_7: crate::unions::Union2<i32, crate::core_iterator::Finished> = crate::next__Iter_halving_Int(&mut __pass_6);
+        if matches!(__step_7, crate::unions::Union2::U1(_)) {
+            let mut __emitted_8 = match &__step_7 { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
+            let mut n: i32 = __emitted_8;
+            crate::core_console::println(&__handle_2, &format!("2b. halving {}", n));
+        } else {
+            break;
+        };
     }
-    println(&console, &(format!("7. evens {}", evens)));
+    let mut hp: crate::__Iter_halving_Int = crate::halving(20i32);
+    { let __arg6 = { let __part5 = crate::sum_of::<crate::__Iter_halving_Int>(&mut hp, &mut |__a0: &mut crate::__Iter_halving_Int| crate::next__Iter_halving_Int(&mut *__a0)); format!("2b. summed from a held iterator: {}", __part5) }; crate::core_console::println(&__handle_2, &__arg6) };
+    crate::core_console::println(&__handle_2, &{ let __part7 = crate::first::<crate::__Iter_halving_Int>(&mut crate::halving_from_ten(), &mut |__a0: &mut crate::__Iter_halving_Int| crate::next__Iter_halving_Int(&mut *__a0)); format!("2b. first from a pattern-typed fn: {}", __part7) });
+    let mut bag: crate::Bag = crate::Bag { items: vec![7i32, 8i32] };
+    let mut __pass_9: crate::__Iter_iter_Bag<'_> = crate::iter(&bag);
+    loop {
+        let mut __step_10: crate::unions::Union2<i32, crate::core_iterator::Finished> = crate::next__Iter_iter_Bag(&mut __pass_9);
+        if matches!(__step_10, crate::unions::Union2::U1(_)) {
+            let mut __emitted_11 = match &__step_10 { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
+            let mut n: i32 = __emitted_11;
+            crate::core_console::println(&__handle_2, &format!("2c. bag {}", n));
+        } else {
+            break;
+        };
+    }
+    crate::core_console::println(&__handle_2, &format!("2c. total of a bag {}, of a list {}", crate::total::<crate::Bag, crate::__Iter_iter_Bag<'_>>(&bag, &mut |__a0: &crate::Bag| crate::iter(__a0), &mut |__a0: &mut crate::__Iter_iter_Bag<'_>| crate::next__Iter_iter_Bag(&mut *__a0)), crate::total::<Vec<i32>, crate::core_list::ListYield<'_, i32>>(&xs, &mut |__a0: &Vec<i32>| crate::core_list::iter(__a0), &mut |__a0: &mut crate::core_list::ListYield<'_, i32>| (match crate::core_list::next__ListYield(&mut *__a0) { crate::unions::Union2::U1(__v) => crate::unions::Union2::U1(*__v), crate::unions::Union2::U2(__v) => crate::unions::Union2::U2(__v) }))));
+    let mut __pass_12: crate::__Iter_fibs_Int = crate::fibs(6i32);
+    loop {
+        let mut __step_13: crate::unions::Union2<i32, crate::core_iterator::Finished> = crate::next__Iter_fibs_Int(&__handle_2, &mut __pass_12);
+        if matches!(__step_13, crate::unions::Union2::U1(_)) {
+            let mut __emitted_14 = match &__step_13 { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
+            let mut n: i32 = __emitted_14;
+            crate::core_console::println(&__handle_2, &format!("3. fib {}", n));
+        } else {
+            break;
+        };
+    }
+    let mut __pass_15: crate::__Iter_naturals_Int = crate::naturals(10i32);
+    loop {
+        let mut __step_16: crate::unions::Union2<i32, crate::core_iterator::Finished> = crate::next__Iter_naturals_Int(&mut __pass_15);
+        if matches!(__step_16, crate::unions::Union2::U1(_)) {
+            let mut __emitted_17 = match &__step_16 { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
+            let mut n: i32 = __emitted_17;
+            if (n > 12i32) {
+                break;
+            };
+            crate::core_console::println(&__handle_2, &format!("3. natural {}", n));
+        } else {
+            break;
+        };
+    }
+    let mut doubled: Vec<i32> = crate::core_seq::map__List_Fn::<i32, i32>(&xs, &mut |mut n| -> i32 {
+        i32::wrapping_mul(*n, 2i32)
+    });
+    let mut odd: Vec<i32> = crate::core_seq::filter_platform::<i32>(&xs, &mut |mut n| -> bool {
+        ((i32::wrapping_rem(*n, 2i32)) == (1i32))
+    });
+    let mut total: i32 = crate::core_seq::reduce__List_A_Fn::<i32, i32>(&xs, 0i32, &mut |mut acc, mut n| -> i32 {
+        i32::wrapping_add(*acc, *n)
+    });
+    crate::core_console::println(&__handle_2, &format!("5. list: {} doubled, {} odd, total {}", crate::core_list::size_platform::<i32>(&doubled), crate::core_list::size_platform::<i32>(&odd), total));
+    let mut words: Vec<String> = vec![String::from("ann"), String::from("bo"), String::from("carol")];
+    let mut lengths: Vec<i32> = crate::core_seq::map__It_Fn::<crate::core_list::ListYield<'_, String>, &String, i32>(&mut crate::core_list::iter::<String>(&words), &mut |mut w| -> i32 {
+        let w = *w;
+        crate::core_string::size_platform(w)
+    }, &mut |__a0: &mut crate::core_list::ListYield<'_, String>| crate::core_list::next__ListYield(&mut *__a0));
+    crate::core_console::println(&__handle_2, &{ let __part8 = crate::core_seq::reduce__It_A_Fn::<crate::core_list::ListYield<'_, i32>, i32, i32>(&mut crate::core_list::iter::<i32>(&lengths), &0i32, &mut |mut acc, mut n| -> i32 {
+        i32::wrapping_add(*acc, *n)
+    }, &mut |__a0: &mut crate::core_list::ListYield<'_, i32>| (match crate::core_list::next__ListYield(&mut *__a0) { crate::unions::Union2::U1(__v) => crate::unions::Union2::U1(*__v), crate::unions::Union2::U2(__v) => crate::unions::Union2::U2(__v) })); format!("5. lengths: {}", __part8) });
+    let mut word: String = String::from("iteration");
+    let mut vowels: Vec<char> = crate::core_seq::filter::<crate::core_string::StrYield<'_>, char>(&mut crate::core_string::iter(&word), &mut |mut c| -> bool {
+        (((*c) == ('i')) || ((*c) == ('o')))
+    }, &mut |__a0: &mut crate::core_string::StrYield<'_>| crate::core_string::next(&mut *__a0));
+    crate::core_console::println(&__handle_2, &format!("5. vowels: {}", crate::core_list::size_platform::<char>(&vowels)));
+    crate::core_console::println(&__handle_2, &{ let __part9 = crate::core_seq::reduce__It_A_Fn::<crate::__Iter_halving_Int, i32, i32>(&mut crate::halving(20i32), &0i32, &mut |mut acc, mut n| -> i32 {
+        i32::wrapping_add(*acc, *n)
+    }, &mut |__a0: &mut crate::__Iter_halving_Int| crate::next__Iter_halving_Int(&mut *__a0)); format!("5. halving total {}", __part9) });
+    let mut collected: Vec<i32> = crate::core_seq::map_to::<Vec<i32>, crate::Countdown, i32, i32>(vec![], &mut crate::countdown(3i32), &mut |mut n| -> i32 {
+        i32::wrapping_mul(*n, 10i32)
+    }, &mut |__a0: &mut Vec<i32>, __a1: i32| crate::core_list::add_platform(&mut *__a0, __a1), &mut |__a0: &mut crate::Countdown| crate::next__Countdown(&mut *__a0));
+    crate::core_console::println(&__handle_2, &format!("6. collected {}", crate::core_list::size_platform::<i32>(&collected)));
+    let mut evens: String = crate::core_string::mut_str(vec![]);
+    let mut __pass_18: crate::core_range::__Iter_range_Int_Int_Int = crate::core_range::range__Int_Int_Int(0i32, 10i32, 2i32);
+    loop {
+        let mut __step_19: crate::unions::Union2<i32, crate::core_iterator::Finished> = crate::core_range::next(&mut __pass_18);
+        if matches!(__step_19, crate::unions::Union2::U1(_)) {
+            let mut __emitted_20 = match &__step_19 { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
+            let mut i: i32 = __emitted_20;
+            crate::core_string::append_platform(&mut evens, &format!("{} ", i));
+        } else {
+            break;
+        };
+    }
+    crate::core_console::println(&__handle_2, &format!("7. evens {}", evens));
 }

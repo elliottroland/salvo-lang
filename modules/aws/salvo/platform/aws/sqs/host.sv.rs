@@ -3,15 +3,12 @@
 // by every build — do not edit; the build never reads this file.
 // salvo-abi 1 023a4214a13ba612
 use crate::aws::AwsConfig;
-use crate::aws_sqs::Sqs;
-use crate::aws_sqs::SqsPlatformSync as _;
-use crate::aws_sqs::__Stateful_Sqs as _;
-use crate::aws_sqs::__Stateless_Sqs as _;
+
 
 pub type __Platform_HostSqs = crate::aws_sqs::__Platform_Sqs<crate::platform_aws_sqs_host::HostSqs>;
 
 impl __Platform_HostSqs {
-    pub fn new(config: AwsConfig) -> Self {
+    pub fn new(config: crate::aws::AwsConfig) -> Self {
         crate::aws_sqs::__Platform_Sqs(crate::platform_aws_sqs_host::HostSqs::new(config))
     }
 }

@@ -143,8 +143,26 @@ impl<'a, 'p> Lower<'a, 'p> {
     /// Marks a read as consuming when it is the whole of an owned local
     /// [deduce-consume]; a projection or a lent parameter is read, not moved.
     pub(crate) fn consume_if_owned(&self, e: &mut Expr) {
+        // Dropping `Mut` from what is moved moves it.
+        if let ExprKind::DropMut { value } = &mut e.kind {
+            return self.consume_if_owned(value);
+        }
         if let ExprKind::Read { place, consume } = &mut e.kind {
             if place.steps.is_empty() {
+                let owned = self.scopes.iter().rev().find_map(|s| s.values().find(|b| b.local == place.root)).map(|b| b.owned).unwrap_or(true);
+                if owned {
+                    *consume = true;
+                }
+            }
+        }
+    }
+
+    /// [fate-move-mode] [fate-partial-move] A move-mode binding's value:
+    /// the checker proved every ancestor owned, so the whole of a local or
+    /// a field path out of one is moved.
+    pub(crate) fn consume_bound(&self, e: &mut Expr) {
+        if let ExprKind::Read { place, consume } = &mut e.kind {
+            if place.steps.iter().all(|s| matches!(s, Step::Field(_))) {
                 let owned = self.scopes.iter().rev().find_map(|s| s.values().find(|b| b.local == place.root)).map(|b| b.owned).unwrap_or(true);
                 if owned {
                     *consume = true;
@@ -222,8 +240,12 @@ impl<'a, 'p> Lower<'a, 'p> {
     pub(crate) fn stmt(&mut self, s: &AStmt) -> Vec<Stmt> {
         match s {
             AStmt::Let { pattern, ty, value, span } => self.let_stmt(pattern, ty.as_ref(), value, *span),
-            AStmt::Assign { target, value, .. } => {
-                let v = self.expr(value);
+            AStmt::Assign { target, value, span } => {
+                let mut v = self.expr(value);
+                // [fate-move-mode] an assignment that takes ownership.
+                if self.ctx.checked.binding_modes.contains(&self.key(*span)) {
+                    self.consume_bound(&mut v);
+                }
                 match self.assign_place_of(target) {
                     Some(place) => vec![Stmt::Assign { place, value: v }],
                     None => {
@@ -294,7 +316,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         let mut consumed_bind = self.ctx.checked.binding_modes.contains(&self.key(span));
         let mut v = v;
         if consumed_bind {
-            self.consume_if_owned(&mut v);
+            self.consume_bound(&mut v);
             consumed_bind = false;
         }
         let _ = consumed_bind;

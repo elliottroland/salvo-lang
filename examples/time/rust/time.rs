@@ -1,21 +1,11 @@
-use crate::core_actor::Mailbox;
-use crate::core_actor::__Stateful_Faults as _;
-use crate::core_actor::__Stateless_Faults as _;
-use crate::core_compare::mix_hash;
-use crate::core_list::List;
-use crate::core_list::at;
-use crate::core_string::Str;
-use crate::runtime::RuntimeHostPlatformSync as _;
-use crate::runtime::__Stateful_RuntimeHost as _;
-use crate::runtime::__Stateful_SchedTable as _;
-use crate::runtime::__Stateless_RuntimeHost as _;
-use crate::runtime::__Stateless_SchedTable as _;
-use crate::runtime::now_nanos;
-use crate::runtime_timers::__Stateful_DeadlineTable as _;
-use crate::runtime_timers::__Stateful_Wheel as _;
-use crate::runtime_timers::__Stateless_DeadlineTable as _;
-use crate::runtime_timers::__Stateless_Wheel as _;
+use crate::core_list::add_platform;
 use crate::runtime_timers::after_nanos;
+use crate::core_list::get_platform;
+use crate::core_compare::mix_hash;
+use crate::runtime::now_nanos;
+use crate::core_list::remove_at_platform;
+use crate::core_list::size_platform;
+
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Duration {
@@ -65,139 +55,139 @@ impl crate::wire::__Wire for Tick {
     }
 }
 
-pub fn nanos(n: i64) -> Duration {
-    return Duration { nanos: n };
+pub fn nanos(mut n: i64) -> crate::time::Duration {
+    return crate::time::Duration { nanos: n };
 }
 
-pub fn micros(n: i64) -> Duration {
-    return Duration { nanos: i64::wrapping_mul(n, 1000i64) };
+pub fn micros(mut n: i64) -> crate::time::Duration {
+    return crate::time::Duration { nanos: i64::wrapping_mul(n, 1000i64) };
 }
 
-pub fn millis(n: i64) -> Duration {
-    return Duration { nanos: i64::wrapping_mul(n, 1000000i64) };
+pub fn millis(mut n: i64) -> crate::time::Duration {
+    return crate::time::Duration { nanos: i64::wrapping_mul(n, 1000000i64) };
 }
 
-pub fn seconds(n: i64) -> Duration {
-    return Duration { nanos: i64::wrapping_mul(n, 1000000000i64) };
+pub fn seconds(mut n: i64) -> crate::time::Duration {
+    return crate::time::Duration { nanos: i64::wrapping_mul(n, 1000000000i64) };
 }
 
-pub fn minutes(n: i64) -> Duration {
-    return Duration { nanos: i64::wrapping_mul(n, 60000000000i64) };
+pub fn minutes(mut n: i64) -> crate::time::Duration {
+    return crate::time::Duration { nanos: i64::wrapping_mul(n, 60000000000i64) };
 }
 
-pub fn hours(n: i64) -> Duration {
-    return Duration { nanos: i64::wrapping_mul(n, 3600000000000i64) };
+pub fn hours(mut n: i64) -> crate::time::Duration {
+    return crate::time::Duration { nanos: i64::wrapping_mul(n, 3600000000000i64) };
 }
 
-pub fn to_nanos(d: &Duration) -> i64 {
+pub fn to_nanos(d: &crate::time::Duration) -> i64 {
     return d.nanos;
 }
 
-pub fn to_micros(d: &Duration) -> i64 {
-    return d.nanos / 1000i64;
+pub fn to_micros(d: &crate::time::Duration) -> i64 {
+    return i64::wrapping_div(d.nanos, 1000i64);
 }
 
-pub fn to_millis(d: &Duration) -> i64 {
-    return d.nanos / 1000000i64;
+pub fn to_millis(d: &crate::time::Duration) -> i64 {
+    return i64::wrapping_div(d.nanos, 1000000i64);
 }
 
-pub fn to_seconds(d: &Duration) -> i64 {
-    return d.nanos / 1000000000i64;
+pub fn to_seconds(d: &crate::time::Duration) -> i64 {
+    return i64::wrapping_div(d.nanos, 1000000000i64);
 }
 
-pub fn plus__Duration_Duration(d1: &Duration, d2: &Duration) -> Duration {
-    return Duration { nanos: i64::wrapping_add(d1.nanos, d2.nanos) };
+pub fn plus__Duration_Duration(d1: &crate::time::Duration, d2: &crate::time::Duration) -> crate::time::Duration {
+    return crate::time::Duration { nanos: i64::wrapping_add(d1.nanos, d2.nanos) };
 }
 
-pub fn minus__Duration_Duration(d1: &Duration, d2: &Duration) -> Duration {
-    return Duration { nanos: i64::wrapping_sub(d1.nanos, d2.nanos) };
+pub fn minus__Duration_Duration(d1: &crate::time::Duration, d2: &crate::time::Duration) -> crate::time::Duration {
+    return crate::time::Duration { nanos: i64::wrapping_sub(d1.nanos, d2.nanos) };
 }
 
-pub fn times(d: &Duration, n: i64) -> Duration {
-    return Duration { nanos: i64::wrapping_mul(d.nanos, n) };
+pub fn times(d: &crate::time::Duration, mut n: i64) -> crate::time::Duration {
+    return crate::time::Duration { nanos: i64::wrapping_mul(d.nanos, n) };
 }
 
-pub fn abs(d: Duration) -> Duration {
-    if d.nanos < ((0) as i64) {
-        return Duration { nanos: i64::wrapping_sub(0i64, d.nanos) };
-    }
+pub fn abs(mut d: crate::time::Duration) -> crate::time::Duration {
+    if (d.nanos < 0i64) {
+        return crate::time::Duration { nanos: i64::wrapping_sub(0i64, d.nanos) };
+    };
     return d;
 }
 
-pub fn to_str(d: &Duration) -> String {
-    if d.nanos < ((0) as i64) {
-        let mut positive = Duration { nanos: i64::wrapping_sub(0i64, d.nanos) };
-        return format!("-{}", to_str(&positive));
-    }
-    if d.nanos == ((0) as i64) {
-        return "0s".to_string();
-    }
-    if d.nanos % ((1000000000) as i64) == ((0) as i64) {
-        return format!("{}s", d.nanos / 1000000000i64);
-    }
-    if d.nanos % ((1000000) as i64) == ((0) as i64) {
-        return format!("{}ms", d.nanos / 1000000i64);
-    }
-    if d.nanos % ((1000) as i64) == ((0) as i64) {
-        return format!("{}us", d.nanos / 1000i64);
-    }
+pub fn to_str(d: &crate::time::Duration) -> String {
+    if (d.nanos < 0i64) {
+        let mut positive: crate::time::Duration = crate::time::Duration { nanos: i64::wrapping_sub(0i64, d.nanos) };
+        return format!("-{}", crate::time::to_str(&positive));
+    };
+    if ((d.nanos) == (0i64)) {
+        return String::from("0s");
+    };
+    if ((i64::wrapping_rem(d.nanos, 1000000000i64)) == (0i64)) {
+        return format!("{}s", i64::wrapping_div(d.nanos, 1000000000i64));
+    };
+    if ((i64::wrapping_rem(d.nanos, 1000000i64)) == (0i64)) {
+        return format!("{}ms", i64::wrapping_div(d.nanos, 1000000i64));
+    };
+    if ((i64::wrapping_rem(d.nanos, 1000i64)) == (0i64)) {
+        return format!("{}us", i64::wrapping_div(d.nanos, 1000i64));
+    };
     return format!("{}ns", d.nanos);
 }
 
-pub fn epoch_nano(n: i64) -> Instant {
-    return Instant { nanos: n };
+pub fn epoch_nano(mut n: i64) -> crate::time::Instant {
+    return crate::time::Instant { nanos: n };
 }
 
-pub fn epoch_milli(n: i64) -> Instant {
-    return Instant { nanos: i64::wrapping_mul(n, 1000000i64) };
+pub fn epoch_milli(mut n: i64) -> crate::time::Instant {
+    return crate::time::Instant { nanos: i64::wrapping_mul(n, 1000000i64) };
 }
 
-pub fn epoch_second(n: i64) -> Instant {
-    return Instant { nanos: i64::wrapping_mul(n, 1000000000i64) };
+pub fn epoch_second(mut n: i64) -> crate::time::Instant {
+    return crate::time::Instant { nanos: i64::wrapping_mul(n, 1000000000i64) };
 }
 
-pub fn to_epoch_nano(at: &Instant) -> i64 {
+pub fn to_epoch_nano(at: &crate::time::Instant) -> i64 {
     return at.nanos;
 }
 
-pub fn to_epoch_milli(at: &Instant) -> i64 {
-    return at.nanos / 1000000i64;
+pub fn to_epoch_milli(at: &crate::time::Instant) -> i64 {
+    return i64::wrapping_div(at.nanos, 1000000i64);
 }
 
-pub fn to_epoch_second(at: &Instant) -> i64 {
-    return at.nanos / 1000000000i64;
+pub fn to_epoch_second(at: &crate::time::Instant) -> i64 {
+    return i64::wrapping_div(at.nanos, 1000000000i64);
 }
 
-pub fn between__Instant_Instant(start: &Instant, end: &Instant) -> Duration {
-    return Duration { nanos: i64::wrapping_sub(end.nanos, start.nanos) };
+pub fn between__Instant_Instant(start: &crate::time::Instant, end: &crate::time::Instant) -> crate::time::Duration {
+    return crate::time::Duration { nanos: i64::wrapping_sub(end.nanos, start.nanos) };
 }
 
-pub fn between__Tick_Tick(start: &Tick, end: &Tick) -> Duration {
-    return Duration { nanos: i64::wrapping_sub(end.nanos, start.nanos) };
+pub fn between__Tick_Tick(start: &crate::time::Tick, end: &crate::time::Tick) -> crate::time::Duration {
+    return crate::time::Duration { nanos: i64::wrapping_sub(end.nanos, start.nanos) };
 }
 
-pub fn plus__Instant_Duration(at: &Instant, d: &Duration) -> Instant {
-    return Instant { nanos: i64::wrapping_add(at.nanos, d.nanos) };
+pub fn plus__Instant_Duration(at: &crate::time::Instant, d: &crate::time::Duration) -> crate::time::Instant {
+    return crate::time::Instant { nanos: i64::wrapping_add(at.nanos, d.nanos) };
 }
 
-pub fn minus__Instant_Duration(at: &Instant, d: &Duration) -> Instant {
-    return Instant { nanos: i64::wrapping_sub(at.nanos, d.nanos) };
+pub fn minus__Instant_Duration(at: &crate::time::Instant, d: &crate::time::Duration) -> crate::time::Instant {
+    return crate::time::Instant { nanos: i64::wrapping_sub(at.nanos, d.nanos) };
 }
 
-pub fn plus__Tick_Duration(at: &Tick, d: &Duration) -> Tick {
-    return Tick { nanos: i64::wrapping_add(at.nanos, d.nanos) };
+pub fn plus__Tick_Duration(at: &crate::time::Tick, d: &crate::time::Duration) -> crate::time::Tick {
+    return crate::time::Tick { nanos: i64::wrapping_add(at.nanos, d.nanos) };
 }
 
-pub fn minus__Tick_Duration(at: &Tick, d: &Duration) -> Tick {
-    return Tick { nanos: i64::wrapping_sub(at.nanos, d.nanos) };
+pub fn minus__Tick_Duration(at: &crate::time::Tick, d: &crate::time::Duration) -> crate::time::Tick {
+    return crate::time::Tick { nanos: i64::wrapping_sub(at.nanos, d.nanos) };
 }
 
 pub trait __Stateless_Ticker: Send + Sync {
-    fn tick(&self) -> Tick;
+    fn tick(&self) -> crate::time::Tick;
 }
 
 pub trait __Stateful_Ticker: Send {
-    fn tick(&mut self) -> Tick;
+    fn tick(&mut self) -> crate::time::Tick;
 }
 
 pub struct Ticker {
@@ -231,7 +221,7 @@ impl Ticker {
     pub fn share_locked(inner: std::sync::Arc<std::sync::Mutex<dyn __Stateful_Ticker>>) -> Self {
         Self { inner: __Inner_Ticker::Locked(inner) }
     }
-    pub fn tick(&self) -> Tick {
+    pub fn tick(&self) -> crate::time::Tick {
         match &self.inner {
             __Inner_Ticker::Shared(h) => h.tick(),
             __Inner_Ticker::Locked(h) => h.lock().unwrap().tick(),
@@ -240,15 +230,15 @@ impl Ticker {
 }
 
 pub trait __Stateless_Clock: Send + Sync {
-    fn now(&self) -> Instant;
-    fn to_instant(&self, at: &Tick) -> Instant;
-    fn to_tick(&self, at: &Instant) -> Tick;
+    fn now(&self) -> crate::time::Instant;
+    fn to_instant(&self, at: &crate::time::Tick) -> crate::time::Instant;
+    fn to_tick(&self, at: &crate::time::Instant) -> crate::time::Tick;
 }
 
 pub trait __Stateful_Clock: Send {
-    fn now(&mut self) -> Instant;
-    fn to_instant(&mut self, at: &Tick) -> Instant;
-    fn to_tick(&mut self, at: &Instant) -> Tick;
+    fn now(&mut self) -> crate::time::Instant;
+    fn to_instant(&mut self, at: &crate::time::Tick) -> crate::time::Instant;
+    fn to_tick(&mut self, at: &crate::time::Instant) -> crate::time::Tick;
 }
 
 pub struct Clock {
@@ -282,19 +272,19 @@ impl Clock {
     pub fn share_locked(inner: std::sync::Arc<std::sync::Mutex<dyn __Stateful_Clock>>) -> Self {
         Self { inner: __Inner_Clock::Locked(inner) }
     }
-    pub fn now(&self) -> Instant {
+    pub fn now(&self) -> crate::time::Instant {
         match &self.inner {
             __Inner_Clock::Shared(h) => h.now(),
             __Inner_Clock::Locked(h) => h.lock().unwrap().now(),
         }
     }
-    pub fn to_instant(&self, at: &Tick) -> Instant {
+    pub fn to_instant(&self, at: &crate::time::Tick) -> crate::time::Instant {
         match &self.inner {
             __Inner_Clock::Shared(h) => h.to_instant(at),
             __Inner_Clock::Locked(h) => h.lock().unwrap().to_instant(at),
         }
     }
-    pub fn to_tick(&self, at: &Instant) -> Tick {
+    pub fn to_tick(&self, at: &crate::time::Instant) -> crate::time::Tick {
         match &self.inner {
             __Inner_Clock::Shared(h) => h.to_tick(at),
             __Inner_Clock::Locked(h) => h.lock().unwrap().to_tick(at),
@@ -302,8 +292,8 @@ impl Clock {
     }
 }
 
-pub fn elapsed(ticker: &crate::time::Ticker, since: &Tick) -> Duration {
-    return between__Tick_Tick(since, &(ticker.tick()));
+pub fn elapsed(ticker: &crate::time::Ticker, since: &crate::time::Tick) -> crate::time::Duration {
+    return crate::time::between__Tick_Tick(since, &ticker.tick());
 }
 
 #[derive(Clone)]
@@ -313,14 +303,14 @@ pub struct DefaultTicker {
 impl DefaultTicker {
     pub fn new() -> Self {
         Self {
+            
         }
     }
 }
 
 impl crate::time::__Stateless_Ticker for DefaultTicker {
-
-    fn tick(&self) -> Tick {
-        return Tick { nanos: monotonic_nanos() };
+    fn tick(&self) -> crate::time::Tick {
+        return crate::time::Tick { nanos: crate::time::monotonic_nanos() };
     }
 }
 
@@ -332,29 +322,26 @@ pub struct DefaultClock {
 impl DefaultClock {
     pub fn new() -> Self {
         Self {
-            base_tick: monotonic_nanos(),
-            base_epoch: epoch_nanos_platform(),
+            base_tick: crate::time::monotonic_nanos(),
+            base_epoch: crate::time::epoch_nanos_platform()
         }
     }
 }
 
 impl crate::time::__Stateful_Clock for DefaultClock {
-
-    fn now(&mut self) -> Instant {
-        return Instant { nanos: epoch_nanos_platform() };
+    fn now(&mut self) -> crate::time::Instant {
+        return crate::time::Instant { nanos: crate::time::epoch_nanos_platform() };
     }
-
-    fn to_instant(&mut self, at: &Tick) -> Instant {
-        return Instant { nanos: i64::wrapping_add(self.base_epoch, i64::wrapping_sub(at.nanos, self.base_tick)) };
+    fn to_instant(&mut self, at: &crate::time::Tick) -> crate::time::Instant {
+        return crate::time::Instant { nanos: i64::wrapping_add(self.base_epoch, i64::wrapping_sub(at.nanos, self.base_tick)) };
     }
-
-    fn to_tick(&mut self, at: &Instant) -> Tick {
-        return Tick { nanos: i64::wrapping_add(self.base_tick, i64::wrapping_sub(at.nanos, self.base_epoch)) };
+    fn to_tick(&mut self, at: &crate::time::Instant) -> crate::time::Tick {
+        return crate::time::Tick { nanos: i64::wrapping_add(self.base_tick, i64::wrapping_sub(at.nanos, self.base_epoch)) };
     }
 }
 
 pub fn monotonic_nanos() -> i64 {
-    return now_nanos();
+    return crate::runtime::now_nanos();
 }
 
 pub fn epoch_nanos_platform() -> i64 {
@@ -363,7 +350,7 @@ pub fn epoch_nanos_platform() -> i64 {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Fired {
-    pub at: Tick,
+    pub at: crate::time::Tick,
 }
 
 impl crate::wire::__Wire for Fired {
@@ -378,27 +365,11 @@ impl crate::wire::__Wire for Fired {
 }
 
 pub trait __Stateless_Timer: Send + Sync {
-    fn after(&self, wait: Duration, done: crate::scheduler::SalvoReply);
+    fn after(&self, wait: crate::time::Duration, done: crate::scheduler::SalvoReply);
 }
 
 pub trait __Stateful_Timer: Send {
-    fn after(&mut self, wait: Duration, done: crate::scheduler::SalvoReply);
-}
-
-pub struct __Stub_Timer {
-    addr: usize,
-}
-
-impl __Stub_Timer {
-    pub fn new(addr: usize) -> Self {
-        Self { addr }
-    }
-}
-
-impl __Stateless_Timer for __Stub_Timer {
-    fn after(&self, wait: Duration, done: crate::scheduler::SalvoReply) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_Timer::After(wait, done), crate::time::__PROTO_Timer);
-    }
+    fn after(&mut self, wait: crate::time::Duration, done: crate::scheduler::SalvoReply);
 }
 
 pub struct Timer {
@@ -432,7 +403,7 @@ impl Timer {
     pub fn share_locked(inner: std::sync::Arc<std::sync::Mutex<dyn __Stateful_Timer>>) -> Self {
         Self { inner: __Inner_Timer::Locked(inner) }
     }
-    pub fn after(&self, wait: Duration, done: crate::scheduler::SalvoReply) {
+    pub fn after(&self, wait: crate::time::Duration, done: crate::scheduler::SalvoReply) {
         match &self.inner {
             __Inner_Timer::Shared(h) => h.after(wait, done),
             __Inner_Timer::Locked(h) => h.lock().unwrap().after(wait, done),
@@ -441,7 +412,7 @@ impl Timer {
 }
 
 pub enum __Msg_Timer {
-    After(Duration, crate::scheduler::SalvoReply),
+    After(crate::time::Duration, crate::scheduler::SalvoReply),
 }
 
 impl crate::wire::__Wire for __Msg_Timer {
@@ -465,6 +436,22 @@ impl crate::wire::__Wire for __Msg_Timer {
 /// [protocol-hash] The canonical hash of `Timer`.
 pub const __PROTO_Timer: &str = "d0432e460a159011";
 
+pub struct __Stub_Timer {
+    addr: usize,
+}
+
+impl __Stub_Timer {
+    pub fn new(addr: usize) -> Self {
+        Self { addr }
+    }
+}
+
+impl __Stateless_Timer for __Stub_Timer {
+    fn after(&self, wait: crate::time::Duration, done: crate::scheduler::SalvoReply) {
+        crate::scheduler::salvo_send_wire(self.addr, __Msg_Timer::After(wait, done), crate::time::__PROTO_Timer);
+    }
+}
+
 pub struct DefaultTimer {
     pub __mailbox_capacity: i32,
     __addr: Option<usize>,
@@ -474,22 +461,21 @@ pub struct DefaultTimer {
 impl DefaultTimer {
     pub fn new() -> Self {
         Self {
-            __mailbox_capacity: 64,
+            __mailbox_capacity: 64i32,
             __addr: None,
-            __parked: std::collections::HashMap::new(),
+            __parked: std::collections::HashMap::new()
         }
     }
 }
 
 impl crate::time::__Stateless_Timer for DefaultTimer {
-
-    fn after(&self, wait: Duration, done: crate::scheduler::SalvoReply) {
-        after_nanos(wait.nanos, done);
+    fn after(&self, wait: crate::time::Duration, done: crate::scheduler::SalvoReply) {
+        crate::runtime_timers::after_nanos(wait.nanos, done);
     }
 }
 
 pub enum __Cont_DefaultTimer {
-    After(Duration),
+    After(crate::time::Duration),
 }
 
 pub struct __Actor_DefaultTimer {
@@ -500,9 +486,6 @@ impl __Actor_DefaultTimer {
     pub fn new(handler: DefaultTimer) -> Self {
         Self { handler }
     }
-}
-
-impl __Actor_DefaultTimer {
     fn __dispatch(&mut self, msg: crate::time::__Msg_Timer) {
         match msg {
             crate::time::__Msg_Timer::After(wait, done) => crate::time::__Stateless_Timer::after(&mut self.handler, wait, done),
@@ -536,35 +519,18 @@ impl crate::scheduler::SalvoActor for __Actor_DefaultTimer {
 
 pub const __DECODE_DefaultTimer: Option<crate::scheduler::MsgDecoder> = Some(__decode_msg_DefaultTimer);
 fn __decode_msg_DefaultTimer(proto: &str, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {
-        if proto == crate::time::__PROTO_Timer {
-            return crate::wire::salvo_decode::<crate::time::__Msg_Timer>(payload)
-                .map(|__m| std::boxed::Box::new(__m) as crate::scheduler::SalvoMsg);
-        }
+    if proto == crate::time::__PROTO_Timer {
+        return crate::wire::salvo_decode::<crate::time::__Msg_Timer>(payload).map(|__m| std::boxed::Box::new(__m) as crate::scheduler::SalvoMsg);
+    }
     None
 }
 
 pub trait __Stateless_TimerCtl: Send + Sync {
-    fn advance(&self, by: Duration);
+    fn advance(&self, by: crate::time::Duration);
 }
 
 pub trait __Stateful_TimerCtl: Send {
-    fn advance(&mut self, by: Duration);
-}
-
-pub struct __Stub_TimerCtl {
-    addr: usize,
-}
-
-impl __Stub_TimerCtl {
-    pub fn new(addr: usize) -> Self {
-        Self { addr }
-    }
-}
-
-impl __Stateless_TimerCtl for __Stub_TimerCtl {
-    fn advance(&self, by: Duration) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_TimerCtl::Advance(by), crate::time::__PROTO_TimerCtl);
-    }
+    fn advance(&mut self, by: crate::time::Duration);
 }
 
 pub struct TimerCtl {
@@ -598,7 +564,7 @@ impl TimerCtl {
     pub fn share_locked(inner: std::sync::Arc<std::sync::Mutex<dyn __Stateful_TimerCtl>>) -> Self {
         Self { inner: __Inner_TimerCtl::Locked(inner) }
     }
-    pub fn advance(&self, by: Duration) {
+    pub fn advance(&self, by: crate::time::Duration) {
         match &self.inner {
             __Inner_TimerCtl::Shared(h) => h.advance(by),
             __Inner_TimerCtl::Locked(h) => h.lock().unwrap().advance(by),
@@ -607,7 +573,7 @@ impl TimerCtl {
 }
 
 pub enum __Msg_TimerCtl {
-    Advance(Duration),
+    Advance(crate::time::Duration),
 }
 
 impl crate::wire::__Wire for __Msg_TimerCtl {
@@ -630,6 +596,22 @@ impl crate::wire::__Wire for __Msg_TimerCtl {
 /// [protocol-hash] The canonical hash of `TimerCtl`.
 pub const __PROTO_TimerCtl: &str = "93f92d20477305ad";
 
+pub struct __Stub_TimerCtl {
+    addr: usize,
+}
+
+impl __Stub_TimerCtl {
+    pub fn new(addr: usize) -> Self {
+        Self { addr }
+    }
+}
+
+impl __Stateless_TimerCtl for __Stub_TimerCtl {
+    fn advance(&self, by: crate::time::Duration) {
+        crate::scheduler::salvo_send_wire(self.addr, __Msg_TimerCtl::Advance(by), crate::time::__PROTO_TimerCtl);
+    }
+}
+
 pub struct ManualTime {
     now: i64,
     deadlines: Vec<i64>,
@@ -645,50 +627,56 @@ impl ManualTime {
             now: 0i64,
             deadlines: vec![],
             pending: vec![],
-            __mailbox_capacity: 64,
+            __mailbox_capacity: 64i32,
             __addr: None,
-            __parked: std::collections::HashMap::new(),
+            __parked: std::collections::HashMap::new()
         }
     }
 }
 
 impl crate::time::__Stateful_Timer for ManualTime {
-
-    fn after(&mut self, wait: Duration, done: crate::scheduler::SalvoReply) {
-        if wait.nanos <= ((0) as i64) {
-            crate::scheduler::salvo_reply_wire::<Fired>(done, Fired { at: Tick { nanos: self.now } });
+    fn after(&mut self, wait: crate::time::Duration, done: crate::scheduler::SalvoReply) {
+        if (wait.nanos <= 0i64) {
+            crate::scheduler::salvo_reply_wire::<crate::time::Fired>(done, crate::time::Fired { at: crate::time::Tick { nanos: self.now } });
         } else {
-            crate::core_list::add_platform(&mut self.deadlines, i64::wrapping_add(self.now, wait.nanos));
-            crate::core_list::add_platform(&mut self.pending, done);
-        }
+            crate::core_list::add_platform::<i64>(&mut self.deadlines, i64::wrapping_add(self.now, wait.nanos));
+            crate::core_list::add_platform::<crate::scheduler::SalvoReply>(&mut self.pending, done);
+        };
     }
 }
 
 impl crate::time::__Stateful_TimerCtl for ManualTime {
-
-    fn advance(&mut self, by: Duration) {
-        let mut target = i64::wrapping_add(self.now, by.nanos);
+    fn advance(&mut self, by: crate::time::Duration) {
+        let mut target: i64 = i64::wrapping_add(self.now, by.nanos);
         loop {
-            let mut __is1 = earliest_due(&self.deadlines, target);
-            if !(__is1.is_some()) {
+            let mut __subject_1: Option<i32> = crate::time::earliest_due(&self.deadlines, target);
+            if !(__subject_1.is_some()) {
                 break;
-            }
-            let mut at = __is1.unwrap();
-            let mut deadline = *crate::core_list::get_platform(&self.deadlines, at).expect("salvo: value is absent at time:477:33");
-            crate::core_list::remove_at_platform(&mut self.deadlines, at);
-            self.now = deadline.clone();
-            let mut __is2 = crate::core_list::remove_at_platform(&mut self.pending, at);
-            if __is2.is_some() {
-                let mut token = __is2.unwrap();
-                crate::scheduler::salvo_reply_wire::<Fired>(token, Fired { at: Tick { nanos: deadline } });
-            }
+            };
+            let mut at = __subject_1.unwrap();
+            let mut deadline: i64 = {
+                let mut __nn_2: Option<i64> = crate::core_list::get_platform::<i64>(&self.deadlines, at).copied();
+                if __nn_2.is_none() {
+                    panic!("salvo: value is absent at time:477:33");
+                } else {
+                    let mut __some_3 = __nn_2.unwrap();
+                    __some_3
+                }
+            };
+            crate::core_list::remove_at_platform::<i64>(&mut self.deadlines, at);
+            self.now = deadline;
+            let mut __subject_4: Option<crate::scheduler::SalvoReply> = crate::core_list::remove_at_platform::<crate::scheduler::SalvoReply>(&mut self.pending, at);
+            if __subject_4.is_some() {
+                let mut token = __subject_4.unwrap();
+                crate::scheduler::salvo_reply_wire::<crate::time::Fired>(token, crate::time::Fired { at: crate::time::Tick { nanos: deadline } });
+            };
         }
         self.now = target;
     }
 }
 
 pub enum __Cont_ManualTime {
-    After(Duration),
+    After(crate::time::Duration),
     Advance,
 }
 
@@ -700,9 +688,6 @@ impl __Actor_ManualTime {
     pub fn new(handler: ManualTime) -> Self {
         Self { handler }
     }
-}
-
-impl __Actor_ManualTime {
     fn __dispatch_Timer(&mut self, msg: crate::time::__Msg_Timer) {
         match msg {
             crate::time::__Msg_Timer::After(wait, done) => crate::time::__Stateful_Timer::after(&mut self.handler, wait, done),
@@ -737,108 +722,117 @@ impl crate::scheduler::SalvoActor for __Actor_ManualTime {
         };
         match __cont {
             __Cont_ManualTime::After(wait) => self.__dispatch_Timer(crate::time::__Msg_Timer::After(wait, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
-            __Cont_ManualTime::Advance => self.__dispatch_TimerCtl(crate::time::__Msg_TimerCtl::Advance(*value.downcast::<Duration>().expect("the awaited answer"))),
+            __Cont_ManualTime::Advance => self.__dispatch_TimerCtl(crate::time::__Msg_TimerCtl::Advance(*value.downcast::<crate::time::Duration>().expect("the awaited answer"))),
         }
     }
 
     fn decode_reply(&self, slot: u64, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {
         match self.handler.__parked.get(&slot)? {
             __Cont_ManualTime::After{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<crate::scheduler::SalvoReply>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
-            __Cont_ManualTime::Advance{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<Duration>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
+            __Cont_ManualTime::Advance{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<crate::time::Duration>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
         }
     }
 }
 
 pub const __DECODE_ManualTime: Option<crate::scheduler::MsgDecoder> = Some(__decode_msg_ManualTime);
 fn __decode_msg_ManualTime(proto: &str, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {
-        if proto == crate::time::__PROTO_Timer {
-            return crate::wire::salvo_decode::<crate::time::__Msg_Timer>(payload)
-                .map(|__m| std::boxed::Box::new(__m) as crate::scheduler::SalvoMsg);
-        }
-        if proto == crate::time::__PROTO_TimerCtl {
-            return crate::wire::salvo_decode::<crate::time::__Msg_TimerCtl>(payload)
-                .map(|__m| std::boxed::Box::new(__m) as crate::scheduler::SalvoMsg);
-        }
+    if proto == crate::time::__PROTO_Timer {
+        return crate::wire::salvo_decode::<crate::time::__Msg_Timer>(payload).map(|__m| std::boxed::Box::new(__m) as crate::scheduler::SalvoMsg);
+    }
+    if proto == crate::time::__PROTO_TimerCtl {
+        return crate::wire::salvo_decode::<crate::time::__Msg_TimerCtl>(payload).map(|__m| std::boxed::Box::new(__m) as crate::scheduler::SalvoMsg);
+    }
     None
 }
 
-pub fn earliest_due(deadlines: &Vec<i64>, target: i64) -> Option<i32> {
-    let mut best = -1;
-    let mut best_at = 0i64;
-    let mut i = 0;
-    while i < crate::core_list::size_platform(deadlines) {
-        let mut at = *crate::core_list::get_platform(deadlines, i).expect("salvo: value is absent at time:501:23");
-        if at <= target && (best < 0 || at < best_at) {
-            best = i.clone();
-            best_at = at.clone();
-        }
-        i = i32::wrapping_add(i, 1);
+pub fn earliest_due(deadlines: &Vec<i64>, mut target: i64) -> Option<i32> {
+    let mut best: i32 = i32::wrapping_neg(1i32);
+    let mut best_at: i64 = 0i64;
+    let mut i: i32 = 0i32;
+    loop {
+        if !((i < crate::core_list::size_platform::<i64>(deadlines))) {
+            break;
+        };
+        let mut at: i64 = {
+            let mut __nn_1: Option<i64> = crate::core_list::get_platform::<i64>(deadlines, i).copied();
+            if __nn_1.is_none() {
+                panic!("salvo: value is absent at time:501:23");
+            } else {
+                let mut __some_2 = __nn_1.unwrap();
+                __some_2
+            }
+        };
+        if ((at <= target) && ((best < 0i32) || (at < best_at))) {
+            best = i;
+            best_at = at;
+        };
+        i = i32::wrapping_add(i, 1i32);
     }
-    if best < 0 {
+    if (best < 0i32) {
         return None;
-    }
+    };
     return Some(best);
 }
 
-pub fn cmp__Duration_Duration(a: &Duration, b: &Duration) -> i32 {
-    let mut c__c1 = (Ord::cmp(&(a.nanos), &(b.nanos)) as i32);
-    if c__c1 != 0 {
+pub fn cmp__Duration_Duration(a: &crate::time::Duration, b: &crate::time::Duration) -> i32 {
+    let mut c__c1: i32 = (Ord::cmp(&(a.nanos), &(b.nanos)) as i32);
+    if !(((c__c1) == (0i32))) {
         return c__c1;
-    }
-    return 0;
+    };
+    return 0i32;
 }
 
-pub fn hash__Duration(value: &Duration) -> i64 {
-    let mut h = 17i64;
-    h = mix_hash(h, { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.nanos), &mut __h); (std::hash::Hasher::finish(&__h) as i64) });
+pub fn hash__Duration(value: &crate::time::Duration) -> i64 {
+    let mut h: i64 = 17i64;
+    h = crate::core_compare::mix_hash(h, { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.nanos), &mut __h); (std::hash::Hasher::finish(&__h) as i64) });
     return h;
 }
 
-pub fn eq__Duration_Duration(a: &Duration, b: &Duration) -> bool {
-    if !((a.nanos) == (b.nanos)) {
+pub fn eq__Duration_Duration(a: &crate::time::Duration, b: &crate::time::Duration) -> bool {
+    if !(((a.nanos) == (b.nanos))) {
         return false;
-    }
+    };
     return true;
 }
 
-pub fn cmp__Instant_Instant(a: &Instant, b: &Instant) -> i32 {
-    let mut c__c1 = (Ord::cmp(&(a.nanos), &(b.nanos)) as i32);
-    if c__c1 != 0 {
+pub fn cmp__Instant_Instant(a: &crate::time::Instant, b: &crate::time::Instant) -> i32 {
+    let mut c__c1: i32 = (Ord::cmp(&(a.nanos), &(b.nanos)) as i32);
+    if !(((c__c1) == (0i32))) {
         return c__c1;
-    }
-    return 0;
+    };
+    return 0i32;
 }
 
-pub fn hash__Instant(value: &Instant) -> i64 {
-    let mut h = 17i64;
-    h = mix_hash(h, { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.nanos), &mut __h); (std::hash::Hasher::finish(&__h) as i64) });
+pub fn hash__Instant(value: &crate::time::Instant) -> i64 {
+    let mut h: i64 = 17i64;
+    h = crate::core_compare::mix_hash(h, { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.nanos), &mut __h); (std::hash::Hasher::finish(&__h) as i64) });
     return h;
 }
 
-pub fn eq__Instant_Instant(a: &Instant, b: &Instant) -> bool {
-    if !((a.nanos) == (b.nanos)) {
+pub fn eq__Instant_Instant(a: &crate::time::Instant, b: &crate::time::Instant) -> bool {
+    if !(((a.nanos) == (b.nanos))) {
         return false;
-    }
+    };
     return true;
 }
 
-pub fn cmp__Tick_Tick(a: &Tick, b: &Tick) -> i32 {
-    let mut c__c1 = (Ord::cmp(&(a.nanos), &(b.nanos)) as i32);
-    if c__c1 != 0 {
+pub fn cmp__Tick_Tick(a: &crate::time::Tick, b: &crate::time::Tick) -> i32 {
+    let mut c__c1: i32 = (Ord::cmp(&(a.nanos), &(b.nanos)) as i32);
+    if !(((c__c1) == (0i32))) {
         return c__c1;
-    }
-    return 0;
+    };
+    return 0i32;
 }
 
-pub fn hash__Tick(value: &Tick) -> i64 {
-    let mut h = 17i64;
-    h = mix_hash(h, { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.nanos), &mut __h); (std::hash::Hasher::finish(&__h) as i64) });
+pub fn hash__Tick(value: &crate::time::Tick) -> i64 {
+    let mut h: i64 = 17i64;
+    h = crate::core_compare::mix_hash(h, { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.nanos), &mut __h); (std::hash::Hasher::finish(&__h) as i64) });
     return h;
 }
 
-pub fn eq__Tick_Tick(a: &Tick, b: &Tick) -> bool {
-    if !((a.nanos) == (b.nanos)) {
+pub fn eq__Tick_Tick(a: &crate::time::Tick, b: &crate::time::Tick) -> bool {
+    if !(((a.nanos) == (b.nanos))) {
         return false;
-    }
+    };
     return true;
 }

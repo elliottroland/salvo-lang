@@ -1,7 +1,7 @@
-use crate::unions::*;
 use crate::core_iterator::Finished;
 use crate::core_iterator::emitted;
 use crate::core_iterator::finished;
+
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct __Iter_range_Int_Int_Int {
@@ -28,39 +28,39 @@ impl crate::wire::__Wire for __Iter_range_Int_Int_Int {
     }
 }
 
-pub fn range__Int_Int_Int(start: i32, end: i32, step: i32) -> __Iter_range_Int_Int_Int {
-    return __Iter_range_Int_Int_Int { start: start, end: end, step: step, i: start };
+pub fn range__Int_Int_Int(mut start: i32, mut end: i32, mut step: i32) -> crate::core_range::__Iter_range_Int_Int_Int {
+    return crate::core_range::__Iter_range_Int_Int_Int { start: start, end: end, step: step, i: start };
 }
 
-pub fn next(__p: &mut __Iter_range_Int_Int_Int) -> Union2<i32, Finished> {
-    let mut next = __p.i;
-    return (match if __p.step == 0 {
-        Union2::<Finished, i32>::U1(finished())
-    } else if __p.step > 0 && __p.i >= __p.end {
-        Union2::<Finished, i32>::U1(finished())
-    } else if __p.step < 0 && __p.i <= __p.end {
-        Union2::<Finished, i32>::U1(finished())
+pub fn next(__p: &mut crate::core_range::__Iter_range_Int_Int_Int) -> crate::unions::Union2<i32, crate::core_iterator::Finished> {
+    let mut next: i32 = __p.i;
+    return (match if ((__p.step) == (0i32)) {
+        crate::unions::Union2::U1(crate::core_iterator::finished())
+    } else if ((__p.step > 0i32) && (__p.i >= __p.end)) {
+        crate::unions::Union2::U1(crate::core_iterator::finished())
+    } else if ((__p.step < 0i32) && (__p.i <= __p.end)) {
+        crate::unions::Union2::U1(crate::core_iterator::finished())
     } else {
         __p.i = i32::wrapping_add(__p.i, __p.step);
-        Union2::<Finished, i32>::U2(emitted(next))
-    } { Union2::U1(__v) => Union2::<i32, Finished>::U2(__v), Union2::U2(__v) => Union2::<i32, Finished>::U1(__v), });
+        crate::unions::Union2::U2(crate::core_iterator::emitted::<i32>(next))
+    } { crate::unions::Union2::U1(__v) => crate::unions::Union2::U2(__v), crate::unions::Union2::U2(__v) => crate::unions::Union2::U1(__v), #[allow(unreachable_patterns)] _ => unreachable!("salvo: unreachable union arm") });
 }
 
-pub fn range__Int_Int(start: i32, end: i32) -> __Iter_range_Int_Int_Int {
-    let mut step = if start < end {
-        1
-    } else if start > end {
-        -1
+pub fn range__Int_Int(mut start: i32, mut end: i32) -> crate::core_range::__Iter_range_Int_Int_Int {
+    let mut step: i32 = if (start < end) {
+        1i32
+    } else if (start > end) {
+        i32::wrapping_neg(1i32)
     } else {
-        0
+        0i32
     };
-    return range__Int_Int_Int(start, end, step);
+    return crate::core_range::range__Int_Int_Int(start, end, step);
 }
 
-pub fn range__Int(end: i32) -> __Iter_range_Int_Int_Int {
-    return range__Int_Int(0, end);
+pub fn range__Int(mut end: i32) -> crate::core_range::__Iter_range_Int_Int_Int {
+    return crate::core_range::range__Int_Int(0i32, end);
 }
 
-pub fn InRange__Int_qualifies(n: i32, lo: i32, hi: i32) -> bool {
-    return n >= lo && n <= hi;
+pub fn InRange__Int_qualifies(mut n: i32, mut lo: i32, mut hi: i32) -> bool {
+    return ((n >= lo) && (n <= hi));
 }

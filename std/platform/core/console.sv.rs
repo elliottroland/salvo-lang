@@ -2,7 +2,6 @@
 // the declarations the platform code uses, as the build emits them. Rewritten
 // by every build — do not edit; the build never reads this file.
 // salvo-abi 1 5cd1832c3b5d03f1
-use crate::core_string::Str;
 
 pub trait __Stateless_Console: Send + Sync {
     fn print(&self, message: &String);

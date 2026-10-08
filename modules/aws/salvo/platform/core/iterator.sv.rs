@@ -16,10 +16,10 @@ impl crate::wire::__Wire for Finished {
     }
 }
 
-pub fn emitted<T>(value: T) -> T {
+pub fn emitted<T>(mut value: T) -> T {
     return value;
 }
 
-pub fn finished() -> Finished {
-    return Finished {  };
+pub fn finished() -> crate::core_iterator::Finished {
+    return crate::core_iterator::Finished {};
 }

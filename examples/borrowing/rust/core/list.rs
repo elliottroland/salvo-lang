@@ -1,21 +1,17 @@
-use crate::seq::*;
-use crate::unions::*;
 use crate::core_checked::Checked;
-use crate::core_checked::checked;
-use crate::core_checked::ignore;
+use crate::core_iterator::Finished;
 use crate::core_index::Idx__Int_qualifies;
-use crate::core_index::__Iter_indices_List;
-use crate::core_index::__Iter_rev_indices_List;
+use crate::core_string::append_platform;
+use crate::core_checked::checked;
+use crate::core_iterator::emitted;
+use crate::core_iterator::finished;
+use crate::core_checked::ignore;
 use crate::core_index::indices;
+use crate::core_string::mut_str;
 use crate::core_index::next__Iter_indices_List;
 use crate::core_index::next__Iter_rev_indices_List;
 use crate::core_index::rev_indices;
-use crate::core_iterator::Finished;
-use crate::core_iterator::emitted;
-use crate::core_iterator::finished;
-use crate::core_string::Str;
-use crate::core_string::append_platform;
-use crate::core_string::mut_str;
+
 
 /// [platform-type] The host's `List`.
 pub use crate::platform_core_list::List;
@@ -23,73 +19,75 @@ const _: fn() = || { fn __contract<T: Send + 'static + Clone + std::fmt::Debug +
 const _: fn() = || { fn __each(x: &List<i32>) -> impl Iterator<Item = i32> + '_ { crate::platform_core_list::each(x).map(|e| e.clone()) } let _ = __each; };
 const _: fn() = || { fn __each_ref(x: &List<i32>) -> impl Iterator<Item = &i32> + '_ { crate::platform_core_list::each(x) } fn __each_mut(x: &mut List<i32>) -> impl Iterator<Item = &mut i32> + '_ { crate::platform_core_list::each_mut(x) } fn __into_each(x: List<i32>) -> impl Iterator<Item = i32> { crate::platform_core_list::into_each(x) } let _ = (__each_ref, __each_mut, __into_each); };
 
-pub fn list_by<T: Clone>(size: i32, init: &mut impl FnMut(i32) -> T) -> Vec<T> {
-    return mut_list_by(size, init);
+pub fn list_by<T: Clone>(mut size: i32, init: &mut dyn FnMut(i32) -> T) -> Vec<T> {
+    return crate::core_list::mut_list_by::<T>(size, &mut *init);
 }
 
-pub fn mut_list_by<T: Clone>(size: i32, init: &mut impl FnMut(i32) -> T) -> Vec<T> {
-    let mut out = vec![];
-    let mut i = 0;
-    while i < size {
-        add_platform(&mut out, init(i.clone()));
-        i = i32::wrapping_add(i, 1);
+pub fn mut_list_by<T: Clone>(mut size: i32, init: &mut dyn FnMut(i32) -> T) -> Vec<T> {
+    let mut out: Vec<T> = vec![];
+    let mut i: i32 = 0i32;
+    loop {
+        if !((i < size)) {
+            break;
+        };
+        crate::core_list::add_platform::<T>(&mut out, init(i));
+        i = i32::wrapping_add(i, 1i32);
     }
     return out;
 }
 
-pub fn get_platform<T>(list: &Vec<T>, index: i32) -> Option<&T> {
+pub fn get_platform<T>(list: &Vec<T>, mut index: i32) -> Option<&T> {
     crate::platform_core_list::get(list, index)
 }
 
-pub fn get_platform__loc<T>(list: &Vec<T>, index: i32) -> Option<usize> {
+pub fn get_platform__loc<T>(list: &Vec<T>, mut index: i32) -> Option<usize> {
     if index >= 0 && (index as usize) < list.len() { Some(index as usize) } else { None }
 }
 
-pub fn get<'a, T>(list: &'a Vec<T>, index: &i32) -> &'a T {
-    return get_at_platform(list, i32::wrapping_add(*index, 0));
+pub fn get<T>(list: &Vec<T>, mut index: i32) -> &T {
+    return crate::core_list::get_at_platform::<T>(list, i32::wrapping_add(index, 0i32));
 }
 
-pub fn get__loc<T>(list: &Vec<T>, index: &i32) -> usize {
-    return get_at_platform__loc(list, i32::wrapping_add(*index, 0));
+pub fn get__loc<T>(list: &Vec<T>, mut index: i32) -> usize {
+    return crate::core_list::get_at_platform__loc(list, i32::wrapping_add(index, 0i32));
 }
 
-pub fn get_at_platform<T>(list: &Vec<T>, index: i32) -> &T {
+pub fn get_at_platform<T>(list: &Vec<T>, mut index: i32) -> &T {
     crate::platform_core_list::get_at(list, index)
 }
 
-pub fn get_at_platform__loc<T>(list: &Vec<T>, index: i32) -> usize {
+pub fn get_at_platform__loc<T>(list: &Vec<T>, mut index: i32) -> usize {
     index as usize
 }
 
-pub fn swap__MutList_IdxInt_IdxInt<T: Clone>(list: &mut Vec<T>, i: &i32, j: &i32) {
-    ignore(swap__MutList_Int_Int(list, i32::wrapping_add(*i, 0), i32::wrapping_add(*j, 0)));
+pub fn swap__MutList_IdxInt_IdxInt<T: Clone>(list: &mut Vec<T>, mut i: i32, mut j: i32) {
+    { let __arg1 = crate::core_list::swap__MutList_Int_Int::<T>(&mut *list, i32::wrapping_add(i, 0i32), i32::wrapping_add(j, 0i32)); crate::core_checked::ignore::<bool>(__arg1) };
     return;
 }
 
-pub fn replace_platform<T>(list: &mut Vec<T>, index: &i32, value: T) -> T {
-    crate::platform_core_list::replace(list, *index, value)
+pub fn replace_platform<T>(list: &mut Vec<T>, mut index: i32, mut value: T) -> T {
+    crate::platform_core_list::replace(list, index, value)
 }
 
-pub fn at<T>(list: &mut Vec<T>, index: i32) -> Option<&T> {
-    return get_platform(list, index);
+pub fn at<T>(list: &mut Vec<T>, mut index: i32) -> Option<&mut T> {
+    return { match crate::core_list::get_platform__loc(&*list, index) { Some(__l1) => Some(&mut list[__l1]), None => None } };
 }
 
-pub fn at__loc<T>(list: &Vec<T>, index: i32) -> Option<usize> {
-    return get_platform__loc(list, index);
+pub fn at__loc<T>(list: &Vec<T>, mut index: i32) -> Option<usize> {
+    return crate::core_list::get_platform__loc(list, index);
 }
 
-pub fn update<T: Clone>(list: &mut Vec<T>, index: &i32, f: &mut impl FnMut(&mut T)) {
-    f(list.get_mut((*index) as usize).expect("salvo: value is absent at core.list:134:7"));
+pub fn update<T: Clone>(list: &mut Vec<T>, mut index: i32, f: &mut dyn FnMut(&mut T)) {
+    f({ let __l1 = crate::core_list::get__loc(&*list, index); &mut list[__l1] });
     return;
 }
 
-pub fn update2<T: Clone>(list: &mut Vec<T>, i: &i32, j: &i32, f: &mut impl FnMut(&mut T, &mut T)) {
-    let (__pm0, __pm1) = salvo_pair_mut(&mut list[..], (*i) as usize, (*j) as usize).expect("salvo: value is absent at core.list:147:5");
-    f(__pm0, __pm1);
+pub fn update2<T: Clone>(list: &mut Vec<T>, mut i: i32, mut j: i32, f: &mut dyn FnMut(&mut T, &mut T)) {
+    { let __l1 = crate::core_list::get__loc(&*list, i); let __l2 = crate::core_list::get__loc(&*list, j); let (__pm3, __pm4) = crate::seq::salvo_pair_mut(&mut list[..], __l1, __l2).expect("salvo: value is absent"); f(__pm3, __pm4) };
     return;
 }
 
-pub fn add_platform<T>(list: &mut Vec<T>, elem: T) {
+pub fn add_platform<T>(list: &mut Vec<T>, mut elem: T) {
     crate::platform_core_list::add(list, elem)
 }
 
@@ -97,36 +95,47 @@ pub fn remove_first_platform<T>(list: &mut Vec<T>) -> Option<T> {
     crate::platform_core_list::remove_first(list)
 }
 
-pub fn remove_at_platform<T>(list: &mut Vec<T>, index: i32) -> Option<T> {
+pub fn remove_at_platform<T>(list: &mut Vec<T>, mut index: i32) -> Option<T> {
     crate::platform_core_list::remove_at(list, index)
 }
 
-pub fn insert_at_platform<T>(list: &mut Vec<T>, index: i32, elem: T) -> Option<T> {
+pub fn insert_at_platform<T>(list: &mut Vec<T>, mut index: i32, mut elem: T) -> Option<T> {
     crate::platform_core_list::insert_at(list, index, elem)
 }
 
-pub fn remove_range_platform<T>(list: &mut Vec<T>, from: i32, to: i32) -> Vec<T> {
+pub fn remove_range_platform<T>(list: &mut Vec<T>, mut from: i32, mut to: i32) -> Vec<T> {
     crate::platform_core_list::remove_range(list, from, to)
 }
 
-pub fn swap__MutList_Int_Int<T>(list: &mut Vec<T>, i: i32, j: i32) -> Checked<bool> {
-    return checked(swap_at_platform(list, i, j));
+pub fn swap__MutList_Int_Int<T>(list: &mut Vec<T>, mut i: i32, mut j: i32) -> crate::core_checked::Checked<bool> {
+    return { let __arg1 = crate::core_list::swap_at_platform::<T>(&mut *list, i, j); crate::core_checked::checked::<bool>(__arg1) };
 }
 
-pub fn swap_at_platform<T>(list: &mut Vec<T>, i: i32, j: i32) -> bool {
+pub fn swap_at_platform<T>(list: &mut Vec<T>, mut i: i32, mut j: i32) -> bool {
     crate::platform_core_list::swap_at(list, i, j)
 }
 
-pub fn drain<T>(list: Vec<T>, each: &mut impl FnMut(T)) {
-    let mut m = into_mut_platform(list);
-    reverse(&mut m);
-    while size_platform(&m) > 0 {
-        each(remove_last_platform(&mut m).expect("salvo: value is absent at core.list:237:14"));
+pub fn drain<T>(mut list: Vec<T>, each: &mut dyn FnMut(T)) {
+    let mut m: Vec<T> = crate::core_list::into_mut_platform::<T>(list);
+    crate::core_list::reverse::<T>(&mut m);
+    loop {
+        if !((crate::core_list::size_platform::<T>(&m) > 0i32)) {
+            break;
+        };
+        { let __arg1 = {
+            let mut __nn_1: Option<T> = crate::core_list::remove_last_platform::<T>(&mut m);
+            if __nn_1.is_none() {
+                panic!("salvo: value is absent at core.list:237:14");
+            } else {
+                let mut __some_2 = __nn_1.unwrap();
+                __some_2
+            }
+        }; each(__arg1) };
     }
-    end_empty_platform(m);
+    crate::core_list::end_empty_platform::<T>(m);
 }
 
-pub fn into_mut_platform<T>(list: Vec<T>) -> Vec<T> {
+pub fn into_mut_platform<T>(mut list: Vec<T>) -> Vec<T> {
     crate::platform_core_list::into_mut(list)
 }
 
@@ -143,11 +152,19 @@ pub fn first_platform<T>(list: &Vec<T>) -> Option<&T> {
 }
 
 pub fn NonEmpty__List_qualifies<T: Clone>(list: &Vec<T>) -> bool {
-    return size_platform(list) > 0;
+    return (crate::core_list::size_platform::<T>(list) > 0i32);
 }
 
 pub fn first<T>(list: &Vec<T>) -> &T {
-    return get_platform(list, 0).expect("salvo: value is absent at core.list:294:12");
+    return {
+        let mut __nn_1: Option<&T> = crate::core_list::get_platform::<T>(list, 0i32);
+        if __nn_1.is_none() {
+            panic!("salvo: value is absent at core.list:294:12");
+        } else {
+            let mut __some_2 = __nn_1.unwrap();
+            __some_2
+        }
+    };
 }
 
 pub fn size_platform<T>(list: &Vec<T>) -> i32 {
@@ -155,160 +172,268 @@ pub fn size_platform<T>(list: &Vec<T>) -> i32 {
 }
 
 pub fn last<T>(list: &Vec<T>) -> Option<&T> {
-    return get_platform(list, i32::wrapping_sub(size_platform(list), 1));
+    return crate::core_list::get_platform::<T>(list, i32::wrapping_sub(crate::core_list::size_platform::<T>(list), 1i32));
 }
 
 pub fn is_empty<T>(list: &Vec<T>) -> bool {
-    return size_platform(list) == 0;
+    return ((crate::core_list::size_platform::<T>(list)) == (0i32));
 }
 
-pub fn remove_front<T>(list: &mut Vec<T>, n: i32) -> Vec<T> {
-    return remove_range_platform(list, 0, n);
+pub fn remove_front<T>(list: &mut Vec<T>, mut n: i32) -> Vec<T> {
+    return crate::core_list::remove_range_platform::<T>(&mut *list, 0i32, n);
 }
 
-pub fn remove_back<T>(list: &mut Vec<T>, n: i32) -> Vec<T> {
-    let mut at = i32::wrapping_sub(size_platform(list), n);
-    if at < 0 {
-        at = 0;
+pub fn remove_back<T>(list: &mut Vec<T>, mut n: i32) -> Vec<T> {
+    let mut at: i32 = i32::wrapping_sub(crate::core_list::size_platform::<T>(&*list), n);
+    if (at < 0i32) {
+        at = 0i32;
+    };
+    return { let __arg1 = crate::core_list::size_platform::<T>(&*list); crate::core_list::remove_range_platform::<T>(&mut *list, at, __arg1) };
+}
+
+pub fn remove_front_while<T>(list: &mut Vec<T>, keep: &mut dyn FnMut(&T) -> bool) -> Vec<T> {
+    let mut n: i32 = 0i32;
+    loop {
+        if !(((n < crate::core_list::size_platform::<T>(&*list)) && keep({
+            let mut __nn_1: Option<&T> = crate::core_list::get_platform::<T>(&*list, n);
+            if __nn_1.is_none() {
+                panic!("salvo: value is absent at core.list:337:34");
+            } else {
+                let mut __some_2 = __nn_1.unwrap();
+                __some_2
+            }
+        }))) {
+            break;
+        };
+        n = i32::wrapping_add(n, 1i32);
     }
-    return remove_range_platform(list, at, size_platform(list));
+    return crate::core_list::remove_range_platform::<T>(&mut *list, 0i32, n);
 }
 
-pub fn remove_front_while<T>(list: &mut Vec<T>, keep: &mut impl FnMut(&T) -> bool) -> Vec<T> {
-    let mut n = 0;
-    while n < size_platform(list) && keep(&(get_platform(list, n).expect("salvo: value is absent at core.list:337:34"))) {
-        n = i32::wrapping_add(n, 1);
+pub fn remove_back_while<T>(list: &mut Vec<T>, keep: &mut dyn FnMut(&T) -> bool) -> Vec<T> {
+    let mut at: i32 = crate::core_list::size_platform::<T>(&*list);
+    loop {
+        if !(((at > 0i32) && keep({
+            let mut __nn_1: Option<&T> = crate::core_list::get_platform::<T>(&*list, i32::wrapping_sub(at, 1i32));
+            if __nn_1.is_none() {
+                panic!("salvo: value is absent at core.list:349:26");
+            } else {
+                let mut __some_2 = __nn_1.unwrap();
+                __some_2
+            }
+        }))) {
+            break;
+        };
+        at = i32::wrapping_sub(at, 1i32);
     }
-    return remove_range_platform(list, 0, n);
+    return { let __arg1 = crate::core_list::size_platform::<T>(&*list); crate::core_list::remove_range_platform::<T>(&mut *list, at, __arg1) };
 }
 
-pub fn remove_back_while<T>(list: &mut Vec<T>, keep: &mut impl FnMut(&T) -> bool) -> Vec<T> {
-    let mut at = size_platform(list);
-    while at > 0 && keep(&(get_platform(list, i32::wrapping_sub(at, 1)).expect("salvo: value is absent at core.list:349:26"))) {
-        at = i32::wrapping_sub(at, 1);
-    }
-    return remove_range_platform(list, at, size_platform(list));
-}
-
-pub fn sub_list<T: Clone>(list: &Vec<T>, from: i32, to: i32, copy: &mut dyn FnMut(&T) -> T) -> Vec<T> {
-    let mut out = vec![];
-    let mut i = from;
-    if i < 0 {
-        i = 0;
-    }
-    while i < to && i < size_platform(list) {
-        add_platform(&mut out, copy(&get_platform(list, i).expect("salvo: value is absent at core.list:367:23")));
-        i = i32::wrapping_add(i, 1);
+pub fn sub_list<T: Clone>(list: &Vec<T>, mut from: i32, mut to: i32, copy: &mut dyn FnMut(&T) -> T) -> Vec<T> {
+    let mut out: Vec<T> = vec![];
+    let mut i: i32 = from;
+    if (i < 0i32) {
+        i = 0i32;
+    };
+    loop {
+        if !(((i < to) && (i < crate::core_list::size_platform::<T>(list)))) {
+            break;
+        };
+        crate::core_list::add_platform::<T>(&mut out, copy({
+            let mut __nn_1: Option<&T> = crate::core_list::get_platform::<T>(list, i);
+            if __nn_1.is_none() {
+                panic!("salvo: value is absent at core.list:367:23");
+            } else {
+                let mut __some_2 = __nn_1.unwrap();
+                __some_2
+            }
+        }));
+        i = i32::wrapping_add(i, 1i32);
     }
     return out;
 }
 
-pub fn find_first<T: Clone>(list: &Vec<T>, pick: &mut impl FnMut(&T) -> bool) -> Option<i32> {
-    let mut __loop1_pass = indices(list);
-    while let Union2::U1(mut i) = next__Iter_indices_List(&mut __loop1_pass) {
-        if pick(&(get(list, &i))) {
-            return Some(i);
-        }
+pub fn find_first<T: Clone>(list: &Vec<T>, pick: &mut dyn FnMut(&T) -> bool) -> Option<i32> {
+    let mut __pass_1: crate::core_index::__Iter_indices_List<'_, T> = crate::core_index::indices::<T>(list);
+    loop {
+        let mut __step_2: crate::unions::Union2<i32, crate::core_iterator::Finished> = crate::core_index::next__Iter_indices_List(&mut __pass_1);
+        if matches!(__step_2, crate::unions::Union2::U1(_)) {
+            let mut __emitted_3 = match &__step_2 { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
+            let mut i: i32 = __emitted_3;
+            if pick(crate::core_list::get::<T>(list, i)) {
+                return Some(i);
+            };
+        } else {
+            break;
+        };
     }
     return None;
 }
 
-pub fn find_last<T: Clone>(list: &Vec<T>, pick: &mut impl FnMut(&T) -> bool) -> Option<i32> {
-    let mut __loop2_pass = rev_indices(list);
-    while let Union2::U1(mut i) = next__Iter_rev_indices_List(&mut __loop2_pass) {
-        if pick(&(get(list, &i))) {
-            return Some(i);
-        }
+pub fn find_last<T: Clone>(list: &Vec<T>, pick: &mut dyn FnMut(&T) -> bool) -> Option<i32> {
+    let mut __pass_1: crate::core_index::__Iter_rev_indices_List<'_, T> = crate::core_index::rev_indices::<T>(list);
+    loop {
+        let mut __step_2: crate::unions::Union2<i32, crate::core_iterator::Finished> = crate::core_index::next__Iter_rev_indices_List(&mut __pass_1);
+        if matches!(__step_2, crate::unions::Union2::U1(_)) {
+            let mut __emitted_3 = match &__step_2 { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
+            let mut i: i32 = __emitted_3;
+            if pick(crate::core_list::get::<T>(list, i)) {
+                return Some(i);
+            };
+        } else {
+            break;
+        };
     }
     return None;
 }
 
 pub fn index_of<T: Clone>(list: &Vec<T>, elem: &T, eq: &mut dyn FnMut(&T, &T) -> bool) -> Option<i32> {
-    let mut __loop3_pass = indices(list);
-    while let Union2::U1(mut i) = next__Iter_indices_List(&mut __loop3_pass) {
-        if eq(&get(list, &i), elem) {
-            return Some(i);
-        }
+    let mut __pass_1: crate::core_index::__Iter_indices_List<'_, T> = crate::core_index::indices::<T>(list);
+    loop {
+        let mut __step_2: crate::unions::Union2<i32, crate::core_iterator::Finished> = crate::core_index::next__Iter_indices_List(&mut __pass_1);
+        if matches!(__step_2, crate::unions::Union2::U1(_)) {
+            let mut __emitted_3 = match &__step_2 { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
+            let mut i: i32 = __emitted_3;
+            if eq(crate::core_list::get::<T>(list, i), elem) {
+                return Some(i);
+            };
+        } else {
+            break;
+        };
     }
     return None;
 }
 
 pub fn last_index_of<T: Clone>(list: &Vec<T>, elem: &T, eq: &mut dyn FnMut(&T, &T) -> bool) -> Option<i32> {
-    let mut __loop4_pass = rev_indices(list);
-    while let Union2::U1(mut i) = next__Iter_rev_indices_List(&mut __loop4_pass) {
-        if eq(&get(list, &i), elem) {
-            return Some(i);
-        }
+    let mut __pass_1: crate::core_index::__Iter_rev_indices_List<'_, T> = crate::core_index::rev_indices::<T>(list);
+    loop {
+        let mut __step_2: crate::unions::Union2<i32, crate::core_iterator::Finished> = crate::core_index::next__Iter_rev_indices_List(&mut __pass_1);
+        if matches!(__step_2, crate::unions::Union2::U1(_)) {
+            let mut __emitted_3 = match &__step_2 { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
+            let mut i: i32 = __emitted_3;
+            if eq(crate::core_list::get::<T>(list, i), elem) {
+                return Some(i);
+            };
+        } else {
+            break;
+        };
     }
     return None;
 }
 
 pub fn contains<T: Clone>(list: &Vec<T>, elem: &T, eq: &mut dyn FnMut(&T, &T) -> bool) -> bool {
-    let mut i = 0;
-    while i < size_platform(list) {
-        if eq(&get_platform(list, i).expect("salvo: value is absent at core.list:417:15"), elem) {
+    let mut i: i32 = 0i32;
+    loop {
+        if !((i < crate::core_list::size_platform::<T>(list))) {
+            break;
+        };
+        if eq({
+            let mut __nn_1: Option<&T> = crate::core_list::get_platform::<T>(list, i);
+            if __nn_1.is_none() {
+                panic!("salvo: value is absent at core.list:417:15");
+            } else {
+                let mut __some_2 = __nn_1.unwrap();
+                __some_2
+            }
+        }, elem) {
             return true;
-        }
-        i = i32::wrapping_add(i, 1);
+        };
+        i = i32::wrapping_add(i, 1i32);
     }
     return false;
 }
 
-pub fn any<T: Clone>(list: &Vec<T>, pick: &mut impl FnMut(&T) -> bool) -> bool {
-    return !(find_first(list, pick).is_none());
+pub fn any<T: Clone>(list: &Vec<T>, pick: &mut dyn FnMut(&T) -> bool) -> bool {
+    return !((crate::core_list::find_first::<T>(list, &mut *pick)).is_none());
 }
 
-pub fn all<T: Clone>(list: &Vec<T>, pick: &mut impl FnMut(&T) -> bool) -> bool {
-    let mut i = 0;
-    while i < size_platform(list) {
-        if !pick(&(get_platform(list, i).expect("salvo: value is absent at core.list:434:18"))) {
+pub fn all<T: Clone>(list: &Vec<T>, pick: &mut dyn FnMut(&T) -> bool) -> bool {
+    let mut i: i32 = 0i32;
+    loop {
+        if !((i < crate::core_list::size_platform::<T>(list))) {
+            break;
+        };
+        if !(pick({
+            let mut __nn_1: Option<&T> = crate::core_list::get_platform::<T>(list, i);
+            if __nn_1.is_none() {
+                panic!("salvo: value is absent at core.list:434:18");
+            } else {
+                let mut __some_2 = __nn_1.unwrap();
+                __some_2
+            }
+        })) {
             return false;
-        }
-        i = i32::wrapping_add(i, 1);
+        };
+        i = i32::wrapping_add(i, 1i32);
     }
     return true;
 }
 
-pub fn count<T: Clone>(list: &Vec<T>, pick: &mut impl FnMut(&T) -> bool) -> i32 {
-    let mut n = 0;
-    let mut i = 0;
-    while i < size_platform(list) {
-        if pick(&(get_platform(list, i).expect("salvo: value is absent at core.list:447:17"))) {
-            n = i32::wrapping_add(n, 1);
-        }
-        i = i32::wrapping_add(i, 1);
+pub fn count<T: Clone>(list: &Vec<T>, pick: &mut dyn FnMut(&T) -> bool) -> i32 {
+    let mut n: i32 = 0i32;
+    let mut i: i32 = 0i32;
+    loop {
+        if !((i < crate::core_list::size_platform::<T>(list))) {
+            break;
+        };
+        if pick({
+            let mut __nn_1: Option<&T> = crate::core_list::get_platform::<T>(list, i);
+            if __nn_1.is_none() {
+                panic!("salvo: value is absent at core.list:447:17");
+            } else {
+                let mut __some_2 = __nn_1.unwrap();
+                __some_2
+            }
+        }) {
+            n = i32::wrapping_add(n, 1i32);
+        };
+        i = i32::wrapping_add(i, 1i32);
     }
     return n;
 }
 
-pub fn partition<T: Clone>(list: &Vec<T>, pick: &mut impl FnMut(&T) -> bool, copy: &mut dyn FnMut(&T) -> T) -> (Vec<T>, Vec<T>) {
-    let mut yes = vec![];
-    let mut no = vec![];
-    let mut i = 0;
-    while i < size_platform(list) {
-        let mut x = get_platform(list, i).unwrap();
+pub fn partition<T: Clone>(list: &Vec<T>, pick: &mut dyn FnMut(&T) -> bool, copy: &mut dyn FnMut(&T) -> T) -> (Vec<T>, Vec<T>) {
+    let mut yes: Vec<T> = vec![];
+    let mut no: Vec<T> = vec![];
+    let mut i: i32 = 0i32;
+    loop {
+        if !((i < crate::core_list::size_platform::<T>(list))) {
+            break;
+        };
+        let mut x: &T = {
+            let mut __nn_1: Option<&T> = crate::core_list::get_platform::<T>(list, i);
+            if __nn_1.is_none() {
+                panic!("salvo: value is absent at core.list:464:17");
+            } else {
+                let mut __some_2 = __nn_1.unwrap();
+                __some_2
+            }
+        };
         if pick(x) {
-            add_platform(&mut yes, copy(x));
+            crate::core_list::add_platform::<T>(&mut yes, copy(x));
         } else {
-            add_platform(&mut no, copy(x));
-        }
-        i = i32::wrapping_add(i, 1);
+            crate::core_list::add_platform::<T>(&mut no, copy(x));
+        };
+        i = i32::wrapping_add(i, 1i32);
     }
-    return (yes, no);
+    return (yes.clone(), no.clone());
 }
 
 pub fn reverse<T>(list: &mut Vec<T>) {
-    let mut i = 0;
-    let mut j = i32::wrapping_sub(size_platform(list), 1);
-    while i < j {
-        ignore(swap__MutList_Int_Int(list, i.clone(), j.clone()));
-        i = i32::wrapping_add(i, 1);
-        j = i32::wrapping_sub(j, 1);
+    let mut i: i32 = 0i32;
+    let mut j: i32 = i32::wrapping_sub(crate::core_list::size_platform::<T>(&*list), 1i32);
+    loop {
+        if !((i < j)) {
+            break;
+        };
+        { let __arg1 = crate::core_list::swap__MutList_Int_Int::<T>(&mut *list, i, j); crate::core_checked::ignore::<bool>(__arg1) };
+        i = i32::wrapping_add(i, 1i32);
+        j = i32::wrapping_sub(j, 1i32);
     }
 }
 
-pub fn iter<T: Clone>(list: &Vec<T>) -> ListYield<'_, T> {
-    return ListYield { items: list, at: 0 };
+pub fn iter<T: Clone>(list: &Vec<T>) -> crate::core_list::ListYield<'_, T> {
+    return crate::core_list::ListYield { items: list, at: 0i32 };
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -317,13 +442,14 @@ pub struct ListYield<'s, T> {
     pub at: i32,
 }
 
-pub fn next__ListYield<'s, T: Clone>(p: &mut ListYield<'s, T>) -> Union2<&'s T, Finished> {
-    let mut elem = get_platform(&p.items, p.at);
+pub fn next__ListYield<'a, T: Clone>(p: &mut crate::core_list::ListYield<'a, T>) -> crate::unions::Union2<&'a T, crate::core_iterator::Finished> {
+    let mut elem: Option<&T> = crate::core_list::get_platform::<T>(p.items, p.at);
     if elem.is_none() {
-        return Union2::U2(finished());
-    }
-    p.at = i32::wrapping_add(p.at, 1);
-    return Union2::U1(emitted(elem.unwrap()));
+        return crate::unions::Union2::U2(crate::core_iterator::finished());
+    };
+    p.at = i32::wrapping_add(p.at, 1i32);
+    let mut elem_1 = elem.unwrap();
+    return crate::unions::Union2::U1(crate::core_iterator::emitted::<&T>(elem_1));
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -332,17 +458,18 @@ pub struct __Iter_reversed_List<'s, T> {
     pub at: i32,
 }
 
-pub fn reversed<T: Clone>(list: &Vec<T>) -> __Iter_reversed_List<'_, T> {
-    return __Iter_reversed_List { list: list, at: i32::wrapping_sub(size_platform(list), 1) };
+pub fn reversed<T: Clone>(list: &Vec<T>) -> crate::core_list::__Iter_reversed_List<'_, T> {
+    return crate::core_list::__Iter_reversed_List { list: list, at: i32::wrapping_sub(crate::core_list::size_platform::<T>(list), 1i32) };
 }
 
-pub fn next__Iter_reversed_List<'s, T: Clone>(__p: &mut __Iter_reversed_List<'s, T>) -> Union2<&'s T, Finished> {
-    let mut elem = get_platform(&__p.list, __p.at);
+pub fn next__Iter_reversed_List<'a, T: Clone>(__p: &mut crate::core_list::__Iter_reversed_List<'a, T>) -> crate::unions::Union2<&'a T, crate::core_iterator::Finished> {
+    let mut elem: Option<&T> = crate::core_list::get_platform::<T>(__p.list, __p.at);
     if elem.is_none() {
-        return Union2::U2(finished());
-    }
-    __p.at = i32::wrapping_sub(__p.at, 1);
-    return Union2::U1(emitted(elem.unwrap()));
+        return crate::unions::Union2::U2(crate::core_iterator::finished());
+    };
+    __p.at = i32::wrapping_sub(__p.at, 1i32);
+    let mut elem_1 = elem.unwrap();
+    return crate::unions::Union2::U1(crate::core_iterator::emitted::<&T>(elem_1));
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -357,18 +484,19 @@ pub struct __Iter_enumerate_List<'s, T> {
     pub at: i32,
 }
 
-pub fn enumerate<T: Clone>(list: &Vec<T>) -> __Iter_enumerate_List<'_, T> {
-    return __Iter_enumerate_List { list: list, at: 0 };
+pub fn enumerate<T: Clone>(list: &Vec<T>) -> crate::core_list::__Iter_enumerate_List<'_, T> {
+    return crate::core_list::__Iter_enumerate_List { list: list, at: 0i32 };
 }
 
-pub fn next__Iter_enumerate_List<'a, T: Clone>(__p: &mut __Iter_enumerate_List<'a, T>) -> Union2<Enumerated<'a, T>, Finished> {
-    let mut elem = get_platform(&__p.list, __p.at);
+pub fn next__Iter_enumerate_List<'a, T: Clone>(__p: &mut crate::core_list::__Iter_enumerate_List<'a, T>) -> crate::unions::Union2<crate::core_list::Enumerated<'a, T>, crate::core_iterator::Finished> {
+    let mut elem: Option<&T> = crate::core_list::get_platform::<T>(__p.list, __p.at);
     if elem.is_none() {
-        return Union2::<Enumerated<'_, T>, Finished>::U2(finished());
-    }
-    let mut index = __p.at;
-    __p.at = i32::wrapping_add(__p.at, 1);
-    return Union2::<Enumerated<'_, T>, Finished>::U1(emitted(Enumerated { index: index, elem: elem.unwrap() }));
+        return crate::unions::Union2::U2(crate::core_iterator::finished());
+    };
+    let mut index: i32 = __p.at;
+    __p.at = i32::wrapping_add(__p.at, 1i32);
+    let mut elem_1 = elem.unwrap();
+    return crate::unions::Union2::U1(crate::core_iterator::emitted::<crate::core_list::Enumerated<'_, T>>(crate::core_list::Enumerated { index: index, elem: elem_1 }));
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -377,62 +505,76 @@ pub struct __Iter_enumerate_rev_List<'s, T> {
     pub at: i32,
 }
 
-pub fn enumerate_rev<T: Clone>(list: &Vec<T>) -> __Iter_enumerate_rev_List<'_, T> {
-    return __Iter_enumerate_rev_List { list: list, at: i32::wrapping_sub(size_platform(list), 1) };
+pub fn enumerate_rev<T: Clone>(list: &Vec<T>) -> crate::core_list::__Iter_enumerate_rev_List<'_, T> {
+    return crate::core_list::__Iter_enumerate_rev_List { list: list, at: i32::wrapping_sub(crate::core_list::size_platform::<T>(list), 1i32) };
 }
 
-pub fn next__Iter_enumerate_rev_List<'a, T: Clone>(__p: &mut __Iter_enumerate_rev_List<'a, T>) -> Union2<Enumerated<'a, T>, Finished> {
-    let mut elem = get_platform(&__p.list, __p.at);
+pub fn next__Iter_enumerate_rev_List<'a, T: Clone>(__p: &mut crate::core_list::__Iter_enumerate_rev_List<'a, T>) -> crate::unions::Union2<crate::core_list::Enumerated<'a, T>, crate::core_iterator::Finished> {
+    let mut elem: Option<&T> = crate::core_list::get_platform::<T>(__p.list, __p.at);
     if elem.is_none() {
-        return Union2::<Enumerated<'_, T>, Finished>::U2(finished());
-    }
-    let mut index = __p.at;
-    __p.at = i32::wrapping_sub(__p.at, 1);
-    return Union2::<Enumerated<'_, T>, Finished>::U1(emitted(Enumerated { index: index, elem: elem.unwrap() }));
+        return crate::unions::Union2::U2(crate::core_iterator::finished());
+    };
+    let mut index: i32 = __p.at;
+    __p.at = i32::wrapping_sub(__p.at, 1i32);
+    let mut elem_1 = elem.unwrap();
+    return crate::unions::Union2::U1(crate::core_iterator::emitted::<crate::core_list::Enumerated<'_, T>>(crate::core_list::Enumerated { index: index, elem: elem_1 }));
 }
 
 pub fn to_str<T: Clone>(list: &Vec<T>, to_str: &mut dyn FnMut(&T) -> String) -> String {
-    let mut out = mut_str(vec!["[".to_string()]);
-    let mut i = 0;
-    for mut x in crate::platform_core_list::each(list).map(|__x| __x.clone()) {
-        if i > 0 {
-            crate::core_string::append_platform(&mut out, &(", ".to_string()));
-        }
-        crate::core_string::append_platform(&mut out, &(to_str(&x)));
-        i = i32::wrapping_add(i, 1);
+    let mut out: String = crate::core_string::mut_str(vec![String::from("[")]);
+    let mut i: i32 = 0i32;
+    for mut x in list.iter() {
+        if (i > 0i32) {
+            crate::core_string::append_platform(&mut out, &String::from(", "));
+        };
+        crate::core_string::append_platform(&mut out, &to_str(x));
+        i = i32::wrapping_add(i, 1i32);
     }
-    crate::core_string::append_platform(&mut out, &("]".to_string()));
+    crate::core_string::append_platform(&mut out, &String::from("]"));
     return out;
 }
 
 pub fn sort_by_platform<T: Clone>(list: &Vec<T>, cmp: &mut dyn FnMut(&T, &T) -> i32) -> Vec<T> {
-    crate::platform_core_list::sort_by(list, cmp)
+    let mut cmp = cmp;
+    crate::platform_core_list::sort_by(list, &mut cmp)
 }
 
-pub fn insert_sorted_by_platform<T: Clone>(list: &mut Vec<T>, elem: T, cmp: &mut dyn FnMut(&T, &T) -> i32) {
-    crate::platform_core_list::insert_sorted_by(list, elem, cmp)
+pub fn insert_sorted_by_platform<T: Clone>(list: &mut Vec<T>, mut elem: T, cmp: &mut dyn FnMut(&T, &T) -> i32) {
+    let mut cmp = cmp;
+    crate::platform_core_list::insert_sorted_by(list, elem, &mut cmp)
 }
 
 pub fn search_sorted_by_platform<T: Clone>(list: &Vec<T>, elem: &T, cmp: &mut dyn FnMut(&T, &T) -> i32) -> Option<i32> {
-    crate::platform_core_list::search_sorted_by(list, elem, cmp)
+    let mut cmp = cmp;
+    crate::platform_core_list::search_sorted_by(list, elem, &mut cmp)
 }
 
 pub fn sort<T: Clone>(list: &Vec<T>, cmp: &mut dyn FnMut(&T, &T) -> i32) -> Vec<T> {
-    return sort_by_platform(list, cmp);
+    return crate::core_list::sort_by_platform::<T>(list, &mut *cmp);
 }
 
 pub fn mut_sort<T: Clone>(list: &Vec<T>, cmp: &mut dyn FnMut(&T, &T) -> i32) -> Vec<T> {
-    return sort_by_platform(list, cmp);
+    return crate::core_list::sort_by_platform::<T>(list, &mut *cmp);
 }
 
-pub fn add_sorted<T: Clone>(list: &mut Vec<T>, elem: T, cmp: &mut dyn FnMut(&T, &T) -> i32) {
-    insert_sorted_by_platform(list, elem, cmp);
+pub fn add_sorted<T: Clone>(list: &mut Vec<T>, mut elem: T, cmp: &mut dyn FnMut(&T, &T) -> i32) {
+    crate::core_list::insert_sorted_by_platform::<T>(&mut *list, elem, &mut *cmp);
 }
 
 pub fn binary_search<T: Clone>(list: &Vec<T>, elem: &T, cmp: &mut dyn FnMut(&T, &T) -> i32) -> Option<i32> {
-    let mut found = { let __pick1 = search_sorted_by_platform(list, elem, cmp); if __pick1.is_some() { __pick1.unwrap() } else { return None } };
-    if Idx__Int_qualifies(found, &*list, &mut |__i0| size_platform(&__i0)) {
+    let mut found: i32 = {
+        let mut __elv_1: Option<i32> = crate::core_list::search_sorted_by_platform::<T>(list, elem, &mut *cmp);
+        if __elv_1.is_none() {
+            {
+                return None;
+            }
+        } else {
+            let mut __some_2 = __elv_1.unwrap();
+            __some_2
+        }
+    };
+    if crate::core_index::Idx__Int_qualifies(found, list, &mut |__a0| crate::core_list::size_platform(__a0)) {
         return Some(found);
-    }
+    };
     return None;
 }

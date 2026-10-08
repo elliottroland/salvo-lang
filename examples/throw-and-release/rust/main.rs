@@ -1,4 +1,4 @@
-#![allow(non_snake_case, non_camel_case_types, unused_mut, unused_parens, unused_imports, dead_code, unreachable_code, unused_variables, path_statements, unused_must_use, suspicious_double_ref_op, non_upper_case_globals)]
+#![allow(non_snake_case, non_camel_case_types, unused_mut, unused_parens, unused_imports, dead_code, unreachable_code, unused_variables, path_statements, unused_must_use, suspicious_double_ref_op, non_upper_case_globals, unused_braces)]
 #[path = "unions/mod.rs"]
 pub mod unions;
 #[path = "seq.rs"]
@@ -46,15 +46,11 @@ pub mod platform_core_sorted;
 #[path = "platform/core/string.rs"]
 pub mod platform_core_string;
 
-use crate::unions::*;
-use std::ops::ControlFlow;
 use crate::core_console::Console;
-use crate::core_console::ConsolePlatformSync as _;
-use crate::core_console::__Stateful_Console as _;
-use crate::core_console::__Stateless_Console as _;
-use crate::core_console::println;
-use crate::core_string::Str;
 use crate::core_string::parse_int_platform;
+use crate::core_console::println;
+use crate::core_string::size_platform;
+
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct FileHandle {
@@ -72,136 +68,134 @@ impl crate::wire::__Wire for FileHandle {
     }
 }
 
-pub fn open_file(console: &crate::core_console::Console, name: String) -> FileHandle {
-    println(console, &(format!("1. open {}", name)));
-    return FileHandle { name: name };
+pub fn open_file(console: &crate::core_console::Console, mut name: String) -> crate::FileHandle {
+    crate::core_console::println(console, &format!("1. open {}", name));
+    return crate::FileHandle { name: name.clone() };
 }
 
-pub fn close(console: &crate::core_console::Console, handle: FileHandle) {
-    println(console, &(format!("1. close {}", handle.name.clone())));
-    drop(handle);
+pub fn close(console: &crate::core_console::Console, mut handle: crate::FileHandle) {
+    crate::core_console::println(console, &format!("1. close {}", handle.name));
+    std::mem::drop(handle);
 }
 
-pub fn read_size(console: &crate::core_console::Console, name: String, want: i32) -> i32 {
-    let mut there_is = crate::core_string::size_platform(&name);
-    let mut handle = open_file(console, name);
-    if want > there_is {
-        println(console, &("1. asked for more than there is".to_string()));
-        close(console, handle);
+pub fn read_size(console: &crate::core_console::Console, mut name: String, mut want: i32) -> i32 {
+    let mut there_is: i32 = crate::core_string::size_platform(&name);
+    let mut handle: crate::FileHandle = crate::open_file(console, name);
+    if (want > there_is) {
+        crate::core_console::println(console, &String::from("1. asked for more than there is"));
+        crate::close(console, handle);
         return there_is;
-    }
-    close(console, handle);
+    };
+    crate::close(console, handle);
     return want;
 }
 
-pub fn parse_port(text: &String) -> ControlFlow<String, i32> {
-    let mut n = crate::core_string::parse_int_platform(text);
+pub fn parse_port(text: &String) -> std::ops::ControlFlow<String, i32> {
+    let mut n: Option<i32> = crate::core_string::parse_int_platform(text);
     if n.is_none() {
-        return ControlFlow::Break(format!("not a number: {}", text.clone()));
-    }
-    if n.unwrap() < 1 {
-        return ControlFlow::Break("port must be positive".to_string());
-    }
-    return ControlFlow::Continue(n.unwrap());
+        return std::ops::ControlFlow::Break(format!("not a number: {}", text));
+    };
+    let mut n_1 = n.unwrap();
+    if (n_1 < 1i32) {
+        return std::ops::ControlFlow::Break(String::from("port must be positive"));
+    };
+    let mut n_2 = n.unwrap();
+    return std::ops::ControlFlow::Continue(n_2);
 }
 
-pub fn port_of(config: &String) -> ControlFlow<String, i32> {
-    let mut port = parse_port(config)?;
-    return ControlFlow::Continue(i32::wrapping_mul(port, 1));
+pub fn port_of(config: &String) -> std::ops::ControlFlow<String, i32> {
+    let mut port: i32 = (match crate::parse_port(config) { std::ops::ControlFlow::Continue(__v) => __v, std::ops::ControlFlow::Break(__m) => return std::ops::ControlFlow::Break(__m) });
+    return std::ops::ControlFlow::Continue(i32::wrapping_mul(port, 1i32));
 }
 
-pub fn port_from_file(console: &crate::core_console::Console, name: String, text: &String) -> ControlFlow<String, i32> {
-    let mut handle = open_file(console, name);
-    let mut from = handle.name.clone();
-    close(console, handle);
-    println(console, &(format!("2. reading a port out of {}", from)));
-    return ControlFlow::Continue(parse_port(text)?);
+pub fn port_from_file(console: &crate::core_console::Console, mut name: String, text: &String) -> std::ops::ControlFlow<String, i32> {
+    let mut handle: crate::FileHandle = crate::open_file(console, name);
+    let mut from: String = (handle.name).clone();
+    crate::close(console, handle);
+    crate::core_console::println(console, &format!("2. reading a port out of {}", from));
+    return std::ops::ControlFlow::Continue((match crate::parse_port(text) { std::ops::ControlFlow::Continue(__v) => __v, std::ops::ControlFlow::Break(__m) => return std::ops::ControlFlow::Break(__m) }));
 }
 
-pub fn strict_port(text: &String) -> ControlFlow<Union2<String, i32>, i32> {
-    if crate::core_string::size_platform(text) == 0 {
-        return ControlFlow::Break(Union2::<String, i32>::U1("empty".to_string()));
-    }
-    let mut n = crate::core_string::parse_int_platform(text);
+pub fn strict_port(text: &String) -> std::ops::ControlFlow<crate::unions::Union2<String, i32>, i32> {
+    if ((crate::core_string::size_platform(text)) == (0i32)) {
+        return std::ops::ControlFlow::Break(crate::unions::Union2::U1(String::from("empty")));
+    };
+    let mut n: Option<i32> = crate::core_string::parse_int_platform(text);
     if n.is_none() {
-        return ControlFlow::Break(Union2::<String, i32>::U2(crate::core_string::size_platform(text)));
-    }
-    return ControlFlow::Continue(n.unwrap());
+        return std::ops::ControlFlow::Break(crate::unions::Union2::U2(crate::core_string::size_platform(text)));
+    };
+    let mut n_1 = n.unwrap();
+    return std::ops::ControlFlow::Continue(n_1);
 }
 
 pub fn report(console: &crate::core_console::Console, label: &String, config: &String) {
-    let mut outcome = 'try_1: {
-        Union2::<i32, String>::U1(match port_of(config) { ControlFlow::Continue(__v) => __v, ControlFlow::Break(__m) => break 'try_1 Union2::<i32, String>::U2(__m) })
+    let mut outcome: crate::unions::Union2<i32, String> = ('try_1: {
+        crate::unions::Union2::U1((match crate::port_of(config) { std::ops::ControlFlow::Continue(__v) => __v, std::ops::ControlFlow::Break(__m) => break 'try_1 crate::unions::Union2::U2(__m) }))
+    });
+    if matches!(outcome, crate::unions::Union2::U1(_)) {
+        let mut outcome_1 = match &outcome { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
+        crate::core_console::println(console, &format!("3. {}: port {}", label, outcome_1));
+    } else {
+        let mut outcome_2 = match &outcome { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
+        crate::core_console::println(console, &format!("3. {}: rejected — {}", label, outcome_2));
     };
-    match outcome {
-        Union2::U1(_) => {
-            println(console, &(format!("3. {}: port {}", label.clone(), *outcome.u1())));
-        }
-        Union2::U2(_) => {
-            println(console, &(format!("3. {}: rejected — {}", label.clone(), outcome.u2().clone())));
-        }
-    }
 }
 
 pub fn main() {
-    let console = crate::core_console::Console::shared(crate::core_console::__Platform_StdOutConsole::new());
-    let mut small = read_size(&console, "notes.txt".to_string(), 3);
-    println(&console, &(format!("1. read {}", small)));
-    let mut clamped = read_size(&console, "notes.txt".to_string(), 99);
-    println(&console, &(format!("1. read {}", clamped)));
-    report(&console, &("good".to_string()), &("8080".to_string()));
-    report(&console, &("bad".to_string()), &("http".to_string()));
-    let mut guarded = 'try_2: {
-        Union2::<i32, String>::U1(match port_from_file(&console, "ports.txt".to_string(), &("-1".to_string())) { ControlFlow::Continue(__v) => __v, ControlFlow::Break(__m) => break 'try_2 Union2::<i32, String>::U2(__m) })
+    let mut __use_1: crate::core_console::__Platform_StdOutConsole = crate::core_console::__Platform_StdOutConsole::new();
+    let __handle_2 = crate::core_console::Console::shared(__use_1);
+    let mut small: i32 = crate::read_size(&__handle_2, String::from("notes.txt"), 3i32);
+    crate::core_console::println(&__handle_2, &format!("1. read {}", small));
+    let mut clamped: i32 = crate::read_size(&__handle_2, String::from("notes.txt"), 99i32);
+    crate::core_console::println(&__handle_2, &format!("1. read {}", clamped));
+    crate::report(&__handle_2, &String::from("good"), &String::from("8080"));
+    crate::report(&__handle_2, &String::from("bad"), &String::from("http"));
+    let mut guarded: crate::unions::Union2<i32, String> = ('try_1: {
+        crate::unions::Union2::U1((match crate::port_from_file(&__handle_2, String::from("ports.txt"), &String::from("-1")) { std::ops::ControlFlow::Continue(__v) => __v, std::ops::ControlFlow::Break(__m) => break 'try_1 crate::unions::Union2::U2(__m) }))
+    });
+    if matches!(guarded, crate::unions::Union2::U1(_)) {
+        let mut guarded_3 = match &guarded { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
+        crate::core_console::println(&__handle_2, &format!("3. guarded: {}", guarded_3));
+    } else {
+        let mut guarded_4 = match &guarded { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
+        crate::core_console::println(&__handle_2, &format!("3. guarded: rejected — {}", guarded_4));
     };
-    match guarded {
-        Union2::U1(_) => {
-            println(&console, &(format!("3. guarded: {}", *guarded.u1())));
-        }
-        Union2::U2(_) => {
-            println(&console, &(format!("3. guarded: rejected — {}", guarded.u2().clone())));
-        }
-    }
-    let mut mixed = 'try_3: {
-        Union2::<i32, Union2<String, i32>>::U1(match strict_port(&("".to_string())) { ControlFlow::Continue(__v) => __v, ControlFlow::Break(__m) => break 'try_3 Union2::<i32, Union2<String, i32>>::U2(__m) })
-    };
-    match mixed {
-        Union2::U1(_) => {
-            println(&console, &(format!("3. mixed: {}", *mixed.u1())));
-        }
-        Union2::U2(_) => {
-            let mut why: Union2<String, i32> = mixed.u2().clone();
-            match why {
-                Union2::U1(_) => {
-                    println(&console, &(format!("3. mixed: message {}", why.u1().clone())));
-                }
-                Union2::U2(_) => {
-                    println(&console, &(format!("3. mixed: length {}", *why.u2())));
-                }
-            }
-        }
-    }
-    let mut outer = 'try_4: {
-        let mut inner = 'try_5: {
-            Union2::<i32, String>::U1(match parse_port(&("nope".to_string())) { ControlFlow::Continue(__v) => __v, ControlFlow::Break(__m) => break 'try_5 Union2::<i32, String>::U2(__m) })
+    let mut mixed: crate::unions::Union2<i32, crate::unions::Union2<String, i32>> = ('try_2: {
+        crate::unions::Union2::U1((match crate::strict_port(&String::from("")) { std::ops::ControlFlow::Continue(__v) => __v, std::ops::ControlFlow::Break(__m) => break 'try_2 crate::unions::Union2::U2(__m) }))
+    });
+    if matches!(mixed, crate::unions::Union2::U1(_)) {
+        let mut mixed_5 = match &mixed { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
+        crate::core_console::println(&__handle_2, &format!("3. mixed: {}", mixed_5));
+    } else {
+        let mut mixed_6 = match &mixed { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
+        let mut why = mixed_6;
+        if matches!(why, crate::unions::Union2::U1(_)) {
+            let mut why_7 = match &why { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
+            crate::core_console::println(&__handle_2, &format!("3. mixed: message {}", why_7));
+        } else {
+            let mut why_8 = match &why { crate::unions::Union2::U2(__v) => *__v, _ => unreachable!() };
+            crate::core_console::println(&__handle_2, &format!("3. mixed: length {}", why_8));
         };
-        Union2::<i32, String>::U1(match inner {
-            Union2::U1(_) => {
-                let mut got: i32 = *inner.u1();
-                got
-            }
-            Union2::U2(_) => {
-                println(&console, &(format!("3. inner caught: {}", inner.u2().clone())));
-                match parse_port(&("also nope".to_string())) { ControlFlow::Continue(__v) => __v, ControlFlow::Break(__m) => break 'try_4 Union2::<i32, String>::U2(__m) }
-            }
-        })
     };
-    match outer {
-        Union2::U1(_) => {
-            println(&console, &(format!("3. outer: {}", *outer.u1())));
-        }
-        Union2::U2(_) => {
-            println(&console, &(format!("3. outer caught: {}", outer.u2().clone())));
-        }
-    }
+    let mut outer: crate::unions::Union2<i32, String> = ('try_3: {
+        let mut inner: crate::unions::Union2<i32, String> = ('try_4: {
+            crate::unions::Union2::U1((match crate::parse_port(&String::from("nope")) { std::ops::ControlFlow::Continue(__v) => __v, std::ops::ControlFlow::Break(__m) => break 'try_4 crate::unions::Union2::U2(__m) }))
+        });
+        crate::unions::Union2::U1(if matches!(inner, crate::unions::Union2::U1(_)) {
+            let mut inner_9 = match &inner { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
+            let mut got: i32 = inner_9;
+            got
+        } else {
+            let mut inner_10 = match &inner { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
+            crate::core_console::println(&__handle_2, &format!("3. inner caught: {}", inner_10));
+            (match crate::parse_port(&String::from("also nope")) { std::ops::ControlFlow::Continue(__v) => __v, std::ops::ControlFlow::Break(__m) => break 'try_3 crate::unions::Union2::U2(__m) })
+        })
+    });
+    if matches!(outer, crate::unions::Union2::U1(_)) {
+        let mut outer_11 = match &outer { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
+        crate::core_console::println(&__handle_2, &format!("3. outer: {}", outer_11));
+    } else {
+        let mut outer_12 = match &outer { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
+        crate::core_console::println(&__handle_2, &format!("3. outer caught: {}", outer_12));
+    };
 }

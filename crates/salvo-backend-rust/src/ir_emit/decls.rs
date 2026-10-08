@@ -331,7 +331,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             let mut body = format!("\nimpl{g} std::fmt::Debug for {name}{generics} {{\n    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {{\n        f.debug_struct(\"{}\")\n", s.name);
             for f in &s.fields {
                 if opaque_fields.contains(&f.name) {
-                    body.push_str(&format!("            .field(\"{}\", &\"<opaque>\")\n", f.name));
+                    let shown = if matches!(f.ty.strip_quals(), Ty::Fn { .. }) { "<fn>" } else { "<opaque>" };
+                    body.push_str(&format!("            .field(\"{}\", &\"{shown}\")\n", f.name));
                 } else {
                     body.push_str(&format!("            .field(\"{}\", &self.{})\n", f.name, rs_ident(&f.name)));
                 }
@@ -1470,6 +1471,18 @@ fn rs_type_lit(l: &salvo_syntax::ast::TypeLit) -> String {
 }
 
 /// A type with type variables substituted.
+/// Whether a type is, or holds, mutable data.
+pub(crate) fn ty_carries_mut(ty: &Ty) -> bool {
+    if ty.quals().iter().any(|q| q.name == "Mut") {
+        return true;
+    }
+    match ty.strip_quals() {
+        Ty::Named { args, .. } | Ty::Union(args) | Ty::Tuple(args) => args.iter().any(ty_carries_mut),
+        Ty::Array(elem) => ty_carries_mut(elem),
+        _ => false,
+    }
+}
+
 pub(crate) fn subst_ty(t: &Ty, s: &std::collections::HashMap<String, Ty>) -> Ty {
     if s.is_empty() {
         return t.clone();

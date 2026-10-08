@@ -2,58 +2,54 @@
 // the declarations the platform code uses, as the build emits them. Rewritten
 // by every build — do not edit; the build never reads this file.
 // salvo-abi 1 023a4214a13ba612
-use crate::unions::*;
 use crate::core_actor::Exit;
 use crate::core_actor::Idle;
-use crate::core_actor::__Stateful_Faults as _;
-use crate::core_actor::__Stateless_Faults as _;
-use crate::core_actor::pool;
-use crate::core_deque::Deque;
 use crate::core_deque::add_last_platform;
-use crate::core_deque::drain as drain__core_deque;
-use crate::core_deque::mut_deque_of;
-use crate::core_list::List;
-use crate::core_list::any;
-use crate::core_list::at;
-use crate::core_list::drain as drain__core_list;
-use crate::core_string::Str;
+use crate::core_list::add_platform;
+use crate::core_deque::get_platform;
+use crate::core_list::get_platform__loc;
 use crate::core_string::join_platform;
+use crate::core_deque::mut_deque_of;
+use crate::core_deque::remove_at_platform;
 
-/// [mod-use] The module's `use` #0, bound on first use.
-fn __module_use_0() -> &'static crate::runtime::RuntimeHost {
-    static CELL: std::sync::OnceLock<crate::runtime::RuntimeHost> = std::sync::OnceLock::new();
-    CELL.get_or_init(|| {
-            let runtime_host = crate::runtime::RuntimeHost::shared(crate::runtime::__Platform_HostRuntime::new());
-        runtime_host
-    })
+
+pub fn __module_use0() -> &'static std::sync::Arc<crate::runtime::__Platform_HostRuntime> {
+    static CELL: std::sync::OnceLock<std::sync::Arc<crate::runtime::__Platform_HostRuntime>> = std::sync::OnceLock::new();
+    CELL.get_or_init(|| std::sync::Arc::new(crate::runtime::__Platform_HostRuntime::new()))
 }
 
-/// [mod-use] The module's `use` #1, bound on first use.
-fn __module_use_1() -> &'static crate::runtime::SchedTable {
+pub fn __module_use0_0() -> &'static crate::runtime::RuntimeHost {
+    static CELL: std::sync::OnceLock<crate::runtime::RuntimeHost> = std::sync::OnceLock::new();
+    CELL.get_or_init(|| crate::runtime::RuntimeHost::share_shared(crate::runtime::__module_use0().clone()))
+}
+
+pub fn __module_use1() -> &'static std::sync::Arc<std::sync::Mutex<crate::runtime::Scheduler>> {
+    static CELL: std::sync::OnceLock<std::sync::Arc<std::sync::Mutex<crate::runtime::Scheduler>>> = std::sync::OnceLock::new();
+    CELL.get_or_init(|| std::sync::Arc::new(std::sync::Mutex::new(crate::runtime::Scheduler::new())))
+}
+
+pub fn __module_use1_0() -> &'static crate::runtime::SchedTable {
     static CELL: std::sync::OnceLock<crate::runtime::SchedTable> = std::sync::OnceLock::new();
-    CELL.get_or_init(|| {
-            let sched_table = crate::runtime::SchedTable::locked({ let mut __h = Scheduler::new(); __h.init(); __h });
-        sched_table
-    })
+    CELL.get_or_init(|| crate::runtime::SchedTable::share_locked(crate::runtime::__module_use1().clone()))
 }
 
 /// [platform-type] The host's `Parker`.
 pub use crate::platform_runtime::Parker;
 const _: fn() = || { fn __contract<T: Send + 'static + Clone + Sync>() {} __contract::<Parker>(); };
 
-pub fn this_parker_platform() -> Parker {
+pub fn this_parker_platform() -> crate::runtime::Parker {
     crate::platform_runtime::this_parker()
 }
 
-pub fn park_platform(p: &Parker) {
+pub fn park_platform(p: &crate::runtime::Parker) {
     crate::platform_runtime::park(p)
 }
 
-pub fn park_nanos_platform(p: &Parker, nanos: i64) {
+pub fn park_nanos_platform(p: &crate::runtime::Parker, mut nanos: i64) {
     crate::platform_runtime::park_nanos(p, nanos)
 }
 
-pub fn unpark_platform(p: &Parker) {
+pub fn unpark_platform(p: &crate::runtime::Parker) {
     crate::platform_runtime::unpark(p)
 }
 
@@ -66,7 +62,8 @@ pub fn guarded_platform(body: std::boxed::Box<dyn FnOnce() + Send + 'static>) ->
 }
 
 pub fn trap_boundary_platform(body: &mut dyn FnMut() -> Option<String>) -> Option<String> {
-    crate::platform_runtime::trap_boundary(body)
+    let mut body = body;
+    crate::platform_runtime::trap_boundary(&mut body)
 }
 
 pub trait __Stateless_RuntimeHost: Send + Sync {
@@ -163,32 +160,32 @@ impl __Platform_HostRuntime {
 }
 
 pub fn fresh_bits() -> i64 {
-    if __module_use_1().is_virtual() {
-        return __module_use_1().random_bits();
-    }
-    return __module_use_0().secure_bits();
+    if crate::runtime::__module_use1_0().is_virtual() {
+        return crate::runtime::__module_use1_0().random_bits();
+    };
+    return crate::runtime::__module_use0_0().secure_bits();
 }
 
 pub fn now_nanos() -> i64 {
-    if __module_use_1().is_virtual() {
-        return __module_use_1().virtual_now();
-    }
-    return __module_use_0().mono_nanos();
+    if crate::runtime::__module_use1_0().is_virtual() {
+        return crate::runtime::__module_use1_0().virtual_now();
+    };
+    return crate::runtime::__module_use0_0().mono_nanos();
 }
 
 /// [platform-type] The host's `Dyn`.
 pub use crate::platform_runtime::Dyn;
 const _: fn() = || { fn __contract<T: Send + 'static>() {} __contract::<Dyn>(); };
 
-pub fn erase_platform<T: Send + 'static>(v: T) -> Dyn {
+pub fn erase_platform<T: Send + 'static>(mut v: T) -> crate::runtime::Dyn {
     crate::platform_runtime::erase(v)
 }
 
-pub fn unerase_platform<T: Send + 'static>(d: Dyn) -> T {
+pub fn unerase_platform<T: Send + 'static>(mut d: crate::runtime::Dyn) -> T {
     crate::platform_runtime::unerase(d)
 }
 
-pub fn drop_dyn_platform(d: Dyn) {
+pub fn drop_dyn_platform(mut d: crate::runtime::Dyn) {
     crate::platform_runtime::drop_dyn(d)
 }
 
@@ -196,19 +193,19 @@ pub fn drop_dyn_platform(d: Dyn) {
 pub use crate::platform_runtime::Body;
 const _: fn() = || { fn __contract<T: Send + 'static>() {} __contract::<Body>(); };
 
-pub fn body_of_platform(f: std::boxed::Box<dyn FnMut(i32, i64, Dyn) + Send + 'static>) -> Body {
+pub fn body_of_platform(f: std::boxed::Box<dyn FnMut(i32, i64, crate::runtime::Dyn) + Send + 'static>) -> crate::runtime::Body {
     crate::platform_runtime::body_of(f)
 }
 
-pub fn activate_platform(b: Body, kind: i32, slot: i64, value: Dyn) -> Ran {
+pub fn activate_platform(mut b: crate::runtime::Body, mut kind: i32, mut slot: i64, mut value: crate::runtime::Dyn) -> crate::runtime::Ran {
     crate::platform_runtime::activate(b, kind, slot, value)
 }
 
-pub fn drop_body_platform(b: Body) {
+pub fn drop_body_platform(mut b: crate::runtime::Body) {
     crate::platform_runtime::drop_body(b)
 }
 
-pub fn granted_platform(addr: i32, pool: i32, from: i64) {
+pub fn granted_platform(mut addr: i32, mut pool: i32, mut from: i64) {
     crate::platform_runtime::granted(addr, pool, from)
 }
 
@@ -216,53 +213,52 @@ pub fn flush_frames_platform() {
     crate::platform_runtime::flush_frames()
 }
 
-pub fn exit_process_platform(code: i32) -> ! {
+pub fn exit_process_platform(mut code: i32) {
     crate::platform_runtime::exit_process(code)
 }
 
-
 pub struct Ran {
-    pub body: Body,
+    pub body: crate::runtime::Body,
     pub fault: Option<String>,
 }
 
 impl std::fmt::Debug for Ran {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Ran")
-            .field("body", &"<fn>")
+            .field("body", &"<opaque>")
             .field("fault", &self.fault)
             .finish()
     }
 }
 
-pub fn drop_ran(r: Ran) {
-    let __destructured1 = r;
-    let mut body = __destructured1.body;
-    let mut fault = __destructured1.fault;
-    drop_body_platform(body);
+pub fn drop_ran(mut r: crate::runtime::Ran) {
+    let mut __destructured_1: crate::runtime::Ran = r;
+    let mut body: crate::runtime::Body = __destructured_1.body;
+    let mut fault: Option<String> = __destructured_1.fault;
+    crate::runtime::drop_body_platform(body);
 }
 
 /// [platform-type] The host's `Slot`.
 pub use crate::platform_runtime::Slot;
 const _: fn() = || { fn __contract<T: Send + 'static>() {} __contract::<Slot<i32>>(); };
 
-pub fn slot_of_platform<T: Send + 'static>(v: T) -> Slot<T> {
+pub fn slot_of_platform<T: Send + 'static>(mut v: T) -> crate::runtime::Slot<T> {
     crate::platform_runtime::slot_of(v)
 }
 
-pub fn slot_empty_platform<T: Send + 'static>() -> Slot<T> {
+pub fn slot_empty_platform<T: Send + 'static>() -> crate::runtime::Slot<T> {
     crate::platform_runtime::slot_empty()
 }
 
-pub fn slot_take_platform<T: Send + 'static>(s: &mut Slot<T>) -> Option<T> {
+pub fn slot_take_platform<T: Send + 'static>(s: &mut crate::runtime::Slot<T>) -> Option<T> {
     crate::platform_runtime::slot_take(s)
 }
 
-pub fn slot_put_platform<T: Send + 'static>(s: &mut Slot<T>, v: T) {
+pub fn slot_put_platform<T: Send + 'static>(s: &mut crate::runtime::Slot<T>, mut v: T) {
     crate::platform_runtime::slot_put(s, v)
 }
 
-pub fn drop_slot_platform<T: Send + 'static>(s: Slot<T>) {
+pub fn drop_slot_platform<T: Send + 'static>(mut s: crate::runtime::Slot<T>) {
     crate::platform_runtime::drop_slot(s)
 }
 
@@ -274,48 +270,46 @@ pub fn here_actor_platform() -> i32 {
     crate::platform_runtime::here_actor()
 }
 
-pub fn set_here_platform(pool: i32, actor: i32) {
+pub fn set_here_platform(mut pool: i32, mut actor: i32) {
     crate::platform_runtime::set_here(pool, actor)
 }
 
 pub fn main_pool() -> i32 {
-    return 0;
+    return 0i32;
 }
 
 pub fn no_frame() -> i32 {
-    return -1;
+    return i32::wrapping_neg(1i32);
 }
 
 pub fn task_frame() -> i32 {
-    return -2;
+    return i32::wrapping_neg(2i32);
 }
 
-
 pub struct Delivered {
-    pub msg: Dyn,
+    pub msg: crate::runtime::Dyn,
     pub from: i64,
 }
 
 impl std::fmt::Debug for Delivered {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Delivered")
-            .field("msg", &"<fn>")
+            .field("msg", &"<opaque>")
             .field("from", &self.from)
             .finish()
     }
 }
 
-
 pub struct Answered {
     pub slot: i64,
-    pub value: Dyn,
+    pub value: crate::runtime::Dyn,
 }
 
 impl std::fmt::Debug for Answered {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Answered")
             .field("slot", &self.slot)
-            .field("value", &"<fn>")
+            .field("value", &"<opaque>")
             .finish()
     }
 }
@@ -336,46 +330,46 @@ impl crate::wire::__Wire for Reported {
     }
 }
 
-pub fn drop_delivered(d: Delivered) {
-    let __destructured2 = d;
-    let mut msg = __destructured2.msg;
-    let mut from = __destructured2.from;
-    drop_dyn_platform(msg);
+pub fn drop_delivered(mut d: crate::runtime::Delivered) {
+    let mut __destructured_1: crate::runtime::Delivered = d;
+    let mut msg: crate::runtime::Dyn = __destructured_1.msg;
+    let mut from: i64 = __destructured_1.from;
+    crate::runtime::drop_dyn_platform(msg);
 }
 
-pub fn drop_answered(a: Answered) {
-    let __destructured3 = a;
-    let mut slot = __destructured3.slot;
-    let mut value = __destructured3.value;
-    drop_dyn_platform(value);
+pub fn drop_answered(mut a: crate::runtime::Answered) {
+    let mut __destructured_1: crate::runtime::Answered = a;
+    let mut slot: i64 = __destructured_1.slot;
+    let mut value: crate::runtime::Dyn = __destructured_1.value;
+    crate::runtime::drop_dyn_platform(value);
 }
 
-pub fn drop_entry(e: Union3<Delivered, Answered, Reported>) {
-    if matches!(e, Union3::U1(_)) {
-        let mut d = match e { Union3::U1(__v) => __v, _ => unreachable!() };
-        drop_delivered(d);
-    } else if matches!(e, Union3::U2(_)) {
-        let mut a = match e { Union3::U2(__v) => __v, _ => unreachable!() };
-        drop_answered(a);
+pub fn drop_entry(mut e: crate::unions::Union3<crate::runtime::Delivered, crate::runtime::Answered, crate::runtime::Reported>) {
+    if matches!(e, crate::unions::Union3::U1(_)) {
+        let mut d = match e { crate::unions::Union3::U1(__v) => __v, _ => unreachable!() };
+        crate::runtime::drop_delivered(d);
+    } else if matches!(e, crate::unions::Union3::U2(_)) {
+        let mut a = match e { crate::unions::Union3::U2(__v) => __v, _ => unreachable!() };
+        crate::runtime::drop_answered(a);
     } else {
-        drop(e.u3().clone());
-    }
+        let mut e_1 = match e { crate::unions::Union3::U3(__v) => __v, _ => unreachable!() };
+        std::mem::drop(e_1);
+    };
 }
-
 
 pub struct ActorRec {
-    pub body: Slot<Body>,
+    pub body: crate::runtime::Slot<crate::runtime::Body>,
     pub pool: i32,
     pub bound: i32,
-    pub queue: std::collections::VecDeque<Union3<Delivered, Answered, Reported>>,
+    pub queue: std::collections::VecDeque<crate::unions::Union3<crate::runtime::Delivered, crate::runtime::Answered, crate::runtime::Reported>>,
     pub slots: std::collections::VecDeque<i64>,
     pub user_len: i32,
     pub gate: Option<i64>,
     pub running: bool,
     pub dead: bool,
     pub exit_reason: String,
-    pub blocked: Vec<Parker>,
-    pub watchers: Vec<Token>,
+    pub blocked: Vec<crate::runtime::Parker>,
+    pub watchers: Vec<crate::runtime::Token>,
     pub owed: i32,
     pub ready: bool,
     pub proxy: bool,
@@ -384,18 +378,18 @@ pub struct ActorRec {
 impl std::fmt::Debug for ActorRec {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ActorRec")
-            .field("body", &"<fn>")
+            .field("body", &"<opaque>")
             .field("pool", &self.pool)
             .field("bound", &self.bound)
-            .field("queue", &"<fn>")
+            .field("queue", &"<opaque>")
             .field("slots", &self.slots)
             .field("user_len", &self.user_len)
             .field("gate", &self.gate)
             .field("running", &self.running)
             .field("dead", &self.dead)
             .field("exit_reason", &self.exit_reason)
-            .field("blocked", &"<fn>")
-            .field("watchers", &"<fn>")
+            .field("blocked", &"<opaque>")
+            .field("watchers", &"<opaque>")
             .field("owed", &self.owed)
             .field("ready", &self.ready)
             .field("proxy", &self.proxy)
@@ -403,34 +397,37 @@ impl std::fmt::Debug for ActorRec {
     }
 }
 
-pub fn drop_actor_rec(a: ActorRec) {
-    let __destructured4 = a;
-    let mut body = __destructured4.body;
-    let mut pool = __destructured4.pool;
-    let mut bound = __destructured4.bound;
-    let mut queue = __destructured4.queue;
-    let mut slots = __destructured4.slots;
-    let mut user_len = __destructured4.user_len;
-    let mut gate = __destructured4.gate;
-    let mut running = __destructured4.running;
-    let mut dead = __destructured4.dead;
-    let mut exit_reason = __destructured4.exit_reason;
-    let mut blocked = __destructured4.blocked;
-    let mut watchers = __destructured4.watchers;
-    let mut owed = __destructured4.owed;
-    let mut ready = __destructured4.ready;
-    let mut proxy = __destructured4.proxy;
-    drop_slot_platform(body);
-    drain__core_deque(queue, &mut (|e| drop_entry(e)));
-    drain__core_list(watchers, &mut (|t| drop_token(t)));
+pub fn drop_actor_rec(mut a: crate::runtime::ActorRec) {
+    let mut __destructured_1: crate::runtime::ActorRec = a;
+    let mut body: crate::runtime::Slot<crate::runtime::Body> = __destructured_1.body;
+    let mut pool: i32 = __destructured_1.pool;
+    let mut bound: i32 = __destructured_1.bound;
+    let mut queue: std::collections::VecDeque<crate::unions::Union3<crate::runtime::Delivered, crate::runtime::Answered, crate::runtime::Reported>> = __destructured_1.queue;
+    let mut slots: std::collections::VecDeque<i64> = __destructured_1.slots;
+    let mut user_len: i32 = __destructured_1.user_len;
+    let mut gate: Option<i64> = __destructured_1.gate;
+    let mut running: bool = __destructured_1.running;
+    let mut dead: bool = __destructured_1.dead;
+    let mut exit_reason: String = __destructured_1.exit_reason;
+    let mut blocked: Vec<crate::runtime::Parker> = __destructured_1.blocked;
+    let mut watchers: Vec<crate::runtime::Token> = __destructured_1.watchers;
+    let mut owed: i32 = __destructured_1.owed;
+    let mut ready: bool = __destructured_1.ready;
+    let mut proxy: bool = __destructured_1.proxy;
+    crate::runtime::drop_slot_platform::<crate::runtime::Body>(body);
+    crate::core_deque::drain::<crate::unions::Union3<crate::runtime::Delivered, crate::runtime::Answered, crate::runtime::Reported>>(queue, &mut |mut e| {
+        crate::runtime::drop_entry(e)
+    });
+    crate::core_list::drain::<crate::runtime::Token>(watchers, &mut |mut t| {
+        crate::runtime::drop_token(t)
+    });
 }
-
 
 pub struct WaiterRec {
     pub pool: i32,
-    pub value: Slot<Dyn>,
+    pub value: crate::runtime::Slot<crate::runtime::Dyn>,
     pub filled: bool,
-    pub parker: Option<Parker>,
+    pub parker: Option<crate::runtime::Parker>,
     pub waiting: i32,
     pub waiting_actor: i32,
     pub slot: i64,
@@ -440,9 +437,9 @@ impl std::fmt::Debug for WaiterRec {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("WaiterRec")
             .field("pool", &self.pool)
-            .field("value", &"<fn>")
+            .field("value", &"<opaque>")
             .field("filled", &self.filled)
-            .field("parker", &"<fn>")
+            .field("parker", &"<opaque>")
             .field("waiting", &self.waiting)
             .field("waiting_actor", &self.waiting_actor)
             .field("slot", &self.slot)
@@ -450,45 +447,43 @@ impl std::fmt::Debug for WaiterRec {
     }
 }
 
-pub fn drop_waiter_rec(w: WaiterRec) {
-    let __destructured5 = w;
-    let mut pool = __destructured5.pool;
-    let mut value = __destructured5.value;
-    let mut filled = __destructured5.filled;
-    let mut parker = __destructured5.parker;
-    let mut waiting = __destructured5.waiting;
-    let mut waiting_actor = __destructured5.waiting_actor;
-    let mut slot = __destructured5.slot;
-    drop_slot_platform(value);
+pub fn drop_waiter_rec(mut w: crate::runtime::WaiterRec) {
+    let mut __destructured_1: crate::runtime::WaiterRec = w;
+    let mut pool: i32 = __destructured_1.pool;
+    let mut value: crate::runtime::Slot<crate::runtime::Dyn> = __destructured_1.value;
+    let mut filled: bool = __destructured_1.filled;
+    let mut parker: Option<crate::runtime::Parker> = __destructured_1.parker;
+    let mut waiting: i32 = __destructured_1.waiting;
+    let mut waiting_actor: i32 = __destructured_1.waiting_actor;
+    let mut slot: i64 = __destructured_1.slot;
+    crate::runtime::drop_slot_platform::<crate::runtime::Dyn>(value);
 }
 
-
 pub struct TaskRun {
-    pub body: Body,
-    pub value: Dyn,
+    pub body: crate::runtime::Body,
+    pub value: crate::runtime::Dyn,
 }
 
 impl std::fmt::Debug for TaskRun {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TaskRun")
-            .field("body", &"<fn>")
-            .field("value", &"<fn>")
+            .field("body", &"<opaque>")
+            .field("value", &"<opaque>")
             .finish()
     }
 }
 
-pub fn drop_task_run(t: TaskRun) {
-    let __destructured6 = t;
-    let mut body = __destructured6.body;
-    let mut value = __destructured6.value;
-    drop_body_platform(body);
-    drop_dyn_platform(value);
+pub fn drop_task_run(mut t: crate::runtime::TaskRun) {
+    let mut __destructured_1: crate::runtime::TaskRun = t;
+    let mut body: crate::runtime::Body = __destructured_1.body;
+    let mut value: crate::runtime::Dyn = __destructured_1.value;
+    crate::runtime::drop_body_platform(body);
+    crate::runtime::drop_dyn_platform(value);
 }
 
-
 pub struct PoolRec {
-    pub idle: Vec<Parker>,
-    pub tasks: std::collections::VecDeque<TaskRun>,
+    pub idle: Vec<crate::runtime::Parker>,
+    pub tasks: std::collections::VecDeque<crate::runtime::TaskRun>,
     pub ready: std::collections::VecDeque<i32>,
     pub sink: i32,
     pub owed: i32,
@@ -499,8 +494,8 @@ pub struct PoolRec {
 impl std::fmt::Debug for PoolRec {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PoolRec")
-            .field("idle", &"<fn>")
-            .field("tasks", &"<fn>")
+            .field("idle", &"<opaque>")
+            .field("tasks", &"<opaque>")
             .field("ready", &self.ready)
             .field("sink", &self.sink)
             .field("owed", &self.owed)
@@ -510,16 +505,18 @@ impl std::fmt::Debug for PoolRec {
     }
 }
 
-pub fn drop_pool_rec(p: PoolRec) {
-    let __destructured7 = p;
-    let mut idle = __destructured7.idle;
-    let mut tasks = __destructured7.tasks;
-    let mut ready = __destructured7.ready;
-    let mut sink = __destructured7.sink;
-    let mut owed = __destructured7.owed;
-    let mut dedicated = __destructured7.dedicated;
-    let mut retired = __destructured7.retired;
-    drain__core_deque(tasks, &mut (|t| drop_task_run(t)));
+pub fn drop_pool_rec(mut p: crate::runtime::PoolRec) {
+    let mut __destructured_1: crate::runtime::PoolRec = p;
+    let mut idle: Vec<crate::runtime::Parker> = __destructured_1.idle;
+    let mut tasks: std::collections::VecDeque<crate::runtime::TaskRun> = __destructured_1.tasks;
+    let mut ready: std::collections::VecDeque<i32> = __destructured_1.ready;
+    let mut sink: i32 = __destructured_1.sink;
+    let mut owed: i32 = __destructured_1.owed;
+    let mut dedicated: bool = __destructured_1.dedicated;
+    let mut retired: bool = __destructured_1.retired;
+    crate::core_deque::drain::<crate::runtime::TaskRun>(tasks, &mut |mut t| {
+        crate::runtime::drop_task_run(t)
+    });
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -554,31 +551,29 @@ impl crate::wire::__Wire for ToWaiter {
     }
 }
 
-
 pub struct ToTask {
     pub pool: i32,
-    pub body: Body,
+    pub body: crate::runtime::Body,
 }
 
 impl std::fmt::Debug for ToTask {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ToTask")
             .field("pool", &self.pool)
-            .field("body", &"<fn>")
+            .field("body", &"<opaque>")
             .finish()
     }
 }
 
-pub fn drop_to_task(t: ToTask) {
-    let __destructured8 = t;
-    let mut pool = __destructured8.pool;
-    let mut body = __destructured8.body;
-    drop_body_platform(body);
+pub fn drop_to_task(mut t: crate::runtime::ToTask) {
+    let mut __destructured_1: crate::runtime::ToTask = t;
+    let mut pool: i32 = __destructured_1.pool;
+    let mut body: crate::runtime::Body = __destructured_1.body;
+    crate::runtime::drop_body_platform(body);
 }
 
-
 pub struct Token {
-    pub target: Union3<ToActor, ToWaiter, ToTask>,
+    pub target: crate::unions::Union3<crate::runtime::ToActor, crate::runtime::ToWaiter, crate::runtime::ToTask>,
     pub slot: i64,
     pub tracked: bool,
 }
@@ -586,47 +581,45 @@ pub struct Token {
 impl std::fmt::Debug for Token {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Token")
-            .field("target", &"<fn>")
+            .field("target", &"<opaque>")
             .field("slot", &self.slot)
             .field("tracked", &self.tracked)
             .finish()
     }
 }
 
-pub fn drop_token(t: Token) {
-    answer(t, erase_platform(0));
+pub fn drop_token(mut t: crate::runtime::Token) {
+    crate::runtime::answer(t, crate::runtime::erase_platform::<i32>(0i32));
 }
 
-
 pub struct WaiterMint {
-    pub token: Token,
+    pub token: crate::runtime::Token,
     pub wid: i32,
 }
 
 impl std::fmt::Debug for WaiterMint {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("WaiterMint")
-            .field("token", &"<fn>")
+            .field("token", &"<opaque>")
             .field("wid", &self.wid)
             .finish()
     }
 }
 
-pub fn drop_waiter_mint(m: WaiterMint) {
-    let __destructured9 = m;
-    let mut token = __destructured9.token;
-    let mut wid = __destructured9.wid;
-    drop_token(token);
+pub fn drop_waiter_mint(mut m: crate::runtime::WaiterMint) {
+    let mut __destructured_1: crate::runtime::WaiterMint = m;
+    let mut token: crate::runtime::Token = __destructured_1.token;
+    let mut wid: i32 = __destructured_1.wid;
+    crate::runtime::drop_token(token);
 }
-
 
 pub struct RunActor {
     pub addr: i32,
     pub pool: i32,
     pub kind: i32,
     pub slot: i64,
-    pub value: Dyn,
-    pub body: Body,
+    pub value: crate::runtime::Dyn,
+    pub body: crate::runtime::Body,
 }
 
 impl std::fmt::Debug for RunActor {
@@ -636,25 +629,24 @@ impl std::fmt::Debug for RunActor {
             .field("pool", &self.pool)
             .field("kind", &self.kind)
             .field("slot", &self.slot)
-            .field("value", &"<fn>")
-            .field("body", &"<fn>")
+            .field("value", &"<opaque>")
+            .field("body", &"<opaque>")
             .finish()
     }
 }
 
-
 pub struct RunTask {
     pub pool: i32,
-    pub body: Body,
-    pub value: Dyn,
+    pub body: crate::runtime::Body,
+    pub value: crate::runtime::Dyn,
 }
 
 impl std::fmt::Debug for RunTask {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RunTask")
             .field("pool", &self.pool)
-            .field("body", &"<fn>")
-            .field("value", &"<fn>")
+            .field("body", &"<opaque>")
+            .field("value", &"<opaque>")
             .finish()
     }
 }
@@ -672,25 +664,25 @@ impl crate::wire::__Wire for Retire {
     }
 }
 
-pub fn drop_run_actor(a: RunActor) {
-    let __destructured10 = a;
-    let mut addr = __destructured10.addr;
-    let mut pool = __destructured10.pool;
-    let mut kind = __destructured10.kind;
-    let mut slot = __destructured10.slot;
-    let mut value = __destructured10.value;
-    let mut body = __destructured10.body;
-    drop_dyn_platform(value);
-    drop_body_platform(body);
+pub fn drop_run_actor(mut a: crate::runtime::RunActor) {
+    let mut __destructured_1: crate::runtime::RunActor = a;
+    let mut addr: i32 = __destructured_1.addr;
+    let mut pool: i32 = __destructured_1.pool;
+    let mut kind: i32 = __destructured_1.kind;
+    let mut slot: i64 = __destructured_1.slot;
+    let mut value: crate::runtime::Dyn = __destructured_1.value;
+    let mut body: crate::runtime::Body = __destructured_1.body;
+    crate::runtime::drop_dyn_platform(value);
+    crate::runtime::drop_body_platform(body);
 }
 
-pub fn drop_run_task(t: RunTask) {
-    let __destructured11 = t;
-    let mut pool = __destructured11.pool;
-    let mut body = __destructured11.body;
-    let mut value = __destructured11.value;
-    drop_body_platform(body);
-    drop_dyn_platform(value);
+pub fn drop_run_task(mut t: crate::runtime::RunTask) {
+    let mut __destructured_1: crate::runtime::RunTask = t;
+    let mut pool: i32 = __destructured_1.pool;
+    let mut body: crate::runtime::Body = __destructured_1.body;
+    let mut value: crate::runtime::Dyn = __destructured_1.value;
+    crate::runtime::drop_body_platform(body);
+    crate::runtime::drop_dyn_platform(value);
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -719,75 +711,71 @@ impl crate::wire::__Wire for Dead {
     }
 }
 
-
 pub struct Full {
-    pub msg: Dyn,
+    pub msg: crate::runtime::Dyn,
 }
 
 impl std::fmt::Debug for Full {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Full")
-            .field("msg", &"<fn>")
+            .field("msg", &"<opaque>")
             .finish()
     }
 }
 
-
 pub struct Remote {
-    pub msg: Dyn,
+    pub msg: crate::runtime::Dyn,
 }
 
 impl std::fmt::Debug for Remote {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Remote")
-            .field("msg", &"<fn>")
+            .field("msg", &"<opaque>")
             .finish()
     }
 }
 
-pub fn drop_remote(r: Remote) {
-    let __destructured12 = r;
-    let mut msg = __destructured12.msg;
-    drop_dyn_platform(msg);
+pub fn drop_remote(mut r: crate::runtime::Remote) {
+    let mut __destructured_1: crate::runtime::Remote = r;
+    let mut msg: crate::runtime::Dyn = __destructured_1.msg;
+    crate::runtime::drop_dyn_platform(msg);
 }
 
-pub fn drop_full(f: Full) {
-    let __destructured13 = f;
-    let mut msg = __destructured13.msg;
-    drop_dyn_platform(msg);
+pub fn drop_full(mut f: crate::runtime::Full) {
+    let mut __destructured_1: crate::runtime::Full = f;
+    let mut msg: crate::runtime::Dyn = __destructured_1.msg;
+    crate::runtime::drop_dyn_platform(msg);
 }
-
 
 pub struct IdleHook {
     pub pool: i32,
-    pub token: Token,
+    pub token: crate::runtime::Token,
 }
 
 impl std::fmt::Debug for IdleHook {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("IdleHook")
             .field("pool", &self.pool)
-            .field("token", &"<fn>")
+            .field("token", &"<opaque>")
             .finish()
     }
 }
 
-pub fn drop_idle_hook(h: IdleHook) {
-    let __destructured14 = h;
-    let mut pool = __destructured14.pool;
-    let mut token = __destructured14.token;
-    drop_token(token);
+pub fn drop_idle_hook(mut h: crate::runtime::IdleHook) {
+    let mut __destructured_1: crate::runtime::IdleHook = h;
+    let mut pool: i32 = __destructured_1.pool;
+    let mut token: crate::runtime::Token = __destructured_1.token;
+    crate::runtime::drop_token(token);
 }
 
-
 pub struct Got {
-    pub value: Dyn,
+    pub value: crate::runtime::Dyn,
 }
 
 impl std::fmt::Debug for Got {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Got")
-            .field("value", &"<fn>")
+            .field("value", &"<opaque>")
             .finish()
     }
 }
@@ -834,30 +822,30 @@ impl crate::wire::__Wire for Stuck {
     }
 }
 
-pub fn drop_got(g: Got) {
-    let __destructured15 = g;
-    let mut value = __destructured15.value;
-    drop_dyn_platform(value);
+pub fn drop_got(mut g: crate::runtime::Got) {
+    let mut __destructured_1: crate::runtime::Got = g;
+    let mut value: crate::runtime::Dyn = __destructured_1.value;
+    crate::runtime::drop_dyn_platform(value);
 }
 
 pub trait __Stateless_SchedTable: Send + Sync {
     fn new_pool(&self, sink: i32, dedicated: bool) -> i32;
-    fn new_actor(&self, pool: i32, bound: i32, body: Body) -> i32;
-    fn enqueue(&self, addr: i32, msg: Dyn, waiter: Parker) -> Union4<Sent, Dead, Full, Remote>;
+    fn new_actor(&self, pool: i32, bound: i32, body: crate::runtime::Body) -> i32;
+    fn enqueue(&self, addr: i32, msg: crate::runtime::Dyn, waiter: crate::runtime::Parker) -> crate::unions::Union4<crate::runtime::Sent, crate::runtime::Dead, crate::runtime::Full, crate::runtime::Remote>;
     fn set_proxy(&self, addr: i32);
-    fn enqueue_remote(&self, addr: i32, msg: Dyn, from: i64) -> bool;
+    fn enqueue_remote(&self, addr: i32, msg: crate::runtime::Dyn, from: i64) -> bool;
     fn kill(&self, addr: i32, reason: String);
-    fn mint_actor(&self, addr: i32, gated: bool) -> Token;
-    fn mint_task(&self, pool: i32, body: Body) -> Token;
-    fn mint_waiter(&self, pool: i32) -> WaiterMint;
-    fn deliver(&self, t: Token, value: Dyn);
-    fn watch_actor(&self, addr: i32, t: Token);
-    fn idle_hook(&self, pool: i32, t: Token);
-    fn next_work(&self, pool: i32, idle: Parker) -> Option<Union3<RunActor, RunTask, Retire>>;
+    fn mint_actor(&self, addr: i32, gated: bool) -> crate::runtime::Token;
+    fn mint_task(&self, pool: i32, body: crate::runtime::Body) -> crate::runtime::Token;
+    fn mint_waiter(&self, pool: i32) -> crate::runtime::WaiterMint;
+    fn deliver(&self, t: crate::runtime::Token, value: crate::runtime::Dyn);
+    fn watch_actor(&self, addr: i32, t: crate::runtime::Token);
+    fn idle_hook(&self, pool: i32, t: crate::runtime::Token);
+    fn next_work(&self, pool: i32, idle: crate::runtime::Parker) -> Option<crate::unions::Union3<crate::runtime::RunActor, crate::runtime::RunTask, crate::runtime::Retire>>;
     fn retired_workers(&self) -> i32;
     fn waiter_records(&self) -> i32;
-    fn wait_step(&self, wid: i32, pool: i32, own: i32, frame: i32, me: Parker) -> Union6<Got, RunActor, RunTask, Sleep, Again, Stuck>;
-    fn finish(&self, addr: i32, body: Body, fault: Option<String>);
+    fn wait_step(&self, wid: i32, pool: i32, own: i32, frame: i32, me: crate::runtime::Parker) -> crate::unions::Union6<crate::runtime::Got, crate::runtime::RunActor, crate::runtime::RunTask, crate::runtime::Sleep, crate::runtime::Again, crate::runtime::Stuck>;
+    fn finish(&self, addr: i32, body: crate::runtime::Body, fault: Option<String>);
     fn task_done(&self, pool: i32, fault: Option<String>);
     fn pool_of_actor(&self, addr: i32) -> i32;
     fn pool_of_waiter(&self, wid: i32) -> i32;
@@ -871,28 +859,28 @@ pub trait __Stateless_SchedTable: Send + Sync {
     fn advance_to(&self, at: i64);
     fn random_bits(&self) -> i64;
     fn random_unit(&self) -> f64;
-    fn clock_hook(&self, t: Token);
-    fn virtual_work(&self, own: i32) -> Option<Union2<RunActor, RunTask>>;
+    fn clock_hook(&self, t: crate::runtime::Token);
+    fn virtual_work(&self, own: i32) -> Option<crate::unions::Union2<crate::runtime::RunActor, crate::runtime::RunTask>>;
 }
 
 pub trait __Stateful_SchedTable: Send {
     fn new_pool(&mut self, sink: i32, dedicated: bool) -> i32;
-    fn new_actor(&mut self, pool: i32, bound: i32, body: Body) -> i32;
-    fn enqueue(&mut self, addr: i32, msg: Dyn, waiter: Parker) -> Union4<Sent, Dead, Full, Remote>;
+    fn new_actor(&mut self, pool: i32, bound: i32, body: crate::runtime::Body) -> i32;
+    fn enqueue(&mut self, addr: i32, msg: crate::runtime::Dyn, waiter: crate::runtime::Parker) -> crate::unions::Union4<crate::runtime::Sent, crate::runtime::Dead, crate::runtime::Full, crate::runtime::Remote>;
     fn set_proxy(&mut self, addr: i32);
-    fn enqueue_remote(&mut self, addr: i32, msg: Dyn, from: i64) -> bool;
+    fn enqueue_remote(&mut self, addr: i32, msg: crate::runtime::Dyn, from: i64) -> bool;
     fn kill(&mut self, addr: i32, reason: String);
-    fn mint_actor(&mut self, addr: i32, gated: bool) -> Token;
-    fn mint_task(&mut self, pool: i32, body: Body) -> Token;
-    fn mint_waiter(&mut self, pool: i32) -> WaiterMint;
-    fn deliver(&mut self, t: Token, value: Dyn);
-    fn watch_actor(&mut self, addr: i32, t: Token);
-    fn idle_hook(&mut self, pool: i32, t: Token);
-    fn next_work(&mut self, pool: i32, idle: Parker) -> Option<Union3<RunActor, RunTask, Retire>>;
+    fn mint_actor(&mut self, addr: i32, gated: bool) -> crate::runtime::Token;
+    fn mint_task(&mut self, pool: i32, body: crate::runtime::Body) -> crate::runtime::Token;
+    fn mint_waiter(&mut self, pool: i32) -> crate::runtime::WaiterMint;
+    fn deliver(&mut self, t: crate::runtime::Token, value: crate::runtime::Dyn);
+    fn watch_actor(&mut self, addr: i32, t: crate::runtime::Token);
+    fn idle_hook(&mut self, pool: i32, t: crate::runtime::Token);
+    fn next_work(&mut self, pool: i32, idle: crate::runtime::Parker) -> Option<crate::unions::Union3<crate::runtime::RunActor, crate::runtime::RunTask, crate::runtime::Retire>>;
     fn retired_workers(&mut self) -> i32;
     fn waiter_records(&mut self) -> i32;
-    fn wait_step(&mut self, wid: i32, pool: i32, own: i32, frame: i32, me: Parker) -> Union6<Got, RunActor, RunTask, Sleep, Again, Stuck>;
-    fn finish(&mut self, addr: i32, body: Body, fault: Option<String>);
+    fn wait_step(&mut self, wid: i32, pool: i32, own: i32, frame: i32, me: crate::runtime::Parker) -> crate::unions::Union6<crate::runtime::Got, crate::runtime::RunActor, crate::runtime::RunTask, crate::runtime::Sleep, crate::runtime::Again, crate::runtime::Stuck>;
+    fn finish(&mut self, addr: i32, body: crate::runtime::Body, fault: Option<String>);
     fn task_done(&mut self, pool: i32, fault: Option<String>);
     fn pool_of_actor(&mut self, addr: i32) -> i32;
     fn pool_of_waiter(&mut self, wid: i32) -> i32;
@@ -906,8 +894,8 @@ pub trait __Stateful_SchedTable: Send {
     fn advance_to(&mut self, at: i64);
     fn random_bits(&mut self) -> i64;
     fn random_unit(&mut self) -> f64;
-    fn clock_hook(&mut self, t: Token);
-    fn virtual_work(&mut self, own: i32) -> Option<Union2<RunActor, RunTask>>;
+    fn clock_hook(&mut self, t: crate::runtime::Token);
+    fn virtual_work(&mut self, own: i32) -> Option<crate::unions::Union2<crate::runtime::RunActor, crate::runtime::RunTask>>;
 }
 
 pub struct SchedTable {
@@ -947,13 +935,13 @@ impl SchedTable {
             __Inner_SchedTable::Locked(h) => h.lock().unwrap().new_pool(sink, dedicated),
         }
     }
-    pub fn new_actor(&self, pool: i32, bound: i32, body: Body) -> i32 {
+    pub fn new_actor(&self, pool: i32, bound: i32, body: crate::runtime::Body) -> i32 {
         match &self.inner {
             __Inner_SchedTable::Shared(h) => h.new_actor(pool, bound, body),
             __Inner_SchedTable::Locked(h) => h.lock().unwrap().new_actor(pool, bound, body),
         }
     }
-    pub fn enqueue(&self, addr: i32, msg: Dyn, waiter: Parker) -> Union4<Sent, Dead, Full, Remote> {
+    pub fn enqueue(&self, addr: i32, msg: crate::runtime::Dyn, waiter: crate::runtime::Parker) -> crate::unions::Union4<crate::runtime::Sent, crate::runtime::Dead, crate::runtime::Full, crate::runtime::Remote> {
         match &self.inner {
             __Inner_SchedTable::Shared(h) => h.enqueue(addr, msg, waiter),
             __Inner_SchedTable::Locked(h) => h.lock().unwrap().enqueue(addr, msg, waiter),
@@ -965,7 +953,7 @@ impl SchedTable {
             __Inner_SchedTable::Locked(h) => h.lock().unwrap().set_proxy(addr),
         }
     }
-    pub fn enqueue_remote(&self, addr: i32, msg: Dyn, from: i64) -> bool {
+    pub fn enqueue_remote(&self, addr: i32, msg: crate::runtime::Dyn, from: i64) -> bool {
         match &self.inner {
             __Inner_SchedTable::Shared(h) => h.enqueue_remote(addr, msg, from),
             __Inner_SchedTable::Locked(h) => h.lock().unwrap().enqueue_remote(addr, msg, from),
@@ -977,43 +965,43 @@ impl SchedTable {
             __Inner_SchedTable::Locked(h) => h.lock().unwrap().kill(addr, reason),
         }
     }
-    pub fn mint_actor(&self, addr: i32, gated: bool) -> Token {
+    pub fn mint_actor(&self, addr: i32, gated: bool) -> crate::runtime::Token {
         match &self.inner {
             __Inner_SchedTable::Shared(h) => h.mint_actor(addr, gated),
             __Inner_SchedTable::Locked(h) => h.lock().unwrap().mint_actor(addr, gated),
         }
     }
-    pub fn mint_task(&self, pool: i32, body: Body) -> Token {
+    pub fn mint_task(&self, pool: i32, body: crate::runtime::Body) -> crate::runtime::Token {
         match &self.inner {
             __Inner_SchedTable::Shared(h) => h.mint_task(pool, body),
             __Inner_SchedTable::Locked(h) => h.lock().unwrap().mint_task(pool, body),
         }
     }
-    pub fn mint_waiter(&self, pool: i32) -> WaiterMint {
+    pub fn mint_waiter(&self, pool: i32) -> crate::runtime::WaiterMint {
         match &self.inner {
             __Inner_SchedTable::Shared(h) => h.mint_waiter(pool),
             __Inner_SchedTable::Locked(h) => h.lock().unwrap().mint_waiter(pool),
         }
     }
-    pub fn deliver(&self, t: Token, value: Dyn) {
+    pub fn deliver(&self, t: crate::runtime::Token, value: crate::runtime::Dyn) {
         match &self.inner {
             __Inner_SchedTable::Shared(h) => h.deliver(t, value),
             __Inner_SchedTable::Locked(h) => h.lock().unwrap().deliver(t, value),
         }
     }
-    pub fn watch_actor(&self, addr: i32, t: Token) {
+    pub fn watch_actor(&self, addr: i32, t: crate::runtime::Token) {
         match &self.inner {
             __Inner_SchedTable::Shared(h) => h.watch_actor(addr, t),
             __Inner_SchedTable::Locked(h) => h.lock().unwrap().watch_actor(addr, t),
         }
     }
-    pub fn idle_hook(&self, pool: i32, t: Token) {
+    pub fn idle_hook(&self, pool: i32, t: crate::runtime::Token) {
         match &self.inner {
             __Inner_SchedTable::Shared(h) => h.idle_hook(pool, t),
             __Inner_SchedTable::Locked(h) => h.lock().unwrap().idle_hook(pool, t),
         }
     }
-    pub fn next_work(&self, pool: i32, idle: Parker) -> Option<Union3<RunActor, RunTask, Retire>> {
+    pub fn next_work(&self, pool: i32, idle: crate::runtime::Parker) -> Option<crate::unions::Union3<crate::runtime::RunActor, crate::runtime::RunTask, crate::runtime::Retire>> {
         match &self.inner {
             __Inner_SchedTable::Shared(h) => h.next_work(pool, idle),
             __Inner_SchedTable::Locked(h) => h.lock().unwrap().next_work(pool, idle),
@@ -1031,13 +1019,13 @@ impl SchedTable {
             __Inner_SchedTable::Locked(h) => h.lock().unwrap().waiter_records(),
         }
     }
-    pub fn wait_step(&self, wid: i32, pool: i32, own: i32, frame: i32, me: Parker) -> Union6<Got, RunActor, RunTask, Sleep, Again, Stuck> {
+    pub fn wait_step(&self, wid: i32, pool: i32, own: i32, frame: i32, me: crate::runtime::Parker) -> crate::unions::Union6<crate::runtime::Got, crate::runtime::RunActor, crate::runtime::RunTask, crate::runtime::Sleep, crate::runtime::Again, crate::runtime::Stuck> {
         match &self.inner {
             __Inner_SchedTable::Shared(h) => h.wait_step(wid, pool, own, frame, me),
             __Inner_SchedTable::Locked(h) => h.lock().unwrap().wait_step(wid, pool, own, frame, me),
         }
     }
-    pub fn finish(&self, addr: i32, body: Body, fault: Option<String>) {
+    pub fn finish(&self, addr: i32, body: crate::runtime::Body, fault: Option<String>) {
         match &self.inner {
             __Inner_SchedTable::Shared(h) => h.finish(addr, body, fault),
             __Inner_SchedTable::Locked(h) => h.lock().unwrap().finish(addr, body, fault),
@@ -1121,13 +1109,13 @@ impl SchedTable {
             __Inner_SchedTable::Locked(h) => h.lock().unwrap().random_unit(),
         }
     }
-    pub fn clock_hook(&self, t: Token) {
+    pub fn clock_hook(&self, t: crate::runtime::Token) {
         match &self.inner {
             __Inner_SchedTable::Shared(h) => h.clock_hook(t),
             __Inner_SchedTable::Locked(h) => h.lock().unwrap().clock_hook(t),
         }
     }
-    pub fn virtual_work(&self, own: i32) -> Option<Union2<RunActor, RunTask>> {
+    pub fn virtual_work(&self, own: i32) -> Option<crate::unions::Union2<crate::runtime::RunActor, crate::runtime::RunTask>> {
         match &self.inner {
             __Inner_SchedTable::Shared(h) => h.virtual_work(own),
             __Inner_SchedTable::Locked(h) => h.lock().unwrap().virtual_work(own),
@@ -1136,11 +1124,11 @@ impl SchedTable {
 }
 
 pub struct Scheduler {
-    actors: Vec<ActorRec>,
-    waiters: Vec<WaiterRec>,
+    actors: Vec<crate::runtime::ActorRec>,
+    waiters: Vec<crate::runtime::WaiterRec>,
     free_waiters: Vec<i32>,
-    pools: Vec<PoolRec>,
-    idle_hooks: Vec<IdleHook>,
+    pools: Vec<crate::runtime::PoolRec>,
+    idle_hooks: Vec<crate::runtime::IdleHook>,
     next_slot: i64,
     active: i32,
     parked_frames: i32,
@@ -1151,1179 +1139,1235 @@ pub struct Scheduler {
     vnow: i64,
     rng: i64,
     rng_seeded: bool,
-    clock_hooks: Vec<Token>,
+    clock_hooks: Vec<crate::runtime::Token>,
 }
 
 impl Scheduler {
     pub fn new() -> Self {
-        Self {
+        let mut __s = Self {
             actors: vec![],
             waiters: vec![],
             free_waiters: vec![],
             pools: vec![],
             idle_hooks: vec![],
             next_slot: 0i64,
-            active: 0,
-            parked_frames: 0,
-            main_waits: 0,
-            externals: 0,
-            retired: 0,
+            active: 0i32,
+            parked_frames: 0i32,
+            main_waits: 0i32,
+            externals: 0i32,
+            retired: 0i32,
             virtual_mode: false,
             vnow: 0i64,
             rng: 1i64,
             rng_seeded: false,
-            clock_hooks: vec![],
-        }
+            clock_hooks: vec![]
+        };
+        __s.init();
+        __s
+    }
+    fn init(&mut self) {
+        crate::core_list::add_platform::<crate::runtime::PoolRec>(&mut self.pools, crate::runtime::PoolRec { idle: vec![], tasks: crate::core_deque::mut_deque_of::<crate::runtime::TaskRun>(), ready: crate::core_deque::mut_deque_of::<i32>(), sink: i32::wrapping_neg(1i32), owed: 0i32, dedicated: false, retired: false });
     }
 }
 
 impl crate::runtime::__Stateful_SchedTable for Scheduler {
-
     fn new_pool(&mut self, sink: i32, dedicated: bool) -> i32 {
-        crate::core_list::add_platform(&mut self.pools, PoolRec { idle: vec![], tasks: mut_deque_of(), ready: mut_deque_of(), sink: sink, owed: 0, dedicated: dedicated, retired: false });
-        return i32::wrapping_sub(crate::core_list::size_platform(&self.pools), 1);
+        crate::core_list::add_platform::<crate::runtime::PoolRec>(&mut self.pools, crate::runtime::PoolRec { idle: vec![], tasks: crate::core_deque::mut_deque_of::<crate::runtime::TaskRun>(), ready: crate::core_deque::mut_deque_of::<i32>(), sink: sink, owed: 0i32, dedicated: dedicated, retired: false });
+        return i32::wrapping_sub(crate::core_list::size_platform::<crate::runtime::PoolRec>(&self.pools), 1i32);
     }
-
-    fn new_actor(&mut self, pool: i32, bound: i32, body: Body) -> i32 {
-        crate::core_list::add_platform(&mut self.actors, ActorRec { body: slot_of_platform(body), pool: pool, bound: bound, queue: mut_deque_of(), slots: mut_deque_of(), user_len: 0, gate: None, running: false, dead: false, exit_reason: "".to_string(), blocked: vec![], watchers: vec![], owed: 0, ready: false, proxy: false });
-        return i32::wrapping_sub(crate::core_list::size_platform(&self.actors), 1);
+    fn new_actor(&mut self, pool: i32, bound: i32, body: crate::runtime::Body) -> i32 {
+        crate::core_list::add_platform::<crate::runtime::ActorRec>(&mut self.actors, crate::runtime::ActorRec { body: crate::runtime::slot_of_platform::<crate::runtime::Body>(body), pool: pool, bound: bound, queue: crate::core_deque::mut_deque_of::<crate::unions::Union3<crate::runtime::Delivered, crate::runtime::Answered, crate::runtime::Reported>>(), slots: crate::core_deque::mut_deque_of::<i64>(), user_len: 0i32, gate: None, running: false, dead: false, exit_reason: String::from(""), blocked: vec![], watchers: vec![], owed: 0i32, ready: false, proxy: false });
+        return i32::wrapping_sub(crate::core_list::size_platform::<crate::runtime::ActorRec>(&self.actors), 1i32);
     }
-
-    fn enqueue(&mut self, addr: i32, msg: Dyn, waiter: Parker) -> Union4<Sent, Dead, Full, Remote> {
-        if addr < 0 || addr >= crate::core_list::size_platform(&self.actors) {
-            drop_dyn_platform(msg);
-            return Union4::<Sent, Dead, Full, Remote>::U2(Dead {  });
-        }
-        let __h0 = (addr) as usize;
-        self.actors.get(__h0).expect("salvo: value is absent at runtime:518:17");
-        if self.actors[__h0].dead {
-            drop_dyn_platform(msg);
-            return Union4::<Sent, Dead, Full, Remote>::U2(Dead {  });
-        }
-        if self.actors[__h0].proxy {
-            return Union4::<Sent, Dead, Full, Remote>::U4(Remote { msg: msg });
-        }
-        if self.actors[__h0].user_len >= self.actors[__h0].bound {
-            crate::core_list::add_platform(&mut self.actors[__h0].blocked, waiter);
-            return Union4::<Sent, Dead, Full, Remote>::U3(Full { msg: msg });
-        }
-        let mut e: Union3<Delivered, Answered, Reported> = Union3::<Delivered, Answered, Reported>::U1(Delivered { msg: msg, from: ((-1) as i64) });
-        crate::core_deque::add_last_platform(&mut self.actors[__h0].queue, e);
-        crate::core_deque::add_last_platform(&mut self.actors[__h0].slots, ((-1) as i64));
-        self.actors[__h0].user_len = i32::wrapping_add(self.actors[__h0].user_len, 1);
-        if mark_ready(&mut self.actors[__h0], &mut self.pools, addr.clone()) {
-            let mut pool = self.actors[__h0].pool;
-            wake_pool(&mut self.pools, pool);
-        }
-        return Union4::<Sent, Dead, Full, Remote>::U1(Sent {  });
-    }
-
-    fn enqueue_remote(&mut self, addr: i32, msg: Dyn, from: i64) -> bool {
-        if addr < 0 || addr >= crate::core_list::size_platform(&self.actors) {
-            drop_dyn_platform(msg);
-            return false;
-        }
-        let __h1 = (addr) as usize;
-        self.actors.get(__h1).expect("salvo: value is absent at runtime:546:17");
+    fn enqueue(&mut self, addr: i32, msg: crate::runtime::Dyn, waiter: crate::runtime::Parker) -> crate::unions::Union4<crate::runtime::Sent, crate::runtime::Dead, crate::runtime::Full, crate::runtime::Remote> {
+        if ((addr < 0i32) || (addr >= crate::core_list::size_platform::<crate::runtime::ActorRec>(&self.actors))) {
+            crate::runtime::drop_dyn_platform(msg);
+            return crate::unions::Union4::U2(crate::runtime::Dead {});
+        };
+        let __h1: usize = crate::core_list::get_platform__loc(&self.actors, addr).expect("salvo: value is absent at runtime:518:17");
         if self.actors[__h1].dead {
-            drop_dyn_platform(msg);
+            crate::runtime::drop_dyn_platform(msg);
+            return crate::unions::Union4::U2(crate::runtime::Dead {});
+        };
+        if self.actors[__h1].proxy {
+            return crate::unions::Union4::U4(crate::runtime::Remote { msg: msg });
+        };
+        if (self.actors[__h1].user_len >= self.actors[__h1].bound) {
+            crate::core_list::add_platform::<crate::runtime::Parker>(&mut self.actors[__h1].blocked, waiter);
+            return crate::unions::Union4::U3(crate::runtime::Full { msg: msg });
+        };
+        let mut e: crate::unions::Union3<crate::runtime::Delivered, crate::runtime::Answered, crate::runtime::Reported> = crate::unions::Union3::U1(crate::runtime::Delivered { msg: msg, from: ((i32::wrapping_neg(1i32)) as i64) });
+        crate::core_deque::add_last_platform::<crate::unions::Union3<crate::runtime::Delivered, crate::runtime::Answered, crate::runtime::Reported>>(&mut self.actors[__h1].queue, e);
+        crate::core_deque::add_last_platform::<i64>(&mut self.actors[__h1].slots, ((i32::wrapping_neg(1i32)) as i64));
+        self.actors[__h1].user_len = i32::wrapping_add(self.actors[__h1].user_len, 1i32);
+        if crate::runtime::mark_ready(&mut self.actors[__h1], &mut self.pools, addr) {
+            let mut a_3 = &self.actors[__h1];
+            let mut pool: i32 = a_3.pool;
+            crate::runtime::wake_pool(&mut self.pools, pool);
+        };
+        return crate::unions::Union4::U1(crate::runtime::Sent {});
+    }
+    fn set_proxy(&mut self, addr: i32) {
+        let __h1: usize = crate::core_list::get_platform__loc(&self.actors, addr).expect("salvo: value is absent at runtime:792:17");
+        self.actors[__h1].proxy = true;
+    }
+    fn enqueue_remote(&mut self, addr: i32, msg: crate::runtime::Dyn, from: i64) -> bool {
+        if ((addr < 0i32) || (addr >= crate::core_list::size_platform::<crate::runtime::ActorRec>(&self.actors))) {
+            crate::runtime::drop_dyn_platform(msg);
             return false;
-        }
-        let mut e: Union3<Delivered, Answered, Reported> = Union3::<Delivered, Answered, Reported>::U1(Delivered { msg: msg, from: from });
-        crate::core_deque::add_last_platform(&mut self.actors[__h1].queue, e);
-        crate::core_deque::add_last_platform(&mut self.actors[__h1].slots, ((-1) as i64));
-        self.actors[__h1].user_len = i32::wrapping_add(self.actors[__h1].user_len, 1);
-        if mark_ready(&mut self.actors[__h1], &mut self.pools, addr.clone()) {
-            let mut pool = self.actors[__h1].pool;
-            wake_pool(&mut self.pools, pool);
-        }
+        };
+        let __h1: usize = crate::core_list::get_platform__loc(&self.actors, addr).expect("salvo: value is absent at runtime:546:17");
+        if self.actors[__h1].dead {
+            crate::runtime::drop_dyn_platform(msg);
+            return false;
+        };
+        let mut e: crate::unions::Union3<crate::runtime::Delivered, crate::runtime::Answered, crate::runtime::Reported> = crate::unions::Union3::U1(crate::runtime::Delivered { msg: msg, from: from });
+        crate::core_deque::add_last_platform::<crate::unions::Union3<crate::runtime::Delivered, crate::runtime::Answered, crate::runtime::Reported>>(&mut self.actors[__h1].queue, e);
+        crate::core_deque::add_last_platform::<i64>(&mut self.actors[__h1].slots, ((i32::wrapping_neg(1i32)) as i64));
+        self.actors[__h1].user_len = i32::wrapping_add(self.actors[__h1].user_len, 1i32);
+        if crate::runtime::mark_ready(&mut self.actors[__h1], &mut self.pools, addr) {
+            let mut a_3 = &self.actors[__h1];
+            let mut pool: i32 = a_3.pool;
+            crate::runtime::wake_pool(&mut self.pools, pool);
+        };
         return true;
     }
-
     fn kill(&mut self, addr: i32, reason: String) {
-        let __h2 = (addr) as usize;
-        self.actors.get(__h2).expect("salvo: value is absent at runtime:563:17");
-        if self.actors[__h2].dead {
+        let __h1: usize = crate::core_list::get_platform__loc(&self.actors, addr).expect("salvo: value is absent at runtime:563:17");
+        if self.actors[__h1].dead {
             return;
-        }
-        self.actors[__h2].dead = true;
-        self.actors[__h2].exit_reason = reason.clone();
+        };
+        self.actors[__h1].dead = true;
+        self.actors[__h1].exit_reason = (reason).clone();
         loop {
-            let mut __is1 = crate::core_list::remove_first_platform(&mut self.actors[__h2].blocked);
-            if !(__is1.is_some()) {
+            let mut __subject_3: Option<crate::runtime::Parker> = crate::core_list::remove_first_platform::<crate::runtime::Parker>(&mut self.actors[__h1].blocked);
+            if !(__subject_3.is_some()) {
                 break;
-            }
-            let mut b = __is1.as_ref().unwrap().clone();
-            unpark_platform(&b);
+            };
+            let mut b = __subject_3.as_ref().unwrap();
+            crate::runtime::unpark_platform(b);
         }
-        let mut watchers: Vec<Token> = vec![];
+        let mut watchers: Vec<crate::runtime::Token> = vec![];
         loop {
-            let mut __is2 = crate::core_list::remove_first_platform(&mut self.actors[__h2].watchers);
-            if !(__is2.is_some()) {
+            let mut __subject_4: Option<crate::runtime::Token> = crate::core_list::remove_first_platform::<crate::runtime::Token>(&mut self.actors[__h1].watchers);
+            if !(__subject_4.is_some()) {
                 break;
-            }
-            let mut t = __is2.unwrap();
-            crate::core_list::add_platform(&mut watchers, t);
+            };
+            let mut t = __subject_4.unwrap();
+            crate::core_list::add_platform::<crate::runtime::Token>(&mut watchers, t);
         }
         loop {
-            let mut __is3 = crate::core_list::remove_first_platform(&mut watchers);
-            if !(__is3.is_some()) {
+            let mut __subject_5: Option<crate::runtime::Token> = crate::core_list::remove_first_platform::<crate::runtime::Token>(&mut watchers);
+            if !(__subject_5.is_some()) {
                 break;
-            }
-            let mut t = __is3.unwrap();
-            deliver_to(&mut self.actors, &mut self.waiters, &mut self.pools, t, erase_platform(Exit { reason: reason.clone() }));
+            };
+            let mut t = __subject_5.unwrap();
+            crate::runtime::deliver_to(&mut self.actors, &mut self.waiters, &mut self.pools, t, crate::runtime::erase_platform::<crate::core_actor::Exit>(crate::core_actor::Exit { reason: (reason).clone() }));
         }
-        drain__core_list(watchers, &mut (|t| drop_token(t)));
+        crate::core_list::drain::<crate::runtime::Token>(watchers, &mut |mut t| {
+            crate::runtime::drop_token(t)
+        });
     }
-
-    fn mint_actor(&mut self, addr: i32, gated: bool) -> Token {
-        self.next_slot = i64::wrapping_add(self.next_slot, ((1) as i64));
-        let mut slot = self.next_slot.clone();
-        let __h3 = (addr) as usize;
-        self.actors.get(__h3).expect("salvo: value is absent at runtime:585:17");
+    fn mint_actor(&mut self, addr: i32, gated: bool) -> crate::runtime::Token {
+        self.next_slot = i64::wrapping_add(self.next_slot, 1i64);
+        let mut slot: i64 = self.next_slot;
+        let __h1: usize = crate::core_list::get_platform__loc(&self.actors, addr).expect("salvo: value is absent at runtime:585:17");
         if gated {
-            self.actors[__h3].gate = Some(slot.clone());
-        }
-        self.actors[__h3].owed = i32::wrapping_add(self.actors[__h3].owed, 1);
-        return Token { target: Union3::<ToActor, ToWaiter, ToTask>::U1(ToActor { addr: addr }), slot: slot, tracked: true };
+            self.actors[__h1].gate = Some(slot);
+        };
+        self.actors[__h1].owed = i32::wrapping_add(self.actors[__h1].owed, 1i32);
+        return crate::runtime::Token { target: crate::unions::Union3::U1(crate::runtime::ToActor { addr: addr }), slot: slot, tracked: true };
     }
-
-    fn mint_task(&mut self, pool: i32, body: Body) -> Token {
-        self.next_slot = i64::wrapping_add(self.next_slot, ((1) as i64));
-        let __h4 = (pool) as usize;
-        self.pools.get(__h4).expect("salvo: value is absent at runtime:595:17");
-        self.pools[__h4].owed = i32::wrapping_add(self.pools[__h4].owed, 1);
-        return Token { target: Union3::<ToActor, ToWaiter, ToTask>::U3(ToTask { pool: pool, body: body }), slot: self.next_slot.clone(), tracked: true };
+    fn mint_task(&mut self, pool: i32, body: crate::runtime::Body) -> crate::runtime::Token {
+        self.next_slot = i64::wrapping_add(self.next_slot, 1i64);
+        let __h1: usize = crate::core_list::get_platform__loc(&self.pools, pool).expect("salvo: value is absent at runtime:595:17");
+        self.pools[__h1].owed = i32::wrapping_add(self.pools[__h1].owed, 1i32);
+        return crate::runtime::Token { target: crate::unions::Union3::U3(crate::runtime::ToTask { pool: pool, body: body }), slot: self.next_slot, tracked: true };
     }
-
-    fn mint_waiter(&mut self, pool: i32) -> WaiterMint {
-        let __h5 = (pool) as usize;
-        self.pools.get(__h5).expect("salvo: value is absent at runtime:601:17");
-        self.pools[__h5].owed = i32::wrapping_add(self.pools[__h5].owed, 1);
-        self.next_slot = i64::wrapping_add(self.next_slot, ((1) as i64));
-        let mut wid = reuse_waiter(&mut self.waiters, &mut self.free_waiters, pool.clone(), self.next_slot.clone());
-        let mut t = Token { target: Union3::<ToActor, ToWaiter, ToTask>::U2(ToWaiter { wid: wid.clone() }), slot: self.next_slot.clone(), tracked: true };
-        return WaiterMint { token: t, wid: wid };
+    fn mint_waiter(&mut self, pool: i32) -> crate::runtime::WaiterMint {
+        let __h1: usize = crate::core_list::get_platform__loc(&self.pools, pool).expect("salvo: value is absent at runtime:601:17");
+        self.pools[__h1].owed = i32::wrapping_add(self.pools[__h1].owed, 1i32);
+        self.next_slot = i64::wrapping_add(self.next_slot, 1i64);
+        let mut wid: i32 = crate::runtime::reuse_waiter(&mut self.waiters, &mut self.free_waiters, pool, self.next_slot);
+        let mut t: crate::runtime::Token = crate::runtime::Token { target: crate::unions::Union3::U2(crate::runtime::ToWaiter { wid: wid }), slot: self.next_slot, tracked: true };
+        return crate::runtime::WaiterMint { token: t, wid: wid };
     }
-
-    fn deliver(&mut self, t: Token, value: Dyn) {
-        deliver_to(&mut self.actors, &mut self.waiters, &mut self.pools, t, value);
+    fn deliver(&mut self, t: crate::runtime::Token, value: crate::runtime::Dyn) {
+        crate::runtime::deliver_to(&mut self.actors, &mut self.waiters, &mut self.pools, t, value);
     }
-
-    fn watch_actor(&mut self, addr: i32, t: Token) {
-        let mut watch = untrack(&mut self.actors, &mut self.waiters, &mut self.pools, t);
-        let __h6 = (addr) as usize;
-        self.actors.get(__h6).expect("salvo: value is absent at runtime:615:17");
-        if self.actors[__h6].dead {
-            let mut reason = self.actors[__h6].exit_reason.clone();
-            deliver_to(&mut self.actors, &mut self.waiters, &mut self.pools, watch, erase_platform(Exit { reason: reason }));
+    fn watch_actor(&mut self, addr: i32, t: crate::runtime::Token) {
+        let mut watch: crate::runtime::Token = crate::runtime::untrack(&mut self.actors, &mut self.waiters, &mut self.pools, t);
+        let __h1: usize = crate::core_list::get_platform__loc(&self.actors, addr).expect("salvo: value is absent at runtime:615:17");
+        if self.actors[__h1].dead {
+            let mut reason: String = (self.actors[__h1].exit_reason).clone();
+            crate::runtime::deliver_to(&mut self.actors, &mut self.waiters, &mut self.pools, watch, crate::runtime::erase_platform::<crate::core_actor::Exit>(crate::core_actor::Exit { reason: reason.clone() }));
             return;
-        }
-        crate::core_list::add_platform(&mut self.actors[__h6].watchers, watch);
+        };
+        crate::core_list::add_platform::<crate::runtime::Token>(&mut self.actors[__h1].watchers, watch);
     }
-
-    fn idle_hook(&mut self, pool: i32, t: Token) {
-        let mut hook = untrack(&mut self.actors, &mut self.waiters, &mut self.pools, t);
-        crate::core_list::add_platform(&mut self.idle_hooks, IdleHook { pool: pool, token: hook });
-        wake_all_pools(&mut self.pools);
+    fn idle_hook(&mut self, pool: i32, t: crate::runtime::Token) {
+        let mut hook: crate::runtime::Token = crate::runtime::untrack(&mut self.actors, &mut self.waiters, &mut self.pools, t);
+        crate::core_list::add_platform::<crate::runtime::IdleHook>(&mut self.idle_hooks, crate::runtime::IdleHook { pool: pool, token: hook });
+        crate::runtime::wake_all_pools(&mut self.pools);
     }
-
-    fn waiter_records(&mut self) -> i32 {
-        return crate::core_list::size_platform(&self.waiters);
-    }
-
-    fn next_work(&mut self, pool: i32, idle: Parker) -> Option<Union3<RunActor, RunTask, Retire>> {
-        if crate::core_list::get_platform(&self.pools, pool).expect("salvo: value is absent at runtime:635:12").retired {
-            self.retired = i32::wrapping_add(self.retired, 1);
-            return Some(Union3::<RunActor, RunTask, Retire>::U3(Retire {  }));
-        }
-        let mut w = take_work(&mut self.actors, &mut self.pools, pool.clone(), -1);
-        if matches!(w, Some(Union2::U1(_))) {
-            let mut ra = match w { Some(Union2::U1(__v)) => __v, _ => unreachable!() };
-            self.active = i32::wrapping_add(self.active, 1);
-            return Some(Union3::<RunActor, RunTask, Retire>::U1(ra));
-        }
-        if matches!(w, Some(Union2::U2(_))) {
-            let mut rt = match w { Some(Union2::U2(__v)) => __v, _ => unreachable!() };
-            self.active = i32::wrapping_add(self.active, 1);
-            return Some(Union3::<RunActor, RunTask, Retire>::U2(rt));
-        }
-        let __h7 = (pool) as usize;
-        self.pools.get(__h7).expect("salvo: value is absent at runtime:648:17");
-        crate::core_list::add_platform(&mut self.pools[__h7].idle, idle);
-        if self.active == self.parked_frames && quiet(&mut self.actors, &mut self.waiters, &mut self.pools, self.externals) {
-            if !(crate::core_list::size_platform(&self.idle_hooks) == 0) && self.active == 0 {
-                fire_idle(&mut self.actors, &mut self.waiters, &mut self.pools, &mut self.idle_hooks);
-            }
-            wake_waiters(&mut self.waiters);
-        }
+    fn next_work(&mut self, pool: i32, idle: crate::runtime::Parker) -> Option<crate::unions::Union3<crate::runtime::RunActor, crate::runtime::RunTask, crate::runtime::Retire>> {
+        if {
+            let __h1: usize = crate::core_list::get_platform__loc(&self.pools, pool).expect("salvo: value is absent at runtime:635:12");
+            self.pools[__h1].retired
+        } {
+            self.retired = i32::wrapping_add(self.retired, 1i32);
+            return Some(crate::unions::Union3::U3(crate::runtime::Retire {}));
+        };
+        let mut w: Option<crate::unions::Union2<crate::runtime::RunActor, crate::runtime::RunTask>> = crate::runtime::take_work(&mut self.actors, &mut self.pools, pool, i32::wrapping_neg(1i32));
+        if matches!(w, Some(crate::unions::Union2::U1(_))) {
+            let mut ra = match w { Some(crate::unions::Union2::U1(__v)) => __v, _ => unreachable!() };
+            self.active = i32::wrapping_add(self.active, 1i32);
+            return Some(crate::unions::Union3::U1(ra));
+        };
+        if matches!(w, Some(crate::unions::Union2::U2(_))) {
+            let mut rt = match w { Some(crate::unions::Union2::U2(__v)) => __v, _ => unreachable!() };
+            self.active = i32::wrapping_add(self.active, 1i32);
+            return Some(crate::unions::Union3::U2(rt));
+        };
+        let __h2: usize = crate::core_list::get_platform__loc(&self.pools, pool).expect("salvo: value is absent at runtime:648:17");
+        crate::core_list::add_platform::<crate::runtime::Parker>(&mut self.pools[__h2].idle, idle);
+        if (((self.active) == (self.parked_frames)) && crate::runtime::quiet(&mut self.actors, &mut self.waiters, &mut self.pools, self.externals)) {
+            if (!(((crate::core_list::size_platform::<crate::runtime::IdleHook>(&self.idle_hooks)) == (0i32))) && ((self.active) == (0i32))) {
+                crate::runtime::fire_idle(&mut self.actors, &mut self.waiters, &mut self.pools, &mut self.idle_hooks);
+            };
+            crate::runtime::wake_waiters(&mut self.waiters);
+        };
         return None;
     }
-
     fn retired_workers(&mut self) -> i32 {
-        return self.retired.clone();
+        return self.retired;
     }
-
-    fn wait_step(&mut self, wid: i32, pool: i32, own: i32, frame: i32, me: Parker) -> Union6<Got, RunActor, RunTask, Sleep, Again, Stuck> {
-        let __h8 = (wid) as usize;
-        self.waiters.get(__h8).expect("salvo: value is absent at runtime:669:17");
-        if self.waiters[__h8].waiting == 0 {
-            self.waiters[__h8].waiting = frame.clone();
-            self.waiters[__h8].waiting_actor = own.clone();
-            if frame == 1 {
-                self.parked_frames = i32::wrapping_add(self.parked_frames, 1);
+    fn waiter_records(&mut self) -> i32 {
+        return crate::core_list::size_platform::<crate::runtime::WaiterRec>(&self.waiters);
+    }
+    fn wait_step(&mut self, wid: i32, pool: i32, own: i32, frame: i32, me: crate::runtime::Parker) -> crate::unions::Union6<crate::runtime::Got, crate::runtime::RunActor, crate::runtime::RunTask, crate::runtime::Sleep, crate::runtime::Again, crate::runtime::Stuck> {
+        let __h1: usize = crate::core_list::get_platform__loc(&self.waiters, wid).expect("salvo: value is absent at runtime:669:17");
+        if ((self.waiters[__h1].waiting) == (0i32)) {
+            self.waiters[__h1].waiting = frame;
+            self.waiters[__h1].waiting_actor = own;
+            if ((frame) == (1i32)) {
+                self.parked_frames = i32::wrapping_add(self.parked_frames, 1i32);
             } else {
-                self.main_waits = i32::wrapping_add(self.main_waits, 1);
-            }
-        }
-        let mut got = slot_take_platform(&mut self.waiters[__h8].value);
+                self.main_waits = i32::wrapping_add(self.main_waits, 1i32);
+            };
+        };
+        let mut got: Option<crate::runtime::Dyn> = crate::runtime::slot_take_platform::<crate::runtime::Dyn>(&mut self.waiters[__h1].value);
         if got.is_some() {
             let mut v = got.unwrap();
-            self.waiters[__h8].filled = false;
-            self.waiters[__h8].parker = None;
-            if self.waiters[__h8].waiting == 1 {
-                self.parked_frames = i32::wrapping_sub(self.parked_frames, 1);
+            self.waiters[__h1].filled = false;
+            self.waiters[__h1].parker = None;
+            if ((self.waiters[__h1].waiting) == (1i32)) {
+                self.parked_frames = i32::wrapping_sub(self.parked_frames, 1i32);
             } else {
-                self.main_waits = i32::wrapping_sub(self.main_waits, 1);
-            }
-            self.waiters[__h8].waiting = 0;
-            self.waiters[__h8].waiting_actor = -1;
-            crate::core_list::add_platform(&mut self.free_waiters, wid.clone());
-            wake_pool(&mut self.pools, pool.clone());
-            return Union6::<Got, RunActor, RunTask, Sleep, Again, Stuck>::U1(Got { value: v });
-        }
-        let mut work = take_for(&mut self.actors, &mut self.pools, pool.clone(), own.clone(), self.virtual_mode.clone());
-        if matches!(work, Some(Union2::U1(_))) {
-            let mut ra = match work { Some(Union2::U1(__v)) => __v, _ => unreachable!() };
-            self.active = i32::wrapping_add(self.active, 1);
-            return Union6::<Got, RunActor, RunTask, Sleep, Again, Stuck>::U2(ra);
-        }
-        if matches!(work, Some(Union2::U2(_))) {
-            let mut rt = match work { Some(Union2::U2(__v)) => __v, _ => unreachable!() };
-            self.active = i32::wrapping_add(self.active, 1);
-            return Union6::<Got, RunActor, RunTask, Sleep, Again, Stuck>::U3(rt);
-        }
-        let mut q = quiet(&mut self.actors, &mut self.waiters, &mut self.pools, self.externals);
-        if self.virtual_mode && crate::core_list::size_platform(&self.clock_hooks) > 0 && q {
-            fire_clock(&mut self.actors, &mut self.waiters, &mut self.pools, &mut self.clock_hooks);
-            return Union6::<Got, RunActor, RunTask, Sleep, Again, Stuck>::U5(Again {  });
-        }
-        if !(crate::core_list::size_platform(&self.idle_hooks) == 0) && self.active == 0 && q {
-            fire_idle(&mut self.actors, &mut self.waiters, &mut self.pools, &mut self.idle_hooks);
-            return Union6::<Got, RunActor, RunTask, Sleep, Again, Stuck>::U5(Again {  });
-        }
-        if self.virtual_mode || self.active == self.parked_frames && self.main_waits > 0 && q {
-            return Union6::<Got, RunActor, RunTask, Sleep, Again, Stuck>::U6(Stuck { report: deadlock_report(&mut self.actors, &mut self.waiters, own) });
-        }
-        let __h9 = (wid) as usize;
-        self.waiters.get(__h9).expect("salvo: value is absent at runtime:728:22");
-        self.waiters[__h9].parker = Some(me.clone());
-        let __h10 = (pool) as usize;
-        self.pools.get(__h10).expect("salvo: value is absent at runtime:730:17");
-        crate::core_list::add_platform(&mut self.pools[__h10].idle, me);
-        return Union6::<Got, RunActor, RunTask, Sleep, Again, Stuck>::U4(Sleep {  });
+                self.main_waits = i32::wrapping_sub(self.main_waits, 1i32);
+            };
+            self.waiters[__h1].waiting = 0i32;
+            self.waiters[__h1].waiting_actor = i32::wrapping_neg(1i32);
+            crate::core_list::add_platform::<i32>(&mut self.free_waiters, wid);
+            crate::runtime::wake_pool(&mut self.pools, pool);
+            return crate::unions::Union6::U1(crate::runtime::Got { value: v });
+        };
+        let mut work: Option<crate::unions::Union2<crate::runtime::RunActor, crate::runtime::RunTask>> = crate::runtime::take_for(&mut self.actors, &mut self.pools, pool, own, self.virtual_mode);
+        if matches!(work, Some(crate::unions::Union2::U1(_))) {
+            let mut ra = match work { Some(crate::unions::Union2::U1(__v)) => __v, _ => unreachable!() };
+            self.active = i32::wrapping_add(self.active, 1i32);
+            return crate::unions::Union6::U2(ra);
+        };
+        if matches!(work, Some(crate::unions::Union2::U2(_))) {
+            let mut rt = match work { Some(crate::unions::Union2::U2(__v)) => __v, _ => unreachable!() };
+            self.active = i32::wrapping_add(self.active, 1i32);
+            return crate::unions::Union6::U3(rt);
+        };
+        let mut q: bool = crate::runtime::quiet(&mut self.actors, &mut self.waiters, &mut self.pools, self.externals);
+        if ((self.virtual_mode && (crate::core_list::size_platform::<crate::runtime::Token>(&self.clock_hooks) > 0i32)) && q) {
+            crate::runtime::fire_clock(&mut self.actors, &mut self.waiters, &mut self.pools, &mut self.clock_hooks);
+            return crate::unions::Union6::U5(crate::runtime::Again {});
+        };
+        if ((!(((crate::core_list::size_platform::<crate::runtime::IdleHook>(&self.idle_hooks)) == (0i32))) && ((self.active) == (0i32))) && q) {
+            crate::runtime::fire_idle(&mut self.actors, &mut self.waiters, &mut self.pools, &mut self.idle_hooks);
+            return crate::unions::Union6::U5(crate::runtime::Again {});
+        };
+        if (self.virtual_mode || ((((self.active) == (self.parked_frames)) && (self.main_waits > 0i32)) && q)) {
+            return crate::unions::Union6::U6(crate::runtime::Stuck { report: crate::runtime::deadlock_report(&mut self.actors, &mut self.waiters, own) });
+        };
+        let __h2: usize = crate::core_list::get_platform__loc(&self.waiters, wid).expect("salvo: value is absent at runtime:728:22");
+        self.waiters[__h2].parker = Some((me).clone());
+        let __h3: usize = crate::core_list::get_platform__loc(&self.pools, pool).expect("salvo: value is absent at runtime:730:17");
+        crate::core_list::add_platform::<crate::runtime::Parker>(&mut self.pools[__h3].idle, me);
+        return crate::unions::Union6::U4(crate::runtime::Sleep {});
     }
-
-    fn finish(&mut self, addr: i32, body: Body, fault: Option<String>) {
-        self.active = i32::wrapping_sub(self.active, 1);
-        let __h11 = (addr) as usize;
-        self.actors.get(__h11).expect("salvo: value is absent at runtime:737:17");
-        self.actors[__h11].running = false;
+    fn finish(&mut self, addr: i32, body: crate::runtime::Body, fault: Option<String>) {
+        self.active = i32::wrapping_sub(self.active, 1i32);
+        let __h1: usize = crate::core_list::get_platform__loc(&self.actors, addr).expect("salvo: value is absent at runtime:737:17");
+        self.actors[__h1].running = false;
         if fault.is_none() {
-            slot_put_platform(&mut self.actors[__h11].body, body);
-            let mut _again = mark_ready(&mut self.actors[__h11], &mut self.pools, addr.clone());
+            crate::runtime::slot_put_platform::<crate::runtime::Body>(&mut self.actors[__h1].body, body);
+            let mut _again: bool = crate::runtime::mark_ready(&mut self.actors[__h1], &mut self.pools, addr);
             return;
-        }
-        drop_body_platform(body);
-        let mut reason = fault.as_ref().unwrap().clone();
-        self.actors[__h11].dead = true;
-        self.actors[__h11].exit_reason = reason.clone();
-        self.actors[__h11].gate = None;
-        self.actors[__h11].user_len = 0;
-        while crate::core_deque::size_platform(&self.actors[__h11].queue) > 0 {
-            drop_entry(crate::core_deque::remove_first_platform(&mut self.actors[__h11].queue).expect("salvo: value is absent at runtime:753:24"));
-        }
-        while crate::core_deque::size_platform(&self.actors[__h11].slots) > 0 {
-            let mut _s = crate::core_deque::remove_first_platform(&mut self.actors[__h11].slots);
+        };
+        crate::runtime::drop_body_platform(body);
+        let mut fault_3 = fault.as_ref().unwrap();
+        let mut reason: String = (fault_3).clone();
+        self.actors[__h1].dead = true;
+        self.actors[__h1].exit_reason = (reason).clone();
+        self.actors[__h1].gate = None;
+        self.actors[__h1].user_len = 0i32;
+        loop {
+            if !((crate::core_deque::size_platform::<crate::unions::Union3<crate::runtime::Delivered, crate::runtime::Answered, crate::runtime::Reported>>(&self.actors[__h1].queue) > 0i32)) {
+                break;
+            };
+            { let __arg2 = {
+                let mut __nn_4: Option<crate::unions::Union3<crate::runtime::Delivered, crate::runtime::Answered, crate::runtime::Reported>> = crate::core_deque::remove_first_platform::<crate::unions::Union3<crate::runtime::Delivered, crate::runtime::Answered, crate::runtime::Reported>>(&mut self.actors[__h1].queue);
+                if __nn_4.is_none() {
+                    panic!("salvo: value is absent at runtime:753:24");
+                } else {
+                    let mut __some_5 = (match __nn_4 { Some(crate::unions::Union3::U1(__v)) => crate::unions::Union3::U1(__v), Some(crate::unions::Union3::U2(__v)) => crate::unions::Union3::U2(__v), Some(crate::unions::Union3::U3(__v)) => crate::unions::Union3::U3(__v), None => unreachable!("salvo: unreachable union arm"), #[allow(unreachable_patterns)] _ => unreachable!("salvo: unreachable union arm") });
+                    __some_5
+                }
+            }; crate::runtime::drop_entry(__arg2) };
         }
         loop {
-            let mut __is4 = crate::core_list::remove_first_platform(&mut self.actors[__h11].blocked);
-            if !(__is4.is_some()) {
+            if !((crate::core_deque::size_platform::<i64>(&self.actors[__h1].slots) > 0i32)) {
                 break;
-            }
-            let mut b = __is4.as_ref().unwrap().clone();
-            unpark_platform(&b);
-        }
-        let mut pool = self.actors[__h11].pool;
-        let mut watchers: Vec<Token> = vec![];
-        loop {
-            let mut __is5 = crate::core_list::remove_first_platform(&mut self.actors[__h11].watchers);
-            if !(__is5.is_some()) {
-                break;
-            }
-            let mut t = __is5.unwrap();
-            crate::core_list::add_platform(&mut watchers, t);
-        }
-        if crate::core_list::size_platform(&watchers) == 0 {
-            report_fault(&mut self.actors, &mut self.pools, pool.clone(), reason.clone());
+            };
+            let mut _s: Option<i64> = crate::core_deque::remove_first_platform::<i64>(&mut self.actors[__h1].slots);
         }
         loop {
-            let mut __is6 = crate::core_list::remove_first_platform(&mut watchers);
-            if !(__is6.is_some()) {
+            let mut __subject_6: Option<crate::runtime::Parker> = crate::core_list::remove_first_platform::<crate::runtime::Parker>(&mut self.actors[__h1].blocked);
+            if !(__subject_6.is_some()) {
                 break;
-            }
-            let mut t = __is6.unwrap();
-            deliver_to(&mut self.actors, &mut self.waiters, &mut self.pools, t, erase_platform(Exit { reason: reason.clone() }));
+            };
+            let mut b = __subject_6.as_ref().unwrap();
+            crate::runtime::unpark_platform(b);
         }
-        drain__core_list(watchers, &mut (|t| drop_token(t)));
-        retire_if_done(&mut self.actors, &mut self.pools, pool.clone());
-        wake_all_pools(&mut self.pools);
+        let mut pool: i32 = self.actors[__h1].pool;
+        let mut watchers: Vec<crate::runtime::Token> = vec![];
+        loop {
+            let mut __subject_7: Option<crate::runtime::Token> = crate::core_list::remove_first_platform::<crate::runtime::Token>(&mut self.actors[__h1].watchers);
+            if !(__subject_7.is_some()) {
+                break;
+            };
+            let mut t = __subject_7.unwrap();
+            crate::core_list::add_platform::<crate::runtime::Token>(&mut watchers, t);
+        }
+        if ((crate::core_list::size_platform::<crate::runtime::Token>(&watchers)) == (0i32)) {
+            crate::runtime::report_fault(&mut self.actors, &mut self.pools, pool, (reason).clone());
+        };
+        loop {
+            let mut __subject_8: Option<crate::runtime::Token> = crate::core_list::remove_first_platform::<crate::runtime::Token>(&mut watchers);
+            if !(__subject_8.is_some()) {
+                break;
+            };
+            let mut t = __subject_8.unwrap();
+            crate::runtime::deliver_to(&mut self.actors, &mut self.waiters, &mut self.pools, t, crate::runtime::erase_platform::<crate::core_actor::Exit>(crate::core_actor::Exit { reason: (reason).clone() }));
+        }
+        crate::core_list::drain::<crate::runtime::Token>(watchers, &mut |mut t| {
+            crate::runtime::drop_token(t)
+        });
+        crate::runtime::retire_if_done(&mut self.actors, &mut self.pools, pool);
+        crate::runtime::wake_all_pools(&mut self.pools);
     }
-
     fn task_done(&mut self, pool: i32, fault: Option<String>) {
-        self.active = i32::wrapping_sub(self.active, 1);
+        self.active = i32::wrapping_sub(self.active, 1i32);
         if fault.is_some() {
-            let mut reason = fault.as_ref().unwrap().clone();
-            report_fault(&mut self.actors, &mut self.pools, pool.clone(), reason.clone());
-        }
-        retire_if_done(&mut self.actors, &mut self.pools, pool);
+            let mut reason = fault.as_ref().unwrap();
+            crate::runtime::report_fault(&mut self.actors, &mut self.pools, pool, (reason).clone());
+        };
+        crate::runtime::retire_if_done(&mut self.actors, &mut self.pools, pool);
     }
-
     fn pool_of_actor(&mut self, addr: i32) -> i32 {
-        return crate::core_list::get_platform(&self.actors, addr).expect("salvo: value is absent at runtime:788:21").pool;
+        return {
+            let __h1: usize = crate::core_list::get_platform__loc(&self.actors, addr).expect("salvo: value is absent at runtime:788:21");
+            self.actors[__h1].pool
+        };
     }
-
-    fn set_proxy(&mut self, addr: i32) {
-        let __h12 = (addr) as usize;
-        self.actors.get(__h12).expect("salvo: value is absent at runtime:792:17");
-        self.actors[__h12].proxy = true;
-    }
-
     fn pool_of_waiter(&mut self, wid: i32) -> i32 {
-        return crate::core_list::get_platform(&self.waiters, wid).expect("salvo: value is absent at runtime:797:21").pool;
+        return {
+            let __h1: usize = crate::core_list::get_platform__loc(&self.waiters, wid).expect("salvo: value is absent at runtime:797:21");
+            self.waiters[__h1].pool
+        };
     }
-
-    fn room(&mut self, addr: i32) -> i32 {
-        let mut a = crate::core_list::get_platform(&self.actors, addr).unwrap();
-        return i32::wrapping_sub(a.bound, a.user_len);
-    }
-
-    fn is_dead(&mut self, addr: i32) -> bool {
-        return crate::core_list::get_platform(&self.actors, addr).expect("salvo: value is absent at runtime:806:21").dead;
-    }
-
-    fn queued(&mut self, addr: i32) -> i32 {
-        return crate::core_list::get_platform(&self.actors, addr).expect("salvo: value is absent at runtime:810:21").user_len;
-    }
-
     fn external(&mut self, delta: i32) {
         self.externals = i32::wrapping_add(self.externals, delta);
-        if self.externals < 0 {
-            self.externals = 0;
-        }
-        wake_all_pools(&mut self.pools);
+        if (self.externals < 0i32) {
+            self.externals = 0i32;
+        };
+        crate::runtime::wake_all_pools(&mut self.pools);
     }
-
+    fn room(&mut self, addr: i32) -> i32 {
+        let __h1: usize = crate::core_list::get_platform__loc(&self.actors, addr).expect("salvo: value is absent at runtime:801:17");
+        return i32::wrapping_sub(self.actors[__h1].bound, self.actors[__h1].user_len);
+    }
+    fn is_dead(&mut self, addr: i32) -> bool {
+        return {
+            let __h1: usize = crate::core_list::get_platform__loc(&self.actors, addr).expect("salvo: value is absent at runtime:806:21");
+            self.actors[__h1].dead
+        };
+    }
+    fn queued(&mut self, addr: i32) -> i32 {
+        return {
+            let __h1: usize = crate::core_list::get_platform__loc(&self.actors, addr).expect("salvo: value is absent at runtime:810:21");
+            self.actors[__h1].user_len
+        };
+    }
     fn go_virtual(&mut self, seed: i64) {
         self.virtual_mode = true;
         self.vnow = 0i64;
-        self.rng = seed_of(seed);
-        reset_all(&mut self.actors, &mut self.pools, &mut self.idle_hooks, &mut self.clock_hooks);
-        self.active = 0;
-        self.parked_frames = 0;
-        self.main_waits = 0;
-        self.externals = 0;
+        self.rng = crate::runtime::seed_of(seed);
+        crate::runtime::reset_all(&mut self.actors, &mut self.pools, &mut self.idle_hooks, &mut self.clock_hooks);
+        self.active = 0i32;
+        self.parked_frames = 0i32;
+        self.main_waits = 0i32;
+        self.externals = 0i32;
     }
-
     fn is_virtual(&mut self) -> bool {
-        return self.virtual_mode.clone();
+        return self.virtual_mode;
     }
-
     fn virtual_now(&mut self) -> i64 {
-        return self.vnow.clone();
+        return self.vnow;
     }
-
     fn advance_to(&mut self, at: i64) {
-        if at > self.vnow {
+        if (at > self.vnow) {
             self.vnow = at;
-        }
+        };
     }
-
-    fn random_unit(&mut self) -> f64 {
-        if !self.virtual_mode && !self.rng_seeded {
-            self.rng = seed_of(__module_use_0().secure_bits());
-            self.rng_seeded = true;
-        }
-        let mut hi = lehmer(self.rng.clone());
-        let mut lo = lehmer(hi.clone());
-        self.rng = lo.clone();
-        let mut m = 2147483646i64;
-        return ((i64::wrapping_add(i64::wrapping_mul(i64::wrapping_sub(hi, 1i64), m), i64::wrapping_sub(lo, 1i64))) as f64) / (((m) as f64) * ((m) as f64));
-    }
-
     fn random_bits(&mut self) -> i64 {
-        let mut hi = lehmer(self.rng.clone());
-        let mut lo = lehmer(hi.clone());
-        self.rng = lo.clone();
-        return i64::wrapping_add(i64::wrapping_mul(hi, ((2147483647) as i64)), lo);
+        let mut hi: i64 = crate::runtime::lehmer(self.rng);
+        let mut lo: i64 = crate::runtime::lehmer(hi);
+        self.rng = lo;
+        return i64::wrapping_add(i64::wrapping_mul(hi, 2147483647i64), lo);
     }
-
-    fn clock_hook(&mut self, t: Token) {
-        let mut hook = untrack(&mut self.actors, &mut self.waiters, &mut self.pools, t);
-        crate::core_list::add_platform(&mut self.clock_hooks, hook);
+    fn random_unit(&mut self) -> f64 {
+        if (!(self.virtual_mode) && !(self.rng_seeded)) {
+            self.rng = crate::runtime::seed_of(crate::runtime::__module_use0_0().secure_bits());
+            self.rng_seeded = true;
+        };
+        let mut hi: i64 = crate::runtime::lehmer(self.rng);
+        let mut lo: i64 = crate::runtime::lehmer(hi);
+        self.rng = lo;
+        let mut m: i64 = 2147483646i64;
+        return (((i64::wrapping_add(i64::wrapping_mul(i64::wrapping_sub(hi, 1i64), m), i64::wrapping_sub(lo, 1i64))) as f64) / (((m) as f64) * ((m) as f64)));
     }
-
-    fn virtual_work(&mut self, own: i32) -> Option<Union2<RunActor, RunTask>> {
-        let mut w = take_for(&mut self.actors, &mut self.pools, 0, own, true);
-        if matches!(w, Some(Union2::U1(_))) {
-            let mut ra = match w { Some(Union2::U1(__v)) => __v, _ => unreachable!() };
-            self.active = i32::wrapping_add(self.active, 1);
-            return Some(Union2::<RunActor, RunTask>::U1(ra));
-        }
-        if matches!(w, Some(Union2::U2(_))) {
-            let mut rt = match w { Some(Union2::U2(__v)) => __v, _ => unreachable!() };
-            self.active = i32::wrapping_add(self.active, 1);
-            return Some(Union2::<RunActor, RunTask>::U2(rt));
-        }
+    fn clock_hook(&mut self, t: crate::runtime::Token) {
+        let mut hook: crate::runtime::Token = crate::runtime::untrack(&mut self.actors, &mut self.waiters, &mut self.pools, t);
+        crate::core_list::add_platform::<crate::runtime::Token>(&mut self.clock_hooks, hook);
+    }
+    fn virtual_work(&mut self, own: i32) -> Option<crate::unions::Union2<crate::runtime::RunActor, crate::runtime::RunTask>> {
+        let mut w: Option<crate::unions::Union2<crate::runtime::RunActor, crate::runtime::RunTask>> = crate::runtime::take_for(&mut self.actors, &mut self.pools, 0i32, own, true);
+        if matches!(w, Some(crate::unions::Union2::U1(_))) {
+            let mut ra = match w { Some(crate::unions::Union2::U1(__v)) => __v, _ => unreachable!() };
+            self.active = i32::wrapping_add(self.active, 1i32);
+            return Some(crate::unions::Union2::U1(ra));
+        };
+        if matches!(w, Some(crate::unions::Union2::U2(_))) {
+            let mut rt = match w { Some(crate::unions::Union2::U2(__v)) => __v, _ => unreachable!() };
+            self.active = i32::wrapping_add(self.active, 1i32);
+            return Some(crate::unions::Union2::U2(rt));
+        };
         return None;
     }
 }
 
-impl Scheduler {
-
-    fn init(&mut self) {
-        crate::core_list::add_platform(&mut self.pools, PoolRec { idle: vec![], tasks: mut_deque_of(), ready: mut_deque_of(), sink: -1, owed: 0, dedicated: false, retired: false });
-    }
+pub fn lehmer(mut x: i64) -> i64 {
+    return i64::wrapping_rem(i64::wrapping_mul(x, 48271i64), 2147483647i64);
 }
 
-pub enum __Priv_Scheduler {
-    Init,
+pub fn seed_of(mut seed: i64) -> i64 {
+    let mut s: i64 = i64::wrapping_rem(seed, 2147483646i64);
+    if (s < 0i64) {
+        s = i64::wrapping_sub(0i64, s);
+    };
+    return i64::wrapping_add(s, 1i64);
 }
 
-pub fn lehmer(x: i64) -> i64 {
-    return i64::wrapping_mul(x, ((48271) as i64)) % ((2147483647) as i64);
-}
-
-pub fn seed_of(seed: i64) -> i64 {
-    let mut s = seed % ((2147483646) as i64);
-    if s < ((0) as i64) {
-        s = i64::wrapping_sub(((0) as i64), s);
-    }
-    return i64::wrapping_add(s, ((1) as i64));
-}
-
-pub fn reset_all(actors: &mut Vec<ActorRec>, pools: &mut Vec<PoolRec>, idle_hooks: &mut Vec<IdleHook>, clock_hooks: &mut Vec<Token>) {
-    let mut k = 0;
-    while k < crate::core_list::size_platform(actors) {
-        let __h13 = (k) as usize;
-        actors.get(__h13).expect("salvo: value is absent at runtime:909:17");
-        k = i32::wrapping_add(k, 1);
-        actors[__h13].dead = true;
-        actors[__h13].running = false;
-        actors[__h13].ready = false;
-        actors[__h13].gate = None;
-        actors[__h13].user_len = 0;
-        actors[__h13].owed = 0;
-        while crate::core_deque::size_platform(&actors[__h13].queue) > 0 {
-            drop_entry(crate::core_deque::remove_first_platform(&mut actors[__h13].queue).expect("salvo: value is absent at runtime:918:24"));
-        }
-        while crate::core_deque::remove_first_platform(&mut actors[__h13].slots).is_some() {
+pub fn reset_all(actors: &mut Vec<crate::runtime::ActorRec>, pools: &mut Vec<crate::runtime::PoolRec>, idle_hooks: &mut Vec<crate::runtime::IdleHook>, clock_hooks: &mut Vec<crate::runtime::Token>) {
+    let mut k: i32 = 0i32;
+    loop {
+        if !((k < crate::core_list::size_platform::<crate::runtime::ActorRec>(&*actors))) {
+            break;
+        };
+        let __h1: usize = crate::core_list::get_platform__loc(&*actors, k).expect("salvo: value is absent at runtime:909:17");
+        k = i32::wrapping_add(k, 1i32);
+        actors[__h1].dead = true;
+        actors[__h1].running = false;
+        actors[__h1].ready = false;
+        actors[__h1].gate = None;
+        actors[__h1].user_len = 0i32;
+        actors[__h1].owed = 0i32;
+        loop {
+            if !((crate::core_deque::size_platform::<crate::unions::Union3<crate::runtime::Delivered, crate::runtime::Answered, crate::runtime::Reported>>(&actors[__h1].queue) > 0i32)) {
+                break;
+            };
+            { let __arg2 = {
+                let mut __nn_3: Option<crate::unions::Union3<crate::runtime::Delivered, crate::runtime::Answered, crate::runtime::Reported>> = crate::core_deque::remove_first_platform::<crate::unions::Union3<crate::runtime::Delivered, crate::runtime::Answered, crate::runtime::Reported>>(&mut actors[__h1].queue);
+                if __nn_3.is_none() {
+                    panic!("salvo: value is absent at runtime:918:24");
+                } else {
+                    let mut __some_4 = (match __nn_3 { Some(crate::unions::Union3::U1(__v)) => crate::unions::Union3::U1(__v), Some(crate::unions::Union3::U2(__v)) => crate::unions::Union3::U2(__v), Some(crate::unions::Union3::U3(__v)) => crate::unions::Union3::U3(__v), None => unreachable!("salvo: unreachable union arm"), #[allow(unreachable_patterns)] _ => unreachable!("salvo: unreachable union arm") });
+                    __some_4
+                }
+            }; crate::runtime::drop_entry(__arg2) };
         }
         loop {
-            let mut __is7 = crate::core_list::remove_first_platform(&mut actors[__h13].watchers);
-            if !(__is7.is_some()) {
+            if !((crate::core_deque::remove_first_platform::<i64>(&mut actors[__h1].slots)).is_some()) {
                 break;
-            }
-            let mut t = __is7.unwrap();
-            drop_token(t);
+            };
         }
-        while crate::core_list::remove_first_platform(&mut actors[__h13].blocked).is_some() {
-        }
-        let mut __is8 = slot_take_platform(&mut actors[__h13].body);
-        if __is8.is_some() {
-            let mut b = __is8.unwrap();
-            drop_body_platform(b);
-        }
-    }
-    let mut i = 0;
-    while i < crate::core_list::size_platform(pools) {
-        let __h14 = (i) as usize;
-        pools.get(__h14).expect("salvo: value is absent at runtime:933:17");
         loop {
-            let mut __is9 = crate::core_deque::remove_first_platform(&mut pools[__h14].tasks);
-            if !(__is9.is_some()) {
+            let mut __subject_5: Option<crate::runtime::Token> = crate::core_list::remove_first_platform::<crate::runtime::Token>(&mut actors[__h1].watchers);
+            if !(__subject_5.is_some()) {
                 break;
-            }
-            let mut t = __is9.unwrap();
-            drop_task_run(t);
+            };
+            let mut t = __subject_5.unwrap();
+            crate::runtime::drop_token(t);
         }
-        while crate::core_deque::remove_first_platform(&mut pools[__h14].ready).is_some() {
+        loop {
+            if !((crate::core_list::remove_first_platform::<crate::runtime::Parker>(&mut actors[__h1].blocked)).is_some()) {
+                break;
+            };
         }
-        pools[__h14].owed = 0;
-        if i > 0 {
-            pools[__h14].retired = true;
+        let mut __subject_6: Option<crate::runtime::Body> = crate::runtime::slot_take_platform::<crate::runtime::Body>(&mut actors[__h1].body);
+        if __subject_6.is_some() {
+            let mut b = __subject_6.unwrap();
+            crate::runtime::drop_body_platform(b);
+        };
+    }
+    let mut i: i32 = 0i32;
+    loop {
+        if !((i < crate::core_list::size_platform::<crate::runtime::PoolRec>(&*pools))) {
+            break;
+        };
+        let __h3: usize = crate::core_list::get_platform__loc(&*pools, i).expect("salvo: value is absent at runtime:933:17");
+        loop {
+            let mut __subject_9: Option<crate::runtime::TaskRun> = crate::core_deque::remove_first_platform::<crate::runtime::TaskRun>(&mut pools[__h3].tasks);
+            if !(__subject_9.is_some()) {
+                break;
+            };
+            let mut t = __subject_9.unwrap();
+            crate::runtime::drop_task_run(t);
         }
-        i = i32::wrapping_add(i, 1);
+        loop {
+            if !((crate::core_deque::remove_first_platform::<i32>(&mut pools[__h3].ready)).is_some()) {
+                break;
+            };
+        }
+        pools[__h3].owed = 0i32;
+        if (i > 0i32) {
+            pools[__h3].retired = true;
+        };
+        i = i32::wrapping_add(i, 1i32);
     }
     loop {
-        let mut __is10 = crate::core_list::remove_first_platform(idle_hooks);
-        if !(__is10.is_some()) {
+        let mut __subject_10: Option<crate::runtime::IdleHook> = crate::core_list::remove_first_platform::<crate::runtime::IdleHook>(&mut *idle_hooks);
+        if !(__subject_10.is_some()) {
             break;
-        }
-        let mut h = __is10.unwrap();
-        drop_idle_hook(h);
+        };
+        let mut h = __subject_10.unwrap();
+        crate::runtime::drop_idle_hook(h);
     }
     loop {
-        let mut __is11 = crate::core_list::remove_first_platform(clock_hooks);
-        if !(__is11.is_some()) {
+        let mut __subject_11: Option<crate::runtime::Token> = crate::core_list::remove_first_platform::<crate::runtime::Token>(&mut *clock_hooks);
+        if !(__subject_11.is_some()) {
             break;
-        }
-        let mut t = __is11.unwrap();
-        drop_token(t);
+        };
+        let mut t = __subject_11.unwrap();
+        crate::runtime::drop_token(t);
     }
 }
 
-pub fn fire_clock(actors: &mut Vec<ActorRec>, waiters: &mut Vec<WaiterRec>, pools: &mut Vec<PoolRec>, hooks: &mut Vec<Token>) {
-    let mut __is12 = crate::core_list::remove_first_platform(hooks);
-    if __is12.is_some() {
-        let mut t = __is12.unwrap();
-        deliver_to(actors, waiters, pools, t, erase_platform(0));
-    }
+pub fn fire_clock(actors: &mut Vec<crate::runtime::ActorRec>, waiters: &mut Vec<crate::runtime::WaiterRec>, pools: &mut Vec<crate::runtime::PoolRec>, hooks: &mut Vec<crate::runtime::Token>) {
+    let mut __subject_1: Option<crate::runtime::Token> = crate::core_list::remove_first_platform::<crate::runtime::Token>(&mut *hooks);
+    if __subject_1.is_some() {
+        let mut t = __subject_1.unwrap();
+        crate::runtime::deliver_to(&mut *actors, &mut *waiters, &mut *pools, t, crate::runtime::erase_platform::<i32>(0i32));
+    };
 }
 
-pub fn take_for(actors: &mut Vec<ActorRec>, pools: &mut Vec<PoolRec>, pool: i32, exclude: i32, any: bool) -> Option<Union2<RunActor, RunTask>> {
-    if !any {
-        return take_work(actors, pools, pool, exclude);
-    }
-    let mut i = 0;
-    while i < crate::core_list::size_platform(pools) {
-        let mut w = take_work(actors, pools, i.clone(), exclude.clone());
-        if matches!(w, Some(Union2::U1(_))) {
-            let mut ra = match w { Some(Union2::U1(__v)) => __v, _ => unreachable!() };
-            return Some(Union2::<RunActor, RunTask>::U1(ra));
-        }
-        if matches!(w, Some(Union2::U2(_))) {
-            let mut rt = match w { Some(Union2::U2(__v)) => __v, _ => unreachable!() };
-            return Some(Union2::<RunActor, RunTask>::U2(rt));
-        }
-        i = i32::wrapping_add(i, 1);
+pub fn take_for(actors: &mut Vec<crate::runtime::ActorRec>, pools: &mut Vec<crate::runtime::PoolRec>, mut pool: i32, mut exclude: i32, mut any: bool) -> Option<crate::unions::Union2<crate::runtime::RunActor, crate::runtime::RunTask>> {
+    if !(any) {
+        return crate::runtime::take_work(&mut *actors, &mut *pools, pool, exclude);
+    };
+    let mut i: i32 = 0i32;
+    loop {
+        if !((i < crate::core_list::size_platform::<crate::runtime::PoolRec>(&*pools))) {
+            break;
+        };
+        let mut w: Option<crate::unions::Union2<crate::runtime::RunActor, crate::runtime::RunTask>> = crate::runtime::take_work(&mut *actors, &mut *pools, i, exclude);
+        if matches!(w, Some(crate::unions::Union2::U1(_))) {
+            let mut ra = match w { Some(crate::unions::Union2::U1(__v)) => __v, _ => unreachable!() };
+            return Some(crate::unions::Union2::U1(ra));
+        };
+        if matches!(w, Some(crate::unions::Union2::U2(_))) {
+            let mut rt = match w { Some(crate::unions::Union2::U2(__v)) => __v, _ => unreachable!() };
+            return Some(crate::unions::Union2::U2(rt));
+        };
+        i = i32::wrapping_add(i, 1i32);
     }
     return None;
 }
 
-pub fn untrack(actors: &mut Vec<ActorRec>, waiters: &mut Vec<WaiterRec>, pools: &mut Vec<PoolRec>, t: Token) -> Token {
-    let __destructured16 = t;
-    let mut target = __destructured16.target;
-    let mut slot = __destructured16.slot;
-    let mut tracked = __destructured16.tracked;
+pub fn untrack(actors: &mut Vec<crate::runtime::ActorRec>, waiters: &mut Vec<crate::runtime::WaiterRec>, pools: &mut Vec<crate::runtime::PoolRec>, mut t: crate::runtime::Token) -> crate::runtime::Token {
+    let mut __destructured_1: crate::runtime::Token = t;
+    let mut target: crate::unions::Union3<crate::runtime::ToActor, crate::runtime::ToWaiter, crate::runtime::ToTask> = __destructured_1.target;
+    let mut slot: i64 = __destructured_1.slot;
+    let mut tracked: bool = __destructured_1.tracked;
     if tracked {
-        release(actors, waiters, pools, &target);
-    }
-    return Token { target: target, slot: slot, tracked: false };
+        crate::runtime::release(&mut *actors, &mut *waiters, &mut *pools, &target);
+    };
+    return crate::runtime::Token { target: target, slot: slot, tracked: false };
 }
 
-pub fn release(actors: &mut Vec<ActorRec>, waiters: &mut Vec<WaiterRec>, pools: &mut Vec<PoolRec>, target: &Union3<ToActor, ToWaiter, ToTask>) {
-    if matches!(target, Union3::U1(_)) {
-        let mut to = target.u1().clone();
-        let __h15 = (to.addr) as usize;
-        actors.get(__h15).expect("salvo: value is absent at runtime:997:17");
-        if actors[__h15].owed > 0 {
-            actors[__h15].owed = i32::wrapping_sub(actors[__h15].owed, 1);
-        }
-    } else if matches!(target, Union3::U2(_)) {
-        let mut tw = target.u2().clone();
-        let mut pool = crate::core_list::get_platform(waiters, tw.wid).expect("salvo: value is absent at runtime:1002:25").pool;
-        let __h16 = (pool) as usize;
-        pools.get(__h16).expect("salvo: value is absent at runtime:1003:17");
-        if pools[__h16].owed > 0 {
-            pools[__h16].owed = i32::wrapping_sub(pools[__h16].owed, 1);
-        }
+pub fn release(actors: &mut Vec<crate::runtime::ActorRec>, waiters: &mut Vec<crate::runtime::WaiterRec>, pools: &mut Vec<crate::runtime::PoolRec>, target: &crate::unions::Union3<crate::runtime::ToActor, crate::runtime::ToWaiter, crate::runtime::ToTask>) {
+    if matches!(target, crate::unions::Union3::U1(_)) {
+        let mut to = match &target { crate::unions::Union3::U1(__v) => __v, _ => unreachable!() };
+        let __h1: usize = crate::core_list::get_platform__loc(&*actors, to.addr).expect("salvo: value is absent at runtime:997:17");
+        if (actors[__h1].owed > 0i32) {
+            actors[__h1].owed = i32::wrapping_sub(actors[__h1].owed, 1i32);
+        };
+    } else if matches!(target, crate::unions::Union3::U2(_)) {
+        let mut tw = match &target { crate::unions::Union3::U2(__v) => __v, _ => unreachable!() };
+        let mut pool: i32 = {
+            let __h2: usize = crate::core_list::get_platform__loc(&*waiters, tw.wid).expect("salvo: value is absent at runtime:1002:25");
+            waiters[__h2].pool
+        };
+        let __h3: usize = crate::core_list::get_platform__loc(&*pools, pool).expect("salvo: value is absent at runtime:1003:17");
+        if (pools[__h3].owed > 0i32) {
+            pools[__h3].owed = i32::wrapping_sub(pools[__h3].owed, 1i32);
+        };
     } else {
-        let __h17 = (target.u3().clone().pool) as usize;
-        pools.get(__h17).expect("salvo: value is absent at runtime:1008:17");
-        if pools[__h17].owed > 0 {
-            pools[__h17].owed = i32::wrapping_sub(pools[__h17].owed, 1);
-        }
-    }
+        let mut target_8 = match &target { crate::unions::Union3::U3(__v) => __v, _ => unreachable!() };
+        let __h4: usize = crate::core_list::get_platform__loc(&*pools, target_8.pool).expect("salvo: value is absent at runtime:1008:17");
+        if (pools[__h4].owed > 0i32) {
+            pools[__h4].owed = i32::wrapping_sub(pools[__h4].owed, 1i32);
+        };
+    };
 }
 
-pub fn reuse_waiter(waiters: &mut Vec<WaiterRec>, free: &mut Vec<i32>, pool: i32, slot: i64) -> i32 {
-    let mut __is13 = crate::core_list::remove_first_platform(free);
-    if __is13.is_some() {
-        let mut wid = __is13.unwrap();
-        let __h18 = (wid) as usize;
-        waiters.get(__h18).expect("salvo: value is absent at runtime:1021:17");
-        waiters[__h18].pool = pool;
-        waiters[__h18].filled = false;
-        waiters[__h18].parker = None;
-        waiters[__h18].waiting = 0;
-        waiters[__h18].waiting_actor = -1;
-        waiters[__h18].slot = slot;
+pub fn reuse_waiter(waiters: &mut Vec<crate::runtime::WaiterRec>, free: &mut Vec<i32>, mut pool: i32, mut slot: i64) -> i32 {
+    let mut __subject_1: Option<i32> = crate::core_list::remove_first_platform::<i32>(&mut *free);
+    if __subject_1.is_some() {
+        let mut wid = __subject_1.unwrap();
+        let __h1: usize = crate::core_list::get_platform__loc(&*waiters, wid).expect("salvo: value is absent at runtime:1021:17");
+        waiters[__h1].pool = pool;
+        waiters[__h1].filled = false;
+        waiters[__h1].parker = None;
+        waiters[__h1].waiting = 0i32;
+        waiters[__h1].waiting_actor = i32::wrapping_neg(1i32);
+        waiters[__h1].slot = slot;
         return wid;
-    }
-    crate::core_list::add_platform(waiters, WaiterRec { pool: pool, value: slot_empty_platform(), filled: false, parker: None, waiting: 0, waiting_actor: -1, slot: slot });
-    return i32::wrapping_sub(crate::core_list::size_platform(waiters), 1);
+    };
+    crate::core_list::add_platform::<crate::runtime::WaiterRec>(&mut *waiters, crate::runtime::WaiterRec { pool: pool, value: crate::runtime::slot_empty_platform::<crate::runtime::Dyn>(), filled: false, parker: None, waiting: 0i32, waiting_actor: i32::wrapping_neg(1i32), slot: slot });
+    return i32::wrapping_sub(crate::core_list::size_platform::<crate::runtime::WaiterRec>(&*waiters), 1i32);
 }
 
-pub fn deliver_to(actors: &mut Vec<ActorRec>, waiters: &mut Vec<WaiterRec>, pools: &mut Vec<PoolRec>, t: Token, value: Dyn) {
-    let __destructured17 = t;
-    let mut target = __destructured17.target;
-    let mut slot = __destructured17.slot;
-    let mut tracked = __destructured17.tracked;
+pub fn deliver_to(actors: &mut Vec<crate::runtime::ActorRec>, waiters: &mut Vec<crate::runtime::WaiterRec>, pools: &mut Vec<crate::runtime::PoolRec>, mut t: crate::runtime::Token, mut value: crate::runtime::Dyn) {
+    let mut __destructured_1: crate::runtime::Token = t;
+    let mut target: crate::unions::Union3<crate::runtime::ToActor, crate::runtime::ToWaiter, crate::runtime::ToTask> = __destructured_1.target;
+    let mut slot: i64 = __destructured_1.slot;
+    let mut tracked: bool = __destructured_1.tracked;
     if tracked {
-        release(actors, waiters, pools, &target);
-    }
-    if matches!(target, Union3::U1(_)) {
-        let mut to = target.u1().clone();
-        let __h19 = (to.addr) as usize;
-        actors.get(__h19).expect("salvo: value is absent at runtime:1044:17");
-        if actors[__h19].dead {
-            drop_dyn_platform(value);
+        crate::runtime::release(&mut *actors, &mut *waiters, &mut *pools, &target);
+    };
+    if matches!(target, crate::unions::Union3::U1(_)) {
+        let mut to = match &target { crate::unions::Union3::U1(__v) => __v, _ => unreachable!() };
+        let __h1: usize = crate::core_list::get_platform__loc(&*actors, to.addr).expect("salvo: value is absent at runtime:1044:17");
+        if actors[__h1].dead {
+            crate::runtime::drop_dyn_platform(value);
             return;
-        }
-        crate::core_deque::add_last_platform(&mut actors[__h19].slots, slot.clone());
-        let mut e: Union3<Delivered, Answered, Reported> = Union3::<Delivered, Answered, Reported>::U2(Answered { slot: slot, value: value });
-        crate::core_deque::add_last_platform(&mut actors[__h19].queue, e);
-        if mark_ready(&mut actors[__h19], pools, to.addr) {
-            let mut pool = actors[__h19].pool;
-            wake_pool(pools, pool);
-        }
-    } else if matches!(target, Union3::U2(_)) {
-        let mut tw = target.u2().clone();
-        let __h20 = (tw.wid) as usize;
-        waiters.get(__h20).expect("salvo: value is absent at runtime:1057:17");
-        if waiters[__h20].slot != slot || waiters[__h20].filled {
-            drop_dyn_platform(value);
+        };
+        crate::core_deque::add_last_platform::<i64>(&mut actors[__h1].slots, slot);
+        let mut e: crate::unions::Union3<crate::runtime::Delivered, crate::runtime::Answered, crate::runtime::Reported> = crate::unions::Union3::U2(crate::runtime::Answered { slot: slot, value: value });
+        crate::core_deque::add_last_platform::<crate::unions::Union3<crate::runtime::Delivered, crate::runtime::Answered, crate::runtime::Reported>>(&mut actors[__h1].queue, e);
+        if crate::runtime::mark_ready(&mut actors[__h1], &mut *pools, to.addr) {
+            let mut a_4 = &actors[__h1];
+            let mut pool: i32 = a_4.pool;
+            crate::runtime::wake_pool(&mut *pools, pool);
+        };
+    } else if matches!(target, crate::unions::Union3::U2(_)) {
+        let mut tw = match &target { crate::unions::Union3::U2(__v) => __v, _ => unreachable!() };
+        let __h2: usize = crate::core_list::get_platform__loc(&*waiters, tw.wid).expect("salvo: value is absent at runtime:1057:17");
+        if (!(((waiters[__h2].slot) == (slot))) || waiters[__h2].filled) {
+            crate::runtime::drop_dyn_platform(value);
             return;
-        }
-        slot_put_platform(&mut waiters[__h20].value, value);
-        waiters[__h20].filled = true;
-        if waiters[__h20].parker.is_some() {
-            let mut p = waiters[__h20].parker.as_ref().unwrap().clone();
-            unpark_platform(&(p.clone()));
-        }
+        };
+        crate::runtime::slot_put_platform::<crate::runtime::Dyn>(&mut waiters[__h2].value, value);
+        waiters[__h2].filled = true;
+        if waiters[__h2].parker.is_some() {
+            let mut p = waiters[__h2].parker.as_ref().unwrap();
+            crate::runtime::unpark_platform(&(p).clone());
+        };
     } else {
-        let __destructured18 = (match target { Union3::U3(__v) => __v, _ => unreachable!() });
-        let mut pool = __destructured18.pool;
-        let mut body = __destructured18.body;
-        let __h21 = (pool) as usize;
-        pools.get(__h21).expect("salvo: value is absent at runtime:1069:17");
-        crate::core_deque::add_last_platform(&mut pools[__h21].tasks, TaskRun { body: body, value: value });
-        wake_pool(pools, pool.clone());
-    }
+        let mut target_7 = match target { crate::unions::Union3::U3(__v) => __v, _ => unreachable!() };
+        let mut __destructured_8: crate::runtime::ToTask = target_7;
+        let mut pool: i32 = __destructured_8.pool;
+        let mut body: crate::runtime::Body = __destructured_8.body;
+        let __h3: usize = crate::core_list::get_platform__loc(&*pools, pool).expect("salvo: value is absent at runtime:1069:17");
+        crate::core_deque::add_last_platform::<crate::runtime::TaskRun>(&mut pools[__h3].tasks, crate::runtime::TaskRun { body: body, value: value });
+        crate::runtime::wake_pool(&mut *pools, pool);
+    };
 }
 
-pub fn report_fault(actors: &mut Vec<ActorRec>, pools: &mut Vec<PoolRec>, pool: i32, reason: String) {
-    let mut sink = crate::core_list::get_platform(pools, pool).expect("salvo: value is absent at runtime:1080:21").sink;
-    if sink >= 0 {
-        let __h22 = (sink) as usize;
-        actors.get(__h22).expect("salvo: value is absent at runtime:1082:17");
-        if !actors[__h22].dead {
-            let mut e: Union3<Delivered, Answered, Reported> = Union3::<Delivered, Answered, Reported>::U3(Reported { reason: reason });
-            crate::core_deque::add_last_platform(&mut actors[__h22].queue, e);
-            crate::core_deque::add_last_platform(&mut actors[__h22].slots, ((-1) as i64));
-            if mark_ready(&mut actors[__h22], pools, sink.clone()) {
-                let mut sink_pool = actors[__h22].pool;
-                wake_pool(pools, sink_pool);
-            }
+pub fn report_fault(actors: &mut Vec<crate::runtime::ActorRec>, pools: &mut Vec<crate::runtime::PoolRec>, mut pool: i32, mut reason: String) {
+    let mut sink: i32 = {
+        let __h1: usize = crate::core_list::get_platform__loc(&*pools, pool).expect("salvo: value is absent at runtime:1080:21");
+        pools[__h1].sink
+    };
+    if (sink >= 0i32) {
+        let __h2: usize = crate::core_list::get_platform__loc(&*actors, sink).expect("salvo: value is absent at runtime:1082:17");
+        if !(actors[__h2].dead) {
+            let mut e: crate::unions::Union3<crate::runtime::Delivered, crate::runtime::Answered, crate::runtime::Reported> = crate::unions::Union3::U3(crate::runtime::Reported { reason: reason.clone() });
+            crate::core_deque::add_last_platform::<crate::unions::Union3<crate::runtime::Delivered, crate::runtime::Answered, crate::runtime::Reported>>(&mut actors[__h2].queue, e);
+            crate::core_deque::add_last_platform::<i64>(&mut actors[__h2].slots, ((i32::wrapping_neg(1i32)) as i64));
+            if crate::runtime::mark_ready(&mut actors[__h2], &mut *pools, sink) {
+                let mut s_6 = &actors[__h2];
+                let mut sink_pool: i32 = s_6.pool;
+                crate::runtime::wake_pool(&mut *pools, sink_pool);
+            };
             return;
-        }
-    }
-    __module_use_0().report(&(format!("salvo: an uncaught fault on pool {}: {}", pool, reason)));
+        };
+    };
+    crate::runtime::__module_use0_0().report(&format!("salvo: an uncaught fault on pool {}: {}", pool, reason));
 }
 
-pub fn quiet(actors: &mut Vec<ActorRec>, waiters: &mut Vec<WaiterRec>, pools: &mut Vec<PoolRec>, externals: i32) -> bool {
-    if externals > 0 {
+pub fn quiet(actors: &mut Vec<crate::runtime::ActorRec>, waiters: &mut Vec<crate::runtime::WaiterRec>, pools: &mut Vec<crate::runtime::PoolRec>, mut externals: i32) -> bool {
+    if (externals > 0i32) {
         return false;
-    }
-    for p in crate::platform_core_list::each(&*pools) {
-        if crate::core_deque::size_platform(&p.tasks) > 0 {
+    };
+    for mut p in (&mut *pools).iter_mut() {
+        if (crate::core_deque::size_platform::<crate::runtime::TaskRun>(&p.tasks) > 0i32) {
             return false;
-        }
+        };
     }
-    for a in crate::platform_core_list::each(&*actors) {
-        if !a.running && !a.dead && !(deliverable(&a.slots, &a.gate).is_none()) {
+    for mut a in (&mut *actors).iter_mut() {
+        if ((!(a.running) && !(a.dead)) && !((crate::runtime::deliverable(&a.slots, &a.gate)).is_none())) {
             return false;
-        }
+        };
     }
-    for w in crate::platform_core_list::each(&*waiters) {
-        if w.waiting > 0 && w.filled {
+    for mut w in (&mut *waiters).iter_mut() {
+        if ((w.waiting > 0i32) && w.filled) {
             return false;
-        }
+        };
     }
     return true;
 }
 
-pub fn fire_idle(actors: &mut Vec<ActorRec>, waiters: &mut Vec<WaiterRec>, pools: &mut Vec<PoolRec>, hooks: &mut Vec<IdleHook>) {
+pub fn fire_idle(actors: &mut Vec<crate::runtime::ActorRec>, waiters: &mut Vec<crate::runtime::WaiterRec>, pools: &mut Vec<crate::runtime::PoolRec>, hooks: &mut Vec<crate::runtime::IdleHook>) {
     loop {
-        let mut __is14 = crate::core_list::remove_first_platform(hooks);
-        if !(__is14.is_some()) {
+        let mut __subject_1: Option<crate::runtime::IdleHook> = crate::core_list::remove_first_platform::<crate::runtime::IdleHook>(&mut *hooks);
+        if !(__subject_1.is_some()) {
             break;
-        }
-        let mut h = __is14.unwrap();
-        let __destructured19 = h;
-        let mut pool = __destructured19.pool;
-        let mut token = __destructured19.token;
-        let mut gates = 0;
-        let mut tokens = crate::core_list::get_platform(pools, pool).expect("salvo: value is absent at runtime:1132:27").owed;
-        for a in crate::platform_core_list::each(&*actors) {
-            if a.pool == pool {
+        };
+        let mut h = __subject_1.unwrap();
+        let mut __destructured_2: crate::runtime::IdleHook = h;
+        let mut pool: i32 = __destructured_2.pool;
+        let mut token: crate::runtime::Token = __destructured_2.token;
+        let mut gates: i32 = 0i32;
+        let mut tokens: i32 = {
+            let __h1: usize = crate::core_list::get_platform__loc(&*pools, pool).expect("salvo: value is absent at runtime:1132:27");
+            pools[__h1].owed
+        };
+        for mut a in (&mut *actors).iter_mut() {
+            if ((a.pool) == (pool)) {
                 tokens = i32::wrapping_add(tokens, a.owed);
-                if !(a.gate.is_none()) && !a.dead {
-                    gates = i32::wrapping_add(gates, 1);
-                }
-            }
+                if (!(a.gate.is_none()) && !(a.dead)) {
+                    gates = i32::wrapping_add(gates, 1i32);
+                };
+            };
         }
-        deliver_to(actors, waiters, pools, token, erase_platform(Idle { parked_gates: gates, parked_tokens: tokens }));
+        crate::runtime::deliver_to(&mut *actors, &mut *waiters, &mut *pools, token, crate::runtime::erase_platform::<crate::core_actor::Idle>(crate::core_actor::Idle { parked_gates: gates, parked_tokens: tokens }));
     }
 }
 
-pub fn deadlock_report(actors: &mut Vec<ActorRec>, waiters: &mut Vec<WaiterRec>, own: i32) -> String {
+pub fn deadlock_report(actors: &mut Vec<crate::runtime::ActorRec>, waiters: &mut Vec<crate::runtime::WaiterRec>, mut own: i32) -> String {
     let mut occupied: Vec<String> = vec![];
-    for w in crate::platform_core_list::each(&*waiters) {
-        if w.waiting > 0 && w.waiting_actor >= 0 {
-            crate::core_list::add_platform(&mut occupied, format!("actor {}", w.waiting_actor));
-        }
+    for mut w in (&mut *waiters).iter_mut() {
+        if ((w.waiting > 0i32) && (w.waiting_actor >= 0i32)) {
+            crate::core_list::add_platform::<String>(&mut occupied, format!("actor {}", w.waiting_actor));
+        };
     }
     let mut gated: Vec<String> = vec![];
-    let mut i = 0;
-    for a in crate::platform_core_list::each(&*actors) {
-        if !(a.gate.is_none()) && !a.dead {
-            crate::core_list::add_platform(&mut gated, format!("actor {}", i));
-        }
-        i = i32::wrapping_add(i, 1);
+    let mut i: i32 = 0i32;
+    for mut a in (&mut *actors).iter_mut() {
+        if (!(a.gate.is_none()) && !(a.dead)) {
+            crate::core_list::add_platform::<String>(&mut gated, format!("actor {}", i));
+        };
+        i = i32::wrapping_add(i, 1i32);
     }
-    let mut who = if own >= 0 {
+    let mut who: String = if (own >= 0i32) {
         format!("actor {}", own)
     } else {
-        "main".to_string()
+        String::from("main")
     };
     let mut clauses: Vec<String> = vec![];
-    if crate::core_list::size_platform(&occupied) > 0 {
-        crate::core_list::add_platform(&mut clauses, format!("parked in a wait: {}", crate::core_string::join_platform(&occupied, &(", ".to_string()))));
-    }
-    if crate::core_list::size_platform(&gated) > 0 {
-        crate::core_list::add_platform(&mut clauses, format!("parked gates: {}", crate::core_string::join_platform(&gated, &(", ".to_string()))));
-    }
-    let mut detail = if crate::core_list::size_platform(&clauses) == 0 {
-        "".to_string()
+    if (crate::core_list::size_platform::<String>(&occupied) > 0i32) {
+        crate::core_list::add_platform::<String>(&mut clauses, format!("parked in a wait: {}", crate::core_string::join_platform(&occupied, &String::from(", "))));
+    };
+    if (crate::core_list::size_platform::<String>(&gated) > 0i32) {
+        crate::core_list::add_platform::<String>(&mut clauses, format!("parked gates: {}", crate::core_string::join_platform(&gated, &String::from(", "))));
+    };
+    let mut detail: String = if ((crate::core_list::size_platform::<String>(&clauses)) == (0i32)) {
+        String::from("")
     } else {
-        format!(" ({})", crate::core_string::join_platform(&clauses, &("; ".to_string())))
+        format!(" ({})", crate::core_string::join_platform(&clauses, &String::from("; ")))
     };
     return format!("salvo: deadlock: nothing can run while {} waits{}", who, detail);
 }
 
-pub fn take_work(actors: &mut Vec<ActorRec>, pools: &mut Vec<PoolRec>, pool: i32, exclude: i32) -> Option<Union2<RunActor, RunTask>> {
-    let __h23 = (pool) as usize;
-    pools.get(__h23).expect("salvo: value is absent at runtime:1181:13");
-    let mut task = crate::core_deque::remove_first_platform(&mut pools[__h23].tasks);
+pub fn take_work(actors: &mut Vec<crate::runtime::ActorRec>, pools: &mut Vec<crate::runtime::PoolRec>, mut pool: i32, mut exclude: i32) -> Option<crate::unions::Union2<crate::runtime::RunActor, crate::runtime::RunTask>> {
+    let __h1: usize = crate::core_list::get_platform__loc(&*pools, pool).expect("salvo: value is absent at runtime:1181:13");
+    let mut task: Option<crate::runtime::TaskRun> = crate::core_deque::remove_first_platform::<crate::runtime::TaskRun>(&mut pools[__h1].tasks);
     if task.is_some() {
         let mut t = task.unwrap();
-        let __destructured20 = t;
-        let mut body = __destructured20.body;
-        let mut value = __destructured20.value;
-        return Some(Union2::<RunActor, RunTask>::U2(RunTask { pool: pool, body: body, value: value }));
-    }
+        let mut __destructured_3: crate::runtime::TaskRun = t;
+        let mut body: crate::runtime::Body = __destructured_3.body;
+        let mut value: crate::runtime::Dyn = __destructured_3.value;
+        return Some(crate::unions::Union2::U2(crate::runtime::RunTask { pool: pool, body: body, value: value }));
+    };
     loop {
-        let mut __is15 = crate::core_deque::remove_first_platform(&mut pools[__h23].ready);
-        if !(__is15.is_some()) {
+        let mut __subject_4: Option<i32> = crate::core_deque::remove_first_platform::<i32>(&mut pools[__h1].ready);
+        if !(__subject_4.is_some()) {
             break;
-        }
-        let mut i = __is15.unwrap();
-        let __h24 = (i) as usize;
-        actors.get(__h24).expect("salvo: value is absent at runtime:1188:17");
-        actors[__h24].ready = false;
-        if i != exclude && !actors[__h24].running && !actors[__h24].dead {
-            let mut at = deliverable(&actors[__h24].slots, &actors[__h24].gate);
+        };
+        let mut i = __subject_4.unwrap();
+        let __h2: usize = crate::core_list::get_platform__loc(&*actors, i).expect("salvo: value is absent at runtime:1188:17");
+        actors[__h2].ready = false;
+        if ((!(((i) == (exclude))) && !(actors[__h2].running)) && !(actors[__h2].dead)) {
+            let mut at: Option<i32> = crate::runtime::deliverable(&actors[__h2].slots, &actors[__h2].gate);
             if at.is_some() {
                 let mut k = at.unwrap();
-                let mut _slot = crate::core_deque::remove_at_platform(&mut actors[__h24].slots, k.clone());
-                let mut e = crate::core_deque::remove_at_platform(&mut actors[__h24].queue, k).expect("salvo: value is absent at runtime:1194:25");
-                actors[__h24].running = true;
-                let mut body = slot_take_platform(&mut actors[__h24].body).expect("salvo: value is absent at runtime:1196:28");
-                return work_of(&mut actors[__h24], i.clone(), e, body);
-            }
-        }
+                let mut _slot: Option<i64> = crate::core_deque::remove_at_platform::<i64>(&mut actors[__h2].slots, k);
+                let mut e: crate::unions::Union3<crate::runtime::Delivered, crate::runtime::Answered, crate::runtime::Reported> = {
+                    let mut __nn_7: Option<crate::unions::Union3<crate::runtime::Delivered, crate::runtime::Answered, crate::runtime::Reported>> = crate::core_deque::remove_at_platform::<crate::unions::Union3<crate::runtime::Delivered, crate::runtime::Answered, crate::runtime::Reported>>(&mut actors[__h2].queue, k);
+                    if __nn_7.is_none() {
+                        panic!("salvo: value is absent at runtime:1194:25");
+                    } else {
+                        let mut __some_8 = (match __nn_7 { Some(crate::unions::Union3::U1(__v)) => crate::unions::Union3::U1(__v), Some(crate::unions::Union3::U2(__v)) => crate::unions::Union3::U2(__v), Some(crate::unions::Union3::U3(__v)) => crate::unions::Union3::U3(__v), None => unreachable!("salvo: unreachable union arm"), #[allow(unreachable_patterns)] _ => unreachable!("salvo: unreachable union arm") });
+                        __some_8
+                    }
+                };
+                actors[__h2].running = true;
+                let mut body: crate::runtime::Body = {
+                    let mut __nn_9: Option<crate::runtime::Body> = crate::runtime::slot_take_platform::<crate::runtime::Body>(&mut actors[__h2].body);
+                    if __nn_9.is_none() {
+                        panic!("salvo: value is absent at runtime:1196:28");
+                    } else {
+                        let mut __some_10 = __nn_9.unwrap();
+                        __some_10
+                    }
+                };
+                return crate::runtime::work_of(&mut actors[__h2], i, e, body);
+            };
+        };
     }
     return None;
 }
 
-pub fn mark_ready(a: &mut ActorRec, pools: &mut Vec<PoolRec>, addr: i32) -> bool {
-    if a.ready || a.running || a.dead {
+pub fn mark_ready(a: &mut crate::runtime::ActorRec, pools: &mut Vec<crate::runtime::PoolRec>, mut addr: i32) -> bool {
+    if ((a.ready || a.running) || a.dead) {
         return false;
-    }
-    if deliverable(&a.slots, &a.gate).is_none() {
+    };
+    if (crate::runtime::deliverable(&a.slots, &a.gate)).is_none() {
         return false;
-    }
+    };
     a.ready = true;
-    let __h25 = (a.pool) as usize;
-    pools.get(__h25).expect("salvo: value is absent at runtime:1215:13");
-    crate::core_deque::add_last_platform(&mut pools[__h25].ready, addr);
+    let __h1: usize = crate::core_list::get_platform__loc(&*pools, a.pool).expect("salvo: value is absent at runtime:1215:13");
+    crate::core_deque::add_last_platform::<i32>(&mut pools[__h1].ready, addr);
     return true;
 }
 
-pub fn work_of(a: &mut ActorRec, addr: i32, e: Union3<Delivered, Answered, Reported>, body: Body) -> Option<Union2<RunActor, RunTask>> {
-    if matches!(e, Union3::U1(_)) {
-        let mut d = match e { Union3::U1(__v) => __v, _ => unreachable!() };
-        a.user_len = i32::wrapping_sub(a.user_len, 1);
-        let mut woken = crate::core_list::remove_first_platform(&mut a.blocked);
+pub fn work_of(a: &mut crate::runtime::ActorRec, mut addr: i32, mut e: crate::unions::Union3<crate::runtime::Delivered, crate::runtime::Answered, crate::runtime::Reported>, mut body: crate::runtime::Body) -> Option<crate::unions::Union2<crate::runtime::RunActor, crate::runtime::RunTask>> {
+    if matches!(e, crate::unions::Union3::U1(_)) {
+        let mut d = match e { crate::unions::Union3::U1(__v) => __v, _ => unreachable!() };
+        a.user_len = i32::wrapping_sub(a.user_len, 1i32);
+        let mut woken: Option<crate::runtime::Parker> = crate::core_list::remove_first_platform::<crate::runtime::Parker>(&mut a.blocked);
         if woken.is_some() {
-            let mut b = woken.as_ref().unwrap().clone();
-            unpark_platform(&b);
-        }
-        let __destructured21 = d;
-        let mut msg = __destructured21.msg;
-        let mut from = __destructured21.from;
-        if from >= ((0) as i64) {
-            granted_platform(addr.clone(), a.pool, from);
-        }
-        return Some(Union2::<RunActor, RunTask>::U1(RunActor { addr: addr, pool: a.pool, kind: 0, slot: 0i64, value: msg, body: body }));
-    }
-    if matches!(e, Union3::U3(_)) {
-        let mut r = e.u3().clone();
-        return Some(Union2::<RunActor, RunTask>::U1(RunActor { addr: addr, pool: a.pool, kind: 2, slot: 0i64, value: erase_platform(r.reason.clone()), body: body }));
-    }
-    let __destructured22 = (match e { Union3::U2(__v) => __v, _ => unreachable!() });
-    let mut slot = __destructured22.slot;
-    let mut value = __destructured22.value;
-    let mut opens = false;
+            let mut b = woken.as_ref().unwrap();
+            crate::runtime::unpark_platform(b);
+        };
+        let mut __destructured_1: crate::runtime::Delivered = d;
+        let mut msg: crate::runtime::Dyn = __destructured_1.msg;
+        let mut from: i64 = __destructured_1.from;
+        if (from >= 0i64) {
+            crate::runtime::granted_platform(addr, a.pool, from);
+        };
+        return Some(crate::unions::Union2::U1(crate::runtime::RunActor { addr: addr, pool: a.pool, kind: 0i32, slot: 0i64, value: msg, body: body }));
+    };
+    if matches!(e, crate::unions::Union3::U3(_)) {
+        let mut r = match &e { crate::unions::Union3::U3(__v) => __v, _ => unreachable!() };
+        return Some(crate::unions::Union2::U1(crate::runtime::RunActor { addr: addr, pool: a.pool, kind: 2i32, slot: 0i64, value: crate::runtime::erase_platform::<String>((r.reason).clone()), body: body }));
+    };
+    let mut e_2 = match e { crate::unions::Union3::U2(__v) => __v, _ => unreachable!() };
+    let mut __destructured_3: crate::runtime::Answered = e_2;
+    let mut slot: i64 = __destructured_3.slot;
+    let mut value: crate::runtime::Dyn = __destructured_3.value;
+    let mut opens: bool = false;
     if a.gate.is_some() {
         let mut g = a.gate.unwrap();
-        opens = g == slot;
-    }
+        opens = ((g) == (slot));
+    };
     if opens {
         a.gate = None;
-    }
-    return Some(Union2::<RunActor, RunTask>::U1(RunActor { addr: addr, pool: a.pool, kind: 1, slot: slot, value: value, body: body }));
+    };
+    return Some(crate::unions::Union2::U1(crate::runtime::RunActor { addr: addr, pool: a.pool, kind: 1i32, slot: slot, value: value, body: body }));
 }
 
 pub fn deliverable(slots: &std::collections::VecDeque<i64>, gate: &Option<i64>) -> Option<i32> {
-    if crate::core_deque::size_platform(slots) == 0 {
+    if ((crate::core_deque::size_platform::<i64>(slots)) == (0i32)) {
         return None;
-    }
+    };
     if gate.is_none() {
-        return Some(0);
-    }
-    let mut i = 0;
-    while i < crate::core_deque::size_platform(slots) {
-        if *crate::core_deque::get_platform(slots, i).expect("salvo: value is absent at runtime:1263:12") == gate.unwrap() {
-            return Some(i.clone());
-        }
-        i = i32::wrapping_add(i, 1);
+        return Some(0i32);
+    };
+    let mut i: i32 = 0i32;
+    loop {
+        if !((i < crate::core_deque::size_platform::<i64>(slots))) {
+            break;
+        };
+        let mut gate_3 = gate.unwrap();
+        if (({
+            let mut __nn_1: Option<i64> = crate::core_deque::get_platform::<i64>(slots, i).copied();
+            if __nn_1.is_none() {
+                panic!("salvo: value is absent at runtime:1263:12");
+            } else {
+                let mut __some_2 = __nn_1.unwrap();
+                __some_2
+            }
+        }) == (gate_3)) {
+            return Some(i);
+        };
+        i = i32::wrapping_add(i, 1i32);
     }
     return None;
 }
 
-pub fn wake_pool(pools: &mut Vec<PoolRec>, pool: i32) {
-    let __h26 = (pool) as usize;
-    pools.get(__h26).expect("salvo: value is absent at runtime:1278:13");
-    let mut __is16 = crate::core_list::remove_first_platform(&mut pools[__h26].idle);
-    if __is16.is_some() {
-        let mut w = __is16.as_ref().unwrap().clone();
-        unpark_platform(&w);
-    }
+pub fn wake_pool(pools: &mut Vec<crate::runtime::PoolRec>, mut pool: i32) {
+    let __h1: usize = crate::core_list::get_platform__loc(&*pools, pool).expect("salvo: value is absent at runtime:1278:13");
+    let mut __subject_3: Option<crate::runtime::Parker> = crate::core_list::remove_first_platform::<crate::runtime::Parker>(&mut pools[__h1].idle);
+    if __subject_3.is_some() {
+        let mut w = __subject_3.as_ref().unwrap();
+        crate::runtime::unpark_platform(w);
+    };
 }
 
-pub fn wake_every(pools: &mut Vec<PoolRec>, pool: i32) {
-    let __h27 = (pool) as usize;
-    pools.get(__h27).expect("salvo: value is absent at runtime:1286:13");
+pub fn wake_every(pools: &mut Vec<crate::runtime::PoolRec>, mut pool: i32) {
+    let __h1: usize = crate::core_list::get_platform__loc(&*pools, pool).expect("salvo: value is absent at runtime:1286:13");
     loop {
-        let mut __is17 = crate::core_list::remove_first_platform(&mut pools[__h27].idle);
-        if !(__is17.is_some()) {
+        let mut __subject_3: Option<crate::runtime::Parker> = crate::core_list::remove_first_platform::<crate::runtime::Parker>(&mut pools[__h1].idle);
+        if !(__subject_3.is_some()) {
             break;
-        }
-        let mut w = __is17.as_ref().unwrap().clone();
-        unpark_platform(&w);
+        };
+        let mut w = __subject_3.as_ref().unwrap();
+        crate::runtime::unpark_platform(w);
     }
 }
 
-pub fn wake_waiters(waiters: &mut Vec<WaiterRec>) {
-    for w in crate::platform_core_list::each(&*waiters) {
-        if w.waiting > 0 && (w.parker.is_some()) {
-            let mut p = w.parker.as_ref().unwrap().clone();
-            unpark_platform(&(p.clone()));
-        }
+pub fn wake_waiters(waiters: &mut Vec<crate::runtime::WaiterRec>) {
+    for mut w in (&mut *waiters).iter_mut() {
+        if ((w.waiting > 0i32) && w.parker.is_some()) {
+            let mut p = w.parker.as_ref().unwrap();
+            crate::runtime::unpark_platform(&(p).clone());
+        };
     }
 }
 
-pub fn retire_if_done(actors: &mut Vec<ActorRec>, pools: &mut Vec<PoolRec>, pool: i32) {
-    let __h28 = (pool) as usize;
-    pools.get(__h28).expect("salvo: value is absent at runtime:1308:13");
-    if !pools[__h28].dedicated || pools[__h28].retired || crate::core_deque::size_platform(&pools[__h28].tasks) > 0 || pools[__h28].owed > 0 {
+pub fn retire_if_done(actors: &mut Vec<crate::runtime::ActorRec>, pools: &mut Vec<crate::runtime::PoolRec>, mut pool: i32) {
+    let __h1: usize = crate::core_list::get_platform__loc(&*pools, pool).expect("salvo: value is absent at runtime:1308:13");
+    if (((!(pools[__h1].dedicated) || pools[__h1].retired) || (crate::core_deque::size_platform::<crate::runtime::TaskRun>(&pools[__h1].tasks) > 0i32)) || (pools[__h1].owed > 0i32)) {
         return;
-    }
-    for a in crate::platform_core_list::each(&*actors) {
-        if a.pool == pool && !a.dead {
+    };
+    for mut a in (&mut *actors).iter_mut() {
+        if (((a.pool) == (pool)) && !(a.dead)) {
             return;
-        }
+        };
     }
-    pools[__h28].retired = true;
-    wake_every(pools, pool);
+    pools[__h1].retired = true;
+    crate::runtime::wake_every(&mut *pools, pool);
 }
 
-pub fn wake_all_pools(pools: &mut Vec<PoolRec>) {
-    let mut i = 0;
-    while i < crate::core_list::size_platform(pools) {
-        wake_every(pools, i.clone());
-        i = i32::wrapping_add(i, 1);
+pub fn wake_all_pools(pools: &mut Vec<crate::runtime::PoolRec>) {
+    let mut i: i32 = 0i32;
+    loop {
+        if !((i < crate::core_list::size_platform::<crate::runtime::PoolRec>(&*pools))) {
+            break;
+        };
+        crate::runtime::wake_every(&mut *pools, i);
+        i = i32::wrapping_add(i, 1i32);
     }
 }
 
-pub fn new_pool_of(n: i32, sink: i32) -> i32 {
-    return start_pool(n, sink, false);
+pub fn new_pool_of(mut n: i32, mut sink: i32) -> i32 {
+    return crate::runtime::start_pool(n, sink, false);
 }
 
 pub fn new_dedicated_pool() -> i32 {
-    return start_pool(1, -1, true);
+    return crate::runtime::start_pool(1i32, i32::wrapping_neg(1i32), true);
 }
 
 pub fn waiter_record_count() -> i32 {
-    return __module_use_1().waiter_records();
+    return crate::runtime::__module_use1_0().waiter_records();
 }
 
 pub fn retired_worker_count() -> i32 {
-    return __module_use_1().retired_workers();
+    return crate::runtime::__module_use1_0().retired_workers();
 }
 
-pub fn start_pool(n: i32, sink: i32, dedicated: bool) -> i32 {
-    let mut id = __module_use_1().new_pool(sink, dedicated);
-    if __module_use_1().is_virtual() {
+pub fn start_pool(mut n: i32, mut sink: i32, mut dedicated: bool) -> i32 {
+    let mut id: i32 = crate::runtime::__module_use1_0().new_pool(sink, dedicated);
+    if crate::runtime::__module_use1_0().is_virtual() {
         return id;
-    }
-    let mut i = 0;
-    while i < n {
-        start_thread_platform(std::boxed::Box::new({ let mut id = id.clone(); move || {
-    serve_pool(id.clone());
-} }));
-        i = i32::wrapping_add(i, 1);
+    };
+    let mut i: i32 = 0i32;
+    loop {
+        if !((i < n)) {
+            break;
+        };
+        crate::runtime::start_thread_platform(std::boxed::Box::new({ let mut id = id.clone(); move || {
+            crate::runtime::serve_pool(id);
+        } }));
+        i = i32::wrapping_add(i, 1i32);
     }
     return id;
 }
 
-pub fn spawn_body(pool: i32, bound: i32, body: Body) -> i32 {
-    return __module_use_1().new_actor(pool, bound, body);
+pub fn spawn_body(mut pool: i32, mut bound: i32, mut body: crate::runtime::Body) -> i32 {
+    return crate::runtime::__module_use1_0().new_actor(pool, bound, body);
 }
 
-pub fn send_dyn(addr: i32, msg: Dyn) {
-    let mut back = send_or_back(addr, msg);
+pub fn send_dyn(mut addr: i32, mut msg: crate::runtime::Dyn) {
+    let mut back: Option<crate::runtime::Dyn> = crate::runtime::send_or_back(addr, msg);
     if back.is_some() {
         let mut d = back.unwrap();
-        drop_dyn_platform(d);
-    }
+        crate::runtime::drop_dyn_platform(d);
+    };
 }
 
-pub fn send_or_back(addr: i32, msg: Dyn) -> Option<Dyn> {
-    let mut r = __module_use_1().enqueue(addr.clone(), msg, this_parker_platform());
-    while matches!(r, Union4::U3(_)) {
-        let mut full = match r { Union4::U3(__v) => __v, _ => unreachable!() };
-        if __module_use_1().is_virtual() {
-            make_room(addr.clone());
-            let __destructured23 = full;
-            let mut again = __destructured23.msg;
-            r = __module_use_1().enqueue(addr.clone(), again, this_parker_platform());
+pub fn send_or_back(mut addr: i32, mut msg: crate::runtime::Dyn) -> Option<crate::runtime::Dyn> {
+    let mut r: crate::unions::Union4<crate::runtime::Sent, crate::runtime::Dead, crate::runtime::Full, crate::runtime::Remote> = crate::runtime::__module_use1_0().enqueue(addr, msg, crate::runtime::this_parker_platform());
+    loop {
+        if !(matches!(r, crate::unions::Union4::U3(_))) {
+            break;
+        };
+        let mut full = match r { crate::unions::Union4::U3(__v) => __v, _ => unreachable!() };
+        if crate::runtime::__module_use1_0().is_virtual() {
+            crate::runtime::make_room(addr);
+            let mut __destructured_1: crate::runtime::Full = full;
+            let mut again: crate::runtime::Dyn = __destructured_1.msg;
+            r = crate::runtime::__module_use1_0().enqueue(addr, again, crate::runtime::this_parker_platform());
             continue;
-        }
-        if here_pool_platform() == main_pool() && here_actor_platform() == no_frame() && __module_use_1().pool_of_actor(addr.clone()) == main_pool() {
-            __module_use_0().report(&(format!("salvo: deadlock: the main pool's actor {} has a full mailbox and the only thread that could drain it is the one sending: the main pool has one worker, `main` itself, and it serves work only inside a `waitfor` — send fewer messages before waiting, raise the handler's `mailbox` capacity, or place the actor on a pool of its own", addr)));
-            exit_process_platform(1);
-        }
-        park_platform(&(this_parker_platform()));
-        let __destructured24 = full;
-        let mut back = __destructured24.msg;
-        r = __module_use_1().enqueue(addr.clone(), back, this_parker_platform());
+        };
+        if ((((crate::runtime::here_pool_platform()) == (crate::runtime::main_pool())) && ((crate::runtime::here_actor_platform()) == (crate::runtime::no_frame()))) && ((crate::runtime::__module_use1_0().pool_of_actor(addr)) == (crate::runtime::main_pool()))) {
+            crate::runtime::__module_use0_0().report(&format!("salvo: deadlock: the main pool's actor {} has a full mailbox and the only thread that could drain it is the one sending: the main pool has one worker, `main` itself, and it serves work only inside a `waitfor` — send fewer messages before waiting, raise the handler's `mailbox` capacity, or place the actor on a pool of its own", addr));
+            crate::runtime::exit_process_platform(1i32);
+        };
+        crate::runtime::park_platform(&crate::runtime::this_parker_platform());
+        let mut __destructured_2: crate::runtime::Full = full;
+        let mut back: crate::runtime::Dyn = __destructured_2.msg;
+        r = crate::runtime::__module_use1_0().enqueue(addr, back, crate::runtime::this_parker_platform());
     }
-    if matches!(r, Union4::U3(_)) {
-        let mut full = match r { Union4::U3(__v) => __v, _ => unreachable!() };
-        drop_full(full);
+    if matches!(r, crate::unions::Union4::U3(_)) {
+        let mut full = match r { crate::unions::Union4::U3(__v) => __v, _ => unreachable!() };
+        crate::runtime::drop_full(full);
         return None;
-    }
-    if matches!(r, Union4::U4(_)) {
-        let mut remote = match r { Union4::U4(__v) => __v, _ => unreachable!() };
-        let __destructured25 = remote;
-        let mut back = __destructured25.msg;
+    };
+    if matches!(r, crate::unions::Union4::U4(_)) {
+        let mut remote = match r { crate::unions::Union4::U4(__v) => __v, _ => unreachable!() };
+        let mut __destructured_3: crate::runtime::Remote = remote;
+        let mut back: crate::runtime::Dyn = __destructured_3.msg;
         return Some(back);
-    }
+    };
     return None;
 }
 
-pub fn make_room(addr: i32) {
-    let mut w = __module_use_1().virtual_work(here_actor_platform());
-    if matches!(w, Some(Union2::U1(_))) {
-        let mut ra = match w { Some(Union2::U1(__v)) => __v, _ => unreachable!() };
-        run_actor(ra);
+pub fn make_room(mut addr: i32) {
+    let mut w: Option<crate::unions::Union2<crate::runtime::RunActor, crate::runtime::RunTask>> = crate::runtime::__module_use1_0().virtual_work(crate::runtime::here_actor_platform());
+    if matches!(w, Some(crate::unions::Union2::U1(_))) {
+        let mut ra = match w { Some(crate::unions::Union2::U1(__v)) => __v, _ => unreachable!() };
+        crate::runtime::run_actor(ra);
         return;
-    }
-    if matches!(w, Some(Union2::U2(_))) {
-        let mut rt = match w { Some(Union2::U2(__v)) => __v, _ => unreachable!() };
-        run_task(rt);
+    };
+    if matches!(w, Some(crate::unions::Union2::U2(_))) {
+        let mut rt = match w { Some(crate::unions::Union2::U2(__v)) => __v, _ => unreachable!() };
+        crate::runtime::run_task(rt);
         return;
-    }
-    __module_use_0().report(&(format!("salvo: deadlock: actor {} has a full mailbox and nothing can run to drain it: an actor test runs every pool on one thread", addr)));
-    exit_process_platform(1);
+    };
+    crate::runtime::__module_use0_0().report(&format!("salvo: deadlock: actor {} has a full mailbox and nothing can run to drain it: an actor test runs every pool on one thread", addr));
+    crate::runtime::exit_process_platform(1i32);
 }
 
-pub fn mark_proxy(addr: i32) {
-    __module_use_1().set_proxy(addr);
+pub fn mark_proxy(mut addr: i32) {
+    crate::runtime::__module_use1_0().set_proxy(addr);
 }
 
-pub fn mint(addr: i32, gated: bool) -> Token {
-    return __module_use_1().mint_actor(addr, gated);
+pub fn mint(mut addr: i32, mut gated: bool) -> crate::runtime::Token {
+    return crate::runtime::__module_use1_0().mint_actor(addr, gated);
 }
 
-pub fn mint_task_on(pool: i32, body: Body) -> Token {
-    return __module_use_1().mint_task(pool, body);
+pub fn mint_task_on(mut pool: i32, mut body: crate::runtime::Body) -> crate::runtime::Token {
+    return crate::runtime::__module_use1_0().mint_task(pool, body);
 }
 
-pub fn waiter() -> WaiterMint {
-    return __module_use_1().mint_waiter(here_pool_platform());
+pub fn waiter() -> crate::runtime::WaiterMint {
+    return crate::runtime::__module_use1_0().mint_waiter(crate::runtime::here_pool_platform());
 }
 
-pub fn answer(t: Token, value: Dyn) {
-    __module_use_1().deliver(t, value);
+pub fn answer(mut t: crate::runtime::Token, mut value: crate::runtime::Dyn) {
+    crate::runtime::__module_use1_0().deliver(t, value);
 }
 
-pub fn watch(addr: i32, t: Token) {
-    __module_use_1().watch_actor(addr, t);
+pub fn watch(mut addr: i32, mut t: crate::runtime::Token) {
+    crate::runtime::__module_use1_0().watch_actor(addr, t);
 }
 
-pub fn on_idle(pool: i32, t: Token) {
-    __module_use_1().idle_hook(pool, t);
+pub fn on_idle(mut pool: i32, mut t: crate::runtime::Token) {
+    crate::runtime::__module_use1_0().idle_hook(pool, t);
 }
 
 pub fn external_begin() {
-    if __module_use_1().is_virtual() {
-        __module_use_0().report(&("salvo: an actor test opened a host thread (a platform handler that reads or listens on a thread of its own): the virtual runtime runs everything on one thread, so its work would not be deterministic — use an in-memory fake (`MemTransport`, `MemFs`)".to_string()));
-        exit_process_platform(1);
-    }
-    __module_use_1().external(1);
+    if crate::runtime::__module_use1_0().is_virtual() {
+        crate::runtime::__module_use0_0().report(&String::from("salvo: an actor test opened a host thread (a platform handler that reads or listens on a thread of its own): the virtual runtime runs everything on one thread, so its work would not be deterministic — use an in-memory fake (`MemTransport`, `MemFs`)"));
+        crate::runtime::exit_process_platform(1i32);
+    };
+    crate::runtime::__module_use1_0().external(1i32);
 }
 
-pub fn enter_virtual(seed: i64) {
-    __module_use_1().go_virtual(seed);
+pub fn enter_virtual(mut seed: i64) {
+    crate::runtime::__module_use1_0().go_virtual(seed);
 }
 
 pub fn random_double() -> f64 {
-    return __module_use_1().random_unit();
+    return crate::runtime::__module_use1_0().random_unit();
 }
 
 pub fn virtual_runtime() -> bool {
-    return __module_use_1().is_virtual();
+    return crate::runtime::__module_use1_0().is_virtual();
 }
 
-pub fn set_virtual_now(at: i64) {
-    __module_use_1().advance_to(at);
+pub fn set_virtual_now(mut at: i64) {
+    crate::runtime::__module_use1_0().advance_to(at);
 }
 
-pub fn on_clock(t: Token) {
-    __module_use_1().clock_hook(t);
+pub fn on_clock(mut t: crate::runtime::Token) {
+    crate::runtime::__module_use1_0().clock_hook(t);
 }
 
 pub fn external_end() {
-    __module_use_1().external(-1);
+    crate::runtime::__module_use1_0().external(i32::wrapping_neg(1i32));
 }
 
-pub fn await_answer(wid: i32) -> Dyn {
-    let mut pool = here_pool_platform();
-    let mut own = here_actor_platform();
-    let mut frame = if own == no_frame() {
-        2
+pub fn await_answer(mut wid: i32) -> crate::runtime::Dyn {
+    let mut pool: i32 = crate::runtime::here_pool_platform();
+    let mut own: i32 = crate::runtime::here_actor_platform();
+    let mut frame: i32 = if ((own) == (crate::runtime::no_frame())) {
+        2i32
     } else {
-        1
+        1i32
     };
     loop {
-        let mut step = __module_use_1().wait_step(wid.clone(), pool.clone(), own.clone(), frame.clone(), this_parker_platform());
-        if matches!(step, Union6::U1(_)) {
-            let mut g = match step { Union6::U1(__v) => __v, _ => unreachable!() };
-            let __destructured26 = g;
-            let mut value = __destructured26.value;
+        if !(true) {
+            break;
+        };
+        let mut step: crate::unions::Union6<crate::runtime::Got, crate::runtime::RunActor, crate::runtime::RunTask, crate::runtime::Sleep, crate::runtime::Again, crate::runtime::Stuck> = crate::runtime::__module_use1_0().wait_step(wid, pool, own, frame, crate::runtime::this_parker_platform());
+        if matches!(step, crate::unions::Union6::U1(_)) {
+            let mut g = match step { crate::unions::Union6::U1(__v) => __v, _ => unreachable!() };
+            let mut __destructured_1: crate::runtime::Got = g;
+            let mut value: crate::runtime::Dyn = __destructured_1.value;
             return value;
-        }
-        if matches!(step, Union6::U2(_)) {
-            let mut ra = match step { Union6::U2(__v) => __v, _ => unreachable!() };
-            run_actor(ra);
-        } else if matches!(step, Union6::U3(_)) {
-            let mut rt = match step { Union6::U3(__v) => __v, _ => unreachable!() };
-            run_task(rt);
-        } else if matches!(step, Union6::U6(_)) {
-            let mut s = step.u6().clone();
-            __module_use_0().report(&(s.report.clone()));
-            exit_process_platform(1);
-        } else if matches!(step, Union6::U4(_)) {
-            park_platform(&(this_parker_platform()));
-        }
+        };
+        if matches!(step, crate::unions::Union6::U2(_)) {
+            let mut ra = match step { crate::unions::Union6::U2(__v) => __v, _ => unreachable!() };
+            crate::runtime::run_actor(ra);
+        } else if matches!(step, crate::unions::Union6::U3(_)) {
+            let mut rt = match step { crate::unions::Union6::U3(__v) => __v, _ => unreachable!() };
+            crate::runtime::run_task(rt);
+        } else if matches!(step, crate::unions::Union6::U6(_)) {
+            let mut s = match &step { crate::unions::Union6::U6(__v) => __v, _ => unreachable!() };
+            crate::runtime::__module_use0_0().report(&(s.report).clone());
+            crate::runtime::exit_process_platform(1i32);
+        } else if matches!(step, crate::unions::Union6::U4(_)) {
+            let mut step_2 = match &step { crate::unions::Union6::U4(__v) => __v, _ => unreachable!() };
+            crate::runtime::park_platform(&crate::runtime::this_parker_platform());
+        };
     }
-    return unerase_platform(erase_platform(0));
+    return crate::runtime::unerase_platform::<crate::runtime::Dyn>(crate::runtime::erase_platform::<i32>(0i32));
 }
 
-pub fn run_actor(ra: RunActor) {
-    flush_frames_platform();
-    let __destructured27 = ra;
-    let mut addr = __destructured27.addr;
-    let mut pool = __destructured27.pool;
-    let mut kind = __destructured27.kind;
-    let mut slot = __destructured27.slot;
-    let mut value = __destructured27.value;
-    let mut body = __destructured27.body;
-    let mut saved_pool = here_pool_platform();
-    let mut saved_actor = here_actor_platform();
-    set_here_platform(pool, addr.clone());
-    let mut ran = activate_platform(body, kind, slot, value);
-    set_here_platform(saved_pool, saved_actor);
-    let __destructured28 = ran;
-    let mut back = __destructured28.body;
-    let mut fault = __destructured28.fault;
-    __module_use_1().finish(addr, back, fault);
+pub fn run_actor(mut ra: crate::runtime::RunActor) {
+    crate::runtime::flush_frames_platform();
+    let mut __destructured_1: crate::runtime::RunActor = ra;
+    let mut addr: i32 = __destructured_1.addr;
+    let mut pool: i32 = __destructured_1.pool;
+    let mut kind: i32 = __destructured_1.kind;
+    let mut slot: i64 = __destructured_1.slot;
+    let mut value: crate::runtime::Dyn = __destructured_1.value;
+    let mut body: crate::runtime::Body = __destructured_1.body;
+    let mut saved_pool: i32 = crate::runtime::here_pool_platform();
+    let mut saved_actor: i32 = crate::runtime::here_actor_platform();
+    crate::runtime::set_here_platform(pool, addr);
+    let mut ran: crate::runtime::Ran = crate::runtime::activate_platform(body, kind, slot, value);
+    crate::runtime::set_here_platform(saved_pool, saved_actor);
+    let mut __destructured_2: crate::runtime::Ran = ran;
+    let mut back: crate::runtime::Body = __destructured_2.body;
+    let mut fault: Option<String> = __destructured_2.fault;
+    crate::runtime::__module_use1_0().finish(addr, back, fault);
 }
 
-pub fn run_task(rt: RunTask) {
-    let __destructured29 = rt;
-    let mut pool = __destructured29.pool;
-    let mut body = __destructured29.body;
-    let mut value = __destructured29.value;
-    let mut saved_pool = here_pool_platform();
-    let mut saved_actor = here_actor_platform();
-    set_here_platform(pool.clone(), task_frame());
-    let mut ran = activate_platform(body, 1, 0i64, value);
-    set_here_platform(saved_pool, saved_actor);
-    let __destructured30 = ran;
-    let mut done = __destructured30.body;
-    let mut fault = __destructured30.fault;
-    drop_body_platform(done);
-    __module_use_1().task_done(pool, fault);
+pub fn run_task(mut rt: crate::runtime::RunTask) {
+    let mut __destructured_1: crate::runtime::RunTask = rt;
+    let mut pool: i32 = __destructured_1.pool;
+    let mut body: crate::runtime::Body = __destructured_1.body;
+    let mut value: crate::runtime::Dyn = __destructured_1.value;
+    let mut saved_pool: i32 = crate::runtime::here_pool_platform();
+    let mut saved_actor: i32 = crate::runtime::here_actor_platform();
+    crate::runtime::set_here_platform(pool, crate::runtime::task_frame());
+    let mut ran: crate::runtime::Ran = crate::runtime::activate_platform(body, 1i32, 0i64, value);
+    crate::runtime::set_here_platform(saved_pool, saved_actor);
+    let mut __destructured_2: crate::runtime::Ran = ran;
+    let mut done: crate::runtime::Body = __destructured_2.body;
+    let mut fault: Option<String> = __destructured_2.fault;
+    crate::runtime::drop_body_platform(done);
+    crate::runtime::__module_use1_0().task_done(pool, fault);
 }
 
-pub fn serve_pool(pool: i32) {
-    set_here_platform(pool.clone(), no_frame());
+pub fn serve_pool(mut pool: i32) {
+    crate::runtime::set_here_platform(pool, crate::runtime::no_frame());
     loop {
-        let mut w = __module_use_1().next_work(pool.clone(), this_parker_platform());
-        if matches!(w, Some(Union3::U1(_))) {
-            let mut ra = match w { Some(Union3::U1(__v)) => __v, _ => unreachable!() };
-            run_actor(ra);
-        } else if matches!(w, Some(Union3::U2(_))) {
-            let mut rt = match w { Some(Union3::U2(__v)) => __v, _ => unreachable!() };
-            run_task(rt);
-        } else if matches!(w, Some(Union3::U3(_))) {
+        if !(true) {
+            break;
+        };
+        let mut w: Option<crate::unions::Union3<crate::runtime::RunActor, crate::runtime::RunTask, crate::runtime::Retire>> = crate::runtime::__module_use1_0().next_work(pool, crate::runtime::this_parker_platform());
+        if matches!(w, Some(crate::unions::Union3::U1(_))) {
+            let mut ra = match w { Some(crate::unions::Union3::U1(__v)) => __v, _ => unreachable!() };
+            crate::runtime::run_actor(ra);
+        } else if matches!(w, Some(crate::unions::Union3::U2(_))) {
+            let mut rt = match w { Some(crate::unions::Union3::U2(__v)) => __v, _ => unreachable!() };
+            crate::runtime::run_task(rt);
+        } else if matches!(w, Some(crate::unions::Union3::U3(_))) {
+            let mut w_1 = match &w { Some(crate::unions::Union3::U3(__v)) => __v, _ => unreachable!() };
             return;
         } else {
-            park_platform(&(this_parker_platform()));
-        }
+            crate::runtime::park_platform(&crate::runtime::this_parker_platform());
+        };
     }
 }
 
-pub fn token_to_actor(addr: i32, slot: i64) -> Token {
-    return Token { target: Union3::<ToActor, ToWaiter, ToTask>::U1(ToActor { addr: addr }), slot: slot, tracked: false };
+pub fn token_to_actor(mut addr: i32, mut slot: i64) -> crate::runtime::Token {
+    return crate::runtime::Token { target: crate::unions::Union3::U1(crate::runtime::ToActor { addr: addr }), slot: slot, tracked: false };
 }
 
-pub fn token_to_waiter(wid: i32, slot: i64) -> Token {
-    return Token { target: Union3::<ToActor, ToWaiter, ToTask>::U2(ToWaiter { wid: wid }), slot: slot, tracked: false };
+pub fn token_to_waiter(mut wid: i32, mut slot: i64) -> crate::runtime::Token {
+    return crate::runtime::Token { target: crate::unions::Union3::U2(crate::runtime::ToWaiter { wid: wid }), slot: slot, tracked: false };
 }
-
 
 pub struct Exported {
     pub kind: i32,
     pub id: i32,
     pub slot: i64,
-    pub body: Option<Body>,
+    pub body: Option<crate::runtime::Body>,
 }
 
 impl std::fmt::Debug for Exported {
@@ -2332,84 +2376,86 @@ impl std::fmt::Debug for Exported {
             .field("kind", &self.kind)
             .field("id", &self.id)
             .field("slot", &self.slot)
-            .field("body", &"<fn>")
+            .field("body", &"<opaque>")
             .finish()
     }
 }
 
-pub fn export_token(t: Token) -> Exported {
-    let __destructured31 = t;
-    let mut target = __destructured31.target;
-    let mut slot = __destructured31.slot;
-    let mut tracked = __destructured31.tracked;
-    if matches!(target, Union3::U3(_)) {
-        let mut tt = match target { Union3::U3(__v) => __v, _ => unreachable!() };
-        let __destructured32 = tt;
-        let mut pool = __destructured32.pool;
-        let mut body = __destructured32.body;
-        return Exported { kind: 2, id: pool, slot: slot, body: Some(body) };
-    }
-    let mut kind = 0;
-    let mut id = 0;
-    if matches!(target, Union3::U1(_)) {
-        let mut to = target.u1().clone();
+pub fn export_token(mut t: crate::runtime::Token) -> crate::runtime::Exported {
+    let mut __destructured_1: crate::runtime::Token = t;
+    let mut target: crate::unions::Union3<crate::runtime::ToActor, crate::runtime::ToWaiter, crate::runtime::ToTask> = __destructured_1.target;
+    let mut slot: i64 = __destructured_1.slot;
+    let mut tracked: bool = __destructured_1.tracked;
+    if matches!(target, crate::unions::Union3::U3(_)) {
+        let mut tt = match target { crate::unions::Union3::U3(__v) => __v, _ => unreachable!() };
+        let mut __destructured_2: crate::runtime::ToTask = tt;
+        let mut pool: i32 = __destructured_2.pool;
+        let mut body: crate::runtime::Body = __destructured_2.body;
+        return crate::runtime::Exported { kind: 2i32, id: pool, slot: slot, body: Some(body) };
+    };
+    let mut kind: i32 = 0i32;
+    let mut id: i32 = 0i32;
+    if matches!(target, crate::unions::Union3::U1(_)) {
+        let mut to = match &target { crate::unions::Union3::U1(__v) => __v, _ => unreachable!() };
         id = to.addr;
-    } else if matches!(target, Union3::U2(_)) {
-        let mut tw = target.u2().clone();
-        kind = 1;
+    } else if matches!(target, crate::unions::Union3::U2(_)) {
+        let mut tw = match &target { crate::unions::Union3::U2(__v) => __v, _ => unreachable!() };
+        kind = 1i32;
         id = tw.wid;
-    }
-    return Exported { kind: kind, id: id, slot: slot, body: None };
+    };
+    return crate::runtime::Exported { kind: kind, id: id, slot: slot, body: None };
 }
 
-pub fn drop_exported(e: Exported) {
-    let __destructured33 = e;
-    let mut kind = __destructured33.kind;
-    let mut id = __destructured33.id;
-    let mut slot = __destructured33.slot;
-    let mut body = __destructured33.body;
+pub fn drop_exported(mut e: crate::runtime::Exported) {
+    let mut __destructured_1: crate::runtime::Exported = e;
+    let mut kind: i32 = __destructured_1.kind;
+    let mut id: i32 = __destructured_1.id;
+    let mut slot: i64 = __destructured_1.slot;
+    let mut body: Option<crate::runtime::Body> = __destructured_1.body;
     if body.is_some() {
         let mut b = body.unwrap();
-        drop_body_platform(b);
-    }
+        crate::runtime::drop_body_platform(b);
+    };
 }
 
-pub fn deliver_remote(addr: i32, msg: Dyn, from: i64) -> bool {
-    return __module_use_1().enqueue_remote(addr, msg, from);
+pub fn deliver_remote(mut addr: i32, mut msg: crate::runtime::Dyn, mut from: i64) -> bool {
+    return crate::runtime::__module_use1_0().enqueue_remote(addr, msg, from);
 }
 
-pub fn kill_actor(addr: i32, reason: String) {
-    __module_use_1().kill(addr, reason);
+pub fn kill_actor(mut addr: i32, mut reason: String) {
+    crate::runtime::__module_use1_0().kill(addr, reason);
 }
 
-pub fn mailbox_room(addr: i32) -> i32 {
-    return __module_use_1().room(addr);
+pub fn mailbox_room(mut addr: i32) -> i32 {
+    return crate::runtime::__module_use1_0().room(addr);
 }
 
-pub fn mailbox_queued(addr: i32) -> i32 {
-    return __module_use_1().queued(addr);
+pub fn mailbox_queued(mut addr: i32) -> i32 {
+    return crate::runtime::__module_use1_0().queued(addr);
 }
 
 pub fn current_pool() -> i32 {
-    return here_pool_platform();
+    return crate::runtime::here_pool_platform();
 }
 
-pub fn mailbox_dead(addr: i32) -> bool {
-    return __module_use_1().is_dead(addr);
+pub fn mailbox_dead(mut addr: i32) -> bool {
+    return crate::runtime::__module_use1_0().is_dead(addr);
 }
 
 pub fn identity_bits() -> i64 {
-    return fresh_bits();
+    return crate::runtime::fresh_bits();
 }
 
-pub fn actor_pool(addr: i32) -> i32 {
-    return __module_use_1().pool_of_actor(addr);
+pub fn actor_pool(mut addr: i32) -> i32 {
+    return crate::runtime::__module_use1_0().pool_of_actor(addr);
 }
 
-pub fn waiter_pool(wid: i32) -> i32 {
-    return __module_use_1().pool_of_waiter(wid);
+pub fn waiter_pool(mut wid: i32) -> i32 {
+    return crate::runtime::__module_use1_0().pool_of_waiter(wid);
 }
 
 pub fn spawn_inert() -> i32 {
-    return spawn_body(0, 0, body_of_platform(std::boxed::Box::new(move |kind, slot, value| drop_dyn_platform(value))));
+    return crate::runtime::spawn_body(0i32, 0i32, crate::runtime::body_of_platform(std::boxed::Box::new(move |mut kind: i32, mut slot: i64, mut value: crate::runtime::Dyn| {
+        crate::runtime::drop_dyn_platform(value)
+    })));
 }

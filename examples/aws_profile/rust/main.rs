@@ -1,4 +1,4 @@
-#![allow(non_snake_case, non_camel_case_types, unused_mut, unused_parens, unused_imports, dead_code, unreachable_code, unused_variables, path_statements, unused_must_use, suspicious_double_ref_op, non_upper_case_globals)]
+#![allow(non_snake_case, non_camel_case_types, unused_mut, unused_parens, unused_imports, dead_code, unreachable_code, unused_variables, path_statements, unused_must_use, suspicious_double_ref_op, non_upper_case_globals, unused_braces)]
 #[path = "unions/mod.rs"]
 pub mod unions;
 #[path = "seq.rs"]
@@ -45,18 +45,16 @@ pub mod platform_core_sorted;
 pub mod platform_core_string;
 
 use crate::aws::ProfileCredentials;
-use crate::aws::to_str;
-use crate::core_console::Console;
-use crate::core_console::ConsolePlatformSync as _;
-use crate::core_console::__Stateful_Console as _;
-use crate::core_console::__Stateless_Console as _;
 use crate::core_console::println;
+use crate::aws::to_str;
+
 
 pub fn main() {
-    let console = crate::core_console::Console::shared(crate::core_console::__Platform_StdOutConsole::new());
-    let mut creds = ProfileCredentials { profile: "default".to_string(), path: "~/.aws/credentials".to_string() };
-    println(&console, &(format!("profile: {}", creds.profile.clone())));
-    println(&console, &(format!("path:    {}", creds.path.clone())));
-    let mut staging = ProfileCredentials { profile: "staging".to_string(), path: "/etc/aws/credentials".to_string() };
-    println(&console, &(format!("{}", to_str(&staging))));
+    let mut __use_1: crate::core_console::__Platform_StdOutConsole = crate::core_console::__Platform_StdOutConsole::new();
+    let __handle_2 = crate::core_console::Console::shared(__use_1);
+    let mut creds: crate::aws::ProfileCredentials = crate::aws::ProfileCredentials { profile: String::from("default"), path: String::from("~/.aws/credentials") };
+    crate::core_console::println(&__handle_2, &format!("profile: {}", creds.profile));
+    crate::core_console::println(&__handle_2, &format!("path:    {}", creds.path));
+    let mut staging: crate::aws::ProfileCredentials = crate::aws::ProfileCredentials { profile: String::from("staging"), path: String::from("/etc/aws/credentials") };
+    crate::core_console::println(&__handle_2, &format!("{}", crate::aws::to_str(&staging)));
 }

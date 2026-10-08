@@ -2,25 +2,17 @@
 // the declarations the platform code uses, as the build emits them. Rewritten
 // by every build — do not edit; the build never reads this file.
 // salvo-abi 1 023a4214a13ba612
-use crate::unions::*;
 use crate::aws::AwsError;
-use crate::core_actor::__Stateful_Faults as _;
-use crate::core_actor::__Stateless_Faults as _;
-use crate::core_bytes::Bytes;
-use crate::core_bytes::bytes_of;
 use crate::core_checked::Checked;
-use crate::core_checked::checked;
-use crate::core_checked::ignore;
-use crate::core_list::List;
-use crate::core_map::Map;
-use crate::core_string::Str;
 use crate::stream::InStream;
 use crate::time::Instant;
+use crate::core_map::Map;
+
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PutObjectInput {
     pub acl: Option<String>,
-    pub body: InStream,
+    pub body: crate::stream::InStream,
     pub bucket: String,
     pub cache_control: Option<String>,
     pub content_disposition: Option<String>,
@@ -48,7 +40,7 @@ pub struct PutObjectInput {
     pub grant_write_acp: Option<String>,
     pub key: String,
     pub write_offset_bytes: Option<i64>,
-    pub metadata: Option<Map<String, String>>,
+    pub metadata: Option<crate::core_map::Map<String, String>>,
     pub server_side_encryption: Option<String>,
     pub storage_class: Option<String>,
     pub website_redirect_location: Option<String>,
@@ -61,7 +53,7 @@ pub struct PutObjectInput {
     pub request_payer: Option<String>,
     pub tagging: Option<String>,
     pub object_lock_mode: Option<String>,
-    pub object_lock_retain_until_date: Option<Instant>,
+    pub object_lock_retain_until_date: Option<crate::time::Instant>,
     pub object_lock_legal_hold_status: Option<String>,
     pub object_lock_event_hold: Option<String>,
     pub object_lock_event_hold_duration_days: Option<i32>,
@@ -152,9 +144,9 @@ impl crate::wire::__Wire for PutObjectOutput {
 pub struct GetObjectInput {
     pub bucket: String,
     pub if_match: Option<String>,
-    pub if_modified_since: Option<Instant>,
+    pub if_modified_since: Option<crate::time::Instant>,
     pub if_none_match: Option<String>,
-    pub if_unmodified_since: Option<Instant>,
+    pub if_unmodified_since: Option<crate::time::Instant>,
     pub key: String,
     pub range: Option<String>,
     pub response_cache_control: Option<String>,
@@ -162,7 +154,7 @@ pub struct GetObjectInput {
     pub response_content_encoding: Option<String>,
     pub response_content_language: Option<String>,
     pub response_content_type: Option<String>,
-    pub response_expires: Option<Instant>,
+    pub response_expires: Option<crate::time::Instant>,
     pub version_id: Option<String>,
     pub sse_customer_algorithm: Option<String>,
     pub sse_customer_key: Option<String>,
@@ -226,12 +218,12 @@ impl crate::wire::__Wire for GetObjectInput {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct GetObjectOutput {
-    pub body: InStream,
+    pub body: crate::stream::InStream,
     pub delete_marker: Option<bool>,
     pub accept_ranges: Option<String>,
     pub expiration: Option<String>,
     pub restore: Option<String>,
-    pub last_modified: Option<Instant>,
+    pub last_modified: Option<crate::time::Instant>,
     pub content_length: Option<i64>,
     pub e_tag: Option<String>,
     pub checksum_crc32: Option<String>,
@@ -255,7 +247,7 @@ pub struct GetObjectOutput {
     pub content_type: Option<String>,
     pub website_redirect_location: Option<String>,
     pub server_side_encryption: Option<String>,
-    pub metadata: Option<Map<String, String>>,
+    pub metadata: Option<crate::core_map::Map<String, String>>,
     pub sse_customer_algorithm: Option<String>,
     pub sse_customer_key_md5: Option<String>,
     pub ssekms_key_id: Option<String>,
@@ -266,7 +258,7 @@ pub struct GetObjectOutput {
     pub parts_count: Option<i32>,
     pub tag_count: Option<i32>,
     pub object_lock_mode: Option<String>,
-    pub object_lock_retain_until_date: Option<Instant>,
+    pub object_lock_retain_until_date: Option<crate::time::Instant>,
     pub object_lock_legal_hold_status: Option<String>,
     pub object_lock_event_hold: Option<String>,
     pub object_lock_event_hold_duration_days: Option<i32>,
@@ -304,26 +296,26 @@ impl crate::wire::__Wire for S3Error {
     }
 }
 
-pub type S3Failure = Union2<S3Error, AwsError>;
+pub type S3Failure = crate::unions::Union2<crate::aws_s3::S3Error, crate::aws::AwsError>;
 
 /// Factories for the host: one per arm of the union [platform-factory].
 impl S3Failure {
-    pub fn s3_error(value: S3Error) -> Self {
+    pub fn s3_error(value: crate::aws_s3::S3Error) -> Self {
         crate::unions::Union2::U1(value)
     }
-    pub fn aws_error(value: AwsError) -> Self {
+    pub fn aws_error(value: crate::aws::AwsError) -> Self {
         crate::unions::Union2::U2(value)
     }
 }
 
 pub trait __Stateless_S3: Send + Sync {
-    fn put_object(&self, input: PutObjectInput, reply: crate::scheduler::SalvoReply);
-    fn get_object(&self, input: GetObjectInput, reply: crate::scheduler::SalvoReply);
+    fn put_object(&self, input: crate::aws_s3::PutObjectInput, reply: crate::scheduler::SalvoReply);
+    fn get_object(&self, input: crate::aws_s3::GetObjectInput, reply: crate::scheduler::SalvoReply);
 }
 
 pub trait __Stateful_S3: Send {
-    fn put_object(&mut self, input: PutObjectInput, reply: crate::scheduler::SalvoReply);
-    fn get_object(&mut self, input: GetObjectInput, reply: crate::scheduler::SalvoReply);
+    fn put_object(&mut self, input: crate::aws_s3::PutObjectInput, reply: crate::scheduler::SalvoReply);
+    fn get_object(&mut self, input: crate::aws_s3::GetObjectInput, reply: crate::scheduler::SalvoReply);
 }
 
 pub struct S3 {
@@ -357,13 +349,13 @@ impl S3 {
     pub fn share_locked(inner: std::sync::Arc<std::sync::Mutex<dyn __Stateful_S3>>) -> Self {
         Self { inner: __Inner_S3::Locked(inner) }
     }
-    pub fn put_object(&self, input: PutObjectInput, reply: crate::scheduler::SalvoReply) {
+    pub fn put_object(&self, input: crate::aws_s3::PutObjectInput, reply: crate::scheduler::SalvoReply) {
         match &self.inner {
             __Inner_S3::Shared(h) => h.put_object(input, reply),
             __Inner_S3::Locked(h) => h.lock().unwrap().put_object(input, reply),
         }
     }
-    pub fn get_object(&self, input: GetObjectInput, reply: crate::scheduler::SalvoReply) {
+    pub fn get_object(&self, input: crate::aws_s3::GetObjectInput, reply: crate::scheduler::SalvoReply) {
         match &self.inner {
             __Inner_S3::Shared(h) => h.get_object(input, reply),
             __Inner_S3::Locked(h) => h.lock().unwrap().get_object(input, reply),
@@ -376,15 +368,15 @@ pub struct __Platform_S3<T>(pub T);
 
 /// What a `threadsafe platform handler` of `S3` implements [platform-abi].
 pub trait S3PlatformSync: Send + Sync {
-    fn put_object(&self, input: PutObjectInput, reply: crate::scheduler::SalvoReply);
-    fn get_object(&self, input: GetObjectInput, reply: crate::scheduler::SalvoReply);
+    fn put_object(&self, input: crate::aws_s3::PutObjectInput, reply: crate::scheduler::SalvoReply);
+    fn get_object(&self, input: crate::aws_s3::GetObjectInput, reply: crate::scheduler::SalvoReply);
 }
 
 impl<T: S3PlatformSync> __Stateless_S3 for __Platform_S3<T> {
-    fn put_object(&self, input: PutObjectInput, reply: crate::scheduler::SalvoReply) {
+    fn put_object(&self, input: crate::aws_s3::PutObjectInput, reply: crate::scheduler::SalvoReply) {
         self.0.put_object(input, reply)
     }
-    fn get_object(&self, input: GetObjectInput, reply: crate::scheduler::SalvoReply) {
+    fn get_object(&self, input: crate::aws_s3::GetObjectInput, reply: crate::scheduler::SalvoReply) {
         self.0.get_object(input, reply)
     }
 }
@@ -393,10 +385,10 @@ impl<T: S3PlatformSync> __Stateless_S3 for __Platform_S3<T> {
 pub struct PutObject;
 
 impl PutObject {
-    pub fn ok(value: PutObjectOutput) -> Union2<PutObjectOutput, Checked<Union2<S3Error, AwsError>>> {
+    pub fn ok(value: crate::aws_s3::PutObjectOutput) -> crate::unions::Union2<crate::aws_s3::PutObjectOutput, crate::core_checked::Checked<crate::unions::Union2<crate::aws_s3::S3Error, crate::aws::AwsError>>> {
         crate::unions::Union2::U1(value)
     }
-    pub fn err(value: Checked<Union2<S3Error, AwsError>>) -> Union2<PutObjectOutput, Checked<Union2<S3Error, AwsError>>> {
+    pub fn err(value: crate::core_checked::Checked<crate::unions::Union2<crate::aws_s3::S3Error, crate::aws::AwsError>>) -> crate::unions::Union2<crate::aws_s3::PutObjectOutput, crate::core_checked::Checked<crate::unions::Union2<crate::aws_s3::S3Error, crate::aws::AwsError>>> {
         crate::unions::Union2::U2(value)
     }
 }
@@ -405,10 +397,10 @@ impl PutObject {
 pub struct GetObject;
 
 impl GetObject {
-    pub fn ok(value: GetObjectOutput) -> Union2<GetObjectOutput, Checked<Union2<S3Error, AwsError>>> {
+    pub fn ok(value: crate::aws_s3::GetObjectOutput) -> crate::unions::Union2<crate::aws_s3::GetObjectOutput, crate::core_checked::Checked<crate::unions::Union2<crate::aws_s3::S3Error, crate::aws::AwsError>>> {
         crate::unions::Union2::U1(value)
     }
-    pub fn err(value: Checked<Union2<S3Error, AwsError>>) -> Union2<GetObjectOutput, Checked<Union2<S3Error, AwsError>>> {
+    pub fn err(value: crate::core_checked::Checked<crate::unions::Union2<crate::aws_s3::S3Error, crate::aws::AwsError>>) -> crate::unions::Union2<crate::aws_s3::GetObjectOutput, crate::core_checked::Checked<crate::unions::Union2<crate::aws_s3::S3Error, crate::aws::AwsError>>> {
         crate::unions::Union2::U2(value)
     }
 }

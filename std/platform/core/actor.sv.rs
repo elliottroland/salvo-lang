@@ -2,23 +2,14 @@
 // the declarations the platform code uses, as the build emits them. Rewritten
 // by every build — do not edit; the build never reads this file.
 // salvo-abi 1 5cd1832c3b5d03f1
-use crate::core_string::Str;
-use crate::runtime::RuntimeHostPlatformSync as _;
 use crate::runtime::Token;
-use crate::runtime::__Stateful_RuntimeHost as _;
-use crate::runtime::__Stateful_SchedTable as _;
-use crate::runtime::__Stateless_RuntimeHost as _;
-use crate::runtime::__Stateless_SchedTable as _;
-use crate::runtime::new_pool_of;
-use crate::runtime::on_idle as on_idle__runtime;
-use crate::runtime::watch as watch__runtime;
-use crate::runtime_routing::__Stateful_RouteTable as _;
-use crate::runtime_routing::__Stateless_RouteTable as _;
 use crate::runtime_routing::adopt;
+use crate::runtime::new_pool_of;
 use crate::runtime_routing::same_actor;
 
-pub fn eq(a: &usize, b: &usize) -> bool {
-    return same_actor((((a).clone()) as i32), (((b).clone()) as i32));
+
+pub fn eq(mut a: usize, mut b: usize) -> bool {
+    return crate::runtime_routing::same_actor((((a).clone()) as i32), (((b).clone()) as i32));
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -37,9 +28,9 @@ impl crate::wire::__Wire for Mailbox {
     }
 }
 
-pub fn pool(size: i32) -> usize {
-    let mut p = new_pool_of(size, -1);
-    adopt(p.clone());
+pub fn pool(mut size: i32) -> usize {
+    let mut p: i32 = crate::runtime::new_pool_of(size, i32::wrapping_neg(1i32));
+    crate::runtime_routing::adopt(p);
     return ((p) as usize);
 }
 
@@ -60,27 +51,11 @@ impl crate::wire::__Wire for Fault {
 }
 
 pub trait __Stateless_Faults: Send + Sync {
-    fn faulted(&self, fault: Fault);
+    fn faulted(&self, fault: crate::core_actor::Fault);
 }
 
 pub trait __Stateful_Faults: Send {
-    fn faulted(&mut self, fault: Fault);
-}
-
-pub struct __Stub_Faults {
-    addr: usize,
-}
-
-impl __Stub_Faults {
-    pub fn new(addr: usize) -> Self {
-        Self { addr }
-    }
-}
-
-impl __Stateless_Faults for __Stub_Faults {
-    fn faulted(&self, fault: Fault) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_Faults::Faulted(fault), crate::core_actor::__PROTO_Faults);
-    }
+    fn faulted(&mut self, fault: crate::core_actor::Fault);
 }
 
 pub struct Faults {
@@ -114,7 +89,7 @@ impl Faults {
     pub fn share_locked(inner: std::sync::Arc<std::sync::Mutex<dyn __Stateful_Faults>>) -> Self {
         Self { inner: __Inner_Faults::Locked(inner) }
     }
-    pub fn faulted(&self, fault: Fault) {
+    pub fn faulted(&self, fault: crate::core_actor::Fault) {
         match &self.inner {
             __Inner_Faults::Shared(h) => h.faulted(fault),
             __Inner_Faults::Locked(h) => h.lock().unwrap().faulted(fault),
@@ -123,7 +98,7 @@ impl Faults {
 }
 
 pub enum __Msg_Faults {
-    Faulted(Fault),
+    Faulted(crate::core_actor::Fault),
 }
 
 impl crate::wire::__Wire for __Msg_Faults {
@@ -146,6 +121,22 @@ impl crate::wire::__Wire for __Msg_Faults {
 /// [protocol-hash] The canonical hash of `Faults`.
 pub const __PROTO_Faults: &str = "b2ab28f759af3855";
 
+pub struct __Stub_Faults {
+    addr: usize,
+}
+
+impl __Stub_Faults {
+    pub fn new(addr: usize) -> Self {
+        Self { addr }
+    }
+}
+
+impl __Stateless_Faults for __Stub_Faults {
+    fn faulted(&self, fault: crate::core_actor::Fault) {
+        crate::scheduler::salvo_send_wire(self.addr, __Msg_Faults::Faulted(fault), crate::core_actor::__PROTO_Faults);
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Exit {
     pub reason: String,
@@ -162,12 +153,12 @@ impl crate::wire::__Wire for Exit {
     }
 }
 
-pub fn watch(target: &usize, on_exit: crate::scheduler::SalvoReply) {
-    let mut __is1 = (on_exit).take_local();
-    if __is1.is_some() {
-        let mut t = __is1.unwrap();
-        watch__runtime((((target).clone()) as i32), t);
-    }
+pub fn watch(mut target: usize, mut on_exit: crate::scheduler::SalvoReply) {
+    let mut __subject_1: Option<crate::runtime::Token> = (on_exit).take_local();
+    if __subject_1.is_some() {
+        let mut t = __subject_1.unwrap();
+        crate::runtime::watch((((target).clone()) as i32), t);
+    };
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -189,10 +180,10 @@ impl crate::wire::__Wire for Idle {
     }
 }
 
-pub fn on_idle(p: &usize, notify: crate::scheduler::SalvoReply) {
-    let mut __is2 = (notify).take_local();
-    if __is2.is_some() {
-        let mut t = __is2.unwrap();
-        on_idle__runtime((((p).clone()) as i32), t);
-    }
+pub fn on_idle(mut p: usize, mut notify: crate::scheduler::SalvoReply) {
+    let mut __subject_1: Option<crate::runtime::Token> = (notify).take_local();
+    if __subject_1.is_some() {
+        let mut t = __subject_1.unwrap();
+        crate::runtime::on_idle((((p).clone()) as i32), t);
+    };
 }

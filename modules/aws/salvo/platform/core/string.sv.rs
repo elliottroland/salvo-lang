@@ -2,25 +2,22 @@
 // the declarations the platform code uses, as the build emits them. Rewritten
 // by every build — do not edit; the build never reads this file.
 // salvo-abi 1 023a4214a13ba612
-use crate::unions::*;
 use crate::core_iterator::Finished;
+use crate::core_list::add_platform;
 use crate::core_iterator::emitted;
 use crate::core_iterator::finished;
-use crate::core_list::List;
-use crate::core_list::at;
-use crate::core_list::contains;
-use crate::core_list::last_index_of;
 use crate::core_list::remove_back;
+
 
 /// [platform-type] The host's `Str`.
 pub use crate::platform_core_string::Str;
 const _: fn() = || { fn __contract<T: Send + 'static + Clone + std::fmt::Debug + PartialEq + Eq + std::hash::Hash>() {} __contract::<Str>(); };
 const _: fn() = || { fn __each(x: &Str) -> impl Iterator<Item = char> + '_ { crate::platform_core_string::each(x).map(|e| e.clone()) } let _ = __each; };
 
-pub fn mut_str(parts: Vec<String>) -> String {
-    let mut out = empty_str_platform();
-    for part in &parts {
-        append_platform(&mut out, part);
+pub fn mut_str(mut parts: Vec<String>) -> String {
+    let mut out: String = crate::core_string::empty_str_platform();
+    for mut part in parts.iter().cloned() {
+        crate::core_string::append_platform(&mut out, &part);
     }
     return out;
 }
@@ -37,12 +34,12 @@ pub fn byte_size_platform(str: &String) -> i64 {
     crate::platform_core_string::byte_size(str)
 }
 
-pub fn char_at_platform(str: &String, index: i32) -> Option<char> {
+pub fn char_at_platform(str: &String, mut index: i32) -> Option<char> {
     crate::platform_core_string::char_at(str, index)
 }
 
-pub fn iter(str: &String) -> StrYield<'_> {
-    return StrYield { text: str, at: 0 };
+pub fn iter(str: &String) -> crate::core_string::StrYield<'_> {
+    return crate::core_string::StrYield { text: str, at: 0i32 };
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -51,13 +48,14 @@ pub struct StrYield<'s> {
     pub at: i32,
 }
 
-pub fn next(p: &mut StrYield<'_>) -> Union2<char, Finished> {
-    let mut chr = char_at_platform(&p.text, p.at);
+pub fn next(p: &mut crate::core_string::StrYield<'_>) -> crate::unions::Union2<char, crate::core_iterator::Finished> {
+    let mut chr: Option<char> = crate::core_string::char_at_platform(p.text, p.at);
     if chr.is_none() {
-        return Union2::<char, Finished>::U2(finished());
-    }
-    p.at = i32::wrapping_add(p.at, 1);
-    return Union2::<char, Finished>::U1(emitted(chr.unwrap()));
+        return crate::unions::Union2::U2(crate::core_iterator::finished());
+    };
+    p.at = i32::wrapping_add(p.at, 1i32);
+    let mut chr_1 = chr.unwrap();
+    return crate::unions::Union2::U1(crate::core_iterator::emitted::<char>(chr_1));
 }
 
 pub fn split_platform(str: &String, sep: &String) -> Vec<String> {
@@ -68,11 +66,11 @@ pub fn index_of_platform(str: &String, needle: &String) -> Option<i32> {
     crate::platform_core_string::index_of(str, needle)
 }
 
-pub fn index_of(str: &String, needle: &String, from: i32) -> Option<i32> {
-    return index_of_from_platform(str, needle, from);
+pub fn index_of(str: &String, needle: &String, mut from: i32) -> Option<i32> {
+    return crate::core_string::index_of_from_platform(str, needle, from);
 }
 
-pub fn index_of_from_platform(str: &String, needle: &String, from: i32) -> Option<i32> {
+pub fn index_of_from_platform(str: &String, needle: &String, mut from: i32) -> Option<i32> {
     crate::platform_core_string::index_of_from(str, needle, from)
 }
 
@@ -116,7 +114,7 @@ pub fn trim_suffix_platform(str: &String, suffix: &String) -> String {
     crate::platform_core_string::trim_suffix(str, suffix)
 }
 
-pub fn substr_platform(str: &String, start: i32, end: i32) -> Option<String> {
+pub fn substr_platform(str: &String, mut start: i32, mut end: i32) -> Option<String> {
     crate::platform_core_string::substr(str, start, end)
 }
 
@@ -139,12 +137,20 @@ impl crate::wire::__Wire for Span {
     }
 }
 
-pub fn SpanOf__Span_qualifies(span: &Span, str: &String) -> bool {
-    return span.start >= 0 && span.start <= span.end && span.end <= size_platform(str);
+pub fn SpanOf__Span_qualifies(span: &crate::core_string::Span, str: &String) -> bool {
+    return (((span.start >= 0i32) && (span.start <= span.end)) && (span.end <= crate::core_string::size_platform(str)));
 }
 
-pub fn substr(str: &String, at: &Span) -> String {
-    return substr_platform(str, at.start, at.end).expect("salvo: value is absent at core.string:150:12");
+pub fn substr(str: &String, at: &crate::core_string::Span) -> String {
+    return {
+        let mut __nn_1: Option<String> = crate::core_string::substr_platform(str, at.start, at.end);
+        if __nn_1.is_none() {
+            panic!("salvo: value is absent at core.string:150:12");
+        } else {
+            let mut __some_2 = __nn_1.unwrap();
+            __some_2
+        }
+    };
 }
 
 pub fn to_upper_platform(str: &String) -> String {
@@ -167,7 +173,7 @@ pub fn append_platform(str: &mut String, text: &String) {
     crate::platform_core_string::append(str, text)
 }
 
-pub fn set_platform(str: &mut String, index: i32, chr: char) -> bool {
+pub fn set_platform(str: &mut String, mut index: i32, mut chr: char) -> bool {
     crate::platform_core_string::set(str, index, chr)
 }
 
@@ -176,49 +182,84 @@ pub fn clear_platform(str: &mut String) {
 }
 
 pub fn is_empty(str: &String) -> bool {
-    return size_platform(str) == 0;
+    return ((crate::core_string::size_platform(str)) == (0i32));
 }
 
-pub fn repeat(str: &String, n: i32) -> String {
-    let mut out = mut_str(vec![]);
-    let mut i = 0;
-    while i < n {
-        append_platform(&mut out, str);
-        i = i32::wrapping_add(i, 1);
+pub fn repeat(str: &String, mut n: i32) -> String {
+    let mut out: String = crate::core_string::mut_str(vec![]);
+    let mut i: i32 = 0i32;
+    loop {
+        if !((i < n)) {
+            break;
+        };
+        crate::core_string::append_platform(&mut out, str);
+        i = i32::wrapping_add(i, 1i32);
     }
     return out;
 }
 
 pub fn lines(str: &String) -> Vec<String> {
-    let mut parts = split_platform(str, &("\n".to_string()));
-    if crate::core_list::size_platform(&parts) > 1 && ends_with_platform(str, &("\n".to_string())) {
-        let mut _end = remove_back(&mut parts, 1);
-    }
-    let mut out = vec![];
-    for p in crate::platform_core_list::each(&parts) {
-        crate::core_list::add_platform(&mut out, trim_suffix_platform(p, &("\r".to_string())));
+    let mut parts: Vec<String> = crate::core_string::split_platform(str, &String::from("\n"));
+    if ((crate::core_list::size_platform::<String>(&parts) > 1i32) && crate::core_string::ends_with_platform(str, &String::from("\n"))) {
+        let mut _end: Vec<String> = crate::core_list::remove_back::<String>(&mut parts, 1i32);
+    };
+    let mut out: Vec<String> = vec![];
+    for mut p in parts.iter() {
+        crate::core_list::add_platform::<String>(&mut out, crate::core_string::trim_suffix_platform(p, &String::from("\r")));
     }
     return out;
 }
 
 pub fn split_once(str: &String, sep: &String) -> Option<(String, String)> {
-    let mut at = index_of_platform(str, sep);
+    let mut at: Option<i32> = crate::core_string::index_of_platform(str, sep);
     if at.is_some() {
         let mut i = at.unwrap();
-        let mut before = { let __pick1 = substr_platform(str, 0, i.clone()); if __pick1.is_some() { __pick1.as_ref().unwrap().clone() } else { "".to_string() } };
-        let mut after = { let __pick2 = substr_platform(str, i32::wrapping_add(i, size_platform(sep)), size_platform(str)); if __pick2.is_some() { __pick2.as_ref().unwrap().clone() } else { "".to_string() } };
-        return Some((before, after));
-    }
+        let mut before: String = {
+            let mut __elv_1: Option<String> = crate::core_string::substr_platform(str, 0i32, i);
+            if __elv_1.is_none() {
+                String::from("")
+            } else {
+                let mut __some_2 = __elv_1.unwrap();
+                __some_2
+            }
+        };
+        let mut after: String = {
+            let mut __elv_3: Option<String> = crate::core_string::substr_platform(str, i32::wrapping_add(i, crate::core_string::size_platform(sep)), crate::core_string::size_platform(str));
+            if __elv_3.is_none() {
+                String::from("")
+            } else {
+                let mut __some_4 = __elv_3.unwrap();
+                __some_4
+            }
+        };
+        return Some((before.clone(), after.clone()));
+    };
     return None;
 }
 
 pub fn split_last(str: &String, sep: &String) -> Option<(String, String)> {
-    let mut at = last_index_of_platform(str, sep);
+    let mut at: Option<i32> = crate::core_string::last_index_of_platform(str, sep);
     if at.is_some() {
         let mut i = at.unwrap();
-        let mut before = { let __pick3 = substr_platform(str, 0, i.clone()); if __pick3.is_some() { __pick3.as_ref().unwrap().clone() } else { "".to_string() } };
-        let mut after = { let __pick4 = substr_platform(str, i32::wrapping_add(i, size_platform(sep)), size_platform(str)); if __pick4.is_some() { __pick4.as_ref().unwrap().clone() } else { "".to_string() } };
-        return Some((before, after));
-    }
+        let mut before: String = {
+            let mut __elv_1: Option<String> = crate::core_string::substr_platform(str, 0i32, i);
+            if __elv_1.is_none() {
+                String::from("")
+            } else {
+                let mut __some_2 = __elv_1.unwrap();
+                __some_2
+            }
+        };
+        let mut after: String = {
+            let mut __elv_3: Option<String> = crate::core_string::substr_platform(str, i32::wrapping_add(i, crate::core_string::size_platform(sep)), crate::core_string::size_platform(str));
+            if __elv_3.is_none() {
+                String::from("")
+            } else {
+                let mut __some_4 = __elv_3.unwrap();
+                __some_4
+            }
+        };
+        return Some((before.clone(), after.clone()));
+    };
     return None;
 }

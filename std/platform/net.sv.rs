@@ -2,55 +2,8 @@
 // the declarations the platform code uses, as the build emits them. Rewritten
 // by every build — do not edit; the build never reads this file.
 // salvo-abi 1 5cd1832c3b5d03f1
-use crate::unions::*;
-use crate::core_actor::Mailbox;
-use crate::core_actor::__Stateful_Faults as _;
-use crate::core_actor::__Stateless_Faults as _;
-use crate::core_actor::pool;
 use crate::core_bytes::Bytes;
-use crate::core_checked::detach;
-use crate::core_compare::mix_hash;
-use crate::core_list::List;
-use crate::core_list::all;
-use crate::core_list::at;
-use crate::core_list::contains;
-use crate::core_list::count;
-use crate::core_list::last;
-use crate::core_map::Map;
-use crate::core_map::mut_map_of_platform;
-use crate::core_set::Set;
-use crate::core_set::mut_set_of_platform;
-use crate::core_string::Str;
-use crate::runtime::RuntimeHostPlatformSync as _;
-use crate::runtime::__Stateful_RuntimeHost as _;
-use crate::runtime::__Stateful_SchedTable as _;
-use crate::runtime::__Stateless_RuntimeHost as _;
-use crate::runtime::__Stateless_SchedTable as _;
-use crate::runtime_routing::RemoteRef;
-use crate::runtime_routing::__Stateful_RouteTable as _;
-use crate::runtime_routing::__Stateless_RouteTable as _;
-use crate::runtime_routing::connected;
-use crate::runtime_routing::control_frame;
-use crate::runtime_routing::credits;
-use crate::runtime_routing::deliver;
-use crate::runtime_routing::here_node;
-use crate::runtime_routing::identity;
-use crate::runtime_routing::local_protocols;
-use crate::runtime_routing::new_node;
-use crate::runtime_routing::node_left;
-use crate::runtime_routing::outbound_bound;
-use crate::runtime_routing::peer_protocol;
-use crate::runtime_routing::pending;
-use crate::runtime_routing::pool_at;
-use crate::runtime_routing::route;
-use crate::runtime_routing::send_control;
-use crate::runtime_routing::set_peer_protocols;
-use crate::runtime_routing::view_members;
-use crate::runtime_routing::view_refresh;
-use crate::runtime_routing::view_set;
-use crate::runtime_routing::view_version;
-use crate::runtime_routing::view_wait;
-use crate::runtime_routing::watch_control;
+
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct NodeEndpoint {
@@ -73,7 +26,7 @@ impl crate::wire::__Wire for NodeEndpoint {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Unreachable {
-    pub to: NodeEndpoint,
+    pub to: crate::net::NodeEndpoint,
 }
 
 impl crate::wire::__Wire for Unreachable {
@@ -89,7 +42,7 @@ impl crate::wire::__Wire for Unreachable {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct WireFailed {
-    pub to: NodeEndpoint,
+    pub to: crate::net::NodeEndpoint,
     pub reason: String,
 }
 
@@ -106,40 +59,24 @@ impl crate::wire::__Wire for WireFailed {
     }
 }
 
-pub type NetError = Union2<Unreachable, WireFailed>;
+pub type NetError = crate::unions::Union2<crate::net::Unreachable, crate::net::WireFailed>;
 
 /// Factories for the host: one per arm of the union [platform-factory].
 impl NetError {
-    pub fn unreachable(value: Unreachable) -> Self {
+    pub fn unreachable(value: crate::net::Unreachable) -> Self {
         crate::unions::Union2::U1(value)
     }
-    pub fn wire_failed(value: WireFailed) -> Self {
+    pub fn wire_failed(value: crate::net::WireFailed) -> Self {
         crate::unions::Union2::U2(value)
     }
 }
 
 pub trait __Stateless_Inbound: Send + Sync {
-    fn receive_frame(&self, from: NodeEndpoint, frame: Bytes);
+    fn receive_frame(&self, from: crate::net::NodeEndpoint, frame: crate::core_bytes::Bytes);
 }
 
 pub trait __Stateful_Inbound: Send {
-    fn receive_frame(&mut self, from: NodeEndpoint, frame: Bytes);
-}
-
-pub struct __Stub_Inbound {
-    addr: usize,
-}
-
-impl __Stub_Inbound {
-    pub fn new(addr: usize) -> Self {
-        Self { addr }
-    }
-}
-
-impl __Stateless_Inbound for __Stub_Inbound {
-    fn receive_frame(&self, from: NodeEndpoint, frame: Bytes) {
-        crate::scheduler::salvo_send_wire(self.addr, __Msg_Inbound::ReceiveFrame(from, frame), crate::net::__PROTO_Inbound);
-    }
+    fn receive_frame(&mut self, from: crate::net::NodeEndpoint, frame: crate::core_bytes::Bytes);
 }
 
 pub struct Inbound {
@@ -173,7 +110,7 @@ impl Inbound {
     pub fn share_locked(inner: std::sync::Arc<std::sync::Mutex<dyn __Stateful_Inbound>>) -> Self {
         Self { inner: __Inner_Inbound::Locked(inner) }
     }
-    pub fn receive_frame(&self, from: NodeEndpoint, frame: Bytes) {
+    pub fn receive_frame(&self, from: crate::net::NodeEndpoint, frame: crate::core_bytes::Bytes) {
         match &self.inner {
             __Inner_Inbound::Shared(h) => h.receive_frame(from, frame),
             __Inner_Inbound::Locked(h) => h.lock().unwrap().receive_frame(from, frame),
@@ -182,7 +119,7 @@ impl Inbound {
 }
 
 pub enum __Msg_Inbound {
-    ReceiveFrame(NodeEndpoint, Bytes),
+    ReceiveFrame(crate::net::NodeEndpoint, crate::core_bytes::Bytes),
 }
 
 impl crate::wire::__Wire for __Msg_Inbound {
@@ -206,18 +143,34 @@ impl crate::wire::__Wire for __Msg_Inbound {
 /// [protocol-hash] The canonical hash of `Inbound`.
 pub const __PROTO_Inbound: &str = "8e46ddb2a3e90b03";
 
+pub struct __Stub_Inbound {
+    addr: usize,
+}
+
+impl __Stub_Inbound {
+    pub fn new(addr: usize) -> Self {
+        Self { addr }
+    }
+}
+
+impl __Stateless_Inbound for __Stub_Inbound {
+    fn receive_frame(&self, from: crate::net::NodeEndpoint, frame: crate::core_bytes::Bytes) {
+        crate::scheduler::salvo_send_wire(self.addr, __Msg_Inbound::ReceiveFrame(from, frame), crate::net::__PROTO_Inbound);
+    }
+}
+
 pub trait __Stateless_Transport: Send + Sync {
-    fn listen(&self, at: &NodeEndpoint, sink: usize) -> Union2<(), Union2<Unreachable, WireFailed>>;
-    fn unlisten(&self, at: &NodeEndpoint);
-    fn deliver(&self, to: &NodeEndpoint, frame: Bytes) -> Union2<(), Union2<Unreachable, WireFailed>>;
-    fn local_endpoint(&self) -> NodeEndpoint;
+    fn listen(&self, at: &crate::net::NodeEndpoint, sink: usize) -> crate::unions::Union2<(), crate::unions::Union2<crate::net::Unreachable, crate::net::WireFailed>>;
+    fn unlisten(&self, at: &crate::net::NodeEndpoint);
+    fn deliver(&self, to: &crate::net::NodeEndpoint, frame: crate::core_bytes::Bytes) -> crate::unions::Union2<(), crate::unions::Union2<crate::net::Unreachable, crate::net::WireFailed>>;
+    fn local_endpoint(&self) -> crate::net::NodeEndpoint;
 }
 
 pub trait __Stateful_Transport: Send {
-    fn listen(&mut self, at: &NodeEndpoint, sink: usize) -> Union2<(), Union2<Unreachable, WireFailed>>;
-    fn unlisten(&mut self, at: &NodeEndpoint);
-    fn deliver(&mut self, to: &NodeEndpoint, frame: Bytes) -> Union2<(), Union2<Unreachable, WireFailed>>;
-    fn local_endpoint(&mut self) -> NodeEndpoint;
+    fn listen(&mut self, at: &crate::net::NodeEndpoint, sink: usize) -> crate::unions::Union2<(), crate::unions::Union2<crate::net::Unreachable, crate::net::WireFailed>>;
+    fn unlisten(&mut self, at: &crate::net::NodeEndpoint);
+    fn deliver(&mut self, to: &crate::net::NodeEndpoint, frame: crate::core_bytes::Bytes) -> crate::unions::Union2<(), crate::unions::Union2<crate::net::Unreachable, crate::net::WireFailed>>;
+    fn local_endpoint(&mut self) -> crate::net::NodeEndpoint;
 }
 
 pub struct Transport {
@@ -251,25 +204,25 @@ impl Transport {
     pub fn share_locked(inner: std::sync::Arc<std::sync::Mutex<dyn __Stateful_Transport>>) -> Self {
         Self { inner: __Inner_Transport::Locked(inner) }
     }
-    pub fn listen(&self, at: &NodeEndpoint, sink: usize) -> Union2<(), Union2<Unreachable, WireFailed>> {
+    pub fn listen(&self, at: &crate::net::NodeEndpoint, sink: usize) -> crate::unions::Union2<(), crate::unions::Union2<crate::net::Unreachable, crate::net::WireFailed>> {
         match &self.inner {
             __Inner_Transport::Shared(h) => h.listen(at, sink),
             __Inner_Transport::Locked(h) => h.lock().unwrap().listen(at, sink),
         }
     }
-    pub fn unlisten(&self, at: &NodeEndpoint) {
+    pub fn unlisten(&self, at: &crate::net::NodeEndpoint) {
         match &self.inner {
             __Inner_Transport::Shared(h) => h.unlisten(at),
             __Inner_Transport::Locked(h) => h.lock().unwrap().unlisten(at),
         }
     }
-    pub fn deliver(&self, to: &NodeEndpoint, frame: Bytes) -> Union2<(), Union2<Unreachable, WireFailed>> {
+    pub fn deliver(&self, to: &crate::net::NodeEndpoint, frame: crate::core_bytes::Bytes) -> crate::unions::Union2<(), crate::unions::Union2<crate::net::Unreachable, crate::net::WireFailed>> {
         match &self.inner {
             __Inner_Transport::Shared(h) => h.deliver(to, frame),
             __Inner_Transport::Locked(h) => h.lock().unwrap().deliver(to, frame),
         }
     }
-    pub fn local_endpoint(&self) -> NodeEndpoint {
+    pub fn local_endpoint(&self) -> crate::net::NodeEndpoint {
         match &self.inner {
             __Inner_Transport::Shared(h) => h.local_endpoint(),
             __Inner_Transport::Locked(h) => h.lock().unwrap().local_endpoint(),
@@ -282,23 +235,23 @@ pub struct __Platform_Transport<T>(pub T);
 
 /// What a `threadsafe platform handler` of `Transport` implements [platform-abi].
 pub trait TransportPlatformSync: Send + Sync {
-    fn listen(&self, at: &NodeEndpoint, sink: usize) -> Union2<(), Union2<Unreachable, WireFailed>>;
-    fn unlisten(&self, at: &NodeEndpoint);
-    fn deliver(&self, to: &NodeEndpoint, frame: Bytes) -> Union2<(), Union2<Unreachable, WireFailed>>;
-    fn local_endpoint(&self) -> NodeEndpoint;
+    fn listen(&self, at: &crate::net::NodeEndpoint, sink: usize) -> crate::unions::Union2<(), crate::unions::Union2<crate::net::Unreachable, crate::net::WireFailed>>;
+    fn unlisten(&self, at: &crate::net::NodeEndpoint);
+    fn deliver(&self, to: &crate::net::NodeEndpoint, frame: crate::core_bytes::Bytes) -> crate::unions::Union2<(), crate::unions::Union2<crate::net::Unreachable, crate::net::WireFailed>>;
+    fn local_endpoint(&self) -> crate::net::NodeEndpoint;
 }
 
 impl<T: TransportPlatformSync> __Stateless_Transport for __Platform_Transport<T> {
-    fn listen(&self, at: &NodeEndpoint, sink: usize) -> Union2<(), Union2<Unreachable, WireFailed>> {
+    fn listen(&self, at: &crate::net::NodeEndpoint, sink: usize) -> crate::unions::Union2<(), crate::unions::Union2<crate::net::Unreachable, crate::net::WireFailed>> {
         self.0.listen(at, sink)
     }
-    fn unlisten(&self, at: &NodeEndpoint) {
+    fn unlisten(&self, at: &crate::net::NodeEndpoint) {
         self.0.unlisten(at)
     }
-    fn deliver(&self, to: &NodeEndpoint, frame: Bytes) -> Union2<(), Union2<Unreachable, WireFailed>> {
+    fn deliver(&self, to: &crate::net::NodeEndpoint, frame: crate::core_bytes::Bytes) -> crate::unions::Union2<(), crate::unions::Union2<crate::net::Unreachable, crate::net::WireFailed>> {
         self.0.deliver(to, frame)
     }
-    fn local_endpoint(&self) -> NodeEndpoint {
+    fn local_endpoint(&self) -> crate::net::NodeEndpoint {
         self.0.local_endpoint()
     }
 }
@@ -307,10 +260,10 @@ impl<T: TransportPlatformSync> __Stateless_Transport for __Platform_Transport<T>
 pub struct Listen;
 
 impl Listen {
-    pub fn ok(value: ()) -> Union2<(), Union2<Unreachable, WireFailed>> {
+    pub fn ok(value: ()) -> crate::unions::Union2<(), crate::unions::Union2<crate::net::Unreachable, crate::net::WireFailed>> {
         crate::unions::Union2::U1(value)
     }
-    pub fn err(value: Union2<Unreachable, WireFailed>) -> Union2<(), Union2<Unreachable, WireFailed>> {
+    pub fn err(value: crate::unions::Union2<crate::net::Unreachable, crate::net::WireFailed>) -> crate::unions::Union2<(), crate::unions::Union2<crate::net::Unreachable, crate::net::WireFailed>> {
         crate::unions::Union2::U2(value)
     }
 }
@@ -319,22 +272,18 @@ impl Listen {
 pub struct Deliver;
 
 impl Deliver {
-    pub fn ok(value: ()) -> Union2<(), Union2<Unreachable, WireFailed>> {
+    pub fn ok(value: ()) -> crate::unions::Union2<(), crate::unions::Union2<crate::net::Unreachable, crate::net::WireFailed>> {
         crate::unions::Union2::U1(value)
     }
-    pub fn err(value: Union2<Unreachable, WireFailed>) -> Union2<(), Union2<Unreachable, WireFailed>> {
+    pub fn err(value: crate::unions::Union2<crate::net::Unreachable, crate::net::WireFailed>) -> crate::unions::Union2<(), crate::unions::Union2<crate::net::Unreachable, crate::net::WireFailed>> {
         crate::unions::Union2::U2(value)
     }
-}
-
-pub fn bind_outbound_platform(node: i64, out: i32, hook: fn(i32, &Bytes, Bytes)) {
-    crate::platform_net::bind_outbound(node, out, hook)
 }
 
 pub type __Platform_HostTcpTransport = crate::net::__Platform_Transport<crate::platform_net::HostTcpTransport>;
 
 impl __Platform_HostTcpTransport {
-    pub fn new(bind: NodeEndpoint) -> Self {
+    pub fn new(bind: crate::net::NodeEndpoint) -> Self {
         crate::net::__Platform_Transport(crate::platform_net::HostTcpTransport::new(bind))
     }
 }

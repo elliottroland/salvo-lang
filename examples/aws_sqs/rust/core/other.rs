@@ -1,4 +1,4 @@
 
-pub fn other<T: Clone>(value: T) -> T {
+pub fn other<T: Clone>(mut value: T) -> T {
     return value;
 }

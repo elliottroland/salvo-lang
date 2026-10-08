@@ -1,4 +1,4 @@
 
-pub fn thrown<M>(message: M) -> M {
+pub fn thrown<M>(mut message: M) -> M {
     return message;
 }

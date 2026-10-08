@@ -2,39 +2,32 @@
 // the declarations the platform code uses, as the build emits them. Rewritten
 // by every build — do not edit; the build never reads this file.
 // salvo-abi 1 5cd1832c3b5d03f1
-use crate::unions::*;
-use crate::core_actor::__Stateful_Faults as _;
-use crate::core_actor::__Stateless_Faults as _;
 use crate::core_bytes::Bytes;
-use crate::core_bytes::bytes_of;
-use crate::core_bytes::mut_bytes;
-use crate::core_bytes::slice_platform;
-use crate::core_bytes::str_of_bytes_platform;
-use crate::core_list::List;
-use crate::core_list::all;
-use crate::core_list::at;
-use crate::core_sorted::max;
-use crate::core_string::Str;
 use crate::runtime::Parker;
-use crate::runtime::RuntimeHostPlatformSync as _;
-use crate::runtime::__Stateful_RuntimeHost as _;
-use crate::runtime::__Stateful_SchedTable as _;
-use crate::runtime::__Stateless_RuntimeHost as _;
-use crate::runtime::__Stateless_SchedTable as _;
+use crate::core_list::add_platform;
+use crate::core_bytes::append_platform;
+use crate::core_bytes::bytes_of;
 use crate::runtime::external_begin;
 use crate::runtime::external_end;
+use crate::core_bytes::index_of_platform;
+use crate::core_bytes::mut_bytes;
 use crate::runtime::park_platform;
+use crate::core_list::remove_at_platform;
+use crate::core_bytes::slice_platform;
 use crate::runtime::start_thread_platform;
+use crate::core_bytes::str_of_bytes_platform;
 use crate::runtime::this_parker_platform;
 use crate::runtime::unpark_platform;
 
-/// [mod-use] The module's `use` #0, bound on first use.
-fn __module_use_0() -> &'static crate::runtime_streams::StreamTable {
+
+pub fn __module_use0() -> &'static std::sync::Arc<std::sync::Mutex<crate::runtime_streams::Streams>> {
+    static CELL: std::sync::OnceLock<std::sync::Arc<std::sync::Mutex<crate::runtime_streams::Streams>>> = std::sync::OnceLock::new();
+    CELL.get_or_init(|| std::sync::Arc::new(std::sync::Mutex::new(crate::runtime_streams::Streams::new())))
+}
+
+pub fn __module_use0_0() -> &'static crate::runtime_streams::StreamTable {
     static CELL: std::sync::OnceLock<crate::runtime_streams::StreamTable> = std::sync::OnceLock::new();
-    CELL.get_or_init(|| {
-            let stream_table = crate::runtime_streams::StreamTable::locked(Streams::new());
-        stream_table
-    })
+    CELL.get_or_init(|| crate::runtime_streams::StreamTable::share_locked(crate::runtime_streams::__module_use0().clone()))
 }
 
 /// [platform-type] The host's `HostIn`.
@@ -47,7 +40,7 @@ const _: fn() = || { fn __contract<T: Send + 'static>() {} __contract::<HostOut>
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct HostRead {
-    pub data: Bytes,
+    pub data: crate::core_bytes::Bytes,
     pub error: Option<String>,
 }
 
@@ -64,31 +57,31 @@ impl crate::wire::__Wire for HostRead {
     }
 }
 
-pub fn host_read_platform(h: &mut HostIn, max: i32) -> HostRead {
+pub fn host_read_platform(h: &mut crate::runtime_streams::HostIn, mut max: i32) -> crate::runtime_streams::HostRead {
     crate::platform_runtime_streams::host_read(h, max)
 }
 
-pub fn host_close_in_platform(mut h: HostIn) {
+pub fn host_close_in_platform(mut h: crate::runtime_streams::HostIn) {
     crate::platform_runtime_streams::host_close_in(h)
 }
 
-pub fn host_write_platform(h: &mut HostOut, data: &Bytes) -> Option<String> {
+pub fn host_write_platform(h: &mut crate::runtime_streams::HostOut, data: &crate::core_bytes::Bytes) -> Option<String> {
     crate::platform_runtime_streams::host_write(h, data)
 }
 
-pub fn host_flush_platform(h: &mut HostOut) -> Option<String> {
+pub fn host_flush_platform(h: &mut crate::runtime_streams::HostOut) -> Option<String> {
     crate::platform_runtime_streams::host_flush(h)
 }
 
-pub fn host_close_out_platform(mut h: HostOut) -> Option<String> {
+pub fn host_close_out_platform(mut h: crate::runtime_streams::HostOut) -> Option<String> {
     crate::platform_runtime_streams::host_close_out(h)
 }
 
-pub fn host_bytes_in_platform(data: Bytes) -> HostIn {
+pub fn host_bytes_in_platform(mut data: crate::core_bytes::Bytes) -> crate::runtime_streams::HostIn {
     crate::platform_runtime_streams::host_bytes_in(data)
 }
 
-pub fn not_ours_platform(handle: i64) -> ! {
+pub fn not_ours_platform(mut handle: i64) {
     crate::platform_runtime_streams::not_ours(handle)
 }
 
@@ -111,20 +104,19 @@ impl crate::wire::__Wire for Fault {
     }
 }
 
-
 pub struct InEntry {
     pub source: String,
-    pub host: HostIn,
+    pub host: crate::runtime_streams::HostIn,
     pub position: i64,
-    pub ahead: Bytes,
-    pub failed: Option<Fault>,
+    pub ahead: crate::core_bytes::Bytes,
+    pub failed: Option<crate::runtime_streams::Fault>,
 }
 
 impl std::fmt::Debug for InEntry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("InEntry")
             .field("source", &self.source)
-            .field("host", &"<fn>")
+            .field("host", &"<opaque>")
             .field("position", &self.position)
             .field("ahead", &self.ahead)
             .field("failed", &self.failed)
@@ -132,42 +124,41 @@ impl std::fmt::Debug for InEntry {
     }
 }
 
-
 pub struct OutEntry {
     pub source: String,
-    pub host: HostOut,
+    pub host: crate::runtime_streams::HostOut,
     pub position: i64,
-    pub failed: Option<Fault>,
+    pub failed: Option<crate::runtime_streams::Fault>,
 }
 
 impl std::fmt::Debug for OutEntry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("OutEntry")
             .field("source", &self.source)
-            .field("host", &"<fn>")
+            .field("host", &"<opaque>")
             .field("position", &self.position)
             .field("failed", &self.failed)
             .finish()
     }
 }
 
-pub fn drop_in_entry(mut e: InEntry) {
-    let __destructured1 = e;
-    let mut source = __destructured1.source;
-    let mut host = __destructured1.host;
-    let mut position = __destructured1.position;
-    let mut ahead = __destructured1.ahead;
-    let mut failed = __destructured1.failed;
-    host_close_in_platform(host);
+pub fn drop_in_entry(mut e: crate::runtime_streams::InEntry) {
+    let mut __destructured_1: crate::runtime_streams::InEntry = e;
+    let mut source: String = __destructured_1.source;
+    let mut host: crate::runtime_streams::HostIn = __destructured_1.host;
+    let mut position: i64 = __destructured_1.position;
+    let mut ahead: crate::core_bytes::Bytes = __destructured_1.ahead;
+    let mut failed: Option<crate::runtime_streams::Fault> = __destructured_1.failed;
+    crate::runtime_streams::host_close_in_platform(host);
 }
 
-pub fn drop_out_entry(mut e: OutEntry) {
-    let __destructured2 = e;
-    let mut source = __destructured2.source;
-    let mut host = __destructured2.host;
-    let mut position = __destructured2.position;
-    let mut failed = __destructured2.failed;
-    let mut _closed = host_close_out_platform(host);
+pub fn drop_out_entry(mut e: crate::runtime_streams::OutEntry) {
+    let mut __destructured_1: crate::runtime_streams::OutEntry = e;
+    let mut source: String = __destructured_1.source;
+    let mut host: crate::runtime_streams::HostOut = __destructured_1.host;
+    let mut position: i64 = __destructured_1.position;
+    let mut failed: Option<crate::runtime_streams::Fault> = __destructured_1.failed;
+    let mut _closed: Option<String> = crate::runtime_streams::host_close_out_platform(host);
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -196,7 +187,6 @@ impl crate::wire::__Wire for Unknown {
     }
 }
 
-
 pub struct Pending {
     pub handle: i64,
     pub done: crate::scheduler::SalvoReply,
@@ -206,7 +196,7 @@ impl std::fmt::Debug for Pending {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Pending")
             .field("handle", &self.handle)
-            .field("done", &"<fn>")
+            .field("done", &"<opaque>")
             .finish()
     }
 }
@@ -224,33 +214,33 @@ impl crate::wire::__Wire for Pending {
     }
 }
 
-pub fn drop_pending(p: Pending) {
-    let __destructured3 = p;
-    let mut handle = __destructured3.handle;
-    let mut done = __destructured3.done;
-    crate::scheduler::salvo_reply_wire::<Chunk>(done, Chunk { data: bytes_of(vec![]), end: true, fault: None, source: "".to_string() });
+pub fn drop_pending(mut p: crate::runtime_streams::Pending) {
+    let mut __destructured_1: crate::runtime_streams::Pending = p;
+    let mut handle: i64 = __destructured_1.handle;
+    let mut done: crate::scheduler::SalvoReply = __destructured_1.done;
+    crate::scheduler::salvo_reply_wire::<crate::runtime_streams::Chunk>(done, crate::runtime_streams::Chunk { data: crate::core_bytes::bytes_of(vec![]), end: true, fault: None, source: String::from("") });
 }
 
 pub trait __Stateless_StreamTable: Send + Sync {
     fn next_handle(&self) -> i64;
-    fn put_in(&self, handle: i64, e: InEntry);
-    fn put_out(&self, handle: i64, e: OutEntry);
-    fn take_in(&self, handle: i64, me: Parker) -> Union3<InEntry, Busy, Unknown>;
-    fn take_out(&self, handle: i64, me: Parker) -> Union3<OutEntry, Busy, Unknown>;
+    fn put_in(&self, handle: i64, e: crate::runtime_streams::InEntry);
+    fn put_out(&self, handle: i64, e: crate::runtime_streams::OutEntry);
+    fn take_in(&self, handle: i64, me: crate::runtime::Parker) -> crate::unions::Union3<crate::runtime_streams::InEntry, crate::runtime_streams::Busy, crate::runtime_streams::Unknown>;
+    fn take_out(&self, handle: i64, me: crate::runtime::Parker) -> crate::unions::Union3<crate::runtime_streams::OutEntry, crate::runtime_streams::Busy, crate::runtime_streams::Unknown>;
     fn forget(&self, handle: i64);
-    fn add_pending(&self, p: Pending);
-    fn take_pending(&self, handle: i64) -> Option<Pending>;
+    fn add_pending(&self, p: crate::runtime_streams::Pending);
+    fn take_pending(&self, handle: i64) -> Option<crate::runtime_streams::Pending>;
 }
 
 pub trait __Stateful_StreamTable: Send {
     fn next_handle(&mut self) -> i64;
-    fn put_in(&mut self, handle: i64, e: InEntry);
-    fn put_out(&mut self, handle: i64, e: OutEntry);
-    fn take_in(&mut self, handle: i64, me: Parker) -> Union3<InEntry, Busy, Unknown>;
-    fn take_out(&mut self, handle: i64, me: Parker) -> Union3<OutEntry, Busy, Unknown>;
+    fn put_in(&mut self, handle: i64, e: crate::runtime_streams::InEntry);
+    fn put_out(&mut self, handle: i64, e: crate::runtime_streams::OutEntry);
+    fn take_in(&mut self, handle: i64, me: crate::runtime::Parker) -> crate::unions::Union3<crate::runtime_streams::InEntry, crate::runtime_streams::Busy, crate::runtime_streams::Unknown>;
+    fn take_out(&mut self, handle: i64, me: crate::runtime::Parker) -> crate::unions::Union3<crate::runtime_streams::OutEntry, crate::runtime_streams::Busy, crate::runtime_streams::Unknown>;
     fn forget(&mut self, handle: i64);
-    fn add_pending(&mut self, p: Pending);
-    fn take_pending(&mut self, handle: i64) -> Option<Pending>;
+    fn add_pending(&mut self, p: crate::runtime_streams::Pending);
+    fn take_pending(&mut self, handle: i64) -> Option<crate::runtime_streams::Pending>;
 }
 
 pub struct StreamTable {
@@ -290,25 +280,25 @@ impl StreamTable {
             __Inner_StreamTable::Locked(h) => h.lock().unwrap().next_handle(),
         }
     }
-    pub fn put_in(&self, handle: i64, e: InEntry) {
+    pub fn put_in(&self, handle: i64, e: crate::runtime_streams::InEntry) {
         match &self.inner {
             __Inner_StreamTable::Shared(h) => h.put_in(handle, e),
             __Inner_StreamTable::Locked(h) => h.lock().unwrap().put_in(handle, e),
         }
     }
-    pub fn put_out(&self, handle: i64, e: OutEntry) {
+    pub fn put_out(&self, handle: i64, e: crate::runtime_streams::OutEntry) {
         match &self.inner {
             __Inner_StreamTable::Shared(h) => h.put_out(handle, e),
             __Inner_StreamTable::Locked(h) => h.lock().unwrap().put_out(handle, e),
         }
     }
-    pub fn take_in(&self, handle: i64, me: Parker) -> Union3<InEntry, Busy, Unknown> {
+    pub fn take_in(&self, handle: i64, me: crate::runtime::Parker) -> crate::unions::Union3<crate::runtime_streams::InEntry, crate::runtime_streams::Busy, crate::runtime_streams::Unknown> {
         match &self.inner {
             __Inner_StreamTable::Shared(h) => h.take_in(handle, me),
             __Inner_StreamTable::Locked(h) => h.lock().unwrap().take_in(handle, me),
         }
     }
-    pub fn take_out(&self, handle: i64, me: Parker) -> Union3<OutEntry, Busy, Unknown> {
+    pub fn take_out(&self, handle: i64, me: crate::runtime::Parker) -> crate::unions::Union3<crate::runtime_streams::OutEntry, crate::runtime_streams::Busy, crate::runtime_streams::Unknown> {
         match &self.inner {
             __Inner_StreamTable::Shared(h) => h.take_out(handle, me),
             __Inner_StreamTable::Locked(h) => h.lock().unwrap().take_out(handle, me),
@@ -320,13 +310,13 @@ impl StreamTable {
             __Inner_StreamTable::Locked(h) => h.lock().unwrap().forget(handle),
         }
     }
-    pub fn add_pending(&self, p: Pending) {
+    pub fn add_pending(&self, p: crate::runtime_streams::Pending) {
         match &self.inner {
             __Inner_StreamTable::Shared(h) => h.add_pending(p),
             __Inner_StreamTable::Locked(h) => h.lock().unwrap().add_pending(p),
         }
     }
-    pub fn take_pending(&self, handle: i64) -> Option<Pending> {
+    pub fn take_pending(&self, handle: i64) -> Option<crate::runtime_streams::Pending> {
         match &self.inner {
             __Inner_StreamTable::Shared(h) => h.take_pending(handle),
             __Inner_StreamTable::Locked(h) => h.lock().unwrap().take_pending(handle),
@@ -337,12 +327,12 @@ impl StreamTable {
 pub struct Streams {
     next: i64,
     in_keys: Vec<i64>,
-    ins: Vec<InEntry>,
+    ins: Vec<crate::runtime_streams::InEntry>,
     out_keys: Vec<i64>,
-    outs: Vec<OutEntry>,
+    outs: Vec<crate::runtime_streams::OutEntry>,
     busy: Vec<i64>,
-    waiting: Vec<Parker>,
-    pending: Vec<Pending>,
+    waiting: Vec<crate::runtime::Parker>,
+    pending: Vec<crate::runtime_streams::Pending>,
 }
 
 impl Streams {
@@ -355,213 +345,281 @@ impl Streams {
             outs: vec![],
             busy: vec![],
             waiting: vec![],
-            pending: vec![],
+            pending: vec![]
         }
     }
 }
 
 impl crate::runtime_streams::__Stateful_StreamTable for Streams {
-
     fn next_handle(&mut self) -> i64 {
-        self.next = i64::wrapping_add(self.next, ((1) as i64));
-        return self.next.clone();
+        self.next = i64::wrapping_add(self.next, 1i64);
+        return self.next;
     }
-
-    fn put_in(&mut self, handle: i64, mut e: InEntry) {
-        unbusy(&mut self.busy, &mut self.waiting, handle.clone());
-        crate::core_list::add_platform(&mut self.in_keys, handle);
-        crate::core_list::add_platform(&mut self.ins, e);
+    fn put_in(&mut self, handle: i64, e: crate::runtime_streams::InEntry) {
+        crate::runtime_streams::unbusy(&mut self.busy, &mut self.waiting, handle);
+        crate::core_list::add_platform::<i64>(&mut self.in_keys, handle);
+        crate::core_list::add_platform::<crate::runtime_streams::InEntry>(&mut self.ins, e);
     }
-
-    fn put_out(&mut self, handle: i64, mut e: OutEntry) {
-        unbusy(&mut self.busy, &mut self.waiting, handle.clone());
-        crate::core_list::add_platform(&mut self.out_keys, handle);
-        crate::core_list::add_platform(&mut self.outs, e);
+    fn put_out(&mut self, handle: i64, e: crate::runtime_streams::OutEntry) {
+        crate::runtime_streams::unbusy(&mut self.busy, &mut self.waiting, handle);
+        crate::core_list::add_platform::<i64>(&mut self.out_keys, handle);
+        crate::core_list::add_platform::<crate::runtime_streams::OutEntry>(&mut self.outs, e);
     }
-
-    fn take_in(&mut self, handle: i64, me: Parker) -> Union3<InEntry, Busy, Unknown> {
-        let mut at = index_in(&self.in_keys, handle);
-        if at >= 0 {
-            let mut _k = crate::core_list::remove_at_platform(&mut self.in_keys, at.clone());
-            crate::core_list::add_platform(&mut self.busy, handle.clone());
-            return Union3::<InEntry, Busy, Unknown>::U1(crate::core_list::remove_at_platform(&mut self.ins, at).expect("salvo: value is absent at runtime.streams:159:20"));
-        }
-        if index_in(&self.busy, handle) >= 0 {
-            crate::core_list::add_platform(&mut self.waiting, me);
-            return Union3::<InEntry, Busy, Unknown>::U2(Busy {  });
-        }
-        return Union3::<InEntry, Busy, Unknown>::U3(Unknown {  });
+    fn take_in(&mut self, handle: i64, me: crate::runtime::Parker) -> crate::unions::Union3<crate::runtime_streams::InEntry, crate::runtime_streams::Busy, crate::runtime_streams::Unknown> {
+        let mut at: i32 = crate::runtime_streams::index_in(&self.in_keys, handle);
+        if (at >= 0i32) {
+            let mut _k: Option<i64> = crate::core_list::remove_at_platform::<i64>(&mut self.in_keys, at);
+            crate::core_list::add_platform::<i64>(&mut self.busy, handle);
+            return crate::unions::Union3::U1({
+                let mut __nn_1: Option<crate::runtime_streams::InEntry> = crate::core_list::remove_at_platform::<crate::runtime_streams::InEntry>(&mut self.ins, at);
+                if __nn_1.is_none() {
+                    panic!("salvo: value is absent at runtime.streams:159:20");
+                } else {
+                    let mut __some_2 = __nn_1.unwrap();
+                    __some_2
+                }
+            });
+        };
+        if (crate::runtime_streams::index_in(&self.busy, handle) >= 0i32) {
+            crate::core_list::add_platform::<crate::runtime::Parker>(&mut self.waiting, me);
+            return crate::unions::Union3::U2(crate::runtime_streams::Busy {});
+        };
+        return crate::unions::Union3::U3(crate::runtime_streams::Unknown {});
     }
-
-    fn take_out(&mut self, handle: i64, me: Parker) -> Union3<OutEntry, Busy, Unknown> {
-        let mut at = index_in(&self.out_keys, handle);
-        if at >= 0 {
-            let mut _k = crate::core_list::remove_at_platform(&mut self.out_keys, at.clone());
-            crate::core_list::add_platform(&mut self.busy, handle.clone());
-            return Union3::<OutEntry, Busy, Unknown>::U1(crate::core_list::remove_at_platform(&mut self.outs, at).expect("salvo: value is absent at runtime.streams:173:20"));
-        }
-        if index_in(&self.busy, handle) >= 0 {
-            crate::core_list::add_platform(&mut self.waiting, me);
-            return Union3::<OutEntry, Busy, Unknown>::U2(Busy {  });
-        }
-        return Union3::<OutEntry, Busy, Unknown>::U3(Unknown {  });
+    fn take_out(&mut self, handle: i64, me: crate::runtime::Parker) -> crate::unions::Union3<crate::runtime_streams::OutEntry, crate::runtime_streams::Busy, crate::runtime_streams::Unknown> {
+        let mut at: i32 = crate::runtime_streams::index_in(&self.out_keys, handle);
+        if (at >= 0i32) {
+            let mut _k: Option<i64> = crate::core_list::remove_at_platform::<i64>(&mut self.out_keys, at);
+            crate::core_list::add_platform::<i64>(&mut self.busy, handle);
+            return crate::unions::Union3::U1({
+                let mut __nn_1: Option<crate::runtime_streams::OutEntry> = crate::core_list::remove_at_platform::<crate::runtime_streams::OutEntry>(&mut self.outs, at);
+                if __nn_1.is_none() {
+                    panic!("salvo: value is absent at runtime.streams:173:20");
+                } else {
+                    let mut __some_2 = __nn_1.unwrap();
+                    __some_2
+                }
+            });
+        };
+        if (crate::runtime_streams::index_in(&self.busy, handle) >= 0i32) {
+            crate::core_list::add_platform::<crate::runtime::Parker>(&mut self.waiting, me);
+            return crate::unions::Union3::U2(crate::runtime_streams::Busy {});
+        };
+        return crate::unions::Union3::U3(crate::runtime_streams::Unknown {});
     }
-
     fn forget(&mut self, handle: i64) {
-        unbusy(&mut self.busy, &mut self.waiting, handle.clone());
+        crate::runtime_streams::unbusy(&mut self.busy, &mut self.waiting, handle);
     }
-
-    fn add_pending(&mut self, p: Pending) {
-        crate::core_list::add_platform(&mut self.pending, p);
+    fn add_pending(&mut self, p: crate::runtime_streams::Pending) {
+        crate::core_list::add_platform::<crate::runtime_streams::Pending>(&mut self.pending, p);
     }
-
-    fn take_pending(&mut self, handle: i64) -> Option<Pending> {
-        let mut i = 0;
-        while i < crate::core_list::size_platform(&self.pending) {
-            if crate::core_list::get_platform(&self.pending, i).expect("salvo: value is absent at runtime.streams:193:16").handle == handle {
-                return crate::core_list::remove_at_platform(&mut self.pending, i);
-            }
-            i = i32::wrapping_add(i, 1);
+    fn take_pending(&mut self, handle: i64) -> Option<crate::runtime_streams::Pending> {
+        let mut i: i32 = 0i32;
+        loop {
+            if !((i < crate::core_list::size_platform::<crate::runtime_streams::Pending>(&self.pending))) {
+                break;
+            };
+            if (({
+                let mut __proj_3: &crate::runtime_streams::Pending = {
+                    let mut __nn_1: Option<&crate::runtime_streams::Pending> = crate::core_list::get_platform::<crate::runtime_streams::Pending>(&self.pending, i);
+                    if __nn_1.is_none() {
+                        panic!("salvo: value is absent at runtime.streams:193:16");
+                    } else {
+                        let mut __some_2 = __nn_1.unwrap();
+                        __some_2
+                    }
+                };
+                __proj_3.handle
+            }) == (handle)) {
+                return crate::core_list::remove_at_platform::<crate::runtime_streams::Pending>(&mut self.pending, i);
+            };
+            i = i32::wrapping_add(i, 1i32);
         }
         return None;
     }
 }
 
-pub fn index_in(keys: &Vec<i64>, handle: i64) -> i32 {
-    let mut i = 0;
-    while i < crate::core_list::size_platform(keys) {
-        if *crate::core_list::get_platform(keys, i).expect("salvo: value is absent at runtime.streams:207:12") == handle {
+pub fn index_in(keys: &Vec<i64>, mut handle: i64) -> i32 {
+    let mut i: i32 = 0i32;
+    loop {
+        if !((i < crate::core_list::size_platform::<i64>(keys))) {
+            break;
+        };
+        if (({
+            let mut __nn_1: Option<i64> = crate::core_list::get_platform::<i64>(keys, i).copied();
+            if __nn_1.is_none() {
+                panic!("salvo: value is absent at runtime.streams:207:12");
+            } else {
+                let mut __some_2 = __nn_1.unwrap();
+                __some_2
+            }
+        }) == (handle)) {
             return i;
-        }
-        i = i32::wrapping_add(i, 1);
+        };
+        i = i32::wrapping_add(i, 1i32);
     }
-    return -1;
+    return i32::wrapping_neg(1i32);
 }
 
-pub fn unbusy(busy: &mut Vec<i64>, waiting: &mut Vec<Parker>, handle: i64) {
-    let mut at = index_in(busy, handle);
-    if at >= 0 {
-        let mut _h = crate::core_list::remove_at_platform(busy, at);
-    }
-    while crate::core_list::size_platform(waiting) > 0 {
-        crate::runtime::unpark_platform(&(crate::core_list::remove_at_platform(waiting, 0).expect("salvo: value is absent at runtime.streams:224:16")));
+pub fn unbusy(busy: &mut Vec<i64>, waiting: &mut Vec<crate::runtime::Parker>, mut handle: i64) {
+    let mut at: i32 = crate::runtime_streams::index_in(&*busy, handle);
+    if (at >= 0i32) {
+        let mut _h: Option<i64> = crate::core_list::remove_at_platform::<i64>(&mut *busy, at);
+    };
+    loop {
+        if !((crate::core_list::size_platform::<crate::runtime::Parker>(&*waiting) > 0i32)) {
+            break;
+        };
+        { let __arg1 = {
+            let mut __nn_1: Option<crate::runtime::Parker> = crate::core_list::remove_at_platform::<crate::runtime::Parker>(&mut *waiting, 0i32);
+            if __nn_1.is_none() {
+                panic!("salvo: value is absent at runtime.streams:224:16");
+            } else {
+                let mut __some_2 = __nn_1.unwrap();
+                __some_2
+            }
+        }; crate::runtime::unpark_platform(&__arg1) };
     }
 }
 
 pub fn fresh_handle() -> i64 {
-    return __module_use_0().next_handle();
+    return crate::runtime_streams::__module_use0_0().next_handle();
 }
 
-pub fn register_in(source: String, mut host: HostIn, position: i64) -> i64 {
-    let mut handle = fresh_handle();
-    __module_use_0().put_in(handle.clone(), InEntry { source: source, host: host, position: position, ahead: mut_bytes(vec![]), failed: None });
+pub fn register_in(mut source: String, mut host: crate::runtime_streams::HostIn, mut position: i64) -> i64 {
+    let mut handle: i64 = crate::runtime_streams::fresh_handle();
+    crate::runtime_streams::__module_use0_0().put_in(handle, crate::runtime_streams::InEntry { source: source.clone(), host: host, position: position, ahead: crate::core_bytes::mut_bytes(vec![]), failed: None });
     return handle;
 }
 
-pub fn register_out(source: String, mut host: HostOut, position: i64) -> i64 {
-    let mut handle = fresh_handle();
-    __module_use_0().put_out(handle.clone(), OutEntry { source: source, host: host, position: position, failed: None });
+pub fn register_out(mut source: String, mut host: crate::runtime_streams::HostOut, mut position: i64) -> i64 {
+    let mut handle: i64 = crate::runtime_streams::fresh_handle();
+    crate::runtime_streams::__module_use0_0().put_out(handle, crate::runtime_streams::OutEntry { source: source.clone(), host: host, position: position, failed: None });
     return handle;
 }
 
-pub fn register_bytes(data: Bytes) -> i64 {
-    return register_in("<bytes>".to_string(), host_bytes_in_platform(data), 0i64);
+pub fn register_bytes(mut data: crate::core_bytes::Bytes) -> i64 {
+    return crate::runtime_streams::register_in(String::from("<bytes>"), crate::runtime_streams::host_bytes_in_platform(data), 0i64);
 }
 
-pub fn checkout_in(handle: i64) -> InEntry {
+pub fn checkout_in(mut handle: i64) -> crate::runtime_streams::InEntry {
     loop {
-        let mut got = __module_use_0().take_in(handle.clone(), crate::runtime::this_parker_platform());
-        if matches!(got, Union3::U1(_)) {
-            let mut e = match got { Union3::U1(__v) => __v, _ => unreachable!() };
+        if !(true) {
+            break;
+        };
+        let mut got: crate::unions::Union3<crate::runtime_streams::InEntry, crate::runtime_streams::Busy, crate::runtime_streams::Unknown> = crate::runtime_streams::__module_use0_0().take_in(handle, crate::runtime::this_parker_platform());
+        if matches!(got, crate::unions::Union3::U1(_)) {
+            let mut e = match got { crate::unions::Union3::U1(__v) => __v, _ => unreachable!() };
             return e;
-        }
-        if matches!(got, Union3::U3(_)) {
-            not_ours_platform(handle.clone());
-        }
-        crate::runtime::park_platform(&(crate::runtime::this_parker_platform()));
+        };
+        if matches!(got, crate::unions::Union3::U3(_)) {
+            let mut got_1 = match &got { crate::unions::Union3::U3(__v) => __v, _ => unreachable!() };
+            crate::runtime_streams::not_ours_platform(handle);
+        };
+        crate::runtime::park_platform(&crate::runtime::this_parker_platform());
     }
-    return checkout_in(handle);
+    return crate::runtime_streams::checkout_in(handle);
 }
 
-pub fn checkout_out(handle: i64) -> OutEntry {
+pub fn checkout_out(mut handle: i64) -> crate::runtime_streams::OutEntry {
     loop {
-        let mut got = __module_use_0().take_out(handle.clone(), crate::runtime::this_parker_platform());
-        if matches!(got, Union3::U1(_)) {
-            let mut e = match got { Union3::U1(__v) => __v, _ => unreachable!() };
+        if !(true) {
+            break;
+        };
+        let mut got: crate::unions::Union3<crate::runtime_streams::OutEntry, crate::runtime_streams::Busy, crate::runtime_streams::Unknown> = crate::runtime_streams::__module_use0_0().take_out(handle, crate::runtime::this_parker_platform());
+        if matches!(got, crate::unions::Union3::U1(_)) {
+            let mut e = match got { crate::unions::Union3::U1(__v) => __v, _ => unreachable!() };
             return e;
-        }
-        if matches!(got, Union3::U3(_)) {
-            not_ours_platform(handle.clone());
-        }
-        crate::runtime::park_platform(&(crate::runtime::this_parker_platform()));
+        };
+        if matches!(got, crate::unions::Union3::U3(_)) {
+            let mut got_1 = match &got { crate::unions::Union3::U3(__v) => __v, _ => unreachable!() };
+            crate::runtime_streams::not_ours_platform(handle);
+        };
+        crate::runtime::park_platform(&crate::runtime::this_parker_platform());
     }
-    return checkout_out(handle);
+    return crate::runtime_streams::checkout_out(handle);
 }
 
-pub fn checkin_in(handle: i64, mut e: InEntry) {
-    __module_use_0().put_in(handle, e);
+pub fn checkin_in(mut handle: i64, mut e: crate::runtime_streams::InEntry) {
+    crate::runtime_streams::__module_use0_0().put_in(handle, e);
 }
 
-pub fn checkin_out(handle: i64, mut e: OutEntry) {
-    __module_use_0().put_out(handle, e);
+pub fn checkin_out(mut handle: i64, mut e: crate::runtime_streams::OutEntry) {
+    crate::runtime_streams::__module_use0_0().put_out(handle, e);
 }
 
-pub fn close_in(handle: i64, mut e: InEntry) -> Option<Fault> {
-    __module_use_0().forget(handle);
-    let __destructured4 = e;
-    let mut source = __destructured4.source;
-    let mut host = __destructured4.host;
-    let mut position = __destructured4.position;
-    let mut ahead = __destructured4.ahead;
-    let mut failed = __destructured4.failed;
-    host_close_in_platform(host);
+pub fn close_in(mut handle: i64, mut e: crate::runtime_streams::InEntry) -> Option<crate::runtime_streams::Fault> {
+    crate::runtime_streams::__module_use0_0().forget(handle);
+    let mut __destructured_1: crate::runtime_streams::InEntry = e;
+    let mut source: String = __destructured_1.source;
+    let mut host: crate::runtime_streams::HostIn = __destructured_1.host;
+    let mut position: i64 = __destructured_1.position;
+    let mut ahead: crate::core_bytes::Bytes = __destructured_1.ahead;
+    let mut failed: Option<crate::runtime_streams::Fault> = __destructured_1.failed;
+    crate::runtime_streams::host_close_in_platform(host);
     return failed;
 }
 
-pub fn close_out(handle: i64, mut e: OutEntry) -> Option<Fault> {
-    __module_use_0().forget(handle);
-    let __destructured5 = e;
-    let mut source = __destructured5.source;
-    let mut host = __destructured5.host;
-    let mut position = __destructured5.position;
-    let mut failed = __destructured5.failed;
-    let mut flushing = host_flush_platform(&mut host);
-    let mut closing = host_close_out_platform(host);
+pub fn close_out(mut handle: i64, mut e: crate::runtime_streams::OutEntry) -> Option<crate::runtime_streams::Fault> {
+    crate::runtime_streams::__module_use0_0().forget(handle);
+    let mut __destructured_1: crate::runtime_streams::OutEntry = e;
+    let mut source: String = __destructured_1.source;
+    let mut host: crate::runtime_streams::HostOut = __destructured_1.host;
+    let mut position: i64 = __destructured_1.position;
+    let mut failed: Option<crate::runtime_streams::Fault> = __destructured_1.failed;
+    let mut flushing: Option<String> = crate::runtime_streams::host_flush_platform(&mut host);
+    let mut closing: Option<String> = crate::runtime_streams::host_close_out_platform(host);
     if failed.is_some() {
-        let mut f = failed.as_ref().unwrap().clone();
-        return Some(f);
-    }
+        let mut f = failed.as_ref().unwrap();
+        return Some(f.clone());
+    };
     if flushing.is_some() {
-        let mut message = flushing.as_ref().unwrap().clone();
-        return Some(Fault { utf8: false, message: message });
-    }
+        let mut message = flushing.as_ref().unwrap();
+        return Some(crate::runtime_streams::Fault { utf8: false, message: message.clone() });
+    };
     if closing.is_some() {
-        let mut message = closing.as_ref().unwrap().clone();
-        return Some(Fault { utf8: false, message: message });
-    }
+        let mut message = closing.as_ref().unwrap();
+        return Some(crate::runtime_streams::Fault { utf8: false, message: message.clone() });
+    };
     return None;
 }
 
-pub fn record(e: &mut InEntry, message: String) -> Fault {
-    let mut f = Fault { utf8: false, message: message };
-    e.failed = Some(f.clone());
+pub fn record(e: &mut crate::runtime_streams::InEntry, mut message: String) -> crate::runtime_streams::Fault {
+    let mut f: crate::runtime_streams::Fault = crate::runtime_streams::Fault { utf8: false, message: message.clone() };
+    e.failed = Some((f).clone());
     return f;
 }
 
-pub fn take_ahead(e: &mut InEntry, n: i32) -> Bytes {
-    let mut all = crate::core_bytes::size_platform(&e.ahead);
-    let mut front = { let __pick1 = crate::core_bytes::slice_platform(&e.ahead, 0, n.clone()); if __pick1.is_some() { __pick1.as_ref().unwrap().clone() } else { bytes_of(vec![]) } };
-    let mut rest = { let __pick2 = crate::core_bytes::slice_platform(&e.ahead, n.clone(), all); if __pick2.is_some() { __pick2.as_ref().unwrap().clone() } else { bytes_of(vec![]) } };
-    e.ahead = mut_bytes(vec![rest.clone()]);
+pub fn take_ahead(e: &mut crate::runtime_streams::InEntry, mut n: i32) -> crate::core_bytes::Bytes {
+    let mut all: i32 = crate::core_bytes::size_platform(&e.ahead);
+    let mut front: crate::core_bytes::Bytes = {
+        let mut __elv_1: Option<crate::core_bytes::Bytes> = crate::core_bytes::slice_platform(&e.ahead, 0i32, n);
+        if __elv_1.is_none() {
+            crate::core_bytes::bytes_of(vec![])
+        } else {
+            let mut __some_2 = __elv_1.unwrap();
+            __some_2
+        }
+    };
+    let mut rest: crate::core_bytes::Bytes = {
+        let mut __elv_3: Option<crate::core_bytes::Bytes> = crate::core_bytes::slice_platform(&e.ahead, n, all);
+        if __elv_3.is_none() {
+            crate::core_bytes::bytes_of(vec![])
+        } else {
+            let mut __some_4 = __elv_3.unwrap();
+            __some_4
+        }
+    };
+    e.ahead = crate::core_bytes::mut_bytes(vec![rest.clone()]);
     e.position = i64::wrapping_add(e.position, ((n) as i64));
     return front;
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Read {
-    pub data: Bytes,
+    pub data: crate::core_bytes::Bytes,
     pub end: bool,
-    pub fault: Option<Fault>,
+    pub fault: Option<crate::runtime_streams::Fault>,
 }
 
 impl crate::wire::__Wire for Read {
@@ -579,127 +637,149 @@ impl crate::wire::__Wire for Read {
     }
 }
 
-pub fn read_line(e: &mut InEntry) -> Read {
+pub fn read_line(e: &mut crate::runtime_streams::InEntry) -> crate::runtime_streams::Read {
     if e.failed.is_some() {
-        let mut f = e.failed.as_ref().unwrap().clone();
-        return Read { data: bytes_of(vec![]), end: true, fault: Some(f.clone()) };
-    }
+        let mut f = e.failed.as_ref().unwrap();
+        return crate::runtime_streams::Read { data: crate::core_bytes::bytes_of(vec![]), end: true, fault: Some((f).clone()) };
+    };
     loop {
-        let mut at = crate::core_bytes::index_of_platform(&e.ahead, (((10) as i32) as u8));
+        if !(true) {
+            break;
+        };
+        let mut at: Option<i32> = crate::core_bytes::index_of_platform(&e.ahead, (((10i32) as i32) as u8));
         if at.is_some() {
             let mut i = at.unwrap();
-            let mut line = take_ahead(e, i32::wrapping_add(i, 1));
-            let mut n = i32::wrapping_sub(crate::core_bytes::size_platform(&line), 1);
-            if n > 0 && ((crate::core_bytes::get_platform(&line, i32::wrapping_sub(n, 1)).expect("salvo: value is absent at runtime.streams:362:32")) as i32) == 13 {
-                n = i32::wrapping_sub(n, 1);
-            }
-            return Read { data: { let __pick3 = crate::core_bytes::slice_platform(&line, 0, n); if __pick3.is_some() { __pick3.as_ref().unwrap().clone() } else { bytes_of(vec![]) } }, end: false, fault: None };
-        }
-        let mut got = host_read_platform(&mut e.host, 8192);
+            let mut line: crate::core_bytes::Bytes = crate::runtime_streams::take_ahead(&mut *e, i32::wrapping_add(i, 1i32));
+            let mut n: i32 = i32::wrapping_sub(crate::core_bytes::size_platform(&line), 1i32);
+            if ((n > 0i32) && (((({
+                let mut __nn_1: Option<u8> = crate::core_bytes::get_platform(&line, i32::wrapping_sub(n, 1i32));
+                if __nn_1.is_none() {
+                    panic!("salvo: value is absent at runtime.streams:362:32");
+                } else {
+                    let mut __some_2 = __nn_1.unwrap();
+                    __some_2
+                }
+            }) as i32)) == (13i32))) {
+                n = i32::wrapping_sub(n, 1i32);
+            };
+            return crate::runtime_streams::Read { data: {
+                let mut __elv_3: Option<crate::core_bytes::Bytes> = crate::core_bytes::slice_platform(&line, 0i32, n);
+                if __elv_3.is_none() {
+                    crate::core_bytes::bytes_of(vec![])
+                } else {
+                    let mut __some_4 = __elv_3.unwrap();
+                    __some_4
+                }
+            }, end: false, fault: None };
+        };
+        let mut got: crate::runtime_streams::HostRead = crate::runtime_streams::host_read_platform(&mut e.host, 8192i32);
         if got.error.is_some() {
-            let mut message = got.error.as_ref().unwrap().clone();
-            return Read { data: bytes_of(vec![]), end: true, fault: Some(record(e, message.clone())) };
-        }
-        if crate::core_bytes::size_platform(&got.data) == 0 {
-            if crate::core_bytes::size_platform(&e.ahead) == 0 {
-                return Read { data: bytes_of(vec![]), end: true, fault: None };
-            }
-            let mut rest = take_ahead(e, crate::core_bytes::size_platform(&e.ahead));
-            return Read { data: rest, end: false, fault: None };
-        }
+            let mut message = got.error.as_ref().unwrap();
+            return crate::runtime_streams::Read { data: crate::core_bytes::bytes_of(vec![]), end: true, fault: Some(crate::runtime_streams::record(&mut *e, (message).clone())) };
+        };
+        if ((crate::core_bytes::size_platform(&got.data)) == (0i32)) {
+            if ((crate::core_bytes::size_platform(&e.ahead)) == (0i32)) {
+                return crate::runtime_streams::Read { data: crate::core_bytes::bytes_of(vec![]), end: true, fault: None };
+            };
+            let mut rest: crate::core_bytes::Bytes = { let __arg1 = crate::core_bytes::size_platform(&e.ahead); crate::runtime_streams::take_ahead(&mut *e, __arg1) };
+            return crate::runtime_streams::Read { data: rest.clone(), end: false, fault: None };
+        };
         crate::core_bytes::append_platform(&mut e.ahead, &got.data);
     }
-    return read_line(e);
+    return crate::runtime_streams::read_line(&mut *e);
 }
 
-pub fn read_all(e: &mut InEntry) -> Read {
+pub fn read_all(e: &mut crate::runtime_streams::InEntry) -> crate::runtime_streams::Read {
     if e.failed.is_some() {
-        let mut f = e.failed.as_ref().unwrap().clone();
-        return Read { data: bytes_of(vec![]), end: true, fault: Some(f.clone()) };
-    }
-    let mut out = mut_bytes(vec![take_ahead(e, crate::core_bytes::size_platform(&e.ahead))]);
+        let mut f = e.failed.as_ref().unwrap();
+        return crate::runtime_streams::Read { data: crate::core_bytes::bytes_of(vec![]), end: true, fault: Some((f).clone()) };
+    };
+    let mut out: crate::core_bytes::Bytes = { let __arg2 = vec![{ let __arg1 = crate::core_bytes::size_platform(&e.ahead); crate::runtime_streams::take_ahead(&mut *e, __arg1) }]; crate::core_bytes::mut_bytes(__arg2) };
     loop {
-        let mut got = host_read_platform(&mut e.host, 65536);
+        if !(true) {
+            break;
+        };
+        let mut got: crate::runtime_streams::HostRead = crate::runtime_streams::host_read_platform(&mut e.host, 65536i32);
         if got.error.is_some() {
-            let mut message = got.error.as_ref().unwrap().clone();
-            return Read { data: bytes_of(vec![]), end: true, fault: Some(record(e, message.clone())) };
-        }
-        if crate::core_bytes::size_platform(&got.data) == 0 {
-            return Read { data: out.clone(), end: true, fault: None };
-        }
+            let mut message = got.error.as_ref().unwrap();
+            return crate::runtime_streams::Read { data: crate::core_bytes::bytes_of(vec![]), end: true, fault: Some(crate::runtime_streams::record(&mut *e, (message).clone())) };
+        };
+        if ((crate::core_bytes::size_platform(&got.data)) == (0i32)) {
+            return crate::runtime_streams::Read { data: (out).clone(), end: true, fault: None };
+        };
         e.position = i64::wrapping_add(e.position, ((crate::core_bytes::size_platform(&got.data)) as i64));
         crate::core_bytes::append_platform(&mut out, &got.data);
     }
-    return read_all(e);
+    return crate::runtime_streams::read_all(&mut *e);
 }
 
-pub fn read_up_to(e: &mut InEntry, max: i32) -> Read {
+pub fn read_up_to(e: &mut crate::runtime_streams::InEntry, mut max: i32) -> crate::runtime_streams::Read {
     if e.failed.is_some() {
-        let mut f = e.failed.as_ref().unwrap().clone();
-        return Read { data: bytes_of(vec![]), end: true, fault: Some(f.clone()) };
-    }
-    if max <= 0 {
-        return Read { data: bytes_of(vec![]), end: false, fault: None };
-    }
-    if crate::core_bytes::size_platform(&e.ahead) > 0 {
-        let mut n = max.clone();
-        if crate::core_bytes::size_platform(&e.ahead) < n {
+        let mut f = e.failed.as_ref().unwrap();
+        return crate::runtime_streams::Read { data: crate::core_bytes::bytes_of(vec![]), end: true, fault: Some((f).clone()) };
+    };
+    if (max <= 0i32) {
+        return crate::runtime_streams::Read { data: crate::core_bytes::bytes_of(vec![]), end: false, fault: None };
+    };
+    if (crate::core_bytes::size_platform(&e.ahead) > 0i32) {
+        let mut n: i32 = max;
+        if (crate::core_bytes::size_platform(&e.ahead) < n) {
             n = crate::core_bytes::size_platform(&e.ahead);
-        }
-        return Read { data: take_ahead(e, n), end: false, fault: None };
-    }
-    let mut got = host_read_platform(&mut e.host, max);
+        };
+        return crate::runtime_streams::Read { data: crate::runtime_streams::take_ahead(&mut *e, n), end: false, fault: None };
+    };
+    let mut got: crate::runtime_streams::HostRead = crate::runtime_streams::host_read_platform(&mut e.host, max);
     if got.error.is_some() {
-        let mut message = got.error.as_ref().unwrap().clone();
-        return Read { data: bytes_of(vec![]), end: true, fault: Some(record(e, message.clone())) };
-    }
+        let mut message = got.error.as_ref().unwrap();
+        return crate::runtime_streams::Read { data: crate::core_bytes::bytes_of(vec![]), end: true, fault: Some(crate::runtime_streams::record(&mut *e, (message).clone())) };
+    };
     e.position = i64::wrapping_add(e.position, ((crate::core_bytes::size_platform(&got.data)) as i64));
-    return Read { data: got.data.clone(), end: crate::core_bytes::size_platform(&got.data) == 0, fault: None };
+    return crate::runtime_streams::Read { data: (got.data).clone(), end: ((crate::core_bytes::size_platform(&got.data)) == (0i32)), fault: None };
 }
 
-pub fn decode(e: &mut InEntry, data: &Bytes) -> Option<String> {
-    let mut text = crate::core_bytes::str_of_bytes_platform(data);
+pub fn decode(e: &mut crate::runtime_streams::InEntry, data: &crate::core_bytes::Bytes) -> Option<String> {
+    let mut text: Option<String> = crate::core_bytes::str_of_bytes_platform(data);
     if text.is_none() {
-        e.failed = Some(Fault { utf8: true, message: "".to_string() });
-    }
+        e.failed = Some(crate::runtime_streams::Fault { utf8: true, message: String::from("") });
+    };
     return text;
 }
 
-pub fn record_out(e: &mut OutEntry, message: String) {
-    e.failed = Some(Fault { utf8: false, message: message });
+pub fn record_out(e: &mut crate::runtime_streams::OutEntry, mut message: String) {
+    e.failed = Some(crate::runtime_streams::Fault { utf8: false, message: message.clone() });
 }
 
-pub fn write(e: &mut OutEntry, data: &Bytes) -> i64 {
+pub fn write(e: &mut crate::runtime_streams::OutEntry, data: &crate::core_bytes::Bytes) -> i64 {
     if e.failed.is_some() {
-        let mut earlier = e.failed.as_ref().unwrap().clone();
+        let mut earlier = e.failed.as_ref().unwrap();
         return 0i64;
-    }
-    let mut failed = host_write_platform(&mut e.host, data);
+    };
+    let mut failed: Option<String> = crate::runtime_streams::host_write_platform(&mut e.host, data);
     if failed.is_some() {
-        let mut message = failed.as_ref().unwrap().clone();
-        record_out(e, message.clone());
+        let mut message = failed.as_ref().unwrap();
+        crate::runtime_streams::record_out(&mut *e, (message).clone());
         return 0i64;
-    }
+    };
     e.position = i64::wrapping_add(e.position, ((crate::core_bytes::size_platform(data)) as i64));
     return ((crate::core_bytes::size_platform(data)) as i64);
 }
 
-pub fn flush(e: &mut OutEntry) -> Option<Fault> {
-    let mut failed = host_flush_platform(&mut e.host);
+pub fn flush(e: &mut crate::runtime_streams::OutEntry) -> Option<crate::runtime_streams::Fault> {
+    let mut failed: Option<String> = crate::runtime_streams::host_flush_platform(&mut e.host);
     if failed.is_some() {
-        let mut message = failed.as_ref().unwrap().clone();
-        e.failed = Some(Fault { utf8: false, message: message.clone() });
-    }
-    let mut f = e.failed.clone();
+        let mut message = failed.as_ref().unwrap();
+        e.failed = Some(crate::runtime_streams::Fault { utf8: false, message: (message).clone() });
+    };
+    let mut f: Option<crate::runtime_streams::Fault> = (e.failed).clone();
     e.failed = None;
     return f;
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Chunk {
-    pub data: Bytes,
+    pub data: crate::core_bytes::Bytes,
     pub end: bool,
-    pub fault: Option<Fault>,
+    pub fault: Option<crate::runtime_streams::Fault>,
     pub source: String,
 }
 
@@ -720,40 +800,40 @@ impl crate::wire::__Wire for Chunk {
     }
 }
 
-pub fn receive(handle: i64, done: crate::scheduler::SalvoReply) {
-    __module_use_0().add_pending(Pending { handle: handle.clone(), done: done });
-    external_begin();
-    start_reader(handle);
+pub fn receive(mut handle: i64, mut done: crate::scheduler::SalvoReply) {
+    crate::runtime_streams::__module_use0_0().add_pending(crate::runtime_streams::Pending { handle: handle, done: done });
+    crate::runtime::external_begin();
+    crate::runtime_streams::start_reader(handle);
 }
 
-pub fn start_reader(handle: i64) {
+pub fn start_reader(mut handle: i64) {
     crate::runtime::start_thread_platform(std::boxed::Box::new({ let mut handle = handle.clone(); move || {
-    read_and_answer(handle.clone());
-} }));
+        crate::runtime_streams::read_and_answer(handle);
+    } }));
 }
 
-pub fn read_and_answer(handle: i64) {
-    let mut e = checkout_in(handle.clone());
-    let mut got = read_up_to(&mut e, 65536);
-    let mut source = e.source.clone();
-    if got.end || !(got.fault.is_none()) {
-        let mut _closed = close_in(handle.clone(), e);
+pub fn read_and_answer(mut handle: i64) {
+    let mut e: crate::runtime_streams::InEntry = crate::runtime_streams::checkout_in(handle);
+    let mut got: crate::runtime_streams::Read = crate::runtime_streams::read_up_to(&mut e, 65536i32);
+    let mut source: String = (e.source).clone();
+    if (got.end || !(got.fault.is_none())) {
+        let mut _closed: Option<crate::runtime_streams::Fault> = crate::runtime_streams::close_in(handle, e);
     } else {
-        checkin_in(handle.clone(), e);
-    }
-    let mut p = __module_use_0().take_pending(handle);
+        crate::runtime_streams::checkin_in(handle, e);
+    };
+    let mut p: Option<crate::runtime_streams::Pending> = crate::runtime_streams::__module_use0_0().take_pending(handle);
     if p.is_some() {
         let mut found = p.unwrap();
-        let __destructured6 = found;
-        let mut _h = __destructured6.handle;
-        let mut done = __destructured6.done;
-        crate::scheduler::salvo_reply_wire::<Chunk>(done, Chunk { data: got.data.clone(), end: got.end, fault: got.fault.clone(), source: source });
-    }
-    external_end();
+        let mut __destructured_1: crate::runtime_streams::Pending = found;
+        let mut _h: i64 = __destructured_1.handle;
+        let mut done: crate::scheduler::SalvoReply = __destructured_1.done;
+        crate::scheduler::salvo_reply_wire::<crate::runtime_streams::Chunk>(done, crate::runtime_streams::Chunk { data: got.data.clone(), end: got.end, fault: got.fault.clone(), source: source.clone() });
+    };
+    crate::runtime::external_end();
 }
 
-pub fn take_for_host(handle: i64) -> InEntry {
-    let mut e = checkout_in(handle.clone());
-    __module_use_0().forget(handle);
+pub fn take_for_host(mut handle: i64) -> crate::runtime_streams::InEntry {
+    let mut e: crate::runtime_streams::InEntry = crate::runtime_streams::checkout_in(handle);
+    crate::runtime_streams::__module_use0_0().forget(handle);
     return e;
 }
