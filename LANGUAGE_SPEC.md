@@ -5005,6 +5005,19 @@ docs/language/ remains the source of truth for everything that does.
     though a send payload always crosses the seam and so is always consumed.
   * A `send fn` **no face declares** is a private member of the handler —
     [actor-private-send].
+* [actor-msg] **The messages of an actor are declarations the compiler
+  writes** (IR step 4, 2026-10-06): for an actor effect `E`, an enum
+  `__Msg_E` with one variant per `send` member (carrying its arguments and,
+  when the protocol has a wire form, its hash); for an actor handler `H`,
+  `__Priv_H` (`Init`, and one variant per private `send fn`) and `__Cont_H`
+  (one variant per member that parks on a reply, holding what it had
+  captured). Not source, never named by a program; every backend renders the
+  same enums, and the wire codec of `__Msg_E` is the backend's.
+* [actor-dispatch] **Delivering a message is a generated function**:
+  `__dispatch_H_E(handler, msg)` per face and `__dispatch_priv_H` for the
+  private enum, each a switch on the message whose arm unpacks the variant's
+  payload and calls the handler's member directly (not through its handle).
+  The scheduler glue that receives a frame and calls it is the backend's.
 * [actor-private-send] **A handler of an actor effect may declare `send fn`
   members no face declares; they are private** (user decision 2026-09-27).
   A private member has no message in any protocol, so nothing outside the

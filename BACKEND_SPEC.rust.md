@@ -1370,8 +1370,8 @@ effects" keeps the history).
   `let __handle_2 = crate::Logger::shared(__use_1);`), which is "binds
   strictly outward" in emission.
 * **A spawn** hands the actor body the same struct: `__Actor_H { handler: H }`
-  with the handler's fields the handles, `__dispatch` calling
-  `crate::__Stateless_E::member(&mut self.handler, …)` (or
+  with the handler's fields the handles, `__dispatch_H_E` calling
+  `crate::__Stateless_E::member(&mut *__handler, …)` (or
   `crate::__Stateful_E::…`, by the handler's statefulness) for every handler,
   dependent or not; the clause's items and the inherited dependencies are
   trailing `new` arguments exactly as at a `use`
@@ -1562,7 +1562,7 @@ effects" keeps the history).
   included.
 * [rs-actor] [handler-init] `init` is an inherent `fn init(&mut self)`. On an
   actor handler it is one more private member, `__Priv_H::Init`, dispatched
-  by `__dispatch_priv` (`__Priv_H::Init => self.handler.init(),`): a spawn
+  by `__dispatch_priv_H` (`__handler.init();` in the `Init` arm): a spawn
   emits `crate::scheduler::salvo_send(__a, std::boxed::Box::new(crate::…::__Priv_H::Init));`
   right after `salvo_spawn` and before the addr is answered. On any other
   handler `new` runs it: `let mut __s = Self { … }; __s.init(); __s` — a
@@ -1577,7 +1577,7 @@ effects" keeps the history).
   method** on the handler struct (`impl H { fn k(…) }`) with owned
   parameters (its written clause is all-consumed). `__Priv_H` is the
   handler-keyed enum of its private messages; `__Actor_H::handle` tries it
-  after the faces' enums, `__dispatch_priv` calls the method, `resume`
+  after the faces' enums, `__dispatch_priv_H` calls the method, `resume`
   rebuilds a `__Priv_H` for a continuation variant of `__Cont_H` that names
   a private member, and `decode_reply` covers it by its answer type.
   `k@self(…)` evaluates the payload once and sends it or runs it inline,
@@ -1973,8 +1973,8 @@ effects" keeps the history).
   * **`__Priv_H` + `__Cont_H` + `__Actor_H`**: the servant's messages are the
     handler's private ones — `pub enum __Priv_CyclicRandom { Advance(crate::scheduler::SalvoReply) }`,
     one variant per `send fn` member — with the continuation enum and actor
-    body beside them: `handle` downcasts `__Priv_H` into `__dispatch_priv`,
-    which calls the inherent method (`__Priv_CyclicRandom::Advance(out) => self.handler.advance(out)`),
+    body beside them: `handle` downcasts `__Priv_H` into `__dispatch_priv_H`,
+    which calls the inherent method (`__handler.advance(out);`),
     and `resume` removes the parked continuation and calls the member with
     the downcast answer as its trailing argument [defer-deduction].
   * **`__Fac_H`**: `#[derive(Clone)]`, `pub __addr: usize` plus the ctor
@@ -1998,8 +1998,9 @@ effects" keeps the history).
   [rs-runtime-source] — emitted, and mounted as
   `#[path = "scheduler.rs"] pub mod scheduler;`, only into a program that
   spawns:
-  * **The protocol's message enum**, `__Msg_E`, beside the effect it belongs
-    to: one variant per `send fn`, owning its payload. It is the *effect's*,
+  * **The protocol's message enum**, `__Msg_E`, in the effect's module: one
+    variant per `send fn`, owning its payload (an IR `Decl::Enum`, rendered as
+    a `pub enum` [rs-actor-ir]). It is the *effect's*,
     not a handler's, because a sender holds an `Addr` and knows only the effect
     it serves — the same reason an actor and a locally `use`d handler are
     interchangeable [actor-types].
@@ -2010,11 +2011,13 @@ effects" keeps the history).
     the message enum
     (`let msg = *msg.downcast::<crate::__Msg_Reporter>().expect("message of this protocol");`)
     and dispatches it.
-    * Member invocation lives in **one** place, a private
-      `fn __dispatch(&mut self, msg: crate::__Msg_E)` matching each variant
-      onto its member
-      (`crate::__Msg_Reporter::Report(what, done) => crate::__Stateless_Reporter::report(&mut self.handler, what, done)`):
-      `handle` downcasts into it and `resume` rebuilds a call for it.
+    * Member invocation lives in **one** place per protocol, a free function
+      in the handler's module, `pub fn __dispatch_H_E(__handler: &mut crate::H, mut __msg: crate::__Msg_E)`
+      (generated IR, not part of `__Actor_H`). One arm per variant
+      unpacks the payload and calls the member through its trait:
+      `if matches!(__msg, crate::__Msg_Reporter::Report(..)) { let crate::__Msg_Reporter::Report(what, done) = __msg else { unreachable!() }; crate::__Stateless_Reporter::report(&mut *__handler, what, done); }`.
+      `handle` calls it as `crate::__dispatch_H_E(&mut self.handler, msg)` and
+      `resume` rebuilds a message for the same function.
   * **The parked-continuation table, and the address, live on the handler.** A
     handler of an `actor effect` carries two generated fields, whichever way it
     is bound — a handler is compiled once:
@@ -2032,13 +2035,13 @@ effects" keeps the history).
     would have changed `SalvoActor::resume`'s decided signature, and the two
     runtimes are the most exactly-mirrored code in the phase.
   * **[effect-handler-multi] A handler of several effects is one actor with one
-    dispatcher per protocol.** One `impl crate::__Stateful_E for H` (or
+    dispatch function per protocol.** One `impl crate::__Stateful_E for H` (or
     `__Stateless_E`) per face (a member that
     implements a same-named member of two faces appears in both impls — Rust
     cannot share a method between two traits, and the signatures are identical
     wherever that is legal, so the body is emitted twice rather than
-    forwarded); one `fn __dispatch_<Effect>(&mut self, msg: crate::__Msg_<Effect>)`
-    per face, where a single-face handler has the bare `__dispatch`; and a
+    forwarded); one `__dispatch_H_<Effect>` function
+    per face; and a
     `handle` that asks each protocol in turn —
     `match msg.downcast::<crate::__Msg_Timer>() { Ok(__m) => return …, Err(__m) => __m }`
     hands the box back on a miss, which is what makes the chain possible,
@@ -2048,7 +2051,7 @@ effects" keeps the history).
     * A multi-face `use` is one `Arc<Mutex<H>>` and one handle per face
       [rs-handle], so a fn declaring `[A, B]` bound to one handler's two
       faces borrows two handles of one instance.
-  * **The continuation enum**, `__Cont_H`, emitted beside the **handler** whose
+  * **The continuation enum**, `__Cont_H` (an IR enum, rendered as a `pub enum`), emitted beside the **handler** whose
     members it names — the handler, not the effect, because a mint is lexical
     ([effect-handler-multi]: with several faces a handler's members come from
     several protocols, and `replyto` targets the *handler's*). Its variants are
@@ -2065,9 +2068,9 @@ effects" keeps the history).
     (`let Some(__cont) = self.handler.__parked.remove(&slot) else { return; };`
     — a reply whose continuation is gone returns silently), matches the
     variant, downcasts `value` to the trailing parameter's type, and hands a
-    rebuilt message to the dispatcher:
-    `__Cont_Reporting::Report(what) => self.__dispatch(crate::__Msg_Reporter::Report(what, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer")))`
-    (a `__Priv_H` to `__dispatch_priv` for a private member).
+    rebuilt message to the dispatch function:
+    `__Cont_Reporting::Report(what) => crate::__dispatch_Reporting_Reporter(&mut self.handler, crate::__Msg_Reporter::Report(what, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer")))`
+    (a `__Priv_H` to `__dispatch_priv_H` for a private member).
   * **A dependent handler's child holds its handles** [rs-handle]: the
     dependency handles are the handler's own fields, so the actor body is the
     same struct for every handler (`__Actor_H { handler: H }`), and the spawn
@@ -2180,13 +2183,28 @@ effects" keeps the history).
     for a face member (the trait by the handler's statefulness), and the
     `__Priv_H` form with the inherent call `self.k(__s0)` for a private one
     [rs-actor]. One field, both readings [actor-self-send].
-  * **The forwarding stub**, `__Stub_E`, beside the effect: a struct holding an
-    addr that implements `__Stateless_E` by sending
-    (`crate::scheduler::salvo_send_wire(self.addr, __Msg_Reporter::Report(what, done), crate::__PROTO_Reporter);`). `use addr` builds one and
+  * **The forwarding stub**, `__Stub_E`, beside the effect: a generated IR
+    handler (`stub`, constructor parameter `addr`) rendered by the ordinary
+    handler path, `#[derive(Clone)] pub struct __Stub_E { addr: usize }` with
+    `new(addr)`, implementing `__Stateless_E` by sending
+    (`crate::scheduler::salvo_send_wire(self.addr, crate::__Msg_Reporter::Report(what, done), crate::__PROTO_Reporter);`). `use addr` builds one and
     binds it behind the effect's handle exactly as a handler instance is
     bound [rs-handle]. That indifference is the point: a handler is compiled
     once and bound many ways [actor-use-addr]. A spawn clause's addr becomes
     the same stub, behind a handle in the child's fields.
+  * [rs-actor-ir] **Which actor code is IR and which is the backend's**
+    [actor-msg] [actor-dispatch]. The IR builder generates the enums
+    (`Decl::Enum`: `__Msg_E`, one variant per send member and carrying the
+    protocol hash; `__Priv_H`, `Init` plus one variant per private send fn;
+    `__Cont_H`), the dispatch functions (`__dispatch_H_E`, `__dispatch_priv_H`:
+    a switch whose arms `Unpack` the variant and make a `HandlerCall` — a
+    face member through its trait with UFCS, `init` and private sends as
+    inherent methods) and the stub `__Stub_E`; the backend renders them
+    generically, enums at the end of their module. The backend keeps the
+    `SalvoActor` body `__Actor_H` (`handle`, `resume`, `decode_reply`,
+    `__parked`), the mixed façade `__Fac_H`, the wire codecs and
+    `__PROTO_E` (`impl __Wire for __Msg_E`), `__DECODE_H`, and the rendering
+    of spawn, send, `replyto` and `waitfor`.
   * **Still refused** (each a diagnostic, none silent): spawning a **generic**
     handler and a **generic effect** as a protocol.
 

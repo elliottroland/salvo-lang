@@ -569,6 +569,40 @@ What the port added to the IR, all backend-neutral:
 * A loop body ending in an `else`-less `if` is a statement, not the loop's
   value for that turn [while-value].
 
+### Step 4 (done 2026-10-06)
+
+The builder (`build/actors.rs`, a pass over the finished program, since a
+handler's faces live in other modules) now writes what the two backends used
+to generate separately from interface and handler declarations:
+
+* **`Decl::Enum(EnumDecl)`**, a generated enum with named variants (user
+  decision 2026-10-06: a new declaration kind, not a `UnionN` of tagged
+  tuples, whose arms are identified by type and would collide on two members
+  with equal parameter types). `EnumKind::Message { interface }` is `__Msg_E`
+  (one variant per `send` member, with the protocol hash),
+  `EnumKind::Private { handler }` is `__Priv_H` (`Init`, private sends) and
+  `EnumKind::Continuation { handler }` is `__Cont_H`. A type that names one is
+  a key `Name§module` (`salvo_ir::enum_key`), which the backends resolve
+  beside the symbol table's.
+* **Dispatch functions**, ordinary `FnDecl`s in the handler's module
+  (`ImplDecl.dispatch` lists them): a `Switch` on the message whose arm opens
+  with **`Stmt::Unpack`** (the variant's payload bound to locals) and calls
+  the member with **`ExprKind::HandlerCall`** (a member of a handler
+  *instance*, not through a handle: `HandlerMember::Face(MemberRef)` through
+  the interface's trait, or `Own(name)` for `init` and private sends).
+* **The address stub** `__Stub_E`, an `ImplDecl` with `stub: true` whose
+  member bodies are the existing `Send` node.
+
+What stays in the backends, by decision: the wire codecs (decision 2, to be
+revisited after step 5 to weigh the guarantee of cross-backend consistency
+against the codec's tie to the `UnionN` layout), the scheduler glue
+(`__Actor_H`: receive a frame, call the dispatch function; `resume` and
+`decode_reply` for parked continuations), the mixed-handler façade
+(`__Fac_H`: the same member bodies rendered in a different context), and
+`Spawn`/`Send`/`ReplyTo`/`WaitFor` as nodes. The continuation machinery is
+the part most entangled with the scheduler; it was left in the backends as
+the user allowed.
+
 ## 10. Transition plan
 
 The e2e suite (1712 tests, same program compiled and run on both backends,
@@ -589,7 +623,7 @@ change and are not the check; the IR dump gets its own goldens.
    hoists, `__loc` twins, element handles) is rewritten against `consume`
    marks and `PassMode`. This is the largest step; the e2e suite and the
    hoist/narrowing codegen tests are the checks.
-4. **Actors and generated-by-type code as IR** (decisions 2 and 3).
+4. **Actors and generated-by-type code as IR** (decisions 2 and 3) — done 2026-10-06 for messages, dispatch and stubs (§9a, "Step 4"); the codecs stay in the backends.
 5. **Retire** the span-keyed tables the emitters no longer read, the
    `salvo-backend` walkers the IR made unnecessary, and this document.
 

@@ -873,13 +873,13 @@ nothing but the monitor.
   handler is constructed without type arguments (`Sharded()`).
 * [kt-actor] [handler-init] `init` is one more private member: a plain `fun
   init()` on the class (a soft keyword in Kotlin, legal as a method name),
-  `__Priv_H.Init`, dispatched by `__dispatchPriv`. A spawn sends it right after
+  `__Priv_H.Init`, dispatched by `__dispatch_priv_H`. A spawn sends it right after
   `SalvoSched.spawn`; a `use` appends `.also { it.init() }` to the
   construction — dependent handlers included, since their dependencies are
   constructor arguments. `self@Face` lowers to `__addr!!`.
 * [kt-actor] [actor-private-send] A private send member is a plain `fun` on
   the handler class (no interface declares it). `sealed class __Priv_H`
-  holds its messages; `handle`'s `when` gains `is __Priv_H -> __dispatchPriv`,
+  holds its messages; `handle`'s `when` gains `is __Priv_H -> __dispatch_priv_H(handler, msg)`,
   which calls the method; `resume` and `decodeReply` cover `ContTarget::
   Private` subclasses of `__Cont_H`. `k@self(…)` builds `__Priv_H.K(payload)`
   when `__addr` is set, the method call otherwise.
@@ -1215,7 +1215,8 @@ nothing but the monitor.
     member could be a continuation target).
   * **`__Msg_H` + `__Cont_H` + `__Actor_H`**: sealed classes with one
     subclass per `send fn` member (continuation subclasses only for members
-    with parameters), and the actor body dispatching them — `resume` removes
+    with parameters), and the actor body dispatching them through the
+    generated `__dispatch_H_E` — `resume` removes
     the parked continuation and calls the member with the cast answer as its
     trailing argument [defer-deduction].
   * **`__Fac_H(private val __addr: Int, ctor params) : E`** with the sync
@@ -1291,14 +1292,16 @@ nothing but the monitor.
   [kt-runtime-source] — emitted only into a program that spawns, in package
   `salvo`, which every generated file already imports:
   * **The protocol's message type**, `sealed class __Msg_E` with one nested
-    class per `send fn`, beside the effect it belongs to. It is the *effect's*
+    class per `send fn` (an IR `Decl::Enum`, rendered as a `sealed class`
+    [kt-actor-ir]), in the effect's module. It is the *effect's*
     because a sender holds an `Addr` and knows only the effect it serves
     [actor-types].
-  * **The actor body**, `class __Proc_H(private val handler: H) :
-    SalvoProcess`, beside the handler: `handle` casts the message and calls the
-    member the class names, in a `when` over the sealed type — exhaustive by
-    construction, and factored into a private `__dispatch(m: __Msg_E)` so
-    `resume` can rebuild a call for the same one place.
+  * **The actor body**, `class __Actor_H(private val handler: H) :
+    SalvoActor`, beside the handler: `handle` casts the message and calls the
+    generated top-level `fun __dispatch_H_E(__handler: H, __msg: __Msg_E)`,
+    a `when` over the sealed type whose arms read the payload
+    (`val n = (__msg as __Msg_E.Bump).n`) and call the member
+    (`__handler.bump(n)`). `resume` calls the handler's member directly.
   * **The parked-continuation table, and the address, live on the handler.** A
     handler of an `actor effect` carries two generated fields, whichever way it
     is bound — a handler is compiled once:
@@ -1311,27 +1314,26 @@ nothing but the monitor.
       target.
 
     Neither may be `private`: Kotlin's class-level `private` is visible only
-    inside the class itself, and `__Proc_H` — a *different* class, even in the
+    inside the class itself, and `__Actor_H` — a *different* class, even in the
     same file — has to write one and read the other. (Rust needs no such care:
     its privacy is per module, and both live in one.) They sit on the handler
-    rather than on `__Proc_H` for the same reason as on the Rust side: the mint
+    rather than on `__Actor_H` for the same reason as on the Rust side: the mint
     happens in a member body, which cannot see the actor class (user decision
     2026-09-15, D5-b).
   * **[effect-handler-multi] A handler of several effects is one class with one
-    dispatcher per protocol.** The class header lists every face
+    dispatch function per protocol.** The class header lists every face
     (`class ManualTime : Timer, TimerCtl`) and a member that implements a
     same-named member of two faces needs **one** override — Kotlin lets a single
     method satisfy both interfaces, which is why this side needs no forwarding
     where Rust emits the body twice. `handle` is a `when (msg)` over the message
-    classes, dispatching to `__dispatch<Effect>` (a single-face handler keeps the
-    bare `__dispatch`), and `spawn` answers `Pair(__a, __a)` / `Triple(…)` — one
+    classes, dispatching to `__dispatch_H_<Effect>`, and `spawn` answers `Pair(__a, __a)` / `Triple(…)` — one
     scheduler id under each protocol's type. More than three faces is the
     generated `TupleN` [kt-tuple-class], like any other tuple that arity.
     * A multi-face `use` binds one instance under every face: **one**
       construction hoisted into a `val`, and a monitor per face over it
       [kt-handle] (pushing the constructor call per face would build one
       handler per face, each with its own state).
-  * **The continuation class**, `sealed class __Cont_H`, emitted beside the
+  * **The continuation class**, `sealed class __Cont_H` (an IR enum), emitted beside the
     **handler** whose members it names — the handler, not the effect, because a
     mint is lexical ([effect-handler-multi]): one subclass per send member with
     at least one parameter,
@@ -1425,11 +1427,23 @@ nothing but the monitor.
     generated code keys `__parked` by the slot.
   * **`k@self(args)`** → `run { val __a = __addr; if (__a != null)
     SalvoSched.send(__a, __Msg_E.K(args)) else this.k(args) }`.
-  * **The forwarding stub**, `class __Stub_E(private val addr: Int) : E`,
-    beside the effect: `use addr` builds one and binds it through the same path
+  * **The forwarding stub**, `class __Stub_E(private val addr: Int) : E`, a
+    generated IR handler (`stub`, constructor parameter `addr`) rendered by the
+    ordinary handler path, beside the effect: `use addr` builds one and binds it through the same path
     a handler instance takes (`bind_effect_instance`, extracted for exactly
     this) [actor-use-addr]. A spawn clause's addr becomes the same stub, a
     trailing argument of the child's constructor.
+  * [kt-actor-ir] **Which actor code is IR and which is the backend's**
+    [actor-msg] [actor-dispatch]. The IR builder generates the enums
+    (`Decl::Enum`: `__Msg_E`, carrying the protocol hash; `__Priv_H`;
+    `__Cont_H`), the dispatch functions (`__dispatch_H_E`,
+    `__dispatch_priv_H`: a `when` whose arms `Unpack` the variant and make a
+    `HandlerCall` on the handler's member) and the stub `__Stub_E`; the
+    backend renders them generically, enums at the end of their module. The
+    backend keeps the `SalvoActor` body `__Actor_H` (`handle`, `resume`,
+    `decodeReply`, `__parked`), the mixed façade `__Fac_H`, the wire codecs
+    and `__PROTO_E` (`__Codec___Msg_E`), `__DECODE`, and the rendering of
+    spawn, send, `replyto` and `waitfor`.
   * **Still refused**, matching the Rust backend one for one: a generic
     handler and a generic effect as a protocol.
   * Pool threads are **daemon** threads, which is what makes "the program ends

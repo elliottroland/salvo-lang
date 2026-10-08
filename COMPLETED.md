@@ -137,6 +137,40 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-06 — The IR, step 4: actor messages, dispatch and stubs are IR
+
+(User decisions: a new **enum-with-named-variants** declaration kind rather
+than a `UnionN` of tagged tuples; **codecs stay in the backends** for now, to
+be revisited after step 5 because putting them in the IR would guarantee
+consistency between the backends; continuation/parking machinery may stay in
+the backends if it proves too messy — it did.)
+
+Done in four commits: the `UnionN` `to_str` (the interpolation of a union as
+one call, in each backend's generated union file), `Decl::Enum` for `__Msg_E`
+/ `__Priv_H` / `__Cont_H`, the generated dispatch functions with
+`Stmt::Unpack` and `ExprKind::HandlerCall`, and `__Stub_E` as a generated IR
+handler (`ImplDecl.stub`). IR.md §9a "Step 4" has the shapes. The two
+`actors.rs` files shrank by about 150 lines each: the message and private
+and continuation enums, the per-face dispatchers and the stubs are rendered by
+the general paths now.
+
+What the port showed: the dispatch is where the IR earns its keep — the
+argument modes of a delivered message (owned, borrowed, lent mutably) came out
+of the same `args` machinery as any call, where the old generator had a
+helper (`by_mode`) it never used. A `send` member's parameters are delivered
+by value whatever its clause says, so `HandlerCall` forces `Moved` on them.
+
+Gotchas: a generated enum's type is a key `Name§module`, not a plain name
+(two modules may both declare an effect `Counter`), and `type_path` in each
+backend needs the generated-enum fallback; the generated functions get their
+names from `Program.names`, since `fn_name` finds no source item for them;
+`a_host_thread_completes_a_reply` can fail once under a loaded machine with
+"deadlock: nothing can run while main waits" and passes alone (three of three)
+— not caused by this work, not yet explained.
+
+Not moved, deliberately: `__Actor_H` (the `SalvoActor` glue), `resume` /
+`decode_reply` / `__parked`, `__Fac_H`, the codecs, `__DECODE_H`.
+
 ### 2026-10-06 — The six open defects of the Rust spec sweep, fixed
 
 (User: "fix all of the items mentioned as still open"; for union
