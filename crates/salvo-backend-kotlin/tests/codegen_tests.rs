@@ -4401,7 +4401,45 @@ fn kotlinc_compiles_and_runs_placeholder_loops() -> KotlinCase {
     kotlin_case(files, "placeholder-loops", "10\n")
 }
 
+/// [while-value] [deduce-same-call] A value loop whose body ends in an
+/// `else`-less `if` (a statement: its arm only `break`s), and a call whose
+/// later argument is hoisted past an earlier one with effects of its own —
+/// which must still run first. Both backends print the same.
+pub const LOOP_BREAK_ORDER_DEMO: &str = r#"
+fn first_big(xs: List<Int>) -> Int? => xs {
+    return for x in xs {
+        if x > 2 { break x }
+    }
+}
+
+fn noisy(n: Int) [Console] -> Int {
+    println("noisy ${n}")
+    return n
+}
+
+fn both(f: (a: Int, b: Int) [Console] -> Int, x: Int) [Console] -> Int {
+    return f(noisy(1), f(noisy(2), x))
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    println("${first_big(list_of(1, 5)) ?: 0} ${first_big(list_of(1)) ?: 0}")
+    println("${both((a, b) -> { println("f ${a} ${b}") return a + b }, 10)}")
+}
+"#;
+
+pub const LOOP_BREAK_ORDER_OUTPUT: &str = "5 0\nnoisy 1\nnoisy 2\nf 2 10\nf 1 12\n13\n";
+
+fn kotlinc_compiles_and_runs_a_breaking_value_loop_and_ordered_arguments() -> KotlinCase {
+    let program = build_program(&[("main.sv", LOOP_BREAK_ORDER_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "loop-break-order", LOOP_BREAK_ORDER_OUTPUT)
+}
+
 const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
+    kotlinc_compiles_and_runs_a_breaking_value_loop_and_ordered_arguments,
     kotlinc_compiles_and_runs_effect_members_taking_fn_values,
     kotlinc_compiles_and_runs_comptime,
     kotlinc_compiles_and_runs_placeholder_loops,

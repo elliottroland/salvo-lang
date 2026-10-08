@@ -1,5 +1,5 @@
-//! [rs-ir] The Rust emitter over the IR (IR.md §10 step 3), behind
-//! `SALVO_RUST_IR=1` until it replaces the AST emitter.
+//! [rs-ir] The Rust emitter: it reads the IR (IR.md) and nothing of the AST
+//! but the intrinsic tables keyed off a declaration.
 //!
 //! What it decides is representation and ownership idiom: `UnionN` enums and
 //! `Option` for unions, references for `proj` values and lent parameters,
@@ -22,17 +22,29 @@ use crate::EmittedFile;
 mod actors;
 mod body;
 mod decls;
+mod skeleton;
 
-/// Whether the IR path is selected.
-pub fn enabled() -> bool {
-    !std::env::var("SALVO_RUST_IR").is_ok_and(|v| v == "0")
-}
 
 
 pub fn emit_program_ir(
     program: &Program,
     entry: Option<&ModulePath>,
     abi: bool,
+) -> Result<(Vec<EmittedFile>, Vec<String>), Vec<String>> {
+    run(program, entry, abi, false)
+}
+
+/// [platform-tree] The host implementation skeletons of the project's own
+/// modules (a dependency's host files are the dependency's to ship).
+pub fn platform_skeletons_ir(program: &Program, entry: Option<&ModulePath>) -> Result<Vec<EmittedFile>, Vec<String>> {
+    run(program, entry, true, true).map(|(files, _)| files)
+}
+
+fn run(
+    program: &Program,
+    entry: Option<&ModulePath>,
+    abi: bool,
+    skeletons: bool,
 ) -> Result<(Vec<EmittedFile>, Vec<String>), Vec<String>> {
     let (_erased_program, erased, mut checked, warnings) = salvo_backend::driver::check_for_emission(program)?;
     let (symbols, resolution) = salvo_backend::driver::resolve_for_emission(program, &mut checked);
@@ -109,6 +121,42 @@ pub fn emit_program_ir(
         }
     }
     shared.compute_locs();
+    if skeletons {
+        let mut files = Vec::new();
+        for m in &ir.modules {
+            let Some(file) = program.files.iter().find(|f| f.module == m.path) else { continue };
+            if file.is_std || file.dependency.is_some() {
+                continue;
+            }
+            let own_path = shared.prefix(&m.path).trim_end_matches("::").to_string();
+            let mut em = ModuleEmitter::new(&mut shared, m);
+            let Some((body, paths)) = em.skeleton(&own_path) else { continue };
+            // [rs-platform-host] The host file is a module of the same crate:
+            // the names its signatures mention are in scope through these.
+            let mut uses: BTreeSet<String> = BTreeSet::new();
+            uses.insert(format!("use {own_path}::*;"));
+            for path in &paths {
+                uses.insert(format!("use {path}::*;"));
+            }
+            if !shared.union_sizes.is_empty() {
+                uses.insert("use crate::unions::*;".to_string());
+            }
+            let preamble = format!("\n{}\n", uses.into_iter().collect::<Vec<_>>().join("\n"));
+            let module = &m.path;
+            files.push(EmittedFile {
+                rel_path: salvo_core::host_rel_path(module, "rs"),
+                content: format!(
+                    "// Host implementation of the platform declarations of Salvo module `{module}`.\n//\n\
+                     // Generated once by `salvo platform generate`; the compiler never writes\n\
+                     // this file again — it is yours. Nothing here is checked by Salvo: rustc\n\
+                     // checks it, against the traits the backend generates from the\n\
+                     // `platform handler` declarations.\n{preamble}{body}"
+                ),
+            });
+        }
+        let errors = std::mem::take(&mut shared.errors);
+        return if errors.is_empty() { Ok((files, Vec::new())) } else { Err(errors) };
+    }
     let mut files = Vec::new();
     for m in &ir.modules {
         let keep: Option<&BTreeSet<String>> = if abi && !reach.abi_full.contains(&m.path) { reach.closure.as_ref() } else { None };
@@ -248,7 +296,7 @@ pub fn emit_program_ir(
             None => "lib.rs".into(),
         };
         let root_dir = root_rel.parent().map(|p| p.to_path_buf()).unwrap_or_default();
-        let mut header = CRATE_ATTRS.replace(")]", ", unused_braces)]");
+        let mut header = CRATE_ATTRS.to_string();
         let mut mounts: Vec<(String, std::path::PathBuf)> = Vec::new();
         let abi_root_body = if abi {
             root_module

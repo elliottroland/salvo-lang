@@ -137,6 +137,58 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-06 — The IR, step 3 done: Rust emits from the IR, and the AST emitter is gone
+
+The Rust backend's only emitter is `ir_emit/` (`mod.rs`, `decls.rs`, `body.rs`,
+`actors.rs`, `skeleton.rs`; about 5,800 lines). `emit.rs` shrank from 17,500
+lines to the entry points and the naming and runtime-file helpers (390), and
+`imports.rs` is gone. Everything green on the IR default: 1,713 tests, the 14
+examples, std's 134 tests, 33 CLI run tests, both checked-in host projects
+(std, aws). Total about 51 hours of logged time across steps 1–3; this step
+spent most of it in test runs (the fresh suite is ~6 minutes) and in
+regenerating checked-in outputs.
+
+What it took, beyond the port itself:
+
+* **IR additions** (IR.md §9a, "Step 3"): `proj` survives erasure; `FnDecl.holds`
+  and a wider `borrows`; `ExprKind::Present`; `Stmt::Alias`; platform-type
+  contract facts; consume marks for move-mode `for` subjects and assignments,
+  through `drop_mut`, and for variadic tails only when the callee moves them.
+* **Spelling changed outright** (no compatibility, per AGENTS.md): fully
+  qualified paths and no `use` items (host files get `use crate::m::Name;`
+  lines only), `&mut dyn FnMut` for every fn-typed parameter, Copy scalars by
+  value with `mut x: T` bindings, suffixed literals, annotated locals,
+  `__name_N` temporaries, `loop` + `matches!` for passes, `match &x {..}` for
+  union narrowing, `__depN` handler fields, `__Priv_H`/`__Fac_H` for mixed
+  handlers. About 100 textual assertions and 5 golden snapshots were rewritten
+  to the new shapes; `examples/*/rust`, `std/platform` and
+  `modules/aws/salvo/platform` were regenerated.
+* **Behaviour that changed on purpose**: a lending effect member has only its
+  natural face (`Option<&mut T>`); a value-position distinct-pair call is
+  lowered rather than refused; the `x!` unwrap borrows where its position
+  borrows and `as_mut`s where it mutates (the AST emitter mutated a clone for
+  `add(xs!, 3)` — silent, fixed here).
+* **Defects found by the spec sweep and fixed**: (1) a value loop whose body
+  ends in an `else`-less `if` assigned the `if` as the loop's value — both
+  backends, an IR-builder fault; (2) a call's argument hoisted past an earlier
+  argument with effects of its own ran in the wrong order on Rust only.
+  Regression cases: `rustc_…` / `kotlinc_compiles_and_runs_a_breaking_value_loop_and_ordered_arguments`.
+
+Gotchas:
+
+* A borrow-mode binding must not outlive what it borrows: `borrow_local` binds
+  `&place` only when the local is never assigned, captured, consumed or lent
+  mutably, and a branch's tail is borrowed only when every arm ends in a read
+  of a place the arm does not own (`tails_lendable`); otherwise it is rendered
+  owned and borrowed from the outside.
+* Retried renderings (a borrow that turns out to dangle) must restore the
+  temp counter and de-duplicate errors, or names and diagnostics double.
+* A hoisted argument must first bind every earlier argument that has effects
+  [deduce-same-call].
+* Rendering a lending effect member's locator face needs a handle held across
+  a read of the container; with only the natural face that shape does not
+  compile on either emitter (ROADMAP).
+
 ### 2026-10-06 — Alias groups in the IR, with their own anchor-step type (user decision)
 
 `[canbe-entry]` was the one ownership fact the IR did not carry: Kotlin

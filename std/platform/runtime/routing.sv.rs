@@ -737,7 +737,7 @@ pub fn version_in(versions: &crate::core_map::Map<i32, i64>, mut group: i32) -> 
 }
 
 pub fn bump_in(versions: &mut crate::core_map::Map<i32, i64>, waiters: &mut Vec<crate::runtime_routing::ViewWaiter>, mut group: i32) {
-    { let __arg1 = i64::wrapping_add(crate::runtime_routing::version_in(&*versions, group), 1i64); crate::core_map::put_platform::<i32, i64>(&mut *versions, group, __arg1, &mut |__a0: &i32| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i32, __a1: &i32| ((*__a0) == (*__a1))) };
+    { let __arg1 = group; let __arg2 = i64::wrapping_add(crate::runtime_routing::version_in(&*versions, group), 1i64); crate::core_map::put_platform::<i32, i64>(&mut *versions, __arg1, __arg2, &mut |__a0: &i32| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i32, __a1: &i32| ((*__a0) == (*__a1))) };
     let mut i: i32 = 0i32;
     loop {
         if !((i < crate::core_list::size_platform::<crate::runtime_routing::ViewWaiter>(&*waiters))) {
@@ -931,7 +931,7 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
             let mut n = c.unwrap();
             if (n > 0i32) {
                 crate::core_map::put_platform::<i32, i32>(&mut self.credits, addr, i32::wrapping_sub(n, 1i32), &mut |__a0: &i32| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i32, __a1: &i32| ((*__a0) == (*__a1)));
-                { let __arg1 = i32::wrapping_add(crate::runtime_routing::held_in(&self.held_n, addr), 1i32); crate::core_map::put_platform::<i32, i32>(&mut self.held_n, addr, __arg1, &mut |__a0: &i32| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i32, __a1: &i32| ((*__a0) == (*__a1))) };
+                { let __arg1 = addr; let __arg2 = i32::wrapping_add(crate::runtime_routing::held_in(&self.held_n, addr), 1i32); crate::core_map::put_platform::<i32, i32>(&mut self.held_n, __arg1, __arg2, &mut |__a0: &i32| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i32, __a1: &i32| ((*__a0) == (*__a1))) };
                 return 1i32;
             };
             crate::core_list::add_platform::<crate::runtime::Parker>(&mut self.credit_waiters, me);
@@ -943,7 +943,7 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
         crate::runtime_routing::stage_in(&self.routes, &self.outbound, &mut self.outbox, &mut self.parked, from, to, frame);
     }
     fn grant(&mut self, addr: i32, pool: i32, from: i64, n: i32) {
-        { let __arg1 = i32::wrapping_add(crate::runtime_routing::held_in(&self.held_n, addr), n); crate::core_map::put_platform::<i32, i32>(&mut self.held_n, addr, __arg1, &mut |__a0: &i32| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i32, __a1: &i32| ((*__a0) == (*__a1))) };
+        { let __arg1 = addr; let __arg2 = i32::wrapping_add(crate::runtime_routing::held_in(&self.held_n, addr), n); crate::core_map::put_platform::<i32, i32>(&mut self.held_n, __arg1, __arg2, &mut |__a0: &i32| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i32, __a1: &i32| ((*__a0) == (*__a1))) };
         let mut me: crate::runtime_routing::RemoteRef = crate::runtime_routing::identity_in(&self.remote, &mut self.bits, &self.pool_node, self.node_id, addr, pool);
         let mut frame: crate::core_bytes::Bytes = { let __enc: crate::unions::Union5<crate::runtime_routing::MsgFrame, crate::runtime_routing::AnswerFrame, crate::runtime_routing::GrantFrame, crate::runtime_routing::OpenFrame, crate::runtime_routing::ControlFrame> = crate::unions::Union5::U3(crate::runtime_routing::GrantFrame { to: from, host: me.node, actor: me.actor, bits: me.bits, n: n }); crate::wire::salvo_encode(&__enc) };
         crate::runtime_routing::stage_in(&self.routes, &self.outbound, &mut self.outbox, &mut self.parked, me.node, from, frame);

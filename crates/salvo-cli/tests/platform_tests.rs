@@ -864,7 +864,7 @@ fun <T> unerase(d: Dyn): T = d.v as T
 "#;
     for (backend, tool, ext, sig, implementation) in [
         ("kotlin", "kotlinc", "kt", "fun<T> unerase(d: salvo.platform.host.Dyn): T {", HOST_KT),
-        ("rust", "rustc", "rs", "pub fn unerase<T: Send + 'static>(d: Dyn) -> T {", HOST_RS),
+        ("rust", "rustc", "rs", "pub fn unerase<T: Send + 'static>(d: crate::host::Dyn) -> T {", HOST_RS),
     ] {
         if !have(tool) {
             eprintln!("skipping {backend}: {tool} not found on PATH");

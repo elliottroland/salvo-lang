@@ -1805,7 +1805,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             return (Vec::new(), self.args(params, args, FnPos::Param, indent));
         }
         let mut lets = Vec::new();
-        let mut out = Vec::new();
+        let mut out: Vec<String> = Vec::new();
+        let mut pending: Vec<(usize, &Expr, Option<&Param>)> = Vec::new();
         for (i, a) in args.iter().enumerate() {
             let p = params.get(i);
             let lent_mut = p.is_some_and(|p| p.mode == PassMode::LentMut);
@@ -1826,6 +1827,24 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 None => self.value(a, indent),
             };
             let by_value = p.is_some_and(|p| p.mode == PassMode::Moved || is_copy_ty(&p.ty)) || is_copy_ty(&a.ty);
+            let hoisting = reads_root && (by_value || p.is_some_and(|p| p.mode == PassMode::Lent && !is_proj(&p.ty) && !matches!(p.ty.strip_quals(), Ty::Fn { .. })));
+            // An argument hoisted ahead of the call must not overtake an
+            // earlier one with effects of its own: those are bound first,
+            // in order [deduce-same-call].
+            if hoisting {
+                for (idx, b, bp) in std::mem::take(&mut pending) {
+                    let by_value_b = bp.is_some_and(|q| q.mode == PassMode::Moved || is_copy_ty(&q.ty)) || is_copy_ty(&b.ty);
+                    let t = self.fresh("arg");
+                    if by_value_b {
+                        lets.push(format!("let {t} = {};", out[idx]));
+                        out[idx] = t;
+                    } else {
+                        let v = self.value(b, indent);
+                        lets.push(format!("let mut {t} = {v};"));
+                        out[idx] = if bp.is_some_and(|q| q.mode == PassMode::LentMut) { format!("&mut {t}") } else { format!("&{t}") };
+                    }
+                }
+            }
             if reads_root && by_value {
                 let t = self.fresh("arg");
                 lets.push(format!("let {t} = {code};"));
@@ -1869,6 +1888,15 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 lets.push(format!("let {t} = {v};"));
                 out.push(format!("&{t}"));
             } else {
+                let mut effects = false;
+                walk_expr(a, &mut |_| {}, &mut |e| {
+                    if matches!(e.kind, ExprKind::Call { .. } | ExprKind::MemberCall { .. } | ExprKind::Send { .. } | ExprKind::SelfSend { .. }) {
+                        effects = true;
+                    }
+                });
+                if effects {
+                    pending.push((out.len(), a, p));
+                }
                 out.push(code);
             }
         }

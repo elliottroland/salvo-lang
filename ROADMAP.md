@@ -87,6 +87,35 @@ and the `test actor` follow-ups recorded below:
 
 ### 0c — ✅ Emitter defects and gaps (closed 2026-10-04, COMPLETED.md)
 
+### 0k — Open defects found by the Rust spec sweep (2026-10-06)
+
+Repros are small programs; each fails the way described today.
+
+1. **`||` of two `is` tests** — `if v is Int || v is Str { … }` treats the
+   disjunction as a conjunction in the IR builder's narrowing: the right
+   operand's binding is read before it is defined and both arms are bound.
+   Both backends (rustc E0425/E0308; Kotlin the same broken shape).
+2. **`^` on a field is silently wrong, both backends** — with
+   `h.result: Ok (Ok Int | Err Str) | Thrown Str`, inside
+   `if h.result is ^Ok { … }` an inner `h.result is Err` tests the *outer*
+   wrapper's arm: `wrapped(7)` returning `err("bad")` prints "not err"
+   instead of "err bad" (an inner `is Ok` is E0507). `^` on a local works.
+   Violates [backend-never-wrong]; the highest priority here.
+3. **Unannotated lambda as a handler constructor argument** (Rust only) —
+   `use Derived(n -> n + 1)` fails with "a value of type `?` reached rust
+   code generation" and no location; `(n: Int) -> n + 1` works, Kotlin
+   compiles both.
+4. **Interpolating a union** — `println("${y}")` with `y: Int | Str | Bool`
+   fails in the IR build ("no to_str …") with a byte offset for a location.
+   Both backends; the union `Display` impls are emitted but unreachable.
+5. **A handle held across a read of its container through a lending effect
+   member** — `let e = lease(es)!; let n = size(es); e.hp = e.hp + n` does
+   not compile on either emitter (E0502): a member has only its natural
+   `Option<&mut T>` face, so there is no locator twin to fall back on. Needs
+   a locator face on `Interface` members (as `f__loc` for fns).
+6. **Host-file `use` lines pick up enum variants** (`use
+   crate::__Priv_H::Advance;`) — harmless, but noise.
+
 ### 0j — Shrinking the backends (user decisions 2026-10-05, not built)
 
 The aim: a third backend implements a short, straightforward list. Decided in
@@ -252,14 +281,14 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
     Rust, then actors). **Step 1 built 2026-10-06** (`salvo-ir`, `salvo ir`,
     corpus and golden tests; IR.md §9a lists the provisional calls). **Step 2
     done 2026-10-06**: Kotlin emits from the IR only; the AST emitter is
-    deleted. **Next, step 3: port Rust** (IR.md §10). Left over from step 2:
-    `BACKEND_SPEC.kotlin.md` still describes several AST-emitter spellings
-    (imports aside, which were rewritten) and wants a pass rule by rule;
-    `salvo-backend::emit_util` keeps walkers only the deleted emitter used,
-    to drop once Rust is ported; a single-face `use` takes a
-    `ReentrantLock` it does not need. Known deviations to settle in step 4:
-    the actor dispatch body and codecs are generated in the backend from the
-    interface/impl declarations (decision 2's hybrid). The earlier plan, kept for reference: **rewrites as
+    deleted. **Step 3 done 2026-10-06**: Rust emits from the IR only, the
+    same way. **Next, step 4** (actors as IR; IR.md §10, decision 2's hybrid:
+    the actor dispatch body and codecs are still generated in each backend
+    from the interface/impl declarations) **and step 5** (retire the
+    span-keyed checker tables and `salvo-backend::emit_util` walkers the
+    emitters no longer read). Left over: `BACKEND_SPEC.kotlin.md` still
+    describes several AST-emitter spellings and wants a pass rule by rule; a
+    single-face `use` takes a `ReentrantLock` it does not need. The earlier plan, kept for reference: **rewrites as
     opt-in helpers in `salvo-backend`**, in this order: argument
     hoists (AST-to-AST, registering checker-table entries for the nodes they
     create), the `__loc` fn variants, value-position control flow (a helper

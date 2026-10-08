@@ -1628,8 +1628,10 @@ impl<'a, 'p> Lower<'a, 'p> {
         }
         let b = self.with_test(Some(Justification::Cond { branch: bid, arm: 0 }), |me| me.block(body, result.is_some()));
         stmts.extend(b.stmts);
-        if let (Some(v), Some((r, _))) = (b.value, &result) {
-            stmts.push(Stmt::Assign { place: Place { root: r.clone(), steps: Vec::new() }, value: *v });
+        match (b.value, &result) {
+            (Some(v), Some((r, _))) if loop_body_value(&v) => stmts.push(Stmt::Assign { place: Place { root: r.clone(), steps: Vec::new() }, value: *v }),
+            (Some(v), _) => stmts.push(Stmt::Expr(*v)),
+            _ => {}
         }
         self.loop_results.pop();
         self.loops -= 1;
@@ -1755,8 +1757,10 @@ impl<'a, 'p> Lower<'a, 'p> {
                 }
                 let b = self.block(body, result.is_some());
                 arm_stmts.extend(b.stmts);
-                if let (Some(v), Some((r, _))) = (b.value, &result) {
-                    arm_stmts.push(Stmt::Assign { place: Place { root: r.clone(), steps: Vec::new() }, value: *v });
+                match (b.value, &result) {
+                    (Some(v), Some((r, _))) if loop_body_value(&v) => arm_stmts.push(Stmt::Assign { place: Place { root: r.clone(), steps: Vec::new() }, value: *v }),
+                    (Some(v), _) => arm_stmts.push(Stmt::Expr(*v)),
+                    _ => {}
                 }
                 stmts.push(Stmt::Expr(Expr {
                     ty: Ty::none(),
@@ -1790,8 +1794,10 @@ impl<'a, 'p> Lower<'a, 'p> {
                 }
                 let b = self.block(body, result.is_some());
                 stmts.extend(b.stmts);
-                if let (Some(v), Some((r, _))) = (b.value, &result) {
-                    stmts.push(Stmt::Assign { place: Place { root: r.clone(), steps: Vec::new() }, value: *v });
+                match (b.value, &result) {
+                    (Some(v), Some((r, _))) if loop_body_value(&v) => stmts.push(Stmt::Assign { place: Place { root: r.clone(), steps: Vec::new() }, value: *v }),
+                    (Some(v), _) => stmts.push(Stmt::Expr(*v)),
+                    _ => {}
                 }
                 self.loop_results.pop();
                 self.loops -= 1;
@@ -2228,4 +2234,11 @@ fn literal_arg(text: &str) -> Option<Expr> {
         return n.parse::<f64>().ok().and_then(|v| mk("Float", ExprKind::Float(v)));
     }
     text.parse::<f64>().ok().and_then(|v| mk("Double", ExprKind::Double(v)))
+}
+
+/// [while-value] Whether a loop body's trailing expression is a value for
+/// the loop's result: an `if` with no `else` is a statement (its arms may
+/// only `break`), and so is anything of type `None`.
+fn loop_body_value(v: &Expr) -> bool {
+    !v.ty.is_none_ty() && !matches!(&v.kind, ExprKind::Branch { otherwise: None, arms, .. } if !(arms.len() == 1 && matches!(arms[0].0.kind, ExprKind::Bool(true))))
 }

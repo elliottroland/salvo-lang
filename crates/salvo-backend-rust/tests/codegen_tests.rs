@@ -16072,3 +16072,38 @@ fn watch_and_on_idle_are_salvo_over_the_core_token() {
         assert!(actor.content.contains(".take_local()"), "{}", actor.content);
     }
 }
+
+/// [while-value] [deduce-same-call] A value loop whose body ends in an
+/// `else`-less `if` (a statement: its arm only `break`s), and a call whose
+/// later argument is hoisted past an earlier one with effects of its own —
+/// which must still run first. Both backends print the same.
+const LOOP_BREAK_ORDER_DEMO: &str = r#"
+fn first_big(xs: List<Int>) -> Int? => xs {
+    return for x in xs {
+        if x > 2 { break x }
+    }
+}
+
+fn noisy(n: Int) [Console] -> Int {
+    println("noisy ${n}")
+    return n
+}
+
+fn both(f: (a: Int, b: Int) [Console] -> Int, x: Int) [Console] -> Int {
+    return f(noisy(1), f(noisy(2), x))
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    println("${first_big(list_of(1, 5)) ?: 0} ${first_big(list_of(1)) ?: 0}")
+    println("${both((a, b) -> { println("f ${a} ${b}") return a + b }, 10)}")
+}
+"#;
+
+const LOOP_BREAK_ORDER_OUTPUT: &str = "5 0\nnoisy 1\nnoisy 2\nf 2 10\nf 1 12\n13\n";
+
+#[test]
+fn rustc_compiles_and_runs_a_breaking_value_loop_and_ordered_arguments() {
+    let files = generate(&[("main.sv", LOOP_BREAK_ORDER_DEMO)]);
+    run_rust_files(&files, "loop-break-order", LOOP_BREAK_ORDER_OUTPUT);
+}

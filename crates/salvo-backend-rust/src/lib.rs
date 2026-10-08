@@ -1,7 +1,6 @@
 //! Rust backend for the Salvo compiler.
 
 mod emit;
-mod imports;
 mod intrinsics;
 mod ir_emit;
 

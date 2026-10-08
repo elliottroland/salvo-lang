@@ -349,18 +349,6 @@ pub fn type_name(name: &str) -> Option<&'static str> {
     })
 }
 
-/// The body of an `intrinsic handler`'s member [backend-intrinsic]: the
-/// statements (or, for a value-returning member, the expression) that
-/// implement it, with the member's own parameter names in scope.
-///
-/// Paths are absolute so the emitted file needs no `use` items.
-pub fn handler_member(handler: &str, member: &str, params: &[String]) -> Option<String> {
-    // std declares no intrinsic handler any more (ROADMAP 0.5): `StdOutConsole`
-    // is a platform handler and `DefaultRandom` is Salvo.
-    let _ = (handler, member, params);
-    None
-}
-
 /// The Rust integer type of a Salvo one.
 fn rs_int(salvo: &str) -> &'static str {
     if salvo == "Long" {

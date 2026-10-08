@@ -405,7 +405,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     }
 
     /// An interface member's signature, `RECV` standing for the receiver.
-    fn member_sig(&mut self, m: &salvo_ir::Member) -> String {
+    pub(super) fn member_sig(&mut self, m: &salvo_ir::Member) -> String {
         let mut ps: Vec<String> = Vec::new();
         let params = self.s.unalias_params(&m.params);
         let lt = self.ret_lifetime(&params, &m.ret, &[], true);

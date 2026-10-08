@@ -118,6 +118,7 @@ pub struct FnDecl {
     pub params: Vec<Param>,                  // effects first, then declared, then implicits
     pub ret: Ty,
     pub borrows: Vec<usize>,                 // params the result holds a view of
+    pub holds: Vec<(usize, usize)>,          // `p.f: proj(q)`: param p comes to hold a view of q
     pub body: Option<Block>,                 // None: platform or intrinsic
     pub kind: FnKind,                        // Plain | Intrinsic | Platform | Member(…)
 }
@@ -129,6 +130,7 @@ pub enum Stmt {
     Loop { body: Block },                                  // unconditional; left by `break`
     Let { local: Local, ty: Ty, value: Expr },
     Narrow { local: Local, ty: Ty, from: Local, because: Justification },
+    Alias { local: Local, ty: Ty, place: Place },          // a name for a place [deduce-field]
     Assign { place: Place, value: Expr },
     Expr(Expr),
     Return(Option<Expr>),
@@ -146,6 +148,7 @@ pub enum Expr {
     Construct { ty: Ty, fields: Vec<(Field, Expr)> },     // struct literal, handler ctor
     MakeUnion { arm: usize, value: Box<Expr> },           // ty is the union
     MakeNone, Unit,
+    Present { value: Box<Expr> },                         // a value in an optional's present arm
     Tuple(Vec<Expr>), List(Vec<Expr>), Array(Vec<Expr>),
     Concat(Vec<Expr>),                                    // every part is a Str
     Branch { arms: Vec<(Expr, Block)>, otherwise: Option<Block> },
@@ -230,13 +233,20 @@ Four facts, all Salvo's, none a target's:
 1. **Per parameter**, `PassMode`: `Moved`, `Lent`, `LentMut` (today's
    `param_mode.rs`, unchanged).
 2. **Per fn result**, `borrows: Vec<usize>`: the parameters the result holds a
-   view of (`proj`; today's `lends.rs`).
+   view of (`proj`; `lends.rs`, plus the sources a written `proj(…)` names in
+   the result type or a deduction). With it, per fn, `holds: Vec<(usize,
+   usize)>`: the deductions `p.f: proj(q)`, a parameter that comes to hold a
+   view of another. `proj` itself survives erasure as a type qualifier (its
+   arguments do not), beside `Mut`.
 3. **Per read**, `consume: bool`: this read ends the value's life here. True
    for a `Moved` argument's place, a `return` of a local, a linear value
    handed over, a `state` field taken, a projection moved out of a consumed
    root — the union of `linear_moves`, `state_takes`, `moved_projections`,
-   move-mode `binding_modes` and the argument/return positions whose mode
-   says so.
+   move-mode `binding_modes` (on a `let`, an assignment, and a `for` subject,
+   which then iterates by value with owned elements) and the argument/return
+   positions whose mode says so. A variadic tail's elements are consumed only
+   when the callee's deduction moves the parameter; a `drop_mut` of a read is
+   consumed as the read is.
 4. **Per fn**, `may_alias: Vec<MayAlias>` [canbe-entry]: the parameters that
    may name the same object, as the clause wrote them with its `|` lists
    desugared — `Params(a, d)` for `a canbe d`, `In { param, root, path }` for
@@ -389,7 +399,7 @@ Things to notice:
   ignores it and writes `.clone()`.
 * The `for` is gone: a loop, a `next` call, a `switch` on the step, and a
   `narrow` for `x`. Kotlin can alias `x` to `__step.value`; Rust writes a
-  `while let`.
+  `loop` that tests the step's arm and breaks on the other.
 * `next#1`: `next` is overloaded across std, so the reference says which.
 * `at <= 0` is a `cmp` call then a test of its result, both references to
   declarations marked `intrinsic`; Rust and Kotlin reconstruct `<=` from the
@@ -530,6 +540,34 @@ What the port added to the IR, all backend-neutral:
   effect-generic erasure [effect-generic-decl] is applied where a type is
   rendered.
 
+### Step 3 (done 2026-10-06)
+
+`crates/salvo-backend-rust/src/ir_emit/` (`mod.rs`, `decls.rs`, `body.rs`,
+`actors.rs`, `skeleton.rs`; about 5,800 lines) renders the IR to Rust and is
+the only Rust emitter: the 17,500-line AST emitter and its `imports.rs` were
+deleted once every test passed on the IR path [rs-ir]. It owns the ownership
+idiom: `&`/`&mut`/owned parameters from `PassMode`, `.clone()` for a
+non-consuming read of a non-Copy value it needs owned, borrow-mode `let`s of
+pure places as `&T` locals, locator twins (`f__loc`) and element positions for
+mutable lends, `salvo_pair_mut` for proven-distinct pairs, covered calls for
+`may_alias`, `ControlFlow` for `Throw`, `OnceLock` accessors for statics, a
+servant plus façade for a mixed handler. Paths are fully qualified, so the
+generated files carry no imports beyond the names host files need.
+
+What the port added to the IR, all backend-neutral:
+
+* `proj` survives erasure, and `FnDecl.holds` / the wider `borrows` (§5).
+* `ExprKind::Present { value }` replaces retyping a value into an optional:
+  Rust writes `Some(…)`, Kotlin the value.
+* `Stmt::Alias { local, ty, place }` for a surviving field derivation
+  [deduce-field]: Rust re-reads the place at each use, Kotlin binds it.
+* `PlatformTypeDecl` carries `threadsafe`, `slots`, `iterable` and
+  `iter_elem`, what a host type's contract assertion and skeleton need.
+* Consume marks for move-mode `for` subjects and assignments, through
+  `drop_mut`, and for variadic tails only when the callee moves them (§5).
+* A loop body ending in an `else`-less `if` is a statement, not the loop's
+  value for that turn [while-value].
+
 ## 10. Transition plan
 
 The e2e suite (1712 tests, same program compiled and run on both backends,
@@ -541,12 +579,12 @@ change and are not the check; the IR dump gets its own goldens.
    for the corpus and the examples. This is where the node set gets tested
    against the whole language: every construct the builder cannot absorb is
    found here, with no backend involved.
-2. **Port Kotlin to read the IR.** Kotlin is smaller (9.7k lines) and has no
+2. **Port Kotlin to read the IR** (done 2026-10-06, §9a). Kotlin is smaller (9.7k lines) and has no
    ownership rendering. Both Kotlin paths exist until the IR path passes every
    e2e test; then the AST path is deleted. The reconstruction helpers
    (imports from references, elvis detection, value-position lowering) go in
    `salvo-backend` as they are written.
-3. **Port Rust.** The ownership reconstruction (`BindKind`, clone insertion,
+3. **Port Rust** (done 2026-10-06, §9a). The ownership reconstruction (`BindKind`, clone insertion,
    hoists, `__loc` twins, element handles) is rewritten against `consume`
    marks and `PassMode`. This is the largest step; the e2e suite and the
    hoist/narrowing codegen tests are the checks.

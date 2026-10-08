@@ -14,82 +14,99 @@ Conventions:
   to *compile*, never silently misbehaves at runtime
   ([backend-never-wrong]).
 
+* [rs-ir] **The Rust emitter reads the IR** (IR.md), and only the IR
+  (`crates/salvo-backend-rust/src/ir_emit/`: `mod.rs` for the program and
+  names, `decls.rs` for declarations, `body.rs` for statements and
+  expressions, `actors.rs` for the actor machinery, `skeleton.rs` for host
+  skeletons). Its ownership decisions come from what the IR records: each
+  parameter's and argument's **pass mode** (moved, lent, lent mutably), the
+  **consume marks** on reads, **`proj` types**, a fn's **`holds`/`borrows`**
+  facts, and **alias groups**. The AST is consulted only for intrinsic
+  lowering, keyed by the declaration the checker resolved
+  ([intrinsic-fn]). What the emitter itself decides is representation and
+  Rust idiom: the `UnionN` enums and `Option`, references for `proj` values
+  and lent parameters, a `.clone()` where a non-consuming read needs a value
+  of its own, the effect handle, and the spelling below.
+  * **Every path is fully qualified**: `crate::<mounted module>::Name`, or
+    `crate::Name` for the crate-root module, at declarations' mentions, calls
+    and constructions alike [rs-imports].
+  * **Copy scalars** (`Int`, `Long`, `Float`, `Double`, `Bool`, `Char`,
+    `Byte`, and an actor `Addr`) are passed by value; an owned parameter is
+    bound `mut x: T`.
+  * **Locals are annotated**: `let mut x: T = …;` (a borrow-mode local may
+    leave the type to inference, [rs-borrow-locals]). Generated temporaries
+    are `__<role>_<N>`, numbered per fn: `__pass_3`/`__step_4`/`__emitted_5`
+    (a `for` over a pass), `__nn_3`/`__some_4` (`!`), `__safe_N`, `__elv_N`,
+    `__old_N`, `__spread_N`, `__subject_N`, `__narrowed_N`, `__loop_N`,
+    `__elem_N`, `__tmpN`, `__argN`/`__partN`, `__hN`/`__lN`/`__cN`/`__pmN`
+    (element handles), `__use_N`/`__handle_N` (a `use`).
+  * **Literals carry their type**: `1i32`, `5i64`, `2.5f64`, `0.5f32`;
+    a string literal is `String::from("…")`.
+
 ## Assertions
 
 * [assert-trap] [rs-assert-trap] A failed assertion is a **panic** whose message
-  is Salvo's: `expr!` lowers to
-  `.expect("salvo: value is absent at <module>:<line>:<col>")`, `assert!(c, m)`
-  to `if !(c) { panic!("salvo: {} at …", m) }` and `unreachable!(m)` to the
-  `panic!` alone — which types as `!` and so stands wherever a value is expected.
-  The message composition sits *inside* the panic, so a written message is built
-  only when the assertion fails.
-  * `expect` rather than `unwrap_or_else(|| panic!(…))`: same text, no closure,
-    and `Option::expect` panics with exactly the message given.
+  is Salvo's. `assert!(c, m)` is `if !((c)) { panic!("salvo: {} at <module>:<line>:<col>", m) };`
+  and `unreachable!(m)` is the `panic!` alone (a literal message is spliced into
+  the format string: `panic!("salvo: never at main:23:16")`), which types as `!`
+  and so stands wherever a value is expected. The message composition sits
+  *inside* the panic, so a written message is built only when the assertion
+  fails.
+  * `expr!` is a block that tests, panics and answers the payload:
+
+    ```rust
+    {
+        let mut __nn_3: Option<&crate::Fighter> = crate::named(&roster, &__tmp1);
+        if __nn_3.is_none() {
+            panic!("salvo: value is absent at main:192:15");
+        } else {
+            let mut __some_4 = __nn_3.unwrap();
+            __some_4
+        }
+    }
+    ```
+
+    The block is a `let`'s value or an argument as it stands. A handle minted
+    by a locator ([rs-elem-mut]) traps with `.expect("salvo: value is absent at …")`
+    on the locator instead — same text, same timing.
   * The location is the **module path**, not the file name — a file's display
     name depends on the loader, and emitted output must not.
 * [rs-opt-borrow] `expr!` on an owned `Option` held by a **local** reads it
-  *through a borrow*: `p.as_ref().expect(msg).clone()`, the same form a narrowed
-  read takes (`narrow_unwrap`). Moving out of it (`p.expect(msg)`) is kept for
-  the four cases where nothing reads it again: a Copy payload (the `Option` is
-  Copy too), an `Option<&T>` operand, a `proj`-typed result (the borrow *is* the
-  value), and a span the checker recorded as a move (`linear_moves`,
-  `state_takes` — a clone there would duplicate an obligation, and a `Reply<T>`
-  is not `Clone`). A *field* operand needed nothing: `emit_owned` already clones
-  one. Before this (2026-09-23) two `!`s on one local were two moves, rustc
-  E0382, while the checker allowed both — reading an optional is free.
-* [rs-read-mode] The emitter carries a **wanted mode** while it walks an
-  expression: `Read` (a `&T` is enough) or `Own` (a value is needed). `Read` is
-  the default and `emit_owned` raises it for the duration of its walk, so a path
-  that *can* answer with a borrow clones only where the position needs ownership
-  — the copy `[copy-opt-in]` says should not happen without the program asking
-  (2026-09-23, ROADMAP.md's "One read, one mode"). `emit_read` is the
-  counterpart of `emit_expr` for a position that keeps what it is given.
-  * Three sites consult it, and the two that read a `!` share one predicate
-    (`owned_optional_local`) so they cannot disagree: the `NonNull` arm of the
-    expression walk, and `borrowed_arg`, which needs neither the clone nor a
-    second `&` because the unwrap already answers a reference. A **kept**
-    parameter therefore receives `p.as_ref().expect(…)` and a **consuming** one
-    `p.as_ref().expect(…).clone()`.
+  *through a borrow*: the block binds `let mut __nn = &x;` and
+  `let mut __some = __nn.as_ref().unwrap();`, and answers `__some` where the
+  position borrows, `__some.clone()` only where it owns. Where the position
+  mutates it binds `let mut __nn = &mut x;` and
+  `let mut __some = __nn.as_mut().unwrap();`, and answers `&mut *__some`. A
+  Copy payload unwraps directly (`__nn.unwrap()`, a value in every position),
+  and so does an `Option<&T>` operand, whose payload already *is* the borrow.
+  Two `!`s on one local are therefore two reads, as the checker treats them —
+  reading an optional is free.
+* [rs-read-mode] Whether a read answers a borrow or a value is the
+  **position's** question: a lent position (`&T`) takes the place or the
+  reference it already is, a mutably lent one `&mut`, and only a moved
+  position or a value one (an operator operand, an owned field) takes a
+  value — a Copy scalar by copy, anything else by `.clone()` unless the IR
+  marks the read a consume, in which case it is the move. So a clone happens
+  only where the program needs a value of its own and did not give one up
+  ([copy-opt-in]).
   * An argument to an **intrinsic** takes its mode from the *intrinsic's own
-    declaration* rather than from the position the call sits in
-    (`intrinsic_arg_code`, 2026-09-23): `Read` for a parameter the declaration
-    keeps, `Own` for one it consumes (`=> !elem`), for one typed `Mut` (the
-    lowering writes through it) and for the variadic tail (whose store clones
-    [fn-variadic]). So `contains(str, needle) => str, needle` hands its template
-    `trap.as_ref().expect(…)` where it used to clone. The templates tolerate the
-    reference because they already receive one whenever the caller's variable is
-    a `&T` binding — `{}.contains(&{}[..])` and `{}.chars().count()` are method
-    calls and `&x[..]` indexes through a `&String`.
-  * [rs-narrow-mut] `x!` in a **`Mut` intrinsic parameter** position reaches the
-    payload mutably: `xs.as_mut().expect(msg)`. Rendered owned — which is what
-    the pre-2026-09-23 path did — `add(xs!, 3)` emitted
-    `xs.as_ref().expect(…).clone().push(3)`, which compiles, appends to the
-    clone, and printed `1` where Kotlin printed `2`: the last shape of the
-    narrowed-`Mut` defect closed 2026-09-20, reached through `!` instead of
-    through a narrowing.
-  * A **narrowed** read obeys the mode the same way (`narrow_unwrap`,
-    2026-09-23): `name.as_ref().unwrap()` / `o.u1()` under `Read`, with
-    `.clone()` added under `Own`. A **Copy** payload is a third thing — copied
-    out of the representation (`*o.u1()`, `n.unwrap()`), free, and a value in
-    both modes. The mutable read is `narrow_unwrap_mut`, unchanged.
-    * The predicate a `&T` position asks first is `narrowed_borrow`: a narrowed
-      non-Copy read *is* the reference, so `borrowed_arg` returns it as it
-      stands rather than borrowing a clone back
-      (`len_of(name.as_ref().unwrap())`, `len_of(b.label.as_ref().unwrap())`).
-    * Two positions walk with `emit_place` and so run under the *ambient* mode,
-      which at a statement is `Read`: a **move-mode binding**
-      (`emit_bound_value`) and a **consuming `for` subject**. Both are owned, and
-      both raise the mode explicitly. Without that, `let s: InStream = opened`
-      under a narrowing bound a `&InStream` — fifteen rustc E0308s across
-      `examples/files` alone, which is the reassuring half of this mode's failure
-      mode: dropping a clone that was load-bearing does not compile, so rustc
-      is the safety net rather than the output being quietly wrong.
-  * Still owned, and recorded in ROADMAP.md: an **interpolated** value. The
-    native case would take the reference happily (`format!("{}", &String)`), but
-    the `to_str` cases in the same function write `to_str(&{arg})` and
-    `{place}.field`, so the site would have to ask the predicate three times —
-    which is the argument for a rendering that *reports* what it produced
-    (`Rendered { code, is_ref }`).
+    declaration*, through the pass mode the IR gives that parameter, not from
+    the position the call sits in: kept is a read, consumed (`=> !elem`) a
+    value, and a `Mut` parameter is the place the lowering writes through.
+  * [rs-narrow-mut] `x!` in a **mutably lent** position reaches the payload
+    mutably (`&mut x` … `as_mut().unwrap()` … `&mut *__some`), so
+    `add(xs!, 3)` appends to `xs` itself. (A clone there would compile and
+    append to the clone, the [backend-never-wrong] failure this rule exists
+    for.)
+  * A **narrowed** read obeys the position the same way
+    ([rs-union-enums]): the narrowed local is a reference into the storage
+    (`let mut __narrowed_4 = b.label.as_ref().unwrap();`), passed as it stands
+    to a `&T` parameter (`crate::len_of(__narrowed_4)`) and cloned where a
+    value is needed. A **Copy** payload is copied out of the representation
+    (`n.unwrap()`, `*__v`), free, and a value everywhere.
+  * An interpolated part is a value (`format!` arguments are borrowed by the
+    macro either way): a native part is the place, a non-native one the
+    `to_str` call [rs-interp-to-str].
 
 ## Output layout
 
@@ -97,44 +114,39 @@ Conventions:
   from the emitted files (`rustc --edition 2021 main.rs`). The module
   declaring `fn main` becomes the crate root; it starts with the crate
   attributes (`#![allow(...)]` for cosmetic lints the generator does not
-  fight: `non_snake_case`, `unused_parens`, `unused_mut`, ...) and one
-  `#[path = "..."] mod <mangled>;` declaration per other emitted file.
+  fight: `non_snake_case`, `unused_parens`, `unused_mut`, `unused_braces`,
+  ...) and one `#[path = "..."] pub mod <mangled>;` declaration per other
+  emitted file.
   For a library compile (no `main`), a synthetic `lib.rs` carries the
   attributes and mod declarations.
   * A Salvo module `core.console` emits to `core/console.rs` and mounts
-    as `mod core_console` (path parts joined with `_`): Rust module
-    paths are flat, generated imports use `crate::core_console::*`.
-  * The generated union enums live in `unions.rs`, mounted as
-    `mod unions` [rs-union-enums], and the string helpers in `strings.rs`
-    [rs-mut-str], each emitted only when the program needs it. (The lazy
-    `iter.rs` runtime went with the `yield fn` deletion, 2026-09-10:
-    iteration emits inline pass drives [rs-iter-pass], no runtime file.)
-* [rs-imports] Files get generated `use` items **one per name** (user
-  decision 2026-10-05): `use crate::<mod>::<name>;` for each Salvo
-  declaration of a foreign emitted module the file refers to, written after
-  every module is emitted. What a file refers to comes from the checker
-  (`emit_util::checker_refs`: the names its source mentions, the fns its
-  calls, operators, interpolations and implicits resolved to, and the type
-  names in its expression types) plus the names the emitter registers as it
-  synthesizes them (`imports::note`: union structs, `__Actor_H`, `..._qualifies`,
-  `__loc` variants); `imports.rs` reads only what each module *declares* off
-  the emitted text. A fn the emitter
-  calls is imported from the module the checker resolved it to, under its own
-  name or `<name>__<module>` when the file uses the same emitted name from two
-  modules, or from another module and its own [fn-emit-name]. Every trait of
-  a module the file draws on is imported `as _`, since a method call names no
-  trait. Platform fn wrappers are still called by their module path
-  (`crate::core_list::size_platform`). The runtime files keep their globs —
-  `use crate::unions::*;` / `use crate::strings::*;` and the rest — since they
-  declare no Salvo name. An aliased
-  Salvo import of a Rust-visible item emits
-  `use crate::<mod>::<name> as <alias>;` and call sites keep the alias.
-  Intrinsic lowerings name everything by absolute path [intrinsic-fn], so
-  they add no `use` of their own.
-  * Items referenced through glob imports must be `pub`: every emitted
-    item (fn, struct, trait, impl fn, enum) is `pub`, struct fields
-    included.
-* [rs-entry] `fn main() [use]` emits as Rust `fn main()` with no effect
+    as `pub mod core_console` (path parts joined with `_`): Rust module
+    paths are flat, and generated code names its items
+    `crate::core_console::println`.
+  * The generated union enums live under `unions/`, mounted as
+    `#[path = "unions/mod.rs"] pub mod unions;` [rs-union-enums], and the
+    float-text helpers in `strings.rs` [rs-float-text], each emitted only
+    when the program needs it. Iteration needs no runtime file: it emits
+    inline pass drives [rs-iter-pass].
+* [rs-imports] **Generated code names everything by its full path**
+  (`crate::geometry::area(…)`, `crate::Fighter { … }` for the crate root), so
+  no call, type or construction depends on an import. The `use` items a file
+  does carry are **for host files**: a host file mounted for a module does
+  `use crate::<module>::*`, and expects the names that module's declarations
+  mention to be in scope through it. So each emitted module gets one
+  `use crate::<mod>::<Name>;` per name its text mentions as
+  `crate::<mod>::<Name>` from exactly one foreign module — not names it
+  declares itself, not `__`-prefixed ones, and not the runtime modules
+  (`unions`, `scheduler`, `wire`, `seq`, `strings`, `hosttime`,
+  `hoststreams`) or host modules (`platform_*`). The runtime files carry no
+  `use crate::…` at all. An aliased Salvo import changes nothing in the
+  output: a call names the declaration's path, not the alias.
+  Intrinsic lowerings name everything by absolute path [intrinsic-fn].
+  * Every emitted item (fn, struct, trait, impl fn, enum) is `pub`, and so
+    are a struct's fields, so any module can reach them by path. A
+    handler's fields stay private (except `__mailbox_capacity`,
+    [rs-mailbox]): only its own impls read them.
+* [rs-entry] `fn main() [use]` emits as Rust `pub fn main()` with no effect
   parameters. The CLI reports the crate-root file as the entry point.
 * [backend-companion] Companion `.rs` files are copied verbatim and
   mounted like generated modules. A companion must not collide with a
@@ -142,158 +154,190 @@ Conventions:
 
 ## Type mappings
 
-* [safe-call] [rs-safe-call] `receiver?.member` emits
-  `if recv.is_some() { Some(<inner>) } else { None }`, with the inner access
-  reading the narrowed payload through the existing unwrap [rs-option]. The
-  `Some(..)` is **omitted** when the member is already optional, or the result
-  would be an `Option<Option<T>>` the declared type does not have — an E0308
-  rustc caught, which Kotlin never saw, having no wrapper to double.
-* [elvis] [rs-elvis] `subject ?: rhs` lowers to
-  `match <subject> { Some(__v) => __v, None => <rhs> }`. A `match` rather than
-  `unwrap_or_else` because the right side may be an **escape**: a `return`
-  inside a closure returns from the closure [expr-escape]. The `match` is also
-  what gives the single evaluation.
+* [safe-call] [rs-safe-call] `receiver?.member` is a block that tests the
+  receiver once and wraps the member read:
+
+  ```rust
+  {
+      let mut __safe_1: Option<&crate::P> = maybe.clone();
+      if __safe_1.is_none() {
+          None
+      } else {
+          let mut __some_2 = __safe_1.unwrap();
+          Some(__some_2.age.clone())
+      }
+  }
+  ```
+
+  The `Some(..)` is **omitted** when the member is already optional, or the
+  result would be an `Option<Option<T>>` the declared type does not have — an
+  E0308 rustc caught, which Kotlin never saw, having no wrapper to double.
+* [elvis] [rs-elvis] `subject ?: rhs` is the same block with the right side in
+  the absent branch: `{ let mut __elv_3 = &n; if __elv_3.is_none() { 7i32 }
+  else { let mut __some_4 = __elv_3.unwrap(); __some_4 } }` — the subject
+  evaluated once, bound by reference when it is a place and by value when it
+  is a call's result, and unwrapped as a narrowed read [rs-read-mode]. An
+  `if` rather than `unwrap_or_else` because the right side may be an
+  **escape**: a `return` inside a closure returns from the closure
+  [expr-escape].
 * [type-basic] Internal types map natively: `Str`→`String`, `Int`→`i32`,
   `Long`→`i64`, `Float`→`f32`, `Double`→`f64`, `Bool`→`bool`,
-  `Char`→`char`, `Byte`→`u8`, `Never`→`!` (the language docs' original
-  `u64` for `Long` was a spec bug — `Long` is signed; fixed during M8).
-  `Any` has no Rust mapping yet: referencing it is a codegen error
-  ([backend-never-wrong]).
-  * [byte-value] [bytes-type] `Byte`→`u8`, and **`Bytes` and `Mut Bytes` are
-    both `Vec<u8>`**: unboxed, no runtime class, and `Mut` erasing as it does
-    for every other type here [type-canbe-mut], so dropping it renders
-    nothing. The buffer class Kotlin has to ship ([kt-bytes]) is simply what
-    this backend gets from `Vec`, `slice` included (a `to_vec()` of a range).
-    `to_byte`/`to_int` are `as` casts with the **source type named**
-    (`(((x) as i32) as u8)`): rustc infers an unsuffixed literal's type
-    from the cast, so `(-1) as u8` would make the literal a `u8` and be
-    rejected instead of meaning 255.
+  `Char`→`char`, `Byte`→`u8`, `None`→`()`, `Never`→`()` (a platform
+  signature's result is the exception, [rs-platform-never]). (The language
+  docs' original `u64` for `Long` was a spec bug — `Long` is signed; fixed
+  during M8.) `Any` has no Rust mapping: a value of it reaching emission is a
+  codegen error ([backend-never-wrong]).
+  * [byte-value] [bytes-type] `Byte`→`u8`, and **`Bytes` is std's platform
+    type over `Vec<u8>`** (`core.bytes` re-exports the host's
+    `pub type Bytes = Vec<u8>;`, [rs-platform-type]): unboxed, with `Mut`
+    erasing as it does for every other type here [type-canbe-mut]. The
+    buffer class Kotlin has to ship ([kt-bytes]) is simply what this backend
+    gets from `Vec`. `to_byte`/`to_int` are `as` casts with the **source type
+    named** (`(((x) as i32) as u8)`), so a literal operand keeps its own type
+    rather than taking the cast's.
 * [op-promote] Rust has no mixed-width operators (`i32 + i64` is E0277),
   so a checker-recorded promotion casts the operand **as a whole**:
-  `((n * 2) as i64)` — the inner parentheses matter, since `as` binds
-  tighter than every arithmetic operator and `(n * 2 as i64)` would cast
-  only the `2`. Targets are `i64` and `f64` only (widening goes up within
-  a class).
-* [rs-op-wrap] [op-wrap] Integer `+`/`-`/`*` render as `i32::wrapping_add(a,
-  b)` (and `i64::`, `wrapping_sub`, `wrapping_mul`), negation of a non-literal
-  as `i32::wrapping_neg(x)`, and a step as `x = i32::wrapping_add(x, 1)`: the
-  function form, because a method on a bare literal is E0689. A lent scalar
-  operand is dereferenced first [rs-cmp-deref], since `&i32 + i32` had an
-  impl and `wrapping_add(&i32, …)` does not. `bit_ushr` casts through the
-  signed type before the unsigned one, or a literal `-16` types as `u32`.
-* [lit-adopt] An adopted literal renders at its **checked** type
-  (`1i64`, `3f64`, `0.5f32`); an unsuffixed literal at its default type
-  stays bare for inference [lit-numeric]. [op-convert] lowers to `as`
-  casts, whose semantics match Kotlin's `toX()` pairwise (saturating
-  float→int, low-32-bits `i64`→`i32`).
-* [effect-at] Erased like the scope selector below: the checker records
-  the resolved effect per call (`effect_calls`), and emission is the
-  ordinary member dispatch.
+  `i64::wrapping_add(x, ((i32::wrapping_mul(n, 2i32)) as i64))`,
+  `(((n) as i64) < x)` — the parentheses matter, since `as` binds tighter
+  than every arithmetic operator. Targets are `i64` and `f64` only (widening
+  goes up within a class).
+* [rs-op-wrap] [op-wrap] Integer `+`/`-`/`*`/`/`/`%` on `Int`, `Long` and
+  `Byte` render as `i32::wrapping_add(a, b)` (and `i64::`/`u8::`,
+  `wrapping_sub`, `wrapping_mul`, `wrapping_div`, `wrapping_rem`), negation
+  as `i32::wrapping_neg(x)` (a literal too: `-1` is
+  `i32::wrapping_neg(1i32)`), and a step as `x = i32::wrapping_add(x, 1i32)`:
+  the function form, because a method on a bare literal is E0689. A borrowed
+  scalar operand is dereferenced first [rs-cmp-deref]. `bit_ushr` casts
+  through the signed type before the unsigned one
+  (`(u32::wrapping_shr(((x) as i32) as u32, (n) as u32) as i32)`).
+* [lit-adopt] Every numeric literal renders at its **checked** type, suffixed
+  (`1i32`, `1i64`, `3f64`, `0.5f32`) — an unsuffixed literal included, at its
+  default type [lit-numeric] — so nothing is left to rustc's literal
+  inference. [op-convert] lowers to `as` casts (`((x) as i64)`), whose
+  semantics match Kotlin's `toX()` pairwise (saturating float→int,
+  low-32-bits `i64`→`i32`).
+* [effect-at] Erased: the IR's call names the effect instance it resolved
+  to, and emission is the ordinary member dispatch through that handle.
 * [fn-overload-at] [fn-rename] Both caller-side overrides of overload
-  resolution are **erased**: `call_fn` records the declaration and mangling
-  keeps Rust from re-resolving it [rs-fn-mangling]. A renamed call emits the
-  declaration's own name (`renamed_calls` tells it apart from an import
-  alias, which is kept [rs-imports]).
+  resolution are **erased**: the IR's call names the declaration, and the
+  emitted path is that declaration's own name [rs-fn-mangling], so Rust has
+  nothing to re-resolve.
 * [rs-shadowed-call] A call that reaches past a **local of the same name**
-  (as `f@module(...)`, or — since 2026-10-05 — a call whose arguments do not
-  fit an implicit of its name [implicit-resolve-body], and an interpolation's
-  `to_str` inside a fn with an implicit `to_str`) is spelled as a path — `crate::<mounted module>::f(...)`,
-  or `crate::f(...)` for the crate root. Rust puts functions and locals in
-  one value namespace, so the bare name is the local (E0618: "call expression
-  requires function"); Kotlin needs nothing, which is why this rule is
-  backend-prefixed.
+  (`f@module(...)`, a call whose arguments do not fit an implicit of its name
+  [implicit-resolve-body], an interpolation's `to_str` inside a fn with an
+  implicit `to_str`) needs nothing of its own: every call to a declaration is
+  spelled as a path (`crate::<mounted module>::f(...)`, `crate::f(...)` for
+  the crate root), and a path never resolves to a local. Rust puts functions
+  and locals in one value namespace, so a bare name would be the local
+  (E0618); Kotlin needs nothing, which is why this rule is backend-prefixed.
+  A call *through* a local (a fn value, an implicit) is the bare name.
 * [rs-seq] std's sequence functions [seq-iterator]: the `List` fast paths
   are std functions (2026-10-04, [platform-value-type]): `map` and `reduce`
-  are Salvo loops, and `filter` is a platform fn (`platform/core/seq.rs`)
-  cloning each kept element. Their fn-typed parameters render as
-  `&mut impl FnMut(&T)` ([rs-fn-param-convention]; `&mut dyn FnMut` for a
-  platform wrapper), which is what gives a lambda argument its parameter
-  types: a Rust closure bound to a `let` or nested in another closure's
-  argument cannot infer them. A **named fn** argument wraps in the adapter
-  closure [fn-contract], since a fn item's own convention is by value
-  (E0631 against `FnMut(&T)`). `runtime/seq.rs` is left holding
-  `salvo_pair_mut` [rs-elem-mut].
+  are Salvo loops (`crate::core_seq::map__List_Fn::<i32, i32>(&xs, …)`), and
+  `filter` is a platform fn (`crate::core_seq::filter_platform`, host in
+  `platform/core/seq.rs`) cloning each kept element. Their fn-typed
+  parameters render as `&mut dyn FnMut(&T) -> U` [rs-fn-param-convention],
+  which is what gives a lambda argument its parameter types: the lambda is
+  written untyped (`&mut |mut n| -> i32 { i32::wrapping_mul(*n, 2i32) }`)
+  and rustc takes the types from the coercion. A **named fn** argument wraps
+  in an adapter closure with typed parameters [fn-contract]
+  (`&mut |__a0: &i32| crate::double(*__a0)`), since a fn item's own
+  convention is by value. `runtime/seq.rs` holds only `salvo_pair_mut`
+  [rs-elem-mut].
 * [implicit-intrinsic] An `intrinsic fn` filling an implicit parameter is
-  passed as an adapter closure whose body is the intrinsic's *lowering*:
-  emitting `iter(__i0)` would name the generated `iter` **module** (E0423).
-  A resolved *declared* fn's adapter forwards each argument in that fn's own
-  parameter mode [rs-borrows] — a kept struct parameter is `&T`, and passing
-  it by value is E0308.
+  passed as an adapter closure whose body is the intrinsic's *lowering*
+  (`&mut |__a0: &String, __a1: &String| (&__a0[..] == &__a1[..])` for `eq` on
+  `Str`). A resolved *declared* fn's adapter forwards each argument in that
+  fn's own pass mode [rs-borrows] — a kept struct parameter is `&T`, a
+  consumed one is cloned out of the borrow.
 * [rs-mut-str] `Str` and `Mut Str` are **both** `String`: mutability lives
   in the binding and the reference [type-canbe-mut], so a `Mut` drop
-  renders nothing at all ([str-drop-mut] — `coercion_of` unwraps a
-  `DropMut` record to whatever it carries, so even the "is this argument a
-  fresh temporary?" tests see that nothing happens at a drop).
-  * String indexes are **characters**, not bytes: `size` counts `chars()`,
-    and `index_of`/`substr`/`set` convert, since `find` answers in bytes.
-    (Kotlin counts UTF-16 code units — the divergence `size` already had.)
-  * A read-only lowering binds its receiver once — `{ let __s = &A[..]; … }`
-    — which both avoids evaluating a call argument twice and gives a `&str`
-    whatever shape the place had (`String`, `&String`, `&mut String`).
-  * `mut_str(parts)` *borrows* its parts (`[&a[..], &b[..]].concat()`):
-    they are read, not stored, and a variadic position is untracked by the
-    flow analysis, so an owned splice would move a variable the checker
-    still considers live [fn-variadic].
-  * `set` is the one operation with no single `String` method, and an
-    inline `let s: &mut String = &mut place;` does not work for a `&mut
-    String` *parameter* (E0596: the binding is not `mut`). So it is a
-    method on a generated trait — `strings.rs`, mounted and imported like
-    `iter.rs`, gated on use — which auto-refs every place shape and
-    mentions the receiver once.
+  renders nothing at all [str-drop-mut].
+  * The string operations are std's **platform fns**
+    (`std/platform/core/string.rs`), called through their wrappers like any
+    other: `crate::core_string::size_platform(&s)`,
+    `crate::core_string::index_of_platform(&hay, &ll)`,
+    `crate::core_string::set_platform(&mut b, 0i32, 'H')`; a `Mut Str`
+    parameter is `&mut String` and passes on as `&mut *s`.
+  * String indexes are **characters**, not bytes: the host's `size` counts
+    `chars()`, and `index_of`/`substr`/`set` convert. (Kotlin counts UTF-16
+    code units — the divergence `size` already had.)
+  * `mut_str(parts)` is a Salvo fn over `Vec<String>`
+    (`crate::core_string::mut_str(vec![pa.clone()])`): its variadic
+    position consumes, so a part the caller keeps is cloned into the vector
+    [fn-variadic].
+  * `strings.rs` holds only the float-text helpers [rs-float-text].
 * [kt-none-unit]-equivalent: `None` as a return type is `()` (omitted);
   `None` as a union arm is `Option` [rs-option].
 * [rs-option] `T?` maps to `Option<T>`: `None`→`None`, `is None`→
-  `.is_none()`, `x!`→`.unwrap()`. Optionals are *physical* in Rust, so
-  the checker's `WrapOption` coercion emits `Some(code)` [type-nullable]
-  (Kotlin ignores the same coercion).
+  `.is_none()`, `x!`→ the test-and-unwrap block [rs-assert-trap]. Optionals
+  are *physical* in Rust, so the checker's `WrapOption` coercion emits
+  `Some(code)` [type-nullable] (Kotlin ignores the same coercion).
 * [type-array] `T[]` maps to `Vec<T>`; `array_of` emits `vec![...]` and
-  `array_by` an iterator-map-collect [col-by]; indexing casts the `i32`
-  index (`v[(i) as usize]`).
+  `array_by(n, f)` an iterator-map-collect
+  (`(0..(3i32)).map(|mut k: i32| -> i32 { … }).collect::<Vec<_>>()`,
+  [col-by]); indexing casts the `i32` index (`v[(i) as usize]`).
 * [rs-iter-pass] Iteration is **passes all the way down** [iter-protocol]:
   there is no iterator type and no runtime support module for one. A pass is a
-  plain struct, `next` is a plain function, and a `for` over one is
-  `while let Union2::U1(x) = next(&mut p) { … }` — an inlined call per element,
-  no allocation, no trait object.
+  plain struct, `next` is a plain function, and a `for` over one is a `loop`
+  that calls `next` once per turn, tests the arm, and binds the element — an
+  inlined call per element, no allocation, no trait object:
+
+  ```rust
+  loop {
+      let mut __step_7: crate::unions::Union2<i32, crate::core_iterator::Finished> = crate::next__Iter_halving_Int(&mut __pass_6);
+      if matches!(__step_7, crate::unions::Union2::U1(_)) {
+          let mut __emitted_8 = match &__step_7 { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
+          let mut n: i32 = __emitted_8;
+          …
+      } else {
+          break;
+      };
+  }
+  ```
+
+  A named pass is driven where it lives (`next(&mut *p)` for a `Mut`
+  parameter, `next(&mut q)` for a local) and is left where the loop stopped.
   * [iter-fn] An `iter fn` is desugared before emission into that same shape: a
-    struct holding what the body reads of the subject plus its `state` fields, an
-    `iter` that mints one, and the body as the `next`. The backend has no rule
-    of its own for the form.
-  * A `for` over a **container** calls its `iter` once before the loop and drives
-    the result [iter-mint]; the intrinsic containers (`Vec`, arrays, `String`)
-    keep their native loop instead [iter-for-native].
-  * An **effectful `next`** takes its handlers as leading arguments, threaded
+    struct holding what the body reads of the subject plus its `state` fields
+    (`__Iter_<fn>_<Subject>`, e.g. `__Iter_halving_Int`), an `iter` that mints
+    one, and the body as the `next`. The backend has no rule of its own for
+    the form.
+  * A `for` over a **container** calls its `iter` once before the loop
+    (`let mut __pass_9: crate::__Iter_iter_Bag<'_> = crate::iter(&bag);`)
+    and drives the result [iter-mint]; the intrinsic containers keep their
+    native loop instead [iter-for-native]: `for mut n in xs.iter().copied()`
+    over Copy elements, `for mut f in roster.iter()` over a borrowed list,
+    `.into_iter()` when the loop consumes it, `.iter().cloned()` when an owned
+    element is needed from a kept one, `s.chars()` over a `Str`.
+  * An **effectful `next`** takes its handles as leading arguments, threaded
     into every turn of the loop from the scope the `for` is written in
-    [fn-effects].
-  * [linear-group] A pass with a `close` is released by the loop on every exit —
-    exhaustion, `break` and `return` — through the exit-splice path
-    [rs-exit-splice].
-  * [rs-fn-field] A fn-typed **field** is `Rc<dyn Fn…>`, which is what lets a
-    composed pass store its source's `next`; a fn that stores a
-    callback therefore takes it owned and `'static` rather than borrowed. std
-    stopped writing such an iterator when the lazy pair was removed (2026-09-10);
-    a program may still write one.
+    (`crate::next__Iter_fibs_Int(&__handle_2, &mut __pass_12)`, [fn-effects]).
+  * [linear-group] A pass with a `close` is **not** released by the loop: the
+    program's own `close(p)` after the loop is the discharge (no implicit
+    discharge sites, [iter-drive-in-place]), so the loop emits nothing extra.
+  * [rs-fn-field] A fn-typed **field** is `std::sync::Arc<dyn Fn… + Send +
+    Sync>`, which is what lets a composed pass store its source's `next`; a fn
+    that stores a callback therefore takes it owned, as
+    `impl Fn(…) + Send + Sync + 'static`.
 
 * [rs-implicit-turbofish] A **generic call that fills implicit parameters**
-  spells out its type arguments (`map_to::<Vec<i32>, Vec<i32>, i32, i32>(…)`),
-  from `Checked::call_type_args`. Each implicit arrives as an adapter *closure*
-  whose parameter types Rust infers from the callee's bound, so with the
-  callee's generics still open there is nothing to infer them from and
-  inference stalls (E0282) on closures waiting for the answer the call itself
-  would have given.
+  spells out its type arguments
+  (`crate::core_seq::map_to::<Vec<i32>, crate::Countdown, i32, i32>(…)`).
+  Each implicit arrives as an adapter *closure* whose parameter types Rust
+  infers from the callee's bound, so with the callee's generics still open
+  there is nothing to infer them from and inference stalls (E0282) on
+  closures waiting for the answer the call itself would have given.
   * An implicit's fn type renders its parameters through the **contract**
-    [fn-contract], not through the parameter types alone: a kept `Mut`
-    position is `&mut T`, because a callback cannot append to a destination
-    handed over by value. Narrowed to kept-`Mut` positions deliberately —
-    everything else keeps the by-value convention implicits have always had.
+    [fn-contract]: a kept `Mut` position is `&mut T`, a kept non-Copy one
+    `&T`, a consumed or Copy one by value
+    (`add: &mut dyn FnMut(&mut D, U)`).
   * An implicit a callee **keeps** follows the same convention a written stored
-    callback does [rs-fn-field]: owned `impl Fn(…) + 'static` in the signature,
-    `Rc`-held once stored, and passed by a `move` adapter at the call site. For
-    a *minted origin* the adapter wraps the machine's own advance
-    (`move |__p: &mut __Iter_X| next(__p)`), and its parameter
-    is annotated because rustc cannot infer it through the `&mut dyn FnMut`
-    coercion an unkept position renders.
+    callback does [rs-fn-field]: owned `impl Fn(…) + Send + Sync + 'static` in
+    the signature, `Arc`-held once stored, and passed by a `move` adapter at
+    the call site.
 * [rs-none-unit] `None` is Rust's `()`, and a fn returning it has no return
-  type — so `return None` emits a **bare** `return`. The test is the *fn's*
+  type — so `return None` emits a **bare** `return;`. The test is the *fn's*
   rendered return type, not the value's: `return None` in an
   `Option`-returning fn is `return None;` and correct. The literal is dropped
   rather than evaluated; any other `None`-typed value runs for its effects
@@ -306,28 +350,24 @@ Conventions:
   own bound, which is all the struct needs. A fn that hands back such a struct
   takes its callbacks owned as `impl Fn(…) + Send + Sync + 'static` (the
   `Arc<dyn Fn + Send + Sync>` field's bounds), and that includes the fns an
-  implicit group spreads (`?Yield<It, T>`'s `next`), so `owns_callbacks`
-  counts a fn with implicit groups too.
-* [rs-fn-field] A **function in a struct field** is an `Rc<dyn Fn…>`
-  (roadmap R5, 2026-09-08 — it was a codegen error until then, while Kotlin
-  accepted the same source: a live backend divergence, now closed). The
-  representation is the one a *generated* pass has always used for a stored
-  callback [rs-iter-pass], reused rather than reinvented:
-  * the field renders as `std::rc::Rc<dyn Fn(A) -> R>` — `Fn`, not `FnMut`,
-    because it is reached through a shared `Rc` (the same rendering an
-    iterator fn's callback parameter gets, with `impl `/` + 'static`
-    rewritten to `Rc<dyn …>`);
-  * a **store** wraps in `std::rc::Rc::new(…)`, in a struct literal and in
-    an inlined default alike. Wrapping a value that is *already* an `Rc`
-    re-coerces (one more indirection) rather than failing, so the rendering
-    does not depend on where the value came from;
+  implicit group spreads (`?Yield<It, T>`'s `next`):
+  `pub fn taking<It: Clone, T: Clone>(mut it: It, mut n: i32, next: impl Fn(&mut It) -> … + Send + Sync + 'static) -> crate::core_seq::Taking<It, T>`.
+* [rs-fn-field] A **function in a struct field** is
+  `std::sync::Arc<dyn Fn(A) -> R + Send + Sync>`:
+  * `Fn`, not `FnMut`, because it is reached through a shared `Arc`; `Send +
+    Sync` because a struct may cross a spawn, and a Salvo lambda captures by
+    value, so every value the program can build satisfies them;
+  * a **store** wraps in `std::sync::Arc::new(…)`, in a struct literal and in
+    an inlined default alike — a named fn through a `move` adapter
+    (`f: std::sync::Arc::new(move |__a0: i32| crate::twice(__a0))`), a
+    stored parameter as it is (`std::sync::Arc::new(f)`);
   * the struct gets `#[derive(Clone)]` and a **hand-written `Debug`** that
-    prints the callback as `<fn>`, since `dyn Fn` has no `Debug` and `{:?}`
-    is how `${…}` renders a struct [rs-display];
-  * a read is an ordinary place read (`Rc` clones), and calling the value
-    still needs a local first (`let g = h.f` then `g(e)`) — `h.f(e)` is
-    dot-notation for `f(h, e)` [fn-dot], which is a language rule, not a
-    backend one;
+    prints the callback as `<fn>` (`.field("f", &"<fn>")`), since `dyn Fn`
+    has no `Debug`;
+  * a read is an ordinary place read (`let mut g = d.f.clone();`, an `Arc`
+    bump), and calling the value still needs a local first (`let g = h.f`
+    then `g(e)`) — `h.f(e)` is dot-notation for `f(h, e)` [fn-dot], which
+    is a language rule, not a backend one;
   * what this buys: a **hand-written composed pass** (a struct storing its
     source *and* its callback) builds on both targets, so composing iterators
     is available to anyone rather than only to generated std code.
@@ -338,10 +378,13 @@ Conventions:
   a `params` group in a signature [implicit-group].
 * [rs-tuple-index] A tuple index ([expr-tuple-index]) is Rust's own
   positional field: `t.0` emits as `t.0`, nesting included (`t.1.0`).
-  Reads clone like any other projection in owned position, and a narrowed
-  element unwraps as a field does ([flow-place] [rs-option]).
+  Reads clone like any other projection in a value position, and a narrowed
+  element unwraps as a field does
+  (`let mut __narrowed_3 = maybe.0.as_ref().unwrap();`, [flow-place]
+  [rs-option]).
 * [type-str] Strings are `String` (owned). Plain string literals emit
-  `"...".to_string()`; interpolation emits `format!("{}...", args)`.
+  `String::from("...")`; interpolation emits `format!("{}...", args)`, and a
+  string of literal parts only folds to one `String::from`.
 * [name-dot] Dot-names *flatten*: `Environment.Id` emits as
   `EnvironmentId`, in declarations, references and mangled overload names
   alike (`rs_ident` is the single funnel, and a dot cannot reach it from
@@ -352,8 +395,9 @@ Conventions:
     once in the type namespace of this module"), and the namespace struct
     is required to exist. Flattening is what makes the language-level
     collision ban load-bearing [name-dot].
-* [type-alias] Aliases expand structurally in the emitter (same
-  `subst_ast_type` approach as Kotlin).
+* [type-alias] Aliases are expanded before rendering: the emitter renders the
+  IR's types through the alias table (`unalias`), so an alias never reaches
+  the output by name.
 * [qual-erasure] Qualifiers erase from emitted types; what survives is
   arm choice, casts, predicate calls, mangled names — and the borrow
   modes that `Mut` implies [rs-borrows].
@@ -364,145 +408,129 @@ Conventions:
     refined claim is trusted, so no `qualifies` call is emitted where one
     applies. Nothing to lower.
 * [type-canbe-mut] Rust maps `Mut T` to the *same* type as `T` — there is
-  no per-type `Mut` mapping at all. Unlike Kotlin's `intrinsics.rs`, the
-  Rust one deliberately has no `mut_type_name`: mutability is expressed in
-  bindings and references (`let mut`, `&mut`) [rs-borrows], not in the
-  type. Struct `Mut` works the same way (all struct fields are plain
-  fields; assignability is enforced by the checker).
+  no per-type `Mut` mapping at all: mutability is expressed in bindings and
+  references (`let mut`, `&mut`) [rs-borrows], not in the type. Struct `Mut`
+  works the same way (all struct fields are plain fields; assignability is
+  enforced by the checker).
 
 ## Ownership and borrowing [rs-borrows]
 
-The central design (per docs/language/Deductions-and-Ownership.md): the checker's deduction
-tables (`Checked::deductions`, [deduce-syntax] [deduce-infer]) are the
-ownership contract. Salvo source has no references; the Rust backend
-derives them mechanically:
+The central design (per docs/language/Deductions-and-Ownership.md): the
+checker's deductions ([deduce-syntax] [deduce-infer]) are the ownership
+contract, and the IR carries them as **pass modes** on every parameter and
+argument and **consume marks** on every read [rs-ir]. Salvo source has no
+references; the Rust backend spells the modes mechanically:
 
 * **Parameter modes** (decided by core, [param-mode]; this is their Rust
-  spelling). For each parameter of a fn with a deduction entry:
-  * *consumed* (`=> !p`, or inferred so; `kept == false`) → the parameter is
-    **moved**: it is passed **by value** (`T`). The Salvo checker
-    guarantees the caller no longer uses the argument, so the move is
-    always legal.
-  * *kept* and its declared type carries `Mut` → **`&mut T`** (the callee
-    may mutate in place; the caller observes the mutations).
-  * *kept* without `Mut` → **`&T`** (shared borrow).
+  spelling):
+  * *moved* (`=> !p`, or inferred so) → **by value**, bound `mut p: T`. The
+    checker guarantees the caller no longer uses the argument, so the move
+    is always legal.
+  * *lent mutably* (kept, and the type carries `Mut`, or its elements do:
+    `List<Mut T>` lends mutable handles) → **`&mut T`**
+    (`pub fn fill(list: &mut Vec<i32>, mut n: i32)`).
+  * *lent* (kept without `Mut`) → **`&T`** (`pub fn read(list: &Vec<i32>) -> i32`).
   * **Copy exception:** parameters of Copy scalar types (`Int`, `Long`,
-    `Float`, `Double`, `Bool`, `Char`, `Byte`) are always passed by value
-    — a borrow would be noise, and copying preserves the semantics of
-    both kept and moved deductions.
-  * Variadic parameters are always owned `Vec<T>` (the caller assembles a
-    fresh vector at the call site) [fn-variadic].
-  * Fns outside the deduction tables (qualifier `qualifies` fns, handler
-    members) default to the *kept* rule for every parameter: `&T` /
-    `&mut T` per `Mut`, scalars by value. Effect member fns use the same
-    rule [rs-effects].
-* **Argument rendering.** Call sites consult the resolved callee's
-  parameter modes:
-  * moved position → the owned rendering of the argument (see below);
-  * `&T` position → `&arg` for place expressions; a bare identifier that
-    is already a reference binding passes as-is (Rust auto-reborrows and
-    `&mut T` coerces to `&T`);
-  * `&mut T` position → `&mut arg` for places; `&mut` parameter bindings
-    pass as-is (implicit reborrow).
-* **Owned rendering.** Expressions are emitted *owned* by default:
-  * identifiers bound by reference (`&T`/`&mut T` parameters) clone
-    (`x.clone()`); owned locals move (`x`); Copy scalars copy;
-  * field reads and index reads of non-Copy types clone
-    (`person.name.clone()`, `v[i as usize].clone()`) — moving out of a
-    place behind a (possible) reference is not generally legal, and the
-    checker does not track last-use. Exception [fate-move-mode]: a
-    projection in `Checked::moved_projections` (a moved-position
-    projection of mutable data whose roots the checker consumed)
-    renders as the raw place — a real partial move;
+    `Float`, `Double`, `Bool`, `Char`, `Byte`, an actor `Addr`) are always
+    passed by value, qualified or not (`Idx(list) Int` is `mut i: i32`) — a
+    borrow would be noise, and copying preserves the semantics of both kept
+    and moved deductions.
+  * Variadic parameters are owned `Vec<T>` (the caller assembles a fresh
+    vector at the call site) [fn-variadic].
+  * Qualifier `qualifies` fns and handler members follow the same modes
+    (`pub fn Surname__Person_qualifies(person: &crate::Person) -> bool`,
+    `pub fn Positive__Int_qualifies(mut int: i32) -> bool`); effect members
+    follow their written clause [rs-effects].
+* **Argument rendering.** Each argument follows its parameter's mode:
+  * moved position → a value (see below): an owned local moves (`crate::consume(items)`);
+  * `&T` position → `&place` (`crate::read(&items)`); a binding that already
+    is a reference passes as it is (`crate::core_list::size_platform::<i32>(xs)`),
+    and a `&mut` one reborrows shared (`&*squad`);
+  * `&mut T` position → `&mut place` (`crate::fill(&mut items, 3i32)`); a
+    `&mut` binding reborrows (`&mut *xs`);
+  * a non-place argument in a borrowed position is borrowed where it stands
+    (`&String::from("good")`, `&format!(…)`), or bound first when the result
+    keeps the borrow [rs-loop-temp].
+* **Values.** A position that needs a value of its own gets one:
+  * an owned local moves where the IR marks the read a consume, and clones
+    otherwise (`(s).clone()` for a `copy`, [rs-copy]); a Copy scalar copies;
+  * a field or element read of a non-Copy type clones
+    (`(ada.name).clone()`) — moving out of a place behind a (possible)
+    reference is not legal. Exception [fate-move-mode]: a consuming read of
+    an owned root's projection is a real partial move (`crate::eat(p.tags);`,
+    `let mut name: String = person.name;`);
   * call results, literals, and constructed values are already owned.
-  * Assignment targets, `is` subjects, and borrow positions use the raw
-    place (no clone).
-  * **Borrow-mode bindings borrow [rs-borrow-locals] (S3):** a `let`
-    from a *pure place* — a bare identifier or field/index chain with
-    no coercion, narrowing unwrap, or field cast — whose bind event is
-    not move-mode and whose name is never reassigned in the fn emits a
-    real borrow: the local holds `&T` (`let mut n = &person.name;`,
-    bare pass-through for an already-`&` root, `&*x` reborrow for
-    `&mut` roots) and registers as a reference binding, so reads thread
-    through the existing rendering (clone in owned positions, bare in
-    borrow positions, `*x` for Copy). Borrow-mode `for` loops over
-    pure-place iterables with plain ident bindings and concrete
-    *non-union* element types iterate *by reference* (`for x in &xs`,
-    or bare for an already-borrowed parameter) with the loop variable
-    as a reference binding — no collection clone. Everything else
-    (mixed joins, reassigned names, union/optional elements,
-    value-position loops, `is`/`when` bindings, coerced values) keeps
-    the fate-link clone — sound by restriction, since links union
-    across branches and poison covers every observation (decision S3a,
-    2026-09-02: mixed joins are an emission fallback, not a semantic
-    restriction — no program's legality changes). Checker legality
-    aligns with NLL because a borrow's last use precedes any root
-    mutation/move in checker-legal code; the known loud exception is a
-    single call that both passes a borrow-emitted local and moves its
-    root (rustc E0505, checker-legal by left-to-right ordering).
+  * Assignment targets, `is` subjects, and borrowed positions use the place
+    itself (no clone).
+  * **Borrow-mode bindings borrow [rs-borrow-locals]:** a `let` of a *pure
+    place* (a local, or a field/tuple-index chain off one) that is never
+    reassigned, mutated through, captured or consumed binds a reference:
+    `let mut n = &person.name;`, `let mut zs = &xs;` (`&mut place` when the
+    binding is in the place's alias group and the program mutates through
+    it). Reads thread through it like any reference binding: bare in a
+    borrowed position, `*n` for a Copy scalar, cloned where a value is
+    needed. A `for` over a pure place iterates *by reference*
+    (`for mut person in persons.iter()`) and the loop variable is a
+    reference binding — no collection clone. Everything else (reassigned
+    names, coerced values, union payloads) takes its own value, which is
+    sound by restriction: the checker poisons a binding before any write
+    the borrow would outlive [fate-poison], so legality aligns with NLL.
     * **Field-disjoint borrows need nothing extra**
-      [fate-field-disjoint]: since L5 the checker lets `let n = p.name`
-      stay live across a mutation of `p.tags`, and that emits as a real
-      borrow held across `&mut p.tags` — which rustc accepts, because
-      they are disjoint fields of one local. The two analyses draw the
-      same line (same field, prefix, whole variable and computed index
-      all still poison), so the newly legal programs compile clone-free
-      with no emitter change. The **move** half matches too since
-      2026-09-10 [fate-partial-move]: a moved projection emits as a real
-      partial move of the field and a later reassignment as rustc's
-      reinitialization, both borrowck-legal, with the whole-value use
-      refused on the Salvo side before it can reach rustc.
-  * **Lambdas emit plain (borrowing) closures [fate-lambda]:** captures
-    are rustc borrow-captures, which alias — the same semantics as
-    Kotlin's lexical capture, so parity is direct. Checker-legal
-    programs pass borrowck because a closure is poisoned by a root
-    mutation (its borrows end before the mutation under NLL) and
-    mutated captures are consumed at creation (no later conflicting
-    use). Known loud leftover: *returning or storing* a
-    capture-carrying closure is a rustc lifetime error the checker does
-    not reject; the recorded refinement is `move`-closure emission with
-    hoisted clones (`Checked::lambda_captures` carries the capture
-    list), which needs a treatment for captured effect-handler locals
-    first.
-  * **Move-mode bindings move [fate-move-mode]:** a bind event in
-    `Checked::binding_modes` (the checker consumed the ancestors at the
-    binding) emits the value as its raw place — a real move, partial
-    for projections (`let name = person.name;`) — and a `for` loop
-    whose iterable span is in the table iterates *by value* (the
-    collection moves into the loop). This is what makes inferred
-    consuming pipelines zero-clone end to end. `is`/`when` move-mode
-    bindings still clone (restriction-valid: the checker consumed the
-    subject, so the difference is unobservable).
-* **Local bindings.** Every `let` emits `let mut` (the crate-root
-  `#![allow(unused_mut)]` silences the cosmetic lint): Salvo mutability
-  (assignment, `++`, `Mut` methods, `&mut` argument positions) is
-  otherwise undecidable locally. Reassigned parameters get a `mut`
-  binder.
-* **Lifetimes.** Struct fields are owned and — with one deliberate
-  exception — results are owned, so functions are
-  lifetime-elision-friendly. The exception [readonly-return]: a
-  derived-return fn returns `&T` / `Option<&T>`; elision covers the
-  single-reference-parameter case, and with more reference parameters
-  a `'a` is generated mechanically onto the annotated parameter and
-  the return. Return values render as borrows (`Some(&place)`, bare
-  for already-`&` bindings, pass-through for forwarded derived
-  calls); std's `first` intrinsic lowers to `list.first()` — clone-free.
-* **Generic bounds.** Every generic parameter gets a `Clone` bound
-  (`<T: Clone>`) — the owned-rendering rule may clone values of generic
-  type. Structs additionally `#[derive(Clone, Debug, PartialEq)]` — `PartialEq`
-  unconditionally, since it costs nothing where Salvo refuses `==` anyway
-  [col-equality] — and nothing else: no `Eq`, `Hash` or `Ord` (deleted 2026-10-06, §0j step 8),
-  since a `List<Point>` or `(Int, Point)` key goes through Salvo's list and
-  tuple `eq`/`hash`/`cmp` to the element's Salvo fn [col-hashed-ordered]. A
-  struct with a fn-typed field derives only `Clone`:
-  `Rc<dyn Fn>` has neither `Debug` nor equality [rs-fn-field].
-  Generated union enums derive `PartialEq` too, conditionally on their
-  payloads, so a struct holding one can derive its own.
-* Deliberate simplicity, accepted costs: kept-parameter arguments are
-  never moved even when it would be their last use (a clone happens
-  instead); rustc's borrow checker remains the final authority — a
-  program that emits but does not borrow-check is a compiler bug, not a
-  user error.
+      [fate-field-disjoint]: the checker lets `let n = p.name` stay live
+      across a mutation of `p.tags`, and that emits as a real borrow held
+      across `&mut p.tags` (`let mut n = &p.name;` …
+      `crate::core_list::add_platform::<String>(&mut p.tags, …)`), which
+      rustc accepts because they are disjoint fields of one local. The
+      **move** half matches too [fate-partial-move]: a moved projection
+      emits as a real partial move of the field and a later reassignment as
+      rustc's reinitialization.
+  * **Lambdas emit plain (borrowing) closures [fate-lambda]**, passed as
+    `&mut |…| …` to a lent fn parameter: captures are rustc borrow-captures,
+    which alias — the same semantics as Kotlin's lexical capture. A closure
+    is poisoned by a root mutation (its borrows end before the mutation
+    under NLL) and mutated captures are consumed at creation. A closure
+    filling a `once` or a stored position is a `move` closure
+    (`crate::once_it(move |mut a: i32| -> i32 { a })`) [once-fn]
+    [rs-fn-field].
+  * **Move-mode bindings move [fate-move-mode]:** a binding whose read the
+    IR marks consuming emits the place itself — a real move, partial for
+    projections — and a consuming `for` iterates *by value*
+    (`for mut person in persons.into_iter()`). This is what makes inferred
+    consuming pipelines zero-clone end to end.
+* **Local bindings.** Every `let` emits `let mut` with the type written
+  (`let mut n: i32 = …;`; the crate-root `#![allow(unused_mut)]` silences
+  the cosmetic lint): Salvo mutability (assignment, `++`, `Mut` methods,
+  `&mut` argument positions) is otherwise undecidable locally. A borrow-mode
+  local, a fn value and a binding whose type holds a nested projection leave
+  the type to rustc.
+* **Lifetimes.** Struct fields are owned and — with the exceptions of
+  [rs-proj] — results are owned, so functions are lifetime-elision-friendly.
+  A derived-return fn returns `&T` / `Option<&T>` [readonly-return];
+  elision covers the single-reference-parameter case
+  (`pub fn window(roster: &Vec<crate::Fighter>) -> crate::Window<'_>`), and
+  with more reference parameters a `'a` is named on the lent parameters and
+  the return
+  (`pub fn named<'a>(roster: &'a Vec<crate::Fighter>, name: &String) -> Option<&'a crate::Fighter>`).
+  Return values render as borrows (`return Some(f);` for a by-reference loop
+  variable, the reference itself for an already-`&` binding,
+  pass-through for forwarded derived calls).
+* **Generic bounds.** A generic parameter gets a `Clone` bound
+  (`<T: Clone>`), since a value position may clone a value of generic type —
+  except on a `canbe Linear` parameter and on a std platform wrapper
+  (`pub fn get_platform<T>(…)`), which never clones. Structs
+  `#[derive(Clone, Debug, PartialEq)]` — `PartialEq` unconditionally, since
+  it costs nothing where Salvo refuses `==` anyway [col-equality] — and
+  nothing else: no `Eq`, `Hash` or `Ord`, since a `List<Point>` or
+  `(Int, Point)` key goes through Salvo's list and tuple `eq`/`hash`/`cmp`
+  to the element's Salvo fn [col-hashed-ordered]. A struct with a fn-typed
+  field derives only `Clone`: `Arc<dyn Fn>` has neither `Debug` nor
+  equality [rs-fn-field]. Generated union enums derive
+  `Clone, Debug, PartialEq` (conditional on their payloads, as derives are),
+  so a struct holding one can derive its own.
+* Deliberate simplicity, accepted costs: a lent argument is never moved even
+  when it would be its last use (a clone happens instead where a value is
+  needed); rustc's borrow checker remains the final authority — a program
+  that emits but does not borrow-check is a compiler bug, not a user error.
 
 ### Projections [rs-proj]
 
@@ -529,221 +557,211 @@ the blanket rule:
   generic projection *does* render `&'s T` — the struct's own borrow.)
 
 * [rs-qualified-scalar] A **qualified scalar** parameter (`index: Idx(list)
-  Int`) is not Copy-rendered: it arrives `&i32` like any qualified type. So a
-  `platform fn` wrapper derefs it for the host (`*index`), and a dependent
-  qualifier's slot argument that is already a reference reborrows as shared
-  (`&*heap`), which keeps a generic slot (`Idx`'s `c: C`) from binding to the
-  `&mut` itself (2026-10-05, with [col-idx]).
+  Int`) is a Copy scalar like any other: passed by value (`mut index: i32`),
+  a `platform fn` wrapper hands it to the host as it is, and a dependent
+  qualifier's predicate takes it by value too
+  (`crate::core_index::Idx__Int_qualifies(i, &squad, …)`). A slot argument
+  that is a `&mut` binding reborrows as shared (`&*heap`), which keeps a
+  generic slot (`Idx`'s `c: C`) from binding to the `&mut` itself
+  ([col-idx]).
 * [readonly-return] A wholesale projection returns `&T`, `Option<&T>` or
   `Union2<&T, Finished>`. One reference parameter: lifetime elision. More:
-  `'a` is generated onto **every** source parameter (`proj(a, b)`)
-  and the return. Implicit parameters count: one rendered `&mut dyn FnMut`
-  is a second reference, so `top(r: Ranked<T>(?cmp)) -> (proj(r) T)?`, whose
-  binder is captured from `r`'s type [cmp-binder], names `'a` (2026-10-05;
-  it was E0106, and the retag landed on the captured implicit, because entry
-  positions were measured against `f.params`, which a captured binder is not
-  in). A returned projection of a `&mut` pass parameter that is
-  itself a borrowing struct names the *struct's* source lifetime instead
-  (`next(p: &mut ListYield<'s, T>) -> Union2<&'s T, Finished>`
-  [rs-proj-struct]), so the reborrow of `p` is free for the next turn.
+  `'a` is named on **every** source parameter and the return
+  (`pub fn longest<'a>(a: &'a String, b: &'a String) -> &'a String`), and
+  only there — a lent parameter the result does not borrow keeps an elided
+  lifetime. Implicit parameters count: one rendered `&mut dyn FnMut` is a
+  second reference, so `top(r: Ranked<T>(?cmp)) -> (proj(r) T)?`, whose
+  binder is captured from `r`'s type [cmp-binder], names `'a`. A returned
+  projection of a pass parameter that is itself a borrowing struct names the
+  *struct's* source lifetime instead
+  (`pub fn peek<'a>(w: &crate::Window<'a>) -> Option<&'a crate::Fighter>`,
+  [rs-proj-struct]), so the reborrow of the parameter is free for the next
+  turn.
 * [rs-opt-borrow] A local bound from an optional projection (`let h =
-  first(xs)`) holds `Option<&T>` (`BindKind::OptRef`): a later narrowing
-  unwraps the reference (`*h.unwrap()` for Copy, `h.unwrap().clone()`
-  owned) rather than cloning the reference itself; in a `&T` position it
-  passes `h.unwrap()`; `let v = get(xs, i)!` binds as a plain `Ref`.
-  Found live 2026-09-11: the generic path emitted `.as_ref().unwrap()
-  .clone()`, a clone of the *reference* (`&&T → &T`).
+  first(xs)`) holds `Option<&T>`; a later narrowing unwraps the reference
+  (`let mut head_3 = head.unwrap();`) rather than cloning the reference
+  itself, and a value position clones through it (`(head_3).clone()`).
+  * **A Copy scalar's optional borrow is copied at the source**: the call is
+    `get_platform::<i32>(&xs, 0i32).copied()`, so the local, the `?:` subject
+    and the `is` subject are an owned `Option<i32>` and unwrap with
+    `.unwrap()`. Likewise an optional borrow of a Copy scalar flowing into an
+    owned `T?` (an argument to an `Int?` parameter, an annotated
+    `let v: Int? = get(xs, i)`, a `copy(get(xs, i))`) is `(…).copied()` /
+    `.cloned()`.
   * [elvis] The same rule for the **`?:` read** and for an `is` binding over
-    an optional borrow — a `get(xs, i)` hoisted into `__pickN`, or an
-    `OptRef` local: `*__pick.unwrap()` for a Copy scalar, `__pick.unwrap()`
-    kept as the borrow when the picked type is `proj`, `.unwrap().clone()`
-    otherwise (`subject_is_optional_borrow`, `emit_narrowed_read`). Found
-    2026-09-27: `get(xs, 0) ?: 10` emitted `&i32` against `10`, on lists and
-    maps alike; the `proj` case had compiled only because `.as_ref()
-    .unwrap().clone()` over `Option<&T>` happens to yield `&T`.
+    an optional borrow: a non-place subject is bound first
+    (`let mut __subject_13: Option<&String> = …;` before the `if`,
+    [rs-is-hoist]), the binding is `let mut s = __subject_13.unwrap();`, and a
+    value position clones through it (`(s).clone()`); a `proj`-typed result
+    keeps the borrow (`let mut h: &String = { let mut __elv_14: Option<&String> = …; … __some_17 };`).
   * **A borrow *of* an optional** (`&Option<T>`, the total `get` over a
     `List<T?>`, checker type `proj(xs) T?`) is narrowed through
-    `s.as_ref().unwrap()`, a `&T` (2026-10-06); `unwrap()` there moved out of
-    the borrow (E0507).
-  * **An optional borrow of a Copy scalar into an owned `T?`** — an argument
-    to an `Int?` parameter, an annotated `let v: Int? = get(xs, i)`, a
-    `copy(get(xs, i))` — is `(…).copied()` / `.cloned()` (2026-10-06); all
-    three were E0308 (`Option<&i32>` against `Option<i32>`).
+    `s.as_ref().unwrap()`, a `&T`.
   * [proj-type] [lambda-view] An unwrap whose own checker type is a
     projection stays the reference — no clone, no deref: a lambda tail
     `get(all, i)!` typed `proj Str` yields `&String` into the closure's
-    return (`Vec<&String>` at the call), and an interpolated
-    `first(names)!` displays through the reference. Any position that
-    truly needs ownership was checker-refused without `copy` before
-    emission (2026-09-12; before, every non-Copy unwrap in a value
-    position cloned — a copy the program never opted into).
+    return (`&mut |mut i| -> &String { … }`, `Vec<&String>` at the call),
+    and an interpolated `first(names)!` displays through the reference. Any
+    position that truly needs ownership was checker-refused without `copy`
+    before emission.
   * A Copy scalar read out of a reference binding (a lambda parameter
-    under the `FnMut(&T)` convention [rs-fn-param-convention]) renders
-    as a *value* in intrinsic argument positions (`*i`): lowerings use
-    scalars in casts (`(i) as usize`), which a `&i32` place fails
-    (E0606; found live 2026-09-12).
+    under the `FnMut(&T)` convention [rs-fn-param-convention]) renders as a
+    *value* wherever a value is needed (`*n`, `*__a1`): in operators, in
+    casts, and in an argument to a by-value parameter.
   * An intrinsic argument whose parameter the declaration **consumes**
     (`=> !value` — `send`, `discard`, `add`, `insert_sorted_by`, `put`,
-    `reduce`'s seed) renders **owned**, not as a place: the lowering takes ownership, so
-    the same rendering an ordinary consuming call gets applies (a real partial
-    move stays a move [fate-move-mode], a read the caller keeps clones).
-    Without it the intrinsic path was the *only* consuming position emitting a
-    bare place into a moving one, which rustc reported as E0507 with no Salvo
-    diagnostic (`send(out, last)`, `add(xs, last)` on a handler's own
-    non-Copy field; fixed 2026-09-15, with the checker rule that refuses that
-    shape outright — [effect-state-store]'s read direction).
+    `reduce`'s seed) is a **value**, not a place: the lowering takes
+    ownership, so the same rendering an ordinary consuming call gets applies
+    (a real partial move stays a move [fate-move-mode], a read the caller
+    keeps clones). The checker refuses the shape that would need a move out
+    of a handler's own field ([effect-state-store]'s read direction).
 * [rs-proj-struct] A struct with a `proj` field — or an owned field whose
-  type has one, transitively — is a **borrowing struct**: `struct
-  ListYield<'s, T> { items: &'s Vec<T>, at: i32 }`, with `<'s>` on owned
-  view-typed fields; every mention elides (`ListYield<'_, T>`); a struct
-  literal borrows into its `proj` fields (`&list`); it is returned *by
-  value* (the struct carries the lifetime, no `&` wraps it).
+  type has one, transitively — is a **borrowing struct**:
+  `pub struct ListYield<'s, T> { pub items: &'s Vec<T>, pub at: i32 }`, with
+  `<'s>` on owned view-typed fields; every mention elides
+  (`crate::core_list::ListYield<'_, T>`); a struct literal borrows into its
+  `proj` fields (`crate::__Iter_iter_Bag { items: &bag.items, at: 0i32 }`,
+  or the reference itself when the source already is one:
+  `crate::Window { roster: roster, at: 0i32 }`); it is returned *by value*
+  (the struct carries the lifetime, no `&` wraps it).
 * [rs-proj-lends] The lifetime a view carries reaches the parameters it
   borrows [proj-infer]: with one reference parameter elision ties them;
-  with more, `'a` is named on every lent parameter (`Checked::fn_lends`)
-  and the return. A lent parameter that is **itself a borrowing struct**
+  with more, `'a` is named on every lent parameter the result borrows and
+  on the return. A lent parameter that is **itself a borrowing struct**
   defeats elision even alone — `p: &mut ListEnumYield<'_, T>` has two
   input lifetimes — so `'a` is named there too, and it tags the struct's
   **inner** (source) lifetime, never the `&mut`: the returned view borrows
   the iterator's *source*, so the reborrow of `p` stays free for the next
-  turn, exactly as [rs-proj-struct] ties a derived return (added
-  2026-09-23 for `Enumerated<T>`, the first view struct a `next`
-  answers). A **lent implicit position** (`?iter: (c: C) -> Mut It holds proj(c)`) renders `&'c C` under a lifetime `'c`
-  named on the enclosing fn's kept parameter `c` — the result's type
-  (`It`) is fixed at the call site, so the borrow it holds cannot be a
-  fresh per-call one; the enclosing fn must keep `c` (a consumed one has
-  nothing a view could outlive — reported). Re-pointing entries
-  (`v.items: proj(other)`) tie `'r` on the target struct and the
+  turn, exactly as [rs-proj-struct] ties a derived return. A **lent
+  implicit position** (`?iter: (c: C) -> Mut It holds proj(c)`) renders
+  `&'c C` under a lifetime named on the enclosing fn's kept parameter — the
+  result's type (`It`) is fixed at the call site, so the borrow it holds
+  cannot be a fresh per-call one — and **each** such lent parameter gets a
+  lifetime of its own:
+  `pub fn count<'k, 'c, C: Clone, K: Clone, It: Clone, T: Clone>(c: &'c C, k: &'k K, iter: &mut dyn FnMut(&'c C, &'k K) -> It, …)`.
+  The enclosing fn must keep the parameter (a consumed one has nothing a
+  view could outlive — reported). Re-pointing entries
+  (`v.items: proj(other)`) tie a lifetime on the target struct and the
   source parameters, and the assignment renders as a borrow.
 * [rs-proj-arm] A union with a `proj` arm is an ordinary instantiation of
   the shared enum with a reference arm (`Union2<&'s T, Finished>`). At a
   call filling `?Yield<It, T>` from a borrowing `next`, the element generic
-  is **retagged** to `&T` in the turbofish — unless the checker's
-  substituted type already carries the projection (`T = proj Str` renders
-  `&String` on its own [proj-type]), in which case the retag defers; user callbacks at a retagged
-  position arrive one reference deeper and peel it (`let n = *n;` at the
-  top of a lambda, `let __a0 = *__a0;` in a by-name adapter; an annotated
-  lambda parameter renders `&&T`); resolved implicit adapters clone a
-  retagged position out where the callee owns it (`push`), and `copy` at
-  a retagged position is the identity. A concrete Copy element
-  (`?Yield<It, Int>`) is copied out by a match adapter instead. A local
-  bound from a `proj`-arm call remembers its borrowed arms
-  (`borrowed_arm_locals`): a payload read of one derefs twice for a Copy
-  scalar and binds as `Ref` otherwise; such a value flowing into a
-  position written as the owned union is adapted arm by arm for Copy
-  payloads and is a codegen error otherwise (a hidden clone this backend
-  refuses).
+  is **retagged** to `&T` in the turbofish
+  (`crate::core_seq::filter::<crate::core_list::ListYield<'_, crate::Fighter>, &crate::Fighter>(…)`)
+  — unless the substituted type already carries the projection
+  (`T = proj Str` renders `&String` on its own [proj-type]). User callbacks
+  at a retagged position arrive one reference deeper and peel it
+  (`let f = *f;` at the top of a lambda); resolved implicit adapters clone a
+  retagged position out where the callee owns it, and `copy` at a retagged
+  position is the identity. A concrete Copy element (`?Yield<It, Int>`) is
+  copied out by a match adapter instead:
+  `&mut |__a0: &mut crate::core_list::ListYield<'_, i32>| (match crate::core_list::next__ListYield(&mut *__a0) { crate::unions::Union2::U1(__v) => crate::unions::Union2::U1(*__v), crate::unions::Union2::U2(__v) => crate::unions::Union2::U2(__v) })`.
+  A value of a `proj`-arm union flowing into a position written as the
+  owned union is adapted arm by arm the same way for Copy payloads, and is
+  a codegen error otherwise (a hidden clone this backend refuses).
 * [rs-elem-mut] [proj-mut] **Mutable element handles** (P-3 + P-9, user
-  decisions 2026-09-24) have two renderings, and neither is a bound `&mut`:
-  * A **statement-scoped** handle — `bump(get(es, i)!)` in a `&mut`
-    position — splices the mut lowering directly:
-    `bump(es.get_mut((i) as usize).expect("salvo: value is absent at …"))`.
-    The `&mut` lives exactly as long as the call, so no exclusivity window
-    opens.
-  * A **bound** handle (its bind event in `Checked::handle_muts`) is
-    **virtual**: `let __hN = (i) as usize;` plus a presence check at the
-    mint (where `!` traps, matching Kotlin's `!!` timing —
-    `es.get(__hN).expect(…)`), and the binding's every use re-materializes
-    the place (`es[__hN].n = …`, `bump(&mut es[__hN])`, `es[__hN].clone()`
-    in owned positions) — `BindKind::ElemMut` + `elem_places`. Deliberately
-    not a bound `&mut`: Salvo's poison discipline permits reads of the
-    container between uses of the handle, which a live `&mut` binding would
-    make E0502 — the same alignment argument as [rs-borrow-locals], resolved
-    the other way.
+  decisions 2026-09-24) are **positions**, never a bound `&mut`:
+  * A **statement-scoped** handle — `bump(get(es, 0)!)` in a `&mut`
+    position — materializes the element for that one call: the lend is the
+    locator matched into a borrow,
+    `{ match crate::core_list::get_platform__loc(&es, 0i32) { Some(__l1) => Some(&mut es[__l1]), None => None } }`,
+    inside the `!` block [rs-assert-trap], which answers `&mut *__some`. The
+    read borrow of the search ends before the write borrow begins, and the
+    `&mut` lives exactly as long as the call. A user lending fn's natural
+    face is called the same way (`crate::heal({ let mut __nn_19: Option<&mut crate::Fighter> = crate::wounded(&mut squad); … })`).
+  * A **bound** handle is its position:
+    `let __h2: usize = crate::core_list::get_platform__loc(&squad, 0i32).expect("salvo: value is absent at main:232:16");`
+    — the presence check traps at the mint, matching Kotlin's `!!` timing —
+    and every use re-materializes the place: `squad[__h2].hp = …`,
+    `crate::bump(&mut xs[__h1]);`, `squad[__h3].name.clone()` in a value
+    position. Deliberately not a bound `&mut`: Salvo's poison discipline
+    permits reads of the container between uses of the handle
+    (`let mut n: i32 = crate::core_list::size_platform::<crate::Fighter>(&squad);`
+    between two writes through `__h2`), which a live `&mut` binding would make
+    E0502 — the same alignment argument as [rs-borrow-locals], resolved the
+    other way. A total lend's locator answers `usize` directly
+    (`let __h11: usize = crate::core_list::get__loc(&squad, i);`).
   * A kept parameter whose **elements** carry `Mut` (`List<Mut T>`,
-    `Mut T[]` — `type_has_elem_mut`) renders `&mut Vec<T>`: the container
-    lends mutable handles, so the write must reach the caller's storage
-    through it even though no structural mutation is permitted.
-  * A **proven-distinct pair in one call** ([elem-distinct],
-    `Checked::distinct_pairs`) renders as a `salvo_pair_mut` preamble —
-    `let (__pm0, __pm1) = salvo_pair_mut(&mut es[..], i, j).expect(…);`,
-    one `split_at_mut` [rs-runtime-source], `i != j` checker-guaranteed —
-    and the call takes the two `&mut` halves. The `.expect` keeps the
-    message and timing of a single handle's `!`. Statement-position calls
-    only (the v1 cut): a pair call in a value position is a reported
-    codegen error naming the remedy, as is a pair argument that is neither
-    a direct `get(place, i)!` mint nor a bound handle.
-  * **The v1 cut** [backend-never-wrong]: a bound mutable handle minted from
-    anything but a direct `get(place, i)!` over a pure place (the total
-    Idx-claimed `get`, `first`, a call-result container) is a reported
-    codegen error naming the remedy. Kotlin needs none of this — objects
-    alias natively, so the handle is the element reference.
-* [rs-cmp-deref] **A borrowed Copy scalar is copied out in a comparison**
-  (2026-09-25): Rust implements `&i32 + i32` but not `&i32 == i32`
-  (E0277) — and `&i32 < i32` likewise — so a lending call's scalar result
-  (the total `get` at an `Idx`/`KeyOf` claim, `first(NonEmpty)`) is
-  dereferenced in a comparison operand and **nowhere else**: arithmetic,
-  interpolation, `!`-unwrapped optionals and `for` elements already render
-  correctly, and non-Copy operands must not be touched (a deref there would
-  move out of a borrow). Keyed on the checker's derived-call table plus a
-  Copy-scalar type, so it fires exactly on the shape that breaks. Kotlin has
-  no references and needs nothing. The defect this closes was found writing
-  `expect(get(m, k) == 1, …)`, which `core.map`'s annex now spells that way
-  deliberately.
-* [rs-loc] **Locator-specialized lending** (④a slice 1, 2026-09-24 —
-  re-founding step ③'s mode-specialization on the locator model,
-  ROADMAP.md's "Recorded refinements"): a named lending fn whose
-  result some call site uses mutably gets a **demand-driven locator
-  variant**, `{name}__loc`, beside the read emission.
-  * The variant answers **position data** — `usize` for a total element
-    lend, `Option<usize>` for an optional one, optional exactly where the
-    read emission was, so `!` keeps its message and timing. A **platform**
-    fn's variant finds the host's borrow by address (`position(|e|
-    ptr::eq(e, x))`), mapped over the option only when the result is
-    optional; `List`/`Deque`'s total `get_at` is its index (2026-10-05). Its lent
-    parameters drop to *read* mode (the search borrows nothing mutably),
-    and it carries **no lifetimes** — a locator is owned data, which is
-    what lets later slices pass it through closures and traits.
-  * The **use site materializes** the handle, statement-scoped:
-    `{ let __l = callee__loc(&anchor, …).expect(…); &mut anchor[__l] }` —
-    the read borrow over before the write borrow begins, per-statement
-    `noalias` kept. The anchor must be a plain place (a call-result
-    container has no storage to re-index); anything else is a reported
-    error naming the remedy. The direct `get(place, i)` shape
-    short-circuits to its inline splice (the degenerate locator).
+    `Mut T[]`) renders `&mut Vec<T>`: the container lends mutable handles, so
+    the write must reach the caller's storage through it even though no
+    structural mutation is permitted.
+  * A **proven-distinct pair in one call** ([elem-distinct]) splits once with
+    `crate::seq::salvo_pair_mut` (one `split_at_mut`, [rs-runtime-source];
+    `i != j` checker-guaranteed) and the call takes the two `&mut` halves.
+    Two bound handles of one anchor:
+    `{ let (__pm9, __pm10) = crate::seq::salvo_pair_mut(&mut squad[..], __h7, __h8).expect("salvo: value is absent"); crate::duel(__pm9, __pm10) };`.
+    Two direct mints compute their positions first, each with its own `!`
+    message:
+    `{ let __l2 = crate::core_list::get_platform__loc(&es, i).expect("salvo: value is absent at main:18:22"); let __l3 = …; let (__pm4, __pm5) = crate::seq::salvo_pair_mut(&mut es[..], __l2, __l3).expect("salvo: value is absent"); crate::poke(__pm4, __pm5) }`.
+    The form is a block expression, so it stands in a value position as
+    well as a statement (`let mut x: i32 = { let __l2 = …; … crate::poke(__pm4, __pm5) };`).
+  * Kotlin needs none of this — objects alias natively, so the handle is the
+    element reference.
+* [rs-cmp-deref] **A borrowed Copy scalar is copied out where an operator
+  takes it**: Rust implements neither `&i32 == i32` nor `&i32 < i32`
+  (E0277), and `i32::wrapping_add(&i32, …)` has no impl either, so a lending
+  call's scalar result (the total `get` at an `Idx`/`KeyOf` claim,
+  `first(NonEmpty)`) is dereferenced as an operand:
+  `if (((*crate::core_list::get::<i32>(&xs, i))) == (20i32))`,
+  `i32::wrapping_add((*crate::core_list::get::<i32>(&xs, i)), 1i32)`.
+  Non-Copy operands are not touched (a deref there would move out of a
+  borrow). Kotlin has no references and needs nothing.
+* [rs-loc] **Locator-specialized lending** (④a, 2026-09-24): a named lending
+  fn whose result some call site uses as a bound mutable handle gets a
+  **demand-driven locator variant**, `{name}__loc`, beside its natural face.
+  * The **natural face** lends the way its type says: a `proj Mut` result is
+    `Option<&mut T>` / `&mut T` over `&mut` sources
+    (`pub fn wounded(squad: &mut Vec<crate::Fighter>) -> Option<&mut crate::Fighter>`,
+    its search loop `for mut f in (&mut *squad).iter_mut() { … return Some(&mut *f); }`).
+  * The **locator variant** answers **position data** — `usize` for a total
+    element lend, `Option<usize>` for an optional one, optional exactly where
+    the natural face is, so `!` keeps its message and timing
+    (`pub fn wounded__loc(squad: &Vec<crate::Fighter>) -> Option<usize>`). Its
+    lent parameters drop to *read* mode (the search borrows nothing
+    mutably), and it carries **no lifetimes** — a locator is owned data,
+    which is what lets it pass through closures. A **platform** fn's variant
+    finds the host's borrow by address
+    (`….map(|__x| list.iter().position(|__e| std::ptr::eq(__e, __x)).expect("salvo: a borrow outside its container"))`),
+    except `List`/`Deque`'s `get`, whose position is the index under a bounds
+    test, and the total `get_at`, which is the index.
   * Body transform: return-path forwards take their callees' `__loc`
-    variants (demand closes transitively, `lend_mut_demand`); a
-    derived-return intrinsic takes its **locator form** (`get` answers
-    `Some(i)` under a presence test, `None` where the read answered
-    `None`); an intrinsic without one, or a return shape beyond the plain
-    and optional element lend, is a reported error, never a silent read
-    lowering [backend-never-wrong].
-  * The read emission stays the default for read uses: Salvo's read
-    handles are shared, and shared renders `&` — the `Mut` in a return
-    type is *permission*, mode is *use* ([fate-move-mode]'s split).
-  * **Bound handles** (④a slice 2): any locator-expressible lending call
-    mints one — the captured locator re-materializes `anchor[__hN]` per
-    use, so container *reads* between uses stay legal (a bound `&mut`
-    would be E0502). ①'s "direct `get` only" cut is retired.
-  * **Fn values** (slice 3): a fn type whose return is a wholesale
-    mutable lend renders as a **locator closure** —
-    `impl FnMut(&C, &L) -> Option<usize>`, read-mode parameters — and a
-    lambda filling such a position emits in locator mode. This is what
-    lets a mutable handle cross a closure boundary at all; a
+    variants (demand closes transitively); a derived-return intrinsic takes
+    its **locator form**; an intrinsic without one, or a return shape beyond
+    the plain and optional element lend, is a reported error, never a silent
+    read lowering [backend-never-wrong].
+  * **Search loops**: inside a locator variant, a `for` directly over a list
+    lowers to an *indexed* loop whose element binding is a borrow of the
+    indexed place, so `return e` answers the found **position**:
+    `for __li1 in 0..squad.len() { let f = &squad[__li1]; if (f.hp < 10i32) { return Some(__li1); }; }`.
+  * **Fn values**: a fn type whose return is a wholesale mutable lend
+    renders as a **locator closure** —
+    `at: &mut dyn FnMut(&Vec<crate::Entity>, &L) -> Option<usize>`,
+    read-mode parameters — and a lambda filling such a position emits in
+    locator mode (`&mut |mut c, mut k| -> Option<usize> { crate::core_list::get_platform__loc(c, k) }`),
+    a named fn through its `__loc` variant
+    (`&mut |__a0: &Vec<crate::Fighter>, __a1: &i32| crate::core_list::at__loc(__a0, *__a1)`).
+    The call materializes the borrow:
+    `match at(&*squad, l) { Some(__l1) => Some(&mut squad[__l1]), None => None }`.
+    This is what lets a mutable handle cross a closure boundary at all; a
     `&mut`-returning `FnMut` would tie the borrow to the closure. The
     `?at`/`Locate` idiom [col-locate] rides it, with implicit positions
-    rendered the same way (`implicit_param_type_borrowing`).
-  * **Effect members** (slice 4): a member whose return is a wholesale
-    mutable lend carries **both faces** — the read one, explicitly
-    lifetime-tagged (`fn lease<'a>(&mut self, es: &'a Vec<T>) ->
-    Option<&'a T>`, since elision with `&mut self` present would tie the
-    borrow to `self`), and `{member}__loc`. Declaration-driven: the
-    trait, every handler impl and the monitor adapter all carry both, and
-    a `Mut` position routes to the locator face. Such an effect has **no
-    lock adapter**: a borrow cannot escape a mutex guard, so a
-    mutable-lending effect is local by nature.
-  * **Search loops** (slice 5): inside a locator variant, a `for`
-    directly over a list lowers to an *indexed* loop and the element
-    binding becomes a captured-index handle, so `return e` answers the
-    found **position**. That is the pass-hidden-position and NLL-loop
-    case, both lifted.
+    rendered the same way.
+  * **Effect members** have **only the natural face**, explicitly
+    lifetime-tagged so the borrow ties to the source rather than to the
+    receiver:
+    `fn lease<'a>(&mut self, es: &'a mut Vec<crate::Entity>) -> Option<&'a mut crate::Entity>;`
+    (`&self` on the stateless trait and the handle). The handle dispatches it
+    through either arm, the lock's guard included: the result borrows the
+    parameter, never handler state. A handle *held* across a read of the
+    container has no locator face to fall back on (recorded in ROADMAP.md).
   * **Covered positions** ([canbe-entry], rung ④b): a callee whose clause
     declares `canbe` coverage renders its covered parameters as **one
     shared anchor plus a `usize` locator each** —
-    `fn attack(__anchor: &mut Vec<Entity>, __c0: usize, __c1: usize)` —
-    and materializes `__anchor[__cN]` per statement inside the body. The
-    call site passes `&mut container` once and the positions after it. Two
-    `&mut` into one container cannot coexist, which is why coverage
+    `pub fn strike(__anchor: &mut Vec<crate::Fighter>, __c0: usize, __c1: usize)`
+    — and indexes `__anchor[__cN]` inside the body. The call site computes
+    the positions first and passes `&mut container` once:
+    `{ let __c13 = crate::core_list::get__loc(&squad, i); let __c14 = crate::core_list::get__loc(&squad, j); crate::strike(&mut squad, __c13, __c14) };`.
+    Two `&mut` into one container cannot coexist, which is why coverage
     changes the *representation* rather than relaxing a check; aliasing is
     then exact (one storage), so a covered call behaves identically to
     Kotlin's native aliasing — including the case where both handles are
@@ -753,16 +771,14 @@ the blanket rule:
     * **An anchored entry's anchor is a parameter** (`=> t canbe in
       lib.tracks` — the path is rooted at one), so the callee keeps that
       parameter and the covered positions add nothing but their index:
-      `fn trade(squad: &mut Squad, __c1: usize, __c2: usize)`, indexing
-      `squad.members[__cN]`. Only the plain `a canbe d` form, whose anchor
-      no parameter names, grows an `__anchor` of its own. Synthesizing one
-      *beside* the parameter is what made every anchored call E0499
-      (`trade(&mut squad, &mut squad.members, …)`) — the form was
-      documented and could not run on this backend at all until
-      2026-09-25. The anchored form is therefore also what licenses
-      **handles passed beside their own container** in one call: the pair
-      shares the anchor rather than borrowing it twice. The call site
-      checks the agreement it rests on — a handle of a *different*
+      `pub fn rotate(squad: &mut crate::Squad, __c1: usize, __c2: usize)`,
+      indexing `squad.members[__cN]`, called as
+      `{ let __c19 = crate::core_list::get_platform__loc(&team.members, i).expect(…); let __c20 = …; crate::rotate(&mut team, __c19, __c20) };`.
+      Only the plain `a canbe d` form, whose anchor no parameter names, grows
+      an `__anchor` of its own. The anchored form is therefore also what
+      licenses **handles passed beside their own container** in one call:
+      the pair shares the anchor rather than borrowing it twice. The call
+      site checks the agreement it rests on — a handle of a *different*
       container than the clause anchors it in is reported, naming both.
   * **What remains cut, loud**: a lend whose anchor is not a plain place
     of a known indexable type (a bare generic container has no index —
@@ -774,75 +790,67 @@ the blanket rule:
   only thing this backend adds is that rustc would have said the same
   (E0716).
 * [rs-float-text] **A float's text comes from the runtime helper, not
-  `Display`** (built 2026-09-25, closing the parity defect of 2026-09-14).
-  Salvo's rule is Kotlin's [interp-float], which Rust's `Display` matches in
-  neither respect: it writes the number out in full (`100000000000000000000`
-  for `1.0E20`) and drops the `.0` (`2` for `2.0`). `strings::salvo_f64_text`
-  and `salvo_f32_text` rearrange `{:e}`'s output — the same shortest
-  round-tripping digits Kotlin's `toString` chooses, so only the arrangement
-  differs — into the plain window or the scientific form, and answer `NaN` /
-  `Infinity` / `-Infinity` for the specials. They take anything that borrows
-  the float (`Borrow<f64>`), so no call site writes a deref.
+  `Display`** (built 2026-09-25). Salvo's rule is Kotlin's [interp-float],
+  which Rust's `Display` matches in neither respect: it writes the number out
+  in full (`100000000000000000000` for `1.0E20`) and drops the `.0` (`2` for
+  `2.0`). `crate::strings::salvo_f64_text` and `salvo_f32_text` rearrange
+  `{:e}`'s output — the same shortest round-tripping digits Kotlin's
+  `toString` chooses, so only the arrangement differs — into the plain window
+  or the scientific form, and answer `NaN` / `Infinity` / `-Infinity` for the
+  specials. They take anything that borrows the float (`Borrow<f64>`).
   * Verified against Kotlin's own output on 33 values, including both
     threshold boundaries, the denormal minimum, `MAX`, `1e300`, `1e-300` and
     the f32 cases.
-  * **Three sites**, because the rule has to hold wherever a float becomes
-    text: an interpolated part, `to_str` of a value holding floats, and a
-    struct field rendered field-wise [interp-struct]. A container is rendered
-    **element-wise** here rather than by the runtime's `Display` impls, which
-    can only call `Display` on their elements; the renderer recurses, so
-    `List<List<Double>>` and a map's value half are covered. A type holding no
-    float keeps its existing rendering, so nothing else in the output moved.
-* [rs-loop-temp] **A `for` over a temporary hoists it** (built 2026-09-25,
-  closing a defect open since 2026-09-18). An iterator-driving loop *binds* the iterator
-  (`let mut __loopN_pass = …`), so a Rust temporary the subject borrows dies at
-  the end of the statement it was written in (E0716) — while the language allows
-  the shape deliberately ("a view of a temporary may be *used* within its
-  statement", [proj-anywhere], and a `for` is that use) and Kotlin's reference
-  needs nothing. So the subject's temporaries are bound to locals in front of
-  the loop, which is rustc's own suggestion:
-  `let __t1 = vec![1, 2]; let mut __loop1_pass = iter__3(&__t1);`.
-  * **Which temporaries**: the subject's calls are walked innermost-first and
-    every argument that is **borrowed and not a place** is hoisted, registered
-    in the same substitution table [rs-mut-arg-hoist] uses. An owned (consumed)
-    position needs nothing — a moved value is not borrowed from anywhere. So a
-    view of a temporary hoists through the call that holds it
-    (`filter(iter(list_of(…)), …)`), while a native container loop needs no
-    hoist at all (the temporary lives to the end of the `for` statement there,
-    which includes the body).
-  * check.rs's [proj-anywhere] comment used to claim the temporary "lives for
-    the whole loop statement on both backends", which was simply false; the
-    comment now points here.
+  * **One site**: the `to_str` intrinsic of `Double`/`Float`, which every
+    path to text reaches — an interpolated part
+    (`format!("{}", crate::strings::salvo_f64_text(d))`), and a container's
+    or a struct's `to_str`, which are Salvo fns handed the element's `to_str`
+    (`crate::core_list::to_str::<f64>(&xs, &mut |__a0: &f64| crate::strings::salvo_f64_text(*__a0))`).
+* [rs-loop-temp] **A borrow of a temporary that outlives its statement is
+  hoisted.** A `for` over a pass *binds* the pass, and a `let` can keep a
+  borrow (a view, an optional projection), so a Rust temporary the value
+  borrows would die at the end of the statement it was written in (E0716) —
+  while the language allows the shape deliberately ("a view of a temporary
+  may be *used* within its statement", [proj-anywhere], and a `for` is that
+  use) and Kotlin's reference needs nothing. So the temporaries are bound to
+  locals in front, which is rustc's own suggestion:
+  `let mut __tmp1 = vec![1i32, 2i32];`
+  `let mut __pass_3: crate::core_list::ListYield<'_, i32> = crate::core_list::iter::<i32>(&__tmp1);`.
+  * **Which temporaries**: every argument of the call that is **lent and not
+    a place**, when the call's result holds a borrow. An owned (consumed)
+    position needs nothing — a moved value is not borrowed from anywhere —
+    and a native container loop needs no hoist at all (the temporary lives
+    to the end of the `for` statement there, which includes the body).
 * [rs-mut-arg-hoist] **A read before a mutation, in one expression** (built
-  2026-09-25, closing the defect of the same day). Rust holds a read borrow
-  for the whole expression it sits in, so a sibling that mutably borrows the
-  same place collides with it — `format!("{} {}", b.n, bumped(&mut b))` and
-  `label(&b.tag, bumped(&mut b))` are both E0502 — while the language only
-  orders the two ([deduce-same-call]: arguments are evaluated left to right,
-  and a read is not a consumption), and Kotlin runs them. So the *read* is
-  hoisted into a `let` in front of the expression, which is the order the
-  language already gives it:
-  `{ let __r1 = b.n; format!("{} {}", __r1, bumped(&mut b)) }`.
-  * **Which siblings**: a call's arguments and an interpolation's parts —
-    the two positions where a rendering holds a borrow. A sibling is a
-    hoist candidate when it *is* a place and the position borrows it (a
-    `Ref`/`RefMut` parameter mode; in `format!` a Copy scalar, since
-    anything else is already owned by a `.clone()` or a `to_str`), and it
-    is hoisted only when a **later** sibling mutably borrows an overlapping
-    place — the callee's parameter modes say which arguments those are, for
-    the nested calls too. Overlap is prefix-wise over place paths, with a
-    subscript stopping the path at its container [fate-field-disjoint], so
-    a read of `e.rings` beside a mutation of `e.hp` is left alone.
-  * **What it will not do**: a read of **mutable data** cannot be copied out
-    of the way, because a snapshot on Rust against a live handle on Kotlin
-    is exactly the divergence the rule exists to prevent. That shape is
-    reported instead, naming the two things the program can say instead —
-    `copy(place)` for the snapshot, or the mutating call in a statement of
-    its own [backend-never-wrong].
-  * **Cut**: the modes come from the callee the checker resolved, so a call
-    through an **effect member or a fn value** plans nothing and keeps
-    whatever rustc makes of it (the state before this rule, not a new
-    divergence). Covered and proven-pair calls plan nothing either — they
+  2026-09-25). Rust holds a read borrow for the whole expression it sits in,
+  so a sibling that mutably borrows the same place collides with it —
+  `format!("{} {}", b.n, bumped(&mut b))` and `label(&b.tag, bumped(&mut b))`
+  are both E0502 — while the language only orders the two
+  ([deduce-same-call]: arguments are evaluated left to right, and a read is
+  not a consumption), and Kotlin runs them. So the reads are hoisted into
+  `let`s in front of the expression, in the order the language already gives
+  them:
+  * **Interpolation**: when a part lends mutably, *every* non-literal part is
+    evaluated into a temp, in order:
+    `{ let __part3 = b.n; let __part4 = crate::bumped(&mut b); format!("1. {} {}", __part3, __part4) }`
+    (and `{ let __part15 = crate::bumped(&mut b); let __part16 = b.n; format!(…) }`
+    when the mutation comes first).
+  * **Call arguments**: when an argument (or a call nested in one) lends a
+    root mutably, each *other* argument that reads that root is evaluated
+    into an `__argN` first — by value for a moved or Copy position, as an
+    owned copy lent for a lent one:
+    `{ let __arg9 = b.tag.clone(); let __arg10 = crate::bumped(&mut b); crate::label(&__arg9, __arg10) }`.
+    A statement-position call whose arguments needed this is the same block
+    (`{ let __arg3 = …; crate::core_console::println(&__handle_2, &__arg3) };`).
+  * **What it will not do**: a read of **mutable data** before a later
+    argument mutates it cannot be copied out of the way, because a snapshot
+    on Rust against a live handle on Kotlin is exactly the divergence the
+    rule exists to prevent. That shape is reported instead, naming the two
+    things the program can say — `copy(place)` for the snapshot, or the
+    mutating call in a statement of its own [backend-never-wrong].
+  * **Cut**: the modes come from the callee's declaration, so a call through
+    an **effect member or a fn value** plans nothing and keeps whatever rustc
+    makes of it. Covered and proven-pair calls plan nothing either — they
     render their own positions and preamble, and leave no read borrow
     standing.
 
@@ -850,465 +858,426 @@ the blanket rule:
 
 * [kt-union-wrappers]-equivalent: wrapper unions emit as generated
   enums, one file per arity (`unions/unionN.rs`) under a `unions/mod.rs`
-  that mounts and re-exports them (2026-10-05, as Kotlin's; a host project's
-  runtime copy stays one `unions.rs`):
+  that mounts and re-exports them (as Kotlin's; a host project's runtime
+  copy stays one `unions.rs`):
   `pub enum UnionN<T1..TN> { U1(T1), .., UN(TN) }` with
-  `#[derive(Clone, Debug)]`, per-arm accessor methods
-  (`pub fn u1(&self) -> &T1` and `pub fn u1_mut(&mut self) -> &mut T1`,
-  panicking on the wrong arm — unreachable when the checker's tables are
-  right; the `_mut` half is what a mutable use of a narrowed value needs
-  [rs-narrow-mut]), and a `Display` impl (bounded on
-  every arm being `Display`) so still-union values interpolate directly.
-* [union-arm-identity] Arm indices from the checker map 1:1 onto the
-  `Ui` variants (positional over the runtime union's non-`None` arms,
+  `#[derive(Clone, Debug, PartialEq)]`, per-arm accessor methods
+  (`pub fn u1(&self) -> &T1`, `pub fn u1_mut(&mut self) -> &mut T1`,
+  panicking on the wrong arm) for host code — generated code never calls
+  them — a `Display` impl (bounded on every arm being `Display`), and an
+  `impl … crate::wire::__Wire` when the wire is mounted [rs-wire].
+* [union-arm-identity] Arm indices from the IR map 1:1 onto the `Ui`
+  variants (positional over the runtime union's non-`None` arms,
   qualifiers erased; literals collapse [type-literal]).
-  * Wrap at boundaries: `UnionN::<A, .., Z>::Ui(code)` (turbofish —
-    the other type parameters are not inferable from one arm), wrapped
-    in `Some(...)` when the target union has a `None` arm.
-  * Narrowed place reads unwrap in place — `x.u2().clone()` for a
-    variable, `h.result.u1().clone()` for a field [flow-place]
-    (`….as_ref().unwrap().u2().clone()` for a nullable repr). Unlike
-    Kotlin, Rust also unwraps a `T?` repr narrowed to its value arm:
-    `x.unwrap()` for Copy scalars, `x.as_ref().unwrap().clone()`
-    otherwise — there is no smart cast to lean on. The result is an owned
-    temporary, so a narrowed place is *not* a pure place
-    ([rs-borrow-locals]): it cannot be borrowed directly. `is` tests, `is`
-    bindings and `match` subjects read the storage instead.
-* [rs-narrow-mut] A **mutable** use of a narrowed place unwraps through the
-  mutable accessors instead, so the result is a `&mut` *into the storage*:
-  `p.as_mut().unwrap()` for a nullable repr, `q.u1_mut()` for a wrapper-union
-  arm (the generated enums carry `pub fn ui_mut(&mut self) -> &mut Ti`
-  alongside `ui`), and the two compose (`x.as_mut().unwrap().u1_mut()`).
-  Two sites need it: an argument in a `&mut` position, and the **base** of an
-  assignment target (`r.at = 2` on a narrowed `Mut ListYield<Int>?` becomes
-  `r.as_mut().unwrap().at = 2`). The outermost node of an assignment target
-  keeps the read rule — assigning to a narrowed *variable* writes its
-  storage, not through the narrowing.
-  * **Two further sites, added 2026-09-20** (the rule shipped with the first
-    two on 2026-09-10 and the others were silently wrong until then; the
-    repro is in COMPLETED.md):
-    * **An `intrinsic` parameter the declaration types `Mut`.** The
-      intrinsic path renders arguments itself, and rendered every place with
-      the read form regardless of mode, so `add(a, 9)` on a narrowed
-      `Mut List<Int>?` emitted `a.as_ref().unwrap().clone().push(9)` — and
-      because the nullable read clones *per read*, the element was gone on
-      the next line. The place now takes the mutable unwrap when the
-      parameter is `Mut` and is not consumed, falling back to the read form
-      when the place carries no narrowing (so an ordinary `Mut` argument is
-      unchanged).
-    * **The `^` branch shadow, when the peeled payload is `Mut`**
-      ([rs-widen-shadow]): bound as `let x = <mutable unwrap>` with
-      `BindKind::RefMut` rather than an owned clone, so a mutation inside the
-      branch reaches the storage and survives the branch. No `mut` on the
-      binder — it is a reference, and the generated code stays warning-free.
-      Reads are unaffected: a `&mut T` binding is what an ordinary `Mut`
-      parameter already is.
+  * Wrap at boundaries: `crate::unions::UnionN::Ui(code)` — the other type
+    parameters come from the annotated `let`, the parameter or the return
+    type — wrapped in `Some(...)` when the target union has a `None` arm
+    (`return Some(crate::unions::Union3::U2(String::from("one")));`).
+  * **A narrowed read binds a local** at the top of the branch, named for the
+    subject with a counter, reading the arm out of the storage by a `match`
+    — a reference into it, or the value for a Copy payload:
+
+    ```rust
+    if matches!(result, crate::unions::Union2::U1(_)) {
+        let mut result_1 = match &result { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
+        …
+    } else {
+        let mut result_2 = match &result { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
+        …
+    };
+    ```
+
+    A nullable repr's pattern carries the `Some` (`Some(crate::unions::Union3::U1(__v))`).
+    A narrowed **field** binds `__narrowed_N`
+    (`let mut __narrowed_4 = match &h.result { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };`)
+    [flow-place]. Unlike Kotlin, Rust also unwraps a `T?` narrowed to its
+    value arm: `let mut n_1 = n.unwrap();` for a Copy scalar,
+    `let mut s = o.as_ref().unwrap();` otherwise — there is no smart cast to
+    lean on. Reads of the narrowed name inside the branch are reads of that
+    local, borrowed or cloned per position [rs-read-mode].
+* [rs-narrow-mut] A **mutable** use of a narrowed place binds the local
+  through the mutable form instead, so it is a `&mut` *into the storage*:
+  `let mut p_3 = p.as_mut().unwrap();` for a nullable repr,
+  `let mut q_4 = match &mut q { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };`
+  for a wrapper arm, `match &mut e { Some(crate::unions::Union2::U1(__v)) => __v, … }`
+  for the two composed, `__p.inner.as_mut().unwrap()` for a field. Every
+  site that mutates through the narrowing reads that binding: a `&mut`
+  argument (`crate::core_list::add_platform::<i32>(&mut *a_5, 9i32)`), the
+  base of an assignment target (`let mut r_5 = r.as_mut().unwrap();` then
+  `r_5.at = 2i32;`), an intrinsic's `Mut` parameter, a `^` branch
+  [rs-widen-shadow], a handler's state field (`match &mut self.held { … }`).
+  Assigning to the narrowed *variable* itself writes its storage, not
+  through the narrowing.
   * **An owned parameter binds `mut` when `Mut` is reachable by peeling an
-    arm**, not only when its own type carries it (`type_has_mut_arm`): a
-    moved `Ok Mut List<Int> | Err Str` parameter is peeled with
-    `o.u1_mut()`, which borrows the binder. The *mode* deliberately still
-    reads `type_has_mut`, since an arm's `Mut` is not a claim about the
-    parameter — which is what leaves the case below.
+    arm** (`pub fn eat(mut o: …)`), or the peel cannot borrow it.
   * **The one refused shape** [backend-never-wrong]: a union-typed parameter
     the frame received **borrowed** (`fn f(o: Ok Mut List<Int> | Err Str)`
-    renders `&Union2<…>`) whose arm is mutated. There is no `&mut` to give
-    and nothing can ask for one — a written `=> o: Mut` is refused by the
-    checker, since the `Mut` is the arm's claim and not the parameter's — so
-    the emitter **reports**, naming the remedy (take the payload as its own
-    `Mut List<T>` parameter and check the arm at the call site). Kotlin
-    compiles and mutates the caller's value here, so this is a real
+    is `&Union2<…>`) whose arm is mutated. There is no `&mut` to give and
+    nothing can ask for one — a written `=> o: Mut` is refused, since the
+    `Mut` is the arm's claim and not the parameter's — so it is **reported**
+    ("read-only here … union arm"), naming the remedy (take the payload as
+    its own `Mut List<T>` parameter and check the arm at the call site).
+    Kotlin compiles and mutates the caller's value here, so this is a real
     divergence closed by restriction on one side; lifting it is a deduction
     question, open in ROADMAP.md.
-  * **Why it is a rule and not an optimization**: reusing the read form was
-    silently wrong. `&mut (p.as_ref().unwrap().clone())` compiles, and the
-    mutation lands on the clone — an iterator driven through a narrowed handle
-    re-emitted its first element for ever, while Kotlin (whose smart cast
-    *is* the storage) advanced. Fixed 2026-09-10; it is the one
-    [backend-never-wrong] violation this compiler has shipped.
-  * The read and mutable unwraps share one classification of the narrowing
-    (`Narrowing`: arm index, whether an `Option` sits in front, whether the
-    payload is `Copy`), so they cannot disagree about arm identity
-    [union-arm-identity].
-  * The gate is the unwrap *producing* something, not the presence of a
-    recorded representation: a `Mut` drop records one too, and a bare name
-    still needs its `&mut`.
-  * `is` lowering ([is-narrowing], `is_tests` table): single arm →
-    `matches!(subj, UnionN::Ui(_))`; multi-arm → a `|` pattern; all
-    arms → `subj.is_some()` when nullable, `true` otherwise;
-    `is None` → `subj.is_none()`; nullable wrappers test
-    `Some(UnionN::Ui(_))` patterns.
+  * **Why it is a rule and not an optimization**: a read form under a
+    mutation is silently wrong. `&mut (p.as_ref().unwrap().clone())`
+    compiles, and the mutation lands on the clone — an iterator driven
+    through a narrowed handle re-emitted its first element for ever, while
+    Kotlin (whose smart cast *is* the storage) advanced. It is the one
+    [backend-never-wrong] violation this compiler has shipped (fixed
+    2026-09-10); the tests assert the clone-then-mutate shapes appear
+    nowhere.
+  * `is` lowering ([is-narrowing]): single arm →
+    `matches!(subj, crate::unions::UnionN::Ui(_))`; all arms →
+    `subj.is_some()` when nullable, `true` otherwise; `is None` →
+    `subj.is_none()`; nullable wrappers test `Some(UnionN::Ui(_))` patterns.
   * Re-wraps between reprs ([let-infer]): a `match` mapping arms by type
-    equality, `unreachable!()` for unmatched source arms, `None => None`
-    when both sides are nullable.
-* [when-union-subject] `when` lowers to a Rust `match` on the subject
-  place (`match subj`): variant patterns bind nothing, so the match
-  borrows rather than moves; branch checks become variant patterns (or
-  `Some(..)`/`None` for nullable subjects); rustc re-proves the
-  exhaustiveness the checker established [when-exhaustive]. `match` is
-  an expression, so `when`-as-value needs no extra lowering.
+    equality — `(match x.clone() { crate::unions::Union2::U1(__v) => crate::unions::Union3::U1(__v), …, #[allow(unreachable_patterns)] _ => unreachable!("salvo: unreachable union arm") })`
+    — with `None => None` when both sides are nullable.
+* [when-union-subject] `when` over a subject lowers to the `if`/`else if`
+  chain of its arms' tests, each branch opening with its narrowing binding as
+  above; the last arm is the `else`, since the checker proved the arms
+  exhaustive [when-exhaustive]. `if` is an expression, so `when`-as-value
+  needs no extra lowering (`let mut w: i32 = if matches!(v, …) { … 1i32 } else if … { … } else { 4i32 };`).
 
 ## Control flow
 
 * [while-value] [rs-loop-value] Rust `while`/`for` are statements, so a
-  value-position loop lowers to a plain block expression with a
-  `let mut __loopN: Option<T> = None;` result local assigned by the
-  body's tail and by `break value`s (assign-then-`break`); an `else`
-  uses a `__loopN_ran` flag. When the checked join type has no `None`
-  arm the block ends `__loopN.unwrap()`; when the join is itself
-  optional the local *is* the join type and tails assign it directly
-  (their `WrapOption`/wrap coercions are already recorded by the
-  checker).
-* [let-destructure] A **loop pattern** lowers through an `__elemN` temporary:
-  the header binds the element, the body opens with one binding per name, read
-  off it — `let k = &__elem.0;` / `let who = &__elem.name;`, registered as
-  reference bindings [rs-borrow-locals]. By reference because that is the one
-  shape that serves an owned element *and* a borrowed one (an iterator hands out
-  projections): reads borrow, and an owned use clones exactly as it does for a
-  `&T` parameter. A native Rust pattern in the header cannot — `mut k` opts out
-  of match ergonomics, so it moves out of a shared reference (`E0507`). A name
-  the body **assigns to** takes an owned copy (`let mut a = __elem.0.clone();`),
-  since a reference cannot be reassigned and the element is not what the
-  assignment means.
+  value-position loop lowers to a block expression with a
+  `let mut __loop_N: Option<T> = None;` result local assigned by the body's
+  tail and by `break value`s (assign-then-`break`:
+  `__loop_10 = Some(x);` `break;`); an `else` uses a
+  `let mut __ran_N: bool = false;` flag tested after the loop
+  (`if !(__ran_4) { … }`). The block ends by binding its value,
+  `let mut __loop_value_N = __loop_N.unwrap();` when the checked join type
+  has no `None` arm, `let mut __loop_value_N = __loop_N;` when the join is
+  itself optional, and answering it.
+* [let-destructure] A **loop pattern** binds the element to an `__elem_N`
+  local and opens the body with one binding per name, read off it:
+  `for mut __elem_3 in rows.iter() { let mut k = &__elem_3.0; let mut v: i32 = __elem_3.1; … }`
+  (`let mut who = &__elem_10.name;` for a struct pattern). A non-Copy part is
+  a reference binding [rs-borrow-locals] — the one shape that serves an owned
+  element *and* a borrowed one — and a Copy part is copied out. A native Rust
+  pattern in the header cannot do both: `mut k` opts out of match
+  ergonomics, so it moves out of a shared reference (`E0507`). A name the
+  body **assigns to** takes a value of its own (`let mut a: i32 = __elem_14.0;`).
 * [if-else-none] `if` is an expression in both languages; a missing `else`
   on a value-position `if` emits `else { None }` (the branch values carry
   `WrapOption` coercions). Statement-position branches emit their tails as
-  statements.
+  statements, and the `if` statement ends with `;`.
 * [when-condition] [rs-when-cond] Rust has no subject-less `match`, so a
-  subject-less `when` lowers to the `if`/`else if`/`else` chain it is —
-  the emitter reuses `if`'s statement and value paths. The mandatory
-  `else` makes the chain total, so nothing needs the `else { None }` filler
-  of [if-else-none] and no `unreachable!()` arm is generated. (A
-  `match () { () if cond => … }` would also work and was rejected: it adds
-  a scrutinee that means nothing and reads worse than the chain the source
-  already is.)
-* [loop-while-is] `while x is T (name)?` re-tests in the loop condition
-  and re-binds per iteration at the top of the body (same shape as
-  Kotlin).
-* [rs-inc-dec] Rust has neither `++` nor `--` [inc-dec], so:
-  * statement position is a compound assignment — `i += 1;` / `i -= 1;`,
-    the same for both fixities since the value is discarded;
-  * value position is a block: postfix `({ let __t = i; i += 1; __t })`
-    (the old value), prefix `({ i += 1; i })` (the new one).
+  subject-less `when` lowers to the `if`/`else if`/`else` chain it is
+  (`if (n < 0i32) { … } else if ((n) == (0i32)) { … } else { … }`). The
+  mandatory `else` makes the chain total, so nothing needs the `else { None }`
+  filler of [if-else-none] and no `unreachable!()` arm is generated.
+* [loop-while-is] `while x is T n` is a `loop` that tests at the top and
+  re-binds per iteration:
+  `loop { if !(x.is_some()) { break; }; let mut n = x.unwrap(); … }`; a
+  non-place subject is bound first, inside the loop [rs-is-hoist].
+* [rs-inc-dec] Rust has neither `++` nor `--` [inc-dec], so both are
+  blocks over a wrapping step [rs-op-wrap]:
+  * postfix answers the old value:
+    `{ let mut __old_5: i32 = i; i = i32::wrapping_add(i, 1i32); __old_5 }`
+    (also the statement form, whose value is discarded);
+  * prefix answers the new one: `{ i = i32::wrapping_add(i, 1i32); i }`.
 * [rs-interp-to-str] A non-native interpolated value [interp-to-str] is
   wrapped in the `to_str` the checker resolved: an `intrinsic` one goes
-  through its lowering template with a pre-rendered argument, a declared one
-  is an ordinary call on a borrow. A derived struct [interp-struct] renders
-  as a nested `format!` over its fields — *not* `{:?}`, which would quote
-  strings and so disagree with Kotlin.
+  through its lowering (a float's [rs-float-text]), a declared one is an
+  ordinary call on a borrow (`format!("{}", crate::to_str(&p))`). A derived
+  struct [interp-struct] has a stamped Salvo `to_str` that appends its
+  fields one by one (`format!("x: {}", value.x)`) — *not* `{:?}`, which would
+  quote strings and so disagree with Kotlin. A container's is std's Salvo
+  `to_str`, handed the element's
+  (`crate::core_list::to_str::<String>(&names, &mut |__a0: &String| format!("{}", __a0))`).
 * [qual-lift] [rs-widen-shadow] A `^` check emits the same test `is` would
   (or `true` when the qualifiers are statically present — qualifiers are
   erased, so widening is a typing act). Where it *peels a wrapper arm*, the
-  widened value is bound to a **shadowing local** at the top of the branch
-  (`let mut nested = nested.u1().clone();`), so reads of the subject and any
-  nested `when` see the inner value. The binding kind is saved and restored
-  around the branch, since the shadow is owned where the outer binding may be
-  a borrow.
-  * **Unless the peeled payload is `Mut`** (2026-09-20): then the shadow is a
-    **mutable borrow into the storage** (`let d = d.u1_mut();`, bound
-    `BindKind::RefMut`, no `mut` on the binder), because an owned clone made a
-    mutation inside the branch vanish when the branch ended — while Kotlin,
-    which casts the storage, kept it. [rs-narrow-mut] carries the whole set of
-    mutable sites and the one shape still refused.
-  * **A lift with a binding needs no shadow** (2026-09-21): `is ^Ok value`
-    materializes the lifted value into `value` instead, through the
-    `is`-binding path. A lift of a **qualifier only** binds the subject itself
-    there, since qualifiers are erased — the payload read the wrapper case uses
-    would be wrong for it, and was: it assumed an `Option` in front and emitted
-    `list.as_ref().unwrap().clone()` for a plain `&mut Vec`.
-  * Without the shadow the emitted code compiles and is **wrong**: the nested
-    `match` scrutinizes the outer wrapper, whose arm 0 is the one the outer
-    test already took, so the second inner branch becomes dead code. Caught
-    by running the feature's own demo (`Display` on the generated union had
-    been masking it in the printed output).
-  * `^` on a *projection* (`p.result is ^Ok`) is a reported codegen error for
-    now: the materialization needs a plain variable to shadow.
+  branch opens with the ordinary narrowing binding of the subject
+  (`let mut nested_7 = match &nested { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };`),
+  a reference into the storage, so reads of the subject and any nested
+  `when` see the inner value (`if matches!(nested_7, crate::unions::Union2::U1(_)) { … }`).
+  * **When the peeled payload is mutated** the binding is the mutable form
+    (`let mut c_9 = match &mut c { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };`),
+    so a mutation inside the branch reaches the storage and survives the
+    branch, as Kotlin's cast of the storage does. [rs-narrow-mut] carries
+    the whole set of mutable sites and the one shape still refused.
+  * A `^` test on a *projection* (`h.result is ^Ok`) tests the field in
+    place (`if matches!(h.result, crate::unions::Union2::U1(_))`) and binds
+    `__narrowed_N` where the branch reads it [flow-place].
+  * Without the narrowing the emitted code would compile and be **wrong**: a
+    nested test would scrutinize the outer wrapper, whose arm 0 is the one
+    the outer test already took, making the second inner branch dead code.
 * [fn-effects] [rs-fn-effect-params] A fn type's effects are **leading
   `&E` handle parameters** of the closure [rs-handle]: `(s: Str)
-  [Logger] -> Str` renders as `&mut impl FnMut(&Logger,
-  &String) -> String`, a lambda as `|logger: &Logger, s| …`, and
-  the call passes the handle first. Nothing is captured, which is what lets
-  the value cross a call that borrows the same effect value.
-  * Inside a lambda body an effect resolves to the lambda's *own* parameter:
-    the effect environment is searched innermost-first, so a parameter
-    shadows the enclosing fn's value rather than capturing it.
+  [Logger] -> Str` renders as
+  `&mut dyn FnMut(&crate::Logger, &String) -> String`, a lambda takes the
+  handle as its first parameter (`&mut |mut __leff0, mut s| -> String { __leff0.log(…); … }`),
+  and the call passes the handle first. Nothing is captured, which is what
+  lets the value cross a call that borrows the same effect value.
+  * Inside a lambda body an effect resolves to the lambda's *own* parameter
+    (`__leff0`): a parameter shadows the enclosing fn's handle rather than
+    capturing it.
   * A **named fn** passed by value gets an adapter closure taking the
-    *expected* effects and forwarding the ones it declares — a pure fn is
-    handed them and ignores them (the variance rule). A mismatch the
-    checker's fits rule should have caught is an internal-error codegen
-    diagnostic, never a guess [backend-never-wrong].
-* [rs-exit-splice] Code the compiler owes at a block's exits is **spliced**:
-  emitted at every exit of that block, leaving no runtime construct behind.
-  Rust has no `finally`, and a `Drop` guard cannot stand in: a release
-  consumes its handle, so the guard would have to own it from registration
-  onward, making it unusable for the rest of the block (a `&mut` capture
-  trades that for `E0499` at the next use).
-  * The only source today is the release a `for` owes an iterator it owns
-    ([linear-group]; the `defer` statement was the other until it was removed
-    from the language, 2026-09-10).
-  * The code is rendered **once**, where it is registered (in that scope, with
-    that point's effect environment and bindings), and re-indented at each
-    splice site. Sites: the end of the block (`emit_block_stmts`, skipped when
-    the block's last statement already exits — the splice would be dead code
-    rustc still borrow-checks), each `return` (every splice of the fn,
-    `splice_floor` stopping at a closure boundary), and each
-    `break`/`continue` (those registered inside the loop, tracked by
-    `loop_splice_floors`).
-  * A value given away at the exit is computed first, so `return v` with a
-    splice behind it becomes
-    `let __exit_valueN = v; <splice>; return __exit_valueN;` — and a
-    value-position block hoists its tail the same way (`emit_value_block`),
-    since the spliced statements would otherwise become the block's value.
-  * **Known divergence** from Kotlin's `finally` lowering (accepted, user
-    decision 2026-09-04): a panic out of a std intrinsic unwinds *past* the
-    splice, so the code does not run on a crash path, where the JVM's
-    `finally` would run it. See [kt-exit-finally].
+    *expected* handles and forwarding the ones it declares
+    (`|__e0: &crate::Logger, __a0: &String| crate::shout(__e0, __a0)`) — a
+    pure fn is handed them and ignores them
+    (`|mut __fx0, mut __a0| -> String { crate::plain(__a0) }`, the variance
+    rule).
+* [rs-exit-splice] **No code is owed at a block's exits** today, so nothing
+  is spliced: the `defer` statement was removed from the language
+  (2026-09-10), and a pass with a `close` is closed by the program itself
+  [linear-group]. A release the program writes is ordinary code before the
+  exit it guards, and a throw re-raised after it needs nothing
+  (`crate::close_file(console, h);` then
+  `let mut n: i32 = (match crate::parse(console, line) { … => return std::ops::ControlFlow::Break(__m) });`).
+  Were the compiler to owe exit code again, Rust has no `finally` and a
+  `Drop` guard cannot stand in (a release consumes its handle, so the guard
+  would have to own it for the rest of the block): it would be emitted at
+  every exit. The known divergence from Kotlin's `finally` lowering stands
+  for such code (accepted, user decision 2026-09-04): a panic unwinds past
+  it [kt-exit-finally].
 * [throw] [rs-throw-controlflow] A fn declaring `[Throw<M>]` returns
-  `ControlFlow<M, T>` — the message type *is* `ControlFlow`'s `Break`
-  payload, so the propagation falls out of the design rather than being
-  imposed on it. `Throw` is filtered out of the effect *parameters* (it is a
-  return shape, not a capability), and the effect declaration itself emits
-  no trait: it has no handlers to implement.
-  * `throw(m)` is `return ControlFlow::Break(m)` — no handler, no dispatch,
-    no allocation. `return v` becomes `ControlFlow::Continue(v)`, and a
-    `None`-returning fn ends with `return ControlFlow::Continue(())`.
-  * A call that may throw unwraps with `?` — but only when the throw would
-    leave *this* fn unchanged. Inside a `try`, when the message must be
-    wrapped into a union arm, or when an exit splice has to run first, the
-    propagation is written out as `match call { Continue(__v) => __v,
-    Break(__m) => <transfer> }`. That is an *expression*, so it works in
-    argument position with no hoisting — and it is the only way a pending
-    release can run on the throw path, since `?` returns without it.
-  * Verified by hand before implementation (`?` on `ControlFlow` is stable;
-    a may-throw call in a loop stays a loop, no trampoline): the three
-    compositions the roadmap asked for are in the E3 notes.
+  `std::ops::ControlFlow<M, T>` (`T` is `()` for a `None` fn) — the message
+  type *is* `ControlFlow`'s `Break` payload, so the propagation falls out of
+  the design rather than being imposed on it. `Throw` is filtered out of the
+  effect *parameters* (it is a return shape, not a capability), and the
+  effect declaration itself emits no trait: it has no handlers to implement.
+  * `throw(m)` is `return std::ops::ControlFlow::Break(m);` — no handler, no
+    dispatch, no allocation. `return v` becomes
+    `return std::ops::ControlFlow::Continue(v);`, and a `None`-returning fn
+    ends with `return std::ops::ControlFlow::Continue(());`.
+  * A call that may throw is unwrapped by an explicit `match`, always:
+    `(match crate::parse_port(config) { std::ops::ControlFlow::Continue(__v) => __v, std::ops::ControlFlow::Break(__m) => return std::ops::ControlFlow::Break(__m) })`.
+    That is an *expression*, so it works in argument position with no
+    hoisting, and the same shape serves inside a `try` (where the break
+    arm transfers to the label) and where the message must be wrapped into
+    a union arm.
+  * Closures do not throw: a lambda body has no `Throw` to propagate.
 * [try] [rs-try-label] `try { ... }` is a **labelled block**
-  (`'try_N: { ... }`), not a closure. The sketch's closure
-  (`(|| -> ControlFlow<..> { .. })()`) would have to capture the fn's
-  effect parameters and any local the body mutates — an exclusivity trap; a
-  labelled block captures nothing.
-  * The price is that `?` cannot be used inside a `try` body (it would
-    return from the *fn*), so every may-throw call there takes the `match`
-    form above and `break`s the label with the outcome's thrown arm. The
-    body's tail is wrapped into the `Ok` arm (arm 0); a body that always
-    leaves still needs a value for the block, which the checker made
-    `Ok None` [try].
-  * Nesting needs no token: the label decides where a `break` lands, so an
-    inner delimiter cannot swallow an outer throw [try-innermost].
+  (`('try_N: { ... })`), not a closure. A closure would have to capture the
+  fn's effect parameters and any local the body mutates — an exclusivity
+  trap; a labelled block captures nothing.
+  * Every may-throw call in the body takes the `match` form above with the
+    break arm leaving the label with the outcome's thrown arm
+    (`break 'try_1 crate::unions::Union2::U2(__m)`, wrapped further when the
+    thrown arm is itself a union:
+    `break 'try_3 crate::unions::Union2::U2(crate::unions::Union2::U1(__m))`).
+    The body's tail is wrapped into the `Ok` arm (arm 0,
+    `crate::unions::Union2::U1(…)`); a body that always leaves still needs a
+    value for the block, which the checker made `Ok None` [try].
+  * Nesting needs no token: the label decides where a `break` lands
+    (`'try_3` around `'try_4`), so an inner delimiter cannot swallow an
+    outer throw [try-innermost].
 
 ## Qualifiers
 
 * [is-qualifies] Each predicate qualifier's `qualifies` fn emits as a
-  top-level `pub fn Q_qualifies(...) -> bool`; a predicate `is` check
-  becomes a call (multiple qualifiers `&&`-chain). Parameters follow the
-  default kept rule [rs-borrows].
+  top-level `pub fn Q__Subject_qualifies(...) -> bool` [rs-fn-mangling]; a
+  predicate `is` check becomes a call (`if crate::Positive__Int_qualifies(n)`,
+  multiple qualifiers `&&`-chain). Parameters follow the ordinary modes
+  [rs-borrows] (`person: &crate::Person`, `mut int: i32`).
 * [qual-field-override] Field-override accesses read the value out of
-  the declared representation: `person.surname.as_ref().unwrap().clone()`
-  for a `T?` field narrowed to `T` (the cast-and-assert of
-  [qual-field-override]; a wrong override panics on `unwrap`).
+  the declared representation, bound once where the claim applies:
+  `let mut __claimed_1 = person.surname.as_ref().unwrap();` for a `T?` field
+  claimed `T` (the cast-and-assert of [qual-field-override]; a wrong
+  override panics on `unwrap`).
 * [rs-fn-mangling] Rust has no overloading: every overload a module emits
   gets its own name by the shared rule [fn-emit-name] (`full_name__Person`,
-  `full_name__SurnamePerson`), at its declaration and at every call the
-  checker resolved; unchecked arity-fallback calls share Kotlin's known gap.
-  Kotlin follows the same rule for a different reason — it *has*
+  `full_name__SurnamePerson`, `next__Countdown`), at its declaration and at
+  every call. Kotlin follows the same rule for a different reason — it *has*
   overloading, and would resolve by its own lattice [kt-fn-mangling].
 * [implicit-param] [implicit-resolve] An implicit parameter emits as an
   ordinary trailing parameter, rendered like any fn-typed one:
-  `&mut impl FnMut(..) -> R` [fn-contract]. The call site passes what
-  resolution found — a resolved default as a mechanical adapter closure
-  (`&mut |__i0, __i1| add(__i0, __i1)`, since a fn item is not a closure),
-  a forwarded one as a reborrow (`&mut *add`), an override as the written
-  value (adapted the same way when it names a fn).
+  `cmp: &mut dyn FnMut(&T, &T) -> i32` [fn-contract]. The call site passes
+  what resolution found — a resolved default as an adapter closure with
+  typed parameters (`&mut |__a0: i32, __a1: i32| crate::plus(__a0, __a1)`,
+  since a fn item is not a closure), an intrinsic default as its lowering
+  inside the adapter [implicit-intrinsic], a forwarded one as a reborrow
+  (`&mut *cmp`), an override as the written value (adapted the same way
+  when it names a fn).
   * A `params` group emits nothing [implicit-group]: it never was a value, so
-    there is no struct and nothing boxed.
-  * A **kept-`Mut`** parameter of an implicit position is rendered `&mut T`
-    (`fn_ty_param_renderings`), so the adapter closure passes it **straight
-    through** rather than borrowing it again: `&mut |__i0| next(__i0)`, not
-    `next(&mut __i0)` (`E0596` — you cannot take `&mut` of a `&mut` binding).
-    A callee wanting `&T` takes the same value (`&mut T` coerces); one wanting
-    it owned clones. First reachable with `params Yield`'s `next`, which is
-    the only member so far that mutates its subject.
-  * An implicit parameter is `&mut dyn FnMut(..)` — **`dyn`, uniformly**, for
-    two reasons that pull the same way. An effect member's implicits land in a
-    trait used as `&mut dyn E` [rs-effects], where `impl Trait` in argument
-    position would cost object safety. And forwarding has to compose in every
-    direction: a member forwarding to a plain fn would otherwise hand a `dyn`
-    value to an `impl` (`Sized`) parameter, which rustc refuses. One
-    convention is both simpler and the only sound choice; the cost is an
-    indirect call, which every effect member call already pays.
+    there is no struct and nothing boxed; its members are trailing
+    parameters like any implicit.
+  * A **kept-`Mut`** parameter of an implicit position is rendered `&mut T`,
+    and the adapter reborrows it into the callee
+    (`&mut |__a0: &mut Vec<i32>, __a1: i32| crate::core_list::add_platform(&mut *__a0, __a1)`).
+    A callee wanting `&T` takes the same value (`&mut T` coerces); one
+    wanting it owned clones.
+  * Every fn-typed parameter is `&mut dyn FnMut(..)` — **`dyn`,
+    uniformly**: an effect member's fn parameters land in a trait used as
+    `dyn` [rs-effects], where `impl Trait` in argument position would cost
+    object safety, and forwarding has to compose in every direction (a
+    member forwarding to a plain fn would otherwise hand a `dyn` value to an
+    `impl` parameter). The cost is an indirect call, which every effect
+    member call already pays.
   * A member's trait method, every handler's implementation of it, the
-    handle's forwarding impl and the generated host skeleton all render
-    through the same member-parameter helper, so they cannot disagree.
-  * [effect-args-hoisted] An argument that reborrows an implicit the *same*
-    call passes is hoisted into a `let` first, or the two borrows overlap
-    (`E0499`) — the same rule, and the same fix, as for a threaded effect
-    value. A recursive call forwarding its own implicits is the usual way to
-    hit it.
-  * A bare call to an implicit parameter's name goes through the parameter,
-    borrowing it for the call, which is why an argument of *that* call gets
-    the same hoisting treatment.
+    handle's forwarding method and the generated host skeleton all render
+    through the same member-parameter code, so they cannot disagree.
+  * [effect-args-hoisted] An argument that calls a fn value or implicit the
+    *same* call goes through is evaluated into an `__argN` first, or the two
+    `&mut` borrows of the closure overlap (`E0499`):
+    `return { let __arg1 = f(x); f(__arg1) };`, and a recursive call
+    forwarding its own implicit
+    (`{ let __arg1 = crate::sum(&vec![1i32], &mut *add); add({ … }, __arg1) }`).
+    Only that argument is hoisted, so it is evaluated ahead of the arguments
+    written before it: an open divergence from left-to-right order when
+    those have effects (`f(noisy(1), f(noisy(2), x))` prints `noisy 2`
+    first here and `noisy 1` first on Kotlin).
 * [effect-handler-generics] A generic handler is constructed **at** a type:
-  `Plain::<i32>::new()`, from the type arguments the checker resolved for the
-  `use` site. Written even where rustc could infer them — the emitter does
-  not reason about the target's inference, and the case that needs them most
-  (a handler with no constructor argument) leaves nothing to infer from.
+  the `use` binds the instance with its instantiation written,
+  `let mut __use_1: crate::Drop<i32> = crate::Drop::new();`, from the type
+  arguments the checker resolved for the site — written even where rustc
+  could infer them, since the case that needs them most (a handler with no
+  constructor argument) leaves nothing to infer from. The handler's type
+  parameters are bounded `T: Clone + Send + Sync + 'static`, since the
+  instance sits in an `Arc` [rs-handle].
   * A type parameter **no field mentions** gets a
-    `__phantom_T: PhantomData<T>` field, initialized in `new`. A handler is a
-    behaviour, and a generic one need hold nothing; Rust insists every
-    parameter be used (`E0392`).
+    `__phantom_T: std::marker::PhantomData<T>` field, initialized in `new`.
+    A handler is a behaviour, and a generic one need hold nothing; Rust
+    insists every parameter be used (`E0392`).
 * [rs-fn-param-convention] A lambda passed into a fn-typed parameter binds
   its parameters the way the **callee's declared fn type** renders them,
   not the way the lambda's own annotation would: the callee fixes the
   calling convention, and its declaration is the only thing both sides can
   agree on. `f: (T) -> U` declares `FnMut(&T)` — a type variable is never
-  known to be `Copy` — so an annotated `(n: Int) -> …` argument emits
-  `|n: &i32|` and binds by reference.
-  * The two sides used to decide `Copy`-ness on *different* types (the
-    declaration on `T`, the lambda on its own `Int`), which disagreed
-    precisely when the callee was generic: rustc rejected the call with
-    `E0631`, and only when the lambda was annotated — an un-annotated one
-    compiled, because rustc inferred the parameter from the bound. The
-    convention is computed by one function mirroring the `Type::Fn` arm of
-    `emit_type`.
-  * **An implicit parameter's position follows the same rule** (fixed
-    2026-09-21, the ordering round's step 1). A kept non-`Mut` position whose
-    type is not a Copy scalar renders `&T`: `?Ordered<T>` is
-    `&mut dyn FnMut(&T, &T) -> i32`, the body's `cmp(a, b)` passes `&a, &b`,
-    and the adapter that fills the position bridges to the resolved fn's own
-    mode (cloning out of the borrow where that fn owns its parameter, which is
-    free for a scalar). Until then an implicit's kept position was by value —
-    a *move* of what the contract says is kept [fn-contract], so a generic fn
-    that compared two values and then used one of them did not compile
-    (`E0382`), and the whole comparison capability was unusable over anything
-    but a Copy scalar. The same bridging applies to a value written at the
-    call site [implicit-override]: a named fn gets the adapter, a lambda binds
-    its parameters under the position's convention.
+  known to be `Copy` — so even an annotated `(n: Int) -> …` lambda binds by
+  reference. The lambda is emitted with **untyped** parameters
+  (`&mut |mut n| -> i32 { i32::wrapping_mul(*n, 3i32) }`) and rustc takes
+  their types from the `&mut dyn FnMut` it coerces to; a Copy scalar read
+  out of one is dereferenced where a value is needed (`*n`).
+  * **An implicit parameter's position follows the same rule.** A kept
+    non-`Mut` position whose type is not a Copy scalar renders `&T`:
+    `?Ordered<T>` is `&mut dyn FnMut(&T, &T) -> i32`, the body's `cmp(a, b)`
+    passes the references, and the adapter that fills the position bridges
+    to the resolved fn's own mode (cloning out of the borrow where that fn
+    owns its parameter, which is free for a scalar):
+    `crate::bigger::<String>(a, b, &mut |__a0: &String, __a1: &String| …)`.
+    The same bridging applies to a value written at the call site
+    [implicit-override]: a named fn gets the adapter, a lambda binds its
+    parameters under the position's convention.
 * [rs-cmp-groups] [cmp-groups] The canonical comparison/equality/hashing
   implementations are the host's own operations. `cmp` is
-  `Ord::cmp(&a, &b) as i32` — `Ordering` is a fieldless `#[repr(i8)]` enum
-  whose discriminants *are* the sign convention Salvo's `cmp` answers, so the
-  cast is the whole lowering — written as a path call rather than a method
-  call so it works whether the argument arrives owned or borrowed (`&T` has
-  its own `Ord`, delegating to `T`'s). `eq` is `==`. A `Str` is compared and
-  hashed as `str` (`&s[..]`), which is byte-wise UTF-8 and therefore
-  code-point order [kt-ordered] — no runtime helper needed on this side.
+  `(Ord::cmp(&(a), &(b)) as i32)` — `Ordering` is a fieldless `#[repr(i8)]`
+  enum whose discriminants *are* the sign convention Salvo's `cmp` answers,
+  so the cast is the whole lowering — written as a path call so it works
+  whether the argument arrives owned or borrowed; a sign test of a
+  primitive `cmp` (`cmp(a, b) < 0`) is the primitive operator itself
+  (`(a < b)`). `eq` is `==` (`((n) == (0i32))`). A `Str` is compared and
+  hashed as `str` (`(&a[..] == &b[..])`), which is byte-wise UTF-8 and
+  therefore code-point order [kt-ordered] — no runtime helper needed on
+  this side.
   * [obligation-by] A member **stamped** by a `by` clause is an ordinary Rust fn
-    whose body is the unrolled Salvo: `pub fn cmp__n(a: &Point, b: &Point) ->
-    i32` compares `a.x` with `b.x`, then `a.y` with `b.y`, then answers `0`.
+    whose body is the unrolled Salvo: `pub fn eq__Point_Point(a: &crate::Point,
+    b: &crate::Point) -> bool` compares `a.x` with `b.x`, then `a.y` with `b.y`.
     Calls, adapter closures and `cmp = cmp@Point` values all reach it as a
     named fn, so nothing in this backend learns the member was not written by
     hand — and it takes part in overload mangling like any other body-bearing
     fn. The identities of a `List` or a tuple [col-hashed-ordered] are Salvo
     (`core.compare`), not lowerings; `mix_hash` is Salvo too.
   * [cmp-hash-values] `hash` is a block expression holding its own
-    `std::hash::DefaultHasher`: `{ let mut __h = …; Hash::hash(&v, &mut __h);
-    Hasher::finish(&__h) as i64 }`. One hasher per call, so a `hash` nested
+    `std::hash::DefaultHasher`:
+    `{ let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(v), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }`
+    (`&s[..]` for a `Str`). One hasher per call, so a `hash` nested
     inside another one is still well-defined, and the value is this host's —
     Kotlin's `hashCode()` answers something else by design.
 
 ## Effects [rs-effects]
 
-* [effect-decl] Effects emit as Rust `pub trait`s whose methods take
-  `&mut self` (handlers are stateful). The throw effect is the exception:
+* [effect-decl] An effect emits two traits and a handle struct
+  [rs-handle]: `__Stateless_E` (`&self` members, `Send + Sync`) and
+  `__Stateful_E` (`&mut self` members, `Send`), which handlers implement, and
+  `E`, which everything else receives. The throw effect is the exception:
   it emits nothing, since it has no handlers [rs-throw-controlflow].
-* [effect-args-hoisted] An argument whose code reaches an effect value the
-  *same call* threads is hoisted into a `let` before the call
-  (`{ let __a1 = inner(&mut console, 1); outer(&mut console, __a1) }`).
-  Without it, two effectful calls in one expression borrow the same
-  `&mut dyn` parameter twice (`E0499`) — a shape Kotlin accepts and Rust
-  rejects, so it was a live parity divergence (found and fixed 2026-09-04
-  while building [try], whose delimiter reads naturally as a call
-  argument). The hoist predicate is per-call: an argument mentioning a
-  *different* effect value is left alone, so output churn is limited to the
-  shapes that would not compile.
+* [effect-args-hoisted] Two effectful calls in one expression need no hoist:
+  a handle parameter is a shared `&E`, so both borrow it at once
+  (`crate::roll(&__handle_4), crate::roll(&__handle_4)`). The hoist that
+  remains is the fn-value one in [implicit-param].
 * [effect-handler] Handlers emit as `pub struct H<..> { ctor-params,
-  state }` + `impl H { pub fn new(ctor-params) -> Self }` (state fields
-  initialized from their declared defaults) + `impl Effect for H`.
-  Handler member bodies access ctor params and state through `self.`.
-  An `intrinsic handler`'s member bodies come from
+  state, __dep0, … }` + `impl H { pub fn new(ctor-params, deps) -> Self }`
+  (state fields initialized from their declared defaults) +
+  `impl crate::__Stateless_E for H` or `impl crate::__Stateful_E for H`.
+  Handler member bodies access ctor params, state and dependencies through
+  `self.` (`self.t = i32::wrapping_add(self.t, 1i32);`,
+  `self.__dep0.log(…)`). An `intrinsic handler`'s member bodies come from
   `intrinsics::handler_member` instead, same shape. A *dependency* is a
-  `__dep_E: E` handle field and a trailing `new` parameter — see
+  `__depN: E` handle field and a trailing `new` parameter — see
   [rs-handle].
-* [kt-effect-params]-equivalent: effect dependencies become leading
-  parameters `name: &E<...>` [rs-handle]; effect member calls
-  dispatch through the parameter (`console.print(...)` — auto-reborrow), and
-  callee dependencies thread as arguments (`draw(random_int, console)`,
-  with `&mut local` for handlers `use`d in the current scope).
+* [kt-effect-params]-equivalent: a fn's effects become leading parameters
+  `name: &E<...>` [rs-handle], each **named for the effect** (`console`,
+  `logger`; a second instance of one effect `random__1`):
+  `pub fn draw(random: &crate::Random<i32>, random__1: &crate::Random<String>) -> String`.
+  Effect member calls dispatch through the parameter
+  (`random.next_random()`, `logger.log(step)`), and callee dependencies
+  thread as arguments — the parameter as it is, `&__handle_N` for a handle
+  `use`d in the current scope
+  (`crate::draw(&__handle_4, &__handle_6, &__handle_2);`).
   * [deduce-syntax] **Effect member parameters follow the member's own
-    written deduction clause** (2026-09-14): consumed (`=> !s`) is by value,
-    kept `Mut` is `&mut T`, kept plain is `&T`, Copy scalars and variadics by
-    value. A member has no body to infer from, so [decl-explicit] makes the
-    clause mention every non-Copy parameter — the clause *is* the contract.
-    One function (`member_param_mode`) answers for the trait method, every
-    handler's implementation, the handle's forwarding impl and the argument
-    rendering at call sites, because a disagreement between any two of them
-    is a rustc type error — and it decides on the *effect's* parameter type,
-    so a `T` position stays `&T` in a handler of `Store<Int>`.
-    Member fns with their own generic parameters are a codegen error (`dyn`
-    traits cannot have generic methods) [backend-never-wrong].
-    * Until 2026-09-14 members used the default kept rule regardless (`&T`
-      for non-Copy, body clones), recorded as sound-but-unoptimized. It was
-      fixed rather than kept for phase 4: a member consuming a **linear**
-      token is the shape `Fs.close(s: InStream) => !s` has, and a `&T`
-      parameter made the handler clone the token it was meant to consume.
+    written deduction clause**: consumed (`=> !s`) is by value, kept `Mut`
+    is `&mut T`, kept plain is `&T`, Copy scalars and variadics by value
+    (`fn log(&self, m: &String);`,
+    `fn report(&self, what: String, done: crate::scheduler::SalvoReply);`).
+    A member has no body to infer from, so [decl-explicit] makes the clause
+    mention every non-Copy parameter — the clause *is* the contract. The
+    trait methods, every handler's implementation, the handle's forwarding
+    method and the argument rendering at call sites all read the IR's mode
+    for that parameter, because a disagreement between any two of them is a
+    rustc type error — and it is decided on the *effect's* parameter type,
+    so a `T` position stays `&T` in a handler of `Store<Int>`. Member fns
+    with their own generic parameters are a codegen error (`dyn` traits
+    cannot have generic methods) [backend-never-wrong].
   * [effect-member-overload] **An overloaded member name is suffixed** by its
     parameter types [fn-emit-name] (`close__InStream`, `close__OutStream`) —
-    Rust cannot overload a trait method at all.
-    The name comes from `salvo_core::effect_member_name`, so the trait, every
-    handler impl, the handle's forwarding impl, the host skeletons and the
-    call sites cannot disagree, and the Kotlin backend picks the same names.
-    A call site emits the overload the *checker* resolved
-    (`Checked::effect_member_calls`); no recorded resolution where the name
-    is overloaded is a codegen error, never a guess.
-* [effect-use] `use Handler(...)` emits
-  `let <name> = E::shared(Handler::new(args));` (`locked` for a stateful
-  handler) and registers `&<name>` in the effect environment for the rest of the scope
-  [effect-scope]; ctor arguments are owned (a `use` argument is a move,
-  [deduce-infer]). Handler generics are inferred by rustc from the `new`
-  arguments (the checker already validated the instance, `use_effects`), or
-  spelled as a turbofish where nothing infers them [effect-handler-generics].
-  See [rs-handle].
-* Handler resolution prefers the checker's effect tables
-  (`use_effects`/`effect_calls`/`call_effects`) rendered through
-  `rust_ty`, with the same string-keyed environment fallback as the
-  Kotlin backend (see COMPLETED.md "Emitter effect-environment fallback"
-  under architectural facts).
+    Rust cannot overload a trait method at all. The name comes from
+    `salvo_core::effect_member_name`, so the traits, every handler impl, the
+    handle's forwarding method, the host skeletons and the call sites cannot
+    disagree, and the Kotlin backend picks the same names. A call site emits
+    the overload the checker resolved, as the IR records it.
+* [effect-use] `use Handler(...)` binds the instance and then its handle:
+
+  ```rust
+  let mut __use_3: crate::TickingClock = crate::TickingClock::new();
+  let __handle_4 = crate::Clock::locked(__use_3);
+  ```
+
+  (`shared` for a stateless handler), and the handle serves the effect for
+  the rest of the scope [effect-scope]; ctor arguments are values (a `use`
+  argument is a move, [deduce-infer]), and a generic handler's instantiation
+  is the annotation [effect-handler-generics]. See [rs-handle].
+* Which handle a call threads is the IR's: each effectful call names the
+  effect instance it uses, already resolved to the parameter, the `use`
+  local or the module-level `use` [rs-mod-use] in scope.
 
 ### Every binding is a handle [rs-handle]
 
-**Built 2026-09-28** (user decisions of the same day, ROADMAP §2b — *one shape*:
-handles everywhere, fusion removed, `local` removed — then, the same afternoon,
-**keyed on statefulness and named after the effect**). It replaces the fusion
-emission of 2026-09-04/14 (`__Fx_N` structs, `__Has_E` accessors, `__Prov_…`
-conjunctions, `__Deps_H`/`__Impl_H` for dependent handlers, `__Prov_H` actor
-providers, `__Hs_…` handle bundles) and the monitor apparatus of 2026-09-19/20
-(`__Mon_E` over `Box<dyn __Share_E>`, `__Lock_E<H>`, `__Arc_H`/`__Shared_H` for
-threadsafe hosts). COMPLETED.md shows the shape (under "Current architectural
-facts worth knowing") and keeps the history ("One shape for effects").
+One shape for every effect, keyed on statefulness and named after the effect
+(user decisions 2026-09-28, ROADMAP §2b; COMPLETED.md's "One shape for
+effects" keeps the history).
 
 * **An effect emits two traits and a handle.** The traits are what handlers
   implement, and their names are the mangled ones; the handle **carries the
   effect's name** — it is what a reader of the output sees on every fn
-  parameter, `use` local and dependency field:
+  parameter, `use` binding and dependency field:
 
   ```rust
-  pub trait __Stateless_Console: Send + Sync { fn print(&self, message: &String); }
-  pub trait __Stateful_Console: Send        { fn print(&mut self, message: &String); }
+  pub trait __Stateless_Logger: Send + Sync { fn log(&self, m: &String); }
+  pub trait __Stateful_Logger: Send          { fn log(&mut self, m: &String); }
 
-  pub struct Console { inner: __Inner_Console }
-  pub enum __Inner_Console {
-      Shared(std::sync::Arc<dyn __Stateless_Console>),
-      Locked(std::sync::Arc<std::sync::Mutex<dyn __Stateful_Console>>),
+  pub struct Logger { inner: __Inner_Logger }
+  pub enum __Inner_Logger {
+      Shared(std::sync::Arc<dyn __Stateless_Logger>),
+      Locked(std::sync::Arc<std::sync::Mutex<dyn __Stateful_Logger>>),
   }
-  impl Clone for Console { … }                          // an `Arc` bump either way
-  impl Console {
-      pub fn shared<__H: __Stateless_Console + 'static>(inner: __H) -> Self { … }
-      pub fn locked<__H: __Stateful_Console + 'static>(inner: __H) -> Self { … }
-      pub fn share_shared(inner: Arc<dyn __Stateless_Console>) -> Self { … }
-      pub fn share_locked(inner: Arc<Mutex<dyn __Stateful_Console>>) -> Self { … }
-      pub fn print(&self, message: &String) {
+  impl Clone for Logger { … }                           // an `Arc` bump either way
+  impl Logger {
+      pub fn shared<__H: __Stateless_Logger + 'static>(inner: __H) -> Self { … }
+      pub fn share_shared(inner: std::sync::Arc<dyn __Stateless_Logger>) -> Self { … }
+      pub fn locked<__H: __Stateful_Logger + 'static>(inner: __H) -> Self { … }
+      pub fn share_locked(inner: std::sync::Arc<std::sync::Mutex<dyn __Stateful_Logger>>) -> Self { … }
+      pub fn log(&self, m: &String) {
           match &self.inner {
-              __Inner_Console::Shared(h) => h.print(message),
-              __Inner_Console::Locked(h) => h.lock().unwrap().print(message),
+              __Inner_Logger::Shared(h) => h.log(m),
+              __Inner_Logger::Locked(h) => h.lock().unwrap().log(m),
           }
       }
   }
@@ -1316,116 +1285,134 @@ facts worth knowing") and keeps the history ("One shape for effects").
 
   The handle's members are **inherent `&self` methods** dispatching on the
   arm, so a fn declaring `[E]` takes `e: &E` — a shared borrow, which also
-  means two handles of one instance in one call never conflict and the
-  `E0499` hoisting around `clock.to_instant(&clock.to_tick(i))` is gone.
-  Generic exactly as the effect is (`Random<T: 'static>`); construction
-  sites name a generic instance's type arguments outright
-  (`Random::<i64>::locked(…)`). Emitted for **every** effect, actor effects
+  means two handles of one instance in one call never conflict. Generic
+  exactly as the effect is (`pub struct Random<T: 'static>`); a generic
+  instance's type arguments come from the binding's annotation
+  [effect-handler-generics]. Emitted for **every** effect, actor effects
   included, used or not. Members with their own generics are skipped as the
-  traits skip them. The locator face of a mutable-lending member (`m__loc`,
-  [rs-loc]) is dispatched too: an effect member lends from a *parameter*,
-  never from handler state, so the borrow outlives the guard legitimately.
+  traits skip them. A mutable-lending member is dispatched through both arms
+  [rs-loc]: it lends from a *parameter*, never from handler state, so the
+  borrow outlives the guard legitimately.
 * **Statefulness decides the arm** — `salvo_core::handler_is_stateful`, the
   one predicate both backends and the deadlock graph read, off the
   declaration: a `state` field; a member that mints a `replyto` (the parked
-  table is state the mint writes — `Checked::parking_handlers`); a fn-typed
-  constructor parameter (a stored `FnMut`, and a lambda may mutate what it
-  captured); a platform handler without `threadsafe`. An `intrinsic` handler
-  is trusted stateless. The generated actor fields (`__addr`, `__parked`) do
-  not count: the actor body owns the instance and writes them itself, so an
-  actor handler with no state fields bound inline is `Shared` like any other.
-  A **stateless** handler implements `__Stateless_E` with `&self` members
-  (`Emitter::member_receiver_mut`) and is shared as `Arc<dyn …>` with no
-  lock; a **stateful** one implements `__Stateful_E` with `&mut self` and sits
-  behind `Arc<Mutex<_>>`. Stateless by construction: the send stub `__Stub_E`
-  (so a send through a `use addr` binding blocks only on the mailbox, never
-  on a lock another sender holds while blocked on that mailbox), the mixed
-  handler's façade `__Fac_H` (so a caller waiting on the servant holds
-  nothing), intrinsic handlers, `threadsafe` hosts. A generic handler's
-  parameters carry `Clone + Send + Sync + 'static`, since the instance sits in
-  an `Arc`; every Salvo type satisfies them.
-* **A `use` is the handle**: `let e = Console::shared(StdOutConsole::new());`
-  / `let random = Random::<i64>::locked(CyclicRandom::new(…));` — the local
-  *is* what everything downstream receives. A multi-face handler is one
-  `Arc` (of a `Mutex` when stateful) and one handle per face (`let __inst =
-  Arc::new(Mutex::new(H::new(…))); let a = A::share_locked(__inst.clone());
-  let b = B::share_locked(__inst.clone());`), so a **stateful multi-face
-  handler is one lock behind several effect types** — the shape
-  [monitor-handler] used to refuse. `init` runs on the instance before it is
-  wrapped. A `use addr` of a plain effect binds the value (an `Addr<E>` *is*
-  `E`); of an actor effect, `E::shared(__Stub_E::new(addr))`.
+  table is state the mint writes); a fn-typed constructor parameter (a
+  stored callback, and a lambda may mutate what it captured); a platform
+  handler without `threadsafe`. An `intrinsic` handler is trusted stateless.
+  The generated actor fields (`__addr`, `__parked`) do not count: the actor
+  body owns the instance and writes them itself, so an actor handler with no
+  state fields is `Shared` like any other. A **stateless** handler
+  implements `__Stateless_E` with `&self` members and is shared as
+  `Arc<dyn …>` with no lock; a **stateful** one implements `__Stateful_E`
+  with `&mut self` and sits behind `Arc<Mutex<_>>`. Stateless by
+  construction: the send stub `__Stub_E` (so a send through a `use addr`
+  binding blocks only on the mailbox, never on a lock another sender holds
+  while blocked on that mailbox), the mixed handler's façade `__Fac_H` (so a
+  caller waiting on the servant holds nothing), intrinsic handlers,
+  `threadsafe` hosts. A generic handler's parameters carry
+  `Clone + Send + Sync + 'static`, since the instance sits in an `Arc`;
+  every Salvo type satisfies them.
+* **A `use` is the handle**: the instance is bound, then wrapped —
+  `let mut __use_1: crate::core_console::__Platform_StdOutConsole = crate::core_console::__Platform_StdOutConsole::new();`
+  `let __handle_2 = crate::core_console::Console::shared(__use_1);` — and the
+  handle is what everything downstream receives. A multi-face handler is one
+  `Arc` (of a `Mutex` when stateful) and one handle per face:
+
+  ```rust
+  let __use_3 = std::sync::Arc::new(std::sync::Mutex::new(crate::fs_mem::MemFs::new()));
+  let __handle_4 = crate::fs::Fs::share_locked(__use_3.clone());
+  let __handle_5 = crate::stream::Streams::share_locked(__use_3.clone());
+  ```
+
+  so a **stateful multi-face handler is one lock behind several effect
+  types**. A handler's `init` runs inside its `new`
+  (`let mut __s = Self { … }; __s.init(); __s`), before the handle wraps it;
+  an actor's is its first message instead [rs-actor]. A `use addr` of a
+  plain effect binds the value (an `Addr<E>` *is* `E`); of an actor effect,
+  `crate::E::shared(crate::__Stub_E::new(addr))`.
 * **A fn declaring `[A, B]`** is `fn f(a: &A, b: &B, …)`, one parameter per
-  effect **in the order of `Checked::fn_effects`** — inherited effects (from
-  fn-typed parameters, [fn-effects]) first, then the written list — and a
-  call passes `&a` for a local or a captured field, the parameter itself for
-  a parameter. The checker's `call_effects` follows the same order, since the
-  emitters pass one argument per entry (the two disagreed until 2026-09-28;
-  fusion had hidden it behind a single fused argument).
-* **A dependent handler** ([effect-handler-deps]) holds one `__dep_E: E<…>`
-  field per declared dependency, whatever the dependency's kind — plain,
-  actor effect (a handle over the send stub), or generic instance
-  (`__dep_Store: Store<i64>`, or `<T>` for a generic handler: the cut that
-  refused a generic dependent handler is gone) — as trailing `new` parameters
-  in declaration order. Members reach them as `self.__dep_E.member(…)`
-  through the handle's `&self` methods, so a **stateless** dependent handler
-  stays stateless. A `use` clones the scope's handles into `new`
-  (`Stamped::new(logger.clone(), clock.clone())`) whether the effect arrived
-  by a `use` in the same function or through the enclosing *signature*
-  ([spawn-inherit]'s lift needs no bundle: the parameter is the handle); a
+  effect in the order the IR lists the fn's effects — inherited effects
+  (from fn-typed parameters, [fn-effects]) first, then the written list — and
+  a call passes `&__handle_N` for a local handle, `&self.__depN` for a
+  handler's dependency, the parameter itself for a parameter
+  (`pub fn interception(logger: &crate::Logger, clock: &crate::Clock)`,
+  called `crate::interception(&__handle_6, &__handle_4);`).
+* **A dependent handler** ([effect-handler-deps]) holds one `__depN: E<…>`
+  field per declared dependency, in declaration order and whatever the
+  dependency's kind — plain, actor effect (a handle over the send stub), or
+  generic instance (`Store<i64>`, or `<T>` for a generic handler) — taken as
+  trailing `new` parameters:
+
+  ```rust
+  pub struct Stamped { __dep0: crate::Logger, __dep1: crate::Clock }
+  impl crate::__Stateless_Logger for Stamped {
+      fn log(&self, m: &String) {
+          self.__dep0.log(&format!("[t={}] {}", self.__dep1.now(), m));
+      }
+  }
+  ```
+
+  Members reach them through the handle's `&self` methods, so a
+  **stateless** dependent handler stays stateless. A `use` clones the
+  scope's handles into `new` (`crate::Stamped::new(logger.clone(), clock.clone())`)
+  whether the effect arrived by a `use` in the same function or through the
+  enclosing *signature* ([spawn-inherit]: the parameter is the handle); a
   `with` item is a private instance behind its own handle
-  (`Clock::shared(FixedClock::new())`, `locked` when stateful).
-  **Interception** ([effect-intercept]) is the same shape: `let logger2 =
-  Logger::shared(Stamped::new(logger.clone()))` — the previous registration's
-  handle is captured before the interceptor is constructed, which is "binds
+  (`crate::Stamped::new(__handle_6.clone(), crate::Clock::shared(crate::FixedClock::new()))`,
+  `locked` when stateful). **Interception** ([effect-intercept]) is the
+  same shape: the previous handle is cloned into the interceptor before the
+  new handle is bound
+  (`let mut __use_1: crate::Stamped = crate::Stamped::new(logger.clone(), clock.clone());`
+  `let __handle_2 = crate::Logger::shared(__use_1);`), which is "binds
   strictly outward" in emission.
 * **A spawn** hands the actor body the same struct: `__Actor_H { handler: H }`
   with the handler's fields the handles, `__dispatch` calling
-  `__Stateful_E::member(&mut self.handler, …)` (or `__Stateless_E::…`, by the
-  handler's statefulness) for every handler, dependent or not; the clause's
-  items and the inherited dependencies are trailing `new` arguments exactly
-  as at a `use`. A **monitor spawn** answers `E::locked(H::new(…))` /
-  `E::shared(…)` — no scheduler, no mailbox, no pool. A **mixed spawn**
-  answers `E::shared(__Fac_H { __addr, … })`: the façade is stateless, so its
-  wait on the servant holds no lock.
-* **A fn value with effects** is `impl FnMut(&A, …, args)`: a lambda takes
-  each as a typed leading parameter, and the adapter for a named fn forwards
-  it (`|__fx0: &Logger, mut __a0| shout(__fx0, __a0)`), ignoring what the
-  declaration does not need. **A task body** takes its inherited effects as
-  *owned* handles (the mint's closure is `move` and `'static`) and clones
+  `crate::__Stateless_E::member(&mut self.handler, …)` (or
+  `crate::__Stateful_E::…`, by the handler's statefulness) for every handler,
+  dependent or not; the clause's items and the inherited dependencies are
+  trailing `new` arguments exactly as at a `use`
+  (`crate::Reporting::new(__handle_6.clone())`). A **mixed spawn** answers
+  `crate::E::shared(crate::__Fac_H { __addr: __a, … })`: the façade is
+  stateless, so its wait on the servant holds no lock [rs-mixed].
+* **A fn value with effects** is `&mut dyn FnMut(&A, …, args)`: a lambda
+  takes each handle as a leading parameter, and the adapter for a named fn
+  forwards it (`|__e0: &crate::Logger, __a0: &String| crate::shout(__e0, __a0)`),
+  ignoring what the declaration does not need [fn-effects]. **A task body**
+  takes its inherited effects as *owned* handles — cloned into a local before
+  the `move` closure (`let __e0 = console.clone();` …
+  `std::boxed::Box::new(move |__v| crate::report(&__e0, …))`) — and clones
   them into nested mints.
 * **`threadsafe platform handler`** ([threadsafe-platform]) is the declared
-  statefulness of a host the compiler cannot see: a `threadsafe` host's
-  skeleton implements `__Stateless_E` with `&self` receivers and the `use`
-  binds `E::shared(H::new(args))` — rustc checks the half of the contract it
+  statefulness of a host the compiler cannot see: a `threadsafe` host
+  implements `EPlatformSync` with `&self` receivers and the `use` binds
+  `crate::E::shared(__use_N)` — rustc checks the half of the contract it
   can, since a field that is not `Sync` does not compile — and an undeclared
-  host implements `__Stateful_E` with `&mut self` behind `E::locked(…)`.
-  `std/platform/net.rs` (`HostTcpTransport`) is written in the first form.
-* **Fn-typed constructor parameters and state** ([rs-fn-field]): a written
-  fn-typed constructor parameter (`handler Derived(step: (n: Int) -> Int)`)
-  is stored like an implicit — `Box<dyn FnMut(i32) -> i32 + Send>`, arriving
-  as `impl FnMut + Send + 'static`, called `(self.step)(…)` — and makes the
-  handler stateful; a struct's fn-typed field is `Arc<dyn Fn… + Send + Sync>`
-  (it was `Rc`). A Salvo lambda captures by value, so the bounds hold for
+  host implements `EPlatform` with `&mut self` behind `crate::E::locked(…)`
+  [rs-platform-handler]. `std/platform/net.rs` (`HostTcpTransport`) is
+  written in the first form.
+* **Fn-typed constructor parameters** ([rs-fn-field]): a written fn-typed
+  constructor parameter (`handler Derived(step: (n: Int) -> Int)`) is stored
+  boxed — field `step: std::boxed::Box<dyn Fn(i32) -> i32 + Send + Sync>`,
+  arriving as `step: impl Fn(i32) -> i32 + Send + Sync + 'static` and stored
+  `std::boxed::Box::new(step)`, called `(self.step)(n)` — and makes the
+  handler stateful. A Salvo lambda captures by value, so the bounds hold for
   every value the program can build, and the checker's "holds a function
-  value" unsendability arm no longer applies to handler state
-  (`unshareable_reason`); it still applies to message payloads and task
-  captures (`unsendable_reason`).
+  value" unsendability arm does not apply to handler state; it still applies
+  to message payloads and task captures.
 * **The handle is `Clone`, not `Copy`** — unlike the `usize` addr — and the
-  checker treats every `Addr` as freely reusable, so an owned read of a
-  plain-effect addr **clones** (`emit_owned`'s ident arm). Both arms are
-  `Send + Sync`, which is the sendability the checker promises at a spawn
-  [actor-sendable].
+  checker treats every `Addr` as freely reusable, so a value read of a
+  plain-effect addr **clones**. Both arms are `Send + Sync`, which is the
+  sendability the checker promises at a spawn [actor-sendable].
 * **Rust's `Mutex` is not reentrant, and that is unobservable**: a handler's
   bindings are fixed at construction and its dependencies bind strictly
   outward/earlier, so no path routes back into its own handle; sibling calls
   inside a handler are direct self calls under the one acquisition. A
   poisoned lock (`unwrap`) surfaces as a panic only after another member
   already panicked, which is the fault boundary's business.
-* **`Addr<E>` for a plain effect lowers to `E`** (both type paths — checked
-  `Ty` and written AST — branch on the effect's declared kind); an actor
-  effect's addr stays `usize`. A generic plain effect's addr carries the
-  instantiation (`Addr<Random<Int>>` is `Random<i64>`); an uninstantiated
-  mention is refused by arity, a leniency path rather than a rule.
+* **`Addr<E>` for a plain effect lowers to `E`** [monitor-handler] (the type
+  renderer branches on the effect's declared kind); an actor effect's addr stays `usize`. A
+  generic plain effect's addr carries the instantiation (`Addr<Random<Int>>`
+  is `crate::Random<i32>`).
 
 ## Functions and calls
 
@@ -1434,31 +1421,35 @@ facts worth knowing") and keeps the history ("One shape for effects").
   fallback: an unresolved name here is a *codegen error* naming an internal
   inconsistency, since the checker already rejects undeclared dot-calls
   ([call-resolve]).
-* [fn-variadic] Non-spread trailing arguments collect into `vec![...]`;
-  a spread argument `...xs` forwards the vector (owned rendering).
-* [fn-lambda] Lambdas emit as closures (`|a, b| expr`); fn-typed
-  parameters emit as `impl Fn(A, ..) -> R`. Lambda parameters are owned.
-  Early `return` inside expression-position lambdas remains a codegen
-  error (same cut as Kotlin).
+* [fn-variadic] Non-spread trailing arguments collect into `vec![...]`
+  (`crate::total(vec![4i32, 5i32])`); with a spread the vector is built in a
+  block, each spread extending it with clones of its elements:
+  `crate::total({ let mut __v = Vec::new(); __v.push(1i32); __v.extend(rest.iter().cloned()); __v })`.
+* [fn-lambda] Lambdas emit as closures with a written return type
+  (`&mut |mut a, mut b| -> i32 { … }`); fn-typed parameters emit as
+  `&mut dyn FnMut(A, ..) -> R` [fn-contract]. Lambda parameters take their
+  mode from the position [rs-fn-param-convention]. A `return` inside a
+  block-bodied lambda is the closure's own `return` (`&mut |mut n| -> i32 { if (n > 0i32) { return 1i32; }; return 2i32; }`).
 * [intrinsic-fn] Every std lowering lives in this crate's `intrinsics.rs`
   (`fn_call`), keyed by the checker-resolved declaration (name + first
   parameter's base type name, so `size(Str)` / `size(List<T>)` /
-  `size(T[])` are three entries). `copy` [rs-copy] and `discard` are the
-  exceptions: they dispatch on the argument's own shape, so
-  `emit_intrinsic_call` handles them before consulting the table. An
-  intrinsic with no entry is a codegen error naming it.
-  * The argument boundary keeps the place/owned distinction [rs-borrows]:
-    a place splices raw so a method-style lowering (`list.push(..)`)
-    borrows natively, while a variadic tail splices owned because it lands
-    inside `vec![..]`. Backwards, this either double-clones or moves out
-    of a borrow. A parameter the lowering mutates in place therefore takes
-    the raw place; everything else its owned rendering.
+  `size(T[])` are distinct entries). It is the one place the emitter reads
+  the AST [rs-ir]. `copy` [rs-copy] and `discard` [linear-discard] are the
+  exceptions: they dispatch on the argument's type, so the emitter lowers
+  them itself. An intrinsic with no entry is a codegen error naming it.
+  Most of std's surface is not intrinsic at all but **platform fns**,
+  called through their wrappers (`crate::core_list::add_platform::<i32>(&mut xs, 3i32)`,
+  [platform-fn]).
+  * The arguments are rendered by the IR's pass mode for each parameter, as
+    for any call [rs-read-mode]: a lent one as the place (or reference) the
+    lowering borrows, a consumed one as a value, a variadic tail as values,
+    since it lands inside `vec![..]`.
   * Rust does not spell type arguments out the way Kotlin must: `vec![]`
     stays `vec![]`, since [call-type-args] guarantees the element type is
     either written or annotated, and both reach rustc through the rendered
     `let` annotation or parameter type. A lowering *is* handed the call's
     resolved type arguments for the rare construct that needs them spelled
-    out (`Vec::<T>::new()`), but the current table ignores them.
+    out.
   * Paths are absolute, so no lowering adds a `use` item.
 * [rs-intrinsic-handler] An `intrinsic handler` is a struct + `new()` +
     trait impl, with member signatures from the *effect* declaration and bodies
@@ -1500,8 +1491,9 @@ facts worth knowing") and keeps the history ("One shape for effects").
   wire form gets `impl __Wire for S` beside it (generic ones conditional on
   `T: __Wire`), every actor protocol with one gets `impl __Wire for __Msg_E`
   plus `pub const __PROTO_E: &str`. `encode(v)` lowers to
-  `salvo_encode(&v)`, `decode<T>(b)` to `salvo_decode::<T>(&b)` with `T` from
-  the call's checked type argument.
+  `crate::wire::salvo_encode(&v)`, `decode<T>(b)` to
+  `crate::wire::salvo_decode::<T>(&b)` with `T` from the call's checked type
+  argument.
 * [rs-wire] [addr-routable] The scheduler's wire section: `ActorState` gains
   `node`, `bits`, `remote: Option<RemoteRef>`, `credits`, `granted`, `decode:
   Option<MsgDecoder>`; `Sched` gains `node_id`, `hosted_nodes`, `proxies`,
@@ -1512,23 +1504,28 @@ facts worth knowing") and keeps the history ("One shape for effects").
   plus its answer's `ReplyDecoder`, and `Entry::ReplyRaw(slot, bytes)` carries
   a wire reply until the activation decodes it. `impl __Wire for usize` and
   `for SalvoReply` live in `wire.rs` and call the scheduler, so mounting one
-  mounts the other. Generated code: `salvo_spawn(pool, bound, body,
-  __DECODE_H)`, `salvo_send_wire(addr, msg, __PROTO_E)` for every send on a
-  protocol with a wire form (`salvo_send` otherwise), `salvo_reply_wire::<T>
-  (tok, v)` for a `send(reply, v)` whose payload has one, `salvo_waiter_decoder
-  (wid, dec)` after every `salvo_waiter()`, `salvo_mint_task(pool, body, dec)`;
-  the actor body implements `decode_reply` and a free `__DECODE_H` constant
-  (free, since a generic dependent body could not name an associated const).
+  mounts the other. Generated code (all under `crate::scheduler::`):
+  `salvo_spawn(pool, bound, body, crate::__DECODE_H)`,
+  `salvo_send_wire(addr, crate::__Msg_E::Member(args), crate::__PROTO_E)` for
+  every send on a protocol with a wire form — the message unboxed, the runtime
+  boxes it — and `salvo_send(addr, std::boxed::Box::new(msg))` otherwise (a
+  private message), `salvo_reply_wire::<T>(tok, v)` for a `send(reply, v)`
+  whose payload has one (`(tok).send(std::boxed::Box::new(v))` otherwise),
+  `salvo_waiter_decoder(__wid, dec)` after every `salvo_waiter()`,
+  `salvo_mint_task(pool, body, dec)`; the actor body implements
+  `decode_reply`, and a free
+  `pub const __DECODE_H: Option<crate::scheduler::MsgDecoder>` sits beside it
+  (free, since a generic dependent body could not name an associated const;
+  `None` when no protocol of the handler has a wire form).
   Frames staged under the lock go out through a thread-local outbox flushed
   after every release (`flush_out`), including in `run_job` for the credit a
   dequeue grants.
 * [rs-wire] [effect-generic-decl] [actor-group] The emitter builds against
-  `salvo_core::erase_effect_generics(program, &erased_generics(program))`:
-  `rust_ty`/`emit_named_type` drop the type arguments of an erased name, and a
-  call to an erased fn takes no turbofish (its `generics` are empty in the
-  copy, so `effect_instance_turbofish` has nothing to emit). `#![allow(…)]`
-  gains `non_upper_case_globals` for the free `__DECODE_*`/`__PROTO_*`
-  constants of erased generics. Runtime: `salvo_pending(addr)` (queue depth
+  the program with erased effect generics
+  (`salvo_core::erase_effect_generics`): the type of an erased name renders
+  without arguments, and a call to an erased fn takes no turbofish.
+  `#![allow(…)]` carries `non_upper_case_globals` for the free
+  `__DECODE_*`/`__PROTO_*` constants. Runtime: `salvo_pending(addr)` (queue depth
   locally, `granted` on a proxy; GRANT decrements it). [node-group] The
   group protocols are std's (2026-10-02, the runtime record): the runtime
   carries them as CONTROL frames (kind 4: to, from, channel, payload) to
@@ -1539,9 +1536,9 @@ facts worth knowing") and keeps the history ("One shape for effects").
   (`salvo_set_peer_protocols`, `salvo_peer_protocol`). Intrinsics lowered: `protocol<E>()` — the `Protocol { name,
   hash }` literal from the per-protocol hash constant, for the written type
   argument at a direct call and for the **resolved position's** `E` when it
-  fills an implicit `?protocol: () -> Protocol<E>` (`emit_implicit_args`
-  reads `ImplicitArg::Resolved.want`; the adapter is `&mut || Protocol {
-  … }`, a generic caller forwards `&mut *protocol`) [implicit-intrinsic] —
+  fills an implicit `?protocol: () -> Protocol<E>` (the adapter is
+  `&mut || crate::…::Protocol { name: "E".to_string(), hash: crate::__PROTO_E.to_string() }`,
+  a generic caller forwards `&mut *protocol`) [implicit-intrinsic] —
   `watch_control`, `send_control`,
   `control_frame`, `node_left`, `local_protocols`, `set_peer_protocols`,
   `peer_protocol`, `pending`, `node_of`, and `eq(Addr, Addr)` as `==` on the handle.
@@ -1555,28 +1552,33 @@ facts worth knowing") and keeps the history ("One shape for effects").
   (over `salvo_encode`). `use route_any(g, c)` emits the construction of
   the checker's `route_stubs[site]` handler exactly as a written `use
   __Route_E(g, c)` would. An erased effect's types render without arguments
-  everywhere an instance is split into base and args (`ty_effect_parts`,
-  `handler_dep_effects`, the `use` turbofish) — `RouteSelector`, `dyn __Stateful_RouteSelector`,
-  `Sharded::new()`. `while true` lowers to `loop`.
-* [rs-actor] [handler-init] `init` is one more private member: `__Priv_H::Init`,
-  an inherent `fn init(&mut self)`, dispatched by `__dispatch_priv`. A spawn
-  emits `salvo_send(__a, Box::new(__Priv_H::Init))` right after `salvo_spawn`
-  and before the addr is answered. A `use` wraps the construction in `{ let
-  mut __h = H::new(…); __h.init(); __h }` before the handle takes it — a
+  everywhere, dependencies and `use` bindings included — `RouteSelector`,
+  `dyn __Stateful_RouteSelector`, `Sharded::new()`. A `while` is a `loop`
+  that tests first (`loop { if !(cond) { break; }; … }`), `while true`
+  included.
+* [rs-actor] [handler-init] `init` is an inherent `fn init(&mut self)`. On an
+  actor handler it is one more private member, `__Priv_H::Init`, dispatched
+  by `__dispatch_priv` (`__Priv_H::Init => self.handler.init(),`): a spawn
+  emits `crate::scheduler::salvo_send(__a, std::boxed::Box::new(crate::…::__Priv_H::Init));`
+  right after `salvo_spawn` and before the addr is answered. On any other
+  handler `new` runs it: `let mut __s = Self { … }; __s.init(); __s` — a
   dependent handler's dependencies are its own fields, so `init` is a plain
   method like every other member [rs-handle].
-  `self@Face` lowers to `self.__addr.expect(…)`; the `watch_control`
-  intrinsic builds a `__Priv_{current handler}::Control` variant, since a
-  control frame's payload arrives as the handler's own private member.
+  `self@Face` lowers to `self.__addr.expect("an actor's own addr")`; the
+  `watch_control` intrinsic builds a `__Priv_{current handler}::Control`
+  variant
+  (`crate::scheduler::salvo_watch_control((channel).clone(), (sink).clone(), |__n, __d| std::boxed::Box::new(…::__Priv_H::Control(… { id: __n as i64 }, __d)))`),
+  since a control frame's payload arrives as the handler's own private member.
 * [rs-actor] [actor-private-send] A private send member is an **inherent
   method** on the handler struct (`impl H { fn k(…) }`) with owned
   parameters (its written clause is all-consumed). `__Priv_H` is the
   handler-keyed enum of its private messages; `__Actor_H::handle` tries it
   after the faces' enums, `__dispatch_priv` calls the method, `resume`
-  rebuilds a `__Priv_H` for a
-  `ContTarget::Private` variant of `__Cont_H`, and `decode_reply` covers it
-  by its answer type. `k@self(…)` builds `__Priv_H::K(payload)`, or the
-  method call inline when `__addr` is unset.
+  rebuilds a `__Priv_H` for a continuation variant of `__Cont_H` that names
+  a private member, and `decode_reply` covers it by its answer type.
+  `k@self(…)` evaluates the payload once and sends it or runs it inline,
+  by whether `__addr` is set:
+  `{ let __s0 = 1i32; match self.__addr { Some(__a) => crate::scheduler::salvo_send(__a, std::boxed::Box::new(crate::__Priv_Reporting::Twice(__s0))), None => self.twice(__s0) } };`.
 * [rs-abi] [platform-abi] **The Rust host crate** is `emit_abi`: the ordinary
   emission in ABI mode, with the crate layout the build has, so an
   implementation file's `crate::…` paths mean the same in both. Mod names are
@@ -1602,8 +1604,9 @@ facts worth knowing") and keeps the history ("One shape for effects").
   | `Str`, `Bytes` | `String`, `Vec<u8>` (`Mut` erases) |
   | a literal, a union of one base's literals | its base (`"A" \| "B" \| Other Str` is a `String`) [type-literal] |
   | `List<T>` | `Vec<T>` |
-  | `Map<K, V>`, `Set<T>` | `crate::collections::SalvoMap` / `SalvoSet` — insertion-ordered; build one with `.collect()` or `SalvoMap::from_entries::<HostHash, HostEq, _>(entries)` [rs-collections] [platform-check] |
-  | `SortedSet<T>`, `SortedMap<K, V>` (canonical ordering) | `SalvoSortedSet` / `SalvoSortedMap`; build one with `.collect()` (under `HostOrd`, which is Salvo's order for every type that may cross) [platform-check] |
+  | `Map<K, V>`, `Set<T>` | `crate::core_map::Map` / `crate::core_set::Set` (std's host types, re-exported) — insertion-ordered; build the canonical one with `crate::platform_core_map::canonical_map(entries)` / `crate::platform_core_set::canonical_set(elems)` [rs-collections] [platform-check] |
+  | `SortedSet<T>`, `SortedMap<K, V>` (canonical ordering) | `crate::core_sorted::SortedSet` / `SortedMap`; build one with `canonical_sorted_set` / `canonical_sorted_map` (Rust's `Ord`, which is Salvo's order for every type that may cross) [platform-check] |
+  | `Deque<T>`, `Bytes` | `std::collections::VecDeque<T>`, `Vec<u8>` (std's host aliases) [rs-deque] [bytes-type] |
   | a union, to build | its factories: `FsError::not_found(…)`, `ReadToStr::ok(…)` [platform-factory] |
   | `T?` | `Option<T>` [rs-option] |
   | a union of *n* ≥ 2 runtime arms | `crate::unions::UnionN<A, …>` with variants `U1`…`Un` in runtime-arm order [union-arm-identity]; `Some(…)` around it when it has a `None` arm |
@@ -1613,24 +1616,33 @@ facts worth knowing") and keeps the history ("One shape for effects").
   | `InStream` / `OutStream` | `crate::stream::InStream { handle: i64 }`; the table is Salvo (`runtime.streams`); host code reaches it through `crate::hoststreams::salvo_stream_register_in/out` and `salvo_stream_take_in` (an `Arc<Mutex<SalvoIn>>` reader) [stream-table] |
   | `platform handler H(p: T) of E` | `pub struct H` with `pub fn new(p: T) -> Self`, implementing `crate::<module of E>::EPlatformSync` (`&self`) when `threadsafe`, `EPlatform` (`&mut self`) otherwise [rs-platform-handler] |
   | a member parameter | kept non-`Copy`: `&T`; kept `Mut`: `&mut T`; consumed, or `Copy`: `T` [rs-borrows] |
-  | a fn-typed parameter | lent: `&mut impl FnMut(…)` (`&mut dyn FnMut` in std); `once`: `impl FnOnce(…)`; **kept** (`=> !hook`) outside the runtime: the pointer `fn(…) -> R`, the call site's capture-free adapter coercing to it [platform-fn-value]; kept in the runtime: `Box<dyn FnOnce/FnMut + Send + 'static>` [runtime-kept-fn] |
+  | a fn-typed parameter | lent: `&mut dyn FnMut(…)` (the wrapper hands it on as `&mut name`, which also fits a host's `&mut impl FnMut`); `once`: `impl FnOnce(…)`; **kept** (`=> !hook`) outside the runtime: the pointer `fn(…) -> R`, the call site's capture-free adapter coercing to it [platform-fn-value]; kept in the runtime: `Box<dyn FnOnce/FnMut + Send + 'static>` [runtime-kept-fn] |
 
-* [rs-mod-use] [mod-use] A module-level `use` emits `fn __module_use_N() ->
-  &'static E` with a `static CELL: OnceLock<E>` whose initializer is what
-  the `use` statement would emit; every fn of the module starts its effect
-  environment with the accessor call as the entry, so a call threads
-  `__module_use_N()` where a declared effect threads its parameter.
+* [rs-mod-use] [mod-use] A module-level `use` emits accessor fns over
+  `std::sync::OnceLock` statics: `pub fn __module_useN() -> &'static T` for
+  the instance (`T` is the `Arc`, or `Arc<Mutex<_>>` when stateful), and one
+  `pub fn __module_useN_M() -> &'static crate::m::E` per face, whose
+  initializer wraps the instance in the effect's handle:
+
+  ```rust
+  pub fn __module_use0_0() -> &'static crate::runtime::RuntimeHost {
+      static CELL: std::sync::OnceLock<crate::runtime::RuntimeHost> = std::sync::OnceLock::new();
+      CELL.get_or_init(|| crate::runtime::RuntimeHost::share_shared(crate::runtime::__module_use0().clone()))
+  }
+  ```
+
+  A call that uses the effect threads the accessor where a declared effect
+  threads its parameter (`crate::runtime::__module_use1_0().is_virtual()`).
 * [rs-host-fields] A struct whose fields reach a host value — any platform
   type, or a `Reply` — derives what those support: no `Debug`/`PartialEq`
   (a hand-written `Debug` prints such a field as `<fn>`, as for a fn field),
   and no `Clone` at all when the value is linear (a linear platform type, a
-  reply token). `host_field_limits` walks type arguments and named structs'
-  fields.
+  reply token). The test walks type arguments and named structs' fields.
 * [rs-linear-move] A binding taking a linear payload out of one **arm of a
   union** held in a local (`while r is Full f`) moves it with a `match`, as
-  the plain-optional shape moves with `unwrap` (2026-10-02); so does a
-  narrowed linear arm handed on (`linear_move_unwrap`), and destructuring a
-  narrowed linear struct (`let {a, b} = x`) — which closes ROADMAP 0c item 7.
+  the plain-optional shape moves with `unwrap` (`let mut next_1 = next.unwrap();`);
+  so does a narrowed linear arm handed on, and destructuring a narrowed
+  linear struct (`let {a, b} = x`).
 * [rs-platform-type] [platform-type] The declaring module re-exports the
   host's struct — `pub use crate::platform_<m>::Name;` — so every mention is
   the ordinary path, beside a static assertion of the kind's contract
@@ -1646,16 +1658,16 @@ facts worth knowing") and keeps the history ("One shape for effects").
     each signature at a sample instantiation (`i32` for every parameter).
     The locator variant's indexed loop [rs-loc] stays `List`'s.
 * [rs-effects] [fn-contract] An effect member's fn-valued parameter is
-  `&mut dyn FnMut(…)`, and a `once` one `Box<dyn FnOnce(…) + '_>` boxed at
-  the call (`member_fn_param_ty`): effect traits are used as `dyn`, and an
-  `impl` parameter made the trait not object-safe — every effect with a
-  fn-valued member was a rustc error until 2026-10-02. A top-level fn keeps
-  `impl FnMut`/`impl FnOnce` and monomorphises.
+  `&mut dyn FnMut(…)`, a `once` one included
+  (`fn once_apply(&self, f: &mut dyn FnMut() -> i32) -> i32;`, called with
+  `&mut || -> i32 { … }`): effect traits are used as `dyn`, and an `impl`
+  parameter would make the trait not object-safe. A top-level fn takes a
+  lent one as `&mut dyn FnMut` too, and a `once` one as `impl FnOnce`.
 * [rs-platform-never] [platform-never] `Never` is `()` everywhere in Rust
   output except a platform signature's result: a `platform fn`, its wrapper
-  and skeleton, and an `EPlatform`/`EPlatformSync` member are `-> !`
-  (`return_is_never` in `emit.rs`). The adapter's impl of the effect's own
-  trait keeps `-> ()` and forwards the host's `!`, which coerces.
+  and skeleton, and an `EPlatform`/`EPlatformSync` member are `-> !`. The
+  adapter's impl of the effect's own trait keeps `-> ()` and forwards the
+  host's `!`, which coerces.
 * [rs-platform-factory] [platform-factory] A named union gets `pub type FsError =
   Union7<…>;` (Rust otherwise spells union aliases out) and `impl FsError {
   pub fn not_found(value: NotFound) -> Self { crate::unions::Union7::U1(value)
@@ -1665,9 +1677,9 @@ facts worth knowing") and keeps the history ("One shape for effects").
   rather than silently.
 * [rs-platform-check] [platform-check] **Collections** (D10 C1, C2): Rust's
   types promise insertion order and the ordering, so a plan's `Shape` nodes
-  are dropped (`BoundaryCheck::without_shapes`); `FromIterator` on
-  `SalvoSet`, `SalvoMap`, `SalvoSortedSet` and `SalvoSortedMap` builds each
-  under the canonical identity, the only one a host may return.
+  are dropped (`BoundaryCheck::without_shapes`); the hosts' `canonical_*`
+  builders build each under the canonical identity, the only one a host may
+  return.
 * [rs-platform-check] [platform-check] A check renders as statements over a
   reference (`let __c = &__r;`), panicking with `"salvo: … [platform-check]"`
   and the value's `{:?}`: closed literals as `matches!(v.as_str(), "a" | "b")`
@@ -1690,8 +1702,9 @@ facts worth knowing") and keeps the history ("One shape for effects").
   one instantiation of a local type, so several handlers of one effect each
   have their own), and the `use` site constructs `<M path>::__Platform_H::
   new(args)`, wrapped in the effect's handle like any construction
-  [rs-handle]. `M` is the module that *declared* the handler
-  (`Symbols::handler_modules`). Emitted only when the host file exists (or
+  [rs-handle]: `let mut __use_3: crate::__Platform_HostRawClock = crate::__Platform_HostRawClock::new(35i32);`
+  `let __handle_4 = crate::RawClock::locked(__use_3);`. `M` is the module
+  that *declared* the handler. Emitted only when the host file exists (or
   in a host project).
   * The skeleton is `pub struct H { p: T, … }` with `impl H { pub fn new(p:
     T, …) -> Self }` and an impl with every member stubbed — of
@@ -1711,7 +1724,7 @@ facts worth knowing") and keeps the history ("One shape for effects").
     than primitives arrived (`HostRawFs`, 2026-09-14).
   * **Sharing follows the declared contract** [threadsafe-platform]
     [rs-handle]: a `threadsafe` host implements `EPlatformSync` with `&self`
-    receivers and its `use` binds `E::shared(H::new(args))` — no lock, and
+    receivers and its `use` binds `E::shared(__use_N)` — no lock, and
     rustc refuses a host whose fields are not `Sync`; an undeclared host
     implements `EPlatform` with `&mut self` behind `E::locked(…)`, so a
     host that did not claim safety behaves identically on both backends and
@@ -1721,40 +1734,50 @@ facts worth knowing") and keeps the history ("One shape for effects").
     EPlatformSync` with `&self` receivers; the undeclared one says the
     compiler serializes the instance and implements `EPlatform` with
     `&mut self`. Regenerating after toggling the word changes the receivers.
-* [rs-copy] `copy(x)` lowers to `.clone()` on the argument's place:
-  a bare identifier clones its binding place (whatever its binding
-  mode — every generated type derives or is `Clone`, and generic
-  parameters carry a `Clone` bound); a narrowing-unwrapped identifier
-  uses the unwrap rendering (already an owned clone); field/index
-  arguments use the owned rendering (already a clone); constructed
-  values (call results, literals) pass through — they are already
-  fresh, so `copy` is free on them.
-* [struct-defaults] Rust has no default arguments: struct literals
-  inline the declared default expressions for omitted fields at every
-  literal site.
-* [fn-contract] Fn-typed parameters emit `&mut impl FnMut(…)` — the
-  value is borrowed (closure double-use works; `FnMut` accepts
-  handler-mutating closures), with argument types per the contract:
-  kept non-Copy `&T`, kept `Mut` `&mut T`, moved or Copy owned. Calls
-  through fn values render arguments per the recorded contract
-  (`Checked::fn_value_calls`); lambda parameter bindings and
-  annotations follow `Checked::lambda_contracts`; a named fn passed by
-  value wraps in a mechanical adapter closure
-  (`&mut |__a0, …| name(&__a0, …)`) bridging the contract's calling
-  convention to the declaration's actual modes.
-* [once-fn] `once` fn parameters emit `impl FnOnce(…)`; consuming
-  closures are `FnOnce` by rustc's own capture inference, so lambda
-  emission is unchanged. Calling the parameter is a plain call (the
-  by-value `call_once` is implicit).
-* [linear-discard] `discard(x)` lowers to `drop(x)` on the moved value
-  [intrinsic-fn]; linearity itself is purely static [linear-static] — no
-  `#[must_use]`, no `Drop` impls are generated.
-* [struct-spread] `P {...p, f: v}` emits
-  `P { f: v, ..(p-owned) }` (functional update; the base is rendered
-  owned, cloning when needed). The deep clone diverges from Kotlin's
-  shallow `.copy()` on `Mut` fields, which is unobservable because the
-  checker consumes the spread base [deduce-consume] — replacing the
-  clone with a real move is a deferred performance refinement.
+* [rs-copy] `copy(x)` lowers to `(place).clone()` on the argument's place
+  (`let mut t: String = (s).clone();`, `let mut q: crate::Person = (p).clone();`),
+  whatever the binding's mode — every generated type derives or is `Clone`,
+  and generic parameters carry a `Clone` bound; a narrowed name clones its
+  narrowing binding; constructed values (call results, literals) pass
+  through — they are already fresh, so `copy` is free on them.
+* [struct-defaults] Rust has no default arguments: struct literals inline the
+  declared default expressions for omitted fields at every literal site
+  (`crate::P { name: String::from("a"), age: 3i32, nick: None }`), the
+  struct named by its path [rs-default-path].
+* [fn-contract] Fn-typed parameters emit `&mut dyn FnMut(…)` — the value is
+  borrowed (closure double-use works; `FnMut` accepts handler-mutating
+  closures), with argument types per the contract: kept non-Copy `&T`, kept
+  `Mut` `&mut T`, moved or Copy by value. A call through a fn value renders
+  its arguments per that contract (`f(x)`, `f(console, …)` with effects
+  first); a lambda binds its parameters under it; a named fn passed by value
+  wraps in an adapter closure with typed parameters bridging the contract's
+  convention to the declaration's own modes
+  (`&mut |__a0: &Vec<crate::Person>| crate::count(__a0)`,
+  `&mut |__a0: &i32| crate::double(*__a0)`).
+* [once-fn] `once` fn parameters emit `impl FnOnce(…)`
+  (`pub fn once_it(f: impl FnOnce(i32) -> i32) -> i32`), and a lambda filling
+  one is a `move` closure with typed parameters
+  (`crate::once_it(move |mut a: i32| -> i32 { a })`). Calling the parameter
+  is a plain call (the by-value `call_once` is implicit).
+* [linear-discard] `discard(x)` lowers to `std::mem::drop(x);` on the moved
+  value [intrinsic-fn]; linearity itself is purely static [linear-static] —
+  no `#[must_use]`, no `Drop` impls are generated.
+* [struct-spread] `P {...p, f: v}` binds the base once and builds the literal
+  field by field, moving the fields not written out of it:
+
+  ```rust
+  {
+      let mut __spread_7: crate::P = <base>;
+      crate::P { name: __spread_7.name, age: 9i32, nick: __spread_7.nick }
+  }
+  ```
+
+  The base is a value (a clone when the read does not consume it), so the
+  copy is deep where Kotlin's `.copy()` is shallow on `Mut` fields — which is
+  unobservable, because the checker consumes the spread base
+  [deduce-consume]. Several spreads each bind a base (`__spread_3`,
+  `__spread_4`), the later one supplying a field both have; a base no field
+  is taken from is bound by reference (`let mut __spread_3 = &p;`).
 
 ## Running the output [rs-run]
 
@@ -1808,11 +1831,12 @@ facts worth knowing") and keeps the history ("One shape for effects").
   proxies the wire codecs read; about 590 lines, from 2,720 before the port.
   `runtime/hoststreams.rs` is host code's entry points into the stream table.
 * [rs-deque] [col-deque] `Deque<T>` and `Mut Deque<T>` are
-  `std::collections::VecDeque<T>`; the surface is `push_back`/`push_front`,
-  `pop_front`/`pop_back`, `remove`, `get`/`front`/`back`, `len() as i32`.
-  An empty `deque_of()` spells its element type from the call's resolved type
-  argument (`VecDeque::<T>::new()`), since rustc cannot infer it from an
-  unconstrained temporary.
+  `std::collections::VecDeque<T>` (std's host aliases them,
+  `pub type Deque<T> = VecDeque<T>;`), and the surface is std's platform fns
+  over it, called through their wrappers like any other
+  (`crate::core_deque::size_platform::<i32>(&dq)`,
+  `crate::core_deque::remove_first_platform::<i32>(&mut q)`;
+  `deque_of(1, 2)` is `crate::core_deque::deque_of__T_TArray::<i32>(1i32, vec![2i32])`).
 * [rs-collections] The keyed collections are **std's host types**
   (2026-10-06, ROADMAP §0j step 7): `Set<T>`/`Map<K, V>` in
   `std/platform/core/{set,map}.rs`, an insertion-ordered slot vector of
@@ -1841,51 +1865,54 @@ facts worth knowing") and keeps the history ("One shape for effects").
   and the reason the slot's expressions are confined to constructor parameters:
   in `new`'s scope they are simply in scope.
   * A spawn therefore reads the bound **off the instance**, before it moves
-    into the actor body: `({ let __h = H::new(args); let __cap =
-    __h.__mailbox_capacity; salvo_spawn(pool, __cap as usize,
-    Box::new(__Actor_H::new(__h))) })`. The ordering is the point — the
+    into the actor body:
+    `({ let __h = crate::Reporting::new(__handle_6.clone()); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(crate::core_actor::pool(1i32), __cap as usize, std::boxed::Box::new(crate::__Actor_Reporting::new(__h)), crate::__DECODE_Reporting); __a })`.
+    The ordering is the point — the
     alternative (emitting the slot's expression at the spawn site) would need
     the constructor arguments in scope there, and would evaluate them twice.
 * [rs-is-hoist] [is-bind-once] **A non-place `is` subject becomes a
-  temporary**, read by both the test and the binding: `let mut __is1 = <subject>;`
-  before an `if`, and inside a `loop` for a `while` — which is why a `while`
-  whose condition binds over a call lowers as
-  `loop { let mut __is1 = …; if !(__is1.is_some()) { break; } let mut x = __is1.unwrap(); … }`
-  rather than as a `while` with the subject in its condition. `place_storage`
-  answers the temporary for that subject's span, so the test, the binding and
-  any nested read all agree.
+  temporary**, read by both the test and the binding:
+  `let mut __subject_13: Option<&String> = …;` before an `if`, and inside the
+  `loop` for a `while`:
+
+  ```rust
+  loop {
+      let mut __subject_1: Option<i32> = crate::core_list::remove_first_platform::<i32>(&mut *xs);
+      if !(__subject_1.is_some()) {
+          break;
+      };
+      let mut n = __subject_1.unwrap();
+      …
+  }
+  ```
+
+  The IR binds the subject once, so the test, the binding and any nested
+  read all name the same temporary.
 * [rs-state-take] [linear-state] **Taking a container out of handler state is
   `std::mem::take`.** A field behind `&mut self` cannot be moved out (E0507),
-  and cloning it would duplicate every obligation inside — so the read the
-  checker recorded as a state-field move (`Checked::state_takes`) renders as
-  `std::mem::take(&mut self.waiting)`. That is also the honest semantics: the
-  field is empty until the member puts something back, which [linear-state]
-  requires it to do before returning. `mem::take` needs `Default`, which
-  `Vec` and `SalvoMap` have — and a *bare* obligation in state (whose type
-  need not) is refused by the checker, so the emitter never meets one.
+  and cloning it would duplicate every obligation inside — so a consuming
+  read of a state field (the IR's consume mark on a `self` place) renders as
+  `std::mem::take(&mut self.waiting)`
+  (`crate::core_list::drain::<crate::scheduler::SalvoReply>(std::mem::take(&mut self.waiting), …)`).
+  That is also the honest semantics: the field is empty until the member puts
+  something back, which [linear-state] requires it to do before returning.
+  `mem::take` needs `Default`, which `Vec` has — and a *bare* obligation in
+  state (whose type need not) is refused by the checker, so the emitter never
+  meets one.
 * [rs-linear-move] [linear-container] **A narrowed linear value is moved, not
-  cloned.** Rust's ordinary narrowed read is `x.as_ref().unwrap().clone()`,
+  cloned.** A value read of a narrowed optional is otherwise a clone through
+  the borrow (`x.as_ref().unwrap()` … `.clone()`),
   which for `remove_first(waiting)`'s `Option<SalvoReply>` would duplicate a
   one-shot token — and `SalvoReply` is deliberately not `Clone`, so it would
-  not even compile. Where the checker recorded a move of a linear value
-  (`Checked::linear_moves`), the plain-optional shape renders as
-  `first.unwrap()`, moving the payload out; the checker has consumed the
-  variable, so nothing reads it again. A narrowed *union arm* keeps the
-  existing accessor path, where a linear payload is a `Clone` handle today
-  (phase 4's tokens) and a non-`Clone` one is a loud rustc error rather than
-  wrong code.
-  * **The `is`-binding site too**, since 2026-09-18: `remove_at(pending, i) is
-    Reply<Fired> token` binds by moving out of the `Option`. The checker
-    records the *binding's* span in `linear_moves` (its use-site path never
-    sees a binding), and the emitter takes the moving branch before the
-    ordinary narrowed read. Found by [time-manual]'s deadline queue, which was
-    a raw E0507 before it — and the same fix removed a silent obligation copy
-    from `examples/linearity`'s generated code.
-  * The two intrinsic terminals are `into_iter().for_each(f)` /
-    `into_values().into_iter().for_each(f)` rather than a `for` loop, for one
-    boring reason worth recording: an immediately-applied closure literal
-    (`(|r| …)(x)`) leaves rustc with nothing to infer the parameter type from
-    (E0282), while a `for_each` argument is typed by the `FnMut` bound.
+  not even compile. Where the IR marks the read of a linear value a consume,
+  the plain-optional shape renders as
+  `let mut next_1 = next.unwrap();`, moving the payload out; the checker has
+  consumed the variable, so nothing reads it again. A narrowed *union arm*
+  moves out with a `match` [rs-linear-move].
+  * **The `is`-binding site too**: `remove_at(pending, i) is Reply<Fired>
+    token` ([time-manual]'s deadline queue) binds by moving out of the `Option` (`.unwrap()` on the subject's temporary).
+  * `drain(list, each)` and a map's `drain` are std Salvo over
+    `remove_first`/`into_values`, so they need nothing of their own here.
 * [rs-time] [time-types] **The clock readings are a runtime module of their
   own**, `runtime/hosttime.rs` [rs-runtime-source], holding
   `salvo_mono_nanos()` and `salvo_epoch_nanos()` — the whole of the host's
@@ -1904,8 +1931,8 @@ facts worth knowing") and keeps the history ("One shape for effects").
     named `time.rs` write the same path, and the second silently clobbered the
     first (a duplicate `pub mod time;` and a pile of missing-symbol errors).
     The general hole is recorded in ROADMAP.
-  * **It travels with the host stream table**: `needs_time` is implied by
-    `hoststreams.rs`, which ships wherever the scheduler or the wire does.
+  * **It travels with the host stream table**: it is emitted wherever
+    `hoststreams.rs` is, which ships wherever the scheduler or the wire does.
     `scheduler.rs` is a shim onto the runtime module's core (2026-10-03) and
     holds the `Addr`/`Reply` codecs, so `wire.rs` stands alone; the runtime
     tests compile it inside the files example's generated tree.
@@ -1913,67 +1940,77 @@ facts worth knowing") and keeps the history ("One shape for effects").
   (2026-10-02): the scheduler has no timer thread, and `HostRuntime.mono_nanos`
   reads `crate::hosttime::salvo_mono_nanos()`, the timeline `tick()` reports.
 * [rs-default-path] **A struct literal's type is spelled so it resolves where
-  it is written** (2026-10-04): a field default is inlined at the outer
-  literal, whose file need not import the type the default names, so a struct
-  that file cannot name unqualified is written through its module's path.
-* [rs-fn-value-nested] **`f(f(x))` evaluates the arguments first**
-  (2026-10-04): a fn value is called through `&mut`, so an argument calling
-  the same value borrows it twice (E0499); the arguments go into locals first.
+  it is written**: a field default is inlined at the outer literal, whose file
+  need not import the type the default names — which every literal satisfies,
+  since every struct is written through its path (`crate::m::S { … }`,
+  [rs-imports]).
+* [rs-fn-value-nested] **`f(f(x))` evaluates the inner call first**: a fn
+  value is called through `&mut`, so an argument calling the same value
+  borrows it twice (E0499); that argument goes into a local first —
+  `{ let __arg1 = f(x); f(__arg1) }` — ahead of the arguments before it
+  ([effect-args-hoisted] records the order this costs).
 * **Generated code spells `std::boxed::Box`** (2026-10-04): a program's effect
   named `Box` made the generated `Box::new` resolve to its handle type.
-* [rs-mailbox] A handler's `__mailbox_capacity` field is **`pub`** (since
-  2026-09-18): the spawn site need not be in the same module, and std's own
-  `DefaultTimer` is spawned from user code — a private field made that a raw
-  rustc E0616 [backend-never-wrong].
+* [rs-mailbox] A handler's `__mailbox_capacity` field is **`pub`**
+  (`pub __mailbox_capacity: i32,`, initialised `__mailbox_capacity: 4i32`): the
+  spawn site need not be in the same module, and std's own `DefaultTimer` is
+  spawned from user code [backend-never-wrong].
 * [rs-mixed] **The mixed lowering** [mixed-handler] (SH-1, built
   2026-09-19). A mixed handler splits into two generated types plus the
   servant's runtime parts:
 
   * **The handler struct is the servant alone**: state + ctor params + the
     actor fields (`__mailbox_capacity`, `__addr`, and `__parked` when a
-    send member could be a continuation target); `send fn` members are **inherent
-    methods** (no trait declares them), their parameter modes from their own
-    written all-consumed clause, so payloads are owned exactly as the message
-    enum carries them. Sync members are not emitted here at all.
-  * **`__Msg_H` + `__Cont_H` + `__Actor_H`**: the handler-keyed twins of the
-    face-keyed message enum, continuation enum and actor body — one variant
-    per `send fn` member (continuation variants only for members with
-    parameters), `handle` downcasting `__Msg_H` and calling the inherent
-    method, `resume` removing the parked continuation and calling the member
-    with the downcast answer as its trailing argument [defer-deduction].
-  * **`__Fac_H`**: `#[derive(Clone)]`, `__addr: usize` plus the ctor params
-    (owned), implementing each plain face with the sync member bodies —
-    emitted with the ordinary handler-member machinery (ctor params resolve
-    as self fields; state never resolves, the checker confined it). A façade
-    send lowers to `salvo_send(self.__addr, Box::new(__Msg_H::Variant(args)))`.
+    send member could be a continuation target); `send fn` members are
+    **inherent methods** (`fn advance(&mut self, out: crate::scheduler::SalvoReply)`;
+    no trait declares them), their parameter modes from their own written
+    all-consumed clause, so payloads are owned exactly as the message enum
+    carries them. Sync members are not emitted here at all.
+  * **`__Priv_H` + `__Cont_H` + `__Actor_H`**: the servant's messages are the
+    handler's private ones — `pub enum __Priv_CyclicRandom { Advance(crate::scheduler::SalvoReply) }`,
+    one variant per `send fn` member — with the continuation enum and actor
+    body beside them: `handle` downcasts `__Priv_H` into `__dispatch_priv`,
+    which calls the inherent method (`__Priv_CyclicRandom::Advance(out) => self.handler.advance(out)`),
+    and `resume` removes the parked continuation and calls the member with
+    the downcast answer as its trailing argument [defer-deduction].
+  * **`__Fac_H`**: `#[derive(Clone)]`, `pub __addr: usize` plus the ctor
+    params (owned), implementing each plain face's `__Stateless_E` with the
+    sync member bodies — emitted with the ordinary handler-member code (ctor
+    params resolve as self fields; state never resolves, the checker confined
+    it). A façade send evaluates its payload and sends unconditionally:
+    `{ let __s0 = got; crate::scheduler::salvo_send(self.__addr, std::boxed::Box::new(crate::__Priv_CyclicRandom::Advance(__s0))) };`.
   * **A servant send** [actor-self-send] — a bare sibling call or `k@self(…)`
-    in a send member — lowers to
-    `salvo_send(self.__addr.expect(…), Box::new(__Msg_H::Variant(args)))`,
-    unconditional: a mixed handler is spawn-only, so `__addr` is always
-    written. A façade `k@self(…)` lowers exactly as the bare façade send
-    does.
-  * **The mixed spawn** evaluates ctor args once (`let __cN = …`), clones
+    in a send member — is the ordinary self-send [rs-actor]:
+    `{ let __s0 = out; match self.__addr { Some(__a) => crate::scheduler::salvo_send(__a, std::boxed::Box::new(crate::__Priv_Chain::Relay(__s0))), None => self.relay(__s0) } };`.
+    A façade `k@self(…)` lowers exactly as the bare façade send does.
+  * **The mixed spawn** evaluates ctor args once (`let __c0 = …;`), clones
     them into the handler, moves them into the façade, reads the mailbox
-    bound off the instance, spawns `__Actor_H`, and answers
-    `E::shared(__Fac_H { __addr: __a, … })` — the façade behind the effect's
-    handle, stateless so lock-free [rs-handle].
+    bound off the instance, spawns `__Actor_H`, and answers the façade
+    behind the effect's handle, stateless so lock-free [rs-handle]:
+    `({ let __c0 = 12345i32; let __h = crate::CyclicRandom::new(__c0.clone()); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(crate::scheduler::salvo_current_pool(), __cap as usize, std::boxed::Box::new(crate::__Actor_CyclicRandom::new(__h)), None); crate::Random::shared(crate::__Fac_CyclicRandom { __addr: __a, seed: __c0 }) })`.
 
 * [rs-actor] **Asynchronous effect handlers** lower to three generated
   pieces plus one shipped runtime module, `runtime/scheduler.rs`
-  [rs-runtime-source] — emitted, and mounted as `mod scheduler;`, only into a
-  program that spawns:
+  [rs-runtime-source] — emitted, and mounted as
+  `#[path = "scheduler.rs"] pub mod scheduler;`, only into a program that
+  spawns:
   * **The protocol's message enum**, `__Msg_E`, beside the effect it belongs
     to: one variant per `send fn`, owning its payload. It is the *effect's*,
     not a handler's, because a sender holds an `Addr` and knows only the effect
     it serves — the same reason an actor and a locally `use`d handler are
     interchangeable [actor-types].
-  * **The actor body**, `__Proc_H`, beside the handler: a struct owning the
-    handler instance (an actor's state *is* the handler's) whose
-    `SalvoProcess::handle` downcasts the message enum and calls the member the
-    variant names.
+  * **The actor body**, `__Actor_H`, beside the handler: a struct owning the
+    handler instance (`pub struct __Actor_Reporting { handler: Reporting }` —
+    an actor's state *is* the handler's) implementing
+    `crate::scheduler::SalvoActor`, whose `handle` writes `__addr`, downcasts
+    the message enum
+    (`let msg = *msg.downcast::<crate::__Msg_Reporter>().expect("message of this protocol");`)
+    and dispatches it.
     * Member invocation lives in **one** place, a private
-      `__dispatch(&mut self, msg: __Msg_E)`: `handle` downcasts into it and
-      `resume` rebuilds a call for it.
+      `fn __dispatch(&mut self, msg: crate::__Msg_E)` matching each variant
+      onto its member
+      (`crate::__Msg_Reporter::Report(what, done) => crate::__Stateless_Reporter::report(&mut self.handler, what, done)`):
+      `handle` downcasts into it and `resume` rebuilds a call for it.
   * **The parked-continuation table, and the address, live on the handler.** A
     handler of an `actor effect` carries two generated fields, whichever way it
     is bound — a handler is compiled once:
@@ -1984,27 +2021,29 @@ facts worth knowing") and keeps the history ("One shape for effects").
     * `__parked: HashMap<u64, __Cont_H>` — slot → continuation, emitted when
       the protocol has any member that could be a target.
 
-    They sit on the *handler* rather than on `__Proc_H` because the **mint**
-    happens in a member body, which holds `&mut self` on the handler and cannot
-    see the actor struct; `resume` reaches them through `self.handler` (user
+    They sit on the *handler* rather than on `__Actor_H` because the **mint**
+    happens in a member body, which holds `self` on the handler and cannot see
+    the actor struct; `resume` reaches them through `self.handler` (user
     decision 2026-09-15, D5-b). The alternative — a table in the runtime —
-    would have changed `SalvoProcess::resume`'s decided signature, and the two
+    would have changed `SalvoActor::resume`'s decided signature, and the two
     runtimes are the most exactly-mirrored code in the phase.
   * **[effect-handler-multi] A handler of several effects is one actor with one
-    dispatcher per protocol.** One `impl E for H` per face (a member that
+    dispatcher per protocol.** One `impl crate::__Stateful_E for H` (or
+    `__Stateless_E`) per face (a member that
     implements a same-named member of two faces appears in both impls — Rust
     cannot share a method between two traits, and the signatures are identical
     wherever that is legal, so the body is emitted twice rather than
-    forwarded); one `__dispatch_<Effect>` per face, where a single-face handler
-    keeps the bare `__dispatch` it always emitted; and a `handle` that asks each
-    protocol in turn — `msg.downcast::<__Msg_E>()` hands the box back on a miss,
-    which is what makes the chain possible. `spawn` answers `(__a, __a)`: one
-    scheduler index, one mailbox, one tuple element per face, so least authority
-    costs nothing at run time.
+    forwarded); one `fn __dispatch_<Effect>(&mut self, msg: crate::__Msg_<Effect>)`
+    per face, where a single-face handler has the bare `__dispatch`; and a
+    `handle` that asks each protocol in turn —
+    `match msg.downcast::<crate::__Msg_Timer>() { Ok(__m) => return …, Err(__m) => __m }`
+    hands the box back on a miss, which is what makes the chain possible,
+    with `__Priv_H` asked last when the handler has private members. `spawn`
+    answers `(__a, __a)`: one scheduler index, one mailbox, one tuple element
+    per face, so least authority costs nothing at run time.
     * A multi-face `use` is one `Arc<Mutex<H>>` and one handle per face
       [rs-handle], so a fn declaring `[A, B]` bound to one handler's two
-      faces borrows two handles of one instance — the E0499 the fusion used
-      to exist for does not arise.
+      faces borrows two handles of one instance.
   * **The continuation enum**, `__Cont_H`, emitted beside the **handler** whose
     members it names — the handler, not the effect, because a mint is lexical
     ([effect-handler-multi]: with several faces a handler's members come from
@@ -2014,12 +2053,17 @@ facts worth knowing") and keeps the history ("One shape for effects").
     trailing one**. The last parameter is the answer itself [actor-replyto],
     which arrives with the reply rather than being stored — so the variant tells
     `resume` both *which* member to call and *what type* to downcast the answer
-    to. A parameterless member gets no variant: there is no answer for a token
-    to carry.
-  * **`resume`** writes `__addr`, pops the slot (a reply whose continuation is
-    gone returns silently), matches the variant, downcasts `value` to the
-    trailing parameter's type, and hands a rebuilt
-    `__Msg_E::K(captures…, answer)` to `__dispatch`.
+    to (`Report(String)` for `report(what: Str, done: Reply<Int>)`; a member
+    whose only parameter is the answer gets a unit variant, `Advance`). A
+    parameterless member gets no variant: there is no answer for a token to
+    carry.
+  * **`resume`** writes `__addr`, pops the slot
+    (`let Some(__cont) = self.handler.__parked.remove(&slot) else { return; };`
+    — a reply whose continuation is gone returns silently), matches the
+    variant, downcasts `value` to the trailing parameter's type, and hands a
+    rebuilt message to the dispatcher:
+    `__Cont_Reporting::Report(what) => self.__dispatch(crate::__Msg_Reporter::Report(what, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer")))`
+    (a `__Priv_H` to `__dispatch_priv` for a private member).
   * **A dependent handler's child holds its handles** [rs-handle]: the
     dependency handles are the handler's own fields, so the actor body is the
     same struct for every handler (`__Actor_H { handler: H }`), and the spawn
@@ -2038,21 +2082,31 @@ facts worth knowing") and keeps the history ("One shape for effects").
     **into the user's program**, so it shows up in their stack traces beside
     their own code — which is exactly where a second name for one thing would
     cost, and where a real OS pid (a platform handler wrapping process
-    management) could sit next to it. "Process" stays the noun for the thing an
-    addr names, so `SalvoProcess` and `procs` are untouched.
-  * **The forms**: `spawn H(args) on P` →
-    `{ let __h = H::new(args); let __cap = __h.__mailbox_capacity;
-    salvo_spawn(P, __cap as usize, Box::new(__Actor_H::new(__h))) }`, whose
-    value is the addr — the bound is read off the instance because it is the
-    *handler's* [actor-mailbox], and a dependent handler's handles are
+    management) could sit next to it.
+  * **The forms** (runtime calls under `crate::scheduler::`): `spawn H(args) on P` →
+    `({ let __h = crate::H::new(args); let __cap = __h.__mailbox_capacity; let __a = salvo_spawn(P, __cap as usize, std::boxed::Box::new(crate::__Actor_H::new(__h)), crate::__DECODE_H); __a })`,
+    whose value is the addr — the bound is read off the instance because it
+    is the *handler's* [actor-mailbox], and a dependent handler's handles are
     trailing arguments of its own `new` [rs-handle];
     `addr.member(args)` →
-    `salvo_send(addr, Box::new(__Msg_E::Member(args)))`; `waitfor out: Reply<T>
-    { … }` → a block expression that mints a waiter, runs the block, then
-    `salvo_wait` and downcasts to `T`; `send(r, v)` → `r.send(Box::new(v))`;
-    `pool(n)` → `salvo_pool(n as usize)`; `thread()` → `salvo_thread()`;
-    `watch` and `on_idle` are Salvo over `reply_token(r)` →
-    `r.take_local()` [runtime-handles].
+    `salvo_send_wire(addr, crate::__Msg_E::Member(args), crate::__PROTO_E)`
+    [rs-wire]; `waitfor out: Reply<T> { … }` → a block expression that mints
+    a waiter, runs the block, then waits and downcasts to `T`:
+
+    ```rust
+    {
+        let (mut done, __wid) = crate::scheduler::salvo_waiter();
+        crate::scheduler::salvo_waiter_decoder(__wid, …);
+        crate::scheduler::salvo_send_wire(r, crate::__Msg_Reporter::Report(String::from("inherited"), done), crate::__PROTO_Reporter);
+        *crate::scheduler::salvo_wait(__wid).downcast::<i32>().expect("the awaited answer")
+    }
+    ```
+
+    `send(r, v)` → `salvo_reply_wire::<T>(r, v)`, or
+    `(r).send(std::boxed::Box::<T>::new(v))` for a payload with no wire form;
+    `pool(n)` is std Salvo (`crate::core_actor::pool(1i32)`, over the runtime
+    module); `thread()` → `salvo_thread()`; `watch` and `on_idle` are Salvo
+    over `reply_token(r)` → `(r).take_local()` [runtime-handles].
   * **[main-pool] An omitted `on` clause is `salvo_current_pool()`** — a
     thread-local read, so the placement a spawn inherits costs nothing and
     needs no signature. `main`'s thread answers pool 0, the pool it is the
@@ -2068,23 +2122,22 @@ facts worth knowing") and keeps the history ("One shape for effects").
     like every qualifier [qual-erasure], and what it buys is static.
   * **[rs-task] A task mint is a scheduled closure, and nothing else.**
     `replyto k(caps) on P` where `k` is a free `send fn` [free-send-fn] →
-    `{ let __c0 = …; salvo_mint_task(P, Box::new(move |__v| k(__c0, …,
-    *__v.downcast::<Payload>().expect(…)))) }`, with `salvo_current_pool()` for
-    an omitted `on` [task-pool-inherit]. No continuation enum, no slot, no
+    `{ let __c0 = …; crate::scheduler::salvo_mint_task(P, std::boxed::Box::new(move |__v| crate::k(__c0, …, *__v.downcast::<Payload>().expect("the awaited answer"))), <decoder>) }`,
+    with `crate::scheduler::salvo_current_pool()` for an omitted `on`
+    [task-pool-inherit]. No continuation enum, no slot, no
     `__parked` entry: the closure *is* the continuation, which is why a task
     needs no dispatcher. The captures are bound to `let`s **outside** the
     closure so they are the values as they were at the mint, and the closure is
     `move` so it owns them.
     * The `Box<dyn FnOnce(SalvoMsg) + Send>` this produces is *not* the
-      [rs-fn-field] problem: that is a shared, many-shot `Rc<dyn Fn…>` field,
+      [rs-fn-field] problem: that is a shared, many-shot `Arc<dyn Fn…>` field,
       while this is one-shot, moved once, and `Send`-checked — which is the
       representational fact that made lambdas-as-targets separable from
       [fate-lambda] and let this ship without it.
     * A free `send fn` itself needs no special emission: it is an ordinary
       `pub fn` whose parameters are all moved and which returns `()`.
-  * **[pool-fault-sink] `pool(n, sink)`** → `salvo_pool_with_sink(n as usize,
-    Some((sink as usize, |__reason| Box::new(__Msg_Faults::Faulted(Fault {
-    reason: __reason })))))`. The runtime holds a `String` and cannot
+  * **[pool-fault-sink] `pool(n, sink)`** →
+    `crate::scheduler::salvo_pool_with_sink(((n) as usize), Some((((sink) as usize), |__reason| std::boxed::Box::new(crate::core_actor::__Msg_Faults::Faulted(crate::core_actor::Fault { reason: __reason })))))`. The runtime holds a `String` and cannot
     construct the `Faults` *message* (a generated enum no Salvo fn can name),
     so the *pool creation site* hands over the constructor. Dispatched on
     **arity**, since both `pool` overloads take an `Int` first and the
@@ -2113,16 +2166,19 @@ facts worth knowing") and keeps the history ("One shape for effects").
     delivery-before-pickup window. `report_deadlock` names the actors parked in
     a wait (`WaiterState::parked`) beside the gated ones.
   * **`replyto k(caps)`** → a block that mints, parks and answers the token:
-    `{ let (__r, __s) = salvo_mint(self.__addr.expect(…)); self.__parked.insert(__s, __Cont_H::K(caps)); __r }`.
+    `{ let (__r, __s) = crate::scheduler::salvo_mint(self.__addr.expect("a parking handler runs as an actor")); self.__parked.insert(__s, __Cont_Reporting::Reported(label.clone(), out)); __r }`.
     `replyto!` differs only in calling `salvo_mint_gated` — the gate is the
     runtime's business, not the emitter's. The `expect` cannot fire: a parking
     handler may only be spawned ([actor-replyto], checked), so its members run
     as activations and `__addr` was written before the body did.
-  * **`k@self(args)`** → `match self.__addr { Some(__a) => salvo_send(__a,
-    Box::new(__Msg_E::K(args))), None => <inline> }`, where the inline reading
-    is `E::k(self, args)`. One field, both readings [actor-self-send].
+  * **`k@self(args)`** evaluates the arguments once and picks by `__addr`:
+    `{ let __s0 = …; match self.__addr { Some(__a) => <send of crate::__Msg_E::K(__s0)>, None => crate::__Stateful_E::k(self, __s0) } }`
+    for a face member (the trait by the handler's statefulness), and the
+    `__Priv_H` form with the inherent call `self.k(__s0)` for a private one
+    [rs-actor]. One field, both readings [actor-self-send].
   * **The forwarding stub**, `__Stub_E`, beside the effect: a struct holding an
-    addr that `impl`s the effect trait by sending. `use addr` builds one and
+    addr that implements `__Stateless_E` by sending
+    (`crate::scheduler::salvo_send_wire(self.addr, __Msg_Reporter::Report(what, done), crate::__PROTO_Reporter);`). `use addr` builds one and
     binds it behind the effect's handle exactly as a handler instance is
     bound [rs-handle]. That indifference is the point: a handler is compiled
     once and bound many ways [actor-use-addr]. A spawn clause's addr becomes
@@ -2130,24 +2186,32 @@ facts worth knowing") and keeps the history ("One shape for effects").
   * **Still refused** (each a diagnostic, none silent): spawning a **generic**
     handler and a **generic effect** as a protocol.
 
-  * `send(reply, None)` boxes a **typed** `None`: a bare `None` is an
-    `Option<_>` rustc cannot infer, so the box is `Box::<Option<T>>::new(None)`
-    with `T` read off the token's checked payload (`net`'s
-    `Reply<Addr<Inbound>?>`, 2026-09-26).
+  * `send(reply, v)` without a wire form boxes at the **payload's type**,
+    `std::boxed::Box::<T>::new(v)` with `T` read off the token's checked
+    payload, so a bare `None` is a typed `Option<T>` rather than an
+    `Option<_>` rustc cannot infer.
 ## Deliberate cuts ([backend-never-wrong])
 
 Reported as codegen errors, never silent wrong code:
 
-* multi-spread struct literals;
-* early `return` inside expression-position lambdas;
-* struct literal without an inferable type;
-* referencing the `Any` type in emitted positions;
-* effect member fns with their own generic parameters;
+* referencing the `Any` type (or any type inference left open) in emitted
+  positions: "a value of type `…` reached rust code generation";
+* effect member fns with their own generic parameters ("… cannot dispatch
+  dynamically yet");
+* a generic effect as an actor protocol, and spawning a generic handler;
 * a `use` whose effect instance is still generic (an unresolved
   instantiation has no handle type to name, [rs-handle]);
-* struct destructuring in `for` patterns (same as Kotlin).
+* a mutable use of a value that is a temporary of its own expression;
+* a lend or locator shape [rs-loc] cannot express (an intrinsic with no
+  locator form, a mutable lend of a non-place);
+* a read of mutable data before a later argument mutates it
+  [rs-mut-arg-hoist];
+* mutating a `Mut` arm of a union parameter received borrowed
+  [rs-narrow-mut];
+* an intrinsic fn or intrinsic handler with no Rust lowering.
 
 Known acceptable divergences (documented, not errors): extra `.clone()`s
 where Kotlin shares references; `Debug`/`Display` formatting of `Option`
 values differs from Kotlin's `null` printing (the checker's narrowing rules
-make user programs format only unwrapped values).
+make user programs format only unwrapped values); a panic unwinds past code
+Kotlin would run in a `finally` [rs-exit-splice].
