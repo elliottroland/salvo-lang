@@ -1434,6 +1434,111 @@ qualifiers, qualifier-overloaded `get`). Part 8 re-plans as in 7b, with the
 new Step 3 being "`Reg(c)` dependent qualifier + the `Region` effect +
 the lifted `get`/`at` over `Locate`," then the delimiter and backend.
 
+## Part 7d: `Reg` vs. the existing `proj Mut` — what each is, and how they relate (user question, 2026-10-08)
+
+**Status: reconciliation, must be settled before building 7b/7c.** `proj
+Mut` and `Reg` are both "a handle into storage someone else owns," so the
+region design has to say exactly how they relate rather than quietly
+introduce a second, overlapping thing.
+
+### What a `proj Mut` is *today* (grounded in `[proj-mut]`, LANGUAGE_SPEC.md ~7305)
+
+A **`proj Mut X` is a mutable element handle**: the result of minting a
+handle into an element of a `List<Mut X>` (`get(list, i)!` →
+`(proj(list) Mut X)?`), the thing `canbe`/`NotEq`/group-borrowing v1 are
+all about. Precisely:
+
+- **It is a projection carrying `Mut`.** `proj` alone is read-only
+  ([proj-readonly]); the 2026-09-24 narrowing ([proj-mut], P-3 of the
+  group-borrowing ladder) made a projection *that carries `Mut`* satisfy a
+  kept `Mut X` position and be mutable in place. Element mutability is the
+  **element type's** (`List<Mut X>`), not the container handle's.
+- **It shares fate with its source** and participates in poison: mutating
+  through it is a mutation event on its roots; a sibling handle into the
+  same container falls unless a live `NotEq` proves them apart
+  ([elem-distinct]); the acting handle survives (its storage did not move).
+- **It cannot be a top-level parameter** written `proj Mut` ([proj-readonly]'s
+  declaration half) — a `proj` position already *accepts* `proj Mut`
+  arguments, so writing the `Mut` on the parameter is an error; the handle
+  travels into functions as a plain `Mut X` parameter.
+- **On Rust it is a *position*** — `container + index`, re-materialized per
+  use ([rs-elem-mut]/[rs-loc]), mode inferred per binding
+  (`Checked::handle_muts`). On Kotlin it is the element reference. It has
+  **no runtime wrapper**; `proj` lives in the lowered type and on the fate
+  link (`FateLink.borrowed && !held`).
+
+### The difference between `proj Mut` and `Reg`
+
+They are the **same runtime thing** — a re-materialized position on Rust,
+an identity on Kotlin — and differ only in **what the checker knows about
+aliasing**:
+
+| | `proj Mut X` (today) | `Reg(c) X` (proposed 7b/7c) |
+|---|---|---|
+| What it is | a mutable element handle | a mutable element handle |
+| Rust rendering | position, `[rs-loc]`/`[rs-elem-mut]` | **the same** position, `[rs-loc]` |
+| Kotlin rendering | element reference | the same reference |
+| Runtime wrapper | none | none |
+| Minted by | `get(list, i)!` on a `List<Mut X>` | `get(reg_container, l)!` inside a `region { }` |
+| Default aliasing of two of them into one container | **refused** — one handle at a time, unless `NotEq` proves them apart or the callee declares `canbe` | **allowed** — same regged container `c` means they may alias, self-strike included, no `canbe` |
+| Who carries the "which container" fact | reconstructed from call-site syntax (the gap Part 1 found) | **carried on the qualifier**, `Reg(c)`, the dependent form |
+
+So the one-line answer: **`Reg(c) X` is a `proj Mut X` that additionally
+records its container as part of its type, which is exactly what lets two
+of them alias without a `canbe` clause.** `proj Mut` left "which container"
+implicit (reconstructed from syntax — the root cause of findings 1a/1b);
+`Reg(c)` reifies it. Everything else — the rendering, the poison behavior,
+the no-wrapper erasure — is identical.
+
+### How they must fit together (the constraint on the region design)
+
+Because they lower to the same handle, the region design must **not** make
+`Reg` a parallel, incompatible handle kind. Two requirements fall out:
+
+1. **`Reg(c) X <: proj Mut X <: Mut X <: X`.** A `Reg` handle must be
+   usable anywhere a mutable element handle or a plain `Mut X` is expected —
+   so `attack(a: Mut Entity, d: Mut Entity)` takes `Reg` arguments with no
+   signature change ([qual-erasure] gives the last two steps; the first is
+   new: `Reg` dropping to a bare `proj Mut` is dropping the
+   container-identity record, which is sound — forgetting *which* container
+   only loses aliasing permission, never gains it). This is what keeps the
+   feature from fracturing the handle model.
+2. **Inside a `region { }`, minting a handle from a regged container yields
+   `Reg(c)`; outside, the same `get` yields today's bare `proj Mut`.** The
+   qualifier-overloaded `get` from 7c is exactly this: `get(c: Reg C, l)`
+   answers `(Reg(c) T)?`, while `get(list: List<Mut T>, i)` keeps answering
+   `(proj(list) Mut T)?`. The two coexist; `Reg` is the strictly-more-
+   informed overload, selected when the container is regged.
+
+### Consequence for `canbe` / `NotEq`
+
+`proj Mut` keeps its three-rung ladder unchanged (say nothing → one at a
+time; `NotEq` → proven apart; `canbe` → declared alias) for the non-region
+case — nothing about today's handles changes. `Reg(c)` adds a **fourth
+route to the same permission**: put the container in a region, and two
+handles off it alias by construction, no proof and no `canbe`. That is the
+ergonomic win over `canbe` (the callee no longer has to opt in) — and it is
+*additive*: `Reg` is a more-informed `proj Mut`, not a replacement for it.
+A function written against plain `Mut`/`proj Mut` parameters accepts `Reg`
+arguments untouched (requirement 1), so the region feature does not split
+the ecosystem into reg-aware and non-reg-aware code.
+
+### Open question this raises (for the user)
+
+- **Does `Reg(c)` survive being passed into a function typed for plain `Mut
+  X`?** By requirement 1 it is *accepted* (subtyping), but inside that
+  function the parameter is a bare `Mut X` / `proj Mut` — the container
+  identity is dropped at the boundary, so two such parameters revert to the
+  one-at-a-time / `canbe` discipline *inside* the callee. That is correct
+  and conservative (the callee never promised region semantics), and it is
+  why `attack` taking two `Reg` handles that *do* alias still needs the
+  **caller** to be in the region: the permission is established at the call
+  site from the shared `Reg(c)`, not inside `attack`. **Confirm this is the
+  intended boundary** — it mirrors how `canbe` is caller-visible API, and
+  it means a function *can* opt into keeping the region knowledge by
+  writing its parameters `Reg(c)` explicitly when it needs two aliasing
+  handles in its own body.
+
 ## Part 8: implementation plan
 
 **Note (2026-10-08): Part 8 below is the plan for Part 7's element-swap
