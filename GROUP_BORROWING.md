@@ -1539,6 +1539,136 @@ the ecosystem into reg-aware and non-reg-aware code.
   writing its parameters `Reg(c)` explicitly when it needs two aliasing
   handles in its own body.
 
+## Part 7e: the collapse — drop `region`/`Reg`, extend `proj Mut` instead (user direction, 2026-10-08)
+
+**Status: proposed, supersedes the `Region`-effect framing of 7b/7c.** The
+user's direction: do not carry both `proj Mut` and `Reg`; unify them. And
+the sharper observation — **if nothing is checked out (no swap, no move),
+is the `region { }` scope and `Region` effect needed at all?** Worked
+through below: **no.** Every job the scope had is either gone (there is no
+checkout to reconcile) or already done by `proj Mut`'s fate links. So the
+whole `region`/`Reg`/effect apparatus collapses into a small *extension of
+the handle rule we already have*.
+
+### What the scope was for, and why each job is already covered
+
+The `region { }` scope + `Region` effect had three jobs across the designs:
+
+1. **Own the swap/slot machinery and reconcile checkouts at close**
+   (Part 7's `reg_from`/`unreg_into`). **Gone** under 7b: nothing is moved
+   out of the container, so there is nothing to check in. This job does not
+   exist anymore.
+2. **The escape rule — a handle must not outlive the point where aliasing
+   was proven safe.** **Already done by `proj Mut`.** `[proj-mut]` states
+   it outright: *"Destruction under a live handle needs no new rule — any
+   structural `Mut` use of the container poisons the handles it lent."* A
+   `proj Mut` shares fate with its container ([fate-poison]); reshaping the
+   container (`add`/`remove`/`set`/`swap`) or moving it poisons every
+   handle into it, automatically, with no scope. A `proj Mut` physically
+   cannot outlive its container's structural stability — the guarantee a
+   region scope was going to re-add, `proj Mut` has had since 2026-09-24.
+3. **Mark a container "regged" so `get` mints the aliasing-capable
+   handle.** This only existed because `Reg` was conceived as a *separate*
+   qualifier needing a switch. Fold the aliasing idea into `proj Mut` and
+   there is nothing to switch on — every `proj Mut` is already the handle;
+   the only question is the *rule* for when two of them may alias.
+
+So the scope added nothing that `proj Mut` + fate links don't already
+provide. It was load-bearing only in the swap design (job 1), which 7b
+deleted. **Dropping `region { }` and the `Region` effect loses no safety.**
+
+### The container identity `Reg(c)` wanted is already tracked — on the fate link
+
+`Reg(c)` was going to add "which container" to the *type*. But `[proj-type]`
+shows the type prints only `proj Mut X` — the **source is carried on the
+fate link**, not the type: `FateLink { root_id, root_name, path, borrowed,
+… }`. The checker *already knows* which container every `proj Mut` came
+from — it is the exact `root_id` the Step 1 fix (`[GB-fix-1b]`) compares.
+So the information `Reg(c)` proposed to reify is not missing; it is already
+there, on the link, for every mutable element handle in the language. There
+is nothing new to carry.
+
+### What is actually missing, and all that needs to change
+
+Only the **aliasing-permission rule**. Today two `proj Mut` handles into one
+container are refused unless `NotEq` proves them apart or the callee
+declares `canbe` (the three-rung ladder). The group-borrowing goal —
+self-aliasing of handles into one container, with no `canbe` — is a
+**fourth rung added to `proj Mut` directly**:
+
+> **Two `proj Mut` handles with the same fate-root container may be passed
+> as two arguments that are allowed to alias (self-strike included),
+> provided the callee's parameters permit aliasing.** No swap, no region,
+> no new qualifier — the permission is read off the shared `root_id` the
+> links already carry.
+
+The one honest question is *how the callee says "these two may alias"* —
+and this is where the user's "apply `Reg(c)`'s ideas to `proj Mut`" lands.
+Two sub-options:
+
+- **E1 — keep `canbe`, drop everything else.** The callee opts in with the
+  existing `=> a canbe d` clause (already built, already shipping). The
+  only *new* work is what the user actually wanted from regions: make the
+  **caller** side ergonomic so two same-container handles satisfy a
+  `canbe` callee with zero caller ceremony — which, per the Step 1 fix,
+  *already works* for the same-container case (`attack(get(sq,i)!,
+  get(sq,j)!)` is accepted today when `attack` declares `canbe`). Under
+  E1 there is **nothing left to build**: the double-checkout gap never
+  arises (no swap), cross-container is correctly refused ([GB-fix-1b]), and
+  self-aliasing within one container already compiles. Regions were solving
+  a problem that `proj Mut` + `canbe` + the 1b fix already solve.
+- **E2 — add a caller-inferred alias set (the real ergonomic gain over
+  `canbe`).** If the goal is to drop the callee's `canbe` *too* — i.e. let
+  an ordinary `fn attack(a: Mut Entity, d: Mut Entity)` with **no** clause
+  take two aliasing handles purely because the caller passed two
+  same-container `proj Mut` — then the new rule is: *at the call site, two
+  mutable-element handles with the same fate-root may be passed to any two
+  `Mut` parameters, and the backend renders them as two positions into one
+  `&mut` (the `canbe` lowering) regardless of whether the callee declared
+  it.* This is the one genuinely new capability, and it is a **call-site**
+  rule on `proj Mut`, still with no scope, no effect, no `Reg` qualifier.
+  Its cost is the one `canbe` was invented to make visible: aliasing stops
+  being part of the callee's signature. (The reason `canbe` is caller-
+  visible API today — [canbe-entry], "aliasability is written, never
+  inferred" — is exactly this trade; E2 reverses that decision, so it is a
+  DECISION, not a given.)
+
+### What this means concretely
+
+- **Delete** from the plan: the `Region` effect, `region { }` delimiter,
+  `Reg` qualifier (bare or dependent `Reg(c)`), `Placeholder<T>`,
+  `reg_from`/`unreg_into`, the `RegView`/`reg`-the-container surface, and
+  the escape-rule re-implementation. None are needed.
+- **Keep**: `proj Mut` exactly as it is, its fate-link container tracking,
+  the Step 1 call-site shared-root check, and `canbe`/`NotEq`.
+- **The custom-container goal from 7c still works, better**: a user type is
+  already "reg-able" the moment it offers a `Locate`-shaped `at` —
+  `at(c, l) -> proj(c) Mut T?` *is* the mutable-element-handle minting
+  surface, no region needed. `update`/`update2` over `Locate` already give
+  callers the aliasing transaction (`update2` takes two `NotEq`-proven
+  handles). Maps join by shipping a by-key `at` — closing finding 1a as a
+  pure library addition, no scope.
+- **The user's "materialization logic" question answers itself**: there is
+  no `Reg T` to materialize *out of*, because the handle never left the
+  container. `proj Mut`'s re-materialization ([rs-loc], position per use)
+  is the only materialization, and it is already how the backend works.
+
+### Recommendation
+
+Collapse to **E1 now, E2 only if the caller-no-`canbe` ergonomics are
+judged worth reversing "aliasability is written."** E1 is essentially
+*already done* — `proj Mut` + the shipped `canbe`/`NotEq` + the Step 1 fix
+cover self-aliasing (same container), proven-disjoint (`NotEq`), and the
+cross-container refusal, with no region machinery and no second handle
+concept. That directly satisfies "I would rather not have both a `proj Mut`
+and a `Reg`": there is only `proj Mut`. The region feature, in the end, was
+a more elaborate route to a permission the handle model could express
+directly once the swap idea (and its gap) was abandoned. E2 is the only
+part that is genuinely new, is purely a call-site rule on `proj Mut`, and
+should be taken only as a deliberate reversal of the `canbe`-is-visible
+decision — the user's call. **This supersedes 7a–7d's `Region` framing;
+ROADMAP item 15 ("Regions") can be retired rather than built.**
+
 ## Part 8: implementation plan
 
 **Note (2026-10-08): Part 8 below is the plan for Part 7's element-swap
