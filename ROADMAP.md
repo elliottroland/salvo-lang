@@ -358,6 +358,24 @@ and rejected (358s against 371s; slower on the large batches).
   it was so under the globs too). Worth a check that a resolved Salvo fn the
   program calls is always emitted.
 
+### 0l — Open defect: a braced lambda's return type is not inferred (found 2026-10-06)
+
+With no expected type, `check_lambda` gives a block-bodied lambda the
+return type `Unknown` (an expression-bodied one is inferred). The unknown
+then passes the checker silently ([type-unknown-lenient]) and fails later:
+
+```
+let twice = (k: Int) -> { return k * 2 }
+let r: Str = twice(5)       // accepted by the checker; rustc E0308
+println("${twice(5)}")      // IR builder: no `to_str` for `?` in an interpolation
+```
+
+No wrong code is emitted, but the error comes from the wrong layer. Fix:
+infer the return type from the body's `return`s (as a fn's is, through
+`iter_returns`-style joining), or require an annotation. Choosing between
+the two is a language decision (**DECISION**: infer, or reject an
+un-annotated braced lambda whose result is used).
+
 ### 0e — Deferred wakes (recorded 2026-10-03, DECISION, needs a design session)
 
 **What it is.** When a message makes an actor runnable, the scheduler unparks

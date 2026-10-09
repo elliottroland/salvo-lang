@@ -70,3 +70,9 @@ Start at the top; each page stands on its own, so jumping in is fine too.
 | [Files](Files.md) | the filesystem surface and its streams |
 | [Time](Time.md) | durations, instants, ticks, and time in a test |
 | [Backends](Backends.md) | `intrinsic`, `platform`, host implementations, and per-backend detail |
+
+### Inside the compiler
+
+| Page | What it covers |
+|---|---|
+| [The IR](The-IR.md) | the decided form both backends read: how to read `salvo ir`, its declarations, statements and expressions, ownership marks, narrowing, loops, effects and actors |

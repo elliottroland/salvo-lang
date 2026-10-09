@@ -137,6 +137,23 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-06 — A language page for the IR
+
+User request: a docs and wiki section explaining the IR "language".
+`docs/language/The-IR.md`, under a new "Inside the compiler" heading in the
+index, documents the IR as built: how to read `salvo ir`, the declaration,
+statement and expression forms, type erasure, ownership marks, narrowing and
+its justifications, loops, effects, and the generated actor declarations.
+Every dump on the page is real output of the current compiler, and each
+sample program runs. The design record below describes the plan, which
+differs from what was built in places (`Op` exists for scalar arithmetic and
+sign tests, `ForEach` for intrinsic containers, `branch cond#0 true` serves
+as the block expression); the page follows the code. The `[ir-…]` labels
+and `[cli-ir]` were cited in code but defined in no spec. They are now rules
+in LANGUAGE_SPEC.md ("The IR" and "Tooling"). Writing the samples turned up
+one defect, recorded in ROADMAP §0l: a braced lambda's return type is not
+inferred.
+
 ### 2026-10-06 — The IR, step 5: dead tables and walkers removed, IR.md retired
 
 Nine `Checked` tables were written and never read (`renamed_calls`,

@@ -9392,6 +9392,54 @@ replaced the working document TESTING.md).
   unsupported constructs are codegen/checker errors. Each backend spec
   lists its current deliberate cuts.
 
+## The IR (`salvo-ir`; narrative in docs/language/The-IR.md)
+
+* [ir-build] The IR builder turns the checked program into the IR, copying
+  every answer the checker recorded. It infers nothing: where the checker
+  left no answer, the node is `Unsupported` and an error names it, so a
+  backend never renders a guess [backend-never-wrong]. Both backends read
+  the IR only; the checker's span-keyed tables are the builder's inputs.
+* [ir-nodes] The node set (`crates/salvo-ir/src/ir.rs`): every expression
+  carries its resolved type; every reference is absolute (a `DeclId`, a
+  local, or an interface member by index), so the IR has no imports;
+  effects are leading parameters and a member call names its instance.
+  Generic declarations stay generic, and a call carries its type arguments.
+* [ir-types] Qualifiers are erased from every IR type except `Mut` (a backend
+  may represent it as another type) and `proj` (a backend with ownership
+  renders it as a borrow). A union arm keeps its qualifier tag only when
+  erasure would merge two arms, a tagged `None` keeps its tag, and literal
+  types collapse into their base [type-literal].
+* [ir-coerce] A slot's coercion is explicit nodes around the value:
+  `MakeUnion`, `Present`, `Rewrap`, `Widen`, `DropMut`.
+* [ir-read] A read of a place carries `consume`: the value's life ends here.
+  The IR marks consumption, never duplication; a backend with ownership
+  copies a non-consuming read of a value it only borrows.
+* [ir-op] `Op` is limited to scalar arithmetic and logic the language
+  defines as primitive, and to the sign test of a `cmp` result. A comparison
+  is a call to the resolved `cmp`/`eq`; on an intrinsic the backend
+  reconstructs the native operator.
+* [ir-branch] `Branch` is the subjectless choice: ordered conditions and an
+  optional else. `if`/`elif`/`else` and a subjectless `when` lower to it.
+* [ir-switch] `Switch` chooses on the arms of a subject union; each arm
+  tests `Arm`, `Arms`, `None`, `Lit` or `Else`. `when x`, `?:`, `!` and
+  `?.` lower to it.
+* [ir-test] `Test` is `subject is …` used as a `Bool` condition.
+* [ir-narrow] Narrowing is a `Narrow` statement: a new local at the narrower
+  type, read from the subject's place, with a `Justification` naming the
+  node that proved it (a test, a switch arm, a branch condition, a branch
+  that left, a loop's totality, or a carried claim).
+* [ir-alias] `Alias` names a place: every read and write of the local is
+  one of the place [deduce-field].
+* [ir-loop] There is one general loop, `Loop`, unconditional and left by
+  `break`. `while c` is a loop whose body begins by breaking when `c` fails;
+  `for` over an iterator is a loop that calls `next` and switches on the
+  step. `ForEach` is the one loop with a subject, for the intrinsic
+  containers a backend iterates natively [iter-for-native]. A loop's value,
+  its `else` and its ran-flag are explicit locals, only when present.
+* [ir-dump] The text form (`salvo_ir::dump`) is for reading and golden
+  tests, never parsed back: one declaration per paragraph, `#n` node ids,
+  `!read` for a consuming read, parameter modes before each parameter.
+
 ## Comments and documentation
 
 * [lsp-fn-origin] Hover on a **fn** names the module its resolved overload
@@ -9795,3 +9843,7 @@ replaced the working document TESTING.md).
   * std's and a dependency's host files are **not** generated: they are
     shipped with them [platform-tree], so the command only ever writes into
     the customer's roots.
+* [cli-ir] `salvo ir [--src DIR] [--module PATH] [--all]` prints the IR
+  [ir-dump] of every user module, of one module, or (`--all`) of every
+  module the program reaches, std included. It builds the IR exactly as the
+  backends do, so it is the point to bisect when they disagree.
