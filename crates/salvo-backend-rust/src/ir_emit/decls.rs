@@ -1169,26 +1169,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             let opt = f.ret.strip_quals().has_none_arm();
             self.f.loc = Some((params[a].local.0.clone(), opt));
         }
-        let covered = if loc { std::collections::HashMap::new() } else { self.covered(f) };
-        let mut anchor_done = false;
         for (i, p) in params.iter().enumerate() {
             let n = rs_ident(&p.local.0);
-            // [canbe-entry] [rs-loc] A covered parameter is a position in the
-            // anchor it may share.
-            if let Some(a) = covered.get(&i) {
-                if a == "__anchor" && !anchor_done {
-                    anchor_done = true;
-                    let elem = self.ty(&p.ty);
-                    ps.push(format!("__anchor: &mut Vec<{elem}>"));
-                    self.f.kinds.insert("__anchor".to_string(), super::body::Kind::RefMut);
-                }
-                let c = format!("__c{i}");
-                ps.push(format!("{c}: usize"));
-                self.f.kinds.insert(p.local.0.clone(), super::body::Kind::Elem);
-                self.f.elem.insert(p.local.0.clone(), (a.clone(), Some(c)));
-                self.f.tys.insert(p.local.0.clone(), p.ty.clone());
-                continue;
-            }
             if i < f.effect_params {
                 let t = self.ty(&p.ty);
                 ps.push(format!("{n}: &{t}"));
@@ -1282,34 +1264,6 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
 
     pub fn stores_callbacks_pub(&self, f: &FnDecl) -> bool {
         self.stores_callbacks(f) || f.params.iter().any(|p| p.mode == PassMode::Moved && matches!(self.s.unalias(&p.ty).strip_quals(), Ty::Fn { .. }))
-    }
-
-    /// [canbe-entry] The covered parameters of a fn and the anchor text each
-    /// is a position in: the path a `canbe in` names, or `__anchor`.
-    pub fn covered(&self, f: &FnDecl) -> std::collections::HashMap<usize, String> {
-        let mut out = std::collections::HashMap::new();
-        for m in &f.may_alias {
-            match m {
-                salvo_ir::MayAlias::Params(a, d) => {
-                    out.insert(*a, "__anchor".to_string());
-                    out.insert(*d, "__anchor".to_string());
-                }
-                salvo_ir::MayAlias::In { param, root, path } => {
-                    let mut t = rs_ident(&f.params[*root].local.0);
-                    for s in path {
-                        match s {
-                            salvo_ir::AnchorStep::Field(x) => {
-                                t.push('.');
-                                t.push_str(&rs_ident(x));
-                            }
-                            salvo_ir::AnchorStep::Tuple(i) => t.push_str(&format!(".{i}")),
-                        }
-                    }
-                    out.insert(*param, t);
-                }
-            }
-        }
-        out
     }
 
     /// [rs-fn-field] Whether the fn hands back a struct holding a fn field

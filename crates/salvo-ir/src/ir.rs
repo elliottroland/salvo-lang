@@ -301,11 +301,6 @@ pub struct FnDecl {
     pub ret: Ty,
     /// [proj-infer] indices into `params` the result holds a view of.
     pub borrows: Vec<usize>,
-    /// [canbe-entry] the parameters that may name the same object, as the
-    /// clause wrote them (`|` lists desugared to one entry per pair or
-    /// subject): symmetric, not transitive. The fourth ownership mark
-    /// (IR record §5).
-    pub may_alias: Vec<MayAlias>,
     /// [deduce-field] `p.f: proj(q)`: after the call, parameter `.0` holds a
     /// view of parameter `.1` (indices into `params`).
     pub holds: Vec<(usize, usize)>,
@@ -317,26 +312,6 @@ pub struct FnDecl {
     pub factories: Option<salvo_core::abi::Factories>,
     pub body: Option<Block>,
     pub span: Span,
-}
-
-/// [canbe-entry] One alias relation of a fn's parameters; indices are into
-/// `FnDecl.params`.
-#[derive(Clone, Debug, PartialEq)]
-pub enum MayAlias {
-    /// `a canbe d`.
-    Params(usize, usize),
-    /// `a canbe in lib.tracks`: `param` may be an element of the container
-    /// reached from parameter `root` by `path`; two parameters anchored at
-    /// the same container may therefore coincide.
-    In { param: usize, root: usize, path: Vec<AnchorStep> },
-}
-
-/// One step of a `canbe in` anchor path. Fields and tuple elements only: an
-/// anchor is part of a signature, so it has no index expression to name.
-#[derive(Clone, Debug, PartialEq)]
-pub enum AnchorStep {
-    Field(String),
-    Tuple(usize),
 }
 
 #[derive(Clone)]

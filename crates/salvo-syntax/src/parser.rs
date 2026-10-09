@@ -3023,7 +3023,7 @@ impl<'s> Parser<'s> {
         // a plain parse error.)
         // The target: `.f.g` (result path) or `x` / `x.f` (parameter path).
         let mut path: Vec<Ident> = Vec::new();
-        // [canbe-entry] Extra subjects of a plural `canbe` entry.
+        // Extra subjects of a plural `with` entry.
         let mut plural_subjects: Vec<Ident> = Vec::new();
         let target = if self.at(&TokenKind::Dot) {
             self.bump();
@@ -3035,9 +3035,9 @@ impl<'s> Parser<'s> {
             None
         } else {
             let name = self.ident()?;
-            // [canbe-entry] A **plural subject** — `a|b|c canbe in es` — is
-            // sugar for one entry per subject (GB-1(s)); the extra subjects
-            // are collected here, before the relation is read.
+            // A **plural subject** — `a|b|c with hash` — is sugar for one
+            // entry per subject; the extra subjects are collected here,
+            // before the relation is read.
             let mut extra_subjects: Vec<Ident> = Vec::new();
             while self.at(&TokenKind::Pipe)
                 && matches!(&self.peek_at(1).kind, TokenKind::Ident(_))
@@ -3055,64 +3055,6 @@ impl<'s> Parser<'s> {
             Some(name)
         };
         let mut end = path.last().map(|i| i.span).or(target.as_ref().map(|n| n.span)).unwrap_or(start);
-        // [canbe-entry] `a canbe d`, `a canbe b|c`, `track canbe in
-        // lib.tracks|pool.spares` — the alias-group relation (user
-        // decisions 2026-09-24, GB-1(s)). `canbe` is a keyword already
-        // (the qualifier-compatibility clause), so no contextual dance is
-        // needed; what follows decides the form.
-        if self.at(&TokenKind::KwCanbe) {
-            self.bump();
-            let anchored = self.at(&TokenKind::KwIn);
-            if anchored {
-                self.bump();
-            }
-            let mut others: Vec<Vec<Ident>> = Vec::new();
-            loop {
-                let mut one = vec![self.ident()?];
-                while self.at(&TokenKind::Dot) {
-                    self.bump();
-                    one.push(self.ident()?);
-                }
-                end = one.last().map(|i| i.span).unwrap_or(end);
-                others.push(one);
-                if self.eat(&TokenKind::Pipe).is_none() {
-                    break;
-                }
-            }
-            let Some(name) = target else {
-                self.error(
-                    "a `canbe` entry names parameters, not a result path",
-                    start.to(end),
-                );
-                return None;
-            };
-            if !path.is_empty() {
-                self.error(
-                    "a `canbe` entry's subject is a parameter, not a field path",
-                    start.to(end),
-                );
-            }
-            // [canbe-entry] A plural subject desugars to one entry per
-            // subject; the extras are queued for the clause loop to take.
-            for subject in plural_subjects {
-                self.pending_deductions.push(Deduction {
-                    span: start.to(end),
-                    target: DeductionTarget::Param {
-                        name: subject,
-                        path: Vec::new(),
-                    },
-                    kind: DeductionKind::CanBe {
-                        others: others.clone(),
-                        anchored,
-                    },
-                });
-            }
-            return Some(Deduction {
-                span: start.to(end),
-                target: DeductionTarget::Param { name, path: Vec::new() },
-                kind: DeductionKind::CanBe { others, anchored },
-            });
-        }
         // [implicit-with] `=> eq with hash`, and chains (`a with b with c`) —
         // implicit parameters that are only meaningful together (user decision
         // 2026-09-26). Shaped like `canbe` above, and symmetric for a related

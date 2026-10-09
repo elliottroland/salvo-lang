@@ -2342,20 +2342,6 @@ fn render_declared(list: &[salvo_syntax::ast::Deduction]) -> String {
             let t = target(d);
             match &d.kind {
                 DeductionKind::KeepAll => t,
-                // [canbe-entry] The alias-group relation, as written.
-                DeductionKind::CanBe { others, anchored } => {
-                    let shown: Vec<String> = others
-                        .iter()
-                        .map(|p| {
-                            p.iter()
-                                .map(|i| i.name.clone())
-                                .collect::<Vec<_>>()
-                                .join(".")
-                        })
-                        .collect();
-                    let head = if *anchored { "canbe in" } else { "canbe" };
-                    format!("{t} {head} {}", shown.join("|"))
-                }
                 // [implicit-with] The fill-together relation, as written: a
                 // chain renders as one entry, which is how it was read.
                 DeductionKind::With { others } => format!(

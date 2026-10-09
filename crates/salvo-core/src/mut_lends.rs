@@ -8,7 +8,7 @@
 //! lent mutable result as a locator and emits a twin of each fn in `fns`; a
 //! garbage-collected target ignores them.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use salvo_syntax::ast::*;
 use salvo_syntax::Span;
@@ -356,85 +356,6 @@ pub fn fn_type_lends_mut(ret: &Type) -> bool {
         }
     }
     wholesale_mut(ret)
-}
-
-/// [canbe-entry] [rs-loc] One fn's `canbe` coverage, as the Rust rendering
-/// needs it: which parameters are covered, and where their shared anchor
-/// comes from.
-#[derive(Clone, Debug, Default)]
-pub struct Covered {
-    /// The covered parameter indices, in declaration order.
-    pub params: Vec<usize>,
-    /// The **anchored** form's container path (`=> track canbe in
-    /// lib.tracks` → `["lib", "tracks"]`), rooted at a parameter. The
-    /// anchor is then that parameter, which the callee already takes —
-    /// synthesizing a second `&mut` for it is what made every anchored
-    /// call E0499 (the defect closed 2026-09-25). `None` is the plain
-    /// `a canbe d` form, whose anchor no parameter names, so the callee
-    /// grows one.
-    pub anchor: Option<Vec<String>>,
-}
-
-/// [canbe-entry] Every fn whose clause declares `canbe` coverage, with the
-/// covered parameter indices (declaration order). The Rust rendering
-/// replaces those parameters with one shared anchor plus a locator each.
-pub fn covered_fns(
-    program: &Program,
-    checked: &Checked,
-) -> HashMap<crate::FnKey, Covered> {
-    let _ = checked;
-    let mut out: HashMap<crate::FnKey, Covered> = HashMap::new();
-    for (file, module) in program.modules.iter().enumerate() {
-        for (item_idx, item) in module.items.iter().enumerate() {
-            let Item::Fn(f) = item else { continue };
-            let Some(list) = &f.deductions else { continue };
-            let mut covered: Vec<usize> = Vec::new();
-            let mut anchors: Vec<Vec<String>> = Vec::new();
-            for d in list {
-                let DeductionKind::CanBe { others, anchored } = &d.kind else {
-                    continue;
-                };
-                let DeductionTarget::Param { name, .. } = &d.target else {
-                    continue;
-                };
-                let mut names: Vec<String> = vec![name.name.clone()];
-                if *anchored {
-                    // The anchor is the container the parameter may be an
-                    // element of — a path rooted at another parameter.
-                    for path in others {
-                        let rendered: Vec<String> =
-                            path.iter().map(|i| i.name.clone()).collect();
-                        if !rendered.is_empty() && !anchors.contains(&rendered) {
-                            anchors.push(rendered);
-                        }
-                    }
-                } else {
-                    names.extend(others.iter().filter_map(|p| {
-                        p.first().map(|i| i.name.clone())
-                    }));
-                }
-                for n in names {
-                    if let Some(i) = f.params.iter().position(|p| p.name.name == n) {
-                        if !covered.contains(&i) {
-                            covered.push(i);
-                        }
-                    }
-                }
-            }
-            if !covered.is_empty() {
-                covered.sort_unstable();
-                // Several distinct anchors in one clause share no storage,
-                // so there is no one container to index: reported at the
-                // call site, where the arguments name it.
-                let anchor = (anchors.len() == 1).then(|| anchors[0].clone());
-                out.insert(
-                    crate::FnKey { file, item: item_idx },
-                    Covered { params: covered, anchor },
-                );
-            }
-        }
-    }
-    out
 }
 
 /// [rs-loc] The checker-type sibling of `fn_type_lends_mut`: whether a

@@ -647,13 +647,6 @@ fn respan_deduction(d: &mut Deduction, spans: &mut Spans) {
                 respan_ref(q, spans);
             }
         }
-        DeductionKind::CanBe { others, .. } => {
-            for path in others {
-                for s in path {
-                    s.span = spans.take();
-                }
-            }
-        }
         DeductionKind::KeepAll | DeductionKind::Moved | DeductionKind::Deferred => {}
     }
     d.span = spans.take();

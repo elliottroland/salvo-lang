@@ -1984,41 +1984,6 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         (lets, out)
     }
 
-    /// [canbe-entry] [rs-loc] A covered call: positions for the covered
-    /// arguments (computed first), the shared anchor where none is named.
-    fn covered_args(&mut self, params: &[Param], args: &[Expr], covered: &HashMap<usize, String>, indent: usize) -> (Vec<String>, Vec<String>) {
-        let mut lets = Vec::new();
-        let mut out = Vec::new();
-        let mut anchor_done = false;
-        for (i, a) in args.iter().enumerate() {
-            if let Some(an) = covered.get(&i) {
-                let (anchor, pos) = match bare(a).and_then(|r| self.f.elem.get(&r.0).cloned()) {
-                    Some((anchor, Some(p))) => (anchor, p),
-                    _ => match self.loc_of(a, indent) {
-                        Some(x) => x,
-                        None => {
-                            self.error("a covered argument that is not an element handle [canbe-entry]");
-                            ("()".to_string(), "0".to_string())
-                        }
-                    },
-                };
-                if an == "__anchor" && !anchor_done {
-                    anchor_done = true;
-                    out.push(format!("&mut {anchor}"));
-                }
-                let t = self.fresh("c");
-                lets.push(format!("let {t} = {pos};"));
-                out.push(t);
-                continue;
-            }
-            match params.get(i) {
-                Some(p) => out.push(self.arg(a, p, FnPos::Param, indent)),
-                None => out.push(self.value(a, indent)),
-            }
-        }
-        (lets, out)
-    }
-
     fn arg(&mut self, a: &Expr, p: &Param, fn_pos: FnPos, indent: usize) -> String {
         if matches!(p.ty.strip_quals(), Ty::Fn { .. }) {
             let pos = if p.mode == PassMode::Moved && fn_pos == FnPos::Param { FnPos::Owned } else { fn_pos };
@@ -2655,12 +2620,11 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                         }
                     }
                 }
-                let covered = self.covered(f);
                 let saved_subst = std::mem::take(&mut self.f.call_subst);
                 if type_args.len() == f.type_params.len() {
                     self.f.call_subst = f.type_params.iter().map(|t| t.name.clone()).zip(type_args.iter().cloned()).collect();
                 }
-                let (lets, mut a) = if covered.is_empty() { self.call_args(&ps, args, indent) } else { self.covered_args(&ps, args, &covered, indent) };
+                let (lets, mut a) = self.call_args(&ps, args, indent);
                 // [runtime-kept-fn] A kept callback: boxed and owned, or a
                 // plain fn.
                 for i in 0..args.len() {

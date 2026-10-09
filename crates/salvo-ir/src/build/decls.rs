@@ -526,7 +526,6 @@ fn fn_decl(
         f.body.as_ref().map(|b| lower.fn_body(b, &ret))
     };
     errors.extend(lower.finish());
-    let may_alias = may_alias(f, &params);
     FnDecl {
         id,
         name: f.name.name.clone(),
@@ -544,7 +543,6 @@ fn fn_decl(
         implicit_params,
         ret,
         borrows,
-        may_alias,
         holds,
         throws,
         result_check: if f.platform { ctx.checked.boundary_checks.get(&(file_idx, f.name.span)).cloned() } else { None },
@@ -553,6 +551,7 @@ fn fn_decl(
         span: f.span,
     }
 }
+
 
 pub(crate) fn _unused(_: &HashMap<String, Ty>) {}
 
@@ -602,31 +601,3 @@ pub(crate) fn effect_local_name(t: &Ty) -> String {
     if out.is_empty() { "effect".to_string() } else { out }
 }
 
-/// [canbe-entry] A fn's `canbe` entries, by IR parameter index (effects come
-/// first in `params`, so the AST's positions do not carry over). An anchor
-/// path is rooted at a parameter; a numeric segment is a tuple element.
-fn may_alias(f: &ast::FnDecl, params: &[Param]) -> Vec<MayAlias> {
-    let idx = |n: &str| params.iter().position(|p| p.local.0 == n);
-    let mut out = Vec::new();
-    for d in f.deductions.iter().flatten() {
-        let ast::DeductionKind::CanBe { others, anchored } = &d.kind else { continue };
-        let ast::DeductionTarget::Param { name, .. } = &d.target else { continue };
-        let Some(subject) = idx(&name.name) else { continue };
-        for path in others {
-            let Some(head) = path.first().and_then(|i| idx(&i.name)) else { continue };
-            if *anchored {
-                let steps = path[1..]
-                    .iter()
-                    .map(|seg| match seg.name.parse::<usize>() {
-                        Ok(n) => AnchorStep::Tuple(n),
-                        Err(_) => AnchorStep::Field(seg.name.clone()),
-                    })
-                    .collect();
-                out.push(MayAlias::In { param: subject, root: head, path: steps });
-            } else {
-                out.push(MayAlias::Params(subject, head));
-            }
-        }
-    }
-    out
-}

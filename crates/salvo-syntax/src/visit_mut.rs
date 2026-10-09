@@ -140,13 +140,6 @@ pub fn walk_deduction<V: MutVisitor>(v: &mut V, d: &mut Deduction) {
                 walk_type_ref(v, q);
             }
         }
-        DeductionKind::CanBe { others, .. } => {
-            for path in others {
-                for id in path {
-                    v.visit_ident(id);
-                }
-            }
-        }
         DeductionKind::With { others } => {
             for id in others {
                 v.visit_ident(id);

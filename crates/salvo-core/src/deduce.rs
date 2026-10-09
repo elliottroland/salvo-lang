@@ -392,10 +392,6 @@ pub(crate) fn from_written(
     mutated: &HashSet<String>,
     mut error: impl FnMut(Span, String),
 ) -> Vec<ParamDeduction> {
-    // [canbe-entry] A plural subject (`a|b canbe in es`) desugars to one
-    // entry per subject, each carrying the same right-hand side, so a bad
-    // name in it would otherwise be reported once per subject.
-    let mut said: HashSet<Span> = HashSet::new();
     for (i, d) in list.iter().enumerate() {
         // Every parameter an entry names — plainly, as a field path's root,
         // or as a projection source — must exist.
@@ -414,43 +410,6 @@ pub(crate) fn from_written(
                 );
             }
         }
-        // [canbe-entry] The relation's right-hand side names parameters too:
-        // the other parameter for the plain form, the container's *root*
-        // parameter for the anchored one. Unvalidated, a typo was silently
-        // ignored — and the Rust rendering reads the anchor path as a place
-        // in the callee, so it has to be one [rs-loc].
-        if let DeductionKind::CanBe { others, anchored } = &d.kind {
-            for path in others {
-                let Some(root) = path.first() else { continue };
-                if !said.insert(root.span) {
-                    continue;
-                }
-                if !decl.params.iter().any(|p| p.name.name == root.name) {
-                    error(
-                        root.span,
-                        format!("deduction names unknown parameter `{}`", root.name),
-                    );
-                } else if !anchored && path.len() > 1 {
-                    error(
-                        root.span,
-                        format!(
-                            "`canbe` relates parameters, so `{}` cannot name a \
-                             field path; `canbe in {}` is the anchored form, \
-                             which says a parameter may be an *element* of \
-                             that container",
-                            path.iter()
-                                .map(|i| i.name.as_str())
-                                .collect::<Vec<_>>()
-                                .join("."),
-                            path.iter()
-                                .map(|i| i.name.as_str())
-                                .collect::<Vec<_>>()
-                                .join(".")
-                        ),
-                    );
-                }
-            }
-        }
         if let Some(pn) = d.param_name() {
             // [qual-preserve] A `preserve` entry accompanies the parameter's
             // ordinary one — it speaks about *other* values' claims — so it
@@ -458,12 +417,7 @@ pub(crate) fn from_written(
             // [canbe-entry] …and so does the alias-group relation: `=> a canbe
             // d, a: Mut` is two statements about `a` (user decision
             // 2026-09-24, on `preserve`'s precedent).
-            let is_preserve = |x: &Deduction| {
-                matches!(
-                    x.kind,
-                    DeductionKind::Preserve(_) | DeductionKind::CanBe { .. }
-                )
-            };
+            let is_preserve = |x: &Deduction| matches!(x.kind, DeductionKind::Preserve(_));
             if !is_preserve(d)
                 && list[..i].iter().any(|prev| {
                     !is_preserve(prev)
@@ -491,11 +445,8 @@ pub(crate) fn from_written(
             let name = p.name.name.clone();
             let lent = lent_names.contains(name.as_str());
             let Some(d) = list.iter().find(|d| {
-                // [qual-preserve] [canbe-entry] Not an ownership entry.
-                !matches!(
-                    d.kind,
-                    DeductionKind::Preserve(_) | DeductionKind::CanBe { .. }
-                ) && d.param_name().is_some_and(|n| n.name == name)
+                // [qual-preserve] Not an ownership entry.
+                !matches!(d.kind, DeductionKind::Preserve(_)) && d.param_name().is_some_and(|n| n.name == name)
             }) else {
                 // [deduce-syntax] Unmentioned: inferred from the body (the
                 // fixpoint replaces this optimistic start), or, without a
@@ -513,12 +464,10 @@ pub(crate) fn from_written(
             let effect = match &d.kind {
                 // [canbe-entry] The alias-group relation says nothing about
                 // keptness or qualifiers: it is a statement about *which
-                // parameters may coincide*, read by the call-site legality
-                // rules and by the Rust anchor rendering.
-                // [implicit-with] The fill-together relation is the same shape:
-                // a statement about which *implicits* travel together, read
-                // where a call fills them.
-                DeductionKind::CanBe { .. } | DeductionKind::With { .. } => {
+                // [implicit-with] The fill-together relation is a statement
+                // about which *implicits* travel together, read where a
+                // call fills them.
+                DeductionKind::With { .. } => {
                     return ParamDeduction {
                         param: name,
                         kept: true,
@@ -709,10 +658,7 @@ fn validate_written(
 ) {
     for ((w, i), p) in written.iter().zip(inferred).zip(&decl.params) {
         let Some(entry) = list.iter().find(|d| {
-            !matches!(
-                d.kind,
-                DeductionKind::Preserve(_) | DeductionKind::CanBe { .. }
-            ) && d.param_name().is_some_and(|n| n.name == w.param)
+            !matches!(d.kind, DeductionKind::Preserve(_)) && d.param_name().is_some_and(|n| n.name == w.param)
         }) else {
             continue;
         };
