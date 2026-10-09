@@ -137,6 +137,61 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-08 — The `ref(c)` rework: in progress (compiler converted, sweep remaining)
+
+The group-borrowing design collapsed to `ref(c)` (GROUP_BORROWING.md Part 7,
+consolidated this session): a mutable element handle is a new provenance
+qualifier `ref(c)` naming its container — unifying the old `proj Mut` and the
+abandoned `Reg`, with no region scope. **`get` reads (always `proj`), `at`
+handles (always `ref`)** (user decision). `canbe` is retired in favour of
+`ref(c)` signatures. The rework is mid-flight; the four compiler library
+crates build clean at each committed step (the tree is allowed broken between
+steps, per user).
+
+Landed (committed, `cargo build --workspace` clean):
+1. **types.rs foundation** — `is_proj_name`/`proj_names` (both `proj` and
+   `ref` are borrows), `Ty::is_proj()` covers both, new `Ty::is_ref()`,
+   `strip_top_proj`/`drop_block`/subtype/display/ranking all treat `ref` as a
+   never-drop borrow.
+2. **parser/keyword** — `ref` is `KwRef`, parses as a type-ref name, `ref(c)`
+   populates `TypeRef.from` like `proj(c)`.
+3. **checker** — the mutable handle is now `is_ref()`-carries-`Mut` (not
+   `proj`-carries-`Mut`); a plain `proj Mut` is a read-only projection that
+   fails a `Mut` position (new `ProjBlock::NotHandle` diagnostic). "Any
+   borrow" sites keep `is_proj` (covers both); handle sites switched to
+   `is_ref`. `top_level_proj_mut` stays `proj`-only (that contradiction is
+   still an error; `ref(c) Mut` is the legal spelling).
+4. **IR + Rust emitter** — `ref`+`Mut` drives the `[rs-elem-mut]`/`[rs-loc]`
+   locator rendering; a plain `proj` renders `&T`. `build.rs erase()` widened
+   so `ref` survives into the IR.
+5. **std mint (partial)** — `at` returns `ref(list) Mut T?`, `Locate` group
+   renamed `Ref`.
+6. **`canbe` retired** — `DeductionKind::CanBe`, `covered_pairs`,
+   `check_elem_handle_pairs`'s coverage branch, `Checked::covered_calls`,
+   `mut_lends::covered_fns`, IR `MayAlias`/`may_alias`, emitter
+   `covered`/`covered_args` all removed. `KwCanbe` token stays for the
+   unrelated `canbe Mut`/`canbe linear` opt-ins.
+
+Remaining (not yet done — see ROADMAP item 15 / GROUP_BORROWING Part 8):
+- **std sweep**: `cargo run -- analyze --src std` reports ~88 errors, almost
+  all in `std/runtime.sv` (the scheduler), uniform: handles into
+  `actors`/`pools`/`waiters` minted with `get`/projection then mutated →
+  change to `at`; functions taking `proj Mut X` parameters → re-type
+  `ref(c) Mut X` naming the container. Plus `at`'s body (`return get(...)`)
+  needs a real `ref` mint (the `expected ref Mut T?, found proj Mut T?`
+  error) — the v2 rendering wire-up.
+- **v2**: `at`'s `ref` mint rendered end-to-end on both backends (the locator
+  path exists; `at` must feed it); then maps get a by-key `at` (closes
+  finding 1a).
+- **examples**: rewrite `examples/borrowing` (`canbe`→`ref(c)` signatures,
+  mutating `get`→`at`), regenerate the IR golden and the rust/kotlin output.
+- **spec/docs**: LANGUAGE_SPEC `[canbe-entry]` removed, `[proj-mut]`→
+  `[ref-handle]`, `[col-locate]` → `Ref`; rewrite docs/language/Mutable-Handles.md;
+  sync wiki.
+- **tests**: parser_tests (`DeductionKind::CanBe` match at parser_tests.rs:1703),
+  elem_distinct_tests (`canbe` cases), codegen_tests both backends (`canbe`
+  cases → `ref`); regenerate snapshots.
+
 ### 2026-10-08 — Group-borrowing plan, Step 0: obligations on an `intrinsic type` are declared and checked, and `by` is refused there
 
 GROUP_BORROWING.md Part 8 Step 0, the prerequisite for Step 3's
