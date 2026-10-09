@@ -5,7 +5,7 @@ expression: text
 module main
 
 qualifies fn main::NonEmpty.qualifies<T>(lent list: List<T>) -> Bool {
-  return op Gt(call core.list::size<T>(read list), 0)
+  return (call core.list::size<T>(read list) > 0)
 }
 
 fn main::head(lent list: List<Int>) -> Int {
@@ -39,7 +39,7 @@ fn main::describe(Celsius Int)(lent temp: Int) -> Str {
 fn main::sum(lent list: List<Int>) -> Int {
   bind#1 let total: Int = 0
   foreach#2 n: Int in read list {
-    assign total = op Add(read total, read n)
+    assign total = (read total + read n)
   }
   return !read total
 }
@@ -61,7 +61,7 @@ fn main::freshen(moved request: Mut Request) -> Mut Request {
 }
 
 fn main::touch(lent_mut request: Mut Request) -> None {
-  assign request.touches = op Add(read request.touches, 1)
+  assign request.touches = (read request.touches + 1)
 }
 
 fn main::handle(Request)(lent request: Request) -> Str {

@@ -230,7 +230,7 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
       bind#94 let moved: Int = 0
       bind#95 let reading: Bool = true
       loop#96 {
-        branch#97 cond#0 op Not(read reading) {
+        branch#97 cond#0 !(read reading) {
           break
         }
         call core.bytes::clear(read buf)
@@ -239,11 +239,11 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
           arm#0 (arm 0) {
             narrow#100[switch#99.arm#0] got~35: Int = got
             bind#101 let n: Int = read got~35
-            branch#102 cond#0 op Eq(read n, 0) {
+            branch#102 cond#0 (read n == 0) {
               assign reading = false
             } else {
-              assign steps = op Add(read steps, 1)
-              assign moved = op Add(read moved, read n)
+              assign steps = (read steps + 1)
+              assign moved = (read moved + read n)
             }
           }
           arm#1 (arm 1) {
@@ -274,12 +274,12 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
       bind#114 let longest: Int = 0
       bind#115 let reading: Bool = true
       loop#116 {
-        branch#117 cond#0 op Not(read reading) {
+        branch#117 cond#0 !(read reading) {
           break
         }
         call core.string::clear(read line)
         branch#118 cond#0 member stream::Streams#5(read streams, read s, read line) {
-          branch#119 cond#0 op Gt(call core.string::size(drop_mut(read line)), read longest) {
+          branch#119 cond#0 (call core.string::size(drop_mut(read line)) > read longest) {
             assign longest = call core.string::size(drop_mut(read line))
           }
         } else {
@@ -310,7 +310,7 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
           arm#0 (arm 0) {
             narrow#133[switch#132.arm#0] __emitted~45: Bytes = __step~44
             bind#134 let chunk: Bytes = !read __emitted~45
-            assign seen = op Add(read seen, call core.bytes::size(read chunk))
+            assign seen = (read seen + call core.bytes::size(read chunk))
           }
           arm#1 (else) {
             break

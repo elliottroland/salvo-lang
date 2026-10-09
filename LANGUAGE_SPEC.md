@@ -9449,7 +9449,11 @@ replaced the working document TESTING.md).
   its `else` and its ran-flag are explicit locals, only when present.
 * [ir-dump] The text form (`salvo_ir::dump`) is for reading and golden
   tests, never parsed back: one declaration per paragraph, `#n` node ids,
-  `!read` for a consuming read, parameter modes before each parameter.
+  `!read` for a consuming read, parameter modes before each parameter. An
+  `Op` [ir-op] is written inline (`(read i < 4)`, `!(read a)`): every binary
+  operation parenthesized, and a unary operand too unless it is a binary
+  operation, so `!(read x)` never reads as `!read x` (user request
+  2026-10-06).
 
 ## Comments and documentation
 

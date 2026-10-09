@@ -33,13 +33,13 @@ fn main::peek(lent w: Window) -> proj Fighter? borrows [w] {
 }
 
 fn main::heal(lent_mut f: Mut Fighter) -> None {
-  assign f.hp = op Add(read f.hp, 10)
+  assign f.hp = (read f.hp + 10)
   return none[None]
 }
 
 fn main::wounded(lent_mut squad: List<Mut Fighter>) -> proj Mut Fighter? borrows [squad] {
   foreach#1 f: proj Mut Fighter in read squad {
-    branch#2 cond#0 op Lt(read f.hp, 10) {
+    branch#2 cond#0 (read f.hp < 10) {
       return present(read f)
     }
   }
@@ -63,14 +63,14 @@ fn main::rally_at<L>(lent_mut squad: List<Mut Fighter>, lent l: L; ?lent at: (Li
 }
 
 fn main::duel(lent_mut a: Mut Fighter, lent_mut d: Mut Fighter) -> None {
-  assign a.hp = op Sub(read a.hp, 1)
-  assign d.hp = op Sub(read d.hp, 2)
+  assign a.hp = (read a.hp - 1)
+  assign d.hp = (read d.hp - 2)
   return none[None]
 }
 
 fn main::strike(lent_mut a: Mut Fighter, lent_mut d: Mut Fighter) -> None => a canbe d {
-  assign a.energy = op Sub(read a.energy, 1)
-  assign d.hp = op Sub(read d.hp, 2)
+  assign a.energy = (read a.energy - 1)
+  assign d.hp = (read d.hp - 2)
   return none[None]
 }
 
@@ -80,8 +80,8 @@ struct Squad canbe Mut wire {
 }
 
 fn main::rotate(lent_mut squad: Mut Squad, lent_mut from: Mut Fighter, lent_mut to: Mut Fighter) -> None => from canbe in squad.members, to canbe in squad.members {
-  assign from.energy = op Sub(read from.energy, 1)
-  assign to.energy = op Add(read to.energy, 1)
+  assign from.energy = (read from.energy - 1)
+  assign to.energy = (read to.energy + 1)
   return none[None]
 }
 
@@ -91,7 +91,7 @@ struct Camp canbe Mut wire {
 }
 
 fn main::spend(lent_mut camp: Mut Camp, lent n: Int) -> None {
-  assign camp.supplies = op Sub(read camp.supplies, read n)
+  assign camp.supplies = (read camp.supplies - read n)
   return none[None]
 }
 
@@ -139,7 +139,7 @@ fn main::main() -> None {
   }))
   bind#17 let pass: Mut ListYield<Fighter> = call core.list::iter<Fighter>(read roster)
   bind#18 let standing: Mut List<proj Fighter> = call core.seq::filter(Mut It, (T) -> Bool)<ListYield<Fighter>, proj Fighter>(read pass, lambda(lent f: Fighter) -> Bool {
-    return op Gt(read f.hp, 10)
+    return (read f.hp > 10)
   }, fn core.list::next(Mut ListYield<T>))
   call core.console::println(read __handle~2, concat("1. ", call core.basic::to_str(Int)(call core.list::size<proj Fighter>(drop_mut(read standing))), " of ", call core.basic::to_str(Int)(call core.list::size<Fighter>(read roster)), " still standing"))
   bind#19 let bench: Mut List<Fighter> = call core.list::mut_list_of(T, T[])<Fighter>(construct Fighter { name: "Cy", hp: 12, energy: 2 }, array[Fighter[]]())
@@ -172,9 +172,9 @@ fn main::main() -> None {
       }
     }
   }
-  assign boss.hp = op Add(read boss.hp, 1)
+  assign boss.hp = (read boss.hp + 1)
   bind#32 let n: Int = call core.list::size<Mut Fighter>(read squad)
-  assign boss.hp = op Add(read boss.hp, read n)
+  assign boss.hp = (read boss.hp + read n)
   call core.console::println(read __handle~2, concat("2. ", branch#38 cond#0 true {
     bind#37 let __proj~15: proj Mut Fighter = branch#36 cond#0 true {
       bind#34 let __nn~13: proj Mut Fighter? = call core.list::get(List<T>, Int)<Mut Fighter>(read squad, 0)
@@ -273,19 +273,19 @@ fn main::main() -> None {
         }
       }
     }
-    assign a.hp = op Add(read a.hp, 1)
-    assign d.hp = op Add(read d.hp, 1)
+    assign a.hp = (read a.hp + 1)
+    assign d.hp = (read d.hp + 1)
     call main::duel(read a, read d)
   }
   branch#74 cond#0 call core.index::Idx.qualifies(read i, read squad, fn core.list::size) {
     branch#75 cond#0 call core.index::Idx.qualifies(read j, read squad, fn core.list::size) {
       call core.list::update<Fighter>(read squad, read i, lambda(lent f: Mut Fighter) -> None {
-        assign f.energy = op Add(read f.energy, 1)
+        assign f.energy = (read f.energy + 1)
       })
       branch#76 cond#0 call core.index::NotEq.qualifies(read j, read i) {
         call core.list::update2<Fighter>(read squad, read i, read j, lambda(lent a: Mut Fighter, lent b: Mut Fighter) -> None {
-          assign a.energy = op Add(read a.energy, 100)
-          assign b.energy = op Add(read b.energy, 200)
+          assign a.energy = (read a.energy + 100)
+          assign b.energy = (read b.energy + 200)
         })
       }
       call core.console::println(read __handle~2, concat("3. ", call core.basic::to_str(Int)(branch#78 cond#0 true {

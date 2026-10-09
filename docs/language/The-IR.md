@@ -86,14 +86,14 @@ struct Box canbe Mut wire {
 }
 
 fn main::bumped(lent_mut b: Mut Box) -> Int {
-  assign b.n = op Add(read b.n, 1)
+  assign b.n = (read b.n + 1)
   return read b.n
 }
 
 fn main::total(moved items: List<Int>) -> Int {
   bind#1 let sum: Int = 0
   foreach#2 i: Int in read items {
-    assign sum = op Add(read sum, read i)
+    assign sum = (read sum + read i)
   }
   return !read sum
 }
@@ -208,7 +208,7 @@ A place is a local followed by field, tuple and index steps: `b.n`,
 | `call f<T>(args)` | a call of a declaration |
 | `call local f(args)` | a call through a function-typed local |
 | `member E#i(instance, args)` | a call of member `i` of effect `E`, through an instance |
-| `op Add(a, b)` | the host's operator on basic types: `Add`, `Sub`, `Mul`, `Div`, `Rem`, `And`, `Or`, `Not`, `Neg`, `Lt`, `Gt`, `LtEq`, `GtEq`, `Eq`, `NotEq` (see "Comparisons and operators") |
+| `(a + b)`, `!(a)`, `-(a)` | the host's operator on basic types, written inline: `+ - * / %`, `&& \|\| !`, unary `-`, `< > <= >=`, `== !=` (see "Comparisons and operators"). A binary operation is always parenthesized, and so is a unary operand, so `!(read x)` cannot be mistaken for the consuming `!read x` |
 | `construct T { f: e }` | a struct or handler value |
 | `make_union[U]#i(e)` | `e` placed into arm `i` of the union `U` |
 | `present(e)` | `e` placed into the present arm of an optional. Rust writes `Some(e)`, and Kotlin writes `e` |
@@ -236,26 +236,26 @@ into one `Str` arm).
 The rule turns on the **basic types**: `Byte`, `Int`, `Long`, `Float`,
 `Double`, `Bool` and `Char` ([Data and Types](Data-and-Types.md)).
 
-* **On basic types, an operator is an `op`.** `i < 4` is `op Lt(read i, 4)`
-  and `i != 2` is `op NotEq(read i, 2)`. No basic-type operator goes through
+* **On basic types, an operator is written inline.** `i < 4` is
+  `(read i < 4)` and `i != 2` is `(read i != 2)`. No basic-type operator goes through
   `cmp` or `eq`. Those intrinsics exist only so a scalar's ordering can be
   passed to generic code, where they appear as a value:
   `call main::bigger<Int>(2, 7, fn core.compare::cmp(Int, Int))`.
 * **On every other type, `Str` included, an operator is a call** of the
   function the checker resolved, whether it is declared in Salvo or is an
   intrinsic. `a == b` is `call core.compare::eq(Str, Str)(read a, read b)`,
-  and `a != b` is `op Not` of that call. An ordering is the `cmp` call
-  followed by a sign test of its `Int` result, which is an `op` because `Int`
+  and `a != b` is `!` of that call. An ordering is the `cmp` call
+  followed by a sign test of its `Int` result, which is inline because `Int`
   is basic:
 
   ```
-  op Lt(call core.compare::cmp(Str, Str)(read s, "c"), 0)
-  op Lt(call main::cmp(read p, read q), 0)
-  op Gt(call local cmp(read a, read b), 0)     // a forwarded ?cmp
+  (call core.compare::cmp(Str, Str)(read s, "c") < 0)
+  (call main::cmp(read p, read q) < 0)
+  (call local cmp(read a, read b) > 0)     // a forwarded ?cmp
   ```
 
 Arithmetic (`+`, `-`, `*`, `/`, `%`) is defined on numbers only, so it is
-always an `op`.
+always inline.
 
 ## Control flow
 
@@ -318,10 +318,10 @@ special case, `foreach`.
 
   ```
   loop#2 {
-    branch#3 cond#0 op Not(op Gt(read at, 0)) {
+    branch#3 cond#0 !(read at > 0) {
       break
     }
-    assign at = op Sub(read at, member main::Clock#0(read clock))
+    assign at = (read at - member main::Clock#0(read clock))
   }
   ```
 
@@ -384,7 +384,7 @@ are ordinary function bodies:
 impl TickingClock() of Clock stateful {
   state tick: Int = 0
   fn now() -> Int {
-    assign tick = op Add(read tick, 5)
+    assign tick = (read tick + 5)
     return !read tick
   }
 }

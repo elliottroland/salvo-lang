@@ -61,14 +61,14 @@ fn main::main() -> None {
   bind#22 let b: Point = construct Point { x: 1, y: 2 }
   bind#23 let c: Point = construct Point { x: 1, y: 9 }
   bind#24 let same: Bool = call main::eq(Point, Point)(read a, read b)
-  bind#25 let before: Bool = op Lt(call main::cmp(read a, read c), 0)
+  bind#25 let before: Bool = (call main::cmp(read a, read c) < 0)
   call core.console::println(read __handle~2, concat("4. equal ", call core.basic::to_str(Bool)(read same), ", ordered ", call core.basic::to_str(Bool)(read before)))
   bind#26 let n1: Note = construct Note { text: "same" }
   bind#27 let n2: Note = construct Note { text: "same" }
   bind#28 let notes_equal: Bool = call main::eq(Note, Note)(read n1, read n2)
   call core.console::println(read __handle~2, concat("4. plain struct equality ", call core.basic::to_str(Bool)(read notes_equal)))
   bind#29 let squares: List<Int> = call core.list::list_by<Int>(4, lambda(lent i: Int) -> Int {
-    value op Mul(read i, read i)
+    value (read i * read i)
   })
   call core.console::println(read __handle~2, concat("5. generated ", call core.list::to_str<Int>(read squares, fn core.basic::to_str(Int))))
   bind#30 let deduped: Set<Int>(hash, eq) = call core.set::to_set<Int>(read primes, fn core.compare::hash(Int), fn core.compare::eq(Int, Int))
@@ -140,11 +140,11 @@ fn main::main() -> None {
 
 fn main::cmp(lent a: Point, lent b: Point) -> Int {
   bind#1 let c__c1: Int = call core.compare::cmp(Int, Int)(read a.x, read b.x)
-  branch#2 cond#0 op NotEq(read c__c1, 0) {
+  branch#2 cond#0 (read c__c1 != 0) {
     return !read c__c1
   }
   bind#3 let c__c2: Int = call core.compare::cmp(Int, Int)(read a.y, read b.y)
-  branch#4 cond#0 op NotEq(read c__c2, 0) {
+  branch#4 cond#0 (read c__c2 != 0) {
     return !read c__c2
   }
   return 0
@@ -158,17 +158,17 @@ fn main::hash(lent value: Point) -> Long {
 }
 
 fn main::eq(Point, Point)(lent a: Point, lent b: Point) -> Bool {
-  branch#1 cond#0 op Not(call core.compare::eq(Int, Int)(read a.x, read b.x)) {
+  branch#1 cond#0 !(call core.compare::eq(Int, Int)(read a.x, read b.x)) {
     return false
   }
-  branch#2 cond#0 op Not(call core.compare::eq(Int, Int)(read a.y, read b.y)) {
+  branch#2 cond#0 !(call core.compare::eq(Int, Int)(read a.y, read b.y)) {
     return false
   }
   return true
 }
 
 fn main::eq(Note, Note)(lent a: Note, lent b: Note) -> Bool {
-  branch#1 cond#0 op Not(call core.compare::eq(Str, Str)(read a.text, read b.text)) {
+  branch#1 cond#0 !(call core.compare::eq(Str, Str)(read a.text, read b.text)) {
     return false
   }
   return true

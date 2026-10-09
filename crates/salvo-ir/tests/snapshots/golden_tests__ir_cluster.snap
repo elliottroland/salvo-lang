@@ -24,7 +24,7 @@ impl Sequencing(lent who: Str) of Sequencer stateful {
   mailbox construct Mailbox { capacity: 16 }
   state n: Int = 0
   fn next(lent out: Reply<Str>) -> None {
-    assign n = op Add(read n, 1)
+    assign n = (read n + 1)
     call core.actor::send<Str>(!read out, concat(read who, "#", call core.basic::to_str(Int)(read n)))
   }
 }
@@ -33,7 +33,7 @@ impl Stocking(lent shard: Str) of Inventory stateful {
   mailbox construct Mailbox { capacity: 32 }
   state served: Int = 0
   fn reserve(lent sku: Str, lent qty: Int, lent out: Reply<Str>) -> None {
-    assign served = op Add(read served, read qty)
+    assign served = (read served + read qty)
     call core.actor::send<Str>(!read out, concat(read shard, ":", call core.basic::to_str(Int)(read served)))
   }
 }
@@ -44,7 +44,7 @@ impl Indexing(lent words: List<Str>) of Search {
     bind#1 let n: Int = 0
     foreach#2 w: proj Str in read words {
       branch#3 cond#0 call core.compare::eq(Str, Str)(read w, read word) {
-        assign n = op Add(read n, 1)
+        assign n = (read n + 1)
       }
     }
     call core.actor::send<Int>(!read out, !read n)
@@ -96,9 +96,9 @@ impl Gathering() of Gather stateful {
     }
   }
   fn partial(lent n: Int) -> None {
-    assign total = op Add(read total, read n)
-    assign left = op Sub(read left, 1)
-    branch#1 cond#0 op Eq(read left, 0) {
+    assign total = (read total + read n)
+    assign left = (read left - 1)
+    branch#1 cond#0 (read left == 0) {
       bind#2 let out: Reply<Int>? = call core.deque::remove_first<Reply<Int>>(read pending)
       switch#3 read out {
         arm#0 (arm 0) {
@@ -157,7 +157,7 @@ impl LastHost(lent nodes: Addr<NodeGroup>, lent me: NodeEndpoint) of Leader {
     bind#2 let best_host: Str = call core.basic::copy<Str>(read me.host)
     bind#3 let best: NodeId = call net::this_node()
     foreach#4 n: proj Node in read peers {
-      branch#5 cond#0 op Gt(call core.compare::cmp(Str, Str)(read n.at.host, read best_host), 0) {
+      branch#5 cond#0 (call core.compare::cmp(Str, Str)(read n.at.host, read best_host) > 0) {
         assign best_host = call core.basic::copy<Str>(read n.at.host)
         assign best = call core.basic::copy<NodeId>(read n.id)
       }
@@ -328,7 +328,7 @@ impl Booting(lent at: NodeEndpoint, lent all: List<NodeEndpoint>, lent net: Addr
   }
   fn stop(lent done: Reply<Bool>) -> None {
     bind#1 let group: Addr<NodeGroup>? = read nodes
-    branch#2 cond#0 op Not(check#3 (read group is none)) {
+    branch#2 cond#0 !(check#3 (read group is none)) {
       narrow#4[branch#2.cond#0] group~1: Addr<NodeGroup> = group
       send net::NodeGroup#2(read group~1)
     }
@@ -371,10 +371,10 @@ fn main::main() -> None {
   bind#19 let members: List<Node> = waitfor out: Reply<List<Node>> {
     send net::NodeGroup#0(read nodes, !read out)
   }
-  call core.console::println(read __handle~2, concat("nodes: ", call core.basic::to_str(Int)(op Add(call core.list::size<Node>(read members), 1)), ", sequencers: ", call core.basic::to_str(Int)(call core.list::size<Addr<Sequencer>>(waitfor out: Reply<List<Addr<Sequencer>>> {
+  call core.console::println(read __handle~2, concat("nodes: ", call core.basic::to_str(Int)((call core.list::size<Node>(read members) + 1)), ", sequencers: ", call core.basic::to_str(Int)(call core.list::size<Addr<Sequencer>>(waitfor out: Reply<List<Addr<Sequencer>>> {
     send net::ActorGroup#2(read seq, !read out)
   }))))
-  call core.console::println(read __handle~2, concat("singleton (b's sequencer is remote: ", call core.basic::to_str(Bool)(op Not(call net::eq(NodeId, NodeId)(call net::node_of<Sequencer>(read remote_seq), call net::this_node()))), "):"))
+  call core.console::println(read __handle~2, concat("singleton (b's sequencer is remote: ", call core.basic::to_str(Bool)(!(call net::eq(NodeId, NodeId)(call net::node_of<Sequencer>(read remote_seq), call net::this_node()))), "):"))
   bind#20 let __use~5: LastHost = construct LastHost { nodes: call core.basic::copy<Addr<NodeGroup>>(read nodes), me: call core.basic::copy<NodeEndpoint>(read a) }
   bind#21 let __handle~6: Leader = handle[Leader](read __use~5)
   call main::two_ids(read __handle~6, read __handle~2, call core.basic::copy<Addr<ActorGroup<Sequencer>>>(read seq))

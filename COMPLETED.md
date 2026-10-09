@@ -137,6 +137,17 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-06 — The IR dump writes basic operators inline (user request)
+
+`salvo ir` prints an `Op` as the source spells it: `(read i < 4)`,
+`(read sum + read i)`, `!(read a)`, `-(read n)`, instead of `op Lt(…)`. A
+binary operation is always parenthesized, so no precedence needs knowing,
+and a unary operand is too unless it is a binary operation (`!(read at > 0)`,
+not `!((…))`). The bracket after a unary `!` is what keeps it apart from a
+consuming read, `!read x`. Only the text form changed: the node, the
+backends and the generated code are untouched. [ir-dump], The-IR.md and the
+IR goldens follow.
+
 ### 2026-10-06 — Operators on basic types are operators in the IR (user decision)
 
 The user's reading: for the **basic types** (`Byte`, `Int`, `Long`,

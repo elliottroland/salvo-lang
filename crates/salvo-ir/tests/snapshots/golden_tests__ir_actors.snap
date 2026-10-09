@@ -13,7 +13,7 @@ impl Counting() of Counter stateful {
   mailbox construct Mailbox { capacity: 8 }
   state sum: Int = 0
   fn bump(lent n: Int) -> None {
-    assign sum = op Add(read sum, read n)
+    assign sum = (read sum + read n)
   }
   fn total(lent out: Reply<Int>) -> None {
     call core.actor::send<Int>(!read out, !read sum)
@@ -131,7 +131,7 @@ fn main::main() -> None {
     call core.actor::watch<Fragile>(read fragile, !read gone)
     send main::Fragile#0(read fragile)
   }
-  call core.console::println(read __handle~2, concat("5. it died with a reason: ", call core.basic::to_str(Bool)(op Gt(call core.string::size(read exit.reason), 0))))
+  call core.console::println(read __handle~2, concat("5. it died with a reason: ", call core.basic::to_str(Bool)((call core.string::size(read exit.reason) > 0))))
   send main::Fragile#0(read fragile)
   bind#13 let __use~3: Counting = construct Counting { }
   bind#14 let __handle~4: Counter = handle[Counter](read __use~3)

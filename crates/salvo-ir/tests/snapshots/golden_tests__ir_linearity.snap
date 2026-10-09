@@ -74,7 +74,7 @@ fn main::a_queue_of_tickets(lent console: Console) -> None {
   }
   loop#5 {
     bind#7 let __subject~2: Ticket? = call core.deque::remove_first<Ticket>(read queue)
-    branch#9 cond#0 op Not(check#6 (read __subject~2 is arm 0)) {
+    branch#9 cond#0 !(check#6 (read __subject~2 is arm 0)) {
       break
     }
     narrow#8[check#6] next: Ticket = __subject~2

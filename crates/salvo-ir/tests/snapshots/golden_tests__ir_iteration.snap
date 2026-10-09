@@ -7,7 +7,7 @@ module main
 fn main::describe_container(lent console: Console; lent xs: List<Int>) -> None {
   bind#1 let sum: Int = 0
   foreach#2 n: Int in read xs {
-    assign sum = op Add(read sum, read n)
+    assign sum = (read sum + read n)
   }
   call core.console::println(read console, concat("1. list of ", call core.basic::to_str(Int)(call core.list::size<Int>(read xs)), " sums to ", call core.basic::to_str(Int)(read sum)))
   bind#3 let letters: Mut Str = call core.string::mut_str(array[Str[]]())
@@ -18,7 +18,7 @@ fn main::describe_container(lent console: Console; lent xs: List<Int>) -> None {
   bind#5 let arr: Int[] = call core.array::array_of<Int>(array[Int[]](10, 20, 30))
   bind#6 let from_array: Int = 0
   foreach#7 n: Int in read arr {
-    assign from_array = op Add(read from_array, read n)
+    assign from_array = (read from_array + read n)
   }
   call core.console::println(read console, concat("1. array sums to ", call core.basic::to_str(Int)(read from_array)))
 }
@@ -32,20 +32,20 @@ fn main::countdown(moved from: Int) -> Mut Countdown {
 }
 
 fn main::next(Mut Countdown)(lent_mut p: Mut Countdown) -> Int | Finished {
-  branch#1 cond#0 op LtEq(read p.at, 0) {
+  branch#1 cond#0 (read p.at <= 0) {
     return make_union[Int | Finished]#1(call core.iterator::finished())
   }
   bind#2 let now: Int = call core.basic::copy<Int>(read p.at)
-  assign p.at = op Sub(read p.at, 1)
+  assign p.at = (read p.at - 1)
   return make_union[Int | Finished]#0(call core.iterator::emitted<Int>(!read now))
 }
 
 fn main::skip(lent_mut p: Mut Countdown) -> Int | Finished {
-  branch#1 cond#0 op LtEq(read p.at, 1) {
+  branch#1 cond#0 (read p.at <= 1) {
     return make_union[Int | Finished]#1(call core.iterator::finished())
   }
   bind#2 let now: Int = call core.basic::copy<Int>(read p.at)
-  assign p.at = op Sub(read p.at, 2)
+  assign p.at = (read p.at - 2)
   return make_union[Int | Finished]#0(call core.iterator::emitted<Int>(!read now))
 }
 
@@ -58,8 +58,8 @@ fn main::take(lent console: Console; lent_mut p: Mut Countdown, lent count: Int)
         narrow#5[switch#4.arm#0] __emitted~3: Int = __step~2
         bind#6 let n: Int = !read __emitted~3
         call core.console::println(read console, concat("2. got ", call core.basic::to_str(Int)(read n)))
-        assign seen = op Add(read seen, 1)
-        branch#7 cond#0 op Eq(read seen, read count) {
+        assign seen = (read seen + 1)
+        branch#7 cond#0 (read seen == read count) {
           break
         }
       }
@@ -80,11 +80,11 @@ fn main::halving(moved start: Int) -> Mut __Iter_halving_Int {
 }
 
 fn main::next(Mut __Iter_halving_Int)(lent_mut __p: Mut __Iter_halving_Int) -> Int | Finished {
-  branch#1 cond#0 op LtEq(read __p.at, 0) {
+  branch#1 cond#0 (read __p.at <= 0) {
     return make_union[Int | Finished]#1(call core.iterator::finished())
   }
   bind#2 let now: Int = call core.basic::copy<Int>(read __p.at)
-  assign __p.at = op Div(read __p.at, 2)
+  assign __p.at = (read __p.at / 2)
   return make_union[Int | Finished]#0(call core.iterator::emitted<Int>(!read now))
 }
 
@@ -110,7 +110,7 @@ fn main::next(Mut __Iter_iter_Bag)(lent_mut __p: Mut __Iter_iter_Bag) -> Int | F
   branch#2 cond#0 check#3 (read e is none) {
     return make_union[Int | Finished]#1(call core.iterator::finished())
   }
-  assign __p.at = op Add(read __p.at, 1)
+  assign __p.at = (read __p.at + 1)
   narrow#4[after branch#2.cond#0] e~1: Int = e
   return make_union[Int | Finished]#0(call core.iterator::emitted<Int>(call core.basic::copy<Int>(read e~1)))
 }
@@ -127,15 +127,15 @@ fn main::fibs(moved count: Int) -> Mut __Iter_fibs_Int {
 }
 
 fn main::next(Mut __Iter_fibs_Int)(lent console: Console; lent_mut __p: Mut __Iter_fibs_Int) -> Int | Finished {
-  branch#1 cond#0 op GtEq(read __p.made, read __p.count) {
+  branch#1 cond#0 (read __p.made >= read __p.count) {
     call core.console::println(read console, "3. finished")
     return make_union[Int | Finished]#1(call core.iterator::finished())
   }
   bind#2 let now: Int = call core.basic::copy<Int>(read __p.a)
-  bind#3 let sum: Int = op Add(read __p.a, read __p.b)
+  bind#3 let sum: Int = (read __p.a + read __p.b)
   assign __p.a = call core.basic::copy<Int>(read __p.b)
   assign __p.b = call core.basic::copy<Int>(read sum)
-  assign __p.made = op Add(read __p.made, 1)
+  assign __p.made = (read __p.made + 1)
   return make_union[Int | Finished]#0(call core.iterator::emitted<Int>(!read now))
 }
 
@@ -150,7 +150,7 @@ fn main::naturals(moved from: Int) -> Mut __Iter_naturals_Int {
 
 fn main::next(Mut __Iter_naturals_Int)(lent_mut __p: Mut __Iter_naturals_Int) -> Int | Finished {
   bind#1 let now: Int = call core.basic::copy<Int>(read __p.at)
-  assign __p.at = op Add(read __p.at, 1)
+  assign __p.at = (read __p.at + 1)
   return make_union[Int | Finished]#0(call core.iterator::emitted<Int>(!read now))
 }
 
@@ -162,7 +162,7 @@ fn main::sum_of<It>(lent_mut it: Mut It; ?lent next: (Mut It) -> Int | Finished)
       arm#0 (arm 0) {
         narrow#5[switch#4.arm#0] __emitted~3: Int = __step~2
         bind#6 let n: Int = !read __emitted~3
-        assign total = op Add(read total, read n)
+        assign total = (read total + read n)
       }
       arm#1 (else) {
         break
@@ -181,7 +181,7 @@ fn main::total<C, __It0>(lent c: C; ?lent iter: (C) -> Mut __It0, lent next: (Mu
       arm#0 (arm 0) {
         narrow#6[switch#5.arm#0] __emitted~3: Int = __step~2
         bind#7 let n: Int = !read __emitted~3
-        assign total = op Add(read total, read n)
+        assign total = (read total + read n)
       }
       arm#1 (else) {
         break
@@ -205,7 +205,7 @@ fn main::first<__It0>(lent_mut it: Mut __It0; ?lent next: (Mut __It0) -> Int | F
       }
     }
   }
-  return op Neg(1)
+  return -(1)
 }
 
 fn main::main() -> None {
@@ -284,7 +284,7 @@ fn main::main() -> None {
       arm#0 (arm 0) {
         narrow#35[switch#34.arm#0] __emitted~17: Int = __step~16
         bind#36 let n: Int = !read __emitted~17
-        branch#37 cond#0 op Gt(read n, 12) {
+        branch#37 cond#0 (read n > 12) {
           break
         }
         call core.console::println(read __handle~2, concat("3. natural ", call core.basic::to_str(Int)(read n)))
@@ -295,13 +295,13 @@ fn main::main() -> None {
     }
   }
   bind#38 let doubled: Mut List<Int> = call core.seq::map(List<T>, (T) -> U)<Int, Int>(read xs, lambda(lent n: Int) -> Int {
-    value op Mul(read n, 2)
+    value (read n * 2)
   })
   bind#39 let odd: Mut List<Int> = call core.seq::filter(List<T>, (T) -> Bool)<Int>(read xs, lambda(lent n: Int) -> Bool {
-    value op Eq(op Rem(read n, 2), 1)
+    value ((read n % 2) == 1)
   })
   bind#40 let total: Int = call core.seq::reduce(List<T>, A, (A, T) -> A)<Int, Int>(read xs, 0, lambda(lent acc: Int, lent n: Int) -> Int {
-    value op Add(read acc, read n)
+    value (read acc + read n)
   })
   call core.console::println(read __handle~2, concat("5. list: ", call core.basic::to_str(Int)(call core.list::size<Int>(drop_mut(read doubled))), " doubled, ", call core.basic::to_str(Int)(call core.list::size<Int>(drop_mut(read odd))), " odd, total ", call core.basic::to_str(Int)(read total)))
   bind#41 let words: List<Str> = call core.list::list_of(T, T[])<Str>("ann", array[Str[]]("bo", "carol"))
@@ -309,18 +309,18 @@ fn main::main() -> None {
     value call core.string::size(read w)
   }, fn core.list::next(Mut ListYield<T>))
   call core.console::println(read __handle~2, concat("5. lengths: ", call core.basic::to_str(Int)(call core.seq::reduce(Mut It, A, (A, T) -> A)<ListYield<Int>, Int, Int>(call core.list::iter<Int>(drop_mut(read lengths)), 0, lambda(lent acc: Int, lent n: Int) -> Int {
-    value op Add(read acc, read n)
+    value (read acc + read n)
   }, fn core.list::next(Mut ListYield<T>)))))
   bind#43 let word: Str = "iteration"
   bind#44 let vowels: Mut List<Char> = call core.seq::filter(Mut It, (T) -> Bool)<StrYield, Char>(call core.string::iter(read word), lambda(lent c: Char) -> Bool {
-    value op Or(op Eq(read c, 'i'), op Eq(read c, 'o'))
+    value ((read c == 'i') || (read c == 'o'))
   }, fn core.string::next)
   call core.console::println(read __handle~2, concat("5. vowels: ", call core.basic::to_str(Int)(call core.list::size<Char>(drop_mut(read vowels)))))
   call core.console::println(read __handle~2, concat("5. halving total ", call core.basic::to_str(Int)(call core.seq::reduce(Mut It, A, (A, T) -> A)<__Iter_halving_Int, Int, Int>(call main::halving(20), 0, lambda(lent acc: Int, lent n: Int) -> Int {
-    value op Add(read acc, read n)
+    value (read acc + read n)
   }, fn main::next(Mut __Iter_halving_Int)))))
   bind#45 let collected: Mut List<Int> = call core.seq::map_to<List<Int>, Countdown, Int, Int>(call core.list::mut_list_of()<Int>(), call main::countdown(3), lambda(lent n: Int) -> Int {
-    value op Mul(read n, 10)
+    value (read n * 10)
   }, fn core.list::add, fn main::next(Mut Countdown))
   call core.console::println(read __handle~2, concat("6. collected ", call core.basic::to_str(Int)(call core.list::size<Int>(drop_mut(read collected)))))
   bind#46 let evens: Mut Str = call core.string::mut_str(array[Str[]]())

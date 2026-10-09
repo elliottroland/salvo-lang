@@ -11,7 +11,7 @@ interface Clock {
 impl TickingClock() of Clock stateful {
   state tick: Int = 0
   fn now() -> Int {
-    assign tick = op Add(read tick, 5)
+    assign tick = (read tick + 5)
     return !read tick
   }
 }
@@ -49,7 +49,7 @@ impl Stamped() of Logger deps [Logger, Clock] {
 impl Numbered() of Logger deps [Logger] stateful {
   state seen: Int = 0
   fn log(lent message: Str) -> None {
-    assign seen = op Add(read seen, 1)
+    assign seen = (read seen + 1)
     member main::Logger#0(read __dep0, concat("#", call core.basic::to_str(Int)(read seen), " ", read message))
   }
 }

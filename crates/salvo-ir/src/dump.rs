@@ -458,9 +458,52 @@ impl<'a> Dumper<'a> {
                 }
                 self.out.push(')');
             }
+            // [ir-dump] Inline, as the source spells it. Every binary operation
+            // is parenthesized, and a unary operand always is, so `!(read x)`
+            // never reads as the consuming `!read x`.
             ExprKind::Op { op, args } => {
-                let _ = write!(self.out, "op {op:?}");
-                self.args(args, indent);
+                let sym = match op {
+                    Op::Add => "+",
+                    Op::Sub => "-",
+                    Op::Mul => "*",
+                    Op::Div => "/",
+                    Op::Rem => "%",
+                    Op::And => "&&",
+                    Op::Or => "||",
+                    Op::Not => "!",
+                    Op::Neg => "-",
+                    Op::Lt => "<",
+                    Op::Gt => ">",
+                    Op::LtEq => "<=",
+                    Op::GtEq => ">=",
+                    Op::Eq => "==",
+                    Op::NotEq => "!=",
+                };
+                match args.as_slice() {
+                    [x] => {
+                        // A binary operand brings its own parentheses.
+                        let bracketed = matches!(&x.kind, ExprKind::Op { args, .. } if args.len() == 2);
+                        self.out.push_str(sym);
+                        if !bracketed {
+                            self.out.push('(');
+                        }
+                        self.expr(x, indent);
+                        if !bracketed {
+                            self.out.push(')');
+                        }
+                    }
+                    [l, r] => {
+                        self.out.push('(');
+                        self.expr(l, indent);
+                        let _ = write!(self.out, " {sym} ");
+                        self.expr(r, indent);
+                        self.out.push(')');
+                    }
+                    _ => {
+                        let _ = write!(self.out, "op {op:?}");
+                        self.args(args, indent);
+                    }
+                }
             }
             ExprKind::Construct { fields } => {
                 let _ = write!(self.out, "construct {} {{", e.ty);
