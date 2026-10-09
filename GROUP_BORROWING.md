@@ -2056,6 +2056,113 @@ handle grows a stored closure in any case; the generic case adds a static
 that already exists. **Writable (Q1: an ordinary function), cheap (Q2: a
 position, not a closure), and quiet (Q3: `at` inferred like `cmp`).**
 
+## Part 7i: correction and refinement — `?at` is nameable, carried by the qualifier, and self-referential at the mint (user questions, 2026-10-08)
+
+**Status: corrects Part 7h's Q2/Q3 overstatement and resolves the
+self-reference the user spotted.** Checked against `core.list`/`core.compare`
+(`Sorted<T>(?cmp)`, `add_sorted`, `sort`).
+
+### Correction to 7h: a capability is not free from `T` — it is carried, and must be nameable
+
+7h said `at` resolves "from the type per use, nothing threaded," which
+overstated it. The ground truth from `Sorted<T>(?cmp)`:
+
+- A capability (`cmp`, `at`) is available in a body **only when it is in
+  scope**, and it gets there two ways: **carried by a qualifier on a
+  parameter** — `fn add_sorted(list: Mut Sorted<T>(?cmp) List<T>) { …
+  insert_sorted_by(list, elem, cmp) }`, where `cmp` is nameable in the body
+  *because the `Sorted<T>(?cmp)` qualifier carries it* — or **declared as a
+  standalone implicit**, `fn sort<T>(list: List<T>, ?Ordered<T>)`, for an
+  *unqualified* parameter. It is **not** available merely from `T`.
+- So the user's Q3 is right: a `Heap<T>(?cmp)` / `Sorted<T>(?cmp)` parameter
+  is exactly what puts `cmp` in scope; drop the `(?cmp)` and `<` on the
+  `T`s would not resolve. The qualifier's `?cmp` slot is a
+  **function-identity slot** — it carries *which* ordering, erased at
+  runtime, tracked by the checker (`[cmp-carry]`).
+- Therefore the user's Q1 is right and 7h's Q3 was loose: **`?at` must be
+  nameable**, precisely like `?cmp` — the body refers to it to pass it
+  onward (as `add_sorted` passes `cmp`), and the handle must record *which*
+  `at` re-materializes it. It is not anonymous. The `Locate` group is the
+  `params` group around it; under the `ref` vocabulary it should be renamed
+  to match (e.g. `params Ref<C, L, T> { fn at(c: C, l: L) -> ref(c) Mut
+  T? }`), so a parameter carrying a handle's accessor reads
+  `ref(c, ?at) T`, the `Sorted<T>(?cmp)` shape exactly.
+
+### The self-reference the user spotted (Q2): `at`'s own return type names *itself* as the locator
+
+Writing
+
+```
+fn at<T>(list: List<T>, index: Idx(list) Int) -> ref(list, ?at) T
+```
+
+the `?at` in the **return type** cannot mean "an `?at` passed into this
+function" (the `Heap<T>(?cmp)` reading, where `cmp` flows *in* and is
+*consumed*). Here `at` is **itself** the accessor the resulting handle will
+be re-materialized through — the capability flows *out*, bound to the very
+function producing it. This is a real asymmetry with `?cmp`:
+
+| | `Sorted<T>(?cmp)` | `ref(c, ?at)` |
+|---|---|---|
+| direction | capability flows **in**, consumed by the body | accessor flows **out**, re-invoked later |
+| what fills the slot | an ordering passed by the caller | the mint's own accessor function |
+| at the declaring fn | `?cmp` is a parameter the fn receives | `?at` in `at`'s own return is **`at` itself** |
+
+So `?at` has two distinct readings depending on position, and conflating
+them (as a bare `?at` would) is the confusion the user flags:
+
+1. **At the mint (`at`'s own return type)**: the accessor is *this
+   function*. Writing `?at` here to mean "me" is circular and misleading.
+   **Proposed: it is inferred, not written** — a function whose return type
+   is `ref(c) …` has *itself* recorded as that handle's accessor by the
+   checker, with no slot written. The author writes `-> ref(list) T` (or
+   `-> ref(list) Mut T?`), and "the locator is `at`" is a fact the checker
+   attaches, the same way a `+Sorted` return records "sorted by the `cmp`
+   this body used" without the author restating it. A delegating accessor
+   (`fn at2(…) -> ref(c) T { return at(c, l2) }`) records *its* callee's
+   accessor transitively — the return carries whichever `at` actually
+   produced the handle.
+2. **At a consumer (a function receiving a handle whose accessor it does
+   not know)**: here `?at` *is* a carried capability in the `?cmp` sense —
+   `fn use_two<C, L, T>(a: ref(c, ?at) Mut T, b: ref(c, ?at) Mut T)` names
+   the accessor the handles carry so the body (and the backend) can
+   re-materialize them, exactly as `add_sorted` names the `cmp` its
+   `Sorted` parameter carries. This is the nameable, `?cmp`-shaped use —
+   and it is where Q1's "must be nameable" bites.
+
+**Proposed syntax resolution:** `?at` is written **only where it is carried
+in** (the consumer, reading 2), never in a mint's own return (reading 1,
+inferred). This mirrors the existing split precisely: `sort` writes
+`-> +Sorted<T>(?cmp)` because it is *publishing* an ordering resolution it
+performed (the `?cmp` there is "the one I resolved," already a mild version
+of self-reference, `[cmp-carry]`), while `add_sorted` writes `Sorted<T>(?cmp)`
+on its *parameter* because it is *receiving* one. The `ref` case is the same
+distinction, sharper: a mint publishes its accessor (inferred, unwritten); a
+consumer receives it (`ref(c, ?at)`, written). If an explicit spelling for
+the mint is ever wanted, it should be a *publishing* form (`-> ref(list)
+by at`, naming the accessor the way `by @auto` names a stamp source), never
+a bare `?at` that reads as an in-parameter.
+
+### Consequence for the plan
+
+- The `Locate` group is renamed to the `ref` vocabulary (its member stays
+  `at`), and this rename is folded into v1a (it is pure vocabulary, like
+  the `proj Mut` → `ref` rename itself).
+- The checker already records "which function produced this handle" on the
+  fate link (`root_id` + the producing call); recording "which `at`
+  re-materializes it" is the same shape — a function-identity the mint
+  publishes and a consumer's `ref(c, ?at)` parameter receives, erased on
+  both backends like every other function-identity slot (`[cmp-carry]`).
+- No handle stores a closure (7h Q2 stands): the accessor is a
+  function-identity the checker threads, materialized as a static call at
+  a known-type use and as the existing `?at`-closure parameter only at an
+  erased consumer boundary — which is now *named* (`ref(c, ?at)`) rather
+  than anonymous, closing the gap the user identified.
+
+**To confirm:** the two-reading resolution (mint infers its accessor and
+publishes it; consumer names it with `ref(c, ?at)`), and the `Locate` →
+`Ref` group rename. Both are the user's call.
+
 ## Part 8: implementation plan
 
 **Note (2026-10-08): Part 8 below is the plan for Part 7's element-swap
