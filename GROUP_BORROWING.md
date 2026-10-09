@@ -1669,6 +1669,122 @@ should be taken only as a deliberate reversal of the `canbe`-is-visible
 decision — the user's call. **This supersedes 7a–7d's `Region` framing;
 ROADMAP item 15 ("Regions") can be retired rather than built.**
 
+## Part 7f: E2's signature form — `proj(c) Mut` names the shared container, and the runtime answer (user direction, 2026-10-08)
+
+**Status: proposed, this is the concrete form of 7e's E2.** The user's
+form: instead of a `canbe` relation, name the shared container in the
+parameter types —
+
+```
+fn attack(a: proj(c) Mut Entity, b: proj(c) Mut Entity)
+```
+
+— the same way `?cmp` and `(list)` dependent-slot parameters already appear
+in signatures today, with the added meaning that `c` **is passed through on
+the Rust backend** and that the two parameters sharing `c` **may alias each
+other**. This is better than `canbe`: it says *which* container the handles
+share, not merely that two of them might coincide, and the "which
+parameters may alias" fact is read off the shared `c` name rather than a
+separate relation.
+
+### Why this is a reskin of machinery that already lowers correctly
+
+A mutable element handle on Rust is **already** `(container, position)`,
+and two handles into one container passed to one call **already** lower to
+*container once + two positions* ([rs-elem-mut]): `salvo_pair_mut(&mut
+squad[..], __h7, __h8)` for the proven-distinct case, and the anchored-
+`canbe` form renders `f(c: &mut Vec<_>, __c1: usize, __c2: usize)` — the
+container borrowed once, the handles as `usize` positions into it. So
+
+```
+fn attack(a: proj(c) Mut Entity, b: proj(c) Mut Entity)
+```
+
+lowers to exactly
+
+```
+fn attack(c: &mut Vec<Entity>, a_pos: usize, b_pos: usize)
+```
+
+where `a` means `c[a_pos]`, `b` means `c[b_pos]`, and aliasing `a`/`b` is
+the existing `salvo_pair_mut` split (or, when the checker cannot prove them
+distinct, a single `&mut` with two indices — the self-strike-safe case
+`canbe` renders today). **No new runtime mechanism** — `proj(c) Mut` is a
+signature-level spelling of the container-anchor the backend already
+threads for anchored `canbe`. The gain is entirely in the surface: the
+anchor is named in the type, uniformly with `(list)`/`?cmp`, instead of
+living in a `canbe … in …` clause.
+
+### The runtime question answered: `at` is a *construction*-time input, not stored in the handle
+
+The user's precise question — *do we only need `?at` when constructing a
+`proj(c) Mut T`, or must a separate `?at` be passed at `attack` too?* The
+answer is **construction-time only**, and `at` is **not** stored in the
+handle:
+
+- A handle, once it exists, is `(c, position)` where `position` is **owned
+  data** ([rs-loc]: "a locator is owned data, which is what lets it pass
+  through closures"). Re-materializing it is `&mut c[position]` — for a
+  `List` that is `Vec` indexing; it needs **no `at`**. `at`'s only job is to
+  *compute* the `position` from a locator `l` at the mint
+  (`match at(&*c, l) { Some(p) => Some(&mut c[p]), None => None }`), which
+  is the `?Locate`/`?at` idiom already rendered as a locator closure
+  parameter at the mint site.
+- Therefore `attack` **does not** need its own `?at`. It receives `c` (the
+  `&mut` container) and two already-computed positions; it re-materializes
+  by indexing `c` directly. `at` was consumed entirely at the call site
+  that *built* the two handles, before `attack` was called.
+- The one subtlety: for a **custom** container, "re-materialize by indexing
+  `c`" is not `c[position]` syntactically — it is whatever that container's
+  own element access is. So the *position type* must encode enough to
+  re-index the specific container, and the backend needs the container's
+  re-materialization form (its `at`/indexing) available where `attack`'s
+  body dereferences `a`. For `List`/arrays this is built in (`Vec`
+  indexing). For a user container, this is the open question below.
+
+### Open question (for the user): custom-container re-materialization inside the callee
+
+For `List`, `attack`'s body re-materializes `a` as `c[a_pos]` with no help.
+For a **generic or custom** container `C` with a user-defined `at`,
+`attack`'s body cannot know how to turn `(c, position)` back into `&mut
+element` without the container's accessor. Two ways to resolve it, and this
+is the real design fork left:
+
+- **F1 — `proj(c) Mut` is only allowed on *concrete, backend-known
+  containers* (`List`, arrays, `Deque`) in a callee that dereferences the
+  handle.** Then re-materialization is always built-in indexing and no
+  `at` crosses into `attack`. Custom containers get the aliasing benefit
+  only through the generic `update`/`update2`-over-`Locate` transaction
+  shape (the callback receives already-materialized `Mut T` handles, so the
+  caller's `at` did the work). Simpler; covers the motivating examples;
+  custom containers alias via the existing `Locate` transaction rather than
+  via a `proj(c)` signature. **Lean.**
+- **F2 — a `proj(c) Mut` parameter over a generic `C` additionally
+  threads the container's `?at`/`?Locate` into the callee**, so `attack`'s
+  body can re-materialize a generic handle. This is strictly more general
+  (a user-written `attack` over an arbitrary reg-able container) but puts an
+  implicit locator parameter on the signature — the cost `?cmp`/`?at`
+  already pay elsewhere, now on every `proj(c) Mut`-generic function. More
+  machinery, and the implicit `at` is exactly the "separate `?at` passed at
+  `attack`" the user asked whether we need — under F2 we do, under F1 we do
+  not.
+
+### Recommendation
+
+Adopt E2 in the `proj(c) Mut` signature form (7f), with **F1** for v1:
+`proj(c) Mut` names the shared container, lowers to the existing
+container-once-plus-positions anchor, needs no `at` inside the callee for
+the concrete containers, and reuses the anchored-`canbe` backend path
+wholesale — so the build is "accept the signature syntax, resolve `c` to a
+shared-anchor the way the anchored `canbe` already does, and drop the
+`canbe` clause as the way to express it." `at` stays a construction-time
+input at the mint, never stored in the handle, never passed to `attack`.
+F2 (generic custom containers dereferenced inside a callee) is a later
+extension if a real case needs it; it is the only part that would require
+threading `?at` through a `proj(c) Mut` call. This keeps "only `proj Mut`,
+no `Reg`" (7e) and gives E2 a concrete, buildable shape. **The F1/F2 fork
+is the user's to confirm.**
+
 ## Part 8: implementation plan
 
 **Note (2026-10-08): Part 8 below is the plan for Part 7's element-swap
