@@ -1020,7 +1020,128 @@ Field access on `a`/`d` inside `attack` is plain field syntax throughout —
 in the whole example is the ordinary `List::get` at the final `println`,
 unrelated to `Reg`.
 
-## Part 8: implementation plan
+## Part 7a: an open defect in the committed design — double-checkout of one slot (user-found, 2026-10-08)
+
+**Status: open soundness gap in Part 7, needs a design decision before
+Steps 3–7 build on `reg_from`/`unreg_into`.** Found by the user.
+
+### The gap
+
+`reg_from(list, i)` is `reg(replace(list, i, placeholder()))`: it swaps the
+real element *out* of `list[i]` and leaves a `Placeholder<T>` value sitting
+in that slot. The handle it answers captures the real element. Now suppose
+the program checks out the *same slot twice* — not with a statically-equal
+index, but with two **runtime** indices that happen to coincide (a random
+draw, an unknown index, two searches that land on the same element):
+
+```
+region {
+    let ha = reg_from(squad, i)   // squad[i] := placeholder, ha captures the real entity
+    let hb = reg_from(squad, j)   // j == i at runtime: squad[i] is ALREADY the placeholder
+    attack(ha, hb)                // ha and hb do NOT alias — hb is the bogus placeholder
+    unreg_into(squad, i, ha)
+    unreg_into(squad, j, hb)      // writes the placeholder-derived value back over squad[i]
+}
+```
+
+When `j == i`:
+
+- `ha` holds the real entity; `hb` holds a **fabricated placeholder**
+  (`Entity { hp: 0, … }`), not the entity. The two handles name different
+  values — yet the program's intent was two handles to one element, which
+  is *exactly the self-aliasing case* `canbe`/regions exist to serve.
+- Mutations through `ha` and `hb` go to different places; `attack(ha, hb)`
+  silently does the wrong thing.
+- At block close (or the explicit `unreg_into`s), both handles are swapped
+  back into index `i`. One write clobbers the other, and the placeholder's
+  fabricated field values can overwrite the real entity's data.
+
+This is **silent corruption, not a refusal** — the same class of bug as
+finding 1b, reintroduced by the swap mechanism in the very case the feature
+is for.
+
+### Why Part 7's safety argument misses it
+
+Part 7's invalidation bullet says a `reg_from` invalidates "a handle or
+claim that **specifically names the slot that was swapped**," reusing the
+`Idx` growth-preservation rule. That rule is a **compile-time** fact: it
+fires only when the checker can see that two indices denote the same slot
+(a literal `0` twice, or the same variable). The double-checkout gap lives
+precisely where the checker *cannot* see it — two independent runtime
+indices that might be equal. The feature's reason to exist (unknown indices
+that might coincide) is the exact case the static rule cannot cover, so the
+second `reg_from` type-checks and the collision only shows up at runtime,
+as a placeholder.
+
+Generational handles (Part 3, left out of Step 7's v1) do **not** fix this:
+they detect a stale handle into the *group's* storage after a `remove`;
+here both handles are fresh and the defect is in what the second one
+*captured* from the source list — a placeholder, because the slot was
+already emptied.
+
+### Options (for the user to decide)
+
+- **A. Runtime guard in the slot: `replace` into an already-checked-out
+  slot is detected.** Make `reg_from` leave a *distinguished* placeholder
+  (or set an `Option`/tombstone/"on loan" marker on the slot) and have a
+  second `reg_from` on a slot already marked on-loan **fail** rather than
+  swap again. The failure mode has to match the language's existing
+  conventions — most naturally the same `!`/optional discipline (`reg_from`
+  answers an optional, `None` when the slot is already on loan), or a
+  `throw`. Pro: closes the gap for the real (runtime-index) case, cheap
+  (one check per `reg_from`). Con: adds a runtime failure where the model
+  has otherwise kept the question compile-time; needs a decision on *what*
+  the failure is (optional vs. throw vs. panic) and whether an on-loan
+  slot is representable without changing the container's element type (the
+  same `Option<T>`-vs-fabricated-placeholder tension Part 6 already
+  flagged).
+
+- **B. Make the slot *alias* on second checkout instead of re-swapping.**
+  A second `reg_from` of an already-on-loan slot returns a handle into the
+  **same region entry** the first checkout created, rather than minting a
+  fresh one — so `ha` and `hb` genuinely alias, which is the intended
+  semantics. This is the most *correct* answer (it makes the double-
+  checkout behave exactly as `canbe` self-aliasing should) but the most
+  expensive: it requires the slot to remember *which region entry* it was
+  moved into (a back-reference from source slot → region handle), so the
+  second `reg_from` can find and reuse it. That back-reference is new state
+  the current design does not carry, and it has to survive on the source
+  container, not the region.
+
+- **C. Refuse the shape at compile time: forbid two `reg_from`s from one
+  container when the indices are not proven distinct.** Mirror the existing
+  one-handle-at-a-time / `NotEq` discipline: two `reg_from(list, i)` /
+  `reg_from(list, j)` into the same list are refused unless `j is NotEq(i)`
+  proves them apart (distinct slots, so no collision) — the same proof the
+  checker already understands. Pro: no new runtime mechanism, reuses
+  `NotEq`, and it is honest (the model already asks for `NotEq` to put two
+  list handles in one call). Con: it *removes* the headline capability —
+  the whole point was to allow the possibly-coinciding case; option C
+  turns "unknown indices that might coincide" back into "prove them apart
+  first," which is what regions were meant to improve on. It closes the
+  hole by refusing exactly the programs the feature was for.
+
+- **D. Accept the restriction and document it: `reg_from` requires the
+  caller to not double-check-out, undefined/placeholder result if they do.**
+  The do-nothing option, rejected on sight for the same reason 1b was: a
+  silent-wrong-answer is exactly what `[backend-never-wrong]` forbids. Not
+  viable as stated; listed only as the baseline the others must beat.
+
+**Recommendation for discussion: A, with the failure as an optional
+(`reg_from` answers `(Reg T)?`, `None` on an already-on-loan slot), unless
+the self-aliasing-should-just-work intent is strong enough to pay for B.**
+A is the smallest change that satisfies `[backend-never-wrong]` (it turns
+the silent corruption into a visible, handleable `None`), reuses the `!`
+discipline already everywhere in the language, and leaves the common
+single-checkout case untouched and zero-cost. B is the "most right" answer
+and worth it if the double-checkout-aliases-correctly behavior is
+considered essential rather than a corner — but it is materially more
+machinery (source-slot → region-entry back-references) and should be a
+deliberate choice, not a default. C is a clean fallback if neither runtime
+cost is acceptable, at the price of the feature's main selling point. This
+is a language-design call and is left to the user.
+
+
 
 Ordered so each step is independently useful and independently verifiable
 (`cargo build` warning-free, `cargo test`, kotlinc/rustc e2e where

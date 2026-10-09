@@ -1146,6 +1146,17 @@ only `: Iter<self, Char>`; folding its `cmp`/`eq`/`hash`/`to_str` into a
 clause (it has all four) is deferred. Steps 1–2 narrowed nothing else: the
 same-container, self-strike and anchored (`canbe in`) cases are unchanged.
 
+**Open DECISION before Step 3 (user-found, 2026-10-08):** the committed
+`reg_from`/`unreg_into` swap has a double-checkout gap — two `reg_from`s on
+the *same* slot via runtime indices that coincide give the second caller a
+fabricated placeholder, not an alias of the first, and swap-back corrupts
+the real element. Silent-wrong, so `[backend-never-wrong]` forbids leaving
+it. The feature's whole point is possibly-coinciding indices, so the static
+`Idx` invalidation rule cannot cover it. Options A–D are in GROUP_BORROWING.md
+Part 7a (recommendation: A — `reg_from` answers `(Reg T)?`, `None` on an
+already-on-loan slot). Steps 3+ build on `reg_from`, so this needs the user's
+call first.
+
 The committed design in one paragraph: `region { }` is a compiler-intrinsic
 delimiter like `try { }` (innermost-wins, no registering into an outer
 region); `Region` is an ordinary two-member effect (`reg`/`unreg`); `Reg` is
