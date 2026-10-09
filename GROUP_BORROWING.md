@@ -1942,6 +1942,120 @@ genuine confirmation needed: **the terminology** — `ref(c)` vs. keeping
 changes the mechanism. **Region stays retired (item 15); this is its
 replacement, and it needs no scope.**
 
+## Part 7h: how `ref(c, at)` is written, lowered, and spelled — three concrete answers (user questions, 2026-10-08)
+
+**Status: concretization of 7g, grounded in the existing `Locate`/`[rs-loc]`
+machinery.** Three user questions about whether the design is actually
+writable and sane in Rust.
+
+### Q1 — How does a user *write* an `at`?
+
+An `at` is an ordinary function returning a handle derived from the
+container — the pattern `core.list` already ships (`std/core/list.sv:122`,
+`[col-locate]`). Under the `ref` rename, the return qualifier is `ref(c)`
+instead of `proj(c)`:
+
+```
+// list: a position is an index (what std already writes, re-spelled)
+fn at<T>(list: List<Mut T>, index: Int) -> ref(list) Mut T?
+=> list, index {
+    return get(list, index)
+}
+
+// map: a position is a key — this is what closes finding 1a
+fn at<K, V>(m: Map<K, Mut V>, key: K) -> ref(m) Mut V?
+=> m, key {
+    return get(m, key)        // the map's own by-key mutable lookup
+}
+
+// a user struct: a position is a field selector of the user's choosing
+struct Grid<T> canbe Mut { cells: List<Mut T>, width: Int }
+fn at<T>(g: Grid<T>, pos: (Int, Int)) -> ref(g) Mut T?
+=> g, pos {
+    return get(g.cells, pos.0 * g.width + pos.1)
+}
+```
+
+The rules a user follows are the ones `proj`/`ref` already impose, nothing
+new: the result must be *derived from the container parameter* (checked —
+`[proj-infer]`'s "must derive from a named source"), and the locator type
+`L` is whatever the container indexes by (`Int`, a key, a tuple). A
+container is "handle-able" exactly when such an `at` is in scope for it,
+the same way a type is comparable when `cmp` is in scope — and `at` can be
+the canonical member of the `Locate` group so `?at`/`?Locate` resolves it
+by name for generic algorithms (`[implicit-resolve]`). **The user writes
+one ordinary function; there is no region, no handle type to construct, no
+lifetime to name.**
+
+### Q2 — What does a handle look like in Rust? Does it hold a closure?
+
+**No — a bound handle is a plain position; the handle does not carry a
+closure.** This is already true today and does not change. From `[rs-loc]`:
+
+- A **bound** handle is a `usize` (or the container's position type), and
+  every use re-materializes by indexing the live container:
+  `let __h2: usize = …; squad[__h2].hp = …`. No closure, no stored
+  accessor, no lifetime — just position data, which is why it survives
+  reads of the container (where a bound `&mut` would be E0502).
+- `at` appears only **transiently at the mint**, to turn a locator into
+  that position: `match at(&*squad, l) { Some(__l1) => Some(&mut squad[__l1]) }`.
+  Afterward only the `usize` remains.
+- Re-materialization for `List` is `squad[pos]` — the **container's type**
+  supplies the indexing, so no `at` is stored. For a **generic** `C`,
+  re-materialization is `C::at(c, pos)` — `at` is resolved from the *type*
+  per use (`[implicit-resolve]`, a static call, "nothing materialized"),
+  exactly as `cmp`/`eq` resolve for a generic. **Still not stored in the
+  handle** — it is a statically-known function applied at each use, not a
+  value carried around.
+- A closure (`&mut dyn FnMut(&C, &L) -> Option<pos>`) appears **only** when
+  `at` must cross a *type-erased* boundary — a `?at` passed into a generic
+  algorithm that does not know `C` concretely — and even there it is a
+  **parameter at the boundary**, not a field of a persistent handle. This
+  is the existing `?Locate` rendering (`&mut |c, k| …get_platform__loc(c, k)`),
+  unchanged.
+
+So the Rust handle is: **`(container-in-scope, position)`**, with
+re-materialization being container indexing (concrete) or a static `at`
+call (generic), and a closure only at an erased `?at` boundary. The
+"`ref(c, at)`" notation is about *which `at` the checker threads*, not about
+stuffing a closure into every handle. The common case (concrete container,
+bound handle) is a bare `usize`, zero overhead — identical to today.
+
+### Q3 — Does `ref(c)` include `?at` as a named function, or is it hidden?
+
+**Hidden by default; nameable only when the user needs a non-canonical
+accessor** — the `?cmp`/`Ordered` precedent exactly:
+
+- The common spelling is just `ref(c) Mut T`, with **no `at` written**. The
+  checker resolves `at` for `c`'s container type by name, the way `${p}`
+  resolves `to_str` or `a < b` resolves `cmp` — the accessor is implicit,
+  so `fn attack(a: ref(c) Mut Entity, b: ref(c) Mut Entity)` mentions no
+  `at` at all.
+- `at` becomes *visible* only in the two places implicits already surface:
+  (a) a **generic** algorithm over an arbitrary handle-able container
+  carries it as `?Locate<C, L, T>` / `?at` in its signature (the caller's
+  resolution fills it), the same `?cmp` rides on; (b) a container with
+  **more than one** sensible accessor, or a caller that wants a specific
+  one, names it with the selector syntax (`by`/`@`), as orderings do
+  (`SortedSet<Str>(by_len)`).
+- So `ref(c, at)` as *written in 7g* is the **internal** form — "a handle
+  into `c` whose accessor is `at`"; the **surface** is `ref(c) Mut T` and
+  the `at` is inferred, exactly as `Idx(list)` carries a `size` implicit
+  the user never writes. The user sees `ref(c)`; the checker tracks the
+  `at`.
+
+### Consequence for the plan
+
+These three answers confirm v1a/v1b need **no** handle-representation change
+(bound handles stay `usize`, `at` stays implicit and canonical for `List`),
+and v2's only new work is: thread a resolved `at` into the generic
+re-materialization site (the static-call case) and extend the existing
+`?at`-closure boundary rendering to the `ref(c)` consumer position. No
+handle grows a stored closure in any case; the generic case adds a static
+`at` call per use, the erased case reuses the closure-parameter rendering
+that already exists. **Writable (Q1: an ordinary function), cheap (Q2: a
+position, not a closure), and quiet (Q3: `at` inferred like `cmp`).**
+
 ## Part 8: implementation plan
 
 **Note (2026-10-08): Part 8 below is the plan for Part 7's element-swap
