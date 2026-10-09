@@ -942,18 +942,22 @@ Three jobs a scope might be thought to own, each already covered:
 Region was load-bearing only for swap reconciliation, which this design does
 not do. So the whole `region`/`Reg`/effect apparatus is unnecessary.
 
-### Open decisions (user's call; none blocks the consolidation)
+### Settled decisions (user, 2026-10-08)
 
-- **Terminology:** `ref(c)` vs. keeping `proj(c)` for the provenance split
-  (`ref` is the working choice).
-- **`canbe`'s fate:** retire it in favor of `ref(c)` signatures (a sweep, per
-  the no-compat invariant — the footprint is small: `examples/borrowing/`, a
-  few codegen tests, the `Mutable-Handles.md`/`LANGUAGE_SPEC.md` prose) or
-  keep it beside `ref(c)`. **One thing to verify before retiring:** `ref(c)`
-  must subsume the anchored form `canbe in squad.members` ("handles passed
-  beside their own container"), or retiring would drop a capability rather
-  than rename one. Recommendation: retire, contingent on that check.
-- **`Locate` → `Ref` group rename:** fold into v1a (pure vocabulary).
+- **Terminology:** `ref(c)` replaces `proj Mut` for a mutable element
+  handle. **Plain read-only `proj` stays** exactly as it is (an owned
+  view's borrow, `[proj-readonly]`) — `ref(c)` is only the
+  element-handle-into-a-named-container case. So the split is `proj`
+  (read-only borrow of a view) vs. `ref(c)` (handle into container `c`,
+  mutable when it carries `Mut`).
+- **`canbe` is retired**, replaced by `ref(c)` signatures. The anchored
+  `canbe in squad.members` form is subsumed — and is in fact the *natural*
+  case: the container is a parameter the callee holds, so it is named
+  directly, `fn something<T>(c: List<Mut T>, a: ref(c) Mut T)`, no more
+  exotic than writing `let a = c.at(20)` in that scope. So retiring drops
+  no capability; the sweep rewrites `examples/borrowing/`, the `canbe`
+  codegen tests, and the `Mutable-Handles.md`/`LANGUAGE_SPEC.md` prose.
+- **`Locate` → `Ref` group rename:** folded into v1a (pure vocabulary).
 
 ### Superseded approaches, and why (kept for the reasoning, not the design)
 
