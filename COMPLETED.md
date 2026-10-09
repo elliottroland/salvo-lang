@@ -209,6 +209,14 @@ Remaining (not yet done — see ROADMAP item 15 / GROUP_BORROWING Part 8):
     `ref` fate-link to the container. This is the next concrete blocker for
     v2; find where a bound mutable-element mint is recognized (fate-link
     establishment + the temporary-view exemption) and extend it to `ref`.
+    **Precise mechanism (2026-10-08):** the error is `reject_temp_view`
+    (check.rs ~10869), gated by `self.out.temp_views` (populated ~28783/28893
+    from `proj_refs(rt)` sources + `is_temporary` ~10843). `is_temporary(squad)`
+    for a plain local ident ought to be false (idents have provenance), so
+    trace why `at(squad,0)` lands in `temp_views` — compare how a bound
+    `get(squad,i)!` `proj Mut` handle got its position/fate (pre-rework) vs.
+    how the `ref`-returning `at(...)!` does now; start at the call-binding
+    path for a `ref`-returning fn and the `handle_muts`/`loc_of` recognition.
 - **examples**: rewrite `examples/borrowing` (`canbe`→`ref(c)` signatures,
   mutating `get`→`at`), regenerate the IR golden and the rust/kotlin output.
 - **spec/docs**: LANGUAGE_SPEC `[canbe-entry]` removed, `[proj-mut]`→
