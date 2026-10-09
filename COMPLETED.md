@@ -183,6 +183,32 @@ Remaining (not yet done — see ROADMAP item 15 / GROUP_BORROWING Part 8):
 - **v2**: `at`'s `ref` mint rendered end-to-end on both backends (the locator
   path exists; `at` must feed it); then maps get a by-key `at` (closes
   finding 1a).
+  - **Key finding (2026-10-08):** `at` is an ordinary Salvo fn, NOT a platform
+    fn — its `__loc` locator variant (`at`/`at__loc` in the generated ABI
+    `std/platform/core/list.sv.rs`) is auto-derived by `mut_lends.rs` from its
+    body, which is `return get(list, index)`. The one blocker is a **type**
+    mismatch: `at` now declares `-> ref(list) Mut T?` but its body returns
+    `get(...)` which is `proj(list) Mut T?` (the `expected ref Mut T?, found
+    proj Mut T?` error). Resolve by either (a) a checker rule that a
+    `ref`-returning accessor minting from a projection of its container is the
+    handle mint (the `proj→ref` promotion at the designated locator), or (b) a
+    `ref`-minting primitive the body calls. (a) is lighter and matches "at is
+    the canonical mint". The backend `__loc` derivation already reads the
+    `get` call structurally and does not care about the proj/ref distinction,
+    so no backend change is expected for lists once the checker accepts the
+    body — verify by compiling a `let a = at(xs, i)!; a.hp = …` program on
+    rustc/kotlinc.
+  - **Landed 2026-10-08:** the `proj → ref` return promotion (check.rs
+    ~22491, the `ref_mint` condition) accepts `at`'s body. **Still open:** the
+    checker's *binding* path treats a bound `ref` mint as a "view of a
+    temporary" (`[proj-anywhere]`): `let a = at(squad, 0)!` errors with
+    "cannot bind a view of a temporary". The old `proj Mut` mint had
+    handle-binding/fate-link handling that recognized `get(squad,i)!` as a
+    position into `squad`; the `ref` mint needs the same — somewhere the
+    bind/fate path still keys on `proj`-specifically or does not establish the
+    `ref` fate-link to the container. This is the next concrete blocker for
+    v2; find where a bound mutable-element mint is recognized (fate-link
+    establishment + the temporary-view exemption) and extend it to `ref`.
 - **examples**: rewrite `examples/borrowing` (`canbe`→`ref(c)` signatures,
   mutating `get`→`at`), regenerate the IR golden and the rust/kotlin output.
 - **spec/docs**: LANGUAGE_SPEC `[canbe-entry]` removed, `[proj-mut]`→

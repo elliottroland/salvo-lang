@@ -22485,7 +22485,22 @@ impl<'p, 'r> Checker<'p, 'r> {
                             self.check_expr(v, Some(&expected))
                         };
                         self.lending_ctor = saved_lending;
-                        if iter_pattern.is_none() && !is_subtype(&vty, &expected) {
+                        // [ref-handle] The mint: a function declared to
+                        // return a `ref` handle, whose body returns a
+                        // projection of the same container (`at`'s `return
+                        // get(list, index)`), is minting the handle — accept
+                        // the `proj → ref` promotion at the designated
+                        // locator. A plain `proj` body for a `proj` return is
+                        // unaffected; only a `ref` *return type* promotes.
+                        let ref_mint = iter_pattern.is_none()
+                            && expected.is_ref()
+                            && vty.is_proj()
+                            && !vty.is_ref()
+                            && is_subtype(
+                                &vty.clone().remove_quals(&crate::types::proj_names()),
+                                &expected.clone().remove_quals(&crate::types::proj_names()),
+                            );
+                        if iter_pattern.is_none() && !ref_mint && !is_subtype(&vty, &expected) {
                             self.error(
                                 v.span(),
                                 format!("expected return type `{expected}`, found `{vty}`"),
