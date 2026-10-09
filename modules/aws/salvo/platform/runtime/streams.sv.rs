@@ -419,7 +419,7 @@ impl crate::runtime_streams::__Stateful_StreamTable for Streams {
             if !((i < crate::core_list::size_platform::<crate::runtime_streams::Pending>(&self.pending))) {
                 break;
             };
-            if (({
+            if ({
                 let mut __proj_3: &crate::runtime_streams::Pending = {
                     let mut __nn_1: Option<&crate::runtime_streams::Pending> = crate::core_list::get_platform::<crate::runtime_streams::Pending>(&self.pending, i);
                     if __nn_1.is_none() {
@@ -430,7 +430,7 @@ impl crate::runtime_streams::__Stateful_StreamTable for Streams {
                     }
                 };
                 __proj_3.handle
-            }) == (handle)) {
+            } == handle) {
                 return crate::core_list::remove_at_platform::<crate::runtime_streams::Pending>(&mut self.pending, i);
             };
             i = i32::wrapping_add(i, 1i32);
@@ -445,7 +445,7 @@ pub fn index_in(keys: &Vec<i64>, mut handle: i64) -> i32 {
         if !((i < crate::core_list::size_platform::<i64>(keys))) {
             break;
         };
-        if (({
+        if ({
             let mut __nn_1: Option<i64> = crate::core_list::get_platform::<i64>(keys, i).copied();
             if __nn_1.is_none() {
                 panic!("salvo: value is absent at runtime.streams:207:12");
@@ -453,7 +453,7 @@ pub fn index_in(keys: &Vec<i64>, mut handle: i64) -> i32 {
                 let mut __some_2 = __nn_1.unwrap();
                 __some_2
             }
-        }) == (handle)) {
+        } == handle) {
             return i;
         };
         i = i32::wrapping_add(i, 1i32);
@@ -651,7 +651,7 @@ pub fn read_line(e: &mut crate::runtime_streams::InEntry) -> crate::runtime_stre
             let mut i = at.unwrap();
             let mut line: crate::core_bytes::Bytes = crate::runtime_streams::take_ahead(&mut *e, i32::wrapping_add(i, 1i32));
             let mut n: i32 = i32::wrapping_sub(crate::core_bytes::size_platform(&line), 1i32);
-            if ((n > 0i32) && (((({
+            if ((n > 0i32) && ((({
                 let mut __nn_1: Option<u8> = crate::core_bytes::get_platform(&line, i32::wrapping_sub(n, 1i32));
                 if __nn_1.is_none() {
                     panic!("salvo: value is absent at runtime.streams:362:32");
@@ -659,7 +659,7 @@ pub fn read_line(e: &mut crate::runtime_streams::InEntry) -> crate::runtime_stre
                     let mut __some_2 = __nn_1.unwrap();
                     __some_2
                 }
-            }) as i32)) == (13i32))) {
+            }) as i32) == 13i32)) {
                 n = i32::wrapping_sub(n, 1i32);
             };
             return crate::runtime_streams::Read { data: {
@@ -677,8 +677,8 @@ pub fn read_line(e: &mut crate::runtime_streams::InEntry) -> crate::runtime_stre
             let mut message = got.error.as_ref().unwrap();
             return crate::runtime_streams::Read { data: crate::core_bytes::bytes_of(vec![]), end: true, fault: Some(crate::runtime_streams::record(&mut *e, (message).clone())) };
         };
-        if ((crate::core_bytes::size_platform(&got.data)) == (0i32)) {
-            if ((crate::core_bytes::size_platform(&e.ahead)) == (0i32)) {
+        if (crate::core_bytes::size_platform(&got.data) == 0i32) {
+            if (crate::core_bytes::size_platform(&e.ahead) == 0i32) {
                 return crate::runtime_streams::Read { data: crate::core_bytes::bytes_of(vec![]), end: true, fault: None };
             };
             let mut rest: crate::core_bytes::Bytes = { let __arg1 = crate::core_bytes::size_platform(&e.ahead); crate::runtime_streams::take_ahead(&mut *e, __arg1) };
@@ -704,7 +704,7 @@ pub fn read_all(e: &mut crate::runtime_streams::InEntry) -> crate::runtime_strea
             let mut message = got.error.as_ref().unwrap();
             return crate::runtime_streams::Read { data: crate::core_bytes::bytes_of(vec![]), end: true, fault: Some(crate::runtime_streams::record(&mut *e, (message).clone())) };
         };
-        if ((crate::core_bytes::size_platform(&got.data)) == (0i32)) {
+        if (crate::core_bytes::size_platform(&got.data) == 0i32) {
             return crate::runtime_streams::Read { data: (out).clone(), end: true, fault: None };
         };
         e.position = i64::wrapping_add(e.position, ((crate::core_bytes::size_platform(&got.data)) as i64));
@@ -734,7 +734,7 @@ pub fn read_up_to(e: &mut crate::runtime_streams::InEntry, mut max: i32) -> crat
         return crate::runtime_streams::Read { data: crate::core_bytes::bytes_of(vec![]), end: true, fault: Some(crate::runtime_streams::record(&mut *e, (message).clone())) };
     };
     e.position = i64::wrapping_add(e.position, ((crate::core_bytes::size_platform(&got.data)) as i64));
-    return crate::runtime_streams::Read { data: (got.data).clone(), end: ((crate::core_bytes::size_platform(&got.data)) == (0i32)), fault: None };
+    return crate::runtime_streams::Read { data: (got.data).clone(), end: (crate::core_bytes::size_platform(&got.data) == 0i32), fault: None };
 }
 
 pub fn decode(e: &mut crate::runtime_streams::InEntry, data: &crate::core_bytes::Bytes) -> Option<String> {

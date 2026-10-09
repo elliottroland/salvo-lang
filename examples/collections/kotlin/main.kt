@@ -154,11 +154,11 @@ fun main() {
 
 fun cmp(a: Point, b: Point): Int {
     val c__c1: Int = (a.x).compareTo(b.x)
-    if (!(((c__c1) == (0)))) {
+    if ((c__c1 != 0)) {
         return c__c1
     }
     val c__c2: Int = (a.y).compareTo(b.y)
-    if (!(((c__c2) == (0)))) {
+    if ((c__c2 != 0)) {
         return c__c2
     }
     return 0

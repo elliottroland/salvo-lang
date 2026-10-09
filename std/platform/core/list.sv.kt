@@ -128,7 +128,7 @@ fun<T> last(list: List<T>): T? {
 }
 
 fun<T> isEmpty(list: List<T>): Boolean {
-    return ((sizePlatform(list)) == (0))
+    return (sizePlatform(list) == 0)
 }
 
 fun<T> removeFront(list: salvo.platform.core.list.MutList<T>, n: Int): salvo.platform.core.list.MutList<T> {

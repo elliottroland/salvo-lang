@@ -32,7 +32,7 @@ fn main::countdown(moved from: Int) -> Mut Countdown {
 }
 
 fn main::next(Mut Countdown)(lent_mut p: Mut Countdown) -> Int | Finished {
-  branch#1 cond#0 op LtEq(call core.compare::cmp(Int, Int)(read p.at, 0), 0) {
+  branch#1 cond#0 op LtEq(read p.at, 0) {
     return make_union[Int | Finished]#1(call core.iterator::finished())
   }
   bind#2 let now: Int = call core.basic::copy<Int>(read p.at)
@@ -41,7 +41,7 @@ fn main::next(Mut Countdown)(lent_mut p: Mut Countdown) -> Int | Finished {
 }
 
 fn main::skip(lent_mut p: Mut Countdown) -> Int | Finished {
-  branch#1 cond#0 op LtEq(call core.compare::cmp(Int, Int)(read p.at, 1), 0) {
+  branch#1 cond#0 op LtEq(read p.at, 1) {
     return make_union[Int | Finished]#1(call core.iterator::finished())
   }
   bind#2 let now: Int = call core.basic::copy<Int>(read p.at)
@@ -59,7 +59,7 @@ fn main::take(lent console: Console; lent_mut p: Mut Countdown, lent count: Int)
         bind#6 let n: Int = !read __emitted~3
         call core.console::println(read console, concat("2. got ", call core.basic::to_str(Int)(read n)))
         assign seen = op Add(read seen, 1)
-        branch#7 cond#0 call core.compare::eq(Int, Int)(read seen, read count) {
+        branch#7 cond#0 op Eq(read seen, read count) {
           break
         }
       }
@@ -80,7 +80,7 @@ fn main::halving(moved start: Int) -> Mut __Iter_halving_Int {
 }
 
 fn main::next(Mut __Iter_halving_Int)(lent_mut __p: Mut __Iter_halving_Int) -> Int | Finished {
-  branch#1 cond#0 op LtEq(call core.compare::cmp(Int, Int)(read __p.at, 0), 0) {
+  branch#1 cond#0 op LtEq(read __p.at, 0) {
     return make_union[Int | Finished]#1(call core.iterator::finished())
   }
   bind#2 let now: Int = call core.basic::copy<Int>(read __p.at)
@@ -127,7 +127,7 @@ fn main::fibs(moved count: Int) -> Mut __Iter_fibs_Int {
 }
 
 fn main::next(Mut __Iter_fibs_Int)(lent console: Console; lent_mut __p: Mut __Iter_fibs_Int) -> Int | Finished {
-  branch#1 cond#0 op GtEq(call core.compare::cmp(Int, Int)(read __p.made, read __p.count), 0) {
+  branch#1 cond#0 op GtEq(read __p.made, read __p.count) {
     call core.console::println(read console, "3. finished")
     return make_union[Int | Finished]#1(call core.iterator::finished())
   }
@@ -284,7 +284,7 @@ fn main::main() -> None {
       arm#0 (arm 0) {
         narrow#35[switch#34.arm#0] __emitted~17: Int = __step~16
         bind#36 let n: Int = !read __emitted~17
-        branch#37 cond#0 op Gt(call core.compare::cmp(Int, Int)(read n, 12), 0) {
+        branch#37 cond#0 op Gt(read n, 12) {
           break
         }
         call core.console::println(read __handle~2, concat("3. natural ", call core.basic::to_str(Int)(read n)))
@@ -298,7 +298,7 @@ fn main::main() -> None {
     value op Mul(read n, 2)
   })
   bind#39 let odd: Mut List<Int> = call core.seq::filter(List<T>, (T) -> Bool)<Int>(read xs, lambda(lent n: Int) -> Bool {
-    value call core.compare::eq(Int, Int)(op Rem(read n, 2), 1)
+    value op Eq(op Rem(read n, 2), 1)
   })
   bind#40 let total: Int = call core.seq::reduce(List<T>, A, (A, T) -> A)<Int, Int>(read xs, 0, lambda(lent acc: Int, lent n: Int) -> Int {
     value op Add(read acc, read n)
@@ -313,7 +313,7 @@ fn main::main() -> None {
   }, fn core.list::next(Mut ListYield<T>)))))
   bind#43 let word: Str = "iteration"
   bind#44 let vowels: Mut List<Char> = call core.seq::filter(Mut It, (T) -> Bool)<StrYield, Char>(call core.string::iter(read word), lambda(lent c: Char) -> Bool {
-    value op Or(call core.compare::eq(Char, Char)(read c, 'i'), call core.compare::eq(Char, Char)(read c, 'o'))
+    value op Or(op Eq(read c, 'i'), op Eq(read c, 'o'))
   }, fn core.string::next)
   call core.console::println(read __handle~2, concat("5. vowels: ", call core.basic::to_str(Int)(call core.list::size<Char>(drop_mut(read vowels)))))
   call core.console::println(read __handle~2, concat("5. halving total ", call core.basic::to_str(Int)(call core.seq::reduce(Mut It, A, (A, T) -> A)<__Iter_halving_Int, Int, Int>(call main::halving(20), 0, lambda(lent acc: Int, lent n: Int) -> Int {

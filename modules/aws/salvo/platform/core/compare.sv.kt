@@ -8,7 +8,7 @@ import salvo.*
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun<T> eq__List_List(a: List<T>, b: List<T>, eq: (T, T) -> Boolean): Boolean {
-    if (!(((salvo.core.list.sizePlatform(a)) == (salvo.core.list.sizePlatform(b))))) {
+    if ((salvo.core.list.sizePlatform(a) != salvo.core.list.sizePlatform(b))) {
         return false
     }
     val __pass_1: salvo.core.list.__Iter_enumerate_List<T> = salvo.core.list.enumerate(a)
@@ -45,7 +45,7 @@ fun<T> cmp__List_List(a: List<T>, b: List<T>, cmp: (T, T) -> Int): Int {
                 val j: Int = p.index
                 if (salvo.core.index.Idx_qualifies(j, b, { __a0 -> salvo.core.list.sizePlatform(__a0) })) {
                     val c: Int = cmp(p.elem, salvo.core.list.get(b, j))
-                    if (!(((c) == (0)))) {
+                    if ((c != 0)) {
                         return c
                     }
                 } else {
@@ -77,7 +77,7 @@ fun<A, B> eq__TupleAB_TupleAB(a: Pair<A, B>, b: Pair<A, B>, eq: (A, A) -> Boolea
 
 fun<A, B> cmp__TupleAB_TupleAB(a: Pair<A, B>, b: Pair<A, B>, cmp: (A, A) -> Int, cmp__1: (B, B) -> Int): Int {
     val c: Int = cmp(a.first, b.first)
-    if (!(((c) == (0)))) {
+    if ((c != 0)) {
         return c
     }
     return cmp__1(a.second, b.second)
@@ -93,11 +93,11 @@ fun<A, B, C> eq__TupleABC_TupleABC(a: Triple<A, B, C>, b: Triple<A, B, C>, eq: (
 
 fun<A, B, C> cmp__TupleABC_TupleABC(a: Triple<A, B, C>, b: Triple<A, B, C>, cmp: (A, A) -> Int, cmp__1: (B, B) -> Int, cmp__2: (C, C) -> Int): Int {
     val c: Int = cmp(a.first, b.first)
-    if (!(((c) == (0)))) {
+    if ((c != 0)) {
         return c
     }
     val d: Int = cmp__1(a.second, b.second)
-    if (!(((d) == (0)))) {
+    if ((d != 0)) {
         return d
     }
     return cmp__2(a.third, b.third)

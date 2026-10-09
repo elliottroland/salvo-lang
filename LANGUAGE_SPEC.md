@@ -26,11 +26,18 @@ Conventions:
 
 ## Types
 
-* [type-basic] Basic types: `Byte`, `Int`, `Long`, `Float`, `Double`,
-  `Bool`, `Char`, `None` (unit/no-value singleton), `Str`, `Bytes`.
-  * Declared as `intrinsic type` in `std/core/basic.sv` /
-    `std/core/string.sv` / `std/core/bytes.sv`; each backend maps them
-    natively.
+* [type-basic] **The basic types** are the scalars `Byte`, `Int`, `Long`,
+  `Float`, `Double`, `Bool` and `Char`: the `intrinsic type`s of
+  `std/core/basic.sv` (user decision 2026-10-06; `salvo_core::types::BASIC_TYPES`).
+  Every operator the checker allows on a basic type is the host's own, and the
+  IR writes it as an operator [ir-op]; their `cmp`/`eq` exist to be passed as
+  values to generic code [implicit-forward].
+  * **`Str` is not a basic type** (nor `Bytes`, nor `None`): `Str` is a
+    `platform type` of `std/core/string.sv`, `Bytes` one of
+    `std/core/bytes.sv`, and `None` the unit. Every operation on one of
+    them is a call of the function it resolves to — intrinsic or not, which
+    is the backend's business — never an operator in the IR.
+  * Each backend maps all of them natively.
 * [byte-value] A `Byte` is an **unsigned octet** (0..255) on every backend:
   `u8` on Rust, `UByte` on Kotlin ([kt-byte-unsigned]) — *not* the JVM's
   signed `Byte`, which would render the same octet as `-1` where Rust
@@ -2064,9 +2071,10 @@ Conventions:
 * [op-order] **Ordering is `cmp`**: `a < b` is `cmp(a, b) < 0`, and likewise
   for `<=`, `>` and `>=` (user decision 2026-09-21, superseding the
   2026-09-14 surface). So ordering works wherever a `cmp` is in scope:
-  * **Numeric operands keep the native fast path**, widened per [op-promote] —
-    the canonical implementation for a primitive *is* the host's operator, so
-    emitting the operator is emitting the implementation. `Double` is orderable
+  * **Basic types [type-basic] use the host's operator**, widened per
+    [op-promote] — the canonical implementation for a scalar *is* the host's
+    operator, so `cmp(Int, Int)` is a wrapper around `<` for passing to
+    generic code, and an ordering of two basic values never calls it. `Double` is orderable
     at the operator (both backends agree on IEEE partial comparison, `NaN`
     answering `false`) while a *sorted container* of them stays refused (no
     total order) — the same deliberate difference as before, now expressed as
@@ -2087,11 +2095,11 @@ Conventions:
   negation, resolved exactly as ordering resolves `cmp` (user decision
   2026-09-21). Equality is therefore **opt-in** for a type of your own
   [col-equality].
-  * **The intrinsic types keep the native operator**: `eq(Int, Int)`,
-    `eq(Str, Str)` and their siblings *are* `==` on both hosts, so resolving
-    them would buy nothing and cost every comparison an indirection. Ordering
-    is deliberately not on that path, because `Str` must compare by code point
-    where the JVM's `<` compares code units [kt-ordered].
+  * **Basic types [type-basic] use the host's `==`**, as ordering does.
+    `Str` is not basic: `a == b` on it is the call of `eq(Str, Str)`, an
+    intrinsic each backend renders as its host's string equality, and `a < b`
+    the call of `cmp(Str, Str)`, which must compare by code point where the
+    JVM's `<` compares code units [kt-ordered].
   * A **possibly-absent** operand is still refused [op-no-none], and numeric
     widths still mix [op-promote].
   * The checker records which function each comparison resolved to, and both
@@ -9414,10 +9422,13 @@ replaced the working document TESTING.md).
 * [ir-read] A read of a place carries `consume`: the value's life ends here.
   The IR marks consumption, never duplication; a backend with ownership
   copies a non-consuming read of a value it only borrows.
-* [ir-op] `Op` is limited to scalar arithmetic and logic the language
-  defines as primitive, and to the sign test of a `cmp` result. A comparison
-  is a call to the resolved `cmp`/`eq`; on an intrinsic the backend
-  reconstructs the native operator.
+* [ir-op] `Op` is the host's operator on basic types [type-basic]:
+  arithmetic, logic, ordering (`Lt`, `Gt`, `LtEq`, `GtEq`) and equality
+  (`Eq`, `NotEq`). An operator on any other type is a `Call` of the
+  `cmp`/`eq` the checker resolved (a declared one, an intrinsic such as
+  `cmp(Str, Str)`, or a forwarded implicit), and an ordering is the sign test
+  of that call's `Int` against 0 — itself an `Op` on `Int`. No backend
+  reconstructs an operator from a call (user decision 2026-10-06).
 * [ir-branch] `Branch` is the subjectless choice: ordered conditions and an
   optional else. `if`/`elif`/`else` and a subjectless `when` lower to it.
 * [ir-switch] `Switch` chooses on the arms of a subject union; each arm

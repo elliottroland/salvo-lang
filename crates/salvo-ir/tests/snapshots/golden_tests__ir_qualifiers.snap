@@ -5,7 +5,7 @@ expression: text
 module main
 
 qualifies fn main::NonEmpty.qualifies<T>(lent list: List<T>) -> Bool {
-  return op Gt(call core.compare::cmp(Int, Int)(call core.list::size<T>(read list), 0), 0)
+  return op Gt(call core.list::size<T>(read list), 0)
 }
 
 fn main::head(lent list: List<Int>) -> Int {

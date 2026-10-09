@@ -180,7 +180,7 @@ pub fn last<T>(list: &Vec<T>) -> Option<&T> {
 }
 
 pub fn is_empty<T>(list: &Vec<T>) -> bool {
-    return ((crate::core_list::size_platform::<T>(list)) == (0i32));
+    return (crate::core_list::size_platform::<T>(list) == 0i32);
 }
 
 pub fn remove_front<T>(list: &mut Vec<T>, mut n: i32) -> Vec<T> {

@@ -139,7 +139,7 @@ pub fn to_str<K: Clone, V: Clone>(map: &crate::core_map::Map<K, V>, to_str: &mut
 }
 
 pub fn eq<K: Clone, V: Clone>(a: &crate::core_map::Map<K, V>, b: &crate::core_map::Map<K, V>, eq: &mut dyn FnMut(&V, &V) -> bool, hash: &mut dyn FnMut(&K) -> i64, eq__1: &mut dyn FnMut(&K, &K) -> bool) -> bool {
-    if !(((crate::core_map::size_platform::<K, V>(a)) == (crate::core_map::size_platform::<K, V>(b)))) {
+    if (crate::core_map::size_platform::<K, V>(a) != crate::core_map::size_platform::<K, V>(b)) {
         return false;
     };
     for mut k in crate::platform_core_map::each(a).map(|__x| __x.clone()) {

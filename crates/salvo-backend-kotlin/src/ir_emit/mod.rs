@@ -1158,13 +1158,6 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 let a = self.exprs(args, indent);
                 format!("{inst}.{name}({})", a.join(", "))
             }
-            ExprKind::Op { op: op @ (Op::Lt | Op::Gt | Op::LtEq | Op::GtEq), args } if self.is_primitive_cmp_sign_test(args) => {
-                // The sign test of a primitive `cmp` is the primitive operator.
-                let (ExprKind::Call { args: inner, .. }, _) = (&args[0].kind, ()) else { unreachable!() };
-                let a = self.exprs(inner, indent);
-                let sym = match op { Op::Lt => "<", Op::Gt => ">", Op::LtEq => "<=", _ => ">=" };
-                format!("({} {sym} {})", a[0], a[1])
-            }
             ExprKind::Op { op, args } => {
                 let a = self.exprs(args, indent);
                 match op {
@@ -1181,6 +1174,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     Op::Gt => format!("({} > {})", a[0], a[1]),
                     Op::LtEq => format!("({} <= {})", a[0], a[1]),
                     Op::GtEq => format!("({} >= {})", a[0], a[1]),
+                    Op::Eq => format!("({} == {})", a[0], a[1]),
+                    Op::NotEq => format!("({} != {})", a[0], a[1]),
                 }
             }
             ExprKind::Construct { fields } => {
@@ -1718,20 +1713,6 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
 
     /// Whether `args` is `cmp(a, b)` on a primitive, against `0`: the shape
     /// a comparison operator lowered to.
-    fn is_primitive_cmp_sign_test(&self, args: &[Expr]) -> bool {
-        let [call, zero] = args else { return false };
-        if !matches!(zero.kind, ExprKind::Int(0)) {
-            return false;
-        }
-        let ExprKind::Call { target: FnRef::Decl(id), args: inner, .. } = &call.kind else { return false };
-        if inner.len() != 2 {
-            return false;
-        }
-        let file_idx = self.s.program.files.iter().position(|f| f.module == id.module);
-        let is_cmp = file_idx.and_then(|fi| self.s.program.modules[fi].items.get(id.item)).is_some_and(|i| matches!(i, salvo_syntax::ast::Item::Fn(f) if f.intrinsic && f.name.name == "cmp"));
-        is_cmp && matches!(inner[0].ty.strip_quals(), Ty::Named { name, .. } if matches!(name.as_str(), "Int" | "Long" | "Byte" | "Char" | "Double" | "Float"))
-    }
-
     fn render_copy(&mut self, plan: &salvo_core::copyplan::CopyPlan, code: &str) -> String {
         use salvo_core::copyplan::CopyPlan;
         match plan {

@@ -26,7 +26,7 @@ fun range__Int_Int_Int(start: Int, end: Int, step: Int): __Iter_range_Int_Int_In
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun next(__p: __Iter_range_Int_Int_Int): Union2<Int, salvo.core.iterator.Finished> {
     val next: Int = __p.i
-    return (if (((__p.step) == (0))) {
+    return (if ((__p.step == 0)) {
         Union2.U1<salvo.core.iterator.Finished, Int>(salvo.core.iterator.finished())
     } else if (((__p.step > 0) && (__p.i >= __p.end))) {
         Union2.U1<salvo.core.iterator.Finished, Int>(salvo.core.iterator.finished())

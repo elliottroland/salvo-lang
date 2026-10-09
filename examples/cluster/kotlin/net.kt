@@ -1200,7 +1200,7 @@ fun routeKeyed(routeSelector: RouteSelector, group: Int, config: RouteConfig, se
         }
         val version: Long = viewVersion(group)
         val view: RouteView = routeView(group)
-        if (!(((version) == (last)))) {
+        if ((version != last)) {
             routeSelector.changed(view)
             last = version
         }
@@ -1276,7 +1276,7 @@ class Sharded : RouteSelector {
     }
     override fun select(view: RouteView, key: Long?): Int? {
         val n: Int = salvo.core.list.sizePlatform(view.members)
-        if (((n) == (0))) {
+        if ((n == 0)) {
             return null
         }
         val k: Long = run {
@@ -1545,11 +1545,11 @@ fun cutKey(a: NodeEndpoint, b: NodeEndpoint): String {
 
 fun cmp(a: NodeEndpoint, b: NodeEndpoint): Int {
     val c__c1: Int = salvo.__salvoCompare(a.host, b.host)
-    if (!(((c__c1) == (0)))) {
+    if ((c__c1 != 0)) {
         return c__c1
     }
     val c__c2: Int = (a.port).compareTo(b.port)
-    if (!(((c__c2) == (0)))) {
+    if ((c__c2 != 0)) {
         return c__c2
     }
     return 0

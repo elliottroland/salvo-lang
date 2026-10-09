@@ -102,7 +102,7 @@ fun<K, V> toStr__SortedMap(map: salvo.platform.core.sorted.SortedMap<K, V>, toSt
 }
 
 fun<T> eq__SortedSet_SortedSet(a: salvo.platform.core.sorted.SortedSet<T>, b: salvo.platform.core.sorted.SortedSet<T>, cmp: (T, T) -> Int): Boolean {
-    if (!(((size__SortedSet(a)) == (size__SortedSet(b))))) {
+    if ((size__SortedSet(a) != size__SortedSet(b))) {
         return false
     }
     for (x in salvo.platform.core.sorted.eachSortedSet(a)) {
@@ -114,7 +114,7 @@ fun<T> eq__SortedSet_SortedSet(a: salvo.platform.core.sorted.SortedSet<T>, b: sa
 }
 
 fun<K, V> eq__SortedMap_SortedMap(a: salvo.platform.core.sorted.SortedMap<K, V>, b: salvo.platform.core.sorted.SortedMap<K, V>, eq: (V, V) -> Boolean, cmp: (K, K) -> Int): Boolean {
-    if (!(((size__SortedMap(a)) == (size__SortedMap(b))))) {
+    if ((size__SortedMap(a) != size__SortedMap(b))) {
         return false
     }
     for (k in salvo.platform.core.sorted.eachSortedMap(a)) {

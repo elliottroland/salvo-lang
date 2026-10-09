@@ -1755,7 +1755,7 @@ pub fn route_keyed(route_selector: &crate::net::RouteSelector, mut group: usize,
         };
         let mut version: i64 = crate::net::view_version(group);
         let mut view: crate::net::RouteView = crate::net::route_view(group);
-        if !(((version) == (last))) {
+        if (version != last) {
             route_selector.changed(&(view).clone());
             last = version;
         };
@@ -1853,7 +1853,7 @@ impl crate::net::__Stateless_RouteSelector for Sharded {
     }
     fn select(&self, view: &crate::net::RouteView, key: &Option<i64>) -> Option<usize> {
         let mut n: i32 = crate::core_list::size_platform::<crate::net::RouteMember>(&view.members);
-        if ((n) == (0i32)) {
+        if (n == 0i32) {
             return None;
         };
         let mut k: i64 = {
@@ -2260,11 +2260,11 @@ pub fn cut_key(a: &crate::net::NodeEndpoint, b: &crate::net::NodeEndpoint) -> St
 
 pub fn cmp(a: &crate::net::NodeEndpoint, b: &crate::net::NodeEndpoint) -> i32 {
     let mut c__c1: i32 = (Ord::cmp(&a.host[..], &b.host[..]) as i32);
-    if !(((c__c1) == (0i32))) {
+    if (c__c1 != 0i32) {
         return c__c1;
     };
     let mut c__c2: i32 = (Ord::cmp(&(a.port), &(b.port)) as i32);
-    if !(((c__c2) == (0i32))) {
+    if (c__c2 != 0i32) {
         return c__c2;
     };
     return 0i32;

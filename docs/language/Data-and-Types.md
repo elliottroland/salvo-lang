@@ -14,6 +14,8 @@ Salvo has the following basic data types, similar to the JVM:
 * `Char`: a character, equivalent to `Char` in Kotlin and `char` in Rust.
 * `None`: a singleton type, used to represent expressions with no response.
 
+Of these, `Byte`, `Int`, `Long`, `Float`, `Double`, `Bool` and `Char` are the **basic types**: scalars whose operators are the host language's own. `Bytes`, `None` and `Str` (below) are not, so every operation on them is a function call.
+
 All numbers include the usual arithmetic operations, on **numeric operands only**: `+`, `-`, `*`, `/` and `%` work on `Int`, `Long`, `Float` and `Double` (and unary `-` on the same). `/` between integers is integer division on every backend. `+` does not concatenate strings — `${}` interpolation is how text is built — and `&&`, `||` and `!` take `Bool` operands only: Salvo has no truthiness in value position any more than in conditions. Ordering (`<`, `<=`, `>`, `>=`) and equality (`==`, `!=`) are **capabilities**, not built-in operations: `a < b` means `cmp(a, b) < 0` and `a == b` means `eq(a, b)`, so they work wherever those functions exist. Numbers, and the other intrinsic types, come with theirs (see [Comparison, equality and hashing](Comparison-and-Hashing.md)).
 
 `x += e` and its three siblings (`-=`, `*=`, `/=`) are shorthand for `x = x + e`, so they follow the same operand rules — `+=` on a `Str` is refused like `+` is — and they are statements rather than expressions, so they do not chain. `x++` and `x--` remain for a step of one, where the value of the expression matters. An assignment's left side must be a *place*: a variable, a field path, or a subscript.

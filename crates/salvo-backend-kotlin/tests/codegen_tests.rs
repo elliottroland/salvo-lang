@@ -3151,6 +3151,9 @@ fn main() [use] {
     let b = "b"
     println("strs ${ab < b} ${ab == b} ${same_of(ab, b)}")
     println("generic ${larger_of(3, 9)} ${larger_of(p, q).y} ${larger_of(young, old).label}")
+    // [type-basic] The basic types compare with the host's operator, `Bool`
+    // and `Char` included.
+    println("basic ${true > false} ${false >= true} ${'a' < 'b'} ${3 != 4} ${2.5 == 1.5}")
 }
 "#;
     let program = build_program(&[("main.sv", src)]);
@@ -3161,7 +3164,8 @@ fn main() [use] {
         files,
         "group-operators",
         "struct true false true true\nby hand true false\n\
-         strs true false false\ngeneric 9 9 ada\n",
+         strs true false false\ngeneric 9 9 ada\n\
+         basic true false true true false\n",
     )
 }
 
@@ -9207,7 +9211,7 @@ fn a_subjectless_when_emits_a_subjectless_kotlin_when() {
     // whose conditions are the heads, closed by `else` — total, so no
     // optional filler.
     assert!(
-        classify.contains("return (if ((n < 0)) {") && classify.contains("} else if (((n) == (0))) {"),
+        classify.contains("return (if ((n < 0)) {") && classify.contains("} else if ((n == 0)) {"),
         "expected the branch chain:\n{classify}"
     );
     assert!(

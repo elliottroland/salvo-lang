@@ -65,7 +65,7 @@ fun take(console: salvo.core.console.Console, p: Countdown, count: Int) {
                 val n: Int = __emitted_3
                 salvo.core.console.println(console, "2. got ${n}")
                 seen = (seen + 1)
-                if (((seen) == (count))) {
+                if ((seen == count)) {
                     break
                 }
             }
@@ -341,7 +341,7 @@ fun main() {
         return (n * 2)
     })
     val odd: salvo.platform.core.list.MutList<Int> = salvo.core.seq.filterPlatform(xs, fun(n: Int): Boolean {
-        return (((n % 2)) == (1))
+        return ((n % 2) == 1)
     })
     val total: Int = salvo.core.seq.reduce__List_A_Fn(xs, 0, fun(acc: Int, n: Int): Int {
         return (acc + n)
@@ -356,7 +356,7 @@ fun main() {
     }, { __a0 -> salvo.core.list.next__ListYield(__a0) })}")
     val word: String = "iteration"
     val vowels: salvo.platform.core.list.MutList<Char> = salvo.core.seq.filter(salvo.core.string.iter(word), fun(c: Char): Boolean {
-        return (((c) == ('i')) || ((c) == ('o')))
+        return ((c == 'i') || (c == 'o'))
     }, { __a0 -> salvo.core.string.next(__a0) })
     salvo.core.console.println(__handle_2, "5. vowels: ${salvo.core.list.sizePlatform(vowels)}")
     salvo.core.console.println(__handle_2, "5. halving total ${salvo.core.seq.reduce__It_A_Fn(halving(20), 0, fun(acc: Int, n: Int): Int {

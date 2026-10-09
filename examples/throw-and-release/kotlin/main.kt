@@ -62,7 +62,7 @@ fun portFromFile(console: salvo.core.console.Console, name: String, text: String
 }
 
 fun strictPort(text: String): Int {
-    if (((salvo.core.string.sizePlatform(text)) == (0))) {
+    if ((salvo.core.string.sizePlatform(text) == 0)) {
         throw ThrowSignal("empty", "Str")
     }
     val n: Int? = salvo.core.string.parseIntPlatform(text)

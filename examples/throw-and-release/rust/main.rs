@@ -117,7 +117,7 @@ pub fn port_from_file(console: &crate::core_console::Console, mut name: String, 
 }
 
 pub fn strict_port(text: &String) -> std::ops::ControlFlow<crate::unions::Union2<String, i32>, i32> {
-    if ((crate::core_string::size_platform(text)) == (0i32)) {
+    if (crate::core_string::size_platform(text) == 0i32) {
         return std::ops::ControlFlow::Break(crate::unions::Union2::U1(String::from("empty")));
     };
     let mut n: Option<i32> = crate::core_string::parse_int_platform(text);

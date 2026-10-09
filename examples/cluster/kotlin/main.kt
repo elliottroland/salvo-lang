@@ -373,7 +373,7 @@ class Gathering : Gather {
     fun partial(n: Int) {
         total = (total + n)
         left = (left - 1)
-        if (((left) == (0))) {
+        if ((left == 0)) {
             val out: salvo.SalvoReply? = salvo.core.deque.removeFirstPlatform(pending)
             when {
                 (out != null) -> {

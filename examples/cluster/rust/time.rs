@@ -119,16 +119,16 @@ pub fn to_str(d: &crate::time::Duration) -> String {
         let mut positive: crate::time::Duration = crate::time::Duration { nanos: i64::wrapping_sub(0i64, d.nanos) };
         return format!("-{}", crate::time::to_str(&positive));
     };
-    if ((d.nanos) == (0i64)) {
+    if (d.nanos == 0i64) {
         return String::from("0s");
     };
-    if ((i64::wrapping_rem(d.nanos, 1000000000i64)) == (0i64)) {
+    if (i64::wrapping_rem(d.nanos, 1000000000i64) == 0i64) {
         return format!("{}s", i64::wrapping_div(d.nanos, 1000000000i64));
     };
-    if ((i64::wrapping_rem(d.nanos, 1000000i64)) == (0i64)) {
+    if (i64::wrapping_rem(d.nanos, 1000000i64) == 0i64) {
         return format!("{}ms", i64::wrapping_div(d.nanos, 1000000i64));
     };
-    if ((i64::wrapping_rem(d.nanos, 1000i64)) == (0i64)) {
+    if (i64::wrapping_rem(d.nanos, 1000i64) == 0i64) {
         return format!("{}us", i64::wrapping_div(d.nanos, 1000i64));
     };
     return format!("{}ns", d.nanos);
@@ -671,7 +671,7 @@ pub fn earliest_due(deadlines: &Vec<i64>, mut target: i64) -> Option<i32> {
 
 pub fn cmp__Duration_Duration(a: &crate::time::Duration, b: &crate::time::Duration) -> i32 {
     let mut c__c1: i32 = (Ord::cmp(&(a.nanos), &(b.nanos)) as i32);
-    if !(((c__c1) == (0i32))) {
+    if (c__c1 != 0i32) {
         return c__c1;
     };
     return 0i32;
@@ -692,7 +692,7 @@ pub fn eq__Duration_Duration(a: &crate::time::Duration, b: &crate::time::Duratio
 
 pub fn cmp__Instant_Instant(a: &crate::time::Instant, b: &crate::time::Instant) -> i32 {
     let mut c__c1: i32 = (Ord::cmp(&(a.nanos), &(b.nanos)) as i32);
-    if !(((c__c1) == (0i32))) {
+    if (c__c1 != 0i32) {
         return c__c1;
     };
     return 0i32;
@@ -713,7 +713,7 @@ pub fn eq__Instant_Instant(a: &crate::time::Instant, b: &crate::time::Instant) -
 
 pub fn cmp__Tick_Tick(a: &crate::time::Tick, b: &crate::time::Tick) -> i32 {
     let mut c__c1: i32 = (Ord::cmp(&(a.nanos), &(b.nanos)) as i32);
-    if !(((c__c1) == (0i32))) {
+    if (c__c1 != 0i32) {
         return c__c1;
     };
     return 0i32;

@@ -137,6 +137,30 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-06 — Operators on basic types are operators in the IR (user decision)
+
+The user's reading: for the **basic types** (`Byte`, `Int`, `Long`,
+`Float`, `Double`, `Bool`, `Char`) the intrinsic `cmp`/`eq` are wrappers
+around the host's operators, there to be passed to generic code; for every
+other type an operator is sugar for the function in scope. And `Str` is not
+basic: it is a `platform type` of `core.string`, so treating it as half
+basic (native `==`, called `cmp`) was rejected in favour of one rule.
+Built: the IR writes every operator on basic types as an `Op` (new `Eq` and
+`NotEq`), and every operator on anything else as a call of the resolved
+`cmp`/`eq`, with an ordering as the `Int` sign test of the call. Neither
+backend reconstructs an operator from a call any more: Kotlin's
+`is_primitive_cmp_sign_test` and Rust's sign-test arm in `op()` are gone,
+and with them a disagreement between the two (Kotlin's list left out
+`Bool`; Rust's `is_copy_ty` included it, and `Addr`/`Pool`), so `Bool`
+ordering is now `<` on Kotlin too. The builder's `Double`/`Float` special
+case became the general rule. `salvo_core::types::BASIC_TYPES` and
+`Ty::is_basic` are the one definition. `[type-basic]` was rewritten (it had
+listed `Str`, `Bytes` and `None`), with [op-order], [op-equality] and
+[ir-op] to match. The generated code changed only in parentheses
+(`!((a) == (b))` is now `(a != b)`); no expected output changed. Tests:
+`salvo-ir/tests/op_tests.rs`, and a `basic` line in the operators case
+shared by both backends.
+
 ### 2026-10-06 — A language page for the IR
 
 User request: a docs and wiki section explaining the IR "language".
@@ -23118,7 +23142,7 @@ against the codec's tie to the `UnionN` layout), the scheduler glue
 the part most entangled with the scheduler; it was left in the backends as
 the user allowed.
 
-## Test inventory (all green: 1722 under nextest, the IR corpus test aside; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1723 under nextest, the IR corpus test aside; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

@@ -8,10 +8,10 @@ The `intrinsic` layer sits in a backend specific module inside the compiler. Thi
 
 `intrinsic` is the standard library's alone. Customer code cannot declare one, because there would be no lowering in any backend to give it meaning — an `intrinsic` with no compiler support behind it is a promise nothing keeps. Application code reaches the target language the other way, through the `platform` declarations — a `platform handler` implementing an ordinary effect; that is the single interop path. This is also the one exception to a plain structural rule: a top-level `fn` must have a body and a `type` must have a definition (`= ...`). The bodyless declaration forms customer code does have are the `platform` ones — `platform handler` and `platform fn` — whose contract the *build* fulfils; `intrinsic` (and the bodyless `intrinsic handler`) is what lets the standard library state a contract the compiler fulfils in place of one.
 
-For example, the basic types (`Int`, `Str`, `List<T>`, ...) are declared as `intrinsic type`s, and each backend maps them natively:
+For example, the built-in types (`Int`, `Str`, `List<T>`, ...) are declared as `intrinsic type`s or `platform type`s of the standard library, and each backend maps them natively:
 
 ```
-intrinsic type Str
+intrinsic type Int
 ```
 
 When building the compiler, _all_ `intrinsic` declarations must be handled by _every_ backend module.

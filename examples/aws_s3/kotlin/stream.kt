@@ -280,7 +280,7 @@ fun next__Chunks(streams: Streams, p: Chunks): Union2<salvo.platform.core.bytes.
     }
     val got_2: salvo.platform.core.bytes.Bytes = ((got as Union2.U1<*, *>).value as salvo.platform.core.bytes.Bytes)
     val data: salvo.platform.core.bytes.Bytes = got_2
-    if (((salvo.core.bytes.sizePlatform(data)) == (0))) {
+    if ((salvo.core.bytes.sizePlatform(data) == 0)) {
         return Union2.U2<salvo.platform.core.bytes.Bytes, salvo.core.iterator.Finished>(salvo.core.iterator.finished())
     }
     return Union2.U1<salvo.platform.core.bytes.Bytes, salvo.core.iterator.Finished>(salvo.core.iterator.emitted(data))
@@ -310,7 +310,7 @@ fun fillFrom(streams: Streams, s: InStream, buf: salvo.platform.core.bytes.MutBy
         val got_2: Int = ((got as Union2.U1<*, *>).value as Int)
         val n: Int = got_2
         total = (total + (n).toLong())
-        if (((n) == (0))) {
+        if ((n == 0)) {
             reading = false
         }
     }
@@ -334,7 +334,7 @@ fun copyStream(streams: Streams, s: InStream, w: OutStream): Union2<Long, salvo.
         }
         val got_2: Int = ((got as Union2.U1<*, *>).value as Int)
         val n: Int = got_2
-        if (((n) == (0))) {
+        if ((n == 0)) {
             copying = false
         } else {
             total = (total + streams.writeBytes(w, buf))
@@ -460,7 +460,7 @@ fun readFixed(streams: Streams, s: InStream, width: Int): Union3<Long, End, salv
     }
     val r_2: salvo.platform.core.bytes.Bytes = ((r as Union2.U1<*, *>).value as salvo.platform.core.bytes.Bytes)
     val data: salvo.platform.core.bytes.Bytes = r_2
-    if (((salvo.core.bytes.sizePlatform(data)) == (0))) {
+    if ((salvo.core.bytes.sizePlatform(data) == 0)) {
         return Union3.U2<Long, End, salvo.core.checked.Checked<Union2<InvalidUtf8, StreamFailed>>>(End())
     }
     if ((salvo.core.bytes.sizePlatform(data) < width)) {

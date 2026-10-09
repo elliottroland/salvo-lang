@@ -4276,7 +4276,7 @@ fn a_subjectless_when_emits_an_if_chain() {
         .and_then(|s| s.split("\npub fn ").next())
         .expect("classify emitted");
     assert!(
-        classify.contains("if (n < 0i32) {") && classify.contains("} else if ((n) == (0i32)) {"),
+        classify.contains("if (n < 0i32) {") && classify.contains("} else if (n == 0i32) {"),
         "expected an if/else-if chain:\n{classify}"
     );
     assert!(
@@ -5748,11 +5748,15 @@ fn main() [use] {
     let b = "b"
     println("strs ${ab < b} ${ab == b} ${same_of(ab, b)}")
     println("generic ${larger_of(3, 9)} ${larger_of(p, q).y} ${larger_of(young, old).label}")
+    // [type-basic] The basic types compare with the host's operator, `Bool`
+    // and `Char` included.
+    println("basic ${true > false} ${false >= true} ${'a' < 'b'} ${3 != 4} ${2.5 == 1.5}")
 }
 "#;
 
 pub const GROUP_OPERATOR_OUTPUT: &str = "struct true false true true\nby hand true false\n\
-                                   strs true false false\ngeneric 9 9 ada\n";
+                                   strs true false false\ngeneric 9 9 ada\n\
+                                   basic true false true true false\n";
 
 #[test]
 fn rustc_compiles_and_runs_operators_through_the_groups() {
@@ -14487,7 +14491,7 @@ fn a_borrowed_copy_scalar_derefs_in_a_comparison_only() {
     let files = generate(&[("main.sv", CMP_DEREF_DEMO)]);
     let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
     assert!(
-        main.content.contains("if (((*crate::core_list::get::<i32>(&xs, i))) == (20i32)) {")
+        main.content.contains("if ((*crate::core_list::get::<i32>(&xs, i)) == 20i32) {")
             && main.content.contains("if ((*crate::core_list::get::<i32>(&xs, i)) < 30i32) {"),
         "{}",
         main.content

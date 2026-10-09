@@ -83,7 +83,7 @@ fun<K, V> toStr(map: salvo.platform.core.map.Map<K, V>, toStr: (K) -> String, to
 }
 
 fun<K, V> eq(a: salvo.platform.core.map.Map<K, V>, b: salvo.platform.core.map.Map<K, V>, eq: (V, V) -> Boolean, hash: (K) -> Long, eq__1: (K, K) -> Boolean): Boolean {
-    if (!(((sizePlatform(a)) == (sizePlatform(b))))) {
+    if ((sizePlatform(a) != sizePlatform(b))) {
         return false
     }
     for (k in salvo.platform.core.map.each(a)) {

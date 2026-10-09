@@ -1170,17 +1170,6 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     }
 
     fn op(&mut self, e: &Expr, op: Op, args: &[Expr], indent: usize) -> String {
-        // The sign test of a primitive `cmp` is the primitive operator.
-        if matches!(op, Op::Lt | Op::Gt | Op::LtEq | Op::GtEq) && args.len() == 2 {
-            if let (ExprKind::Call { target: FnRef::Decl(id), args: inner, .. }, ExprKind::Int(0)) = (&args[0].kind, &args[1].kind) {
-                let prim = self.s.ast_fn(id).is_some_and(|f| f.intrinsic && f.name.name == "cmp") && inner.len() == 2 && is_copy_ty(&inner[0].ty);
-                if prim {
-                    let a = self.value(&inner[0], indent);
-                    let b = self.value(&inner[1], indent);
-                    return format!("({a} {} {b})", sym(op));
-                }
-            }
-        }
         let a: Vec<String> = args.iter().map(|x| self.value(x, indent)).collect();
         let int = match e.ty.strip_quals() {
             Ty::Named { name, .. } if name == "Int" => Some("i32"),
@@ -1202,7 +1191,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 Some(t) => format!("{t}::wrapping_neg({})", a[0]),
                 None => format!("(-{})", a[0]),
             },
-            Op::Lt | Op::Gt | Op::LtEq | Op::GtEq => format!("({} {} {})", a[0], sym(op), a[1]),
+            Op::Lt | Op::Gt | Op::LtEq | Op::GtEq | Op::Eq | Op::NotEq => format!("({} {} {})", a[0], sym(op), a[1]),
         }
     }
 
@@ -2798,7 +2787,10 @@ fn sym(op: Op) -> &'static str {
         Op::Lt => "<",
         Op::Gt => ">",
         Op::LtEq => "<=",
-        _ => ">=",
+        Op::GtEq => ">=",
+        Op::Eq => "==",
+        Op::NotEq => "!=",
+        _ => unreachable!("not a comparison"),
     }
 }
 

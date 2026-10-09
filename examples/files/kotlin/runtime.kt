@@ -974,8 +974,8 @@ class Scheduler : SchedTable {
             }
         }
         salvo.core.list.addPlatform((p.idle as salvo.platform.core.list.MutList<salvo.platform.runtime.Parker>), idle)
-        if ((((active) == (parkedFrames)) && quiet(actors, waiters, pools, externals))) {
-            if ((!(((salvo.core.list.sizePlatform(idleHooks)) == (0))) && ((active) == (0)))) {
+        if (((active == parkedFrames) && quiet(actors, waiters, pools, externals))) {
+            if ((!((salvo.core.list.sizePlatform(idleHooks) == 0)) && (active == 0))) {
                 fireIdle(actors, waiters, pools, idleHooks)
             }
             wakeWaiters(waiters)
@@ -999,10 +999,10 @@ class Scheduler : SchedTable {
                 }
             }
         }
-        if (((w.waiting) == (0))) {
+        if ((w.waiting == 0)) {
             w.waiting = frame
             w.waitingActor = own
-            if (((frame) == (1))) {
+            if ((frame == 1)) {
                 parkedFrames = (parkedFrames + 1)
             } else {
                 mainWaits = (mainWaits + 1)
@@ -1013,7 +1013,7 @@ class Scheduler : SchedTable {
             val v: salvo.platform.runtime.Dyn = got!!
             w.filled = false
             w.parker = null
-            if (((w.waiting) == (1))) {
+            if ((w.waiting == 1)) {
                 parkedFrames = (parkedFrames - 1)
             } else {
                 mainWaits = (mainWaits - 1)
@@ -1040,11 +1040,11 @@ class Scheduler : SchedTable {
             fireClock(actors, waiters, pools, clockHooks)
             return Union6.U5<Got, RunActor, RunTask, Sleep, Again, Stuck>(Again())
         }
-        if (((!(((salvo.core.list.sizePlatform(idleHooks)) == (0))) && ((active) == (0))) && q)) {
+        if (((!((salvo.core.list.sizePlatform(idleHooks) == 0)) && (active == 0)) && q)) {
             fireIdle(actors, waiters, pools, idleHooks)
             return Union6.U5<Got, RunActor, RunTask, Sleep, Again, Stuck>(Again())
         }
-        if ((virtualMode || ((((active) == (parkedFrames)) && (mainWaits > 0)) && q))) {
+        if ((virtualMode || (((active == parkedFrames) && (mainWaits > 0)) && q))) {
             return Union6.U6<Got, RunActor, RunTask, Sleep, Again, Stuck>(Stuck(report = deadlockReport(actors, waiters, own)))
         }
         var parked: WaiterRec = run {
@@ -1144,7 +1144,7 @@ class Scheduler : SchedTable {
             val t: Token = __subject_7!!
             salvo.core.list.addPlatform(watchers, t)
         }
-        if (((salvo.core.list.sizePlatform(watchers)) == (0))) {
+        if ((salvo.core.list.sizePlatform(watchers) == 0)) {
             reportFault(actors, pools, pool, reason)
         }
         while (true) {
@@ -1657,7 +1657,7 @@ fun deliverTo(actors: salvo.platform.core.list.MutList<ActorRec>, waiters: salvo
                 }
             }
         }
-        if ((!(((w.slot) == (slot))) || w.filled)) {
+        if (((w.slot != slot) || w.filled)) {
             dropDynPlatform(value)
             return
         }
@@ -1784,7 +1784,7 @@ fun fireIdle(actors: salvo.platform.core.list.MutList<ActorRec>, waiters: salvo.
             __proj_5.owed
         }
         for (a in salvo.platform.core.list.each(actors)) {
-            if (((a.pool) == (pool))) {
+            if ((a.pool == pool)) {
                 tokens = (tokens + a.owed)
                 if ((!((a.gate == null)) && !(a.dead))) {
                     gates = (gates + 1)
@@ -1822,7 +1822,7 @@ fun deadlockReport(actors: salvo.platform.core.list.MutList<ActorRec>, waiters: 
     if ((salvo.core.list.sizePlatform(gated) > 0)) {
         salvo.core.list.addPlatform(clauses, "parked gates: ${salvo.core.string.joinPlatform(gated, ", ")}")
     }
-    val detail: String = (if (((salvo.core.list.sizePlatform(clauses)) == (0))) {
+    val detail: String = (if ((salvo.core.list.sizePlatform(clauses) == 0)) {
         ""
     } else {
         " (${salvo.core.string.joinPlatform(clauses, "; ")})"
@@ -1871,7 +1871,7 @@ fun takeWork(actors: salvo.platform.core.list.MutList<ActorRec>, pools: salvo.pl
             }
         }
         a.ready = false
-        if (((!(((i) == (exclude))) && !(a.running)) && !(a.dead))) {
+        if ((((i != exclude) && !(a.running)) && !(a.dead))) {
             val at: Int? = deliverable((a.slots as salvo.platform.core.deque.MutDeque<Long>), a.gate)
             if ((at != null)) {
                 val k: Int = at!!
@@ -1962,7 +1962,7 @@ fun workOf(a: ActorRec, addr: Int, e: Union3<Delivered, Answered, Reported>, bod
     var opens: Boolean = false
     if ((a.gate != null)) {
         val g: Long = a.gate!!
-        opens = ((g) == (slot))
+        opens = (g == slot)
     }
     if (opens) {
         a.gate = null
@@ -1971,7 +1971,7 @@ fun workOf(a: ActorRec, addr: Int, e: Union3<Delivered, Answered, Reported>, bod
 }
 
 fun deliverable(slots: kotlin.collections.ArrayDeque<Long>, gate: Long?): Int? {
-    if (((salvo.core.deque.sizePlatform(slots)) == (0))) {
+    if ((salvo.core.deque.sizePlatform(slots) == 0)) {
         return null
     }
     if ((gate == null)) {
@@ -1983,7 +1983,7 @@ fun deliverable(slots: kotlin.collections.ArrayDeque<Long>, gate: Long?): Int? {
             break
         }
         val gate_3: Long = gate!!
-        if (((run {
+        if ((run {
             val __nn_1: Long? = salvo.core.deque.getPlatform(slots, i)
             when {
                 (__nn_1 == null) -> {
@@ -1994,7 +1994,7 @@ fun deliverable(slots: kotlin.collections.ArrayDeque<Long>, gate: Long?): Int? {
                     __some_2
                 }
             }
-        }) == (gate_3))) {
+        } == gate_3)) {
             return i
         }
         i = (i + 1)
@@ -2074,7 +2074,7 @@ fun retireIfDone(actors: salvo.platform.core.list.MutList<ActorRec>, pools: salv
         return
     }
     for (a in salvo.platform.core.list.each(actors)) {
-        if ((((a.pool) == (pool)) && !(a.dead))) {
+        if (((a.pool == pool) && !(a.dead))) {
             return
         }
     }
@@ -2154,7 +2154,7 @@ fun sendOrBack(addr: Int, msg: salvo.platform.runtime.Dyn): salvo.platform.runti
             r = __module_use1_0.enqueue(addr, again, thisParkerPlatform())
             continue
         }
-        if (((((herePoolPlatform()) == (mainPool())) && ((hereActorPlatform()) == (noFrame()))) && ((__module_use1_0.poolOfActor(addr)) == (mainPool())))) {
+        if ((((herePoolPlatform() == mainPool()) && (hereActorPlatform() == noFrame())) && (__module_use1_0.poolOfActor(addr) == mainPool()))) {
             __module_use0_0.report("salvo: deadlock: the main pool's actor ${addr} has a full mailbox and the only thread that could drain it is the one sending: the main pool has one worker, `main` itself, and it serves work only inside a `waitfor` — send fewer messages before waiting, raise the handler's `mailbox` capacity, or place the actor on a pool of its own")
             exitProcessPlatform(1)
         }
@@ -2258,7 +2258,7 @@ fun externalEnd() {
 fun awaitAnswer(wid: Int): salvo.platform.runtime.Dyn {
     val pool: Int = herePoolPlatform()
     val own: Int = hereActorPlatform()
-    val frame: Int = (if (((own) == (noFrame()))) {
+    val frame: Int = (if ((own == noFrame())) {
         2
     } else {
         1

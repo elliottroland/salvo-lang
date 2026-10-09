@@ -442,11 +442,10 @@ pub enum ExprKind {
     Call { target: FnRef, type_args: Vec<Ty>, args: Vec<Expr> },
     /// A call of an interface member through an instance [effect-dispatch].
     MemberCall { instance: Box<Expr>, member: MemberRef, type_args: Vec<Ty>, args: Vec<Expr> },
-    /// [ir-op] an operator on scalars the language defines as primitive and
-    /// std declares no fn for (`+`, `-`, `*`, `/`, `%`, `and`, `or`, `!`,
-    /// unary `-`), and the sign test of an ordering (`Lt`… over the `Int` a
-    /// `cmp` call answered, against 0). Comparisons themselves are calls to
-    /// `cmp`/`eq`.
+    /// [ir-op] the host's operator on basic types [type-basic]: arithmetic,
+    /// logic, ordering and equality. An operator on any other type (`Str`
+    /// included) is a `Call` of the `cmp`/`eq` it resolved to; an ordering
+    /// is then the `Lt`… sign test of that call's `Int` against 0.
     Op { op: Op, args: Vec<Expr> },
     /// A struct or handler instance.
     Construct { fields: Vec<(String, Expr)> },
@@ -561,6 +560,8 @@ pub enum Op {
     Gt,
     LtEq,
     GtEq,
+    Eq,
+    NotEq,
 }
 
 #[derive(Clone)]

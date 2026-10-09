@@ -739,7 +739,7 @@ pub fn bump_in(versions: &mut crate::core_map::Map<i32, i64>, waiters: &mut Vec<
         if !((i < crate::core_list::size_platform::<crate::runtime_routing::ViewWaiter>(&*waiters))) {
             break;
         };
-        if (({
+        if ({
             let mut __proj_3: &crate::runtime_routing::ViewWaiter = {
                 let mut __nn_1: Option<&crate::runtime_routing::ViewWaiter> = crate::core_list::get_platform::<crate::runtime_routing::ViewWaiter>(&*waiters, i);
                 if __nn_1.is_none() {
@@ -750,7 +750,7 @@ pub fn bump_in(versions: &mut crate::core_map::Map<i32, i64>, waiters: &mut Vec<
                 }
             };
             __proj_3.group
-        }) == (group)) {
+        } == group) {
             let mut w: crate::runtime_routing::ViewWaiter = {
                 let mut __nn_4: Option<crate::runtime_routing::ViewWaiter> = crate::core_list::remove_at_platform::<crate::runtime_routing::ViewWaiter>(&mut *waiters, i);
                 if __nn_4.is_none() {
@@ -866,12 +866,12 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
         return crate::runtime_routing::identity_in(&self.remote, &mut self.bits, &self.pool_node, self.node_id, addr, pool);
     }
     fn find_import(&mut self, r: &crate::runtime_routing::RemoteRef, here: i64) -> crate::unions::Union3<crate::runtime_routing::Found, crate::runtime_routing::MakeProxy, crate::runtime_routing::MakeDead> {
-        if ((r.node) == (here)) {
+        if (r.node == here) {
             let mut idx: i32 = ((r.actor) as i32);
             let mut b: Option<i64> = crate::core_map::get_platform::<i32, i64>(&self.bits, &idx, &mut |__a0: &i32| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i32, __a1: &i32| ((*__a0) == (*__a1))).copied();
             if if (!(crate::core_map::contains_key_platform::<i32, crate::runtime_routing::RemoteRef>(&self.remote, &idx, &mut |__a0: &i32| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i32, __a1: &i32| ((*__a0) == (*__a1)))) && b.is_some()) {
                 let mut known = b.unwrap();
-                ((known) == (r.bits))
+                (known == r.bits)
             } else {
                 false
             } {
@@ -981,7 +981,7 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
         let mut b: Option<i64> = crate::core_map::get_platform::<i32, i64>(&self.bits, &idx, &mut |__a0: &i32| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i32, __a1: &i32| ((*__a0) == (*__a1))).copied();
         if if (!(crate::core_map::contains_key_platform::<i32, crate::runtime_routing::RemoteRef>(&self.remote, &idx, &mut |__a0: &i32| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i32, __a1: &i32| ((*__a0) == (*__a1)))) && b.is_some()) {
             let mut known = b.unwrap();
-            ((known) == (claimed))
+            (known == claimed)
         } else {
             false
         } {
@@ -1034,7 +1034,7 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
             if !((i < crate::core_list::size_platform::<i64>(&self.task_keys))) {
                 break;
             };
-            if (({
+            if ({
                 let mut __nn_1: Option<i64> = crate::core_list::get_platform::<i64>(&self.task_keys, i).copied();
                 if __nn_1.is_none() {
                     panic!("salvo: value is absent at runtime.routing:401:16");
@@ -1042,7 +1042,7 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
                     let mut __some_2 = __nn_1.unwrap();
                     __some_2
                 }
-            }) == (key)) {
+            } == key) {
                 let mut _k: Option<i64> = crate::core_list::remove_at_platform::<i64>(&mut self.task_keys, i);
                 return crate::core_list::remove_at_platform::<crate::runtime_routing::ExportedTask>(&mut self.tasks, i);
             };
@@ -1093,7 +1093,7 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
             let mut r: Option<&crate::runtime_routing::RemoteRef> = crate::core_map::get_platform::<i32, crate::runtime_routing::RemoteRef>(&self.remote, &idx, &mut |__a0: &i32| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i32, __a1: &i32| ((*__a0) == (*__a1)));
             if r.is_some() {
                 let mut found = r.unwrap();
-                if ((found.node) == (node)) {
+                if (found.node == node) {
                     crate::core_list::add_platform::<i32>(&mut gone, idx);
                 };
             };
@@ -1128,7 +1128,7 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
         crate::runtime_routing::bump_in(&mut self.versions, &mut self.view_waiters, group);
     }
     fn add_view_waiter(&mut self, group: i32, seen: i64, me: crate::runtime::Parker) -> i64 {
-        if !(((crate::runtime_routing::version_in(&self.versions, group)) == (seen))) {
+        if (crate::runtime_routing::version_in(&self.versions, group) != seen) {
             return i64::wrapping_neg(1i64);
         };
         self.next_waiter = i64::wrapping_add(self.next_waiter, 1i64);
@@ -1141,7 +1141,7 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
             if !((i < crate::core_list::size_platform::<crate::runtime_routing::ViewWaiter>(&self.view_waiters))) {
                 break;
             };
-            if (({
+            if ({
                 let mut __proj_3: &crate::runtime_routing::ViewWaiter = {
                     let mut __nn_1: Option<&crate::runtime_routing::ViewWaiter> = crate::core_list::get_platform::<crate::runtime_routing::ViewWaiter>(&self.view_waiters, i);
                     if __nn_1.is_none() {
@@ -1152,7 +1152,7 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
                     }
                 };
                 __proj_3.id
-            }) == (id)) {
+            } == id) {
                 let mut _w: Option<crate::runtime_routing::ViewWaiter> = crate::core_list::remove_at_platform::<crate::runtime_routing::ViewWaiter>(&mut self.view_waiters, i);
                 return;
             };
@@ -1277,7 +1277,7 @@ pub fn identity(mut addr: i32) -> crate::runtime_routing::RemoteRef {
 }
 
 pub fn same_actor(mut a: i32, mut b: i32) -> bool {
-    if ((a) == (b)) {
+    if (a == b) {
         return true;
     };
     if (!(crate::runtime_routing::__module_use0_0().is_proxy(a)) && !(crate::runtime_routing::__module_use0_0().is_proxy(b))) {
@@ -1301,7 +1301,7 @@ pub fn import_addr(mut node: i64, mut actor: i64, mut bits: i64) -> i32 {
         return crate::runtime_routing::__module_use0_0().register_dead(idx);
     };
     let mut got: i32 = crate::runtime_routing::__module_use0_0().register_proxy(r, idx, here);
-    if ((got) == (idx)) {
+    if (got == idx) {
         crate::runtime::mark_proxy(idx);
     };
     crate::runtime_routing::flush();
@@ -1322,7 +1322,7 @@ pub fn send_remote(mut addr: i32, mut proto: String, mut payload: crate::core_by
             break;
         };
         let mut got: i32 = crate::runtime_routing::__module_use0_0().take_credit(addr, crate::runtime::this_parker_platform());
-        if ((got) == (1i32)) {
+        if (got == 1i32) {
             let mut from: i64 = crate::runtime_routing::here_node();
             let mut r_1 = r.as_ref().unwrap();
             let mut frame: crate::core_bytes::Bytes = { let __enc: crate::unions::Union5<crate::runtime_routing::MsgFrame, crate::runtime_routing::AnswerFrame, crate::runtime_routing::GrantFrame, crate::runtime_routing::OpenFrame, crate::runtime_routing::ControlFrame> = crate::unions::Union5::U1(crate::runtime_routing::MsgFrame { to: r_1.node, actor: r_1.actor, bits: r_1.bits, from: from, proto: proto.clone(), payload: payload.clone() }); crate::wire::salvo_encode(&__enc) };
@@ -1353,7 +1353,7 @@ pub fn export_reply(mut e: crate::runtime::Exported) -> crate::runtime_routing::
     let mut id: i32 = __destructured_1.id;
     let mut slot: i64 = __destructured_1.slot;
     let mut body: Option<crate::runtime::Body> = __destructured_1.body;
-    if ((kind) == (2i32)) {
+    if (kind == 2i32) {
         if body.is_some() {
             let mut b = body.unwrap();
             crate::runtime_routing::__module_use0_0().put_task(slot, crate::runtime_routing::ExportedTask { pool: id, body: b });
@@ -1364,7 +1364,7 @@ pub fn export_reply(mut e: crate::runtime::Exported) -> crate::runtime_routing::
         let mut b = body.unwrap();
         crate::runtime::drop_body_platform(b);
     };
-    if ((kind) == (1i32)) {
+    if (kind == 1i32) {
         return crate::runtime_routing::ReplyParts { node: crate::runtime_routing::__module_use0_0().node_of_pool(crate::runtime::waiter_pool(id)), kind: 1i32, id: ((id) as i64), slot: slot, bits: 0i64 };
     };
     let mut me: crate::runtime_routing::RemoteRef = crate::runtime_routing::identity(id);
@@ -1486,7 +1486,7 @@ pub fn deliver(data: &crate::core_bytes::Bytes) -> bool {
     if matches!(f, Some(crate::unions::Union5::U5(_))) {
         let mut c = match &f { Some(crate::unions::Union5::U5(__v)) => __v, _ => unreachable!() };
         let mut node: i64 = c.to;
-        if ((node) == (0i64)) {
+        if (node == 0i64) {
             node = crate::runtime_routing::here_node();
         };
         if !(crate::runtime_routing::__module_use0_0().hosts(node)) {
@@ -1511,14 +1511,14 @@ pub fn deliver_answer(a: &crate::runtime_routing::AnswerFrame) -> bool {
     if !(crate::runtime_routing::__module_use0_0().hosts(a.to)) {
         return false;
     };
-    if ((a.kind) == (0i32)) {
+    if (a.kind == 0i32) {
         if !(crate::runtime_routing::__module_use0_0().accepts(a.to, a.id, a.bits)) {
             return false;
         };
         crate::runtime::answer(crate::runtime::token_to_actor(((a.id) as i32), a.slot), crate::runtime_routing::raw_answer_platform((a.payload).clone()));
         return true;
     };
-    if ((a.kind) == (1i32)) {
+    if (a.kind == 1i32) {
         let mut wid: i32 = ((a.id) as i32);
         let mut v: Option<crate::runtime::Dyn> = crate::runtime_routing::decode_waiter_answer_platform(wid, &(a.payload).clone());
         if v.is_some() {
@@ -1600,7 +1600,7 @@ pub fn view_members(mut group: i32) -> Vec<i32> {
 }
 
 pub fn before(a: &crate::runtime_routing::RemoteRef, b: &crate::runtime_routing::RemoteRef) -> bool {
-    if !(((a.node) == (b.node))) {
+    if (a.node != b.node) {
         return (a.node < b.node);
     };
     return (a.actor <= b.actor);

@@ -241,7 +241,7 @@ class MemFs : salvo.fs.Fs, salvo.stream.Streams {
         }
         val got_2: salvo.platform.core.bytes.Bytes = ((got as Union2.U1<*, *>).value as salvo.platform.core.bytes.Bytes)
         val data: salvo.platform.core.bytes.Bytes = got_2
-        if (((salvo.core.bytes.sizePlatform(data)) == (0))) {
+        if ((salvo.core.bytes.sizePlatform(data) == 0)) {
             salvo.core.map.removePlatform(reads, s.handle, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
             run { s; Unit }
             reply.send(Union3.U2<salvo.stream.Packet, salvo.stream.End, salvo.core.checked.Checked<Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>>>(salvo.stream.End()))
@@ -301,7 +301,7 @@ fun memFindNewline(data: salvo.platform.core.bytes.Bytes, from: Int): Int {
         if (!((i < end))) {
             break
         }
-        if ((((run {
+        if (((run {
             val __nn_1: UByte? = salvo.core.bytes.getPlatform(data, i)
             when {
                 (__nn_1 == null) -> {
@@ -312,7 +312,7 @@ fun memFindNewline(data: salvo.platform.core.bytes.Bytes, from: Int): Int {
                     __some_2
                 }
             }
-        }).toInt()) == (10))) {
+        }).toInt() == 10)) {
             return i
         }
         i = (i + 1)

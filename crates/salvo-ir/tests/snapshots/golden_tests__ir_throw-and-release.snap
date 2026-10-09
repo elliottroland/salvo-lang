@@ -21,7 +21,7 @@ fn main::close(lent console: Console; moved handle: FileHandle) -> None {
 fn main::read_size(lent console: Console; moved name: Str, moved want: Int) -> Int {
   bind#1 let there_is: Int = call core.string::size(read name)
   bind#2 let handle: FileHandle = call main::open_file(read console, !read name)
-  branch#3 cond#0 op Gt(call core.compare::cmp(Int, Int)(read want, read there_is), 0) {
+  branch#3 cond#0 op Gt(read want, read there_is) {
     call core.console::println(read console, "1. asked for more than there is")
     call main::close(read console, !read handle)
     return !read there_is
@@ -36,7 +36,7 @@ fn main::parse_port(lent text: Str) -> Int throws Str {
     throw(concat("not a number: ", read text))
   }
   narrow#5[after branch#2.cond#0] n~1: Int = n
-  branch#4 cond#0 op Lt(call core.compare::cmp(Int, Int)(read n~1, 1), 0) {
+  branch#4 cond#0 op Lt(read n~1, 1) {
     throw("port must be positive")
   }
   narrow#6[after branch#4.cond#0] n~2: Int = n
@@ -57,7 +57,7 @@ fn main::port_from_file(lent console: Console; moved name: Str, lent text: Str) 
 }
 
 fn main::strict_port(lent text: Str) -> Int throws Str | Int {
-  branch#1 cond#0 call core.compare::eq(Int, Int)(call core.string::size(read text), 0) {
+  branch#1 cond#0 op Eq(call core.string::size(read text), 0) {
     throw("empty")
   }
   bind#2 let n: Int? = call core.string::parse_int(read text)

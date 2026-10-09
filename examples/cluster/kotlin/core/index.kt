@@ -7,7 +7,7 @@ fun<C> Idx_qualifies(index: Int, c: C, size: (C) -> Int): Boolean {
 }
 
 fun NotEq_qualifies(j: Int, i: Int): Boolean {
-    return !(((j) == (i)))
+    return (j != i)
 }
 
 data class __Iter_indices_List<T>(

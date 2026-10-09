@@ -57,7 +57,7 @@ use crate::core_list::size_platform;
 
 
 pub fn eq__List_List<T: Clone>(a: &Vec<T>, b: &Vec<T>, eq: &mut dyn FnMut(&T, &T) -> bool) -> bool {
-    if !(((crate::core_list::size_platform::<T>(a)) == (crate::core_list::size_platform::<T>(b)))) {
+    if (crate::core_list::size_platform::<T>(a) != crate::core_list::size_platform::<T>(b)) {
         return false;
     };
     let mut __pass_1: crate::core_list::__Iter_enumerate_List<'_, T> = crate::core_list::enumerate::<T>(a);
@@ -89,7 +89,7 @@ pub fn cmp__List_List<T: Clone>(a: &Vec<T>, b: &Vec<T>, cmp: &mut dyn FnMut(&T, 
             let mut j: i32 = p.index;
             if crate::core_index::Idx__Int_qualifies(j, b, &mut |__a0| crate::core_list::size_platform(__a0)) {
                 let mut c: i32 = cmp(p.elem, crate::core_list::get::<T>(b, j));
-                if !(((c) == (0i32))) {
+                if (c != 0i32) {
                     return c;
                 };
             } else {
@@ -119,7 +119,7 @@ pub fn eq__TupleAB_TupleAB<A: Clone, B: Clone>(a: &(A, B), b: &(A, B), eq: &mut 
 
 pub fn cmp__TupleAB_TupleAB<A: Clone, B: Clone>(a: &(A, B), b: &(A, B), cmp: &mut dyn FnMut(&A, &A) -> i32, cmp__1: &mut dyn FnMut(&B, &B) -> i32) -> i32 {
     let mut c: i32 = cmp(&a.0, &b.0);
-    if !(((c) == (0i32))) {
+    if (c != 0i32) {
         return c;
     };
     return cmp__1(&a.1, &b.1);
@@ -135,11 +135,11 @@ pub fn eq__TupleABC_TupleABC<A: Clone, B: Clone, C: Clone>(a: &(A, B, C), b: &(A
 
 pub fn cmp__TupleABC_TupleABC<A: Clone, B: Clone, C: Clone>(a: &(A, B, C), b: &(A, B, C), cmp: &mut dyn FnMut(&A, &A) -> i32, cmp__1: &mut dyn FnMut(&B, &B) -> i32, cmp__2: &mut dyn FnMut(&C, &C) -> i32) -> i32 {
     let mut c: i32 = cmp(&a.0, &b.0);
-    if !(((c) == (0i32))) {
+    if (c != 0i32) {
         return c;
     };
     let mut d: i32 = cmp__1(&a.1, &b.1);
-    if !(((d) == (0i32))) {
+    if (d != 0i32) {
         return d;
     };
     return cmp__2(&a.2, &b.2);
@@ -241,7 +241,7 @@ pub fn Idx__Int_qualifies<C>(mut index: i32, c: &C, size: &mut dyn FnMut(&C) -> 
 }
 
 pub fn NotEq__Int_qualifies(mut j: i32, mut i: i32) -> bool {
-    return !(((j) == (i)));
+    return (j != i);
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -484,7 +484,7 @@ pub fn last<T>(list: &Vec<T>) -> Option<&T> {
 }
 
 pub fn is_empty<T>(list: &Vec<T>) -> bool {
-    return ((crate::core_list::size_platform::<T>(list)) == (0i32));
+    return (crate::core_list::size_platform::<T>(list) == 0i32);
 }
 
 pub fn remove_front<T>(list: &mut Vec<T>, mut n: i32) -> Vec<T> {
@@ -1025,7 +1025,7 @@ pub fn to_str<K: Clone, V: Clone>(map: &crate::core_map::Map<K, V>, to_str: &mut
 }
 
 pub fn eq<K: Clone, V: Clone>(a: &crate::core_map::Map<K, V>, b: &crate::core_map::Map<K, V>, eq: &mut dyn FnMut(&V, &V) -> bool, hash: &mut dyn FnMut(&K) -> i64, eq__1: &mut dyn FnMut(&K, &K) -> bool) -> bool {
-    if !(((crate::core_map::size_platform::<K, V>(a)) == (crate::core_map::size_platform::<K, V>(b)))) {
+    if (crate::core_map::size_platform::<K, V>(a) != crate::core_map::size_platform::<K, V>(b)) {
         return false;
     };
     for mut k in crate::platform_core_map::each(a).map(|__x| __x.clone()) {
@@ -1253,7 +1253,7 @@ pub fn to_str<T: Clone>(set: &crate::core_set::Set<T>, to_str: &mut dyn FnMut(&T
 }
 
 pub fn eq<T: Clone>(a: &crate::core_set::Set<T>, b: &crate::core_set::Set<T>, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> bool {
-    if !(((crate::core_set::size_platform::<T>(a)) == (crate::core_set::size_platform::<T>(b)))) {
+    if (crate::core_set::size_platform::<T>(a) != crate::core_set::size_platform::<T>(b)) {
         return false;
     };
     for mut x in crate::platform_core_set::each(a).map(|__x| __x.clone()) {
@@ -1470,7 +1470,7 @@ pub fn to_str__SortedMap<K: Clone, V: Clone>(map: &crate::core_sorted::SortedMap
 }
 
 pub fn eq__SortedSet_SortedSet<T: Clone>(a: &crate::core_sorted::SortedSet<T>, b: &crate::core_sorted::SortedSet<T>, cmp: &mut dyn FnMut(&T, &T) -> i32) -> bool {
-    if !(((crate::core_sorted::size__SortedSet::<T>(a)) == (crate::core_sorted::size__SortedSet::<T>(b)))) {
+    if (crate::core_sorted::size__SortedSet::<T>(a) != crate::core_sorted::size__SortedSet::<T>(b)) {
         return false;
     };
     for mut x in crate::platform_core_sorted::each_sorted_set(a).map(|__x| __x.clone()) {
@@ -1482,7 +1482,7 @@ pub fn eq__SortedSet_SortedSet<T: Clone>(a: &crate::core_sorted::SortedSet<T>, b
 }
 
 pub fn eq__SortedMap_SortedMap<K: Clone, V: Clone>(a: &crate::core_sorted::SortedMap<K, V>, b: &crate::core_sorted::SortedMap<K, V>, eq: &mut dyn FnMut(&V, &V) -> bool, cmp: &mut dyn FnMut(&K, &K) -> i32) -> bool {
-    if !(((crate::core_sorted::size__SortedMap::<K, V>(a)) == (crate::core_sorted::size__SortedMap::<K, V>(b)))) {
+    if (crate::core_sorted::size__SortedMap::<K, V>(a) != crate::core_sorted::size__SortedMap::<K, V>(b)) {
         return false;
     };
     for mut k in crate::platform_core_sorted::each_sorted_map(a).map(|__x| __x.clone()) {
@@ -1747,7 +1747,7 @@ pub fn clear_platform(str: &mut String) {
 }
 
 pub fn is_empty(str: &String) -> bool {
-    return ((crate::core_string::size_platform(str)) == (0i32));
+    return (crate::core_string::size_platform(str) == 0i32);
 }
 
 pub fn repeat(str: &String, mut n: i32) -> String {

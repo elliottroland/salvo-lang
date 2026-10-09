@@ -39,7 +39,7 @@ fn main::heal(lent_mut f: Mut Fighter) -> None {
 
 fn main::wounded(lent_mut squad: List<Mut Fighter>) -> proj Mut Fighter? borrows [squad] {
   foreach#1 f: proj Mut Fighter in read squad {
-    branch#2 cond#0 op Lt(call core.compare::cmp(Int, Int)(read f.hp, 10), 0) {
+    branch#2 cond#0 op Lt(read f.hp, 10) {
       return present(read f)
     }
   }
@@ -139,7 +139,7 @@ fn main::main() -> None {
   }))
   bind#17 let pass: Mut ListYield<Fighter> = call core.list::iter<Fighter>(read roster)
   bind#18 let standing: Mut List<proj Fighter> = call core.seq::filter(Mut It, (T) -> Bool)<ListYield<Fighter>, proj Fighter>(read pass, lambda(lent f: Fighter) -> Bool {
-    return op Gt(call core.compare::cmp(Int, Int)(read f.hp, 10), 0)
+    return op Gt(read f.hp, 10)
   }, fn core.list::next(Mut ListYield<T>))
   call core.console::println(read __handle~2, concat("1. ", call core.basic::to_str(Int)(call core.list::size<proj Fighter>(drop_mut(read standing))), " of ", call core.basic::to_str(Int)(call core.list::size<Fighter>(read roster)), " still standing"))
   bind#19 let bench: Mut List<Fighter> = call core.list::mut_list_of(T, T[])<Fighter>(construct Fighter { name: "Cy", hp: 12, energy: 2 }, array[Fighter[]]())

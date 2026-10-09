@@ -1331,8 +1331,8 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
         };
         let __h2: usize = crate::core_list::get_platform__loc(&self.pools, pool).expect("salvo: value is absent at runtime:648:17");
         crate::core_list::add_platform::<crate::runtime::Parker>(&mut self.pools[__h2].idle, idle);
-        if (((self.active) == (self.parked_frames)) && crate::runtime::quiet(&mut self.actors, &mut self.waiters, &mut self.pools, self.externals)) {
-            if (!(((crate::core_list::size_platform::<crate::runtime::IdleHook>(&self.idle_hooks)) == (0i32))) && ((self.active) == (0i32))) {
+        if ((self.active == self.parked_frames) && crate::runtime::quiet(&mut self.actors, &mut self.waiters, &mut self.pools, self.externals)) {
+            if (!((crate::core_list::size_platform::<crate::runtime::IdleHook>(&self.idle_hooks) == 0i32)) && (self.active == 0i32)) {
                 crate::runtime::fire_idle(&mut self.actors, &mut self.waiters, &mut self.pools, &mut self.idle_hooks);
             };
             crate::runtime::wake_waiters(&mut self.waiters);
@@ -1347,10 +1347,10 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
     }
     fn wait_step(&mut self, wid: i32, pool: i32, own: i32, frame: i32, me: crate::runtime::Parker) -> crate::unions::Union6<crate::runtime::Got, crate::runtime::RunActor, crate::runtime::RunTask, crate::runtime::Sleep, crate::runtime::Again, crate::runtime::Stuck> {
         let __h1: usize = crate::core_list::get_platform__loc(&self.waiters, wid).expect("salvo: value is absent at runtime:669:17");
-        if ((self.waiters[__h1].waiting) == (0i32)) {
+        if (self.waiters[__h1].waiting == 0i32) {
             self.waiters[__h1].waiting = frame;
             self.waiters[__h1].waiting_actor = own;
-            if ((frame) == (1i32)) {
+            if (frame == 1i32) {
                 self.parked_frames = i32::wrapping_add(self.parked_frames, 1i32);
             } else {
                 self.main_waits = i32::wrapping_add(self.main_waits, 1i32);
@@ -1361,7 +1361,7 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
             let mut v = got.unwrap();
             self.waiters[__h1].filled = false;
             self.waiters[__h1].parker = None;
-            if ((self.waiters[__h1].waiting) == (1i32)) {
+            if (self.waiters[__h1].waiting == 1i32) {
                 self.parked_frames = i32::wrapping_sub(self.parked_frames, 1i32);
             } else {
                 self.main_waits = i32::wrapping_sub(self.main_waits, 1i32);
@@ -1388,11 +1388,11 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
             crate::runtime::fire_clock(&mut self.actors, &mut self.waiters, &mut self.pools, &mut self.clock_hooks);
             return crate::unions::Union6::U5(crate::runtime::Again {});
         };
-        if ((!(((crate::core_list::size_platform::<crate::runtime::IdleHook>(&self.idle_hooks)) == (0i32))) && ((self.active) == (0i32))) && q) {
+        if ((!((crate::core_list::size_platform::<crate::runtime::IdleHook>(&self.idle_hooks) == 0i32)) && (self.active == 0i32)) && q) {
             crate::runtime::fire_idle(&mut self.actors, &mut self.waiters, &mut self.pools, &mut self.idle_hooks);
             return crate::unions::Union6::U5(crate::runtime::Again {});
         };
-        if (self.virtual_mode || ((((self.active) == (self.parked_frames)) && (self.main_waits > 0i32)) && q)) {
+        if (self.virtual_mode || (((self.active == self.parked_frames) && (self.main_waits > 0i32)) && q)) {
             return crate::unions::Union6::U6(crate::runtime::Stuck { report: crate::runtime::deadlock_report(&mut self.actors, &mut self.waiters, own) });
         };
         let __h2: usize = crate::core_list::get_platform__loc(&self.waiters, wid).expect("salvo: value is absent at runtime:728:22");
@@ -1455,7 +1455,7 @@ impl crate::runtime::__Stateful_SchedTable for Scheduler {
             let mut t = __subject_7.unwrap();
             crate::core_list::add_platform::<crate::runtime::Token>(&mut watchers, t);
         }
-        if ((crate::core_list::size_platform::<crate::runtime::Token>(&watchers)) == (0i32)) {
+        if (crate::core_list::size_platform::<crate::runtime::Token>(&watchers) == 0i32) {
             crate::runtime::report_fault(&mut self.actors, &mut self.pools, pool, (reason).clone());
         };
         loop {
@@ -1791,7 +1791,7 @@ pub fn deliver_to(actors: &mut Vec<crate::runtime::ActorRec>, waiters: &mut Vec<
     } else if matches!(target, crate::unions::Union3::U2(_)) {
         let mut tw = match &target { crate::unions::Union3::U2(__v) => __v, _ => unreachable!() };
         let __h2: usize = crate::core_list::get_platform__loc(&*waiters, tw.wid).expect("salvo: value is absent at runtime:1057:17");
-        if (!(((waiters[__h2].slot) == (slot))) || waiters[__h2].filled) {
+        if ((waiters[__h2].slot != slot) || waiters[__h2].filled) {
             crate::runtime::drop_dyn_platform(value);
             return;
         };
@@ -1872,7 +1872,7 @@ pub fn fire_idle(actors: &mut Vec<crate::runtime::ActorRec>, waiters: &mut Vec<c
             pools[__h1].owed
         };
         for mut a in (&mut *actors).iter_mut() {
-            if ((a.pool) == (pool)) {
+            if (a.pool == pool) {
                 tokens = i32::wrapping_add(tokens, a.owed);
                 if (!(a.gate.is_none()) && !(a.dead)) {
                     gates = i32::wrapping_add(gates, 1i32);
@@ -1910,7 +1910,7 @@ pub fn deadlock_report(actors: &mut Vec<crate::runtime::ActorRec>, waiters: &mut
     if (crate::core_list::size_platform::<String>(&gated) > 0i32) {
         crate::core_list::add_platform::<String>(&mut clauses, format!("parked gates: {}", crate::core_string::join_platform(&gated, &String::from(", "))));
     };
-    let mut detail: String = if ((crate::core_list::size_platform::<String>(&clauses)) == (0i32)) {
+    let mut detail: String = if (crate::core_list::size_platform::<String>(&clauses) == 0i32) {
         String::from("")
     } else {
         format!(" ({})", crate::core_string::join_platform(&clauses, &String::from("; ")))
@@ -1936,7 +1936,7 @@ pub fn take_work(actors: &mut Vec<crate::runtime::ActorRec>, pools: &mut Vec<cra
         let mut i = __subject_4.unwrap();
         let __h2: usize = crate::core_list::get_platform__loc(&*actors, i).expect("salvo: value is absent at runtime:1188:17");
         actors[__h2].ready = false;
-        if ((!(((i) == (exclude))) && !(actors[__h2].running)) && !(actors[__h2].dead)) {
+        if (((i != exclude) && !(actors[__h2].running)) && !(actors[__h2].dead)) {
             let mut at: Option<i32> = crate::runtime::deliverable(&actors[__h2].slots, &actors[__h2].gate);
             if at.is_some() {
                 let mut k = at.unwrap();
@@ -2008,7 +2008,7 @@ pub fn work_of(a: &mut crate::runtime::ActorRec, mut addr: i32, mut e: crate::un
     let mut opens: bool = false;
     if a.gate.is_some() {
         let mut g = a.gate.unwrap();
-        opens = ((g) == (slot));
+        opens = (g == slot);
     };
     if opens {
         a.gate = None;
@@ -2017,7 +2017,7 @@ pub fn work_of(a: &mut crate::runtime::ActorRec, mut addr: i32, mut e: crate::un
 }
 
 pub fn deliverable(slots: &std::collections::VecDeque<i64>, gate: &Option<i64>) -> Option<i32> {
-    if ((crate::core_deque::size_platform::<i64>(slots)) == (0i32)) {
+    if (crate::core_deque::size_platform::<i64>(slots) == 0i32) {
         return None;
     };
     if gate.is_none() {
@@ -2029,7 +2029,7 @@ pub fn deliverable(slots: &std::collections::VecDeque<i64>, gate: &Option<i64>) 
             break;
         };
         let mut gate_3 = gate.unwrap();
-        if (({
+        if ({
             let mut __nn_1: Option<i64> = crate::core_deque::get_platform::<i64>(slots, i).copied();
             if __nn_1.is_none() {
                 panic!("salvo: value is absent at runtime:1263:12");
@@ -2037,7 +2037,7 @@ pub fn deliverable(slots: &std::collections::VecDeque<i64>, gate: &Option<i64>) 
                 let mut __some_2 = __nn_1.unwrap();
                 __some_2
             }
-        }) == (gate_3)) {
+        } == gate_3) {
             return Some(i);
         };
         i = i32::wrapping_add(i, 1i32);
@@ -2081,7 +2081,7 @@ pub fn retire_if_done(actors: &mut Vec<crate::runtime::ActorRec>, pools: &mut Ve
         return;
     };
     for mut a in (&mut *actors).iter_mut() {
-        if (((a.pool) == (pool)) && !(a.dead)) {
+        if ((a.pool == pool) && !(a.dead)) {
             return;
         };
     }
@@ -2160,7 +2160,7 @@ pub fn send_or_back(mut addr: i32, mut msg: crate::runtime::Dyn) -> Option<crate
             r = crate::runtime::__module_use1_0().enqueue(addr, again, crate::runtime::this_parker_platform());
             continue;
         };
-        if ((((crate::runtime::here_pool_platform()) == (crate::runtime::main_pool())) && ((crate::runtime::here_actor_platform()) == (crate::runtime::no_frame()))) && ((crate::runtime::__module_use1_0().pool_of_actor(addr)) == (crate::runtime::main_pool()))) {
+        if (((crate::runtime::here_pool_platform() == crate::runtime::main_pool()) && (crate::runtime::here_actor_platform() == crate::runtime::no_frame())) && (crate::runtime::__module_use1_0().pool_of_actor(addr) == crate::runtime::main_pool())) {
             crate::runtime::__module_use0_0().report(&format!("salvo: deadlock: the main pool's actor {} has a full mailbox and the only thread that could drain it is the one sending: the main pool has one worker, `main` itself, and it serves work only inside a `waitfor` — send fewer messages before waiting, raise the handler's `mailbox` capacity, or place the actor on a pool of its own", addr));
             crate::runtime::exit_process_platform(1i32);
         };
@@ -2262,7 +2262,7 @@ pub fn external_end() {
 pub fn await_answer(mut wid: i32) -> crate::runtime::Dyn {
     let mut pool: i32 = crate::runtime::here_pool_platform();
     let mut own: i32 = crate::runtime::here_actor_platform();
-    let mut frame: i32 = if ((own) == (crate::runtime::no_frame())) {
+    let mut frame: i32 = if (own == crate::runtime::no_frame()) {
         2i32
     } else {
         1i32

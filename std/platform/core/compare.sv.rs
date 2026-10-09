@@ -12,7 +12,7 @@ use crate::core_list::size_platform;
 
 
 pub fn eq__List_List<T: Clone>(a: &Vec<T>, b: &Vec<T>, eq: &mut dyn FnMut(&T, &T) -> bool) -> bool {
-    if !(((crate::core_list::size_platform::<T>(a)) == (crate::core_list::size_platform::<T>(b)))) {
+    if (crate::core_list::size_platform::<T>(a) != crate::core_list::size_platform::<T>(b)) {
         return false;
     };
     let mut __pass_1: crate::core_list::__Iter_enumerate_List<'_, T> = crate::core_list::enumerate::<T>(a);
@@ -44,7 +44,7 @@ pub fn cmp__List_List<T: Clone>(a: &Vec<T>, b: &Vec<T>, cmp: &mut dyn FnMut(&T, 
             let mut j: i32 = p.index;
             if crate::core_index::Idx__Int_qualifies(j, b, &mut |__a0| crate::core_list::size_platform(__a0)) {
                 let mut c: i32 = cmp(p.elem, crate::core_list::get::<T>(b, j));
-                if !(((c) == (0i32))) {
+                if (c != 0i32) {
                     return c;
                 };
             } else {
@@ -74,7 +74,7 @@ pub fn eq__TupleAB_TupleAB<A: Clone, B: Clone>(a: &(A, B), b: &(A, B), eq: &mut 
 
 pub fn cmp__TupleAB_TupleAB<A: Clone, B: Clone>(a: &(A, B), b: &(A, B), cmp: &mut dyn FnMut(&A, &A) -> i32, cmp__1: &mut dyn FnMut(&B, &B) -> i32) -> i32 {
     let mut c: i32 = cmp(&a.0, &b.0);
-    if !(((c) == (0i32))) {
+    if (c != 0i32) {
         return c;
     };
     return cmp__1(&a.1, &b.1);
@@ -90,11 +90,11 @@ pub fn eq__TupleABC_TupleABC<A: Clone, B: Clone, C: Clone>(a: &(A, B, C), b: &(A
 
 pub fn cmp__TupleABC_TupleABC<A: Clone, B: Clone, C: Clone>(a: &(A, B, C), b: &(A, B, C), cmp: &mut dyn FnMut(&A, &A) -> i32, cmp__1: &mut dyn FnMut(&B, &B) -> i32, cmp__2: &mut dyn FnMut(&C, &C) -> i32) -> i32 {
     let mut c: i32 = cmp(&a.0, &b.0);
-    if !(((c) == (0i32))) {
+    if (c != 0i32) {
         return c;
     };
     let mut d: i32 = cmp__1(&a.1, &b.1);
-    if !(((d) == (0i32))) {
+    if (d != 0i32) {
         return d;
     };
     return cmp__2(&a.2, &b.2);

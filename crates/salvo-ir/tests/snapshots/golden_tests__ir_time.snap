@@ -74,7 +74,7 @@ fn main::main() -> None {
   bind#6 let __handle~4: Clock = handle[Clock](read __use~3)
   bind#7 let __use~5: DefaultTicker = construct DefaultTicker { }
   bind#8 let __handle~6: Ticker = handle[Ticker](read __use~5)
-  call core.console::println(read __handle~2, concat("wall clock is set: ", call core.basic::to_str(Bool)(op Gt(call core.compare::cmp(Long, Long)(call time::to_epoch_second(member time::Clock#0(read __handle~4)), 1600000000L), 0))))
+  call core.console::println(read __handle~2, concat("wall clock is set: ", call core.basic::to_str(Bool)(op Gt(call time::to_epoch_second(member time::Clock#0(read __handle~4)), 1600000000L))))
   bind#9 let __use~7: SteppingTicker = construct SteppingTicker { step: call time::millis(500L) }
   bind#10 let __handle~8: Ticker = handle[Ticker](read __use~7)
   bind#11 let started: Tick = member time::Ticker#0(read __handle~8)

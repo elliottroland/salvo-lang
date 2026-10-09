@@ -34,7 +34,7 @@ pub fn range__Int_Int_Int(mut start: i32, mut end: i32, mut step: i32) -> crate:
 
 pub fn next(__p: &mut crate::core_range::__Iter_range_Int_Int_Int) -> crate::unions::Union2<i32, crate::core_iterator::Finished> {
     let mut next: i32 = __p.i;
-    return (match if ((__p.step) == (0i32)) {
+    return (match if (__p.step == 0i32) {
         crate::unions::Union2::U1(crate::core_iterator::finished())
     } else if ((__p.step > 0i32) && (__p.i >= __p.end)) {
         crate::unions::Union2::U1(crate::core_iterator::finished())

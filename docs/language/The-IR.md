@@ -208,7 +208,7 @@ A place is a local followed by field, tuple and index steps: `b.n`,
 | `call f<T>(args)` | a call of a declaration |
 | `call local f(args)` | a call through a function-typed local |
 | `member E#i(instance, args)` | a call of member `i` of effect `E`, through an instance |
-| `op Add(a, b)` | an operator on scalars: `Add`, `Sub`, `Mul`, `Div`, `Rem`, `And`, `Or`, `Not`, `Neg`, and the sign tests `Lt`, `Gt`, `LtEq`, `GtEq` |
+| `op Add(a, b)` | the host's operator on basic types: `Add`, `Sub`, `Mul`, `Div`, `Rem`, `And`, `Or`, `Not`, `Neg`, `Lt`, `Gt`, `LtEq`, `GtEq`, `Eq`, `NotEq` (see "Comparisons and operators") |
 | `construct T { f: e }` | a struct or handler value |
 | `make_union[U]#i(e)` | `e` placed into arm `i` of the union `U` |
 | `present(e)` | `e` placed into the present arm of an optional. Rust writes `Some(e)`, and Kotlin writes `e` |
@@ -233,17 +233,29 @@ into one `Str` arm).
 
 ## Comparisons and operators
 
-`a < b` is never an operator node. It is a call to the `cmp` the checker
-resolved, followed by a sign test of the result:
+The rule turns on the **basic types**: `Byte`, `Int`, `Long`, `Float`,
+`Double`, `Bool` and `Char` ([Data and Types](Data-and-Types.md)).
 
-```
-op Gt(call core.compare::cmp(Int, Int)(read at, 0), 0)
-```
+* **On basic types, an operator is an `op`.** `i < 4` is `op Lt(read i, 4)`
+  and `i != 2` is `op NotEq(read i, 2)`. No basic-type operator goes through
+  `cmp` or `eq`. Those intrinsics exist only so a scalar's ordering can be
+  passed to generic code, where they appear as a value:
+  `call main::bigger<Int>(2, 7, fn core.compare::cmp(Int, Int))`.
+* **On every other type, `Str` included, an operator is a call** of the
+  function the checker resolved, whether it is declared in Salvo or is an
+  intrinsic. `a == b` is `call core.compare::eq(Str, Str)(read a, read b)`,
+  and `a != b` is `op Not` of that call. An ordering is the `cmp` call
+  followed by a sign test of its `Int` result, which is an `op` because `Int`
+  is basic:
 
-So comparing two `Int`s and comparing two `Person`s use the same shape. On
-`Int`, `cmp` is an intrinsic, and both backends turn the pair back into a
-native `>`. Equality is a call to `eq` in the same way. `op` remains only for
-the arithmetic and logic the language treats as primitive on scalars.
+  ```
+  op Lt(call core.compare::cmp(Str, Str)(read s, "c"), 0)
+  op Lt(call main::cmp(read p, read q), 0)
+  op Gt(call local cmp(read a, read b), 0)     // a forwarded ?cmp
+  ```
+
+Arithmetic (`+`, `-`, `*`, `/`, `%`) is defined on numbers only, so it is
+always an `op`.
 
 ## Control flow
 
@@ -306,7 +318,7 @@ special case, `foreach`.
 
   ```
   loop#2 {
-    branch#3 cond#0 op Not(op Gt(call core.compare::cmp(Int, Int)(read at, 0), 0)) {
+    branch#3 cond#0 op Not(op Gt(read at, 0)) {
       break
     }
     assign at = op Sub(read at, member main::Clock#0(read clock))
@@ -431,7 +443,8 @@ target language says it:
 * the representation of unions and optionals (Rust enums, Kotlin sealed
   classes),
 * imports and names, worked out from the references,
-* the native operator for an intrinsic `cmp`, `eq` or `add`,
+* the host's rendering of an intrinsic call, such as `eq(Str, Str)` as a
+  string comparison,
 * copies where the target needs them (Rust adds `.clone()` for a read that
   does not consume a value it only borrows; the IR records moves, never
   copies),

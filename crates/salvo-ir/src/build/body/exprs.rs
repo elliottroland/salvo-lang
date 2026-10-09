@@ -717,6 +717,19 @@ impl<'a, 'p> Lower<'a, 'p> {
                     return if op == BinaryOp::Eq { test } else { Expr { ty, span, kind: ExprKind::Op { op: Op::Not, args: vec![test] } } };
                 }
                 let via = self.ctx.checked.comparisons.get(&self.key(span)).cloned();
+                // [type-basic] [ir-op] On basic types the operator is the
+                // host's own; `cmp`/`eq` are only their function values.
+                if l.ty.is_basic() && r.ty.is_basic() && !matches!(via, Some(CompareVia::Implicit(_))) {
+                    let o = match op {
+                        BinaryOp::Eq => Op::Eq,
+                        BinaryOp::NotEq => Op::NotEq,
+                        BinaryOp::Lt => Op::Lt,
+                        BinaryOp::Gt => Op::Gt,
+                        BinaryOp::LtEq => Op::LtEq,
+                        _ => Op::GtEq,
+                    };
+                    return Expr { ty, span, kind: ExprKind::Op { op: o, args: vec![l, r] } };
+                }
                 let target = match via {
                     Some(CompareVia::Call(k)) => Some(FnRef::Decl(self.ctx.decl_id(k))),
                     Some(CompareVia::Implicit(name)) => Some(FnRef::Local(Local(name))),
@@ -727,13 +740,6 @@ impl<'a, 'p> Lower<'a, 'p> {
                     }
                 };
                 let Some(target) = target else {
-                    // [cmp-groups] `Double`/`Float` have no `cmp` (`NaN` has
-                    // no order): their ordering is the primitive comparison.
-                    let float = matches!(l.ty.strip_quals(), Ty::Named { name, .. } if name == "Double" || name == "Float");
-                    if !equality && float {
-                        let o = match op { BinaryOp::Lt => Op::Lt, BinaryOp::Gt => Op::Gt, BinaryOp::LtEq => Op::LtEq, _ => Op::GtEq };
-                        return Expr { ty, span, kind: ExprKind::Op { op: o, args: vec![l, r] } };
-                    }
                     self.error(span, format!("comparison on `{}` resolves to no `cmp`/`eq`", l.ty));
                     return unsupported(ty, span, "comparison");
                 };

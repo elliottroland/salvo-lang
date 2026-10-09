@@ -483,7 +483,7 @@ fun bumpIn(versions: salvo.platform.core.map.MutMap<Int, Long>, waiters: salvo.p
         if (!((i < salvo.core.list.sizePlatform(waiters)))) {
             break
         }
-        if (((run {
+        if ((run {
             val __proj_3: ViewWaiter = run {
                 val __nn_1: ViewWaiter? = salvo.core.list.getPlatform(waiters, i)
                 when {
@@ -497,7 +497,7 @@ fun bumpIn(versions: salvo.platform.core.map.MutMap<Int, Long>, waiters: salvo.p
                 }
             }
             __proj_3.group
-        }) == (group))) {
+        } == group)) {
             val w: ViewWaiter = run {
                 val __nn_4: ViewWaiter? = salvo.core.list.removeAtPlatform(waiters, i)
                 when {
@@ -570,12 +570,12 @@ class Routes : RouteTable {
         return identityIn(remote, bits, poolNode, nodeId, addr, pool)
     }
     override fun findImport(r: RemoteRef, here: Long): Union3<Found, MakeProxy, MakeDead> {
-        if (((r.node) == (here))) {
+        if ((r.node == here)) {
             val idx: Int = (r.actor).toInt()
             val b: Long? = salvo.core.map.getPlatform(bits, idx, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
             if ((if ((!(salvo.core.map.containsKeyPlatform(remote, idx, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })) && (b != null))) {
                 val known: Long = b!!
-                ((known) == (r.bits))
+                (known == r.bits)
             } else {
                 false
             })) {
@@ -688,7 +688,7 @@ class Routes : RouteTable {
         val b: Long? = salvo.core.map.getPlatform(bits, idx, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
         if ((if ((!(salvo.core.map.containsKeyPlatform(remote, idx, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })) && (b != null))) {
             val known: Long = b!!
-            ((known) == (claimed))
+            (known == claimed)
         } else {
             false
         })) {
@@ -741,7 +741,7 @@ class Routes : RouteTable {
             if (!((i < salvo.core.list.sizePlatform(taskKeys)))) {
                 break
             }
-            if (((run {
+            if ((run {
                 val __nn_1: Long? = salvo.core.list.getPlatform(taskKeys, i)
                 when {
                     (__nn_1 == null) -> {
@@ -752,7 +752,7 @@ class Routes : RouteTable {
                         __some_2
                     }
                 }
-            }) == (key))) {
+            } == key)) {
                 val _k: Long? = salvo.core.list.removeAtPlatform(taskKeys, i)
                 return salvo.core.list.removeAtPlatform(tasks, i)
             }
@@ -803,7 +803,7 @@ class Routes : RouteTable {
             val r: RemoteRef? = salvo.core.map.getPlatform(remote, idx, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
             if ((r != null)) {
                 val found: RemoteRef = r!!
-                if (((found.node) == (node))) {
+                if ((found.node == node)) {
                     salvo.core.list.addPlatform(gone, idx)
                 }
             }
@@ -830,7 +830,7 @@ class Routes : RouteTable {
         bumpIn(versions, viewWaiters, group)
     }
     override fun addViewWaiter(group: Int, seen: Long, me: salvo.platform.runtime.Parker): Long {
-        if (!(((versionIn(versions, group)) == (seen)))) {
+        if ((versionIn(versions, group) != seen)) {
             return (-1L)
         }
         nextWaiter = (nextWaiter + 1L)
@@ -843,7 +843,7 @@ class Routes : RouteTable {
             if (!((i < salvo.core.list.sizePlatform(viewWaiters)))) {
                 break
             }
-            if (((run {
+            if ((run {
                 val __proj_3: ViewWaiter = run {
                     val __nn_1: ViewWaiter? = salvo.core.list.getPlatform(viewWaiters, i)
                     when {
@@ -857,7 +857,7 @@ class Routes : RouteTable {
                     }
                 }
                 __proj_3.id
-            }) == (id))) {
+            } == id)) {
                 val _w: ViewWaiter? = salvo.core.list.removeAtPlatform(viewWaiters, i)
                 return
             }
@@ -996,7 +996,7 @@ fun identity(addr: Int): RemoteRef {
 }
 
 fun sameActor(a: Int, b: Int): Boolean {
-    if (((a) == (b))) {
+    if ((a == b)) {
         return true
     }
     if ((!(__module_use0_0.isProxy(a)) && !(__module_use0_0.isProxy(b)))) {
@@ -1021,7 +1021,7 @@ fun importAddr(node: Long, actor: Long, bits: Long): Int {
         return __module_use0_0.registerDead(idx)
     }
     val got: Int = __module_use0_0.registerProxy(r, idx, here)
-    if (((got) == (idx))) {
+    if ((got == idx)) {
         salvo.runtime.markProxy(idx)
     }
     flush()
@@ -1042,7 +1042,7 @@ fun sendRemote(addr: Int, proto: String, payload: salvo.platform.core.bytes.Byte
             break
         }
         val got: Int = __module_use0_0.takeCredit(addr, salvo.runtime.thisParkerPlatform())
-        if (((got) == (1))) {
+        if ((got == 1)) {
             val from: Long = hereNode()
             val r_1: RemoteRef = r!!
             val frame: salvo.platform.core.bytes.Bytes = salvo.salvoEncode(Union5.U1<MsgFrame, AnswerFrame, GrantFrame, OpenFrame, ControlFrame>(MsgFrame(to = r_1.node, actor = r_1.actor, bits = r_1.bits, from = from, proto = proto, payload = payload)), salvo.Union5Codec(__Codec_MsgFrame, __Codec_AnswerFrame, __Codec_GrantFrame, __Codec_OpenFrame, __Codec_ControlFrame))
@@ -1073,7 +1073,7 @@ fun exportReply(e: salvo.runtime.Exported): ReplyParts {
     val id: Int = __destructured_1.id
     val slot: Long = __destructured_1.slot
     val body: salvo.platform.runtime.Body? = __destructured_1.body
-    if (((kind) == (2))) {
+    if ((kind == 2)) {
         if ((body != null)) {
             val b: salvo.platform.runtime.Body = body!!
             __module_use0_0.putTask(slot, ExportedTask(pool = id, body = b))
@@ -1084,7 +1084,7 @@ fun exportReply(e: salvo.runtime.Exported): ReplyParts {
         val b: salvo.platform.runtime.Body = body!!
         salvo.runtime.dropBodyPlatform(b)
     }
-    if (((kind) == (1))) {
+    if ((kind == 1)) {
         return ReplyParts(node = __module_use0_0.nodeOfPool(salvo.runtime.waiterPool(id)), kind = 1, id = (id).toLong(), slot = slot, bits = 0L)
     }
     val me: RemoteRef = identity(id)
@@ -1207,7 +1207,7 @@ fun deliver(data: salvo.platform.core.bytes.Bytes): Boolean {
     if ((f is Union5.U5<*, *, *, *, *>)) {
         val c: ControlFrame = ((f as Union5.U5<*, *, *, *, *>).value as ControlFrame)
         var node: Long = c.to
-        if (((node) == (0L))) {
+        if ((node == 0L)) {
             node = hereNode()
         }
         if (!(__module_use0_0.hosts(node))) {
@@ -1232,14 +1232,14 @@ fun deliverAnswer(a: AnswerFrame): Boolean {
     if (!(__module_use0_0.hosts(a.to))) {
         return false
     }
-    if (((a.kind) == (0))) {
+    if ((a.kind == 0)) {
         if (!(__module_use0_0.accepts(a.to, a.id, a.bits))) {
             return false
         }
         salvo.runtime.answer(salvo.runtime.tokenToActor((a.id).toInt(), a.slot), rawAnswerPlatform(a.payload))
         return true
     }
-    if (((a.kind) == (1))) {
+    if ((a.kind == 1)) {
         val wid: Int = (a.id).toInt()
         val v: salvo.platform.runtime.Dyn? = decodeWaiterAnswerPlatform(wid, a.payload)
         if ((v != null)) {
@@ -1330,7 +1330,7 @@ fun viewMembers(group: Int): List<Int> {
 }
 
 fun before(a: RemoteRef, b: RemoteRef): Boolean {
-    if (!(((a.node) == (b.node)))) {
+    if ((a.node != b.node)) {
         return (a.node < b.node)
     }
     return (a.actor <= b.actor)

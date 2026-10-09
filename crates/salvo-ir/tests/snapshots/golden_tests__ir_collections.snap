@@ -140,11 +140,11 @@ fn main::main() -> None {
 
 fn main::cmp(lent a: Point, lent b: Point) -> Int {
   bind#1 let c__c1: Int = call core.compare::cmp(Int, Int)(read a.x, read b.x)
-  branch#2 cond#0 op Not(call core.compare::eq(Int, Int)(read c__c1, 0)) {
+  branch#2 cond#0 op NotEq(read c__c1, 0) {
     return !read c__c1
   }
   bind#3 let c__c2: Int = call core.compare::cmp(Int, Int)(read a.y, read b.y)
-  branch#4 cond#0 op Not(call core.compare::eq(Int, Int)(read c__c2, 0)) {
+  branch#4 cond#0 op NotEq(read c__c2, 0) {
     return !read c__c2
   }
   return 0

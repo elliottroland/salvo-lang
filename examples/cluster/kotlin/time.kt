@@ -99,16 +99,16 @@ fun toStr(d: Duration): String {
         val positive: Duration = Duration(nanos = (0L - d.nanos))
         return "-${toStr(positive)}"
     }
-    if (((d.nanos) == (0L))) {
+    if ((d.nanos == 0L)) {
         return "0s"
     }
-    if ((((d.nanos % 1000000000L)) == (0L))) {
+    if (((d.nanos % 1000000000L) == 0L)) {
         return "${(d.nanos / 1000000000L)}s"
     }
-    if ((((d.nanos % 1000000L)) == (0L))) {
+    if (((d.nanos % 1000000L) == 0L)) {
         return "${(d.nanos / 1000000L)}ms"
     }
-    if ((((d.nanos % 1000L)) == (0L))) {
+    if (((d.nanos % 1000L) == 0L)) {
         return "${(d.nanos / 1000L)}us"
     }
     return "${d.nanos}ns"
@@ -438,7 +438,7 @@ fun earliestDue(deadlines: List<Long>, target: Long): Int? {
 
 fun cmp__Duration_Duration(a: Duration, b: Duration): Int {
     val c__c1: Int = (a.nanos).compareTo(b.nanos)
-    if (!(((c__c1) == (0)))) {
+    if ((c__c1 != 0)) {
         return c__c1
     }
     return 0
@@ -459,7 +459,7 @@ fun eq__Duration_Duration(a: Duration, b: Duration): Boolean {
 
 fun cmp__Instant_Instant(a: Instant, b: Instant): Int {
     val c__c1: Int = (a.nanos).compareTo(b.nanos)
-    if (!(((c__c1) == (0)))) {
+    if ((c__c1 != 0)) {
         return c__c1
     }
     return 0
@@ -480,7 +480,7 @@ fun eq__Instant_Instant(a: Instant, b: Instant): Boolean {
 
 fun cmp__Tick_Tick(a: Tick, b: Tick): Int {
     val c__c1: Int = (a.nanos).compareTo(b.nanos)
-    if (!(((c__c1) == (0)))) {
+    if ((c__c1 != 0)) {
         return c__c1
     }
     return 0

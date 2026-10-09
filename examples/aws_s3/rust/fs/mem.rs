@@ -332,7 +332,7 @@ impl crate::stream::__Stateful_Streams for MemFs {
         };
         let mut got_2 = match got { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
         let mut data: crate::core_bytes::Bytes = got_2;
-        if ((crate::core_bytes::size_platform(&data)) == (0i32)) {
+        if (crate::core_bytes::size_platform(&data) == 0i32) {
             crate::core_map::remove_platform::<i64, crate::fs_mem::MemRead>(&mut self.reads, &s.handle, &mut |__a0: &i64| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i64, __a1: &i64| ((*__a0) == (*__a1)));
             std::mem::drop(s);
             (reply).send(std::boxed::Box::<crate::unions::Union3<crate::stream::Packet, crate::stream::End, crate::core_checked::Checked<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>>>::new(crate::unions::Union3::U2(crate::stream::End {})));
@@ -364,7 +364,7 @@ pub fn mem_find_newline(data: &crate::core_bytes::Bytes, mut from: i32) -> i32 {
         if !((i < end)) {
             break;
         };
-        if (((({
+        if ((({
             let mut __nn_1: Option<u8> = crate::core_bytes::get_platform(data, i);
             if __nn_1.is_none() {
                 panic!("salvo: value is absent at fs.mem:323:19");
@@ -372,7 +372,7 @@ pub fn mem_find_newline(data: &crate::core_bytes::Bytes, mut from: i32) -> i32 {
                 let mut __some_2 = __nn_1.unwrap();
                 __some_2
             }
-        }) as i32)) == (10i32)) {
+        }) as i32) == 10i32) {
             return i;
         };
         i = i32::wrapping_add(i, 1i32);

@@ -98,7 +98,7 @@ impl Gathering() of Gather stateful {
   fn partial(lent n: Int) -> None {
     assign total = op Add(read total, read n)
     assign left = op Sub(read left, 1)
-    branch#1 cond#0 call core.compare::eq(Int, Int)(read left, 0) {
+    branch#1 cond#0 op Eq(read left, 0) {
       bind#2 let out: Reply<Int>? = call core.deque::remove_first<Reply<Int>>(read pending)
       switch#3 read out {
         arm#0 (arm 0) {

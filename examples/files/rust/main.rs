@@ -324,7 +324,7 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
             if matches!(got, crate::unions::Union2::U1(_)) {
                 let mut got_35 = match &got { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
                 let mut n: i32 = got_35;
-                if ((n) == (0i32)) {
+                if (n == 0i32) {
                     reading = false;
                 } else {
                     steps = i32::wrapping_add(steps, 1i32);

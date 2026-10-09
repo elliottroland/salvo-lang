@@ -80,7 +80,7 @@ pub fn to_str<T: Clone>(set: &crate::core_set::Set<T>, to_str: &mut dyn FnMut(&T
 }
 
 pub fn eq<T: Clone>(a: &crate::core_set::Set<T>, b: &crate::core_set::Set<T>, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> bool {
-    if !(((crate::core_set::size_platform::<T>(a)) == (crate::core_set::size_platform::<T>(b)))) {
+    if (crate::core_set::size_platform::<T>(a) != crate::core_set::size_platform::<T>(b)) {
         return false;
     };
     for mut x in crate::platform_core_set::each(a).map(|__x| __x.clone()) {

@@ -264,7 +264,7 @@ class Streams : StreamTable {
             if (!((i < salvo.core.list.sizePlatform(pending)))) {
                 break
             }
-            if (((run {
+            if ((run {
                 val __proj_3: Pending = run {
                     val __nn_1: Pending? = salvo.core.list.getPlatform(pending, i)
                     when {
@@ -278,7 +278,7 @@ class Streams : StreamTable {
                     }
                 }
                 __proj_3.handle
-            }) == (handle))) {
+            } == handle)) {
                 return salvo.core.list.removeAtPlatform(pending, i)
             }
             i = (i + 1)
@@ -293,7 +293,7 @@ fun indexIn(keys: List<Long>, handle: Long): Int {
         if (!((i < salvo.core.list.sizePlatform(keys)))) {
             break
         }
-        if (((run {
+        if ((run {
             val __nn_1: Long? = salvo.core.list.getPlatform(keys, i)
             when {
                 (__nn_1 == null) -> {
@@ -304,7 +304,7 @@ fun indexIn(keys: List<Long>, handle: Long): Int {
                     __some_2
                 }
             }
-        }) == (handle))) {
+        } == handle)) {
             return i
         }
         i = (i + 1)
@@ -509,7 +509,7 @@ fun readLine(e: InEntry): Read {
             val i: Int = at!!
             val line: salvo.platform.core.bytes.Bytes = takeAhead(e, (i + 1))
             var n: Int = (salvo.core.bytes.sizePlatform(line) - 1)
-            if (((n > 0) && (((run {
+            if (((n > 0) && ((run {
                 val __nn_1: UByte? = salvo.core.bytes.getPlatform(line, (n - 1))
                 when {
                     (__nn_1 == null) -> {
@@ -520,7 +520,7 @@ fun readLine(e: InEntry): Read {
                         __some_2
                     }
                 }
-            }).toInt()) == (13)))) {
+            }).toInt() == 13))) {
                 n = (n - 1)
             }
             return Read(data = run {
@@ -541,8 +541,8 @@ fun readLine(e: InEntry): Read {
             val message: String = got.error!!
             return Read(data = salvo.core.bytes.bytesOf(arrayOf<UByte>()), end = true, fault = record(e, message))
         }
-        if (((salvo.core.bytes.sizePlatform(got.data)) == (0))) {
-            if (((salvo.core.bytes.sizePlatform((e.ahead as salvo.platform.core.bytes.MutBytes))) == (0))) {
+        if ((salvo.core.bytes.sizePlatform(got.data) == 0)) {
+            if ((salvo.core.bytes.sizePlatform((e.ahead as salvo.platform.core.bytes.MutBytes)) == 0)) {
                 return Read(data = salvo.core.bytes.bytesOf(arrayOf<UByte>()), end = true, fault = null)
             }
             val rest: salvo.platform.core.bytes.Bytes = takeAhead(e, salvo.core.bytes.sizePlatform((e.ahead as salvo.platform.core.bytes.MutBytes)))
@@ -569,7 +569,7 @@ fun readAll(e: InEntry): Read {
             val message: String = got.error!!
             return Read(data = salvo.core.bytes.bytesOf(arrayOf<UByte>()), end = true, fault = record(e, message))
         }
-        if (((salvo.core.bytes.sizePlatform(got.data)) == (0))) {
+        if ((salvo.core.bytes.sizePlatform(got.data) == 0)) {
             return Read(data = salvo.platform.core.bytes.copy(out), end = true, fault = null)
         }
         e.position = (e.position + (salvo.core.bytes.sizePlatform(got.data)).toLong())
@@ -600,7 +600,7 @@ fun readUpTo(e: InEntry, max: Int): Read {
         return Read(data = salvo.core.bytes.bytesOf(arrayOf<UByte>()), end = true, fault = record(e, message))
     }
     e.position = (e.position + (salvo.core.bytes.sizePlatform(got.data)).toLong())
-    return Read(data = got.data, end = ((salvo.core.bytes.sizePlatform(got.data)) == (0)), fault = null)
+    return Read(data = got.data, end = (salvo.core.bytes.sizePlatform(got.data) == 0), fault = null)
 }
 
 fun decode(e: InEntry, data: salvo.platform.core.bytes.Bytes): String? {

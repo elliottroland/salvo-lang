@@ -29,7 +29,7 @@ fun fsResolve(root: String, path: String): String? {
         if (((seg) == (".."))) {
             skip = (skip + 1)
         } else {
-            if ((((salvo.core.string.sizePlatform(seg)) == (0)) || ((seg) == (".")))) {
+            if (((salvo.core.string.sizePlatform(seg) == 0) || ((seg) == (".")))) {
             } else {
                 if ((skip > 0)) {
                     skip = (skip - 1)
@@ -64,7 +64,7 @@ fun fsResolve(root: String, path: String): String? {
         j = (j - 1)
     }
     val rel: String = salvo.core.string.joinPlatform(parts, "/")
-    if (((salvo.core.string.sizePlatform(rel)) == (0))) {
+    if ((salvo.core.string.sizePlatform(rel) == 0)) {
         return root
     }
     return "${root}/${rel}"

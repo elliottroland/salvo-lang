@@ -810,7 +810,7 @@ impl Gathering {
     fn partial(&mut self, n: i32) {
         self.total = i32::wrapping_add(self.total, n);
         self.left = i32::wrapping_sub(self.left, 1i32);
-        if ((self.left) == (0i32)) {
+        if (self.left == 0i32) {
             let mut out: Option<crate::scheduler::SalvoReply> = crate::core_deque::remove_first_platform::<crate::scheduler::SalvoReply>(&mut self.pending);
             if out.is_some() {
                 let mut out_1 = out.unwrap();

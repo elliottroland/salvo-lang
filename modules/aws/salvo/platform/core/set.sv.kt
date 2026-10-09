@@ -39,7 +39,7 @@ fun<T> toStr(set: salvo.platform.core.set.Set<T>, toStr: (T) -> String): String 
 }
 
 fun<T> eq(a: salvo.platform.core.set.Set<T>, b: salvo.platform.core.set.Set<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): Boolean {
-    if (!(((sizePlatform(a)) == (sizePlatform(b))))) {
+    if ((sizePlatform(a) != sizePlatform(b))) {
         return false
     }
     for (x in salvo.platform.core.set.each(a)) {

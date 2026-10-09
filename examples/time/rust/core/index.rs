@@ -9,7 +9,7 @@ pub fn Idx__Int_qualifies<C>(mut index: i32, c: &C, size: &mut dyn FnMut(&C) -> 
 }
 
 pub fn NotEq__Int_qualifies(mut j: i32, mut i: i32) -> bool {
-    return !(((j) == (i)));
+    return (j != i);
 }
 
 #[derive(Clone, Debug, PartialEq)]

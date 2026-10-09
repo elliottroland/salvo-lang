@@ -56,7 +56,7 @@ import salvo.*
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun<T> eq__List_List(a: List<T>, b: List<T>, eq: (T, T) -> Boolean): Boolean {
-    if (!(((salvo.core.list.sizePlatform(a)) == (salvo.core.list.sizePlatform(b))))) {
+    if ((salvo.core.list.sizePlatform(a) != salvo.core.list.sizePlatform(b))) {
         return false
     }
     val __pass_1: salvo.core.list.__Iter_enumerate_List<T> = salvo.core.list.enumerate(a)
@@ -93,7 +93,7 @@ fun<T> cmp__List_List(a: List<T>, b: List<T>, cmp: (T, T) -> Int): Int {
                 val j: Int = p.index
                 if (salvo.core.index.Idx_qualifies(j, b, { __a0 -> salvo.core.list.sizePlatform(__a0) })) {
                     val c: Int = cmp(p.elem, salvo.core.list.get(b, j))
-                    if (!(((c) == (0)))) {
+                    if ((c != 0)) {
                         return c
                     }
                 } else {
@@ -125,7 +125,7 @@ fun<A, B> eq__TupleAB_TupleAB(a: Pair<A, B>, b: Pair<A, B>, eq: (A, A) -> Boolea
 
 fun<A, B> cmp__TupleAB_TupleAB(a: Pair<A, B>, b: Pair<A, B>, cmp: (A, A) -> Int, cmp__1: (B, B) -> Int): Int {
     val c: Int = cmp(a.first, b.first)
-    if (!(((c) == (0)))) {
+    if ((c != 0)) {
         return c
     }
     return cmp__1(a.second, b.second)
@@ -141,11 +141,11 @@ fun<A, B, C> eq__TupleABC_TupleABC(a: Triple<A, B, C>, b: Triple<A, B, C>, eq: (
 
 fun<A, B, C> cmp__TupleABC_TupleABC(a: Triple<A, B, C>, b: Triple<A, B, C>, cmp: (A, A) -> Int, cmp__1: (B, B) -> Int, cmp__2: (C, C) -> Int): Int {
     val c: Int = cmp(a.first, b.first)
-    if (!(((c) == (0)))) {
+    if ((c != 0)) {
         return c
     }
     val d: Int = cmp__1(a.second, b.second)
-    if (!(((d) == (0)))) {
+    if ((d != 0)) {
         return d
     }
     return cmp__2(a.third, b.third)
@@ -207,7 +207,7 @@ fun<C> Idx_qualifies(index: Int, c: C, size: (C) -> Int): Boolean {
 }
 
 fun NotEq_qualifies(j: Int, i: Int): Boolean {
-    return !(((j) == (i)))
+    return (j != i)
 }
 
 data class __Iter_indices_List<T>(
@@ -396,7 +396,7 @@ fun<T> last(list: List<T>): T? {
 }
 
 fun<T> isEmpty(list: List<T>): Boolean {
-    return ((sizePlatform(list)) == (0))
+    return (sizePlatform(list) == 0)
 }
 
 fun<T> removeFront(list: salvo.platform.core.list.MutList<T>, n: Int): salvo.platform.core.list.MutList<T> {
@@ -908,7 +908,7 @@ fun<K, V> toStr(map: salvo.platform.core.map.Map<K, V>, toStr: (K) -> String, to
 }
 
 fun<K, V> eq(a: salvo.platform.core.map.Map<K, V>, b: salvo.platform.core.map.Map<K, V>, eq: (V, V) -> Boolean, hash: (K) -> Long, eq__1: (K, K) -> Boolean): Boolean {
-    if (!(((sizePlatform(a)) == (sizePlatform(b))))) {
+    if ((sizePlatform(a) != sizePlatform(b))) {
         return false
     }
     for (k in salvo.platform.core.map.each(a)) {
@@ -1082,7 +1082,7 @@ fun<T> toStr(set: salvo.platform.core.set.Set<T>, toStr: (T) -> String): String 
 }
 
 fun<T> eq(a: salvo.platform.core.set.Set<T>, b: salvo.platform.core.set.Set<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): Boolean {
-    if (!(((sizePlatform(a)) == (sizePlatform(b))))) {
+    if ((sizePlatform(a) != sizePlatform(b))) {
         return false
     }
     for (x in salvo.platform.core.set.each(a)) {
@@ -1232,7 +1232,7 @@ fun<K, V> toStr__SortedMap(map: salvo.platform.core.sorted.SortedMap<K, V>, toSt
 }
 
 fun<T> eq__SortedSet_SortedSet(a: salvo.platform.core.sorted.SortedSet<T>, b: salvo.platform.core.sorted.SortedSet<T>, cmp: (T, T) -> Int): Boolean {
-    if (!(((size__SortedSet(a)) == (size__SortedSet(b))))) {
+    if ((size__SortedSet(a) != size__SortedSet(b))) {
         return false
     }
     for (x in salvo.platform.core.sorted.eachSortedSet(a)) {
@@ -1244,7 +1244,7 @@ fun<T> eq__SortedSet_SortedSet(a: salvo.platform.core.sorted.SortedSet<T>, b: sa
 }
 
 fun<K, V> eq__SortedMap_SortedMap(a: salvo.platform.core.sorted.SortedMap<K, V>, b: salvo.platform.core.sorted.SortedMap<K, V>, eq: (V, V) -> Boolean, cmp: (K, K) -> Int): Boolean {
-    if (!(((size__SortedMap(a)) == (size__SortedMap(b))))) {
+    if ((size__SortedMap(a) != size__SortedMap(b))) {
         return false
     }
     for (k in salvo.platform.core.sorted.eachSortedMap(a)) {
@@ -1463,7 +1463,7 @@ fun setPlatform(str: salvo.platform.core.string.MutStr, index: Int, chr: Char): 
 fun clearPlatform(str: salvo.platform.core.string.MutStr) = salvo.platform.core.string.clear(str)
 
 fun isEmpty(str: String): Boolean {
-    return ((sizePlatform(str)) == (0))
+    return (sizePlatform(str) == 0)
 }
 
 fun repeat(str: String, n: Int): String {
@@ -1697,7 +1697,7 @@ fun main() {
                 k = (k + 1)
                 __old_17
             }
-            if (((k) == (3))) {
+            if ((k == 3)) {
                 break
             }
             __loop_16 = k
@@ -1726,7 +1726,7 @@ fun main() {
                 break
             }
             __ran_22 = true
-            if (((n) == (2))) {
+            if ((n == 2)) {
                 __loop_21 = Union2.U2<String, Int>(salvo.core.result.ok(n))
                 break
             }

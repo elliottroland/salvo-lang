@@ -120,7 +120,7 @@ fun setPlatform(str: salvo.platform.core.string.MutStr, index: Int, chr: Char): 
 fun clearPlatform(str: salvo.platform.core.string.MutStr) = salvo.platform.core.string.clear(str)
 
 fun isEmpty(str: String): Boolean {
-    return ((sizePlatform(str)) == (0))
+    return (sizePlatform(str) == 0)
 }
 
 fun repeat(str: String, n: Int): String {

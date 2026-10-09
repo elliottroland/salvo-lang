@@ -239,7 +239,7 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
           arm#0 (arm 0) {
             narrow#100[switch#99.arm#0] got~35: Int = got
             bind#101 let n: Int = read got~35
-            branch#102 cond#0 call core.compare::eq(Int, Int)(read n, 0) {
+            branch#102 cond#0 op Eq(read n, 0) {
               assign reading = false
             } else {
               assign steps = op Add(read steps, 1)
@@ -279,7 +279,7 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
         }
         call core.string::clear(read line)
         branch#118 cond#0 member stream::Streams#5(read streams, read s, read line) {
-          branch#119 cond#0 op Gt(call core.compare::cmp(Int, Int)(call core.string::size(drop_mut(read line)), read longest), 0) {
+          branch#119 cond#0 op Gt(call core.string::size(drop_mut(read line)), read longest) {
             assign longest = call core.string::size(drop_mut(read line))
           }
         } else {

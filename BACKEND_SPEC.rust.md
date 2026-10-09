@@ -1165,9 +1165,10 @@ the blanket rule:
   `(Ord::cmp(&(a), &(b)) as i32)` — `Ordering` is a fieldless `#[repr(i8)]`
   enum whose discriminants *are* the sign convention Salvo's `cmp` answers,
   so the cast is the whole lowering — written as a path call so it works
-  whether the argument arrives owned or borrowed; a sign test of a
-  primitive `cmp` (`cmp(a, b) < 0`) is the primitive operator itself
-  (`(a < b)`). `eq` is `==` (`((n) == (0i32))`). A `Str` is compared and
+  whether the argument arrives owned or borrowed. An operator on basic
+  types never reaches these: the IR writes it as an `Op` [ir-op], rendered
+  `(a < b)`, `(n == 0i32)`. `eq` is `==` (`((n) == (0i32))`) where a call is
+  written or passed as a value. A `Str` is compared and
   hashed as `str` (`(&a[..] == &b[..])`), which is byte-wise UTF-8 and
   therefore code-point order [kt-ordered] — no runtime helper needed on
   this side.

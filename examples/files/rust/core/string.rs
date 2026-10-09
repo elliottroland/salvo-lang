@@ -178,7 +178,7 @@ pub fn clear_platform(str: &mut String) {
 }
 
 pub fn is_empty(str: &String) -> bool {
-    return ((crate::core_string::size_platform(str)) == (0i32));
+    return (crate::core_string::size_platform(str) == 0i32);
 }
 
 pub fn repeat(str: &String, mut n: i32) -> String {

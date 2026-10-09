@@ -355,7 +355,7 @@ pub fn next__Chunks(streams: &crate::stream::Streams, p: &mut crate::stream::Chu
     };
     let mut got_2 = match got { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
     let mut data: crate::core_bytes::Bytes = got_2;
-    if ((crate::core_bytes::size_platform(&data)) == (0i32)) {
+    if (crate::core_bytes::size_platform(&data) == 0i32) {
         return crate::unions::Union2::U2(crate::core_iterator::finished());
     };
     return crate::unions::Union2::U1(crate::core_iterator::emitted::<crate::core_bytes::Bytes>(data));
@@ -384,7 +384,7 @@ pub fn fill_from(streams: &crate::stream::Streams, s: &crate::stream::InStream, 
         let mut got_2 = match &got { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
         let mut n: i32 = got_2;
         total = i64::wrapping_add(total, ((n) as i64));
-        if ((n) == (0i32)) {
+        if (n == 0i32) {
             reading = false;
         };
     }
@@ -407,7 +407,7 @@ pub fn copy_stream(streams: &crate::stream::Streams, s: &crate::stream::InStream
         };
         let mut got_2 = match &got { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
         let mut n: i32 = got_2;
-        if ((n) == (0i32)) {
+        if (n == 0i32) {
             copying = false;
         } else {
             total = i64::wrapping_add(total, streams.write_bytes(w, &buf));
@@ -522,7 +522,7 @@ pub fn read_fixed(streams: &crate::stream::Streams, s: &crate::stream::InStream,
     };
     let mut r_2 = match &r { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
     let mut data = r_2;
-    if ((crate::core_bytes::size_platform(data)) == (0i32)) {
+    if (crate::core_bytes::size_platform(data) == 0i32) {
         return crate::unions::Union3::U2(crate::stream::End {});
     };
     if (crate::core_bytes::size_platform(data) < width) {

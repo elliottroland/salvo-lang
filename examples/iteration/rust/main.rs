@@ -138,7 +138,7 @@ pub fn take(console: &crate::core_console::Console, p: &mut crate::Countdown, mu
             let mut n: i32 = __emitted_3;
             crate::core_console::println(console, &format!("2. got {}", n));
             seen = i32::wrapping_add(seen, 1i32);
-            if ((seen) == (count)) {
+            if (seen == count) {
                 break;
             };
         } else {
@@ -410,7 +410,7 @@ pub fn main() {
         i32::wrapping_mul(*n, 2i32)
     });
     let mut odd: Vec<i32> = crate::core_seq::filter_platform::<i32>(&xs, &mut |mut n| -> bool {
-        ((i32::wrapping_rem(*n, 2i32)) == (1i32))
+        (i32::wrapping_rem(*n, 2i32) == 1i32)
     });
     let mut total: i32 = crate::core_seq::reduce__List_A_Fn::<i32, i32>(&xs, 0i32, &mut |mut acc, mut n| -> i32 {
         i32::wrapping_add(*acc, *n)
@@ -426,7 +426,7 @@ pub fn main() {
     }, &mut |__a0: &mut crate::core_list::ListYield<'_, i32>| (match crate::core_list::next__ListYield(&mut *__a0) { crate::unions::Union2::U1(__v) => crate::unions::Union2::U1(*__v), crate::unions::Union2::U2(__v) => crate::unions::Union2::U2(__v) })); format!("5. lengths: {}", __part8) });
     let mut word: String = String::from("iteration");
     let mut vowels: Vec<char> = crate::core_seq::filter::<crate::core_string::StrYield<'_>, char>(&mut crate::core_string::iter(&word), &mut |mut c| -> bool {
-        (((*c) == ('i')) || ((*c) == ('o')))
+        ((*c == 'i') || (*c == 'o'))
     }, &mut |__a0: &mut crate::core_string::StrYield<'_>| crate::core_string::next(&mut *__a0));
     crate::core_console::println(&__handle_2, &format!("5. vowels: {}", crate::core_list::size_platform::<char>(&vowels)));
     crate::core_console::println(&__handle_2, &{ let __part9 = crate::core_seq::reduce__It_A_Fn::<crate::__Iter_halving_Int, i32, i32>(&mut crate::halving(20i32), &0i32, &mut |mut acc, mut n| -> i32 {

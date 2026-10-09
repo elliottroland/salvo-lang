@@ -253,7 +253,7 @@ fun workflow(fs: salvo.fs.Fs, console: salvo.core.console.Console, streams: salv
                     (got is Union2.U1<*, *>) -> {
                         val got_35: Int = ((got as Union2.U1<*, *>).value as Int)
                         val n: Int = got_35
-                        if (((n) == (0))) {
+                        if ((n == 0)) {
                             reading = false
                         } else {
                             steps = (steps + 1)

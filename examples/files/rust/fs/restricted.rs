@@ -46,7 +46,7 @@ pub fn fs_resolve(root: &String, path: &String) -> Option<String> {
         if (&seg[..] == &String::from("..")[..]) {
             skip = i32::wrapping_add(skip, 1i32);
         } else {
-            if (((crate::core_string::size_platform(seg)) == (0i32)) || (&seg[..] == &String::from(".")[..])) {
+            if ((crate::core_string::size_platform(seg) == 0i32) || (&seg[..] == &String::from(".")[..])) {
             } else {
                 if (skip > 0i32) {
                     skip = i32::wrapping_sub(skip, 1i32);
@@ -78,7 +78,7 @@ pub fn fs_resolve(root: &String, path: &String) -> Option<String> {
         j = i32::wrapping_sub(j, 1i32);
     }
     let mut rel: String = crate::core_string::join_platform(&parts, &String::from("/"));
-    if ((crate::core_string::size_platform(&rel)) == (0i32)) {
+    if (crate::core_string::size_platform(&rel) == 0i32) {
         return Some((root).clone());
     };
     return Some(format!("{}/{}", root, rel));

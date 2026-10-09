@@ -166,7 +166,7 @@ pub fn to_str__SortedMap<K: Clone, V: Clone>(map: &crate::core_sorted::SortedMap
 }
 
 pub fn eq__SortedSet_SortedSet<T: Clone>(a: &crate::core_sorted::SortedSet<T>, b: &crate::core_sorted::SortedSet<T>, cmp: &mut dyn FnMut(&T, &T) -> i32) -> bool {
-    if !(((crate::core_sorted::size__SortedSet::<T>(a)) == (crate::core_sorted::size__SortedSet::<T>(b)))) {
+    if (crate::core_sorted::size__SortedSet::<T>(a) != crate::core_sorted::size__SortedSet::<T>(b)) {
         return false;
     };
     for mut x in crate::platform_core_sorted::each_sorted_set(a).map(|__x| __x.clone()) {
@@ -178,7 +178,7 @@ pub fn eq__SortedSet_SortedSet<T: Clone>(a: &crate::core_sorted::SortedSet<T>, b
 }
 
 pub fn eq__SortedMap_SortedMap<K: Clone, V: Clone>(a: &crate::core_sorted::SortedMap<K, V>, b: &crate::core_sorted::SortedMap<K, V>, eq: &mut dyn FnMut(&V, &V) -> bool, cmp: &mut dyn FnMut(&K, &K) -> i32) -> bool {
-    if !(((crate::core_sorted::size__SortedMap::<K, V>(a)) == (crate::core_sorted::size__SortedMap::<K, V>(b)))) {
+    if (crate::core_sorted::size__SortedMap::<K, V>(a) != crate::core_sorted::size__SortedMap::<K, V>(b)) {
         return false;
     };
     for mut k in crate::platform_core_sorted::each_sorted_map(a).map(|__x| __x.clone()) {
