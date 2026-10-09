@@ -1283,6 +1283,157 @@ provenance qualifier + the container-aliasing rule," before the delimiter
 (Step 6) and backend (Step 7). **This is a language-design call; it is the
 user's to confirm.**
 
+## Part 7c: custom `Reg` containers via a materialization bundle (user direction, 2026-10-08)
+
+**Status: proposed refinement of 7b.** The user's direction: `reg(list)`
+answers `Reg List<T>`, element access is qualifier-overloaded
+(`fn get<T>(list: Reg List<T>, index: Int) [Region] -> (Reg T)?`), and the
+`Region` effect should give users the tools to make their *own* containers
+reg-able — which means a user must be able to supply the materialization
+logic that turns a position in their container into a `Reg T` within a
+region.
+
+### The one thing a custom container must supply: a `Locate`-shaped accessor
+
+Salvo already has the exact primitive this needs. `core.list`'s
+`params Locate<C, L, T> { fn at(c: C, l: L) -> proj(c) Mut T? }`
+(`std/core/list.sv:116`) is "the caller supplies how to find a mutable
+element of container `C` at location `L`," and its own doc comment says
+what it compiles to: *"a locator is what the Rust backend renders this as
+[rs-loc]: position data crossing the closure boundary, materialized at the
+use site — which is why a generic algorithm may hand out mutable handles at
+all."* That **is** the materialization logic the user is asking to provide.
+A position re-materialized on each use is exactly how `Reg T` already has
+to be rendered on Rust (`[rs-elem-mut]`), and it is identity on Kotlin.
+
+So the recipe for a custom `Reg` container is the same shape as making a
+type iterable (write `next`) or locatable (write `at`): **implement the
+materialization accessor, and the `Region` machinery lifts it to mint
+`Reg` handles.** No per-container compiler support, no built-in list
+special case — `List` is just the container that ships the canonical `at`
+(`[col-locate]`), the way the scalars ship the canonical `cmp`.
+
+### How the lift works — `Region` provides the wrapper, the user provides `at`
+
+```
+// core.region (sketch; spelling provisional)
+
+// A container is reg-able when it offers a materialization accessor —
+// the Locate bundle, reused.
+export params Regable<C, L, T> {
+    fn at(c: C, l: L) -> proj(c) Mut T?
+}
+
+export effect Region {
+    // reg a container; its elements become reg-able for the block.
+    fn reg<C>(container: C) -> Reg C => !container
+}
+
+// The lifted accessor: indexing a *regged* container yields Reg handles.
+// Generic over any reg-able container, delegating to the user's `at`.
+export fn get<C, L, T>(c: Reg C, l: L, ?Regable<C, L, T>) [Region] -> (Reg(c) T)?
+=> c {
+    // `at` produces the position; the region tags it as its own.
+    // On Kotlin this is identity; on Rust the position is re-materialized
+    // per use against the live container.
+    return reg_handle(at(c, l))
+}
+```
+
+A user's custom container reaches all of this by one declaration plus one
+function — nothing region-specific to learn beyond "write `at`":
+
+```
+struct Grid<T> canbe Mut { cells: List<Mut T>, width: Int }
+
+// The materialization accessor: a position in a Grid is a row/col pair.
+fn at<T>(g: Grid<T>, pos: (Int, Int)) -> proj(g) Mut T?
+=> g, pos {
+    return get(g.cells, pos.0 * g.width + pos.1)
+}
+
+region {
+    let rg = reg(grid)                 // Reg Grid<T>
+    let a = get(rg, (r1, c1))!         // Reg(rg) Mut T, via the user's `at`
+    let d = get(rg, (r2, c2))!         // Reg(rg) Mut T; may be the same cell
+    attack(a, d)                       // same regged container -> may alias
+}
+```
+
+### The aliasing rule, made precise: `Reg(C)`, keyed on the regged container
+
+7b's open point and the user's `get` signature meet here. If `get`
+answered a bare `(Reg T)?`, the result would lose its tie to `rg`, and the
+checker could not tell "two handles off the *same* regged container" (may
+alias) from "two off *different* regged containers" (cannot). So the result
+is the **dependent** form `Reg(c) T` — the container place rides along, the
+`Idx(list)`/`KeyOf(map)` pattern (`docs/language/Dependent-Qualifiers.md`)
+reused once more. The rule is then clean and local:
+
+- two `Reg(c) T` arguments with the **same** `c` (same fate-root place) may
+  alias — one container, two positions, self-strike included;
+- two `Reg` arguments with **different** `c` are refused — different
+  containers cannot alias;
+- `Reg(c) T <: T` by `[qual-erasure]`, so `attack(a: Mut Entity, d: Mut
+  Entity)` still needs **no `canbe`** — the permission comes from both
+  arguments sharing a regged container, exactly 7b's rule, now carried by
+  the qualifier rather than by region identity.
+
+(This supersedes Part 7's coarser "same *region*" rule, which would have
+wrongly let two different containers in one region alias — the quiet error
+7b already called out.)
+
+### What the user writes vs. what the region supplies
+
+| Supplied by | What |
+|---|---|
+| **User** (per custom container) | one `at(c: C, l: L) -> proj(c) Mut T?` — "find the element at this position"; nothing region-aware |
+| **`core.region`** | the `Region` effect, `reg`, the lifted `get`/`at` that tags `at`'s result as `Reg(c)`, and the `region { }` delimiter + escape rule |
+| **`core.list`** (and kin) | the canonical `at` for the built-ins, so `reg(list)` works out of the box |
+
+The division is the point: the user supplies only the *cheap, re-runnable
+position accessor* (what the backend needs to re-materialize a handle), and
+the region supplies all the *provenance and aliasing* machinery. The user
+never writes anything that moves a `T`, constructs a placeholder, or
+reasons about aliasing — the gap-prone parts of Part 7 are gone because
+nothing is moved out of the container at all.
+
+### Open questions (for the user)
+
+1. **Is `Regable` a distinct bundle, or literally `Locate` reused?** They
+   are the same shape. Reusing `Locate` outright is less surface and means
+   every already-`Locate`-able container is automatically reg-able; a
+   distinct `Regable` bundle allows a container to be reg-able without
+   being `Locate`-able or vice versa. **Lean: reuse `Locate`** unless a
+   reason to separate them appears.
+2. **Does `reg` take ownership of the container for the block** (`=>
+   !container`, so the original name is unusable until the region ends and
+   hands it back), or borrow it? Ownership is simplest for the escape rule
+   and matches "the container is on loan to the region"; borrowing lets
+   non-`Reg` reads continue but reopens the shape-mutation question from
+   7b. **Lean: own it for the block.**
+3. **Shape mutation of a regged container** (`add`/`remove`): forbidden for
+   the block (simplest; `reg` owning the container gives this for free), or
+   preserved across in-place writes only. Same open point as 7b item 2.
+4. **`L` (the locator type) is generic** — `Int` for a list, `(Int, Int)`
+   for a grid, a key for a map. This is what finally brings maps into the
+   model (finding 1a): a map's `at` is a by-key lookup, so `reg(map)` +
+   `get(rm, key)` closes 1a through the same mechanism, no map special
+   case. **Confirm** maps should ride this path rather than a bespoke one.
+
+### Recommendation
+
+Adopt 7b + 7c together: reg the container, make reg-ability a user-supplied
+`Locate`-shaped `at`, overload `get` by the `Reg` qualifier, and key
+aliasing on the dependent `Reg(c)`. It gives the user exactly the extension
+point asked for (write one accessor, get a custom `Reg` container), closes
+the double-checkout gap by construction (nothing is moved out), closes
+finding 1a for free (maps are just a container with a by-key `at`), and
+reuses three mechanisms the language already has (`Locate`, dependent
+qualifiers, qualifier-overloaded `get`). Part 8 re-plans as in 7b, with the
+new Step 3 being "`Reg(c)` dependent qualifier + the `Region` effect +
+the lifted `get`/`at` over `Locate`," then the delimiter and backend.
+
 ## Part 8: implementation plan
 
 **Note (2026-10-08): Part 8 below is the plan for Part 7's element-swap
