@@ -2163,6 +2163,90 @@ a bare `?at` that reads as an in-parameter.
 publishes it; consumer names it with `ref(c, ?at)`), and the `Locate` →
 `Ref` group rename. Both are the user's call.
 
+## Part 7j: the two defaulting rules — mint-self and consumer-same-`at` (user direction, 2026-10-08)
+
+**Status: settled with the user, this session; both are the `?cmp`
+mechanism (`[cmp-carry]`) applied to `?at`, and both are sound.**
+
+### Rule 1 (mint): `-> ref(c)` is self, `-> ref(c, ?at)` is an explicit override
+
+- `fn at(…) -> ref(c)` records **this function** as the handle's accessor
+  (inferred self) — the common case, nothing written.
+- `fn f(…) -> ref(c, ?at)` is *permitted*, and then `?at` means **some
+  `?at` in scope that is not `f` itself** — a function handing back a handle
+  it re-materializes through a *different* accessor than itself (a wrapper
+  that borrows via a helper's `at`). Resolved exactly as `sort`'s
+  `-> +Sorted<T>(?cmp)` resolves its `?cmp` from scope.
+- The asymmetry (a bare `-> ref(c)` self-binds; a written `?at` does not)
+  is unusual but accepted — "so is `ref`" (user). It reads cleanly: writing
+  the slot means "not me, that one."
+
+### Rule 2 (consumer): omitted `?at` defaults to "the same accessor as every other `ref(c)` here"
+
+- Two bare `ref(c)` parameters are assumed to share **one** accessor (and
+  one container), so they may alias — the 99% case, where the compiler is
+  doing the `at` call and nobody passes two *different* locators into one
+  collection. Nothing is written.
+- The rare genuine case — two *different* accessors into one container — is
+  named: `a: ref(c, ?at) Mut Entity, b: ref(c, ?at: at2) Mut Entity`. If
+  the handles passed actually differ in accessor but both parameters are
+  bare `ref(c)`, it is an **ordinary type error** (the accessors don't
+  unify, exactly as `cmp@Person` ≠ `by_age` makes two `SortedSet` types
+  distinct, `[cmp-carry]`), and the fix is the usual one — alias one so the
+  two names denote one handle, or name the second accessor.
+
+This is `[cmp-carry]`/`[implicit-resolve]` verbatim: *"an unwritten slot is
+resolved by its name"* already governs `?cmp`; Rule 2 is that rule for
+`?at`, with the per-signature default being "the one `at` all the bare
+`ref(c)`s share."
+
+### Why Rule 2 is sound: the default errs toward *may-alias*, the safe direction
+
+The one thing a defaulting rule must not do is let the checker wrongly
+conclude two handles **cannot** alias (that would permit two live `&mut`
+into one storage — corruption). Rule 2 cannot do this:
+
+- Assuming "same `at`" makes two handles into one container **may-alias**.
+  Two handles into one container that may alias are handled by the exact
+  conservative machinery that already exists — one-at-a-time unless split
+  (`salvo_pair_mut`) or declared aliasing — so "may alias" is never
+  unsound; it is the *conservative* assumption. Worst case it refuses a
+  program that was actually fine (two provably-disjoint accessors), caught
+  as a plain type error with the alias/annotate fix.
+- The *unsafe* direction — concluding two handles are disjoint when they
+  are not — is only ever reached by an **explicit** `?at: at2` claim that
+  the two accessors guarantee disjoint storage, which is a deliberate,
+  checked statement (and the accessors' disjointness is the author's
+  claim, the same trust `NotEq`/`+Q` already rest on), never the default.
+
+So the default is safe by construction: omitting the slot can only
+over-restrict, never corrupt. This matches the `Sorted` precedent's own
+soundness note — "an `add_sorted` under a different `cmp` than the sort used
+inserts at a position that is a lower bound for one ordering and nonsense
+for the other" is exactly the hazard the *identity check* prevents, and the
+identity check is what Rule 2 keeps for the explicit case while defaulting
+the common one.
+
+### Net surface
+
+```
+// mint: self, nothing written
+fn at<T>(list: List<Mut T>, index: Int) -> ref(list) Mut T? => list, index { … }
+
+// consumer, common case: two handles, one container, inferred shared at
+fn attack(a: ref(c) Mut Entity, b: ref(c) Mut Entity) { a.hp -= 1; b.hp -= 2 }
+
+// consumer, rare case: two different accessors into one container, named
+fn f(a: ref(c, ?at) Mut Entity, b: ref(c, ?at: at2) Mut Entity) { … }
+
+// mint delegating through another accessor: explicit override
+fn borrow_via<T>(g: Grid<T>, p: Pos) -> ref(g, ?at) Mut T? => g, p { return at(g, p) }
+```
+
+Both rules confirmed; folded into v1a (vocabulary + defaulting) and v1b
+(the aliasing signature). No new mechanism beyond `[cmp-carry]` extended to
+`?at`.
+
 ## Part 8: implementation plan
 
 **Note (2026-10-08): Part 8 below is the plan for Part 7's element-swap
