@@ -1141,7 +1141,156 @@ deliberate choice, not a default. C is a clean fallback if neither runtime
 cost is acceptable, at the price of the feature's main selling point. This
 is a language-design call and is left to the user.
 
+## Part 7b: proposed resolution — reg the *container*, not the element (user direction, 2026-10-08)
 
+**Status: proposed, supersedes Part 7's element-swap mechanism
+(`reg_from`/`unreg_into`/`Placeholder<T>`) pending user confirmation.** The
+user's direction: self-aliasing is a *must-have*, and the cleanest way to
+get it is to stop moving elements out of containers at all. Instead of
+`reg`-ing elements taken from a container, **`reg` the container once** and
+gate element access through region-controlled accessors that answer
+`Reg T` without removing anything.
+
+### Why this is the right shape
+
+The double-checkout gap (Part 7a) exists only because `reg_from` *empties
+the source slot* — so a second access to the same slot finds a placeholder
+instead of the element. If nothing is ever removed, there is no placeholder,
+no emptied slot, and **two accesses at the same index are simply two
+positions into one container** — which on Rust is `&mut regged[i]`
+re-materialized per use (`[rs-elem-mut]`), and on Kotlin is native
+reference aliasing. Self-aliasing stops being a special case that needs a
+mechanism and becomes the ordinary rendering the committed design already
+uses for `canbe` and `NotEq`. **The hard case the feature exists for solves
+itself**, with no back-reference (Part 7a option B), no tombstone (option
+1 the user raised), and no runtime on-loan marker (option A).
+
+Option 1 the user raised — a placeholder that *forwards* to the region
+entry — was checked against the backend and **rejected on the same ground
+Part 5's `Rc` was**: `List<T>` is `Vec<T>` (`std/platform/core/list.rs`:
+`pub type List<T> = Vec<T>`), elements stored inline by value, so a
+forwarding placeholder cannot be a `T` — it would force `Vec<T>` into
+`Vec<T | Forwarded>`, changing the representation of every list and taxing
+every read of every container, regged or not. Reg-the-container reaches the
+same goal (self-aliasing on double access) without touching `Vec<T>`'s
+representation at all.
+
+### The design, stated plainly
+
+- **`Reg` becomes a *dependent* provenance qualifier `Reg(C)`**, not a bare
+  one: a `Reg(squad) Mut Entity` is "a mutable-element handle whose source
+  is the regged container `squad`." This is the `Idx(list)`/`KeyOf(map)`
+  shape (`docs/language/Dependent-Qualifiers.md`), reused — the container
+  is a value slot filled by a place, and the claim is bound to that place's
+  fate-root identity. It subtypes to the bare handle (`Reg(C) Mut T <: Mut
+  T <: T`, `[qual-erasure]`) for every non-aliasing use, exactly as Part 7
+  intended, so field access stays plain (`a.hp = …`).
+- **Aliasing permission is decided by the container, not a `canbe`
+  clause.** Two `Reg(C)`-tagged arguments with the **same** `C` may alias —
+  there is one `&mut Vec` and two positions into it, the self-strike case
+  included. Two `Reg` arguments with **different** containers are refused:
+  they name different `Vec`s and genuinely cannot alias (which also
+  corrects Part 7's quiet error — co-locating two entities from `squad_a`
+  and `squad_b` in one region and calling that "aliasing" was inventing a
+  relationship the backends cannot honestly share; Kotlin's two objects
+  have nothing to alias). So `attack(a: Mut Entity, d: Mut Entity)` still
+  takes two handles with **no `canbe`**, when both carry `Reg(C)` for one
+  `C` — the Part 7 property is kept, now resting on container identity the
+  checker actually tracks.
+- **Access is monadic / gated**, as the user put it: `reg` hands back a
+  region-scoped view of the container, and the only way to get a `Reg(C) T`
+  is through an accessor the region controls (`reg_get(view, i)`), so the
+  region sees every mint and the escape rule (Part 7's reused machinery)
+  keeps `Reg` values from outliving the block. No value leaves its
+  container; `squad[i]` always holds the real `Entity`.
+- **`Placeholder<T>`, `reg_from`, `unreg_into` are dropped.** They existed
+  only to move elements out and back; with the container regged in place,
+  there is nothing to swap, so Step 0's `Placeholder` groundwork and
+  Step 3/4's swap functions fall away. (Step 0's `: Params<self>` on
+  `intrinsic type` work already landed and is independently useful — it
+  stays; only its *motivation* changes.)
+
+### Worked example (option 2)
+
+```
+export effect Region {
+    // reg a container, get a region-scoped view; accessors below mint Reg(C) handles
+    fn reg<C>(container: C) -> RegView<C> => !container
+}
+
+fn attack(a: Mut Entity, d: Mut Entity) -> None => a: Mut, d: Mut {
+    a.energy = a.energy - 1
+    d.hp = d.hp - 2
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let squad: Mut List<Mut Entity> = mut_list_of(Entity { hp: 30, energy: 4 },
+                                                  Entity { hp: 8, energy: 9 })
+    region {
+        let view = reg(squad)                 // the *container* joins the region
+        let a = reg_get(view, i)!             // Reg(squad) Mut Entity
+        let d = reg_get(view, j)!             // Reg(squad) Mut Entity, j may equal i
+        attack(a, d)                          // same container -> may alias, no canbe,
+                                              // self-strike (j == i) is just two
+                                              // positions into one &mut Vec
+    }
+    println("${get(squad, 0)!.energy} ${get(squad, 0)!.hp}")
+}
+```
+
+### Honest costs and open questions (for the user)
+
+1. **`Reg(C)` is a dependent qualifier, which is more than Part 7's bare
+   provenance qualifier** — it carries a container place and the checker
+   compares those places to decide aliasing. The machinery exists (`Idx`,
+   `KeyOf`), but this is more checker work than a plain mint-only
+   qualifier, and the "same container" test is place-identity, with the
+   same fate-root-aliasing subtleties `Idx` already handles.
+2. **Shape mutation of a regged container during the region** (`add`,
+   `remove_at`) could dangle a `Reg(C)` handle. The region must either
+   forbid shape changes on a regged container for the block's duration
+   (simplest, and consistent with the one-handle discipline) or preserve
+   `Reg` only across `[col-replace]`-style in-place writes the way `Idx`
+   survives them. **Open: which, and is forbidding shape change too
+   strict?**
+3. **Cross-container aliasing is now *impossible*, not merely explicit.**
+   If any real use case needs two genuinely-different containers' elements
+   to alias (the original "call site 2"), reg-the-container cannot express
+   it — but that case is physically un-aliasable on Kotlin anyway, so the
+   honest answer is that it was never a sound capability. **Open: confirm
+   no real workload needs it** before closing the door.
+4. **A `RegView<C>` wrapper vs. tagging the container in place.** The
+   example shows a `RegView<C>` value; an alternative is to leave `squad`
+   as-is and let `reg_get(squad, i)` within a `region { }` block mint
+   `Reg(squad)` directly, with no view value. **Open: view value or
+   block-scoped tag** — the latter is lighter but needs the checker to know
+   "inside this region, `squad` is regged."
+
+### Recommendation
+
+Adopt option 2 (reg the container). It is the only option that makes
+self-aliasing — the stated must-have — *free and automatic* rather than a
+mechanism bolted on, it removes the double-checkout gap by construction, it
+avoids both the inline-storage wall (option 1) and the per-slot runtime
+marker (Part 7a option A), and it models the feature more honestly (same
+container may alias, different containers cannot). The cost is a dependent
+`Reg(C)` qualifier instead of a bare one and a decision on shape-mutation
+during a region — both bounded, both reusing machinery already in the
+checker. If adopted, Part 8 is re-planned: Steps 3–4 (`Placeholder`, swap
+functions) are deleted, and the new Step 3 is "`Reg(C)` as a dependent
+provenance qualifier + the container-aliasing rule," before the delimiter
+(Step 6) and backend (Step 7). **This is a language-design call; it is the
+user's to confirm.**
+
+## Part 8: implementation plan
+
+**Note (2026-10-08): Part 8 below is the plan for Part 7's element-swap
+design. If Part 7b (reg the container) is adopted, Steps 3–4 are replaced
+as described in Part 7b's recommendation; Steps 0 (done), 1 (done), 2
+(done), 6 (the delimiter) and 7 (backend) survive with `reg_from`/`Placeholder`
+references rewritten to the container-gated accessors. The step list is
+kept as-is until the user confirms the direction.**
 
 Ordered so each step is independently useful and independently verifiable
 (`cargo build` warning-free, `cargo test`, kotlinc/rustc e2e where
