@@ -1785,6 +1785,163 @@ threading `?at` through a `proj(c) Mut` call. This keeps "only `proj Mut`,
 no `Reg`" (7e) and gives E2 a concrete, buildable shape. **The F1/F2 fork
 is the user's to confirm.**
 
+## Part 7g: the general design — `ref(c, at)`, and why region is not needed even here (user direction, 2026-10-08)
+
+**Status: proposed; this is the general case the user asked for, designed
+first, with v1 derived from it at the end.** The user's direction: do not
+over-simplify to concrete containers (F1) — maps, structs, and future
+custom containers must get mutable handles too — so design the generic case
+and work backward. Two of the user's observations are the foundation.
+
+### Observation 1: `proj Mut` is a category error; split provenance from permission → `ref(c)`
+
+`proj` today conflates two orthogonal things:
+
+- **provenance** — "this is a borrow of a known source; it shares the
+  source's fate, is re-materialized not owned, cannot be moved out";
+- **permission** — "this is read-only" (a plain `proj` fails a `Mut`
+  position).
+
+`proj Mut` (group-borrowing v1) kept the first and *inverted* the second,
+which reads as a contradiction ("a read-only borrow you can mutate"). The
+implementation already keeps them separate: `FateLink` carries provenance
+(`root_id` + `root_name` + `path`) and the borrow's nature (`borrowed` /
+`held`), and **the `Mut`-ness is not on the link at all — it is on the
+type**. So the surface conflation is the only problem.
+
+**Proposed rename+split: `ref(c)` is the provenance qualifier — "a handle
+into container `c`" — and the permission is just whatever qualifier it
+carries on top.** `ref(c) Mut T` is a mutable handle into `c`; `ref(c) T`
+is a read-only one. This surfaces the distinction the internals already
+make (`ref(c)` *is* the link's `root_id` + `path`; `Mut` is the type
+qualifier), and it dissolves the "`proj Mut` is read-only-but-mutable"
+contradiction: `ref` says nothing about permission, so there is nothing to
+contradict. `proj` without a source stays the owned-view borrow it is
+today; `ref(c)` is the element-handle-into-a-named-container case that
+`proj Mut` was straining to name. (Terminology to confirm: `ref(c)` vs.
+keeping `proj(c)`; the user floated `ref`. The point is the *split*, not
+the exact word.)
+
+### Observation 2: a handle must carry its re-materialization, not a bare position → `ref(c, at)`
+
+A bare position (`usize`) is meaningless without *also* knowing the
+operation that turns it back into `&mut element`: a `List` re-indexes
+`c[i]`, a map does `c.get_mut(&key)`, a struct does `c.field`, a custom
+container does whatever its accessor does. In the position-only model that
+operation is implicit in the container *type* — which is exactly why
+`[rs-loc]` records a **type-erased locator and refuses** a "bare generic
+container with no index" (BACKEND_SPEC.rust.md, the GB-5 cut). That refusal
+*is* the over-simplification the user wants gone.
+
+**Proposed: the handle carries its own re-materialization — `ref(c, at)`.**
+`at` is the accessor (`at(c, l) -> ref(c) Mut T?`, the `Locate` shape),
+encoded on the handle alongside the container, so re-materializing is
+`at(c, position)` for **any** container, generic included — no "known
+indexable type" requirement, no type-erased-locator cut. This is the user's
+answer to the earlier F1/F2 fork: take F2 (generic), but make it clean by
+putting `at` *on the ref* rather than threading a separate implicit `?at`
+to every consumer. A consumer like `attack(a: ref(c) Mut Entity, b: ref(c)
+Mut Entity)` receives `c` and two handles that each already know how to
+re-materialize themselves; it needs no `?at` of its own.
+
+### The honest question the user asked: does the generic case bring region back? No.
+
+Three jobs a scope might be thought to own in the generic case, each
+checked:
+
+1. **Re-materialize a generic handle.** Solved by Observation 2 — the ref
+   carries `at`. This is a *backend* mechanism (what data the handle is at
+   runtime), not a scope: `ref(c, at)` lowers to the container plus a
+   position plus the accessor, exactly as the anchored-`canbe` form already
+   lowers to container-plus-positions ([rs-elem-mut], the covered-anchor
+   path), with `at` added for the non-`List` case. No scope.
+2. **Escape / lifetime safety.** Still the fate link: `ref(c)` carries
+   `root_id` pointing at `c`, so any structural mutation or move of `c`
+   poisons every handle into it ([fate-poison] / [proj-mut]'s "destruction
+   under a live handle needs no new rule"), and a handle over a *temporary*
+   `c` is already refused ([proj-anywhere]). Carrying `at` for
+   re-materialization does not touch the link, so the guarantee is
+   unchanged. No scope.
+3. **Aliasing permission across a generic boundary.** `root_id` is a `u32`
+   per variable (`check.rs`: `root_id: var.id`), compared by equality; a
+   generic container parameter is still one `var` with one stable id, so
+   two handles minted from the same `c` share `root_id` and "may alias"
+   falls out of the equality check whether `c`'s type is concrete or
+   generic. A checker fact, not a runtime one. No scope.
+
+So the generic case needs **no scope, no `Region` effect, no `Reg`
+qualifier** — the same conclusion as 7e, now checked against the *harder*
+generic case rather than only the concrete one. Region was load-bearing
+only for swap reconciliation (Part 7, deleted). **This is the answer to "I
+want to know now if region is required": it is not, even for arbitrary
+custom containers.**
+
+### The general design, stated
+
+- **`ref(c)` is a provenance qualifier**: a handle into container `c`,
+  `c` a dependent slot (a place), the `Idx(c)`/`KeyOf(c)` pattern. Its
+  permission is a separate qualifier (`ref(c) Mut T` vs `ref(c) T`). `ref(c)
+  Mut T <: Mut T <: T` by `[qual-erasure]` (dropping `ref` forgets the
+  container — only ever loses aliasing permission, sound).
+- **A container becomes handle-able by providing `at(c, l) -> ref(c) Mut
+  T?`** — the `Locate` bundle, reused. `List` ships `at` = indexing; a map
+  ships `at` = by-key lookup (closing finding 1a); a struct ships `at` =
+  field selection (the user's "index structs"); a custom container ships
+  its own. One accessor per container, nothing else.
+- **The handle carries `(c, position, at)`** on the backend; `at` is the
+  container's accessor, `position` what `at` computed from the locator at
+  the mint. Re-materialization is `at(c, position)`, uniform across
+  containers. On Kotlin all of this erases — the handle is the reference.
+- **`fn f(a: ref(c) Mut T, b: ref(c) Mut T)` is the aliasing signature**:
+  two parameters sharing `c` may alias (self-strike included), decided by
+  `root_id` equality at the call site; different `c` is refused. This
+  replaces `canbe` with a form that *names the shared container*, and
+  lowers to the existing shared-anchor path (container once + positions),
+  plus `at` for non-`List` containers.
+- **No `canbe`, no `region`, no `Reg`, no swap, no `Placeholder`.** The
+  three-rung ladder for *un-shared* handles (one-at-a-time / `NotEq` /
+  `canbe`) can remain as-is for back-compat, or `canbe` can be retired in
+  favor of `ref(c)` signatures outright (user's call — a sweep, not a
+  shim, per the no-compat invariant).
+
+### Working backward to v1
+
+The general design above is the target; v1 is a *subset that is sound and
+useful on its own*, extended later without rework:
+
+- **v1a — the rename+split (`proj Mut` → `ref(c) Mut`), no new capability.**
+  Pure surface/terminology: introduce `ref(c)` as the spelling for the
+  element-handle case, keep today's behavior exactly (concrete containers,
+  position-only, the existing `[rs-loc]` lowering). This clears Observation
+  1's category error and gives the later steps a correct vocabulary to
+  build on. Fully buildable with no backend change — it renames what
+  `get(list, i)!` already produces.
+- **v1b — `ref(c) Mut` in signatures as the aliasing form**, lowering to
+  the anchored-`canbe` shared-anchor path that already exists, for the
+  concrete containers (`List`, arrays, `Deque`). This is E2/7f's F1,
+  reached through `ref(c)` syntax — the aliasing win, no `at`-on-handle yet.
+- **v2 — `at` on the handle (`ref(c, at)`)**, which lifts the "known
+  indexable type" cut and brings maps, structs and custom containers in.
+  This is the one piece that is genuinely new backend machinery (the
+  handle grows an accessor), and it is where the generic case lands. It is
+  *additive*: v1a/v1b programs are unchanged; v2 only *removes a refusal*
+  (the type-erased-locator cut), so nothing regresses.
+
+Each v-step ends green and useful; the generic case is reached by removing
+a cut, never by rework.
+
+### Recommendation and the one thing to confirm
+
+Adopt the general `ref(c, at)` design as the target, build v1a → v1b → v2.
+This gives the user everything asked for: generic containers (v2), no
+region (checked against the hard case above), one handle concept (`ref`,
+not `proj Mut` + `Reg`), and maps/structs indexable (v2's `at`). The one
+genuine confirmation needed: **the terminology** — `ref(c)` vs. keeping
+`proj(c)` for the split, and whether `canbe` is retired in favor of
+`ref(c)` signatures or kept beside them. Both are the user's call; neither
+changes the mechanism. **Region stays retired (item 15); this is its
+replacement, and it needs no scope.**
+
 ## Part 8: implementation plan
 
 **Note (2026-10-08): Part 8 below is the plan for Part 7's element-swap
