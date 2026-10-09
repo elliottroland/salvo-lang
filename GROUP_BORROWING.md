@@ -2239,9 +2239,28 @@ fn attack(a: ref(c) Mut Entity, b: ref(c) Mut Entity) { a.hp -= 1; b.hp -= 2 }
 // consumer, rare case: two different accessors into one container, named
 fn f(a: ref(c, ?at) Mut Entity, b: ref(c, ?at: at2) Mut Entity) { … }
 
-// mint delegating through another accessor: explicit override
-fn borrow_via<T>(g: Grid<T>, p: Pos) -> ref(g, ?at) Mut T? => g, p { return at(g, p) }
+// mint delegating through another accessor: the `?at` in the RETURN must be
+// IN SCOPE, so it is taken as an implicit — either the Ref group bundle for a
+// generic container, or a canonical `at` resolved by name for a concrete one.
+// (Correction, user-caught: a `-> ref(g, ?at)` return publishes a capability,
+// so it must be supplied, exactly as `sort -> +Sorted(?cmp)` is supplied by
+// its `?Ordered<T>` parameter — you cannot publish `?at` from nothing.)
+fn borrow_via<C, L, T>(c: C, l: L, ?Ref<C, L, T>) -> ref(c, ?at) Mut T?
+=> c, l { return at(c, l) }
 ```
+
+**The in/out split, made explicit (user-caught, 2026-10-08):** `ref(c, ?at)`
+in a **return** type is the *publishing* form — it names a capability that
+must already be in scope, so the function must take it (`?Ref<C,L,T>`, or a
+bare `?at`, or resolve a canonical `at` by name for a concrete container),
+precisely as `sort`'s `-> +Sorted<T>(?cmp)` is supplied by its `?Ordered<T>`
+parameter. `ref(c) Mut` on a **parameter** is the *receiving* form — the
+caller's resolution fills `at`. Same in/out split as `+Sorted(?cmp)` (return,
+published) vs `Sorted(?cmp)` (parameter, received). Rule 1's "`-> ref(c)`
+binds self" is the one shortcut: a mint whose *own body* produces the handle
+is its own accessor and needs no `?at` in scope; a mint that *delegates*
+(returns a handle another accessor produced) is publishing that other
+accessor and must have it in scope like any other published capability.
 
 Both rules confirmed; folded into v1a (vocabulary + defaulting) and v1b
 (the aliasing signature). No new mechanism beyond `[cmp-carry]` extended to
