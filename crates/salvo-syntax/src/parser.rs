@@ -3157,8 +3157,8 @@ impl<'s> Parser<'s> {
             });
         }
         let kind = if self.eat(&TokenKind::Colon).is_some() {
-            // `: proj(…)`
-            if matches!(&self.peek().kind, TokenKind::KwProj) {
+            // `: proj(…)` / `: ref(…)`
+            if matches!(&self.peek().kind, TokenKind::KwProj | TokenKind::KwRef) {
                 let r = self.parse_type_ref()?;
                 if r.from.is_empty() {
                     self.error("a projection entry needs its sources: `proj(c)`", r.span);
@@ -3423,7 +3423,7 @@ impl<'s> Parser<'s> {
                 && !((self.at_ident()
                     || matches!(
                         self.kind(),
-                        TokenKind::KwProj | TokenKind::KwOnce | TokenKind::KwLinear
+                        TokenKind::KwProj | TokenKind::KwRef | TokenKind::KwOnce | TokenKind::KwLinear
                     ))
                     && self.same_line())
             {
@@ -3592,6 +3592,10 @@ impl<'s> Parser<'s> {
                 let span = self.bump().span;
                 return Some(Ident { name: "proj".to_string(), span });
             }
+            TokenKind::KwRef => {
+                let span = self.bump().span;
+                return Some(Ident { name: "ref".to_string(), span });
+            }
             TokenKind::KwOnce => {
                 let span = self.bump().span;
                 return Some(Ident { name: "once".to_string(), span });
@@ -3672,15 +3676,17 @@ impl<'s> Parser<'s> {
             end = sel.span;
             at = Some(sel);
         }
-        // [proj-anywhere] `proj(param)`: the borrow's source, written on
-        // the obligation itself so it can sit anywhere a type does — a union
-        // arm, a type argument, a tuple element — and so a type borrowing
-        // from two parameters names each (`proj(a, b)`). Only `proj` reads
-        // a paren this way; the sources are value names (lowercase, by
-        // [name-casing]), which is what tells them from a qualified group
+        // [proj-anywhere] [ref-handle] `proj(param)` / `ref(param)`: the
+        // borrow's source, written on the obligation itself so it can sit
+        // anywhere a type does — a union arm, a type argument, a tuple
+        // element — and so a type borrowing from two parameters names each
+        // (`proj(a, b)`). `proj` is a read-only view's borrow; `ref` is a
+        // handle into the named container (mutable when it carries `Mut`).
+        // Both read a paren this way; the sources are value names (lowercase,
+        // by [name-casing]), which is what tells them from a qualified group
         // (`proj (Ok Str | Err Int)` — a type inside).
         let mut from = Vec::new();
-        if name.name == "proj"
+        if (name.name == "proj" || name.name == "ref")
             && self.at(&TokenKind::LParen)
             && self.same_line()
             && matches!(&self.peek_at(1).kind, TokenKind::Ident(n) if n.starts_with(|c: char| c.is_lowercase()))

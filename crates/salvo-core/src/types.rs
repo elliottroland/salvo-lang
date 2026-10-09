@@ -12,6 +12,25 @@ use std::fmt;
 /// `core.basic`. `Str` is not one — it is a platform type of `core.string`.
 pub const BASIC_TYPES: [&str; 7] = ["Byte", "Int", "Long", "Float", "Double", "Char", "Bool"];
 
+/// [ref-handle] The two projection qualifier names: `proj` (a read-only
+/// borrow of a view's source) and `ref` (a container-named handle, mutable
+/// when it carries `Mut`). Both are borrows of a source and share the
+/// provenance half of the machinery (fate-sharing, erasure, non-move);
+/// they differ only in that `ref` may be a mutable handle and `proj` may
+/// not. Code asking "is this a borrow?" consults both; the handle-specific
+/// sites test `ref` alone.
+pub fn is_proj_name(name: &str) -> bool {
+    name == "proj" || name == "ref"
+}
+
+/// [ref-handle] The projection qualifier names as a set, for `remove_quals`.
+pub fn proj_names() -> HashSet<String> {
+    let mut s = HashSet::new();
+    s.insert("proj".to_string());
+    s.insert("ref".to_string());
+    s
+}
+
 /// A qualifier applied to a type, e.g. `Ok` in `Ok Int` or `Mut` in
 /// `Mut List<T>`. Generic qualifier arguments are rarely written explicitly
 /// (`Ok Str` implies `Ok<Str>`), so `args` is usually empty.
@@ -442,18 +461,33 @@ impl Ty {
         }
     }
 
-    /// [proj-type] The type with a *top-level* `proj` removed (nested ones —
-    /// inside a union arm or a type argument — stay): what a kept, non-`Mut`
-    /// position reads through a projection.
+    /// [proj-type] [ref-handle] The with a *top-level* projection qualifier
+    /// removed (nested ones — inside a union arm or a type argument — stay):
+    /// what a kept, non-`Mut` position reads through a projection. Both
+    /// projection flavours are stripped — read-only `proj` and the
+    /// container-named handle `ref` — since both are borrows of a source.
     pub fn strip_top_proj(&self) -> Ty {
-        let mut names = HashSet::new();
-        names.insert("proj".to_string());
-        self.clone().remove_quals(&names)
+        self.clone().remove_quals(&proj_names())
     }
 
-    /// [proj-type] Whether the type is a projection at its top level.
+    /// [proj-type] [ref-handle] Whether the type is a projection at its top
+    /// level — either flavour: read-only `proj`, or the container-named
+    /// mutable handle `ref`. Most of the compiler asks only "is this a
+    /// borrow of a source?", for which both answer yes (fate-sharing,
+    /// erasure, non-moveability); the handle-specific sites use
+    /// [`Ty::is_ref`] instead.
     pub fn is_proj(&self) -> bool {
-        self.quals().iter().any(|q| q.name == "proj")
+        self.quals().iter().any(|q| is_proj_name(&q.name))
+    }
+
+    /// [ref-handle] Whether the type is a **`ref` handle** at its top level
+    /// — the container-named projection that may carry `Mut` and be a
+    /// mutable element handle. A plain `proj` is a read-only view's borrow
+    /// and never a handle; only `ref` is. (The category split that
+    /// [ref-handle] draws: `proj` = read-only borrow, `ref(c)` = handle into
+    /// `c`.)
+    pub fn is_ref(&self) -> bool {
+        self.quals().iter().any(|q| q.name == "ref")
     }
 
     pub fn quals(&self) -> &[Qual] {
@@ -497,7 +531,7 @@ impl Ty {
         // rather than carried (and `proj proj X` dedups to `proj X` below
         // [proj-type]).
         if is_copy_scalar(&base) {
-            quals.retain(|q| q.name != "proj");
+            quals.retain(|q| !is_proj_name(&q.name));
         }
         quals.sort_by(|a, b| a.name.cmp(&b.name));
         quals.dedup();
@@ -522,7 +556,7 @@ impl Ty {
     /// rendering rather than in front of it, and a prefix is still informative.
     pub fn presents_proj(&self) -> bool {
         match self {
-            Ty::Qualified { quals, .. } => quals.iter().any(|q| q.name == "proj"),
+            Ty::Qualified { quals, .. } => quals.iter().any(|q| is_proj_name(&q.name)),
             Ty::Union(arms) => {
                 let value: Vec<&Ty> = arms.iter().filter(|a| !a.is_none_ty()).collect();
                 value.len() == 1 && arms.len() == 2 && value[0].presents_proj()
@@ -693,12 +727,10 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
         // value's own top-level `proj`, if any, is matched by the
         // qualified/qualified arm; here `a` has none.
         (_, Ty::Qualified { quals, .. })
-            if quals.iter().any(|q| q.name == "proj")
-                && !a.quals().iter().any(|q| q.name == "proj") =>
+            if quals.iter().any(|q| is_proj_name(&q.name))
+                && !a.quals().iter().any(|q| is_proj_name(&q.name)) =>
         {
-            let mut names = HashSet::new();
-            names.insert("proj".to_string());
-            is_subtype(a, &b.clone().remove_quals(&names))
+            is_subtype(a, &b.clone().remove_quals(&proj_names()))
         }
         (
             Ty::Qualified { quals: qa, base: ba },
@@ -722,7 +754,7 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
                 && qa
                     .iter()
                     .filter(|q| !q.effect && q.drop_block().is_some() && q.name != "once")
-                    .filter(|q| !(q.name == "proj" && is_copy_scalar(ba)))
+                    .filter(|q| !(is_proj_name(&q.name) && is_copy_scalar(ba)))
                     .all(|q| qb.contains(q))
                 // [fn-effects] An effect claim runs the *other* way, like
                 // [fn-effects] on a fn type: every effect the supplied
@@ -768,7 +800,7 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
                 .iter()
                 .all(|q| {
                     q.drop_block().is_none()
-                        || (q.name == "proj" && is_copy_scalar(base))
+                        || (is_proj_name(&q.name) && is_copy_scalar(base))
                         // [once-fn] D6 (user decision 2026-09-12): on a
                         // *data* type, `once T <: T` — a plain-typed holder
                         // can consume at most once anyway (a move is a
@@ -982,10 +1014,17 @@ pub fn qual_drop_block(name: &str) -> Option<&'static str> {
             "linearity is declared on the type, not applied at a use site, \
              and it carries a use obligation that cannot be dropped",
         ),
-        // [readonly-return] The value is borrowed from somewhere else.
+        // [readonly-return] [ref-handle] The value is borrowed from
+        // somewhere else — `proj` a read-only view, `ref` a handle into a
+        // named container. Either way, dropping it would claim ownership
+        // the value does not have.
         "proj" => Some(
             "`proj` marks a value derived from another: dropping it would \
              claim ownership the value does not have",
+        ),
+        "ref" => Some(
+            "`ref` marks a handle into a container: dropping it would \
+             claim ownership the handle does not have",
         ),
         _ => None,
     }
@@ -1068,8 +1107,8 @@ pub fn spec_cmp(a: &Ty, b: &Ty) -> Option<std::cmp::Ordering> {
                 _ => {}
             }
             let (mut qa, mut qb) = (qual_names(a), qual_names(b));
-            let pa = qa.iter().position(|q| *q == "proj").map(|i| qa.remove(i)).is_some();
-            let pb = qb.iter().position(|q| *q == "proj").map(|i| qb.remove(i)).is_some();
+            let pa = qa.iter().position(|q| is_proj_name(q)).map(|i| qa.remove(i)).is_some();
+            let pb = qb.iter().position(|q| is_proj_name(q)).map(|i| qb.remove(i)).is_some();
             let proj_dim = match (pa, pb) {
                 (false, true) => Greater,
                 (true, false) => Less,
@@ -1253,12 +1292,13 @@ impl fmt::Display for Ty {
                 fmt_args(f, args)
             }
             Ty::Qualified { quals, base } => {
-                // [proj-type] `proj` reads first: it says what the value *is*
-                // (a borrow); the rest say what is known about it.
-                for q in quals.iter().filter(|q| q.name == "proj") {
+                // [proj-type] [ref-handle] a projection (`proj`/`ref`) reads
+                // first: it says what the value *is* (a borrow / a handle);
+                // the rest say what is known about it.
+                for q in quals.iter().filter(|q| is_proj_name(&q.name)) {
                     write!(f, "{q} ")?;
                 }
-                for q in quals.iter().filter(|q| q.name != "proj") {
+                for q in quals.iter().filter(|q| !is_proj_name(&q.name)) {
                     write!(f, "{q} ")?;
                 }
                 if matches!(**base, Ty::Union(_)) {

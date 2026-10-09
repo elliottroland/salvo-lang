@@ -74,6 +74,10 @@ pub enum TokenKind {
     /// [obligation-spelling] `proj` — the borrow obligation, in type
     /// positions and deduction entries (`proj(p)`).
     KwProj,
+    /// [ref-handle] `ref` — a handle into a named container, in type
+    /// positions (`ref(c) Mut T`). The mutable-element-handle flavour of a
+    /// projection; `proj` is the read-only flavour.
+    KwRef,
     /// [obligation-spelling] `once` — the at-most-once obligation.
     KwOnce,
     /// [obligation-spelling] `linear` — the exactly-once obligation:
@@ -189,6 +193,7 @@ pub const KEYWORDS: &[(&str, TokenKind)] = &[
     // (user decision 2026-09-12). `proj`/`once` appear in type positions;
     // `linear` before `struct` and in `canbe linear` bounds.
     ("proj", TokenKind::KwProj),
+    ("ref", TokenKind::KwRef),
     ("once", TokenKind::KwOnce),
     ("linear", TokenKind::KwLinear),
     // [proj-infer] `holds` — the opaque projection, after the type it is
