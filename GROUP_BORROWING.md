@@ -1,12 +1,16 @@
-# Group borrowing: findings and alternatives
+# Group borrowing: findings, alternatives, and the committed design
 
-Status: **research note, not a decision document.** It records two verified
-defects in the current `canbe`/virtual-place implementation, traces them to
-a shared root cause, and surveys alternative designs — including Nick
-Smith's "group borrowing" proposal (via Kelsey Hightower... no — via Evan
-Ovadia's write-up) — that could replace or extend it. Nothing here is
-committed; it exists so the two live findings aren't lost, and so the next
-design pass starts from evidence instead of from scratch.
+Status: **Parts 1–6 are the research trail (exploration and rejected
+alternatives); Part 7 is the committed design** (user decision, this
+session). Parts 1–2 record two verified defects in the current
+`canbe`/virtual-place implementation and survey Nick Smith's "group
+borrowing" proposal plus incremental fixes. Parts 3–6 develop and critique
+a purpose-built group container, including a rejected `Rc`-based storage
+variant and an accepted swap-placeholder refinement. Part 7 states the
+final design: `region { }` as a compiler-intrinsic delimiter, `Reg` as a
+provenance qualifier, and `Placeholder<T>` as the swap-value mechanism.
+Part 8 is the implementation plan. See `ROADMAP.md` item 15, which this
+design replaces.
 
 ## Part 1: two verified gaps in the current model
 
@@ -322,19 +326,992 @@ plainly as the baseline every other option should be measured against,
 since fixing a confirmed soundness bug (1b) is non-optional regardless of
 which larger path, if any, is chosen for the rest.
 
-## Summary table
+## Summary table (Part 2 options)
 
 | Option | Fixes 1a (maps) | Fixes 1b (soundness) | New mechanism? | Implementation risk |
 |---|---|---|---|---|
 | A — validate `canbe` call sites | No | Yes | No | Low, should happen regardless |
 | B — map locator face | Yes | No (needs A too) | No (extends virtual places) | Low–medium; map re-lookup may not be free |
 | C — reify `Place` as source of truth | Yes (future-proofs it) | Yes | Small (uses existing `Place`) | Medium |
-| Group borrowing | Yes (by construction) | Yes (by construction) | Yes, large | High; unimplemented upstream, open composability question (mut child of immut parent), no `noalias` story |
+| Group borrowing (full, Part 2) | Yes (by construction) | Yes (by construction) | Yes, large | High; unimplemented upstream, open composability question (mut child of immut parent), no `noalias` story |
 | D — do nothing beyond A | No | Yes | No | None |
 
-Recommendation for discussion, not a decision: ship (A) immediately since it
-is a correctness fix with no design risk; evaluate (C) as the next step
-because it fixes both findings using machinery the checker already has,
-before considering whether full group borrowing's finer invalidation rule
-and zero-annotation aliasing are worth importing an unproven external model
-for.
+This table predates Parts 3–6 below, which develop one option — a
+purpose-built group container — in enough depth to warrant its own
+comparison; see "Overall summary," after Part 6, for how it stacks up
+against the options above.
+
+## Part 3: a purpose-built group container, instead of generalizing virtual places
+
+A different cut than Part 2's options: instead of generalizing the existing
+index/path rendering to cover more cases (maps, deeper nesting), introduce
+**one new runtime data structure that a group's members move into**, modeled
+on Rust's `slotmap`/`generational-arena` family. Members get a small `Copy`
+`Handle` (an index, or index+generation) instead of a reference; every
+access goes through the group's own `get`/`get_mut`, which is a fresh,
+momentary borrow per call — the same "re-materialize instead of bind"
+discipline Salvo's virtual places already use, except the container is
+purpose-built for it rather than a repurposed `Vec`.
+
+```rust
+pub struct Group<T> { slots: Vec<Option<T>> /* + generation, for staleness */ }
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct Handle { index: usize /* + generation */ }
+
+impl<T> Group<T> {
+    pub fn insert(&mut self, value: T) -> Handle { ... }
+    pub fn get(&self, h: Handle) -> Option<&T> { ... }
+    pub fn get_mut(&mut self, h: Handle) -> Option<&mut T> { ... }
+    pub fn remove(&mut self, h: Handle) -> Option<T> { ... }
+}
+```
+
+This closes finding 1b by construction (two entities moved into one group
+share one storage — there is no second anchor to lose track of) and
+finding 1a without special-casing maps (a map lookup only has to happen
+once, at insertion; every later access is a `Handle` lookup, as cheap and
+chainable as list indexing). It also gets a free, well-understood
+staleness story: a generational `Handle` captured before a `remove` fails
+its `get` cleanly instead of aliasing whatever later value reused the slot
+— a runtime backstop under the compile-time checker proof, not a
+replacement for it.
+
+Hand-rolled runtime code of this shape already has a direct precedent in
+the codebase: the staged, designed-but-unbuilt regions feature's Rust v2
+(`[rs-region-arena]`, `ROADMAP.md` item 15) is "a real arena (hand-rolled in
+emitted `core/`...), `Reg T` → `&'r T`, one mechanical lifetime per
+delimiter" — the same "ship a hand-rolled container, give values a cheap
+handle into it" strategy, for a different motivating problem (region
+lifetime management rather than aliasing). Kotlin needs none of this —
+objects alias natively — so a group container is Rust-only machinery, the
+same shape `Reg`/regions already are (erased on one backend, real structure
+on the other, [qual-erasure]'s pattern generalized).
+
+### What this costs that today's virtual places don't
+
+1. **An extra layer of indirection and allocation.** `Vec<Option<T>>` (or a
+   slot map with a free list) versus a plain `Vec<T>` — one more allocation,
+   one more pointer-chase per access, a discriminant tax per slot unless
+   packed carefully.
+2. **Generational staleness detection, if included, costs a counter per slot
+   and a check per access** — cheap, but new runtime behavior with no
+   existing Salvo analogue: today a stale handle is a purely compile-time
+   checker concern; this adds a runtime backstop, which needs its own
+   panic/`Option` convention consistent with `!`'s existing behavior.
+3. **Items that join a group leave their original container** — this is
+   the real design question, below.
+
+## Part 4: automatic vs. explicit group membership
+
+The costs above (indirection, allocation, generational checks) are accepted
+as reasonable. The open question is narrower and sharper: **should entering
+and leaving a group happen automatically, inferred by the compiler at call
+sites that need it, or should it be an explicit, syntax-visible operation
+the program writes?**
+
+### Worked example
+
+```
+struct Entity canbe Mut {
+    hp: Int,
+    rings: Mut List<Ring>
+}
+
+fn attack(a: Mut Entity, d: Mut Entity) -> None => a canbe d, a: Mut, d: Mut {
+    a.energy = a.energy - 1
+    d.hp = d.hp - 2
+}
+```
+
+Two call sites in the same program:
+
+```
+// Call site 1: same container. Already works correctly today, zero-cost.
+let squad: Mut List<Mut Entity> = mut_list_of(...)
+attack(get(squad, i)!, get(squad, j)!)
+
+// Call site 2: different containers. Today: finding 1b — silently wrong.
+let squad_a: Mut List<Mut Entity> = mut_list_of(...)
+let squad_b: Mut List<Mut Entity> = mut_list_of(...)
+attack(get(squad_a, i)!, get(squad_b, j)!)
+```
+
+### Option (a): automatic, inferred group formation
+
+The checker decides on its own, per call site, whether `attack`'s `canbe`
+pair needs a group — and if the two arguments don't share a root container,
+it synthesizes one invisibly: move both entities into ad hoc shared storage,
+call `attack` through `Handle`s, move the (possibly mutated) results back
+into their original slots afterward. Source text at both call sites above
+stays identical to today; nothing in `attack`'s declaration changes.
+
+**Why this costs more than it looks like.** The detection step — "do these
+two arguments provably share a container" — is exactly the aliasing-
+provenance analysis finding 1b showed was missing, so this does not avoid
+building that analysis; it requires it, plus new move-synthesis machinery
+on top. And the move-in/move-out pair (two moves each way) is paid
+*silently*: call site 1 above stays free, call site 2 pays four hidden
+moves, and nothing in `attack`'s own signature — the one place Salvo
+normally makes a function's cost legible — can show which case a given
+call is in, because the fact that decides it (do the arguments share a
+container) lives entirely on the caller's side. This is a sharper version
+of the already-known "signature-change-free contract drift" problem
+([deduce-infer]'s revisit note, `LANGUAGE_SPEC.md` ~6633): there, at least
+the callee's own body determines the inferred fact, so hovering the
+function shows it. Here the decisive fact is call-site-local, so there is
+no signature anywhere that would ever show it.
+
+### Option (b): explicit, syntax-visible opt-in
+
+Entering and leaving a group are themselves ordinary function calls, in the
+same register as the already-designed-but-unbuilt `reg`/`unreg` (regions,
+`ROADMAP.md` item 15) — move a value in, get a `Handle` back; hand a
+`Handle` back, get the value out. Spelling is provisional; the shape is the
+point:
+
+```
+group entities: Group<Entity> = Group<Entity> {}
+
+let ha = enter(entities, remove_at(squad_a, i)!)
+let hb = enter(entities, remove_at(squad_b, j)!)
+
+attack(entities, ha, hb)        // attack's signature now names the group
+
+leave(entities, ha, squad_a, i)  // move the (possibly mutated) entity back
+leave(entities, hb, squad_b, j)
+```
+
+`enter`/`leave` get ordinary deduction clauses — `enter` consumes its value
+argument and produces a `Handle`; `leave` consumes a `Handle` and the
+group, and (depending on which variant of Part 5 is chosen) either hands
+the value back owned or writes it into a caller-supplied destination. No
+new checker machinery is needed beyond what already tracks every other
+move in the language; the fixpoint, shared-fate analysis and move-tracking
+just see two more ordinary move events.
+
+### Why (b) is the stronger choice
+
+1. **Cost is visible exactly where Salvo already makes cost visible**: the
+   signature and the call site. `attack(entities, ha, hb)` taking a group
+   plus two handles tells a reader this call needs pooled storage — no
+   call-site-dependent branching in what the generated code does, and
+   nothing invisible to find later.
+2. **It composes with the existing deduction vocabulary** rather than
+   requiring a new inference pass whose only job is deciding *whether* to
+   run a transformation. `enter`/`leave` are two more moves to an analysis
+   that already understands moves.
+3. **It gives the author a real choice automatic synthesis cannot**: group
+   membership can be short-lived (one call) or long-lived (construct a
+   group once, run many `canbe`-covered calls against the pooled set,
+   leave at the end) — a persistent-pooling strategy option (a)'s per-call
+   synthesis model has no way to express, since it only ever reasons about
+   one call at a time.
+4. **The real cost is paid exactly where the programmer decided it was
+   worth paying, and nowhere else.** A same-container `canbe` call (call
+   site 1) is untouched — no group, no handles, today's zero-cost rendering.
+   The different-container case (call site 2), currently silently *wrong*,
+   becomes correct and requires writing `enter`/`leave` explicitly — a
+   smaller, more honest ask than it sounds, and the same trade the language
+   already makes for `copy(...)`: "a copy never happens without the program
+   opting in" (`docs/language/Deductions-and-Ownership.md`, Projections),
+   applied here to group membership instead of to copying.
+
+The cost of (b), stated plainly: the different-container case requires
+writing something, where (a) would require writing nothing. Given that the
+different-container case is also the rare one — and the one currently
+broken — this reads as the right place to ask for an explicit opt-in.
+
+**Recommendation for discussion:** pursue (b). Record (a) as the rejected
+alternative, kept here for the reasoning rather than discarded outright,
+since a future, better-scoped version of automatic detection (e.g. limited
+to a lint that *suggests* wrapping in a group rather than silently doing
+it) might still be worth revisiting once (b)'s explicit form exists and has
+real usage to learn from.
+
+## Part 5: can `Rc` manage the group without moving values?
+
+Explored as an alternative to Part 3's slot map, specifically to avoid
+Part 4's cost that items must physically leave their source container.
+The idea: instead of a `Vec<Option<T>>` a group owns outright, give each
+member an `Rc<RefCell<T>>` (or `Rc<Cell<T>>` for Copy-ish payloads), and let
+"entering a group" mean cloning an `Rc` handle rather than moving the
+value — the original container could, in principle, keep its own `Rc`
+pointing at the same heap allocation.
+
+**This fails before the panic-risk question even arises: a plain
+container's elements aren't behind a pointer to begin with, so there is
+nothing to wrap in place.** Verified directly with `rustc`:
+
+```rust
+let mut squad: Vec<Entity> = vec![Entity { hp: 10 }, Entity { hp: 20 }];
+let handle: Rc<RefCell<Entity>> = Rc::new(RefCell::new(squad[0]));
+```
+
+```
+error[E0507]: cannot move out of index of `Vec<Entity>`
+```
+
+A `Vec<T>` stores its elements **inline, by value** — `squad[0]` is not a
+pointer to an `Entity`, it *is* the `Entity`'s bytes, embedded in the
+vector's own backing buffer. `Rc::new(RefCell::new(...))` needs to *move* a
+`T` into a fresh, independent heap allocation; there is no way to move
+`squad[0]` into it without also emptying `squad[0]`, which is exactly the
+"source container loses the element" cost Part 5 was proposed to avoid in
+the first place. The compiler refuses even the attempt.
+
+The only way to make this compile is to **clone** the element in, which
+was also verified directly: cloning `squad[0]` into the `Rc<RefCell<>>` and
+mutating through the handle (`hp: 10 → 15`) leaves `squad[0]` completely
+unaffected (`hp` stays `10`). That is not aliasing — it is an ordinary
+copy wearing an `Rc<RefCell<>>` costume. Getting *real* aliasing this way
+would require the container to store `Rc<RefCell<Entity>>` as its element
+type from the moment each `Entity` is constructed — i.e. `List<Mut
+Entity>` would have to become `List<Rc<RefCell<Entity>>>` (or every
+`Entity` individually heap-allocated and reference-counted from birth) —
+not something `enter` could arrange opportunistically at the point a value
+joins a group. That is a far larger, more invasive change to how Salvo's
+mutable containers are represented on the Rust backend than anything else
+in this document proposes, and it would apply to every value that might
+*ever* need to join a group, not just the ones that actually do.
+
+**Even setting the above aside, the scheme also carries the panic risk
+already found and rejected once for a different feature.** `COMPLETED.md`'s
+"E1a — Ownership strategy" section rejected `Rc<RefCell<...>>` for handler
+dependencies (its own option B2) with a finding that transfers here
+unchanged: wrapping shared mutable state in `RefCell` **turns a
+compile-time question into a runtime panic**, breaking backend parity by
+construction, because *Rust temporaries live to the end of the statement*
+— the concrete counterexample recorded there, `println("${bump()}
+${bump()}")`, panics with "already borrowed" with no cycle anywhere in the
+program. The same failure mode applies directly to a group built on
+`Rc<RefCell<Entity>>`: `attack(get_handle(group, ha), get_handle(group,
+hb))` — two `.borrow_mut()` calls live for the duration of one statement —
+would panic at runtime with "already borrowed" if `ha == hb` (the exact
+self-aliasing case `canbe` exists to support, per its own doc: "including
+the self-strike case"), while Kotlin's native aliasing runs the same
+program fine. That is a backend-parity break by the project's own existing
+definition — exactly the class of bug Part 1 of this document is about,
+reintroduced by the "fix."
+
+Two consequences follow directly, mirroring the rejected handler option:
+
+- **Cycle/overlap detection is not sufficient to save this**, for the same
+  reason recorded against B2: the overlap is created *per call*, by two
+  live `.borrow_mut()` guards coexisting for one statement's duration, not
+  by any structural cycle the checker could statically rule out ahead of
+  time the way it rules out recursive ownership.
+- **Every access through the group becomes a *runtime* question** (did
+  this `.borrow()`/`.borrow_mut()` panic) **where today it is a
+  *compile-time* one** (did the checker's own proof/declaration permit
+  this aliasing) — a strictly worse trust model than either the slot-map
+  option or today's `canbe` rendering, both of which keep the question
+  entirely at compile time.
+
+There's a second, independent problem beyond the panic risk: **`Rc` is not
+`Send`**, flagged as a phase-5 blocker in three unrelated places in this
+codebase already (`[rs-fn-field]`'s fn-typed struct fields, the actor
+survey's `SalvoProcess: Send` requirement, and the regions design's own v1
+staging, `[rs-region-rc]`, which already carries this exact flag). A group
+built on `Rc` would inherit the same restriction — it could never cross an
+actor/thread boundary, which is a real limitation for a general-purpose
+aliasing mechanism to carry silently.
+
+`Rc` alone (no `RefCell`, immutable payload) sidesteps the panic risk but
+then gives up mutation entirely, which is the one thing a group exists to
+support — not a usable middle ground for this problem.
+
+**Conclusion: rejected, on three independent grounds**: it cannot even be
+constructed in place for a plain container's elements (verified above —
+this is the most basic objection, and would hold even if the other two
+did not); it reintroduces the structurally identical panic-risk failure the
+project already rejected once for a different feature; and it would carry
+`Rc`'s existing `!Send` restriction into a general-purpose aliasing
+mechanism. The slot map from Part 3 is the right tool for "cheap handle,
+no reference," specifically because a `Handle` is a plain `Copy` value with
+*no* runtime borrow-tracking to panic and no pointer-identity requirement
+on the source container — the checker's compile-time proof is the only
+thing deciding validity, same as today.
+
+## Part 6: swap-with-placeholder instead of true removal
+
+A different, more promising angle on the same cost Part 4 flags (items
+leaving their source container): instead of `remove_at` — which shrinks
+the list, shifts every later element down one slot, and reallocates on
+growth — have `enter` swap the moved value out for a cheap placeholder
+left in its original slot, and have `leave` swap the real value back in.
+Rust already has the exact primitive for this: `std::mem::replace(&mut
+list[i], placeholder)`, which trades a value for another value of the same
+type with no shift, no reallocation, and no shrinking — an O(1) in-place
+exchange.
+
+This is not a new idiom for the codebase to adopt — it is already the
+documented behavior of one of std's own list functions. `core/list.sv`'s
+`[col-replace]` rule is, in its own words, "the **total positional write**:
+puts `value` at `index` and answers the element it displaced" — precisely
+`mem::replace`'s contract, just not yet named that way outside the doc
+comment. `enter`/`leave` under this scheme would compile to calls into
+that same primitive rather than to `remove_at`/`insert_at`'s shift-the-rest
+behavior:
+
+```
+let placeholder = Entity { hp: 0, energy: 0, rings: list_of() }  // or a type-level default
+let (ha, displaced) = enter(group, squad_a, i, placeholder)      // mem::replace under the hood
+...
+leave(group, ha, squad_a, i)                                      // mem::replace back
+```
+
+### What this buys
+
+1. **No reallocation, no shift, no shrink** on either `enter` or `leave` —
+   strictly cheaper than `remove_at`'s current behavior for this specific
+   use, and it removes the asymmetry Part 4 flagged (the source container
+   staying "logically the same size" the whole time a member is on loan,
+   rather than momentarily shrinking and later growing back).
+2. **It composes cleanly with the slot map from Part 3**: the group's own
+   storage is unaffected by this choice — this is purely about what
+   `enter`/`leave` do to the *source* container, independent of what kind
+   of container the group itself is.
+3. **It is a smaller ask of the backend than it looks**: `mem::replace` is
+   already how `[col-replace]`'s total positional write is implemented
+   (confirmed in `std/core/list.sv`), so `enter`/`leave` would be a new
+   *source-level* pair of functions calling an *already-shipping* backend
+   primitive, not new backend machinery.
+
+### What it costs, and the one hard question it raises
+
+- **A placeholder value has to exist for every type that can enter a
+  group.** For a struct with no sensible "empty" state (an `Entity` has no
+  natural placeholder `hp`/`rings` — `0`/`list_of()` is a choice, not a
+  fact about the domain), this needs either (a) the caller to supply one
+  explicitly at every `enter` call (shown above — correct, but asks the
+  author for a value that is never actually used, which is friction), or
+  (b) wrapping the slot in `Option<T>` so the placeholder is `None` rather
+  than a fabricated `T` (no fabricated-value problem, but now every access
+  to the source container's slot — including ones that never touch the
+  loaned-out member — pays an `Option` unwrap it didn't pay before,
+  spreading a cost outward from the one slot that's actually on loan to
+  every read of that collection type).
+- **The source container's element type must change to `Option<T>` (or
+  must already be one) for option (b) to work at all** — this is not free
+  on the type-system side either: `List<Entity>` and `List<Entity>` with
+  "some slots might be mid-loan" are different contracts, and today's
+  `List<T>` has no notion of a slot that's temporarily absent. Making this
+  work without changing the container's declared element type pushes
+  toward option (a) (caller-supplied placeholder), which is simpler to
+  reason about but asks something of every `enter` call.
+- **`canbe linear` types cannot have a placeholder constructed for them at
+  all**, by the language's own existing rule: a `linear` type's whole point
+  is that no value of it may be conjured except through its own
+  constructors with a tracked must-use obligation (`docs/language/
+  Linear-Types.md`) — there is no "cheap default" a linear type could ever
+  offer, by design. So this scheme would need to refuse `enter` on a
+  `canbe linear`-opted container element outright, which `core.list`'s own
+  precedent already anticipates (`remove_first`/`remove_at` are typed
+  `<T canbe linear>` specifically *because* removing a linear element is a
+  real, trackable move, not a placeholder swap — the existing functions
+  already distinguish "can be removed because it's linear and tracked" from
+  what a placeholder-swap would need, which is "can be removed because
+  something harmless can stand in its place," and those are different
+  properties of a type). This is a real, fixed-in-advance restriction to
+  record, not a bug to fix later: a group would need its own `canbe`-style
+  opt-in deciding whether a type supports the placeholder scheme, separate
+  from whether it supports being removed at all.
+- **The window between `enter` and `leave` is observable from the source
+  container's side**, which is new: anyone still holding a plain
+  (non-handle) reference into `squad_a[i]` during the loan sees the
+  placeholder, not the real entity — correctly reflecting that the real
+  value is elsewhere, but a new kind of "stale-looking but not actually
+  invalidated" state the checker would need to reason about (today, a
+  handle into a mutated root is simply poisoned; here, a *read* of the
+  slot during a loan is not poisoned, it legitimately returns a different,
+  valid value — the placeholder — which is a new flow fact, not a
+  violation).
+
+**Overall assessment:** this is a real improvement over plain move-out
+(Part 4's unqualified version) specifically for non-linear types with a
+natural or acceptable placeholder, and it reuses a primitive the backend
+already ships (`[col-replace]`/`mem::replace`) rather than inventing one.
+It is not a free win: it needs either a caller-supplied placeholder (asks
+something of every `enter` call) or an `Option<T>`-shaped container (asks
+something of the collection's own declared type), and it needs an explicit
+carve-out for `canbe linear` element types, which cannot participate at
+all. Worth pursuing as a refinement of (b) from Part 4 — not as a
+replacement for the plain-move version, but as a cheaper default for the
+common case where a placeholder is acceptable, with plain move-out (or an
+outright `enter` refusal) remaining the answer for `canbe linear` payloads.
+
+## Overall summary (updated after Parts 3–6)
+
+| Option | Fixes 1a / 1b | New mechanism? | Values leave source container? | Risk / cost |
+|---|---|---|---|---|
+| A — validate `canbe` call sites | 1b only | No | N/A | Low; ship regardless |
+| B — map locator face | 1a only (needs A for 1b) | No | No | Low–medium; map re-lookup may not be free |
+| C — reify `Place` as source of truth | Both | Small | No | Medium |
+| Full group borrowing (Part 2) | Both, by construction | Large | No (groups are implicit, from locals) | High; unimplemented upstream, no `noalias` story |
+| Group container, automatic (Part 4a) | Both | Medium–large | Yes, invisibly | High; cost invisible at every signature, requires the same aliasing-provenance analysis as C plus move-synthesis on top |
+| Group container, explicit (Part 4b) | Both | Medium | Yes, visibly (`enter`/`leave`) | Medium; composes with existing deduction machinery, cost visible in signatures |
+| ↳ with `Rc`/`RefCell` storage (Part 5) | — | — | — | **Rejected**: can't even alias a plain container's inline elements in place (`E0507`, verified), and even if storage were restructured to allow it, reintroduces the runtime-panic class of backend-parity bug the project already rejected once (E1a/B2), plus `Rc: !Send` |
+| ↳ with swap-placeholder `enter`/`leave` (Part 6) | — | — | No (placeholder stands in) | Medium; reuses `[col-replace]`'s existing `mem::replace` primitive; needs a placeholder story per type and refuses `canbe linear` elements |
+
+Where this leaves the decision: (A) is unconditional — it is a correctness
+fix, not a design choice. Beyond that, the real fork is between **(C)**,
+which fixes both findings with the smallest change by generalizing
+machinery the checker already has, and **the explicit group container
+(Part 4b, refined by Part 6's placeholder scheme)**, which costs more to
+build but is the only option on this list that also gives the *language* a
+new, visible capability — pooling arbitrary values from different
+containers for aliasing, on purpose, as a named operation — rather than
+only closing the two bugs this document started from. Full, unmodified
+group borrowing (Part 2) and the automatic-synthesis variant (Part 4a) are
+both set aside: the former for being unproven upstream with no `noalias`
+answer, the latter for making cost invisible at exactly the place Salvo's
+design has consistently chosen to make cost visible.
+
+## Part 7: the committed design — `region { }`, `Reg`, and `Placeholder<T>`
+
+**Status: committed (user decision, this session).** Supersedes Part 2's
+unmodified group borrowing, Part 4's automatic-synthesis option, and
+Part 5's `Rc`-based storage. Builds on, and **replaces**, the
+designed-but-unbuilt Regions feature recorded at `ROADMAP.md` item 15 and
+`COMPLETED.md`'s "Regions" section — this design was arrived at
+independently, inspired by Regions' vocabulary (`reg`/`unreg`, `Reg` as a
+provenance qualifier, a scope-owned handler) without resurrecting Regions'
+own freeze/escape mechanics, which predate group borrowing's slot-based
+proof that free *mutable* aliasing can be sound without first freezing a
+value. Item 15 should be retired in favor of this design, not implemented
+alongside it — see Part 8 for the concrete roadmap edit.
+
+### The design, stated plainly
+
+- **`region { }` is a compiler-intrinsic delimiter, like `try { }`.**
+  Not a `use`-registered effect handler — Salvo owns it the same way it
+  owns `try`. Nesting is permitted syntactically; the innermost enclosing
+  `region { }` is unambiguously the one any `reg`/`unreg` call inside it
+  targets, mirroring `try`'s innermost-wins rule for `throw` exactly.
+- **An outer region's `Reg T` value, merely *used* inside an inner
+  region, materializes automatically — it does not move, and the outer
+  handle stays valid both during and after the inner block.** This is
+  not a new mechanism: it is the same call-boundary coercion every
+  qualifier gets (`Qual T <: T`, `[qual-erasure]`), except that unlike a
+  state qualifier (free to drop — it never had a runtime representation),
+  dropping `Reg` costs one registry read, because a `Reg T` handle *is* a
+  position into the region's registry under the hood. Subtyping
+  (`Reg T <: T`, so a `Reg T` is accepted anywhere `T` is expected) is
+  free to state; materializing it is not free to *run*, and the IR needs
+  a node for that read (`ExprKind::Widen` is currently scoped to numeric
+  promotion only — check whether to extend it or add a sibling node
+  before building Step 6). The outer `Reg T` binding is untouched by
+  this: nothing was removed from the registry, only read, so it remains
+  exactly as valid afterward as it was before the inner block opened.
+- **Joining the *inner* region's own registry — so a value can alias
+  with other inner-region values — is a second, explicit, visible
+  step: `.reg()` (or equivalent call syntax), never synthesized.**
+  Composing the two existing operations (`reg` reading the materialized
+  value, as above, then placing it in the registry currently in scope —
+  which `reg`'s innermost-wins resolution already makes the *inner* one)
+  produces a new handle, independent of the outer one, scoped to the
+  inner region:
+  ```
+  fn act<T>(list: List<T>) [Region] -> None {
+      region {
+          let t: Reg T = reg_get(list, 0)!
+          do_something(t)              // materializes; t (outer) still valid after
+          region {
+              // t: T here, from a type-checking perspective (materialized on use);
+              // the outer `t` is still a valid Reg T, untouched, once this block ends
+              let t2 = t.reg()         // explicit: materializes, then reg()s into
+                                       // *this* block's registry -- a real, visible move
+          }
+      }
+  }
+  ```
+  This needs no suspend/restore/poisoning machinery on the outer binding
+  at all — an earlier draft of this design proposed poisoning the outer
+  name for the inner block's duration and restoring it at block-close,
+  which turned out to be unnecessary once materialize-on-use was
+  separated from registry-join: the outer handle was never going to stop
+  being valid, because reading it never consumes it.
+- **`Region` is an effect with two members**, in the same register as
+  `Throw`:
+  ```
+  export effect Region {
+      fn reg<T>(value: T) -> Reg T => !value
+      fn unreg<T>(handle: Reg T) -> T => !handle
+  }
+  ```
+  `reg`/`unreg` are ordinary consuming/producing calls — no new deduction
+  machinery, no new move-tracking rule. A function that calls either
+  declares `[Region]`, propagated exactly like any other effect
+  requirement; `region { }` satisfies it for its body the way `try { }`
+  satisfies `[Throw<M>]`.
+- **`Reg` is a provenance qualifier, not a replacement type.** `Reg Mut
+  Entity` *is* a `Mut Entity` for every purpose other than the checker's
+  aliasing proof: field reads, field writes, method calls, and passing it
+  anywhere a `Mut Entity` is expected all work exactly as they do on a
+  plain handle today — confirmed against `docs/language/Mutable-
+  Handles.md`'s own `heal`/`attack` examples, which write `e.hp = e.hp +
+  10` directly, no accessor call. `Reg T <: T` falls straight out of the
+  general qualifier-erasure rule (`[qual-erasure]`, `Qual T <: T`) with no
+  special case — `Reg` is a qualifier, not an obligation (`proj`/`once`/
+  `linear`), so it subtypes the permissive direction like every other
+  qualifier; there is nothing to special-case or flag here.
+- **`attack` needs no `canbe` at all — but only when both handles share
+  one region.** Two `Reg`-tagged arguments into the *same* running region
+  are provably safe to alias by construction — there is only one registry
+  once both values are `reg`'d, so there is no second anchor for the
+  checker to lose track of (closing finding 1b by construction, not by
+  validation). **Two `Reg` handles from *different* regions are refused
+  outright, with no exception** — every `Reg` qualifier named in one
+  function signature must resolve to the same region, the same
+  conservative default two plain `Mut` parameters with no `canbe` already
+  get today; there is no shared registry between two unrelated regions,
+  so there is nothing to prove the aliasing permission from. `canbe`
+  remains exactly what it is today, for the no-registry, declared-trust
+  case; `Reg Mut T, Reg Mut T` into one region is the registry-backed
+  route to the same permission, and a function does not need to declare
+  both:
+  ```
+  fn attack(a: Mut Entity, d: Mut Entity) -> None => a: Mut, d: Mut {
+      a.energy = a.energy - 1
+      d.hp = d.hp - 2
+  }
+  ```
+  called as `attack(ha, hb)` where `ha, hb: Reg Mut Entity` — the checker
+  accepts this because both arguments carry `Reg` into the same region,
+  independent of whether `attack` itself ever mentions `canbe`.
+- **Intrinsic types declare their obligations the same way user types do
+  — no special-cased built-in list.** `: Params<self>` already exists for
+  `struct`/`type` declarations (`struct Point : Ordered<self> by auto,
+  Hashed<self> by auto`); extending it to `intrinsic type` means
+  `Placeholder` (and every other obligation an intrinsic type satisfies)
+  is a declared, checked claim rather than an implicit, unconditional
+  one:
+  ```
+  intrinsic type Int : Ordered<self>, ToStr<self>, Hashed<self>, Placeholder<self>
+  ```
+  Unlike a user struct, there is nothing to `by auto`-stamp — the
+  implementation is a hand-written `intrinsic fn`, so the declaration is
+  purely a checked claim (matching `: Ordered<self>` *without* `by auto`
+  on a user struct: a promise the compiler verifies against existing
+  function declarations, not a body it generates). This is new parser/
+  checker surface — `: Params<self>` support for `intrinsic type` does
+  not exist today — and is sequenced as its own step (Part 8, Step 0)
+  before `Placeholder<T>` is built, since `Placeholder<self>` on `Int`
+  presupposes it. It also fixes a standing inconsistency as a side
+  effect: today `Int`'s `cmp`/`hash`/`to_str` support is unconditional on
+  importing `core` at all, regardless of use, where a user type's
+  `: Params<self>` claim is declared and checked — bringing intrinsic
+  types onto the same footing closes that gap for every obligation, not
+  only `Placeholder`.
+- **Swapping is explicit and reusable, never baked into existing
+  functions.** `remove_at`'s meaning does not change. A new `params`
+  bundle supplies the placeholder a swap needs, following the same
+  caller-fills-the-concrete-shape idiom already used by `Locate`, `Yield`,
+  `Ordered`, `Eq`:
+  ```
+  export params Placeholder<T> {
+      fn placeholder() -> T
+  }
+
+  fn reg_from<T>(list: Mut List<T>, index: Idx(list) Int, ?Placeholder<T>) [Region] -> Reg T {
+      return reg(replace(list, index, placeholder()))
+  }
+
+  fn unreg_into<T>(list: Mut List<T>, index: Idx(list) Int, handle: Reg T) [Region] -> None {
+      replace(list, index, unreg(handle))
+      return None
+  }
+  ```
+  `replace` is already `core.list`'s `[col-replace]` — "the total
+  positional write: puts `value` at `index` and answers the element it
+  displaced" — so `reg_from`/`unreg_into` need no new backend primitive,
+  only a new `params` bundle and two small library functions composing
+  existing ones. A type with no sensible placeholder simply never gets a
+  `Placeholder<T>` instance written for it, and `reg_from` fails to
+  resolve at the call site with an ordinary missing-implicit diagnostic —
+  not a new failure mode.
+- **Invalidation is minimized by reusing the dependent-qualifier
+  growth-preservation rule**, not by inventing a new one. `Idx` already
+  survives a list's `add`, `swap`, and `replace` because none of those
+  move an existing index's boundary (`docs/language/Dependent-
+  Qualifiers.md`). `reg_from`'s swap is exactly a `replace` at a fixed
+  index, so by the same reasoning: **a handle or claim into the source
+  container survives `reg_from` unless it specifically names the slot
+  that was swapped.** A handle to a *different* element is untouched —
+  the container's shape never changed, only one slot's contents did. This
+  is the same "storage identity, not whole-container" principle
+  `Mutable-Handles.md`'s `e.hp: Mut` vs `e: Mut` field narrowing already
+  uses, applied to `reg`/`unreg` instead of to an ordinary mutating call.
+- **Closing a `region { }` block automatically reconciles anything still
+  checked out.** The block already has to walk everything tagged with its
+  scope to enforce an escape rule (Regions' existing escape-rule
+  machinery is the right starting point for this walk, even though its
+  freeze semantics are not being reused); the natural extension is that
+  anything still holding a live `Reg T` handle when the block ends is
+  swapped back via the same `unreg_into`-shaped call the author would
+  have written by hand, removing the need to remember a matching
+  `unreg_into` on every exit path (including early `return`/`throw` paths
+  through the block).
+
+### Worked example (final, corrected)
+
+```
+export effect Region {
+    fn reg<T>(value: T) -> Reg T => !value
+    fn unreg<T>(handle: Reg T) -> T => !handle
+}
+
+export params Placeholder<T> {
+    fn placeholder() -> T
+}
+
+fn reg_from<T>(list: Mut List<T>, index: Idx(list) Int, ?Placeholder<T>) [Region] -> Reg T {
+    return reg(replace(list, index, placeholder()))
+}
+
+fn unreg_into<T>(list: Mut List<T>, index: Idx(list) Int, handle: Reg T) [Region] -> None {
+    replace(list, index, unreg(handle))
+    return None
+}
+
+struct Entity canbe Mut {
+    hp: Int,
+    energy: Int
+}
+
+params Placeholder<Entity> {
+    fn placeholder() -> Entity { return Entity { hp: 0, energy: 0 } }
+}
+
+// No `canbe`: aliasing permission comes from the call site passing two
+// Reg-tagged handles into the same region, not from anything declared here.
+fn attack(a: Mut Entity, d: Mut Entity) -> None => a: Mut, d: Mut {
+    a.energy = a.energy - 1
+    d.hp = d.hp - 2
+}
+
+fn main() [use] {
+    use StdOutConsole()
+
+    let squad_a: Mut List<Mut Entity> = mut_list_of(Entity { hp: 30, energy: 4 })
+    let squad_b: Mut List<Mut Entity> = mut_list_of(Entity { hp: 8, energy: 9 })
+
+    region {
+        let ha = reg_from(squad_a, 0)
+        let hb = reg_from(squad_b, 0)
+
+        attack(ha, hb)   // two Reg Mut Entity handles into one region:
+                          // the case that silently miscompiled under
+                          // plain `canbe` with two different anchors (1b)
+
+        unreg_into(squad_a, 0, ha)
+        unreg_into(squad_b, 0, hb)
+        // anything still checked out when the block ends is swapped back
+        // automatically here
+    }
+
+    println("${get(squad_a, 0)!.energy} ${get(squad_b, 0)!.hp}")
+}
+```
+
+Field access on `a`/`d` inside `attack` is plain field syntax throughout —
+`a.energy`, `d.hp` — with no accessor call of any kind. The only `get(...)`
+in the whole example is the ordinary `List::get` at the final `println`,
+unrelated to `Reg`.
+
+## Part 8: implementation plan
+
+Ordered so each step is independently useful and independently verifiable
+(`cargo build` warning-free, `cargo test`, kotlinc/rustc e2e where
+applicable), per AGENTS.md's workflow. Steps 1–2 are correctness fixes
+that should land regardless of anything else here; steps 3+ build the
+committed design incrementally, library-first before touching parser/
+checker machinery, so there is a working, testable slice at every point
+rather than one large change landing at the end.
+
+**Re-grounded against the current codebase (this session): the Rust
+backend has since moved from an AST emitter to IR-based emission
+(`ad49db0c`, `05258e67`).** `crates/salvo-core/src/mut_lends.rs`'s
+`covered_fns` — Step 1's original target — is now dead code with zero
+callers; the real logic lives in `crates/salvo-ir/src/build/decls.rs`'s
+`may_alias` (building `IR::MayAlias`) and
+`crates/salvo-backend-rust/src/ir_emit/{decls,body}.rs`'s `covered`/
+`covered_args`. **Finding 1b was re-verified directly against this
+current pipeline** (compiled and run with `rustc`, same wrong output,
+`changed-a s`) — the bug and its root cause (one `anchor_done: bool`
+instead of per-anchor tracking, in `body.rs`'s `covered_args`) are
+unchanged by the migration; only the file path moved. Step 1 below is
+corrected accordingly.
+
+### Step 0 — `: Params<self>` on `intrinsic type` declarations
+
+New prerequisite (user decision, this session): intrinsic types should
+declare their obligations the same way user types do, rather than
+getting unconditional, undeclared support for `cmp`/`hash`/`to_str`.
+Sequenced first because `Placeholder<self>` on `Int` (Step 3) presupposes
+it, and because it is checker/parser surface independent of everything
+else in this plan.
+
+- Parser: accept `: Params<self>, Params<self>, …` after an `intrinsic
+  type` declaration's name, reusing the existing grammar for `struct`/
+  `type`'s obligation list (`struct Point : Ordered<self> by auto`).
+  `by auto` is **not** accepted on an `intrinsic type` — there is no body
+  to stamp, since the implementation is always a hand-written
+  `intrinsic fn`; a `by auto` on an `intrinsic type` obligation should be
+  a parse or check error naming the reason (no auto-generation target).
+- Checker: for each declared obligation, verify matching `intrinsic fn`
+  declarations already exist for the type, the same way a user struct's
+  bare `: Ordered<self>` (without `by auto`) is checked against a
+  hand-written `cmp` — reuse that checking path rather than writing a
+  parallel one.
+- Apply it to `Int`, `Long`, `Float`, `Double`, `Bool`, `Char`, `Byte`,
+  `Str` for their existing `Ordered`/`ToStr`/`Hashed` support, confirming
+  the declared-and-checked form matches today's actual (unconditional)
+  support with no behavior change — this is the regression test for the
+  step: every program that compiles today using `Int`'s `cmp`/`hash`/
+  `to_str` must still compile identically once the obligation is declared
+  rather than implicit.
+- Verification: a scalar type importing `core` without ever using
+  `cmp`/`hash`/`to_str` should (per `[mod-used-only]`'s existing
+  dead-code discipline) not change what gets emitted — confirm this
+  holds before and after the declaration is added, since the point of
+  this step is to make support *declared*, not to change what is emitted
+  for programs that already compile.
+
+### Step 1 — Fix finding 1b: validate `canbe` call-site anchors (Part 2, option A)
+
+Independent of everything else; ships first because it is a confirmed
+soundness bug, not a design choice. Corrected to target the current
+IR-based pipeline (see the re-grounding note above), not the dead
+`mut_lends.rs` code this step originally named.
+
+- `crates/salvo-backend-rust/src/ir_emit/body.rs`'s `covered_args`: the
+  **plain** `canbe` form's rendering uses a single `anchor_done: bool`,
+  set once and never re-checked against which container a *later*
+  covered argument's own anchor names — so a second covered argument
+  from a different container than the first is silently discarded,
+  because only the first argument's anchor is ever emitted
+  (`&mut {anchor}`), and later covered arguments just contribute their
+  position, assumed (wrongly) to index into that same first anchor.
+  Fix: track the anchor expression *per covered argument* (not one
+  shared boolean), and refuse the call — naming both arguments' distinct
+  anchors — when two covered, non-anchored-form arguments resolve to
+  different containers. This mirrors `decls.rs`'s `covered` function,
+  which already renders the **anchored** form's `MayAlias::In` case
+  correctly (a real, named path, not a shared boolean); the plain
+  `MayAlias::Params` case is the one needing the fix.
+- New test: the exact repro in Part 1b (`list1`/`list2`, two `Mut Item`
+  handles, `canbe` with no anchor) must now be a **compile error**, not a
+  silent miscompile. Add it to the Rust backend's codegen test corpus
+  (`crates/salvo-backend-rust/tests/codegen_tests.rs` and a snapshot) so
+  a regression here fails loudly, and re-run the exact repro through
+  `rustc`/`kotlinc`+`java` by hand once the fix lands, the same way every
+  other finding in this document was verified empirically, not just
+  asserted from a diagnostic string.
+- Verification: existing `canbe`/`examples/borrowing/` suite (same-
+  container cases, and the anchored `canbe in` form) must still pass
+  unchanged — this fix narrows acceptance only for the previously-
+  miscompiling case, nothing else.
+
+### Step 2 — Document finding 1a as a known restriction (no code change yet)
+
+Map-chaining (`get(get(m, k)!, i)!`) stays refused under `[rs-elem-mut]`'s
+v1 cut until Step 6 gives maps a path into the region/`Reg` story, or
+until Part 2's option B (map locator face) is picked up independently.
+Add the repro from Part 1a to the diagnostics test corpus as a *confirmed-
+refusal* test (asserting the existing error message, so a future change
+that silently starts accepting or silently miscompiling it is caught).
+
+### Step 3 — `params Placeholder<T>` in std, built on Step 0
+
+Smallest piece of the committed design otherwise, and fully testable in
+isolation. The built-in-vs-user-written question this step originally
+flagged is resolved by Step 0's design: there is no special-cased
+built-in list at all — a scalar type gets `Placeholder` support exactly
+when, and only when, it declares `: Placeholder<self>` and a matching
+`intrinsic fn placeholder() -> T` exists, the same declared-and-checked
+path every other obligation now takes. Whether std declares `Placeholder`
+on `Int`/`Bool`/`Str` out of the box is now an ordinary library-content
+question (does std want to ship these instances), not a language-design
+one — ship them if convenient, since a program that never imports or
+uses them pays nothing either way per `[mod-used-only]`.
+
+- Add `export params Placeholder<T> { fn placeholder() -> T }` to
+  `core`, likely `core/basic.sv` or a new small module (check against
+  `[mod-used-only]`'s dead-code-emission rule from the existing `Ok`/`Err`
+  precedent — a program that never uses `Placeholder` should not emit it).
+- If shipping built-in instances for scalars: declare `intrinsic type Int
+  : Placeholder<self>` (and similarly for `Bool`, `Str`, etc.) per Step 0,
+  with `intrinsic fn placeholder() -> Int => 0` (and so on) — using the
+  now-general declared-obligation mechanism, not a separate carve-out.
+- Verification: a `params Placeholder<Entity>` instance resolving at a
+  call site that needs it; a missing instance producing the ordinary
+  missing-implicit diagnostic (no new diagnostic code needed).
+
+### Step 4 — `replace`-based `reg_from`/`unreg_into` as ordinary library functions, *without* `Region` yet
+
+Decouples the swap-mechanics from the effect/qualifier machinery so each
+can be tested on its own. Write `reg_from`/`unreg_into` first against a
+**stub** signature that does not yet require `[Region]` or produce `Reg T`
+— e.g. a plain `swap_in<T>(list, index, ?Placeholder<T>) -> T` /
+`swap_out<T>(list, index, value: T) -> None` pair that just does the
+`replace` dance with no qualifier involved — to validate the `[col-replace]`
+reuse and the `Idx`-preservation claim from Part 7 independently of
+`Region`'s existence.
+
+- Verification: a handle/claim into a *different* list index survives
+  `swap_in`/`swap_out` on another index — write this as an explicit test
+  of the growth-preservation argument from Part 7, mirroring the existing
+  `Idx`-survives-`add`/`swap`/`replace` tests in `core.index`'s own
+  corpus.
+
+### Step 5 — `effect Region` and the `Reg` provenance qualifier, no delimiter yet
+
+Add `Region`'s two members as an ordinary effect, and `Reg` as an ordinary
+provenance qualifier, **before** touching the parser for `region { }`.
+This is testable through today's `use`-based effect machinery as a
+scaffolding step, even though the final design does not keep `use
+Region()` as the real spelling:
+
+- `export effect Region { fn reg<T>(value: T) -> Reg T => !value; fn
+  unreg<T>(handle: Reg T) -> T => !handle }`.
+- `export provenance qualifier Reg<T> of T` (mint-only, no body — same
+  shape as `Ok`/`Err`/`Authenticated`).
+- Verification: `Reg T <: T` falls out of `[qual-erasure]` automatically
+  — write a test confirming a `Reg Mut Entity` argument is accepted
+  wherever a plain `Mut Entity` is expected (field read, field write,
+  passing to a function typed for the bare `Mut Entity`), with **no**
+  `get`/accessor call needed, confirming the "qualifier, not a replacement
+  type" property directly.
+- Verification: two `Reg`-tagged handles passed to a function with no
+  `canbe` clause (`attack` from Part 7's worked example) must be
+  **accepted** without an aliasing proof — this is the one genuinely new
+  checker rule in this step (today, two `Mut` parameters with no `canbe`
+  default to "one handle at a time"; this step adds the exception "unless
+  both carry `Reg` into the same region"). Write both the positive test
+  (same region, accepted) and the negative test — **settled (user
+  decision, this session): two `Reg` handles from different regions in
+  one signature are refused outright, with no exception; every `Reg`
+  named in a signature must resolve to the same region.** This is now a
+  known-answer test, not an open design check — write it as a refusal
+  test alongside the positive one before moving on.
+
+### Step 6 — `region { }` as a compiler-intrinsic delimiter
+
+The parser/checker work, modeled directly on `try { }`'s existing
+implementation (`Expr::Try` and its handling across
+`crates/salvo-syntax/src/{ast,parser,desugar,visit,visit_mut}.rs`, and
+whatever marks it a delimiter in `salvo-core`'s checker) rather than
+designed from scratch.
+
+- New `Expr::Region` (or equivalent) AST node, parsed the same way `try`
+  is; a block, no parameters, no return-type annotation needed (unlike
+  `try`, which evaluates to `Ok T | Thrown M`, `region { }` evaluates to
+  whatever its body's tail expression is — check this against `try`'s own
+  typing rule rather than assuming).
+- **Nesting is permitted; materializing an outer `Reg T` on use inside an
+  inner region is automatic, costs one registry read, and leaves the
+  outer handle untouched (settled, user decision, this session —
+  supersedes an earlier draft's suspend/restore-on-the-outer-binding
+  idea, which turned out to be unnecessary).** This is checker work, not
+  new vocabulary: a free-variable scan over the inner `region { }`
+  block's body (same shape as the existing lambda-capture analysis,
+  `[fate-lambda]`) finds every reference to an outer-region `Reg T`
+  value, and each such reference's *type* becomes `T` for type-checking
+  purposes inside the inner block — materializing via whatever IR node
+  Step 0's groundwork settled on (`ExprKind::Widen`, extended past
+  `[op-promote]`'s numeric-only scope, or a sibling node — decide which
+  before writing this). No poisoning of the outer binding, no implicit
+  `unreg`: the outer `Reg T` name remains valid and unchanged, both
+  during and after the inner block, because reading through it never
+  removes anything from the outer registry. Joining the *inner*
+  region's own registry (so a value can alias with other inner-region
+  values) is a **separate, explicit, visible operation** — `t.reg()` or
+  equivalent call syntax — composing the same materialize step with an
+  ordinary `reg` call, which `reg`'s own innermost-wins resolution
+  already routes to the *inner* region. Test both: a plain read/call-
+  boundary use of an outer `Reg T` inside an inner region (materializes,
+  no explicit syntax, outer handle still usable after); and an explicit
+  `t.reg()` producing an inner-region handle independent of the outer
+  one (real move, inner-region membership, outer handle still intact
+  and still itself a valid `Reg T` of the outer region afterward).
+- `region { }` satisfies `[Region]` for its body, exactly as `try { }`
+  satisfies `[Throw<M>]` — reuse the existing effect-satisfaction checker
+  logic rather than writing a parallel path.
+- Automatic reconciliation at block close (Part 7's last bullet): walk
+  everything tagged `Reg` within the block's own registry at the closing
+  brace and swap each one back via the `unreg_into`-shaped operation,
+  covering early-exit paths (`return`, `throw`, `break` out of an
+  enclosing loop) the same way the existing escape-rule flow analysis
+  already walks a block's members on every exit path. This is the
+  heaviest single piece of new checker work in the whole plan — budget
+  it accordingly, and prototype it against a *single* exit path (fall-
+  through) before tackling early-exit paths.
+- Verification: Part 7's full worked example, compiled and run on both
+  backends with `rustc`/`kotlinc`+`java`, exactly as every other finding
+  in this document was verified — the two-different-containers `attack`
+  call must now produce the correct result on Rust (`changed-a changed-d`-
+  equivalent), closing finding 1b not just by validation (Step 1) but by
+  the committed design making the previously-broken case *correct* rather
+  than merely *refused*.
+
+### Step 7 — Rust backend: the region's runtime representation
+
+Only after Steps 1–6 are checker-complete and tested on the Kotlin side
+(where `region { }`, `Reg`, `reg`/`unreg` should erase to approximately
+nothing — plain blocks, identity functions, same as `Reg`/Regions'
+original erasure story and `[qual-erasure]` generally).
+
+- Hand-roll the group/slot storage in `runtime/` (Part 3's `Group<T>`/
+  `Handle` shape), following the existing precedent of
+  `salvo_pair_mut`/`runtime/seq.rs` and the staged-but-unbuilt
+  `[rs-region-arena]` — reuse design intent from both rather than
+  starting fresh.
+- Decide generational staleness checking in or out for v1 (Part 3's cost
+  #2) — recommend **out** for the first working version (plain `Vec<Option<T>>`,
+  no generation counter), since the compile-time checker proof is already
+  the thing making this sound; add generational detection later as a
+  pure runtime hardening pass if real usage shows it's worth the cost,
+  rather than building it into the first cut.
+- Verification: Part 7's worked example's generated Rust, inspected by
+  hand the way every other backend finding in this document was (read the
+  actual emitted code, don't just trust the description) — confirm
+  `attack`'s two `Reg Mut Entity` parameters render as handles into the
+  one region's storage with no bound `&mut` spanning more than one
+  statement, matching the virtual-place discipline every other mutable
+  handle in the language already follows.
+
+### Sequencing notes
+
+- **Step 0 is the one piece of new parser/checker surface before Step 6**:
+  `: Params<self>` on `intrinsic type` is small and self-contained, but
+  it is real new syntax acceptance and a new checking path, not a pure
+  library addition — budget it as such, and land it (and its regression
+  test confirming `Int`/etc.'s existing support is unchanged) before
+  Step 3 depends on it.
+- Steps 1–2 have no dependency on anything else (including Step 0) and
+  should land immediately.
+- Steps 3–4 (library-only, Step 3 depending on Step 0) can be built and
+  tested with **zero further** parser/checker changes, which is
+  deliberate: they validate the `Placeholder`/`replace`-reuse parts of
+  the design cheaply before the remaining compiler-internals work starts.
+- Step 5 (effect + qualifier) is also parser-free — `effect`/`provenance
+  qualifier` are existing declaration forms — and is the right place to
+  settle the "two `Reg` handles, no `canbe`, accepted" checker rule in
+  isolation, before the delimiter adds nesting complexity on top.
+- Step 6 (the delimiter) is the one step that genuinely needs new parser
+  and new checker machinery, and should not start until Step 5's core
+  aliasing rule is proven out, since getting that rule wrong is cheaper to
+  fix without a delimiter and nesting rule layered on top of it.
+- Step 7 (Rust codegen) is backend-only and should not start until Steps
+  1–6 are solid on the checker/Kotlin side, consistent with how every
+  other feature in this codebase is built (checker and Kotlin first, since
+  Kotlin's erasure makes mistakes cheap to see and fix; Rust's real
+  lifetime/borrow machinery last, where mistakes are expensive to unwind).
+- Before starting implementation, update `ROADMAP.md` item 15 ("Regions
+  (designed 2026-09-10, unbuilt)") to point here instead of describing the
+  old freeze/escape design — this document's Part 7 is a replacement, not
+  an addition, and leaving item 15's old description in place would leave
+  two conflicting designs on record, which `AGENTS.md`'s own documentation
+  rules say to avoid ("do not leave an item in both").

@@ -323,3 +323,49 @@ fn an_uncovered_callee_still_refuses_the_pair() {
         "expected the uncovered refusal: {errs:?}"
     );
 }
+
+/// [GB-fix-1b] A plain `canbe` pair drawn from **two different
+/// containers** is refused at the call: `canbe` only authorizes aliasing
+/// of two handles into the *same* storage, and the plain form (unlike the
+/// anchored `canbe in`) names no container to prove sharing against. This
+/// shape used to compile and silently miscompile on Rust (`list2`'s
+/// handle redirected onto `list1`), a backend-parity break; it is now a
+/// compile error naming both containers.
+#[test]
+fn a_covered_pair_from_two_containers_is_refused() {
+    let src = format!(
+        "{PRELUDE}\
+         fn duel(a: Mut Entity, d: Mut Entity) [] -> None\n\
+         => a canbe d, a: Mut, d: Mut {{\n    \
+         a.hp = a.hp - 1\n    \
+         d.hp = d.hp - 2\n    \
+         return None\n}}\n\
+         fn f(es: List<Mut Entity>, fs: List<Mut Entity>, i: Idx(es) Int, j: Idx(fs) Int) [] -> None {{\n    \
+         duel(get(es, i), get(fs, j))\n    \
+         return None\n}}\n"
+    );
+    let errs = errors(&src);
+    assert!(
+        errs.iter().any(|e| e.contains("do not share a container")),
+        "expected the two-container refusal: {errs:?}"
+    );
+}
+
+/// [GB-fix-1b] …and the same covered pair drawn from **one container** is
+/// still accepted — the fix narrows acceptance only for the previously
+/// miscompiling different-container case, nothing else.
+#[test]
+fn a_covered_pair_from_one_container_is_accepted() {
+    let src = format!(
+        "{PRELUDE}\
+         fn duel(a: Mut Entity, d: Mut Entity) [] -> None\n\
+         => a canbe d, a: Mut, d: Mut {{\n    \
+         a.hp = a.hp - 1\n    \
+         d.hp = d.hp - 2\n    \
+         return None\n}}\n\
+         fn f(es: List<Mut Entity>, i: Idx(es) Int, j: Idx(es) Int) [] -> None {{\n    \
+         duel(get(es, i), get(es, j))\n    \
+         return None\n}}\n"
+    );
+    assert!(errors(&src).is_empty(), "got {:?}", errors(&src));
+}

@@ -1,10 +1,10 @@
-export intrinsic type Byte
-export intrinsic type Int
-export intrinsic type Long
-export intrinsic type Float
-export intrinsic type Double
-export intrinsic type Char
-export intrinsic type Bool
+export intrinsic type Byte : Ordered<self>, Eq<self>, Hashed<self>, ToStr<self>
+export intrinsic type Int : Ordered<self>, Eq<self>, Hashed<self>, ToStr<self>
+export intrinsic type Long : Ordered<self>, Eq<self>, Hashed<self>, ToStr<self>
+export intrinsic type Float : Eq<self>, ToStr<self>
+export intrinsic type Double : Eq<self>, ToStr<self>
+export intrinsic type Char : Ordered<self>, Eq<self>, Hashed<self>, ToStr<self>
+export intrinsic type Bool : Ordered<self>, Eq<self>, Hashed<self>, ToStr<self>
 export intrinsic type Any
 export intrinsic type Never
 

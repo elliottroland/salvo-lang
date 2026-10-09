@@ -137,6 +137,92 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-08 — Group-borrowing plan, Step 0: obligations on an `intrinsic type` are declared and checked, and `by` is refused there
+
+GROUP_BORROWING.md Part 8 Step 0, the prerequisite for Step 3's
+`Placeholder<T>`: intrinsic types now declare their capabilities the same
+way user types do, rather than getting unconditional, undeclared support.
+Most of this already worked — `parse_obligations` and
+`check_obligation_list` were always called for a `TypeDecl` regardless of
+`intrinsic`, and `[group-obligation]` already documented `intrinsic type
+List<T> canbe Mut : Hashed<self>` as legal syntax — so the change was
+narrower than the plan anticipated:
+
+- **The one missing guard**: `by auto` (or any `by`) on an `intrinsic
+  type` is now a dedicated error ("`by …` has no body to stamp on an
+  `intrinsic type`…"). Before, it parsed, the comptime pass silently
+  skipped it (`World::target` returns `None` for an intrinsic type —
+  nothing to stamp over), and the obligation then failed downstream with a
+  misleading "no visible `cmp` matches". `check_obligation_list` now takes
+  an `intrinsic: bool` (threaded from `TypeDecl.intrinsic`; the struct
+  caller passes `false`) and rejects `entry.by` up front. [obligation-by],
+  check.rs `check_obligation_list`.
+- **Applied to the scalars** in `std/core/basic.sv`: `Int`, `Long`,
+  `Byte`, `Char`, `Bool` claim `: Ordered<self>, Eq<self>, Hashed<self>,
+  ToStr<self>`; `Double`, `Float` claim only `: Eq<self>, ToStr<self>`
+  (no total order over NaN, so no `cmp`/`hash` — consistent with
+  `[cmp-groups]`). `Any`/`Never` claim nothing. The groups live in
+  `compare.sv`/`basic.sv` and resolve cross-module with no import needed
+  (`core.*` is implicitly visible, the same way `Str : Iter<self, Char>`
+  already works); the circular-dependency worry (basic ← compare) did not
+  materialize. `Str` already carried `: Iter<self, Char>` and was left as
+  is for this cut — folding its `cmp`/`eq`/`hash`/`to_str` into a clause is
+  a follow-up, noted in ROADMAP.
+- **Behavior-neutral**, as the step requires: `salvo analyze --src std`
+  clean, and the full suite (incl. every kotlinc/rustc golden) unchanged —
+  obligations add no scope, no dispatch and no runtime representation, so
+  emitted code is byte-identical for every program that compiled before.
+  Tests: `compare_tests.rs` gains `an_intrinsic_type_may_carry_a_bare_obligation`,
+  `by_auto_on_an_intrinsic_type_is_rejected`, and
+  `an_intrinsic_type_with_a_missing_member_still_errors`.
+
+### 2026-10-08 — Group-borrowing plan, Steps 1–2: the plain-`canbe` soundness fix lands, the map-chain gap is pinned
+
+GROUP_BORROWING.md's Part 8 opens with two correctness steps that ship
+ahead of the committed `region`/`Reg` design, and both are done.
+
+**Step 1 (finding 1b, the real soundness bug).** Plain `canbe` with two
+*different* containers — `f(get(list1, i)!, get(list2, j)!)` against
+`fn f(a: Mut T, d: Mut T) => a canbe d` — used to compile and silently
+miscompile on Rust (`list2`'s handle redirected onto `list1`;
+`changed-a s` instead of `changed-a changed-d`), while Kotlin printed the
+right thing: a backend-parity break. Fixed in the **checker**, not the
+emitter: `Checker::covered_pairs` now answers `(all_pairs, plain_pairs)`
+— the full set still authorizes aliasing in the collision loop, and the
+new `plain` subset (the un-anchored entries only) is cross-checked in
+`check_elem_handle_pairs`. Every argument at a plain-covered position must
+resolve to a mutable handle (`FateLink { borrowed, !held }`), and two such
+handles whose fate-roots (`root_id`) differ are refused, the diagnostic
+naming both containers. The anchored form (`canbe in lib.tracks`) is
+untouched — its named path already proves sharing, so it never enters the
+`plain` set. Refusing at the checker means the broken program never
+reaches codegen, so the emitter's `covered_args` miscompile path is now
+unreachable for this shape rather than merely corrected — the stronger
+`[backend-never-wrong]` outcome. [GB-fix-1b], check.rs
+`covered_pairs`/`check_elem_handle_pairs`. Verified by compiling the exact
+repro (refused, no `.rs` emitted) and by two regression tests in
+`elem_distinct_tests.rs` (`a_covered_pair_from_two_containers_is_refused`,
+`a_covered_pair_from_one_container_is_accepted`); the self-strike and
+anchored cases still analyze clean.
+
+**Step 2 (finding 1a, the coverage gap).** A mutable handle chained
+through a map `get` (`get(get(m, k)!, i)!`) is refused on Rust with
+`a mutable lend from something that is not a place [rs-loc]` — maps have
+no locator twin the way List/Deque do. Kotlin accepts it (native
+aliasing), so this is the one recorded backend-parity asymmetry, a
+*coverage* gap not a soundness bug, and it stays refused until Step 6
+gives maps a path into the `Reg` model. Pinned as a confirmed-refusal
+guard: `a_mutable_handle_chained_through_a_map_get_is_refused` in
+`crates/salvo-backend-rust/tests/codegen_tests.rs`, so a future change
+that silently starts accepting (or miscompiling) it fails loudly.
+
+Gotcha found while landing this: the first cut of the Step 1 block stored
+`root_name.as_str()` in a map that outlived the per-argument `links`
+local (E0597); the fix is to own the name (`String`, `root_name.clone()`).
+The `FateLink` field names the fix relies on — `root_id`, `root_name`,
+`borrowed`, `held` — all exist as documented; the handoff's worry that
+they might not was unfounded.
+
 ### 2026-10-06 — The IR dump writes basic operators inline (user request)
 
 `salvo ir` prints an `Op` as the source spells it: `(read i < 4)`,

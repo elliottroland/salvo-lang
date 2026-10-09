@@ -3111,6 +3111,16 @@ Conventions:
     clause moves the *check* to the declaration; nothing is designated in
     the mechanism itself (`Yield<T>`/`Linear` designation is roadmap
     R2/R4).
+  * **`by` is rejected on an `intrinsic type`** [obligation-by]: `by X`
+    stamps a generated body over a struct's fields or a union's arms, and
+    an intrinsic type has neither — its implementation is always a
+    hand-written `intrinsic fn` [intrinsic-std-only]. So an intrinsic
+    type's obligation is always the bare, checked-promise form (`intrinsic
+    type Int : Ordered<self>, Hashed<self>, ToStr<self>` in
+    `std/core/basic.sv`), satisfied by the hand-written `cmp`/`hash`/
+    `to_str` already in scope; writing `by auto` there is an error naming
+    the reason (there is no body to stamp) rather than silently stamping
+    nothing and failing later with a misleading missing-member message.
 * [group-self] The declaring type is written **`self`, as a type argument at
   the obligation** — `struct Countdown : Step<self, Int>` — and not as a magic
   `Self` inside the group (user decision 2026-09-08). The group's members

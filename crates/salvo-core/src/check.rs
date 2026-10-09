@@ -3489,7 +3489,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                     // [group-obligation] [obligation-by] A `type` declaration's
                     // clause, checked as a struct's is.
-                    self.check_obligation_list(&t.name, &t.generics, &t.obligations, t.obligations.len());
+                    self.check_obligation_list(&t.name, &t.generics, &t.obligations, t.obligations.len(), t.intrinsic);
                     self.in_comptime_decl = false;
                     self.generics = saved;
                 }
@@ -3546,7 +3546,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 );
             }
         }
-        self.check_obligation_list(&s.name, &s.generics, &s.obligations, s.obligations.len());
+        self.check_obligation_list(&s.name, &s.generics, &s.obligations, s.obligations.len(), false);
     }
 
     /// [group-obligation] The obligation clause of any type declaration — a
@@ -3559,10 +3559,37 @@ impl<'p, 'r> Checker<'p, 'r> {
         generics: &'p [ast::Ident],
         obligations: &'p [ast::Obligation],
         _count: usize,
+        intrinsic: bool,
     ) {
         let scope = self.scope;
         for (i, entry) in obligations.iter().enumerate() {
             let ob = &entry.group;
+            // [obligation-by] `by` stamps a generated body over a type's
+            // fields or a union's arms; an `intrinsic type` has neither —
+            // its implementation is always a hand-written `intrinsic fn` —
+            // so there is nothing to stamp. Reject it here with the real
+            // reason, rather than letting the comptime pass silently skip
+            // the clause and the member search then fail with a misleading
+            // "no visible `{member}` matches". The bare obligation (no
+            // `by`) is still checked below: it is a promise that the
+            // hand-written `intrinsic fn`s exist, exactly like a struct's
+            // bare `: Ordered<self>`.
+            if intrinsic {
+                if let Some(by) = &entry.by {
+                    self.error(
+                        ob.span,
+                        format!(
+                            "`by {}` has no body to stamp on an `intrinsic type`: its \
+                             implementation is a hand-written `intrinsic fn`, so declare \
+                             `{}` without `by` and write the `intrinsic fn`(s) it names \
+                             [obligation-by]",
+                            by.text(),
+                            ob.name.name,
+                        ),
+                    );
+                    continue;
+                }
+            }
             // [obligation-by] `by` stamps the members for the type it is
             // written on, so the argument has to be `self` [group-self]. The
             // expansion refuses this too; this is the check for a clause the
@@ -10031,12 +10058,18 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// `canbe` entries desugared to binary symmetric relations (GB-1(s)).
     /// A `canbe in` entry is *anchored*: two parameters anchored in the
     /// same container path may coincide, so the mutual relation falls out
-    /// of the shared anchor.
-    fn covered_pairs(decl: &'p FnDecl) -> HashSet<(usize, usize)> {
+    /// of the shared anchor. Returned alongside the full set: the **plain**
+    /// subset (`a canbe d`, no anchor) specifically — the anchored form's
+    /// own named path already proves two covered parameters share storage,
+    /// but the plain form makes no such claim about *which* storage, so a
+    /// call site must be checked separately (`covered_pairs_need_shared_root`
+    /// below) [GB-fix-1b].
+    fn covered_pairs(decl: &'p FnDecl) -> (HashSet<(usize, usize)>, HashSet<(usize, usize)>) {
         let mut out: HashSet<(usize, usize)> = HashSet::new();
+        let mut plain: HashSet<(usize, usize)> = HashSet::new();
         let idx = |n: &str| decl.params.iter().position(|p| p.name.name == n);
         let Some(list) = &decl.deductions else {
-            return out;
+            return (out, plain);
         };
         // Anchored subjects, by rendered path: the shared-anchor rule.
         let mut anchored: HashMap<String, Vec<usize>> = HashMap::new();
@@ -10059,6 +10092,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                 } else if let Some(other) = path.first().and_then(|i| idx(&i.name)) {
                     out.insert((subject, other));
                     out.insert((other, subject));
+                    plain.insert((subject, other));
+                    plain.insert((other, subject));
                 }
             }
         }
@@ -10072,7 +10107,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 out.insert((b, a));
             }
         }
-        out
+        (out, plain)
     }
 
     /// [elem-distinct] The two-mutable-element-handles-in-one-call rule,
@@ -10089,7 +10124,63 @@ impl<'p, 'r> Checker<'p, 'r> {
         mut_kept: &[bool],
         span: Span,
         covered: &HashSet<(usize, usize)>,
+        plain_covered: &HashSet<(usize, usize)>,
     ) {
+        // [GB-fix-1b] The plain `canbe` form (`a canbe d`, no anchor) makes
+        // no claim about *which* storage the two parameters share — unlike
+        // the anchored form (`a canbe in lib.tracks`), whose named path
+        // already proves it. So a call to a plain-covered pair is checked
+        // here, independent of the collision loop below (which only ever
+        // compares handles that already share a root): every argument at
+        // a plain-covered parameter position must resolve to a mutable
+        // handle, and every such pair's handles must share one root.
+        // Mismatched or unresolvable roots are refused, naming both
+        // arguments, rather than silently rendered against one shared
+        // anchor (the defect this closes: `f(get(xs, i)!, get(ys, j)!)`
+        // against `fn f(a: Mut T, d: Mut T) => a canbe d` used to compile
+        // and silently mutate `xs` twice, discarding `ys`).
+        let mut plain_roots: HashMap<usize, (u32, String)> = HashMap::new();
+        for (i, arg) in args.iter().enumerate() {
+            if !plain_covered.iter().any(|(a, b)| *a == i || *b == i) {
+                continue;
+            }
+            let links = match arg {
+                Expr::Ident(id) => self
+                    .lookup(&id.name)
+                    .map(|v| v.links.clone())
+                    .unwrap_or_default(),
+                other => self.links_for_value(other, other.span()),
+            };
+            if let Some(l) = links.iter().find(|l| l.borrowed && !l.held) {
+                plain_roots.insert(i, (l.root_id, l.root_name.clone()));
+            }
+        }
+        let mut reported: HashSet<(usize, usize)> = HashSet::new();
+        for (a, b) in plain_covered.iter().copied() {
+            let (lo, hi) = if a < b { (a, b) } else { (b, a) };
+            if !reported.insert((lo, hi)) {
+                continue;
+            }
+            match (plain_roots.get(&lo), plain_roots.get(&hi)) {
+                (Some((root_a, name_a)), Some((root_b, name_b))) if root_a != root_b => {
+                    self.error(
+                        span,
+                        format!(
+                            "this call's `canbe`-covered arguments do not \
+                             share a container: argument {} is a handle into \
+                             `{name_a}`, argument {} is a handle into \
+                             `{name_b}`; `canbe` only lets two handles into \
+                             the *same* container alias — pass two handles \
+                             into one container, or declare the anchored \
+                             form (`canbe in ...`) naming it",
+                            lo + 1,
+                            hi + 1
+                        ),
+                    );
+                }
+                _ => {}
+            }
+        }
         let mut handles: Vec<(u32, Option<u32>, Option<Vec<Step>>, usize)> = Vec::new();
         let mut proven_pairs: Option<HashSet<(u32, u32)>> = None;
         for (i, arg) in args.iter().enumerate() {
@@ -11042,8 +11133,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             .collect();
         // [canbe-entry] A call through a fn value or an effect member has
         // no `canbe` surface yet (the entries live on declarations), so
-        // nothing is covered here.
-        self.check_elem_handle_pairs(args, &mut_kept, span, &HashSet::new());
+        // nothing is covered here — neither the full set nor the plain
+        // subset [GB-fix-1b].
+        self.check_elem_handle_pairs(args, &mut_kept, span, &HashSet::new(), &HashSet::new());
         let mut consumed_here: Vec<String> = Vec::new();
         for (i, arg) in args.iter().enumerate() {
             if let Some(name) = consumed_here
@@ -28469,7 +28561,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                         })
                 })
                 .collect();
-            self.check_elem_handle_pairs(args, &mut_kept, span, &Self::covered_pairs(decl));
+            // [GB-fix-1b] `covered_pairs` now answers (all pairs, plain
+            // subset): the full set authorizes aliasing in the collision
+            // loop, the plain subset is cross-checked for shared storage.
+            let (covered, plain_covered) = Self::covered_pairs(decl);
+            self.check_elem_handle_pairs(args, &mut_kept, span, &covered, &plain_covered);
         }
         if let Some(contract) = contract {
             let fixed_count = decl

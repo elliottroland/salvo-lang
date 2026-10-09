@@ -1121,7 +1121,63 @@ with the observation that `proj` is the degenerate group (a read-only member of 
 singleton group under maximal invalidation sensitivity), so the two are points on
 one dial rather than two features.
 
-### 15 — Regions (designed 2026-09-10, unbuilt)
+### 15 — Regions / group borrowing (committed design in GROUP_BORROWING.md, unbuilt; supersedes the 2026-09-10 Regions design below)
+
+**Superseded (user decision, this session): the freeze/escape design below
+is replaced, not extended, by GROUP_BORROWING.md's Part 7.** That document
+also records two verified `canbe`/virtual-place defects that motivated the
+redesign (Part 1), the researched alternatives considered including Nick
+Smith's group-borrowing proposal (Part 2), a purpose-built group container
+and its own rejected `Rc`-based variant (Parts 3–5), an accepted
+swap-placeholder refinement (Part 6), the committed design (Part 7), and a
+step-by-step implementation plan (Part 8). Read it before touching this
+item; it is the current source of truth, not this summary.
+
+**Progress (2026-10-08): Part 8 Steps 0, 1 and 2 are done.** Step 1 (the
+plain-`canbe` two-container soundness fix, finding 1b), Step 2 (the
+map-chain confirmed-refusal guard, finding 1a), and Step 0 (`: Params<self>`
+obligations on `intrinsic type` declared and checked, with `by` refused
+there; applied to the scalars in `std/core/basic.sv`). All three are
+recorded in COMPLETED.md's decision log; see `[GB-fix-1b]` and
+`[obligation-by]` in `check.rs`. The next unstarted step is **Step 3**
+(`params Placeholder<T>` in std, built on Step 0), then Steps 4–7 build the
+committed design. Follow-up noted while landing Step 0: `Str` still carries
+only `: Iter<self, Char>`; folding its `cmp`/`eq`/`hash`/`to_str` into a
+clause (it has all four) is deferred. Steps 1–2 narrowed nothing else: the
+same-container, self-strike and anchored (`canbe in`) cases are unchanged.
+
+The committed design in one paragraph: `region { }` is a compiler-intrinsic
+delimiter like `try { }` (innermost-wins, no registering into an outer
+region); `Region` is an ordinary two-member effect (`reg`/`unreg`); `Reg` is
+an ordinary provenance qualifier composing transparently with `Mut` (`Reg
+Mut Entity` is field-accessed exactly like `Mut Entity`, no accessor call,
+`Reg T <: T` via the general qualifier-erasure rule, no freeze step); two
+`Reg`-tagged handles into the same running region are provably safe to
+alias with **no `canbe` clause needed** on the callee, closing the `canbe`
+soundness bug by construction rather than by validation; swapping a value
+into the region reuses `core.list`'s existing `[col-replace]`
+(`mem::replace`-shaped) primitive via a new `Placeholder<T>` `params`
+bundle, so `remove_at`'s own meaning never changes; invalidation is
+minimized by reusing the dependent-qualifier growth-preservation rule
+(`Idx` surviving `add`/`swap`/`replace`) rather than inventing a new one. No
+freeze, no duplicable-handle-only-after-dropping-`Mut` step — that part of
+the original design predates group borrowing's proof that free *mutable*
+aliasing can be sound without freezing first.
+
+What this retires from the design below: the freeze spelling question,
+`Rc<T>`-staged Rust v1 ([rs-region-rc] — rejected outright in
+GROUP_BORROWING.md Part 5, not just deferred: a plain container's inline
+elements cannot even be wrapped in an `Rc<RefCell<>>` in place, verified
+with `rustc`, independent of the panic-risk finding also recorded there),
+and "regional by birth" defaults (membership is now `reg_from`'s explicit
+swap, not ambient). What survives from the original design, reused rather
+than rebuilt: the `reg`/`unreg` vocabulary, `Reg` as a provenance qualifier,
+and a real arena as the eventual Rust representation ([rs-region-arena]'s
+"hand-rolled in emitted `core/`" strategy is the direct model for
+GROUP_BORROWING.md Part 8 Step 7's group/slot storage).
+
+<details>
+<summary>Original 2026-09-10 design (superseded, kept for the record)</summary>
 
 Fully designed and recorded: `effect Region` with an intrinsic handler, `Reg` as
 an intrinsic provenance qualifier, regional-by-birth defaults, `reg`/`unreg`, the
@@ -1136,6 +1192,8 @@ Still open when it is picked up: the exact freeze spelling (`^Mut` as an
 expression, freeze-by-position, or both); cross-region operations (out of v1);
 `unreg` of a deeply regional structure copying deeply; and folding D7's
 `Local`/`Escaping` watch-list entry into the design.
+
+</details>
 
 ### 16 — Composing iterators: stages over a generic source (after the redesign)
 

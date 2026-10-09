@@ -1607,3 +1607,99 @@ struct P : Tagged<self> by tag {
     let fn_form = errors_in(&[files[0], ("main.sv", &files[1].1.replace("by tag {", "by tag@main {"))]);
     assert!(fn_form.is_empty(), "unexpected errors: {fn_form:?}");
 }
+
+// ===== [obligation-by] obligations on an `intrinsic type` (GB Step 0) =====
+
+/// Like `errors_in`, but the test source is loaded as a **std** file, so it
+/// may write `intrinsic` — the context an obligation on `Int`/`Str`/etc.
+/// actually lives in (`std/core/basic.sv`).
+fn errors_in_std_file(src: &str) -> Vec<String> {
+    let mut sources = SourceSet::default();
+    sources.add(
+        "std/core/compare.sv",
+        SourceSet::classify(Path::new("core/compare.sv")).unwrap(),
+        STD_PRELUDE.to_string(),
+        true,
+    );
+    sources.add(
+        "std/core/auto.sv",
+        SourceSet::classify(Path::new("core/auto.sv")).unwrap(),
+        AUTO_PRELUDE.to_string(),
+        true,
+    );
+    sources.add(
+        "std/core/widget.sv",
+        SourceSet::classify(Path::new("core/widget.sv")).unwrap(),
+        src.to_string(),
+        true,
+    );
+    let mut modules = Vec::with_capacity(sources.files.len());
+    for file in &sources.files {
+        let (ast, diagnostics) = salvo_syntax::parse_module(&file.content);
+        let parse_errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+        assert!(
+            parse_errors.is_empty(),
+            "unexpected parse errors: {parse_errors:?}"
+        );
+        modules.push(ast);
+    }
+    let expansion = salvo_core::expand(&sources.files, &mut modules);
+    let program = Program {
+        files: sources.files,
+        modules,
+        companions: Vec::new(),
+    };
+    let symbols = Symbols::collect(&program);
+    let resolution = resolve(&program);
+    let checked = check_program(&program, &resolution, &symbols);
+    expansion
+        .diagnostics
+        .iter()
+        .chain(resolution.errors.iter())
+        .chain(checked.errors.iter())
+        .filter(|d| d.is_error())
+        .map(|d| d.message.clone())
+        .collect()
+}
+
+/// [obligation-by] An `intrinsic type` may carry a **bare** obligation — a
+/// checked promise that the hand-written `intrinsic fn`s exist — exactly as
+/// a user struct's `: Ordered<self>` without `by auto`. `Int` already has
+/// `cmp`/`eq`/`hash` in the prelude, so the claim is satisfied, clean.
+#[test]
+fn an_intrinsic_type_may_carry_a_bare_obligation() {
+    let errs = errors_in_std_file(
+        "export intrinsic type Widget : Ordered<self>, Eq<self>, Hashed<self>\n\
+         export intrinsic fn cmp(a: Widget, b: Widget) [] -> Int => a, b\n\
+         export intrinsic fn eq(a: Widget, b: Widget) [] -> Bool => a, b\n\
+         export intrinsic fn hash(value: Widget) [] -> Long => value\n",
+    );
+    assert!(errs.is_empty(), "expected no errors, got {errs:?}");
+}
+
+/// [obligation-by] …but `by auto` on an `intrinsic type` is rejected: there
+/// is no body to stamp (the implementation is a hand-written `intrinsic
+/// fn`), so the clause names the real reason rather than failing later with
+/// a misleading "no visible `cmp` matches" (GB Step 0).
+#[test]
+fn by_auto_on_an_intrinsic_type_is_rejected() {
+    let errs = errors_in_std_file("export intrinsic type Widget : Ordered<self> by auto\n");
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("no body to stamp on an `intrinsic type`")),
+        "expected the by-auto rejection, got {errs:?}"
+    );
+}
+
+/// [obligation-by] A bare obligation whose `intrinsic fn` is missing still
+/// errors at the declaration, naming the signature — the guard narrows
+/// nothing about the existing checked-promise path.
+#[test]
+fn an_intrinsic_type_with_a_missing_member_still_errors() {
+    let errs = errors_in_std_file("export intrinsic type Widget : Ordered<self>\n");
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("`Widget` declares `: Ordered`") && e.contains("fn cmp")),
+        "expected the missing-member error, got {errs:?}"
+    );
+}
