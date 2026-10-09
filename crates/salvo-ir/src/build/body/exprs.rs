@@ -1772,7 +1772,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         if driver.is_none() && self.ctx.checked.binding_modes.contains(&self.key(iterable.span())) {
             self.consume_if_owned(&mut subject);
             if matches!(subject.kind, ExprKind::Read { consume: true, .. }) {
-                elem_ty = elem_ty.remove_quals(&std::iter::once("proj".to_string()).collect());
+                elem_ty = elem_ty.remove_quals(&salvo_core::types::proj_names());
             }
         }
         self.push_scope();

@@ -7,7 +7,7 @@ use std::collections::{HashMap, HashSet};
 use salvo_core::check::{Checked, Coercion};
 use salvo_core::program::{Program as CoreProgram, Symbols};
 use salvo_core::resolve::Resolution;
-use salvo_core::types::{Qual, Ty};
+use salvo_core::types::{is_proj_name, Qual, Ty};
 use salvo_core::FnKey;
 use salvo_syntax::ast::{self, Expr as AExpr, Item};
 use salvo_syntax::Span;
@@ -212,13 +212,14 @@ pub fn erase(ty: &Ty) -> Ty {
             }
             let base = erase(base);
             // [ir-types] Two qualifiers survive: `Mut`, which a backend may
-            // represent differently, and `proj` [proj-type], which a backend
-            // with ownership renders as a borrow (its source list kept).
+            // represent differently, and the projection flavour [proj-type]
+            // [ref-handle] — `proj` or `ref` — which a backend with
+            // ownership renders as a borrow (its source list kept).
             let mut kept = Vec::new();
             if quals.iter().any(|q| q.name == "Mut") {
                 kept.push(Qual::plain("Mut", Vec::new()));
             }
-            if let Some(p) = quals.iter().find(|q| q.name == "proj") {
+            if let Some(p) = quals.iter().find(|q| is_proj_name(&q.name)) {
                 kept.push(p.clone());
             }
             base.qualify(kept)

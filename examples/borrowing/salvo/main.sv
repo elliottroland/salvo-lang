@@ -87,7 +87,7 @@ fn wounded(squad: List<Mut Fighter>) -> (proj(squad) Mut Fighter)? {
     return None
 }
 
-// A *generic* lender. `params Locate<C, L, T>` is std's bundle for
+// A *generic* lender. `params Ref<C, L, T>` is std's bundle for
 // position-based code — one function turning a container and a position into
 // the element's handle — so this function is generic over what a position even
 // is, while the caller, which knows the shape, fills `at` in.
@@ -96,7 +96,7 @@ fn wounded(squad: List<Mut Fighter>) -> (proj(squad) Mut Fighter)? {
 // (`&mut dyn FnMut(&Vec<Fighter>, &L) -> Option<usize>`): position data
 // crosses the boundary and the handle is materialized on the other side, so
 // nothing borrows across the call.
-fn rally_at<L>(squad: List<Mut Fighter>, l: L, ?Locate<List<Mut Fighter>, L, Fighter>) -> None {
+fn rally_at<L>(squad: List<Mut Fighter>, l: L, ?Ref<List<Mut Fighter>, L, Fighter>) -> None {
     heal(at(squad, l)!)
     return None
 }
@@ -239,7 +239,7 @@ fn main() [use] {
     heal(wounded(squad)!)
 
     // The same, through a caller-supplied accessor: `at` comes from the
-    // `Locate` bundle, and `1` is what a position happens to be for a list.
+    // `Ref` bundle, and `1` is what a position happens to be for a list.
     rally_at(squad, 1)
     println("2. after the searches: ${get(squad, 0)!.hp} ${get(squad, 1)!.hp}")
 

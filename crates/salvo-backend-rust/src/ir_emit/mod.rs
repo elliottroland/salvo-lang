@@ -419,11 +419,11 @@ impl<'p> Shared<'p> {
         name.to_string()
     }
 
-    /// Whether a value of this type holds a borrow (`proj` anywhere but
-    /// under a fn type, or a borrowing struct).
+    /// Whether a value of this type holds a borrow (`proj`/`ref` anywhere
+    /// but under a fn type, or a borrowing struct).
     pub fn holds_proj(&self, t: &Ty) -> bool {
         match t {
-            Ty::Qualified { quals, base } => (quals.iter().any(|q| q.name == "proj") && !is_copy_ty(base)) || self.holds_proj(base),
+            Ty::Qualified { quals, base } => (quals.iter().any(|q| salvo_core::types::is_proj_name(&q.name)) && !is_copy_ty(base)) || self.holds_proj(base),
             Ty::Named { name, args } => self.borrowing.contains(name) || args.iter().any(|a| self.holds_proj(a)),
             Ty::Union(arms) | Ty::Tuple(arms) => arms.iter().any(|a| self.holds_proj(a)),
             Ty::Array(e) => self.holds_proj(e),
@@ -536,7 +536,7 @@ impl<'p> Shared<'p> {
         match self.unalias(t).strip_quals() {
             Ty::Fn { ret, .. } => {
                 let v = ret.strip_quals().without_none();
-                (is_proj(ret) && is_mut(ret)) || (is_proj(&v) && is_mut(&v))
+                (is_ref(ret) && is_mut(ret)) || (is_ref(&v) && is_mut(&v))
             }
             _ => false,
         }
@@ -546,7 +546,7 @@ impl<'p> Shared<'p> {
     /// projection: the callee and the index of the parameter it lends from.
     pub fn mut_lend(&self, e: &salvo_ir::Expr) -> Option<(DeclId, usize)> {
         let salvo_ir::ExprKind::Call { target: salvo_ir::FnRef::Decl(id), .. } = &e.kind else { return None };
-        let lends_mut = |t: &Ty| is_proj(t) && is_mut(t);
+        let lends_mut = |t: &Ty| is_ref(t) && is_mut(t);
         let value = |t: &Ty| -> Ty { t.strip_quals().without_none() };
         if !lends_mut(&e.ty) && !lends_mut(&value(&e.ty)) {
             return None;
@@ -624,7 +624,7 @@ impl<'p> Shared<'p> {
             return false;
         }
         let v = m.ret.strip_quals().without_none();
-        ((is_proj(&m.ret) && is_mut(&m.ret)) || (is_proj(&v) && is_mut(&v))) && self.member_lend_param(m).is_some()
+        ((is_ref(&m.ret) && is_mut(&m.ret)) || (is_ref(&v) && is_mut(&v))) && self.member_lend_param(m).is_some()
     }
 
     /// The parameter (an index into the member's own) a lending member's
@@ -661,7 +661,7 @@ impl<'p> Shared<'p> {
             for d in &m.decls {
                 if let Decl::Fn(f) = d {
                     let v = f.ret.strip_quals().without_none();
-                    if f.body.is_some() && ((is_proj(&f.ret) && is_mut(&f.ret)) || (is_proj(&v) && is_mut(&v))) {
+                    if f.body.is_some() && ((is_ref(&f.ret) && is_mut(&f.ret)) || (is_ref(&v) && is_mut(&v))) {
                         work.push(f.id.clone());
                     }
                 }
@@ -805,15 +805,15 @@ pub(crate) fn mentions_var(t: &Ty, v: &str) -> bool {
     }
 }
 
-/// [rs-proj-generic] `proj T` over a type variable, as a container's
-/// element, is `T`: the instantiation carries the borrow.
+/// [rs-proj-generic] `proj T`/`ref T` over a type variable, as a
+/// container's element, is `T`: the instantiation carries the borrow.
 pub(crate) fn strip_nested_var_proj_in(t: &Ty, nested: bool, generics: &HashSet<String>) -> Ty {
     let strip_nested_var_proj = |t: &Ty, n: bool| strip_nested_var_proj_in(t, n, generics);
     match t {
         Ty::Qualified { quals, base } => {
             let b = strip_nested_var_proj(base, nested);
             let var = matches!(&b, Ty::Var(_)) || matches!(&b, Ty::Named { name, args } if args.is_empty() && generics.contains(name));
-            let q: Vec<salvo_core::types::Qual> = quals.iter().filter(|q| !(nested && var && q.name == "proj")).cloned().collect();
+            let q: Vec<salvo_core::types::Qual> = quals.iter().filter(|q| !(nested && var && salvo_core::types::is_proj_name(&q.name))).cloned().collect();
             b.qualify(q)
         }
         Ty::Named { name, args } => Ty::Named { name: name.clone(), args: args.iter().map(|a| strip_nested_var_proj(a, true)).collect() },
@@ -824,7 +824,7 @@ pub(crate) fn strip_nested_var_proj_in(t: &Ty, nested: bool, generics: &HashSet<
     }
 }
 
-/// `t` with `proj` dropped over the variables in `vars`.
+/// `t` with `proj`/`ref` dropped over the variables in `vars`.
 pub(crate) fn strip_plain_proj(t: &Ty, vars: &HashSet<String>) -> Ty {
     match t {
         Ty::Qualified { quals, base } => {
@@ -834,7 +834,7 @@ pub(crate) fn strip_plain_proj(t: &Ty, vars: &HashSet<String>) -> Ty {
                 Ty::Named { name, args } => args.is_empty() && vars.contains(name),
                 _ => false,
             };
-            let q: Vec<salvo_core::types::Qual> = quals.iter().filter(|q| !(plain && q.name == "proj")).cloned().collect();
+            let q: Vec<salvo_core::types::Qual> = quals.iter().filter(|q| !(plain && salvo_core::types::is_proj_name(&q.name))).cloned().collect();
             b.qualify(q)
         }
         Ty::Named { name, args } => Ty::Named { name: name.clone(), args: args.iter().map(|a| strip_plain_proj(a, vars)).collect() },
@@ -860,8 +860,20 @@ pub(crate) fn is_copy_ty(t: &Ty) -> bool {
     }
 }
 
+/// Whether `t` carries a projection qualifier at its top level — either
+/// flavour, `proj` or `ref` [proj-type] [ref-handle]. Most call sites ask
+/// only "is this a borrow of a source?", for which both answer yes; the
+/// handle-specific sites use [`is_ref`] instead.
 pub(crate) fn is_proj(t: &Ty) -> bool {
-    t.quals().iter().any(|q| q.name == "proj") && !is_copy_ty(t)
+    t.quals().iter().any(|q| salvo_core::types::is_proj_name(&q.name)) && !is_copy_ty(t)
+}
+
+/// Whether `t` is a **`ref` handle** at its top level — the container-named
+/// projection that may be a mutable element handle when it also carries
+/// `Mut` [ref-handle]. A plain `proj` is a read-only view's borrow and
+/// never a handle; only `ref` is.
+pub(crate) fn is_ref(t: &Ty) -> bool {
+    t.quals().iter().any(|q| q.name == "ref") && !is_copy_ty(t)
 }
 
 pub(crate) fn is_mut(t: &Ty) -> bool {

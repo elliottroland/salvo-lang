@@ -42,11 +42,11 @@ pub(crate) fn fn_ty_param_mode(t: &Ty, i: usize) -> PassMode {
     }
 }
 
-/// The names a `proj(...)` qualifier says a type borrows from.
+/// The names a `proj(...)`/`ref(...)` qualifier says a type borrows from.
 pub(crate) fn proj_sources(t: &Ty, out: &mut Vec<String>) {
     match t {
         Ty::Qualified { quals, base } => {
-            for q in quals.iter().filter(|q| q.name == "proj") {
+            for q in quals.iter().filter(|q| salvo_core::types::is_proj_name(&q.name)) {
                 for a in &q.args {
                     if let Ty::ValueRef { path, .. } = a {
                         out.push(path.split('.').next().unwrap_or(path).to_string());
@@ -128,10 +128,28 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 if a.is_empty() { base } else { format!("{base}<{}>", a.join(", ")) }
             }
             Ty::Qualified { quals, base } => {
+                // [proj-type] A plain read-only `proj` renders as a borrow
+                // of its base, `Mut` riding along as part of the element
+                // type (never `&mut`): `proj Mut T` is `&T`, not a handle.
                 if quals.iter().any(|q| q.name == "proj") && !is_copy_ty(base) {
                     let lt = self.f.lt.clone().map(|l| format!("{l} ")).unwrap_or_default();
+                    let saved = self.f.lt.take();
+                    let inner = self.ty(base);
+                    self.f.lt = saved;
+                    return format!("&{lt}{inner}");
+                }
+                // [ref-handle] A `ref` handle's *bound* use is a `usize`
+                // position, re-materialized at every use [rs-elem-mut] —
+                // never spelled here. This fallback only fires where no
+                // mint site applies (e.g. a bare type annotation this
+                // emitter has not routed through the locator path yet);
+                // until the real-borrow machinery for generic/custom
+                // containers lands (v2), it is rendered as the reference
+                // its permission implies, so the type is at least not
+                // silently wrong.
+                if quals.iter().any(|q| q.name == "ref") && !is_copy_ty(base) {
+                    let lt = self.f.lt.clone().map(|l| format!("{l} ")).unwrap_or_default();
                     let m = if quals.iter().any(|q| q.name == "Mut") { "mut " } else { "" };
-                    // The inner type's own borrows are elided.
                     let saved = self.f.lt.take();
                     let inner = self.ty(base);
                     self.f.lt = saved;

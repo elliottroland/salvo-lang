@@ -950,6 +950,20 @@ not do. So the whole `region`/`Reg`/effect apparatus is unnecessary.
   element-handle-into-a-named-container case. So the split is `proj`
   (read-only borrow of a view) vs. `ref(c)` (handle into container `c`,
   mutable when it carries `Mut`).
+- **`get` reads, `at` handles (user, 2026-10-08).** `get(list, i)` always
+  returns `proj(list) T` — a *read-only* projection — **including when `T`
+  is `Mut X`**: `get` on a `List<Mut X>` is `proj(list) Mut X`, which is
+  immutable *from `get`'s perspective* (a plain `proj` carrying `Mut` is no
+  longer a handle and does not satisfy a `Mut` position; the `Mut` just
+  rides along as part of the element type). `at(list, i)` always returns
+  `ref(list) T` — the container-named handle — so `at` on a `List<Mut T>`
+  is `ref(list) Mut T`, the mutable handle. There is **no mutable `get`
+  overload** and no per-container overload explosion: `get` keeps its one
+  read-only signature, `at` (the `Locate`/`Ref` member) is the sole mint
+  for handles, and the user picks `get` for a reading or `at` to mutate.
+  Consequence: every mutating mint in examples/docs moves from
+  `get(squad, i)!` to `at(squad, i)!` — making "I am taking a mutable
+  handle" visible at the call site, which is the point.
 - **`canbe` is retired**, replaced by `ref(c)` signatures. The anchored
   `canbe in squad.members` form is subsumed — and is in fact the *natural*
   case: the container is a parameter the callee holds, so it is named

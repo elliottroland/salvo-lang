@@ -112,15 +112,19 @@ export platform fn replace<T canbe linear>(list: Mut List<T>, index: Idx(list) I
 //
 // A locator is what the Rust backend renders this as [rs-loc]: position data
 // crossing the closure boundary, materialized at the use site — which is why
-// a generic algorithm may hand out mutable handles at all.
-export params Locate<C, L, T> {
-    fn at(c: C, l: L) -> proj(c) Mut T?
+// a generic algorithm may hand out mutable handles at all. [ref-handle] `at`
+// mints a `ref` handle into its container; `get` (read-only `proj`) reads.
+export params Ref<C, L, T> {
+    fn at(c: C, l: L) -> ref(c) Mut T?
 }
 
-// [col-locate] The canonical `at` for a list, which is `get` under the
-// group's name — the way `cmp`/`eq` have canonical implementations for the
-// intrinsic types [cmp-groups]. A position for a list is its index.
-export fn at<T canbe linear>(list: List<Mut T>, index: Int) [] -> proj(list) Mut T?
+// [col-locate] [ref-handle] The canonical `at` for a list: the mint of a
+// mutable element handle, `ref(list) Mut T` — the way `cmp`/`eq` have
+// canonical implementations for the intrinsic types [cmp-groups]. A position
+// for a list is its index. `get` is the read-only sibling (`proj`); `at` is
+// the handle. (The `ref` mint from a list index is rendered by the backend's
+// locator machinery [rs-elem-mut]/[rs-loc]; v2 wires `at`'s body to it.)
+export fn at<T canbe linear>(list: List<Mut T>, index: Int) [] -> ref(list) Mut T?
 => list, index {
     return get(list, index)
 }

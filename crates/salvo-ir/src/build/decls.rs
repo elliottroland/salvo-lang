@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use salvo_core::param_mode::{Modes, PassMode};
 use salvo_core::source::SourceFile;
-use salvo_core::types::Ty;
+use salvo_core::types::{is_proj_name, Ty};
 use salvo_core::FnKey;
 use salvo_syntax::ast::{self, Item};
 
@@ -556,10 +556,10 @@ fn fn_decl(
 
 pub(crate) fn _unused(_: &HashMap<String, Ty>) {}
 
-/// The names every `proj(…)` in a written type borrows from.
+/// The names every `proj(…)`/`ref(…)` in a written type borrows from.
 fn proj_from(t: &ast::Type, out: &mut Vec<String>) {
     fn in_ref(r: &ast::TypeRef, out: &mut Vec<String>) {
-        if r.name.name == "proj" {
+        if is_proj_name(&r.name.name) {
             out.extend(r.from.iter().map(|i| i.name.clone()));
         }
         for a in &r.args {
