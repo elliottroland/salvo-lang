@@ -1551,14 +1551,15 @@ fn check_intrinsic_is_std_only(program: &Program, out: &mut Checked) {
     }
 }
 
-/// [platform-check] Whether a written type borrows (`proj`) anywhere.
+/// [platform-check] Whether a written type borrows (`proj` or `ref`)
+/// anywhere.
 fn ast_mentions_proj(ty: &ast::Type) -> bool {
     match ty {
         ast::Type::Named { qualifiers, base } => {
-            qualifiers.iter().any(|q| q.name.name == "proj") || base.args.iter().any(ast_mentions_proj)
+            qualifiers.iter().any(|q| crate::types::is_proj_name(&q.name.name)) || base.args.iter().any(ast_mentions_proj)
         }
         ast::Type::QualifiedGroup { qualifiers, base, .. } => {
-            qualifiers.iter().any(|q| q.name.name == "proj") || ast_mentions_proj(base)
+            qualifiers.iter().any(|q| crate::types::is_proj_name(&q.name.name)) || ast_mentions_proj(base)
         }
         ast::Type::Union { arms, .. } | ast::Type::Tuple { elems: arms, .. } => arms.iter().any(ast_mentions_proj),
         ast::Type::Array { elem, .. } | ast::Type::Nullable { inner: elem, .. } => ast_mentions_proj(elem),
@@ -6837,11 +6838,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                 && arg.is_proj()
                 && is_subtype(&arg.strip_top_proj(), param)
                 // [proj-mut] A `Mut` position needs mutation permission,
-                // which a projection has exactly when it carries `Mut` — a
-                // mutable element handle (`get` over `List<Mut T>`). A
-                // read-only projection still never fits (P-3's lift, user
-                // decisions 2026-09-24; the narrowing of [proj-readonly]).
-                && (!Self::carries_mut(param) || Self::carries_mut(arg)))
+                // which a projection has exactly when it is a `ref(c)`
+                // handle that carries `Mut` — a mutable element handle
+                // (`get` over `List<Mut T>`, which now returns `ref(list)
+                // Mut T`). A plain `proj` carrying `Mut` is not a handle
+                // and never fits a `Mut` position; a read-only projection
+                // (of either flavour) still fits a kept non-`Mut` position
+                // (P-3's lift, user decisions 2026-09-24; the narrowing of
+                // [proj-readonly]; [ref-handle] for the `ref`-only split).
+                && (!Self::carries_mut(param) || (arg.is_ref() && Self::carries_mut(arg))))
     }
 
     /// [effect-available] Where a name's **one overload set** sends a call
@@ -10190,7 +10195,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             let mutable_handle = self
                 .out
                 .ty_of(self.file_idx, arg.span())
-                .is_some_and(|t| t.is_proj() && Self::carries_mut(t));
+                .is_some_and(|t| t.is_ref() && Self::carries_mut(t));
             if !mutable_handle {
                 continue;
             }
@@ -15785,19 +15790,21 @@ impl<'p, 'r> Checker<'p, 'r> {
                 );
                 return;
             }
-            // [proj-mut] A projection carrying `Mut` is a **mutable element
-            // handle** (P-3's lift of [proj-readonly], user decisions
-            // 2026-09-24): mutating through it is legal, and it is a
-            // mutation event on the handle's *roots* at the linked paths —
-            // sibling derivations fall [fate-poison], the handle itself
-            // stays usable (its storage did not move), and a parameter root
-            // is recorded as mutated so its inferred contract takes the
+            // [proj-mut] [ref-handle] A `ref` carrying `Mut` is a **mutable
+            // element handle** (P-3's lift of [proj-readonly], user
+            // decisions 2026-09-24; narrowed to `ref` specifically,
+            // 2026-10-08 — a plain `proj` carrying `Mut` is no longer a
+            // handle): mutating through it is legal, and it is a mutation
+            // event on the handle's *roots* at the linked paths — sibling
+            // derivations fall [fate-poison], the handle itself stays
+            // usable (its storage did not move), and a parameter root is
+            // recorded as mutated so its inferred contract takes the
             // exhaustive form [deduce-syntax]. The bind event is recorded
             // for the emitter (P-9: mode is inferred per binding).
             let handle_mut = self
                 .lookup(name)
                 .map(|v| v.narrowed.clone())
-                .is_some_and(|t| t.is_proj() && Self::carries_mut(&t));
+                .is_some_and(|t| t.is_ref() && Self::carries_mut(&t));
             if handle_mut {
                 for l in links.clone() {
                     self.record_param_mutation(&l.root_name);
@@ -15957,11 +15964,11 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// [rs-loc] The innermost **derived-return call** a mutable use
     /// reaches through: `heal(front(es)!)` and `front(es)!.hp = 1` both
     /// answer `front(es)`'s span. `None` when the expression does not
-    /// bottom out in a lending call whose result carries `proj Mut`.
+    /// bottom out in a lending call whose result carries `ref(...) Mut`.
     fn mut_lend_call_span(&self, expr: &Expr) -> Option<Span> {
         let mut e = expr;
-        // The type carrying `proj Mut` is the *unwrapped* one for an
-        // optional lender (`(proj(es) Mut T)?` at the call, `proj Mut T`
+        // The type carrying `ref(...) Mut` is the *unwrapped* one for an
+        // optional lender (`(ref(es) Mut T)?` at the call, `ref(es) Mut T`
         // at the `!`), so remember the innermost unwrap.
         let mut unwrap_span: Option<Span> = None;
         loop {
@@ -15979,14 +15986,14 @@ impl<'p, 'r> Checker<'p, 'r> {
         let Expr::Call { span, .. } = e else {
             return None;
         };
-        // The evidence is the *type*: any call answering a `proj Mut`
+        // The evidence is the *type*: any call answering a `ref(...) Mut`
         // handle is a lend, whoever answers it — a named fn (the demand
         // seed), an intrinsic (①'s splice territory), or an effect member
         // (the loud v1 cut, no named decl to emit a variant of).
         let handle_ty = |sp: Span| {
             self.out
                 .ty_of(self.file_idx, sp)
-                .is_some_and(|t| t.is_proj() && Self::carries_mut(t))
+                .is_some_and(|t| t.is_ref() && Self::carries_mut(t))
         };
         let mutable_handle = handle_ty(*span) || unwrap_span.is_some_and(handle_ty);
         mutable_handle.then_some(*span)
@@ -17738,7 +17745,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// intrinsic ones (which have no declaration to find — their
     /// position-specific rules are enforced by `validate_quals`).
     fn qual_name_exists(&self, name: &str) -> bool {
-        matches!(name, "Mut" | "Linear" | "linear" | "once" | "proj")
+        matches!(name, "Mut" | "Linear" | "linear" | "once" | "proj" | "ref")
             || self.scope.is_qualifier(name)
             // [fn-effects] An effect claims what driving a producer
             // performs, and it is written where a qualifier goes. Where it
@@ -18183,14 +18190,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .iter()
                 .any(|arm| self.type_reaches(arm, target, seen, depth + 1)),
             ast::Type::QualifiedGroup { qualifiers, base, .. } => {
-                // A `proj` group is a borrow: it indirects.
-                if qualifiers.iter().any(|q| q.name.name == "proj") {
+                // A `proj`/`ref` group is a borrow: it indirects.
+                if qualifiers.iter().any(|q| crate::types::is_proj_name(&q.name.name)) {
                     return false;
                 }
                 self.type_reaches(base, target, seen, depth + 1)
             }
             ast::Type::Named { qualifiers, base } => {
-                if qualifiers.iter().any(|q| q.name.name == "proj") {
+                if qualifiers.iter().any(|q| crate::types::is_proj_name(&q.name.name)) {
                     return false;
                 }
                 self.named_reaches(base, target, seen, depth)
@@ -18277,11 +18284,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 arms.iter().any(|a| self.type_stores_inline(a, param, depth))
             }
             ast::Type::QualifiedGroup { qualifiers, base, .. } => {
-                !qualifiers.iter().any(|q| q.name.name == "proj")
+                !qualifiers.iter().any(|q| crate::types::is_proj_name(&q.name.name))
                     && self.type_stores_inline(base, param, depth)
             }
             ast::Type::Named { qualifiers, base } => {
-                if qualifiers.iter().any(|q| q.name.name == "proj") {
+                if qualifiers.iter().any(|q| crate::types::is_proj_name(&q.name.name)) {
                     return false;
                 }
                 if base.name.name == param {
@@ -19407,7 +19414,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             let mut established: Vec<Qual> = Vec::new();
             for q in reapplied {
                 let name = q.name.name.as_str();
-                if matches!(name, "Mut" | "proj" | "linear" | "once") {
+                if matches!(name, "Mut" | "proj" | "ref" | "linear" | "once") {
                     self.error(
                         q.span,
                         format!(
@@ -25094,7 +25101,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // where the value lives, not what it holds — a `proj(list)`
             // element of a `List<P?>` — narrows like the union, each side
             // keeping the qualifier: the matched arm is still a view.
-            Ty::Qualified { quals, base } if matches!(base.as_ref(), Ty::Union(_)) && quals.iter().all(|q| q.name == "proj") => {
+            Ty::Qualified { quals, base } if matches!(base.as_ref(), Ty::Union(_)) && quals.iter().all(|q| crate::types::is_proj_name(&q.name)) => {
                 let Ty::Union(arms) = base.as_ref() else { unreachable!() };
                 let (m, r): (Vec<Ty>, Vec<Ty>) = arms
                     .iter()
@@ -26217,7 +26224,7 @@ fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
             };
             pq.iter().all(|q| {
                 q.name == "once"
-                    || q.name == "proj"
+                    || crate::types::is_proj_name(&q.name)
                     || q.effect
                     || arg_quals.contains(&q.name.as_str())
             }) && arg
@@ -27074,10 +27081,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.apply_fn_value_contract(&arg_refs, &params, contract.as_deref(), span);
                     // [readonly-return] [rs-loc] A fn value whose return is a
                     // **wholesale** projection lends that argument outright
-                    // (`?at: (c: C, k: Int) -> proj(c) Mut T?`): record it
-                    // like any derived-return call, so the result links to
-                    // the argument [fate-link] and the backends know which
-                    // one it borrows. The type keeps no source names, so the
+                    // (`?at: (c: C, k: Int) -> ref(c) Mut T?`, or a plain
+                    // read-only `proj`): record it like any derived-return
+                    // call, so the result links to the argument [fate-link]
+                    // and the backends know which one it borrows. Both
+                    // projection flavours fate-link the same way, so this
+                    // asks "is this a borrow of a source" ([`Ty::is_proj`],
+                    // covers `proj` and `ref`), not the handle-specific
+                    // question. The type keeps no source names, so the
                     // sources are the kept non-Copy arguments —
                     // conservative in the same direction as the held case
                     // below.
@@ -28053,7 +28064,17 @@ impl<'p, 'r> Checker<'p, 'r> {
                             .get(i)
                             .map(|fp| fp.name.name.clone())
                             .unwrap_or_else(|| format!("argument {}", i + 1));
-                        let why = if arg_tys[i].is_proj() && Self::carries_mut(&sp) {
+                        // `fits` already failed, so an arg landing in a kept
+                        // `Mut` position here lacks what [`arg_fits_param`]
+                        // requires: either it is not a `ref(c)` handle at
+                        // all (`NotHandle` — a plain `proj`, including
+                        // `proj Mut`, is read-only [ref-handle]), or it is a
+                        // `ref` that itself does not carry `Mut`
+                        // (`Mutates`, the original "read-only projection"
+                        // case).
+                        let why = if kept && Self::carries_mut(&sp) && !arg_tys[i].is_ref() {
+                            ProjBlock::NotHandle
+                        } else if kept && Self::carries_mut(&sp) {
                             ProjBlock::Mutates
                         } else if arg_tys[i].is_proj() {
                             ProjBlock::Consumes
@@ -28132,6 +28153,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                         "{what} is a read-only projection (`{arg_shown}`), and `{callee}` \
                          mutates `{pname}` — a mutable handle needs a `Mut` element type \
                          (`List<Mut T>`) [proj-mut]. Use `copy(...)` for a value of your own"
+                    ),
+                    ProjBlock::NotHandle => format!(
+                        "{what} is a plain projection (`{arg_shown}`), and `{callee}` \
+                         mutates `{pname}`: a mutable element handle is now written \
+                         `ref(c)`, not a bare `proj` — `proj Mut` is read-only \
+                         [ref-handle]. Mint a handle (e.g. `at(...)`/`get(...)`) instead \
+                         of projecting, or pass `copy(...)` for a value of your own"
                     ),
                     ProjBlock::Consumes => format!(
                         "{what} is a projection (`{arg_shown}`), and `{callee}` consumes \
@@ -30152,11 +30180,12 @@ fn emitted_arm_ty(ret: &Ty) -> Option<(Ty, usize, usize)> {
     }
 }
 
-/// [proj-anywhere] The span of the first `proj` qualifier in a type, if any —
-/// searching arms, arguments and elements in order.
+/// [proj-anywhere] [ref-handle] The span of the first `proj`/`ref`
+/// qualifier in a type, if any — searching arms, arguments and elements in
+/// order.
 fn first_proj_span(ty: &ast::Type) -> Option<Span> {
     fn in_ref(r: &TypeRef) -> Option<Span> {
-        if r.name.name == "proj" {
+        if crate::types::is_proj_name(&r.name.name) {
             return Some(r.span);
         }
         r.args.iter().find_map(first_proj_span)
@@ -30181,14 +30210,15 @@ fn first_proj_span(ty: &ast::Type) -> Option<Span> {
     }
 }
 
-/// [proj-anywhere] Every `proj` qualifier reference in a type, in order.
-/// [proj-infer] The `proj` references that sit inside a type *argument*
-/// (`List<proj T>`, `Map<K, proj V>`): borrows the value holds, as opposed
-/// to wholesale ones on the value itself.
+/// [proj-anywhere] Every `proj`/`ref` qualifier reference in a type, in
+/// order.
+/// [proj-infer] The `proj`/`ref` references that sit inside a type
+/// *argument* (`List<proj T>`, `Map<K, proj V>`): borrows the value holds,
+/// as opposed to wholesale ones on the value itself.
 fn proj_refs_in_type_args(ty: &ast::Type) -> Vec<&TypeRef> {
     fn walk<'a>(ty: &'a ast::Type, inside_arg: bool, out: &mut Vec<&'a TypeRef>) {
         fn in_ref<'a>(r: &'a TypeRef, inside_arg: bool, out: &mut Vec<&'a TypeRef>) {
-            if r.name.name == "proj" && inside_arg {
+            if crate::types::is_proj_name(&r.name.name) && inside_arg {
                 out.push(r);
             }
             for a in &r.args {
@@ -30234,18 +30264,22 @@ enum ProjBlock {
     Mutates,
     /// A top-level projection into a consumed position.
     Consumes,
+    /// A plain `proj` (not a `ref(c)` handle) into a kept `Mut` position:
+    /// read-only, so it fits the kept half but not the mutation permission
+    /// [ref-handle].
+    NotHandle,
     /// A projection nested inside the type (a union arm, a type argument)
     /// where the position's type has none there.
     Nested,
 }
 
-/// [proj-type] The type with every `proj` removed, at every depth — the
-/// "same type on the JVM" reading, for diagnostics.
+/// [proj-type] The type with every `proj`/`ref` removed, at every depth —
+/// the "same type on the JVM" reading, for diagnostics.
 fn strip_all_proj(ty: &Ty) -> Ty {
     match ty {
         Ty::Qualified { quals, base } => {
             let inner = strip_all_proj(base);
-            let kept: Vec<Qual> = quals.iter().filter(|q| q.name != "proj").cloned().collect();
+            let kept: Vec<Qual> = quals.iter().filter(|q| !crate::types::is_proj_name(&q.name)).cloned().collect();
             if kept.is_empty() {
                 inner
             } else {
@@ -30285,7 +30319,7 @@ fn top_level_proj_mut(ty: &ast::Type) -> Option<&TypeRef> {
 fn proj_refs(ty: &ast::Type) -> Vec<&TypeRef> {
     fn walk<'a>(ty: &'a ast::Type, out: &mut Vec<&'a TypeRef>) {
         fn in_ref<'a>(r: &'a TypeRef, out: &mut Vec<&'a TypeRef>) {
-            if r.name.name == "proj" {
+            if crate::types::is_proj_name(&r.name.name) {
                 out.push(r);
             }
             for a in &r.args {
@@ -30335,7 +30369,7 @@ fn proj_arm_qualifiers(ty: &ast::Type) -> Vec<String> {
             ast::Type::Named { qualifiers, .. } | ast::Type::QualifiedGroup { qualifiers, .. } => {
                 qualifiers
                     .iter()
-                    .find(|q| q.name.name != "proj")
+                    .find(|q| !crate::types::is_proj_name(&q.name.name))
                     .map(|q| q.name.name.clone())
             }
             _ => None,
@@ -30467,7 +30501,7 @@ fn spans_overlap(a: Span, b: Span) -> bool {
 /// value lives, and the runtime shape is the union's.
 fn strip_proj_union(ty: &Ty) -> &Ty {
     match ty {
-        Ty::Qualified { quals, base } if matches!(base.as_ref(), Ty::Union(_)) && quals.iter().all(|q| q.name == "proj") => base,
+        Ty::Qualified { quals, base } if matches!(base.as_ref(), Ty::Union(_)) && quals.iter().all(|q| crate::types::is_proj_name(&q.name)) => base,
         other => other,
     }
 }

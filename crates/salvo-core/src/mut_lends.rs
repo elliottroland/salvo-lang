@@ -15,7 +15,7 @@ use salvo_syntax::Span;
 
 use crate::check::Checked;
 use crate::program::Program;
-use crate::types::Ty;
+use crate::types::{is_proj_name, Ty};
 
 /// The fns whose lent result serves a `Mut` position (`fns`), the call sites
 /// that read one (`sites`), and the return-path calls inside those fns that
@@ -331,11 +331,21 @@ pub fn collect_let_values<'a>(block: &'a Block, out: &mut Vec<(Span, &'a Expr)>)
 /// (`-> T holds proj(c)`) is an owned value carrying borrows and is not
 /// this case.
 pub fn fn_type_lends_mut(ret: &Type) -> bool {
+    fn is_top_ref(t: &Type) -> bool {
+        match t {
+            Type::Named { qualifiers, .. } => qualifiers.iter().any(|q| q.name.name == "ref"),
+            Type::QualifiedGroup { qualifiers, .. } => {
+                qualifiers.iter().any(|q| q.name.name == "ref")
+            }
+            _ => false,
+        }
+    }
     fn wholesale_mut(t: &Type) -> bool {
+        let is_ref_here = is_top_ref(t);
         match strip_top_proj_ast(t) {
             Some(inner) => match &inner {
                 Type::Named { qualifiers, .. } => {
-                    qualifiers.iter().any(|q| q.name.name == "Mut")
+                    is_ref_here && qualifiers.iter().any(|q| q.name.name == "Mut")
                 }
                 other => wholesale_mut(other),
             },
@@ -431,7 +441,7 @@ pub fn covered_fns(
 /// return type is a **wholesale mutable lend** (`proj Mut T`, or its
 /// optional), which renders as a locator.
 pub fn ty_lends_mut(ret: &Ty) -> bool {
-    let wholesale_mut = |t: &Ty| t.is_proj() && t.quals().iter().any(|q| q.name == "Mut");
+    let wholesale_mut = |t: &Ty| t.is_ref() && t.quals().iter().any(|q| q.name == "Mut");
     if wholesale_mut(ret) {
         return true;
     }
@@ -479,10 +489,10 @@ pub fn strip_top_proj_ast(ty: &Type) -> Option<Type> {
         )
     };
     match ty {
-        Type::Named { qualifiers, base } if qualifiers.iter().any(|q| q.name.name == "proj") => {
+        Type::Named { qualifiers, base } if qualifiers.iter().any(|q| is_proj_name(&q.name.name)) => {
             let rest: Vec<salvo_syntax::ast::TypeRef> = qualifiers
                 .iter()
-                .filter(|q| q.name.name != "proj")
+                .filter(|q| !is_proj_name(&q.name.name))
                 .cloned()
                 .collect();
             let inner = Type::Named {
@@ -499,10 +509,10 @@ pub fn strip_top_proj_ast(ty: &Type) -> Option<Type> {
             qualifiers,
             base,
             span,
-        } if qualifiers.iter().any(|q| q.name.name == "proj") => {
+        } if qualifiers.iter().any(|q| is_proj_name(&q.name.name)) => {
             let rest: Vec<salvo_syntax::ast::TypeRef> = qualifiers
                 .iter()
-                .filter(|q| q.name.name != "proj")
+                .filter(|q| !is_proj_name(&q.name.name))
                 .cloned()
                 .collect();
             if rest.is_empty() {
