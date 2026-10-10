@@ -310,8 +310,16 @@ pub fn apply_coercion(c: &Coercion, value: Expr, span: Span) -> Expr {
         }
         Coercion::NoneUnit => Expr { ty: Ty::none(), span, kind: ExprKind::Unit },
         Coercion::DropMut { from, then } => {
+            // An optional drops `Mut` on its present arm [proj-opt-slot].
+            let ty = match erase(from) {
+                Ty::Union(arms) => {
+                    let m: std::collections::HashSet<String> = ["Mut".to_string()].into_iter().collect();
+                    Ty::Union(arms.into_iter().map(|a| a.remove_quals(&m)).collect())
+                }
+                t => t.strip_quals().clone(),
+            };
             let dropped = Expr {
-                ty: erase(from).strip_quals().clone(),
+                ty,
                 span,
                 kind: ExprKind::DropMut { value: Box::new(value) },
             };

@@ -541,7 +541,43 @@ impl<'p> Shared<'p> {
     }
 
     pub fn unalias_params(&self, ps: &[salvo_ir::Param]) -> Vec<salvo_ir::Param> {
-        ps.iter().map(|p| salvo_ir::Param { ty: self.unalias(&p.ty), ..p.clone() }).collect()
+        ps.iter()
+            .map(|p| {
+                let ty = self.unalias(&p.ty);
+                // [rs-opt-borrow] A kept optional is read, never moved: it
+                // is the optional *of a borrow*, `Option<&T>`, taken by
+                // value — what `get` answers, and what an owned optional
+                // lends with `.as_ref()`.
+                if let Some(t) = self.kept_optional(&ty, p) {
+                    return salvo_ir::Param { ty: t, mode: salvo_ir::PassMode::Moved, ..p.clone() };
+                }
+                salvo_ir::Param { ty, ..p.clone() }
+            })
+            .collect()
+    }
+
+    /// [rs-opt-borrow] A read-only parameter `x: T?` (one non-`Copy` value
+    /// arm) as the borrowed optional `(proj T)?` it is rendered as.
+    fn kept_optional(&self, ty: &Ty, p: &salvo_ir::Param) -> Option<Ty> {
+        if p.mode != salvo_ir::PassMode::Lent || p.variadic {
+            return None;
+        }
+        let Ty::Union(arms) = ty else { return None };
+        if arms.len() != 2 {
+            return None;
+        }
+        let v = arms.iter().find(|a| !a.is_none_ty())?;
+        // A type variable's optional is left alone: `T` binds to the
+        // argument's own arm, a borrow included, so `&Option<T>` already
+        // takes `get`'s answer.
+        if !arms.iter().any(|a| a.is_none_ty()) || is_copy_ty(v) || matches!(v.strip_quals(), Ty::Fn { .. } | Ty::Var(_)) || is_mut_borrow(v) {
+            return None;
+        }
+        if !is_proj(v) && self.holds_proj(v) {
+            return None;
+        }
+        let borrowed = if is_proj(v) { v.clone() } else { v.clone().qualify(vec![salvo_core::types::Qual::plain("proj", Vec::new())]) };
+        Some(Ty::Union(vec![borrowed, Ty::none()]))
     }
 
     /// [rs-loc] Whether a fn type answers a mutable lend (a callback that
@@ -894,6 +930,12 @@ pub(crate) fn is_proj(t: &Ty) -> bool {
 /// never a handle; only `ref` is.
 pub(crate) fn is_ref(t: &Ty) -> bool {
     t.quals().iter().any(|q| q.name == "ref") && !is_copy_ty(t)
+}
+
+/// [rs-opt-borrow] Whether `t` is the optional of a borrow, `Option<&T>`
+/// (or of a mutable handle, `Option<&mut T>`).
+pub(crate) fn is_opt_borrow(t: &Ty) -> bool {
+    matches!(t, Ty::Union(arms) if arms.len() == 2 && arms.iter().any(|a| a.is_none_ty()) && arms.iter().any(is_proj))
 }
 
 pub(crate) fn is_mut(t: &Ty) -> bool {

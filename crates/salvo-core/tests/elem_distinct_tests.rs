@@ -443,3 +443,38 @@ fn a_ref_parameter_naming_no_parameter_is_refused() {
         "expected the unknown-container refusal: {errs:?}"
     );
 }
+
+/// [proj-opt-slot] A borrowed optional fits a kept owned optional
+/// parameter — of a fn and of an effect member — whether it is a read-only
+/// `get` or an optional handle (user decision 2026-10-10).
+#[test]
+fn a_borrowed_optional_fits_a_kept_owned_optional() {
+    let src = format!(
+        "{PRELUDE}\
+         fn hp_of(e: Entity?) [] -> Int => e {{\n    \
+         if e is Entity {{\n        return e.hp\n    }}\n    \
+         return 0\n}}\n\
+         effect Reader {{\n    fn read(e: Entity?) -> Int => e\n}}\n\
+         fn f(es: List<Mut Entity>) [Reader] -> Int => es {{\n    \
+         let h = at(es, 0)\n    \
+         return hp_of(get(es, 0)) + hp_of(at(es, 1)) + hp_of(h) + read(get(es, 2)) + read(h)\n}}\n"
+    );
+    assert!(errors(&src).is_empty(), "got {:?}", errors(&src));
+}
+
+/// [proj-opt-slot] A `Mut` optional position still needs the owned value:
+/// the lift is for reading positions only.
+#[test]
+fn a_borrowed_optional_does_not_fit_a_mut_optional() {
+    let src = format!(
+        "{PRELUDE}\
+         fn heal(e: Mut Entity?) [] -> None => e: Mut {{\n    \
+         if e is Entity {{\n        e.hp = e.hp + 1\n    }}\n    \
+         return None\n}}\n\
+         fn f(es: List<Mut Entity>) [] -> None => es {{\n    \
+         heal(get(es, 0))\n    \
+         return None\n}}\n"
+    );
+    let errs = errors(&src);
+    assert!(errs.iter().any(|e| e.contains("borrowed value") || e.contains("projection")), "got {errs:?}");
+}

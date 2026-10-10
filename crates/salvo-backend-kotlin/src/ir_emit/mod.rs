@@ -1228,6 +1228,17 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                         Some(suffix) => format!("{v}{suffix}"),
                         None => v,
                     },
+                    // [proj-opt-slot] An optional drops `Mut` on its present arm.
+                    Ty::Union(arms) if arms.len() == 2 && arms.iter().any(|a| a.is_none_ty()) => {
+                        let arm = arms.iter().find(|a| !a.is_none_ty()).map(|a| a.strip_quals());
+                        match arm {
+                            Some(Ty::Named { name, .. }) => match crate::intrinsics::drop_mut_suffix(name) {
+                                Some(suffix) => format!("({v})?{suffix}"),
+                                None => v,
+                            },
+                            _ => v,
+                        }
+                    }
                     _ => v,
                 }
             }
@@ -1578,6 +1589,23 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let recv = f.params.first().and_then(|p| salvo_backend::emit_util::type_base_name(&p.ty));
         if name == "copy" {
             let v = self.expr(&args[0], indent);
+            // [proj-opt-slot] An optional copies its present arm.
+            if let Ty::Union(arms) = &args[0].ty {
+                if arms.len() == 2 && arms.iter().any(|a| a.is_none_ty()) {
+                    let arm = arms.iter().find(|a| !a.is_none_ty()).cloned().unwrap_or(Ty::Unknown);
+                    return match salvo_core::copyplan::copy_plan(self.s.symbols, &arm) {
+                        Some(salvo_core::copyplan::CopyPlan::Identity) => v,
+                        Some(plan) => {
+                            let inner = self.render_copy(&plan, "__c");
+                            format!("({v})?.let {{ __c -> {inner} }}")
+                        }
+                        None => {
+                            self.error(format!("cannot `copy` a value of type `{}`", args[0].ty));
+                            v
+                        }
+                    };
+                }
+            }
             return match salvo_core::copyplan::copy_plan(self.s.symbols, &args[0].ty) {
                 Some(plan) => self.render_copy(&plan, &v),
                 None => {

@@ -4929,7 +4929,91 @@ fn kotlinc_compiles_and_runs_a_lending_member_through_a_struct_field() -> Kotlin
     kotlin_case(files, "lend-path", LENDING_MEMBER_PATH_OUTPUT)
 }
 
+
+/// [proj-opt-slot] [rs-opt-borrow] A borrowed optional — `get`'s answer, an
+/// optional handle, a `Mut Str` element — fits a kept owned `T?` parameter,
+/// of a fn or an effect member; owned optionals, literals and `None` still
+/// do; `copy` of one is an owned optional. On Rust the parameter is
+/// `Option<&T>`, so the body's lets, narrowings, `?:` and `?.` read the
+/// borrow it holds.
+pub const OPT_SLOT_DEMO: &str = r#"
+struct Entity canbe Mut { name: Str, hp: Int }
+
+fn inner(s: Str?) -> Str {
+    return s ?: "-"
+}
+
+fn outer(s: Str?) -> Str {
+    let t = s
+    let u = inner(t)
+    let n = s?.to_upper() ?: "?"
+    let c = copy(s)
+    let none = if s is None { "absent" } else { "present" }
+    return "${u} ${n} ${inner(c)} ${none}"
+}
+
+fn named(e: Entity?) -> Str {
+    if e is Entity f {
+        return "${f.name}:${f.hp}"
+    }
+    return "nobody"
+}
+
+fn view(s: Str?) -> (proj(s) Str)? => s {
+    return s
+}
+
+effect Shower {
+    fn show(s: Str?) -> None => s
+}
+
+handler PrintShower [Console] of Shower {
+    fn show(s: Str?) -> None => s {
+        println("shown ${inner(s)}")
+    }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    use PrintShower()
+    let xs: List<Str> = list_of("abc", "de")
+    println(outer(get(xs, 0)))
+    println(outer(get(xs, 9)))
+    let o: Str? = "own"
+    println(outer(o))
+    println(outer("lit"))
+    println(outer(None))
+    let ws: List<Mut Str> = list_of(mut_str("w"))
+    println(outer(get(ws, 0)))
+    println(outer(at(ws, 0)))
+    let cw = copy(get(ws, 0))
+    println(outer(cw))
+    let es: List<Mut Entity> = list_of(Mut Entity { name: "e", hp: 3 })
+    println("${named(get(es, 0))} ${named(at(es, 0))} ${named(get(es, 4))} ${named(None)}")
+    let h = at(es, 0)
+    println(named(h))
+    let ce = copy(get(es, 0))
+    let hh = h!
+    hh.hp = 40
+    println("${named(ce)} ${named(get(es, 0))}")
+    println(inner(view(get(xs, 1))))
+    show(get(xs, 0))
+    show(o)
+}
+"#;
+
+pub const OPT_SLOT_OUTPUT: &str = "abc ABC abc present\n- ? - absent\nown OWN own present\nlit LIT lit present\n- ? - absent\nw W w present\nw W w present\nw W w present\ne:3 e:3 nobody nobody\ne:3\ne:3 e:40\nde\nshown abc\nshown own\n";
+
+fn kotlinc_compiles_and_runs_borrowed_optionals_in_owned_optional_slots() -> KotlinCase {
+    let program = build_program(&[("main.sv", OPT_SLOT_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "opt-slot", OPT_SLOT_OUTPUT)
+}
+
 const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
+    kotlinc_compiles_and_runs_borrowed_optionals_in_owned_optional_slots,
     kotlinc_compiles_and_runs_a_lending_member_through_a_struct_field,
     kotlinc_compiles_and_runs_a_disjunction_and_a_negation_narrow_nothing_after_them,
     kotlinc_compiles_and_runs_a_lifted_claim_on_a_field_narrows_what_follows,

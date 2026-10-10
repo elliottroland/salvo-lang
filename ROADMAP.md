@@ -1127,40 +1127,20 @@ one dial rather than two features.
 
 ### 15 — `ref(c)`: what is left after storage paths
 
-Storage paths, `NotSame` and the `ref` container type in the IR are
-**built** (2026-10-10, COMPLETED.md's "Handles are storage paths" entry;
-[rs-path], [ref-notsame], [elem-distinct]). GROUP_BORROWING.md Parts 7 and 9
-stay the design record. **The next sequence** (user decisions 2026-10-10,
-GROUP_BORROWING.md Part 9 "Next sequence"):
+Storage paths, `NotSame`, the `ref` container type in the IR, path types
+carrying `Walk`, generic containers, lending effect members and borrowed
+optionals in owned optional slots are **built** (2026-10-10, COMPLETED.md's
+two "Handles are storage paths" entries; [rs-path], [ref-notsame],
+[elem-distinct], [proj-opt-slot], [rs-opt-borrow]). GROUP_BORROWING.md
+Parts 7 and 9 stay the design record. What is left:
 
-1. **A path type carries its own walk** on Rust: every (container, element)
-   pair gets a generated path type — a newtype even where it is one
-   position — implementing a `Walk<C, E>` trait (`walk`, `walk_ref`,
-   `walk_pair`). In Rust, `ref(c)` *is* the path into `C`: every
-   materialization goes through the walk, so an opaque container works.
-2. **Generic containers** fall out of 1: a handle into `c: C` is a Rust type
-   parameter `P: Walk<C, T>` — no hidden walk argument, no `?Ref` needed for
-   a `ref(c)` parameter. This lifts the "has no path on the Rust backend yet
-   [rs-path]" refusal (`a_ref_parameter_over_a_generic_container_is_refused`
-   flips to an accept-and-run test). A **delegating mint** is legal as
-   written: `fn borrow_via<C, L, T>(c: C, l: L, ?Ref<C, L, T>) -> ref(c)
-   Mut T? => c, l { return at(c, l) }`.
-3. **Effect members** render only their path face, under their own name
-   (as fns already do). **Platform-effect members may not return a `ref`**
-   (a checker error); `send` members return nothing, so the question does
-   not arise for them.
-4. **A borrowed optional fits an owned optional slot** — for `proj` and
-   `ref` alike: `get(xs, 0)` or an optional handle into a kept `Str?`
-   parameter. On Rust a kept `T?` parameter becomes `Option<&T>` (owned
-   arguments pass `.as_ref()`). Folded in: **`copy` of an optional
-   non-scalar borrow** (`copy(get(xs, i))` with no `!`, refused today), and
-   the **Kotlin `Mut Str` defect** — an optional `Mut Str` into a `Str?`
-   slot fails kotlinc (`StringBuilder?` where `String?` is expected; repro
-   `fn show(s: (proj Str)?) …; show(get(ws, 0))` over a `List<Mut Str>`).
-5. **Recursive containers** (a type holding its own element type) have no
+1. **Recursive containers** (a type holding its own element type) have no
    finite path: refused, and waiting on the recursive-types work (item 17).
-6. **`Deque` has no `at`**, and **`Map` has no total `at` at a `KeyOf`**.
+2. **`Deque` has no `at`**, and **`Map` has no total `at` at a `KeyOf`**.
    Each is the list's two lines.
+3. **A borrowed optional into a kept `Mut T?`** is refused: the slot
+   mutates, and Rust would need `Option<&mut T>` there. Lift it when a
+   case needs it, together with the general union below.
 
 ### 16 — Composing iterators: stages over a generic source (after the redesign)
 
@@ -1266,7 +1246,7 @@ Each was considered and deliberately parked. Nothing here is blocking, and
 several are "revisit only if a customer appears".
 
 - **A borrowed arm in any union fits an owned union slot** (user,
-  2026-10-10): item 15.4 does it for `T?` only. The general case (`proj A |
+  2026-10-10): [proj-opt-slot] does it for `T?` only. The general case (`proj A |
   B` into a kept `A | B`) changes every union's rendering on Rust (a kept
   `Union2<A, B>` would become `Union2<&A, &B>`), so it waits for a case.
 

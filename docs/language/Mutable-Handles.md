@@ -83,6 +83,23 @@ let it = at(at(m, "a")!, 1)!           // the list at "a", then its element 1
 it.tag = "z"
 ```
 
+A handle, or a `get` result, can be **read** wherever a value can, with no
+`copy` — the position only reads it. That holds for optionals too: a
+parameter `s: Str?` that the function only reads takes `get(xs, 0)` or an
+optional handle as it is, and its `None` stays `None` [proj-opt-slot]:
+
+```
+fn maybe_print(c: Counter?) [Console] {
+    if c is Counter {
+        println("${c.n}")
+    }
+}
+
+maybe_print(get(counters, 0))      // a read-only projection
+maybe_print(at(counters, 5))       // an optional handle; prints nothing
+let mine = copy(get(counters, 1))  // `Counter?`, a value of your own
+```
+
 Handles that are only **read** impose nothing, so any number coexist:
 
 ```
@@ -162,6 +179,33 @@ fn heal_at<L>(c: List<Mut Entity>, l: L, ?Ref<List<Mut Entity>, L, Entity>) -> N
 
 heal_at(squad, 1)                  // `at` resolves to the list accessor
 ```
+
+The container may be generic too. A handle into a `c: C` is still a
+position in `c`, whatever `C` turns out to be, so a function generic over
+the container takes handles into it and passes them on, and a function
+that mints through `?Ref` may itself be a mint — **delegating** to the
+accessor the caller supplied:
+
+```
+struct Player canbe Mut { goals: Int }
+
+fn bump<C>(c: C, a: ref(c) Mut Player) -> None {
+    a.goals = a.goals + 1
+}
+
+fn borrow_via<C, L>(c: C, l: L, ?Ref<C, L, Player>) [] -> ref(c) Mut Player? => c, l {
+    return at(c, l)
+}
+
+bump(squad, at(squad, 0)!)         // C is List<Mut Player>
+bump(squad, borrow_via(squad, 1)!)  // the caller's `at` fills `?Ref`
+```
+
+Effect members can lend the same way: a member declared `-> ref(c) Mut T`
+is a mint each handler implements, and a handle bound from it behaves like
+any other. A `platform handler` cannot implement such a member (host code
+has no way to answer a path into the caller's container), and an `actor
+effect`'s members cannot return one.
 
 ## One handle at a time, by default
 

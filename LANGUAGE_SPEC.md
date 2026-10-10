@@ -7355,7 +7355,8 @@ between endpoints and delivers what arrives into the scheduler.
   * **A handle reads as a borrow**: `ref(c) T <: proj T`, inside a union
     arm too, so an optional handle passes to a `(proj X)?` slot, and
     `copy(value: proj T)` binds `T` to the element, not the handle
-    (2026-10-10, found from the user's `demo/`).
+    (2026-10-10, found from the user's `demo/`), and an optional handle or
+    borrow passes to an owned `X?` slot too [proj-opt-slot].
   * **Mutating through the handle is legal** — a projection assignment,
     `++`, a `Mut` argument position — and is a mutation event on the
     handle's *roots* at the linked paths [fate-poison]: sibling derivations
@@ -7381,6 +7382,25 @@ between endpoints and delivers what arrives into the scheduler.
     lives in the lowered type ([proj-type]) *and* on the fate link —
     `FateLink.borrowed && !held` is a wholesale projection, `held` a borrow
     an owned object carries [proj-infer].
+* [proj-opt-slot] **A borrowed optional fits a kept owned optional**
+  (user decision 2026-10-10): an argument `(proj T)?` — `get`'s answer, an
+  optional handle `ref(c) Mut T?`, an optional `Mut Str` element — fits a
+  kept, non-`Mut` parameter `x: T?` of a fn or an effect member, as `proj
+  T` fits a kept `x: T` [proj-type]: the position only reads, and its
+  `None` arm is `None`. So `maybe_print(s: Str?)` takes `get(xs, 0)` and
+  `at(a, i)` as written, with no `copy`.
+  * **`copy` of one is an owned optional**: `copy(value: proj T)` read
+    against `(proj X)?` binds `T` to `X?`, so `copy(get(xs, i))` is a `Str?`
+    of its own (each backend copies the present arm).
+  * A `Mut` drop applies to the present arm: an optional `Mut Str` read as
+    `Str?` is recorded as `Coercion::DropMut` over the optional.
+  * Not lifted: a kept `Mut T?` position (it mutates, so it needs the owned
+    optional or a handle of its own), and a union with more than one value
+    arm (`(proj A | B)?`, ROADMAP's "Recorded, not scheduled").
+  * Implementation: `arg_fits_param` (`optional_borrow_fits`,
+    `optional_proj_fits`), used by member calls too; `unify`'s optional arm
+    for `copy`; `maybe_coerce`/`optional_of_mut` for the drop. Rust renders
+    the kept optional `Option<&T>` [rs-opt-borrow].
 * [ref-anchor] **`ref(c)` parameters share a container** (user decision
   2026-10-08, retiring `canbe`): a parameter typed `ref(c) Mut T`, where
   `c` names another parameter, is a handle into the container passed as

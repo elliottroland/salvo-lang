@@ -159,7 +159,12 @@ Conventions:
     `StringBuilder` is not a `String`, so a drop emits `.toString()`
     ([str-drop-mut], `intrinsics::drop_mut_suffix`, applied to the
     checker's `Coercion::DropMut` — a bare name takes the suffix directly,
-    anything else is parenthesized first).
+    anything else is parenthesized first). An optional `Mut Str` read
+    where `Str?` is expected drops `Mut` on its present arm, `(v)?.toString()`
+    (2026-10-10, [proj-opt-slot]: `show(get(ws, 0))` over a
+    `List<Mut Str>` handed kotlinc a `StringBuilder?`).
+  * `copy` of an optional copies its present arm, `(v)?.let { __c -> … }`,
+    or is the value itself when the arm copies as itself [proj-opt-slot].
   * `mut_str(...parts)` emits
     `StringBuilder(listOf(parts).joinToString(""))` — joined rather than
     appended one part at a time, so a `...spread` works through Kotlin's

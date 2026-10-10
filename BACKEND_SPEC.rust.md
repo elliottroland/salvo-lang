@@ -722,8 +722,26 @@ the blanket rule:
     variant per way holding its positions, declared in the container's
     module; a use walks it with a `match` (`(*match __h1 { V0(s, i) => &mut l.teams[s].roster[i], V1(i) => &mut l.bench[i] })`,
     `&` for a read);
-  * a container that holds the element type in itself (a recursive type) or
-    is a type parameter has no path yet: a loud error naming it.
+  * **every path type walks itself** (2026-10-10): the runtime trait
+    `crate::seq::Walk<C, E>` — `walk` (`&mut E`), `walk_ref` (`&E`) and
+    `walk_pair` (two `&mut E` split where the paths diverge, `None` when
+    they name one element) — is implemented for each concrete pair's path
+    type, in the root module (`walk_impls`). No newtype wraps a
+    one-position path: the trait's `C` parameter tells `impl Walk<Vec<T>,
+    T> for usize` from `impl Walk<crate::Team, crate::Entity> for usize`.
+    Concrete code still renders the walk inline (the place above); code
+    **generic over the container** walks through the trait. In Rust, a
+    `ref(c)` *is* the path into `C`;
+  * **generic containers**: a fn whose handle sits in a type-parameter
+    container (`fn bump<C>(c: C, a: ref(c) Mut Player)`) takes the path as
+    a type parameter of its own, `__Pk: crate::seq::Walk<C, Player> + Copy +
+    PartialEq`, and its handle parameter as `__c1: __Pk`; a mint over one
+    (`borrow_via<C, L>(…, ?Ref<C, L, Player>)`) answers `Option<__Pk>`.
+    A call site's turbofish spells `_` for each path parameter, which the
+    argument's concrete path type fills. A type-parameter container param
+    the body mutates is lent mutably;
+  * a container that holds the element type in itself (a recursive type)
+    has no finite path: a loud error naming it (ROADMAP, item 17).
 * [rs-loc] **Locator-specialized lending** (④a, 2026-09-24; re-based on
   [rs-path] 2026-10-10): a **mint** — a fn whose result is a `ref(c) Mut`
   handle — renders **only** as its path fn, under its own name: no
@@ -804,11 +822,31 @@ the blanket rule:
     Slots are stable until an entry is added or removed, which poisons the
     handles [fate-poison].
   * **What remains cut, loud**: a lend whose anchor is not a plain place
-    of a known indexable type (a bare generic container has no index —
-    the recorded lift is the type-erased locator, COMPLETED.md's log's
-    second GB-5 addendum), and branch-dependent path sets (generated
-    path enums, when a case first needs one). Kotlin: nothing — objects
-    alias; parity pinned by the e2e cases.
+    (a temporary has no storage to be a path into) and a recursive
+    container. Kotlin: nothing — objects alias; parity pinned by the e2e
+    cases.
+* [rs-opt-borrow] **A kept optional is the optional of a borrow**
+  (user decision 2026-10-10, with [proj-opt-slot]): a read-only parameter
+  `s: T?` whose one value arm is neither `Copy` nor a type variable renders
+  as `Option<&T>`, taken by value — `pub fn inner(mut s: Option<&String>)`,
+  on fns, effect members and handler members alike — rather than
+  `&Option<T>`, which a borrowed optional could not be passed as. The
+  parameter is re-typed `(proj T)?` inside the emitter
+  (`Shared::unalias_params`), so the signature, the body's binding and the
+  call sites agree:
+  * **Arguments** (`opt_borrow_arg`): a borrowed optional (`get`'s answer)
+    passes as it is; a mutable handle's is read through,
+    `….map(|__x| &*__x)`; `None` is `None`; anything owned lends with
+    `(&o).as_ref()`.
+  * **The body**: a read of the parameter is stored as `Option<&T>` even
+    where the IR types it `T?` (`storage_ty`): another name for it copies
+    the `Option<&T>`, a narrowing unwraps the borrow it holds
+    (`s.unwrap()`, bound by reference), and `copy` of it is
+    `.cloned()`.
+  * A **type variable's** optional keeps `&Option<T>`: `T` binds to the
+    argument's own arm, a borrow included. A `Mut` optional (`&mut
+    Option<T>`) and a wrapper optional (`Option<UnionN<…>>`) are
+    unchanged; neither takes a borrowed argument.
 * Views of temporaries are refused by the checker [proj-anywhere]; the
   only thing this backend adds is that rustc would have said the same
   (E0716).

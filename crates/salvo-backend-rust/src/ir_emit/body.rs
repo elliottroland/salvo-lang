@@ -621,6 +621,17 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 return out;
             }
         }
+        // [rs-opt-borrow] Another name for a borrowed optional: a copy of
+        // the `Option<&T>`.
+        if bare(value).is_some() && !super::is_opt_borrow(ty) {
+            let st = self.storage_ty(value);
+            if super::is_opt_borrow(&st) {
+                let code = self.value(value, indent);
+                self.f.tys.insert(local.0.clone(), st);
+                self.f.kinds.insert(local.0.clone(), Kind::Owned);
+                return format!("{pad}let mut {n} = {code};\n");
+            }
+        }
         // [rs-borrow-locals] A borrow-mode binding of a pure place, never
         // reassigned, mutated through, captured or consumed, is a borrow
         // of the place: the checker poisons it before any write the
@@ -1674,6 +1685,23 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 None => {}
             }
         }
+        // [rs-opt-borrow] Storage holding an `Option<&T>` narrows to the
+        // borrow it holds.
+        let stored = if from.steps.is_empty() { self.f.tys.get(&from.root.0).filter(|t| super::is_opt_borrow(t) && !super::is_opt_borrow(from_ty)).cloned() } else { None };
+        if let Some(st) = &stored {
+            let (src, _) = self.place_text(from, indent);
+            if ty.strip_quals().has_none_arm() {
+                self.f.tys.insert(local.0.clone(), st.clone());
+                self.f.kinds.insert(local.0.clone(), Kind::Owned);
+                return format!("{pad}let mut {n} = {src};\n");
+            }
+            if !is_copy_ty(ty) {
+                let arm = st.strip_quals().value_arms().into_iter().next().cloned().unwrap_or(Ty::Unknown);
+                let k = if is_mut_borrow(&arm) { Kind::RefMut } else { Kind::Ref };
+                self.f.kinds.insert(local.0.clone(), k);
+                return format!("{pad}let mut {n} = {src}.unwrap();\n");
+            }
+        }
         let (src, root_kind) = self.place_text(from, indent);
         let test = match because {
             Justification::Test { test } => self.f.test_arms.get(&(test.0, usize::MAX)).cloned(),
@@ -2128,6 +2156,9 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         if is_copy_ty(&p.ty) || p.variadic || is_proj(&p.ty) {
             return self.value_into(a, &p.ty, indent);
         }
+        if p.mode == PassMode::Moved && super::is_opt_borrow(&p.ty) {
+            return self.opt_borrow_arg(a, indent);
+        }
         if is_copy_ty(&a.ty) && p.mode != PassMode::LentMut && p.mode != PassMode::Lent {
             return self.value(a, indent);
         }
@@ -2136,6 +2167,48 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             PassMode::Lent => self.borrow(a, indent),
             PassMode::LentMut => self.borrow_mut(a, indent),
         }
+    }
+
+    /// [rs-opt-borrow] An argument for an `Option<&T>` slot: a borrowed
+    /// optional as it is, a mutable handle's read through, an owned one
+    /// lent with `.as_ref()`.
+    /// [rs-opt-borrow] What a value is stored as: a read of a local the
+    /// IR types `T?` that holds an `Option<&T>` (a kept optional
+    /// parameter, or a binding of one) is the borrowed optional.
+    pub(crate) fn storage_ty(&self, e: &Expr) -> Ty {
+        let mut inner = e;
+        while let ExprKind::DropMut { value } = &inner.kind {
+            inner = value;
+        }
+        if let ExprKind::Read { place, .. } = &inner.kind {
+            if place.steps.is_empty() {
+                if let Some(t) = self.f.tys.get(&place.root.0) {
+                    if super::is_opt_borrow(t) && !super::is_opt_borrow(&e.ty) {
+                        return t.clone();
+                    }
+                }
+            }
+        }
+        e.ty.clone()
+    }
+
+    fn opt_borrow_arg(&mut self, a: &Expr, indent: usize) -> String {
+        if matches!(a.kind, ExprKind::MakeNone) {
+            return "None".to_string();
+        }
+        if super::is_opt_borrow(&self.storage_ty(a)) {
+            let v = self.value(a, indent);
+            // What the value is in Rust: a `Mut` drop changes nothing there.
+            let mut inner = a;
+            while let ExprKind::DropMut { value } = &inner.kind {
+                inner = value;
+            }
+            let st = self.storage_ty(a);
+            let mutable = [&a.ty, &inner.ty, &st].iter().any(|t| matches!(t, Ty::Union(arms) if arms.iter().any(|x| is_proj(x) && super::is_mut_borrow(x))));
+            return if mutable { format!("{v}.map(|__x| &*__x)") } else { v };
+        }
+        let b = self.borrow(a, indent);
+        format!("({b}).as_ref()")
     }
 
     /// A fn value passed to a fn-typed slot at `pos`.
@@ -2816,6 +2889,10 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             let v = self.raw(&args[0], indent);
             if is_copy_ty(&args[0].ty) {
                 return v;
+            }
+            // [proj-opt-slot] An optional borrow copies into an owned optional.
+            if super::is_opt_borrow(&self.storage_ty(&args[0])) {
+                return format!("({v}).cloned()");
             }
             return format!("({v}).clone()");
         }

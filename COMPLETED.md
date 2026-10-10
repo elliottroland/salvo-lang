@@ -138,6 +138,57 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-10 — Handles are storage paths, part two: `Walk`, generic containers, effect members, borrowed optionals (built)
+
+The "next sequence" the user decided after the storage paths landed
+(GROUP_BORROWING.md Part 9), built in four committed steps without stopping
+for sign-off ("Proceed"). [rs-path], [rs-loc], [ref-handle],
+[proj-opt-slot], [rs-opt-borrow], [kt-mut-str].
+- **A handle reads as a borrow** (found from the user's `demo/`): `ref(c)
+  T <: proj T`, inside union arms too; `copy`'s `proj T` binds `T` to the
+  element, not the handle; an optional handle used as a value walks its
+  path when present (`var.map(|__x| &…)`).
+- **Path types carry `Walk`** (user: "in Rust `ref(c)` _is_ the way to talk
+  about the path into C"): `crate::seq::Walk<C, E>` with `walk`,
+  `walk_ref`, `walk_pair`, implemented per concrete pair in the root
+  module. **Deviation from the recorded plan**: no newtype around a
+  one-position path — the trait's `C` parameter already disambiguates
+  `impl Walk<Vec<T>, T> for usize` from `impl Walk<crate::Team,
+  crate::Entity> for usize`, so a newtype would only add wrapping.
+  Concrete code still renders the walk inline.
+- **Generic containers**: a handle into `c: C` is a type parameter
+  `__Pk: Walk<C, E> + Copy + PartialEq` of the fn; `subst_ty` substitutes
+  `ref` qualifier arguments; a type-parameter container the body mutates
+  is lent mutably (restricted to type parameters: applied to every param
+  it broke `peeling_a_mut_arm_out_of_a_borrowed_parameter_is_reported`);
+  a fn value returning a `ref` derives its source from its first non-scalar
+  argument, which makes the delegating mint `borrow_via` legal as written
+  (user decision). `a_ref_parameter_over_a_generic_container_is_refused`
+  became an accept-and-run test on both backends.
+- **Effect members** render only their path face, under their own name, on
+  both traits, the handle and the impl (`fn lease(&mut self, es:
+  &Vec<crate::Entity>) -> Option<usize>`); every call goes through the
+  mint. A `platform handler` of an effect with a member returning a `ref`
+  is a checker error (user: platform effects need not return one); an
+  actor member's `ref` return was already refused, and its message now
+  says "a `ref` handle".
+- **A borrowed optional fits a kept owned `T?`** (user: "it should work for
+  a union arm with None as well"): `arg_fits_param` reads through the
+  `None` arm, for fns and — now that member calls share the predicate —
+  effect members. `copy` of an optional borrow is an owned optional
+  (`unify` binds `T` to `X?`; Rust `.cloned()`, Kotlin `?.let`). The
+  Kotlin `Mut Str` defect closed: a `Mut` drop on an optional's present
+  arm, `(v)?.toString()`. On Rust a kept non-`Copy`, non-generic `T?`
+  parameter is `Option<&T>` by value; owned arguments lend with
+  `(&o).as_ref()`, handles with `.map(|__x| &*__x)`. The general union
+  stays in ROADMAP's "Recorded, not scheduled".
+- Sweep: LANGUAGE_SPEC.md ([ref-handle] bullets for delegating mints,
+  generic containers and effect members; the new [proj-opt-slot]),
+  BACKEND_SPEC.rust.md ([rs-path]'s `Walk` and generic bullets, [rs-loc]'s
+  effect members, the new [rs-opt-borrow]), BACKEND_SPEC.kotlin.md,
+  docs/language/Mutable-Handles.md and the wiki, ROADMAP item 15 cut to what
+  is left. No example changed. **1741 tests.**
+
 ### 2026-10-10 — Handles are storage paths, `NotSame` replaces `NotEq` (built)
 
 The design recorded in the entry below, built in four committed steps, with
@@ -23395,7 +23446,7 @@ against the codec's tie to the `UnionN` layout), the scheduler glue
 the part most entangled with the scheduler; it was left in the backends as
 the user allowed.
 
-## Test inventory (all green: 1723 under nextest, the IR corpus test aside; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1741 under nextest, the IR corpus test aside; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -24646,6 +24697,25 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **Member calls had their own, stricter argument fit** (2026-10-10):
+  `check_effect_call` tested `is_subtype` where fn overloads use
+  `arg_fits_param`, so a lift to the fit (a borrow into a kept slot) did
+  not reach effect members. They share the predicate now; a new fit rule
+  is one change.
+- **A `Mut` drop must look through a `proj`-qualified union**
+  (2026-10-10): `copy`'s parameter is `proj T`, and with `T` an optional
+  the expected type is `proj (Mut X)?`, whose top-level arms show no
+  `Mut`. Recording a drop there made the copy plan of `proj X` the
+  identity on Kotlin — a copy that aliased, silently. `maybe_coerce`
+  checks the arms under the qualifiers too.
+- **The Rust emitter's storage type can differ from the IR's**
+  (2026-10-10, [rs-opt-borrow]): a kept `T?` parameter is stored as
+  `Option<&T>` while every IR read of it says `T?`. `storage_ty` bridges
+  the places that care (lets, narrowings, `copy`, the argument path); a
+  new consumer that switches on `e.ty` for an optional must ask it too.
+  A type variable's optional is left as `&Option<T>`, because `T` already
+  binds to the borrow.
 
 - **A type test on a handle must see through the optional** (2026-10-10,
   [ref-handle]). `ref(c) Mut T?` is a `Ty::Union` whose *arm* carries the

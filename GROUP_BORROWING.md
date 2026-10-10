@@ -1209,6 +1209,10 @@ Recorded consequences and open points:
 
 ### Next sequence (user decisions, 2026-10-10)
 
+**Built** the same day (COMPLETED.md, "Handles are storage paths, part
+two"). One deviation: no newtype wraps a one-position path — the `Walk`
+trait's container parameter already tells the impls apart.
+
 - **A Rust path type carries its walk.** `ref(c)` on Rust *is* the path
   into `C`: each (container, element) pair's path type — always a generated
   type, a newtype where it is one position — implements `Walk<C, E>`

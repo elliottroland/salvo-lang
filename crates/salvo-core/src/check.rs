@@ -6866,6 +6866,36 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // (P-3's lift, user decisions 2026-09-24; the narrowing of
                 // [proj-readonly]; [ref-handle] for the `ref`-only split).
                 && (!Self::carries_mut(param) || (arg.is_ref() && Self::carries_mut(arg))))
+            // [proj-opt-slot] A borrowed optional — `(proj T)?` or an
+            // optional handle — fits a kept owned `T?` position: its
+            // value arm is read as the parameter's, the `None` arm is
+            // `None` (user decision 2026-10-10). The general union with a
+            // borrowed arm is not taken yet (ROADMAP).
+            || (kept && self.optional_borrow_fits(arg, param))
+            // `proj T` with `T` bound to an owned optional (`copy`'s): the
+            // borrow reads each value arm.
+            || (kept && param.is_proj() && Self::optional_proj_fits(arg, param))
+    }
+
+    fn optional_proj_fits(arg: &Ty, param: &Ty) -> bool {
+        let projs: Vec<crate::types::Qual> = param.quals().iter().filter(|q| crate::types::is_proj_name(&q.name)).cloned().collect();
+        let Ty::Union(parms) = param.strip_top_proj() else {
+            return false;
+        };
+        let spread = Ty::Union(parms.into_iter().map(|p| if p.is_none_ty() { p } else { p.qualify(projs.clone()) }).collect());
+        matches!(arg, Ty::Union(_)) && is_subtype(arg, &spread)
+    }
+
+    fn optional_borrow_fits(&self, arg: &Ty, param: &Ty) -> bool {
+        let (Ty::Union(arms), Ty::Union(parms)) = (arg, param) else {
+            return false;
+        };
+        let value: Vec<&Ty> = arms.iter().filter(|a| !a.is_none_ty()).collect();
+        let pvalue: Vec<&Ty> = parms.iter().filter(|a| !a.is_none_ty()).collect();
+        let ([a], [p]) = (value.as_slice(), pvalue.as_slice()) else {
+            return false;
+        };
+        arms.len() == 2 && parms.len() == 2 && a.is_proj() && !p.is_proj() && !Self::carries_mut(p) && self.arg_fits_param(a, p, true)
     }
 
     /// [effect-available] Where a name's **one overload set** sends a call
@@ -25783,7 +25813,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         // stay a builder: `Mut Str`, `Mut Str?`, and a generic position
         // (whose pattern is substituted to the argument's own type) all
         // keep it.
-        if expected.arms().iter().any(|a| Self::carries_mut(a)) {
+        if expected.arms().iter().any(|a| Self::carries_mut(a))
+            || expected.strip_quals().arms().iter().any(|a| Self::carries_mut(a))
+        {
             return;
         }
         if matches!(expected.strip_quals(), Ty::Var(_) | Ty::Any | Ty::Never) {
@@ -25793,10 +25825,21 @@ impl<'p, 'r> Checker<'p, 'r> {
             logical.clone()
         } else if Self::carries_mut(repr) {
             repr.clone()
+        } else if Self::optional_of_mut(logical) {
+            // [proj-opt-slot] An optional `Mut` borrow read where the plain
+            // optional is expected drops `Mut` on its present arm.
+            logical.clone()
         } else {
             return;
         };
         self.record_mut_drop(span, from);
+    }
+
+    /// An optional whose one value arm carries `Mut`: `(proj Mut Str)?`.
+    fn optional_of_mut(ty: &Ty) -> bool {
+        matches!(ty, Ty::Union(arms) if arms.len() == 2
+            && arms.iter().any(|a| a.is_none_ty())
+            && arms.iter().any(Self::carries_mut))
     }
 
     /// Whether a type carries the `Mut` qualifier at its top level.
@@ -25810,7 +25853,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// compare against — operator operands and string interpolation — as
     /// well as by `maybe_coerce`.
     fn record_mut_drop(&mut self, span: Span, from: Ty) {
-        if !Self::carries_mut(&from) {
+        if !Self::carries_mut(&from) && !Self::optional_of_mut(&from) {
             return;
         }
         let key = self.key(span);
@@ -26264,7 +26307,20 @@ fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
                 if pq.iter().any(|q| crate::types::is_proj_name(&q.name)) {
                     names.extend(crate::types::proj_names());
                 }
-                arg.clone().remove_quals(&names)
+                match arg {
+                    // [proj-opt-slot] An optional borrow read through `proj
+                    // T` binds `T` to the owned optional: `copy(get(xs, i))`
+                    // is a `Str?` of its own.
+                    Ty::Union(arms)
+                        if pq.iter().any(|q| crate::types::is_proj_name(&q.name))
+                            && arms.len() == 2
+                            && arms.iter().any(|a| a.is_none_ty())
+                            && arms.iter().any(|a| a.is_proj()) =>
+                    {
+                        Ty::Union(arms.iter().map(|a| a.clone().remove_quals(&names)).collect())
+                    }
+                    _ => arg.clone().remove_quals(&names),
+                }
             };
             pq.iter().all(|q| {
                 q.name == "once"
@@ -30006,7 +30062,16 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .ty_of(self.file_idx, a.span())
                     .cloned()
                     .unwrap_or(Ty::Unknown);
-                if !is_subtype(&got, &want) {
+                // [proj-opt-slot] A member's kept position reads its argument,
+                // as a fn's does: the fit is the one overloads use.
+                let pname = positional.get(i).and_then(|&pi| member.params.get(pi)).map(|p| p.name.name.as_str());
+                let kept = member.deductions.as_ref().is_none_or(|list| {
+                    crate::deduce::from_written(member, list, &HashSet::new(), |_, _| {})
+                        .iter()
+                        .find(|d| Some(d.param.as_str()) == pname)
+                        .is_none_or(|d| d.kept)
+                });
+                if !self.arg_fits_param(&got, &want, kept) {
                     self.error(
                         a.span(),
                         format!(
