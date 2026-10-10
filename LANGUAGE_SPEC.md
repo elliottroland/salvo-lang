@@ -7337,6 +7337,10 @@ between endpoints and delivers what arrives into the scheduler.
   * `ref(c) Mut X` **satisfies a kept `Mut X` position** (dropping `ref`
     forgets which container, which only loses aliasing permission —
     [qual-erasure]). Consuming positions refuse it, as every projection.
+  * **A handle reads as a borrow**: `ref(c) T <: proj T`, inside a union
+    arm too, so an optional handle passes to a `(proj X)?` slot, and
+    `copy(value: proj T)` binds `T` to the element, not the handle
+    (2026-10-10, found from the user's `demo/`).
   * **Mutating through the handle is legal** — a projection assignment,
     `++`, a `Mut` argument position — and is a mutation event on the
     handle's *roots* at the linked paths [fate-poison]: sibling derivations

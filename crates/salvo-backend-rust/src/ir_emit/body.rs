@@ -797,11 +797,19 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     let m = self.f.place_mut;
                     return (self.render_path(&h.root, &steps, m), Kind::Elem);
                 }
-                super::paths::HandleBinding::Optional { var, .. } => {
+                super::paths::HandleBinding::Optional { var, prefix, pt } => {
                     if !p.steps.is_empty() {
                         self.error("a field of an optional handle read before it was tested [rs-path]");
                     }
-                    return (var, Kind::Owned);
+                    // [rs-path] Used as a value, an optional handle is the
+                    // optional element: its path, walked if present.
+                    let x = "__x".to_string();
+                    let mut steps = prefix.steps.clone();
+                    steps.extend(self.steps_of_value(&pt, &x));
+                    let m = self.f.place_mut;
+                    let place = self.render_path(&prefix.root, &steps, m);
+                    let r = if m { "&mut " } else { "&" };
+                    return (format!("{var}.map(|{x}| {r}{place})"), Kind::Owned);
                 }
             }
         }

@@ -16588,3 +16588,60 @@ fn rustc_compiles_and_runs_notsame_handles() {
     assert!(reff.content.contains("std::ptr::eq(a, b)"), "{}", reff.content);
     run_rust_files(&files, "notsame-handles", NOTSAME_OUTPUT);
 }
+
+// [ref-handle] [rs-path] A handle read where a value is expected: unwrapped
+// into a kept owned slot, passed whole (optional) to a borrowed optional
+// slot (`ref(c) T <: proj T`, the optional walked if present), and copied
+// (`copy` binds `T` to the element, not the handle) — the copy is a value
+// of its own, so a later write through the handle leaves it alone.
+pub const HANDLE_READ_DEMO: &str = r#"
+struct Word canbe Mut { text: Str }
+struct B canbe Mut { c: List<Mut Word> }
+struct A canbe Mut { b: B, d: List<Mut Word> }
+
+fn at(a: A, index: Int) [] -> ref(a) Mut Word? => a, index {
+    if index < 0 {
+        return a.d.get(-index)
+    }
+    return a.b.c.get(index)
+}
+
+fn print_one(w: Word) [Console] => w {
+    println(w.text)
+}
+
+fn maybe_print(w: (proj Word)?) [Console] => w {
+    if w is Word {
+        println(w.text)
+    }
+}
+
+fn keep(w: Word) [] -> Word => !w {
+    return w
+}
+
+export fn main() [use] -> None {
+    use StdOutConsole()
+    let a = A { b: B { c: list_of(Mut Word { text: "something" }) }, d: list_of(Mut Word { text: "one" }, Mut Word { text: "two" }) }
+    let x = at(a, -1)
+    let y = at(a, 0)
+    let z = at(a, 5)
+    print_one(y!)
+    maybe_print(x)
+    maybe_print(z)
+    let owned = keep(copy(y!))
+    let w = y!
+    w.text = "changed"
+    println("${owned.text} ${get(a.b.c, 0)!.text}")
+}
+"#;
+
+pub const HANDLE_READ_OUTPUT: &str = "something\ntwo\nsomething changed\n";
+
+#[test]
+fn rustc_compiles_and_runs_handle_reads() {
+    let files = generate(&[("main.sv", HANDLE_READ_DEMO)]);
+    let main = files.iter().find(|f| f.rel_path.to_str() == Some("main.rs")).unwrap();
+    assert!(main.content.contains(".map(|__x"), "the optional handle is walked when present:\n{}", main.content);
+    run_rust_files(&files, "handle-reads", HANDLE_READ_OUTPUT);
+}

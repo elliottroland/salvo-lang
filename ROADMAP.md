@@ -1147,6 +1147,18 @@ stay the design record. What remains:
    finite path: refused, and waiting on the recursive-types work (item 17).
 4. **`Deque` has no `at`**, and **`Map` has no total `at` at a `KeyOf`**
    (user: the next sequence). Each is the list's two lines.
+5. **Open defect: `copy` of an optional non-scalar borrow is refused**
+   (found 2026-10-10, predates `ref`): `copy(get(xs, i))` and `copy(at(a,
+   i))` without `!` report "holds a borrowed value … where `copy` expects an
+   owned one", because `copy(value: proj T)` meets the borrow inside a union
+   arm. A Copy scalar's optional borrow already works (`.cloned()`); the
+   non-scalar case needs the checker to bind `T` through the arm and both
+   emitters to copy the present arm. Remedy today: `copy(x!)` or test first.
+6. **Open defect (Kotlin): an optional `Mut Str` into a `Str?` slot** fails
+   kotlinc (`StringBuilder?` where `String?` is expected): the
+   `Mut Str → Str` conversion is applied at the top level only. Repro:
+   `fn show(s: (proj Str)?) …; let ws: List<Mut Str> = list_of(mut_str("a")); show(get(ws, 0))`.
+   Rust is fine. Predates `ref`.
 
 ### 16 — Composing iterators: stages over a generic source (after the redesign)
 

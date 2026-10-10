@@ -732,6 +732,20 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
         {
             is_subtype(a, &b.clone().remove_quals(&proj_names()))
         }
+        // [ref-handle] `ref(c) T <: proj T`: a handle read where a borrow is
+        // expected forgets which container it is a position in — reading
+        // through it is reading a borrow.
+        (Ty::Qualified { quals: qa, base: ba }, Ty::Qualified { quals: qb, .. })
+            if qa.iter().any(|q| q.name == "ref")
+                && qb.iter().any(|q| q.name == "proj")
+                && !qb.iter().any(|q| q.name == "ref") =>
+        {
+            let renamed: Vec<Qual> = qa
+                .iter()
+                .map(|q| if q.name == "ref" { Qual::plain("proj", Vec::new()) } else { q.clone() })
+                .collect();
+            is_subtype(&Ty::Qualified { quals: renamed, base: ba.clone() }, b)
+        }
         (
             Ty::Qualified { quals: qa, base: ba },
             Ty::Qualified { quals: qb, base: bb },

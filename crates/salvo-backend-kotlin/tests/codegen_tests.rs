@@ -4484,6 +4484,59 @@ const NOTSAME_OUTPUT: &str = "bench 1\n\
      same cell\n\
      102 212\n";
 
+/// [ref-handle] A handle read where a value is expected — unwrapped,
+/// passed whole to a borrowed optional slot, copied — same source and output
+/// as the Rust case.
+const HANDLE_READ_DEMO: &str = r#"
+struct Word canbe Mut { text: Str }
+struct B canbe Mut { c: List<Mut Word> }
+struct A canbe Mut { b: B, d: List<Mut Word> }
+
+fn at(a: A, index: Int) [] -> ref(a) Mut Word? => a, index {
+    if index < 0 {
+        return a.d.get(-index)
+    }
+    return a.b.c.get(index)
+}
+
+fn print_one(w: Word) [Console] => w {
+    println(w.text)
+}
+
+fn maybe_print(w: (proj Word)?) [Console] => w {
+    if w is Word {
+        println(w.text)
+    }
+}
+
+fn keep(w: Word) [] -> Word => !w {
+    return w
+}
+
+export fn main() [use] -> None {
+    use StdOutConsole()
+    let a = A { b: B { c: list_of(Mut Word { text: "something" }) }, d: list_of(Mut Word { text: "one" }, Mut Word { text: "two" }) }
+    let x = at(a, -1)
+    let y = at(a, 0)
+    let z = at(a, 5)
+    print_one(y!)
+    maybe_print(x)
+    maybe_print(z)
+    let owned = keep(copy(y!))
+    let w = y!
+    w.text = "changed"
+    println("${owned.text} ${get(a.b.c, 0)!.text}")
+}
+"#;
+
+fn kotlinc_compiles_and_runs_handle_reads() -> KotlinCase {
+    let program = build_program(&[("main.sv", HANDLE_READ_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "handle_reads", "something\ntwo\nsomething changed\n")
+}
+
 fn kotlinc_compiles_and_runs_notsame_handles() -> KotlinCase {
     let program = build_program(&[("main.sv", NOTSAME_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
@@ -4748,6 +4801,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_elem_mut_handles,
     kotlinc_compiles_and_runs_distinct_pair_calls,
     kotlinc_compiles_and_runs_notsame_handles,
+    kotlinc_compiles_and_runs_handle_reads,
     kotlinc_compiles_and_runs_the_update_family,
     kotlinc_compiles_and_runs_a_lending_fn_value,
     kotlinc_compiles_and_runs_the_locate_bundle,

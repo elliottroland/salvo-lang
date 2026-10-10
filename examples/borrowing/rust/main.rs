@@ -127,7 +127,7 @@ pub fn wounded(squad: &Vec<crate::Fighter>) -> Option<usize> {
 pub fn rally_at<L: Clone>(squad: &mut Vec<crate::Fighter>, l: &L, at: &mut dyn FnMut(&Vec<crate::Fighter>, &L) -> Option<usize>) {
     crate::heal({
         let __h1: Option<usize> = at(&*squad, l);
-        if __h1.is_none() {
+        if __h1.map(|__x| &squad[__x]).is_none() {
             panic!("salvo: value is absent at main:102:10");
         } else {
             let __h2 = __h1.expect("salvo: value is absent");
@@ -285,7 +285,7 @@ pub fn main() {
     }));
     crate::heal({
         let __h3: Option<usize> = crate::wounded(&squad);
-        if __h3.is_none() {
+        if __h3.map(|__x| &squad[__x]).is_none() {
             panic!("salvo: value is absent at main:238:10");
         } else {
             let __h4 = __h3.expect("salvo: value is absent");

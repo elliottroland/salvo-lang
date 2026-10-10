@@ -26229,7 +26229,13 @@ fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
             // against `Emitted (proj Str)` binds `T = proj Str`), and
             // drops the droppable ones as before.
             let residual = {
-                let names: HashSet<String> = pq.iter().map(|q| q.name.clone()).collect();
+                let mut names: HashSet<String> = pq.iter().map(|q| q.name.clone()).collect();
+                // [ref-handle] A borrow position matches either flavour: a
+                // `ref` handle read through `proj T` binds `T` to what it
+                // names, not to the handle.
+                if pq.iter().any(|q| crate::types::is_proj_name(&q.name)) {
+                    names.extend(crate::types::proj_names());
+                }
                 arg.clone().remove_quals(&names)
             };
             pq.iter().all(|q| {
