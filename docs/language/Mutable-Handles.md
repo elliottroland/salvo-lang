@@ -12,7 +12,8 @@ answers it three ways instead, in order of how much you have to say:
 
 1. say nothing, and the compiler keeps one handle at a time;
 2. **prove** two handles are different, and use both;
-3. **declare** that two may be the same, and let the callee cope.
+3. **name the container** two handles share, and let the callee cope with
+   their being the same element.
 
 This page is those three, plus what each costs on the two backends.
 
@@ -25,6 +26,9 @@ handle. The two are different permissions:
   `remove_at`, `set`, `swap`).
 * `List<Mut T>` — a container of mutable *elements*: its shape is fixed, but
   each element can be changed in place.
+
+Two accessors reach an element, and the choice between them says what you
+mean to do with it: **`get` reads, `at` handles.**
 
 ```
 struct Counter canbe Mut {
@@ -39,9 +43,9 @@ fn main() [use] {
     use StdOutConsole()
     let counters: List<Mut Counter> = list_of(Mut Counter {n: 1}, Mut Counter {n: 2})
 
-    bump(get(counters, 0)!)            // a handle, used where it is minted
+    bump(at(counters, 0)!)             // a handle, used where it is minted
 
-    let second = get(counters, 1)!     // …or bound and used across statements
+    let second = at(counters, 1)!      // …or bound and used across statements
     second.n = second.n + 10
     bump(second)
 
@@ -49,17 +53,31 @@ fn main() [use] {
 }
 ```
 
-`get` is the ordinary accessor: at `T = Mut Counter` it answers
-`(proj(counters) Mut Counter)?` — a *projection* that carries `Mut`, which
-is what makes it a handle rather than a reading. A projection of a
-non-`Mut` element stays read-only, and `copy` is still how you get a value
-of your own.
+`at(counters, i)` answers `ref(counters) Mut Counter?`. `ref(counters)` is a
+qualifier naming the container the value is a position in, and the `Mut`
+on top of it is the permission to write through it; together they make the
+value a **handle** [ref-handle]. `get(counters, i)` answers
+`proj(counters) Mut Counter?`, a read-only *projection*: its `Mut` is only
+part of the element type, so it fits no `Mut` position. Passing a `get`
+result to `bump` is an error that names `at` as the remedy, and assigning
+through one is refused as a write to a read-only projection. `copy` is
+still how you get a value of your own.
+
+Maps work the same way: `at(m, key)` answers `ref(m) Mut V?`, and a handle
+chains through a map exactly as through a list:
+
+```
+let m: Mut Map<Str, Mut List<Mut Item>> = mut_map_of()
+put(m, "a", mut_list_of(Mut Item {tag: "x"}, Mut Item {tag: "y"}))
+let it = at(at(m, "a")!, 1)!           // the list at "a", then its element 1
+it.tag = "z"
+```
 
 Handles that are only **read** impose nothing, so any number coexist:
 
 ```
-let a = get(counters, 0)!
-let b = get(counters, 1)!
+let a = at(counters, 0)!
+let b = at(counters, 1)!
 println("${a.n} ${b.n}")          // two live handles, both read: fine
 ```
 
@@ -70,7 +88,7 @@ its storage did not move.
 ## Lending a handle from your own function
 
 A function can hand a handle back. It says so on its return type, naming
-what the result borrows:
+the container the result is a handle into:
 
 ```
 struct Entity canbe Mut {
@@ -78,7 +96,7 @@ struct Entity canbe Mut {
 }
 
 // Searches, and lends back what it found.
-fn wounded(es: List<Mut Entity>) -> (proj(es) Mut Entity)? {
+fn wounded(es: List<Mut Entity>) -> (ref(es) Mut Entity)? {
     for e in es {
         if e.hp < 10 {
             return e
@@ -99,6 +117,12 @@ fn main() [use] {
 }
 ```
 
+The body returns `e`, which the loop produced as a projection of `es`. The
+declared `ref(es)` return is what turns it into a handle: a function
+declared `-> ref(c) Mut T` that returns a projection of `c` is **minting**
+one. That is all std's own `at` is — `return get(list, index)` under a
+`-> ref(list) Mut T?` signature.
+
 The handle may be used where it is minted, bound across statements, or —
 as here — **found by a loop**, where the position is never written down.
 
@@ -112,16 +136,17 @@ rather than a reference — see
 [What the backends do](#what-the-backends-do).
 
 A generic function can lend too, if the caller supplies the accessor. That
-is what `params Locate` is for — the bundle pattern, applied to positions:
+is what `params Ref` is for [col-locate] — the bundle pattern, applied to
+positions:
 
 ```
 // core.list
-params Locate<C, L, T> {
-    fn at(c: C, l: L) -> proj(c) Mut T?
+params Ref<C, L, T> {
+    fn at(c: C, l: L) -> ref(c) Mut T?
 }
 
 // Generic over what a *position* is; the caller fills `at`.
-fn heal_at<L>(c: List<Mut Entity>, l: L, ?Locate<List<Mut Entity>, L, Entity>) -> None {
+fn heal_at<L>(c: List<Mut Entity>, l: L, ?Ref<List<Mut Entity>, L, Entity>) -> None {
     heal(at(c, l)!)
 }
 
@@ -130,18 +155,24 @@ heal_at(squad, 1)                  // `at` resolves to the list accessor
 
 ## One handle at a time, by default
 
-Say nothing and the compiler keeps a single live handle per container. A
-second one is refused, because a computed index cannot be told from
-another computed index:
+Say nothing and the compiler keeps a single *usable* handle per container
+once one of them writes. Two handles from computed indices may name the
+same element, so a write through one invalidates the other:
 
 ```
-let a = get(squad, i)!
-let b = get(squad, j)!             // error: `a` is a live mutable handle into `squad`
+let a = at(squad, i)!
+let b = at(squad, j)!
+a.hp = a.hp + 1
+b.hp = b.hp + 1                    // error: `squad` was mutated (through `a`) after `b` was bound
 ```
 
 The same rule reaches call arguments: two handles into one container in one
 call is refused at the second argument, and the diagnostic names the two
 ways forward — prove them apart, or mutate through one at a time.
+
+```
+duel(at(squad, i)!, at(squad, j)!)     // error at the second argument
+```
 
 ## Proving two handles apart: `NotEq`
 
@@ -159,17 +190,22 @@ Test it and the two handles are known to name different elements, so both
 live at once and a write through one leaves the other standing:
 
 ```
+fn duel(a: Mut Entity, d: Mut Entity) -> None => a: Mut, d: Mut {
+    a.energy = a.energy - 1
+    d.hp = d.hp - 2
+}
+
 if j is NotEq(i) {
-    let a = get(squad, i)          // the total `get`: the `Idx` claim did the checking
-    let d = get(squad, j)
+    let a = at(squad, i)!
+    let d = at(squad, j)!
     a.hp = a.hp + 1
     d.hp = d.hp - 1                // `a` is untouched by this
-    attack(a, d)                   // …and one call may take both
+    duel(a, d)                     // …and one call may take both
 }
 ```
 
 The claim is a fact about the indices' *current values*: reassigning either
-side takes it away, like any dependent claim.
+side takes it away, like any dependent claim [elem-distinct].
 
 For the common shapes std wraps the proof up, so a caller writes neither
 the handles nor the claim:
@@ -189,7 +225,10 @@ write moves no boundary, so the indices you proved remain valid:
 ```
 update(squad, i, hero -> { hero.hp = hero.hp - 3 })
 if j is NotEq(i) {
-    update2(squad, i, j, (a, d) -> { a.hp = a.hp - 1; d.hp = d.hp - 2 })
+    update2(squad, i, j, (a, d) -> {
+        a.hp = a.hp - 1
+        d.hp = d.hp - 2
+    })
 }
 println("${get(squad, i).hp}")     // still the *total* read: `Idx` survived
 ```
@@ -199,56 +238,56 @@ gone and the total read stops resolving until you test again. That is the
 conservative default, and `preserve Idx` on a signature is how a function
 opts out of it.
 
-## Declaring that two may be the same: `canbe`
+## Handles that share a container: `ref(c)` parameters
 
 Sometimes the aliasing is the point. A function that means to accept two
-handles which might be one object says so in its deduction clause:
+handles which might be one element says so by typing them as handles into
+a container it also takes [ref-anchor]:
 
 ```
-fn attack(a: Mut Entity, d: Mut Entity) -> None
-=> a canbe d, a: Mut, d: Mut {
+fn strike(c: List<Mut Entity>, a: ref(c) Mut Entity, d: ref(c) Mut Entity) -> None {
     a.energy = a.energy - 1
     d.hp = d.hp - 2
 }
 ```
 
-Now the caller needs no proof at all — self-attack included:
+`a` and `d` are both positions in `c`, so they may be the same position,
+and the caller needs no proof at all — self-strike included:
 
 ```
-attack(get(squad, i)!, get(squad, j)!)     // i and j unknown: fine
-attack(get(squad, i)!, get(squad, i)!)     // the same entity, twice: also fine
+strike(squad, at(squad, i)!, at(squad, j)!)     // i and j unknown: fine
+strike(squad, at(squad, i)!, at(squad, i)!)     // the same entity, twice: also fine
 ```
 
-`canbe` is **symmetric** (`a canbe d` says it once) and
-**non-transitive** (`a canbe b, b canbe c` does not relate `a` and `c` —
-the relation is a graph, and the sentence says exactly what the rule
-means). A `|` list on the right is a hub: `a canbe b|c` relates `a` to each
-of them, not `b` to `c`. On the left it is plural-subject sugar:
-`a|b|c canbe in es` is three entries.
+The rules are few:
 
-The **anchored** form says a parameter may be an element of a named
-container, which is how the n-way case stays linear in n:
+* `ref(c)` must name **another parameter** of the same function; anything
+  else is an error at the declaration.
+* Any number of parameters may name one container. Each one says
+  `ref(c)` once — there is no relation to write per pair.
+* The caller must pass handles **minted from that very container**. A
+  handle into a different list, an owned value, or a read-only `get`
+  result is refused, and the diagnostic names `at`.
+
+The container may be a **field path** at the call, which is how handles
+travel *beside the container they came from*:
 
 ```
-fn shuffle(lib: Mut Library, track: Mut Track, other: Mut Track) -> None
-=> track canbe in lib.tracks, other canbe in lib.tracks, lib: Mut {
-    …
+struct Library canbe Mut {
+    name: Str,
+    tracks: List<Mut Track>
 }
+
+fn shuffle(tracks: List<Mut Track>, track: ref(tracks) Mut Track, other: ref(tracks) Mut Track) -> None {
+    track.plays = track.plays + 1
+    other.plays = other.plays - 1
+}
+
+shuffle(lib.tracks, at(lib.tracks, i)!, at(lib.tracks, j)!)
 ```
 
-Two parameters anchored in the *same* path are maybe-elements of one
-container, so the mutual aliasing falls out of the shared anchor rather
-than needing a `canbe` between them. The anchor is a path rooted at a
-**parameter** — a value the callee has — and naming it is also what lets
-handles travel *beside the container they came from*, which is the one
-thing a plain `canbe` cannot say:
-
-```
-shuffle(lib, get(lib.tracks, i)!, get(lib.tracks, j)!)
-```
-
-Aliasability is **written, never inferred**: it changes what a caller may
-pass, so it stays visible in the signature.
+Whether two handles may alias is **written, never inferred**: it changes
+what a caller may pass, so it stays visible in the signature.
 
 ## Which field a call touches
 
@@ -313,10 +352,10 @@ container plus an index or a field path, re-materialized at each use.
 
 ```
 // Salvo                              // Rust
-let boss = get(squad, i)!             let __h0 = (i) as usize;      // captured
-boss.hp = boss.hp + 5                 squad[__h0].hp = squad[__h0].hp + 5;
+let boss = at(squad, i)!              let __h1: usize = at__loc(&squad, i).expect(…);
+boss.hp = boss.hp + 5                 squad[__h1].hp = squad[__h1].hp + 5;
 let n = size(squad)                   let n = squad.len();          // legal: no live borrow
-boss.hp = boss.hp + n                 squad[__h0].hp = squad[__h0].hp + n;
+boss.hp = boss.hp + n                 squad[__h1].hp = squad[__h1].hp + n;
 ```
 
 That is what buys the flexibility. A bound `&mut squad[i]` would forbid the
@@ -328,16 +367,19 @@ a live `&mut` could not survive:
 * **A search that lends what it found** returns a position, so there is no
   borrow to keep alive past the loop — and the caller may go on reading the
   container it searched.
-* **A handle across a closure or trait boundary** — `params Locate`'s `at`,
+* **A handle across a closure or trait boundary** — `params Ref`'s `at`,
   an effect member that lends — travels as data, so the borrow is created on
   the far side of the boundary instead of crossing it.
-* **Two handles that may be one** (`canbe`) render as *one* shared anchor
-  plus two positions, so the aliasing is exact: both positions index the
-  same storage, which is what Kotlin does natively. This one Rust cannot
-  express at all: `&mut` has no way to say "these may coincide" (E0499).
-  Under the anchored form the anchor is the parameter itself, so the
-  container is borrowed once and the handles are indices into it —
-  `shuffle(lib: &mut Library, __c1: usize, __c2: usize)`.
+* **Handles that share a container** (`ref(c)` parameters) render as the
+  container, borrowed once, plus a position per handle —
+  `pub fn strike(c: &mut Vec<Entity>, __c1: usize, __c2: usize)`, indexing
+  `c[__c1]` and `c[__c2]`. When the two coincide they index the same
+  storage, which is what Kotlin does natively. Rust cannot express this
+  with references at all: `&mut` has no way to say "these may coincide"
+  (E0499). At the call the positions are computed first, so the
+  container's `&mut` is the only borrow:
+  `strike(&mut squad, __c1, __c2)`, or `shuffle(&mut lib.tracks, …)` for a
+  field path.
 * **Proven-disjoint handles** (`NotEq`) render as a single `split_at_mut`,
   the pattern a Rust programmer writes by hand — and the one rustc's own
   E0499 suggests.
@@ -347,5 +389,6 @@ a live `&mut` could not survive:
   hand translation is E0502.
 
 The cost is honest: a position is re-indexed per use, where a `&mut` is
-free, and the bounds check is paid unless a claim has removed it. Read
-handles keep the zero-cost path — a read-only projection *is* `&T`.
+free, and the bounds check is paid unless a claim has removed it. Reads
+keep the zero-cost path — a `get` result is a read-only projection, and a
+read-only projection *is* `&T`.

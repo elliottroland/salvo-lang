@@ -869,7 +869,7 @@ Conventions:
 * [col-update] `core.list`'s **in-place update family** (step ③ of the
   group-borrowing ladder, user decisions 2026-09-24): `update(list:
   List<Mut T>, index: Idx(list) Int, f: (elem: Mut T) -> None)` hands the
-  callback the mutable element handle [proj-mut] — nothing copied, moved
+  callback the mutable element handle [ref-handle] — nothing copied, moved
   out, or put back — and `update2(list, i: Idx(list) Int, j: NotEq(i)
   Idx(list) Int, f: (a: Mut T, b: Mut T) -> None)` is the two-element
   transaction, its indices proven apart by the declared claim
@@ -878,17 +878,20 @@ Conventions:
   updates stay total. **Ordinary Salvo, not intrinsics** — the bodies are
   exactly the mints the proofs legalize, riding [rs-loc] on the Rust
   backend. Note the parameters carry no container `Mut`: element
-  mutability is the element type's [proj-mut].
-* [col-locate] `core.list` declares `params Locate<C, L, T> { fn at(c: C,
-  l: L) -> proj(c) Mut T? }` (user decision 2026-09-24, ④a slice 3′): what a
+  mutability is the element type's [ref-handle].
+* [col-locate] `core.list` declares `params Ref<C, L, T> { fn at(c: C,
+  l: L) -> ref(c) Mut T? }` (user decision 2026-09-24, ④a slice 3′; renamed
+  from `Locate` with the `ref(c)` rework, 2026-10-08): what a
   **position-based** algorithm needs, as a params group [implicit-group] —
   one function turning a container and a position into the element's
   mutable handle, so the algorithm stays generic over *what a position is*
   (an index for a list, a key for a map, a cursor of your own) while the
   caller, which knows the shape, fills it. The `Yield` pattern for places
   rather than elements, and the idiom that pierces generic opacity for
-  mutable lends. std ships the canonical `at` for a list (`get` under the
-  group's name). Rust renders such a position as a **locator** [rs-loc].
+  mutable lends. std ships the canonical `at` for a list (by index) and for
+  a map (by key): `at` is **the** mint of a mutable handle [ref-handle].
+  Rust renders such a position as a **locator** [rs-loc] — an index for a
+  list, the entry's slot for a map.
 * [col-salvo] **Most of the list surface is Salvo** (2026-10-03, user
   request): over the intrinsics `get`, `size`, `add`, `swap`, and two new
   ones, `core.list` writes `last`, `is_empty`, `remove_front(list, n)` /
@@ -1263,8 +1266,11 @@ Conventions:
     type at the `let` boundary (coercion recorded by the checker).
 * [for-elem-write] **A `for` body may write a field of its element** (user
   decision 2026-10-04): `for a in xs { a.dead = true }` over a `Mut List<Mut
-  T>` changes the list's elements. Rust iterates `iter_mut()` when the body
-  assigns through the element; Kotlin needed nothing.
+  T>` changes the list's elements. Since the `ref(c)` rework the element of
+  an in-place walk over `Mut` elements is a handle, `ref(xs) Mut T`
+  [ref-handle], where the read-only `proj(xs) Mut T` would refuse the write.
+  Rust iterates `iter_mut()` when the body assigns through the element;
+  Kotlin needed nothing.
 * [let-destructure] `let (a, b) = ...` and `let {field, field: name} = ...`
   destructure tuples and structs.
   * Struct destructuring binds the *declared* field types, deliberately
@@ -7287,10 +7293,10 @@ between endpoints and delivers what arrives into the scheduler.
     the backends in agreement. A possible later automation (hoisting the
     temporary) is recorded in ROADMAP.
 * [proj-readonly] A `proj` value **without `Mut` is read-only** (user
-  decision 2026-09-11; narrowed 2026-09-24 by [proj-mut], which is P-3 of
+  decision 2026-09-11; narrowed 2026-09-24 by [ref-handle], which is P-3 of
   the group-borrowing ladder): a plain projection never satisfies a `Mut`
   position; passing it where `Mut` is required, or mutating it, reports the
-  projection and the `copy` remedy (and, since [proj-mut], the
+  projection and the `copy` remedy (and, since [ref-handle], the
   `List<Mut T>` route). `copy` is the way out and yields an owned `Mut X`.
   Moving a wholesale projection is refused the same way — `Mut`-carrying or
   not — except a Copy scalar [copy-scalar-free].
@@ -7302,18 +7308,32 @@ between endpoints and delivers what arrives into the scheduler.
     accepts `proj Mut` arguments — or drop the `proj`). Nested occurrences
     (`Mut List<proj Mut Str>`) and non-parameter positions (locals, fields,
     returns) keep the type legal.
-* [proj-mut] **A projection carrying `Mut` is a mutable element handle**
-  (user decisions 2026-09-24 — P-3 and P-9 of COMPLETED.md's log (the group-borrowing ladder);
-  the partial repeal of [proj-readonly]'s original blanket rule). Element
-  mutability is the **element type's, not the container handle's**:
-  container `Mut` is *structural* permission (`add`/`remove`/`set`/`swap`),
-  while `List<Mut T>` elements hand out in-place-mutable handles — the
-  generic `get` instantiated at `T = Mut Entity` answers
-  `(proj(list) Mut Entity)?` by ordinary substitution, and that `Mut` is
-  the permission. The rules:
-  * `proj Mut X` **satisfies a kept `Mut X` position** — the acceptance
-    that [proj-readonly] refused; a projection without `Mut` still never
-    does. Consuming positions still refuse every projection.
+* [ref-handle] **A `ref(c)` carrying `Mut` is a mutable element handle**
+  (user decisions 2026-09-24 — P-3 and P-9 of COMPLETED.md's log, the
+  group-borrowing ladder — re-spelled 2026-10-08: `ref(c)` replaces
+  `proj Mut`, GROUP_BORROWING.md Part 7). `ref(c)` is a provenance
+  qualifier naming the container `c` the handle is a position in; its
+  permission is a separate qualifier on top (`ref(c) Mut T` mutable,
+  `ref(c) T` read-only). Element mutability is the **element type's, not
+  the container handle's**: container `Mut` is *structural* permission
+  (`add`/`remove`/`set`/`swap`), while `List<Mut T>` elements hand out
+  in-place-mutable handles. The rules:
+  * **`get` reads, `at` handles.** `get(list, i)` always answers a
+    read-only `proj(list) T` — on a `List<Mut X>` that is `proj(list) Mut
+    X`, whose `Mut` only rides along as part of the element type and
+    satisfies no `Mut` position. `at(list, i)` (and `at(map, key)`)
+    answers `ref(list) Mut T?`, the handle [col-locate]. A plain `proj`
+    passed to a kept `Mut` position — of a named callee or a fn value —
+    is refused naming `at` as the remedy.
+  * **The mint.** A fn declared `-> ref(c) Mut T` (or its optional) whose
+    body returns a projection of `c` is minting the handle: the checker
+    accepts the `proj → ref` promotion at the return (distributed over the
+    optional's arms) and records the value as the handle. A `ref` return
+    is a derived return like `proj(c)` [readonly-return]: its source is
+    `c`, which is lent mutably.
+  * `ref(c) Mut X` **satisfies a kept `Mut X` position** (dropping `ref`
+    forgets which container, which only loses aliasing permission —
+    [qual-erasure]). Consuming positions refuse it, as every projection.
   * **Mutating through the handle is legal** — a projection assignment,
     `++`, a `Mut` argument position — and is a mutation event on the
     handle's *roots* at the linked paths [fate-poison]: sibling derivations
@@ -7325,22 +7345,40 @@ between endpoints and delivers what arrives into the scheduler.
   * **Mode is inferred per binding** (P-9, the [fate-move-mode] pattern):
     a handle some downstream use mutates is recorded in
     `Checked::handle_muts` at its bind event, for the Rust backend's
-    rendering [rs-elem-mut]; handles only read keep today's borrow
-    renderings, so any number coexist.
-  * The **declaration-site refusals stand**: a parameter written top-level
-    `proj Mut` is still an error ([proj-readonly]'s declaration half), and
-    a `proj Mut` that is not element-anchored has no minting surface.
-    Destruction under a live handle needs no new rule — any structural
-    `Mut` use of the container poisons the handles it lent.
-  * Implementation: `arg_fits_param` (the acceptance), `fate_mutation_at`
-    (the mutation event, with the acting handle exempted from its own
-    poison — `poison_derived_except`), `handle_muts` (the P-9 table).
-  * Implementation: the projection lives in the lowered type
-    ([proj-type], 2026-09-12; before that it was erased and carried only
-    on links) *and* on the fate link — `FateLink.borrowed && !held` is a
-    wholesale projection, `held` a borrow an owned object carries
-    [proj-infer]. A variable whose every link is held may be mutated (its
-    own fields are its own); one with a wholesale or alias link may not.
+    rendering [rs-elem-mut]; handles only read keep the borrow renderings,
+    so any number coexist.
+  * **Declaration-site refusals stand**: a parameter written top-level
+    `proj Mut` is still an error ([proj-readonly]'s declaration half);
+    `ref(c) Mut` is the legal spelling. Destruction under a live handle
+    needs no new rule — any structural `Mut` use of the container poisons
+    the handles it lent.
+  * Implementation: `arg_fits_param` (the acceptance, `ProjBlock::NotHandle`
+    the refusal), `has_ref_arm`/`promote_proj_to_ref` (the mint),
+    `fate_mutation_at` (the mutation event, with the acting handle exempted
+    from its own poison), `handle_muts` (the P-9 table). The projection
+    lives in the lowered type ([proj-type]) *and* on the fate link —
+    `FateLink.borrowed && !held` is a wholesale projection, `held` a borrow
+    an owned object carries [proj-infer].
+* [ref-anchor] **`ref(c)` parameters share a container** (user decision
+  2026-10-08, retiring `canbe`): a parameter typed `ref(c) Mut T`, where
+  `c` names another parameter, is a handle into the container passed as
+  `c` — `fn strike(c: List<Mut T>, a: ref(c) Mut T, d: ref(c) Mut T)`.
+  * **Two handles anchored at one container may alias**: the same-call
+    pair rule [elem-distinct] stands down for them, self-strike (`i == j`)
+    included — no proof needed, because both are positions in one
+    container. Any number of parameters may name one container.
+  * **The caller must hand in a handle into that container**: each
+    anchored argument is a `ref` handle one of whose links is the container
+    argument's own (root and path); a handle into another container, an
+    owned value, or a read-only `proj` is refused. The container may be a
+    field path at the call (`rotate(team.members, at(team.members, i)!,
+    …)`).
+  * `ref(c)` must name **another parameter**; anything else is an error at
+    the declaration. The container a handle parameter names is lent
+    mutably when the handle carries `Mut`.
+  * Implementation: `check_elem_handle_pairs`'s `anchors`, `ref_anchor_of`;
+    IR `FnDecl::ref_anchors` (dumped as `anchors a in c`); the Rust
+    rendering is the container once plus a position per handle [rs-loc].
 * [param-const] **A parameter is a constant binding** (user decision
   2026-09-25): assigning one — `n = n + 1`, `n++`, `h = Holder {…}` — is an
   error, whatever its type. The reading is that a parameter is `const`, and
@@ -7422,40 +7460,6 @@ between endpoints and delivers what arrives into the scheduler.
     (`h: Mut Holder` cannot say `.tags: NonEmpty`), so such claims are
     established and consumed *within* a function. Carrying one across a call
     boundary would need type-level syntax, which nothing yet asks for.
-* [canbe-entry] **`canbe` — the alias-group relation** (user decisions
-  2026-09-24, GB-1(s); built as rung ④b): a deduction-clause entry saying
-  two parameters **may name the same object** — `=> a canbe d`. Symmetric
-  (writing both directions would be noise) and **non-transitive** (the
-  relation is a graph, not an equivalence). Exempt from the
-  one-entry-per-parameter rule, on `preserve`'s precedent: `=> a canbe d,
-  a: Mut` is two statements about `a`. Forms, all desugaring to binary
-  symmetric relations:
-  * **`=> track canbe in lib.tracks`** — the *anchored* form: the parameter
-    may be an element of the named container path, and two parameters
-    anchored in the **same** path may therefore coincide (the
-    shared-anchor rule: the container-rooted n-way case costs one entry
-    per parameter, linear in n). The path is **rooted at a parameter** —
-    the anchor is a value the callee has — which is also what lets the
-    anchored form license handles passed *beside their own container* in
-    one call [rs-loc].
-  * **`|` lists on both sides**: on the right a hub (`a canbe b|c` is a↔b
-    and a↔c, *not* b↔c — the sentence says exactly what the rule means);
-    on the left plural-subject sugar (`a|b|c canbe in es` is the three
-    anchored entries). `canbe in` takes path lists the same way.
-  * **What coverage buys**: the same-call rule stands down for a covered
-    pair [deduce-same-call] — two element handles of one container need no
-    disjointness proof [elem-distinct] — and the Rust backend renders the
-    covered positions against a **shared anchor** [rs-loc].
-  * Written-only (P-4): aliasability stays visible in every signature; no
-    inference claims an entry. The entry says nothing about keptness or
-    qualifiers. Diagnostic vocabulary keeps the word "alias group" for the
-    connected component, while the surface never needs it.
-  * **Both sides name parameters**, and a name that is not one is an error
-    (2026-09-25, found closing the anchored form's lowering defect): the
-    plain form relates two *parameters*, so a field path on its right is
-    refused with `canbe in` named as the form that means it; the anchored
-    form's container is a path whose **root** is a parameter. A plural
-    subject reports its right-hand side once, not once per subject.
 * [elem-distinct] **Distinct awareness** (user decisions 2026-09-24 —
   step ② of COMPLETED.md's log (the group-borrowing ladder)): two mutable element handles of
   one container whose minting indices a live `NotEq` claim proves apart
@@ -7463,13 +7467,13 @@ between endpoints and delivers what arrives into the scheduler.
   refinement of [fate-field-disjoint]'s may-alias-all rule for computed
   indices. The rules:
   * **Element links carry the identity of their minting index**: a handle
-    minted by `get(list, i)` — resolved to `core.list`'s `get`, either
-    overload — records `i`'s ultimate fate-root id on its links.
-    Recognition is **nominal** deliberately: a user fn with a derived
-    return may lend *any* projection of its container, so only the `get`
-    whose semantics the compiler knows may name an element discriminator.
-    A nested mint keeps the identity nearest the root
-    (`get(get(grid, i)!, j)` carries `i` — the discriminator of disjoint
+    minted by `at(list, i)` (or read by `get(list, i)`) — resolved to
+    `core.list`'s `at` or `get` — records `i`'s ultimate fate-root id on its
+    links. Recognition is **nominal** deliberately: a user fn with a derived
+    return may lend *any* projection of its container, so only the
+    accessors whose semantics the compiler knows may name an element
+    discriminator. A nested mint keeps the identity nearest the root
+    (`at(at(grid, i)!, j)` carries `i` — the discriminator of disjoint
     subtrees under the shared root); any other index shape carries none.
   * **The identity dies with the index variable's value**: reassignment
     or `++`/`--` of the index erases it from every link, eagerly at the
@@ -7614,7 +7618,7 @@ between endpoints and delivers what arrives into the scheduler.
   built 2026-10-06): *moved in* (consumed: `=> !p`, or inferred so), *lent*
   (kept, read by the callee), or *lent mutably* (kept, and the declared type
   carries `Mut`, or its elements do: `List<Mut T>` lends mutable handles
-  [proj-mut]). A fn-typed parameter is lent, or moved in when the fn stores
+  [ref-handle]). A fn-typed parameter is lent, or moved in when the fn stores
   its callbacks (a fn-typed parameter and a struct with a fn-typed field as
   the result); a variadic tail and a `once` fn group are moved in. The inputs
   differ by family: a top-level fn reads the checker's deductions; an effect
@@ -7625,14 +7629,14 @@ between endpoints and delivers what arrives into the scheduler.
   target makes of the mode is its own ([core-layers]): Rust passes a scalar by
   value whatever the mode, spells a lent fn value `&mut impl FnMut`
   ([rs-borrows]).
-* [mut-lends] **Which fns hand back a result a `Mut` position reads, and
-  which cover `canbe` parameters** (`salvo_core::mut_lends`, built
-  2026-10-06): the fns whose lent result serves a `Mut` position (the
-  checker's `mut_lend_calls` resolved through `call_fn`, followed along return
-  paths), the call sites that read one, and, per fn, the parameters its
-  `canbe` clause covers and the anchor they share. A target that renders a
-  lent mutable result as a locator ([rs-loc]) emits a twin of each such fn; a
-  garbage-collected target ignores both.
+* [mut-lends] **Which fns hand back a result a `Mut` position reads**
+  (`salvo_core::mut_lends`, built 2026-10-06): the fns whose lent result
+  serves a `Mut` position (the checker's `mut_lend_calls` and bound mints
+  resolved through `call_fn`, followed along return paths) and the call
+  sites that read one. A target that renders a lent mutable result as a
+  locator ([rs-loc]) emits a twin of each such fn; a garbage-collected
+  target ignores it. (The `canbe` coverage table it also held went with
+  `canbe`, 2026-10-08; anchored handles are [ref-anchor].)
 * [copy-plan] **What `copy` duplicates is core's call** (built 2026-10-06,
   `salvo_core::copyplan`): a tree per type — share the value when no Salvo
   operation can mutate any part of it (scalars, `Str`, non-`Mut` structs of

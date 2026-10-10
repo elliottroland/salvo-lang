@@ -1178,6 +1178,15 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         for (i, p) in params.iter().enumerate() {
             let n = rs_ident(&p.local.0);
             if let Some(&k) = anchors.get(&i) {
+                // [backend-never-wrong] A position indexes a container of a
+                // known indexable type; a generic one has no index here yet.
+                let indexable = matches!(self.s.unalias(&params[k].ty).strip_quals(), Ty::Named { name, .. } if name == "List" || name == "Map");
+                if !indexable {
+                    self.error(format!(
+                        "`{}: ref({})` needs `{}` to be a `List` or a `Map` on the Rust backend: a handle into a generic or custom container is not supported yet [ref-anchor]",
+                        p.local.0, params[k].local.0, params[k].local.0
+                    ));
+                }
                 let c = format!("__c{i}");
                 ps.push(format!("{c}: usize"));
                 self.f.kinds.insert(p.local.0.clone(), super::body::Kind::Elem);

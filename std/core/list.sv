@@ -130,7 +130,7 @@ export fn at<T canbe linear>(list: List<Mut T>, index: Int) [] -> ref(list) Mut 
 }
 
 // [col-update] Applies [f] to the element at [index], **in place**: the
-// callback receives the mutable element handle [proj-mut], so nothing is
+// callback receives the mutable element handle [ref-handle], so nothing is
 // copied, moved out, or put back. An in-place write moves no boundary, so
 // existing `Idx` claims survive the call [qual-preserve].
 export fn update<T>(list: List<Mut T>, index: Idx(list) Int, f: (elem: Mut T) -> None) [] -> None

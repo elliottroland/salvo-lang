@@ -42,7 +42,7 @@ and field narrowing, deductions with refinements, the iterator reduction to
 `next` (with any-name `iter fn`, `Iter` for sources and the `iter T`
 placeholder — the 2026-09-27 redesign), the collections, the filesystem, actors (spawn, send, park, watch,
 bridge), time, free concurrency, shareable-by-default handlers, refinement types,
-group borrowing, the testing framework, the comparison/hashing capabilities,
+group borrowing (`ref(c)` handles), the testing framework, the comparison/hashing capabilities,
 actors across machines (`net`, the whole network sequence), one shape for
 effects on both backends (every binding a handle, no fusion, no `local`), and
 the first comptime slice (`comptime fn` and `by auto`, replacing `auto`: the
@@ -50,7 +50,7 @@ structural `cmp`/`eq`/`hash`/`to_str` are std functions over the fields of any
 struct or the arms of any union).
 Fourteen worked examples in `examples/` carry the checked-in generated code for both
 targets and the output they print, three of them consuming the first dependency
-(`modules/aws/`: `aws_profile`, `aws_sqs`, `aws_s3`). 1708 tests green; std's own Salvo tests run inside one of them.
+(`modules/aws/`: `aws_profile`, `aws_sqs`, `aws_s3`). 1731 tests green; std's own Salvo tests run inside one of them.
 
 ## The sequence
 
@@ -288,7 +288,11 @@ Genuinely the host's, for contrast: `Dyn`'s erasure and downcast, `Parker`,
 ### 0f — Slices: `proj List<T>` and `proj Mut List<T>` (user, 2026-10-04, not built)
 
 A slice is a view of a contiguous range of a list: `proj List<T>` to read,
-`proj Mut List<T>` to write through. In Salvo it is the existing projection
+`proj Mut List<T>` to write through. (**DECISION**, raised by the `ref(c)`
+rework, 2026-10-10: a plain `proj` is now read-only whatever its `Mut` says
+[ref-handle], so a writable slice would be spelled `ref(list) Mut List<T>`
+— a handle whose element is the range — or slices get a qualifier of their
+own. The user's call before this is built.) In Salvo it is the existing projection
 of the list with a range attached, so it is borrowed from the list, lives no
 longer than it, and copies nothing; on Rust it lowers to `&[T]` / `&mut [T]`,
 on Kotlin to `subList` (a view there too). What it needs: a slice type the
@@ -1121,48 +1125,31 @@ with the observation that `proj` is the degenerate group (a read-only member of 
 singleton group under maximal invalidation sensitivity), so the two are points on
 one dial rather than two features.
 
-### 15 — Group borrowing: `ref(c)`, a container-named mutable handle (design in GROUP_BORROWING.md; region retired, not built)
+### 15 — `ref(c)`: what is left after v1a/v1b and the list/map half of v2
 
-**The committed design is `ref(c)` (user decisions, 2026-10-08);
-GROUP_BORROWING.md Part 7 is the source of truth.** `ref(c)` is a
-provenance qualifier naming the container a mutable element handle borrows
-from — unifying today's `proj Mut` and the abandoned `Reg` into one concept,
-with **no region scope, no `Reg` qualifier, no swap, no `Placeholder`**. Two
-`ref(c) Mut` handles with the same container `c` may alias (self-strike
-included), no `canbe` clause; different `c` is refused. A container is
-handle-able by offering `at(c, l) -> ref(c) Mut T?` (the `Locate` bundle,
-renamed `Ref`), which brings maps (by-key `at`, closing finding 1a) and
-custom containers in. The earlier `region { }`/`Reg`/`reg_from`/`Placeholder`
-design and the double-checkout gap that killed it are recorded in
-GROUP_BORROWING.md's "Superseded approaches"; **ROADMAP's old Regions design
-(the 2026-09-10 freeze/escape one) is retired — region is not needed**,
-because its only load-bearing job (reconciling checked-out elements) does
-not exist once nothing is moved out of a container.
+v1a, v1b and v2 for `List`/`Map` are **built** (2026-10-10, COMPLETED.md's
+"The `ref(c)` rework" entry; [ref-handle], [ref-anchor], [col-locate]).
+GROUP_BORROWING.md Parts 7–8 stay the design record for what remains:
 
-**Progress (2026-10-08): Steps 0, 1, 2 are done** (committed). Step 1 the
-plain-`canbe` two-container soundness fix (`[GB-fix-1b]`), Step 2 the
-map-chain confirmed-refusal guard, Step 0 `: Params<self>` obligations on
-`intrinsic type` (declared+checked, `by` refused there; applied to the
-scalars in `std/core/basic.sv`). All three in COMPLETED.md's decision log.
-The plan is now **v1a → v1b → v2** (GROUP_BORROWING.md Part 8): v1a the
-`proj Mut` → `ref(c)` rename+split and `Locate` → `Ref` (vocabulary only, no
-backend change); v1b `ref(c)` as the aliasing signature for concrete
-containers, reusing the anchored-`canbe` lowering; v2 `at` on the handle for
-generic/custom containers (maps, structs). The `Placeholder`/`reg_from`/
-`Region` steps of the old plan are deleted.
-
-**Open decisions (user's call; GROUP_BORROWING.md Part 7):** terminology
-(`ref` vs. keeping `proj(c)`); whether to **retire `canbe`** in favor of
-`ref(c)` signatures (small footprint — `examples/borrowing/`, a few codegen
-tests, the prose — but verify `ref(c)` subsumes the anchored `canbe in` form
-first) or keep it beside `ref(c)`; the `Locate` → `Ref` rename (folds into
-v1a). Follow-up: `Str` still carries only `: Iter<self, Char>`; folding its
-`cmp`/`eq`/`hash`/`to_str` into a clause is deferred.
-
-The 2026-09-10 Regions design (freeze/escape, `effect Region` with an
-intrinsic handler, regional-by-birth, the `Rc`/arena Rust staging) is fully
-recorded in COMPLETED.md's "Regions" section. It is **not** being built; it
-is kept there for the record only.
+1. **Generic and custom containers.** A `ref(c)` over a generic `C`
+   re-materializes through its resolved `at` (a static call at a known-type
+   use, the `?at` locator closure at an erased boundary). Today the Rust
+   backend refuses a `ref(c)` parameter whose container is not a `List` or
+   a `Map` ("a generic or custom container is not supported yet", pinned by
+   `a_ref_parameter_over_a_generic_container_is_refused`); Kotlin accepts
+   it. Done when a `Grid`-style custom container with its own `at` runs
+   identically on both backends, and the recipe for a user struct's `at` is
+   documented.
+2. **Named accessors: `ref(c, ?at)` and `ref(c, ?at: at2)`** (Part 7's
+   Rules 1–2, settled, not built): a delegating mint publishing an accessor
+   it takes in (`borrow_via`), and two handles into one container through
+   different accessors. Nothing asks for it yet; it arrives with item 1.
+3. **`Deque` has no `at`.** Its `get` has a locator form, so adding the mint
+   is the list's two lines; nothing needs it yet.
+4. **`update`/`update2` render through `at(...)!`** (an `Option` match per
+   call where the total `get__loc` used to be a bare index), since `at` has
+   no `Idx` overload. A total `at(list, Idx(list) Int) -> ref(list) Mut T`
+   would restore the old rendering — new std surface, so the user's call.
 
 ### 16 — Composing iterators: stages over a generic source (after the redesign)
 
@@ -1267,10 +1254,12 @@ backends**.
 Each was considered and deliberately parked. Nothing here is blocking, and
 several are "revisit only if a customer appears".
 
-- **Index steps in `canbe in` anchors** (user, 2026-10-06): `=> t canbe in
-  lib.tracks[i]`, `i` another parameter. Natural, rarely needed, and new
-  surface; in the IR it is one more variant, `AnchorStep::Index(param)`, which
-  every backend's exhaustive match would then flag (IR record §5).
+- **Element containers for `ref(c)`** (was "index steps in `canbe in`
+  anchors", user 2026-10-06; re-spelled with `canbe`'s retirement): a handle
+  parameter whose container is an *element* of another parameter
+  (`lib.tracks[i]`). Today the container must be a parameter of its own,
+  which the caller can pass as `at(lib.tracks, i)!`. Rarely needed, and new
+  surface.
 
 - **The whole program in the host project** (user, 2026-10-01; ABI D4).
   The alternative to generating only the declarations the platform surface

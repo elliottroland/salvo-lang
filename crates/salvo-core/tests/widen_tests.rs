@@ -481,7 +481,7 @@ fn a_proj_field_is_allowed_on_any_struct_and_names_no_source() {
 }
 
 /// [proj-infer] A constructed view is an owned object: it may be advanced
-/// (its `Mut` is real) while it keeps the source alive. Since [proj-mut]
+/// (its `Mut` is real) while it keeps the source alive. Since [ref-handle]
 /// (P-3's lift, user decisions 2026-09-24) a wholesale projection that
 /// *carries `Mut`* — an element handle out of `List<Mut T>` — may be
 /// mutated too; only the read-only projection stays read-only
@@ -500,7 +500,7 @@ fn a_held_view_may_be_advanced_and_a_mut_element_handle_may_too() {
         !errs.iter().any(|e| e.contains("cannot mutate `v`")),
         "advancing a held view must be allowed: {errs:?}"
     );
-    // [proj-mut] The projection carries `Mut`: a mutable element handle,
+    // [ref-handle] The projection carries `Mut`: a mutable element handle,
     // which the `Mut` position accepts.
     let src = format!(
         "{VIEW_PRELUDE}\
@@ -608,21 +608,23 @@ fn a_written_proj_entry_keeps_and_declares() {
     );
 }
 
-/// [proj-mut] The mutable-element-handle discipline (P-3's lifts + P-9,
+/// [ref-handle] The mutable-element-handle discipline (P-3's lifts + P-9,
 /// user decisions 2026-09-24): two *read* handles coexist; mutating through
 /// one handle poisons a sibling derivation of the container; the acting
 /// handle itself survives its own mutation (its storage did not move).
 #[test]
 fn mutable_element_handles_poison_siblings_but_not_themselves() {
-    // Std-free: `at` reproduces the intrinsic `get`'s shape — a derived
-    // optional return — so the handle type (`proj Mut Counter`) and links
-    // are identical to `get(xs, i)!`'s.
+    // Std-free: `get` reproduces the intrinsic `get`'s shape — a derived
+    // optional read-only projection (`proj Mut Counter`) — and `at` the
+    // std `at`'s: the mint of a mutable handle (`ref(list) Mut Counter`)
+    // [ref-handle]. Their links are identical to the std ones'.
     let prelude = "struct Counter canbe Mut {\n    n: Int\n}\n\
-                   fn at<T>(list: List<T>, i: Int) -> (proj(list) T)? => list, i {\n    return None\n}\n";
+                   fn get<T>(list: List<T>, i: Int) -> (proj(list) T)? => list, i {\n    return None\n}\n\
+                   fn at<T>(list: List<Mut T>, i: Int) -> (ref(list) Mut T)? => list, i {\n    return None\n}\n";
     // Two read handles, then reads: fine (P-9: mode is inferred, and
     // nothing here mutates).
     let src = format!(
-        "{prelude}fn f(xs: List<Mut Counter>) -> Int {{\n    let a = at(xs, 0)!\n    let b = at(xs, 1)!\n    return a.n + b.n\n}}\n"
+        "{prelude}fn f(xs: List<Mut Counter>) -> Int {{\n    let a = get(xs, 0)!\n    let b = get(xs, 1)!\n    return a.n + b.n\n}}\n"
     );
     let errs = errors(&src);
     assert!(errs.is_empty(), "two read handles must coexist: {errs:?}");
@@ -634,7 +636,7 @@ fn mutable_element_handles_poison_siblings_but_not_themselves() {
     assert!(errs.is_empty(), "a handle survives its own mutation: {errs:?}");
     // A sibling derivation of the container dies at the mutation.
     let src = format!(
-        "{prelude}fn f(xs: List<Mut Counter>) -> Int {{\n    let a = at(xs, 0)!\n    let h = at(xs, 0)!\n    h.n = 5\n    return a.n\n}}\n"
+        "{prelude}fn f(xs: List<Mut Counter>) -> Int {{\n    let a = get(xs, 0)!\n    let h = at(xs, 0)!\n    h.n = 5\n    return a.n\n}}\n"
     );
     let errs = errors(&src);
     assert!(

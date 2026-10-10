@@ -32,9 +32,9 @@ pub struct Parser<'s> {
     comments: HashMap<u32, String>,
     /// Byte offset of the start of each line, for offset -> line lookup.
     line_starts: Vec<u32>,
-    /// [canbe-entry] Entries a **plural** `canbe` subject desugared to
-    /// (`a|b|c canbe in es` is one entry per subject), taken by the clause
-    /// loop after the entry that produced them.
+    /// [implicit-with] Entries a **plural** `with` subject desugared to
+    /// (one entry per subject), taken by the clause loop after the entry
+    /// that produced them.
     pending_deductions: Vec<Deduction>,
     /// Depth of explicit grouping (parens/brackets); newlines are ignored
     /// inside groups.
@@ -2881,7 +2881,7 @@ impl<'s> Parser<'s> {
                     return None;
                 };
                 entries.push(entry);
-                // [canbe-entry] A plural subject's extra entries.
+                // [implicit-with] A plural subject's extra entries.
                 entries.extend(std::mem::take(&mut self.pending_deductions));
                 if self.eat(&TokenKind::Comma).is_none() {
                     break;
@@ -3057,8 +3057,7 @@ impl<'s> Parser<'s> {
         let mut end = path.last().map(|i| i.span).or(target.as_ref().map(|n| n.span)).unwrap_or(start);
         // [implicit-with] `=> eq with hash`, and chains (`a with b with c`) —
         // implicit parameters that are only meaningful together (user decision
-        // 2026-09-26). Shaped like `canbe` above, and symmetric for a related
-        // reason: the entry states a relation between parameters rather than a
+        // 2026-09-26). Symmetric because the entry states a relation between parameters rather than a
         // property of one.
         if self.at(&TokenKind::KwWith) {
             let mut others: Vec<Ident> = Vec::new();

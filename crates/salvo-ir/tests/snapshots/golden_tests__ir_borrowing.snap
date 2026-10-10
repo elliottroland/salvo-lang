@@ -38,7 +38,7 @@ fn main::heal(lent_mut f: Mut Fighter) -> None {
 }
 
 fn main::wounded(lent_mut squad: List<Mut Fighter>) -> ref Mut Fighter? borrows [squad] {
-  foreach#1 f: proj Mut Fighter in read squad {
+  foreach#1 f: ref Mut Fighter in read squad {
     branch#2 cond#0 (read f.hp < 10) {
       return present(read f)
     }

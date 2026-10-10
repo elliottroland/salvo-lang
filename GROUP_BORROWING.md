@@ -1008,6 +1008,10 @@ are not re-proposed. (The full exploration was §§7a–7j and Parts 3–6.)
 
 ## Part 8: implementation plan
 
+**Status (2026-10-10): v1a, v1b and v2 for `List` and `Map` are built**
+(COMPLETED.md, "The `ref(c)` rework: done"). What remains of v2 — generic
+and custom containers, the named `?at` forms — is ROADMAP item 15.
+
 Re-planned for the `ref(c)` design (this session), superseding the earlier
 `region`/swap plan. **Steps 0, 1, 2 already landed** (committed): Step 1 the
 plain-`canbe` two-container soundness fix (`[GB-fix-1b]`), Step 2 the

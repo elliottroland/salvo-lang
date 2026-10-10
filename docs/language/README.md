@@ -55,7 +55,7 @@ Start at the top; each page stands on its own, so jumping in is fine too.
 | Page | What it covers |
 |---|---|
 | [Deductions and Ownership](Deductions-and-Ownership.md) | the deduction clause, moves, projections, shared fate and `copy` |
-| [Mutable Handles](Mutable-Handles.md) | handles into storage you do not own: mutable elements, lending, proven-disjoint pairs (`NotEq`), and declared aliasing (`canbe`) |
+| [Mutable Handles](Mutable-Handles.md) | handles into storage you do not own: mutable elements, lending, proven-disjoint pairs (`NotEq`), and handles that share a container (`ref(c)`) |
 | [Linear Types](Linear-Types.md) | values that must be used |
 | [Throwing](Throwing.md) | leaving early with a message, and `try` |
 | [Effects and Handlers](Effects-and-Handlers.md) | capabilities, `use`, dependencies, interception, monitors, mixed handlers |

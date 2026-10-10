@@ -39,26 +39,6 @@ fn build_program(extra: &[(&str, &str)]) -> Program {
     }
 }
 
-/// The emitted name of an overload in emitted text: the identifier starting
-/// with `prefix` (`fn eq`) whose definition is followed by `signature`.
-/// Names are per module since 2026-10-05 [fn-emit-name], so this reads the
-/// one a test's own module gives, plain or suffixed.
-fn mangled_name(text: &str, prefix: &str, signature: &str) -> String {
-    let mut at = 0;
-    while let Some(i) = text[at..].find(prefix) {
-        let start = at + i + "fn ".len();
-        let end = start
-            + text[start..]
-                .find(|c: char| !(c.is_alphanumeric() || c == '_'))
-                .unwrap_or(0);
-        if text[end..].starts_with(signature) {
-            return text[start..end].to_string();
-        }
-        at = end.max(start + 1);
-    }
-    panic!("no `{prefix}…{signature}` in:\n{text}");
-}
-
 fn generate(extra: &[(&str, &str)]) -> Vec<salvo_backend_rust::EmittedFile> {
     let program = build_program(extra);
     salvo_backend_rust::emit_program(&program).unwrap_or_else(|errors| {
@@ -1051,12 +1031,12 @@ fn main() [use] {
     use StdOutConsole()
     let xs: List<Mut Counter> = list_of(Mut Counter { n: 1 })
     let ys = copy(xs)
-    let e = get(xs, 0)!
+    let e = at(xs, 0)!
     e.n = 5
     println("${get(xs, 0)!.n} ${get(ys, 0)!.n}")
     let ls = mut_list_of(mut_list_of(1))
     let ms = copy(ls)
-    add(get(ls, 0)!, 2)
+    add(at(ls, 0)!, 2)
     println("${size(get(ls, 0)!)} ${size(get(ms, 0)!)}")
 }
 "#;
@@ -14326,10 +14306,10 @@ fn a_narrowed_read_borrows_unless_the_position_owns() {
     );
 }
 
-// ===== mutable element handles [proj-mut] [rs-elem-mut] =====
+// ===== mutable element handles [ref-handle] [rs-elem-mut] =====
 
-/// [proj-mut] Mutation through element handles of a `List<Mut T>`: a
-/// statement-scoped one (`bump(get(xs, 0)!)` → a `get_mut` splice), a bound
+/// [ref-handle] Mutation through element handles of a `List<Mut T>`: a
+/// statement-scoped one (`bump(at(xs, 0)!)` → an `Option<&mut T>` from `at`), a bound
 /// one in a callee (a captured-index virtual binding), and reads afterwards
 /// observing both mutations — the aliasing semantics Kotlin gets natively.
 const ELEM_MUT_DEMO: &str = r#"
@@ -14342,7 +14322,7 @@ fn bump(c: Mut Counter) -> None => c: Mut {
 }
 
 fn poke(xs: List<Mut Counter>) -> None {
-    let h = get(xs, 1)!
+    let h = at(xs, 1)!
     h.n = h.n + 10
     bump(h)
 }
@@ -14350,7 +14330,7 @@ fn poke(xs: List<Mut Counter>) -> None {
 fn main() [use] {
     use StdOutConsole()
     let xs: List<Mut Counter> = list_of(Mut Counter { n: 1 }, Mut Counter { n: 2 })
-    bump(get(xs, 0)!)
+    bump(at(xs, 0)!)
     poke(xs)
     let a = get(xs, 0)!
     let b = get(xs, 1)!
@@ -14359,8 +14339,8 @@ fn main() [use] {
 "#;
 
 /// [rs-elem-mut] The three renderings: the container parameter arrives
-/// `&mut` (element-level `Mut` lends), the statement-scoped handle splices
-/// `get_mut`, and the bound handle is a captured index re-materialized at
+/// `&mut` (element-level `Mut` lends), the statement-scoped handle is `at`'s
+/// `&mut`, and the bound handle is a captured index re-materialized at
 /// every use — never a bound `&mut`.
 #[test]
 fn elem_mut_handles_render_as_get_mut_and_captured_indices() {
@@ -14372,7 +14352,7 @@ fn elem_mut_handles_render_as_get_mut_and_captured_indices() {
         main.content
     );
     assert!(
-        main.content.contains("let __h1: usize = crate::core_list::get_platform__loc(&*xs, 1i32).expect("),
+        main.content.contains("let __h1: usize = crate::core_list::at__loc(&*xs, 1i32).expect("),
         "{}",
         main.content
     );
@@ -14386,9 +14366,9 @@ fn elem_mut_handles_render_as_get_mut_and_captured_indices() {
         "{}",
         main.content
     );
-    // A temporary handle is the element borrowed through its position.
+    // A temporary handle is the element borrowed `&mut` straight from `at`.
     assert!(
-        main.content.contains("match crate::core_list::get_platform__loc(&xs, 0i32) { Some(__l1) => Some(&mut xs[__l1]), None => None }"),
+        main.content.contains("let mut __nn_3: Option<&mut crate::Counter> = crate::core_list::at::<crate::Counter>(&mut xs, 0i32);"),
         "{}",
         main.content
     );
@@ -14418,7 +14398,7 @@ fn heal(e: Mut Entity) -> None => e: Mut {
     e.hp = e.hp + 10
 }
 
-fn wounded(es: List<Mut Entity>) -> (proj(es) Mut Entity)? {
+fn wounded(es: List<Mut Entity>) -> (ref(es) Mut Entity)? {
     for e in es {
         if e.hp < 10 {
             return e
@@ -14604,16 +14584,15 @@ fn rustc_compiles_and_runs_a_contents_mutation_handle() {
     run_rust_files(&files, "contents_mutation", "2 2\n");
 }
 
-/// [canbe-entry] [rs-loc] ④b — a callee declaring `=> a canbe d` takes
-/// two element handles that **may be the same element**: the covered
-/// positions render as one shared anchor plus a locator each (two `&mut`
-/// into one container cannot coexist), and the same-call rule stands down
-/// without any disjointness proof.
-const CANBE_DEMO: &str = r#"
+/// [ref-anchor] [rs-loc] ④b — a callee whose two handle parameters are
+/// `ref(c)` of one container parameter takes two element handles that **may
+/// be the same element**: the handles render as the container once plus a
+/// position each (two `&mut` into one container cannot coexist), and the
+/// same-call rule stands down without any disjointness proof.
+const REF_ANCHOR_DEMO: &str = r#"
 struct Entity canbe Mut { hp: Int, energy: Int }
 
-fn attack(a: Mut Entity, d: Mut Entity) -> None
-=> a canbe d, a: Mut, d: Mut {
+fn attack(c: List<Mut Entity>, a: ref(c) Mut Entity, d: ref(c) Mut Entity) -> None {
     a.energy = a.energy - 1
     d.hp = d.hp - 2
     return None
@@ -14626,48 +14605,46 @@ fn main() [use] {
         Mut Entity { hp: 20, energy: 8 })
     let i = 0
     let j = 1
-    if i is Idx(es) {
-        if j is Idx(es) {
-            attack(get(es, i), get(es, j))
-            // …and the aliasing case the entry exists for: one element,
-            // both handles.
-            attack(get(es, i), get(es, i))
-        }
-    }
+    attack(es, at(es, i)!, at(es, j)!)
+    // …and the aliasing case `ref(c)` exists for: one element, both
+    // handles.
+    attack(es, at(es, i)!, at(es, i)!)
     println("${get(es, 0)!.hp} ${get(es, 0)!.energy} ${get(es, 1)!.hp}")
 }
 "#;
 
 #[test]
-fn covered_positions_render_as_anchor_and_locators() {
-    let files = generate(&[("main.sv", CANBE_DEMO)]);
+fn ref_handles_render_as_their_container_and_positions() {
+    let files = generate(&[("main.sv", REF_ANCHOR_DEMO)]);
     let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
     assert!(
         main.content
-            .contains("pub fn attack(__anchor: &mut Vec<crate::Entity>, __c0: usize, __c1: usize)"),
+            .contains("pub fn attack(c: &mut Vec<crate::Entity>, __c1: usize, __c2: usize)"),
         "{}",
         main.content
     );
     assert!(
-        main.content.contains("__anchor[__c0].energy = i32::wrapping_sub(__anchor[__c0].energy, 1i32);"),
+        main.content.contains("c[__c1].energy = i32::wrapping_sub(c[__c1].energy, 1i32);"),
         "{}",
         main.content
     );
+    // Each handle is minted as a position before the container is lent.
     assert!(
-        main.content.contains("crate::attack(&mut es, __c1, __c2)"),
+        main.content.contains("let __c1 = crate::core_list::at__loc(&es, i).expect(")
+            && main.content.contains("crate::attack(&mut es, __c1, __c2)"),
         "{}",
         main.content
     );
 }
 
 #[test]
-fn rustc_compiles_and_runs_a_covered_call() {
+fn rustc_compiles_and_runs_a_ref_anchored_call() {
     if !rustc_available() {
         eprintln!("skipping: rustc not found on PATH");
         return;
     }
-    let files = generate(&[("main.sv", CANBE_DEMO)]);
-    run_rust_files(&files, "canbe_covered", "8 3 18\n");
+    let files = generate(&[("main.sv", REF_ANCHOR_DEMO)]);
+    run_rust_files(&files, "ref_anchored_pair", "8 3 18\n");
 }
 
 /// [cmp-carry] [col-membership] A keyed container's identity is a
@@ -15413,13 +15390,12 @@ fn rustc_compiles_and_runs_bare_literal_arguments() {
     run_rust_files(&files, "bare_literal", "A 2\nB 2\nC 2\n");
 }
 
-/// [canbe-entry] [rs-loc] The **anchored** form (`=> t canbe in lib.tracks`):
-/// its anchor is a path rooted at a parameter, so the callee's shared anchor
-/// *is* that parameter — the container travels in its own position and the
-/// covered ones add nothing but an index. Synthesizing a second `&mut` for it
-/// made every anchored call E0499, which is the defect this closes
-/// (2026-09-25): the form was documented and could not run on Rust at all.
-const CANBE_ANCHORED_DEMO: &str = r#"
+/// [ref-anchor] [rs-loc] A handle container that is a **field path** at the
+/// call: the callee's container parameter is the `&mut` the call lends
+/// (`&mut squad.members`) and the handles add nothing but an index each — no
+/// second borrow of the container is synthesized, which made every such call
+/// E0499 before the defect closed 2026-09-25.
+const REF_ANCHORED_FIELD_DEMO: &str = r#"
 struct Fighter canbe Mut { name: Str, hp: Int, energy: Int }
 
 struct Squad canbe Mut {
@@ -15427,8 +15403,7 @@ struct Squad canbe Mut {
     members: List<Mut Fighter>
 }
 
-fn trade(squad: Mut Squad, one: Mut Fighter, other: Mut Fighter) -> None
-=> one|other canbe in squad.members, squad: Mut, one: Mut, other: Mut {
+fn trade(members: List<Mut Fighter>, one: ref(members) Mut Fighter, other: ref(members) Mut Fighter) -> None {
     one.energy = one.energy - 1
     other.energy = other.energy + 1
     return None
@@ -15441,50 +15416,50 @@ fn main() [use] {
         Mut Fighter { name: "Bo", hp: 8, energy: 9 }) }
     let i = 0
     let j = 1
-    trade(squad, get(squad.members, i)!, get(squad.members, j)!)
-    // …and the aliasing case the entry exists for: one fighter, both roles.
-    trade(squad, get(squad.members, i)!, get(squad.members, i)!)
+    trade(squad.members, at(squad.members, i)!, at(squad.members, j)!)
+    // …and the aliasing case `ref(c)` exists for: one fighter, both roles.
+    trade(squad.members, at(squad.members, i)!, at(squad.members, i)!)
     println("${get(squad.members, 0)!.energy} ${get(squad.members, 1)!.energy}")
 }
 "#;
 
 #[test]
-fn an_anchored_canbe_indexes_the_anchor_parameter() {
-    let files = generate(&[("main.sv", CANBE_ANCHORED_DEMO)]);
+fn a_ref_anchored_handle_indexes_its_container_parameter() {
+    let files = generate(&[("main.sv", REF_ANCHORED_FIELD_DEMO)]);
     let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
     // One borrow of the container, two positions — and no `__anchor`, since
-    // the anchor is a parameter the callee already has.
+    // the container is a parameter the callee already has.
     assert!(
         main.content
-            .contains("pub fn trade(squad: &mut crate::Squad, __c1: usize, __c2: usize)"),
+            .contains("pub fn trade(members: &mut Vec<crate::Fighter>, __c1: usize, __c2: usize)"),
         "{}",
         main.content
     );
     assert!(
         !main.content.contains("__anchor"),
-        "the anchored form must not synthesize a second borrow:\n{}",
+        "a ref-anchored call must not synthesize a second borrow:\n{}",
         main.content
     );
     assert!(
-        main.content.contains("squad.members[__c1].energy = i32::wrapping_sub(squad.members[__c1].energy, 1i32);"),
+        main.content.contains("members[__c1].energy = i32::wrapping_sub(members[__c1].energy, 1i32);"),
         "{}",
         main.content
     );
     assert!(
-        main.content.contains("crate::trade(&mut squad, __c1, __c2) };"),
+        main.content.contains("crate::trade(&mut squad.members, __c1, __c2) };"),
         "{}",
         main.content
     );
 }
 
 #[test]
-fn rustc_compiles_and_runs_an_anchored_canbe_call() {
+fn rustc_compiles_and_runs_a_ref_anchored_field_call() {
     if !rustc_available() {
         eprintln!("skipping: rustc not found on PATH");
         return;
     }
-    let files = generate(&[("main.sv", CANBE_ANCHORED_DEMO)]);
-    run_rust_files(&files, "canbe_anchored", "3 10\n");
+    let files = generate(&[("main.sv", REF_ANCHORED_FIELD_DEMO)]);
+    run_rust_files(&files, "ref_anchored_field", "3 10\n");
 }
 
 /// [rs-mut-arg-hoist] A read that sits *before* a mutation in one expression:
@@ -15615,9 +15590,9 @@ fn main() [use] {
     let i = 0
     let j = 1
     if j is NotEq(i) {
-        attack(get(es, i)!, get(es, j)!)
-        let a = get(es, i)!
-        let d = get(es, j)!
+        attack(at(es, i)!, at(es, j)!)
+        let a = at(es, i)!
+        let d = at(es, j)!
         a.hp = a.hp + 1
         d.hp = d.hp + 1
         attack(a, d)
@@ -15660,8 +15635,8 @@ fn rustc_compiles_and_runs_distinct_pair_calls() {
 const LEND_MUT_DEMO: &str = r#"
 struct Entity canbe Mut { hp: Int }
 
-fn front(es: List<Mut Entity>) -> (proj(es) Mut Entity)? {
-    return get(es, 0)
+fn front(es: List<Mut Entity>) -> (ref(es) Mut Entity)? {
+    return at(es, 0)
 }
 
 fn heal(e: Mut Entity) -> None => e: Mut {
@@ -15718,8 +15693,8 @@ fn a_mut_used_lender_gets_a_demand_driven_locator_variant() {
 const BOUND_ACCESSOR_DEMO: &str = r#"
 struct Entity canbe Mut { hp: Int }
 
-fn front(es: List<Mut Entity>) -> (proj(es) Mut Entity)? {
-    return get(es, 0)
+fn front(es: List<Mut Entity>) -> (ref(es) Mut Entity)? {
+    return at(es, 0)
 }
 
 fn main() [use] {
@@ -15818,7 +15793,7 @@ fn heal(e: Mut Entity) -> None => e: Mut {
 }
 
 fn bump_at(es: List<Mut Entity>, i: Int,
-           at: (c: List<Mut Entity>, k: Int) -> proj(c) Mut Entity?) -> None {
+           at: (c: List<Mut Entity>, k: Int) -> ref(c) Mut Entity?) -> None {
     heal(at(es, i)!)
     return None
 }
@@ -15826,7 +15801,7 @@ fn bump_at(es: List<Mut Entity>, i: Int,
 fn main() [use] {
     use StdOutConsole()
     let es: List<Mut Entity> = list_of(Mut Entity { hp: 5 }, Mut Entity { hp: 7 })
-    bump_at(es, 1, (c: List<Mut Entity>, k: Int) -> get(c, k))
+    bump_at(es, 1, (c: List<Mut Entity>, k: Int) -> at(c, k))
     println("${get(es, 0)!.hp} ${get(es, 1)!.hp}")
 }
 "#;
@@ -15846,7 +15821,7 @@ fn a_lending_fn_value_renders_as_a_locator_closure() {
         main.content
     );
     assert!(
-        main.content.contains("&mut |mut c, mut k| -> Option<usize> {\n        crate::core_list::get_platform__loc(c, k)"),
+        main.content.contains("&mut |mut c, mut k| -> Option<usize> {\n        crate::core_list::at__loc(c, k)"),
         "{}",
         main.content
     );
@@ -15862,7 +15837,7 @@ fn rustc_compiles_and_runs_a_lending_fn_value() {
     run_rust_files(&files, "lending_fn_value", "5 17\n");
 }
 
-/// [col-locate] [rs-loc] ④a slice 3′ — std's `Locate` bundle: a generic
+/// [col-locate] [rs-loc] ④a slice 3′ — std's `Ref` bundle: a generic
 /// algorithm hands out mutable handles because the caller supplies `at`,
 /// and the implicit renders as a **locator** closure (position data out,
 /// read-mode parameters) with the handle materialized at the use site.
@@ -15873,7 +15848,7 @@ fn heal(e: Mut Entity) -> None => e: Mut {
     e.hp = e.hp + 10
 }
 
-fn heal_at<L>(c: List<Mut Entity>, l: L, ?Locate<List<Mut Entity>, L, Entity>) -> None {
+fn heal_at<L>(c: List<Mut Entity>, l: L, ?Ref<List<Mut Entity>, L, Entity>) -> None {
     heal(at(c, l)!)
     return None
 }
@@ -15925,12 +15900,12 @@ fn heal(e: Mut Entity) -> None => e: Mut {
 }
 
 effect Lender {
-    fn lease(es: List<Mut Entity>) -> (proj(es) Mut Entity)? => es
+    fn lease(es: List<Mut Entity>) -> (ref(es) Mut Entity)? => es
 }
 
 handler FirstLender of Lender {
-    fn lease(es: List<Mut Entity>) -> (proj(es) Mut Entity)? => es {
-        return get(es, 0)
+    fn lease(es: List<Mut Entity>) -> (ref(es) Mut Entity)? => es {
+        return at(es, 0)
     }
 }
 
@@ -15994,7 +15969,7 @@ fn main() [use] {
     let i = 0
     let j = 1
     if j is NotEq(i) {
-        let x = poke(get(es, i)!, get(es, j)!)
+        let x = poke(at(es, i)!, at(es, j)!)
         println("${x}")
     }
 }
@@ -16230,12 +16205,12 @@ const LEND_HANDLE_DEMO: &str = r#"
 struct Entity canbe Mut { hp: Int }
 
 effect Lender {
-    fn lease(es: List<Mut Entity>) -> (proj(es) Mut Entity)? => es
+    fn lease(es: List<Mut Entity>) -> (ref(es) Mut Entity)? => es
 }
 
 handler FirstLender of Lender {
-    fn lease(es: List<Mut Entity>) -> (proj(es) Mut Entity)? => es {
-        return get(es, 0)
+    fn lease(es: List<Mut Entity>) -> (ref(es) Mut Entity)? => es {
+        return at(es, 0)
     }
 }
 
@@ -16289,4 +16264,30 @@ export fn main() [use] -> None {
 fn rustc_compiles_and_runs_a_mutable_handle_chained_through_a_map_at() {
     let files = generate(&[("main.sv", MAP_CHAIN_MUT_HANDLE)]);
     run_rust_files(&files, "map-chain-at", "z 3\n");
+}
+
+// [ref-anchor] [backend-never-wrong] A `ref(c)` parameter over a generic
+// container has no index to render on Rust yet: refused loudly, never
+// emitted as code rustc rejects. (Kotlin accepts it; the generic lift is
+// ROADMAP's v2 remainder.)
+#[test]
+fn a_ref_parameter_over_a_generic_container_is_refused() {
+    let errors = expect_errors(
+        r#"
+struct E canbe Mut { hp: Int }
+fn hit<C>(c: C, a: ref(c) Mut E) -> None {
+    a.hp = a.hp - 1
+}
+export fn main() [use] -> None {
+    use StdOutConsole()
+    let squad: List<Mut E> = list_of(Mut E { hp: 1 })
+    hit(squad, at(squad, 0)!)
+    println("${get(squad, 0)!.hp}")
+}
+"#,
+    );
+    assert!(
+        errors.iter().any(|e| e.contains("a generic or custom container is not supported yet")),
+        "expected the generic-container refusal: {errors:?}"
+    );
 }

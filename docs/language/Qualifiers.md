@@ -287,7 +287,7 @@ What separates a provenance claim from a mint-only state claim is content-depend
 
 Both kinds are erased in the generated code — the subject only decides what the compiler knows. If you want a distinct type at runtime (its own identity, its own equality, usable as a distinct map key), use a one-field struct instead; a `Str` wrapped in a provenance qualifier stays a string, which is usually what you want for ids.
 
-`Mut`, `Linear`, `once` and `proj` are also claims about a handle rather than its contents, but they are compiler intrinsics rather than qualifiers you can declare: each one changes how code is generated, or how the ownership analysis treats a value. The rule of thumb is that a permission can be forgotten (`Mut Person` is usable as `Person`) while an obligation cannot (`Linear` and `once` never drop).
+`Mut`, `Linear`, `once`, `proj` and `ref` are also claims about a handle rather than its contents, but they are compiler intrinsics rather than qualifiers you can declare: each one changes how code is generated, or how the ownership analysis treats a value. The rule of thumb is that a permission can be forgotten (`Mut Person` is usable as `Person`) while an obligation cannot (`Linear` and `once` never drop).
 
 ## Dependent qualifiers
 

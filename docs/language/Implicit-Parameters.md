@@ -108,7 +108,7 @@ how a signature takes them unrelated.
 
 `core` declares the ones everything else builds on: `Ordered<T>` (`cmp`),
 `Eq<T>` (`eq`), `Hashed<T>` (`hash` and `eq` together), `Yield<It, T>`
-(`next`), `Locate<C, L, T>` (`at`). A type joins any of them by declaring the
+(`next`), `Ref<C, L, T>` (`at`). A type joins any of them by declaring the
 function — there is nothing to register.
 
 ### Details worth knowing

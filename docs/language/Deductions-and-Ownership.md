@@ -137,7 +137,7 @@ fn either(a: List<Int>, b: List<Int>, flag: Bool) -> proj(a, b) List<Int> {
 
 Three rules follow from "it is a borrow":
 
-- **It is read-only, whatever its `Mut` says.** `proj Mut X` is a legal type — the value came out of a mutable slot — but a `proj` value never satisfies a `Mut` position: `Mut X` is usable where `proj Mut X` is expected, not the reverse. `copy(x)` is the way out, and yields a `Mut X` of your own. For the same reason a *parameter* cannot be written `proj Mut X` — the `proj` promises to accept borrows and the `Mut` refuses every one of them — and the compiler says so at the declaration; write `proj X` (which accepts `proj Mut X` arguments) or `Mut X`.
+- **It is read-only, whatever its `Mut` says.** `proj Mut X` is a legal type — the value came out of a mutable slot — but a `proj` value never satisfies a `Mut` position: `Mut X` is usable where `proj Mut X` is expected, not the reverse. `copy(x)` is the way out, and yields a `Mut X` of your own; a value you can write through in place is a *handle*, `ref(c) Mut X`, minted by `at` ([Mutable handles](Mutable-Handles.md)). For the same reason a *parameter* cannot be written `proj Mut X` — the `proj` promises to accept borrows and the `Mut` refuses every one of them — and the compiler says so at the declaration; write `proj X` (which accepts `proj Mut X` arguments) or `Mut X`.
 - **It shares fate with its source.** The caller's result is linked to the argument: mutating or moving the source poisons the projection, and moving the projection itself needs `copy` (a Copy scalar excepted: an `Int` read out of a list is the number itself on both backends, so it moves for free).
 - **The body must deliver it.** Every value the function returns must derive from a named source (a projection, element or alias of it) or be `None`; a source must be a kept parameter.
 
@@ -196,7 +196,7 @@ Where a function writes no clause, the field set is **inferred** from its body, 
 This is also what lets a **qualifier hold about a field**: `if h.tags is NonEmpty { … }` narrows that field, the claim is used inside the branch, it survives a call that only touches `h.n`, and it falls the moment `h.tags` itself is mutated.
 
 For the handles this precision exists to protect — mutable elements, the
-`update` family, proven-disjoint pairs and declared aliasing — see
+`update` family, proven-disjoint pairs and handles that share a container — see
 [Mutable handles and aliasing](Mutable-Handles.md).
 
 A container can hold borrows too: `List<proj T>` is a list of projected elements, and it is what `filter` returns:

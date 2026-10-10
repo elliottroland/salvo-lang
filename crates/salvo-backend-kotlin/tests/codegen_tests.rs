@@ -194,26 +194,6 @@ fn build_program(extra: &[(&str, &str)]) -> Program {
 
 /// Emits one source (plus std) — the Rust backend's `generate` by another
 /// name, since this crate's `generate_demo` is fixed to `DEMO`.
-/// The emitted name of an overload in emitted text: the identifier starting
-/// with `prefix` (`fun eq`) whose definition is followed by `signature`.
-/// Names are per module since 2026-10-05 [fn-emit-name], so this reads the
-/// one a test's own module gives, plain or suffixed.
-fn mangled_name(text: &str, prefix: &str, signature: &str) -> String {
-    let mut at = 0;
-    while let Some(i) = text[at..].find(prefix) {
-        let start = at + i + "fun ".len();
-        let end = start
-            + text[start..]
-                .find(|c: char| !(c.is_alphanumeric() || c == '_'))
-                .unwrap_or(0);
-        if text[end..].starts_with(signature) {
-            return text[start..end].to_string();
-        }
-        at = end.max(start + 1);
-    }
-    panic!("no `{prefix}…{signature}` in:\n{text}");
-}
-
 fn generate_files(extra: &[(&str, &str)]) -> Vec<salvo_backend_kotlin::EmittedFile> {
     let program = build_program(extra);
     salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
@@ -3442,7 +3422,7 @@ fn main() [use] {
     )
 }
 
-/// [proj-mut] Mutable element handles over `List<Mut T>`: statement-scoped
+/// [ref-handle] Mutable element handles over `List<Mut T>`: statement-scoped
 /// and bound handles mutate the elements in place, and reads afterwards see
 /// both mutations — natively on this backend (objects alias), so the case
 /// exists to pin the *output parity* with the Rust lowering [rs-elem-mut].
@@ -3456,7 +3436,7 @@ fn bump(c: Mut Counter) -> None => c: Mut {
 }
 
 fn poke(xs: List<Mut Counter>) -> None {
-    let h = get(xs, 1)!
+    let h = at(xs, 1)!
     h.n = h.n + 10
     bump(h)
 }
@@ -3464,7 +3444,7 @@ fn poke(xs: List<Mut Counter>) -> None {
 fn main() [use] {
     use StdOutConsole()
     let xs: List<Mut Counter> = list_of(Mut Counter { n: 1 }, Mut Counter { n: 2 })
-    bump(get(xs, 0)!)
+    bump(at(xs, 0)!)
     poke(xs)
     let a = get(xs, 0)!
     let b = get(xs, 1)!
@@ -3503,9 +3483,9 @@ fn main() [use] {
     let i = 0
     let j = 1
     if j is NotEq(i) {
-        attack(get(es, i)!, get(es, j)!)
-        let a = get(es, i)!
-        let d = get(es, j)!
+        attack(at(es, i)!, at(es, j)!)
+        let a = at(es, i)!
+        let d = at(es, j)!
         a.hp = a.hp + 1
         d.hp = d.hp + 1
         attack(a, d)
@@ -3987,11 +3967,11 @@ fn kotlinc_compiles_and_runs_bare_literal_arguments() -> KotlinCase {
     kotlin_case(files, "bare_literal", "A 2\nB 2\nC 2\n")
 }
 
-/// [canbe-entry] The **anchored** `canbe in` program, byte-identical stdout to
-/// the Rust backend's `rustc_compiles_and_runs_an_anchored_canbe_call`. Kotlin
-/// always ran this shape; the Rust side could not until 2026-09-25, which is
-/// what makes this pair the regression test.
-const CANBE_ANCHORED_DEMO: &str = r#"
+/// [ref-anchor] The handles-into-a-field-path program, byte-identical stdout
+/// to the Rust backend's `rustc_compiles_and_runs_a_ref_anchored_field_call`.
+/// Kotlin always ran this shape; the Rust side could not until 2026-09-25,
+/// which is what makes this pair the regression test.
+const REF_ANCHORED_FIELD_DEMO: &str = r#"
 struct Fighter canbe Mut { name: Str, hp: Int, energy: Int }
 
 struct Squad canbe Mut {
@@ -3999,8 +3979,7 @@ struct Squad canbe Mut {
     members: List<Mut Fighter>
 }
 
-fn trade(squad: Mut Squad, one: Mut Fighter, other: Mut Fighter) -> None
-=> one|other canbe in squad.members, squad: Mut, one: Mut, other: Mut {
+fn trade(members: List<Mut Fighter>, one: ref(members) Mut Fighter, other: ref(members) Mut Fighter) -> None {
     one.energy = one.energy - 1
     other.energy = other.energy + 1
     return None
@@ -4013,8 +3992,9 @@ fn main() [use] {
         Mut Fighter { name: "Bo", hp: 8, energy: 9 }) }
     let i = 0
     let j = 1
-    trade(squad, get(squad.members, i)!, get(squad.members, j)!)
-    trade(squad, get(squad.members, i)!, get(squad.members, i)!)
+    trade(squad.members, at(squad.members, i)!, at(squad.members, j)!)
+    // …and the aliasing case `ref(c)` exists for: one fighter, both roles.
+    trade(squad.members, at(squad.members, i)!, at(squad.members, i)!)
     println("${get(squad.members, 0)!.energy} ${get(squad.members, 1)!.energy}")
 }
 "#;
@@ -4078,7 +4058,7 @@ fn heal(e: Mut Entity) -> None => e: Mut {
 }
 
 fn bump_at(es: List<Mut Entity>, i: Int,
-           at: (c: List<Mut Entity>, k: Int) -> proj(c) Mut Entity?) -> None {
+           at: (c: List<Mut Entity>, k: Int) -> ref(c) Mut Entity?) -> None {
     heal(at(es, i)!)
     return None
 }
@@ -4086,12 +4066,12 @@ fn bump_at(es: List<Mut Entity>, i: Int,
 fn main() [use] {
     use StdOutConsole()
     let es: List<Mut Entity> = list_of(Mut Entity { hp: 5 }, Mut Entity { hp: 7 })
-    bump_at(es, 1, (c: List<Mut Entity>, k: Int) -> get(c, k))
+    bump_at(es, 1, (c: List<Mut Entity>, k: Int) -> at(c, k))
     println("${get(es, 0)!.hp} ${get(es, 1)!.hp}")
 }
 "#;
 
-/// [col-locate] The `Locate`-bundle program, byte-identical stdout to the
+/// [col-locate] The `Ref`-bundle program, byte-identical stdout to the
 /// Rust backend's `rustc_compiles_and_runs_the_locate_bundle`.
 const LOCATE_BUNDLE_DEMO: &str = r#"
 struct Entity canbe Mut { hp: Int }
@@ -4100,7 +4080,7 @@ fn heal(e: Mut Entity) -> None => e: Mut {
     e.hp = e.hp + 10
 }
 
-fn heal_at<L>(c: List<Mut Entity>, l: L, ?Locate<List<Mut Entity>, L, Entity>) -> None {
+fn heal_at<L>(c: List<Mut Entity>, l: L, ?Ref<List<Mut Entity>, L, Entity>) -> None {
     heal(at(c, l)!)
     return None
 }
@@ -4123,12 +4103,12 @@ fn heal(e: Mut Entity) -> None => e: Mut {
 }
 
 effect Lender {
-    fn lease(es: List<Mut Entity>) -> (proj(es) Mut Entity)? => es
+    fn lease(es: List<Mut Entity>) -> (ref(es) Mut Entity)? => es
 }
 
 handler FirstLender of Lender {
-    fn lease(es: List<Mut Entity>) -> (proj(es) Mut Entity)? => es {
-        return get(es, 0)
+    fn lease(es: List<Mut Entity>) -> (ref(es) Mut Entity)? => es {
+        return at(es, 0)
     }
 }
 
@@ -4155,7 +4135,7 @@ fn heal(e: Mut Entity) -> None => e: Mut {
     e.hp = e.hp + 10
 }
 
-fn wounded(es: List<Mut Entity>) -> (proj(es) Mut Entity)? {
+fn wounded(es: List<Mut Entity>) -> (ref(es) Mut Entity)? {
     for e in es {
         if e.hp < 10 {
             return e
@@ -4172,15 +4152,14 @@ fn main() [use] {
 }
 "#;
 
-/// [canbe-entry] The covered-call program, byte-identical stdout to the
-/// Rust backend's `rustc_compiles_and_runs_a_covered_call` — Kotlin
+/// [ref-anchor] The `ref(c)`-pair program, byte-identical stdout to the
+/// Rust backend's `rustc_compiles_and_runs_a_ref_anchored_call` — Kotlin
 /// aliases natively, so the parity *is* the assertion for a feature whose
 /// whole point is observable aliasing.
-const CANBE_DEMO: &str = r#"
+const REF_ANCHOR_DEMO: &str = r#"
 struct Entity canbe Mut { hp: Int, energy: Int }
 
-fn attack(a: Mut Entity, d: Mut Entity) -> None
-=> a canbe d, a: Mut, d: Mut {
+fn attack(c: List<Mut Entity>, a: ref(c) Mut Entity, d: ref(c) Mut Entity) -> None {
     a.energy = a.energy - 1
     d.hp = d.hp - 2
     return None
@@ -4193,14 +4172,10 @@ fn main() [use] {
         Mut Entity { hp: 20, energy: 8 })
     let i = 0
     let j = 1
-    if i is Idx(es) {
-        if j is Idx(es) {
-            attack(get(es, i), get(es, j))
-            // …and the aliasing case the entry exists for: one element,
-            // both handles.
-            attack(get(es, i), get(es, i))
-        }
-    }
+    attack(es, at(es, i)!, at(es, j)!)
+    // …and the aliasing case `ref(c)` exists for: one element, both
+    // handles.
+    attack(es, at(es, i)!, at(es, i)!)
     println("${get(es, 0)!.hp} ${get(es, 0)!.energy} ${get(es, 1)!.hp}")
 }
 "#;
@@ -4295,12 +4270,12 @@ fn kotlinc_compiles_and_runs_a_field_granular_mutation() -> KotlinCase {
     kotlin_case(files, "field_granular", "1 15\n")
 }
 
-fn kotlinc_compiles_and_runs_a_covered_call() -> KotlinCase {
-    let program = build_program(&[("main.sv", CANBE_DEMO)]);
+fn kotlinc_compiles_and_runs_a_ref_anchored_call() -> KotlinCase {
+    let program = build_program(&[("main.sv", REF_ANCHOR_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    kotlin_case(files, "canbe_covered", "8 3 18\n")
+    kotlin_case(files, "ref_anchored_pair", "8 3 18\n")
 }
 
 fn kotlinc_compiles_and_runs_a_search_loop_lender() -> KotlinCase {
@@ -4343,12 +4318,12 @@ fn kotlinc_compiles_and_runs_the_update_family() -> KotlinCase {
     kotlin_case(files, "update_family", "111 220\n")
 }
 
-fn kotlinc_compiles_and_runs_an_anchored_canbe_call() -> KotlinCase {
-    let program = build_program(&[("main.sv", CANBE_ANCHORED_DEMO)]);
+fn kotlinc_compiles_and_runs_a_ref_anchored_field_call() -> KotlinCase {
+    let program = build_program(&[("main.sv", REF_ANCHORED_FIELD_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    kotlin_case(files, "canbe_anchored", "3 10\n")
+    kotlin_case(files, "ref_anchored_field", "3 10\n")
 }
 
 fn kotlinc_compiles_and_runs_a_read_before_a_mutation() -> KotlinCase {
@@ -4569,12 +4544,12 @@ const LEND_HANDLE_DEMO: &str = r#"
 struct Entity canbe Mut { hp: Int }
 
 effect Lender {
-    fn lease(es: List<Mut Entity>) -> (proj(es) Mut Entity)? => es
+    fn lease(es: List<Mut Entity>) -> (ref(es) Mut Entity)? => es
 }
 
 handler FirstLender of Lender {
-    fn lease(es: List<Mut Entity>) -> (proj(es) Mut Entity)? => es {
-        return get(es, 0)
+    fn lease(es: List<Mut Entity>) -> (ref(es) Mut Entity)? => es {
+        return at(es, 0)
     }
 }
 
@@ -4625,8 +4600,8 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_the_locate_bundle,
     kotlinc_compiles_and_runs_a_lending_effect_member,
     kotlinc_compiles_and_runs_a_search_loop_lender,
-    kotlinc_compiles_and_runs_a_covered_call,
-    kotlinc_compiles_and_runs_an_anchored_canbe_call,
+    kotlinc_compiles_and_runs_a_ref_anchored_call,
+    kotlinc_compiles_and_runs_a_ref_anchored_field_call,
     kotlinc_compiles_and_runs_a_loop_over_a_temporary,
     kotlinc_compiles_and_runs_salvos_float_text,
     kotlinc_compiles_and_runs_a_declared_identity,
@@ -5827,12 +5802,12 @@ fn main() [use] {
     use StdOutConsole()
     let xs: List<Mut Counter> = list_of(Mut Counter { n: 1 })
     let ys = copy(xs)
-    let e = get(xs, 0)!
+    let e = at(xs, 0)!
     e.n = 5
     println("${get(xs, 0)!.n} ${get(ys, 0)!.n}")
     let ls = mut_list_of(mut_list_of(1))
     let ms = copy(ls)
-    add(get(ls, 0)!, 2)
+    add(at(ls, 0)!, 2)
     println("${size(get(ls, 0)!)} ${size(get(ms, 0)!)}")
 }
 "#;

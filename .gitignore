@@ -47,3 +47,4 @@ modules/aws/demo/*/out/
 **/platform/.kotlin/
 **/platform/target/
 **/platform/Cargo.lock
+*.snap.new

@@ -19,7 +19,8 @@ with total `get`/`swap`/`substr` overloads, `preserve` entries, claim-minting
 passes, and constant slots), everything-is-an-expression control
 flow, algebraic effects with handler dependencies, non-resumption
 (`throw`/`try`), implicit parameters and obligation groups, linear types with a
-designated `close`, and pull iteration reduced to a `next` that `for` drives —
+designated `close`, mutable element handles (`ref(c)`, minted by `at`,
+aliasing by a shared named container), and pull iteration reduced to a `next` that `for` drives —
 with `iter fn` writing the iterator struct under any name, `Iter` for sources,
 and `iter T` naming an anonymous iterator by position.
 Effect handlers also bind *asynchronously* — an actor is one, with a mailbox, a
@@ -137,94 +138,78 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
-### 2026-10-08 — The `ref(c)` rework: in progress (compiler converted, sweep remaining)
+### 2026-10-10 — The `ref(c)` rework: done (v1a, v1b, and v2 for lists and maps)
 
 The group-borrowing design collapsed to `ref(c)` (GROUP_BORROWING.md Part 7,
-consolidated this session): a mutable element handle is a new provenance
-qualifier `ref(c)` naming its container — unifying the old `proj Mut` and the
-abandoned `Reg`, with no region scope. **`get` reads (always `proj`), `at`
-handles (always `ref`)** (user decision). `canbe` is retired in favour of
-`ref(c)` signatures. The rework is mid-flight; the four compiler library
-crates build clean at each committed step (the tree is allowed broken between
-steps, per user).
+user decisions 2026-10-08): a mutable element handle is a provenance
+qualifier `ref(c)` naming its container, replacing `proj Mut`; plain `proj`
+stays and is read-only whatever its `Mut` says. **`get` reads (always
+`proj`), `at` handles (always `ref`)**; `canbe` is retired in favour of
+`ref(c)` parameters; `Locate` is renamed `Ref`; no region scope. Built over
+two sessions in eleven committed steps (the tree was allowed broken between
+them, per user). Rules: [ref-handle] (was `[proj-mut]`, every reference
+renamed), [ref-anchor] (new), [col-locate], [for-elem-write]; `[canbe-entry]`
+is deleted from LANGUAGE_SPEC.md and the code.
 
-Landed (committed, `cargo build --workspace` clean):
-1. **types.rs foundation** — `is_proj_name`/`proj_names` (both `proj` and
-   `ref` are borrows), `Ty::is_proj()` covers both, new `Ty::is_ref()`,
-   `strip_top_proj`/`drop_block`/subtype/display/ranking all treat `ref` as a
-   never-drop borrow.
-2. **parser/keyword** — `ref` is `KwRef`, parses as a type-ref name, `ref(c)`
-   populates `TypeRef.from` like `proj(c)`.
-3. **checker** — the mutable handle is now `is_ref()`-carries-`Mut` (not
-   `proj`-carries-`Mut`); a plain `proj Mut` is a read-only projection that
-   fails a `Mut` position (new `ProjBlock::NotHandle` diagnostic). "Any
-   borrow" sites keep `is_proj` (covers both); handle sites switched to
-   `is_ref`. `top_level_proj_mut` stays `proj`-only (that contradiction is
-   still an error; `ref(c) Mut` is the legal spelling).
-4. **IR + Rust emitter** — `ref`+`Mut` drives the `[rs-elem-mut]`/`[rs-loc]`
-   locator rendering; a plain `proj` renders `&T`. `build.rs erase()` widened
-   so `ref` survives into the IR.
-5. **std mint (partial)** — `at` returns `ref(list) Mut T?`, `Locate` group
-   renamed `Ref`.
-6. **`canbe` retired** — `DeductionKind::CanBe`, `covered_pairs`,
-   `check_elem_handle_pairs`'s coverage branch, `Checked::covered_calls`,
-   `mut_lends::covered_fns`, IR `MayAlias`/`may_alias`, emitter
-   `covered`/`covered_args` all removed. `KwCanbe` token stays for the
-   unrelated `canbe Mut`/`canbe linear` opt-ins.
+What landed, in pipeline order:
+- **Types and syntax**: `ref` is a keyword and a borrow flavour beside `proj`
+  (`Ty::is_proj()` covers both, `Ty::is_ref()` is the handle test); `ref(c)`
+  fills `TypeRef.from`. Every name-keyed `== "proj"` test of a written type
+  that means "any borrow" now admits `ref` (`first_proj_source` — what makes a
+  derived return —, `rename_proj_source`, `proj_sources_of`, the three
+  `type_has_proj`s, the wire blocker); `top_level_proj_mut` stays
+  `proj`-only. `canbe` clauses are a parse error; `DeductionKind::CanBe`, the
+  coverage tables, IR `MayAlias` and the emitter's covered rendering are gone.
+- **Checker**: the handle is `is_ref()` carrying `Mut`; a plain `proj` in a
+  kept `Mut` position is refused (`ProjBlock::NotHandle`) for named calls
+  *and* calls through fn values (the latter was missing, found by the test
+  sweep: std's `update` passed a `get` to its callback unchallenged). **The
+  mint**: a `-> ref(c) Mut T?` fn whose body returns a projection of `c` is
+  accepted by a `proj → ref` promotion distributed over union arms
+  (`has_ref_arm`/`promote_proj_to_ref`), and the value's recorded type is
+  rewritten so the emitters see the handle. `elem_mint_index` recognizes
+  `core.list`'s `at` beside `get`. **[ref-anchor]**: `check_elem_handle_pairs`
+  takes per-argument anchors (`ref_anchor_of`); an anchored argument must be
+  a `ref` handle whose links include the container argument's own (root and
+  path), and two arguments anchored at one container may alias with no proof.
+  `ref(c)` must name another parameter. **[for-elem-write]**: an in-place walk
+  over `Mut` elements binds `ref(xs) Mut T` (the decided `for a in xs {
+  a.dead = true }` had regressed into a move-mode inference that consumed
+  `xs`). A poisoned handle no longer also reports "cannot mutate: it is a
+  projection" (one mistake, one diagnostic).
+- **Modes**: `param_mode::fn_param` lends mutably the source of a `ref Mut`
+  mint and any container a `ref(c) Mut` parameter names, whatever the
+  container type (the `List<Mut T>` special case had covered lists only).
+- **IR**: `FnDecl::ref_anchors` (dumped ` anchors a in c`).
+- **Rust**: anchored parameters render as `usize` positions in the container
+  parameter (`strike(c: &mut Vec<Fighter>, __c1: usize, __c2: usize)`), the
+  call computing positions first (`anchored_args`); a container that is not a
+  `List`/`Map` is a loud refusal. Calls to a mint with a locator variant join
+  the pair split (`lends_loc`). `is_mut_borrow` keeps a plain `proj` carrying
+  `Mut` a shared borrow (`&T`) at every binding-kind site — before it, a read
+  `get(squad, 0)!.hp` rendered `&mut *` over a `&` and failed rustc.
+- **std**: `at` for lists (`update`/`update2` now mint with `at(...)!`) and,
+  new, **`at` for maps** — a map position is the entry's slot in the
+  insertion-ordered slab (`slot_of`, `Index`/`IndexMut<usize>` on the host
+  `Map`), so the list locator machinery applies unchanged and a handle chains
+  through a map. **Finding 1a is closed**: the Step-2 confirmed-refusal test
+  became `rustc_compiles_and_runs_a_mutable_handle_chained_through_a_map_at`.
+  `std/runtime.sv`'s 29 mutating `get` binds became `at`.
+- **Sweep**: `examples/borrowing` rewritten (`strike`/`rotate` as `ref(c)`
+  signatures; output byte-identical to before on both backends), every
+  example's generated code, the std and `modules/aws` host projects, the
+  VS Code grammar (`ref` keyword), LANGUAGE_SPEC.md / BACKEND_SPEC.rust.md /
+  `docs/language/` (Mutable-Handles.md rewritten) and the wiki. Tests: the
+  `canbe` cases in elem_distinct/codegen (both backends) became `ref(c)`
+  cases, the `canbe` parse tests were deleted (one test now pins that the
+  clause is a parse error), new tests pin the fn-value refusal, the
+  unknown-container refusal and the generic-container cut. Stale tracked
+  `*.snap.new` files were removed and are now gitignored. **1731 tests.**
 
-Remaining (not yet done — see ROADMAP item 15 / GROUP_BORROWING Part 8):
-- **std sweep**: `cargo run -- analyze --src std` reports ~88 errors, almost
-  all in `std/runtime.sv` (the scheduler), uniform: handles into
-  `actors`/`pools`/`waiters` minted with `get`/projection then mutated →
-  change to `at`; functions taking `proj Mut X` parameters → re-type
-  `ref(c) Mut X` naming the container. Plus `at`'s body (`return get(...)`)
-  needs a real `ref` mint (the `expected ref Mut T?, found proj Mut T?`
-  error) — the v2 rendering wire-up.
-- **v2**: `at`'s `ref` mint rendered end-to-end on both backends (the locator
-  path exists; `at` must feed it); then maps get a by-key `at` (closes
-  finding 1a).
-  - **Key finding (2026-10-08):** `at` is an ordinary Salvo fn, NOT a platform
-    fn — its `__loc` locator variant (`at`/`at__loc` in the generated ABI
-    `std/platform/core/list.sv.rs`) is auto-derived by `mut_lends.rs` from its
-    body, which is `return get(list, index)`. The one blocker is a **type**
-    mismatch: `at` now declares `-> ref(list) Mut T?` but its body returns
-    `get(...)` which is `proj(list) Mut T?` (the `expected ref Mut T?, found
-    proj Mut T?` error). Resolve by either (a) a checker rule that a
-    `ref`-returning accessor minting from a projection of its container is the
-    handle mint (the `proj→ref` promotion at the designated locator), or (b) a
-    `ref`-minting primitive the body calls. (a) is lighter and matches "at is
-    the canonical mint". The backend `__loc` derivation already reads the
-    `get` call structurally and does not care about the proj/ref distinction,
-    so no backend change is expected for lists once the checker accepts the
-    body — verify by compiling a `let a = at(xs, i)!; a.hp = …` program on
-    rustc/kotlinc.
-  - **Landed 2026-10-08:** the `proj → ref` return promotion (check.rs
-    ~22491, the `ref_mint` condition) accepts `at`'s body. **Still open:** the
-    checker's *binding* path treats a bound `ref` mint as a "view of a
-    temporary" (`[proj-anywhere]`): `let a = at(squad, 0)!` errors with
-    "cannot bind a view of a temporary". The old `proj Mut` mint had
-    handle-binding/fate-link handling that recognized `get(squad,i)!` as a
-    position into `squad`; the `ref` mint needs the same — somewhere the
-    bind/fate path still keys on `proj`-specifically or does not establish the
-    `ref` fate-link to the container. This is the next concrete blocker for
-    v2; find where a bound mutable-element mint is recognized (fate-link
-    establishment + the temporary-view exemption) and extend it to `ref`.
-    **Precise mechanism (2026-10-08):** the error is `reject_temp_view`
-    (check.rs ~10869), gated by `self.out.temp_views` (populated ~28783/28893
-    from `proj_refs(rt)` sources + `is_temporary` ~10843). `is_temporary(squad)`
-    for a plain local ident ought to be false (idents have provenance), so
-    trace why `at(squad,0)` lands in `temp_views` — compare how a bound
-    `get(squad,i)!` `proj Mut` handle got its position/fate (pre-rework) vs.
-    how the `ref`-returning `at(...)!` does now; start at the call-binding
-    path for a `ref`-returning fn and the `handle_muts`/`loc_of` recognition.
-- **examples**: rewrite `examples/borrowing` (`canbe`→`ref(c)` signatures,
-  mutating `get`→`at`), regenerate the IR golden and the rust/kotlin output.
-- **spec/docs**: LANGUAGE_SPEC `[canbe-entry]` removed, `[proj-mut]`→
-  `[ref-handle]`, `[col-locate]` → `Ref`; rewrite docs/language/Mutable-Handles.md;
-  sync wiki.
-- **tests**: parser_tests (`DeductionKind::CanBe` match at parser_tests.rs:1703),
-  elem_distinct_tests (`canbe` cases), codegen_tests both backends (`canbe`
-  cases → `ref`); regenerate snapshots.
+What is left is ROADMAP item 15: generic/custom containers, the named-`?at`
+forms, a `Deque` `at`, and whether `at` gets a total `Idx` overload. Slices
+(ROADMAP 0f) now carry a **DECISION**: a writable slice cannot be `proj Mut
+List<T>` any more.
 
 ### 2026-10-08 — Group-borrowing plan, Step 0: obligations on an `intrinsic type` are declared and checked, and `by` is refused there
 
@@ -24579,6 +24564,23 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A type test on a handle must see through the optional** (2026-10-10,
+  [ref-handle]). `ref(c) Mut T?` is a `Ty::Union` whose *arm* carries the
+  qualifiers, so `Ty::is_ref()`/`is_proj()` on it answer false. The first
+  `proj → ref` mint promotion tested the top level only and never fired; it
+  was recorded as landed because only the compiler crates were built. Use
+  `has_ref_arm`, and verify a checker rule with a program, not a build.
+- **A new borrow flavour hides behind every `== "proj"`** (2026-10-10). The
+  derived-return recognition (`first_proj_source`), `type_has_proj` (three
+  copies), `proj_sources_of` and the wire blocker matched the qualifier's
+  name literally, so `ref` silently fell out of each — the "view of a
+  temporary" false positive on `let a = at(squad, 0)!` was `at` not being a
+  derived return, which sent its *index* argument down the lend path.
+  `grep -rn '== "proj"'` before adding a flavour, and decide each site.
+- **A plain `proj` carrying `Mut` is still `&T` on Rust** (2026-10-10): every
+  site that picks a binding kind from `is_proj && is_mut` must ask
+  `is_mut_borrow` instead, or a read renders `&mut *` over a `&`.
 
 - **`salvo` embeds `std/` at build time** (2026-10-06): after editing a
   `.sv` under `std/`, `cargo build` before `salvo run`/`compile`, or the run

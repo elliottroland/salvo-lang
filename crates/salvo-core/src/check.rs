@@ -801,7 +801,7 @@ pub struct Checked {
     /// the ancestors were consumed at the binding. The Rust backend
     /// emits these as real moves instead of clones.
     pub binding_modes: HashSet<Key>,
-    /// [proj-mut] Bind events of **mutable element handles** (P-9, user
+    /// [ref-handle] Bind events of **mutable element handles** (P-9, user
     /// decision 2026-09-24: mode is inferred per binding): a `let` binding a
     /// `proj Mut` value that some downstream use mutates. The Rust backend
     /// renders such a binding as a captured-index path handle rather than a
@@ -6830,7 +6830,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             || (kept
                 && arg.is_proj()
                 && is_subtype(&arg.strip_top_proj(), param)
-                // [proj-mut] A `Mut` position needs mutation permission,
+                // [ref-handle] A `Mut` position needs mutation permission,
                 // which a projection has exactly when it is a `ref(c)`
                 // handle that carries `Mut` — a mutable element handle
                 // (`get` over `List<Mut T>`, which now returns `ref(list)
@@ -7660,7 +7660,32 @@ impl<'p, 'r> Checker<'p, 'r> {
                         self.error(
                             from.span,
                             format!(
-                                "`proj({})` names no parameter of this function",
+                                "`{}({})` names no parameter of this function",
+                                r.name.name, from.name
+                            ),
+                        );
+                    }
+                }
+            }
+        }
+        // [ref-anchor] A `ref(c)` parameter names another parameter as its
+        // container.
+        for p in &f.params {
+            let quals = match &p.ty {
+                ast::Type::Named { qualifiers, .. } | ast::Type::QualifiedGroup { qualifiers, .. } => qualifiers,
+                _ => continue,
+            };
+            for r in quals.iter().filter(|q| q.name.name == "ref") {
+                for from in &r.from {
+                    let ok = from.name != p.name.name
+                        && (f.params.iter().any(|q| q.name.name == from.name)
+                            || extra_params.iter().any(|q| q.name.name == from.name));
+                    if !ok {
+                        self.error(
+                            from.span,
+                            format!(
+                                "`ref({})` names no other parameter of this function: a handle \
+                                 parameter names the container parameter it is a position in [ref-anchor]",
                                 from.name
                             ),
                         );
@@ -10249,7 +10274,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         );
     }
 
-    /// [proj-mut] `poison_derived` with one exempt variable: a mutation
+    /// [ref-handle] `poison_derived` with one exempt variable: a mutation
     /// *through* a mutable element handle poisons the root's other
     /// derivations, but must not kill the acting handle itself — its
     /// storage did not move.
@@ -10260,7 +10285,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// `NotEq` claim names disjoint storage, so it is spared. Anything
     /// short of the full proof — either identity missing, paths differing,
     /// no live claim — poisons as before [fate-poison].
-    /// [proj-mut] [deduce-field] The full form: one exempt variable (the
+    /// [ref-handle] [deduce-field] The full form: one exempt variable (the
     /// acting mutable element handle) and the event's kind.
     #[allow(clippy::too_many_arguments)]
     fn poison_derived_full(
@@ -10377,7 +10402,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         if links.iter().any(|l| l.borrowed && !l.held) {
             let why = if action == "mutate" {
                 " — a read-only projection never satisfies a `Mut` position \
-                 (a mutable handle needs a `Mut` element type, `List<Mut T>` [proj-mut])"
+                 (a mutable handle is minted with `at(...)` from a container of `Mut` \
+                 elements, `List<Mut T>` [ref-handle])"
             } else {
                 ""
             };
@@ -11031,7 +11057,29 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             })
             .collect();
-        self.out.fn_value_calls.insert(self.key(span), effective);
+        self.out.fn_value_calls.insert(self.key(span), effective.clone());
+        // [ref-handle] A kept `Mut` position needs a handle: a plain `proj`
+        // (read-only, even carrying `Mut`) does not fit it — the named-call
+        // overload check's `NotHandle` refusal, for calls through fn values.
+        for (i, arg) in args.iter().enumerate() {
+            let Some(e) = effective.get(i) else { continue };
+            if !(e.kept && e.mutable) {
+                continue;
+            }
+            let Some(t) = self.out.ty_of(self.file_idx, arg.span()).cloned() else { continue };
+            if t.is_proj() && !t.is_ref() {
+                self.error(
+                    arg.span(),
+                    format!(
+                        "this argument is a plain projection (`{t}`), and the function \
+                         value mutates it: a mutable element handle is written `ref(c)`, \
+                         not a bare `proj` — `proj Mut` is read-only [ref-handle]. Mint a \
+                         handle with `at(...)` instead of projecting, or pass `copy(...)` \
+                         for a value of your own"
+                    ),
+                );
+            }
+        }
         self.apply_call_contract(args, params, contract, span);
     }
 
@@ -15712,7 +15760,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 );
                 return;
             }
-            // [proj-mut] [ref-handle] A `ref` carrying `Mut` is a **mutable
+            // [ref-handle] A `ref` carrying `Mut` is a **mutable
             // element handle** (P-3's lift of [proj-readonly], user
             // decisions 2026-09-24; narrowed to `ref` specifically,
             // 2026-10-08 — a plain `proj` carrying `Mut` is no longer a
@@ -15723,6 +15771,17 @@ impl<'p, 'r> Checker<'p, 'r> {
             // recorded as mutated so its inferred contract takes the
             // exhaustive form [deduce-syntax]. The bind event is recorded
             // for the emitter (P-9: mode is inferred per binding).
+            let handle_ty = |t: &Ty| t.is_ref() && Self::carries_mut(t);
+            let (poisoned, declared_handle) = self
+                .lookup(name)
+                .map(|v| (matches!(v.narrowed, Ty::Never), handle_ty(&v.declared)))
+                .unwrap_or((false, false));
+            // A handle the analysis has already poisoned was reported at the
+            // use [fate-poison]; refusing the write as well would be a second
+            // diagnostic for one mistake [type-unknown-lenient].
+            if poisoned && declared_handle {
+                return;
+            }
             let handle_mut = self
                 .lookup(name)
                 .map(|v| v.narrowed.clone())
@@ -22983,6 +23042,22 @@ impl<'p, 'r> Checker<'p, 'r> {
                 } else {
                     elem
                 };
+                // [for-elem-write] [ref-handle] Walking a collection of `Mut`
+                // elements in place hands out **handles** into it: the loop
+                // is a sequence of positions in the walked container, so a
+                // body may write through the element (user decision
+                // 2026-10-04), as through an `at` mint.
+                let elem = if !drives_pass
+                    && !drives_in_place
+                    && !links.is_empty()
+                    && elem.is_proj()
+                    && !elem.is_ref()
+                    && Self::carries_mut(&elem)
+                {
+                    promote_proj_to_ref(elem)
+                } else {
+                    elem
+                };
                 // [let-destructure] A loop element may be destructured: the
                 // header binds it to a temporary and the body opens with the
                 // pattern's own bindings, read off that temporary.
@@ -28102,11 +28177,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                     ProjBlock::Mutates => format!(
                         "{what} is a read-only projection (`{arg_shown}`), and `{callee}` \
                          mutates `{pname}` — a mutable handle needs a `Mut` element type \
-                         (`List<Mut T>`) [proj-mut]. Use `copy(...)` for a value of your own"
+                         (`List<Mut T>`) [ref-handle]. Use `copy(...)` for a value of your own"
                     ),
                     ProjBlock::NotHandle => format!(
                         "{what} is a plain projection (`{arg_shown}`), and `{callee}` \
-                         mutates `{pname}`: a mutable element handle is now written \
+                         mutates `{pname}`: a mutable element handle is written \
                          `ref(c)`, not a bare `proj` — `proj Mut` is read-only \
                          [ref-handle]. Mint a handle with `at(...)` instead \
                          of projecting, or pass `copy(...)` for a value of your own"

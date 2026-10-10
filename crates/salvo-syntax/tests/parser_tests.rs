@@ -2804,36 +2804,13 @@ fn the_opaque_projection_is_a_return_annotation() {
     assert!(diags.iter().any(|d| d.is_error()), "{diags:?}");
 }
 
-/// [canbe-entry] The alias-group entry's decided grammar (GB-1(s), user
-/// decisions 2026-09-24): the core form, a `|` hub on the right, a plural
-/// subject on the left, and the anchored `canbe in` with a path list.
+/// [ref-anchor] The `canbe` aliasing clause is gone from the language
+/// (replaced by `ref(c)` parameters): `=> a canbe d` is a plain parse error.
 #[test]
-fn canbe_entries_parse_in_every_decided_form() {
-    let src = "\
-        fn f(a: Mut Int, b: Mut Int, c: Mut Int) -> None => a canbe b {}\n\
-        fn g(a: Mut Int, b: Mut Int, c: Mut Int) -> None => a canbe b|c {}\n\
-        fn h(a: Mut Int, b: Mut Int, c: Mut Int, es: Mut Int) -> None\n\
-        => a|b|c canbe in es {}\n\
-        fn k(t: Mut Int, lib: Mut Int, pool: Mut Int) -> None\n\
-        => t canbe in lib|pool {}\n";
-    let (module, diagnostics) = salvo_syntax::parse_module(src);
-    let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
-    assert!(errors.is_empty(), "{errors:?}");
-    assert_eq!(module.items.len(), 4);
-}
-
-/// [canbe-entry] A `canbe` entry names parameters: a result path is an
-/// error, so the entry cannot be confused with a projection one.
-#[test]
-fn a_canbe_entry_refuses_a_result_path() {
-    let src = "fn f(a: Mut Int) -> None => .x canbe a {}\n";
+fn a_canbe_clause_is_a_parse_error() {
+    let src = "fn f(a: Mut Int, d: Mut Int) -> None => a canbe d {}\n";
     let (_, diagnostics) = salvo_syntax::parse_module(src);
-    assert!(
-        diagnostics
-            .iter()
-            .any(|d| d.is_error() && d.message.contains("names parameters")),
-        "{diagnostics:?}"
-    );
+    assert!(diagnostics.iter().any(|d| d.is_error()), "{diagnostics:?}");
 }
 
 /// [deduce-field] The field-granular entries parse: a field-level `Mut`

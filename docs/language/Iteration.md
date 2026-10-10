@@ -99,7 +99,7 @@ that is data, and the backends walk it in place.
 `Yield` and `Iter` are the pattern, not the only instances: `core.compare`
 declares `Ordered`, `Eq` and `Hashed` the same way
 ([Comparison, equality and hashing](Comparison-and-Hashing.md)), and
-`core.list` declares `Locate` for algorithms generic over what a *position*
+`core.list` declares `Ref` for algorithms generic over what a *position*
 is ([Mutable handles](Mutable-Handles.md)). A type joins any of them by
 declaring one function.
 

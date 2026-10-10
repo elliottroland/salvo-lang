@@ -659,7 +659,7 @@ the blanket rule:
   A value of a `proj`-arm union flowing into a position written as the
   owned union is adapted arm by arm the same way for Copy payloads, and is
   a codegen error otherwise (a hidden clone this backend refuses).
-* [rs-elem-mut] [proj-mut] **Mutable element handles** (P-3 + P-9, user
+* [rs-elem-mut] [ref-handle] **Mutable element handles** (P-3 + P-9, user
   decisions 2026-09-24) are **positions**, never a bound `&mut`:
   * A **statement-scoped** handle — `bump(get(es, 0)!)` in a `&mut`
     position — materializes the element for that one call: the lend is the
@@ -709,7 +709,7 @@ the blanket rule:
 * [rs-loc] **Locator-specialized lending** (④a, 2026-09-24): a named lending
   fn whose result some call site uses as a bound mutable handle gets a
   **demand-driven locator variant**, `{name}__loc`, beside its natural face.
-  * The **natural face** lends the way its type says: a `proj Mut` result is
+  * The **natural face** lends the way its type says: a `ref(c) Mut` result is
     `Option<&mut T>` / `&mut T` over `&mut` sources
     (`pub fn wounded(squad: &mut Vec<crate::Fighter>) -> Option<&mut crate::Fighter>`,
     its search loop `for mut f in (&mut *squad).iter_mut() { … return Some(&mut *f); }`).
@@ -723,7 +723,8 @@ the blanket rule:
     finds the host's borrow by address
     (`….map(|__x| list.iter().position(|__e| std::ptr::eq(__e, __x)).expect("salvo: a borrow outside its container"))`),
     except `List`/`Deque`'s `get`, whose position is the index under a bounds
-    test, and the total `get_at`, which is the index.
+    test, the total `get_at`, which is the index, and `Map`'s `get`, whose
+    position is the entry's slot.
   * Body transform: return-path forwards take their callees' `__loc`
     variants (demand closes transitively); a derived-return intrinsic takes
     its **locator form**; an intrinsic without one, or a return shape beyond
@@ -737,14 +738,14 @@ the blanket rule:
     renders as a **locator closure** —
     `at: &mut dyn FnMut(&Vec<crate::Entity>, &L) -> Option<usize>`,
     read-mode parameters — and a lambda filling such a position emits in
-    locator mode (`&mut |mut c, mut k| -> Option<usize> { crate::core_list::get_platform__loc(c, k) }`),
+    locator mode (`&mut |mut c, mut k| -> Option<usize> { crate::core_list::at__loc(c, k) }`),
     a named fn through its `__loc` variant
     (`&mut |__a0: &Vec<crate::Fighter>, __a1: &i32| crate::core_list::at__loc(__a0, *__a1)`).
     The call materializes the borrow:
     `match at(&*squad, l) { Some(__l1) => Some(&mut squad[__l1]), None => None }`.
     This is what lets a mutable handle cross a closure boundary at all; a
     `&mut`-returning `FnMut` would tie the borrow to the closure. The
-    `?at`/`Locate` idiom [col-locate] rides it, with implicit positions
+    `?at`/`Ref` idiom [col-locate] rides it, with implicit positions
     rendered the same way.
   * **Effect members** that lend mutably have both faces too. The natural
     face is explicitly lifetime-tagged so the borrow ties to the source
@@ -758,32 +759,30 @@ the blanket rule:
     handle bound from the member (`let e = lease(es)!`) is the position
     `lender.lease__loc(&*es)`, so it survives a read of the container. A
     platform effect's or an actor's members have the natural face only.
-  * **Covered positions** ([canbe-entry], rung ④b): a callee whose clause
-    declares `canbe` coverage renders its covered parameters as **one
-    shared anchor plus a `usize` locator each** —
-    `pub fn strike(__anchor: &mut Vec<crate::Fighter>, __c0: usize, __c1: usize)`
-    — and indexes `__anchor[__cN]` inside the body. The call site computes
-    the positions first and passes `&mut container` once:
-    `{ let __c13 = crate::core_list::get__loc(&squad, i); let __c14 = crate::core_list::get__loc(&squad, j); crate::strike(&mut squad, __c13, __c14) };`.
-    Two `&mut` into one container cannot coexist, which is why coverage
-    changes the *representation* rather than relaxing a check; aliasing is
-    then exact (one storage), so a covered call behaves identically to
-    Kotlin's native aliasing — including the case where both handles are
-    the same element. Reported, loudly: a covered argument that is not an
-    element handle of a bound container, and covered positions naming
-    *different* containers (they share no anchor).
-    * **An anchored entry's anchor is a parameter** (`=> t canbe in
-      lib.tracks` — the path is rooted at one), so the callee keeps that
-      parameter and the covered positions add nothing but their index:
-      `pub fn rotate(squad: &mut crate::Squad, __c1: usize, __c2: usize)`,
-      indexing `squad.members[__cN]`, called as
-      `{ let __c19 = crate::core_list::get_platform__loc(&team.members, i).expect(…); let __c20 = …; crate::rotate(&mut team, __c19, __c20) };`.
-      Only the plain `a canbe d` form, whose anchor no parameter names, grows
-      an `__anchor` of its own. The anchored form is therefore also what
-      licenses **handles passed beside their own container** in one call:
-      the pair shares the anchor rather than borrowing it twice. The call
-      site checks the agreement it rests on — a handle of a *different*
-      container than the clause anchors it in is reported, naming both.
+  * **Anchored handle parameters** ([ref-anchor], 2026-10-08, replacing
+    `canbe`'s covered positions): a parameter `a: ref(c) Mut T` renders as a
+    **`usize` position in its container parameter**, which the callee
+    already takes —
+    `pub fn strike(c: &mut Vec<crate::Fighter>, __c1: usize, __c2: usize)`
+    — and the body indexes `c[__cN]`. The call site computes the positions
+    first (a bound handle's own position, or the mint's `__loc`) and passes
+    the container `&mut` once:
+    `{ let __c7 = crate::core_list::at__loc(&squad, i).expect(…); let __c8 = …; crate::strike(&mut squad, __c7, __c8) };`.
+    Two `&mut` into one container cannot coexist, which is why sharing a
+    container changes the *representation* rather than relaxing a check;
+    aliasing is then exact (one storage), so the call behaves identically
+    to Kotlin's native aliasing — including the case where both handles are
+    the same element. The container may be a field path at the call:
+    `crate::rotate(&mut team.members, __c11, __c12)`. Reported, loudly: an
+    anchored argument whose position cannot be computed.
+  * **Maps** (2026-10-08): `core.map`'s `at` is the by-key mint, and a map
+    position is its entry's **slot** in the insertion-ordered slab
+    (`platform_core_map::slot_of`; `Map` implements `Index<usize>` /
+    `IndexMut<usize>` over slots), so `get`'s locator form is
+    `slot_of(map, key, hash, eq)` and every list rendering above applies
+    unchanged — a handle chains through a map (`at(at(m, k)!, i)!`).
+    Slots are stable until an entry is added or removed, which poisons the
+    handles [fate-poison].
   * **What remains cut, loud**: a lend whose anchor is not a plain place
     of a known indexable type (a bare generic container has no index —
     the recorded lift is the type-erased locator, COMPLETED.md's log's

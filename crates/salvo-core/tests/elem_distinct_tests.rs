@@ -12,8 +12,8 @@ use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 const STD_PRELUDE: &str =
     "export intrinsic type Str\nexport intrinsic type Int\nexport intrinsic type Bool\n";
 
-/// A miniature `core.list`: the mint recognition is nominal — `get`
-/// declared by the `core.list` module — so the tests declare exactly the
+/// A miniature `core.list`: the mint recognition is nominal — `get` and
+/// `at` declared by the `core.list` module — so the tests declare exactly the
 /// surface the feature reads [elem-distinct], plus `NotEq` itself
 /// [col-noteq].
 const STD_LIST: &str = "\
@@ -34,6 +34,10 @@ export qualifier NotEq(i: Int) of Int with Idx {\n\
     fn qualifies(j: Int, i: Int) -> Bool {\n\
         return j != i\n\
     }\n\
+}\n\
+export fn at<T>(list: List<Mut T>, index: Int) [] -> ref(list) Mut T?\n\
+=> list, index {\n\
+    return get(list, index)\n\
 }\n";
 
 /// Parses + resolves + checks one file against the mini std and returns
@@ -105,8 +109,8 @@ fn two_proven_distinct_handles_coexist_across_mutation() {
         "{PRELUDE}\
          fn f(es: List<Mut Entity>, i: Int, j: Int) [] -> None {{\n    \
          if j is NotEq(i) {{\n        \
-         let a = get(es, i)!\n        \
-         let d = get(es, j)!\n        \
+         let a = at(es, i)!\n        \
+         let d = at(es, j)!\n        \
          a.hp = a.hp + 1\n        \
          d.hp = d.hp + 1\n    \
          }}\n    \
@@ -123,8 +127,8 @@ fn without_a_claim_the_sibling_handle_poisons() {
     let src = format!(
         "{PRELUDE}\
          fn f(es: List<Mut Entity>, i: Int, j: Int) [] -> None => es, i, j {{\n    \
-         let a = get(es, i)!\n    \
-         let d = get(es, j)!\n    \
+         let a = at(es, i)!\n    \
+         let d = at(es, j)!\n    \
          a.hp = a.hp + 1\n    \
          d.hp = d.hp + 1\n    \
          return None\n}}\n"
@@ -147,8 +151,8 @@ fn reassigning_the_index_restores_the_conservative_poison() {
          fn f(es: List<Mut Entity>, i: Int, j: Int) [] -> None => es, i, j {{\n    \
          let k = i + 0\n    \
          if j is NotEq(k) {{\n        \
-         let a = get(es, k)!\n        \
-         let d = get(es, j)!\n        \
+         let a = at(es, k)!\n        \
+         let d = at(es, j)!\n        \
          k = k + 1\n        \
          a.hp = a.hp + 1\n        \
          d.hp = d.hp + 1\n    \
@@ -171,8 +175,8 @@ fn the_same_index_still_poisons() {
         "{PRELUDE}\
          fn f(es: List<Mut Entity>, i: Int, j: Int) [] -> None => es, i, j {{\n    \
          if j is NotEq(i) {{\n        \
-         let a = get(es, i)!\n        \
-         let d = get(es, i)!\n        \
+         let a = at(es, i)!\n        \
+         let d = at(es, i)!\n        \
          a.hp = a.hp + 1\n        \
          d.hp = d.hp + 1\n    \
          }}\n    \
@@ -194,7 +198,7 @@ fn a_proven_pair_may_land_in_one_call() {
         "{PRELUDE}\
          fn f(es: List<Mut Entity>, i: Int, j: Int) [] -> None => es, i, j {{\n    \
          if j is NotEq(i) {{\n        \
-         attack(get(es, i)!, get(es, j)!)\n    \
+         attack(at(es, i)!, at(es, j)!)\n    \
          }}\n    \
          return None\n}}\n"
     );
@@ -209,7 +213,7 @@ fn an_unproven_pair_in_one_call_is_refused() {
     let src = format!(
         "{PRELUDE}\
          fn f(es: List<Mut Entity>, i: Int, j: Int) [] -> None => es, i, j {{\n    \
-         attack(get(es, i)!, get(es, j)!)\n    \
+         attack(at(es, i)!, at(es, j)!)\n    \
          return None\n}}\n"
     );
     let errs = errors(&src);
@@ -227,8 +231,8 @@ fn a_proven_bound_pair_may_land_in_one_call() {
         "{PRELUDE}\
          fn f(es: List<Mut Entity>, i: Int, j: Int) [] -> None {{\n    \
          if j is NotEq(i) {{\n        \
-         let a = get(es, i)!\n        \
-         let d = get(es, j)!\n        \
+         let a = at(es, i)!\n        \
+         let d = at(es, j)!\n        \
          attack(a, d)\n    \
          }}\n    \
          return None\n}}\n"
@@ -260,7 +264,7 @@ fn an_unproven_pair_through_a_fn_value_is_refused() {
         "{PRELUDE}\
          fn touch2(es: List<Mut Entity>, i: Idx(es) Int, j: Idx(es) Int,\n\
                    f: (a: Mut Entity, b: Mut Entity) -> None) [] -> None {{\n    \
-         f(get(es, i), get(es, j))\n    \
+         f(at(es, i)!, at(es, j)!)\n    \
          return None\n}}\n"
     );
     let errs = errors(&src);
@@ -278,33 +282,38 @@ fn a_declared_noteq_proof_carries_a_fn_value_pair() {
         "{PRELUDE}\
          fn touch2(es: List<Mut Entity>, i: Idx(es) Int, j: NotEq(i) Idx(es) Int,\n\
                    f: (a: Mut Entity, b: Mut Entity) -> None) [] -> None {{\n    \
-         f(get(es, i), get(es, j))\n    \
+         f(at(es, i)!, at(es, j)!)\n    \
          return None\n}}\n"
     );
     assert!(errors(&src).is_empty(), "got {:?}", errors(&src));
 }
 
-/// [canbe-entry] ④b — a callee declaring `=> a canbe d` takes two element
-/// handles of one container with **no disjointness proof**: the same-call
-/// rule stands down exactly for the covered pair.
+/// A callee taking two handles anchored at one container parameter
+/// [ref-anchor]: `ref(c)` on both says they may be the same element.
+const DUEL: &str = "\
+fn duel(c: List<Mut Entity>, a: ref(c) Mut Entity, d: ref(c) Mut Entity) [] -> None {\n    \
+a.hp = a.hp - 1\n    \
+d.hp = d.hp - 2\n    \
+return None\n}\n";
+
+/// [ref-anchor] ④b — a callee whose two handle parameters are both
+/// `ref(c)` takes two element handles of one container with **no
+/// disjointness proof**: the same-call rule stands down exactly for the
+/// pair anchored at one container parameter — including the self-strike.
 #[test]
 fn a_covered_pair_needs_no_proof() {
     let src = format!(
-        "{PRELUDE}\
-         fn duel(a: Mut Entity, d: Mut Entity) [] -> None\n\
-         => a canbe d, a: Mut, d: Mut {{\n    \
-         a.hp = a.hp - 1\n    \
-         d.hp = d.hp - 2\n    \
-         return None\n}}\n\
+        "{PRELUDE}{DUEL}\
          fn f(es: List<Mut Entity>, i: Idx(es) Int, j: Idx(es) Int) [] -> None {{\n    \
-         duel(get(es, i), get(es, j))\n    \
+         duel(es, at(es, i)!, at(es, j)!)\n    \
+         duel(es, at(es, i)!, at(es, i)!)\n    \
          return None\n}}\n"
     );
     assert!(errors(&src).is_empty(), "got {:?}", errors(&src));
 }
 
-/// [canbe-entry] …and an *uncovered* callee still refuses the pair: the
-/// exemption is exactly coverage-shaped (P-6).
+/// [ref-anchor] …and an *uncovered* callee still refuses the pair: the
+/// exemption is exactly anchor-shaped (P-6).
 #[test]
 fn an_uncovered_callee_still_refuses_the_pair() {
     let src = format!(
@@ -314,7 +323,7 @@ fn an_uncovered_callee_still_refuses_the_pair() {
          d.hp = d.hp - 2\n    \
          return None\n}}\n\
          fn f(es: List<Mut Entity>, i: Idx(es) Int, j: Idx(es) Int) [] -> None {{\n    \
-         duel(get(es, i), get(es, j))\n    \
+         duel(at(es, i)!, at(es, j)!)\n    \
          return None\n}}\n"
     );
     let errs = errors(&src);
@@ -324,48 +333,69 @@ fn an_uncovered_callee_still_refuses_the_pair() {
     );
 }
 
-/// [GB-fix-1b] A plain `canbe` pair drawn from **two different
-/// containers** is refused at the call: `canbe` only authorizes aliasing
-/// of two handles into the *same* storage, and the plain form (unlike the
-/// anchored `canbe in`) names no container to prove sharing against. This
-/// shape used to compile and silently miscompile on Rust (`list2`'s
-/// handle redirected onto `list1`), a backend-parity break; it is now a
-/// compile error naming both containers.
+/// [GB-fix-1b] [ref-anchor] A `ref(c)` pair drawn from **two different
+/// containers** is refused at the call: each handle must come from the
+/// very container passed for its `ref(…)` parameter. (The `canbe` shape
+/// this replaces used to compile and silently miscompile on Rust — one
+/// list's handle redirected onto the other — a backend-parity break.)
 #[test]
 fn a_covered_pair_from_two_containers_is_refused() {
     let src = format!(
-        "{PRELUDE}\
-         fn duel(a: Mut Entity, d: Mut Entity) [] -> None\n\
-         => a canbe d, a: Mut, d: Mut {{\n    \
-         a.hp = a.hp - 1\n    \
-         d.hp = d.hp - 2\n    \
-         return None\n}}\n\
+        "{PRELUDE}{DUEL}\
          fn f(es: List<Mut Entity>, fs: List<Mut Entity>, i: Idx(es) Int, j: Idx(fs) Int) [] -> None {{\n    \
-         duel(get(es, i), get(fs, j))\n    \
+         duel(es, at(es, i)!, at(fs, j)!)\n    \
          return None\n}}\n"
     );
     let errs = errors(&src);
     assert!(
-        errs.iter().any(|e| e.contains("do not share a container")),
+        errs.iter().any(|e| e.contains("[ref-anchor]")),
         "expected the two-container refusal: {errs:?}"
     );
 }
 
-/// [GB-fix-1b] …and the same covered pair drawn from **one container** is
-/// still accepted — the fix narrows acceptance only for the previously
-/// miscompiling different-container case, nothing else.
+/// [GB-fix-1b] [ref-anchor] …and the same pair drawn from **one
+/// container** is accepted — the refusal is only for the
+/// different-container case, nothing else.
 #[test]
 fn a_covered_pair_from_one_container_is_accepted() {
     let src = format!(
-        "{PRELUDE}\
-         fn duel(a: Mut Entity, d: Mut Entity) [] -> None\n\
-         => a canbe d, a: Mut, d: Mut {{\n    \
-         a.hp = a.hp - 1\n    \
-         d.hp = d.hp - 2\n    \
-         return None\n}}\n\
+        "{PRELUDE}{DUEL}\
          fn f(es: List<Mut Entity>, i: Idx(es) Int, j: Idx(es) Int) [] -> None {{\n    \
-         duel(get(es, i), get(es, j))\n    \
+         duel(es, at(es, i)!, at(es, j)!)\n    \
          return None\n}}\n"
     );
     assert!(errors(&src).is_empty(), "got {:?}", errors(&src));
+}
+
+/// [ref-handle] A plain `get` is read-only even through a fn value: a
+/// `Mut` position of the fn type refuses it, as a named callee does.
+#[test]
+fn a_read_only_projection_does_not_fit_a_fn_values_mut_position() {
+    let src = format!(
+        "{PRELUDE}\
+         fn touch(es: List<Mut Entity>, i: Idx(es) Int, f: (a: Mut Entity) -> None) [] -> None {{\n    \
+         f(get(es, i))\n    \
+         return None\n}}\n"
+    );
+    let errs = errors(&src);
+    assert!(
+        errs.iter().any(|e| e.contains("plain projection") && e.contains("[ref-handle]")),
+        "expected the read-only refusal: {errs:?}"
+    );
+}
+
+/// [ref-anchor] A handle parameter's container must be another parameter.
+#[test]
+fn a_ref_parameter_naming_no_parameter_is_refused() {
+    let src = format!(
+        "{PRELUDE}\
+         fn bad(c: List<Mut Entity>, a: ref(nosuch) Mut Entity) [] -> None {{\n    \
+         a.hp = a.hp - 1\n    \
+         return None\n}}\n"
+    );
+    let errs = errors(&src);
+    assert!(
+        errs.iter().any(|e| e.contains("`ref(nosuch)` names no other parameter")),
+        "expected the unknown-container refusal: {errs:?}"
+    );
 }

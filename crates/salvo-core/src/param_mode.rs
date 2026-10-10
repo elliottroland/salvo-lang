@@ -183,7 +183,7 @@ fn kept_mode(ty: &Type) -> PassMode {
     if type_has_mut(ty) || type_has_elem_mut(ty) {
         // [rs-elem-mut] A container with `Mut` elements lends mutable
         // handles, so it is lent mutably even without its own `Mut`
-        // [proj-mut].
+        // [ref-handle].
         PassMode::LentMut
     } else {
         PassMode::Lent
@@ -208,7 +208,7 @@ pub fn type_has_mut(ty: &Type) -> bool {
 
 /// [rs-elem-mut] Whether a container type's **elements** carry `Mut` —
 /// `List<Mut T>`, `Mut T[]` — which makes the container lend mutable handles
-/// [proj-mut]. Element depth only.
+/// [ref-handle]. Element depth only.
 pub fn type_has_elem_mut(ty: &Type) -> bool {
     match ty {
         Type::Named { base, .. } if base.name.name == "List" => base.args.iter().any(type_has_mut),

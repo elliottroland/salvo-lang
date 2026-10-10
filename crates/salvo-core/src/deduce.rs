@@ -414,9 +414,6 @@ pub(crate) fn from_written(
             // [qual-preserve] A `preserve` entry accompanies the parameter's
             // ordinary one — it speaks about *other* values' claims — so it
             // is exempt from the once-rule on both sides.
-            // [canbe-entry] …and so does the alias-group relation: `=> a canbe
-            // d, a: Mut` is two statements about `a` (user decision
-            // 2026-09-24, on `preserve`'s precedent).
             let is_preserve = |x: &Deduction| matches!(x.kind, DeductionKind::Preserve(_));
             if !is_preserve(d)
                 && list[..i].iter().any(|prev| {
@@ -462,8 +459,6 @@ pub(crate) fn from_written(
             };
             let invalidates = mutated.contains(&name);
             let effect = match &d.kind {
-                // [canbe-entry] The alias-group relation says nothing about
-                // keptness or qualifiers: it is a statement about *which
                 // [implicit-with] The fill-together relation is a statement
                 // about which *implicits* travel together, read where a
                 // call fills them.

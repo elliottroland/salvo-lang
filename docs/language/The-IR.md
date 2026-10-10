@@ -174,8 +174,11 @@ After the return type, a function signature may list:
   (the deduction `p.f: proj(q)`).
 * **`throws M`**: the function may throw a message of type `M`
   ([Throwing](Throwing.md)).
-* **`=> a canbe b`, `=> a canbe in lib.tracks`**: the parameters that may
-  name the same object ([Mutable Handles](Mutable-Handles.md)).
+* **`anchors a in c, d in c`**: parameters typed `ref(c)` — handles into
+  the container parameter `c` — which may therefore name the same element
+  (`FnDecl::ref_anchors`; [Mutable Handles](Mutable-Handles.md)). A handle
+  parameter's own type dumps as `ref Mut T`:
+  `fn main::strike(lent_mut c: List<Mut Fighter>, lent_mut a: ref Mut Fighter, lent_mut d: ref Mut Fighter) -> None anchors a in c, d in c`.
 
 ## Statements
 
