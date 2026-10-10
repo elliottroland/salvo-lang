@@ -1146,6 +1146,20 @@ GROUP_BORROWING.md Parts 7–8 stay the design record for what remains:
    different accessors. Nothing asks for it yet; it arrives with item 1.
 3. **`Deque` has no `at`.** Its `get` has a locator form, so adding the mint
    is the list's two lines; nothing needs it yet.
+4. **Open defect: a custom `at` loses its sub-path on Rust** (found
+   2026-10-10). `struct Grid canbe Mut { w: Int, cells: List<Mut Cell> }`
+   with `fn at(g: Grid, x: Int, y: Int) [] -> ref(g) Mut Cell? => g, x, y {
+   return at(g.cells, y * g.w + x) }`: the derived `at__loc` correctly
+   answers an index into `g.cells`, but `let c = at(g, 1, 1)!; c.v = …`
+   renders `g[__h1].v`, which rustc rejects (Kotlin prints the right value).
+   A position means nothing without the path it indexes: the locator must
+   carry its static sub-path (`.cells`) to the use site. Where the path is
+   not static (generic `C`, an accessor supplied through `?at`, a
+   branch-dependent path), the user's direction (2026-10-10) is to
+   **replay** the mint — capture `at`'s arguments at the mint and call `at`
+   again at each use — design to be settled with item 1. Also seen in the
+   same repro: `let n = g.w` (an `Int`) is poisoned by the write through
+   `c`.
 
 ### 16 — Composing iterators: stages over a generic source (after the redesign)
 
