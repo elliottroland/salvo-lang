@@ -1071,6 +1071,13 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     self.error("a member call to an unknown member");
                     return "()".to_string();
                 };
+                // [rs-path] A lending member used as a value: its path, walked once.
+                if self.s.interface_by_id(&member.interface).is_some_and(|i| self.s.member_lends_mut(i, m)) {
+                    if let Some(mint) = self.mint(e, indent) {
+                        return self.materialize(mint);
+                    }
+                    self.error("a lending effect member called on something that is not a place [rs-path]");
+                }
                 let ps = self.s.unalias_params(&m.params);
                 let a = self.args(&ps, args, FnPos::DynParam, indent);
                 format!("{inst}.{}({})", rs_ident(&m.emitted_name), a.join(", "))

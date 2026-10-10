@@ -754,7 +754,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 let mut ps = self.s.unalias_params(&m.params);
                 ps[k].mode = PassMode::Lent;
                 let a = self.args(&ps, args, super::decls::FnPos::DynParam, indent);
-                let code = format!("{inst}.{}__loc({})", rs_ident(&m.emitted_name), a.join(", "));
+                let code = format!("{inst}.{}({})", rs_ident(&m.emitted_name), a.join(", "));
                 Some(Mint { pre, prefix, pt, code, opt: e.ty.strip_quals().has_none_arm() })
             }
             // `x!`: the path, or the trap.

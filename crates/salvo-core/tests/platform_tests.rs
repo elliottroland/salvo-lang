@@ -277,6 +277,22 @@ fn a_platform_handler_with_effect_dependencies_is_rejected() {
     );
 }
 
+/// [ref-handle] A `ref` result is a path into the caller's container, which
+/// host code does not answer (user decision 2026-10-10): a platform handler
+/// cannot implement a member returning one, restated or not.
+#[test]
+fn a_platform_handler_of_a_member_returning_a_ref_is_rejected() {
+    let errs = messages(&src(
+        "struct Entity canbe Mut { hp: Int }\n\n\
+         effect Lender {\n    fn lease(es: List<Mut Entity>) -> (ref(es) Mut Entity)? => es\n}\n\n\
+         platform handler HostLender of Lender\n",
+    ));
+    assert!(
+        errs.iter().any(|m| m.contains("`platform handler HostLender` cannot implement `lease`, whose result is a `ref` handle")),
+        "got {errs:?}"
+    );
+}
+
 /// [platform-handler] Generic-free: the host writes one concrete class, and a `use` site has no instance per
 /// type argument to construct [backend-never-wrong].
 #[test]

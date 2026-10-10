@@ -763,18 +763,19 @@ the blanket rule:
     `&mut`-returning `FnMut` would tie the borrow to the closure. The
     `?at`/`Ref` idiom [col-locate] rides it, with implicit positions
     rendered the same way.
-  * **Effect members** that lend mutably have both faces too. The natural
-    face is explicitly lifetime-tagged so the borrow ties to the source
-    rather than to the receiver:
-    `fn lease<'a>(&mut self, es: &'a mut Vec<crate::Entity>) -> Option<&'a mut crate::Entity>;`
-    (`&self` on the stateless trait and the handle), and the locator face
-    lends its anchor and answers the position:
-    `fn lease__loc(&mut self, es: &Vec<crate::Entity>) -> Option<usize>;`.
-    The handle dispatches both through either arm, the lock's guard
-    included: the result borrows the parameter, never handler state. A
-    handle bound from the member (`let e = lease(es)!`) is the position
-    `lender.lease__loc(&*es)`, so it survives a read of the container. A
-    platform effect's or an actor's members have the natural face only.
+  * **Effect members** that lend mutably are mints too, and render the same
+    way (2026-10-10): **only** the path face, under the member's own name,
+    on both traits and the handle —
+    `fn lease(&mut self, es: &Vec<crate::Entity>) -> Option<usize>;` —
+    the anchor lent for reading, the answer the path type, no lifetimes.
+    The handle dispatches it through either arm, the lock's guard included:
+    the result is owned data, never a borrow of handler state. Every call
+    site goes through the mint: a handle bound from the member
+    (`let e = lease(es)!`) is the path `lender.lease(&*es)`, walked at each
+    use, and a call in a value position walks it once. A handler body
+    delegating to a mint (`return pick(t, i)`) answers that mint's path. A
+    `platform handler` cannot implement a member returning a `ref` (a
+    checker error, [ref-handle]); an actor's members cannot return one.
   * **Anchored handle parameters** ([ref-anchor], 2026-10-08, replacing
     `canbe`'s covered positions): a parameter `a: ref(c) Mut T` renders as a
     **`usize` position in its container parameter**, which the callee

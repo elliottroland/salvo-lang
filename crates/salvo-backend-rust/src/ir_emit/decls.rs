@@ -427,15 +427,15 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     }
 
     /// An interface member's signature, `RECV` standing for the receiver.
-    /// [rs-loc] The signature of a lending member's locator face: its
-    /// anchor lent, the answer a position.
+    /// [rs-path] The signature of a lending member, which renders as its
+    /// path face only: its anchor lent, the answer a path.
     pub(super) fn member_loc_sig(&mut self, m: &salvo_ir::Member) -> Option<String> {
         let a = self.s.member_lend_param(m)?;
         let mut params = self.s.unalias_params(&m.params);
         params[a].mode = PassMode::Lent;
         let loc = salvo_ir::Member {
             name: m.name.clone(),
-            emitted_name: format!("{}__loc", m.emitted_name),
+            emitted_name: m.emitted_name.clone(),
             type_params: Vec::new(),
             params,
             ret: Ty::none(),
@@ -513,18 +513,16 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 self.error(format!("effect member `{}` has its own generic parameters, which the rust backend cannot dispatch dynamically yet", m.name));
             }
         }
-        let mut sigs: Vec<String> = i.members.iter().map(|m| self.member_sig(m)).collect();
-        // [rs-loc] A lending member's locator face, beside its natural one.
-        let mut loc_sigs: Vec<(usize, String)> = Vec::new();
-        for (k, m) in i.members.iter().enumerate() {
-            if self.s.member_lends_mut(i, m) {
-                if let Some(sig) = self.member_loc_sig(m) {
-                    loc_sigs.push((k, sig));
-                }
-            }
+        // [rs-path] A lending member is its path face, under its own name.
+        let mut sigs: Vec<String> = Vec::new();
+        for m in &i.members {
+            let sig = if self.s.member_lends_mut(i, m) { self.member_loc_sig(m) } else { None };
+            let sig = match sig {
+                Some(s) => s,
+                None => self.member_sig(m),
+            };
+            sigs.push(sig);
         }
-        let plain_sigs = sigs.len();
-        sigs.extend(loc_sigs.iter().map(|(_, s)| s.clone()));
         let stateless = stateless_trait_name(&i.name);
         let stateful = stateful_trait_name(&i.name);
         let mut out = format!("\npub trait {stateless}{g}: Send + Sync {{\n");
@@ -552,9 +550,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let forwarded: Vec<(&salvo_ir::Member, String, String)> = i
             .members
             .iter()
-            .zip(&sigs[..plain_sigs])
+            .zip(&sigs)
             .map(|(m, sig)| (m, sig.clone(), rs_ident(&m.emitted_name)))
-            .chain(loc_sigs.iter().map(|(k, sig)| (&i.members[*k], sig.clone(), format!("{}__loc", rs_ident(&i.members[*k].emitted_name)))))
             .collect();
         for (m, sig, mname) in forwarded {
             let args: Vec<String> = m.params.iter().map(|p| rs_ident(&p.local.0)).collect();
@@ -1034,12 +1031,9 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     /// A handler member implementing an interface member: the trait's
     /// signature (substituted with the face's arguments), the body's code.
     fn member_fn(&mut self, h: &ImplDecl, f: &FnDecl, m: &salvo_ir::Member, stateful: bool, face_args: &[Ty], iface: &InterfaceDecl) -> String {
-        let mut out = self.member_fn_mode(h, f, m, stateful, face_args, iface, false);
-        // [rs-loc] A lending member also answers where its result is.
-        if self.s.member_lends_mut(iface, m) {
-            out.push_str(&self.member_fn_mode(h, f, m, stateful, face_args, iface, true));
-        }
-        out
+        // [rs-path] A lending member answers only where its result is.
+        let loc = self.s.member_lends_mut(iface, m);
+        self.member_fn_mode(h, f, m, stateful, face_args, iface, loc)
     }
 
     fn member_fn_mode(&mut self, h: &ImplDecl, f: &FnDecl, m: &salvo_ir::Member, stateful: bool, face_args: &[Ty], iface: &InterfaceDecl, loc: bool) -> String {

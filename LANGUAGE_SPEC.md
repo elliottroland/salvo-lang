@@ -7334,6 +7334,21 @@ between endpoints and delivers what arrives into the scheduler.
     optional's arms) and records the value as the handle. A `ref` return
     is a derived return like `proj(c)` [readonly-return]: its source is
     `c`, which is lent mutably.
+  * **A mint may delegate** (user decision 2026-10-10): its body may return
+    another mint's handle of `c` (`return at(t.members, i)`, `return
+    pick(t, i)`), a fn value's, or an effect member's; the handle is the
+    callee's, rooted at `c`.
+  * **Mints over generic containers** (user decision 2026-10-10): a mint,
+    an anchored parameter, or a handle may sit in a container whose type is
+    a type parameter (`fn bump<C>(c: C, a: ref(c) Mut Player)`,
+    `fn borrow_via<C, L>(c: C, l: L, ?Ref<C, L, Player>) [] -> ref(c) Mut
+    Player? => c, l`); the handle is still a path from `c`, and a backend walks it without
+    knowing `C` [rs-path].
+  * **Effect members may mint**: a member declared `-> ref(c) Mut T` is a
+    mint its handlers implement. A `platform handler` cannot implement one
+    — the handle is a path into the caller's container, which host code
+    does not answer — and an `actor effect`'s members cannot return one,
+    as they cannot return any projection (user decision 2026-10-10).
   * `ref(c) Mut X` **satisfies a kept `Mut X` position** (dropping `ref`
     forgets which container, which only loses aliasing permission —
     [qual-erasure]). Consuming positions refuse it, as every projection.

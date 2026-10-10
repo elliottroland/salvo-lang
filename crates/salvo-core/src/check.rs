@@ -4183,10 +4183,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.error(
                     span,
                     format!(
-                        "member `{}` of `actor effect {}` cannot return a \
-                         `proj` view: it would borrow state the actor owns \
+                        "member `{}` of `actor effect {}` cannot return {}: it would borrow state the actor owns \
                          and keeps mutating",
-                        f.name.name, e.name.name
+                        f.name.name, e.name.name,
+                        if first_ref_span(rt) == Some(span) { "a `ref` handle" } else { "a `proj` view" }
                     ),
                 );
             }
@@ -4565,6 +4565,28 @@ impl<'p, 'r> Checker<'p, 'r> {
                     h.name.name
                 ),
             );
+        }
+        // [ref-handle] A `ref` return is a path into the caller's container,
+        // which host code has no way to answer (user decision 2026-10-10).
+        // The handler may restate its members or leave them to the effect.
+        let effect = match h.of.first() {
+            Some(ast::Type::Named { base, .. }) => self.symbols.effects.get(base.name.name.as_str()).copied(),
+            _ => None,
+        };
+        for f in effect.map(|e| e.fns.as_slice()).unwrap_or_default() {
+            if f.return_type.as_ref().and_then(first_ref_span).is_some() {
+                let span = h.fns.iter().find(|g| g.name.name == f.name.name).and_then(|g| g.return_type.as_ref()).and_then(first_ref_span).unwrap_or(h.name.span);
+                self.error(
+                    span,
+                    format!(
+                        "`platform handler {}` cannot implement `{}`, whose result is a `ref` \
+                         handle: a handle is a path into the caller's container, which host code \
+                         does not answer — return the element's value, or handle the effect in \
+                         Salvo [ref-handle]",
+                        h.name.name, f.name.name
+                    ),
+                );
+            }
         }
         // Generic-free: the host writes one concrete class, and there is no instance per type argument to
         // construct at a `use` site [backend-never-wrong].
@@ -30223,12 +30245,21 @@ fn emitted_arm_ty(ret: &Ty) -> Option<(Ty, usize, usize)> {
 /// qualifier in a type, if any — searching arms, arguments and elements in
 /// order.
 fn first_proj_span(ty: &ast::Type) -> Option<Span> {
-    fn in_ref(r: &TypeRef) -> Option<Span> {
-        if crate::types::is_proj_name(&r.name.name) {
+    first_qual_span(ty, crate::types::is_proj_name)
+}
+
+/// [ref-handle] The first `ref` qualifier written in a type.
+fn first_ref_span(ty: &ast::Type) -> Option<Span> {
+    first_qual_span(ty, |n| n == "ref")
+}
+
+fn first_qual_span(ty: &ast::Type, want: fn(&str) -> bool) -> Option<Span> {
+    let in_ref = |r: &TypeRef| -> Option<Span> {
+        if want(&r.name.name) {
             return Some(r.span);
         }
-        r.args.iter().find_map(first_proj_span)
-    }
+        r.args.iter().find_map(|a| first_qual_span(a, want))
+    };
     match ty {
         ast::Type::Named { qualifiers, base } => {
             qualifiers.iter().find_map(in_ref).or_else(|| in_ref(base))
@@ -30238,12 +30269,12 @@ fn first_proj_span(ty: &ast::Type) -> Option<Span> {
         } => qualifiers
             .iter()
             .find_map(in_ref)
-            .or_else(|| first_proj_span(base)),
+            .or_else(|| first_qual_span(base, want)),
         ast::Type::Nullable { inner, .. } | ast::Type::Array { elem: inner, .. } => {
-            first_proj_span(inner)
+            first_qual_span(inner, want)
         }
         ast::Type::Union { arms, .. } | ast::Type::Tuple { elems: arms, .. } => {
-            arms.iter().find_map(first_proj_span)
+            arms.iter().find_map(|a| first_qual_span(a, want))
         }
         _ => None,
     }

@@ -4830,7 +4830,7 @@ fn kotlinc_compiles_and_runs_a_union_interpolates_by_the_text_of_its_arm() -> Ko
     kotlin_case(files, "union-fix", UNION_TEXT_OUTPUT)
 }
 
-/// [rs-loc] A handle bound from a lending effect member outlives a read of the container: the member answers a position.
+/// [rs-path] A handle bound from a lending effect member outlives a read of the container: the member answers a path.
 const LEND_HANDLE_DEMO: &str = r#"
 struct Entity canbe Mut { hp: Int }
 
@@ -4870,7 +4870,67 @@ fn kotlinc_compiles_and_runs_a_handle_from_a_lending_member_survives_a_read_of_i
     kotlin_case(files, "lend-fix", LEND_HANDLE_OUTPUT)
 }
 
+
+/// [rs-path] [ref-handle] A lending effect member is its path face only: a
+/// handler delegating to a mint answers a path through a struct field, two
+/// handles from it stay live across a write to the container's other field,
+/// and one is passed on as a `Mut` argument.
+const LENDING_MEMBER_PATH_DEMO: &str = r#"
+struct Entity canbe Mut { hp: Int }
+struct Team canbe Mut { name: Str, members: List<Mut Entity> }
+
+fn pick(t: Team, i: Int) -> (ref(t) Mut Entity)? => t {
+    return at(t.members, i)
+}
+
+effect Roster {
+    fn member(t: Team, i: Int) -> (ref(t) Mut Entity)? => t
+}
+
+handler Plain of Roster {
+    fn member(t: Team, i: Int) -> (ref(t) Mut Entity)? => t {
+        return pick(t, i)
+    }
+}
+
+fn heal(e: Mut Entity, by: Int) -> None => e: Mut {
+    e.hp = e.hp + by
+    return None
+}
+
+fn run(t: Mut Team) [Roster] -> None => t: Mut {
+    let a = member(t, 0)!
+    let b = member(t, 1)!
+    t.name = "renamed"
+    if b is NotSame(a) {
+        a.hp = a.hp + b.hp
+        heal(b, 100)
+    }
+    heal(member(t, 0)!, 1000)
+    return None
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    use Plain()
+    let t = Mut Team { name: "t", members: list_of(Mut Entity { hp: 1 }, Mut Entity { hp: 2 }) }
+    run(t)
+    println("${t.name} ${get(t.members, 0)!.hp} ${get(t.members, 1)!.hp}")
+}
+"#;
+
+const LENDING_MEMBER_PATH_OUTPUT: &str = "renamed 1003 102\n";
+
+fn kotlinc_compiles_and_runs_a_lending_member_through_a_struct_field() -> KotlinCase {
+    let program = build_program(&[("main.sv", LENDING_MEMBER_PATH_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "lend-path", LENDING_MEMBER_PATH_OUTPUT)
+}
+
 const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
+    kotlinc_compiles_and_runs_a_lending_member_through_a_struct_field,
     kotlinc_compiles_and_runs_a_disjunction_and_a_negation_narrow_nothing_after_them,
     kotlinc_compiles_and_runs_a_lifted_claim_on_a_field_narrows_what_follows,
     kotlinc_compiles_and_runs_an_unannotated_lambda_takes_its_handler_constructor_parameters_type,

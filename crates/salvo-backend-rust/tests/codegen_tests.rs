@@ -15991,16 +15991,16 @@ fn main() [use] {
 }
 "#;
 
-/// A lending effect member lends through the trait: its result is a `&mut`
-/// tied to the container, consumed where it stands. (A handle *held* across a
-/// read of the container has no locator face to fall back on: see ROADMAP.)
+/// [rs-path] A lending effect member renders as its path face only, under its
+/// own name: the trait answers where the element is, and the caller walks it.
 #[test]
 fn a_lending_effect_member_lends_through_the_trait() {
     let files = generate(&[("main.sv", LENDING_MEMBER_DEMO)]);
     let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
     assert!(
         main.content
-            .contains("fn lease<'a>(&mut self, es: &'a mut Vec<crate::Entity>) -> Option<&'a mut crate::Entity>;"),
+            .contains("fn lease(&mut self, es: &Vec<crate::Entity>) -> Option<usize>;")
+            && !main.content.contains("lease__loc"),
         "{}",
         main.content
     );
@@ -16271,7 +16271,7 @@ fn rustc_compiles_and_runs_a_union_interpolates_by_the_text_of_its_arm() {
     run_rust_files(&files, "union-fix", UNION_TEXT_OUTPUT);
 }
 
-/// [rs-loc] A handle bound from a lending effect member outlives a read of the container: the member answers a position.
+/// [rs-path] A handle bound from a lending effect member outlives a read of the container: the member answers a path.
 const LEND_HANDLE_DEMO: &str = r#"
 struct Entity canbe Mut { hp: Int }
 
@@ -16302,6 +16302,65 @@ fn main() [use] {
 "#;
 
 const LEND_HANDLE_OUTPUT: &str = "7 7\n";
+
+
+/// [rs-path] [ref-handle] A lending effect member is its path face only: a
+/// handler delegating to a mint answers a path through a struct field, two
+/// handles from it stay live across a write to the container's other field,
+/// and one is passed on as a `Mut` argument.
+const LENDING_MEMBER_PATH_DEMO: &str = r#"
+struct Entity canbe Mut { hp: Int }
+struct Team canbe Mut { name: Str, members: List<Mut Entity> }
+
+fn pick(t: Team, i: Int) -> (ref(t) Mut Entity)? => t {
+    return at(t.members, i)
+}
+
+effect Roster {
+    fn member(t: Team, i: Int) -> (ref(t) Mut Entity)? => t
+}
+
+handler Plain of Roster {
+    fn member(t: Team, i: Int) -> (ref(t) Mut Entity)? => t {
+        return pick(t, i)
+    }
+}
+
+fn heal(e: Mut Entity, by: Int) -> None => e: Mut {
+    e.hp = e.hp + by
+    return None
+}
+
+fn run(t: Mut Team) [Roster] -> None => t: Mut {
+    let a = member(t, 0)!
+    let b = member(t, 1)!
+    t.name = "renamed"
+    if b is NotSame(a) {
+        a.hp = a.hp + b.hp
+        heal(b, 100)
+    }
+    heal(member(t, 0)!, 1000)
+    return None
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    use Plain()
+    let t = Mut Team { name: "t", members: list_of(Mut Entity { hp: 1 }, Mut Entity { hp: 2 }) }
+    run(t)
+    println("${t.name} ${get(t.members, 0)!.hp} ${get(t.members, 1)!.hp}")
+}
+"#;
+
+const LENDING_MEMBER_PATH_OUTPUT: &str = "renamed 1003 102\n";
+
+#[test]
+fn rustc_compiles_and_runs_a_lending_member_through_a_struct_field() {
+    let files = generate(&[("main.sv", LENDING_MEMBER_PATH_DEMO)]);
+    let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
+    assert!(main.content.contains("fn member(&self, t: &crate::Team, i: i32) -> Option<usize>;"), "{}", main.content);
+    run_rust_files(&files, "lend-path", LENDING_MEMBER_PATH_OUTPUT);
+}
 
 #[test]
 fn rustc_compiles_and_runs_a_handle_from_a_lending_member_survives_a_read_of_its_container() {

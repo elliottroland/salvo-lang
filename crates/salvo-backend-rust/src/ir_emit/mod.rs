@@ -637,9 +637,8 @@ impl<'p> Shared<'p> {
     }
 
     /// [rs-loc] An effect member whose result lends mutably from a
-    /// parameter, on an interface rendered as a plain trait: it has a
-    /// locator face (`m__loc`) beside its natural one, for a handle that
-    /// outlives a read of the container.
+    /// parameter, on an interface rendered as a plain trait: it renders as
+    /// its path face only, under its own name [rs-path].
     pub fn member_lends_mut(&self, iface: &InterfaceDecl, m: &salvo_ir::Member) -> bool {
         if iface.actor || self.platform_effects.contains_key(&iface.name) || m.send {
             return false;
