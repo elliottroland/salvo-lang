@@ -758,7 +758,8 @@ the blanket rule:
     (`….map(|__x| list.iter().position(|__e| std::ptr::eq(__e, __x)).expect("salvo: a borrow outside its container"))`),
     except `List`/`Deque`'s `get`, whose position is the index under a bounds
     test, the total `get_at`, which is the index, and `Map`'s `get`, whose
-    position is the entry's slot.
+    position is the entry's slot (and the total `get`'s `get_present`, the
+    slot the `KeyOf` claim proved present).
   * Body transform: return-path forwards take their callees' path fns or
     `__loc` variants (demand closes transitively); a derived-return intrinsic takes
     its **locator form**; an intrinsic without one, or a return shape beyond

@@ -848,7 +848,7 @@ fun<T, K, V> toMap(items: List<T>, entry: (T) -> Pair<K, V>, hash: (K) -> Long, 
 
 fun<K, V> getPlatform(map: salvo.platform.core.map.Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V? = salvo.platform.core.map.get(map, key, hash, eq)
 
-fun<K, V> at(map: salvo.platform.core.map.Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V? {
+fun<K, V> at__Map_K(map: salvo.platform.core.map.Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V? {
     return getPlatform(map, key, hash, eq)
 }
 
@@ -868,6 +868,10 @@ fun<K, V> getPresentPlatform(map: salvo.platform.core.map.Map<K, V>, key: K, has
 
 fun<K, V> get(map: salvo.platform.core.map.Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V {
     return getPresentPlatform(map, key, hash, eq)
+}
+
+fun<K, V> at__Map_KeyOfK(map: salvo.platform.core.map.Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V {
+    return get(map, key, hash, eq)
 }
 
 fun<K, V> sizePlatform(map: salvo.platform.core.map.Map<K, V>): Int = salvo.platform.core.map.size(map)
@@ -891,7 +895,7 @@ fun<K, V> toStr(map: salvo.platform.core.map.Map<K, V>, toStr: (K) -> String, to
             val __nn_1: V? = getPlatform(map, k, hash, eq)
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at core.map:173:28"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at core.map:179:28"))
                 }
                 else -> {
                     val __some_2: V = __nn_1!!
@@ -919,7 +923,7 @@ fun<K, V> eq(a: salvo.platform.core.map.Map<K, V>, b: salvo.platform.core.map.Ma
             val __nn_1: V? = getPlatform(a, k, hash, eq__1)
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at core.map:195:16"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at core.map:201:16"))
                 }
                 else -> {
                     val __some_2: V = __nn_1!!

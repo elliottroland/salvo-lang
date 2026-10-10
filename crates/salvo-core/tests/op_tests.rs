@@ -315,6 +315,21 @@ fn compound_assignment_inherits_the_class_rule() {
     );
 }
 
+/// [op-assign] A target that is not a place is one mistake, reported once:
+/// no permission or fate check runs on what it would have written (found
+/// 2026-10-10: `h!.hp = 40` on an optional handle also said the handle was a
+/// read-only projection).
+#[test]
+fn a_non_place_target_is_reported_once() {
+    let msgs = messages(
+        "struct E { hp: Int }\n\n\
+         fn make() -> E {\n    return E { hp: 1 }\n}\n\n\
+         fn probe() -> None {\n    make().hp = 2\n    return None\n}\n",
+    );
+    assert_eq!(msgs.len(), 1, "got {msgs:?}");
+    assert!(msgs[0].contains("this is not a place"), "got {msgs:?}");
+}
+
 /// [op-assign] A target must be a **place**. This was accepted before 2026-09-22
 /// and then rejected by the target compiler (rustc's E0070) — a
 /// [backend-never-wrong] violation `+=` would have inherited.

@@ -20902,7 +20902,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                         // `f(x) = 1`), a [backend-never-wrong] violation found
                         // 2026-09-22 while adding `+=`, which inherits every
                         // rule of the assignment it desugars to.
-                        if !is_assignable_place(other) {
+                        let place_ok = is_assignable_place(other);
+                        if !place_ok {
                             self.error(
                                 other.span(),
                                 "this is not a place, so it cannot be assigned \
@@ -20916,6 +20917,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                         let saved_target = std::mem::replace(&mut self.assign_target, true);
                         let ty = self.check_expr(other, None);
                         self.assign_target = saved_target;
+                        // A target that is not a place has been reported:
+                        // what it would mutate is nothing, so no permission
+                        // or fate check applies (one mistake, one
+                        // diagnostic) [op-assign].
+                        if !place_ok {
+                            ty
+                        } else {
                         // [struct-mut] Only `Mut`-qualified struct values
                         // may have fields assigned.
                         if let Expr::Field { base, field, .. } = other {
@@ -20972,6 +20980,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             self.revive_moved_places(&place);
                         }
                         ty
+                        }
                     }
                 };
                 let value_ty = self.check_expr(value, Some(&target_ty));

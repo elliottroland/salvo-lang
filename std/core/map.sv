@@ -139,6 +139,12 @@ export fn get<K, V>(map: Map<K, V>(?hash, ?eq), key: KeyOf(map) K) [] -> proj(ma
     return get_present(map, key)
 }
 
+// [qual-depend] [ref-handle] The **total** mint: a key carrying the claim
+// answers the handle itself, as the total [get] answers the value.
+export fn at<K, V>(map: Map<K, Mut V>(?hash, ?eq), key: KeyOf(map) K) [] -> ref(map) Mut V => map, key {
+    return get(map, key)
+}
+
 // Returns the number of entries in the map
 export platform fn size<K, V canbe linear>(map: Map<K, V>) [] -> Int => map
 

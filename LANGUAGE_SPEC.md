@@ -7324,7 +7324,7 @@ between endpoints and delivers what arrives into the scheduler.
   * **`get` reads, `at` handles.** `get(list, i)` always answers a
     read-only `proj(list) T` — on a `List<Mut X>` that is `proj(list) Mut
     X`, whose `Mut` only rides along as part of the element type and
-    satisfies no `Mut` position. `at(list, i)` (and `at(map, key)`)
+    satisfies no `Mut` position. `at(list, i)` (and `at(deque, i)`, `at(map, key)`)
     answers `ref(list) Mut T?`, the handle [col-locate]. A plain `proj`
     passed to a kept `Mut` position — of a named callee or a fn value —
     is refused naming `at` as the remedy.

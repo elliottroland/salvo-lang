@@ -73,7 +73,9 @@ if i is Idx(counters) {
 }
 ```
 
-Maps work the same way: `at(m, key)` answers `ref(m) Mut V?`, and a handle
+A `Deque` has the same pair, by index from the front. Maps work the same
+way: `at(m, key)` answers `ref(m) Mut V?`, and at a key proven present
+(`k is KeyOf(m)`) the total `at(m, k)` answers `ref(m) Mut V`. A handle
 chains through a map exactly as through a list:
 
 ```

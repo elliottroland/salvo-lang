@@ -77,6 +77,14 @@ fun<T> get(d: kotlin.collections.ArrayDeque<T>, index: Int): T {
 
 fun<T> getAtPlatform(d: kotlin.collections.ArrayDeque<T>, index: Int): T = salvo.platform.core.deque.getAt(d, index)
 
+fun<T> at__Deque_Int(d: kotlin.collections.ArrayDeque<T>, index: Int): T? {
+    return getPlatform(d, index)
+}
+
+fun<T> at__Deque_IdxInt(d: kotlin.collections.ArrayDeque<T>, index: Int): T {
+    return get(d, index)
+}
+
 fun<T> replacePlatform(d: salvo.platform.core.deque.MutDeque<T>, index: Int, value: T): T = salvo.platform.core.deque.replace(d, index, value)
 
 fun<T> firstPlatform(d: kotlin.collections.ArrayDeque<T>): T? = salvo.platform.core.deque.first(d)
@@ -95,7 +103,7 @@ fun<T> drain(d: kotlin.collections.ArrayDeque<T>, each: (T) -> Unit) {
             val __nn_1: T? = removeFirstPlatform(m)
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at core.deque:116:14"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at core.deque:131:14"))
                 }
                 else -> {
                     val __some_2: T = __nn_1!!

@@ -1363,6 +1363,10 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         if matches!(module.0.as_slice(), [a, b] if a == "core" && b == "map") && f.name == "get" {
             return format!("{pad}crate::{}::slot_of({})\n", host_mod_name(&module), args.join(", "));
         }
+        // The total read's lowering: the key's presence is proved.
+        if matches!(module.0.as_slice(), [a, b] if a == "core" && b == "map") && f.name == "get_present" {
+            return format!("{pad}crate::{}::slot_of({}).expect(\"salvo: a `KeyOf` key is present\")\n", host_mod_name(&module), args.join(", "));
+        }
         let call = format!("crate::{}::{}({})", host_mod_name(&module), rs_ident(&f.name), args.join(", "));
         if f.ret.strip_quals().has_none_arm() {
             format!("{pad}{call}.map(|__x| {anchor}.iter().position(|__e| std::ptr::eq(__e, __x)).expect(\"salvo: a borrow outside its container\"))\n")

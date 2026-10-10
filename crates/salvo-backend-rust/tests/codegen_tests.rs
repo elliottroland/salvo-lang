@@ -16858,3 +16858,48 @@ fn rustc_compiles_and_runs_borrowed_optionals_in_owned_optional_slots() {
     assert!(main.content.contains("(&o).as_ref()"), "an owned optional lends with `.as_ref()`:\n{}", main.content);
     run_rust_files(&files, "opt-slot", OPT_SLOT_OUTPUT);
 }
+
+/// [col-locate] [ref-handle] A deque mints handles as a list does — `at`
+/// by index, and the total `at` at an `Idx(d)` — and a map's total `at` at a
+/// `KeyOf(m)` key answers the handle with no `None` arm (Rust: the slot the
+/// claim proved present).
+pub const DEQUE_MAP_AT_DEMO: &str = r#"
+struct Item canbe Mut { n: Int }
+
+fn bump(i: Mut Item) -> None => i: Mut {
+    i.n = i.n + 1
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let d: Mut Deque<Mut Item> = mut_deque_of()
+    add_first(d, Mut Item { n: 1 })
+    add_last(d, Mut Item { n: 2 })
+    let h = at(d, 1)!
+    h.n = h.n + 10
+    println("${size(d)} ${h.n}")
+    bump(at(d, 0)!)
+    let i = 0
+    if i is Idx(d) {
+        bump(at(d, i))
+    }
+    println("${at(d, 7) is None} ${get(d, 0)!.n} ${get(d, 1)!.n}")
+    let m: Mut Map<Str, Mut Item> = mut_map_of()
+    put(m, "a", Mut Item { n: 5 })
+    let k = "a"
+    if k is KeyOf(m) {
+        let v = at(m, k)
+        v.n = v.n * 3
+        bump(at(m, k))
+    }
+    println("${get(m, "a")!.n}")
+}
+"#;
+
+pub const DEQUE_MAP_AT_OUTPUT: &str = "2 12\ntrue 3 12\n16\n";
+
+#[test]
+fn rustc_compiles_and_runs_deque_handles_and_the_total_map_at() {
+    let files = generate(&[("main.sv", DEQUE_MAP_AT_DEMO)]);
+    run_rust_files(&files, "deque-map-at", DEQUE_MAP_AT_OUTPUT);
+}

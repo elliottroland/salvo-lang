@@ -92,6 +92,21 @@ export fn get<T canbe linear>(d: Deque<T>, index: Idx(d) Int) [] -> proj(d) T =>
 // The host's read; the proven index is in range.
 platform fn get_at<T canbe linear>(d: Deque<T>, index: Int) [] -> proj(d) T => d, index
 
+// [col-locate] [ref-handle] The mutable handle to the element at [index]
+// from the front, or `None` past the end — `at` for a deque, by index as a
+// list's. `get` is the read-only sibling. A handle is a position: an
+// in-place write through it moves nothing, while adding or removing an
+// element ends it [fate-poison].
+export fn at<T canbe linear>(d: Deque<Mut T>, index: Int) [] -> ref(d) Mut T? => d, index {
+    return get(d, index)
+}
+
+// [col-idx] [ref-handle] The **total** mint: an index proven in range by
+// `Idx(d)` answers the handle itself, as a list's does.
+export fn at<T canbe linear>(d: Deque<Mut T>, index: Idx(d) Int) [] -> ref(d) Mut T => d, index {
+    return get(d, index)
+}
+
 // [col-replace] The **total positional write**, as a list's: puts [value] at
 // [index] and answers the element it displaced. `core.index`'s `Idx` says the
 // claims survive it.
