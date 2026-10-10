@@ -1,6 +1,5 @@
-// [col-idx] `core.index`: the claims about positions in a container — `Idx`,
-// an index proven in range, and `NotEq`, an index proven different from
-// another. Their own module (user decision 2026-10-05, ROADMAP §0j 6g0), since
+// [col-idx] `core.index`: the claim about positions in a container — `Idx`,
+// an index proven in range. Its own module (user decision 2026-10-05, ROADMAP §0j 6g0), since
 // one `Idx` serves every container with a `size`: `List`, `Deque` and the
 // buffers. `core.*` is visible everywhere, so nothing imports it.
 
@@ -39,19 +38,6 @@ export qualifier Idx<C canbe linear>(c: C) of Int {
     refn clear(buf: Mut IntBuffer, fill: Int) => buf: preserve Idx
     refn replace(buf: Mut LongBuffer, index: Idx(buf) Int, value: Long) => buf: preserve Idx
     refn clear(buf: Mut LongBuffer, fill: Long) => buf: preserve Idx
-}
-
-// [qual-depend] [col-noteq] The claim that an `Int` **differs from one
-// particular other `Int`**: `j is NotEq(i)` proves `j != i`, bound to
-// `i`'s identity. For two element handles of one list it is the proof that
-// they cannot alias — mutation through one leaves the other standing
-// [elem-distinct], and a call may take both at once — which is what the
-// `update2` family stands on. Reassigning either side strips it
-// [qual-depend], like any dependent claim.
-export qualifier NotEq(i: Int) of Int with Idx {
-    fn qualifies(j: Int, i: Int) -> Bool {
-        return j != i
-    }
 }
 
 // [col-idx] Every index of [list], front to back — and each emitted `Int`

@@ -506,7 +506,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                         let (k, cx, cy) = (k.clone(), cx.clone(), cy.clone());
                         let (u, w) = (self.fresh("u"), self.fresh("w"));
                         let split = match k {
-                            PStep::Slot => format!("crate::platform_core_map::pair_mut(&mut {root}, {cx}, {cy})"),
+                            PStep::Slot => format!("{root}.pair_mut({cx}, {cy})"),
                             _ => {
                                 self.s.needs_seq = true;
                                 format!("crate::seq::salvo_pair_mut(&mut {root}[..], {cx}, {cy})")

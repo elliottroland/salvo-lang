@@ -14338,10 +14338,10 @@ fn main() [use] {
 }
 "#;
 
-/// [rs-elem-mut] The three renderings: the container parameter arrives
-/// `&mut` (element-level `Mut` lends), the statement-scoped handle is `at`'s
-/// `&mut`, and the bound handle is a captured index re-materialized at
-/// every use — never a bound `&mut`.
+/// [rs-elem-mut] [rs-path] The three renderings: the container parameter
+/// arrives `&mut` (element-level `Mut` lends), the statement-scoped handle is
+/// `at`'s path materialized as `&mut xs[pos]` in place, and the bound handle
+/// is a captured index re-materialized at every use — never a bound `&mut`.
 #[test]
 fn elem_mut_handles_render_as_get_mut_and_captured_indices() {
     let files = generate(&[("main.sv", ELEM_MUT_DEMO)]);
@@ -14352,7 +14352,7 @@ fn elem_mut_handles_render_as_get_mut_and_captured_indices() {
         main.content
     );
     assert!(
-        main.content.contains("let __h1: usize = crate::core_list::at__List_Int__loc(&*xs, 1i32).expect("),
+        main.content.contains("let __h1: usize = crate::core_list::at__List_Int(&*xs, 1i32).expect("),
         "{}",
         main.content
     );
@@ -14366,9 +14366,11 @@ fn elem_mut_handles_render_as_get_mut_and_captured_indices() {
         "{}",
         main.content
     );
-    // A temporary handle is the element borrowed `&mut` straight from `at`.
+    // A temporary handle is `at`'s position, read from a shared borrow and
+    // only then materialized as the element borrowed `&mut` in place.
     assert!(
-        main.content.contains("let mut __nn_3: Option<&mut crate::Counter> = crate::core_list::at__List_Int::<crate::Counter>(&mut xs, 0i32);"),
+        main.content.contains("let __h1: Option<usize> = crate::core_list::at__List_Int(&xs, 0i32);")
+            && main.content.contains("let __h2 = __h1.expect(\"salvo: value is absent\");\n            &mut xs[__h2]"),
         "{}",
         main.content
     );
@@ -14385,9 +14387,9 @@ fn rustc_compiles_and_runs_elem_mut_handles() {
 }
 
 /// [rs-loc] ④a slice 5 — a **search loop** whose element binding is
-/// returned: inside the locator variant the `for` over a list becomes an
-/// *indexed* loop and the binding a captured-index handle, so the found
-/// **position** travels out. Rust can write this function (NLL accepts an
+/// returned: in the minting fn's path rendering the `for` over a list becomes
+/// an *indexed* loop and the binding a captured-index handle, so the found
+/// **position** travels out [rs-path]. Rust can write this function (NLL accepts an
 /// `iter_mut` search returning `Option<&mut T>`); what it cannot do is read
 /// the container while the result is live, which is what the position
 /// rendering buys — see `examples/borrowing/README.md`.
@@ -14420,7 +14422,7 @@ fn a_search_loop_returns_the_found_position() {
     let files = generate(&[("main.sv", SEARCH_LOOP_DEMO)]);
     let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
     assert!(
-        main.content.contains("pub fn wounded__loc(es: &Vec<crate::Entity>) -> Option<usize>"),
+        main.content.contains("pub fn wounded(es: &Vec<crate::Entity>) -> Option<usize>"),
         "{}",
         main.content
     );
@@ -14434,6 +14436,13 @@ fn a_search_loop_returns_the_found_position() {
         "{}",
         main.content
     );
+    // The position fn is the only rendering, and the caller materializes it.
+    assert!(
+        !main.content.contains("Option<&mut crate::Entity>")
+            && main.content.contains("let __h1: Option<usize> = crate::wounded(&es);"),
+        "{}",
+        main.content
+    );
 }
 
 #[test]
@@ -14444,6 +14453,59 @@ fn rustc_compiles_and_runs_a_search_loop_lender() {
     }
     let files = generate(&[("main.sv", SEARCH_LOOP_DEMO)]);
     run_rust_files(&files, "search_loop", "50 13\n");
+}
+
+/// [rs-path] A user mint whose container is a **nested field** of structs
+/// that have no accessor of their own: the path fn takes the outer struct
+/// by shared borrow and answers the list position, and every use indexes the
+/// same field path (`a.b.c[pos]`) — a statement-scoped handle and a bound
+/// one alike.
+const NESTED_FIELD_PATH_DEMO: &str = r#"
+struct Entity canbe Mut { hp: Int }
+
+struct B canbe Mut {
+    c: List<Mut Entity>
+}
+
+struct A canbe Mut {
+    b: B
+}
+
+fn at(a: A, index: Int) -> (ref(a) Mut Entity)? {
+    return a.b.c.get(index)
+}
+
+fn heal(e: Mut Entity) -> None => e: Mut {
+    e.hp = e.hp + 10
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let a = Mut A { b: Mut B { c: list_of(Mut Entity { hp: 1 }, Mut Entity { hp: 2 }) } }
+    heal(at(a, 1)!)
+    let h = at(a, 0)!
+    h.hp = h.hp + 100
+    println("${get(a.b.c, 0)!.hp} ${get(a.b.c, 1)!.hp}")
+}
+"#;
+
+#[test]
+fn a_mint_into_a_nested_field_paths_through_the_fields() {
+    let files = generate(&[("main.sv", NESTED_FIELD_PATH_DEMO)]);
+    let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
+    assert!(
+        main.content.contains("pub fn at(a: &crate::A, mut index: i32) -> Option<usize>"),
+        "{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("&mut a.b.c[__h2]")
+            && main.content.contains("let __h3: usize = crate::at(&a, 0i32).expect(")
+            && main.content.contains("a.b.c[__h3].hp = i32::wrapping_add(a.b.c[__h3].hp, 100i32);"),
+        "{}",
+        main.content
+    );
+    run_rust_files(&files, "nested_field_path", "101 12\n");
 }
 
 /// [rs-cmp-deref] A borrowed Copy scalar is **copied out in a comparison**:
@@ -14630,8 +14692,9 @@ fn ref_handles_render_as_their_container_and_positions() {
     );
     // Each handle is minted as a position before the container is lent.
     assert!(
-        main.content.contains("let __c1 = crate::core_list::at__List_Int__loc(&es, i).expect(")
-            && main.content.contains("crate::attack(&mut es, __c1, __c2)"),
+        main.content.contains("let __q1 = crate::core_list::at__List_Int(&es, i).expect(")
+            && main.content.contains("let __c2 = __q1;")
+            && main.content.contains("crate::attack(&mut es, __c2, __c4)"),
         "{}",
         main.content
     );
@@ -15446,7 +15509,8 @@ fn a_ref_anchored_handle_indexes_its_container_parameter() {
         main.content
     );
     assert!(
-        main.content.contains("crate::trade(&mut squad.members, __c1, __c2) };"),
+        main.content.contains("crate::trade(&mut squad.members, __c2, __c4) };")
+            && main.content.contains("let __q1 = crate::core_list::at__List_Int(&squad.members, i).expect("),
         "{}",
         main.content
     );
@@ -15612,7 +15676,7 @@ fn a_distinct_pair_call_splits_the_container_once() {
     let splices = main.content.matches("salvo_pair_mut(&mut es[..],").count();
     assert_eq!(splices, 2, "one preamble per pair call:\n{}", main.content);
     assert!(
-        main.content.contains("crate::attack(__pm3, __pm4)") && main.content.contains("salvo_pair_mut(&mut es[..], __h5, __h6)"),
+        main.content.contains("crate::attack(__pm5, __pm6)") && main.content.contains("salvo_pair_mut(&mut es[..], __h7, __h8)"),
         "{}",
         main.content
     );
@@ -15628,10 +15692,10 @@ fn rustc_compiles_and_runs_distinct_pair_calls() {
     run_rust_files(&files, "distinct_pair", "11 3 17 8\n");
 }
 
-/// [rs-loc] Locator-specialized lending (④a slice 1, re-founding ③'s
-/// mechanism): a user-written accessor whose result some call site
-/// mutates gets a demand-driven `__loc` emission beside the read one,
-/// and the C family is ordinary std Salvo riding the same mechanism.
+/// [rs-loc] [rs-path] Locator-specialized lending (④a slice 1, re-founding
+/// ③'s mechanism): a user-written accessor that mints a mutable handle
+/// renders only as its path fn, under its own name, and the C family is
+/// ordinary std Salvo riding the same mechanism.
 const LEND_MUT_DEMO: &str = r#"
 struct Entity canbe Mut { hp: Int }
 
@@ -15652,35 +15716,36 @@ fn main() [use] {
 }
 "#;
 
-/// [rs-loc] Both emissions exist — the read one untouched, the locator
-/// variant answering position data from a *read-mode* search — and only
-/// the mutable-use call site takes the variant, materializing
-/// `&mut anchor[loc]` in a block whose read borrow ends before the write
-/// borrow begins.
+/// [rs-path] The minting fn has one emission — the path fn answering
+/// position data from a *read-mode* search, under the plain name, with no
+/// `&mut`-returning face beside it — and every call site takes it: the
+/// mutable use materializes `&mut es[pos]` in a block whose read borrow
+/// ends before the write borrow begins, the read use indexes the container.
 #[test]
-fn a_mut_used_lender_gets_a_demand_driven_locator_variant() {
+fn a_mut_used_lender_renders_as_its_path_fn() {
     let files = generate(&[("main.sv", LEND_MUT_DEMO)]);
     let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
     assert!(
-        main.content.contains("pub fn front(es: &mut Vec<crate::Entity>) -> Option<&mut crate::Entity>"),
+        main.content
+            .contains("pub fn front(es: &Vec<crate::Entity>) -> Option<usize>"),
         "{}",
         main.content
     );
     assert!(
-        main.content
-            .contains("pub fn front__loc(es: &Vec<crate::Entity>) -> Option<usize>"),
-        "{}",
+        !main.content.contains("Option<&mut crate::Entity>") && !main.content.contains("__loc"),
+        "a minting fn keeps no `&mut` face and no `__loc` twin:\n{}",
         main.content
     );
-    // The mutable use consumes the natural face's `&mut` where it stands.
+    // The mutable use materializes the position where it stands.
     assert!(
-        main.content.contains("crate::heal({\n        let mut __nn_3: Option<&mut crate::Entity> = crate::front(&mut es);"),
+        main.content.contains("crate::heal({\n        let __h1: Option<usize> = crate::front(&es);")
+            && main.content.contains("&mut es[__h2]"),
         "{}",
         main.content
     );
     // A handle read later is a position: the read borrow ends at once.
     assert!(
-        main.content.contains("let __h1: usize = crate::front__loc(&es).expect(") && main.content.contains("es[__h1].hp"),
+        main.content.contains("let __h3: usize = crate::front(&es).expect(") && main.content.contains("es[__h3].hp"),
         "{}",
         main.content
     );
@@ -15713,7 +15778,7 @@ fn a_bound_accessor_handle_is_a_captured_locator() {
     let files = generate(&[("main.sv", BOUND_ACCESSOR_DEMO)]);
     let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
     assert!(
-        main.content.contains("let __h1: usize = crate::front__loc(&es).expect("),
+        main.content.contains("let __h1: usize = crate::front(&es).expect("),
         "{}",
         main.content
     );
@@ -15816,12 +15881,13 @@ fn a_lending_fn_value_renders_as_a_locator_closure() {
         main.content
     );
     assert!(
-        main.content.contains("match at(&*es, i) { Some(__l1) => Some(&mut es[__l1]), None => None }"),
+        main.content.contains("let __h1: Option<usize> = at(&*es, i);")
+            && main.content.contains("&mut es[__h2]"),
         "{}",
         main.content
     );
     assert!(
-        main.content.contains("&mut |mut c, mut k| -> Option<usize> {\n        crate::core_list::at__List_Int__loc(c, k)"),
+        main.content.contains("&mut |mut c, mut k| -> Option<usize> {\n        { let __q1 = crate::core_list::at__List_Int(c, k)?; Some(__q1) }"),
         "{}",
         main.content
     );
@@ -15871,7 +15937,7 @@ fn a_locate_implicit_renders_as_a_locator_closure() {
         main.content
     );
     assert!(
-        main.content.contains("crate::core_list::at__List_Int__loc(__a0, *__a1)"),
+        main.content.contains("crate::core_list::at__List_Int(__a0, *__a1)"),
         "{}",
         main.content
     );
@@ -15977,8 +16043,9 @@ fn main() [use] {
     let files = generate(&[("main.sv", src)]);
     let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
     assert!(
-        main.content.contains("let mut x: i32 = { let __l1 = ")
-            && main.content.contains("crate::seq::salvo_pair_mut(&mut es[..], __l1, __l2)"),
+        main.content.contains("let mut x: i32 = { let __q1 = ")
+            && main.content.contains("crate::seq::salvo_pair_mut(&mut es[..], __q1, __q2)")
+            && main.content.contains("crate::poke(__pm5, __pm6) };"),
         "expected the split around the call in:\n{}",
         main.content
     );
@@ -16267,7 +16334,7 @@ fn rustc_compiles_and_runs_a_mutable_handle_chained_through_a_map_at() {
 }
 
 // [ref-anchor] [backend-never-wrong] A `ref(c)` parameter over a generic
-// container has no index to render on Rust yet: refused loudly, never
+// container has no path to render on Rust yet [rs-path]: refused loudly, never
 // emitted as code rustc rejects. (Kotlin accepts it; the generic lift is
 // ROADMAP's v2 remainder.)
 #[test]
@@ -16287,14 +16354,14 @@ export fn main() [use] -> None {
 "#,
     );
     assert!(
-        errors.iter().any(|e| e.contains("a generic or custom container is not supported yet")),
+        errors.iter().any(|e| e.contains("has no path on the Rust backend yet [rs-path]")),
         "expected the generic-container refusal: {errors:?}"
     );
 }
 
 // [col-idx] [ref-handle] The total `at`: at an `Idx` the mint answers the
-// handle itself, so a bound handle is a bare position, `update` takes it
-// with no `Option` match, and `update2` splits through its locator.
+// handle itself, so a bound handle is a bare position, `update` materializes
+// it with no `Option` match, and `update2` splits through its two paths.
 const TOTAL_AT_DEMO: &str = r#"
 struct E canbe Mut { hp: Int }
 
@@ -16333,13 +16400,15 @@ fn rustc_compiles_and_runs_the_total_at() {
     let files = generate(&[("main.sv", TOTAL_AT_DEMO)]);
     let main = files.iter().find(|f| f.rel_path.to_str() == Some("main.rs")).unwrap();
     assert!(
-        main.content.contains("let __h1: usize = crate::core_list::at__List_IdxInt__loc(&xs, i);"),
+        main.content.contains("let __h1: usize = crate::core_list::at__List_IdxInt(&xs, i);")
+            && main.content.contains("crate::bump({ let __l2 = crate::core_list::at__List_IdxInt(&xs, j); &mut xs[__l2] });"),
         "{}",
         main.content
     );
     let list = files.iter().find(|f| f.rel_path.ends_with("core/list.rs")).unwrap();
     assert!(
-        list.content.contains("f(crate::core_list::at__List_IdxInt::<T>(&mut *list, index));"),
+        list.content.contains("f({ let __l1 = crate::core_list::at__List_IdxInt(&*list, index); &mut list[__l1] });")
+            && list.content.contains("crate::seq::salvo_pair_mut(&mut list[..], __q1, __q2)"),
         "{}",
         list.content
     );

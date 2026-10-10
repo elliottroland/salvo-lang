@@ -564,6 +564,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     }
 
     fn let_stmt(&mut self, local: &Local, ty: &Ty, value: &Expr, indent: usize) -> String {
+        // [rs-path] A new binding of the name ends any handle it was.
+        self.f.ref_handles.remove(&local.0);
         let pad = Self::pad(indent);
         let n = rs_local(&local.0);
         self.f.tys.insert(local.0.clone(), ty.clone());
@@ -1635,6 +1637,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let pad = Self::pad(indent);
         let n = rs_local(&local.0);
         self.f.tys.insert(local.0.clone(), ty.clone());
+        self.f.ref_handles.remove(&local.0);
         // [rs-path] Narrowing a handle: an optional one, once present, is
         // its path; any other narrowing (a claim) is the same handle.
         if from.steps.is_empty() {
@@ -1765,6 +1768,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let pad = Self::pad(indent);
         let n = rs_local(&local.0);
         self.f.tys.insert(local.0.clone(), ty.clone());
+        self.f.ref_handles.remove(&local.0);
         // [rs-loc] [rs-path] Over a list in the anchor, a locator loops by
         // position: each element is the path to it.
         let over_list = matches!(iterable.ty.strip_quals(), Ty::Named { name, .. } if name == "List" || name == "Deque") || matches!(iterable.ty.strip_quals(), Ty::Array(_));
@@ -2063,8 +2067,12 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     _ => self.anchor_handle(a, indent, &mut pre),
                 };
                 let container = args.get(k).and_then(|c| self.anchor_handle(c, indent, &mut pre));
-                let pt = self.handle_path_ty(&f.params[i].ty);
-                let value = match (handle, container, pt) {
+                let Some(pt) = self.handle_path_ty(&f.params[i].ty) else {
+                    // Reported with the path type: one mistake, one diagnostic.
+                    out.push("panic!()".to_string());
+                    continue;
+                };
+                let value = match (handle, container, Some(pt)) {
                     (Some(h), Some(c), Some(pt)) => match self.strip_prefix(&h, &c) {
                         Some(rest) => self.path_value(&rest, &pt),
                         None => None,
@@ -2240,6 +2248,11 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             _ => Vec::new(),
         };
         let saved_kinds = self.f.kinds.clone();
+        // [rs-path] A parameter shadows a handle of the same name.
+        let saved_handles = self.f.ref_handles.clone();
+        for p in params {
+            self.f.ref_handles.remove(&p.local.0);
+        }
         let saved_ret = self.f.ret.replace(ret.clone());
         // Closures do not throw [rs-throw-controlflow].
         let saved_throws = self.f.throws.take();
@@ -2302,6 +2315,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         }
         self.f.loc = saved_loc;
         self.f.loc_index = saved_li;
+        self.f.ref_handles = saved_handles;
         let lambda_pt = std::mem::replace(&mut self.f.loc_pt, saved_pt);
         self.f.kinds = saved_kinds;
         self.f.ret = saved_ret;
@@ -2772,6 +2786,13 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 return v;
             }
             return format!("({v}).clone()");
+        }
+        // [ref-notsame] Same storage: the same address. Both sides borrowed,
+        // so a handle and a parameter reference compare alike.
+        if name == "same" && args.len() == 2 {
+            let a = self.borrow(&args[0], indent);
+            let b = self.borrow(&args[1], indent);
+            return format!("std::ptr::eq({a}, {b})");
         }
         if name == "discard" {
             let v = self.value(&args[0], indent);

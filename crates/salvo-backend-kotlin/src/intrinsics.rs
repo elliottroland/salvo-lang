@@ -42,6 +42,8 @@ pub fn fn_call(
         // agrees with Rust's `as` case by case: float→int truncates toward
         // zero and saturates (NaN → 0), Long→Int keeps the low 32 bits,
         // Double→Float rounds.
+        // [ref-notsame] Same storage: the same object.
+        ("same", _) => format!("({} === {})", a(0), a(1)),
         ("to_int", Some("Long" | "Double" | "Float")) => format!("({}).toInt()", a(0)),
         ("to_long", Some("Int" | "Double" | "Float")) => format!("({}).toLong()", a(0)),
         ("to_double", Some("Int" | "Long" | "Float")) => format!("({}).toDouble()", a(0)),

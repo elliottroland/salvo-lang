@@ -9445,6 +9445,16 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         let id = self.next_var_id;
         self.next_var_id += 1;
+        // [elem-distinct] [ref-notsame] A bound handle's links carry its own
+        // identity: what a `NotSame` claim between two handles relates.
+        let mut links = links;
+        if has_ref_arm(&ty) {
+            for l in &mut links {
+                if l.borrowed && !l.held {
+                    l.elem_idx = Some(id);
+                }
+            }
+        }
         self.locals.last_mut().expect("scope stack").insert(
             name.name.clone(),
             LocalVar {
@@ -9630,18 +9640,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                         }
                     }
                 }
-                // [elem-distinct] An element mint stamps the identity of its
-                // index on every link that has none yet: nearest-the-root
-                // wins, so a nested mint (`get(get(grid, i)!, j)`) keeps the
-                // outer container's discriminator (`i`) — the one that names
-                // disjoint subtrees of the shared root.
-                if let Some(mint) = self.elem_mint_index(*span, callee, args) {
-                    for l in &mut links {
-                        if l.elem_idx.is_none() {
-                            l.elem_idx = Some(mint);
-                        }
-                    }
-                }
                 return links;
             }
         }
@@ -9742,43 +9740,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         links
     }
 
-    /// [elem-distinct] The minting-index identity of an element-handle
-    /// call: `call_span` resolved to `core.list`'s `get` or `at` — the
-    /// overloads whose result is *exactly the element at the index* — and
-    /// the index argument is a plain local. Answers the index variable's
-    /// ultimate fate-root id (its own id when it is a root); any other
-    /// shape answers `None` and stays may-alias [fate-field-disjoint].
-    /// Nominal recognition is deliberate: a user fn with a derived return
-    /// may lend *any* projection of its container, so only the `get` whose
-    /// semantics the compiler knows may name an element discriminator.
-    fn elem_mint_index(&self, call_span: Span, callee: &Expr, args: &[Expr]) -> Option<u32> {
-        let key = *self.out.call_fn.get(&(self.file_idx, call_span))?;
-        let entry = self
-            .scope
-            .fns
-            .values()
-            .flatten()
-            .find(|e| e.key == key)?;
-        // [ref-handle] `at` is the canonical mint and is exactly the element
-        // at the index too.
-        if !matches!(entry.decl.name.name.as_str(), "get" | "at") || entry.module.to_string() != "core.list" {
-            return None;
-        }
-        let index = if matches!(callee, Expr::Field { .. }) {
-            args.first()
-        } else {
-            args.get(1)
-        }?;
-        let Expr::Ident(id) = index else { return None };
-        let var = self.lookup(&id.name)?;
-        match var.links.as_slice() {
-            [] => Some(var.id),
-            links => {
-                let root = links[0].root_id;
-                links.iter().all(|l| l.root_id == root).then_some(root)
-            }
-        }
-    }
 
     /// [fate-partial-move] Assigning a place makes it whole again: drops
     /// every moved-out record the assigned place *covers* (itself and
@@ -10204,31 +10165,21 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
 
-    /// [elem-distinct] Every root-id pair currently proven apart by a live
-    /// `NotEq` claim, both orientations: a variable whose narrowed type
-    /// carries `NotEq(i)` relates its own ultimate root to `i`'s. Claims
-    /// are matched by the qualifier's name, the posture every std claim
-    /// takes (`Sorted`, `Mut`); [qual-depend]'s stripping keeps a live
-    /// claim honest — mutation *or reassignment* of either side removes it.
+    /// [elem-distinct] [ref-notsame] Every pair of handle identities
+    /// currently proven apart by a live `NotSame` claim, both orientations:
+    /// a handle whose narrowed type carries `NotSame(a)` relates its own
+    /// identity to `a`'s. Claims are matched by the qualifier's name, the
+    /// posture every std claim takes (`Sorted`, `Mut`); [qual-depend]'s
+    /// stripping keeps a live claim honest.
     fn live_distinct_pairs(&self) -> HashSet<(u32, u32)> {
         let mut pairs = HashSet::new();
         for frame in &self.locals {
             for var in frame.values() {
-                let subject = match var.links.as_slice() {
-                    [] => var.id,
-                    links => {
-                        let root = links[0].root_id;
-                        if links.iter().all(|l| l.root_id == root) {
-                            root
-                        } else {
-                            continue;
-                        }
-                    }
-                };
+                let subject = var.id;
                 let Ty::Qualified { quals, .. } = &var.narrowed else {
                     continue;
                 };
-                for q in quals.iter().filter(|q| q.name == "NotEq") {
+                for q in quals.iter().filter(|q| q.name == "NotSame") {
                     for a in &q.args {
                         if let Ty::ValueRef { roots, .. } = a {
                             if let [other] = roots.as_slice() {
@@ -11211,7 +11162,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .lookup(&id.name)
                 .map(|v| v.narrowed.quals().iter().map(|q| q.name.clone()).collect())
                 .unwrap_or_default();
-            let removed = effect.removal_set(&have, |q| self.is_provenance_qual(q));
+            let removed = effect.removal_set(&have, |q| self.survives_calls(q));
             if !removed.is_empty() {
                 if let Some(var) = self.lookup_mut(&id.name) {
                     var.narrowed = var.narrowed.clone().remove_quals(&removed);
@@ -15985,7 +15936,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn fate_mutation_root(&mut self, name: &str, span: Span) {
         self.fate_mutation(name, span);
         self.invalidate_place_narrows(&Place::root(name));
-        self.strip_dependent_claims(name, &[]);
+        self.strip_dependent_claims(name, &[NOT_SAME.to_string()]);
     }
 
     /// [deduce-field] The **field paths** a callee declares it mutates for
@@ -16042,7 +15993,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn fate_mutation_root_preserving(&mut self, name: &str, span: Span, preserve: &[String]) {
         self.fate_mutation(name, span);
         self.invalidate_place_narrows(&Place::root(name));
-        self.strip_dependent_claims(name, preserve);
+        self.strip_dependent_claims(name, &with_identity(preserve));
     }
 
     /// [deduce-field] As `fate_mutation_root_preserving`, for a call whose
@@ -16067,7 +16018,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         // Claims about the value are stripped as ever: a claim's own
         // precision is the follow-on (qualifiers on struct fields).
-        self.strip_dependent_claims(name, preserve);
+        self.strip_dependent_claims(name, &with_identity(preserve));
         // [deduce-field] Whatever survived this narrowed event cannot be a
         // live borrow in Rust (the callee still takes the whole value
         // `&mut`), so it is recorded for the virtual-place rendering.
@@ -18752,6 +18703,13 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// `intrinsic type List<T> canbe Mut` [type-canbe-mut].
     /// Whether `name` is a *provenance* qualifier [qual-subject]: a claim
     /// about where the handle came from, which no call can invalidate.
+    /// [qual-subject] [ref-notsame] Whether a qualifier survives a call that
+    /// does not keep it: provenance, a borrow's own flavour (`proj`/`ref`
+    /// say what the value *is*), and `NotSame` (identity, not contents).
+    fn survives_calls(&self, name: &str) -> bool {
+        self.is_provenance_qual(name) || crate::types::is_proj_name(name) || name == NOT_SAME
+    }
+
     fn is_provenance_qual(&self, name: &str) -> bool {
         self.qualifier_named(name)
             .is_some_and(|d| d.subject == QualSubject::Provenance)
@@ -24923,6 +24881,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                     );
                     continue;
                 };
+                // [ref-notsame] A `NotSame` claim is about the handle itself,
+                // not the container it shares fate with: it binds the
+                // handle's own identity.
+                let place_roots = if q == "NotSame" {
+                    let base = path.split('.').next().unwrap_or(path);
+                    self.lookup(base).map(|v| vec![v.id]).unwrap_or(place_roots)
+                } else {
+                    place_roots
+                };
                 // The slot's type is written over the qualifier's own type
                 // parameters, so it is lowered under them.
                 let saved = self.enter_generics(&qual_generics);
@@ -28849,7 +28816,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .lookup(&id.name)
                     .map(|v| v.narrowed.quals().iter().map(|q| q.name.clone()).collect())
                     .unwrap_or_default();
-                let removed = d.effect.removal_set(&have, |q| self.is_provenance_qual(q));
+                let removed = d.effect.removal_set(&have, |q| self.survives_calls(q));
                 let name = id.name.clone();
                 if !removed.is_empty() {
                     if let Some(var) = self.lookup_mut(&name) {
@@ -30538,6 +30505,17 @@ fn strip_proj_union(ty: &Ty) -> &Ty {
         Ty::Qualified { quals, base } if matches!(base.as_ref(), Ty::Union(_)) && quals.iter().all(|q| crate::types::is_proj_name(&q.name)) => base,
         other => other,
     }
+}
+
+/// [ref-notsame] The handle-identity claim's name: it is about which element
+/// a handle is, so a write *through* a handle leaves it standing; only
+/// rebinding strips it.
+const NOT_SAME: &str = "NotSame";
+
+fn with_identity(preserve: &[String]) -> Vec<String> {
+    let mut p = preserve.to_vec();
+    p.push(NOT_SAME.to_string());
+    p
 }
 
 /// [ref-anchor] The container a parameter's `ref(c)` names, when its written

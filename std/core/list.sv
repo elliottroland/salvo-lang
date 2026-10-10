@@ -62,7 +62,7 @@ export fn mut_list_by<T>(size: Int, init: (Int) -> T) [] -> Mut List<T>
 // Possibly gets the element at the given index if the list is long enough
 export platform fn get<T canbe linear>(list: List<T>, index: Int) [] -> (proj(list) T)? => list, index
 
-// [col-idx] `Idx` and `NotEq`, the claims about an index, are `core.index`'s:
+// [col-idx] `Idx`, the claim about an index, is `core.index`'s:
 // one `Idx` serves every container with a `size`.
 
 // [col-idx] The **total** read: an index carrying the claim answers the
@@ -144,19 +144,6 @@ export fn at<T canbe linear>(list: List<Mut T>, index: Idx(list) Int) [] -> ref(
 export fn update<T>(list: List<Mut T>, index: Idx(list) Int, f: (elem: Mut T) -> None) [] -> None
 => list: preserve Idx, index, f {
     f(at(list, index))
-    return None
-}
-
-// [col-update] Applies [f] to the elements at [i] and [j] at once — the
-// two-handle transaction. The indices must be proven apart (`j is
-// NotEq(i)` [col-noteq]): two handles to one element cannot exist
-// [elem-distinct], and with the proof the pair costs one `split_at_mut`
-// on the Rust backend [rs-elem-mut]. Ordinary Salvo, not an intrinsic —
-// the body is exactly the two mints the proof legalizes.
-export fn update2<T>(list: List<Mut T>, i: Idx(list) Int, j: NotEq(i) Idx(list) Int,
-                     f: (a: Mut T, b: Mut T) -> None) [] -> None
-=> list: preserve Idx, i, j, f {
-    f(at(list, i), at(list, j))
     return None
 }
 
