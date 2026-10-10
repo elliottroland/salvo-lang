@@ -478,3 +478,42 @@ fn a_borrowed_optional_does_not_fit_a_mut_optional() {
     let errs = errors(&src);
     assert!(errs.iter().any(|e| e.contains("borrowed value") || e.contains("projection")), "got {errs:?}");
 }
+
+const LIBRARY: &str = "\
+struct Track canbe Mut { plays: Int }\n\
+struct Album canbe Mut { tracks: List<Mut Track> }\n\
+struct Library canbe Mut { albums: List<Mut Album> }\n\
+fn swap_in(lib: Library, al: ref(lib) Mut Album, a: ref(al) Mut Track, b: ref(al) Mut Track) [] -> None {\n    \
+let p = a.plays\n    a.plays = b.plays\n    b.plays = p\n    return None\n}\n";
+
+/// [ref-anchor] A handle anywhere inside the container fits, and a `ref(c)`
+/// may name another handle parameter: the handles of one chain are
+/// positions in one container, so they may alias with nothing to prove
+/// (user decisions 2026-10-10).
+#[test]
+fn handles_into_an_element_container_chain_need_no_proof() {
+    let src = format!(
+        "{LIBRARY}\
+         fn f(lib: Library) [] -> None => lib: None {{\n    \
+         let al = at(lib.albums, 0)!\n    \
+         swap_in(lib, al, at(al.tracks, 0)!, at(al.tracks, 0)!)\n    \
+         swap_in(lib, at(lib.albums, 1)!, at(at(lib.albums, 1)!.tracks, 0)!, at(at(lib.albums, 1)!.tracks, 1)!)\n    \
+         return None\n}}\n"
+    );
+    assert!(errors(&src).is_empty(), "got {:?}", errors(&src));
+}
+
+/// [ref-anchor] …but a handle into *another* album than the one passed for
+/// its anchor is refused: the callee would read it as a position in `al`.
+#[test]
+fn a_handle_outside_its_anchor_is_refused() {
+    let src = format!(
+        "{LIBRARY}\
+         fn f(lib: Library, other: Album) [] -> None => lib, other {{\n    \
+         let al = at(lib.albums, 0)!\n    \
+         swap_in(lib, al, at(other.tracks, 0)!, at(al.tracks, 0)!)\n    \
+         return None\n}}\n"
+    );
+    let errs = errors(&src);
+    assert!(errs.iter().any(|e| e.contains("[ref-anchor]")), "got {errs:?}");
+}

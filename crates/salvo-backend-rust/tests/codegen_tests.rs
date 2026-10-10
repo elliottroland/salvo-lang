@@ -17042,3 +17042,66 @@ fn rustc_compiles_and_runs_mut_optional_slots() {
     assert!(main.content.contains("pub fn heal(mut e: Option<&mut crate::Entity>) -> i32"), "{}", main.content);
     run_rust_files(&files, "mut-opt-slot", MUT_OPT_SLOT_OUTPUT);
 }
+
+/// [ref-anchor] Element containers (user decisions 2026-10-10): a `ref(lib)`
+/// argument may be a handle anywhere *inside* `lib` — from a mint, inline
+/// nested `at`s, or `at` of a bound handle's field — and a `ref(c)` may name
+/// another handle parameter, so `a: ref(al)` is a position in `al`, itself a
+/// position in `lib`. On Rust `lib` is passed once and every handle is a path
+/// from it.
+pub const ELEM_CONTAINER_DEMO: &str = r#"
+struct Track canbe Mut { plays: Int }
+struct Album canbe Mut { name: Str, tracks: List<Mut Track> }
+struct Library canbe Mut { albums: List<Mut Album> }
+
+// A mint reaching two levels into the library.
+fn track(lib: Library, i: Int, j: Int) -> ref(lib) Mut Track? {
+    let al = at(lib.albums, i)
+    if al is Album {
+        return at(al.tracks, j)
+    }
+    return None
+}
+
+// Handles anywhere inside `lib`.
+fn swap_plays(lib: Library, a: ref(lib) Mut Track, b: ref(lib) Mut Track) -> None {
+    let p = a.plays
+    a.plays = b.plays
+    b.plays = p
+}
+
+// A handle parameter anchored at another handle parameter: positions in
+// `al`, which is a position in `lib`.
+fn swap_in(lib: Library, al: ref(lib) Mut Album, a: ref(al) Mut Track, b: ref(al) Mut Track) -> None {
+    let p = a.plays
+    a.plays = b.plays
+    b.plays = p
+    al.name = "${al.name}*"
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let lib = Mut Library { albums: list_of(
+        Mut Album { name: "x", tracks: list_of(Mut Track { plays: 1 }, Mut Track { plays: 2 }) },
+        Mut Album { name: "y", tracks: list_of(Mut Track { plays: 3 }) }) }
+    // Through a mint, inline nested `at`s, and a bound handle.
+    swap_plays(lib, track(lib, 0, 1)!, track(lib, 1, 0)!)
+    swap_plays(lib, at(at(lib.albums, 0)!.tracks, 0)!, at(at(lib.albums, 1)!.tracks, 0)!)
+    let al = at(lib.albums, 0)!
+    swap_plays(lib, at(al.tracks, 0)!, track(lib, 1, 0)!)
+    // Self-strike is fine: one container, two positions that coincide.
+    swap_in(lib, al, at(al.tracks, 0)!, at(al.tracks, 1)!)
+    swap_in(lib, al, at(al.tracks, 1)!, at(al.tracks, 1)!)
+    let a0 = get(lib.albums, 0)!
+    let a1 = get(lib.albums, 1)!
+    println("${a0.name} ${get(a0.tracks, 0)!.plays} ${get(a0.tracks, 1)!.plays} ${a1.name} ${get(a1.tracks, 0)!.plays}")
+}
+"#;
+
+pub const ELEM_CONTAINER_OUTPUT: &str = "x** 3 1 y 2\n";
+
+#[test]
+fn rustc_compiles_and_runs_handles_into_element_containers() {
+    let files = generate(&[("main.sv", ELEM_CONTAINER_DEMO)]);
+    run_rust_files(&files, "elem-container", ELEM_CONTAINER_OUTPUT);
+}

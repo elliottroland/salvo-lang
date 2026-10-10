@@ -9639,6 +9639,23 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
         }
+        // [ref-anchor] A field of a view a call handed back is part of what
+        // it views (`at(lib.albums, i)!.tracks` is in `lib`): it carries the
+        // view's links, at the view's (conservative) path.
+        if let Expr::Field { base, .. } = value {
+            let mut b = base.as_ref();
+            while let Expr::Field { base, .. } = b {
+                b = base.as_ref();
+            }
+            let call = match b {
+                Expr::NonNull { operand, .. } => matches!(operand.as_ref(), Expr::Call { .. }),
+                Expr::Call { .. } => true,
+                _ => false,
+            };
+            if call {
+                return self.links_for_value(b, bind_span);
+            }
+        }
         // [readonly-return] `get(xs, i)!` is still the borrow `get` handed
         // back: a `!` unwrap changes the type, not the provenance.
         if let Expr::NonNull { operand, .. } = value {
@@ -10172,10 +10189,18 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .out
                 .ty_of(self.file_idx, arg.span())
                 .is_some_and(|t| has_ref_arm(t));
+            // A position anywhere *inside* the container counts (user
+            // decision 2026-10-10): the link's path extends the
+            // container's.
+            let under = |p: &Option<Vec<Step>>, lp: &Option<Vec<Step>>| match (p, lp) {
+                (None, _) => true,
+                (Some(p), Some(lp)) => lp.len() >= p.len() && lp[..p.len()] == p[..],
+                (Some(_), None) => false,
+            };
             let into_it = is_handle
                 && have
                     .iter()
-                    .any(|l| want.iter().any(|(r, p)| *r == l.root_id && (p.is_none() || *p == l.path)));
+                    .any(|l| want.iter().any(|(r, p)| *r == l.root_id && under(p, &l.path)));
             if !into_it {
                 self.error(
                     arg.span(),
@@ -10214,12 +10239,26 @@ impl<'p, 'r> Checker<'p, 'r> {
                     continue;
                 };
                 // [ref-anchor] Two handles anchored at one container
-                // parameter may alias: accepted, nothing to prove.
+                // parameter may alias: accepted, nothing to prove. An
+                // anchor that is itself a handle parameter (`a: ref(al)`,
+                // `al: ref(lib)`) chains to the container it is in: every
+                // handle of the chain is a position in that one container.
                 let prev_param = *prev_param;
-                if let (Some(a), Some(b)) = (
-                    anchors.get(prev_param).copied().flatten(),
-                    anchors.get(i).copied().flatten(),
-                ) {
+                let root_anchor = |mut j: usize| -> Option<usize> {
+                    let mut seen = 0;
+                    let mut out = None;
+                    while let Some(k) = anchors.get(j).copied().flatten() {
+                        out = Some(k);
+                        j = k;
+                        seen += 1;
+                        if seen > anchors.len() {
+                            break;
+                        }
+                    }
+                    out
+                };
+                let chain = |j: usize| -> Option<usize> { root_anchor(j).or_else(|| anchors.iter().any(|a| *a == Some(j)).then_some(j)) };
+                if let (Some(a), Some(b)) = (chain(prev_param), chain(i)) {
                     if a == b {
                         continue;
                     }
@@ -10982,10 +11021,16 @@ impl<'p, 'r> Checker<'p, 'r> {
         if !sources.is_empty() {
             return false;
         }
-        let inner = match arg {
-            Expr::NonNull { operand, .. } => operand.as_ref(),
-            other => other,
-        };
+        // A field of a view is part of what it views (`at(lib.albums,
+        // i)!.tracks` is in `lib`): the question is the view's.
+        let mut inner = arg;
+        loop {
+            inner = match inner {
+                Expr::NonNull { operand, .. } => operand.as_ref(),
+                Expr::Field { base, .. } if !matches!(base.as_ref(), Expr::Ident(_)) => base.as_ref(),
+                _ => break,
+            };
+        }
         let forwards_view = matches!(inner, Expr::Call { .. } | Expr::StructLit { .. })
             && !self.links_for_value(inner, inner.span()).is_empty();
         !forwards_view

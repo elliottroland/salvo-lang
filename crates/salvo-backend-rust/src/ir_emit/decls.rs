@@ -1197,7 +1197,18 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 let pt_text = self.path_rust(&pt);
                 ps.push(format!("{c}: {pt_text}"));
                 let steps = self.steps_of_value(&pt, &c);
-                self.bind_handle(&p.local.0, super::paths::HandleBinding::Total(super::paths::Handle { root: rs_ident(&params[k].local.0), steps }));
+                // [ref-anchor] An anchor that is itself a handle parameter
+                // (`a: ref(al)`, `al: ref(lib)`): the handle is a path in
+                // the anchor's own container, through the anchor's path.
+                let handle = match self.handle_of(&params[k].local.0) {
+                    Some(super::paths::HandleBinding::Total(h)) => {
+                        let mut all = h.steps.clone();
+                        all.extend(steps);
+                        super::paths::Handle { root: h.root, steps: all }
+                    }
+                    _ => super::paths::Handle { root: rs_ident(&params[k].local.0), steps },
+                };
+                self.bind_handle(&p.local.0, super::paths::HandleBinding::Total(handle));
                 self.f.tys.insert(p.local.0.clone(), p.ty.clone());
                 continue;
             }

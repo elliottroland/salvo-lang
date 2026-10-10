@@ -661,6 +661,31 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     }
                 }
             }
+            // `h!.field` and the like, inline: a block binding a handle and
+            // reading a place under it — the handle's path, extended.
+            ExprKind::Branch { arms, otherwise: None, .. }
+                if arms.len() == 1
+                    && matches!(arms[0].0.kind, ExprKind::Bool(true))
+                    && matches!(arms[0].1.stmts.as_slice(), [salvo_ir::Stmt::Let { .. }])
+                    && matches!(arms[0].1.value.as_deref().map(|v| &v.kind), Some(ExprKind::Read { place, .. }) if matches!(&arms[0].1.stmts[0], salvo_ir::Stmt::Let { local, .. } if *local == place.root)) =>
+            {
+                let b = &arms[0].1;
+                let salvo_ir::Stmt::Let { value, .. } = &b.stmts[0] else { return None };
+                let Some(ExprKind::Read { place, .. }) = b.value.as_deref().map(|v| &v.kind) else { return None };
+                let h = self.anchor_handle(value, indent, pre)?;
+                let mut steps = h.steps.clone();
+                for st in &place.steps {
+                    steps.push(match st {
+                        Step::Field(f) => SStep::Field(f.clone()),
+                        Step::Tuple(i) => SStep::Tuple(*i),
+                        Step::Index(e) => {
+                            let i = self.value(e, indent);
+                            SStep::Dyn(PStep::Index, format!("(({i}) as usize)"))
+                        }
+                    });
+                }
+                Some(Handle { root: h.root, steps })
+            }
             _ => {
                 let m = self.mint(a, indent)?;
                 pre.extend(m.pre.iter().cloned());
