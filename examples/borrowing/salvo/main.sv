@@ -1,12 +1,13 @@
-// Borrowing, without references: a *projection* is a borrow, a projection
-// carrying `Mut` is a **handle** on storage someone else owns, and an **alias
-// group** is what a function says when two of its parameters may name the same
-// object.
+// Borrowing, without references: a *projection* (`proj`) is a read-only
+// borrow, a `ref(c)` carrying `Mut` is a **handle** into a container `c`
+// someone else owns, and two handles that name the same container are what a
+// function says when two of its parameters may be the same object.
 //
-// Salvo has no `&`, no `&mut`, no lifetimes. What it has is one qualifier —
-// `proj` — and three answers to the question Rust answers with a single rule
-// ("a mutable borrow excludes all others"): say nothing and hold one handle at
-// a time, *prove* two handles apart, or *declare* that they may coincide.
+// Salvo has no `&`, no `&mut`, no lifetimes. What it has is two qualifiers —
+// `proj` and `ref` — and three answers to the question Rust answers with a
+// single rule ("a mutable borrow excludes all others"): say nothing and hold
+// one handle at a time, *prove* two handles apart, or *name the container*
+// they share, so that they may coincide.
 //
 // Several shapes below are ones the natural Rust translation does not compile
 // at all; they are marked `Rust: E0499` / `Rust: E0502` and the README has the
@@ -65,7 +66,7 @@ fn peek(w: Window) -> (proj(w) Fighter)? => w {
     return get(w.roster, w.at)
 }
 
-// ===== 2. a mutable projection is a handle =====
+// ===== 2. a `ref` is a handle =====
 
 // `Mut` on a parameter of a struct type is permission to change it in place.
 // The call site supplies a handle; `heal` never learns where it came from.
@@ -74,11 +75,12 @@ fn heal(f: Mut Fighter) -> None => f: Mut {
     return None
 }
 
-// A lender of your own, and the shape to look at in the generated Rust: the
-// loop becomes an indexed one and the found *position* travels out
+// A lender of your own: `-> ref(squad) Mut Fighter` says the result is a
+// handle into `squad`. The shape to look at in the generated Rust: the loop
+// becomes an indexed one and the found *position* travels out
 // (`wounded__loc(squad: &Vec<Fighter>) -> Option<usize>`), so no reference
 // outlives the search.
-fn wounded(squad: List<Mut Fighter>) -> (proj(squad) Mut Fighter)? {
+fn wounded(squad: List<Mut Fighter>) -> (ref(squad) Mut Fighter)? {
     for f in squad {
         if f.hp < 10 {
             return f
@@ -111,26 +113,26 @@ fn duel(a: Mut Fighter, d: Mut Fighter) -> None => a: Mut, d: Mut {
     return None
 }
 
-// ===== 4. an alias group =====
+// ===== 4. handles that share a container =====
 
-// `=> a canbe d` is the other answer: this function *means* to accept two
-// handles that might be one object, so no caller needs a proof and the
-// self-strike case is legal. The relation is symmetric (saying it once says
-// it) and non-transitive (it is a graph, not an equivalence).
+// `ref(c)` on a parameter is the other answer: `a` and `d` are both handles
+// into `c`, so this function *means* to accept two handles that might be one
+// element — no caller needs a proof, and the self-strike case is legal. The
+// container is a parameter like any other, and the caller must hand in
+// handles minted from the very container it passes as `c`.
 //
 // Rust: E0499. Two `&mut` into one container cannot coexist whether they
 // alias or not, and no signature can say "these may be the same" — a Rust
 // programmer writes the `i == j` case as a second function. The Rust backend
-// renders a covered pair as one shared anchor plus a position each, so the
+// renders `strike` as the container once plus a position per handle, so the
 // aliasing is *exact*: both positions index the same storage.
-fn strike(a: Mut Fighter, d: Mut Fighter) -> None
-=> a canbe d, a: Mut, d: Mut {
+fn strike(c: List<Mut Fighter>, a: ref(c) Mut Fighter, d: ref(c) Mut Fighter) -> None {
     a.energy = a.energy - 1
     d.hp = d.hp - 2
     return None
 }
 
-// A squad, so the *anchored* form has a container to name.
+// A squad, so a handle's container can be a field.
 struct Squad canbe Mut {
     // What it fights under.
     banner: Str,
@@ -138,14 +140,11 @@ struct Squad canbe Mut {
     members: List<Mut Fighter>
 }
 
-// `=> from|to canbe in squad.members` is the anchored form: each parameter may
-// be an **element of a named container**. Two parameters anchored in the same
-// path may therefore coincide, so the mutual aliasing falls out of the shared
-// anchor — which is how the n-way case costs one entry per parameter instead
-// of one per pair. It also licenses the shape a plain `canbe` cannot: handles
-// passed *beside the container they came from*.
-fn rotate(squad: Mut Squad, from: Mut Fighter, to: Mut Fighter) -> None
-=> from|to canbe in squad.members, squad: Mut, from: Mut, to: Mut {
+// Any number of handles may name one container — one `ref(members)` per
+// parameter, not one relation per pair. At the call the container is a field
+// path, `team.members`, and the handles travel *beside the container they
+// came from*.
+fn rotate(members: List<Mut Fighter>, from: ref(members) Mut Fighter, to: ref(members) Mut Fighter) -> None {
     from.energy = from.energy - 1
     to.energy = to.energy + 1
     return None
@@ -229,7 +228,7 @@ fn main() [use] {
     //
     // Rust: E0502. A bound `&mut squad[0]` forbids the `size(squad)` between
     // the two writes; the position rendering is what lets rustc agree.
-    let boss = get(squad, 0)!
+    let boss = at(squad, 0)!
     boss.hp = boss.hp + 1
     let n = size(squad)
     boss.hp = boss.hp + n
@@ -248,8 +247,8 @@ fn main() [use] {
     let i = 0
     let j = 1
 
-    // Say nothing and one handle lives at a time: `get(squad, i)` and
-    // `get(squad, j)` may be the same element for all the compiler knows, so
+    // Say nothing and one handle lives at a time: `at(squad, i)` and
+    // `at(squad, j)` may be the same element for all the compiler knows, so
     // the second is refused. `NotEq` is the proof — `j != i`, bound to `i`'s
     // identity — and with it the two handles coexist, a write through one
     // leaves the other standing, and one call may take both.
@@ -257,8 +256,8 @@ fn main() [use] {
     // Rust: E0499, and the remedy rustc suggests is `split_at_mut` — which is
     // exactly what this lowers to.
     if j is NotEq(i) {
-        let a = get(squad, i)!
-        let d = get(squad, j)!
+        let a = at(squad, i)!
+        let d = at(squad, j)!
         a.hp = a.hp + 1
         d.hp = d.hp + 1
         duel(a, d)
@@ -280,25 +279,21 @@ fn main() [use] {
         }
     }
 
-    // ----- 4. the alias group -----
+    // ----- 4. handles that share a container -----
 
-    // No proof anywhere, and none needed: `strike` covers the pair itself.
-    if i is Idx(squad) {
-        if j is Idx(squad) {
-            strike(get(squad, i), get(squad, j))
-            // …including the case the entry exists for: one fighter, both
-            // roles, spending its own energy on itself.
-            strike(get(squad, i), get(squad, i))
-        }
-    }
+    // No proof anywhere, and none needed: `strike` names the container.
+    strike(squad, at(squad, i)!, at(squad, j)!)
+    // …including the case `ref(c)` exists for: one fighter, both roles,
+    // spending its own energy on itself.
+    strike(squad, at(squad, i)!, at(squad, i)!)
     println("4. ${get(squad, 0)!.hp} hp / ${get(squad, 0)!.energy} energy after striking itself")
 
-    // The anchored form, where the container travels with its own elements:
-    // one `&mut` of the squad in the generated Rust, and a position each.
+    // The container travels with its own elements: one `&mut` of the
+    // members in the generated Rust, and a position each.
     let team = Mut Squad { banner: "Red", members: list_of(
         Mut Fighter { name: "Cy", hp: 12, energy: 2 },
         Mut Fighter { name: "Dee", hp: 6, energy: 7 }) }
-    rotate(team, get(team.members, i)!, get(team.members, j)!)
+    rotate(team.members, at(team.members, i)!, at(team.members, j)!)
     println("4. ${team.banner}: ${get(team.members, 0)!.energy} ${get(team.members, 1)!.energy}")
 
     // ----- 5. field granularity -----

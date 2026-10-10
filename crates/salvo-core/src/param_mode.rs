@@ -68,6 +68,21 @@ impl<'a, 'p> Modes<'a, 'p> {
         if !kept {
             return PassMode::Moved;
         }
+        // [ref-handle] A container the fn hands a mutable handle into — the
+        // source of a `-> ref(c) Mut T` mint, or the container a `ref(c)
+        // Mut` parameter is anchored at [ref-anchor] — is lent mutably,
+        // whatever container it is.
+        if let Some(decl) = key.and_then(|k| self.fn_by_key(k)) {
+            let mints_from = decl.derived_return.as_ref().is_some_and(|d| d.name == param.name.name)
+                && decl.return_type.as_ref().is_some_and(crate::mut_lends::fn_type_lends_mut);
+            let anchors = decl.params.iter().any(|p| {
+                crate::check::ref_anchor_of(&p.ty).is_some_and(|c| c.name == param.name.name)
+                    && type_has_mut(&p.ty)
+            });
+            if mints_from || anchors {
+                return PassMode::LentMut;
+            }
+        }
         kept_mode(&param.ty)
     }
 

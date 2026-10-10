@@ -1,12 +1,15 @@
-# Borrowing: projections, handles, and alias groups
+# Borrowing: projections, handles, and shared containers
 
 Salvo has no `&`, no `&mut`, no lifetimes, and no explicit ownership. What it
-has is one qualifier — **`proj`** — that says "this value is borrowed from
-somewhere", and three answers to the question a mutable borrow raises:
+has is two qualifiers — **`proj`**, which says "this value is borrowed from
+somewhere" and is read-only, and **`ref(c)`**, a handle into container `c`,
+mutable when it carries `Mut` — and three answers to the question a mutable
+borrow raises:
 
 1. say nothing, and hold **one handle at a time**;
 2. **prove** two handles name different storage (`NotEq`), and use both;
-3. **declare** that two may be the same (`canbe`), and let the callee cope.
+3. **name the container** two handles share (`ref(c)`), and let the callee
+   cope with their being the same element.
 
 This program is those three, plus what a read projection is and what a
 mutation's *field* granularity buys. It ends up exercising four shapes the
@@ -35,15 +38,17 @@ cargo run -- run --backend kotlin --src examples/borrowing/salvo
    value that *holds* a borrow in a `proj` field and may not outlive it, and
    `filter` answers `Mut List<proj Fighter>` — a list of borrows, built without
    copying an element.
-2. **A mutable projection is a handle.** Element mutability belongs to the
-   **element type**, not the container handle: `Mut List<T>` is a mutable
-   *container* (`add`, `remove_at`, `swap`), `List<Mut T>` is a container of
-   mutable *elements*. So `get(squad, 0)!` at `T = Mut Fighter` answers
-   `(proj(squad) Mut Fighter)?` — and that `Mut` is the permission to write
-   through it. The section mints one where it is used, binds one and holds it
-   across a **read** of its own container, lends one out of a **search loop**
-   (`wounded`), and lends one from a *generic* function whose accessor the caller
-   supplies (`rally_at`, over `params Locate`).
+2. **A `ref` is a handle.** Element mutability belongs to the **element
+   type**, not the container handle: `Mut List<T>` is a mutable *container*
+   (`add`, `remove_at`, `swap`), `List<Mut T>` is a container of mutable
+   *elements*. `get` reads and `at` handles: `get(squad, 0)!` answers a
+   read-only `proj(squad) Mut Fighter`, while `at(squad, 0)!` answers
+   `ref(squad) Mut Fighter` — the handle, whose `Mut` is the permission to
+   write through it. The section mints one where it is used, binds one and
+   holds it across a **read** of its own container, lends one out of a
+   **search loop** (`wounded`, `-> (ref(squad) Mut Fighter)?`), and lends one
+   from a *generic* function whose accessor the caller supplies (`rally_at`,
+   over `params Ref`).
 3. **Two handles, proven apart.** `duel` mutates both parameters and says
    nothing about them coinciding, so a caller owes a proof: `j is NotEq(i)` —
    `j != i`, bound to `i`'s identity. With it, two handles into one list coexist,
@@ -51,17 +56,16 @@ cargo run -- run --backend kotlin --src examples/borrowing/salvo
    `update` and `update2` are std's wrappers for the common shapes, and both
    promise `preserve Idx`, so the reads after them stay *total* — an in-place
    write moves no boundary.
-4. **An alias group.** `strike` declares `=> a canbe d`: it *means* to accept
-   two handles that might be one object. No caller needs a proof, and the
-   self-strike (`strike(get(squad, i), get(squad, i))`) is legal — one fighter
-   spending its own energy on itself. `canbe` is symmetric and non-transitive,
-   and written-only: aliasability changes what a caller may pass, so it stays in
-   the signature. `rotate` is the **anchored** form —
-   `=> from|to canbe in squad.members` — where each parameter may be an
-   *element of a named container*: two parameters anchored in the same path may
-   therefore coincide, so the n-way case costs one entry per parameter instead
-   of one per pair. It also licenses what a plain `canbe` cannot, since the
-   anchor is a parameter: handles passed **beside the container they came
+4. **Handles that share a container.** `strike(c: List<Mut Fighter>, a:
+   ref(c) Mut Fighter, d: ref(c) Mut Fighter)` *means* to accept two handles
+   that might be one element: both are positions in `c`. No caller needs a
+   proof, and the self-strike (`strike(squad, at(squad, i)!, at(squad, i)!)`)
+   is legal — one fighter spending its own energy on itself. The caller must
+   hand in handles minted from the container it passes as `c`; a handle into
+   another list is refused. Any number of parameters may name one container —
+   one `ref(members)` each, not one relation per pair — and the container may
+   be a field path at the call: `rotate(team.members, at(team.members, i)!,
+   at(team.members, j)!)` passes handles **beside the container they came
    from**.
 5. **Which field a call touches.** `spend`'s clause says `=> camp.supplies: Mut`
    — the mutation lands on that field alone, so `let banners = camp.banners`
@@ -90,7 +94,7 @@ boss.hp += n;                 //   because it is also borrowed as mutable
 
 Salvo allows it because a *read* of a container cannot invalidate a handle into
 it, and the position rendering is what lets rustc agree: the handle becomes
-`let __h2: usize = …get_platform__loc(&squad, 0i32).expect(…);` and each use re-indexes `squad[__h2]`.
+`let __h2: usize = …at__loc(&squad, 0i32).expect(…);` and each use re-indexes `squad[__h2]`.
 
 **§3 — two element handles of one container, in one call.**
 
@@ -125,9 +129,9 @@ if i == j {
 }
 ```
 
-`=> a canbe d` is one function for both cases, and the emission is exact rather
-than defensive: the covered positions become one shared anchor plus a position
-each, so when they alias they index the same storage.
+`ref(c)` is one function for both cases, and the emission is exact rather
+than defensive: the container is passed once and each handle as a position in
+it, so when they alias they index the same storage.
 
 **§5 — a handle into one field, across a call that mutates another.**
 
@@ -153,7 +157,7 @@ Rust refuses is *using* either result alongside the container, which is §2.
 
 ## What to look for in the generated code
 
-- **A mutable handle is a position, not a reference.** `let boss = get(squad, 0)!`
+- **A mutable handle is a position, not a reference.** `let boss = at(squad, 0)!`
   becomes `let __h2: usize = …__loc(&squad, 0i32).expect(…);` (the bounds check `!` asked for), and
   every use re-indexes `squad[__h2]`. That is what makes the `size(squad)` in
   the middle legal.
@@ -162,13 +166,15 @@ Rust refuses is *using* either result alongside the container, which is §2.
   where the `for` became an indexed loop and `return f` became `return Some(__li1)`.
   The mutating call site takes the locator:
   `match at(&*squad, l) { Some(__l1) => Some(&mut squad[__l1]), None => None }`.
-- **A covered pair has a different signature.** `strike` is
-  `strike(__anchor: &mut Vec<Fighter>, __c0: usize, __c1: usize)` — one borrow,
-  two positions — while the *proven* pair keeps two `&mut Fighter` parameters
-  (`duel`) and is fed by a `split_at_mut`. The anchored form needs no
-  synthesized anchor at all, because its anchor is a parameter:
-  `rotate(squad: &mut Squad, __c1: usize, __c2: usize)`, indexing
-  `squad.members[__c1]`.
+- **`ref(c)` parameters are positions.** `strike` is
+  `strike(c: &mut Vec<Fighter>, __c1: usize, __c2: usize)` — one borrow of the
+  container it names, two positions, indexing `c[__c1]` — while the *proven*
+  pair keeps two `&mut Fighter` parameters (`duel`) and is fed by a
+  `split_at_mut`. At the call the positions are computed first, so the
+  container's `&mut` is the only borrow: `rotate(&mut team.members, __c11,
+  __c12)`.
+- **Reads are borrows.** `get(squad, 0)!.hp` renders as a plain `&Fighter`
+  from `get_platform`, not a position: only `at` mints a handle.
 - **A view carries a lifetime, and only a view does.** `Window<'s>` with
   `roster: &'s Vec<Fighter>`, `window(roster: &Vec<Fighter>) -> Window<'_>`,
   and `peek<'s>(w: &Window<'s>) -> Option<&'s Fighter>` — the three signatures

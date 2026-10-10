@@ -16263,34 +16263,30 @@ fn rustc_compiles_and_runs_a_handle_from_a_lending_member_survives_a_read_of_its
     run_rust_files(&files, "lend-fix", LEND_HANDLE_OUTPUT);
 }
 
-// [rs-loc] [GB-1a] A map lookup has no locator twin the way List/Deque
-// indexing does, so chaining a mutable element handle *through* a map
-// `get` is refused on the Rust backend: `get(get(m, k)!, i)!` is a
-// mutable lend from something that is not a place. This is a *coverage*
-// gap, not a soundness bug — the compiler says no, loudly — and it stays
-// refused until the region/`Reg` work (GROUP_BORROWING.md Step 6) gives
-// maps a path into the handle model. Kotlin accepts the same program
-// (native aliasing); this is the one backend-parity asymmetry recorded
-// as a known restriction. This test is a *confirmed-refusal* guard: if a
-// future change silently starts accepting or (worse) miscompiling this
-// shape, it fails here.
+// [ref-handle] [GB-1a] A map's `at` is the by-key mint: a handle into a
+// map is a slot position, so a mutable element handle chains *through* a
+// map exactly as through a list — `at(at(m, k)!, i)!` is a position in the
+// list stored at the key's slot. (Before `ref(c)` this shape was refused
+// on the Rust backend as "a mutable lend from something that is not a
+// place".) A structural change to the map (`put`) ends the handles.
 const MAP_CHAIN_MUT_HANDLE: &str = r#"
 struct Item canbe Mut { tag: Str }
 
 export fn main() [use] -> None {
     use StdOutConsole()
-    let m: Map<Str, NonEmpty List<Mut Item>> = map_of(("a", list_of(Mut Item { tag: "x" }, Mut Item { tag: "y" })))
-    let it = get(get(m, "a")!, 1)!
+    let m: Mut Map<Str, Mut List<Mut Item>> = mut_map_of()
+    let l: Mut List<Mut Item> = mut_list_of(Mut Item { tag: "x" }, Mut Item { tag: "y" })
+    put(m, "a", l)
+    let it = at(at(m, "a")!, 1)!
     it.tag = "z"
-    println("${it.tag}")
+    let v = at(m, "a")!
+    add(v, Mut Item { tag: "w" })
+    println("${get(get(m, "a")!, 1)!.tag} ${size(get(m, "a")!)}")
 }
 "#;
 
 #[test]
-fn a_mutable_handle_chained_through_a_map_get_is_refused() {
-    let errors = expect_errors(MAP_CHAIN_MUT_HANDLE);
-    assert!(
-        errors.iter().any(|e| e.contains("not a place")),
-        "expected the [rs-loc] map-chain refusal: {errors:?}"
-    );
+fn rustc_compiles_and_runs_a_mutable_handle_chained_through_a_map_at() {
+    let files = generate(&[("main.sv", MAP_CHAIN_MUT_HANDLE)]);
+    run_rust_files(&files, "map-chain-at", "z 3\n");
 }

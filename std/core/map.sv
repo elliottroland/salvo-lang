@@ -70,6 +70,15 @@ export fn to_map<T, K, V>(items: List<T>, entry: (T) -> (K, V), ?Hashed<K>) [] -
 // [copy-opt-in]. The key is only read, so it is kept.
 export platform fn get<K, V>(map: Map<K, V>(?hash, ?eq), key: K) [] -> (proj(map) V)? => map, key
 
+// [col-locate] [ref-handle] The mutable handle to the value stored under
+// [key], or `None` when the key is absent — `at` for a map, the by-key
+// mint (the list's is by index). `get` is the read-only sibling. A handle
+// is a position in the map: an in-place write through it moves nothing,
+// while adding or removing an entry ends it [fate-poison].
+export fn at<K, V>(map: Map<K, Mut V>(?hash, ?eq), key: K) [] -> ref(map) Mut V? => map, key {
+    return get(map, key)
+}
+
 // Stores [value] under [key], replacing any value already there. The map
 // takes ownership of both, so both are moved; a key that is already present
 // keeps its position in the iteration order [col-insertion-order].
