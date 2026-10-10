@@ -16,6 +16,7 @@ use crate::ir::*;
 
 mod body;
 pub mod actors;
+pub mod refs;
 mod decls;
 
 pub use body::Lower;
@@ -281,6 +282,8 @@ pub fn build_program<'p>(
         errors.extend(errs.into_iter().map(|e| format!("{}: {e}", file.name)));
     }
     let generated = actors::generate(&ctx, &mut out);
+    // [ref-handle] Every `ref` names its container's type.
+    refs::annotate(&mut out);
     out.names = ctx.names;
     out.names.extend(generated);
     (out, errors)
