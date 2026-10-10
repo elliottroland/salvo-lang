@@ -1130,35 +1130,37 @@ one dial rather than two features.
 Storage paths, `NotSame` and the `ref` container type in the IR are
 **built** (2026-10-10, COMPLETED.md's "Handles are storage paths" entry;
 [rs-path], [ref-notsame], [elem-distinct]). GROUP_BORROWING.md Parts 7 and 9
-stay the design record. What remains:
+stay the design record. **The next sequence** (user decisions 2026-10-10,
+GROUP_BORROWING.md Part 9 "Next sequence"):
 
-1. **Generic containers on Rust.** A handle into a container that is a type
-   parameter (`ref(c)` with `c: C`) has no path type yet and is refused ("has
-   no path on the Rust backend yet [rs-path]", pinned by
-   `a_ref_parameter_over_a_generic_container_is_refused`); Kotlin accepts
-   it. The plan from Part 9: the path type becomes an extra Rust type
-   parameter `P` of the generic fn, filled at the instantiation, with the
-   walk passed alongside the `?Ref` implicit.
-2. **Effect members keep two faces.** A lending effect member (`lease`)
-   still renders its natural `&mut` face beside `lease__loc`, which answers
-   the path; the "a mint renders only as its path, under its own name" rule
-   is applied to fns and lambdas but not yet to trait members.
-3. **Recursive containers** (a type holding its own element type) have no
+1. **A path type carries its own walk** on Rust: every (container, element)
+   pair gets a generated path type — a newtype even where it is one
+   position — implementing a `Walk<C, E>` trait (`walk`, `walk_ref`,
+   `walk_pair`). In Rust, `ref(c)` *is* the path into `C`: every
+   materialization goes through the walk, so an opaque container works.
+2. **Generic containers** fall out of 1: a handle into `c: C` is a Rust type
+   parameter `P: Walk<C, T>` — no hidden walk argument, no `?Ref` needed for
+   a `ref(c)` parameter. This lifts the "has no path on the Rust backend yet
+   [rs-path]" refusal (`a_ref_parameter_over_a_generic_container_is_refused`
+   flips to an accept-and-run test). A **delegating mint** is legal as
+   written: `fn borrow_via<C, L, T>(c: C, l: L, ?Ref<C, L, T>) -> ref(c)
+   Mut T? => c, l { return at(c, l) }`.
+3. **Effect members** render only their path face, under their own name
+   (as fns already do). **Platform-effect members may not return a `ref`**
+   (a checker error); `send` members return nothing, so the question does
+   not arise for them.
+4. **A borrowed optional fits an owned optional slot** — for `proj` and
+   `ref` alike: `get(xs, 0)` or an optional handle into a kept `Str?`
+   parameter. On Rust a kept `T?` parameter becomes `Option<&T>` (owned
+   arguments pass `.as_ref()`). Folded in: **`copy` of an optional
+   non-scalar borrow** (`copy(get(xs, i))` with no `!`, refused today), and
+   the **Kotlin `Mut Str` defect** — an optional `Mut Str` into a `Str?`
+   slot fails kotlinc (`StringBuilder?` where `String?` is expected; repro
+   `fn show(s: (proj Str)?) …; show(get(ws, 0))` over a `List<Mut Str>`).
+5. **Recursive containers** (a type holding its own element type) have no
    finite path: refused, and waiting on the recursive-types work (item 17).
-4. **`Deque` has no `at`**, and **`Map` has no total `at` at a `KeyOf`**
-   (user: the next sequence). Each is the list's two lines.
-5. **Open defect: `copy` of an optional non-scalar borrow is refused**
-   (found 2026-10-10, predates `ref`): `copy(get(xs, i))` and `copy(at(a,
-   i))` without `!` report "holds a borrowed value … where `copy` expects an
-   owned one", because `copy(value: proj T)` meets the borrow inside a union
-   arm. A Copy scalar's optional borrow already works (`.cloned()`); the
-   non-scalar case needs the checker to bind `T` through the arm and both
-   emitters to copy the present arm. Remedy today: `copy(x!)` or test first.
-6. **Open defect (Kotlin): an optional `Mut Str` into a `Str?` slot** fails
-   kotlinc (`StringBuilder?` where `String?` is expected): the
-   `Mut Str → Str` conversion is applied at the top level only. Repro:
-   `fn show(s: (proj Str)?) …; let ws: List<Mut Str> = list_of(mut_str("a")); show(get(ws, 0))`.
-   Rust is fine. Predates `ref`.
+6. **`Deque` has no `at`**, and **`Map` has no total `at` at a `KeyOf`**.
+   Each is the list's two lines.
 
 ### 16 — Composing iterators: stages over a generic source (after the redesign)
 
@@ -1262,6 +1264,11 @@ backends**.
 
 Each was considered and deliberately parked. Nothing here is blocking, and
 several are "revisit only if a customer appears".
+
+- **A borrowed arm in any union fits an owned union slot** (user,
+  2026-10-10): item 15.4 does it for `T?` only. The general case (`proj A |
+  B` into a kept `A | B`) changes every union's rendering on Rust (a kept
+  `Union2<A, B>` would become `Union2<&A, &B>`), so it waits for a case.
 
 - **Element containers for `ref(c)`** (was "index steps in `canbe in`
   anchors", user 2026-10-06; re-spelled with `canbe`'s retirement): a handle

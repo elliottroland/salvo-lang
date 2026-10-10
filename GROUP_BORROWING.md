@@ -1206,3 +1206,22 @@ Recorded consequences and open points:
   parameters says equally well. Retiring it would also retire the
   minting-index identity machinery ([elem-distinct]'s `elem_idx`,
   `live_distinct_pairs`). The user's call.
+
+### Next sequence (user decisions, 2026-10-10)
+
+- **A Rust path type carries its walk.** `ref(c)` on Rust *is* the path
+  into `C`: each (container, element) pair's path type — always a generated
+  type, a newtype where it is one position — implements `Walk<C, E>`
+  (`walk`, `walk_ref`, `walk_pair`), and every materialization goes through
+  it. The demo's paths are rooted in `a` and walked by `__Path_A__Str`'s
+  `walk`. A generic container is then a type parameter `P: Walk<C, T>`: no
+  hidden walk argument and no `?Ref` requirement on a fn taking `ref(c)`
+  over `c: C`.
+- **A delegating mint is legal as written** (`-> ref(c) Mut T?` returning
+  `at(c, l)` through a `?Ref` implicit): no accessor annotation, the old
+  Rule 1's `ref(c, ?at)` being gone.
+- **Effect members** render only their path face; **platform-effect
+  members may not return a `ref`**; `send` members return nothing.
+- **A borrowed optional fits an owned optional slot** (`proj` and `ref`;
+  Rust: a kept `T?` parameter is `Option<&T>`), with `copy` of an optional
+  borrow; the general-union case is recorded, not scheduled.
