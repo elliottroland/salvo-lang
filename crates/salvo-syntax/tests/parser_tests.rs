@@ -1699,15 +1699,6 @@ fn the_deduction_clause_parses_every_entry_form() {
             DeductionKind::Preserve(q) => {
                 format!("Preserve[{}]", q.iter().map(|r| r.name.name.as_str()).collect::<Vec<_>>().join(" "))
             }
-            // [canbe-entry] The alias-group relation.
-            DeductionKind::CanBe { others, anchored } => {
-                let shown: Vec<String> = others
-                    .iter()
-                    .map(|p| p.iter().map(|i| i.name.clone()).collect::<Vec<_>>().join("."))
-                    .collect();
-                let head = if *anchored { "CanBeIn" } else { "CanBe" };
-                format!("{head}[{}]", shown.join("|"))
-            }
             // [implicit-with] The fill-together relation.
             DeductionKind::With { others } => format!(
                 "With[{}]",

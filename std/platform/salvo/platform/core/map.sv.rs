@@ -237,6 +237,26 @@ pub fn get<'a, K, V>(map: &'a Map<K, V>, key: &K, hash: HashFn<K>, eq: EqFn<K>) 
     map.slots[i].as_ref().map(|(_, v)| v)
 }
 
+// [rs-loc] [ref-handle] A handle into a map is a slot position: `at`'s
+// locator. Slots are stable until an entry is added or removed, which ends
+// every handle [fate-poison].
+pub fn slot_of<K, V>(map: &Map<K, V>, key: &K, hash: HashFn<K>, eq: EqFn<K>) -> Option<usize> {
+    map.find(key, hash, eq)
+}
+
+impl<K, V> std::ops::Index<usize> for Map<K, V> {
+    type Output = V;
+    fn index(&self, slot: usize) -> &V {
+        &self.slots[slot].as_ref().expect("salvo: a handle to a removed entry").1
+    }
+}
+
+impl<K, V> std::ops::IndexMut<usize> for Map<K, V> {
+    fn index_mut(&mut self, slot: usize) -> &mut V {
+        &mut self.slots[slot].as_mut().expect("salvo: a handle to a removed entry").1
+    }
+}
+
 // The claim proved the key present [qual-depend].
 pub fn get_present<'a, K, V>(map: &'a Map<K, V>, key: &K, hash: HashFn<K>, eq: EqFn<K>) -> &'a V {
     get(map, key, hash, eq).expect("salvo: a `KeyOf` key is absent")

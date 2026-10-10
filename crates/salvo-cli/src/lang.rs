@@ -31,6 +31,8 @@ const OTHER_KEYWORDS: &[&str] = &[
     "as", "of", "with", "canbe", "is", "use",
     // [obligation-spelling] The obligation keywords.
     "proj", "once", "linear",
+    // [ref-handle] The container-named handle (`ref(c) Mut T`).
+    "ref",
     // [proj-infer] The opaque projection, after the type it is about
     // (`-> T holds proj(a)`).
     "holds",

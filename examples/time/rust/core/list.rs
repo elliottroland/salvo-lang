@@ -48,16 +48,8 @@ pub fn get<T>(list: &Vec<T>, mut index: i32) -> &T {
     return crate::core_list::get_at_platform::<T>(list, i32::wrapping_add(index, 0i32));
 }
 
-pub fn get__loc<T>(list: &Vec<T>, mut index: i32) -> usize {
-    return crate::core_list::get_at_platform__loc(list, i32::wrapping_add(index, 0i32));
-}
-
 pub fn get_at_platform<T>(list: &Vec<T>, mut index: i32) -> &T {
     crate::platform_core_list::get_at(list, index)
-}
-
-pub fn get_at_platform__loc<T>(list: &Vec<T>, mut index: i32) -> usize {
-    index as usize
 }
 
 pub fn swap__MutList_IdxInt_IdxInt<T: Clone>(list: &mut Vec<T>, mut i: i32, mut j: i32) {
@@ -78,12 +70,20 @@ pub fn at__loc<T>(list: &Vec<T>, mut index: i32) -> Option<usize> {
 }
 
 pub fn update<T: Clone>(list: &mut Vec<T>, mut index: i32, f: &mut dyn FnMut(&mut T)) {
-    f({ let __l1 = crate::core_list::get__loc(&*list, index); &mut list[__l1] });
+    f({
+        let mut __nn_1: Option<&mut T> = crate::core_list::at::<T>(&mut *list, index);
+        if __nn_1.is_none() {
+            panic!("salvo: value is absent at core.list:138:7");
+        } else {
+            let mut __some_2 = __nn_1.unwrap();
+            &mut *__some_2
+        }
+    });
     return;
 }
 
 pub fn update2<T: Clone>(list: &mut Vec<T>, mut i: i32, mut j: i32, f: &mut dyn FnMut(&mut T, &mut T)) {
-    { let __l1 = crate::core_list::get__loc(&*list, i); let __l2 = crate::core_list::get__loc(&*list, j); let (__pm3, __pm4) = crate::seq::salvo_pair_mut(&mut list[..], __l1, __l2).expect("salvo: value is absent"); f(__pm3, __pm4) };
+    { let __l1 = crate::core_list::at__loc(&*list, i).expect("salvo: value is absent at core.list:151:7"); let __l2 = crate::core_list::at__loc(&*list, j).expect("salvo: value is absent at core.list:151:21"); let (__pm3, __pm4) = crate::seq::salvo_pair_mut(&mut list[..], __l1, __l2).expect("salvo: value is absent"); f(__pm3, __pm4) };
     return;
 }
 
@@ -125,7 +125,7 @@ pub fn drain<T>(mut list: Vec<T>, each: &mut dyn FnMut(T)) {
         { let __arg1 = {
             let mut __nn_1: Option<T> = crate::core_list::remove_last_platform::<T>(&mut m);
             if __nn_1.is_none() {
-                panic!("salvo: value is absent at core.list:237:14");
+                panic!("salvo: value is absent at core.list:241:14");
             } else {
                 let mut __some_2 = __nn_1.unwrap();
                 __some_2
@@ -159,7 +159,7 @@ pub fn first<T>(list: &Vec<T>) -> &T {
     return {
         let mut __nn_1: Option<&T> = crate::core_list::get_platform::<T>(list, 0i32);
         if __nn_1.is_none() {
-            panic!("salvo: value is absent at core.list:294:12");
+            panic!("salvo: value is absent at core.list:298:12");
         } else {
             let mut __some_2 = __nn_1.unwrap();
             __some_2
@@ -197,7 +197,7 @@ pub fn remove_front_while<T>(list: &mut Vec<T>, keep: &mut dyn FnMut(&T) -> bool
         if !(((n < crate::core_list::size_platform::<T>(&*list)) && keep({
             let mut __nn_1: Option<&T> = crate::core_list::get_platform::<T>(&*list, n);
             if __nn_1.is_none() {
-                panic!("salvo: value is absent at core.list:337:34");
+                panic!("salvo: value is absent at core.list:341:34");
             } else {
                 let mut __some_2 = __nn_1.unwrap();
                 __some_2
@@ -216,7 +216,7 @@ pub fn remove_back_while<T>(list: &mut Vec<T>, keep: &mut dyn FnMut(&T) -> bool)
         if !(((at > 0i32) && keep({
             let mut __nn_1: Option<&T> = crate::core_list::get_platform::<T>(&*list, i32::wrapping_sub(at, 1i32));
             if __nn_1.is_none() {
-                panic!("salvo: value is absent at core.list:349:26");
+                panic!("salvo: value is absent at core.list:353:26");
             } else {
                 let mut __some_2 = __nn_1.unwrap();
                 __some_2
@@ -242,7 +242,7 @@ pub fn sub_list<T: Clone>(list: &Vec<T>, mut from: i32, mut to: i32, copy: &mut 
         crate::core_list::add_platform::<T>(&mut out, copy({
             let mut __nn_1: Option<&T> = crate::core_list::get_platform::<T>(list, i);
             if __nn_1.is_none() {
-                panic!("salvo: value is absent at core.list:367:23");
+                panic!("salvo: value is absent at core.list:371:23");
             } else {
                 let mut __some_2 = __nn_1.unwrap();
                 __some_2
@@ -330,7 +330,7 @@ pub fn contains<T: Clone>(list: &Vec<T>, elem: &T, eq: &mut dyn FnMut(&T, &T) ->
         if eq({
             let mut __nn_1: Option<&T> = crate::core_list::get_platform::<T>(list, i);
             if __nn_1.is_none() {
-                panic!("salvo: value is absent at core.list:417:15");
+                panic!("salvo: value is absent at core.list:421:15");
             } else {
                 let mut __some_2 = __nn_1.unwrap();
                 __some_2
@@ -356,7 +356,7 @@ pub fn all<T: Clone>(list: &Vec<T>, pick: &mut dyn FnMut(&T) -> bool) -> bool {
         if !(pick({
             let mut __nn_1: Option<&T> = crate::core_list::get_platform::<T>(list, i);
             if __nn_1.is_none() {
-                panic!("salvo: value is absent at core.list:434:18");
+                panic!("salvo: value is absent at core.list:438:18");
             } else {
                 let mut __some_2 = __nn_1.unwrap();
                 __some_2
@@ -379,7 +379,7 @@ pub fn count<T: Clone>(list: &Vec<T>, pick: &mut dyn FnMut(&T) -> bool) -> i32 {
         if pick({
             let mut __nn_1: Option<&T> = crate::core_list::get_platform::<T>(list, i);
             if __nn_1.is_none() {
-                panic!("salvo: value is absent at core.list:447:17");
+                panic!("salvo: value is absent at core.list:451:17");
             } else {
                 let mut __some_2 = __nn_1.unwrap();
                 __some_2
@@ -403,7 +403,7 @@ pub fn partition<T: Clone>(list: &Vec<T>, pick: &mut dyn FnMut(&T) -> bool, copy
         let mut x: &T = {
             let mut __nn_1: Option<&T> = crate::core_list::get_platform::<T>(list, i);
             if __nn_1.is_none() {
-                panic!("salvo: value is absent at core.list:464:17");
+                panic!("salvo: value is absent at core.list:468:17");
             } else {
                 let mut __some_2 = __nn_1.unwrap();
                 __some_2

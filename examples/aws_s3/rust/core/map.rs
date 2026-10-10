@@ -60,6 +60,18 @@ pub fn get_platform<'a, K: Clone, V: Clone>(map: &'a crate::core_map::Map<K, V>,
     crate::platform_core_map::get(map, key, &mut hash, &mut eq)
 }
 
+pub fn get_platform__loc<K: Clone, V: Clone>(map: &crate::core_map::Map<K, V>, key: &K, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> Option<usize> {
+    crate::platform_core_map::slot_of(map, key, hash, eq)
+}
+
+pub fn at<'a, K: Clone, V: Clone>(map: &'a mut crate::core_map::Map<K, V>, key: &K, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> Option<&'a mut V> {
+    return { match crate::core_map::get_platform__loc(&*map, key, &mut *hash, &mut *eq) { Some(__l1) => Some(&mut map[__l1]), None => None } };
+}
+
+pub fn at__loc<K: Clone, V: Clone>(map: &crate::core_map::Map<K, V>, key: &K, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> Option<usize> {
+    return crate::core_map::get_platform__loc(map, key, &mut *hash, &mut *eq);
+}
+
 pub fn put_platform<K: Clone, V: Clone>(map: &mut crate::core_map::Map<K, V>, mut key: K, mut value: V, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) {
     let mut hash = hash;
     let mut eq = eq;
@@ -122,7 +134,7 @@ pub fn to_str<K: Clone, V: Clone>(map: &crate::core_map::Map<K, V>, to_str: &mut
         crate::core_string::append_platform(&mut out, &to_str__1({
             let mut __nn_1: Option<&V> = crate::core_map::get_platform::<K, V>(map, &k, &mut *hash, &mut *eq);
             if __nn_1.is_none() {
-                panic!("salvo: value is absent at core.map:164:28");
+                panic!("salvo: value is absent at core.map:173:28");
             } else {
                 let mut __some_2 = __nn_1.unwrap();
                 __some_2
@@ -147,7 +159,7 @@ pub fn eq<K: Clone, V: Clone>(a: &crate::core_map::Map<K, V>, b: &crate::core_ma
         if !(eq({
             let mut __nn_1: Option<&V> = crate::core_map::get_platform::<K, V>(a, &k, &mut *hash, &mut *eq__1);
             if __nn_1.is_none() {
-                panic!("salvo: value is absent at core.map:186:16");
+                panic!("salvo: value is absent at core.map:195:16");
             } else {
                 let mut __some_2 = __nn_1.unwrap();
                 __some_2

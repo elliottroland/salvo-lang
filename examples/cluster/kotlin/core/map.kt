@@ -25,6 +25,10 @@ fun<T, K, V> toMap(items: List<T>, entry: (T) -> Pair<K, V>, hash: (K) -> Long, 
 
 fun<K, V> getPlatform(map: salvo.platform.core.map.Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V? = salvo.platform.core.map.get(map, key, hash, eq)
 
+fun<K, V> at(map: salvo.platform.core.map.Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V? {
+    return getPlatform(map, key, hash, eq)
+}
+
 fun<K, V> putPlatform(map: salvo.platform.core.map.MutMap<K, V>, key: K, value: V, hash: (K) -> Long, eq: (K, K) -> Boolean) = salvo.platform.core.map.put(map, key, value, hash, eq)
 
 fun<K, V> replacePlatform(map: salvo.platform.core.map.MutMap<K, V>, key: K, value: V, hash: (K) -> Long, eq: (K, K) -> Boolean): V? = salvo.platform.core.map.replace(map, key, value, hash, eq)
@@ -64,7 +68,7 @@ fun<K, V> toStr(map: salvo.platform.core.map.Map<K, V>, toStr: (K) -> String, to
             val __nn_1: V? = getPlatform(map, k, hash, eq)
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at core.map:164:28"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at core.map:173:28"))
                 }
                 else -> {
                     val __some_2: V = __nn_1!!
@@ -92,7 +96,7 @@ fun<K, V> eq(a: salvo.platform.core.map.Map<K, V>, b: salvo.platform.core.map.Ma
             val __nn_1: V? = getPlatform(a, k, hash, eq__1)
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at core.map:186:16"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at core.map:195:16"))
                 }
                 else -> {
                     val __some_2: V = __nn_1!!
