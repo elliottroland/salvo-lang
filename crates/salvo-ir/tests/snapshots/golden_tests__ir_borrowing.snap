@@ -161,7 +161,7 @@ fn main::main() -> None {
   }, " (a reading, not a handle)"))
   bind#26 let squad: List<Mut Fighter> = call core.list::list_of(T, T[])<Mut Fighter>(construct Mut Fighter { name: "Ada", hp: 30, energy: 4 }, array[Mut Fighter[]](construct Mut Fighter { name: "Bo", hp: 8, energy: 9 }))
   bind#31 let boss: ref Mut Fighter = branch#30 cond#0 true {
-    bind#28 let __nn~11: ref Mut Fighter? = call core.list::at<Fighter>(read squad, 0)
+    bind#28 let __nn~11: ref Mut Fighter? = call core.list::at(List<Mut T>, Int)<Fighter>(read squad, 0)
     value switch#27 read __nn~11 {
       arm#0 (none) {
         unreachable("value is absent") at main:231:16
@@ -216,7 +216,7 @@ fn main::main() -> None {
       }
     }
   })
-  call main::rally_at<Int>(read squad, 1, fn core.list::at)
+  call main::rally_at<Int>(read squad, 1, fn core.list::at(List<Mut T>, Int))
   call core.console::println(read __handle~2, concat("2. after the searches: ", call core.basic::to_str(Int)(branch#54 cond#0 true {
     bind#53 let __proj~23: proj Mut Fighter = branch#52 cond#0 true {
       bind#50 let __nn~21: proj Mut Fighter? = call core.list::get(List<T>, Int)<Mut Fighter>(read squad, 0)
@@ -250,7 +250,7 @@ fn main::main() -> None {
   bind#62 let j: Int = 1
   branch#63 cond#0 call core.index::NotEq.qualifies(read j, read i) {
     bind#68 let a: ref Mut Fighter = branch#67 cond#0 true {
-      bind#65 let __nn~27: ref Mut Fighter? = call core.list::at<Fighter>(read squad, read i)
+      bind#65 let __nn~27: ref Mut Fighter? = call core.list::at(List<Mut T>, Int)<Fighter>(read squad, read i)
       value switch#64 read __nn~27 {
         arm#0 (none) {
           unreachable("value is absent") at main:259:17
@@ -262,7 +262,7 @@ fn main::main() -> None {
       }
     }
     bind#73 let d: ref Mut Fighter = branch#72 cond#0 true {
-      bind#70 let __nn~29: ref Mut Fighter? = call core.list::at<Fighter>(read squad, read j)
+      bind#70 let __nn~29: ref Mut Fighter? = call core.list::at(List<Mut T>, Int)<Fighter>(read squad, read j)
       value switch#69 read __nn~29 {
         arm#0 (none) {
           unreachable("value is absent") at main:260:17
@@ -298,7 +298,7 @@ fn main::main() -> None {
     }
   }
   call main::strike(read squad, branch#84 cond#0 true {
-    bind#82 let __nn~33: ref Mut Fighter? = call core.list::at<Fighter>(read squad, read i)
+    bind#82 let __nn~33: ref Mut Fighter? = call core.list::at(List<Mut T>, Int)<Fighter>(read squad, read i)
     value switch#81 read __nn~33 {
       arm#0 (none) {
         unreachable("value is absent") at main:285:19
@@ -309,7 +309,7 @@ fn main::main() -> None {
       }
     }
   }, branch#88 cond#0 true {
-    bind#86 let __nn~35: ref Mut Fighter? = call core.list::at<Fighter>(read squad, read j)
+    bind#86 let __nn~35: ref Mut Fighter? = call core.list::at(List<Mut T>, Int)<Fighter>(read squad, read j)
     value switch#85 read __nn~35 {
       arm#0 (none) {
         unreachable("value is absent") at main:285:34
@@ -321,7 +321,7 @@ fn main::main() -> None {
     }
   })
   call main::strike(read squad, branch#92 cond#0 true {
-    bind#90 let __nn~37: ref Mut Fighter? = call core.list::at<Fighter>(read squad, read i)
+    bind#90 let __nn~37: ref Mut Fighter? = call core.list::at(List<Mut T>, Int)<Fighter>(read squad, read i)
     value switch#89 read __nn~37 {
       arm#0 (none) {
         unreachable("value is absent") at main:288:19
@@ -332,7 +332,7 @@ fn main::main() -> None {
       }
     }
   }, branch#96 cond#0 true {
-    bind#94 let __nn~39: ref Mut Fighter? = call core.list::at<Fighter>(read squad, read i)
+    bind#94 let __nn~39: ref Mut Fighter? = call core.list::at(List<Mut T>, Int)<Fighter>(read squad, read i)
     value switch#93 read __nn~39 {
       arm#0 (none) {
         unreachable("value is absent") at main:288:34
@@ -374,7 +374,7 @@ fn main::main() -> None {
   }), " energy after striking itself"))
   bind#109 let team: Mut Squad = construct Mut Squad { banner: "Red", members: call core.list::list_of(T, T[])<Mut Fighter>(construct Mut Fighter { name: "Cy", hp: 12, energy: 2 }, array[Mut Fighter[]](construct Mut Fighter { name: "Dee", hp: 6, energy: 7 })) }
   call main::rotate(read team.members, branch#113 cond#0 true {
-    bind#111 let __nn~47: ref Mut Fighter? = call core.list::at<Fighter>(read team.members, read i)
+    bind#111 let __nn~47: ref Mut Fighter? = call core.list::at(List<Mut T>, Int)<Fighter>(read team.members, read i)
     value switch#110 read __nn~47 {
       arm#0 (none) {
         unreachable("value is absent") at main:296:26
@@ -385,7 +385,7 @@ fn main::main() -> None {
       }
     }
   }, branch#117 cond#0 true {
-    bind#115 let __nn~49: ref Mut Fighter? = call core.list::at<Fighter>(read team.members, read j)
+    bind#115 let __nn~49: ref Mut Fighter? = call core.list::at(List<Mut T>, Int)<Fighter>(read team.members, read j)
     value switch#114 read __nn~49 {
       arm#0 (none) {
         unreachable("value is absent") at main:296:48

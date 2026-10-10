@@ -138,6 +138,19 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-10 — A total `at` at an `Idx`
+
+User request, closing the last open point of the `ref(c)` rework: `core.list`
+gains `at(list: List<Mut T>, index: Idx(list) Int) -> ref(list) Mut T`, the
+handle twin of the total `get` [col-idx], ranked above the optional `at` by
+its qualifier. `update`/`update2` mint with it, so on Rust they are back to
+a bare index (`at__List_IdxInt(&mut *list, index)`; `update2` splits through
+`at__List_IdxInt__loc`) instead of an `Option` match per call. Two things fell
+out: the overload pair mangles the Rust names (`at__List_Int` /
+`at__List_IdxInt`, and their `__loc` twins), and the Rust locator test for a
+named mint (`loc_of`, `lends_loc`) stripped qualifiers *before* asking for
+`Mut`, so it only ever recognized optional mints — a total one is now seen.
+
 ### 2026-10-10 — The `ref(c)` rework: done (v1a, v1b, and v2 for lists and maps)
 
 The group-borrowing design collapsed to `ref(c)` (GROUP_BORROWING.md Part 7,
@@ -204,7 +217,7 @@ What landed, in pipeline order:
   cases, the `canbe` parse tests were deleted (one test now pins that the
   clause is a parse error), new tests pin the fn-value refusal, the
   unknown-container refusal and the generic-container cut. Stale tracked
-  `*.snap.new` files were removed and are now gitignored. **1731 tests.**
+  `*.snap.new` files were removed and are now gitignored. **1731 tests.** (1732 with the total `at`.)
 
 What is left is ROADMAP item 15: generic/custom containers, the named-`?at`
 forms, a `Deque` `at`, and whether `at` gets a total `Idx` overload. Slices

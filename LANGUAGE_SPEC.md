@@ -808,7 +808,9 @@ Conventions:
 * [col-idx] `core.index` declares `qualifier Idx<C canbe linear>(c: C) of
   Int` [qual-depend] — `0 <= index < size(c)`, about one particular
   container — with **total overloads** consuming it: `get(list, index:
-  Idx(list) Int) -> proj(list) T` (no `None` arm), `swap(list, i: Idx(list)
+  Idx(list) Int) -> proj(list) T` (no `None` arm), its handle twin `at(list,
+  index: Idx(list) Int) -> ref(list) Mut T` [ref-handle] (user request
+  2026-10-10), `swap(list, i: Idx(list)
   Int, j: Idx(list) Int) -> None` (no `Bool` — the claims did the checking
   [col-bounds]), `replace` [col-replace], and the same `get`/`replace` on a
   `Deque` and the buffers [buffer-type]. Ranked above their plain siblings
@@ -888,8 +890,8 @@ Conventions:
   (an index for a list, a key for a map, a cursor of your own) while the
   caller, which knows the shape, fills it. The `Yield` pattern for places
   rather than elements, and the idiom that pierces generic opacity for
-  mutable lends. std ships the canonical `at` for a list (by index) and for
-  a map (by key): `at` is **the** mint of a mutable handle [ref-handle].
+  mutable lends. std ships the canonical `at` for a list (by index, with a
+  total overload at an `Idx` [col-idx]) and for a map (by key): `at` is **the** mint of a mutable handle [ref-handle].
   Rust renders such a position as a **locator** [rs-loc] — an index for a
   list, the entry's slot for a map.
 * [col-salvo] **Most of the list surface is Salvo** (2026-10-03, user

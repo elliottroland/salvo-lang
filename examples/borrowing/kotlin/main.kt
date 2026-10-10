@@ -192,7 +192,7 @@ fun main() {
     }} (a reading, not a handle)")
     val squad: List<Fighter> = listOf<Fighter>(Fighter(name = "Ada", hp = 30, energy = 4), Fighter(name = "Bo", hp = 8, energy = 9))
     var boss: Fighter = run {
-        val __nn_11: Fighter? = salvo.core.list.at(squad, 0)
+        val __nn_11: Fighter? = salvo.core.list.at__List_Int(squad, 0)
         when {
             (__nn_11 == null) -> {
                 throw AssertionError(("salvo: " + ("value is absent") + " at main:231:16"))
@@ -247,7 +247,7 @@ fun main() {
             }
         }
     })
-    rallyAt(squad, 1, { __a0, __a1 -> salvo.core.list.at(__a0, __a1) })
+    rallyAt(squad, 1, { __a0, __a1 -> salvo.core.list.at__List_Int(__a0, __a1) })
     salvo.core.console.println(__handle_2, "2. after the searches: ${run {
         val __proj_23: Fighter = run {
             val __nn_21: Fighter? = salvo.core.list.getPlatform(squad, 0)
@@ -281,7 +281,7 @@ fun main() {
     val j: Int = 1
     if (salvo.core.index.NotEq_qualifies(j, i)) {
         var a: Fighter = run {
-            val __nn_27: Fighter? = salvo.core.list.at(squad, i)
+            val __nn_27: Fighter? = salvo.core.list.at__List_Int(squad, i)
             when {
                 (__nn_27 == null) -> {
                     throw AssertionError(("salvo: " + ("value is absent") + " at main:259:17"))
@@ -293,7 +293,7 @@ fun main() {
             }
         }
         var d: Fighter = run {
-            val __nn_29: Fighter? = salvo.core.list.at(squad, j)
+            val __nn_29: Fighter? = salvo.core.list.at__List_Int(squad, j)
             when {
                 (__nn_29 == null) -> {
                     throw AssertionError(("salvo: " + ("value is absent") + " at main:260:17"))
@@ -329,7 +329,7 @@ fun main() {
         }
     }
     strike(squad, run {
-        val __nn_33: Fighter? = salvo.core.list.at(squad, i)
+        val __nn_33: Fighter? = salvo.core.list.at__List_Int(squad, i)
         when {
             (__nn_33 == null) -> {
                 throw AssertionError(("salvo: " + ("value is absent") + " at main:285:19"))
@@ -340,7 +340,7 @@ fun main() {
             }
         }
     }, run {
-        val __nn_35: Fighter? = salvo.core.list.at(squad, j)
+        val __nn_35: Fighter? = salvo.core.list.at__List_Int(squad, j)
         when {
             (__nn_35 == null) -> {
                 throw AssertionError(("salvo: " + ("value is absent") + " at main:285:34"))
@@ -352,7 +352,7 @@ fun main() {
         }
     })
     strike(squad, run {
-        val __nn_37: Fighter? = salvo.core.list.at(squad, i)
+        val __nn_37: Fighter? = salvo.core.list.at__List_Int(squad, i)
         when {
             (__nn_37 == null) -> {
                 throw AssertionError(("salvo: " + ("value is absent") + " at main:288:19"))
@@ -363,7 +363,7 @@ fun main() {
             }
         }
     }, run {
-        val __nn_39: Fighter? = salvo.core.list.at(squad, i)
+        val __nn_39: Fighter? = salvo.core.list.at__List_Int(squad, i)
         when {
             (__nn_39 == null) -> {
                 throw AssertionError(("salvo: " + ("value is absent") + " at main:288:34"))
@@ -405,7 +405,7 @@ fun main() {
     }} energy after striking itself")
     val team: Squad = Squad(banner = "Red", members = listOf<Fighter>(Fighter(name = "Cy", hp = 12, energy = 2), Fighter(name = "Dee", hp = 6, energy = 7)))
     rotate(team.members, run {
-        val __nn_47: Fighter? = salvo.core.list.at(team.members, i)
+        val __nn_47: Fighter? = salvo.core.list.at__List_Int(team.members, i)
         when {
             (__nn_47 == null) -> {
                 throw AssertionError(("salvo: " + ("value is absent") + " at main:296:26"))
@@ -416,7 +416,7 @@ fun main() {
             }
         }
     }, run {
-        val __nn_49: Fighter? = salvo.core.list.at(team.members, j)
+        val __nn_49: Fighter? = salvo.core.list.at__List_Int(team.members, j)
         when {
             (__nn_49 == null) -> {
                 throw AssertionError(("salvo: " + ("value is absent") + " at main:296:48"))

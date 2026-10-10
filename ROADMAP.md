@@ -50,7 +50,7 @@ structural `cmp`/`eq`/`hash`/`to_str` are std functions over the fields of any
 struct or the arms of any union).
 Fourteen worked examples in `examples/` carry the checked-in generated code for both
 targets and the output they print, three of them consuming the first dependency
-(`modules/aws/`: `aws_profile`, `aws_sqs`, `aws_s3`). 1731 tests green; std's own Salvo tests run inside one of them.
+(`modules/aws/`: `aws_profile`, `aws_sqs`, `aws_s3`). 1732 tests green; std's own Salvo tests run inside one of them.
 
 ## The sequence
 
@@ -1146,10 +1146,6 @@ GROUP_BORROWING.md Parts 7–8 stay the design record for what remains:
    different accessors. Nothing asks for it yet; it arrives with item 1.
 3. **`Deque` has no `at`.** Its `get` has a locator form, so adding the mint
    is the list's two lines; nothing needs it yet.
-4. **`update`/`update2` render through `at(...)!`** (an `Option` match per
-   call where the total `get__loc` used to be a bare index), since `at` has
-   no `Idx` overload. A total `at(list, Idx(list) Int) -> ref(list) Mut T`
-   would restore the old rendering — new std surface, so the user's call.
 
 ### 16 — Composing iterators: stages over a generic source (after the redesign)
 

@@ -2476,7 +2476,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         }
         match &e.kind {
             ExprKind::Call { target: FnRef::Decl(id), .. } => {
-                self.s.locs.contains(id) && self.s.fn_decl(id).is_some_and(|f| is_mut(&f.ret.strip_quals().without_none()))
+                self.s.locs.contains(id) && self.s.fn_decl(id).is_some_and(|f| is_mut(&f.ret) || is_mut(&f.ret.strip_quals().without_none()))
             }
             _ => false,
         }
@@ -2499,7 +2499,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 let f = self.s.fn_decl(id)?;
                 let k = match self.s.mut_lend(e) {
                     Some((_, k)) => k,
-                    None if self.s.locs.contains(id) && is_mut(&f.ret.strip_quals().without_none()) => self.s.lend_param(f)?,
+                    None if self.s.locs.contains(id) && (is_mut(&f.ret) || is_mut(&f.ret.strip_quals().without_none())) => self.s.lend_param(f)?,
                     None => return None,
                 };
                 let anchor = anchor_of(self, args.get(k)?)?;

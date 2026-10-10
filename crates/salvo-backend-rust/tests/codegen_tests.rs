@@ -14352,7 +14352,7 @@ fn elem_mut_handles_render_as_get_mut_and_captured_indices() {
         main.content
     );
     assert!(
-        main.content.contains("let __h1: usize = crate::core_list::at__loc(&*xs, 1i32).expect("),
+        main.content.contains("let __h1: usize = crate::core_list::at__List_Int__loc(&*xs, 1i32).expect("),
         "{}",
         main.content
     );
@@ -14368,7 +14368,7 @@ fn elem_mut_handles_render_as_get_mut_and_captured_indices() {
     );
     // A temporary handle is the element borrowed `&mut` straight from `at`.
     assert!(
-        main.content.contains("let mut __nn_3: Option<&mut crate::Counter> = crate::core_list::at::<crate::Counter>(&mut xs, 0i32);"),
+        main.content.contains("let mut __nn_3: Option<&mut crate::Counter> = crate::core_list::at__List_Int::<crate::Counter>(&mut xs, 0i32);"),
         "{}",
         main.content
     );
@@ -14630,7 +14630,7 @@ fn ref_handles_render_as_their_container_and_positions() {
     );
     // Each handle is minted as a position before the container is lent.
     assert!(
-        main.content.contains("let __c1 = crate::core_list::at__loc(&es, i).expect(")
+        main.content.contains("let __c1 = crate::core_list::at__List_Int__loc(&es, i).expect(")
             && main.content.contains("crate::attack(&mut es, __c1, __c2)"),
         "{}",
         main.content
@@ -15821,7 +15821,7 @@ fn a_lending_fn_value_renders_as_a_locator_closure() {
         main.content
     );
     assert!(
-        main.content.contains("&mut |mut c, mut k| -> Option<usize> {\n        crate::core_list::at__loc(c, k)"),
+        main.content.contains("&mut |mut c, mut k| -> Option<usize> {\n        crate::core_list::at__List_Int__loc(c, k)"),
         "{}",
         main.content
     );
@@ -15871,7 +15871,7 @@ fn a_locate_implicit_renders_as_a_locator_closure() {
         main.content
     );
     assert!(
-        main.content.contains("crate::core_list::at__loc(__a0, *__a1)"),
+        main.content.contains("crate::core_list::at__List_Int__loc(__a0, *__a1)"),
         "{}",
         main.content
     );
@@ -16290,4 +16290,58 @@ export fn main() [use] -> None {
         errors.iter().any(|e| e.contains("a generic or custom container is not supported yet")),
         "expected the generic-container refusal: {errors:?}"
     );
+}
+
+// [col-idx] [ref-handle] The total `at`: at an `Idx` the mint answers the
+// handle itself, so a bound handle is a bare position, `update` takes it
+// with no `Option` match, and `update2` splits through its locator.
+const TOTAL_AT_DEMO: &str = r#"
+struct E canbe Mut { hp: Int }
+
+fn bump(e: Mut E) -> None => e: Mut {
+    e.hp = e.hp + 1
+}
+
+fn hit(c: List<Mut E>, a: ref(c) Mut E, b: ref(c) Mut E) -> None {
+    a.hp = a.hp - 1
+    b.hp = b.hp - 2
+}
+
+export fn main() [use] -> None {
+    use StdOutConsole()
+    let xs: List<Mut E> = list_of(Mut E { hp: 10 }, Mut E { hp: 20 })
+    let i = 0
+    let j = 1
+    if i is Idx(xs) {
+        if j is Idx(xs) {
+            let a = at(xs, i)
+            a.hp = a.hp + 5
+            bump(at(xs, j))
+            hit(xs, at(xs, i), at(xs, i))
+            update(xs, i, (e: Mut E) -> { e.hp = e.hp * 2 })
+            if j is NotEq(i) {
+                update2(xs, i, j, (p: Mut E, q: Mut E) -> { p.hp = p.hp + q.hp })
+            }
+            println("${get(xs, i).hp} ${get(xs, j).hp}")
+        }
+    }
+}
+"#;
+
+#[test]
+fn rustc_compiles_and_runs_the_total_at() {
+    let files = generate(&[("main.sv", TOTAL_AT_DEMO)]);
+    let main = files.iter().find(|f| f.rel_path.to_str() == Some("main.rs")).unwrap();
+    assert!(
+        main.content.contains("let __h1: usize = crate::core_list::at__List_IdxInt__loc(&xs, i);"),
+        "{}",
+        main.content
+    );
+    let list = files.iter().find(|f| f.rel_path.ends_with("core/list.rs")).unwrap();
+    assert!(
+        list.content.contains("f(crate::core_list::at__List_IdxInt::<T>(&mut *list, index));"),
+        "{}",
+        list.content
+    );
+    run_rust_files(&files, "total-at", "45 21\n");
 }

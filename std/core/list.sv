@@ -129,13 +129,21 @@ export fn at<T canbe linear>(list: List<Mut T>, index: Int) [] -> ref(list) Mut 
     return get(list, index)
 }
 
+// [col-idx] [ref-handle] The **total** mint: an index carrying the claim
+// answers the handle itself — no `None` arm, nothing to `!`. Ranked above the
+// optional [at] by its qualifier [fn-overload-rank], as the total [get] is.
+export fn at<T canbe linear>(list: List<Mut T>, index: Idx(list) Int) [] -> ref(list) Mut T
+=> list, index {
+    return get(list, index)
+}
+
 // [col-update] Applies [f] to the element at [index], **in place**: the
 // callback receives the mutable element handle [ref-handle], so nothing is
 // copied, moved out, or put back. An in-place write moves no boundary, so
 // existing `Idx` claims survive the call [qual-preserve].
 export fn update<T>(list: List<Mut T>, index: Idx(list) Int, f: (elem: Mut T) -> None) [] -> None
 => list: preserve Idx, index, f {
-    f(at(list, index)!)
+    f(at(list, index))
     return None
 }
 
@@ -148,7 +156,7 @@ export fn update<T>(list: List<Mut T>, index: Idx(list) Int, f: (elem: Mut T) ->
 export fn update2<T>(list: List<Mut T>, i: Idx(list) Int, j: NotEq(i) Idx(list) Int,
                      f: (a: Mut T, b: Mut T) -> None) [] -> None
 => list: preserve Idx, i, j, f {
-    f(at(list, i)!, at(list, j)!)
+    f(at(list, i), at(list, j))
     return None
 }
 

@@ -50,7 +50,7 @@ use crate::core_index::Idx__Int_qualifies;
 use crate::core_list::ListYield;
 use crate::core_index::NotEq__Int_qualifies;
 use crate::core_list::add_platform;
-use crate::core_list::at__loc;
+use crate::core_list::at__List_Int__loc;
 use crate::core_seq::filter;
 use crate::core_list::get;
 use crate::core_list::get_platform;
@@ -264,7 +264,7 @@ pub fn main() {
         __proj_10.name.clone()
     }));
     let mut squad: Vec<crate::Fighter> = vec![crate::Fighter { name: String::from("Ada"), hp: 30i32, energy: 4i32 }, crate::Fighter { name: String::from("Bo"), hp: 8i32, energy: 9i32 }];
-    let __h2: usize = crate::core_list::at__loc(&squad, 0i32).expect("salvo: value is absent at main:231:16");
+    let __h2: usize = crate::core_list::at__List_Int__loc(&squad, 0i32).expect("salvo: value is absent at main:231:16");
     squad[__h2].hp = i32::wrapping_add(squad[__h2].hp, 1i32);
     let mut n: i32 = crate::core_list::size_platform::<crate::Fighter>(&squad);
     squad[__h2].hp = i32::wrapping_add(squad[__h2].hp, n);
@@ -300,7 +300,7 @@ pub fn main() {
             &mut *__some_20
         }
     });
-    crate::rally_at::<i32>(&mut squad, &1i32, &mut |__a0: &Vec<crate::Fighter>, __a1: &i32| crate::core_list::at__loc(__a0, *__a1));
+    crate::rally_at::<i32>(&mut squad, &1i32, &mut |__a0: &Vec<crate::Fighter>, __a1: &i32| crate::core_list::at__List_Int__loc(__a0, *__a1));
     crate::core_console::println(&__handle_2, &format!("2. after the searches: {} {}", {
         let mut __proj_23: &crate::Fighter = {
             let mut __nn_21: Option<&crate::Fighter> = crate::core_list::get_platform::<crate::Fighter>(&squad, 0i32);
@@ -327,8 +327,8 @@ pub fn main() {
     let mut i: i32 = 0i32;
     let mut j: i32 = 1i32;
     if crate::core_index::NotEq__Int_qualifies(j, i.clone()) {
-        let __h3: usize = crate::core_list::at__loc(&squad, i).expect("salvo: value is absent at main:259:17");
-        let __h4: usize = crate::core_list::at__loc(&squad, j).expect("salvo: value is absent at main:260:17");
+        let __h3: usize = crate::core_list::at__List_Int__loc(&squad, i).expect("salvo: value is absent at main:259:17");
+        let __h4: usize = crate::core_list::at__List_Int__loc(&squad, j).expect("salvo: value is absent at main:260:17");
         squad[__h3].hp = i32::wrapping_add(squad[__h3].hp, 1i32);
         squad[__h4].hp = i32::wrapping_add(squad[__h4].hp, 1i32);
         { let (__pm5, __pm6) = crate::seq::salvo_pair_mut(&mut squad[..], __h3, __h4).expect("salvo: value is absent"); crate::duel(__pm5, __pm6) };
@@ -353,8 +353,8 @@ pub fn main() {
             }));
         };
     };
-    { let __c7 = crate::core_list::at__loc(&squad, i).expect("salvo: value is absent at main:285:19"); let __c8 = crate::core_list::at__loc(&squad, j).expect("salvo: value is absent at main:285:34"); crate::strike(&mut squad, __c7, __c8) };
-    { let __c9 = crate::core_list::at__loc(&squad, i).expect("salvo: value is absent at main:288:19"); let __c10 = crate::core_list::at__loc(&squad, i).expect("salvo: value is absent at main:288:34"); crate::strike(&mut squad, __c9, __c10) };
+    { let __c7 = crate::core_list::at__List_Int__loc(&squad, i).expect("salvo: value is absent at main:285:19"); let __c8 = crate::core_list::at__List_Int__loc(&squad, j).expect("salvo: value is absent at main:285:34"); crate::strike(&mut squad, __c7, __c8) };
+    { let __c9 = crate::core_list::at__List_Int__loc(&squad, i).expect("salvo: value is absent at main:288:19"); let __c10 = crate::core_list::at__List_Int__loc(&squad, i).expect("salvo: value is absent at main:288:34"); crate::strike(&mut squad, __c9, __c10) };
     crate::core_console::println(&__handle_2, &format!("4. {} hp / {} energy after striking itself", {
         let mut __proj_43: &crate::Fighter = {
             let mut __nn_41: Option<&crate::Fighter> = crate::core_list::get_platform::<crate::Fighter>(&squad, 0i32);
@@ -379,7 +379,7 @@ pub fn main() {
         __proj_46.energy
     }));
     let mut team: crate::Squad = crate::Squad { banner: String::from("Red"), members: vec![crate::Fighter { name: String::from("Cy"), hp: 12i32, energy: 2i32 }, crate::Fighter { name: String::from("Dee"), hp: 6i32, energy: 7i32 }] };
-    { let __c11 = crate::core_list::at__loc(&team.members, i).expect("salvo: value is absent at main:296:26"); let __c12 = crate::core_list::at__loc(&team.members, j).expect("salvo: value is absent at main:296:48"); crate::rotate(&mut team.members, __c11, __c12) };
+    { let __c11 = crate::core_list::at__List_Int__loc(&team.members, i).expect("salvo: value is absent at main:296:26"); let __c12 = crate::core_list::at__List_Int__loc(&team.members, j).expect("salvo: value is absent at main:296:48"); crate::rotate(&mut team.members, __c11, __c12) };
     crate::core_console::println(&__handle_2, &format!("4. {}: {} {}", team.banner, {
         let mut __proj_53: &crate::Fighter = {
             let mut __nn_51: Option<&crate::Fighter> = crate::core_list::get_platform::<crate::Fighter>(&team.members, 0i32);

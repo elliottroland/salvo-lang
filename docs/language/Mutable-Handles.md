@@ -63,6 +63,16 @@ result to `bump` is an error that names `at` as the remedy, and assigning
 through one is refused as a write to a read-only projection. `copy` is
 still how you get a value of your own.
 
+Like `get`, `at` has a **total** overload: with an index proven in range
+(`i is Idx(counters)`), `at(counters, i)` answers `ref(counters) Mut Counter`
+itself — no `None` arm, nothing to `!`.
+
+```
+if i is Idx(counters) {
+    bump(at(counters, i))
+}
+```
+
 Maps work the same way: `at(m, key)` answers `ref(m) Mut V?`, and a handle
 chains through a map exactly as through a list:
 
@@ -352,7 +362,7 @@ container plus an index or a field path, re-materialized at each use.
 
 ```
 // Salvo                              // Rust
-let boss = at(squad, i)!              let __h1: usize = at__loc(&squad, i).expect(…);
+let boss = at(squad, i)!              let __h1: usize = at__List_Int__loc(&squad, i).expect(…);
 boss.hp = boss.hp + 5                 squad[__h1].hp = squad[__h1].hp + 5;
 let n = size(squad)                   let n = squad.len();          // legal: no live borrow
 boss.hp = boss.hp + n                 squad[__h1].hp = squad[__h1].hp + n;

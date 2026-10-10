@@ -94,7 +94,7 @@ boss.hp += n;                 //   because it is also borrowed as mutable
 
 Salvo allows it because a *read* of a container cannot invalidate a handle into
 it, and the position rendering is what lets rustc agree: the handle becomes
-`let __h2: usize = …at__loc(&squad, 0i32).expect(…);` and each use re-indexes `squad[__h2]`.
+`let __h2: usize = …at__List_Int__loc(&squad, 0i32).expect(…);` and each use re-indexes `squad[__h2]`.
 
 **§3 — two element handles of one container, in one call.**
 
@@ -158,7 +158,7 @@ Rust refuses is *using* either result alongside the container, which is §2.
 ## What to look for in the generated code
 
 - **A mutable handle is a position, not a reference.** `let boss = at(squad, 0)!`
-  becomes `let __h2: usize = …__loc(&squad, 0i32).expect(…);` (the bounds check `!` asked for), and
+  becomes `let __h2: usize = …at__List_Int__loc(&squad, 0i32).expect(…);` (the bounds check `!` asked for), and
   every use re-indexes `squad[__h2]`. That is what makes the `size(squad)` in
   the middle legal.
 - **A lender is emitted twice.** `wounded` gets its read face

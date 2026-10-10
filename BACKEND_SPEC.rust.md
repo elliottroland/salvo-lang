@@ -738,9 +738,9 @@ the blanket rule:
     renders as a **locator closure** —
     `at: &mut dyn FnMut(&Vec<crate::Entity>, &L) -> Option<usize>`,
     read-mode parameters — and a lambda filling such a position emits in
-    locator mode (`&mut |mut c, mut k| -> Option<usize> { crate::core_list::at__loc(c, k) }`),
+    locator mode (`&mut |mut c, mut k| -> Option<usize> { crate::core_list::at__List_Int__loc(c, k) }`),
     a named fn through its `__loc` variant
-    (`&mut |__a0: &Vec<crate::Fighter>, __a1: &i32| crate::core_list::at__loc(__a0, *__a1)`).
+    (`&mut |__a0: &Vec<crate::Fighter>, __a1: &i32| crate::core_list::at__List_Int__loc(__a0, *__a1)`).
     The call materializes the borrow:
     `match at(&*squad, l) { Some(__l1) => Some(&mut squad[__l1]), None => None }`.
     This is what lets a mutable handle cross a closure boundary at all; a
@@ -767,7 +767,7 @@ the blanket rule:
     — and the body indexes `c[__cN]`. The call site computes the positions
     first (a bound handle's own position, or the mint's `__loc`) and passes
     the container `&mut` once:
-    `{ let __c7 = crate::core_list::at__loc(&squad, i).expect(…); let __c8 = …; crate::strike(&mut squad, __c7, __c8) };`.
+    `{ let __c7 = crate::core_list::at__List_Int__loc(&squad, i).expect(…); let __c8 = …; crate::strike(&mut squad, __c7, __c8) };`.
     Two `&mut` into one container cannot coexist, which is why sharing a
     container changes the *representation* rather than relaxing a check;
     aliasing is then exact (one storage), so the call behaves identically
