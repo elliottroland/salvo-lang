@@ -2572,6 +2572,14 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 steps.extend(self.steps_of_value(&m.pt, &q));
                 let h = super::paths::Handle { root: m.prefix.root.clone(), steps };
                 let v = value_of(self, &h).unwrap_or_else(|| "0".to_string());
+                // The callee's path is already this one: forward it as is.
+                if v == q && m.pre.is_empty() {
+                    return match (m.opt, opt) {
+                        (true, false) => format!("{}.expect(\"salvo: value is absent\")", m.code),
+                        (false, true) => format!("Some({})", m.code),
+                        _ => m.code,
+                    };
+                }
                 let pre = if m.pre.is_empty() { String::new() } else { format!("{} ", m.pre.join(" ")) };
                 match (m.opt, opt) {
                     (true, true) => format!("{{ {pre}let {q} = {}?; Some({v}) }}", m.code),

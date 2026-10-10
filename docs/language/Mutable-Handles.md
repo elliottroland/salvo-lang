@@ -141,8 +141,8 @@ That shape is worth pausing on. Rust can write the *function* — with
 it cannot then use the result the way the program above does: a live `&mut`
 into `squad` forbids even a **read** of `squad`, so `size(squad)` or a
 second lookup between two writes through the handle is E0502. Salvo accepts
-that, and the Rust backend renders the handle by handing back the *position*
-rather than a reference — see
+that, and the Rust backend renders the handle by handing back the *path* to the
+element rather than a reference — see
 [What the backends do](#what-the-backends-do).
 
 A generic function can lend too, if the caller supplies the accessor. That
@@ -184,20 +184,27 @@ ways forward — prove them apart, or mutate through one at a time.
 duel(at(squad, i)!, at(squad, j)!)     // error at the second argument
 ```
 
-## Proving two handles apart: `NotEq`
+## Proving two handles apart: `NotSame`
 
-`core.list` declares a qualifier for exactly this:
+`core.ref` declares a qualifier for exactly this. It is a claim about the
+**handles**, not about how they were found: `d is NotSame(a)` says that `d`
+names a different element from `a` [ref-notsame].
 
 ```
-export qualifier NotEq(i: Int) of Int with Idx {
-    fn qualifies(j: Int, i: Int) -> Bool {
-        return j != i
+export qualifier NotSame<T>(a: T) of T {
+    fn qualifies(b: T, a: T) -> Bool {
+        return !same(a, b)
     }
 }
 ```
 
-Test it and the two handles are known to name different elements, so both
-live at once and a write through one leaves the other standing:
+`same` is an identity comparison, which Salvo has no syntax for, so each
+backend answers it: Kotlin by reference (`===`), Rust by address. It is
+exact for a handle, since `Mut` never applies to a scalar. Two handles of
+the same element test false.
+
+Test it and both handles live at once, a write through one leaves the
+other standing, and one call may take both:
 
 ```
 fn duel(a: Mut Entity, d: Mut Entity) -> None => a: Mut, d: Mut {
@@ -205,41 +212,42 @@ fn duel(a: Mut Entity, d: Mut Entity) -> None => a: Mut, d: Mut {
     d.hp = d.hp - 2
 }
 
-if j is NotEq(i) {
-    let a = at(squad, i)!
-    let d = at(squad, j)!
+let a = at(squad, i)!
+let d = at(squad, j)!
+if d is NotSame(a) {
     a.hp = a.hp + 1
     d.hp = d.hp - 1                // `a` is untouched by this
     duel(a, d)                     // …and one call may take both
 }
 ```
 
-The claim is a fact about the indices' *current values*: reassigning either
-side takes it away, like any dependent claim [elem-distinct].
+The test runs at run time, and the claim it leaves is about the two
+handles' identity [elem-distinct]:
 
-For the common shapes std wraps the proof up, so a caller writes neither
-the handles nor the claim:
+* a write **through** either handle keeps it, since the element changed but
+  is still the same element;
+* **rebinding** either handle strips it, like any dependent claim;
+* a handle minted inside a statement (`duel(at(squad, i)!, at(squad, j)!)`)
+  has no name to prove anything about, so **bind the handles first**.
 
-```
-update(squad, i, hero -> { hero.hp = hero.hp - 3 })
+Because the claim is about handles, it holds whatever the container's `at`
+does: an index into a list, a key into a map, or a search through your own
+struct.
 
-update2(squad, i, j, (a, d) -> {            // `j: NotEq(i)` is on the signature
-    a.hp = a.hp - 1
-    d.hp = d.hp - 2
-})
-```
-
-Both **preserve `Idx`**, so a sequence of them stays total — an in-place
-write moves no boundary, so the indices you proved remain valid:
+For the one-handle shape std wraps the handle up, so a caller writes
+neither the handle nor the claim:
 
 ```
 update(squad, i, hero -> { hero.hp = hero.hp - 3 })
-if j is NotEq(i) {
-    update2(squad, i, j, (a, d) -> {
-        a.hp = a.hp - 1
-        d.hp = d.hp - 2
-    })
-}
+```
+
+`update` takes an `i: Idx(squad)` and **preserves `Idx`**, so a sequence of
+them stays total. An in-place write moves no boundary, so the indices you
+proved remain valid:
+
+```
+update(squad, i, hero -> { hero.hp = hero.hp - 3 })
+update(squad, j, hero -> { hero.hp = hero.hp + 1 })
 println("${get(squad, i).hp}")     // still the *total* read: `Idx` survived
 ```
 
@@ -357,48 +365,115 @@ a handle is the element itself. Everything above is about keeping Rust
 honest while still accepting the programs — and the two backends print the
 same thing, which is the property all of it exists to protect.
 
-On the Rust side a mutable handle is not a `&mut`. It is a **position**: the
-container plus an index or a field path, re-materialized at each use.
+On the Rust side a mutable handle is not a `&mut`. It is a **storage
+path** from its container: the field steps, list indices and map slots
+that lead from the container to the element [rs-path]. The path is
+computed once, at the mint, by running the mint's body, and every use walks
+it again.
 
 ```
 // Salvo                              // Rust
-let boss = at(squad, i)!              let __h1: usize = at__List_Int__loc(&squad, i).expect(…);
+let boss = at(squad, i)!              let __h1: usize = at__List_Int(&squad, i).expect(…);
 boss.hp = boss.hp + 5                 squad[__h1].hp = squad[__h1].hp + 5;
 let n = size(squad)                   let n = squad.len();          // legal: no live borrow
 boss.hp = boss.hp + n                 squad[__h1].hp = squad[__h1].hp + n;
 ```
 
+A mint renders as its path function under its own name, and nothing else:
+std's `at` overloads become `at__List_Int` and `at__List_IdxInt`, which
+answer a position, and there is no `&mut`-returning version beside them.
+Since the path is read off the types and the mint's body, it exists for any
+container's `at`, and what you can do with a handle never depends on how
+`at` is written. A container needs no `at` of its own for the structs a
+path passes through:
+
+```
+struct A canbe Mut { b: B }
+struct B canbe Mut { c: List<Mut Str> }
+
+fn at(a: A, index: Int) -> ref(a) Mut Str? {
+    return a.b.c.get(index)           // answers `Option<usize>` on Rust
+}
+
+let s = at(a, 1)!                     // used as `a.b.c[__h1]`
+```
+
+When there is one way from container to element, the path is just its
+positions: `squad[__h1]` above, `a.b.c[__h1]` here. When an accessor can
+answer from different fields, the path is a generated enum with one variant
+per way, and each use walks it with a `match`. A league whose `at` reaches
+a player either through a team in a map or on the bench:
+
+```
+struct Player canbe Mut { name: Str, goals: Int }
+struct Team canbe Mut { coach: Str, roster: List<Mut Player> }
+struct League canbe Mut {
+    teams: Map<Str, Mut Team>,
+    bench: List<Mut Player>
+}
+
+fn at(l: League, team: Str, n: Int) [] -> ref(l) Mut Player? => l, team, n {
+    if n < 0 {
+        return at(l.bench, -n - 1)          // .bench[i]
+    }
+    let t = at(l.teams, team)               // .teams{slot}
+    if t is None {
+        return None
+    }
+    return at(t.roster, n)                  // .teams{slot}.roster[i]
+}
+
+let star = at(league, "red", 1)!
+let sub = at(league, "", -1)!
+if sub is NotSame(star) {
+    score(star, sub)
+}
+```
+
+On Rust `at` answers `Option<__Path_League__Player>`, an enum of
+`V0(usize, usize)` (a map slot and a roster index) and `V1(usize)` (a bench
+index), and `star.goals` reads
+`match __h1 { V0(s, i) => &league.teams[s].roster[i].goals, V1(i) => &league.bench[i].goals }`.
+The program prints the same on both backends.
+
 That is what buys the flexibility. A bound `&mut squad[i]` would forbid the
-`size(squad)` in the middle — Salvo's rules allow it, because a *read* of
-the container cannot invalidate a handle into it, and the position-based
+`size(squad)` in the middle. Salvo's rules allow it, because a *read* of
+the container cannot invalidate a handle into it, and the path-based
 rendering is what lets Rust agree. The same trick carries every other shape
 a live `&mut` could not survive:
 
-* **A search that lends what it found** returns a position, so there is no
-  borrow to keep alive past the loop — and the caller may go on reading the
+* **A search that lends what it found** returns a path, so there is no
+  borrow to keep alive past the loop, and the caller may go on reading the
   container it searched.
-* **A handle across a closure or trait boundary** — `params Ref`'s `at`,
-  an effect member that lends — travels as data, so the borrow is created on
+* **A handle across a closure or trait boundary** (`params Ref`'s `at`, an
+  effect member that lends) travels as data, so the borrow is created on
   the far side of the boundary instead of crossing it.
 * **Handles that share a container** (`ref(c)` parameters) render as the
-  container, borrowed once, plus a position per handle —
+  container, borrowed once, plus a path per handle:
   `pub fn strike(c: &mut Vec<Entity>, __c1: usize, __c2: usize)`, indexing
   `c[__c1]` and `c[__c2]`. When the two coincide they index the same
   storage, which is what Kotlin does natively. Rust cannot express this
   with references at all: `&mut` has no way to say "these may coincide"
-  (E0499). At the call the positions are computed first, so the
-  container's `&mut` is the only borrow:
-  `strike(&mut squad, __c1, __c2)`, or `shuffle(&mut lib.tracks, …)` for a
-  field path.
-* **Proven-disjoint handles** (`NotEq`) render as a single `split_at_mut`,
-  the pattern a Rust programmer writes by hand — and the one rustc's own
-  E0499 suggests.
-* **A handle across a disjoint mutation** re-reads its path, which agrees
-  with Kotlin precisely because the field it names was untouched. Rust
-  splits borrows by field *within* a function, never across a call, so the
-  hand translation is E0502.
+  (E0499). At the call the paths are computed first, so the container's
+  `&mut` is the only borrow: `strike(&mut squad, __c1, __c2)`, or
+  `shuffle(&mut lib.tracks, …)` for a field path.
+* **Proven-distinct handles** (`NotSame`) split where their paths diverge:
+  `salvo_pair_mut` (a `split_at_mut`) at a list position, `Map::pair_mut`
+  at a map slot, and plain disjoint borrows at different fields. For two
+  handles into one list that is the pattern a Rust programmer writes by
+  hand, and the one rustc's own E0499 suggests:
+  `if __h5 != __h6 { let (a, d) = salvo_pair_mut(&mut squad[..], __h5, __h6)…; duel(a, d) } else { panic!(…) }`.
+  The `NotSame` test itself compares the two materialized references by
+  address.
+* **A handle across a disjoint mutation** walks its path again, which
+  agrees with Kotlin precisely because the field it names was untouched.
+  Rust splits borrows by field *within* a function, never across a call,
+  so the hand translation is E0502.
 
-The cost is honest: a position is re-indexed per use, where a `&mut` is
-free, and the bounds check is paid unless a claim has removed it. Reads
-keep the zero-cost path — a `get` result is a read-only projection, and a
-read-only projection *is* `&T`.
+A container that is a type parameter (`ref(c)` with `c: C`) has no path
+yet, and the Rust backend refuses it with an error naming it.
+
+The cost is honest: a path is walked per use, where a `&mut` is free, and
+the bounds check is paid unless a claim has removed it. Reads keep the
+zero-cost path: a `get` result is a read-only projection, and a read-only
+projection *is* `&T`.

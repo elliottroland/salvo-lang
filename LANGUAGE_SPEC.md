@@ -825,7 +825,7 @@ Conventions:
     `qualifies` may take implicits generally: they trail, and the shape check
     counts the others. Rust reborrows a slot argument that is already a
     reference (`&*heap`), so a generic slot does not bind to the `&mut`.
-  * Its own module, with `NotEq` [col-noteq], so the refinements that keep
+  * Its own module, so the refinements that keep
     it — a list's `add`, `swap` and `replace`, a deque's `add_first`,
     `add_last` and `replace`, a buffer's `replace` and `clear` — live beside
     it [qual-refn-scope]. A refinement's own type parameters take the leading
@@ -859,27 +859,28 @@ Conventions:
   (Kotlin `copyOf`); `noremote` like every platform type; no `==`. The
   operations are Salvo over private `int_*`/`long_*` platform fns, since two
   platform fns of one module may not overload.
-* [col-noteq] `core.index` declares `qualifier NotEq(i: Int) of Int with
-  Idx` [qual-depend] [qual-with] — `j != i`, bound to `i`'s identity — the
-  proof that two element handles of one list cannot alias [elem-distinct].
-  Established by the ordinary filled test (`j is NotEq(i)`), stripped by
-  mutation *or reassignment* of either side [qual-depend]. Named for what
-  it claims (user decision 2026-09-24: `NotEq` over `Distinct`, which
-  `core.set` already uses for a `List` subject — and a `NotEq` over any
-  `?eq`-capable subject is the recorded generalization, ROADMAP). Ships
-  ahead of the `update2` family (ladder step ③), which consumes it.
-* [col-update] `core.list`'s **in-place update family** (step ③ of the
+* [ref-notsame] `core.ref` declares `qualifier NotSame<T>(a: T) of T`
+  [qual-depend] — `b` is a different element from `a` — the proof that two
+  bound mutable handles cannot alias [elem-distinct] (user decision
+  2026-10-10, retiring `core.index`'s `NotEq` on indices: a proof about the
+  *handles* holds whatever their container's `at` does, where `i != j` only
+  meant distinct elements for list indexing). Its predicate is the private
+  intrinsic `same(a, b)` — reference identity, `===` on Kotlin,
+  `std::ptr::eq` on the materialized references on Rust — exact for a
+  handle, whose element is never a scalar. Established by the filled test
+  (`b is NotSame(a)`), bound to `a`'s **own identity** (not the container's
+  roots); a write *through* either handle leaves it standing (identity, not
+  contents: it survives calls like provenance does), rebinding either
+  strips it.
+* [col-update] `core.list`'s **in-place update** (step ③ of the
   group-borrowing ladder, user decisions 2026-09-24): `update(list:
   List<Mut T>, index: Idx(list) Int, f: (elem: Mut T) -> None)` hands the
   callback the mutable element handle [ref-handle] — nothing copied, moved
-  out, or put back — and `update2(list, i: Idx(list) Int, j: NotEq(i)
-  Idx(list) Int, f: (a: Mut T, b: Mut T) -> None)` is the two-element
-  transaction, its indices proven apart by the declared claim
-  [col-noteq] [elem-distinct]. Both promise `preserve Idx`
+  out, or put back — minted by the total `at`. It promises `preserve Idx`
   [qual-preserve]: an in-place write moves no boundary, so sequential
-  updates stay total. **Ordinary Salvo, not intrinsics** — the bodies are
-  exactly the mints the proofs legalize, riding [rs-loc] on the Rust
-  backend. Note the parameters carry no container `Mut`: element
+  updates stay total. **Ordinary Salvo, not an intrinsic.** (Its two-element
+  sibling `update2` was retired with `NotEq`, 2026-10-10: the caller writes
+  `if b is NotSame(a) { f(a, b) }` [ref-notsame].) Note the parameters carry no container `Mut`: element
   mutability is the element type's [ref-handle].
 * [col-locate] `core.list` declares `params Ref<C, L, T> { fn at(c: C,
   l: L) -> ref(c) Mut T? }` (user decision 2026-09-24, ④a slice 3′; renamed
@@ -7340,7 +7341,7 @@ between endpoints and delivers what arrives into the scheduler.
     `++`, a `Mut` argument position — and is a mutation event on the
     handle's *roots* at the linked paths [fate-poison]: sibling derivations
     of the container fall (a computed index may-aliases every element
-    [fate-field-disjoint] — unless a live `NotEq` claim proves the two
+    [fate-field-disjoint] — unless a live `NotSame` claim proves the two
     apart [elem-distinct]), the acting handle itself survives (its storage
     did not move), and a parameter root is recorded as mutated so its
     inferred contract takes the exhaustive form [deduce-syntax].
@@ -7463,44 +7464,35 @@ between endpoints and delivers what arrives into the scheduler.
     established and consumed *within* a function. Carrying one across a call
     boundary would need type-level syntax, which nothing yet asks for.
 * [elem-distinct] **Distinct awareness** (user decisions 2026-09-24 —
-  step ② of COMPLETED.md's log (the group-borrowing ladder)): two mutable element handles of
-  one container whose minting indices a live `NotEq` claim proves apart
-  name **disjoint storage**, and the analysis knows it — the first
-  refinement of [fate-field-disjoint]'s may-alias-all rule for computed
-  indices. The rules:
-  * **Element links carry the identity of their minting index**: a handle
-    minted by `at(list, i)` (or read by `get(list, i)`) — resolved to
-    `core.list`'s `at` or `get` — records `i`'s ultimate fate-root id on its
-    links. Recognition is **nominal** deliberately: a user fn with a derived
-    return may lend *any* projection of its container, so only the
-    accessors whose semantics the compiler knows may name an element
-    discriminator. A nested mint keeps the identity nearest the root
-    (`at(at(grid, i)!, j)` carries `i` — the discriminator of disjoint
-    subtrees under the shared root); any other index shape carries none.
-  * **The identity dies with the index variable's value**: reassignment
-    or `++`/`--` of the index erases it from every link, eagerly at the
-    event — a surviving identity always means "the element selected by the
-    variable's *current* value", so the poison consult needs no staleness
-    check. (Loop bodies re-check under the post-iteration state, so an
-    erasure late in a body reaches uses before it.)
+  step ② of COMPLETED.md's log, the group-borrowing ladder — re-based on
+  handle identity 2026-10-10): two bound mutable handles of one container
+  a live `NotSame` claim proves apart [ref-notsame] name **disjoint
+  storage**, and the analysis knows it — the refinement of
+  [fate-field-disjoint]'s may-alias-all rule for computed positions. The
+  rules:
+  * **A bound handle's links carry its own identity**: declaring a `let`
+    whose type is a `ref` handle stamps the variable's id on its borrowed
+    links. Statement-scoped mints carry none, so they can never be proven
+    apart.
+  * **The identity dies with the binding**: rebinding the handle erases it
+    from every link, eagerly at the event.
   * **Poison consults the claim**: mutation through a handle spares a
     sibling link iff both identities are present, different, the link
-    paths are equal, and a live `NotEq` claim relates the two index
-    variables (either orientation, matched by fate-root agreement
-    [qual-depend]). Anything short of the full proof poisons as before
-    [fate-poison]. The same index minted twice is certainly the same
-    element — no claim is consulted.
-  * **One call may take two proven handles** — `attack(get(es, i)!,
-    get(es, j)!)`, or two bound handles — recorded in
-    `Checked::distinct_pairs` for the Rust pair lowering [rs-elem-mut].
-    An **unproven** pair is refused at the second argument, naming the
-    remedy (before this rule the shape passed the checker and failed in
-    rustc, E0499 — a checker/emitter disagreement).
-  * Implementation: `FateLink.elem_idx` (the identity),
-    `elem_mint_index` (the nominal mint recognition),
-    `erase_elem_identities` (the eager invalidation),
-    `live_distinct_pairs` + the spare in `poison_derived_except` (the
-    consult), and the pair pre-pass in `resolve_named_call`.
+    paths are equal, and a live `NotSame` claim relates the two handles
+    (either orientation). Anything short of the full proof poisons as
+    before [fate-poison].
+  * **One call may take two proven handles** — `if d is NotSame(a) {
+    attack(a, d) }` — recorded in `Checked::distinct_pairs` for the Rust
+    pair lowering [rs-elem-mut] [rs-path]. An **unproven** pair is refused
+    at the second argument, naming the remedy.
+  * **A write through a handle keeps its container's claims**: an `Idx(xs)`
+    on an index survives a call that mutates an element of `xs` through a
+    handle (the element changed, not the container's shape); a claim about
+    a place *under* the handle falls.
+  * Implementation: `FateLink.elem_idx` (the identity, stamped in
+    `declare_var`), `erase_elem_identities` (the eager invalidation),
+    `live_distinct_pairs` + the spare in `poison_derived_full` (the
+    consult), the pair check in `check_elem_handle_pairs`.
 * [proj-field] **Any struct may hold `proj` fields**, written without a
   source (`items: proj List<T>`): the struct declares *that* it projects,
   each literal decides *what* (user decision 2026-09-11; replaces the

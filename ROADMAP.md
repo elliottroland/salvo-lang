@@ -50,7 +50,7 @@ structural `cmp`/`eq`/`hash`/`to_str` are std functions over the fields of any
 struct or the arms of any union).
 Fourteen worked examples in `examples/` carry the checked-in generated code for both
 targets and the output they print, three of them consuming the first dependency
-(`modules/aws/`: `aws_profile`, `aws_sqs`, `aws_s3`). 1732 tests green; std's own Salvo tests run inside one of them.
+(`modules/aws/`: `aws_profile`, `aws_sqs`, `aws_s3`). 1735 tests green; std's own Salvo tests run inside one of them.
 
 ## The sequence
 
@@ -1125,42 +1125,28 @@ with the observation that `proj` is the degenerate group (a read-only member of 
 singleton group under maximal invalidation sensitivity), so the two are points on
 one dial rather than two features.
 
-### 15 — `ref(c)`: what is left after v1a/v1b and the list/map half of v2
+### 15 — `ref(c)`: what is left after storage paths
 
-v1a, v1b and v2 for `List`/`Map` are **built** (2026-10-10, COMPLETED.md's
-"The `ref(c)` rework" entry; [ref-handle], [ref-anchor], [col-locate]).
-GROUP_BORROWING.md Parts 7–8 stay the design record for what remains:
+Storage paths, `NotSame` and the `ref` container type in the IR are
+**built** (2026-10-10, COMPLETED.md's "Handles are storage paths" entry;
+[rs-path], [ref-notsame], [elem-distinct]). GROUP_BORROWING.md Parts 7 and 9
+stay the design record. What remains:
 
-1. **Storage paths** (decided 2026-10-10, GROUP_BORROWING.md Part 7's
-   2026-10-10 decisions and Part 9): on Rust a `ref(c)` is a path from `c`
-   (fields, union arms, list indices, map slots) computed at the mint, with
-   a generated path type per (container type, element type) and a walk;
-   `at` renders as the path-returning fn under its own name. This lifts the
-   "not a `List` or a `Map`" refusal (pinned by
-   `a_ref_parameter_over_a_generic_container_is_refused`, which flips to an
-   accept-and-run test) and closes item 4's defect. `?at` is removed from
-   `ref(c)`. Done when Part 9's `League` program runs identically on both
-   backends.
-2. **`NotSame`** (decided 2026-10-10): `b is NotSame(a)` proves two handles
-   differ; two live handles split where their paths diverge. **DECISION
-   open:** whether `NotEq` on indices (and the minting-index machinery
-   behind it) is retired in its favour.
-3. **`Deque` has no `at`.** Its `get` has a locator form, so adding the mint
-   is the list's two lines; nothing needs it yet.
-4. **Open defect: a custom `at` loses its sub-path on Rust** (found
-   2026-10-10). `struct Grid canbe Mut { w: Int, cells: List<Mut Cell> }`
-   with `fn at(g: Grid, x: Int, y: Int) [] -> ref(g) Mut Cell? => g, x, y {
-   return at(g.cells, y * g.w + x) }`: the derived `at__loc` correctly
-   answers an index into `g.cells`, but `let c = at(g, 1, 1)!; c.v = …`
-   renders `g[__h1].v`, which rustc rejects (Kotlin prints the right value).
-   A position means nothing without the path it indexes: the locator must
-   carry its static sub-path (`.cells`) to the use site. Where the path is
-   not static (generic `C`, an accessor supplied through `?at`, a
-   branch-dependent path), the user's direction (2026-10-10) is to
-   **replay** the mint — capture `at`'s arguments at the mint and call `at`
-   again at each use — design to be settled with item 1. Also seen in the
-   same repro: `let n = g.w` (an `Int`) is poisoned by the write through
-   `c`.
+1. **Generic containers on Rust.** A handle into a container that is a type
+   parameter (`ref(c)` with `c: C`) has no path type yet and is refused ("has
+   no path on the Rust backend yet [rs-path]", pinned by
+   `a_ref_parameter_over_a_generic_container_is_refused`); Kotlin accepts
+   it. The plan from Part 9: the path type becomes an extra Rust type
+   parameter `P` of the generic fn, filled at the instantiation, with the
+   walk passed alongside the `?Ref` implicit.
+2. **Effect members keep two faces.** A lending effect member (`lease`)
+   still renders its natural `&mut` face beside `lease__loc`, which answers
+   the path; the "a mint renders only as its path, under its own name" rule
+   is applied to fns and lambdas but not yet to trait members.
+3. **Recursive containers** (a type holding its own element type) have no
+   finite path: refused, and waiting on the recursive-types work (item 17).
+4. **`Deque` has no `at`**, and **`Map` has no total `at` at a `KeyOf`**
+   (user: the next sequence). Each is the list's two lines.
 
 ### 16 — Composing iterators: stages over a generic source (after the redesign)
 

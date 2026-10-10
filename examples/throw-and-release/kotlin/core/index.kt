@@ -6,10 +6,6 @@ fun<C> Idx_qualifies(index: Int, c: C, size: (C) -> Int): Boolean {
     return ((index >= 0) && (index < size(c)))
 }
 
-fun NotEq_qualifies(j: Int, i: Int): Boolean {
-    return (j != i)
-}
-
 data class __Iter_indices_List<T>(
     var list: List<T>,
     var at: Int,

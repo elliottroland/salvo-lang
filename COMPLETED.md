@@ -138,6 +138,53 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-10 — Handles are storage paths, `NotSame` replaces `NotEq` (built)
+
+The design recorded in the entry below, built in four committed steps, with
+the user's further calls: `NotEq` and `update2` retired, `NotSame` in a new
+module `core.ref` with an intrinsic identity predicate, the container's
+type kept on the `ref` qualifier in the IR. [rs-path], [ref-notsame],
+[elem-distinct] (re-based), [col-update].
+- **IR** (`salvo_ir::build::refs`): a pass after the build gives every `ref`
+  qualifier its container's storage type as its argument (`ref<League> Mut
+  Player`) — from a mint's lent parameter, a `ref(c)` parameter's anchor, a
+  call's lent argument, a `for`'s walked container, or the source of a
+  binding, narrowing, read or `!`.
+- **Rust** (`ir_emit/paths.rs`): a path type per (container, element),
+  enumerated from the type definitions — positions only when there is one
+  way, a generated `__Path_<C>__<E>` enum otherwise. Handles are
+  `(root, steps)`; a mint's body runs once in its path fn, composing the
+  anchor argument's place (fields, a handle local's own path, a nested
+  mint) with the callee's path; uses render the place or a `match`; pairs
+  split where paths diverge (`salvo_pair_mut`, a new `Map::pair_mut`, or
+  disjoint fields). Mints render **only** as their path fn under their own
+  name (`at__List_Int`, user's naming call); readers keep `__loc` twins.
+  Optional handles bind as `Option<P>` and narrow to their path. The
+  `Grid` defect (a custom `at`'s sub-path lost) and the "not a `List` or a
+  `Map`" refusal are gone; nested structs with no accessor of their own
+  path through their fields (the user's `a.b.c.get(i)` case).
+- **Checker**: a bound handle's links carry its own identity (stamped in
+  `declare_var`; the index-identity mint recognition is deleted);
+  `NotSame` binds the other handle's own id, survives calls and writes
+  through either handle (identity, not contents: `survives_calls`,
+  `with_identity`), and is stripped by rebinding. Two side fixes the work
+  needed: a write through a handle no longer strips its container's claims
+  (an `Idx(xs)` survived a field write but not a `Mut` call — found by the
+  test sweep), and a Copy scalar read out of a place carries no fate link
+  (`let g = a.goals` was poisoned by a write through `a`; the user had
+  flagged it).
+- **Emitter fixes found on the way**: a lambda parameter now shadows a
+  handle of the same name (the borrowing example's `update2` lambda read an
+  out-of-scope `__h5`); a generic-container refusal reports once.
+- **`same` is private** to `core.ref`: exported, it made a user's own
+  `same<T>` an ambiguous call. Two codegen tests had such a fn (renamed).
+- Sweep: `examples/borrowing` §3 rewritten on `NotSame` (output
+  byte-identical), every example and both host projects regenerated,
+  LANGUAGE_SPEC.md / both BACKEND_SPECs / `docs/language/` / wiki, the
+  test inventory converted (elem_distinct re-based on handles, a
+  League/map-slot/nested compile-and-run case on both backends). **1735
+  tests.**
+
 ### 2026-10-10 — Handles are storage paths; `NotSame`; no `?at` (user decisions, design only)
 
 Worked through with the user after the total `at` landed. Probing a

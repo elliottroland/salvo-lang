@@ -240,6 +240,21 @@ pub fn slot_of<K, V>(map: &Map<K, V>, key: &K, hash: HashFn<K>, eq: EqFn<K>) -> 
     map.find(key, hash, eq)
 }
 
+impl<K, V> Map<K, V> {
+    // [rs-path] Two handles into two different entries, live at once: the
+    // slab's `split_at_mut`. `None` when the slots coincide or are empty.
+    pub fn pair_mut(&mut self, i: usize, j: usize) -> Option<(&mut V, &mut V)> {
+        if i == j || i >= self.slots.len() || j >= self.slots.len() {
+            return None;
+        }
+        let (lo, hi) = if i < j { (i, j) } else { (j, i) };
+        let (a, b) = self.slots.split_at_mut(hi);
+        let x = &mut a[lo].as_mut()?.1;
+        let y = &mut b[0].as_mut()?.1;
+        Some(if i < j { (x, y) } else { (y, x) })
+    }
+}
+
 impl<K, V> std::ops::Index<usize> for Map<K, V> {
     type Output = V;
     fn index(&self, slot: usize) -> &V {

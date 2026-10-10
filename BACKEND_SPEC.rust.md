@@ -661,16 +661,15 @@ the blanket rule:
   a codegen error otherwise (a hidden clone this backend refuses).
 * [rs-elem-mut] [ref-handle] **Mutable element handles** (P-3 + P-9, user
   decisions 2026-09-24) are **positions**, never a bound `&mut`:
-  * A **statement-scoped** handle — `bump(get(es, 0)!)` in a `&mut`
-    position — materializes the element for that one call: the lend is the
-    locator matched into a borrow,
-    `{ match crate::core_list::get_platform__loc(&es, 0i32) { Some(__l1) => Some(&mut es[__l1]), None => None } }`,
-    inside the `!` block [rs-assert-trap], which answers `&mut *__some`. The
-    read borrow of the search ends before the write borrow begins, and the
-    `&mut` lives exactly as long as the call. A user lending fn's natural
-    face is called the same way (`crate::heal({ let mut __nn_19: Option<&mut crate::Fighter> = crate::wounded(&mut squad); … })`).
-  * A **bound** handle is its position:
-    `let __h2: usize = crate::core_list::get_platform__loc(&squad, 0i32).expect("salvo: value is absent at main:232:16");`
+  * A **statement-scoped** handle — `bump(at(es, 0)!)` in a `&mut`
+    position — materializes the element for that one call: the mint's path
+    is bound, then walked into a borrow,
+    `{ let __h1: Option<usize> = crate::core_list::at__List_Int(&es, 0i32); … &mut es[__h2] }`
+    inside the `!` block [rs-assert-trap]. The read borrow of the search
+    ends before the write borrow begins, and the `&mut` lives exactly as
+    long as the call.
+  * A **bound** handle is its path [rs-path]:
+    `let __h2: usize = crate::core_list::at__List_Int(&squad, 0i32).expect("salvo: value is absent at main:231:16");`
     — the presence check traps at the mint, matching Kotlin's `!!` timing —
     and every use re-materializes the place: `squad[__h2].hp = …`,
     `crate::bump(&mut xs[__h1]);`, `squad[__h3].name.clone()` in a value
@@ -679,22 +678,23 @@ the blanket rule:
     (`let mut n: i32 = crate::core_list::size_platform::<crate::Fighter>(&squad);`
     between two writes through `__h2`), which a live `&mut` binding would make
     E0502 — the same alignment argument as [rs-borrow-locals], resolved the
-    other way. A total lend's locator answers `usize` directly
-    (`let __h11: usize = crate::core_list::get__loc(&squad, i);`).
+    other way. The total mint answers `usize` directly
+    (`let __h11: usize = crate::core_list::at__List_IdxInt(&squad, i);`).
   * A kept parameter whose **elements** carry `Mut` (`List<Mut T>`,
     `Mut T[]`) renders `&mut Vec<T>`: the container lends mutable handles, so
     the write must reach the caller's storage through it even though no
     structural mutation is permitted.
-  * A **proven-distinct pair in one call** ([elem-distinct]) splits once with
-    `crate::seq::salvo_pair_mut` (one `split_at_mut`, [rs-runtime-source];
-    `i != j` checker-guaranteed) and the call takes the two `&mut` halves.
-    Two bound handles of one anchor:
-    `{ let (__pm9, __pm10) = crate::seq::salvo_pair_mut(&mut squad[..], __h7, __h8).expect("salvo: value is absent"); crate::duel(__pm9, __pm10) };`.
-    Two direct mints compute their positions first, each with its own `!`
-    message:
-    `{ let __l2 = crate::core_list::get_platform__loc(&es, i).expect("salvo: value is absent at main:18:22"); let __l3 = …; let (__pm4, __pm5) = crate::seq::salvo_pair_mut(&mut es[..], __l2, __l3).expect("salvo: value is absent"); crate::poke(__pm4, __pm5) }`.
+  * A **proven-distinct pair in one call** ([elem-distinct], two bound
+    handles under a `NotSame` claim [ref-notsame]) splits where the two
+    paths diverge [rs-path] and the call takes the two `&mut` halves: one
+    `crate::seq::salvo_pair_mut` (a `split_at_mut`, [rs-runtime-source]) at a
+    list position, `Map::pair_mut` at a map slot, plain disjoint `&mut`s at
+    different fields; paths that never diverge trap (the claim ruled it out):
+    `{ let (__pm9, __pm10) = if __h5 != __h6 { let (__u7, __w8) = crate::seq::salvo_pair_mut(&mut squad[..], __h5, __h6).expect("salvo: value is absent"); (&mut (*__u7), &mut (*__w8)) } else { panic!("salvo: two handles to one element") }; crate::duel(__pm9, __pm10) };`.
     The form is a block expression, so it stands in a value position as
-    well as a statement (`let mut x: i32 = { let __l2 = …; … crate::poke(__pm4, __pm5) };`).
+    well as a statement.
+  * `NotSame`'s predicate `same(a, b)` is `std::ptr::eq` on the two
+    materialized references.
   * Kotlin needs none of this — objects alias natively, so the handle is the
     element reference.
 * [rs-cmp-deref] **A borrowed Copy scalar is copied out where an operator
@@ -706,17 +706,33 @@ the blanket rule:
   `i32::wrapping_add((*crate::core_list::get::<i32>(&xs, i)), 1i32)`.
   Non-Copy operands are not touched (a deref there would move out of a
   borrow). Kotlin has no references and needs nothing.
-* [rs-loc] **Locator-specialized lending** (④a, 2026-09-24): a named lending
-  fn whose result some call site uses as a bound mutable handle gets a
-  **demand-driven locator variant**, `{name}__loc`, beside its natural face.
-  * The **natural face** lends the way its type says: a `ref(c) Mut` result is
-    `Option<&mut T>` / `&mut T` over `&mut` sources
-    (`pub fn wounded(squad: &mut Vec<crate::Fighter>) -> Option<&mut crate::Fighter>`,
-    its search loop `for mut f in (&mut *squad).iter_mut() { … return Some(&mut *f); }`).
-  * The **locator variant** answers **position data** — `usize` for a total
-    element lend, `Option<usize>` for an optional one, optional exactly where
-    the natural face is, so `!` keeps its message and timing
-    (`pub fn wounded__loc(squad: &Vec<crate::Fighter>) -> Option<usize>`). Its
+* [rs-path] **A handle is a storage path** (user decisions 2026-10-10,
+  GROUP_BORROWING.md Part 9; `ir_emit/paths.rs`): a `ref(c)` handle is the
+  path from its container — field and tuple steps, list/deque/array
+  indices, map *slots* — computed once at the mint by running the mint's
+  body, and walked at every use. The IR names each handle's container type
+  on its `ref` qualifier ([ref-handle], `salvo_ir::build::refs`), and the
+  path's type belongs to the (container type, element type) pair, read off
+  the type definitions:
+  * **one way** from container to element: the tuple of its dynamic
+    positions — `usize` for a list or a map (slot), `()` for none — and a
+    use is a plain place (`squad[__h2]`, `a.b.c[__h1]`, `l.teams[__h3].roster[__q4]`);
+  * **several ways** (an accessor that may answer from different fields): a
+    generated `#[derive(Clone, Copy, PartialEq)] enum __Path_<C>__<E>`, one
+    variant per way holding its positions, declared in the container's
+    module; a use walks it with a `match` (`(*match __h1 { V0(s, i) => &mut l.teams[s].roster[i], V1(i) => &mut l.bench[i] })`,
+    `&` for a read);
+  * a container that holds the element type in itself (a recursive type) or
+    is a type parameter has no path yet: a loud error naming it.
+* [rs-loc] **Locator-specialized lending** (④a, 2026-09-24; re-based on
+  [rs-path] 2026-10-10): a **mint** — a fn whose result is a `ref(c) Mut`
+  handle — renders **only** as its path fn, under its own name: no
+  `&mut`-answering face beside it (`pub fn wounded(squad: &Vec<crate::Fighter>) -> Option<usize>`;
+  std's `at` overloads mangle as `at__List_Int`/`at__List_IdxInt`). A
+  *reader* (a `proj`-returning fn, e.g. `get`) used as a handle keeps its
+  natural face and gains a **demand-driven locator variant**, `{name}__loc`.
+  * Either answers **position data** — the path type [rs-path], optional
+    exactly where the result is, so `!` keeps its message and timing. Its
     lent parameters drop to *read* mode (the search borrows nothing
     mutably), and it carries **no lifetimes** — a locator is owned data,
     which is what lets it pass through closures. A **platform** fn's variant
@@ -725,8 +741,8 @@ the blanket rule:
     except `List`/`Deque`'s `get`, whose position is the index under a bounds
     test, the total `get_at`, which is the index, and `Map`'s `get`, whose
     position is the entry's slot.
-  * Body transform: return-path forwards take their callees' `__loc`
-    variants (demand closes transitively); a derived-return intrinsic takes
+  * Body transform: return-path forwards take their callees' path fns or
+    `__loc` variants (demand closes transitively); a derived-return intrinsic takes
     its **locator form**; an intrinsic without one, or a return shape beyond
     the plain and optional element lend, is a reported error, never a silent
     read lowering [backend-never-wrong].
@@ -738,9 +754,9 @@ the blanket rule:
     renders as a **locator closure** —
     `at: &mut dyn FnMut(&Vec<crate::Entity>, &L) -> Option<usize>`,
     read-mode parameters — and a lambda filling such a position emits in
-    locator mode (`&mut |mut c, mut k| -> Option<usize> { crate::core_list::at__List_Int__loc(c, k) }`),
-    a named fn through its `__loc` variant
-    (`&mut |__a0: &Vec<crate::Fighter>, __a1: &i32| crate::core_list::at__List_Int__loc(__a0, *__a1)`).
+    locator mode (`&mut |mut c, mut k| -> Option<usize> { crate::core_list::at__List_Int(c, k) }`),
+    a named mint through its path fn
+    (`&mut |__a0: &Vec<crate::Fighter>, __a1: &i32| crate::core_list::at__List_Int(__a0, *__a1)`).
     The call materializes the borrow:
     `match at(&*squad, l) { Some(__l1) => Some(&mut squad[__l1]), None => None }`.
     This is what lets a mutable handle cross a closure boundary at all; a
@@ -765,9 +781,12 @@ the blanket rule:
     already takes —
     `pub fn strike(c: &mut Vec<crate::Fighter>, __c1: usize, __c2: usize)`
     — and the body indexes `c[__cN]`. The call site computes the positions
-    first (a bound handle's own position, or the mint's `__loc`) and passes
+    first (a bound handle's own path, or the mint's) and passes
     the container `&mut` once:
-    `{ let __c7 = crate::core_list::at__List_Int__loc(&squad, i).expect(…); let __c8 = …; crate::strike(&mut squad, __c7, __c8) };`.
+    `{ let __q7 = crate::core_list::at__List_Int(&squad, i).expect(…); let __c8 = __q7; …; crate::strike(&mut squad, __c8, __c10) };`.
+    The parameter's type is the path type [rs-path] (`a: ref(l) Mut Player`
+    over a `League` takes `__c1: crate::__Path_League__Player`), and an
+    argument's path is taken relative to the container argument.
     Two `&mut` into one container cannot coexist, which is why sharing a
     container changes the *representation* rather than relaxing a check;
     aliasing is then exact (one storage), so the call behaves identically

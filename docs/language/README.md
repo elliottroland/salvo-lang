@@ -34,7 +34,7 @@ Start at the top; each page stands on its own, so jumping in is fine too.
 | [Data and Types](Data-and-Types.md) | primitives, strings, tuples, unions, structs, and nullability without `null` |
 | [Collections](Collections.md) | `List`, `Set`, `Map` and their sorted kin, arrays, `Any` and `Never` |
 | [Qualifiers](Qualifiers.md) | type-level claims — `Mut`, predicates, constructive, state versus provenance, refinements |
-| [Dependent Qualifiers](Dependent-Qualifiers.md) | claims about one value's relation to another (`Idx`, `KeyOf`, `NotEq`), and the total operations that consume them |
+| [Dependent Qualifiers](Dependent-Qualifiers.md) | claims about one value's relation to another (`Idx`, `KeyOf`, `NotSame`), and the total operations that consume them |
 | [Generics and Aliases](Generics-and-Aliases.md) | generic types and type aliases |
 | [Control Flow](Control-Flow.md) | `if`, `when`, `while`, `for`, and lifting a qualifier with `is ^Q` |
 
@@ -55,7 +55,7 @@ Start at the top; each page stands on its own, so jumping in is fine too.
 | Page | What it covers |
 |---|---|
 | [Deductions and Ownership](Deductions-and-Ownership.md) | the deduction clause, moves, projections, shared fate and `copy` |
-| [Mutable Handles](Mutable-Handles.md) | handles into storage you do not own: mutable elements, lending, proven-disjoint pairs (`NotEq`), and handles that share a container (`ref(c)`) |
+| [Mutable Handles](Mutable-Handles.md) | handles into storage you do not own: mutable elements, lending, proven-distinct pairs (`NotSame`), and handles that share a container (`ref(c)`) |
 | [Linear Types](Linear-Types.md) | values that must be used |
 | [Throwing](Throwing.md) | leaving early with a message, and `try` |
 | [Effects and Handlers](Effects-and-Handlers.md) | capabilities, `use`, dependencies, interception, monitors, mixed handlers |

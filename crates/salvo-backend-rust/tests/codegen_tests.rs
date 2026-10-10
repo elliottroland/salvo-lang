@@ -15889,7 +15889,7 @@ fn a_lending_fn_value_renders_as_a_locator_closure() {
         main.content
     );
     assert!(
-        main.content.contains("&mut |mut c, mut k| -> Option<usize> {\n        { let __q1 = crate::core_list::at__List_Int(c, k)?; Some(__q1) }"),
+        main.content.contains("&mut |mut c, mut k| -> Option<usize> {\n        crate::core_list::at__List_Int(c, k)\n"),
         "{}",
         main.content
     );

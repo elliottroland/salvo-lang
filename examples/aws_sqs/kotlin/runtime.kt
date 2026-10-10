@@ -753,8 +753,7 @@ class Scheduler : SchedTable {
         salvo.core.deque.addLastPlatform((a.slots as salvo.platform.core.deque.MutDeque<Long>), ((-1)).toLong())
         a.userLen = (a.userLen + 1)
         if (markReady(a, pools, addr)) {
-            val a_3: ActorRec = a
-            val pool: Int = a_3.pool
+            val pool: Int = a.pool
             wakePool(pools, pool)
         }
         return Union4.U1<Sent, Dead, Full, Remote>(Sent())
@@ -786,8 +785,7 @@ class Scheduler : SchedTable {
         salvo.core.deque.addLastPlatform((a.slots as salvo.platform.core.deque.MutDeque<Long>), ((-1)).toLong())
         a.userLen = (a.userLen + 1)
         if (markReady(a, pools, addr)) {
-            val a_3: ActorRec = a
-            val pool: Int = a_3.pool
+            val pool: Int = a.pool
             wakePool(pools, pool)
         }
         return true
@@ -1639,21 +1637,20 @@ fun deliverTo(actors: salvo.platform.core.list.MutList<ActorRec>, waiters: salvo
         val e: Union3<Delivered, Answered, Reported> = Union3.U2<Delivered, Answered, Reported>(Answered(slot = slot, value = value))
         salvo.core.deque.addLastPlatform((a.queue as salvo.platform.core.deque.MutDeque<Union3<Delivered, Answered, Reported>>), e)
         if (markReady(a, pools, to.addr)) {
-            val a_4: ActorRec = a
-            val pool: Int = a_4.pool
+            val pool: Int = a.pool
             wakePool(pools, pool)
         }
     } else if ((target is Union3.U2<*, *, *>)) {
         val tw: ToWaiter = ((target as Union3.U2<*, *, *>).value as ToWaiter)
         var w: WaiterRec = run {
-            val __nn_5: WaiterRec? = salvo.core.list.at__List_Int(waiters, tw.wid)
+            val __nn_4: WaiterRec? = salvo.core.list.at__List_Int(waiters, tw.wid)
             when {
-                (__nn_5 == null) -> {
+                (__nn_4 == null) -> {
                     throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1057:17"))
                 }
                 else -> {
-                    val __some_6: WaiterRec = __nn_5!!
-                    __some_6
+                    val __some_5: WaiterRec = __nn_4!!
+                    __some_5
                 }
             }
         }
@@ -1668,19 +1665,19 @@ fun deliverTo(actors: salvo.platform.core.list.MutList<ActorRec>, waiters: salvo
             unparkPlatform(p)
         }
     } else {
-        val target_7: ToTask = ((target as Union3.U3<*, *, *>).value as ToTask)
-        val __destructured_8: ToTask = target_7
-        val pool: Int = __destructured_8.pool
-        val body: salvo.platform.runtime.Body = __destructured_8.body
+        val target_6: ToTask = ((target as Union3.U3<*, *, *>).value as ToTask)
+        val __destructured_7: ToTask = target_6
+        val pool: Int = __destructured_7.pool
+        val body: salvo.platform.runtime.Body = __destructured_7.body
         val p: PoolRec = run {
-            val __nn_9: PoolRec? = salvo.core.list.at__List_Int(pools, pool)
+            val __nn_8: PoolRec? = salvo.core.list.at__List_Int(pools, pool)
             when {
-                (__nn_9 == null) -> {
+                (__nn_8 == null) -> {
                     throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1069:17"))
                 }
                 else -> {
-                    val __some_10: PoolRec = __nn_9!!
-                    __some_10
+                    val __some_9: PoolRec = __nn_8!!
+                    __some_9
                 }
             }
         }
@@ -1724,8 +1721,7 @@ fun reportFault(actors: salvo.platform.core.list.MutList<ActorRec>, pools: salvo
             salvo.core.deque.addLastPlatform((s.queue as salvo.platform.core.deque.MutDeque<Union3<Delivered, Answered, Reported>>), e)
             salvo.core.deque.addLastPlatform((s.slots as salvo.platform.core.deque.MutDeque<Long>), ((-1)).toLong())
             if (markReady(s, pools, sink)) {
-                val s_6: ActorRec = s
-                val sinkPool: Int = s_6.pool
+                val sinkPool: Int = s.pool
                 wakePool(pools, sinkPool)
             }
             return

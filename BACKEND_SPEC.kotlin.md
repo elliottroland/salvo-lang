@@ -1458,3 +1458,11 @@ Reported as codegen errors, never silent wrong code:
 * struct literal without an inferable type;
 * `copy` of a type with nested mutability or an unknown/generic type
   [kt-copy].
+
+* [ref-notsame] `NotSame`'s predicate, `core.ref`'s private intrinsic
+  `same(a, b)`, is reference identity: `(a === b)`. Exact for a handle:
+  its element is a `canbe Mut` object, never a boxed scalar, and ownership
+  means two slots never hold one object.
+* [ref-handle] The Rust backend's storage paths have no Kotlin counterpart: a
+  handle is the element reference, and the IR's container type on a `ref`
+  qualifier is ignored.

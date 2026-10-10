@@ -49,7 +49,7 @@ pub fn get<T>(list: &Vec<T>, mut index: i32) -> &T {
 }
 
 pub fn get__loc<T>(list: &Vec<T>, mut index: i32) -> usize {
-    return { let __q1 = crate::core_list::get_at_platform__loc(list, i32::wrapping_add(index, 0i32)); __q1 };
+    return crate::core_list::get_at_platform__loc(list, i32::wrapping_add(index, 0i32));
 }
 
 pub fn get_at_platform<T>(list: &Vec<T>, mut index: i32) -> &T {
@@ -70,11 +70,11 @@ pub fn replace_platform<T>(list: &mut Vec<T>, mut index: i32, mut value: T) -> T
 }
 
 pub fn at__List_Int<T>(list: &Vec<T>, mut index: i32) -> Option<usize> {
-    return { let __q1 = crate::core_list::get_platform__loc(list, index)?; Some(__q1) };
+    return crate::core_list::get_platform__loc(list, index);
 }
 
 pub fn at__List_IdxInt<T>(list: &Vec<T>, mut index: i32) -> usize {
-    return { let __q1 = crate::core_list::get__loc(list, index); __q1 };
+    return crate::core_list::get__loc(list, index);
 }
 
 pub fn update<T: Clone>(list: &mut Vec<T>, mut index: i32, f: &mut dyn FnMut(&mut T)) {

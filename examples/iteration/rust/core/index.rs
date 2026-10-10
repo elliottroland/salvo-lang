@@ -8,10 +8,6 @@ pub fn Idx__Int_qualifies<C>(mut index: i32, c: &C, size: &mut dyn FnMut(&C) -> 
     return ((index >= 0i32) && (index < size(c)));
 }
 
-pub fn NotEq__Int_qualifies(mut j: i32, mut i: i32) -> bool {
-    return (j != i);
-}
-
 #[derive(Clone, Debug, PartialEq)]
 pub struct __Iter_indices_List<'s, T> {
     pub list: &'s Vec<T>,

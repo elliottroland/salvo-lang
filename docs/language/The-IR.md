@@ -177,8 +177,9 @@ After the return type, a function signature may list:
 * **`anchors a in c, d in c`**: parameters typed `ref(c)` — handles into
   the container parameter `c` — which may therefore name the same element
   (`FnDecl::ref_anchors`; [Mutable Handles](Mutable-Handles.md)). A handle
-  parameter's own type dumps as `ref Mut T`:
-  `fn main::strike(lent_mut c: List<Mut Fighter>, lent_mut a: ref Mut Fighter, lent_mut d: ref Mut Fighter) -> None anchors a in c, d in c`.
+  parameter's own type dumps as `ref<C> Mut T`, naming its container's type
+  (what a backend builds the handle's storage path from):
+  `fn main::strike(lent_mut c: List<Mut Fighter>, lent_mut a: ref<List<Mut Fighter>> Mut Fighter, lent_mut d: ref<List<Mut Fighter>> Mut Fighter) -> None anchors a in c, d in c`.
 
 ## Statements
 

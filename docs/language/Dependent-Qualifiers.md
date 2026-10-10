@@ -127,7 +127,7 @@ let v = get(m, k)           // the total overload: an Int, not an Int?
 the same reason — growth keeps every existing index valid, and an exchange or a
 write in place moves no boundary. All of those refinements live in `core.index`,
 beside the claim, since only the claim's owner may say that a call keeps it.
-The `update` family preserves it too, which is what makes a sequence of
+`core.list`'s `update` preserves it too, which is what makes a sequence of
 in-place writes stay total ([Mutable handles](Mutable-Handles.md)).
 
 ## The other slot kinds
@@ -149,7 +149,7 @@ one of them:
 |---|---|---|
 | `Idx<C>(c)` | a valid index of *this* container | total `get`, `swap`, `replace` |
 | `KeyOf<K, V>(map)` | this key is present in *this* map | total `get` |
-| `NotEq(i)` | this `Int` differs from *that* one | `update2`, two-handle calls |
+| `NotSame(a)` | this handle names a different element from *that* one | two live handles, two-handle calls |
 | `SpanOf(str)` | `0 <= start <= end <= size(str)` | total `substr` |
 | `InRange(lo, hi)` | within a constant range | your own signatures |
 

@@ -9664,6 +9664,16 @@ impl<'p, 'r> Checker<'p, 'r> {
                 })
                 .unwrap_or_default();
         }
+        // [copy-scalar-free] A Copy scalar read out of a place is a value of
+        // its own: it shares no fate with what it was read from, so a later
+        // write there (through a handle, say) leaves it standing.
+        if self
+            .out
+            .ty_of(self.file_idx, value.span())
+            .is_some_and(|t| crate::types::is_copy_scalar(t.strip_quals()))
+        {
+            return Vec::new();
+        }
         let mut sources = Vec::new();
         Self::provenance(value, &mut sources);
         // [fate-field-disjoint] The projection this value reads out of its

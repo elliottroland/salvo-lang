@@ -68,11 +68,7 @@ pub fn get_platform__loc<K: Clone, V: Clone>(map: &crate::core_map::Map<K, V>, k
     crate::platform_core_map::slot_of(map, key, hash, eq)
 }
 
-pub fn at<'a, K: Clone, V: Clone>(map: &'a mut crate::core_map::Map<K, V>, key: &K, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> Option<&'a mut V> {
-    return { match crate::core_map::get_platform__loc(&*map, key, &mut *hash, &mut *eq) { Some(__l1) => Some(&mut map[__l1]), None => None } };
-}
-
-pub fn at__loc<K: Clone, V: Clone>(map: &crate::core_map::Map<K, V>, key: &K, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> Option<usize> {
+pub fn at<K: Clone, V: Clone>(map: &crate::core_map::Map<K, V>, key: &K, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> Option<usize> {
     return crate::core_map::get_platform__loc(map, key, &mut *hash, &mut *eq);
 }
 

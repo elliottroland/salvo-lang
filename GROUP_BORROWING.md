@@ -1037,7 +1037,9 @@ are not re-proposed. (The full exploration was §§7a–7j and Parts 3–6.)
 > resolved `at`" and every `?at` form below are replaced by storage paths
 > (Part 7's 2026-10-10 decisions; Part 9).
 
-**Status (2026-10-10): v1a, v1b and v2 for `List` and `Map` are built**
+**Status (2026-10-10): storage paths (Part 9) and `NotSame` are built** —
+generic containers and effect members' single face remain (ROADMAP 15).
+Earlier the same day: **v1a, v1b and v2 for `List` and `Map` were built**
 (COMPLETED.md, "The `ref(c)` rework: done"). What remains of v2 — generic
 and custom containers, the named `?at` forms — is ROADMAP item 15.
 
