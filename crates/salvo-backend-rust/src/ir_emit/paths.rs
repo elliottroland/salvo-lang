@@ -40,6 +40,9 @@ pub struct PathTy {
     /// The generated enum, when there is more than one shape.
     pub enum_name: Option<String>,
     pub home: Option<ModulePath>,
+    /// A handle into a container that is a type parameter: the Rust type
+    /// parameter standing for its path, walked through `Walk`.
+    pub generic: Option<String>,
 }
 
 fn dyn_count(shape: &[PStep]) -> usize {
@@ -55,6 +58,8 @@ pub enum SStep {
     Dyn(PStep, String),
     /// A value of an enum path type: its shape is only known at run time.
     Opaque(PathTy, String),
+    /// A value of a generic path type: walked through `Walk`.
+    Walk(String),
 }
 
 /// A handle: the container's root place, and the path from it.
@@ -166,7 +171,7 @@ impl<'p> Shared<'p> {
             return Err(format!("no storage of `{cs}` holds a `{}` [rs-path]", storage(e)));
         }
         if out.len() == 1 {
-            return Ok(PathTy { shapes: out, enum_name: None, home: None });
+            return Ok(PathTy { shapes: out, enum_name: None, home: None, generic: None });
         }
         if !may_enum {
             return Err(format!("internal: the path type of `{cs}` to `{}` was not declared ahead [rs-path]", storage(e)));
@@ -178,7 +183,7 @@ impl<'p> Shared<'p> {
             Ty::Named { name, .. } => self.symbols.key_modules.get(name.as_str()).map(|m| (*m).clone()),
             _ => None,
         });
-        Ok(PathTy { shapes: out, enum_name: Some(name), home })
+        Ok(PathTy { shapes: out, enum_name: Some(name), home, generic: None })
     }
 
     /// [rs-path] Every handle type the program mentions, its path type
@@ -202,6 +207,10 @@ impl<'p> Shared<'p> {
                     _ => Vec::new(),
                 };
                 for f in fns {
+                    if !ModuleEmitter::generic_path_pairs(f).is_empty() {
+                        self.needs_walk = true;
+                        self.needs_seq = true;
+                    }
                     seen_ty(&f.ret, &mut pairs);
                     for p in &f.params {
                         seen_ty(&p.ty, &mut pairs);
@@ -233,14 +242,27 @@ impl<'p> Shared<'p> {
                 if p.enum_name.is_some() {
                     self.path_enums.push(p.clone());
                 }
+                if !mentions_var(&c) && !mentions_var(&e) {
+                    self.path_pairs.push((storage(&c), storage(&e), p.clone()));
+                }
             }
             self.paths.insert(key, r);
         }
     }
 }
 
+fn mentions_var(t: &Ty) -> bool {
+    match t {
+        Ty::Var(_) => true,
+        Ty::Named { args, .. } | Ty::Union(args) | Ty::Tuple(args) => args.iter().any(mentions_var),
+        Ty::Qualified { base, .. } => mentions_var(base),
+        Ty::Array(e) => mentions_var(e),
+        _ => false,
+    }
+}
+
 /// Every (container, element) pair of the handle types inside `t`.
-fn collect_handles(t: &Ty, out: &mut Vec<(Ty, Ty)>) {
+pub fn collect_handles(t: &Ty, out: &mut Vec<(Ty, Ty)>) {
     match t {
         Ty::Qualified { quals, base } => {
             if let Some(c) = quals.iter().find(|q| q.name == "ref").and_then(|q| q.args.first()) {
@@ -283,6 +305,14 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             return None;
         };
         let e = storage(handle);
+        // [rs-path] A container that is a type parameter: the fn's own
+        // path type parameter for the pair.
+        if matches!(storage(&c), Ty::Var(_)) {
+            let key = path_key(&c, &e);
+            if let Some((_, name)) = self.f.gen_paths.iter().find(|(k, _)| *k == key) {
+                return Some(PathTy { shapes: Vec::new(), enum_name: None, home: None, generic: Some(name.clone()) });
+            }
+        }
         match self.s.path_ty(&c, &e) {
             Ok(p) => Some(p),
             Err(msg) => {
@@ -294,6 +324,9 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
 
     /// A path type's Rust spelling.
     pub fn path_rust(&self, pt: &PathTy) -> String {
+        if let Some(g) = &pt.generic {
+            return g.clone();
+        }
         if let Some(n) = &pt.enum_name {
             let prefix = pt.home.as_ref().map(|m| self.s.prefix(m)).unwrap_or_else(|| "crate::".to_string());
             return format!("{prefix}{n}");
@@ -307,6 +340,9 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
 
     /// The steps a value `code` of path type `pt` stands for.
     pub fn steps_of_value(&self, pt: &PathTy, code: &str) -> Vec<SStep> {
+        if pt.generic.is_some() {
+            return vec![SStep::Walk(code.to_string())];
+        }
         if pt.enum_name.is_some() {
             return vec![SStep::Opaque(pt.clone(), code.to_string())];
         }
@@ -361,6 +397,10 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 }
                 SStep::Tuple(t) => out.push_str(&format!(".{t}")),
                 SStep::Dyn(_, c) => out.push_str(&format!("[{c}]")),
+                SStep::Walk(code) => {
+                    let arg = self.walk_root(&out, mutable);
+                    out = if mutable { format!("(*{code}.walk({arg}))") } else { format!("(*{code}.walk_ref({arg}))") };
+                }
                 SStep::Opaque(pt, code) => {
                     let pt = pt.clone();
                     let code = code.clone();
@@ -382,6 +422,15 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
 
     /// The value of path type `pt` the steps stand for, as code.
     pub fn path_value(&mut self, steps: &[SStep], pt: &PathTy) -> Option<String> {
+        if let [SStep::Walk(code)] = steps {
+            if pt.generic.is_some() {
+                return Some(code.clone());
+            }
+        }
+        if steps.iter().any(|s| matches!(s, SStep::Walk(_))) || pt.generic.is_some() {
+            self.error("a handle into a generic container where another path type is expected [rs-path] [backend-never-wrong]");
+            return None;
+        }
         // The value itself, when it already is one of this type.
         if let [SStep::Opaque(inner, code)] = steps {
             if inner.enum_name.is_some() && inner.enum_name == pt.enum_name {
@@ -408,7 +457,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 SStep::Field(f) => PStep::Field(f.clone()),
                 SStep::Tuple(t) => PStep::Tuple(*t),
                 SStep::Dyn(d, _) => d.clone(),
-                SStep::Opaque(..) => unreachable!(),
+                SStep::Opaque(..) | SStep::Walk(_) => unreachable!(),
             })
             .collect();
         let codes: Vec<String> = steps.iter().filter_map(|s| if let SStep::Dyn(_, c) = s { Some(c.clone()) } else { None }).collect();
@@ -438,6 +487,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 (SStep::Field(x), SStep::Field(y)) => x == y,
                 (SStep::Tuple(x), SStep::Tuple(y)) => x == y,
                 (SStep::Dyn(k, x), SStep::Dyn(l, y)) => k == l && x == y,
+                (SStep::Walk(x), SStep::Walk(y)) => x == y,
                 _ => false,
             };
             if !same {
@@ -451,6 +501,13 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     /// an expression of type `(&mut E, &mut E)`. Paths that do not diverge
     /// name one element, which the checker's proof ruled out — a trap.
     pub fn split_pair(&mut self, root: &str, a: &[SStep], b: &[SStep]) -> String {
+        if let (Some(SStep::Walk(x)), Some(SStep::Walk(y))) = (a.first(), b.first()) {
+            let arg = self.walk_root(root, true);
+            let (pa, pb) = (self.fresh("u"), self.fresh("w"));
+            let ra = self.render_path(&format!("(*{pa})"), &a[1..], true);
+            let rb = self.render_path(&format!("(*{pb})"), &b[1..], true);
+            return format!("{{ let ({pa}, {pb}) = {x}.walk_pair(&{y}, {arg}).expect(\"salvo: two handles to one element\"); (&mut {ra}, &mut {rb}) }}");
+        }
         if let Some(i) = a.iter().position(|s| matches!(s, SStep::Opaque(..))).filter(|i| *i == 0) {
             let SStep::Opaque(pt, code) = &a[i] else { unreachable!() };
             let (pt, code) = (pt.clone(), code.clone());
@@ -751,5 +808,66 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         } else {
             format!("{{ {pre}let {x} = {}; &mut {place} }}", m.code)
         }
+    }
+}
+
+impl<'a, 'p> ModuleEmitter<'a, 'p> {
+    /// The container a `Walk` method takes: a reference local as itself (a
+    /// `&mut C` parameter reborrows), anything else borrowed.
+    fn walk_root(&self, root: &str, mutable: bool) -> String {
+        let is_ref = matches!(self.f.kinds.get(root), Some(Kind::Ref | Kind::RefMut));
+        if is_ref {
+            if mutable { format!("&mut *{root}") } else { format!("&*{root}") }
+        } else if mutable {
+            format!("&mut {root}")
+        } else {
+            format!("&{root}")
+        }
+    }
+
+    /// [rs-path] The path type parameters a fn's handles into generic
+    /// containers need, in a stable order: one per (container, element).
+    pub fn generic_path_pairs(f: &salvo_ir::FnDecl) -> Vec<(Ty, Ty)> {
+        let mut pairs: Vec<(Ty, Ty)> = Vec::new();
+        for p in &f.params {
+            collect_handles(&p.ty, &mut pairs);
+        }
+        collect_handles(&f.ret, &mut pairs);
+        let mut out: Vec<(Ty, Ty)> = Vec::new();
+        for (c, e) in pairs {
+            if matches!(storage(&c), Ty::Var(_)) && !out.iter().any(|(x, y)| path_key(x, y) == path_key(&c, &e)) {
+                out.push((c, e));
+            }
+        }
+        out
+    }
+
+    /// [rs-path] The `Walk` impls of the program's concrete handle types,
+    /// declared once, in the root module: what a fn generic over the
+    /// container calls.
+    pub fn walk_impls(&mut self) -> String {
+        if self.s.prefix(&self.module.path) != "crate::" || self.s.path_pairs.is_empty() || !self.s.needs_walk {
+            return String::new();
+        }
+        let pairs = self.s.path_pairs.clone();
+        let mut out = String::new();
+        let mut seen = std::collections::HashSet::new();
+        for (c, e, pt) in pairs {
+            let ct = self.ty(&c);
+            let et = self.ty(&e);
+            let pr = self.path_rust(&pt);
+            if !seen.insert((ct.clone(), et.clone(), pr.clone())) {
+                continue;
+            }
+            let steps = self.steps_of_value(&pt, "(*self)");
+            let walk = self.render_path("c", &steps, true);
+            let walk_ref = self.render_path("c", &steps, false);
+            let other = self.steps_of_value(&pt, "(*other)");
+            let pair = self.split_pair("c", &steps, &other);
+            out.push_str(&format!(
+                "\nimpl crate::seq::Walk<{ct}, {et}> for {pr} {{\n    fn walk<'a>(&self, c: &'a mut {ct}) -> &'a mut {et} {{ &mut {walk} }}\n    fn walk_ref<'a>(&self, c: &'a {ct}) -> &'a {et} {{ &{walk_ref} }}\n    fn walk_pair<'a>(&self, other: &Self, c: &'a mut {ct}) -> Option<(&'a mut {et}, &'a mut {et})> {{ if self == other {{ return None; }} Some({pair}) }}\n}}\n"
+            ));
+        }
+        out
     }
 }

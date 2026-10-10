@@ -19,3 +19,15 @@ pub fn salvo_pair_mut<T>(xs: &mut [T], i: usize, j: usize) -> Option<(&mut T, &m
         Some((&mut hi[0], &mut lo[j]))
     }
 }
+
+/// [rs-path] A handle's path into its container `C`, walked to the element
+/// `E`: what `ref(c)` *is* on Rust. A path type implements it once per
+/// (container, element) pair, so code generic over the container walks a
+/// handle it knows only as `P: Walk<C, E>`.
+pub trait Walk<C: ?Sized, E: ?Sized> {
+    fn walk<'a>(&self, c: &'a mut C) -> &'a mut E;
+    fn walk_ref<'a>(&self, c: &'a C) -> &'a E;
+    /// Two handles into one container at once, split where their paths
+    /// diverge; `None` when they name one element.
+    fn walk_pair<'a>(&self, other: &Self, c: &'a mut C) -> Option<(&'a mut E, &'a mut E)>;
+}

@@ -807,6 +807,10 @@ pub struct Checked {
     /// renders such a binding as a captured-index path handle rather than a
     /// `&` borrow, so the mutation reaches the container's storage.
     pub handle_muts: HashSet<Key>,
+    /// [deduce-syntax] [ref-handle] Per fn, the parameters its body
+    /// mutates — directly, or through a handle into them (a generic
+    /// container is lent mutably exactly when a handle into it is written).
+    pub param_mutations: HashMap<FnKey, HashSet<String>>,
     /// Projection expressions in *moved* positions whose provenance
     /// roots were consumed [fate-move-mode]: the Rust backend may render
     /// the place directly (a partial move) instead of cloning.
@@ -1241,6 +1245,7 @@ fn check_program_rounds<'p>(
             && mutations == prev_mutations
             && mut_fields == prev_mut_fields;
         if stable {
+            out.param_mutations = mutations;
             return out;
         }
         if round >= MAX_ROUNDS {
@@ -1268,6 +1273,7 @@ fn check_program_rounds<'p>(
                     ));
                 }
             }
+            out.param_mutations = mutations;
             return out;
         }
         inferred = std::mem::take(&mut out.deductions);
@@ -27112,7 +27118,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         || matches!(ret.as_ref(), Ty::Union(arms)
                             if arms.iter().any(|a| a.is_proj()));
                     if wholesale {
-                        let sources: Vec<usize> = (0..params.len())
+                        let mut sources: Vec<usize> = (0..params.len())
                             .filter(|&i| {
                                 contract
                                     .as_deref()
@@ -27123,6 +27129,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                                         .is_some_and(|t| !crate::types::is_copy_scalar(t))
                             })
                             .collect();
+                        // [ref-handle] A handle is a position in *one*
+                        // container: the first one it is lent (the
+                        // locator convention the IR and the backends read
+                        // too), not the key it was found by.
+                        if has_ref_arm(&ret) {
+                            sources.retain(|&i| !params.get(i).is_some_and(|t| matches!(t.strip_quals(), Ty::Fn { .. })));
+                            sources.truncate(1);
+                        }
                         if !sources.is_empty() {
                             self.out.derived_calls.insert(self.key(span), sources);
                         }

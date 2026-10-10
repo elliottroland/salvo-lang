@@ -79,7 +79,10 @@ impl<'a, 'p> Modes<'a, 'p> {
                 crate::check::ref_anchor_of(&p.ty).is_some_and(|c| c.name == param.name.name)
                     && type_has_mut(&p.ty)
             });
-            if mints_from || anchors {
+            // A container written through a handle minted in the body (a
+            // generic `c: C` read through `?Ref`'s `at`, then mutated).
+            let mutated = key.is_some_and(|k| self.checked.param_mutations.get(&k).is_some_and(|m| m.contains(&param.name.name)));
+            if mints_from || anchors || mutated {
                 return PassMode::LentMut;
             }
         }

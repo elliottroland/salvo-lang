@@ -1142,6 +1142,14 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         });
         let mut tps = if erased_fn { Vec::new() } else { self.generics(&f.type_params, bound) };
         self.f.generics = f.type_params.iter().map(|t| t.name.clone()).collect();
+        // [rs-path] A handle into a container that is a type parameter is a
+        // path type parameter of its own, walked through `Walk`.
+        for (k, (c, e)) in Self::generic_path_pairs(f).into_iter().enumerate() {
+            let name = format!("__P{k}");
+            let (ct, et) = (self.ty(&salvo_ir::build::refs::storage(&c)), self.ty(&e));
+            tps.push(format!("{name}: crate::seq::Walk<{ct}, {et}> + Copy + PartialEq"));
+            self.f.gen_paths.push((super::paths::path_key(&c, &e), name));
+        }
         self.f.plain_vars = self.s.plain_proj_vars(&f.type_params, &f.params, &f.borrows);
         let anchor = if loc { self.s.lend_param(f) } else { None };
         let lt = if loc { None } else { self.ret_lifetime(&f.params, &f.ret, &f.borrows, recv.is_some()) };
@@ -1561,7 +1569,19 @@ pub(crate) fn subst_ty(t: &Ty, s: &std::collections::HashMap<String, Ty>) -> Ty 
         Ty::Var(v) => s.get(v).cloned().unwrap_or_else(|| t.clone()),
         Ty::Named { name, args } if args.is_empty() && s.contains_key(name) => s[name].clone(),
         Ty::Named { name, args } => Ty::Named { name: name.clone(), args: args.iter().map(|a| subst_ty(a, s)).collect() },
-        Ty::Qualified { quals, base } => subst_ty(base, s).qualify(quals.clone()),
+        // [rs-path] A `ref`'s container is a type too.
+        Ty::Qualified { quals, base } => subst_ty(base, s).qualify(
+            quals
+                .iter()
+                .map(|q| {
+                    let mut q = q.clone();
+                    if q.name == "ref" {
+                        q.args = q.args.iter().map(|a| subst_ty(a, s)).collect();
+                    }
+                    q
+                })
+                .collect(),
+        ),
         Ty::Union(a) => Ty::Union(a.iter().map(|x| subst_ty(x, s)).collect()),
         Ty::Tuple(a) => Ty::Tuple(a.iter().map(|x| subst_ty(x, s)).collect()),
         Ty::Array(e) => Ty::Array(Box::new(subst_ty(e, s))),

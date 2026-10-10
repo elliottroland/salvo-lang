@@ -61,6 +61,9 @@ pub(crate) struct FnState {
     pub place_mut: bool,
     /// [rs-path] Rendering a lending callback's call for its path alone.
     pub want_path: bool,
+    /// [rs-path] The fn's path type parameters: (container, element) key,
+    /// and the Rust type parameter standing for it.
+    pub gen_paths: Vec<((String, String), String)>,
     /// The type parameters in scope.
     pub generics: HashSet<String>,
     /// [rs-elem-mut] Elem locals: the anchor (or place) text, and the
@@ -2075,7 +2078,11 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     _ => self.anchor_handle(a, indent, &mut pre),
                 };
                 let container = args.get(k).and_then(|c| self.anchor_handle(c, indent, &mut pre));
-                let Some(pt) = self.handle_path_ty(&f.params[i].ty) else {
+                // The callee's parameter at this call's type arguments: a
+                // container that is the callee's type parameter is this
+                // call's container.
+                let pty = super::decls::subst_ty(&f.params[i].ty, &self.f.call_subst);
+                let Some(pt) = self.handle_path_ty(&pty) else {
                     // Reported with the path type: one mistake, one diagnostic.
                     out.push("panic!()".to_string());
                     continue;
@@ -2760,7 +2767,9 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 });
                 let impl_params = self.stores_callbacks_pub(f);
                 let ta = if !erased && tps > 0 && type_args.len() == tps && type_args.iter().all(|t| !t.is_unknown() && !super::body::foreign_var(t, &self.f.generics) && (f.kind == FnKind::Plain || !self.s.holds_proj(t))) && !impl_params {
-                    let ts: Vec<String> = type_args.iter().map(|t| self.ty(t)).collect();
+                    let mut ts: Vec<String> = type_args.iter().map(|t| self.ty(t)).collect();
+                    // [rs-path] The path type parameters are inferred.
+                    ts.extend(std::iter::repeat_n("_".to_string(), Self::generic_path_pairs(f).len()));
                     // A borrowed argument (to a Salvo fn: a host's answers
                     // owned) names no lifetime of its own here (`&Fighter`,
                     // `ListYield<'_, Fighter>`), or none is said.

@@ -92,6 +92,8 @@ fn run(
         statics: HashMap::new(),
         paths: HashMap::new(),
         path_enums: Vec::new(),
+        path_pairs: Vec::new(),
+        needs_walk: false,
     };
     for m in &ir.modules {
         for d in &m.decls {
@@ -414,6 +416,10 @@ pub(crate) struct Shared<'p> {
     pub paths: HashMap<(String, String), Result<paths::PathTy, String>>,
     /// [rs-path] The generated path enums, declared with their home module.
     pub path_enums: Vec<paths::PathTy>,
+    /// [rs-path] The concrete (container, element) pairs, for `Walk` impls.
+    pub path_pairs: Vec<(Ty, Ty, paths::PathTy)>,
+    /// [rs-path] Whether some fn is generic over a handle's container.
+    pub needs_walk: bool,
 }
 
 impl<'p> Shared<'p> {
@@ -950,6 +956,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         // [rs-path] The path enums of the handles into this module's types.
         if keep.is_none() {
             body.push_str(&self.path_enums());
+            body.push_str(&self.walk_impls());
         }
         format!("{}{body}", host_imports(&body))
     }
