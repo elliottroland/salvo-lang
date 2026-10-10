@@ -100,16 +100,16 @@ use crate::core_list::size_platform;
 use crate::core_list::to_str;
 
 
-pub fn describe(e: &crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>) -> String {
+pub fn describe(mut e: crate::unions::Union2<&crate::aws_sqs::SqsError, &crate::aws::AwsError>) -> String {
     if matches!(e, crate::unions::Union2::U2(_)) {
-        let mut e_1 = match &e { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
+        let mut e_1 = match e { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
         return format!("{}: {}", e_1.code, e_1.message);
     };
-    let mut e_2 = match &e { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
+    let mut e_2 = match e { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
     if (match &e_2.code { __v => __v == &"QueueDoesNotExist", #[allow(unreachable_patterns)] _ => false }) {
         return String::from("no such queue");
     };
-    let mut e_3 = match &e { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
+    let mut e_3 = match e { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
     return format!("the service refused: {}", e_3.code.clone());
 }
 
@@ -122,7 +122,7 @@ pub fn round_trip(sqs: &crate::aws_sqs::Sqs, console: &crate::core_console::Cons
     };
     if matches!(created, crate::unions::Union2::U2(_)) {
         let mut created_1 = match created { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
-        crate::core_console::println(console, &format!("create_queue: {}", crate::describe(&crate::core_checked::detach::<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>(created_1))));
+        crate::core_console::println(console, &format!("create_queue: {}", crate::describe((&(crate::core_checked::detach::<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>(created_1))).as_ref())));
         return;
     };
     let mut created_2 = match &created { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
@@ -155,7 +155,7 @@ pub fn round_trip(sqs: &crate::aws_sqs::Sqs, console: &crate::core_console::Cons
         }));
     } else {
         let mut sent_8 = match sent { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
-        crate::core_console::println(console, &format!("send_message: {}", crate::describe(&crate::core_checked::detach::<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>(sent_8))));
+        crate::core_console::println(console, &format!("send_message: {}", crate::describe((&(crate::core_checked::detach::<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>(sent_8))).as_ref())));
     };
     let mut got: crate::unions::Union2<crate::aws_sqs::ReceiveMessageOutput, crate::core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>> = {
         let (mut r, __wid) = crate::scheduler::salvo_waiter();
@@ -188,7 +188,7 @@ pub fn round_trip(sqs: &crate::aws_sqs::Sqs, console: &crate::core_console::Cons
         }
     } else {
         let mut got_14 = match got { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
-        crate::core_console::println(console, &format!("receive_message: {}", crate::describe(&crate::core_checked::detach::<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>(got_14))));
+        crate::core_console::println(console, &format!("receive_message: {}", crate::describe((&(crate::core_checked::detach::<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>(got_14))).as_ref())));
     };
     let mut gone: crate::unions::Union2<(), crate::core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>> = {
         let (mut r, __wid) = crate::scheduler::salvo_waiter();
@@ -201,7 +201,7 @@ pub fn round_trip(sqs: &crate::aws_sqs::Sqs, console: &crate::core_console::Cons
         crate::core_console::println(console, &String::from("deleted"));
     } else {
         let mut gone_16 = match gone { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
-        crate::core_console::println(console, &format!("delete_queue: {}", crate::describe(&crate::core_checked::detach::<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>(gone_16))));
+        crate::core_console::println(console, &format!("delete_queue: {}", crate::describe((&(crate::core_checked::detach::<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>(gone_16))).as_ref())));
     };
 }
 
@@ -319,7 +319,7 @@ pub fn main() {
             }));
         } else {
             let mut missing_11 = match missing { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
-            crate::core_console::println(&__handle_2, &format!("get_queue_url: {}", crate::describe(&crate::core_checked::detach::<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>(missing_11))));
+            crate::core_console::println(&__handle_2, &format!("get_queue_url: {}", crate::describe((&(crate::core_checked::detach::<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>(missing_11))).as_ref())));
         };
     };
 }

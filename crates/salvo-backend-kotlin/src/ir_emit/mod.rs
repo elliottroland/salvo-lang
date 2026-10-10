@@ -30,10 +30,12 @@ pub fn emit_program_ir(program: &Program, abi: bool) -> Result<(Vec<EmittedFile>
     let (symbols, resolution) = salvo_backend::driver::resolve_for_emission(program, &mut checked);
     let reach = salvo_backend::driver::reach(program, &resolution, &symbols, &checked, abi);
     let wanted: HashSet<&ModulePath> = reach.emitted.iter().copied().collect();
-    let (ir, build_errors) = salvo_ir::build_program(program, &symbols, &resolution, &checked, Some(&wanted));
+    let (mut ir, build_errors) = salvo_ir::build_program(program, &symbols, &resolution, &checked, Some(&wanted));
     if !build_errors.is_empty() {
         return Err(build_errors);
     }
+    // [proj-opt-slot] A borrow of one value is that value here.
+    salvo_ir::walk::unwrap_single_borrows(&mut ir);
     let fn_names = salvo_core::naming::FnNames::compute(program);
     let mut shared = Shared {
         program,
@@ -1221,6 +1223,10 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     _ => v,
                 }
             }
+            ExprKind::BorrowAs { value, arms } => {
+                let v = self.expr(value, indent);
+                self.borrow_as(&v, &value.ty, arms, &e.ty)
+            }
             ExprKind::DropMut { value } => {
                 let v = self.expr(value, indent);
                 match value.ty.strip_quals() {
@@ -1589,7 +1595,39 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let recv = f.params.first().and_then(|p| salvo_backend::emit_util::type_base_name(&p.ty));
         if name == "copy" {
             let v = self.expr(&args[0], indent);
-            // [proj-opt-slot] An optional copies its present arm.
+            // [proj-opt-slot] A union copies arm by arm.
+            if let Ty::Union(arms) = &args[0].ty {
+                let values: Vec<Ty> = arms.iter().filter(|a| !a.is_none_ty()).cloned().collect();
+                if values.len() >= 2 {
+                    let n = values.len();
+                    let stars = vec!["*"; n].join(", ");
+                    let mut out = Vec::new();
+                    let mut identity = true;
+                    for (i, a) in values.iter().enumerate() {
+                        let Some(plan) = salvo_core::copyplan::copy_plan(self.s.symbols, a) else {
+                            self.error(format!("cannot `copy` a value of type `{}`", args[0].ty));
+                            return v;
+                        };
+                        if !matches!(plan, salvo_core::copyplan::CopyPlan::Identity) {
+                            identity = false;
+                        }
+                        let at = self.ty(a);
+                        let inner = self.render_copy(&plan, &format!("(it.value as {at})"));
+                        match self.union_arm(&e.ty, i) {
+                            Some((ctor, _)) => out.push(format!("is Union{n}.U{}<{stars}> -> {ctor}({inner})", i + 1)),
+                            None => identity = true,
+                        }
+                    }
+                    if identity {
+                        return v;
+                    }
+                    if args[0].ty.has_none_arm() {
+                        out.insert(0, "null -> null".to_string());
+                    }
+                    out.push("else -> throw IllegalStateException(\"salvo: unreachable union arm\")".to_string());
+                    return format!("({v}).let {{ when (it) {{ {} }} }}", out.join("; "));
+                }
+            }
             if let Ty::Union(arms) = &args[0].ty {
                 if arms.len() == 2 && arms.iter().any(|a| a.is_none_ty()) {
                     let arm = arms.iter().find(|a| !a.is_none_ty()).cloned().unwrap_or(Ty::Unknown);
@@ -1823,6 +1861,55 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         format!("{code}.let {{ when (it) {{ {} }} }}", arms.join("; "))
     }
 
+    /// [proj-opt-slot] A union with borrowed arms read as the owned one:
+    /// objects alias, so only two things are left to do — an arm whose
+    /// `Mut` drop is a conversion (`Mut Str`, a `StringBuilder`) converts,
+    /// and an arm that sits at another position in the target moves there.
+    fn borrow_as(&mut self, code: &str, from: &Ty, arms: &[salvo_ir::BorrowArm], to: &Ty) -> String {
+        let suffix = |f: &Ty, t: &Ty| -> Option<&'static str> {
+            let drops = f.quals().iter().any(|q| q.name == "Mut") && !t.quals().iter().any(|q| q.name == "Mut");
+            match f.strip_quals() {
+                Ty::Named { name, .. } if drops => crate::intrinsics::drop_mut_suffix(name),
+                _ => None,
+            }
+        };
+        let from = salvo_core::types::spread_union_quals(from);
+        let from_arms: Vec<Ty> = from.value_arms().into_iter().cloned().collect();
+        if arms.len() < 2 {
+            let opt = to.strip_quals().has_none_arm();
+            return match arms.first().and_then(|a| a.from.as_ref().and_then(|f| suffix(f, &a.to))) {
+                Some(sfx) if opt => format!("({code})?{sfx}"),
+                Some(sfx) => format!("({code}){sfx}"),
+                None => code.to_string(),
+            };
+        }
+        let in_place = from_arms.len() == arms.len()
+            && arms.iter().enumerate().all(|(j, a)| a.from.as_ref().is_some_and(|f| from_arms.get(j) == Some(f) && suffix(f, &a.to).is_none()));
+        if in_place {
+            return code.to_string();
+        }
+        let n = from_arms.len();
+        let stars = vec!["*"; n.max(1)].join(", ");
+        let mut out = Vec::new();
+        for (j, a) in arms.iter().enumerate() {
+            let Some(f) = &a.from else { continue };
+            let Some(i) = from_arms.iter().position(|x| x == f) else { continue };
+            let Some((ctor, _)) = self.union_arm(to, j) else { continue };
+            let at = self.ty(f);
+            let sfx = suffix(f, &a.to).unwrap_or("");
+            let pat = if n >= 2 { format!("is Union{n}.U{}<{stars}>", i + 1) } else { "else".to_string() };
+            let val = if n >= 2 { format!("(it.value as {at}){sfx}") } else { format!("(it as {at}){sfx}") };
+            out.push(format!("{pat} -> {ctor}({val})"));
+        }
+        if from.has_none_arm() && to.strip_quals().has_none_arm() {
+            out.insert(0, "null -> null".to_string());
+        }
+        if n >= 2 {
+            out.push("else -> throw IllegalStateException(\"salvo: unreachable union arm\")".to_string());
+        }
+        format!("{code}.let {{ when (it) {{ {} }} }}", out.join("; "))
+    }
+
     fn test_code(&mut self, subject: &str, subj_ty: &Ty, test: &ArmTest) -> String {
         // [actor-dispatch] A generated enum: its variant.
         if let (Ty::Named { name, .. }, ArmTest::Arm(i)) = (subj_ty.strip_quals(), test) {
@@ -2045,7 +2132,7 @@ fn assigned_locals(b: &Block) -> HashSet<Local> {
                     expr(v, out);
                 }
             }
-            ExprKind::MakeUnion { value, .. } | ExprKind::Rewrap { value, .. } | ExprKind::DropMut { value } | ExprKind::Widen { value } | ExprKind::Present { value } | ExprKind::Spread { value } => expr(value, out),
+            ExprKind::MakeUnion { value, .. } | ExprKind::Rewrap { value, .. } | ExprKind::DropMut { value } | ExprKind::BorrowAs { value, .. } | ExprKind::Widen { value } | ExprKind::Present { value } | ExprKind::Spread { value } => expr(value, out),
             _ => {}
         }
     }

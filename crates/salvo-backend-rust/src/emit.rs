@@ -240,12 +240,15 @@ pub(crate) fn generate_unions_file(sizes: &BTreeSet<usize>, wire: bool) -> Strin
         }
         let params: Vec<String> = (1..=n).map(|i| format!("T{i}")).collect();
         let params = params.join(", ");
+        // [rs-opt-borrow] `Copy` (conditional on the payloads, as every
+        // derive here) so a union of borrows — a kept union parameter — is
+        // read any number of times.
         // [col-equality] `PartialEq` so a struct holding a union can derive
         // its own: the derive is *conditional* on the payloads, so a union of
         // comparable types is comparable and one of anything else simply is
         // not — which is what a struct field needs.
         out.push_str(&format!(
-            "\n#[derive(Clone, Debug, PartialEq)]\npub enum Union{n}<{params}> {{\n"
+            "\n#[derive(Clone, Copy, Debug, PartialEq)]\npub enum Union{n}<{params}> {{\n"
         ));
         for i in 1..=n {
             out.push_str(&format!("    U{i}(T{i}),\n"));
@@ -268,6 +271,21 @@ pub(crate) fn generate_unions_file(sizes: &BTreeSet<usize>, wire: bool) -> Strin
                  }}\n    }}\n"
             ));
         }
+        // [rs-opt-borrow] The union of borrows of this one: what a kept
+        // (`as_ref`) or mutated (`as_mut`) union parameter takes.
+        let refs: Vec<String> = (1..=n).map(|i| format!("&T{i}")).collect();
+        let muts: Vec<String> = (1..=n).map(|i| format!("&mut T{i}")).collect();
+        let arms: Vec<String> = (1..=n).map(|i| format!("            Union{n}::U{i}(v) => Union{n}::U{i}(v),\n")).collect();
+        out.push_str(&format!(
+            "    pub fn as_ref(&self) -> Union{n}<{}> {{\n        match self {{\n{}        }}\n    }}\n",
+            refs.join(", "),
+            arms.concat()
+        ));
+        out.push_str(&format!(
+            "    pub fn as_mut(&mut self) -> Union{n}<{}> {{\n        match self {{\n{}        }}\n    }}\n",
+            muts.join(", "),
+            arms.concat()
+        ));
         // [interp-union] The text of the arm held: `f{i}` renders arm `i`.
         let fs: Vec<String> = (1..=n).map(|i| format!("f{i}: &mut dyn FnMut(&T{i}) -> String")).collect();
         out.push_str(&format!("    pub fn to_str(&self, {}) -> String {{\n        match self {{\n", fs.join(", ")));

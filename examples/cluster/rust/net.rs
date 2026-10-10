@@ -91,12 +91,12 @@ impl NetError {
     }
 }
 
-pub fn to_str__NetError(e: &crate::unions::Union2<crate::net::Unreachable, crate::net::WireFailed>) -> String {
+pub fn to_str__NetError(mut e: crate::unions::Union2<&crate::net::Unreachable, &crate::net::WireFailed>) -> String {
     return if matches!(e, crate::unions::Union2::U1(_)) {
-        let mut e_1 = match &e { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
+        let mut e_1 = match e { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
         return format!("unreachable: {}", crate::net::to_str__NodeEndpoint(&e_1.to));
     } else {
-        let mut e_2 = match &e { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
+        let mut e_2 = match e { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
         return format!("wire failed to {}: {}", crate::net::to_str__NodeEndpoint(&e_2.to), e_2.reason);
     };
 }

@@ -51,10 +51,12 @@ fn run(
     let (symbols, resolution) = salvo_backend::driver::resolve_for_emission(program, &mut checked);
     let reach = salvo_backend::driver::reach(program, &resolution, &symbols, &checked, abi);
     let wanted: HashSet<&ModulePath> = reach.emitted.iter().copied().collect();
-    let (ir, build_errors) = salvo_ir::build_program(program, &symbols, &resolution, &checked, Some(&wanted));
+    let (mut ir, build_errors) = salvo_ir::build_program(program, &symbols, &resolution, &checked, Some(&wanted));
     if !build_errors.is_empty() {
         return Err(build_errors);
     }
+    // [proj-opt-slot] A borrow of one value is that value here.
+    salvo_ir::walk::unwrap_single_borrows(&mut ir);
     PLAIN_EFFECTS.with(|p| *p.borrow_mut() = symbols.effects.iter().filter(|(_, e)| !e.is_actor).map(|(k, _)| k.to_string()).collect());
     let (mod_names, mut used) = module_mod_names(&reach.emitted);
     // [rs-crate] The crate root: the module declaring `fn main` with a body,
@@ -544,11 +546,12 @@ impl<'p> Shared<'p> {
         ps.iter()
             .map(|p| {
                 let ty = self.unalias(&p.ty);
-                // [rs-opt-borrow] A kept optional is read, never moved: it
-                // is the optional *of a borrow*, `Option<&T>`, taken by
-                // value — what `get` answers, and what an owned optional
-                // lends with `.as_ref()`.
-                if let Some(t) = self.kept_optional(&ty, p) {
+                // [rs-opt-borrow] A kept union (an optional included) is
+                // read, never moved: it is the union *of borrows*,
+                // `Union2<&A, &B>` / `Option<&T>`, taken by value — what a
+                // `get` answers, and what an owned union lends arm by arm.
+                // A mutated one borrows each arm mutably.
+                if let Some(t) = self.kept_union(&ty, p) {
                     return salvo_ir::Param { ty: t, mode: salvo_ir::PassMode::Moved, ..p.clone() };
                 }
                 salvo_ir::Param { ty, ..p.clone() }
@@ -556,28 +559,29 @@ impl<'p> Shared<'p> {
             .collect()
     }
 
-    /// [rs-opt-borrow] A read-only parameter `x: T?` (one non-`Copy` value
-    /// arm) as the borrowed optional `(proj T)?` it is rendered as.
-    fn kept_optional(&self, ty: &Ty, p: &salvo_ir::Param) -> Option<Ty> {
-        if p.mode != salvo_ir::PassMode::Lent || p.variadic {
+    /// [rs-opt-borrow] A kept or mutated parameter of a union type (`T?`
+    /// among them) as the union of borrows it is rendered as: each
+    /// non-`Copy` value arm borrowed (`proj`, or `ref` for a mutated one),
+    /// `Copy` arms by value. A type variable's arm, a fn arm, or an arm
+    /// that holds a borrow itself leaves the parameter as it was.
+    fn kept_union(&self, ty: &Ty, p: &salvo_ir::Param) -> Option<Ty> {
+        if p.mode == salvo_ir::PassMode::Moved || p.variadic {
             return None;
         }
-        let Ty::Union(arms) = ty else { return None };
-        if arms.len() != 2 {
+        let mutable = p.mode == salvo_ir::PassMode::LentMut;
+        let ty = salvo_core::types::spread_union_quals(ty);
+        let Ty::Union(arms) = &ty else { return None };
+        let values: Vec<&Ty> = arms.iter().filter(|a| !a.is_none_ty()).collect();
+        if values.is_empty() || !values.iter().any(|v| !is_copy_ty(v)) {
             return None;
         }
-        let v = arms.iter().find(|a| !a.is_none_ty())?;
-        // A type variable's optional is left alone: `T` binds to the
-        // argument's own arm, a borrow included, so `&Option<T>` already
-        // takes `get`'s answer.
-        if !arms.iter().any(|a| a.is_none_ty()) || is_copy_ty(v) || matches!(v.strip_quals(), Ty::Fn { .. } | Ty::Var(_)) || is_mut_borrow(v) {
+        if values.iter().any(|v| matches!(v.strip_quals(), Ty::Fn { .. } | Ty::Union(_)) || salvo_core::types::mentions_var(v) || (!is_proj(v) && self.holds_proj(v))) {
             return None;
         }
-        if !is_proj(v) && self.holds_proj(v) {
+        if values.iter().any(|v| is_proj(v) && (mutable != is_mut_borrow(v))) {
             return None;
         }
-        let borrowed = if is_proj(v) { v.clone() } else { v.clone().qualify(vec![salvo_core::types::Qual::plain("proj", Vec::new())]) };
-        Some(Ty::Union(vec![borrowed, Ty::none()]))
+        Some(borrowed_arms(&ty, mutable))
     }
 
     /// [rs-loc] Whether a fn type answers a mutable lend (a callback that
@@ -932,10 +936,23 @@ pub(crate) fn is_ref(t: &Ty) -> bool {
     t.quals().iter().any(|q| q.name == "ref") && !is_copy_ty(t)
 }
 
-/// [rs-opt-borrow] Whether `t` is the optional of a borrow, `Option<&T>`
-/// (or of a mutable handle, `Option<&mut T>`).
-pub(crate) fn is_opt_borrow(t: &Ty) -> bool {
-    matches!(t, Ty::Union(arms) if arms.len() == 2 && arms.iter().any(|a| a.is_none_ty()) && arms.iter().any(is_proj))
+/// [rs-opt-borrow] Whether `t` is a union of borrows: some value arm a
+/// borrow (`Option<&T>`, `Union2<&A, B>`, `Option<&mut T>`).
+pub(crate) fn is_borrowed_union(t: &Ty) -> bool {
+    matches!(t, Ty::Union(arms) if arms.iter().any(is_proj))
+}
+
+/// [rs-opt-borrow] A union with each non-`Copy`, owned value arm borrowed —
+/// `proj` to read, `ref` (with the arm's `Mut`) to mutate.
+pub(crate) fn borrowed_arms(t: &Ty, mutable: bool) -> Ty {
+    let t = salvo_core::types::spread_union_quals(t);
+    let Ty::Union(arms) = &t else { return t };
+    let q = if mutable { "ref" } else { "proj" };
+    Ty::Union(
+        arms.iter()
+            .map(|a| if a.is_none_ty() || is_copy_ty(a) || is_proj(a) { a.clone() } else { a.clone().qualify(vec![salvo_core::types::Qual::plain(q, Vec::new())]) })
+            .collect(),
+    )
 }
 
 pub(crate) fn is_mut(t: &Ty) -> bool {

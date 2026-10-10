@@ -309,6 +309,14 @@ pub fn apply_coercion(c: &Coercion, value: Expr, span: Span) -> Expr {
             Expr { ty: erase(target), span, kind: ExprKind::Present { value: Box::new(value) } }
         }
         Coercion::NoneUnit => Expr { ty: Ty::none(), span, kind: ExprKind::Unit },
+        Coercion::BorrowAs { from, to } => {
+            let arms = salvo_core::types::read_arm_map(&erase(from), &erase(to))
+                .unwrap_or_default()
+                .into_iter()
+                .map(|(from, to)| crate::ir::BorrowArm { from, to })
+                .collect();
+            Expr { ty: erase(to), span, kind: ExprKind::BorrowAs { value: Box::new(value), arms } }
+        }
         Coercion::DropMut { from, then } => {
             // An optional drops `Mut` on its present arm [proj-opt-slot].
             let ty = match erase(from) {

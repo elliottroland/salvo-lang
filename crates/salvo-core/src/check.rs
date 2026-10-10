@@ -304,6 +304,16 @@ pub enum Coercion {
         from: Ty,
         then: Option<Box<Coercion>>,
     },
+    /// [proj-opt-slot] A union with borrowed arms (`proj Mut A | B`, an
+    /// optional handle) read where an owned union is expected — a kept
+    /// position, which only reads: each arm of `from` is read as the arm of
+    /// `to` it lands on ([`crate::types::read_arm_map`]). What an arm does
+    /// is the pair: a handle read as its element (`ref Mut A` → `Mut A`), a
+    /// borrow read as the value (`proj Mut A` → `A`, a `Mut` drop on the
+    /// way), an owned arm lent. A backend with references builds the
+    /// borrowed rendering of `to` from it; one without may ignore all but
+    /// the `Mut` drops.
+    BorrowAs { from: Ty, to: Ty },
 }
 
 /// The effect whose operation is non-resumptive [throw]. Declared in std
@@ -6866,18 +6876,18 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // (P-3's lift, user decisions 2026-09-24; the narrowing of
                 // [proj-readonly]; [ref-handle] for the `ref`-only split).
                 && (!Self::carries_mut(param) || (arg.is_ref() && Self::carries_mut(arg))))
-            // [proj-opt-slot] A borrowed optional — `(proj T)?` or an
-            // optional handle — fits a kept owned `T?` position: its
-            // value arm is read as the parameter's, the `None` arm is
-            // `None` (user decision 2026-10-10). The general union with a
-            // borrowed arm is not taken yet (ROADMAP).
-            || (kept && self.optional_borrow_fits(arg, param))
-            // `proj T` with `T` bound to an owned optional (`copy`'s): the
+            // [proj-opt-slot] A union with borrowed arms — `(proj T)?`, an
+            // optional handle, `proj A | B` — fits a kept owned union
+            // position **arm by arm**: each value arm is read as the
+            // parameter's arm it lands on, by the rule above, and `None`
+            // is `None` (user decisions 2026-10-10).
+            || (kept && self.union_borrow_fits(arg, param))
+            // `proj T` with `T` bound to an owned union (`copy`'s): the
             // borrow reads each value arm.
-            || (kept && param.is_proj() && Self::optional_proj_fits(arg, param))
+            || (kept && param.is_proj() && Self::union_proj_fits(arg, param))
     }
 
-    fn optional_proj_fits(arg: &Ty, param: &Ty) -> bool {
+    fn union_proj_fits(arg: &Ty, param: &Ty) -> bool {
         let projs: Vec<crate::types::Qual> = param.quals().iter().filter(|q| crate::types::is_proj_name(&q.name)).cloned().collect();
         let Ty::Union(parms) = param.strip_top_proj() else {
             return false;
@@ -6886,16 +6896,30 @@ impl<'p, 'r> Checker<'p, 'r> {
         matches!(arg, Ty::Union(_)) && is_subtype(arg, &spread)
     }
 
-    fn optional_borrow_fits(&self, arg: &Ty, param: &Ty) -> bool {
-        let (Ty::Union(arms), Ty::Union(parms)) = (arg, param) else {
+    fn union_borrow_fits(&self, arg: &Ty, param: &Ty) -> bool {
+        let arg = crate::types::spread_union_quals(arg);
+        let param = crate::types::spread_union_quals(param);
+        let (Ty::Union(arms), Ty::Union(parms)) = (&arg, &param) else {
             return false;
         };
-        let value: Vec<&Ty> = arms.iter().filter(|a| !a.is_none_ty()).collect();
-        let pvalue: Vec<&Ty> = parms.iter().filter(|a| !a.is_none_ty()).collect();
-        let ([a], [p]) = (value.as_slice(), pvalue.as_slice()) else {
+        if !arms.iter().any(|a| a.is_proj()) || parms.iter().any(|p| p.is_proj()) {
             return false;
-        };
-        arms.len() == 2 && parms.len() == 2 && a.is_proj() && !p.is_proj() && !Self::carries_mut(p) && self.arg_fits_param(a, p, true)
+        }
+        // A type variable binds to the argument's own arm, borrow included;
+        // one inside an arm (`Box<A> | Int`) is left to unification, which
+        // reads the borrow as part of the type.
+        if parms.iter().any(crate::types::mentions_var) {
+            return false;
+        }
+        if crate::types::read_arm_map(&arg, &param).is_none() {
+            return false;
+        }
+        arms.iter().all(|a| {
+            if a.is_none_ty() {
+                return parms.iter().any(|p| p.is_none_ty());
+            }
+            parms.iter().filter(|p| !p.is_none_ty()).any(|p| self.arg_fits_param(a, p, true))
+        })
     }
 
     /// [effect-available] Where a name's **one overload set** sends a call
@@ -15788,7 +15812,12 @@ impl<'p, 'r> Checker<'p, 'r> {
             // recorded as mutated so its inferred contract takes the
             // exhaustive form [deduce-syntax]. The bind event is recorded
             // for the emitter (P-9: mode is inferred per binding).
-            let handle_ty = |t: &Ty| t.is_ref() && Self::carries_mut(t);
+            // An optional handle is one too: what mutates is its present
+            // arm, handed to a `Mut T?` position [proj-opt-slot].
+            let handle_ty = |t: &Ty| {
+                let one = |t: &Ty| t.is_ref() && Self::carries_mut(t);
+                one(t) || matches!(t, Ty::Union(arms) if arms.iter().any(one))
+            };
             let (poisoned, declared_handle) = self
                 .lookup(name)
                 .map(|v| (matches!(v.narrowed, Ty::Never), handle_ty(&v.declared)))
@@ -15802,7 +15831,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             let handle_mut = self
                 .lookup(name)
                 .map(|v| v.narrowed.clone())
-                .is_some_and(|t| t.is_ref() && Self::carries_mut(&t));
+                .is_some_and(|t| handle_ty(&t));
             if handle_mut {
                 for l in links.clone() {
                     self.record_param_mutation(&l.root_name);
@@ -25818,6 +25847,30 @@ impl<'p, 'r> Checker<'p, 'r> {
         if expected.is_unknown() || logical.is_unknown() {
             return;
         }
+        // [proj-opt-slot] Borrowed arms read into an owned union: the
+        // per-arm reading replaces whatever representation change was
+        // recorded (a rewrap, a drop), since it says all of it.
+        // A single borrow is the one-arm case (`proj X` into a kept `X`):
+        // the IR says it the same way, so every such reading is visible.
+        let single = logical.is_proj()
+            && !matches!(crate::types::spread_union_quals(logical), Ty::Union(_))
+            && !matches!(logical.strip_quals(), Ty::Fn { .. })
+            && !crate::types::is_copy_scalar(logical.strip_quals());
+        if (single || crate::types::has_borrowed_arm(logical)) && !expected.is_proj() {
+            let to = crate::types::spread_union_quals(expected);
+            let owned = |a: &Ty| !(a.is_proj() || crate::types::mentions_var(a) || matches!(a.strip_quals(), Ty::Any | Ty::Never | Ty::Unknown | Ty::Fn { .. }));
+            // A single borrow wrapped into a union arm keeps its wrap: the
+            // node is the one-arm reading, `proj X` → `X`.
+            let plain = match &to {
+                Ty::Union(arms) => !single && arms.iter().all(owned),
+                t => owned(t),
+            };
+            if plain && crate::types::read_arm_map(logical, &to).is_some() {
+                let key = self.key(span);
+                self.out.coerce.insert(key, Coercion::BorrowAs { from: logical.clone(), to });
+                return;
+            }
+        }
         // A `Mut` arm anywhere in the expected type means the value may
         // stay a builder: `Mut Str`, `Mut Str?`, and a generic position
         // (whose pattern is substituted to the argument's own type) all
@@ -26317,13 +26370,11 @@ fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
                     names.extend(crate::types::proj_names());
                 }
                 match arg {
-                    // [proj-opt-slot] An optional borrow read through `proj
-                    // T` binds `T` to the owned optional: `copy(get(xs, i))`
-                    // is a `Str?` of its own.
+                    // [proj-opt-slot] A union with borrowed arms read through
+                    // `proj T` binds `T` to the owned union: `copy(get(xs,
+                    // i))` is a `Str?` of its own.
                     Ty::Union(arms)
                         if pq.iter().any(|q| crate::types::is_proj_name(&q.name))
-                            && arms.len() == 2
-                            && arms.iter().any(|a| a.is_none_ty())
                             && arms.iter().any(|a| a.is_proj()) =>
                     {
                         Ty::Union(arms.iter().map(|a| a.clone().remove_quals(&names)).collect())

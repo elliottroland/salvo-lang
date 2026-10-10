@@ -649,6 +649,70 @@ impl Ty {
     }
 }
 
+/// [proj-opt-slot] A union with its top-level qualifiers moved onto its value
+/// arms: `Mut (A | B)` is `Mut A | Mut B`, which is how an arm-wise reading
+/// sees it. Anything else is itself.
+pub fn spread_union_quals(t: &Ty) -> Ty {
+    match t {
+        Ty::Qualified { quals, base } if matches!(**base, Ty::Union(_)) => {
+            let Ty::Union(arms) = &**base else { unreachable!() };
+            Ty::Union(
+                arms.iter()
+                    .map(|a| if a.is_none_ty() { a.clone() } else { a.clone().qualify(quals.clone()) })
+                    .collect(),
+            )
+        }
+        other => other.clone(),
+    }
+}
+
+/// Whether a type variable occurs anywhere in `t`.
+pub fn mentions_var(t: &Ty) -> bool {
+    match t {
+        Ty::Var(_) => true,
+        Ty::Named { args, .. } | Ty::Union(args) | Ty::Tuple(args) => args.iter().any(mentions_var),
+        Ty::Qualified { base, .. } => mentions_var(base),
+        Ty::Array(e) => mentions_var(e),
+        Ty::Fn { params, ret, effects, .. } => params.iter().chain(effects).any(mentions_var) || mentions_var(ret),
+        _ => false,
+    }
+}
+
+/// [proj-opt-slot] Whether a union has a borrowed (`proj`/`ref`) value arm.
+pub fn has_borrowed_arm(t: &Ty) -> bool {
+    matches!(spread_union_quals(t), Ty::Union(arms) if arms.iter().any(|a| a.is_proj()))
+}
+
+/// [proj-opt-slot] How a value with borrowed arms is borrowed as an owned
+/// one (a value that is not a union being its one arm):
+/// for each value arm of `to`, in order, the arm of `from` that lands there
+/// (`None` when no arm of `from` does). An arm lands where its type, with
+/// `proj`/`ref` and `Mut` dropped, is the target arm's with `Mut` dropped —
+/// the arm identity of [union-arm-identity], which erases qualifiers, except
+/// that a wrapper tag (`Ok`, `Err`) is kept, since it is what tells two arms
+/// of one base apart. `None` when some value arm of `from` lands nowhere.
+pub fn read_arm_map(from: &Ty, to: &Ty) -> Option<Vec<(Option<Ty>, Ty)>> {
+    // A value that is not a union is its one arm.
+    let arms_of = |t: &Ty| match spread_union_quals(t) {
+        Ty::Union(arms) => arms,
+        other => vec![other],
+    };
+    let (fa, ta) = (arms_of(from), arms_of(to));
+    // One arm to one arm: it lands there, whatever claims it carries.
+    if fa.len() == 1 && ta.len() == 1 && !fa[0].is_none_ty() && !ta[0].is_none_ty() {
+        return Some(vec![(Some(fa[0].clone()), ta[0].clone())]);
+    }
+    let mut drop: HashSet<String> = proj_names();
+    drop.insert("Mut".to_string());
+    let key = |t: &Ty| t.clone().remove_quals(&drop);
+    let tv: Vec<Ty> = ta.iter().filter(|a| !a.is_none_ty()).cloned().collect();
+    let fv: Vec<Ty> = fa.iter().filter(|a| !a.is_none_ty()).cloned().collect();
+    if fv.iter().any(|f| !tv.iter().any(|t| key(t) == key(f))) {
+        return None;
+    }
+    Some(tv.iter().map(|t| (fv.iter().find(|f| key(f) == key(t)).cloned(), t.clone())).collect())
+}
+
 /// The subtype relation. `Unknown` is compatible in both directions so that
 /// unchecked code never produces cascading errors.
 pub fn is_subtype(a: &Ty, b: &Ty) -> bool {

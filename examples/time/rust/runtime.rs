@@ -1758,20 +1758,20 @@ pub fn untrack(actors: &mut Vec<crate::runtime::ActorRec>, waiters: &mut Vec<cra
     let mut slot: i64 = __destructured_1.slot;
     let mut tracked: bool = __destructured_1.tracked;
     if tracked {
-        crate::runtime::release(&mut *actors, &mut *waiters, &mut *pools, &target);
+        crate::runtime::release(&mut *actors, &mut *waiters, &mut *pools, (&target).as_ref());
     };
     return crate::runtime::Token { target: target, slot: slot, tracked: false };
 }
 
-pub fn release(actors: &mut Vec<crate::runtime::ActorRec>, waiters: &mut Vec<crate::runtime::WaiterRec>, pools: &mut Vec<crate::runtime::PoolRec>, target: &crate::unions::Union3<crate::runtime::ToActor, crate::runtime::ToWaiter, crate::runtime::ToTask>) {
+pub fn release(actors: &mut Vec<crate::runtime::ActorRec>, waiters: &mut Vec<crate::runtime::WaiterRec>, pools: &mut Vec<crate::runtime::PoolRec>, mut target: crate::unions::Union3<&crate::runtime::ToActor, &crate::runtime::ToWaiter, &crate::runtime::ToTask>) {
     if matches!(target, crate::unions::Union3::U1(_)) {
-        let mut to = match &target { crate::unions::Union3::U1(__v) => __v, _ => unreachable!() };
+        let mut to = match target { crate::unions::Union3::U1(__v) => __v, _ => unreachable!() };
         let __h1: usize = crate::core_list::at__List_Int(&*actors, to.addr).expect("salvo: value is absent at runtime:997:17");
         if (actors[__h1].owed > 0i32) {
             actors[__h1].owed = i32::wrapping_sub(actors[__h1].owed, 1i32);
         };
     } else if matches!(target, crate::unions::Union3::U2(_)) {
-        let mut tw = match &target { crate::unions::Union3::U2(__v) => __v, _ => unreachable!() };
+        let mut tw = match target { crate::unions::Union3::U2(__v) => __v, _ => unreachable!() };
         let mut pool: i32 = {
             let mut __proj_5: &crate::runtime::WaiterRec = {
                 let mut __nn_3: Option<&crate::runtime::WaiterRec> = crate::core_list::get_platform::<crate::runtime::WaiterRec>(&*waiters, tw.wid);
@@ -1789,7 +1789,7 @@ pub fn release(actors: &mut Vec<crate::runtime::ActorRec>, waiters: &mut Vec<cra
             pools[__h2].owed = i32::wrapping_sub(pools[__h2].owed, 1i32);
         };
     } else {
-        let mut target_8 = match &target { crate::unions::Union3::U3(__v) => __v, _ => unreachable!() };
+        let mut target_8 = match target { crate::unions::Union3::U3(__v) => __v, _ => unreachable!() };
         let __h3: usize = crate::core_list::at__List_Int(&*pools, target_8.pool).expect("salvo: value is absent at runtime:1008:17");
         if (pools[__h3].owed > 0i32) {
             pools[__h3].owed = i32::wrapping_sub(pools[__h3].owed, 1i32);
@@ -1820,7 +1820,7 @@ pub fn deliver_to(actors: &mut Vec<crate::runtime::ActorRec>, waiters: &mut Vec<
     let mut slot: i64 = __destructured_1.slot;
     let mut tracked: bool = __destructured_1.tracked;
     if tracked {
-        crate::runtime::release(&mut *actors, &mut *waiters, &mut *pools, &target);
+        crate::runtime::release(&mut *actors, &mut *waiters, &mut *pools, (&target).as_ref());
     };
     if matches!(target, crate::unions::Union3::U1(_)) {
         let mut to = match &target { crate::unions::Union3::U1(__v) => __v, _ => unreachable!() };

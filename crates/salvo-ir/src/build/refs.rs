@@ -254,6 +254,7 @@ fn expr(e: &mut Expr, env: &mut HashMap<String, Ty>, lends: &HashMap<DeclId, Opt
         | ExprKind::Rewrap { value, .. }
         | ExprKind::DropMut { value }
         | ExprKind::Present { value }
+        | ExprKind::BorrowAs { value, .. }
         | ExprKind::Widen { value }
         | ExprKind::Spread { value } => expr(value, env, lends),
         ExprKind::Branch { arms, otherwise, .. } => {
@@ -316,6 +317,15 @@ fn expr(e: &mut Expr, env: &mut HashMap<String, Ty>, lends: &HashMap<DeclId, Opt
             }
         }
         _ => {}
+    }
+    // [proj-opt-slot] A `BorrowAs`'s arms name the container their value's
+    // handles are in, as the value's own type does.
+    if let ExprKind::BorrowAs { value, arms } = &mut e.kind {
+        for a in arms.iter_mut() {
+            if let Some(f) = &mut a.from {
+                copy_container(f, &value.ty);
+            }
+        }
     }
     fix_fn_types(&mut e.ty);
     if !has_ref(&e.ty) {

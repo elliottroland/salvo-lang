@@ -380,6 +380,9 @@ pub fn lower_tables(out: &mut crate::check::Checked) {
                     Some(Coercion::Rewrap { from: f, to: t })
                 }
             }
+            Coercion::BorrowAs { from, to } if (mentions_lit(from) || mentions_lit(to)) => {
+                Some(Coercion::BorrowAs { from: collapse_ty(from), to: collapse_ty(to) })
+            }
             other => Some(other.clone()),
         }
     }

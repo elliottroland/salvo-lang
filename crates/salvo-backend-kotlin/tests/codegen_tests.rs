@@ -5060,7 +5060,141 @@ fn kotlinc_compiles_and_runs_deque_handles_and_the_total_map_at() -> KotlinCase 
     kotlin_case(files, "deque-map-at", DEQUE_MAP_AT_OUTPUT)
 }
 
+
+/// [proj-opt-slot] [rs-opt-borrow] Unions of borrows: a `proj Mut A | B`
+/// value, an owned union and an optional `get` all reach kept `A | B` and
+/// `(A | B)?` parameters, which bind, narrow and pass the union on; a `Mut A
+/// | Mut B` parameter is mutated through its arm; `copy` of a borrowed union
+/// is an owned one.
+pub const UNION_BORROW_DEMO: &str = r#"
+struct A canbe Mut { n: Int }
+struct B canbe Mut { s: Str }
+
+fn describe(x: A | B) -> Str => x {
+    if x is A {
+        return "a${x.n}"
+    }
+    if x is B {
+        return "b${x.s}"
+    }
+    return "?"
+}
+
+fn relay(x: A | B) -> Str => x {
+    let y = x
+    return "${describe(y)}/${describe(x)}"
+}
+
+fn maybe(x: (A | B)?) -> Str => x {
+    if x is None {
+        return "none"
+    }
+    if x is A {
+        return "A${x.n}"
+    }
+    return "other"
+}
+
+fn bump(x: Mut A | Mut B) -> None => x: None {
+    if x is A {
+        x.n = x.n + 1
+    }
+    if x is B {
+        x.s = "${x.s}+"
+    }
+}
+
+fn pick(flag: Bool, xs: List<Mut A>, b: B) -> Str => xs, b {
+    let v = if flag { get(xs, 0)! } else { b }
+    return relay(v)
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let xs: List<Mut A> = list_of(Mut A { n: 1 })
+    let b = B { s: "x" }
+    println("${pick(true, xs, b)} ${pick(false, xs, b)}")
+    let own: A | B = A { n: 7 }
+    println("${describe(own)} ${relay(own)} ${maybe(own)} ${maybe(None)} ${maybe(get(xs, 0))} ${maybe(get(xs, 3))}")
+    let m: Mut A | Mut B = Mut B { s: "q" }
+    bump(m)
+    bump(m)
+    let h = at(xs, 0)!
+    let w: Mut A | Mut B = Mut A { n: 0 }
+    bump(w)
+    println("${describe(m)} ${describe(w)} ${get(xs, 0)!.n}")
+    let c = copy(if true { get(xs, 0)! } else { b })
+    println(describe(c))
+    let _ = h
+}
+"#;
+
+pub const UNION_BORROW_OUTPUT: &str = "a1/a1 bx/bx\na7 a7/a7 A7 none A1 none\nbq++ a1 1\na1\n";
+
+/// [proj-opt-slot] [rs-opt-borrow] A `Mut T?` parameter takes an optional
+/// handle, a bound one more than once, an owned optional and `None`; it is
+/// handed on to another `Mut T?` parameter. On Rust it is `Option<&mut T>`.
+pub const MUT_OPT_SLOT_DEMO: &str = r#"
+struct Entity canbe Mut { hp: Int }
+
+fn heal(e: Mut Entity?) -> Int => e: Mut {
+    if e is Entity {
+        e.hp = e.hp + 1
+        return e.hp
+    }
+    return -1
+}
+
+fn heal_twice(e: Mut Entity?) -> None => e: Mut {
+    heal(e)
+    heal(e)
+}
+
+fn shout(s: Mut Str?) -> None => s: Mut {
+    if s is Mut Str {
+        append(s, "!")
+    }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let es: List<Mut Entity> = list_of(Mut Entity { hp: 3 }, Mut Entity { hp: 10 })
+    println("${heal(at(es, 0))} ${heal(at(es, 9))}")
+    let h = at(es, 1)
+    heal(h)
+    heal_twice(h)
+    heal_twice(at(es, 0))
+    let own: Mut Entity? = Mut Entity { hp: 100 }
+    heal(own)
+    heal(None)
+    let ws: List<Mut Str> = list_of(mut_str("hey"))
+    shout(at(ws, 0))
+    shout(at(ws, 0))
+    println("${get(es, 0)!.hp} ${get(es, 1)!.hp} ${own!.hp} ${get(ws, 0)!}")
+}
+"#;
+
+pub const MUT_OPT_SLOT_OUTPUT: &str = "4 -1\n6 13 101 hey!!\n";
+
+fn kotlinc_compiles_and_runs_unions_of_borrows() -> KotlinCase {
+    let program = build_program(&[("main.sv", UNION_BORROW_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "union-borrow", UNION_BORROW_OUTPUT)
+}
+
+fn kotlinc_compiles_and_runs_mut_optional_slots() -> KotlinCase {
+    let program = build_program(&[("main.sv", MUT_OPT_SLOT_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "mut-opt-slot", MUT_OPT_SLOT_OUTPUT)
+}
+
 const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
+    kotlinc_compiles_and_runs_unions_of_borrows,
+    kotlinc_compiles_and_runs_mut_optional_slots,
     kotlinc_compiles_and_runs_deque_handles_and_the_total_map_at,
     kotlinc_compiles_and_runs_borrowed_optionals_in_owned_optional_slots,
     kotlinc_compiles_and_runs_a_lending_member_through_a_struct_field,

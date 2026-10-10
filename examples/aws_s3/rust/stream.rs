@@ -65,12 +65,12 @@ impl crate::wire::__Wire for StreamFailed {
     }
 }
 
-pub fn to_str(kind: &crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>) -> String {
+pub fn to_str(mut kind: crate::unions::Union2<&crate::stream::InvalidUtf8, &crate::stream::StreamFailed>) -> String {
     return if matches!(kind, crate::unions::Union2::U1(_)) {
-        let mut kind_1 = match &kind { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
+        let mut kind_1 = match kind { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
         return format!("not valid UTF-8: {}", kind_1.source);
     } else {
-        let mut kind_2 = match &kind { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
+        let mut kind_2 = match kind { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
         return format!("stream failed: {}: {}", kind_2.source, kind_2.message);
     };
 }

@@ -166,28 +166,28 @@ impl crate::wire::__Wire for Streaming {
     }
 }
 
-pub fn to_str(kind: &crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>) -> String {
+pub fn to_str(mut kind: crate::unions::Union7<&crate::fs::NotFound, &crate::fs::PermissionDenied, &crate::fs::AlreadyExists, &crate::fs::NotADirectory, &crate::fs::PathEscapes, &crate::fs::IoError, &crate::fs::Streaming>) -> String {
     return if matches!(kind, crate::unions::Union7::U1(_)) {
-        let mut kind_1 = match &kind { crate::unions::Union7::U1(__v) => __v, _ => unreachable!() };
+        let mut kind_1 = match kind { crate::unions::Union7::U1(__v) => __v, _ => unreachable!() };
         return format!("no such file or directory: {}", kind_1.path);
     } else if matches!(kind, crate::unions::Union7::U2(_)) {
-        let mut kind_2 = match &kind { crate::unions::Union7::U2(__v) => __v, _ => unreachable!() };
+        let mut kind_2 = match kind { crate::unions::Union7::U2(__v) => __v, _ => unreachable!() };
         return format!("permission denied: {}", kind_2.path);
     } else if matches!(kind, crate::unions::Union7::U3(_)) {
-        let mut kind_3 = match &kind { crate::unions::Union7::U3(__v) => __v, _ => unreachable!() };
+        let mut kind_3 = match kind { crate::unions::Union7::U3(__v) => __v, _ => unreachable!() };
         return format!("already exists: {}", kind_3.path);
     } else if matches!(kind, crate::unions::Union7::U4(_)) {
-        let mut kind_4 = match &kind { crate::unions::Union7::U4(__v) => __v, _ => unreachable!() };
+        let mut kind_4 = match kind { crate::unions::Union7::U4(__v) => __v, _ => unreachable!() };
         return format!("not a directory: {}", kind_4.path);
     } else if matches!(kind, crate::unions::Union7::U5(_)) {
-        let mut kind_5 = match &kind { crate::unions::Union7::U5(__v) => __v, _ => unreachable!() };
+        let mut kind_5 = match kind { crate::unions::Union7::U5(__v) => __v, _ => unreachable!() };
         return format!("path escapes the root: {}", kind_5.path);
     } else if matches!(kind, crate::unions::Union7::U6(_)) {
-        let mut kind_6 = match &kind { crate::unions::Union7::U6(__v) => __v, _ => unreachable!() };
+        let mut kind_6 = match kind { crate::unions::Union7::U6(__v) => __v, _ => unreachable!() };
         return format!("io error: {}: {}", kind_6.path, kind_6.message);
     } else {
-        let mut kind_7 = match &kind { crate::unions::Union7::U7(__v) => __v, _ => unreachable!() };
-        return crate::stream::to_str(&kind_7.error);
+        let mut kind_7 = match kind { crate::unions::Union7::U7(__v) => __v, _ => unreachable!() };
+        return crate::stream::to_str((&kind_7.error).as_ref());
     };
 }
 

@@ -47,7 +47,7 @@ impl<T1: crate::wire::__Wire, T2: crate::wire::__Wire, T3: crate::wire::__Wire, 
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Union7<T1, T2, T3, T4, T5, T6, T7> {
     U1(T1),
     U2(T2),
@@ -141,6 +141,28 @@ impl<T1, T2, T3, T4, T5, T6, T7> Union7<T1, T2, T3, T4, T5, T6, T7> {
         match self {
             Union7::U7(v) => v,
             _ => panic!("unreachable union arm"),
+        }
+    }
+    pub fn as_ref(&self) -> Union7<&T1, &T2, &T3, &T4, &T5, &T6, &T7> {
+        match self {
+            Union7::U1(v) => Union7::U1(v),
+            Union7::U2(v) => Union7::U2(v),
+            Union7::U3(v) => Union7::U3(v),
+            Union7::U4(v) => Union7::U4(v),
+            Union7::U5(v) => Union7::U5(v),
+            Union7::U6(v) => Union7::U6(v),
+            Union7::U7(v) => Union7::U7(v),
+        }
+    }
+    pub fn as_mut(&mut self) -> Union7<&mut T1, &mut T2, &mut T3, &mut T4, &mut T5, &mut T6, &mut T7> {
+        match self {
+            Union7::U1(v) => Union7::U1(v),
+            Union7::U2(v) => Union7::U2(v),
+            Union7::U3(v) => Union7::U3(v),
+            Union7::U4(v) => Union7::U4(v),
+            Union7::U5(v) => Union7::U5(v),
+            Union7::U6(v) => Union7::U6(v),
+            Union7::U7(v) => Union7::U7(v),
         }
     }
     pub fn to_str(&self, f1: &mut dyn FnMut(&T1) -> String, f2: &mut dyn FnMut(&T2) -> String, f3: &mut dyn FnMut(&T3) -> String, f4: &mut dyn FnMut(&T4) -> String, f5: &mut dyn FnMut(&T5) -> String, f6: &mut dyn FnMut(&T6) -> String, f7: &mut dyn FnMut(&T7) -> String) -> String {

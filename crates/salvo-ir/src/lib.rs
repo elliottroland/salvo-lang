@@ -3,6 +3,7 @@
 pub mod build;
 pub mod dump;
 pub mod ir;
+pub mod walk;
 
 pub use build::build_program;
 pub use build::actors::enum_key;

@@ -256,7 +256,7 @@ pub(crate) fn walk_expr(e: &Expr, fs: &mut impl FnMut(&Stmt), fe: &mut impl FnMu
             args.iter().for_each(&mut sub);
         }
         ExprKind::Construct { fields } => fields.iter().for_each(|(_, v)| sub(v)),
-        ExprKind::MakeUnion { value, .. } | ExprKind::Rewrap { value, .. } | ExprKind::DropMut { value } | ExprKind::Widen { value } | ExprKind::Spread { value } => sub(value),
+        ExprKind::MakeUnion { value, .. } | ExprKind::Rewrap { value, .. } | ExprKind::DropMut { value } | ExprKind::BorrowAs { value, .. } | ExprKind::Widen { value } | ExprKind::Spread { value } => sub(value),
         ExprKind::Handle { instance } => sub(instance),
         ExprKind::AddrInstance { addr } => sub(addr),
         ExprKind::Throw { message } => sub(message),
@@ -621,11 +621,11 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 return out;
             }
         }
-        // [rs-opt-borrow] Another name for a borrowed optional: a copy of
-        // the `Option<&T>`.
-        if bare(value).is_some() && !super::is_opt_borrow(ty) {
+        // [rs-opt-borrow] Another name for a union of borrows: a copy of
+        // it (`Option<&T>`, `Union2<&A, &B>` are `Copy`).
+        if bare(value).is_some() && !super::is_borrowed_union(ty) {
             let st = self.storage_ty(value);
-            if super::is_opt_borrow(&st) {
+            if super::is_borrowed_union(&st) {
                 let code = self.value(value, indent);
                 self.f.tys.insert(local.0.clone(), st);
                 self.f.kinds.insert(local.0.clone(), Kind::Owned);
@@ -1122,6 +1122,17 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 self.rewrap(&v, from, &e.ty)
             }
             ExprKind::DropMut { value } => self.value(value, indent),
+            // [rs-opt-borrow] Outside an argument slot (which lends it, see
+            // `lend_value`): the union of borrows of what it reads.
+            ExprKind::BorrowAs { value, .. } => {
+                let st = self.storage_ty(value);
+                let to = super::borrowed_arms(&e.ty, false);
+                if st == to {
+                    return self.value(value, indent);
+                }
+                let v = self.value(value, indent);
+                self.lend_union(&format!("&({v})"), &st, &to, false)
+            }
             ExprKind::Present { value } => {
                 let inner = e.ty.strip_quals().without_none();
                 let v = self.value_into(value, &inner, indent);
@@ -1685,21 +1696,53 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 None => {}
             }
         }
-        // [rs-opt-borrow] Storage holding an `Option<&T>` narrows to the
-        // borrow it holds.
-        let stored = if from.steps.is_empty() { self.f.tys.get(&from.root.0).filter(|t| super::is_opt_borrow(t) && !super::is_opt_borrow(from_ty)).cloned() } else { None };
+        // [rs-opt-borrow] Storage holding a union of borrows narrows to the
+        // borrow its arm holds.
+        let stored = if from.steps.is_empty() { self.f.tys.get(&from.root.0).filter(|t| super::is_borrowed_union(t) && !super::is_borrowed_union(from_ty)).cloned() } else { None };
         if let Some(st) = &stored {
             let (src, _) = self.place_text(from, indent);
-            if ty.strip_quals().has_none_arm() {
+            let sarms: Vec<Ty> = st.value_arms().into_iter().cloned().collect();
+            let sopt = st.has_none_arm();
+            let still_union = ty.strip_quals().has_none_arm() || ty.strip_quals().value_arms().len() >= 2;
+            if still_union && ty.strip_quals().value_arms().len() == sarms.len() {
                 self.f.tys.insert(local.0.clone(), st.clone());
                 self.f.kinds.insert(local.0.clone(), Kind::Owned);
                 return format!("{pad}let mut {n} = {src};\n");
             }
-            if !is_copy_ty(ty) {
-                let arm = st.strip_quals().value_arms().into_iter().next().cloned().unwrap_or(Ty::Unknown);
-                let k = if is_mut_borrow(&arm) { Kind::RefMut } else { Kind::Ref };
+            if !still_union {
+                let test = match because {
+                    Justification::Test { test } => self.f.test_arms.get(&(test.0, usize::MAX)).cloned(),
+                    Justification::Arm { switch, arm } => self.f.test_arms.get(&(switch.0, *arm)).cloned(),
+                    _ => None,
+                };
+                let i = match test {
+                    Some(ArmTest::Arm(i)) if sarms.len() >= 2 => i,
+                    _ if sarms.len() >= 2 => arm_of(from_ty, ty).unwrap_or(0),
+                    _ => 0,
+                };
+                let arm = sarms.get(i).cloned().unwrap_or(Ty::Unknown);
+                let mutable = is_mut_borrow(&arm);
+                let k = if is_copy_ty(&arm) { Kind::Owned } else if mutable { Kind::RefMut } else { Kind::Ref };
                 self.f.kinds.insert(local.0.clone(), k);
-                return format!("{pad}let mut {n} = {src}.unwrap();\n");
+                if sarms.len() < 2 {
+                    // A mutable borrow is not `Copy`: reborrowed, so the
+                    // optional stays usable after the narrowing.
+                    let take = if mutable { ".as_deref_mut()" } else { "" };
+                    return format!("{pad}let mut {n} = {src}{take}.unwrap();\n");
+                }
+                self.s.union_sizes.insert(sarms.len());
+                let mut p = format!("crate::unions::Union{}::U{}(__v)", sarms.len(), i + 1);
+                if sopt {
+                    p = format!("Some({p})");
+                }
+                let code = if mutable {
+                    format!("match &mut {src} {{ {p} => &mut **__v, _ => unreachable!() }}")
+                } else if is_copy_ty(&arm) || !is_proj(&arm) {
+                    format!("match {src} {{ {p} => __v, _ => unreachable!() }}")
+                } else {
+                    format!("match {src} {{ {p} => __v, _ => unreachable!() }}")
+                };
+                return format!("{pad}let mut {n} = {code};\n");
             }
         }
         let (src, root_kind) = self.place_text(from, indent);
@@ -2027,6 +2070,12 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             if hoisting {
                 for (idx, b, bp) in std::mem::take(&mut pending) {
                     let by_value_b = bp.is_some_and(|q| q.mode == PassMode::Moved || is_copy_ty(&q.ty)) || is_copy_ty(&b.ty);
+                    if let Some(q) = bp.filter(|q| q.mode == PassMode::Moved && super::is_borrowed_union(&q.ty)) {
+                        let (l, u) = self.hoist_lend(b, &q.ty, &out[idx], indent);
+                        lets.push(l);
+                        out[idx] = u;
+                        continue;
+                    }
                     let t = self.fresh("arg");
                     if by_value_b {
                         lets.push(format!("let {t} = {};", out[idx]));
@@ -2038,7 +2087,12 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     }
                 }
             }
-            if reads_root && by_value {
+            if reads_root && by_value && p.is_some_and(|q| q.mode == PassMode::Moved && super::is_borrowed_union(&q.ty)) {
+                let q = p.unwrap();
+                let (l, u) = self.hoist_lend(a, &q.ty, &code, indent);
+                lets.push(l);
+                out.push(u);
+            } else if reads_root && by_value {
                 let t = self.fresh("arg");
                 lets.push(format!("let {t} = {code};"));
                 out.push(t);
@@ -2156,8 +2210,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         if is_copy_ty(&p.ty) || p.variadic || is_proj(&p.ty) {
             return self.value_into(a, &p.ty, indent);
         }
-        if p.mode == PassMode::Moved && super::is_opt_borrow(&p.ty) {
-            return self.opt_borrow_arg(a, indent);
+        if p.mode == PassMode::Moved && super::is_borrowed_union(&p.ty) {
+            return self.lend_value(a, &p.ty, indent);
         }
         if is_copy_ty(&a.ty) && p.mode != PassMode::LentMut && p.mode != PassMode::Lent {
             return self.value(a, indent);
@@ -2169,12 +2223,9 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         }
     }
 
-    /// [rs-opt-borrow] An argument for an `Option<&T>` slot: a borrowed
-    /// optional as it is, a mutable handle's read through, an owned one
-    /// lent with `.as_ref()`.
     /// [rs-opt-borrow] What a value is stored as: a read of a local the
-    /// IR types `T?` that holds an `Option<&T>` (a kept optional
-    /// parameter, or a binding of one) is the borrowed optional.
+    /// IR types as an owned union that holds a union of borrows (a kept
+    /// union parameter, or a binding of one) is the union of borrows.
     pub(crate) fn storage_ty(&self, e: &Expr) -> Ty {
         let mut inner = e;
         while let ExprKind::DropMut { value } = &inner.kind {
@@ -2183,7 +2234,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         if let ExprKind::Read { place, .. } = &inner.kind {
             if place.steps.is_empty() {
                 if let Some(t) = self.f.tys.get(&place.root.0) {
-                    if super::is_opt_borrow(t) && !super::is_opt_borrow(&e.ty) {
+                    if super::is_borrowed_union(t) && !super::is_borrowed_union(&e.ty) {
                         return t.clone();
                     }
                 }
@@ -2192,23 +2243,218 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         e.ty.clone()
     }
 
-    fn opt_borrow_arg(&mut self, a: &Expr, indent: usize) -> String {
-        if matches!(a.kind, ExprKind::MakeNone) {
-            return "None".to_string();
-        }
-        if super::is_opt_borrow(&self.storage_ty(a)) {
-            let v = self.value(a, indent);
-            // What the value is in Rust: a `Mut` drop changes nothing there.
-            let mut inner = a;
-            while let ExprKind::DropMut { value } = &inner.kind {
-                inner = value;
+    /// [rs-opt-borrow] [proj-opt-slot] An argument for a union-of-borrows
+    /// slot (`Option<&T>`, `Union2<&A, &mut B>`): each arm borrowed where
+    /// it is owned, passed on where it is a borrow already — the IR's
+    /// `BorrowAs` says which arm lands where.
+    fn lend_value(&mut self, a: &Expr, slot: &Ty, indent: usize) -> String {
+        let mutable = matches!(slot, Ty::Union(arms) if arms.iter().any(|x| is_proj(x) && super::is_mut_borrow(x)));
+        match &a.kind {
+            ExprKind::MakeNone => return "None".to_string(),
+            ExprKind::DropMut { value } => return self.lend_value(value, slot, indent),
+            ExprKind::BorrowAs { value, .. } => return self.lend_value(value, slot, indent),
+            ExprKind::Present { value } if slot.has_none_arm() => {
+                let inner = Ty::union_of(slot.value_arms().into_iter().cloned().collect());
+                let v = if matches!(inner, Ty::Union(_)) { self.lend_value(value, &inner, indent) } else { self.lend_one(value, mutable, indent) };
+                return format!("Some({v})");
             }
-            let st = self.storage_ty(a);
-            let mutable = [&a.ty, &inner.ty, &st].iter().any(|t| matches!(t, Ty::Union(arms) if arms.iter().any(|x| is_proj(x) && super::is_mut_borrow(x))));
-            return if mutable { format!("{v}.map(|__x| &*__x)") } else { v };
+            ExprKind::MakeUnion { value, .. } => {
+                let sa: Vec<Ty> = slot.value_arms().into_iter().cloned().collect();
+                if let Some(Some(j)) = salvo_core::types::read_arm_map(&value.ty, &Ty::Union(sa.clone())).map(|m| m.iter().position(|(f, _)| f.is_some())) {
+                    let v = self.lend_one(value, mutable, indent);
+                    self.s.union_sizes.insert(sa.len());
+                    let c = format!("crate::unions::Union{}::U{}({v})", sa.len(), j + 1);
+                    return if slot.has_none_arm() { format!("Some({c})") } else { c };
+                }
+            }
+            _ => {}
         }
-        let b = self.borrow(a, indent);
-        format!("({b}).as_ref()")
+        let st = self.storage_ty(a);
+        if !mutable && st == *slot && bare(a).is_some() {
+            return self.value(a, indent);
+        }
+        // What the value is in Rust, and a place to match on.
+        let saved = std::mem::replace(&mut self.f.place_mut, mutable);
+        // A union whose every arm is a borrow (or `Copy`) is matched by
+        // value: it owns nothing, so a temporary may go.
+        let all_borrowed = super::is_borrowed_union(&st) && st.value_arms().into_iter().all(|x| is_proj(x) || is_copy_ty(x));
+        // A binding read to mutate: its own place, reborrowed (a `&mut`
+        // is not `Copy`), and an optional handle walked mutably.
+        if mutable && super::is_borrowed_union(&st) {
+            if let Some(r) = bare(a) {
+                let place = Place { root: r.clone(), steps: Vec::new() };
+                let (text, _) = self.place_text(&place, indent);
+                self.f.place_mut = saved;
+                if matches!(self.handle_of(&r.0), Some(super::paths::HandleBinding::Optional { .. })) {
+                    return self.lend_union_by_value(&text, &st, slot, mutable);
+                }
+                return self.lend_union(&format!("&mut {text}"), &st, slot, mutable);
+            }
+        }
+        if all_borrowed {
+            let v = self.value(a, indent);
+            self.f.place_mut = saved;
+            return self.lend_union_by_value(&v, &st, slot, mutable);
+        }
+        let code = if super::is_borrowed_union(&st) || !matches!(a.kind, ExprKind::Read { .. }) {
+            let v = self.value(a, indent);
+            format!("{}({v})", if mutable { "&mut " } else { "&" })
+        } else if mutable {
+            self.borrow_mut(a, indent)
+        } else {
+            self.borrow(a, indent)
+        };
+        self.f.place_mut = saved;
+        self.lend_union(&code, &st, slot, mutable)
+    }
+
+    /// [rs-opt-borrow] [rs-mut-arg-hoist] An argument for a union-of-borrows
+    /// slot bound ahead of its call: what owns its arms is bound, and the
+    /// call lends from the binding — a borrow of a temporary would not
+    /// outlive the `let`. A union holding only borrows is bound as lent.
+    fn hoist_lend(&mut self, a: &Expr, slot: &Ty, code: &str, indent: usize) -> (String, String) {
+        let mut src = a;
+        loop {
+            match &src.kind {
+                ExprKind::DropMut { value } | ExprKind::BorrowAs { value, .. } => src = value,
+                _ => break,
+            }
+        }
+        let st = self.storage_ty(src);
+        let t = self.fresh("arg");
+        let owns = !(super::is_borrowed_union(&st) && st.value_arms().into_iter().all(|x| is_proj(x) || is_copy_ty(x)));
+        if !owns || matches!(src.kind, ExprKind::MakeNone) {
+            return (format!("let {t} = {code};"), t);
+        }
+        let mutable = matches!(slot, Ty::Union(arms) if arms.iter().any(|x| is_proj(x) && super::is_mut_borrow(x)));
+        let v = self.value(src, indent);
+        let r = if mutable { "&mut " } else { "&" };
+        let u = self.lend_union(&format!("{r}{t}"), &st, slot, mutable);
+        (format!("let mut {t} = {v};"), u)
+    }
+
+    /// [rs-opt-borrow] A union of borrows `v`, by value, as the union of
+    /// borrows `to`: each borrow reborrowed (`&*`), shared where `to` reads.
+    fn lend_union_by_value(&mut self, v: &str, from: &Ty, to: &Ty, mutable: bool) -> String {
+        let fa: Vec<Ty> = from.value_arms().into_iter().cloned().collect();
+        let ta: Vec<Ty> = to.value_arms().into_iter().cloned().collect();
+        let same_shape = fa.len() == ta.len() && fa.iter().zip(&ta).all(|(f, t)| is_mut_borrow(f) == is_mut_borrow(t) && is_proj(f) == is_proj(t));
+        if same_shape {
+            return v.to_string();
+        }
+        let (fo, topt) = (from.has_none_arm(), to.has_none_arm());
+        let Some(map) = salvo_core::types::read_arm_map(from, to) else {
+            self.error(format!("cannot lend a `{from}` as a `{to}` [rs-opt-borrow] [backend-never-wrong]"));
+            return "panic!()".to_string();
+        };
+        let mut out = Vec::new();
+        for (j, (f, _)) in map.iter().enumerate() {
+            let Some(f) = f else { continue };
+            let Some(i) = fa.iter().position(|x| x == f) else { continue };
+            let val = if is_copy_ty(f) { "__v" } else if mutable { "&mut *__v" } else { "&*__v" };
+            let wrap = |arms: &[Ty], k: usize, opt: bool, inner: &str, s: &mut Self| {
+                let p = if arms.len() >= 2 {
+                    s.s.union_sizes.insert(arms.len());
+                    format!("crate::unions::Union{}::U{}({inner})", arms.len(), k + 1)
+                } else {
+                    inner.to_string()
+                };
+                if opt { format!("Some({p})") } else { p }
+            };
+            let lhs = wrap(&fa, i, fo, "__v", self);
+            let rhs = wrap(&ta, j, topt, val, self);
+            out.push(format!("{lhs} => {rhs}"));
+        }
+        if fo {
+            out.push("None => None".to_string());
+        }
+        format!("match {v} {{ {} }}", out.join(", "))
+    }
+
+    /// One value for a borrowed arm: a borrow already is passed on, a
+    /// `Copy` value by value, anything else borrowed.
+    fn lend_one(&mut self, v: &Expr, mutable: bool, indent: usize) -> String {
+        let st = self.storage_ty(v);
+        if is_copy_ty(&st) {
+            return self.value(v, indent);
+        }
+        if is_proj(&st) {
+            let saved = std::mem::replace(&mut self.f.place_mut, mutable);
+            let c = self.value(v, indent);
+            self.f.place_mut = saved;
+            return c;
+        }
+        if mutable { self.borrow_mut(v, indent) } else { self.borrow(v, indent) }
+    }
+
+    /// [rs-opt-borrow] `code` — a reference to a value stored as `from` —
+    /// as the union of borrows `to`, arm by arm.
+    fn lend_union(&mut self, code: &str, from: &Ty, to: &Ty, mutable: bool) -> String {
+        let fa: Vec<Ty> = salvo_core::types::spread_union_quals(from).value_arms().into_iter().cloned().collect();
+        let ta: Vec<Ty> = to.value_arms().into_iter().cloned().collect();
+        let (fo, topt) = (from.has_none_arm(), to.has_none_arm());
+        let Some(map) = salvo_core::types::read_arm_map(from, to) else {
+            self.error(format!("cannot lend a `{from}` as a `{to}` [rs-opt-borrow] [backend-never-wrong]"));
+            return "panic!()".to_string();
+        };
+        let pat = |s: &mut Self, arms: &[Ty], i: usize, opt: bool, inner: &str| -> String {
+            let p = if arms.len() >= 2 {
+                s.s.union_sizes.insert(arms.len());
+                format!("crate::unions::Union{}::U{}({inner})", arms.len(), i + 1)
+            } else {
+                inner.to_string()
+            };
+            if opt { format!("Some({p})") } else { p }
+        };
+        // An owned optional of one arm: the standard library's own lend.
+        let m = if mutable { "as_mut" } else { "as_ref" };
+        if fa.len() == 1 && ta.len() == 1 && fo && topt && !is_proj(&fa[0]) && !is_copy_ty(&fa[0]) {
+            return format!("({code}).{m}()");
+        }
+        // An owned union lent whole, arm for arm: the union's own lend.
+        let whole = fa.len() >= 2
+            && fa.len() == ta.len()
+            && fa.iter().all(|f| !is_proj(f) && !is_copy_ty(f))
+            && map.iter().enumerate().all(|(j, (f, _))| f.as_ref().is_some_and(|f| fa.iter().position(|x| x == f) == Some(j)))
+            && ta.iter().all(|t| is_proj(t) && super::is_mut_borrow(t) == mutable)
+            && (topt || !fo);
+        if whole {
+            self.s.union_sizes.insert(fa.len());
+            return if fo {
+                format!("({code}).{m}().map(|__u| __u.{m}())")
+            } else if topt {
+                format!("Some(({code}).{m}())")
+            } else {
+                format!("({code}).{m}()")
+            };
+        }
+        let mut out = Vec::new();
+        for (j, (f, _)) in map.iter().enumerate() {
+            let Some(f) = f else { continue };
+            let Some(i) = fa.iter().position(|x| x == f) else { continue };
+            let val = if is_copy_ty(f) {
+                "*__v"
+            } else if is_proj(f) {
+                if mutable { "&mut **__v" } else { "&**__v" }
+            } else {
+                "__v"
+            };
+            let lhs = pat(self, &fa, i, fo, "__v");
+            let rhs = pat(self, &ta, j, topt, val);
+            out.push(format!("{lhs} => {rhs}"));
+        }
+        if fo {
+            out.push("None => None".to_string());
+        }
+        if fa.len() < 2 && !fo {
+            // Not a union: the one value, lent.
+            let val = out.pop().map(|a| a.split(" => ").nth(1).unwrap_or("__v").to_string()).unwrap_or_default();
+            return format!("{{ let __v = {code}; {val} }}");
+        }
+        if fa.len() >= 2 && out.len() < fa.len() + usize::from(fo) {
+            out.push("_ => unreachable!(\"salvo: unreachable union arm\")".to_string());
+        }
+        format!("match {code} {{ {} }}", out.join(", "))
     }
 
     /// A fn value passed to a fn-typed slot at `pos`.
@@ -2890,9 +3136,28 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             if is_copy_ty(&args[0].ty) {
                 return v;
             }
-            // [proj-opt-slot] An optional borrow copies into an owned optional.
-            if super::is_opt_borrow(&self.storage_ty(&args[0])) {
-                return format!("({v}).cloned()");
+            // [proj-opt-slot] A union of borrows copies into an owned one,
+            // arm by arm.
+            let st = self.storage_ty(&args[0]);
+            if super::is_borrowed_union(&st) {
+                let arms: Vec<Ty> = st.value_arms().into_iter().cloned().collect();
+                if arms.len() < 2 {
+                    let mutable = arms.first().is_some_and(super::is_mut_borrow);
+                    return if mutable { format!("({v}).as_deref().cloned()") } else { format!("({v}).cloned()") };
+                }
+                let opt = st.has_none_arm();
+                self.s.union_sizes.insert(arms.len());
+                let mut out = Vec::new();
+                for (i, a) in arms.iter().enumerate() {
+                    let p = format!("crate::unions::Union{}::U{}(__v)", arms.len(), i + 1);
+                    let val = if is_proj(a) { "(**__v).clone()" } else { "(*__v).clone()" };
+                    let r = format!("crate::unions::Union{}::U{}({val})", arms.len(), i + 1);
+                    out.push(if opt { format!("Some({p}) => Some({r})") } else { format!("{p} => {r}") });
+                }
+                if opt {
+                    out.push("None => None".to_string());
+                }
+                return format!("match &({v}) {{ {} }}", out.join(", "));
             }
             return format!("({v}).clone()");
         }

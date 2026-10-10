@@ -2006,19 +2006,20 @@ fn main() [use] {
     );
 }
 
-// [proj-type] A union arm that borrows (`Emitted (proj Str) | Finished`)
-// passes whole into a parameter only when the parameter's type *writes*
-// the projection; an owned parameter refuses it, naming the type and the
-// two remedies. The phase-2b cut's negative half, closed 2026-09-12.
+// [proj-opt-slot] A union arm that borrows (`Emitted (proj Str) | Finished`)
+// passes whole into a kept owned union parameter: the parameter reads it, arm
+// by arm (user decision 2026-10-10; refused from 2026-09-12 until then). A
+// parameter that consumes its argument still refuses it.
 #[test]
-fn an_owned_parameter_refuses_a_borrowed_union_arm() {
+fn a_kept_parameter_takes_a_borrowed_union_arm() {
     let dir = src_dir("proj_arm_param");
     fs::write(
         dir.join("main.sv"),
         "fn show(step: Emitted Str | Finished) [Console] -> None {\n    \
          when step {\n        is Emitted { println(step) }\n        is Finished { println(\"done\") }\n    }\n}\n\n\
+         fn keep(step: Emitted Str | Finished) [] -> None => !step {\n}\n\n\
          fn main() [use] {\n    use StdOutConsole()\n    \
-         let words = list_of(\"ann\", \"bo\")\n    let p = iter(words)\n    show(next(p))\n}\n",
+         let words = list_of(\"ann\", \"bo\")\n    let p = iter(words)\n    show(next(p))\n    keep(next(p))\n}\n",
     )
     .unwrap();
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
@@ -2027,14 +2028,11 @@ fn an_owned_parameter_refuses_a_borrowed_union_arm() {
     assert!(
         stderr.contains(
             "this argument holds a borrowed value (`proj Emitted Str | Finished`) \
-             where `show` expects an owned one for `step`"
+             where `keep` expects an owned one for `step`"
         ),
         "stderr: {stderr}"
     );
-    assert!(
-        stderr.contains("Write the parameter's type with the `proj`"),
-        "stderr: {stderr}"
-    );
+    assert!(!stderr.contains("where `show` expects"), "stderr: {stderr}");
 }
 
 // [proj-type] What a pass combinator's result *is*: `map`/`keep_all` over a

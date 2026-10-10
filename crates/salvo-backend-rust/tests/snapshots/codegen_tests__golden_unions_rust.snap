@@ -1897,12 +1897,12 @@ pub fn parse_age(mut input: i32) -> crate::unions::Union2<i32, String> {
     return crate::unions::Union2::U2(crate::core_result::err::<String>(String::from("negative age")));
 }
 
-pub fn describe(result: &crate::unions::Union2<i32, String>) -> String {
+pub fn describe(mut result: crate::unions::Union2<i32, &String>) -> String {
     let mut msg: String = if matches!(result, crate::unions::Union2::U1(_)) {
-        let mut result_1 = match &result { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
+        let mut result_1 = match result { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
         format!("age {}", result_1)
     } else {
-        let mut result_2 = match &result { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
+        let mut result_2 = match result { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
         format!("error: {}", result_2)
     };
     return msg;
@@ -1912,9 +1912,9 @@ pub fn main() {
     let mut __use_1: crate::core_console::__Platform_StdOutConsole = crate::core_console::__Platform_StdOutConsole::new();
     let __handle_2 = crate::core_console::Console::shared(__use_1);
     let mut good: crate::unions::Union2<i32, String> = crate::parse_age(36i32);
-    crate::core_console::println(&__handle_2, &crate::describe(&good));
+    crate::core_console::println(&__handle_2, &crate::describe(match &good { crate::unions::Union2::U1(__v) => crate::unions::Union2::U1(*__v), crate::unions::Union2::U2(__v) => crate::unions::Union2::U2(__v) }));
     let mut bad: crate::unions::Union2<i32, String> = crate::parse_age(i32::wrapping_neg(1i32));
-    crate::core_console::println(&__handle_2, &crate::describe(&bad));
+    crate::core_console::println(&__handle_2, &crate::describe(match &bad { crate::unions::Union2::U1(__v) => crate::unions::Union2::U1(*__v), crate::unions::Union2::U2(__v) => crate::unions::Union2::U2(__v) }));
     let mut precise: crate::unions::Union3<String, String, bool> = crate::unions::Union3::U1(crate::core_result::ok::<String>(String::from("yes")));
     if matches!(precise, crate::unions::Union3::U2(_)) {
         let mut precise_3 = match &precise { crate::unions::Union3::U2(__v) => __v, _ => unreachable!() };
@@ -1963,7 +1963,7 @@ impl<T1: crate::wire::__Wire, T2: crate::wire::__Wire> crate::wire::__Wire for U
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Union2<T1, T2> {
     U1(T1),
     U2(T2),
@@ -1992,6 +1992,18 @@ impl<T1, T2> Union2<T1, T2> {
         match self {
             Union2::U2(v) => v,
             _ => panic!("unreachable union arm"),
+        }
+    }
+    pub fn as_ref(&self) -> Union2<&T1, &T2> {
+        match self {
+            Union2::U1(v) => Union2::U1(v),
+            Union2::U2(v) => Union2::U2(v),
+        }
+    }
+    pub fn as_mut(&mut self) -> Union2<&mut T1, &mut T2> {
+        match self {
+            Union2::U1(v) => Union2::U1(v),
+            Union2::U2(v) => Union2::U2(v),
         }
     }
     pub fn to_str(&self, f1: &mut dyn FnMut(&T1) -> String, f2: &mut dyn FnMut(&T2) -> String) -> String {
@@ -2045,7 +2057,7 @@ impl<T1: crate::wire::__Wire, T2: crate::wire::__Wire, T3: crate::wire::__Wire> 
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Union3<T1, T2, T3> {
     U1(T1),
     U2(T2),
@@ -2087,6 +2099,20 @@ impl<T1, T2, T3> Union3<T1, T2, T3> {
         match self {
             Union3::U3(v) => v,
             _ => panic!("unreachable union arm"),
+        }
+    }
+    pub fn as_ref(&self) -> Union3<&T1, &T2, &T3> {
+        match self {
+            Union3::U1(v) => Union3::U1(v),
+            Union3::U2(v) => Union3::U2(v),
+            Union3::U3(v) => Union3::U3(v),
+        }
+    }
+    pub fn as_mut(&mut self) -> Union3<&mut T1, &mut T2, &mut T3> {
+        match self {
+            Union3::U1(v) => Union3::U1(v),
+            Union3::U2(v) => Union3::U2(v),
+            Union3::U3(v) => Union3::U3(v),
         }
     }
     pub fn to_str(&self, f1: &mut dyn FnMut(&T1) -> String, f2: &mut dyn FnMut(&T2) -> String, f3: &mut dyn FnMut(&T3) -> String) -> String {

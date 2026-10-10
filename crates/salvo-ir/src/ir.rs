@@ -438,6 +438,13 @@ pub enum ExprKind {
     /// [ir-coerce] a value placed into an optional's present arm (`ty` is
     /// the optional): Rust's `Some`, nothing on Kotlin.
     Present { value: Box<Expr> },
+    /// [proj-opt-slot] a union with borrowed arms read as the owned union
+    /// `ty`, at a kept position: `arms` pairs each value arm of `ty`, in
+    /// order, with the arm of the value that lands there (`None`: no arm
+    /// does). The pair says what the arm does — a handle read as its element
+    /// (`ref Mut A` → `Mut A`), a borrow read as the value (`proj Mut A` →
+    /// `A`), an owned arm lent (`B` → `B`).
+    BorrowAs { value: Box<Expr>, arms: Vec<BorrowArm> },
     /// [op-promote] a numeric operand widened within its class to `ty`
     /// (`Int` to `Long`, `Float` to `Double`).
     Widen { value: Box<Expr> },
@@ -542,6 +549,14 @@ pub enum Op {
     GtEq,
     Eq,
     NotEq,
+}
+
+/// [proj-opt-slot] One arm of a [`ExprKind::BorrowAs`]: what the value's arm
+/// `from` is read as, `to`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BorrowArm {
+    pub from: Option<Ty>,
+    pub to: Ty,
 }
 
 #[derive(Clone)]

@@ -29,7 +29,7 @@ fn main::window(lent roster: List<Fighter>) -> Mut Window borrows [roster] {
 }
 
 fn main::peek(lent w: Window) -> proj Fighter? borrows [w] {
-  return call core.list::get(List<T>, Int)<Fighter>(read w.roster, read w.at)
+  return call core.list::get(List<T>, Int)<Fighter>(borrow_as[proj List<Fighter> -> List<Fighter>](read w.roster), read w.at)
 }
 
 fn main::heal(lent_mut f: Mut Fighter) -> None {
@@ -47,7 +47,7 @@ fn main::wounded(lent_mut squad: List<Mut Fighter>) -> ref<List<Mut Fighter>> Mu
 }
 
 fn main::rally_at<L>(lent_mut squad: List<Mut Fighter>, lent l: L; ?lent at: (List<Mut Fighter>, L) -> ref<List<Mut Fighter>> Mut Fighter?) -> None {
-  call main::heal(branch#4 cond#0 true {
+  call main::heal(borrow_as[ref<List<Mut Fighter>> Mut Fighter -> Mut Fighter](branch#4 cond#0 true {
     bind#2 let __nn~1: ref<List<Mut Fighter>> Mut Fighter? = call local at(read squad, read l)
     value switch#1 read __nn~1 {
       arm#0 (none) {
@@ -58,7 +58,7 @@ fn main::rally_at<L>(lent_mut squad: List<Mut Fighter>, lent l: L; ?lent at: (Li
         value !read __some~2
       }
     }
-  })
+  }))
   return none[None]
 }
 
@@ -204,7 +204,7 @@ fn main::main() -> None {
     }
     value !read __proj~18.hp
   }), " after a read in the middle"))
-  call main::heal(branch#48 cond#0 true {
+  call main::heal(borrow_as[ref<List<Mut Fighter>> Mut Fighter -> Mut Fighter](branch#48 cond#0 true {
     bind#46 let __nn~19: ref<List<Mut Fighter>> Mut Fighter? = call main::wounded(read squad)
     value switch#45 read __nn~19 {
       arm#0 (none) {
@@ -215,7 +215,7 @@ fn main::main() -> None {
         value !read __some~20
       }
     }
-  })
+  }))
   call main::rally_at<Int>(read squad, 1, fn core.list::at(List<Mut T>, Int))
   call core.console::println(read __handle~2, concat("2. after the searches: ", call core.basic::to_str(Int)(branch#54 cond#0 true {
     bind#53 let __proj~23: proj Mut Fighter = branch#52 cond#0 true {
@@ -275,7 +275,7 @@ fn main::main() -> None {
   branch#73 cond#0 call core.ref::NotSame.qualifies(read d, read a) {
     assign a.hp = (read a.hp + 1)
     assign d.hp = (read d.hp + 1)
-    call main::duel(read a, read d)
+    call main::duel(borrow_as[ref<List<Mut Fighter>> Mut Fighter -> Mut Fighter](read a), borrow_as[ref<List<Mut Fighter>> Mut Fighter -> Mut Fighter](read d))
     assign a.energy = (read a.energy + 100)
     assign d.energy = (read d.energy + 200)
   }

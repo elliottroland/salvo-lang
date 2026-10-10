@@ -32,7 +32,7 @@ impl<T1: crate::wire::__Wire, T2: crate::wire::__Wire, T3: crate::wire::__Wire, 
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Union4<T1, T2, T3, T4> {
     U1(T1),
     U2(T2),
@@ -87,6 +87,22 @@ impl<T1, T2, T3, T4> Union4<T1, T2, T3, T4> {
         match self {
             Union4::U4(v) => v,
             _ => panic!("unreachable union arm"),
+        }
+    }
+    pub fn as_ref(&self) -> Union4<&T1, &T2, &T3, &T4> {
+        match self {
+            Union4::U1(v) => Union4::U1(v),
+            Union4::U2(v) => Union4::U2(v),
+            Union4::U3(v) => Union4::U3(v),
+            Union4::U4(v) => Union4::U4(v),
+        }
+    }
+    pub fn as_mut(&mut self) -> Union4<&mut T1, &mut T2, &mut T3, &mut T4> {
+        match self {
+            Union4::U1(v) => Union4::U1(v),
+            Union4::U2(v) => Union4::U2(v),
+            Union4::U3(v) => Union4::U3(v),
+            Union4::U4(v) => Union4::U4(v),
         }
     }
     pub fn to_str(&self, f1: &mut dyn FnMut(&T1) -> String, f2: &mut dyn FnMut(&T2) -> String, f3: &mut dyn FnMut(&T3) -> String, f4: &mut dyn FnMut(&T4) -> String) -> String {

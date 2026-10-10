@@ -43,7 +43,7 @@ impl Indexing(lent words: List<Str>) of Search {
   fn query(lent word: Str, lent out: Reply<Int>) -> None {
     bind#1 let n: Int = 0
     foreach#2 w: proj Str in read words {
-      branch#3 cond#0 call core.compare::eq(Str, Str)(read w, read word) {
+      branch#3 cond#0 call core.compare::eq(Str, Str)(borrow_as[proj Str -> Str](read w), read word) {
         assign n = (read n + 1)
       }
     }
@@ -204,7 +204,7 @@ fn main::checkout(lent inventory: Inventory, lent console: Console; lent skus: L
       }
     }, " reserved on its shard so far"))
   }
-  call core.console::println(read console, concat("  apple and apple on one shard: ", call core.basic::to_str(Bool)(call core.compare::eq(Str, Str)(branch#16 cond#0 true {
+  call core.console::println(read console, concat("  apple and apple on one shard: ", call core.basic::to_str(Bool)(call core.compare::eq(Str, Str)(borrow_as[proj Str -> Str](branch#16 cond#0 true {
     bind#14 let __nn~5: proj Str? = call core.list::get(List<T>, Int)<Str>(drop_mut(read shards), 0)
     value switch#13 read __nn~5 {
       arm#0 (none) {
@@ -215,7 +215,7 @@ fn main::checkout(lent inventory: Inventory, lent console: Console; lent skus: L
         value !read __some~6
       }
     }
-  }, branch#20 cond#0 true {
+  }), borrow_as[proj Str -> Str](branch#20 cond#0 true {
     bind#18 let __nn~7: proj Str? = call core.list::get(List<T>, Int)<Str>(drop_mut(read shards), 2)
     value switch#17 read __nn~7 {
       arm#0 (none) {
@@ -226,8 +226,8 @@ fn main::checkout(lent inventory: Inventory, lent console: Console; lent skus: L
         value !read __some~8
       }
     }
-  }))))
-  call core.console::println(read console, concat("  apple and fig on one shard: ", call core.basic::to_str(Bool)(call core.compare::eq(Str, Str)(branch#24 cond#0 true {
+  })))))
+  call core.console::println(read console, concat("  apple and fig on one shard: ", call core.basic::to_str(Bool)(call core.compare::eq(Str, Str)(borrow_as[proj Str -> Str](branch#24 cond#0 true {
     bind#22 let __nn~9: proj Str? = call core.list::get(List<T>, Int)<Str>(drop_mut(read shards), 0)
     value switch#21 read __nn~9 {
       arm#0 (none) {
@@ -238,7 +238,7 @@ fn main::checkout(lent inventory: Inventory, lent console: Console; lent skus: L
         value !read __some~10
       }
     }
-  }, branch#28 cond#0 true {
+  }), borrow_as[proj Str -> Str](branch#28 cond#0 true {
     bind#26 let __nn~11: proj Str? = call core.list::get(List<T>, Int)<Str>(drop_mut(read shards), 3)
     value switch#25 read __nn~11 {
       arm#0 (none) {
@@ -249,8 +249,8 @@ fn main::checkout(lent inventory: Inventory, lent console: Console; lent skus: L
         value !read __some~12
       }
     }
-  }))))
-  call core.console::println(read console, concat("  apple and pear on one shard: ", call core.basic::to_str(Bool)(call core.compare::eq(Str, Str)(branch#32 cond#0 true {
+  })))))
+  call core.console::println(read console, concat("  apple and pear on one shard: ", call core.basic::to_str(Bool)(call core.compare::eq(Str, Str)(borrow_as[proj Str -> Str](branch#32 cond#0 true {
     bind#30 let __nn~13: proj Str? = call core.list::get(List<T>, Int)<Str>(drop_mut(read shards), 0)
     value switch#29 read __nn~13 {
       arm#0 (none) {
@@ -261,7 +261,7 @@ fn main::checkout(lent inventory: Inventory, lent console: Console; lent skus: L
         value !read __some~14
       }
     }
-  }, branch#36 cond#0 true {
+  }), borrow_as[proj Str -> Str](branch#36 cond#0 true {
     bind#34 let __nn~15: proj Str? = call core.list::get(List<T>, Int)<Str>(drop_mut(read shards), 1)
     value switch#33 read __nn~15 {
       arm#0 (none) {
@@ -272,7 +272,7 @@ fn main::checkout(lent inventory: Inventory, lent console: Console; lent skus: L
         value !read __some~16
       }
     }
-  }))))
+  })))))
 }
 
 fn main::count(lent search: Search; moved word: Str) -> Int {

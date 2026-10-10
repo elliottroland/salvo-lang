@@ -208,6 +208,9 @@ pub fn type_has_mut(ty: &Type) -> bool {
             qualifiers.iter().any(|q| q.name.name == "Mut")
         }
         Type::Nullable { inner, .. } => type_has_mut(inner),
+        // A union whose arm is `Mut` (`Mut A | Mut B`) is mutated through
+        // that arm, as an optional is [proj-opt-slot].
+        Type::Union { arms, .. } => arms.iter().any(type_has_mut),
         _ => false,
     }
 }

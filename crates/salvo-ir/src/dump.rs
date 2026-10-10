@@ -516,6 +516,18 @@ impl<'a> Dumper<'a> {
                 self.expr(value, indent);
                 self.out.push(')');
             }
+            ExprKind::BorrowAs { value, arms } => {
+                let pairs: Vec<String> = arms
+                    .iter()
+                    .map(|a| match &a.from {
+                        Some(f) => format!("{f} -> {}", a.to),
+                        None => format!("_ -> {}", a.to),
+                    })
+                    .collect();
+                let _ = write!(self.out, "borrow_as[{}](", pairs.join(", "));
+                self.expr(value, indent);
+                self.out.push(')');
+            }
             ExprKind::Tuple(es) => {
                 self.out.push_str("tuple");
                 self.args(es, indent);
