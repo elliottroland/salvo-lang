@@ -1465,7 +1465,7 @@ impl<'p> Walk<'_, 'p> {
 /// [proj-anywhere] The `from` sources of every wholesale `proj` in a type.
 fn proj_sources_of(ty: &Type) -> Vec<String> {
     fn in_ref(r: &salvo_syntax::ast::TypeRef, out: &mut Vec<String>) {
-        if r.name.name == "proj" {
+        if crate::types::is_proj_name(&r.name.name) {
             out.extend(r.from.iter().map(|i| i.name.clone()));
         }
         for a in &r.args {
@@ -1503,7 +1503,7 @@ fn proj_sources_of(ty: &Type) -> Vec<String> {
 
 fn type_has_proj(ty: &Type) -> bool {
     fn in_ref(r: &salvo_syntax::ast::TypeRef) -> bool {
-        r.name.name == "proj" || r.args.iter().any(type_has_proj)
+        crate::types::is_proj_name(&r.name.name) || r.args.iter().any(type_has_proj)
     }
     match ty {
         Type::Named { qualifiers, base } => qualifiers.iter().any(in_ref) || in_ref(base),

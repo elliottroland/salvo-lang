@@ -1888,7 +1888,7 @@ fn is_copy_scalar(ty: &Type) -> bool {
 /// `new`, in place.
 fn rename_proj_source(ty: &mut Type, old: &str, new: &str) {
     fn in_ref(r: &mut TypeRef, old: &str, new: &str) {
-        if r.name.name == "proj" {
+        if r.name.name == "proj" || r.name.name == "ref" {
             for from in &mut r.from {
                 if from.name == old {
                     from.name = new.to_string();

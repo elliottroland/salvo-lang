@@ -22492,14 +22492,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                         // the `proj → ref` promotion at the designated
                         // locator. A plain `proj` body for a `proj` return is
                         // unaffected; only a `ref` *return type* promotes.
+                        // The handle is usually optional (`ref(c) Mut T?`),
+                        // so the promotion distributes over union arms.
                         let ref_mint = iter_pattern.is_none()
-                            && expected.is_ref()
-                            && vty.is_proj()
-                            && !vty.is_ref()
-                            && is_subtype(
-                                &vty.clone().remove_quals(&crate::types::proj_names()),
-                                &expected.clone().remove_quals(&crate::types::proj_names()),
-                            );
+                            && has_ref_arm(&expected)
+                            && !has_ref_arm(&vty)
+                            && is_subtype(&promote_proj_to_ref(vty.clone()), &expected);
                         if iter_pattern.is_none() && !ref_mint && !is_subtype(&vty, &expected) {
                             self.error(
                                 v.span(),
@@ -30373,6 +30371,37 @@ fn spans_overlap(a: Span, b: Span) -> bool {
 fn strip_proj_union(ty: &Ty) -> &Ty {
     match ty {
         Ty::Qualified { quals, base } if matches!(base.as_ref(), Ty::Union(_)) && quals.iter().all(|q| crate::types::is_proj_name(&q.name)) => base,
+        other => other,
+    }
+}
+
+/// [ref-handle] Whether a type is a `ref` handle at its top level or in any
+/// union arm (an optional handle is `ref(c) Mut T?`).
+fn has_ref_arm(ty: &Ty) -> bool {
+    match ty {
+        Ty::Union(arms) => arms.iter().any(has_ref_arm),
+        Ty::Qualified { base, .. } => ty.is_ref() || has_ref_arm(base),
+        _ => false,
+    }
+}
+
+/// [ref-handle] The mint's `proj → ref` promotion: every `proj` qualifier at
+/// the top level or in a union arm becomes `ref`.
+fn promote_proj_to_ref(ty: Ty) -> Ty {
+    match ty {
+        Ty::Union(arms) => Ty::Union(arms.into_iter().map(promote_proj_to_ref).collect()),
+        Ty::Qualified { quals, base } => Ty::Qualified {
+            quals: quals
+                .into_iter()
+                .map(|mut q| {
+                    if q.name == "proj" {
+                        q.name = "ref".to_string();
+                    }
+                    q
+                })
+                .collect(),
+            base: Box::new(promote_proj_to_ref(*base)),
+        },
         other => other,
     }
 }

@@ -101,7 +101,7 @@ fn wire_blocker_at(symbols: &Symbols<'_>, ty: &Ty, depth: usize) -> Option<WireB
         Ty::Fn { .. } => Some(WireBlock::FnValue),
         Ty::Var(name) => Some(WireBlock::Generic(name.clone())),
         Ty::Qualified { quals, base } => {
-            if quals.iter().any(|q: &Qual| q.name == "proj") {
+            if quals.iter().any(|q: &Qual| crate::types::is_proj_name(&q.name)) {
                 return Some(WireBlock::Proj);
             }
             wire_blocker_at(symbols, base, depth + 1)

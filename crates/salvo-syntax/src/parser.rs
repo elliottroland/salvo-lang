@@ -6569,7 +6569,7 @@ pub fn first_proj_source(ty: &Type) -> Option<Ident> {
     // argument (`List<proj T>`) is a borrow the result *holds*, tracked as a
     // lend, so type arguments are not descended into.
     fn in_ref(r: &TypeRef) -> Option<Ident> {
-        if r.name.name == "proj" {
+        if r.name.name == "proj" || r.name.name == "ref" {
             if let Some(from) = r.from.first() {
                 return Some(from.clone());
             }

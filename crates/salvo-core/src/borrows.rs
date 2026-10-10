@@ -49,7 +49,7 @@ fn is_none_type(ty: &Type) -> bool {
 /// [rs-proj-struct] Whether a written type carries a `proj` anywhere.
 pub fn type_has_proj(ty: &Type) -> bool {
     fn in_ref(r: &TypeRef) -> bool {
-        r.name.name == "proj" || r.args.iter().any(type_has_proj)
+        crate::types::is_proj_name(&r.name.name) || r.args.iter().any(type_has_proj)
     }
     match ty {
         Type::Named { qualifiers, base } => qualifiers.iter().any(in_ref) || in_ref(base),
