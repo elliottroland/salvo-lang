@@ -973,6 +973,31 @@ not do. So the whole `region`/`Reg`/effect apparatus is unnecessary.
   codegen tests, and the `Mutable-Handles.md`/`LANGUAGE_SPEC.md` prose.
 - **`Locate` → `Ref` group rename:** folded into v1a (pure vocabulary).
 
+### Settled decisions (user, 2026-10-10): storage paths, `NotSame`, no `?at`
+
+- **A handle is a storage path.** On a backend with ownership a `ref(c)`
+  re-materializes by walking a **path** from `c` — field steps, union
+  arms, list/`Deque` indices, map *slots* — computed once, when it is
+  minted, by running `at`'s body. Never by replaying `at`. A path exists for
+  every `at`, because a `ref(c)` result must derive from `c` and mutable
+  storage is built only from those steps. So what a handle can do never
+  depends on how `at` is written. The path type belongs to the **(container
+  type, element type)** pair, derived from the type definitions, not to an
+  accessor, so handles from different accessors of one container compare
+  and split. The worked example is Part 9.
+- **`?at` is removed from `ref(c)`.** With paths typed by the container,
+  the accessor identity carries nothing a backend needs. Rules 1–2 above
+  (`ref(c, ?at)`, `?at: at2`, `borrow_via`) are **superseded**: `ref(c)` is
+  the whole spelling.
+- **`NotSame` is the proof that two handles differ** (`b is NotSame(a)`): a
+  claim about *handles*, so it is independent of the accessor. Rust
+  compares paths and Kotlin compares references (`!==`); two `NotSame`
+  handles may be live at once (split where the paths diverge). Whether
+  `NotEq` on indices survives beside it is open (Part 9).
+- **Naming.** A `ref`-returning fn renders on each backend as *its* `ref`,
+  under its own name: Rust's `at` returns the path, Kotlin's the
+  element. There is no separate natural face beside it.
+
 ### Superseded approaches, and why (kept for the reasoning, not the design)
 
 The session reached `ref(c)` by eliminating each of these; recorded so they
@@ -1007,6 +1032,10 @@ are not re-proposed. (The full exploration was §§7a–7j and Parts 3–6.)
   and its gap were abandoned.
 
 ## Part 8: implementation plan
+
+> **Superseded in part (2026-10-10):** v2's "re-materialize through the
+> resolved `at`" and every `?at` form below are replaced by storage paths
+> (Part 7's 2026-10-10 decisions; Part 9).
 
 **Status (2026-10-10): v1a, v1b and v2 for `List` and `Map` are built**
 (COMPLETED.md, "The `ref(c)` rework: done"). What remains of v2 — generic
@@ -1088,3 +1117,90 @@ re-materialization is `at(c, position)` for any container.
   (checker/Kotlin first, Rust real-borrow machinery last).
 - Retire `ROADMAP.md` item 15 as part of v1a (it describes a design — region —
   that is not being built).
+
+## Part 9: storage paths, worked through (2026-10-10)
+
+The design the 2026-10-10 decisions settle, worked through on a custom
+container whose path crosses a field, a map key and a list index. The Salvo
+half type-checks today and runs on Kotlin (`bench 1` / `Cy 7`, without the
+`NotSame` block); the Rust half is the target rendering, written by hand.
+
+```
+struct Player canbe Mut { name: Str, goals: Int }
+struct Team   canbe Mut { coach: Str, roster: List<Mut Player> }
+struct League canbe Mut { teams: Map<Str, Mut Team>, bench: List<Mut Player> }
+
+fn at(l: League, team: Str, n: Int) [] -> ref(l) Mut Player? => l, team, n {
+    if n < 0 { return at(l.bench, -n - 1) }       // .bench[i]
+    let t = at(l.teams, team)                      // .teams{slot}
+    if t is None { return None }
+    return at(t.roster, n)                         // .teams{slot}.roster[i]
+}
+
+fn trade(l: League, a: ref(l) Mut Player, b: ref(l) Mut Player) -> None { … }
+
+let star = at(league, "red", 1)!
+star.goals = star.goals + 1
+println("bench ${size(league.bench)}")             // a read between writes
+trade(league, star, star)                          // self-trade
+let sub = at(league, "", -1)!
+if sub is NotSame(star) { score(star, sub) }       // two live handles
+```
+
+Rust, the target:
+
+```rust
+#[derive(Clone, Copy, PartialEq)]
+pub enum LeaguePlayerPath { Teams(usize /* slot */, TeamPlayerPath), Bench(usize) }
+#[derive(Clone, Copy, PartialEq)]
+pub enum TeamPlayerPath { Roster(usize) }
+
+impl LeaguePlayerPath {
+    pub fn walk<'a>(&self, l: &'a mut League) -> &'a mut Player {
+        match *self {
+            LeaguePlayerPath::Teams(s, p) => p.walk(&mut l.teams[s]),
+            LeaguePlayerPath::Bench(i) => &mut l.bench[i],
+        }
+    }
+}
+
+// `at` itself: the body runs once, at the mint, and answers the path.
+pub fn at(l: &League, team: &String, n: i32, hash: HashFn<String>, eq: EqFn<String>)
+    -> Option<LeaguePlayerPath> { … }
+
+let __h1 = crate::at(&league, &"red".into(), 1, …).expect(…);
+__h1.walk(&mut league).goals += 1;               // each use walks the path
+pub fn trade(l: &mut League, a: &LeaguePlayerPath, b: &LeaguePlayerPath) { … }
+
+// Two live handles: split where the paths diverge — the same list by
+// `split_at_mut`, the same map by a slot split, different fields natively.
+impl League {
+    pub fn walk_pair(&mut self, a: &LeaguePlayerPath, b: &LeaguePlayerPath)
+        -> Option<(&mut Player, &mut Player)> { … }
+}
+if __h4 != __h1 {                                  // NotSame
+    let (p, q) = league.walk_pair(&__h1, &__h4).expect("salvo: handles proven distinct");
+    crate::score(p, q);
+}
+```
+
+Recorded consequences and open points:
+- **The path types are the Rust backend's own declarations, not IR
+  enums.** An IR enum is a Salvo union, with Salvo semantics and a Kotlin
+  rendering; a path is how *one* backend spells `ref(c)` [core-layers]. The
+  IR already carries what the backend reads to build paths: places with
+  field steps, the bodies of the mints, `FnDecl::borrows`/`ref_anchors`
+  (which parameter a `ref` is a handle into, so its type). A generic `C`
+  gets the path type as an extra Rust type parameter `P`, which the backend
+  adds the way it adds lifetimes.
+- **New host primitive**: `Map::pair_mut(slot, slot)`, the slab's
+  `split_at_mut`.
+- **Recursive containers** need a recursive path (boxed or `Vec` steps), an
+  allocation per handle; they wait on the recursive-types defect anyway.
+- **Open: `NotEq` beside `NotSame`.** For borrowing, `NotSame` subsumes the
+  index proof (on a list, paths are indices, so the runtime test is the
+  same). What `NotEq` alone gives is a proof *before* any handle exists,
+  as on `update2`'s signature — which `NotSame` on two `ref(list)`
+  parameters says equally well. Retiring it would also retire the
+  minting-index identity machinery ([elem-distinct]'s `elem_idx`,
+  `live_distinct_pairs`). The user's call.

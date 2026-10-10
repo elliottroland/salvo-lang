@@ -138,6 +138,28 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-10 — Handles are storage paths; `NotSame`; no `?at` (user decisions, design only)
+
+Worked through with the user after the total `at` landed. Probing a
+`Grid`'s own `at` showed a bare `usize` handle is not enough even for a
+concrete custom container (ROADMAP 15's open defect): a position is
+meaningless without the path it indexes. Options weighed:
+- **Replay** `at` at every use (the user's first suggestion): general, but
+  repeats the lookup per use (a re-hash for a map), runs `at` N times where
+  Kotlin runs it once, and cannot give two live `&mut` into one container,
+  so a pair would depend on `at` being known one-to-one.
+- **Container-chosen positions** (a `locate`/`index` pair per container):
+  fast, but asks every container author for two functions.
+- **Chosen: a storage path** computed once at the mint, typed by the
+  (container type, element type) pair and walked per use. It exists for
+  every `at`, so what a handle can do does not depend on how `at` is
+  written (the user's requirement). The user also decided `NotSame` (a
+  proof about handles), the removal of `?at` from `ref(c)`, and that a
+  `ref`-returning fn renders under its own name (no `at__path`). Recorded
+  in GROUP_BORROWING.md Part 7 and Part 9; the work is ROADMAP item 15. The
+  path types are Rust-backend declarations, not IR enums [core-layers]. Open:
+  whether `NotEq` is retired.
+
 ### 2026-10-10 — A total `at` at an `Idx`
 
 User request, closing the last open point of the `ref(c)` rework: `core.list`
