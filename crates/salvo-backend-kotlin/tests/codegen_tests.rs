@@ -4537,6 +4537,92 @@ fn kotlinc_compiles_and_runs_handle_reads() -> KotlinCase {
     kotlin_case(files, "handle_reads", "something\ntwo\nsomething changed\n")
 }
 
+/// [ref-handle] Handles into a container that is a type parameter — same
+/// source and output as the Rust case (Kotlin needs nothing: a handle is the
+/// element).
+const GENERIC_CONTAINER_DEMO: &str = r#"
+struct Player canbe Mut { name: Str, goals: Int }
+struct Team canbe Mut { coach: Str, roster: List<Mut Player> }
+struct League canbe Mut {
+    teams: Map<Str, Mut Team>,
+    bench: List<Mut Player>
+}
+
+fn at(l: League, team: Str, n: Int) [] -> ref(l) Mut Player? => l, team, n {
+    if n < 0 {
+        return at(l.bench, -n - 1)
+    }
+    let t = at(l.teams, team)
+    if t is None {
+        return None
+    }
+    return at(t.roster, n)
+}
+
+// Generic over the container: the handle's path is opaque here.
+fn bump<C>(c: C, a: ref(c) Mut Player) -> None {
+    a.goals = a.goals + 1
+}
+
+fn swap_goals<C>(c: C, a: ref(c) Mut Player, b: ref(c) Mut Player) -> None {
+    let g = a.goals
+    a.goals = b.goals
+    b.goals = g
+}
+
+// A delegating mint: the accessor comes in through `?Ref`.
+fn borrow_via<C, L>(c: C, l: L, ?Ref<C, L, Player>) [] -> ref(c) Mut Player? => c, l {
+    return at(c, l)
+}
+
+fn bump_at<C, L>(c: C, l: L, ?Ref<C, L, Player>) -> None {
+    let h = at(c, l)!
+    h.goals = h.goals + 10
+    h.goals = h.goals + 1
+}
+
+fn score(a: Mut Player, b: Mut Player) -> None => a: Mut, b: Mut {
+    a.goals = a.goals + 1000
+    b.goals = b.goals + 2000
+}
+
+// Two handles into a generic container, proven apart: one split, walked.
+fn score_both<C>(c: C, a: ref(c) Mut Player, b: ref(c) Mut Player) -> None {
+    if b is NotSame(a) {
+        score(a, b)
+    }
+}
+
+export fn main() [use] -> None {
+    use StdOutConsole()
+    let teams: Mut Map<Str, Mut Team> = mut_map_of()
+    put(teams, "red", Mut Team { coach: "Ada", roster: list_of(Mut Player { name: "Bo", goals: 0 }, Mut Player { name: "Cy", goals: 5 }) })
+    let league = Mut League { teams: teams, bench: list_of(Mut Player { name: "Flo", goals: 9 }) }
+    let squad: List<Mut Player> = list_of(Mut Player { name: "Ed", goals: 2 }, Mut Player { name: "Di", goals: 3 })
+
+    bump(league, at(league, "red", 1)!)
+    bump(squad, at(squad, 0)!)
+    swap_goals(league, at(league, "red", 0)!, at(league, "", -1)!)
+    swap_goals(squad, at(squad, 0)!, at(squad, 1)!)
+    let h = borrow_via(squad, 1)!
+    h.goals = h.goals + 100
+    bump_at(squad, 0)
+    score_both(league, at(league, "red", 0)!, at(league, "", -1)!)
+    score_both(squad, at(squad, 0)!, at(squad, 0)!)
+    let red = get(league.teams, "red")!
+    println("${get(red.roster, 0)!.goals} ${get(red.roster, 1)!.goals} ${get(league.bench, 0)!.goals}")
+    println("${get(squad, 0)!.goals} ${get(squad, 1)!.goals}")
+}
+"#;
+
+fn kotlinc_compiles_and_runs_handles_into_generic_containers() -> KotlinCase {
+    let program = build_program(&[("main.sv", GENERIC_CONTAINER_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "generic_containers", "1009 6 2000\n14 103\n")
+}
+
 fn kotlinc_compiles_and_runs_notsame_handles() -> KotlinCase {
     let program = build_program(&[("main.sv", NOTSAME_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
@@ -4802,6 +4888,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_distinct_pair_calls,
     kotlinc_compiles_and_runs_notsame_handles,
     kotlinc_compiles_and_runs_handle_reads,
+    kotlinc_compiles_and_runs_handles_into_generic_containers,
     kotlinc_compiles_and_runs_the_update_family,
     kotlinc_compiles_and_runs_a_lending_fn_value,
     kotlinc_compiles_and_runs_the_locate_bundle,

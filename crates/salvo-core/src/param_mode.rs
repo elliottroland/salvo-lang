@@ -81,7 +81,10 @@ impl<'a, 'p> Modes<'a, 'p> {
             });
             // A container written through a handle minted in the body (a
             // generic `c: C` read through `?Ref`'s `at`, then mutated).
-            let mutated = key.is_some_and(|k| self.checked.param_mutations.get(&k).is_some_and(|m| m.contains(&param.name.name)));
+            // Only a type-parameter container: any other type says itself
+            // whether it is lent mutably.
+            let generic = matches!(&param.ty, Type::Named { qualifiers, base } if qualifiers.is_empty() && base.args.is_empty() && decl.generics.iter().any(|g| g.name == base.name.name));
+            let mutated = generic && key.is_some_and(|k| self.checked.param_mutations.get(&k).is_some_and(|m| m.contains(&param.name.name)));
             if mints_from || anchors || mutated {
                 return PassMode::LentMut;
             }
