@@ -242,7 +242,10 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             });
         }
         let r = if lends {
-            if ret.strip_quals().has_none_arm() { " -> Option<usize>".to_string() } else { " -> usize".to_string() }
+            // [rs-path] A lending callback answers the path.
+            let ret = ret.clone();
+            let p = self.handle_path_ty(&ret).map(|pt| self.path_rust(&pt)).unwrap_or_else(|| "usize".to_string());
+            if ret.strip_quals().has_none_arm() { format!(" -> Option<{p}>") } else { format!(" -> {p}") }
         } else if ret.is_none_ty() {
             String::new()
         } else {
@@ -442,7 +445,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             span: m.span,
         };
         let sig = self.member_sig(&loc);
-        let position = if m.ret.strip_quals().has_none_arm() { "Option<usize>" } else { "usize" };
+        let p = self.handle_path_ty(&m.ret).map(|pt| self.path_rust(&pt)).unwrap_or_else(|| "usize".to_string());
+        let position = if m.ret.strip_quals().has_none_arm() { format!("Option<{p}>") } else { p };
         Some(format!("{sig} -> {position}"))
     }
 
@@ -1087,6 +1091,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         if let Some(a) = anchor {
             if let Some(p) = own.get(a) {
                 self.f.loc = Some((p.local.0.clone(), sig_member.ret.strip_quals().has_none_arm()));
+                self.f.loc_pt = self.handle_path_ty(&sig_member.ret);
             }
         }
         self.f.ret = Some(sig_member.ret.clone());
@@ -1109,6 +1114,11 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
 
     /// A fn declaration; `recv` is a member's receiver.
     pub fn fn_decl(&mut self, f: &FnDecl, recv: Option<&str>, indent: usize) -> String {
+        // [rs-path] A mint renders as its path, under its own name: there is
+        // no `&mut`-answering face beside it.
+        if self.s.is_mint(f) && f.kind != FnKind::Intrinsic && f.body.is_some() {
+            return self.fn_decl_mode(f, recv, indent, true);
+        }
         let mut out = self.fn_decl_mode(f, recv, indent, false);
         if self.s.locs.contains(&f.id) && f.kind != FnKind::Intrinsic {
             out.push_str(&self.fn_decl_mode(f, recv, indent, true));
@@ -1168,6 +1178,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             params[a].mode = PassMode::Lent;
             let opt = f.ret.strip_quals().has_none_arm();
             self.f.loc = Some((params[a].local.0.clone(), opt));
+            self.f.loc_pt = self.loc_path_ty(f, a);
         }
         // [ref-anchor] A handle parameter `a: ref(c) Mut T` is a position in
         // its container parameter, which the callee already takes: the
@@ -1178,19 +1189,13 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         for (i, p) in params.iter().enumerate() {
             let n = rs_ident(&p.local.0);
             if let Some(&k) = anchors.get(&i) {
-                // [backend-never-wrong] A position indexes a container of a
-                // known indexable type; a generic one has no index here yet.
-                let indexable = matches!(self.s.unalias(&params[k].ty).strip_quals(), Ty::Named { name, .. } if name == "List" || name == "Map");
-                if !indexable {
-                    self.error(format!(
-                        "`{}: ref({})` needs `{}` to be a `List` or a `Map` on the Rust backend: a handle into a generic or custom container is not supported yet [ref-anchor]",
-                        p.local.0, params[k].local.0, params[k].local.0
-                    ));
-                }
+                // [rs-path] The handle is a path in its container parameter.
                 let c = format!("__c{i}");
-                ps.push(format!("{c}: usize"));
-                self.f.kinds.insert(p.local.0.clone(), super::body::Kind::Elem);
-                self.f.elem.insert(p.local.0.clone(), (rs_ident(&params[k].local.0), Some(c)));
+                let Some(pt) = self.handle_path_ty(&p.ty) else { continue };
+                let pt_text = self.path_rust(&pt);
+                ps.push(format!("{c}: {pt_text}"));
+                let steps = self.steps_of_value(&pt, &c);
+                self.bind_handle(&p.local.0, super::paths::HandleBinding::Total(super::paths::Handle { root: rs_ident(&params[k].local.0), steps }));
                 self.f.tys.insert(p.local.0.clone(), p.ty.clone());
                 continue;
             }
@@ -1241,9 +1246,10 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let body_tie = std::mem::take(&mut self.f.tie);
         let _ = body_tie;
         self.f.lt = lt.as_ref().map(|(l, _)| l.clone());
+        let loc_ret = self.f.loc_pt.clone().map(|pt| self.path_rust(&pt)).unwrap_or_else(|| "usize".to_string());
         let ret = match &self.f.loc {
-            Some((_, true)) => " -> Option<usize>".to_string(),
-            Some((_, false)) => " -> usize".to_string(),
+            Some((_, true)) => format!(" -> Option<{loc_ret}>"),
+            Some((_, false)) => format!(" -> {loc_ret}"),
             None => match &f.throws {
                 // [rs-throw-controlflow] The throw is the return.
                 Some(m) => {
@@ -1259,7 +1265,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         self.f.ret = Some(f.ret.clone());
         self.f.ret_lt = self.s.holds_proj(&f.ret);
         let mut name = if recv.is_some() { rs_ident(&f.name) } else { self.fn_rust_name(&f.id) };
-        if loc {
+        if loc && !self.s.is_mint(f) {
             name.push_str("__loc");
         }
         let g = if tps.is_empty() { String::new() } else { format!("<{}>", tps.join(", ")) };

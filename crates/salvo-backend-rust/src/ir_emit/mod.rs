@@ -22,6 +22,7 @@ use crate::EmittedFile;
 mod actors;
 mod body;
 mod decls;
+mod paths;
 mod skeleton;
 
 
@@ -89,6 +90,8 @@ fn run(
         borrowing: HashSet::new(),
         locs: HashSet::new(),
         statics: HashMap::new(),
+        paths: HashMap::new(),
+        path_enums: Vec::new(),
     };
     for m in &ir.modules {
         for d in &m.decls {
@@ -121,6 +124,7 @@ fn run(
         }
     }
     shared.compute_locs();
+    shared.compute_paths();
     if skeletons {
         let mut files = Vec::new();
         for m in &ir.modules {
@@ -406,6 +410,10 @@ pub(crate) struct Shared<'p> {
     pub locs: HashSet<DeclId>,
     /// [mod-use] Per module, its statics' locals.
     pub statics: HashMap<ModulePath, HashSet<String>>,
+    /// [rs-path] Path types by (container, element).
+    pub paths: HashMap<(String, String), Result<paths::PathTy, String>>,
+    /// [rs-path] The generated path enums, declared with their home module.
+    pub path_enums: Vec<paths::PathTy>,
 }
 
 impl<'p> Shared<'p> {
@@ -540,6 +548,13 @@ impl<'p> Shared<'p> {
             }
             _ => false,
         }
+    }
+
+    /// [rs-path] Whether a fn mints a mutable handle: its result is a `ref`
+    /// carrying `Mut` (or the optional of one).
+    pub fn is_mint(&self, f: &FnDecl) -> bool {
+        let v = f.ret.strip_quals().without_none();
+        (is_ref(&f.ret) && is_mut(&f.ret)) || (is_ref(&v) && is_mut(&v))
     }
 
     /// [rs-loc] A call that lends mutably from a fn whose result is a read
@@ -932,6 +947,10 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         // [rs-imports] The generated code names everything in full; these
         // `use`s are for the host files, which `use crate::<module>::*` and
         // name what the module's declarations mention unqualified.
+        // [rs-path] The path enums of the handles into this module's types.
+        if keep.is_none() {
+            body.push_str(&self.path_enums());
+        }
         format!("{}{body}", host_imports(&body))
     }
 

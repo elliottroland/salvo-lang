@@ -49,8 +49,18 @@ pub(crate) struct FnState {
     /// [rs-loc] Rendering a locator variant: the anchor parameter, and
     /// whether the position is optional.
     pub loc: Option<(String, bool)>,
-    /// [rs-loc] Loop locals bound to a position of the anchor.
-    pub loc_index: HashMap<String, String>,
+    /// [rs-loc] Loop locals bound to a position of the anchor: the handle
+    /// the element is.
+    pub loc_index: HashMap<String, super::paths::Handle>,
+    /// [rs-path] The path type a locator answers.
+    pub loc_pt: Option<super::paths::PathTy>,
+    /// [rs-path] Handle locals: the container's root and the path.
+    pub ref_handles: HashMap<String, super::paths::HandleBinding>,
+    /// [rs-path] A place being rendered for a write (an enum path is then
+    /// walked `&mut`).
+    pub place_mut: bool,
+    /// [rs-path] Rendering a lending callback's call for its path alone.
+    pub want_path: bool,
     /// The type parameters in scope.
     pub generics: HashSet<String>,
     /// [rs-elem-mut] Elem locals: the anchor (or place) text, and the
@@ -315,7 +325,7 @@ fn read_root(e: &Expr) -> Option<String> {
     }
 }
 
-fn bare(e: &Expr) -> Option<&Local> {
+pub(crate) fn bare(e: &Expr) -> Option<&Local> {
     match &e.kind {
         ExprKind::Read { place, .. } if place.steps.is_empty() => Some(&place.root),
         ExprKind::DropMut { value } => bare(value),
@@ -354,7 +364,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         "    ".repeat(indent)
     }
 
-    fn fresh(&mut self, base: &str) -> String {
+    pub(crate) fn fresh(&mut self, base: &str) -> String {
         self.f.tmp += 1;
         format!("__{base}{}", self.f.tmp)
     }
@@ -582,12 +592,28 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         }
         // [rs-elem-mut] A mutable handle on an element is its position, the
         // element re-rendered at every use [rs-loc].
-        if is_ref(ty) && is_mut(ty) {
-            if let Some((anchor, pos)) = self.loc_of(value, indent) {
+        if salvo_ir::build::refs::has_ref(ty) && is_mut(&ty.strip_quals().without_none()) || (is_ref(ty) && is_mut(ty)) {
+            // [rs-path] Another name for a handle: the same binding.
+            if let Some(r) = bare(value) {
+                if let Some(b) = self.handle_of(&r.0) {
+                    self.bind_handle(&local.0, b);
+                    return String::new();
+                }
+            }
+            if let Some(m) = self.mint(value, indent) {
                 let p = self.fresh("h");
-                self.f.kinds.insert(local.0.clone(), Kind::Elem);
-                self.f.elem.insert(local.0.clone(), (anchor, Some(p.clone())));
-                return format!("{pad}let {p}: usize = {pos};\n");
+                let pt_text = self.path_rust(&m.pt);
+                let mut out: String = m.pre.iter().map(|l| format!("{pad}{l}\n")).collect();
+                if m.opt {
+                    out.push_str(&format!("{pad}let {p}: Option<{pt_text}> = {};\n", m.code));
+                    self.bind_handle(&local.0, super::paths::HandleBinding::Optional { var: p, prefix: m.prefix, pt: m.pt });
+                } else {
+                    out.push_str(&format!("{pad}let {p}: {pt_text} = {};\n", m.code));
+                    let mut steps = m.prefix.steps.clone();
+                    steps.extend(self.steps_of_value(&m.pt, &p));
+                    self.bind_handle(&local.0, super::paths::HandleBinding::Total(super::paths::Handle { root: m.prefix.root, steps }));
+                }
+                return out;
             }
         }
         // [rs-borrow-locals] A borrow-mode binding of a pure place, never
@@ -732,7 +758,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     // ------------------------------------------------------------ places --
 
     /// The place's text and the kind of its root.
-    fn place_text(&mut self, p: &Place, indent: usize) -> (String, Kind) {
+    pub(crate) fn place_text(&mut self, p: &Place, indent: usize) -> (String, Kind) {
         // [mod-use] A module's static, through its accessor.
         if !self.f.kinds.contains_key(&p.root.0) && self.s.statics.get(&self.module.path).is_some_and(|s| s.contains(&p.root.0)) {
             let mut out = format!("{}{}()", self.s.prefix(&self.module.path), rs_local(&p.root.0));
@@ -750,6 +776,32 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 }
             }
             return (out, Kind::Ref);
+        }
+        // [rs-path] A handle local: its container's root, walked along the path.
+        if let Some(b) = self.f.ref_handles.get(&p.root.0).cloned() {
+            match b {
+                super::paths::HandleBinding::Total(h) => {
+                    let mut steps = h.steps.clone();
+                    for s in &p.steps {
+                        steps.push(match s {
+                            Step::Field(f) => super::paths::SStep::Field(f.clone()),
+                            Step::Tuple(i) => super::paths::SStep::Tuple(*i),
+                            Step::Index(e) => {
+                                let i = self.value(e, indent);
+                                super::paths::SStep::Dyn(super::paths::PStep::Index, format!("(({i}) as usize)"))
+                            }
+                        });
+                    }
+                    let m = self.f.place_mut;
+                    return (self.render_path(&h.root, &steps, m), Kind::Elem);
+                }
+                super::paths::HandleBinding::Optional { var, .. } => {
+                    if !p.steps.is_empty() {
+                        self.error("a field of an optional handle read before it was tested [rs-path]");
+                    }
+                    return (var, Kind::Owned);
+                }
+            }
         }
         let kind = self.f.kinds.get(&p.root.0).copied().unwrap_or(Kind::Owned);
         let mut out = match kind {
@@ -802,7 +854,9 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     }
 
     fn lvalue(&mut self, p: &Place, indent: usize) -> String {
+        let saved = std::mem::replace(&mut self.f.place_mut, true);
         let (text, kind) = self.place_text(p, indent);
+        self.f.place_mut = saved;
         if p.steps.is_empty() && matches!(kind, Kind::Ref | Kind::RefMut) {
             return format!("*{text}");
         }
@@ -919,7 +973,9 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             return self.value(e, indent);
         }
         if let ExprKind::Read { place, .. } = &e.kind {
+            let saved = std::mem::replace(&mut self.f.place_mut, true);
             let (text, kind) = self.place_text(place, indent);
+            self.f.place_mut = saved;
             if place.steps.is_empty() {
                 return match kind {
                     Kind::Ref | Kind::RefMut => format!("&mut *{text}"),
@@ -967,7 +1023,9 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             ExprKind::Unit => "()".to_string(),
             ExprKind::MakeNone => "None".to_string(),
             ExprKind::Read { place, consume } => {
+                let saved = std::mem::replace(&mut self.f.place_mut, is_proj(&e.ty) && is_mut_borrow(&e.ty));
                 let (text, kind) = self.place_text(place, indent);
+                self.f.place_mut = saved;
                 let bare = place.steps.is_empty();
                 if is_copy_ty(&e.ty) {
                     // A scalar stored as a borrow (a `proj T` field at `T = Int`).
@@ -1577,6 +1635,24 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let pad = Self::pad(indent);
         let n = rs_local(&local.0);
         self.f.tys.insert(local.0.clone(), ty.clone());
+        // [rs-path] Narrowing a handle: an optional one, once present, is
+        // its path; any other narrowing (a claim) is the same handle.
+        if from.steps.is_empty() {
+            match self.handle_of(&from.root.0) {
+                Some(super::paths::HandleBinding::Optional { var, prefix, pt }) if !ty.strip_quals().has_none_arm() => {
+                    let p = self.fresh("h");
+                    let mut steps = prefix.steps.clone();
+                    steps.extend(self.steps_of_value(&pt, &p));
+                    self.bind_handle(&local.0, super::paths::HandleBinding::Total(super::paths::Handle { root: prefix.root, steps }));
+                    return format!("{pad}let {p} = {var}.expect(\"salvo: value is absent\");\n");
+                }
+                Some(b) => {
+                    self.bind_handle(&local.0, b);
+                    return String::new();
+                }
+                None => {}
+            }
+        }
         let (src, root_kind) = self.place_text(from, indent);
         let test = match because {
             Justification::Test { test } => self.f.test_arms.get(&(test.0, usize::MAX)).cloned(),
@@ -1689,14 +1765,19 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let pad = Self::pad(indent);
         let n = rs_local(&local.0);
         self.f.tys.insert(local.0.clone(), ty.clone());
-        // [rs-loc] Over the anchor, a locator loops by position.
-        if let (Some((anchor, _)), Some(r)) = (self.f.loc.clone(), bare(iterable)) {
-            if r.0 == anchor && is_proj(ty) {
+        // [rs-loc] [rs-path] Over a list in the anchor, a locator loops by
+        // position: each element is the path to it.
+        let over_list = matches!(iterable.ty.strip_quals(), Ty::Named { name, .. } if name == "List" || name == "Deque") || matches!(iterable.ty.strip_quals(), Ty::Array(_));
+        if self.f.loc.is_some() && is_proj(ty) && over_list {
+            let mut pre = Vec::new();
+            if let Some(h) = self.anchor_handle(iterable, indent, &mut pre).filter(|_| pre.is_empty()) {
                 let i = self.fresh("li");
-                let a = rs_local(&anchor);
+                let a = self.render_path(&h.root, &h.steps, false);
                 let saved = self.f.kinds.clone();
                 self.f.kinds.insert(local.0.clone(), Kind::Ref);
-                self.f.loc_index.insert(local.0.clone(), i.clone());
+                let mut steps = h.steps.clone();
+                steps.push(super::paths::SStep::Dyn(super::paths::PStep::Index, i.clone()));
+                self.f.loc_index.insert(local.0.clone(), super::paths::Handle { root: h.root.clone(), steps });
                 let b = self.stmts(&body.stmts, indent + 1);
                 self.f.kinds = saved;
                 return format!("{pad}for {i} in 0..{a}.len() {{\n{}let {n} = &{a}[{i}];\n{b}{pad}}}\n", Self::pad(indent + 1));
@@ -1774,7 +1855,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     // ------------------------------------------------------------- calls --
 
     /// The arguments of a call, by the callee's parameters.
-    fn args(&mut self, params: &[Param], args: &[Expr], fn_pos: FnPos, indent: usize) -> Vec<String> {
+    pub(crate) fn args(&mut self, params: &[Param], args: &[Expr], fn_pos: FnPos, indent: usize) -> Vec<String> {
         let mut out = Vec::new();
         for (i, a) in args.iter().enumerate() {
             let Some(p) = params.get(i) else {
@@ -1793,61 +1874,42 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     }
 
     fn call_args_with(&mut self, params: &[Param], args: &[Expr], extra: &[String], indent: usize) -> (Vec<String>, Vec<String>) {
-        // [rs-elem-mut] [elem-distinct] Two mutable lends of one anchor,
-        // proven apart: one split borrow.
-        // Elem handles of one anchor, passed mutably together.
-        let elems: Vec<(usize, String, String)> = args
+        // [rs-elem-mut] [rs-path] Two mutable handles into one container,
+        // proven apart: one split borrow, where their paths diverge.
+        let lent: Vec<usize> = args
             .iter()
             .enumerate()
             .filter(|(i, _)| params.get(*i).is_some_and(|p| p.mode == PassMode::LentMut))
-            .filter_map(|(i, a)| bare(a).and_then(|r| self.f.elem.get(&r.0)).and_then(|(an, p)| p.clone().map(|p| (i, an.clone(), p))))
-            .collect();
-        if elems.len() == 2 && elems[0].1 == elems[1].1 {
-            self.s.needs_seq = true;
-            let (p0, p1) = (self.fresh("pm"), self.fresh("pm"));
-            let lets = vec![format!("let ({p0}, {p1}) = crate::seq::salvo_pair_mut(&mut {}[..], {}, {}).expect(\"salvo: value is absent\");", elems[0].1, elems[0].2, elems[1].2)];
-            let mut out = Vec::new();
-            for (i, a) in args.iter().enumerate() {
-                if i == elems[0].0 {
-                    out.push(p0.clone());
-                } else if i == elems[1].0 {
-                    out.push(p1.clone());
-                } else {
-                    match params.get(i) {
-                        Some(p) => out.push(self.arg(a, p, FnPos::Param, indent)),
-                        None => out.push(self.value(a, indent)),
-                    }
-                }
-            }
-            return (lets, out);
-        }
-        // Two mutable lends of one anchor (direct or `x!`), proven apart.
-        let cands: Vec<usize> = args
-            .iter()
-            .enumerate()
-            .filter(|(_, a)| self.lends_loc(a) || matches!(&a.kind, ExprKind::Branch { arms, .. } if arms.len() == 1 && arms[0].1.stmts.len() == 1 && matches!(&arms[0].1.stmts[0], Stmt::Let { value, .. } if self.lends_loc(value))))
+            .filter(|(_, a)| {
+                bare(a).is_some_and(|r| matches!(self.handle_of(&r.0), Some(super::paths::HandleBinding::Total(_))))
+                    || self.lends_loc(a)
+                    || matches!(&a.kind, ExprKind::Branch { arms, .. } if arms.len() == 1 && arms[0].1.stmts.len() == 1 && matches!(&arms[0].1.stmts[0], Stmt::Let { value, .. } if self.lends_loc(value)))
+            })
             .map(|(i, _)| i)
             .collect();
-        if cands.len() == 2 {
+        if lent.len() == 2 {
             let saved_tmp = self.f.tmp;
-            let l0 = self.loc_of(&args[cands[0]], indent);
-            let l1 = self.loc_of(&args[cands[1]], indent);
-            if let (Some((a0, p0)), Some((a1, p1))) = (l0, l1) {
-                if a0 == a1 {
-                    self.s.needs_seq = true;
-                    let (x0, x1) = (self.fresh("l"), self.fresh("l"));
-                    let (m0, m1) = (self.fresh("pm"), self.fresh("pm"));
-                    let lets = vec![
-                        format!("let {x0} = {p0};"),
-                        format!("let {x1} = {p1};"),
-                        format!("let ({m0}, {m1}) = crate::seq::salvo_pair_mut(&mut {a0}[..], {x0}, {x1}).expect(\"salvo: value is absent\");"),
-                    ];
+            let mut pre = Vec::new();
+            let mut hs = Vec::new();
+            for &i in &lent {
+                let h = match bare(&args[i]).and_then(|r| self.handle_of(&r.0)) {
+                    Some(super::paths::HandleBinding::Total(h)) => Some(h),
+                    _ => self.anchor_handle(&args[i], indent, &mut pre),
+                };
+                hs.push(h);
+            }
+            if let (Some(h0), Some(h1)) = (hs[0].clone(), hs[1].clone()) {
+                if h0.root == h1.root {
+                    let split = self.split_pair(&h0.root, &h0.steps, &h1.steps);
+                    let (p0, p1) = (self.fresh("pm"), self.fresh("pm"));
+                    let mut lets = pre;
+                    lets.push(format!("let ({p0}, {p1}) = {split};"));
                     let mut out = Vec::new();
                     for (i, a) in args.iter().enumerate() {
-                        if i == cands[0] {
-                            out.push(m0.clone());
-                        } else if i == cands[1] {
-                            out.push(m1.clone());
+                        if i == lent[0] {
+                            out.push(p0.clone());
+                        } else if i == lent[1] {
+                            out.push(p1.clone());
                         } else {
                             match params.get(i) {
                                 Some(p) => out.push(self.arg(a, p, FnPos::Param, indent)),
@@ -1990,23 +2052,33 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     /// argument's `&mut` is the only borrow the call takes.
     fn anchored_args(&mut self, f: &salvo_ir::FnDecl, params: &[Param], args: &[Expr], indent: usize) -> (Vec<String>, Vec<String>) {
         // Call arguments align with the IR params (effects first).
-        let anchored: HashSet<usize> = f.ref_anchors.iter().map(|(a, _)| *a).collect();
+        let anchored: HashMap<usize, usize> = f.ref_anchors.iter().copied().collect();
         let mut lets = Vec::new();
         let mut out = Vec::new();
         for (i, a) in args.iter().enumerate() {
-            if anchored.contains(&i) {
-                let pos = match bare(a).and_then(|r| self.f.elem.get(&r.0).cloned()) {
-                    Some((_, Some(p))) => p,
-                    _ => match self.loc_of(a, indent) {
-                        Some((_, p)) => p,
-                        None => {
-                            self.error("a `ref(c)` argument that is not a handle of a known position [ref-anchor] [backend-never-wrong]");
-                            "0".to_string()
-                        }
-                    },
+            if let Some(&k) = anchored.get(&i) {
+                let mut pre = Vec::new();
+                let handle = match bare(a).and_then(|r| self.handle_of(&r.0)) {
+                    Some(super::paths::HandleBinding::Total(h)) => Some(h),
+                    _ => self.anchor_handle(a, indent, &mut pre),
                 };
+                let container = args.get(k).and_then(|c| self.anchor_handle(c, indent, &mut pre));
+                let pt = self.handle_path_ty(&f.params[i].ty);
+                let value = match (handle, container, pt) {
+                    (Some(h), Some(c), Some(pt)) => match self.strip_prefix(&h, &c) {
+                        Some(rest) => self.path_value(&rest, &pt),
+                        None => None,
+                    },
+                    _ => None,
+                };
+                let Some(value) = value else {
+                    self.error("a `ref(c)` argument that is not a handle into the argument passed as `c` [ref-anchor] [backend-never-wrong]");
+                    out.push("panic!()".to_string());
+                    continue;
+                };
+                lets.extend(pre);
                 let t = self.fresh("c");
-                lets.push(format!("let {t} = {pos};"));
+                lets.push(format!("let {t} = {value};"));
                 out.push(t);
                 continue;
             }
@@ -2211,9 +2283,11 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let lends = self.s.fn_ty_lends_mut(slot);
         let saved_loc = self.f.loc.take();
         let saved_li = std::mem::take(&mut self.f.loc_index);
+        let saved_pt = self.f.loc_pt.take();
         if lends {
             let anchor = params.iter().zip(&modes).find(|(p, m)| !is_copy_ty(&p.ty) && **m != PassMode::Moved).map(|(p, _)| p.local.0.clone()).unwrap_or_default();
             self.f.loc = Some((anchor, ret.strip_quals().has_none_arm()));
+            self.f.loc_pt = self.handle_path_ty(ret);
         }
         let mut b = peel;
         b.push_str(&self.stmts(&body.stmts, indent + 1));
@@ -2228,13 +2302,15 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         }
         self.f.loc = saved_loc;
         self.f.loc_index = saved_li;
+        let lambda_pt = std::mem::replace(&mut self.f.loc_pt, saved_pt);
         self.f.kinds = saved_kinds;
         self.f.ret = saved_ret;
         self.f.ret_lt = saved_lt;
         self.f.throws = saved_throws;
         self.f.tries = saved_tries;
         let r = if lends {
-            if ret.strip_quals().has_none_arm() { " -> Option<usize>".to_string() } else { " -> usize".to_string() }
+            let p = lambda_pt.clone().map(|pt| self.path_rust(&pt)).unwrap_or_else(|| "usize".to_string());
+            if ret.strip_quals().has_none_arm() { format!(" -> Option<{p}>") } else { format!(" -> {p}") }
         } else if ret.is_none_ty() || foreign_var(ret, &self.f.generics) {
             String::new()
         } else {
@@ -2421,7 +2497,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         }
     }
 
-    /// [rs-loc] A returned borrow, as a position in the anchor.
+    /// [rs-loc] [rs-path] A returned handle, as the path this locator
+    /// answers: a path in its anchor parameter, of the locator's path type.
     fn loc_expr(&mut self, e: &Expr, opt: bool, indent: usize) -> String {
         let wrap = |code: String, is_opt: bool| -> String {
             match (opt, is_opt) {
@@ -2430,37 +2507,64 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 _ => code,
             }
         };
+        let Some(pt) = self.f.loc_pt.clone() else {
+            self.error("internal: a locator with no path type [rs-path]");
+            return "None".to_string();
+        };
+        let anchor_root = match self.f.loc.clone() {
+            Some((a, _)) => self.place_text(&Place { root: Local(a), steps: Vec::new() }, indent).0,
+            None => String::new(),
+        };
+        // A handle of the anchor, as this locator's path value.
+        let value_of = |s: &mut Self, h: &super::paths::Handle| -> Option<String> {
+            if h.root != anchor_root {
+                s.error("a locator answers a handle into something other than its anchor [rs-loc] [backend-never-wrong]");
+                return None;
+            }
+            s.path_value(&h.steps, &pt)
+        };
         match &e.kind {
+            ExprKind::MakeNone => "None".to_string(),
             ExprKind::Present { value } => {
                 let c = self.loc_expr(value, false, indent);
                 wrap(c, false)
             }
-            ExprKind::MakeNone => "None".to_string(),
             ExprKind::Read { place, .. } if place.steps.is_empty() && self.f.loc_index.contains_key(&place.root.0) => {
-                let i = self.f.loc_index[&place.root.0].clone();
-                wrap(i, false)
+                let h = self.f.loc_index[&place.root.0].clone();
+                let v = value_of(self, &h).unwrap_or_else(|| "0".to_string());
+                wrap(v, false)
             }
-            ExprKind::Call { target: FnRef::Decl(id), args, .. } => {
-                let is_opt = e.ty.strip_quals().has_none_arm();
-                if let Some(af) = self.s.ast_fn(id).filter(|af| af.intrinsic) {
-                    let name = af.name.name.clone();
-                    let recv = af.params.first().and_then(|p| salvo_backend::emit_util::type_base_name(&p.ty));
-                    let a: Vec<String> = args.iter().map(|x| self.raw(x, indent)).collect();
-                    return match crate::intrinsics::fn_call(&name, recv, &a, Spread::None, true) {
-                        Some(c) => wrap(c, is_opt),
-                        None => {
-                            self.error(format!("intrinsic `{name}` has no locator form [rs-loc]"));
-                            "0".to_string()
-                        }
-                    };
+            ExprKind::Read { place, .. } if place.steps.is_empty() && self.handle_of(&place.root.0).is_some() => match self.handle_of(&place.root.0).unwrap() {
+                super::paths::HandleBinding::Total(h) => {
+                    let v = value_of(self, &h).unwrap_or_else(|| "0".to_string());
+                    wrap(v, false)
                 }
-                let Some(f) = self.s.fn_decl(id) else { return "0".to_string() };
-                let c = self.loc_call(id, f, args, indent);
-                wrap(c, is_opt)
-            }
+                super::paths::HandleBinding::Optional { var, prefix, pt: inner } => {
+                    let x = self.fresh("x");
+                    let mut steps = prefix.steps.clone();
+                    steps.extend(self.steps_of_value(&inner, &x));
+                    let h = super::paths::Handle { root: prefix.root, steps };
+                    let v = value_of(self, &h).unwrap_or_else(|| "0".to_string());
+                    wrap(format!("{var}.map(|{x}| {v})"), true)
+                }
+            },
             _ => {
-                self.error("a locator returns something other than a position of its anchor [rs-loc]");
-                "0".to_string()
+                let Some(m) = self.mint(e, indent) else {
+                    self.error("a locator returns something other than a handle of its anchor [rs-loc]");
+                    return "None".to_string();
+                };
+                let q = self.fresh("q");
+                let mut steps = m.prefix.steps.clone();
+                steps.extend(self.steps_of_value(&m.pt, &q));
+                let h = super::paths::Handle { root: m.prefix.root.clone(), steps };
+                let v = value_of(self, &h).unwrap_or_else(|| "0".to_string());
+                let pre = if m.pre.is_empty() { String::new() } else { format!("{} ", m.pre.join(" ")) };
+                match (m.opt, opt) {
+                    (true, true) => format!("{{ {pre}let {q} = {}?; Some({v}) }}", m.code),
+                    (true, false) => format!("{{ {pre}let {q} = {}.expect(\"salvo: value is absent\"); {v} }}", m.code),
+                    (false, true) => format!("{{ {pre}let {q} = {}; Some({v}) }}", m.code),
+                    (false, false) => format!("{{ {pre}let {q} = {}; {v} }}", m.code),
+                }
             }
         }
     }
@@ -2470,7 +2574,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     /// [rs-loc] Whether `e` is a call `loc_of` can render as a position: a
     /// mutable lend through a reading accessor (`mut_lend`), or a call to a
     /// handle mint with a locator variant (`at`, [ref-handle]).
-    fn lends_loc(&self, e: &Expr) -> bool {
+    pub(crate) fn lends_loc(&self, e: &Expr) -> bool {
         if self.s.mut_lend(e).is_some() {
             return true;
         }
@@ -2482,79 +2586,16 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         }
     }
 
-    fn loc_of(&mut self, e: &Expr, indent: usize) -> Option<(String, String)> {
-        let anchor_of = |s: &mut Self, a: &Expr| -> Option<String> {
-            let p = match &a.kind {
-                ExprKind::Read { place, .. } => place.clone(),
-                ExprKind::DropMut { value } => match &value.kind {
-                    ExprKind::Read { place, .. } => place.clone(),
-                    _ => return None,
-                },
-                _ => return None,
-            };
-            Some(s.place_text(&p, indent).0)
-        };
-        match &e.kind {
-            ExprKind::Call { target: FnRef::Decl(id), args, .. } => {
-                let f = self.s.fn_decl(id)?;
-                let k = match self.s.mut_lend(e) {
-                    Some((_, k)) => k,
-                    None if self.s.locs.contains(id) && (is_mut(&f.ret) || is_mut(&f.ret.strip_quals().without_none())) => self.s.lend_param(f)?,
-                    None => return None,
-                };
-                let anchor = anchor_of(self, args.get(k)?)?;
-                let pos = self.loc_call(id, f, args, indent);
-                Some((anchor, pos))
-            }
-            // [rs-loc] A lending member: its locator face, on the instance.
-            ExprKind::MemberCall { instance, member, args, .. } => {
-                let m = self.member_decl(member)?;
-                let iface = self.s.interface_by_id(&member.interface)?;
-                if !self.s.member_lends_mut(iface, m) {
-                    return None;
-                }
-                let k = self.s.member_lend_param(m)?;
-                let anchor = anchor_of(self, args.get(k)?)?;
-                let inst = self.raw(instance, indent);
-                let mut ps = self.s.unalias_params(&m.params);
-                ps[k].mode = PassMode::Lent;
-                let a = self.args(&ps, args, FnPos::DynParam, indent);
-                Some((anchor, format!("{inst}.{}__loc({})", rs_ident(&m.emitted_name), a.join(", "))))
-            }
-            // `x!`: the position, or the trap.
-            ExprKind::Branch { arms, otherwise: None, .. } if arms.len() == 1 && matches!(arms[0].0.kind, ExprKind::Bool(true)) => {
-                let b = &arms[0].1;
-                let [Stmt::Let { local, value, .. }] = b.stmts.as_slice() else { return None };
-                let Some(v) = &b.value else { return None };
-                let ExprKind::Switch { subject, arms: sarms, .. } = &v.kind else { return None };
-                if bare(subject) != Some(local) {
-                    return None;
-                }
-                let at = sarms.iter().find_map(|a| {
-                    let from_stmt = a.body.stmts.iter().find_map(|s| match s {
-                        Stmt::Expr(Expr { kind: ExprKind::Unreachable { at, .. }, .. }) => Some(at.clone()),
-                        _ => None,
-                    });
-                    match a.body.value.as_deref().map(|x| &x.kind) {
-                        Some(ExprKind::Unreachable { at, .. }) => Some(at.clone()),
-                        _ => from_stmt,
-                    }
-                })?;
-                let (anchor, pos) = self.loc_of(value, indent)?;
-                Some((anchor, format!("{pos}.expect(\"salvo: value is absent at {at}\")")))
-            }
-            _ => None,
-        }
-    }
-
     /// `g__loc(args)`: the anchor argument read.
-    fn loc_call(&mut self, id: &salvo_ir::DeclId, f: &salvo_ir::FnDecl, args: &[Expr], indent: usize) -> String {
+    pub(crate) fn loc_call(&mut self, id: &salvo_ir::DeclId, f: &salvo_ir::FnDecl, args: &[Expr], indent: usize) -> String {
         let mut ps = self.s.unalias_params(&f.params);
         if let Some(a) = self.s.lend_param(f) {
             ps[a].mode = PassMode::Lent;
         }
         let a = self.args(&ps, args, FnPos::Param, indent);
-        format!("{}__loc({})", self.fn_path(id), a.join(", "))
+        // [rs-path] A mint is its path fn, under its own name.
+        let suffix = if self.s.is_mint(f) { "" } else { "__loc" };
+        format!("{}{suffix}({})", self.fn_path(id), a.join(", "))
     }
 
     /// [rs-loc] A mutable lend: the position, then the element of the anchor.
@@ -2581,9 +2622,17 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         }
     }
 
-    fn call(&mut self, e: &Expr, target: &FnRef, type_args: &[Ty], args: &[Expr], indent: usize) -> String {
-        if let Some((id, k)) = self.s.mut_lend(e) {
-            return self.mut_lend_call(e, &id, k, args, indent);
+    pub(crate) fn call(&mut self, e: &Expr, target: &FnRef, type_args: &[Ty], args: &[Expr], indent: usize) -> String {
+        // [rs-path] A mint used as a value — a path fn, or a reader lending
+        // a handle: the path, walked once.
+        let mints = self.s.mut_lend(e).is_some() || matches!(target, FnRef::Decl(id) if self.s.fn_decl(id).is_some_and(|f| self.s.is_mint(f)));
+        if mints {
+            if let Some(m) = self.mint(e, indent) {
+                return self.materialize(m);
+            }
+            if let Some((id, k)) = self.s.mut_lend(e) {
+                return self.mut_lend_call(e, &id, k, args, indent);
+            }
         }
         match target {
             FnRef::Local(l) => {
@@ -2626,29 +2675,19 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 } else {
                     format!("{{ {} {callee}({}) }}", lets.join(" "), a.join(", "))
                 };
-                if !lends {
+                if !lends || self.f.want_path {
                     return code;
                 }
-                // [rs-loc] A locator callback: the element at its position.
-                let anchor = ps.iter().zip(args).find(|(p, _)| !is_copy_ty(&p.ty)).and_then(|(_, a)| match &a.kind {
-                    ExprKind::Read { place, .. } => Some(place.clone()),
-                    ExprKind::DropMut { value } => match &value.kind {
-                        ExprKind::Read { place, .. } => Some(place.clone()),
-                        _ => None,
-                    },
-                    _ => None,
-                });
-                let Some(anchor) = anchor else {
+                // [rs-loc] [rs-path] A locator callback: the element at the
+                // path it answers.
+                let mut pre = Vec::new();
+                let anchor = ps.iter().zip(args).find(|(p, _)| !is_copy_ty(&p.ty)).and_then(|(_, a)| self.anchor_handle(a, indent, &mut pre));
+                let (Some(anchor), Some(pt)) = (anchor, self.handle_path_ty(&e.ty)) else {
                     self.error("a lending callback called on something that is not a place [rs-loc]");
                     return code;
                 };
-                let (a, _) = self.place_text(&anchor, indent);
-                let i = self.fresh("l");
-                if e.ty.strip_quals().has_none_arm() {
-                    format!("{{ match {code} {{ Some({i}) => Some(&mut {a}[{i}]), None => None }} }}")
-                } else {
-                    format!("{{ let {i} = {code}; &mut {a}[{i}] }}")
-                }
+                let m = super::paths::Mint { pre, prefix: anchor, pt, code, opt: e.ty.strip_quals().has_none_arm() };
+                self.materialize(m)
             }
             FnRef::Decl(id) => {
                 if let Some(af) = self.s.ast_fn(id) {
