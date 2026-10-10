@@ -249,32 +249,29 @@ fn main() [use] {
 
     // Say nothing and one handle lives at a time: `at(squad, i)` and
     // `at(squad, j)` may be the same element for all the compiler knows, so
-    // the second is refused. `NotEq` is the proof — `j != i`, bound to `i`'s
-    // identity — and with it the two handles coexist, a write through one
-    // leaves the other standing, and one call may take both.
+    // a write through one ends the other. `NotSame` is the proof — `d` is a
+    // different element from `a` — and with it the two handles coexist, a
+    // write through one leaves the other standing, and one call may take
+    // both.
     //
     // Rust: E0499, and the remedy rustc suggests is `split_at_mut` — which is
     // exactly what this lowers to.
-    if j is NotEq(i) {
-        let a = at(squad, i)!
-        let d = at(squad, j)!
+    let a = at(squad, i)!
+    let d = at(squad, j)!
+    if d is NotSame(a) {
         a.hp = a.hp + 1
         d.hp = d.hp + 1
         duel(a, d)
+        a.energy = a.energy + 100
+        d.energy = d.energy + 200
     }
 
-    // std wraps the common shapes so a caller writes neither the handles nor
-    // the claim. Both preserve `Idx`, so the reads after them stay total —
+    // std wraps the one-handle shape so a caller writes neither the handle
+    // nor the claim. It preserves `Idx`, so the reads after it stay total —
     // an in-place write moves no boundary.
     if i is Idx(squad) {
         if j is Idx(squad) {
             update(squad, i, (f: Mut Fighter) -> { f.energy = f.energy + 1 })
-            if j is NotEq(i) {
-                update2(squad, i, j, (a: Mut Fighter, b: Mut Fighter) -> {
-                    a.energy = a.energy + 100
-                    b.energy = b.energy + 200
-                })
-            }
             println("3. ${get(squad, i).energy} ${get(squad, j).energy} (total reads: `Idx` survived)")
         }
     }

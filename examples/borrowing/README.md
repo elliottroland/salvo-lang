@@ -7,7 +7,7 @@ mutable when it carries `Mut` — and three answers to the question a mutable
 borrow raises:
 
 1. say nothing, and hold **one handle at a time**;
-2. **prove** two handles name different storage (`NotEq`), and use both;
+2. **prove** two handles name different storage (`NotSame`), and use both;
 3. **name the container** two handles share (`ref(c)`), and let the callee
    cope with their being the same element.
 
@@ -50,12 +50,13 @@ cargo run -- run --backend kotlin --src examples/borrowing/salvo
    from a *generic* function whose accessor the caller supplies (`rally_at`,
    over `params Ref`).
 3. **Two handles, proven apart.** `duel` mutates both parameters and says
-   nothing about them coinciding, so a caller owes a proof: `j is NotEq(i)` —
-   `j != i`, bound to `i`'s identity. With it, two handles into one list coexist,
-   a write through one leaves the other standing, and one call may take both.
-   `update` and `update2` are std's wrappers for the common shapes, and both
-   promise `preserve Idx`, so the reads after them stay *total* — an in-place
-   write moves no boundary.
+   nothing about them coinciding, so a caller owes a proof: `d is NotSame(a)` —
+   `d` is a different element from `a`, a claim about the two handles
+   themselves (`core.ref`). With it, two handles into one list coexist, a
+   write through one leaves the other standing, and one call may take both.
+   `update` is std's wrapper for the one-handle shape, and it promises
+   `preserve Idx`, so the reads after it stay *total* — an in-place write
+   moves no boundary.
 4. **Handles that share a container.** `strike(c: List<Mut Fighter>, a:
    ref(c) Mut Fighter, d: ref(c) Mut Fighter)` *means* to accept two handles
    that might be one element: both are positions in `c`. No caller needs a
@@ -94,7 +95,7 @@ boss.hp += n;                 //   because it is also borrowed as mutable
 
 Salvo allows it because a *read* of a container cannot invalidate a handle into
 it, and the position rendering is what lets rustc agree: the handle becomes
-`let __h2: usize = …at__List_Int__loc(&squad, 0i32).expect(…);` and each use re-indexes `squad[__h2]`.
+`let __h2: usize = …at__List_Int(&squad, 0i32).expect(…);` and each use re-indexes `squad[__h2]`.
 
 **§3 — two element handles of one container, in one call.**
 
@@ -106,7 +107,8 @@ duel(&mut squad[i], &mut squad[j]);
 ```
 
 The proof is what buys it in Salvo, and rustc's own suggestion is what the
-backend emits: `salvo_pair_mut(&mut squad[..], __h7, __h8)`, a `split_at_mut`.
+backend emits: `salvo_pair_mut(&mut squad[..], __h5, __h6)`, a `split_at_mut`,
+taken where the two handles' paths diverge.
 
 **§4 — two handles that may be the same object.**
 
@@ -158,14 +160,17 @@ Rust refuses is *using* either result alongside the container, which is §2.
 ## What to look for in the generated code
 
 - **A mutable handle is a position, not a reference.** `let boss = at(squad, 0)!`
-  becomes `let __h2: usize = …at__List_Int__loc(&squad, 0i32).expect(…);` (the bounds check `!` asked for), and
+  becomes `let __h2: usize = …at__List_Int(&squad, 0i32).expect(…);` (the bounds check `!` asked for), and
   every use re-indexes `squad[__h2]`. That is what makes the `size(squad)` in
   the middle legal.
-- **A lender is emitted twice.** `wounded` gets its read face
-  (`-> Option<&Fighter>`) *and* `wounded__loc(squad: &Vec<Fighter>) -> Option<usize>`,
-  where the `for` became an indexed loop and `return f` became `return Some(__li1)`.
-  The mutating call site takes the locator:
-  `match at(&*squad, l) { Some(__l1) => Some(&mut squad[__l1]), None => None }`.
+- **A lender answers a position.** `wounded` renders as
+  `wounded(squad: &Vec<Fighter>) -> Option<usize>`, its only face: the `for`
+  became an indexed loop and `return f` answers the index. A handle on Rust
+  is a *path* from its container — here one index — so a lender never hands
+  out a `&mut` at all; the caller walks the path (`squad[__h2]`) at each use.
+  A custom container's handle is the same thing with more steps
+  (`lib.tracks[i]`, or a generated enum when its accessor can take several
+  ways).
 - **`ref(c)` parameters are positions.** `strike` is
   `strike(c: &mut Vec<Fighter>, __c1: usize, __c2: usize)` — one borrow of the
   container it names, two positions, indexing `c[__c1]` — while the *proven*

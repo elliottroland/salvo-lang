@@ -7,7 +7,8 @@
 // no identity comparison: each backend answers it its own way — Kotlin by
 // reference (`===`), Rust by address (`std::ptr::eq`), both exact for a
 // handle, whose element is never a scalar (`Mut` does not apply to one).
-export intrinsic fn same<T>(a: T, b: T) [] -> Bool => a, b
+// Private: `is NotSame` is the surface, and a name this plain is the user's.
+intrinsic fn same<T>(a: T, b: T) [] -> Bool => a, b
 
 // [ref-notsame] The claim that a handle **names a different element from
 // one particular other handle**: `b is NotSame(a)`, bound to `a`'s identity.

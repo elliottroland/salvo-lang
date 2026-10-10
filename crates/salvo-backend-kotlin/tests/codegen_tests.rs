@@ -2332,8 +2332,7 @@ fn kotlin_case_with_entry(
 /// Every compile-and-run case. A new case is a function returning
 /// [`KotlinCase`] plus an entry here; the driver test below asserts nothing
 /// is forgotten by being the only place kotlinc runs.
-// ===== C-6 the claims a list can carry [col-nonempty] [col-sorted-list]
-// [col-noteq] =====
+// ===== C-6 the claims a list can carry [col-nonempty] [col-sorted-list] =====
 
 /// Source and expected stdout are **verbatim** the Rust backend's
 /// `rustc_compiles_and_runs_list_claims`. That equality is the assertion: the
@@ -2815,7 +2814,7 @@ fn min_of<T>(a: T, b: T, ?Ordered<T>) [] -> T {
     return b
 }
 
-fn same<T>(a: T, b: T, ?Eq<T>) [] -> Bool => a, b {
+fn alike<T>(a: T, b: T, ?Eq<T>) [] -> Bool => a, b {
     return eq(a, b)
 }
 
@@ -2851,7 +2850,7 @@ fn main() [use] {
     println("str ${sign(cmp(ab, b))}${sign(cmp(b, b))}${sign(cmp(b, ab))}")
     // Equality covers the float widths, where no total order exists.
     println("eq ${eq(1, 1)} ${eq(1.5, 2.5)} ${eq(to_float(1.0), to_float(1.0))} ${eq(ab, b)}")
-    println("same ${same(7, 7)} ${same(ab, b)} ${same(ab, same_ab)}")
+    println("same ${alike(7, 7)} ${alike(ab, b)} ${alike(ab, same_ab)}")
     println("digest ${digest_agrees(ab, same_ab)} ${digest_agrees(3, 3)}")
     // `min_of` answers one of its arguments, so it **moves** them: the
     // deduction is inferred from the body [deduce-infer], and these two are
@@ -3460,7 +3459,7 @@ fn kotlinc_compiles_and_runs_elem_mut_handles() -> KotlinCase {
     kotlin_case(files, "elem_mut", "2 13\n")
 }
 
-/// [elem-distinct] The distinct-pair program, byte-identical stdout to the
+/// [elem-distinct] [ref-notsame] The distinct-pair program, byte-identical stdout to the
 /// Rust backend's `rustc_compiles_and_runs_distinct_pair_calls` — Kotlin
 /// aliases natively, so the parity is the assertion.
 const DISTINCT_PAIR_DEMO: &str = r#"
@@ -3482,10 +3481,10 @@ fn main() [use] {
         Mut Entity { hp: 20, energy: 8 })
     let i = 0
     let j = 1
-    if j is NotEq(i) {
-        attack(at(es, i)!, at(es, j)!)
-        let a = at(es, i)!
-        let d = at(es, j)!
+    let a = at(es, i)!
+    let d = at(es, j)!
+    if d is NotSame(a) {
+        attack(a, d)
         a.hp = a.hp + 1
         d.hp = d.hp + 1
         attack(a, d)
@@ -4023,7 +4022,7 @@ fn main() [use] {
 }
 "#;
 
-/// [col-update] The C family, byte-identical stdout to the Rust backend's
+/// [col-update] [ref-notsame] The C family, byte-identical stdout to the Rust backend's
 /// `rustc_compiles_and_runs_the_update_family`.
 const UPDATE_FAMILY_DEMO: &str = r#"
 struct Entity canbe Mut { hp: Int }
@@ -4036,11 +4035,11 @@ fn main() [use] {
     if i is Idx(es) {
         if j is Idx(es) {
             update(es, i, (e: Mut Entity) -> { e.hp = e.hp + 1 })
-            if j is NotEq(i) {
-                update2(es, i, j, (a: Mut Entity, b: Mut Entity) -> {
-                    a.hp = a.hp + 100
-                    b.hp = b.hp + 200
-                })
+            let a = at(es, i)
+            let b = at(es, j)
+            if b is NotSame(a) {
+                a.hp = a.hp + 100
+                b.hp = b.hp + 200
             }
             println("${get(es, i).hp} ${get(es, j).hp}")
         }
@@ -4342,6 +4341,159 @@ fn kotlinc_compiles_and_runs_distinct_pair_calls() -> KotlinCase {
     kotlin_case(files, "distinct_pair", "11 3 17 8\n")
 }
 
+/// [ref-notsame] [elem-distinct] Two handles proven apart by `NotSame`
+/// through a custom container's accessor (map slots, one slot's roster, the
+/// bench) and through nested structs with no accessor of their own; two
+/// handles to one element make the test false at run time (`===`). Source
+/// and expected stdout are verbatim the Rust backend's
+/// `rustc_compiles_and_runs_notsame_handles` — the parity is the assertion.
+const NOTSAME_DEMO: &str = r#"
+// A player lives on a team's roster (a map slot's list) or on the bench.
+struct Player canbe Mut { name: Str, goals: Int }
+struct Team canbe Mut { coach: Str, roster: List<Mut Player> }
+struct League canbe Mut {
+    teams: Map<Str, Mut Team>,
+    bench: List<Mut Player>
+}
+
+// A custom container's own accessor: the handle's path runs through a map
+// slot, or through a field.
+fn at(l: League, team: Str, n: Int) [] -> ref(l) Mut Player? => l, team, n {
+    if n < 0 {
+        return at(l.bench, -n - 1)
+    }
+    let t = at(l.teams, team)
+    if t is None {
+        return None
+    }
+    return at(t.roster, n)
+}
+
+fn trade(l: League, a: ref(l) Mut Player, b: ref(l) Mut Player) -> None {
+    let g = copy(a.goals)
+    a.goals = b.goals
+    b.goals = g
+}
+
+fn score(a: Mut Player, b: Mut Player) -> None => a: Mut, b: Mut {
+    a.goals = a.goals + 1
+    b.goals = b.goals + 1
+}
+
+fn league() [] -> Mut League {
+    let teams: Mut Map<Str, Mut Team> = mut_map_of()
+    put(teams, "red", Mut Team { coach: "Ada", roster: list_of(Mut Player { name: "Bo", goals: 0 }, Mut Player { name: "Cy", goals: 5 }) })
+    put(teams, "blue", Mut Team { coach: "Dee", roster: list_of(Mut Player { name: "Ed", goals: 2 }) })
+    return Mut League { teams: teams, bench: list_of(Mut Player { name: "Flo", goals: 9 }) }
+}
+
+// Structs with no accessor of their own, nested: the handle's path is the
+// field chain `a.b.c` plus a position.
+struct Cell canbe Mut { v: Int }
+struct Inner canbe Mut { c: List<Mut Cell> }
+struct Outer canbe Mut { tag: Str, b: Inner }
+
+fn at(a: Outer, index: Int) [] -> ref(a) Mut Cell? => a, index {
+    return at(a.b.c, index)
+}
+
+fn bump(x: Mut Cell, y: Mut Cell) -> None => x: Mut, y: Mut {
+    x.v = x.v + 1
+    y.v = y.v + 10
+}
+
+fn shared_container() [Console] -> None {
+    let l = league()
+    let star = at(l, "red", 1)!
+    star.goals = star.goals + 1
+    println("bench ${size(l.bench)}")
+    star.goals = star.goals + 1
+    trade(l, at(l, "red", 0)!, at(l, "blue", 0)!)
+    trade(l, star, star)
+    println("${star.name} ${star.goals}")
+    // The bench and a roster: the paths diverge at the first field.
+    let sub = at(l, "", -1)!
+    if sub is NotSame(star) {
+        score(star, sub)
+        star.goals = star.goals + 10
+        sub.goals = sub.goals + 100
+    }
+    // Two handles to one element: the test answers false at run time.
+    let same_one = at(l, "red", 1)!
+    if same_one is NotSame(star) {
+        println("wrongly distinct")
+    } else {
+        println("same element")
+    }
+    println("${star.goals} ${get(l.bench, 0)!.goals}")
+}
+
+fn map_slots() [Console] -> None {
+    let l = league()
+    // Two map slots: the paths diverge at the slot.
+    let a = at(l, "red", 0)!
+    let b = at(l, "blue", 0)!
+    if b is NotSame(a) {
+        score(a, b)
+        println("${a.goals} ${b.goals}")
+    }
+    // One slot, two positions in its roster.
+    let c = at(l, "red", 1)!
+    if c is NotSame(a) {
+        score(a, c)
+    }
+    let d = at(l, "", -1)!
+    if d is NotSame(c) {
+        score(c, d)
+    }
+    println("${c.goals} ${d.goals}")
+}
+
+fn nested() [Console] -> None {
+    let a = Mut Outer { tag: "t", b: Inner { c: list_of(Mut Cell { v: 1 }, Mut Cell { v: 2 }) } }
+    let p = at(a, 0)!
+    let q = at(a, 1)!
+    if q is NotSame(p) {
+        bump(p, q)
+        p.v = p.v + 100
+        q.v = q.v + 200
+    }
+    let r = at(a, 0)!
+    if r is NotSame(p) {
+        println("wrongly distinct")
+    } else {
+        println("same cell")
+    }
+    println("${get(a.b.c, 0)!.v} ${get(a.b.c, 1)!.v}")
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    shared_container()
+    map_slots()
+    nested()
+}
+"#;
+
+const NOTSAME_OUTPUT: &str = "bench 1\n\
+     Cy 7\n\
+     same element\n\
+     18 110\n\
+     1 3\n\
+     7 10\n\
+     same cell\n\
+     102 212\n";
+
+fn kotlinc_compiles_and_runs_notsame_handles() -> KotlinCase {
+    let program = build_program(&[("main.sv", NOTSAME_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let reff = files.iter().find(|f| f.rel_path.ends_with("core/ref.kt")).unwrap();
+    assert!(reff.content.contains("==="), "{}", reff.content);
+    kotlin_case(files, "notsame_handles", NOTSAME_OUTPUT)
+}
+
 /// [placeholder] `for _ in …` drives a pass and binds nothing. Kotlin has no
 /// wildcard in a `for` header, so the two lowerings differ: the pass loop drops
 /// its `val` line, the native `for` names a local the body cannot reach. Source
@@ -4595,6 +4747,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_a_generic_keyed_container,
     kotlinc_compiles_and_runs_elem_mut_handles,
     kotlinc_compiles_and_runs_distinct_pair_calls,
+    kotlinc_compiles_and_runs_notsame_handles,
     kotlinc_compiles_and_runs_the_update_family,
     kotlinc_compiles_and_runs_a_lending_fn_value,
     kotlinc_compiles_and_runs_the_locate_bundle,

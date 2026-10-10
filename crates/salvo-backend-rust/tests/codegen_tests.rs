@@ -5339,7 +5339,7 @@ fn min_of<T>(a: T, b: T, ?Ordered<T>) [] -> T {
     return b
 }
 
-fn same<T>(a: T, b: T, ?Eq<T>) [] -> Bool => a, b {
+fn alike<T>(a: T, b: T, ?Eq<T>) [] -> Bool => a, b {
     return eq(a, b)
 }
 
@@ -5375,7 +5375,7 @@ fn main() [use] {
     println("str ${sign(cmp(ab, b))}${sign(cmp(b, b))}${sign(cmp(b, ab))}")
     // Equality covers the float widths, where no total order exists.
     println("eq ${eq(1, 1)} ${eq(1.5, 2.5)} ${eq(to_float(1.0), to_float(1.0))} ${eq(ab, b)}")
-    println("same ${same(7, 7)} ${same(ab, b)} ${same(ab, same_ab)}")
+    println("same ${alike(7, 7)} ${alike(ab, b)} ${alike(ab, same_ab)}")
     println("digest ${digest_agrees(ab, same_ab)} ${digest_agrees(3, 3)}")
     // `min_of` answers one of its arguments, so it **moves** them: the
     // deduction is inferred from the body [deduce-infer], and these two are
@@ -9075,8 +9075,7 @@ fn rustc_compiles_and_runs_generated_constructors() {
 }
 
 
-// ===== C-6 the claims a list can carry [col-nonempty] [col-sorted-list]
-// [col-noteq] =====
+// ===== C-6 the claims a list can carry [col-nonempty] [col-sorted-list] =====
 
 /// Shared verbatim with the Kotlin backend's `kotlinc_compiles_and_runs_list_claims`
 /// — same source, same expected stdout. The parity is the point: the whole
@@ -15630,10 +15629,10 @@ fn main() [use] {
     );
 }
 
-/// [elem-distinct] [rs-elem-mut] The distinct-pair shapes: a proven pair of
-/// statement-scoped handles in one call, a proven pair of *bound* handles in
-/// one call, and interleaved mutation through two bound handles — the checker
-/// spares the sibling, the emitter splits the container once per pair call.
+/// [elem-distinct] [ref-notsame] [rs-elem-mut] The distinct-pair shapes: a
+/// `NotSame`-proven pair of bound handles in one call, interleaved mutation
+/// through both, and the pair in a call again — the checker spares the
+/// sibling, the emitter splits the container once per pair call.
 const DISTINCT_PAIR_DEMO: &str = r#"
 struct Entity canbe Mut {
     hp: Int,
@@ -15653,10 +15652,10 @@ fn main() [use] {
         Mut Entity { hp: 20, energy: 8 })
     let i = 0
     let j = 1
-    if j is NotEq(i) {
-        attack(at(es, i)!, at(es, j)!)
-        let a = at(es, i)!
-        let d = at(es, j)!
+    let a = at(es, i)!
+    let d = at(es, j)!
+    if d is NotSame(a) {
+        attack(a, d)
         a.hp = a.hp + 1
         d.hp = d.hp + 1
         attack(a, d)
@@ -15667,8 +15666,8 @@ fn main() [use] {
 
 /// [rs-elem-mut] A proven pair call renders as one `salvo_pair_mut`
 /// preamble (a `split_at_mut`, no aliasing) whose two `&mut` halves are the
-/// call's arguments — for the temporary shape and the bound-handle shape
-/// alike [rs-runtime-source].
+/// call's arguments, guarded by the two positions differing
+/// [rs-runtime-source].
 #[test]
 fn a_distinct_pair_call_splits_the_container_once() {
     let files = generate(&[("main.sv", DISTINCT_PAIR_DEMO)]);
@@ -15676,7 +15675,9 @@ fn a_distinct_pair_call_splits_the_container_once() {
     let splices = main.content.matches("salvo_pair_mut(&mut es[..],").count();
     assert_eq!(splices, 2, "one preamble per pair call:\n{}", main.content);
     assert!(
-        main.content.contains("crate::attack(__pm5, __pm6)") && main.content.contains("salvo_pair_mut(&mut es[..], __h7, __h8)"),
+        main.content.contains("crate::attack(__pm5, __pm6)")
+            && main.content.contains("if __h1 != __h2 { let (__u3, __w4) = crate::seq::salvo_pair_mut(&mut es[..], __h1, __h2)")
+            && main.content.contains("crate::core_ref::NotSame_qualifies(&es[__h2], &es[__h1])"),
         "{}",
         main.content
     );
@@ -15809,9 +15810,10 @@ fn rustc_compiles_and_runs_a_mut_lending_accessor() {
     run_rust_files(&files, "lend_mut", "15 7\n");
 }
 
-/// [col-update] The C family end to end: `update` writes in place through
-/// the callback's handle, `update2` takes the proven pair, and the
-/// `preserve Idx` promise keeps the trailing reads total.
+/// [col-update] [ref-notsame] The C family end to end: `update` writes in
+/// place through the callback's handle, two bound handles proven apart by
+/// `NotSame` write in place beside each other, and `Idx` survives both, so
+/// the trailing reads stay total.
 const UPDATE_FAMILY_DEMO: &str = r#"
 struct Entity canbe Mut { hp: Int }
 
@@ -15823,11 +15825,11 @@ fn main() [use] {
     if i is Idx(es) {
         if j is Idx(es) {
             update(es, i, (e: Mut Entity) -> { e.hp = e.hp + 1 })
-            if j is NotEq(i) {
-                update2(es, i, j, (a: Mut Entity, b: Mut Entity) -> {
-                    a.hp = a.hp + 100
-                    b.hp = b.hp + 200
-                })
+            let a = at(es, i)
+            let b = at(es, j)
+            if b is NotSame(a) {
+                a.hp = a.hp + 100
+                b.hp = b.hp + 200
             }
             println("${get(es, i).hp} ${get(es, j).hp}")
         }
@@ -16034,8 +16036,10 @@ fn main() [use] {
     let es: List<Mut Entity> = list_of(Mut Entity { hp: 1 }, Mut Entity { hp: 2 })
     let i = 0
     let j = 1
-    if j is NotEq(i) {
-        let x = poke(at(es, i)!, at(es, j)!)
+    let a = at(es, i)!
+    let d = at(es, j)!
+    if d is NotSame(a) {
+        let x = poke(a, d)
         println("${x}")
     }
 }
@@ -16043,8 +16047,8 @@ fn main() [use] {
     let files = generate(&[("main.sv", src)]);
     let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
     assert!(
-        main.content.contains("let mut x: i32 = { let __q1 = ")
-            && main.content.contains("crate::seq::salvo_pair_mut(&mut es[..], __q1, __q2)")
+        main.content.contains("let mut x: i32 = { let (__pm5, __pm6) = if __h1 != __h2 { ")
+            && main.content.contains("crate::seq::salvo_pair_mut(&mut es[..], __h1, __h2)")
             && main.content.contains("crate::poke(__pm5, __pm6) };"),
         "expected the split around the call in:\n{}",
         main.content
@@ -16361,7 +16365,8 @@ export fn main() [use] -> None {
 
 // [col-idx] [ref-handle] The total `at`: at an `Idx` the mint answers the
 // handle itself, so a bound handle is a bare position, `update` materializes
-// it with no `Option` match, and `update2` splits through its two paths.
+// it with no `Option` match, and two bound total handles proven apart by
+// `NotSame` [ref-notsame] split through their two paths.
 const TOTAL_AT_DEMO: &str = r#"
 struct E canbe Mut { hp: Int }
 
@@ -16372,6 +16377,10 @@ fn bump(e: Mut E) -> None => e: Mut {
 fn hit(c: List<Mut E>, a: ref(c) Mut E, b: ref(c) Mut E) -> None {
     a.hp = a.hp - 1
     b.hp = b.hp - 2
+}
+
+fn merge(p: Mut E, q: Mut E) -> None => p: Mut, q: Mut {
+    p.hp = p.hp + q.hp
 }
 
 export fn main() [use] -> None {
@@ -16386,12 +16395,14 @@ export fn main() [use] -> None {
             bump(at(xs, j))
             hit(xs, at(xs, i), at(xs, i))
             update(xs, i, (e: Mut E) -> { e.hp = e.hp * 2 })
-            if j is NotEq(i) {
-                update2(xs, i, j, (p: Mut E, q: Mut E) -> { p.hp = p.hp + q.hp })
+            let p = at(xs, i)
+            let q = at(xs, j)
+            if q is NotSame(p) {
+                merge(p, q)
             }
-            println("${get(xs, i).hp} ${get(xs, j).hp}")
         }
     }
+    println("${get(xs, i)!.hp} ${get(xs, j)!.hp}")
 }
 "#;
 
@@ -16401,16 +16412,179 @@ fn rustc_compiles_and_runs_the_total_at() {
     let main = files.iter().find(|f| f.rel_path.to_str() == Some("main.rs")).unwrap();
     assert!(
         main.content.contains("let __h1: usize = crate::core_list::at__List_IdxInt(&xs, i);")
-            && main.content.contains("crate::bump({ let __l2 = crate::core_list::at__List_IdxInt(&xs, j); &mut xs[__l2] });"),
+            && main.content.contains("crate::bump({ let __l2 = crate::core_list::at__List_IdxInt(&xs, j); &mut xs[__l2] });")
+            && main.content.contains("let __h8: usize = crate::core_list::at__List_IdxInt(&xs, j);")
+            && main.content.contains("crate::seq::salvo_pair_mut(&mut xs[..], __h7, __h8)")
+            && main.content.contains("crate::merge(__pm11, __pm12)"),
         "{}",
         main.content
     );
     let list = files.iter().find(|f| f.rel_path.ends_with("core/list.rs")).unwrap();
     assert!(
-        list.content.contains("f({ let __l1 = crate::core_list::at__List_IdxInt(&*list, index); &mut list[__l1] });")
-            && list.content.contains("crate::seq::salvo_pair_mut(&mut list[..], __q1, __q2)"),
+        list.content.contains("f({ let __l1 = crate::core_list::at__List_IdxInt(&*list, index); &mut list[__l1] });"),
         "{}",
         list.content
     );
     run_rust_files(&files, "total-at", "45 21\n");
+}
+
+/// [ref-notsame] [elem-distinct] [rs-path] Two handles proven apart by
+/// `NotSame`, through a custom container's own accessor: the split lands
+/// where the handles' paths diverge — two map slots (`pair_mut` on the map),
+/// two positions of one slot's roster, a roster and the bench (different
+/// fields) — and through nested structs with no accessor of their own
+/// (`a.b.c`). Two handles to one element make the test false at run time
+/// (`std::ptr::eq`). Source and expected stdout are verbatim the Kotlin
+/// backend's `kotlinc_compiles_and_runs_notsame_handles`.
+pub const NOTSAME_DEMO: &str = r#"
+// A player lives on a team's roster (a map slot's list) or on the bench.
+struct Player canbe Mut { name: Str, goals: Int }
+struct Team canbe Mut { coach: Str, roster: List<Mut Player> }
+struct League canbe Mut {
+    teams: Map<Str, Mut Team>,
+    bench: List<Mut Player>
+}
+
+// A custom container's own accessor: the handle's path runs through a map
+// slot, or through a field.
+fn at(l: League, team: Str, n: Int) [] -> ref(l) Mut Player? => l, team, n {
+    if n < 0 {
+        return at(l.bench, -n - 1)
+    }
+    let t = at(l.teams, team)
+    if t is None {
+        return None
+    }
+    return at(t.roster, n)
+}
+
+fn trade(l: League, a: ref(l) Mut Player, b: ref(l) Mut Player) -> None {
+    let g = copy(a.goals)
+    a.goals = b.goals
+    b.goals = g
+}
+
+fn score(a: Mut Player, b: Mut Player) -> None => a: Mut, b: Mut {
+    a.goals = a.goals + 1
+    b.goals = b.goals + 1
+}
+
+fn league() [] -> Mut League {
+    let teams: Mut Map<Str, Mut Team> = mut_map_of()
+    put(teams, "red", Mut Team { coach: "Ada", roster: list_of(Mut Player { name: "Bo", goals: 0 }, Mut Player { name: "Cy", goals: 5 }) })
+    put(teams, "blue", Mut Team { coach: "Dee", roster: list_of(Mut Player { name: "Ed", goals: 2 }) })
+    return Mut League { teams: teams, bench: list_of(Mut Player { name: "Flo", goals: 9 }) }
+}
+
+// Structs with no accessor of their own, nested: the handle's path is the
+// field chain `a.b.c` plus a position.
+struct Cell canbe Mut { v: Int }
+struct Inner canbe Mut { c: List<Mut Cell> }
+struct Outer canbe Mut { tag: Str, b: Inner }
+
+fn at(a: Outer, index: Int) [] -> ref(a) Mut Cell? => a, index {
+    return at(a.b.c, index)
+}
+
+fn bump(x: Mut Cell, y: Mut Cell) -> None => x: Mut, y: Mut {
+    x.v = x.v + 1
+    y.v = y.v + 10
+}
+
+fn shared_container() [Console] -> None {
+    let l = league()
+    let star = at(l, "red", 1)!
+    star.goals = star.goals + 1
+    println("bench ${size(l.bench)}")
+    star.goals = star.goals + 1
+    trade(l, at(l, "red", 0)!, at(l, "blue", 0)!)
+    trade(l, star, star)
+    println("${star.name} ${star.goals}")
+    // The bench and a roster: the paths diverge at the first field.
+    let sub = at(l, "", -1)!
+    if sub is NotSame(star) {
+        score(star, sub)
+        star.goals = star.goals + 10
+        sub.goals = sub.goals + 100
+    }
+    // Two handles to one element: the test answers false at run time.
+    let same_one = at(l, "red", 1)!
+    if same_one is NotSame(star) {
+        println("wrongly distinct")
+    } else {
+        println("same element")
+    }
+    println("${star.goals} ${get(l.bench, 0)!.goals}")
+}
+
+fn map_slots() [Console] -> None {
+    let l = league()
+    // Two map slots: the paths diverge at the slot.
+    let a = at(l, "red", 0)!
+    let b = at(l, "blue", 0)!
+    if b is NotSame(a) {
+        score(a, b)
+        println("${a.goals} ${b.goals}")
+    }
+    // One slot, two positions in its roster.
+    let c = at(l, "red", 1)!
+    if c is NotSame(a) {
+        score(a, c)
+    }
+    let d = at(l, "", -1)!
+    if d is NotSame(c) {
+        score(c, d)
+    }
+    println("${c.goals} ${d.goals}")
+}
+
+fn nested() [Console] -> None {
+    let a = Mut Outer { tag: "t", b: Inner { c: list_of(Mut Cell { v: 1 }, Mut Cell { v: 2 }) } }
+    let p = at(a, 0)!
+    let q = at(a, 1)!
+    if q is NotSame(p) {
+        bump(p, q)
+        p.v = p.v + 100
+        q.v = q.v + 200
+    }
+    let r = at(a, 0)!
+    if r is NotSame(p) {
+        println("wrongly distinct")
+    } else {
+        println("same cell")
+    }
+    println("${get(a.b.c, 0)!.v} ${get(a.b.c, 1)!.v}")
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    shared_container()
+    map_slots()
+    nested()
+}
+"#;
+
+pub const NOTSAME_OUTPUT: &str = "bench 1\n\
+     Cy 7\n\
+     same element\n\
+     18 110\n\
+     1 3\n\
+     7 10\n\
+     same cell\n\
+     102 212\n";
+
+#[test]
+fn rustc_compiles_and_runs_notsame_handles() {
+    let files = generate(&[("main.sv", NOTSAME_DEMO)]);
+    let main = files.iter().find(|f| f.rel_path.to_str() == Some("main.rs")).unwrap();
+    assert!(
+        main.content.contains("l.teams.pair_mut(")
+            && main.content.contains("crate::seq::salvo_pair_mut(&mut a.b.c[..], __h1, __h2)")
+            && main.content.contains("panic!(\"salvo: two handles to one element\")"),
+        "{}",
+        main.content
+    );
+    let reff = files.iter().find(|f| f.rel_path.ends_with("core/ref.rs")).unwrap();
+    assert!(reff.content.contains("std::ptr::eq(a, b)"), "{}", reff.content);
+    run_rust_files(&files, "notsame-handles", NOTSAME_OUTPUT);
 }

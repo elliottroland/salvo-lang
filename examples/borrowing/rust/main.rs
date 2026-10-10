@@ -23,6 +23,8 @@ pub mod core_iterator;
 pub mod core_list;
 #[path = "core/map.rs"]
 pub mod core_map;
+#[path = "core/ref.rs"]
+pub mod core_ref;
 #[path = "core/seq.rs"]
 pub mod core_seq;
 #[path = "core/set.rs"]
@@ -48,9 +50,9 @@ pub mod platform_core_string;
 
 use crate::core_index::Idx__Int_qualifies;
 use crate::core_list::ListYield;
-use crate::core_index::NotEq__Int_qualifies;
+use crate::core_ref::NotSame_qualifies;
 use crate::core_list::add_platform;
-use crate::core_list::at__List_Int__loc;
+use crate::core_list::at__List_Int;
 use crate::core_seq::filter;
 use crate::core_list::get;
 use crate::core_list::get_platform;
@@ -60,7 +62,6 @@ use crate::core_console::println;
 use crate::core_list::size_platform;
 use crate::core_list::to_str;
 use crate::core_list::update;
-use crate::core_list::update2;
 
 
 #[derive(Clone, Debug, PartialEq)]
@@ -113,16 +114,7 @@ pub fn heal(f: &mut crate::Fighter) {
     return;
 }
 
-pub fn wounded(squad: &mut Vec<crate::Fighter>) -> Option<&mut crate::Fighter> {
-    for mut f in (&mut *squad).iter_mut() {
-        if (f.hp < 10i32) {
-            return Some(&mut *f);
-        };
-    }
-    return None;
-}
-
-pub fn wounded__loc(squad: &Vec<crate::Fighter>) -> Option<usize> {
+pub fn wounded(squad: &Vec<crate::Fighter>) -> Option<usize> {
     for __li1 in 0..squad.len() {
         let f = &squad[__li1];
         if (f.hp < 10i32) {
@@ -134,12 +126,12 @@ pub fn wounded__loc(squad: &Vec<crate::Fighter>) -> Option<usize> {
 
 pub fn rally_at<L: Clone>(squad: &mut Vec<crate::Fighter>, l: &L, at: &mut dyn FnMut(&Vec<crate::Fighter>, &L) -> Option<usize>) {
     crate::heal({
-        let mut __nn_1: Option<&mut crate::Fighter> = { match at(&*squad, l) { Some(__l1) => Some(&mut squad[__l1]), None => None } };
-        if __nn_1.is_none() {
+        let __h1: Option<usize> = at(&*squad, l);
+        if __h1.is_none() {
             panic!("salvo: value is absent at main:102:10");
         } else {
-            let mut __some_2 = __nn_1.unwrap();
-            &mut *__some_2
+            let __h2 = __h1.expect("salvo: value is absent");
+            &mut squad[__h2]
         }
     });
     return;
@@ -264,7 +256,7 @@ pub fn main() {
         __proj_10.name.clone()
     }));
     let mut squad: Vec<crate::Fighter> = vec![crate::Fighter { name: String::from("Ada"), hp: 30i32, energy: 4i32 }, crate::Fighter { name: String::from("Bo"), hp: 8i32, energy: 9i32 }];
-    let __h2: usize = crate::core_list::at__List_Int__loc(&squad, 0i32).expect("salvo: value is absent at main:231:16");
+    let __h2: usize = crate::core_list::at__List_Int(&squad, 0i32).expect("salvo: value is absent at main:231:16");
     squad[__h2].hp = i32::wrapping_add(squad[__h2].hp, 1i32);
     let mut n: i32 = crate::core_list::size_platform::<crate::Fighter>(&squad);
     squad[__h2].hp = i32::wrapping_add(squad[__h2].hp, n);
@@ -292,15 +284,15 @@ pub fn main() {
         __proj_18.hp
     }));
     crate::heal({
-        let mut __nn_19: Option<&mut crate::Fighter> = crate::wounded(&mut squad);
-        if __nn_19.is_none() {
+        let __h3: Option<usize> = crate::wounded(&squad);
+        if __h3.is_none() {
             panic!("salvo: value is absent at main:238:10");
         } else {
-            let mut __some_20 = __nn_19.unwrap();
-            &mut *__some_20
+            let __h4 = __h3.expect("salvo: value is absent");
+            &mut squad[__h4]
         }
     });
-    crate::rally_at::<i32>(&mut squad, &1i32, &mut |__a0: &Vec<crate::Fighter>, __a1: &i32| crate::core_list::at__List_Int__loc(__a0, *__a1));
+    crate::rally_at::<i32>(&mut squad, &1i32, &mut |__a0: &Vec<crate::Fighter>, __a1: &i32| crate::core_list::at__List_Int(__a0, *__a1));
     crate::core_console::println(&__handle_2, &format!("2. after the searches: {} {}", {
         let mut __proj_23: &crate::Fighter = {
             let mut __nn_21: Option<&crate::Fighter> = crate::core_list::get_platform::<crate::Fighter>(&squad, 0i32);
@@ -326,24 +318,20 @@ pub fn main() {
     }));
     let mut i: i32 = 0i32;
     let mut j: i32 = 1i32;
-    if crate::core_index::NotEq__Int_qualifies(j, i.clone()) {
-        let __h3: usize = crate::core_list::at__List_Int__loc(&squad, i).expect("salvo: value is absent at main:259:17");
-        let __h4: usize = crate::core_list::at__List_Int__loc(&squad, j).expect("salvo: value is absent at main:260:17");
-        squad[__h3].hp = i32::wrapping_add(squad[__h3].hp, 1i32);
-        squad[__h4].hp = i32::wrapping_add(squad[__h4].hp, 1i32);
-        { let (__pm5, __pm6) = crate::seq::salvo_pair_mut(&mut squad[..], __h3, __h4).expect("salvo: value is absent"); crate::duel(__pm5, __pm6) };
+    let __h5: usize = crate::core_list::at__List_Int(&squad, i).expect("salvo: value is absent at main:259:13");
+    let __h6: usize = crate::core_list::at__List_Int(&squad, j).expect("salvo: value is absent at main:260:13");
+    if crate::core_ref::NotSame_qualifies(&squad[__h6], &squad[__h5]) {
+        squad[__h5].hp = i32::wrapping_add(squad[__h5].hp, 1i32);
+        squad[__h6].hp = i32::wrapping_add(squad[__h6].hp, 1i32);
+        { let (__pm9, __pm10) = if __h5 != __h6 { let (__u7, __w8) = crate::seq::salvo_pair_mut(&mut squad[..], __h5, __h6).expect("salvo: value is absent"); (&mut (*__u7), &mut (*__w8)) } else { panic!("salvo: two handles to one element") }; crate::duel(__pm9, __pm10) };
+        squad[__h5].energy = i32::wrapping_add(squad[__h5].energy, 100i32);
+        squad[__h6].energy = i32::wrapping_add(squad[__h6].energy, 200i32);
     };
     if crate::core_index::Idx__Int_qualifies(i, &squad, &mut |__a0| crate::core_list::size_platform(__a0)) {
         if crate::core_index::Idx__Int_qualifies(j, &squad, &mut |__a0| crate::core_list::size_platform(__a0)) {
             crate::core_list::update::<crate::Fighter>(&mut squad, i, &mut |mut f| {
                 f.energy = i32::wrapping_add(f.energy, 1i32);
             });
-            if crate::core_index::NotEq__Int_qualifies(j, i.clone()) {
-                crate::core_list::update2::<crate::Fighter>(&mut squad, i, j, &mut |mut a, mut b| {
-                    a.energy = i32::wrapping_add(a.energy, 100i32);
-                    b.energy = i32::wrapping_add(b.energy, 200i32);
-                });
-            };
             crate::core_console::println(&__handle_2, &format!("3. {} {} (total reads: `Idx` survived)", {
                 let mut __proj_31: &crate::Fighter = crate::core_list::get::<crate::Fighter>(&squad, i);
                 __proj_31.energy
@@ -353,13 +341,13 @@ pub fn main() {
             }));
         };
     };
-    { let __c7 = crate::core_list::at__List_Int__loc(&squad, i).expect("salvo: value is absent at main:285:19"); let __c8 = crate::core_list::at__List_Int__loc(&squad, j).expect("salvo: value is absent at main:285:34"); crate::strike(&mut squad, __c7, __c8) };
-    { let __c9 = crate::core_list::at__List_Int__loc(&squad, i).expect("salvo: value is absent at main:288:19"); let __c10 = crate::core_list::at__List_Int__loc(&squad, i).expect("salvo: value is absent at main:288:34"); crate::strike(&mut squad, __c9, __c10) };
+    { let __q11 = crate::core_list::at__List_Int(&squad, i).expect("salvo: value is absent at main:282:19"); let __c12 = __q11; let __q13 = crate::core_list::at__List_Int(&squad, j).expect("salvo: value is absent at main:282:34"); let __c14 = __q13; crate::strike(&mut squad, __c12, __c14) };
+    { let __q15 = crate::core_list::at__List_Int(&squad, i).expect("salvo: value is absent at main:285:19"); let __c16 = __q15; let __q17 = crate::core_list::at__List_Int(&squad, i).expect("salvo: value is absent at main:285:34"); let __c18 = __q17; crate::strike(&mut squad, __c16, __c18) };
     crate::core_console::println(&__handle_2, &format!("4. {} hp / {} energy after striking itself", {
         let mut __proj_43: &crate::Fighter = {
             let mut __nn_41: Option<&crate::Fighter> = crate::core_list::get_platform::<crate::Fighter>(&squad, 0i32);
             if __nn_41.is_none() {
-                panic!("salvo: value is absent at main:289:19");
+                panic!("salvo: value is absent at main:286:19");
             } else {
                 let mut __some_42 = __nn_41.unwrap();
                 __some_42
@@ -370,7 +358,7 @@ pub fn main() {
         let mut __proj_46: &crate::Fighter = {
             let mut __nn_44: Option<&crate::Fighter> = crate::core_list::get_platform::<crate::Fighter>(&squad, 0i32);
             if __nn_44.is_none() {
-                panic!("salvo: value is absent at main:289:45");
+                panic!("salvo: value is absent at main:286:45");
             } else {
                 let mut __some_45 = __nn_44.unwrap();
                 __some_45
@@ -379,12 +367,12 @@ pub fn main() {
         __proj_46.energy
     }));
     let mut team: crate::Squad = crate::Squad { banner: String::from("Red"), members: vec![crate::Fighter { name: String::from("Cy"), hp: 12i32, energy: 2i32 }, crate::Fighter { name: String::from("Dee"), hp: 6i32, energy: 7i32 }] };
-    { let __c11 = crate::core_list::at__List_Int__loc(&team.members, i).expect("salvo: value is absent at main:296:26"); let __c12 = crate::core_list::at__List_Int__loc(&team.members, j).expect("salvo: value is absent at main:296:48"); crate::rotate(&mut team.members, __c11, __c12) };
+    { let __q19 = crate::core_list::at__List_Int(&team.members, i).expect("salvo: value is absent at main:293:26"); let __c20 = __q19; let __q21 = crate::core_list::at__List_Int(&team.members, j).expect("salvo: value is absent at main:293:48"); let __c22 = __q21; crate::rotate(&mut team.members, __c20, __c22) };
     crate::core_console::println(&__handle_2, &format!("4. {}: {} {}", team.banner, {
         let mut __proj_53: &crate::Fighter = {
             let mut __nn_51: Option<&crate::Fighter> = crate::core_list::get_platform::<crate::Fighter>(&team.members, 0i32);
             if __nn_51.is_none() {
-                panic!("salvo: value is absent at main:297:35");
+                panic!("salvo: value is absent at main:294:35");
             } else {
                 let mut __some_52 = __nn_51.unwrap();
                 __some_52
@@ -395,7 +383,7 @@ pub fn main() {
         let mut __proj_56: &crate::Fighter = {
             let mut __nn_54: Option<&crate::Fighter> = crate::core_list::get_platform::<crate::Fighter>(&team.members, 1i32);
             if __nn_54.is_none() {
-                panic!("salvo: value is absent at main:297:67");
+                panic!("salvo: value is absent at main:294:67");
             } else {
                 let mut __some_55 = __nn_54.unwrap();
                 __some_55

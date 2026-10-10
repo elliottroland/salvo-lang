@@ -1,9 +1,8 @@
-//! [elem-distinct] Distinct awareness for mutable element handles
-//! (group-borrowing ladder step ②): element links carry the identity of
-//! their minting index, poison consults a live `NotEq` claim before
-//! killing a sibling handle, the identity dies with a reassignment of the
-//! index, and one call may take two handles only when they are proven
-//! apart.
+//! [elem-distinct] Distinct awareness for mutable element handles: poison
+//! consults a live `NotSame` claim between two bound handles before killing
+//! the sibling [ref-notsame], the claim dies when either handle is rebound,
+//! and one call may take two handles only when they are proven apart —
+//! which statement-scoped mints never are.
 
 use std::path::Path;
 
@@ -14,8 +13,7 @@ const STD_PRELUDE: &str =
 
 /// A miniature `core.list`: the mint recognition is nominal — `get` and
 /// `at` declared by the `core.list` module — so the tests declare exactly the
-/// surface the feature reads [elem-distinct], plus `NotEq` itself
-/// [col-noteq].
+/// surface the feature reads [elem-distinct].
 const STD_LIST: &str = "\
 export intrinsic type List<T> canbe Mut\n\
 export intrinsic fn list_of<T>(first: T, ...rest: T[]) [] -> List<T> => !first\n\
@@ -30,14 +28,19 @@ export fn get<T>(list: List<T>, index: Idx(list) Int) [] -> proj(list) T\n\
 => list, index {\n\
     return get(list, index + 0)!\n\
 }\n\
-export qualifier NotEq(i: Int) of Int with Idx {\n\
-    fn qualifies(j: Int, i: Int) -> Bool {\n\
-        return j != i\n\
-    }\n\
-}\n\
 export fn at<T>(list: List<Mut T>, index: Int) [] -> ref(list) Mut T?\n\
 => list, index {\n\
     return get(list, index)\n\
+}\n";
+
+/// A miniature `core.ref`, verbatim the declarations of `std/core/ref.sv`:
+/// the proof that two handles name different elements [ref-notsame].
+const STD_REF: &str = "\
+export intrinsic fn same<T>(a: T, b: T) [] -> Bool => a, b\n\
+export qualifier NotSame<T>(a: T) of T {\n\
+    fn qualifies(b: T, a: T) -> Bool {\n\
+        return !same(a, b)\n\
+    }\n\
 }\n";
 
 /// Parses + resolves + checks one file against the mini std and returns
@@ -54,6 +57,12 @@ fn errors(src: &str) -> Vec<String> {
         "std/core/list.sv",
         SourceSet::classify(Path::new("core/list.sv")).unwrap(),
         STD_LIST.to_string(),
+        true,
+    );
+    sources.add(
+        "std/core/ref.sv",
+        SourceSet::classify(Path::new("core/ref.sv")).unwrap(),
+        STD_REF.to_string(),
         true,
     );
     sources.add(
@@ -100,17 +109,20 @@ fn attack(a: Mut Entity, d: Mut Entity) [] -> None => a: Mut, d: Mut {\n\
     return None\n\
 }\n";
 
-/// [elem-distinct] Two bound handles whose minting indices a live
-/// `NotEq` claim proves apart survive each other's mutations: the
-/// sibling names disjoint storage, so the poison spares it.
+/// [elem-distinct] [ref-notsame] Two bound handles a live `NotSame` claim
+/// proves apart survive each other's mutations: the sibling names disjoint
+/// storage, so the poison spares it — and a write *through* a handle leaves
+/// the claim standing, so the second round of writes is accepted too.
 #[test]
 fn two_proven_distinct_handles_coexist_across_mutation() {
     let src = format!(
         "{PRELUDE}\
          fn f(es: List<Mut Entity>, i: Int, j: Int) [] -> None {{\n    \
-         if j is NotEq(i) {{\n        \
-         let a = at(es, i)!\n        \
-         let d = at(es, j)!\n        \
+         let a = at(es, i)!\n    \
+         let d = at(es, j)!\n    \
+         if d is NotSame(a) {{\n        \
+         a.hp = a.hp + 1\n        \
+         d.hp = d.hp + 1\n        \
          a.hp = a.hp + 1\n        \
          d.hp = d.hp + 1\n    \
          }}\n    \
@@ -140,20 +152,18 @@ fn without_a_claim_the_sibling_handle_poisons() {
     );
 }
 
-/// [elem-distinct] The identity means "the element selected by the index
-/// variable's *current* value": reassigning the index erases it, and the
-/// conservative poison returns — even though the `NotEq` claim's
-/// variables still exist.
+/// [elem-distinct] [ref-notsame] [qual-depend] The claim is about the
+/// handle a name holds *now*: rebinding `d` to another mint strips it, and
+/// the conservative poison returns — even though both names still exist.
 #[test]
-fn reassigning_the_index_restores_the_conservative_poison() {
+fn rebinding_a_handle_strips_the_claim() {
     let src = format!(
         "{PRELUDE}\
          fn f(es: List<Mut Entity>, i: Int, j: Int) [] -> None => es, i, j {{\n    \
-         let k = i + 0\n    \
-         if j is NotEq(k) {{\n        \
-         let a = at(es, k)!\n        \
-         let d = at(es, j)!\n        \
-         k = k + 1\n        \
+         let a = at(es, i)!\n    \
+         let d = at(es, j)!\n    \
+         if d is NotSame(a) {{\n        \
+         d = at(es, i)!\n        \
          a.hp = a.hp + 1\n        \
          d.hp = d.hp + 1\n    \
          }}\n    \
@@ -162,24 +172,23 @@ fn reassigning_the_index_restores_the_conservative_poison() {
     let errs = errors(&src);
     assert!(
         errs.iter().any(|e| e.contains("mutated after the binding")),
-        "expected the erased identity to restore the poison: {errs:?}"
+        "expected the rebinding to restore the poison: {errs:?}"
     );
 }
 
-/// [elem-distinct] The same index minted twice is certainly the same
-/// element: no claim can spare it, and none is consulted — the identities
-/// are equal, not distinct.
+/// [elem-distinct] The same index minted twice with no proof is the same
+/// element as far as the checker is concerned: the sibling poisons. (Proving
+/// such a pair apart is a run-time test that answers false — the
+/// compile-and-run cases on both backends cover it.)
 #[test]
-fn the_same_index_still_poisons() {
+fn the_same_index_without_a_proof_still_poisons() {
     let src = format!(
         "{PRELUDE}\
-         fn f(es: List<Mut Entity>, i: Int, j: Int) [] -> None => es, i, j {{\n    \
-         if j is NotEq(i) {{\n        \
-         let a = at(es, i)!\n        \
-         let d = at(es, i)!\n        \
-         a.hp = a.hp + 1\n        \
+         fn f(es: List<Mut Entity>, i: Int) [] -> None => es, i {{\n    \
+         let a = at(es, i)!\n    \
+         let d = at(es, i)!\n    \
+         a.hp = a.hp + 1\n    \
          d.hp = d.hp + 1\n    \
-         }}\n    \
          return None\n}}\n"
     );
     let errs = errors(&src);
@@ -189,20 +198,27 @@ fn the_same_index_still_poisons() {
     );
 }
 
-/// [elem-distinct] One call may take two mutable element handles of one
-/// container when they are proven apart — the shape the Rust backend
-/// renders through `salvo_pair_mut` [rs-elem-mut].
+/// [elem-distinct] [ref-notsame] Statement-scoped mints cannot carry the
+/// proof — a claim is about two *bound* handles — so two of them in one call
+/// are refused even inside a `NotSame` block over other handles of the same
+/// elements, naming the remedy.
 #[test]
-fn a_proven_pair_may_land_in_one_call() {
+fn statement_scoped_mints_cannot_carry_the_proof() {
     let src = format!(
         "{PRELUDE}\
          fn f(es: List<Mut Entity>, i: Int, j: Int) [] -> None => es, i, j {{\n    \
-         if j is NotEq(i) {{\n        \
+         let a = at(es, i)!\n    \
+         let d = at(es, j)!\n    \
+         if d is NotSame(a) {{\n        \
          attack(at(es, i)!, at(es, j)!)\n    \
          }}\n    \
          return None\n}}\n"
     );
-    assert!(errors(&src).is_empty(), "got {:?}", errors(&src));
+    let errs = errors(&src);
+    assert!(
+        errs.iter().any(|e| e.contains("b is NotSame(a)")),
+        "expected the unproven-pair refusal naming `NotSame`: {errs:?}"
+    );
 }
 
 /// [elem-distinct] Without the proof the pair is refused at the call,
@@ -223,21 +239,45 @@ fn an_unproven_pair_in_one_call_is_refused() {
     );
 }
 
-/// [elem-distinct] Two *bound* handles land in one call the same way —
-/// the proof travels with the links, not with the argument shape.
+/// [elem-distinct] [ref-notsame] Two *bound* handles proven apart land in
+/// one call — the shape the Rust backend renders through `salvo_pair_mut`
+/// [rs-elem-mut] — and both survive it: writes through either afterwards
+/// are accepted.
 #[test]
 fn a_proven_bound_pair_may_land_in_one_call() {
     let src = format!(
         "{PRELUDE}\
          fn f(es: List<Mut Entity>, i: Int, j: Int) [] -> None {{\n    \
-         if j is NotEq(i) {{\n        \
-         let a = at(es, i)!\n        \
-         let d = at(es, j)!\n        \
-         attack(a, d)\n    \
+         let a = at(es, i)!\n    \
+         let d = at(es, j)!\n    \
+         if d is NotSame(a) {{\n        \
+         attack(a, d)\n        \
+         a.hp = a.hp + 1\n        \
+         d.hp = d.hp + 1\n        \
+         attack(d, a)\n    \
          }}\n    \
          return None\n}}\n"
     );
     assert!(errors(&src).is_empty(), "got {:?}", errors(&src));
+}
+
+/// [elem-distinct] …and the same bound pair *without* the proof is refused
+/// at the call.
+#[test]
+fn an_unproven_bound_pair_in_one_call_is_refused() {
+    let src = format!(
+        "{PRELUDE}\
+         fn f(es: List<Mut Entity>, i: Int, j: Int) [] -> None => es, i, j {{\n    \
+         let a = at(es, i)!\n    \
+         let d = at(es, j)!\n    \
+         attack(a, d)\n    \
+         return None\n}}\n"
+    );
+    let errs = errors(&src);
+    assert!(
+        errs.iter().any(|e| e.contains("prove them apart")),
+        "expected the unproven-pair refusal: {errs:?}"
+    );
 }
 
 /// [qual-depend] A parameter's **declared** dependent claim is live in the
@@ -274,15 +314,19 @@ fn an_unproven_pair_through_a_fn_value_is_refused() {
     );
 }
 
-/// [elem-distinct] …and the declared `NotEq` proof legalizes it — the
-/// `update2` shape, ordinary Salvo end to end [col-update].
+/// [elem-distinct] [ref-notsame] …and a `NotSame` proof over two bound
+/// handles legalizes it, ordinary Salvo end to end.
 #[test]
-fn a_declared_noteq_proof_carries_a_fn_value_pair() {
+fn a_notsame_proof_carries_a_fn_value_pair() {
     let src = format!(
         "{PRELUDE}\
-         fn touch2(es: List<Mut Entity>, i: Idx(es) Int, j: NotEq(i) Idx(es) Int,\n\
+         fn touch2(es: List<Mut Entity>, i: Idx(es) Int, j: Idx(es) Int,\n\
                    f: (a: Mut Entity, b: Mut Entity) -> None) [] -> None {{\n    \
-         f(at(es, i)!, at(es, j)!)\n    \
+         let a = at(es, i)!\n    \
+         let d = at(es, j)!\n    \
+         if d is NotSame(a) {{\n        \
+         f(a, d)\n    \
+         }}\n    \
          return None\n}}\n"
     );
     assert!(errors(&src).is_empty(), "got {:?}", errors(&src));

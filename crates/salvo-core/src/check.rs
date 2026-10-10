@@ -840,7 +840,7 @@ pub struct Checked {
     /// argument; the Rust backend renders the result as a borrow.
     pub derived_calls: HashMap<Key, Vec<usize>>,
     /// [elem-distinct] Calls taking **two mutable element handles of one
-    /// container, proven apart** by a live `NotEq` claim, keyed by the
+    /// container, proven apart** by a live `NotSame` claim, keyed by the
     /// call span: the two parameter indices. The Rust backend renders the
     /// pair through `salvo_pair_mut` (one `split_at_mut`, two `&mut`)
     /// [rs-elem-mut]; an unproven pair never lands here — it is refused at
@@ -1729,14 +1729,12 @@ struct FateLink {
     /// `false`.
     crosses: bool,
     /// [elem-distinct] The **identity of the minting index** of an element
-    /// handle: the ultimate fate-root id of the index variable in
-    /// `get(list, i)` (resolved to `core.list`'s `get`), captured at the
-    /// mint. Two handle links into the same root at the same path whose
-    /// identities are proven apart by a live `NotEq` claim name disjoint
-    /// storage, so mutation through one spares the other from poison.
-    /// Erased (eagerly, at the event) when the index variable is reassigned
-    /// or stepped — a surviving identity always means "the element selected
-    /// by that variable's *current* value". `None` for every other
+    /// handle: the id of the bound handle itself, stamped when it is
+    /// declared [ref-notsame]. Two handle links into the same root at the
+    /// same path whose identities are proven apart by a live `NotSame`
+    /// claim name disjoint storage, so mutation through one spares the
+    /// other from poison. Erased (eagerly, at the event) when the handle
+    /// is rebound. `None` for every other
     /// derivation: may-alias, today's conservative rule
     /// [fate-field-disjoint].
     elem_idx: Option<u32>,
@@ -10154,9 +10152,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                             "a mutable element handle of `{root}` cannot be \
                              passed here: an earlier argument of this call is \
                              already a mutable handle into `{root}`, and the \
-                             two may be the same element; prove them apart \
-                             first (`j is NotEq(i)`), or mutate through \
-                             one handle at a time"
+                             two may be the same element; bind both and prove \
+                             them apart first (`b is NotSame(a)`), or mutate \
+                             through one handle at a time"
                         ),
                     );
                 }
@@ -10230,10 +10228,10 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// derivations, but must not kill the acting handle itself — its
     /// storage did not move.
     ///
-    /// [elem-distinct] `acting_elem` is the acting handle's minting-index
-    /// identity, when it has one: a sibling link into the same root **at
-    /// the same path** whose own identity is proven apart by a live
-    /// `NotEq` claim names disjoint storage, so it is spared. Anything
+    /// [elem-distinct] `acting_elem` is the acting handle's identity, when
+    /// it has one: a sibling link into the same root **at the same path**
+    /// whose own identity is proven apart by a live `NotSame` claim names
+    /// disjoint storage, so it is spared. Anything
     /// short of the full proof — either identity missing, paths differing,
     /// no live claim — poisons as before [fate-poison].
     /// [ref-handle] [deduce-field] The full form: one exempt variable (the
@@ -16086,6 +16084,11 @@ impl<'p, 'r> Checker<'p, 'r> {
         let Some(var) = self.lookup(name) else { return };
         let mut mutated: Vec<u32> = var.links.iter().map(|l| l.root_id).collect();
         mutated.push(var.id);
+        // [ref-handle] A write through a handle changes its *element*, not
+        // the container's shape: only claims about the handle itself (its
+        // identity, or a place under it) fall, not an `Idx` of its container.
+        let handle = has_ref_arm(&var.narrowed).then_some(var.id);
+        let name = name.to_string();
         for scope in self.locals.iter_mut() {
             for v in scope.values_mut() {
                 let Ty::Qualified { quals, .. } = &v.narrowed else { continue };
@@ -16096,8 +16099,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                         // mutation: the call said so (a refinement by the
                         // claim's owner, or the callee's own checked entry).
                         !preserve.contains(&q.name)
-                            && q.args.iter().any(|a| matches!(a, Ty::ValueRef { roots, .. }
-                                if roots.iter().any(|r| mutated.contains(r))))
+                            && q.args.iter().any(|a| match a {
+                                Ty::ValueRef { roots, path } => match handle {
+                                    Some(id) => roots.contains(&id) || path.split('.').next() == Some(name.as_str()),
+                                    None => roots.iter().any(|r| mutated.contains(r)),
+                                },
+                                _ => false,
+                            })
                     })
                     .map(|q| q.name.clone())
                     .collect();
@@ -28549,10 +28557,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             },
         };
         // [elem-distinct] Two mutable element handles of one container in
-        // one call — `attack(get(es, i)!, get(es, j)!)`, or two bound
+        // one call — `attack(at(es, i)!, at(es, j)!)`, or two bound
         // handles — are the two-`&mut` shape the Rust rendering cannot
-        // express unless the elements are provably different. A pair whose
-        // minting indices a live `NotEq` claim proves apart is accepted
+        // express unless the elements are provably different. A pair of
+        // bound handles a live `NotSame` claim proves apart is accepted
         // and recorded for the pair lowering [rs-elem-mut]; anything short
         // of the proof is refused here, naming the remedy. (Before this
         // rule the shape passed the checker and died at rustc — a
