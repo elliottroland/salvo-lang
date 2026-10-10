@@ -1125,22 +1125,36 @@ with the observation that `proj` is the degenerate group (a read-only member of 
 singleton group under maximal invalidation sensitivity), so the two are points on
 one dial rather than two features.
 
-### 15 — `ref(c)`: what is left after storage paths
+### 15 — `ref(c)`: what is left
 
-Storage paths, `NotSame`, the `ref` container type in the IR, path types
-carrying `Walk`, generic containers, lending effect members and borrowed
-optionals in owned optional slots are **built** (2026-10-10, COMPLETED.md's
-two "Handles are storage paths" entries; [rs-path], [ref-notsame],
-[elem-distinct], [proj-opt-slot], [rs-opt-borrow]). GROUP_BORROWING.md
-Parts 7 and 9 stay the design record. What is left:
+The `ref(c)` handle design is built through to element containers and
+unions of borrows (2026-10-10, COMPLETED.md's "Handles are storage paths"
+entries and its "Design record: group borrowing", which retired
+GROUP_BORROWING.md; [rs-path], [ref-anchor], [ref-notsame],
+[elem-distinct], [proj-opt-slot], [rs-opt-borrow]). What is left:
 
 1. **Recursive containers** (a type holding its own element type) have no
    finite path: refused, and waiting on the recursive-types work (item 17).
-2. **`Deque` has no `at`**, and **`Map` has no total `at` at a `KeyOf`**.
-   Each is the list's two lines.
-3. **A borrowed optional into a kept `Mut T?`** is refused: the slot
-   mutates, and Rust would need `Option<&mut T>` there. Lift it when a
-   case needs it, together with the general union below.
+2. **Open defect: a read through a field of a nested `get` fails rustc**
+   (found 2026-10-10). The Rust emitter clones the field into a temporary
+   and borrows from it, which rustc refuses (E0597) — loud, not silent:
+
+   ```
+   struct Track { plays: Int }
+   struct Album { tracks: List<Track> }
+   let albums: List<Album> = list_of(Album { tracks: list_of(Track { plays: 1 }) })
+   println("${get(get(albums, 0)!.tracks, 0)!.plays}")   // rustc: `__tmp1` does not live long enough
+   ```
+
+   Binding the outer `get` first works. The fix is a borrow of the field
+   (`&__proj.tracks`), not a clone of it.
+3. **Multi-arm `Mut` unions have rough edges in the checker** (found
+   2026-10-10, while testing [proj-opt-slot]): `=> x: Mut` is refused on a
+   `Mut A | Mut B` parameter ("deduction keeps qualifier `Mut`, which is
+   not declared"), and the calls after it then report `no matching
+   overload for bump(Mut (Mut A | Mut B))` — the qualifier wrapped around
+   the union a second time. Writing `=> x: None` works. `Mut T?` and the
+   `Ok Mut X | Err E` shape need no workaround.
 
 ### 16 — Composing iterators: stages over a generic source (after the redesign)
 
@@ -1244,18 +1258,6 @@ backends**.
 
 Each was considered and deliberately parked. Nothing here is blocking, and
 several are "revisit only if a customer appears".
-
-- **A borrowed arm in any union fits an owned union slot** (user,
-  2026-10-10): [proj-opt-slot] does it for `T?` only. The general case (`proj A |
-  B` into a kept `A | B`) changes every union's rendering on Rust (a kept
-  `Union2<A, B>` would become `Union2<&A, &B>`), so it waits for a case.
-
-- **Element containers for `ref(c)`** (was "index steps in `canbe in`
-  anchors", user 2026-10-06; re-spelled with `canbe`'s retirement): a handle
-  parameter whose container is an *element* of another parameter
-  (`lib.tracks[i]`). Today the container must be a parameter of its own,
-  which the caller can pass as `at(lib.tracks, i)!`. Rarely needed, and new
-  surface.
 
 - **The whole program in the host project** (user, 2026-10-01; ABI D4).
   The alternative to generating only the declarations the platform surface

@@ -138,10 +138,63 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-10 — Handles are storage paths, part three: unions of borrows, element containers, `Deque`'s `at`; GROUP_BORROWING.md retired
+
+The last of the `ref(c)` sequence (user decisions 2026-10-10), built
+without stopping between steps. [proj-opt-slot], [rs-opt-borrow],
+[ref-anchor], [col-locate], [op-assign].
+- **A non-place assignment is reported once**: `h!.hp = 40` also said the
+  handle was a read-only projection; the permission and fate checks now
+  skip a target already refused as not a place.
+- **`Deque` gets `at`** (by index, and the total one at an `Idx(d)`), and
+  **`Map` a total `at` at a `KeyOf(m)` key**. Rust needed one locator form:
+  the total read's `get_present` answers the slot the claim proved
+  (`slot_of(…).expect(…)`).
+- **Unions of borrows, arm by arm** — the user's reframing ("`Mut T?` might
+  just be a special case of the general union case"), replacing the
+  optional-only rule of part two and its separate `Mut T?` attempt
+  (stashed and dropped). The checker fits each arm by the single-value
+  rule (`union_borrow_fits`); a union parameter with a `Mut` arm is lent
+  mutably (`type_has_mut` on unions), which also lifted the old
+  "peeling a `Mut` arm out of a borrowed parameter" refusal — that test is
+  now an accept-and-run case. Member calls share the overload fit.
+- **The IR shows every such reading** (user decisions, both rounds): a new
+  `Coercion::BorrowAs` and IR node `BorrowAs { value, arms }`, dumped
+  `borrow_as[proj Mut A -> A, B -> B](…)`, with the one-arm case
+  `borrow_as[proj X -> X](…)` recorded too for uniformity ("read" was
+  avoided as the word: `Read` is the place-read node). `salvo_ir::walk` is
+  a new mutable walker over every expression, and `unwrap_single_borrows`
+  the opt-in pass both backends run, since a borrow of one value is that
+  value on both. The refs pass names the container on the arms too.
+- **Rust** renders a kept union as a union of borrows (`Union2<&A, &B>`,
+  `Option<&mut T>` for a mutated one); unions derive `Copy` (conditional)
+  and gain `as_ref`/`as_mut`; arguments lend arm by arm (`lend_value`),
+  by value when every arm already borrows, and a hoisted argument binds
+  what owns its arms (`hoist_lend`). **Kotlin** acts only on `Mut Str`
+  arms and moved arm positions, and copies unions arm by arm.
+- **Element containers** (user: support it, after (1) and (2); options (A)
+  and (B) chosen, (C)'s path syntax rejected): a `ref(lib)` argument may be
+  a handle anywhere inside `lib` (the link's path need only extend the
+  container's), a field of a view a call handed back is not a temporary
+  and carries the view's links, and `ref(c)` may name another handle
+  parameter — chains stand down the pair rule and render on Rust as paths
+  from the root container through the anchor's path; `anchor_handle`
+  reads through `h!.field`.
+- **GROUP_BORROWING.md is retired** under the design-document rule: its
+  reasoning is the "Design record: group borrowing" section below, its
+  rules live in LANGUAGE_SPEC.md and BACKEND_SPEC.rust.md, and what is
+  still open (recursive containers, two defects found here) is ROADMAP item
+  15.
+- Sweep: LANGUAGE_SPEC.md ([proj-opt-slot] rewritten for unions and the
+  IR node, [ref-anchor]'s two new bullets), both BACKEND_SPECs, The-IR.md's
+  node table, Mutable-Handles.md (unions, `Mut T?`, element containers),
+  the wiki, every example and both host projects regenerated (unions'
+  `Copy`/`as_ref`, borrowed union parameters). **1749 tests.**
+
 ### 2026-10-10 — Handles are storage paths, part two: `Walk`, generic containers, effect members, borrowed optionals (built)
 
 The "next sequence" the user decided after the storage paths landed
-(GROUP_BORROWING.md Part 9), built in four committed steps without stopping
+(the group-borrowing design record, below), built in four committed steps without stopping
 for sign-off ("Proceed"). [rs-path], [rs-loc], [ref-handle],
 [proj-opt-slot], [rs-opt-borrow], [kt-mut-str].
 - **A handle reads as a borrow** (found from the user's `demo/`): `ref(c)
@@ -254,7 +307,7 @@ meaningless without the path it indexes. Options weighed:
   written (the user's requirement). The user also decided `NotSame` (a
   proof about handles), the removal of `?at` from `ref(c)`, and that a
   `ref`-returning fn renders under its own name (no `at__path`). Recorded
-  in GROUP_BORROWING.md Part 7 and Part 9; the work is ROADMAP item 15. The
+  in the group-borrowing design's Part 7 (its design record, below) and Part 9; the work is ROADMAP item 15. The
   path types are Rust-backend declarations, not IR enums [core-layers]. Open:
   whether `NotEq` is retired.
 
@@ -273,7 +326,7 @@ named mint (`loc_of`, `lends_loc`) stripped qualifiers *before* asking for
 
 ### 2026-10-10 — The `ref(c)` rework: done (v1a, v1b, and v2 for lists and maps)
 
-The group-borrowing design collapsed to `ref(c)` (GROUP_BORROWING.md Part 7,
+The group-borrowing design collapsed to `ref(c)` (the group-borrowing design's Part 7 (its design record, below),
 user decisions 2026-10-08): a mutable element handle is a provenance
 qualifier `ref(c)` naming its container, replacing `proj Mut`; plain `proj`
 stays and is read-only whatever its `Mut` says. **`get` reads (always
@@ -346,7 +399,7 @@ List<T>` any more.
 
 ### 2026-10-08 — Group-borrowing plan, Step 0: obligations on an `intrinsic type` are declared and checked, and `by` is refused there
 
-GROUP_BORROWING.md Part 8 Step 0, the prerequisite for Step 3's
+the group-borrowing design's Part 8 (its design record, below) Step 0, the prerequisite for Step 3's
 `Placeholder<T>`: intrinsic types now declare their capabilities the same
 way user types do, rather than getting unconditional, undeclared support.
 Most of this already worked — `parse_obligations` and
@@ -385,7 +438,7 @@ narrower than the plan anticipated:
 
 ### 2026-10-08 — Group-borrowing plan, Steps 1–2: the plain-`canbe` soundness fix lands, the map-chain gap is pinned
 
-GROUP_BORROWING.md's Part 8 opens with two correctness steps that ship
+the group-borrowing design's Part 8 (COMPLETED.md's design record) opens with two correctness steps that ship
 ahead of the committed `region`/`Reg` design, and both are done.
 
 **Step 1 (finding 1b, the real soundness bug).** Plain `canbe` with two
@@ -23446,7 +23499,86 @@ against the codec's tie to the `UnionN` layout), the scheduler glue
 the part most entangled with the scheduler; it was left in the backends as
 the user allowed.
 
-## Test inventory (all green: 1741 under nextest, the IR corpus test aside; the platform-effect tests were removed 2026-10-01)
+## Design record: group borrowing (GROUP_BORROWING.md, retired 2026-10-10)
+
+The document that took mutable aliasing from two defects to `ref(c)`
+(2026-10-06 to 2026-10-10). What it decided is in LANGUAGE_SPEC.md
+([ref-handle], [ref-anchor], [ref-notsame], [elem-distinct],
+[proj-opt-slot]) and BACKEND_SPEC.rust.md ([rs-path], [rs-loc],
+[rs-opt-borrow]); what it built is the decision-log entries from "Group-
+borrowing plan, Step 0" to "Handles are storage paths, part three". This is
+the reasoning, kept so it is not re-derived.
+
+**Where it started (Part 1)**: two gaps reproduced on both backends. (1a) a
+mutable handle could not chain through a map lookup — `get` on a map had
+no locator, so `get(get(m, "a")!, 1)!` was refused; closed by `Map`'s `at`
+over slots. (1b) plain `canbe` with two different anchors **silently
+miscompiled** on Rust (a wrong answer, Kotlin right) — the first
+[backend-never-wrong] violation the parity tests had not caught; closed by
+the `[GB-fix-1b]` call-site check, then by retiring `canbe`.
+
+**What was surveyed (Part 2)**: validating `canbe` call sites (A, shipped as
+the fix), a map locator face (B), reifying `Place` as the source of truth
+(C), and Nick Smith's *group borrowing* as Evan Ovadia wrote it up — set
+aside: unimplemented upstream, an open composability question (a mutable
+child of an immutable parent), and no `noalias` story.
+
+**The group container (Parts 3–6), and why it went**: a purpose-built
+container that values *enter* to be aliased, with generational handles.
+Membership had to be explicit (`enter`/`leave`, Part 4b) rather than
+synthesized at call sites (4a), because automatic synthesis hides a cost
+at exactly the place Salvo makes cost visible. `Rc<RefCell<T>>` storage
+(Part 5) was rejected: it cannot alias a plain container's inline elements
+in place (E0507, verified), reintroduces the runtime-panic class of parity
+bug already rejected once (E1a/B2), and `Rc` is not `Send`. Swap-with-
+placeholder entry (Part 6, `mem::replace`) was accepted, then fell with
+the region design below.
+
+**Superseded on the way to `ref(c)` (Part 7)**:
+- *Element swap into a region* (`reg_from`/`unreg_into`/`Placeholder<T>`,
+  the first committed design): two checkouts of the same slot through
+  coinciding runtime indices hand the second caller the placeholder — the
+  very self-aliasing case the feature exists for (user-found). The region
+  scope existed only to reconcile checkouts, so it went too.
+- *A `Reg` qualifier and a `region { }` scope over the container*: no
+  swap gap, but two overlapping handle kinds (`Reg`, `proj Mut`) and a
+  scope with nothing left to do. Collapsed into one concept.
+- *A forwarding placeholder*: `List<T>` is `Vec<T>`, elements inline, so a
+  marker cannot be a `T` without taxing every read of every container.
+- What survived: the handle model already had the pieces — `proj Mut`'s
+  fate links, container identity, the anchored-`canbe` lowering — so
+  `ref(c)`, a provenance qualifier naming the container, expresses pooled
+  mutable aliasing directly, with no scope, swap, placeholder or `Rc`.
+
+**The plan (Part 8)**: v1a renamed `proj Mut` to `ref(c)` and `Locate` to
+`Ref`; v1b made `ref(c)` the aliasing signature and retired `canbe`; v2
+put `at` on maps and lifted the known-indexable-type cut. Its "re-
+materialize through the resolved `at`" and every `?at` form were then
+superseded by storage paths.
+
+**Storage paths (Part 9)**: a handle is the path from its container,
+computed once at the mint by running the mint's body and walked at every
+use, never by replaying `at` (which would run `at` N times where Kotlin
+runs it once, and could not yield two live `&mut`). The path type belongs
+to the (container, element) pair, read off the type definitions — not to
+an accessor, so handles from different accessors compare and split.
+Container-chosen position types were rejected (two functions per
+container author). Paths are the Rust backend's own declarations, not IR
+enums: an IR enum is a Salvo union, a path is how one backend spells
+`ref(c)` [core-layers]. `NotSame` replaced `NotEq` (a proof about handles,
+independent of the accessor; `NotEq`'s only extra was a proof before any
+handle exists, which `NotSame` on two `ref(list)` parameters says equally
+well). Recursive containers need a recursive path and wait on item 17.
+
+**The last sequence** (user decisions 2026-10-10): path types carry a
+`Walk` trait (no newtype — the trait's container parameter tells impls
+apart), so generic containers take the path as a type parameter; lending
+effect members render only their path face; a platform handler cannot
+implement a `ref` result; a union of borrows fits a kept owned union arm
+by arm (the user's generalization of the optional case), visible in the IR
+as `BorrowAs`; and element containers by prefix and by handle anchors.
+
+## Test inventory (all green: 1749 under nextest, the IR corpus test aside; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -24697,6 +24829,20 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A borrow bound ahead of its call must not borrow a temporary**
+  (2026-10-10, [rs-opt-borrow]): [rs-mut-arg-hoist] binds an argument as
+  `let __argN = <code>;`, and a lend written `match &(temp) { … }` there
+  dangles (E0716). Bind what owns the arms, lend from the binding
+  (`hoist_lend`), and match a union that only holds borrows by value.
+- **A field of a call's view was a "temporary"** (2026-10-10,
+  [ref-anchor]): `is_temporary` and `links_for_value` looked only at a
+  call or `!` at the top, so `at(lib.albums, i)!.tracks` had no links and
+  could not be bound. A field of a view is part of what it views.
+- **A new `ExprKind` needs every walker** (2026-10-10): most walkers in the
+  IR builder and both emitters end in `_ => {}`, so a node they do not list
+  silently hides its children. `salvo_ir::walk::exprs_mut` is exhaustive by
+  construction; grep for `DropMut { value }` to find the hand-written ones.
 
 - **Member calls had their own, stricter argument fit** (2026-10-10):
   `check_effect_call` tested `is_subtype` where fn overloads use

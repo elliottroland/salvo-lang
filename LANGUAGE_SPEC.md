@@ -7314,7 +7314,7 @@ between endpoints and delivers what arrives into the scheduler.
 * [ref-handle] **A `ref(c)` carrying `Mut` is a mutable element handle**
   (user decisions 2026-09-24 — P-3 and P-9 of COMPLETED.md's log, the
   group-borrowing ladder — re-spelled 2026-10-08: `ref(c)` replaces
-  `proj Mut`, GROUP_BORROWING.md Part 7). `ref(c)` is a provenance
+  `proj Mut`, COMPLETED.md's "Design record: group borrowing"). `ref(c)` is a provenance
   qualifier naming the container `c` the handle is a position in; its
   permission is a separate qualifier on top (`ref(c) Mut T` mutable,
   `ref(c) T` read-only). Element mutability is the **element type's, not
@@ -7382,25 +7382,44 @@ between endpoints and delivers what arrives into the scheduler.
     lives in the lowered type ([proj-type]) *and* on the fate link —
     `FateLink.borrowed && !held` is a wholesale projection, `held` a borrow
     an owned object carries [proj-infer].
-* [proj-opt-slot] **A borrowed optional fits a kept owned optional**
-  (user decision 2026-10-10): an argument `(proj T)?` — `get`'s answer, an
-  optional handle `ref(c) Mut T?`, an optional `Mut Str` element — fits a
-  kept, non-`Mut` parameter `x: T?` of a fn or an effect member, as `proj
-  T` fits a kept `x: T` [proj-type]: the position only reads, and its
-  `None` arm is `None`. So `maybe_print(s: Str?)` takes `get(xs, 0)` and
-  `at(a, i)` as written, with no `copy`.
-  * **`copy` of one is an owned optional**: `copy(value: proj T)` read
-    against `(proj X)?` binds `T` to `X?`, so `copy(get(xs, i))` is a `Str?`
-    of its own (each backend copies the present arm).
-  * A `Mut` drop applies to the present arm: an optional `Mut Str` read as
-    `Str?` is recorded as `Coercion::DropMut` over the optional.
-  * Not lifted: a kept `Mut T?` position (it mutates, so it needs the owned
-    optional or a handle of its own), and a union with more than one value
-    arm (`(proj A | B)?`, ROADMAP's "Recorded, not scheduled").
-  * Implementation: `arg_fits_param` (`optional_borrow_fits`,
-    `optional_proj_fits`), used by member calls too; `unify`'s optional arm
-    for `copy`; `maybe_coerce`/`optional_of_mut` for the drop. Rust renders
-    the kept optional `Option<&T>` [rs-opt-borrow].
+* [proj-opt-slot] **A union of borrows fits a kept owned union, arm by
+  arm** (user decisions 2026-10-10): an argument whose arms are borrows —
+  `get`'s `(proj T)?`, an optional handle `ref(c) Mut T?`, a `proj Mut A |
+  B` from a branch — fits a kept parameter of the owned union when each of
+  its value arms fits the parameter's arm it lands on, by the single-value
+  rule ([proj-type], [ref-handle]), and `None` is `None`. So
+  `maybe_print(s: Str?)` takes `get(xs, 0)` and `at(a, i)` as written, and
+  `describe(x: A | B)` takes `if c { get(xs, 0)! } else { b }`.
+  * **Where an arm lands**: on the target arm whose type, with `proj`/`ref`
+    and `Mut` dropped, is its own — the arm identity of
+    [union-arm-identity], wrapper tags (`Ok`, `Err`) kept.
+    `salvo_core::types::read_arm_map` is the one definition.
+  * **A `Mut` position** takes, per arm, a `ref … Mut` handle or an owned
+    `Mut` value: `heal(e: Mut Entity?)` takes `at(es, i)` and a bound
+    optional handle, any number of times; a read-only `get` is refused. A
+    union parameter with a `Mut` arm (`Mut A | Mut B`, `Ok Mut List<Int> |
+    Err Str`) is lent mutably, as a `Mut T?` is.
+  * **A type variable** binds to the argument's own arm, borrow included,
+    so a union mentioning one (`T?`, `Box<A> | Int`) is left to
+    unification.
+  * **The IR says it**: the checker records `Coercion::BorrowAs`, and the
+    IR has `BorrowAs { value, arms }` pairing each target arm with the arm
+    that lands there — `borrow_as[proj Mut A -> A, B -> B](…)`, and for a
+    single value `borrow_as[proj X -> X](…)` (user decision: uniform, even
+    where no backend acts on it). `salvo_ir::walk::unwrap_single_borrows`
+    is the opt-in pass for a backend whose borrow of one value is that
+    value (both, today).
+  * **`copy` of one is an owned union**: `copy(value: proj T)` against a
+    union with borrowed arms binds `T` to the owned union, and each
+    backend copies arm by arm.
+  * A `Mut` drop applies per arm: an optional `Mut Str` read as `Str?`
+    converts its present arm.
+  * Not lifted: a general union into a *consuming* position (it still
+    needs owned arms, so `copy(...)` is the remedy the diagnostic names).
+  * Implementation: `arg_fits_param` (`union_borrow_fits`,
+    `union_proj_fits`), shared by fn and member calls; `unify`'s union arm
+    for `copy`; `maybe_coerce` for the coercion. Rust renders the kept
+    union as a union of borrows [rs-opt-borrow].
 * [ref-anchor] **`ref(c)` parameters share a container** (user decision
   2026-10-08, retiring `canbe`): a parameter typed `ref(c) Mut T`, where
   `c` names another parameter, is a handle into the container passed as
@@ -7415,6 +7434,20 @@ between endpoints and delivers what arrives into the scheduler.
     owned value, or a read-only `proj` is refused. The container may be a
     field path at the call (`rotate(team.members, at(team.members, i)!,
     …)`).
+  * **Anywhere inside the container** (user decision 2026-10-10): the
+    handle may be a position at any depth of `c` — `ref(lib) Mut Track`
+    takes `at(at(lib.albums, i)!.tracks, j)!`, `at(al.tracks, j)!` of a
+    bound `al = at(lib.albums, i)!`, or a mint answering `ref(lib)`. Its
+    link to `c` need only extend `c`'s own path. (A field of a view a call
+    handed back is part of what it views, so `at(lib.albums, i)!.tracks`
+    is not a temporary.)
+  * **Anchored at another handle** (user decision 2026-10-10): `ref(c)`
+    may name a parameter that is itself a handle — `fn swap_in(lib:
+    Library, al: ref(lib) Mut Album, a: ref(al) Mut Track, b: ref(al) Mut
+    Track)` — and `a` is then a position in `al`, which is a position in
+    `lib`. Every handle of one chain is a position in its root container,
+    so any two of them may alias with nothing to prove, as two anchored at
+    one container do.
   * `ref(c)` must name **another parameter**; anything else is an error at
     the declaration. The container a handle parameter names is lent
     mutably when the handle carries `Mut`.

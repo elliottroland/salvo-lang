@@ -28285,7 +28285,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                         // `ref` that itself does not carry `Mut`
                         // (`Mutates`, the original "read-only projection"
                         // case).
-                        let why = if kept && Self::carries_mut(&sp) && !arg_tys[i].is_ref() {
+                        // [proj-opt-slot] A union is judged by its arms: a
+                        // borrowed arm against the parameter's `Mut` one.
+                        let union_arm_mut = kept && crate::types::has_borrowed_arm(&arg_tys[i])
+                            && matches!(crate::types::spread_union_quals(&sp), Ty::Union(arms) if arms.iter().any(Self::carries_mut));
+                        let union_arm_handle = matches!(crate::types::spread_union_quals(&arg_tys[i]), Ty::Union(arms) if arms.iter().filter(|a| a.is_proj()).all(|a| a.is_ref()));
+                        let why = if union_arm_mut && !union_arm_handle {
+                            ProjBlock::NotHandle
+                        } else if kept && Self::carries_mut(&sp) && !arg_tys[i].is_ref() {
                             ProjBlock::NotHandle
                         } else if kept && Self::carries_mut(&sp) {
                             ProjBlock::Mutates

@@ -102,6 +102,22 @@ maybe_print(at(counters, 5))       // an optional handle; prints nothing
 let mine = copy(get(counters, 1))  // `Counter?`, a value of your own
 ```
 
+The same goes for any union, arm by arm: a value that is a `get` in one
+branch and an owned value in another (`if c { get(xs, 0)! } else { b }`,
+typed `proj A | B`) passes to a parameter `x: A | B` that only reads it.
+A `Mut` parameter takes an optional *handle*, since it writes through it:
+
+```
+fn heal(e: Mut Counter?) -> None => e: Mut {
+    if e is Counter {
+        e.n = e.n + 1
+    }
+}
+
+heal(at(counters, 0))              // the element, healed in place
+heal(get(counters, 0))             // error: `get` reads, `at` handles
+```
+
 Handles that are only **read** impose nothing, so any number coexist:
 
 ```
@@ -352,6 +368,38 @@ shuffle(lib.tracks, at(lib.tracks, i)!, at(lib.tracks, j)!)
 
 Whether two handles may alias is **written, never inferred**: it changes
 what a caller may pass, so it stays visible in the signature.
+
+A `ref(c)` handle may sit **anywhere inside** `c`, however deep, so a
+function can take the whole library and handles into its albums' tracks:
+
+```
+struct Album canbe Mut { name: Str, tracks: List<Mut Track> }
+struct Library canbe Mut { albums: List<Mut Album> }
+
+fn swap_plays(lib: Library, a: ref(lib) Mut Track, b: ref(lib) Mut Track) -> None {
+    let p = a.plays
+    a.plays = b.plays
+    b.plays = p
+}
+
+swap_plays(lib, at(at(lib.albums, 0)!.tracks, 1)!, at(at(lib.albums, 1)!.tracks, 0)!)
+```
+
+And the container may itself be a handle parameter: `a: ref(al)` is a
+position in `al`, which is a position in `lib`. All of them are positions in
+the one library, so they may alias each other with nothing to prove:
+
+```
+fn swap_in(lib: Library, al: ref(lib) Mut Album, a: ref(al) Mut Track, b: ref(al) Mut Track) -> None {
+    let p = a.plays
+    a.plays = b.plays
+    b.plays = p
+    al.name = "${al.name}*"
+}
+
+let al = at(lib.albums, 0)!
+swap_in(lib, al, at(al.tracks, 0)!, at(al.tracks, 1)!)
+```
 
 ## Which field a call touches
 

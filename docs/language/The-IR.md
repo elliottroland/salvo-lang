@@ -219,6 +219,7 @@ A place is a local followed by field, tuple and index steps: `b.n`,
 | `rewrap[A -> B](e)` | a union value moved to another union's arm numbering |
 | `widen[Long](e)` | a number widened within its class (`Int` to `Long`, `Float` to `Double`) |
 | `drop_mut(e)` | a `Mut` value used where the plain type is needed |
+| `borrow_as[proj Mut A -> A, B -> B](e)` | a borrow read at a position that takes the owned type — a kept parameter — arm by arm: for each arm of the target, the argument's arm that lands there. `ref Mut A -> Mut A` is a handle read as its element, `proj Mut A -> A` a borrow read as the value (dropping `Mut`), `B -> B` an owned arm lent. A single value is the one-arm case, `borrow_as[proj Str -> Str](e)` [proj-opt-slot] |
 | `tuple(…)`, `list[T](…)`, `array[T](…)`, `...xs` | literals. A spread appears only inside an array |
 | `concat(…)` | string concatenation. Every part is a `Str` |
 | `union_to_str(u, f0, f1, …)` | the text of a union value: the function for the arm `u` holds, called on its payload |

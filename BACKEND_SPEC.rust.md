@@ -707,7 +707,7 @@ the blanket rule:
   Non-Copy operands are not touched (a deref there would move out of a
   borrow). Kotlin has no references and needs nothing.
 * [rs-path] **A handle is a storage path** (user decisions 2026-10-10,
-  GROUP_BORROWING.md Part 9; `ir_emit/paths.rs`): a `ref(c)` handle is the
+  COMPLETED.md's "Design record: group borrowing"; `ir_emit/paths.rs`): a `ref(c)` handle is the
   path from its container — field and tuple steps, list/deque/array
   indices, map *slots* — computed once at the mint by running the mint's
   body, and walked at every use. The IR names each handle's container type
@@ -795,6 +795,13 @@ the blanket rule:
     delegating to a mint (`return pick(t, i)`) answers that mint's path. A
     `platform handler` cannot implement a member returning a `ref` (a
     checker error, [ref-handle]); an actor's members cannot return one.
+  * **Anchor chains** (2026-10-10): a handle parameter anchored at another
+    handle parameter (`a: ref(al)`, `al: ref(lib)`) is a path in the root
+    container through the anchor's path; a call computes it relative to
+    the anchor's handle. An argument handle anywhere inside its container
+    is a longer path of the container's path type, and `anchor_handle`
+    reads one through a field of an inline handle (`at(lib.albums,
+    i)!.tracks`).
   * **Anchored handle parameters** ([ref-anchor], 2026-10-08, replacing
     `canbe`'s covered positions): a parameter `a: ref(c) Mut T` renders as a
     **`usize` position in its container parameter**, which the callee
@@ -826,28 +833,42 @@ the blanket rule:
     (a temporary has no storage to be a path into) and a recursive
     container. Kotlin: nothing — objects alias; parity pinned by the e2e
     cases.
-* [rs-opt-borrow] **A kept optional is the optional of a borrow**
-  (user decision 2026-10-10, with [proj-opt-slot]): a read-only parameter
-  `s: T?` whose one value arm is neither `Copy` nor a type variable renders
-  as `Option<&T>`, taken by value — `pub fn inner(mut s: Option<&String>)`,
-  on fns, effect members and handler members alike — rather than
-  `&Option<T>`, which a borrowed optional could not be passed as. The
-  parameter is re-typed `(proj T)?` inside the emitter
-  (`Shared::unalias_params`), so the signature, the body's binding and the
-  call sites agree:
-  * **Arguments** (`opt_borrow_arg`): a borrowed optional (`get`'s answer)
-    passes as it is; a mutable handle's is read through,
-    `….map(|__x| &*__x)`; `None` is `None`; anything owned lends with
-    `(&o).as_ref()`.
-  * **The body**: a read of the parameter is stored as `Option<&T>` even
-    where the IR types it `T?` (`storage_ty`): another name for it copies
-    the `Option<&T>`, a narrowing unwraps the borrow it holds
-    (`s.unwrap()`, bound by reference), and `copy` of it is
-    `.cloned()`.
-  * A **type variable's** optional keeps `&Option<T>`: `T` binds to the
-    argument's own arm, a borrow included. A `Mut` optional (`&mut
-    Option<T>`) and a wrapper optional (`Option<UnionN<…>>`) are
-    unchanged; neither takes a borrowed argument.
+* [rs-opt-borrow] **A kept union is a union of borrows** (user decisions
+  2026-10-10, with [proj-opt-slot]): a kept parameter of a union type
+  renders each non-`Copy` value arm borrowed and takes the union by value —
+  `Option<&String>`, `Union2<&A, &B>`, `Union2<i32, &String>` (a `Copy`
+  arm stays by value) — and a mutated one (`Mut T?`, `Mut A | Mut B`)
+  borrows each arm mutably: `Option<&mut Entity>`, `Union2<&mut Vec<i32>,
+  &String>`. Nothing needs the `&mut Option<T>`: a parameter is never
+  reassigned [param-const]. On fns, effect members and handler members
+  alike; the parameter is re-typed inside the emitter
+  (`Shared::unalias_params`, `borrowed_arms`), so the signature, the body
+  and the call sites agree. A union mentioning a type variable keeps
+  `&UnionN<…>` (`T` binds to the argument's own arm), and so does one with
+  a fn or nested-union arm.
+  * **Unions are `Copy`** where their payloads are (the derive is
+    conditional), so a union of shared borrows is read any number of times;
+    each `UnionN` has `as_ref` and `as_mut`, the union of borrows of itself.
+  * **Arguments** (`lend_value`): the IR's `BorrowAs` says which arm lands
+    where. An owned union lends whole with `(&x).as_ref()` (`as_mut`, and
+    `.as_ref().map(|__u| __u.as_ref())` for an optional of one); an owned
+    optional of one arm with `Option::as_ref`/`as_mut`; anything else is a
+    per-arm `match` — `match &v { U1(__v) => U1(&**__v), U2(__v) =>
+    U2(__v) }` — by value when every arm is already a borrow, so a
+    temporary may go. A union bound ahead of its call
+    [rs-mut-arg-hoist] binds what owns its arms and lends from the binding
+    (`hoist_lend`). `None` is `None`; a wrap into one arm wraps the borrow.
+    A mutable binding is reborrowed (`&mut **__v`, `.as_deref_mut()`), an
+    optional handle walked mutably.
+  * **The body**: a read of the parameter is stored as the union of
+    borrows even where the IR types it as the owned union (`storage_ty`):
+    another name for it copies it, a narrowing takes the borrow its arm
+    holds (`match x { U1(__v) => __v, … }`, `s.unwrap()`, a mutable one
+    through `match &mut x` or `.as_deref_mut()`), and `copy` of it clones
+    arm by arm (`.cloned()` for an optional of one).
+  * A single borrowed value (`proj X` into a kept `X`) is already `&X`:
+    `salvo_ir::walk::unwrap_single_borrows` reduces its `BorrowAs` to the
+    value (or a `DropMut`).
 * Views of temporaries are refused by the checker [proj-anywhere]; the
   only thing this backend adds is that rustc would have said the same
   (E0716).

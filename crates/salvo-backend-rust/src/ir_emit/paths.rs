@@ -1,7 +1,7 @@
 //! [rs-path] A `ref(c)` handle on Rust is a **storage path** from its
 //! container: field steps, tuple steps, list indices and map slots, computed
-//! once when the handle is minted and walked at every use (GROUP_BORROWING.md
-//! Part 9). The path's type belongs to the (container type, element type)
+//! once when the handle is minted and walked at every use (COMPLETED.md's
+//! "Design record: group borrowing"). The path's type belongs to the (container type, element type)
 //! pair and is read off the type definitions, so handles from any accessor of
 //! one container compare and split:
 //! - one way from the container to the element: the tuple of its dynamic

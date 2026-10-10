@@ -164,7 +164,13 @@ Conventions:
     (2026-10-10, [proj-opt-slot]: `show(get(ws, 0))` over a
     `List<Mut Str>` handed kotlinc a `StringBuilder?`).
   * `copy` of an optional copies its present arm, `(v)?.let { __c -> … }`,
-    or is the value itself when the arm copies as itself [proj-opt-slot].
+    or is the value itself when the arm copies as itself; of a wrapper
+    union, arm by arm (`v.let { when (it) { is Union2.U1<*, *> -> … } }`)
+    [proj-opt-slot].
+  * A `BorrowAs` [proj-opt-slot] is the value itself — objects alias —
+    except an arm whose `Mut` drop is a conversion (`Mut Str`), which
+    converts, and an arm at another position in the target, which moves
+    there (`borrow_as` in `ir_emit/mod.rs`).
   * `mut_str(...parts)` emits
     `StringBuilder(listOf(parts).joinToString(""))` — joined rather than
     appended one part at a time, so a `...spread` works through Kotlin's
