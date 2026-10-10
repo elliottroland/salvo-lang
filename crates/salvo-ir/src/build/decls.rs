@@ -526,6 +526,17 @@ fn fn_decl(
         f.body.as_ref().map(|b| lower.fn_body(b, &ret))
     };
     errors.extend(lower.finish());
+    // [ref-anchor] Handle parameters and the container each names.
+    let ref_anchors: Vec<(usize, usize)> = f
+        .params
+        .iter()
+        .filter_map(|p| {
+            let c = salvo_core::check::ref_anchor_of(&p.ty)?;
+            let at = params.iter().position(|q| q.local.0 == p.name.name)?;
+            let anchor = params.iter().position(|q| q.local.0 == c.name)?;
+            Some((at, anchor))
+        })
+        .collect();
     FnDecl {
         id,
         name: f.name.name.clone(),
@@ -544,6 +555,7 @@ fn fn_decl(
         ret,
         borrows,
         holds,
+        ref_anchors,
         throws,
         result_check: if f.platform { ctx.checked.boundary_checks.get(&(file_idx, f.name.span)).cloned() } else { None },
         factories: if f.platform { ctx.checked.factories.get(&(file_idx, f.name.span)).cloned() } else { None },

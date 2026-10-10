@@ -304,6 +304,11 @@ pub struct FnDecl {
     /// [deduce-field] `p.f: proj(q)`: after the call, parameter `.0` holds a
     /// view of parameter `.1` (indices into `params`).
     pub holds: Vec<(usize, usize)>,
+    /// [ref-anchor] `a: ref(c) Mut T`: parameter `.0` is a handle into the
+    /// container parameter `.1` (indices into `params`). Two parameters
+    /// anchored at one container may alias; a backend with ownership
+    /// passes the container once and each handle as a position in it.
+    pub ref_anchors: Vec<(usize, usize)>,
     /// [throw] the message type this fn may throw, when it declares `[Throw<M>]`.
     pub throws: Option<Ty>,
     /// [platform-check] a platform fn's result check.

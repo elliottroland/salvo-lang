@@ -515,7 +515,7 @@ handler Scheduler() of SchedTable {
             drop_dyn(msg)
             return Dead {}
         }
-        let a = get(actors, addr)!
+        let a = at(actors, addr)!
         if a.dead {
             drop_dyn(msg)
             return Dead {}
@@ -543,7 +543,7 @@ handler Scheduler() of SchedTable {
             drop_dyn(msg)
             return false
         }
-        let a = get(actors, addr)!
+        let a = at(actors, addr)!
         if a.dead {
             drop_dyn(msg)
             return false
@@ -560,7 +560,7 @@ handler Scheduler() of SchedTable {
     }
 
     fn kill(addr: Int, reason: Str) -> None => !addr, !reason {
-        let a = get(actors, addr)!
+        let a = at(actors, addr)!
         if a.dead {
             return
         }
@@ -582,7 +582,7 @@ handler Scheduler() of SchedTable {
     fn mint_actor(addr: Int, gated: Bool) -> Token => !addr, !gated {
         next_slot = next_slot + 1
         let slot = copy(next_slot)
-        let a = get(actors, addr)!
+        let a = at(actors, addr)!
         if gated {
             a.gate = copy(slot)
         }
@@ -592,13 +592,13 @@ handler Scheduler() of SchedTable {
 
     fn mint_task(pool: Int, body: Body) -> Token => !pool, !body {
         next_slot = next_slot + 1
-        let p = get(pools, pool)!
+        let p = at(pools, pool)!
         p.owed = p.owed + 1
         return Token { target: ToTask { pool: pool, body: body }, slot: copy(next_slot), tracked: true }
     }
 
     fn mint_waiter(pool: Int) -> WaiterMint => !pool {
-        let p = get(pools, pool)!
+        let p = at(pools, pool)!
         p.owed = p.owed + 1
         next_slot = next_slot + 1
         let wid = reuse_waiter(waiters, free_waiters, copy(pool), copy(next_slot))
@@ -612,7 +612,7 @@ handler Scheduler() of SchedTable {
 
     fn watch_actor(addr: Int, t: Token) -> None => !addr, !t {
         let watch = untrack(actors, waiters, pools, t)
-        let a = get(actors, addr)!
+        let a = at(actors, addr)!
         if a.dead {
             let reason = copy(a.exit_reason)
             deliver_to(actors, waiters, pools, watch, erase(Exit { reason: reason }))
@@ -645,7 +645,7 @@ handler Scheduler() of SchedTable {
             active = active + 1
             return rt
         }
-        let p = get(pools, pool)!
+        let p = at(pools, pool)!
         add(p.idle, idle)
         // [waitfor-pump] [actor-on-idle] Every frame still running is
         // parked in a wait: the scheduler may have settled, idle or
@@ -666,7 +666,7 @@ handler Scheduler() of SchedTable {
 
     fn wait_step(wid: Int, pool: Int, own: Int, frame: Int, me: Parker) -> WaitStep
     => !wid, !pool, !own, !frame, !me {
-        let w = get(waiters, wid)!
+        let w = at(waiters, wid)!
         // [waitfor-pump] Booked once, on the first step: an activation or a
         // task counts out of the frames that can still proceed; main's own
         // thread records that it is inside a wait at all.
@@ -725,16 +725,16 @@ handler Scheduler() of SchedTable {
         if virtual_mode || (active == parked_frames && main_waits > 0 && q) {
             return Stuck { report: deadlock_report(actors, waiters, own) }
         }
-        let parked = get(waiters, wid)!
+        let parked = at(waiters, wid)!
         parked.parker = copy(me)
-        let p = get(pools, pool)!
+        let p = at(pools, pool)!
         add(p.idle, me)
         return Sleep {}
     }
 
     fn finish(addr: Int, body: Body, fault: Str?) -> None => !addr, !body, !fault {
         active = active - 1
-        let a = get(actors, addr)!
+        let a = at(actors, addr)!
         a.running = false
         if fault is None {
             slot_put(a.body, body)
@@ -789,7 +789,7 @@ handler Scheduler() of SchedTable {
     }
 
     fn set_proxy(addr: Int) -> None => !addr {
-        let a = get(actors, addr)!
+        let a = at(actors, addr)!
         a.proxy = true
     }
 
@@ -906,7 +906,7 @@ fn reset_all(actors: Mut List<Mut ActorRec>, pools: Mut List<Mut PoolRec>, idle_
 => actors: Mut, pools: Mut, idle_hooks: Mut, clock_hooks: Mut {
     let k = 0
     while k < size(actors) {
-        let a = get(actors, k)!
+        let a = at(actors, k)!
         k = k + 1
         a.dead = true
         a.running = false
@@ -930,7 +930,7 @@ fn reset_all(actors: Mut List<Mut ActorRec>, pools: Mut List<Mut PoolRec>, idle_
     }
     let i = 0
     while i < size(pools) {
-        let p = get(pools, i)!
+        let p = at(pools, i)!
         while remove_first(p.tasks) is TaskRun t {
             drop_task_run(t)
         }
@@ -994,18 +994,18 @@ fn untrack(actors: Mut List<Mut ActorRec>, waiters: Mut List<Mut WaiterRec>, poo
 fn release(actors: Mut List<Mut ActorRec>, waiters: Mut List<Mut WaiterRec>, pools: Mut List<Mut PoolRec>, target: Target) [] -> None
 => actors: Mut, waiters: Mut, pools: Mut, target {
     if target is ToActor to {
-        let a = get(actors, to.addr)!
+        let a = at(actors, to.addr)!
         if a.owed > 0 {
             a.owed = a.owed - 1
         }
     } elif target is ToWaiter tw {
         let pool = copy(get(waiters, tw.wid)!.pool)
-        let p = get(pools, pool)!
+        let p = at(pools, pool)!
         if p.owed > 0 {
             p.owed = p.owed - 1
         }
     } else {
-        let p = get(pools, target.pool)!
+        let p = at(pools, target.pool)!
         if p.owed > 0 {
             p.owed = p.owed - 1
         }
@@ -1018,7 +1018,7 @@ fn release(actors: Mut List<Mut ActorRec>, waiters: Mut List<Mut WaiterRec>, poo
 fn reuse_waiter(waiters: Mut List<Mut WaiterRec>, free: Mut List<Int>, pool: Int, slot: Long) [] -> Int
 => waiters: Mut, free: Mut, !pool, !slot {
     if remove_first(free) is Int wid {
-        let w = get(waiters, wid)!
+        let w = at(waiters, wid)!
         w.pool = pool
         w.filled = false
         w.parker = None
@@ -1041,7 +1041,7 @@ fn deliver_to(actors: Mut List<Mut ActorRec>, waiters: Mut List<Mut WaiterRec>, 
         release(actors, waiters, pools, target)
     }
     if target is ToActor to {
-        let a = get(actors, to.addr)!
+        let a = at(actors, to.addr)!
         if a.dead {
             drop_dyn(value)
             return
@@ -1054,7 +1054,7 @@ fn deliver_to(actors: Mut List<Mut ActorRec>, waiters: Mut List<Mut WaiterRec>, 
             wake_pool(pools, pool)
         }
     } elif target is ToWaiter tw {
-        let w = get(waiters, tw.wid)!
+        let w = at(waiters, tw.wid)!
         if w.slot != slot || w.filled {
             drop_dyn(value)
             return
@@ -1066,7 +1066,7 @@ fn deliver_to(actors: Mut List<Mut ActorRec>, waiters: Mut List<Mut WaiterRec>, 
         }
     } else {
         let {pool, body} = target
-        let p = get(pools, pool)!
+        let p = at(pools, pool)!
         add_last(p.tasks, TaskRun { body: body, value: value })
         wake_pool(pools, copy(pool))
     }
@@ -1079,7 +1079,7 @@ fn report_fault(actors: Mut List<Mut ActorRec>, pools: Mut List<Mut PoolRec>, po
 => actors: Mut, pools: Mut, !pool, !reason {
     let sink = copy(get(pools, pool)!.sink)
     if sink >= 0 {
-        let s = get(actors, sink)!
+        let s = at(actors, sink)!
         if !s.dead {
             let e: Entry = Reported { reason: reason }
             add_last(s.queue, e)
@@ -1178,14 +1178,14 @@ fn deadlock_report(actors: Mut List<Mut ActorRec>, waiters: Mut List<Mut WaiterR
 // [exclude], whose own activation is the one waiting.
 fn take_work(actors: Mut List<Mut ActorRec>, pools: Mut List<Mut PoolRec>, pool: Int, exclude: Int) [] -> Work?
 => actors: Mut, pools: Mut, !pool, !exclude {
-    let p = get(pools, pool)!
+    let p = at(pools, pool)!
     let task = remove_first(p.tasks)
     if task is TaskRun t {
         let {body, value} = t
         return RunTask { pool: pool, body: body, value: value }
     }
     while remove_first(p.ready) is Int i {
-        let a = get(actors, i)!
+        let a = at(actors, i)!
         a.ready = false
         if i != exclude && !a.running && !a.dead {
             let at = deliverable(a.slots, a.gate)
@@ -1212,7 +1212,7 @@ fn mark_ready(a: Mut ActorRec, pools: Mut List<Mut PoolRec>, addr: Int) [] -> Bo
         return false
     }
     a.ready = true
-    let p = get(pools, copy(a.pool))!
+    let p = at(pools, copy(a.pool))!
     add_last(p.ready, addr)
     return true
 }
@@ -1275,7 +1275,7 @@ fn deliverable(slots: Deque<Long>, gate: Long?) [] -> Int? => slots, gate {
 // a woken waiting frame that leaves with its answer instead passes the wake
 // on, so work is never left with every thread asleep.
 fn wake_pool(pools: Mut List<Mut PoolRec>, pool: Int) [] -> None => pools: Mut, !pool {
-    let p = get(pools, pool)!
+    let p = at(pools, pool)!
     if remove_first(p.idle) is Parker w {
         unpark(w)
     }
@@ -1283,7 +1283,7 @@ fn wake_pool(pools: Mut List<Mut PoolRec>, pool: Int) [] -> None => pools: Mut, 
 
 // Wakes every idle thread of [pool].
 fn wake_every(pools: Mut List<Mut PoolRec>, pool: Int) [] -> None => pools: Mut, !pool {
-    let p = get(pools, pool)!
+    let p = at(pools, pool)!
     while remove_first(p.idle) is Parker w {
         unpark(w)
     }
@@ -1305,7 +1305,7 @@ fn wake_waiters(waiters: Mut List<Mut WaiterRec>) [] -> None => waiters: Mut {
 // Its threads are woken, see the flag and return.
 fn retire_if_done(actors: Mut List<Mut ActorRec>, pools: Mut List<Mut PoolRec>, pool: Int) [] -> None
 => actors, pools: Mut, !pool {
-    let p = get(pools, pool)!
+    let p = at(pools, pool)!
     if !p.dedicated || p.retired || size(p.tasks) > 0 || p.owed > 0 {
         return
     }

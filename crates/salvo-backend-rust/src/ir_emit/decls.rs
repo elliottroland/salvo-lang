@@ -1169,8 +1169,22 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             let opt = f.ret.strip_quals().has_none_arm();
             self.f.loc = Some((params[a].local.0.clone(), opt));
         }
+        // [ref-anchor] A handle parameter `a: ref(c) Mut T` is a position in
+        // its container parameter, which the callee already takes: the
+        // container is passed once and every handle into it indexes it, so
+        // two handles may coincide.
+        let anchors: std::collections::HashMap<usize, usize> =
+            if loc { std::collections::HashMap::new() } else { f.ref_anchors.iter().copied().collect() };
         for (i, p) in params.iter().enumerate() {
             let n = rs_ident(&p.local.0);
+            if let Some(&k) = anchors.get(&i) {
+                let c = format!("__c{i}");
+                ps.push(format!("{c}: usize"));
+                self.f.kinds.insert(p.local.0.clone(), super::body::Kind::Elem);
+                self.f.elem.insert(p.local.0.clone(), (rs_ident(&params[k].local.0), Some(c)));
+                self.f.tys.insert(p.local.0.clone(), p.ty.clone());
+                continue;
+            }
             if i < f.effect_params {
                 let t = self.ty(&p.ty);
                 ps.push(format!("{n}: &{t}"));

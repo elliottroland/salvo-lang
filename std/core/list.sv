@@ -135,7 +135,7 @@ export fn at<T canbe linear>(list: List<Mut T>, index: Int) [] -> ref(list) Mut 
 // existing `Idx` claims survive the call [qual-preserve].
 export fn update<T>(list: List<Mut T>, index: Idx(list) Int, f: (elem: Mut T) -> None) [] -> None
 => list: preserve Idx, index, f {
-    f(get(list, index))
+    f(at(list, index)!)
     return None
 }
 
@@ -148,7 +148,7 @@ export fn update<T>(list: List<Mut T>, index: Idx(list) Int, f: (elem: Mut T) ->
 export fn update2<T>(list: List<Mut T>, i: Idx(list) Int, j: NotEq(i) Idx(list) Int,
                      f: (a: Mut T, b: Mut T) -> None) [] -> None
 => list: preserve Idx, i, j, f {
-    f(get(list, i), get(list, j))
+    f(at(list, i)!, at(list, j)!)
     return None
 }
 

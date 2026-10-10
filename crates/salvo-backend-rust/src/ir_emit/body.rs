@@ -12,7 +12,7 @@ use salvo_core::types::Ty;
 use salvo_ir::{ArmTest, Block, Expr, ExprKind, FnKind, FnRef, Justification, Lit, Local, Op, Param, PassMode, Place, Stmt, Step};
 
 use super::decls::{fn_ty_param_mode, FnPos};
-use super::{is_copy_ty, is_mut, is_proj, is_ref, ModuleEmitter};
+use super::{is_copy_ty, is_mut, is_mut_borrow, is_proj, is_ref, ModuleEmitter};
 use crate::emit::{escape_char, escape_format_text, escape_string, rs_ident, stateful_trait_name, stateless_trait_name};
 use crate::intrinsics::Spread;
 
@@ -114,7 +114,7 @@ impl FnState {
         let k = if is_copy_ty(&p.ty) || p.variadic {
             Kind::Owned
         } else if is_proj(&p.ty) {
-            if is_mut(&p.ty) { Kind::RefMut } else { Kind::Ref }
+            if is_mut_borrow(&p.ty) { Kind::RefMut } else { Kind::Ref }
         } else {
             match p.mode {
                 PassMode::Moved => Kind::Owned,
@@ -599,7 +599,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             self.f.kinds.insert(local.0.clone(), k);
             return format!("{pad}let mut {n} = {code};\n");
         }
-        let kind = if is_proj(ty) { if is_mut(ty) { Kind::RefMut } else { Kind::Ref } } else { Kind::Owned };
+        let kind = if is_proj(ty) { if is_mut_borrow(ty) { Kind::RefMut } else { Kind::Ref } } else { Kind::Owned };
         // [rs-loop-temp] A borrow the binding keeps must not be of a
         // temporary: such an argument is bound first.
         let (pre, value) = self.hoist_borrowed_temps(value, indent);
@@ -976,7 +976,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 }
                 if is_proj(&e.ty) {
                     if kind == Kind::Elem {
-                        return if is_mut(&e.ty) { format!("&mut {text}") } else { format!("&{text}") };
+                        return if is_mut_borrow(&e.ty) { format!("&mut {text}") } else { format!("&{text}") };
                     }
                     return if bare && kind == Kind::RefMut { format!("&mut *{text}") } else { text };
                 }
@@ -1644,7 +1644,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         // or the borrow comes from reading owned storage in place.
         let arm_holds_ref = from_arms.get(i).is_some_and(|a| is_proj(a));
         let (code, kind) = if is_proj(ty) && !arm_holds_ref && !is_copy_ty(ty) {
-            if is_mut(ty) {
+            if is_mut_borrow(ty) {
                 let code = if nn >= 2 { format!("match &mut {src} {{ {} => __v, _ => unreachable!() }}", pat(i, "__v")) } else { format!("{src}.as_mut().unwrap()") };
                 (code, Kind::RefMut)
             } else {
@@ -1652,7 +1652,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 (code, Kind::Ref)
             }
         } else if copy_or_ref {
-            let k = if is_copy_ty(ty) { Kind::Owned } else if is_mut(ty) { Kind::RefMut } else { Kind::Ref };
+            let k = if is_copy_ty(ty) { Kind::Owned } else if is_mut_borrow(ty) { Kind::RefMut } else { Kind::Ref };
             let code = if nn >= 2 {
                 if is_proj(ty) && is_mut(ty) && owned_root {
                     format!("match {src} {{ {} => __v, _ => unreachable!() }}", pat(i, "__v"))
@@ -1825,7 +1825,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let cands: Vec<usize> = args
             .iter()
             .enumerate()
-            .filter(|(_, a)| self.s.mut_lend(a).is_some() || matches!(&a.kind, ExprKind::Branch { arms, .. } if arms.len() == 1 && arms[0].1.stmts.len() == 1 && matches!(&arms[0].1.stmts[0], Stmt::Let { value, .. } if self.s.mut_lend(value).is_some())))
+            .filter(|(_, a)| self.lends_loc(a) || matches!(&a.kind, ExprKind::Branch { arms, .. } if arms.len() == 1 && arms[0].1.stmts.len() == 1 && matches!(&arms[0].1.stmts[0], Stmt::Let { value, .. } if self.lends_loc(value))))
             .map(|(i, _)| i)
             .collect();
         if cands.len() == 2 {
@@ -1979,6 +1979,40 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     pending.push((out.len(), a, p));
                 }
                 out.push(code);
+            }
+        }
+        (lets, out)
+    }
+
+    /// [ref-anchor] [rs-loc] A call to a fn with handle parameters: each
+    /// handle argument is a position in its container, computed first (a
+    /// bound handle's own position, or the mint's locator), so the container
+    /// argument's `&mut` is the only borrow the call takes.
+    fn anchored_args(&mut self, f: &salvo_ir::FnDecl, params: &[Param], args: &[Expr], indent: usize) -> (Vec<String>, Vec<String>) {
+        // Call arguments align with the IR params (effects first).
+        let anchored: HashSet<usize> = f.ref_anchors.iter().map(|(a, _)| *a).collect();
+        let mut lets = Vec::new();
+        let mut out = Vec::new();
+        for (i, a) in args.iter().enumerate() {
+            if anchored.contains(&i) {
+                let pos = match bare(a).and_then(|r| self.f.elem.get(&r.0).cloned()) {
+                    Some((_, Some(p))) => p,
+                    _ => match self.loc_of(a, indent) {
+                        Some((_, p)) => p,
+                        None => {
+                            self.error("a `ref(c)` argument that is not a handle of a known position [ref-anchor] [backend-never-wrong]");
+                            "0".to_string()
+                        }
+                    },
+                };
+                let t = self.fresh("c");
+                lets.push(format!("let {t} = {pos};"));
+                out.push(t);
+                continue;
+            }
+            match params.get(i) {
+                Some(p) => out.push(self.arg(a, p, FnPos::Param, indent)),
+                None => out.push(self.value(a, indent)),
             }
         }
         (lets, out)
@@ -2161,8 +2195,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             // peeled to the borrow itself.
             let p_proj = is_proj(&p.ty) || inst_params.get(i).is_some_and(is_proj);
             if p_proj && mode != PassMode::Moved {
-                peel.push_str(&format!("{}let {n} = {}*{n};\n", Self::pad(indent + 1), if is_mut(&p.ty) { "&mut *" } else { "" }));
-                k = if is_mut(&p.ty) { Kind::RefMut } else { Kind::Ref };
+                peel.push_str(&format!("{}let {n} = {}*{n};\n", Self::pad(indent + 1), if is_mut_borrow(&p.ty) { "&mut *" } else { "" }));
+                k = if is_mut_borrow(&p.ty) { Kind::RefMut } else { Kind::Ref };
                 self.f.tys.insert(p.local.0.clone(), inst_params.get(i).cloned().filter(is_proj).unwrap_or_else(|| p.ty.clone()));
             }
             self.f.kinds.insert(p.local.0.clone(), k);
@@ -2433,6 +2467,21 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
 
     /// [rs-loc] A mutable lend as (anchor text, position code), when it
     /// has one: a lending call, a lending callback, or `x!` of either.
+    /// [rs-loc] Whether `e` is a call `loc_of` can render as a position: a
+    /// mutable lend through a reading accessor (`mut_lend`), or a call to a
+    /// handle mint with a locator variant (`at`, [ref-handle]).
+    fn lends_loc(&self, e: &Expr) -> bool {
+        if self.s.mut_lend(e).is_some() {
+            return true;
+        }
+        match &e.kind {
+            ExprKind::Call { target: FnRef::Decl(id), .. } => {
+                self.s.locs.contains(id) && self.s.fn_decl(id).is_some_and(|f| is_mut(&f.ret.strip_quals().without_none()))
+            }
+            _ => false,
+        }
+    }
+
     fn loc_of(&mut self, e: &Expr, indent: usize) -> Option<(String, String)> {
         let anchor_of = |s: &mut Self, a: &Expr| -> Option<String> {
             let p = match &a.kind {
@@ -2624,7 +2673,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 if type_args.len() == f.type_params.len() {
                     self.f.call_subst = f.type_params.iter().map(|t| t.name.clone()).zip(type_args.iter().cloned()).collect();
                 }
-                let (lets, mut a) = self.call_args(&ps, args, indent);
+                let (lets, mut a) = if f.ref_anchors.is_empty() { self.call_args(&ps, args, indent) } else { self.anchored_args(f, &ps, args, indent) };
                 // [runtime-kept-fn] A kept callback: boxed and owned, or a
                 // plain fn.
                 for i in 0..args.len() {

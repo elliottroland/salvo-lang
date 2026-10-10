@@ -9718,7 +9718,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// [elem-distinct] The minting-index identity of an element-handle
-    /// call: `call_span` resolved to `core.list`'s `get` — the two
+    /// call: `call_span` resolved to `core.list`'s `get` or `at` — the
     /// overloads whose result is *exactly the element at the index* — and
     /// the index argument is a plain local. Answers the index variable's
     /// ultimate fate-root id (its own id when it is a root); any other
@@ -9734,7 +9734,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             .values()
             .flatten()
             .find(|e| e.key == key)?;
-        if entry.decl.name.name != "get" || entry.module.to_string() != "core.list" {
+        // [ref-handle] `at` is the canonical mint and is exactly the element
+        // at the index too.
+        if !matches!(entry.decl.name.name.as_str(), "get" | "at") || entry.module.to_string() != "core.list" {
             return None;
         }
         let index = if matches!(callee, Expr::Field { .. }) {
@@ -10060,9 +10062,56 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// is accepted — and recorded in `Checked::distinct_pairs` for the
     /// pair lowering [rs-elem-mut] — only when the minting indices are
     /// proven apart; anything less is refused, naming the remedy.
-    fn check_elem_handle_pairs(&mut self, args: &[&'p Expr], mut_kept: &[bool], span: Span) {
+    ///
+    /// [ref-anchor] `anchors[i]` is `Some(k)` when the callee's parameter
+    /// `i` is a `ref(c) Mut` handle naming parameter `k` as its container:
+    /// the argument must then be a handle into the argument passed at `k`
+    /// (the callee indexes *that* container with it), and two such
+    /// arguments anchored at the same `k` may alias — two positions into
+    /// one container, self-strike included — with no proof needed.
+    fn check_elem_handle_pairs(
+        &mut self,
+        args: &[&'p Expr],
+        mut_kept: &[bool],
+        anchors: &[Option<usize>],
+        span: Span,
+    ) {
         let mut handles: Vec<(u32, Option<u32>, Option<Vec<Step>>, usize)> = Vec::new();
         let mut proven_pairs: Option<HashSet<(u32, u32)>> = None;
+        // [ref-anchor] Each anchored argument must hand in a position of its
+        // container: one of its links is the container argument's own.
+        for (i, arg) in args.iter().enumerate() {
+            let Some(k) = anchors.get(i).copied().flatten() else { continue };
+            let Some(container) = args.get(k).copied() else { continue };
+            let want: Vec<(u32, Option<Vec<Step>>)> = self
+                .links_for_value(container, container.span())
+                .into_iter()
+                .map(|l| (l.root_id, l.path))
+                .collect();
+            let have = match arg {
+                Expr::Ident(id) => self.lookup(&id.name).map(|v| v.links.clone()).unwrap_or_default(),
+                other => self.links_for_value(other, other.span()),
+            };
+            let is_handle = self
+                .out
+                .ty_of(self.file_idx, arg.span())
+                .is_some_and(|t| has_ref_arm(t));
+            let into_it = is_handle
+                && have
+                    .iter()
+                    .any(|l| want.iter().any(|(r, p)| *r == l.root_id && (p.is_none() || *p == l.path)));
+            if !into_it {
+                self.error(
+                    arg.span(),
+                    concat!(
+                        "this argument must be a handle into the container passed for its ",
+                        "`ref(…)` parameter — the callee reads and writes it at a position ",
+                        "of that container; mint it from that container with `at(…)` [ref-anchor]"
+                    )
+                    .to_string(),
+                );
+            }
+        }
         for (i, arg) in args.iter().enumerate() {
             if !mut_kept.get(i).copied().unwrap_or(false) {
                 continue;
@@ -10088,6 +10137,18 @@ impl<'p, 'r> Checker<'p, 'r> {
                     handles.push((l.root_id, l.elem_idx, l.path.clone(), i));
                     continue;
                 };
+                // [ref-anchor] Two handles anchored at one container
+                // parameter may alias: accepted, nothing to prove.
+                let prev_param = *prev_param;
+                if let (Some(a), Some(b)) = (
+                    anchors.get(prev_param).copied().flatten(),
+                    anchors.get(i).copied().flatten(),
+                ) {
+                    if a == b {
+                        continue;
+                    }
+                }
+                let prev_param = &prev_param;
                 let proven = match (*prev_idx, l.elem_idx) {
                     (Some(a), Some(b)) if a != b && l.path.is_some() && *prev_path == l.path => {
                         proven_pairs
@@ -11001,7 +11062,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             })
             .collect();
-        self.check_elem_handle_pairs(args, &mut_kept, span);
+        self.check_elem_handle_pairs(args, &mut_kept, &[], span);
         let mut consumed_here: Vec<String> = Vec::new();
         for (i, arg) in args.iter().enumerate() {
             if let Some(name) = consumed_here
@@ -22498,6 +22559,22 @@ impl<'p, 'r> Checker<'p, 'r> {
                             && has_ref_arm(&expected)
                             && !has_ref_arm(&vty)
                             && is_subtype(&promote_proj_to_ref(vty.clone()), &expected);
+                        if ref_mint {
+                            // The promoted type is what the value *is* from
+                            // here on: the emitters render it as the handle
+                            // (the Rust locator path keys on a `ref Mut`
+                            // call type, [rs-loc]).
+                            let mut e: &Expr = v;
+                            loop {
+                                if let Some(t) = self.out.expr_ty.get(&self.key(e.span())).cloned() {
+                                    self.out.expr_ty.insert(self.key(e.span()), promote_proj_to_ref(t));
+                                }
+                                match e {
+                                    Expr::NonNull { operand, .. } => e = operand.as_ref(),
+                                    _ => break,
+                                }
+                            }
+                        }
                         if iter_pattern.is_none() && !ref_mint && !is_subtype(&vty, &expected) {
                             self.error(
                                 v.span(),
@@ -28031,7 +28108,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         "{what} is a plain projection (`{arg_shown}`), and `{callee}` \
                          mutates `{pname}`: a mutable element handle is now written \
                          `ref(c)`, not a bare `proj` — `proj Mut` is read-only \
-                         [ref-handle]. Mint a handle (e.g. `at(...)`/`get(...)`) instead \
+                         [ref-handle]. Mint a handle with `at(...)` instead \
                          of projecting, or pass `copy(...)` for a value of your own"
                     ),
                     ProjBlock::Consumes => format!(
@@ -28462,7 +28539,20 @@ impl<'p, 'r> Checker<'p, 'r> {
                         })
                 })
                 .collect();
-            self.check_elem_handle_pairs(args, &mut_kept, span);
+            // [ref-anchor] Which parameters are handles anchored at another.
+            let anchors: Vec<Option<usize>> = decl
+                .params
+                .iter()
+                .filter(|p| !p.implicit)
+                .map(|p| {
+                    let c = ref_anchor_of(&p.ty)?;
+                    decl.params
+                        .iter()
+                        .filter(|q| !q.implicit)
+                        .position(|q| q.name.name == c.name)
+                })
+                .collect();
+            self.check_elem_handle_pairs(args, &mut_kept, &anchors, span);
         }
         if let Some(contract) = contract {
             let fixed_count = decl
@@ -30372,6 +30462,20 @@ fn strip_proj_union(ty: &Ty) -> &Ty {
     match ty {
         Ty::Qualified { quals, base } if matches!(base.as_ref(), Ty::Union(_)) && quals.iter().all(|q| crate::types::is_proj_name(&q.name)) => base,
         other => other,
+    }
+}
+
+/// [ref-anchor] The container a parameter's `ref(c)` names, when its written
+/// type is a top-level `ref(c)` handle (`a: ref(c) Mut T`).
+pub fn ref_anchor_of(ty: &ast::Type) -> Option<&Ident> {
+    let quals = match ty {
+        ast::Type::Named { qualifiers, .. } | ast::Type::QualifiedGroup { qualifiers, .. } => qualifiers,
+        _ => return None,
+    };
+    let r = quals.iter().find(|q| q.name.name == "ref")?;
+    match r.from.as_slice() {
+        [c] => Some(c),
+        _ => None,
     }
 }
 

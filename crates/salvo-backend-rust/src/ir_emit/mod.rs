@@ -880,6 +880,14 @@ pub(crate) fn is_mut(t: &Ty) -> bool {
     t.quals().iter().any(|q| q.name == "Mut")
 }
 
+/// [ref-handle] Whether a borrow of `t` is a **mutable** borrow: `t`
+/// carries `Mut` and is not a plain read-only `proj` (where the `Mut` only
+/// rides along as part of the element type, rendered `&T`). A `ref` carrying
+/// `Mut` is the mutable handle.
+pub(crate) fn is_mut_borrow(t: &Ty) -> bool {
+    is_mut(t) && (!is_proj(t) || is_ref(t))
+}
+
 /// One module's emitter.
 pub(crate) struct ModuleEmitter<'a, 'p> {
     pub s: &'a mut Shared<'p>,

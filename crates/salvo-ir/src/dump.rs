@@ -237,6 +237,13 @@ impl<'a> Dumper<'a> {
         if let Some(t) = &f.throws {
             let _ = write!(self.out, " throws {t}");
         }
+        // [ref-anchor] which container each handle parameter names.
+        if !f.ref_anchors.is_empty() {
+            let name = |i: usize| f.params[i].local.0.clone();
+            let entries: Vec<String> =
+                f.ref_anchors.iter().map(|(a, c)| format!("{} in {}", name(*a), name(*c))).collect();
+            let _ = write!(self.out, " anchors {}", entries.join(", "));
+        }
         match &f.body {
             None => self.out.push('\n'),
             Some(b) => {
