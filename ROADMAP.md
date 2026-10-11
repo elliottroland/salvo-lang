@@ -1138,6 +1138,15 @@ entries and its "Design record: group borrowing", which retired
 GROUP_BORROWING.md; [rs-path], [ref-anchor], [ref-notsame],
 [elem-distinct], [proj-opt-slot], [rs-opt-borrow]). What is left:
 
+0. **Finishing `ref`: one rendering for a `ref` result, and `to_ref`**
+   (user decisions 2026-10-10) — **in progress; FINISH_REF.md is the plan
+   and the handoff** (its "Resume here" says which step is next). On Rust a
+   `ref(c)` result is always the path, whatever its type arguments; a
+   reader's borrow becomes a handle by an explicit `p.to_ref(c)`; `__loc`
+   twins go. Until its step 3 lands, an open defect: a group member `->
+   ref(c) T?` (no `Mut`) through an implicit is refused on Rust at `T = Mut
+   X` and fails rustc (E0308, an owned `T` in the closure type) at `T = Str`.
+
 1. **Recursive containers** (a type holding its own element type) have no
    finite path: refused, and waiting on the recursive-types work (item 17).
 2. **Open defect: a read through a field of a nested `get` fails rustc**
@@ -1160,6 +1169,14 @@ GROUP_BORROWING.md; [rs-path], [ref-anchor], [ref-notsame],
    overload for bump(Mut (Mut A | Mut B))` — the qualifier wrapped around
    the union a second time. Writing `=> x: None` works. `Mut T?` and the
    `Ok Mut X | Err E` shape need no workaround.
+4. **Type arguments are not inferred from an in-scope implicit** (found
+   2026-10-10). Inside `fn bump_at<C, L>(c: C, l: L, ?Ref<C, L, Counter>)`,
+   calling `fn outer_at<C, L, T>(c: C, l: L, ?Ref<C, L, T>) -> ref(c) Mut T?`
+   as `outer_at(c, l)` reports "cannot infer type argument `T`": `T`
+   appears only in the implicit and the return type, and the in-scope
+   `?Ref<C, L, Counter>` that fills it is not consulted.
+   `outer_at<C, L, Counter>(c, l)` works. Inferring from the implicit that
+   fills the group would remove the annotation.
 
 ### 16 — Composing iterators: stages over a generic source (after the redesign)
 
