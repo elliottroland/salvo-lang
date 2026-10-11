@@ -1186,6 +1186,58 @@ impl Checked {
     pub fn ty_of(&self, file: usize, span: Span) -> Option<&Ty> {
         self.expr_ty.get(&(file, span))
     }
+
+    /// [unify-checker] The call-cluster facts at one call span, gathered in
+    /// one lookup: which kind of call this resolved to and its modifiers. The
+    /// IR builder reads this instead of consulting a dozen span-keyed tables
+    /// at every call node (UNIFY_CHECKER.md, the call cluster). A borrowing
+    /// view over the underlying tables for now; the storage behind it is being
+    /// unified into one `HashMap<Key, CallFacts>` without re-touching the
+    /// builder. Every field is independently `None`/absent — a given call sets
+    /// exactly the ones that describe it.
+    pub fn call_info(&self, key: Key) -> CallInfo<'_> {
+        CallInfo {
+            may_throw: self.may_throw.get(&key),
+            addr_call: self.addr_calls.get(&key),
+            self_send: self.self_sends.get(&key),
+            facade_send: self.facade_sends.get(&key),
+            dot_call: self.dot_calls.contains(&key),
+            member_call: self.member_calls.get(&key),
+            effect_call: self.effect_calls.get(&key),
+            local_call: self.local_calls.contains(&key),
+            local_call_name: self.local_call_names.get(&key),
+            call_fn: self.call_fn.get(&key),
+            call_effects: self.call_effects.get(&key),
+            call_type_args: self.call_type_args.get(&key),
+            implicit_args: self.implicit_args.get(&key),
+            fn_value_call: self.fn_value_calls.get(&key),
+            moved_projection: self.moved_projections.contains(&key),
+        }
+    }
+}
+
+/// [unify-checker] The call-cluster facts at one call span (UNIFY_CHECKER.md).
+/// A read-only view the IR builder assembles once per call node; the fields
+/// are borrows from the checker's tables. The discriminating facts
+/// (`may_throw`/`addr_call`/`member_call`/`local_call`/`call_fn`/…) are
+/// mutually exclusive in practice — a call is one kind — with the rest as
+/// modifiers (effects, type args, implicit args, consume contract).
+pub struct CallInfo<'c> {
+    pub may_throw: Option<&'c ThrowSite>,
+    pub addr_call: Option<&'c Ty>,
+    pub self_send: Option<&'c String>,
+    pub facade_send: Option<&'c String>,
+    pub dot_call: bool,
+    pub member_call: Option<&'c MemberCall>,
+    pub effect_call: Option<&'c Ty>,
+    pub local_call: bool,
+    pub local_call_name: Option<&'c String>,
+    pub call_fn: Option<&'c FnKey>,
+    pub call_effects: Option<&'c Vec<Ty>>,
+    pub call_type_args: Option<&'c Vec<Ty>>,
+    pub implicit_args: Option<&'c Vec<ImplicitArg>>,
+    pub fn_value_call: Option<&'c Vec<FnParamContract>>,
+    pub moved_projection: bool,
 }
 
 /// [platform-fn-value] [runtime-kept-fn] Whether platform fn `f` keeps its

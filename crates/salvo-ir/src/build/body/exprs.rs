@@ -840,8 +840,10 @@ impl<'a, 'p> Lower<'a, 'p> {
         let ty = self.ty_of(span);
         let key = self.key(span);
         let checked = self.ctx.checked;
+        // [unify-checker] One lookup for the whole call cluster.
+        let info = checked.call_info(key);
         // [throw] `throw(m)`.
-        if let Some(site) = checked.may_throw.get(&key) {
+        if let Some(site) = info.may_throw {
             if site.performs {
                 let m = args.first().map(|a| self.expr(a));
                 return match m {
@@ -851,7 +853,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             }
         }
         // [actor-use-addr] a send to an actor through an addr.
-        if let Some(effect) = checked.addr_calls.get(&key).cloned() {
+        if let Some(effect) = info.addr_call.cloned() {
             if let AExpr::Field { base, field, .. } = callee {
                 let addr = self.expr(base);
                 let member = self.member_ref_by_name(&effect, &field.name, span);
@@ -862,13 +864,13 @@ impl<'a, 'p> Lower<'a, 'p> {
                 };
             }
         }
-        if let Some(member) = checked.self_sends.get(&key).cloned().or_else(|| checked.facade_sends.get(&key).cloned()) {
+        if let Some(member) = info.self_send.or(info.facade_send).cloned() {
             let a: Vec<Expr> = args.iter().map(|x| self.expr(x)).collect();
             return Expr { ty, span, kind: ExprKind::SelfSend { member, args: a } };
         }
         // Dot-notation [fn-dot]: the receiver is the first argument.
         let mut all_args: Vec<&AExpr> = Vec::with_capacity(args.len() + 1);
-        if checked.dot_calls.contains(&key) {
+        if info.dot_call {
             if let AExpr::Field { base, .. } = callee {
                 all_args.push(base);
             }
@@ -880,28 +882,28 @@ impl<'a, 'p> Lower<'a, 'p> {
         }
         all_args.extend(args.iter());
         // [effect-dispatch]
-        if let Some(mc) = checked.member_calls.get(&key).cloned() {
+        if let Some(mc) = info.member_call.cloned() {
             let Some(interface) = self.ctx.decl_of_effect(&mc.effect) else {
                 self.error(span, format!("effect `{}` has no declaration", mc.effect));
                 return unsupported(ty, span, "member call");
             };
-            let instance_ty = checked.effect_calls.get(&key).cloned().unwrap_or_else(|| Ty::named(mc.effect.clone()));
+            let instance_ty = info.effect_call.cloned().unwrap_or_else(|| Ty::named(mc.effect.clone()));
             let instance = self.effect_instance(&instance_ty, span);
             let decl = self.ctx.symbols.effects.get(mc.effect.as_str()).copied();
             let member_decl = decl.and_then(|d| d.fns.get(mc.index));
             let mut lowered = self.args_for(member_decl.map(Callee::Member), &all_args, span);
-            lowered.extend(self.implicit_list(&checked.implicit_args.get(&key).cloned().unwrap_or_default(), named, span));
+            lowered.extend(self.implicit_list(&info.implicit_args.cloned().unwrap_or_default(), named, span));
             let type_args = self.type_args_of(span);
             return Expr { ty, span, kind: ExprKind::MemberCall { instance: Box::new(instance), member: MemberRef { interface, index: mc.index }, type_args, args: lowered } };
         }
         // A fn-typed local, or the fn's own implicit [call-resolve].
-        if checked.local_calls.contains(&key) {
+        if info.local_call {
             let name = match callee {
                 AExpr::Ident(id) => id.name.clone(),
                 AExpr::Field { field, .. } => field.name.clone(),
                 _ => String::new(),
             };
-            let local_name = checked.local_call_names.get(&key).cloned().unwrap_or(name.clone());
+            let local_name = info.local_call_name.cloned().unwrap_or(name.clone());
             // By the chosen local's own name first: two implicits may share
             // a resolution name [implicit-same-name].
             let local = self
@@ -926,11 +928,11 @@ impl<'a, 'p> Lower<'a, 'p> {
             a.extend(rest);
             return Expr { ty, span, kind: ExprKind::Call { target: FnRef::Local(local), type_args: Vec::new(), args: a } };
         }
-        if let Some(k) = checked.call_fn.get(&key).copied() {
+        if let Some(k) = info.call_fn.copied() {
             let decl = self.ctx.fn_by_key(k);
             let mut lowered: Vec<Expr> = Vec::new();
             // Effects as values: the instances a callee declaring effects takes.
-            if let Some(effs) = checked.call_effects.get(&key).cloned() {
+            if let Some(effs) = info.call_effects.cloned() {
                 for t in effs {
                     if matches!(&t, Ty::Named { name, .. } if name == salvo_core::THROW_EFFECT) {
                         continue;
@@ -939,7 +941,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 }
             }
             lowered.extend(self.args_for(decl.map(|d| Callee::Fn(k, d)), &all_args, span));
-            lowered.extend(self.implicit_list(&checked.implicit_args.get(&key).cloned().unwrap_or_default(), named, span));
+            lowered.extend(self.implicit_list(&info.implicit_args.cloned().unwrap_or_default(), named, span));
             let type_args = self.type_args_of(span);
             return Expr { ty, span, kind: ExprKind::Call { target: FnRef::Decl(self.ctx.decl_id(k)), type_args, args: lowered } };
         }

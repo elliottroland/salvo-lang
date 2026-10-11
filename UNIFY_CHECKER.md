@@ -124,10 +124,40 @@ small builder-local handoff if inlining them bloats every node.
 
 ## Work in progress
 
-_Nothing started yet. Next action: Phase 0 — the builder-facing `node_facts`
-helper + pick the `facts.rs` home, then migrate the **call** cluster._
+**Phase 0 done (2026-10-10): the call-cluster read surface.** `Checked` now has
+`call_info(key: Key) -> CallInfo<'_>` (`crates/salvo-core/src/check.rs`), a
+borrowing view over the call-cluster tables, and the IR builder's `call` method
+(`crates/salvo-ir/src/build/body/exprs.rs`) reads it in **one** lookup instead
+of ~13 scattered `.get(&self.key(span))`s. Pure refactor: IR goldens + both
+codegen corpus tests unchanged, all salvo-core tests green. This establishes the
+stable builder-facing surface so the storage migration (Phase 1) can collapse
+the tables underneath `call_info` without re-touching the builder.
+
+**Next action: Phase 1 — migrate call-cluster STORAGE.** Replace the ~15
+separate `Checked` fields the call cluster covers (`call_fn`, `call_type_args`,
+`call_effects`, `may_throw`, `addr_calls`, `self_sends`, `facade_sends`,
+`dot_calls`, `member_calls`, `effect_calls`, `local_calls`,
+`local_call_names`, `implicit_args`?, `fn_value_calls`, `moved_projections`)
+with a single `HashMap<Key, CallFacts>` (+ a `Clone, Default` `CallFacts`
+struct of `Option`/`bool` fields). Rewrite `call_info` to read the one map, and
+update every checker writer site (grep each field name for `.insert`/direct
+assignment) to `out.call_facts.entry(k).or_default().<f> = …`. Watch:
+- `implicit_args` and `effect_calls` are read by *other* lowerings too (member
+  calls, set/map literals, struct lits) and by non-call checker sites — decide
+  whether they belong in the call cluster or a shared cluster; may be cleaner to
+  leave `implicit_args` out of CallFacts for now (it is read at many spans).
+- `moved_projections`/`dot_calls`/`local_calls` are `HashSet<Key>` → become
+  `bool` fields.
+- After the storage swap, `cargo test -p salvo-ir` (goldens) + the corpus e2e
+  must still be unchanged.
+
+Then repeat per cluster (expr-type, test/narrow, interp, use/spawn,
+binding/place, refs, lambda), then Phase F (inline into IR nodes).
 
 ### Log
 - 2026-10-10 — Doc created. Finding recorded: backends already read only the
   IR; this is a checker→builder handoff refactor. Option 2 skipped. Clusters
   drafted. Not started in code.
+- 2026-10-10 — Phase 0 done: `Checked::call_info` + `CallInfo` view, builder's
+  `call` reads it in one lookup. Goldens/corpus/core tests green. Committed.
+  `[unify-checker]` is the label (implementation, not a language rule).
