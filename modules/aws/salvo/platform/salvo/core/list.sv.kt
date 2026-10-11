@@ -19,6 +19,12 @@ fun <T> get(list: List<T>, index: Int): T? = list.getOrNull(index)
 // answered as it is, so a stored `null` stays a value.
 fun <T> getAt(list: List<T>, index: Int): T = list[index]
 
+// [ref-handle] The mints: a handle is the element itself on Kotlin, so `at`
+// is its `get` (and the proven one its `getAt`).
+fun <T> at(list: List<T>, index: Int): T? = list.getOrNull(index)
+
+fun <T> atProven(list: List<T>, index: Int): T = list[index]
+
 fun <T> first(list: List<T>): T? = list.firstOrNull()
 
 fun <T> size(list: List<T>): Int = list.size

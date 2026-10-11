@@ -122,20 +122,24 @@ export params Ref<C, L, T> {
 // mutable element handle, `ref(list) Mut T` — the way `cmp`/`eq` have
 // canonical implementations for the intrinsic types [cmp-groups]. A position
 // for a list is its index. `get` is the read-only sibling (`proj`); `at` is
-// the handle. (The `ref` mint from a list index is rendered by the backend's
-// locator machinery [rs-elem-mut]/[rs-loc]; v2 wires `at`'s body to it.)
-export fn at<T canbe linear>(list: List<Mut T>, index: Int) [] -> ref(list) Mut T?
-=> list, index {
-    return get(list, index)
-}
+// the handle. (On Rust a `ref` result renders as the backend's
+// position: the index, bounds-checked [rs-path].) A handle is never recovered
+// from a `get`'s borrow: positions are preserved, not rediscovered, so the
+// mint is a host primitive beside the read [ref-handle].
+export platform fn at<T canbe linear>(list: List<Mut T>, index: Int) [] -> ref(list) Mut T?
+=> list, index
 
 // [col-idx] [ref-handle] The **total** mint: an index carrying the claim
 // answers the handle itself — no `None` arm, nothing to `!`. Ranked above the
 // optional [at] by its qualifier [fn-overload-rank], as the total [get] is.
 export fn at<T canbe linear>(list: List<Mut T>, index: Idx(list) Int) [] -> ref(list) Mut T
 => list, index {
-    return get(list, index)
+    return at_proven(list, index + 0)
 }
+
+// The host's mint; the proven index is in range.
+platform fn at_proven<T canbe linear>(list: List<Mut T>, index: Int) [] -> ref(list) Mut T
+=> list, index
 
 // [col-update] Applies [f] to the element at [index], **in place**: the
 // callback receives the mutable element handle [ref-handle], so nothing is

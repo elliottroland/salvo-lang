@@ -2509,6 +2509,10 @@ struct Checker<'p, 'r> {
     /// parameter — checked against every `Mut` use of the parameter in the
     /// body (the call must itself preserve the claim).
     own_preserve: HashMap<String, Vec<String>>,
+    /// [ref-handle] Locals of the fn being checked bound from a *reader*
+    /// call (a result with no `ref` arm): a borrow that forgot its position,
+    /// which a mint may not return as a handle.
+    reader_bound: HashMap<String, String>,
     /// [proj-anywhere] Every source of the fn's wholesale `proj` return
     /// (`proj(a, b) T`): a returned value may derive from any of them.
     own_derived_sources: Vec<String>,
@@ -2783,6 +2787,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             own_linear_generics: HashSet::new(),
             own_derived_return: None,
             own_preserve: HashMap::new(),
+            reader_bound: HashMap::new(),
             own_derived_sources: Vec::new(),
             lends_memo: HashMap::new(),
             own_lends: Vec::new(),
@@ -3037,7 +3042,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 ),
                             );
                         }
+                        // Under the fn's own generics: the lowered type is
+                        // also what the IR reads for the declaration.
+                        let saved = self.enter_generics(&f.generics);
                         let ty = self.lower_type(rt);
+                        self.generics = saved;
                         let what = format!("`platform fn {}`'s result", f.name.name);
                         self.plan_boundary(&ty, &what, f.name.span, f.name.span);
                         self.plan_factories(&ty, f.name.span);
@@ -3052,7 +3061,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 Item::Effect(e) if platform_handled(&e.name.name, self.symbols) => {
                     for f in &e.fns {
                         if let Some(rt) = &f.return_type {
+                            let saved = self.enter_generics(&e.generics);
+                            let inner = self.enter_generics(&f.generics);
                             let ty = self.lower_type(rt);
+                            let _ = inner;
+                            self.generics = saved;
                             let what = format!("`{}.{}`'s result", e.name.name, f.name.name);
                             self.plan_boundary(&ty, &what, f.name.span, f.name.span);
                             self.plan_factories(&ty, f.name.span);
@@ -7993,6 +8006,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // against (a bodiless declaration is what refinements are for), a
         // parameter of this fn, and a dependent qualifier.
         self.own_preserve.clear();
+        self.reader_bound.clear();
         for d in f.deductions.iter().flatten() {
             let (Some(name), ast::DeductionKind::Preserve(quals)) = (d.param_name(), &d.kind)
             else {
@@ -21436,6 +21450,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // new variable(s) to the source: they share fate
                 // [fate-link].
                 let links = self.links_for_value(value, *span);
+                // [ref-handle] Remember a local bound from a reader's
+                // borrow: a mint returning it would be recovering a position.
+                if let Pattern::Ident(id) = pattern {
+                    if let Some(reader) = self.reader_call(value) {
+                        self.reader_bound.insert(id.name.clone(), reader);
+                    } else {
+                        self.reader_bound.remove(&id.name);
+                    }
+                }
                 self.declare_pattern(pattern, declared, links);
                 Ty::none()
             }
@@ -23222,6 +23245,24 @@ impl<'p, 'r> Checker<'p, 'r> {
                             && has_ref_arm(&expected)
                             && !has_ref_arm(&vty)
                             && is_subtype(&promote_proj_to_ref(vty.clone()), &expected);
+                        // [ref-handle] `proj → ref` does not exist: a
+                        // handle comes from a place or a mint, never from a
+                        // reader's borrow, which has forgotten where the
+                        // element is.
+                        if ref_mint {
+                            if let Some(name) = self.reader_call(v) {
+                                self.error(
+                                    v.span(),
+                                    format!(
+                                        "a `ref` result cannot come from a reader: `{name}` answers a borrow, \
+                                         not a position, and a handle is never recovered from a borrow \
+                                         [ref-handle]. Declare `{name}` to return `ref(…)` (a position \
+                                         preserved), or return a place — a field path, a search loop's \
+                                         element, or a mint's result"
+                                    ),
+                                );
+                            }
+                        }
                         if ref_mint {
                             // The promoted type is what the value *is* from
                             // here on: the emitters render it as the handle
@@ -31272,6 +31313,29 @@ fn has_ref_arm(ty: &Ty) -> bool {
         Ty::Union(arms) => arms.iter().any(has_ref_arm),
         Ty::Qualified { base, .. } => ty.is_ref() || has_ref_arm(base),
         _ => false,
+    }
+}
+
+impl<'p, 'r> Checker<'p, 'r> {
+    /// [ref-handle] The reader a returned value comes from, if any: a call
+    /// whose recorded type has no `ref` arm (through `!`), or a local bound
+    /// from one. Answers the reader's name, for the diagnostic.
+    fn reader_call(&self, e: &Expr) -> Option<String> {
+        match e {
+            Expr::NonNull { operand, .. } => self.reader_call(operand),
+            Expr::Ident(id) => self.reader_bound.get(&id.name).cloned(),
+            Expr::Call { callee, span, .. } => {
+                let t = self.out.expr_ty.get(&self.key(*span))?;
+                if has_ref_arm(t) {
+                    return None;
+                }
+                Some(match callee.as_ref() {
+                    Expr::Ident(id) => id.name.clone(),
+                    _ => "the callee".to_string(),
+                })
+            }
+            _ => None,
+        }
     }
 }
 

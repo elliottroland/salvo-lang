@@ -45,6 +45,12 @@ fun <T> get(d: Deque<T>, index: Int): T? = d.getOrNull(index)
 // [col-idx] The total read and write: the index was proven in range.
 fun <T> getAt(d: Deque<T>, index: Int): T = d[index]
 
+// [ref-handle] The mints: a handle is the element itself on Kotlin, so `at`
+// is its `get` (and the proven one its `getAt`).
+fun <T> at(d: Deque<T>, index: Int): T? = d.getOrNull(index)
+
+fun <T> atProven(d: Deque<T>, index: Int): T = d[index]
+
 fun <T> replace(d: MutDeque<T>, index: Int, value: T): T = d.set(index, value)
 
 fun <T> first(d: Deque<T>): T? = d.firstOrNull()

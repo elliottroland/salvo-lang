@@ -162,11 +162,14 @@ fn main() [use] {
 }
 ```
 
-The body returns `e`, which the loop produced as a projection of `es`. The
-declared `ref(es)` return is what turns it into a handle: a function
-declared `-> ref(c) Mut T` that returns a projection of `c` is **minting**
-one. That is all std's own `at` is — `return get(list, index)` under a
-`-> ref(list) Mut T?` signature.
+The body returns `e`, the element the loop produced from `es`: a *position*
+in `es`. A function declared `-> ref(c) Mut T` that returns a position in `c`
+is **minting** a handle. A position comes from a place (a field path, a search
+loop's element, a handle you were given) or from another mint: std's `at` for a
+list, deque and map are the primitives. A `ref` is never made from a reader's
+result. `get` answers a borrow that has forgotten where the element is, so
+`return get(list, index)` under a `-> ref(list) Mut T?` signature is an error;
+declare the reader `-> ref(…)` or return a place.
 
 The handle may be used where it is minted, bound across statements, or —
 as here — **found by a loop**, where the position is never written down.

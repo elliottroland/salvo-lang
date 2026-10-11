@@ -14358,7 +14358,7 @@ fn elem_mut_handles_render_as_get_mut_and_captured_indices() {
         main.content
     );
     assert!(
-        main.content.contains("let __h1: usize = crate::core_list::at__List_Int(&*xs, 1i32).expect("),
+        main.content.contains("let __h1: usize = crate::core_list::at_platform(&*xs, 1i32).expect("),
         "{}",
         main.content
     );
@@ -14375,7 +14375,7 @@ fn elem_mut_handles_render_as_get_mut_and_captured_indices() {
     // A temporary handle is `at`'s position, read from a shared borrow and
     // only then materialized as the element borrowed `&mut` in place.
     assert!(
-        main.content.contains("let __h1: Option<usize> = crate::core_list::at__List_Int(&xs, 0i32);")
+        main.content.contains("let __h1: Option<usize> = crate::core_list::at_platform(&xs, 0i32);")
             && main.content.contains("let __h2 = __h1.expect(\"salvo: value is absent\");\n            &mut xs[__h2]"),
         "{}",
         main.content
@@ -14478,7 +14478,7 @@ struct A canbe Mut {
 }
 
 fn at(a: A, index: Int) -> (ref(a) Mut Entity)? {
-    return a.b.c.get(index)
+    return a.b.c.at(index)
 }
 
 fn heal(e: Mut Entity) -> None => e: Mut {
@@ -14698,7 +14698,7 @@ fn ref_handles_render_as_their_container_and_positions() {
     );
     // Each handle is minted as a position before the container is lent.
     assert!(
-        main.content.contains("let __q1 = crate::core_list::at__List_Int(&es, i).expect(")
+        main.content.contains("let __q1 = crate::core_list::at_platform(&es, i).expect(")
             && main.content.contains("let __c2 = __q1;")
             && main.content.contains("crate::attack(&mut es, __c2, __c4)"),
         "{}",
@@ -15516,7 +15516,7 @@ fn a_ref_anchored_handle_indexes_its_container_parameter() {
     );
     assert!(
         main.content.contains("crate::trade(&mut squad.members, __c2, __c4) };")
-            && main.content.contains("let __q1 = crate::core_list::at__List_Int(&squad.members, i).expect("),
+            && main.content.contains("let __q1 = crate::core_list::at_platform(&squad.members, i).expect("),
         "{}",
         main.content
     );
@@ -15896,7 +15896,7 @@ fn a_lending_fn_value_renders_as_a_locator_closure() {
         main.content
     );
     assert!(
-        main.content.contains("&mut |mut c, mut k| -> Option<usize> {\n        crate::core_list::at__List_Int(c, k)\n"),
+        main.content.contains("&mut |mut c, mut k| -> Option<usize> {\n        crate::core_list::at_platform(c, k)\n"),
         "{}",
         main.content
     );
@@ -15946,7 +15946,7 @@ fn a_locate_implicit_renders_as_a_locator_closure() {
         main.content
     );
     assert!(
-        main.content.contains("crate::core_list::at__List_Int(__a0, *__a1)"),
+        main.content.contains("crate::core_list::at_platform(__a0, *__a1)"),
         "{}",
         main.content
     );
@@ -16547,9 +16547,9 @@ fn rustc_compiles_and_runs_the_total_at() {
     let files = generate(&[("main.sv", TOTAL_AT_DEMO)]);
     let main = files.iter().find(|f| f.rel_path.to_str() == Some("main.rs")).unwrap();
     assert!(
-        main.content.contains("let __h1: usize = crate::core_list::at__List_IdxInt(&xs, i);")
-            && main.content.contains("crate::bump({ let __l2 = crate::core_list::at__List_IdxInt(&xs, j); &mut xs[__l2] });")
-            && main.content.contains("let __h8: usize = crate::core_list::at__List_IdxInt(&xs, j);")
+        main.content.contains("let __h1: usize = crate::core_list::at(&xs, i);")
+            && main.content.contains("crate::bump({ let __l2 = crate::core_list::at(&xs, j); &mut xs[__l2] });")
+            && main.content.contains("let __h8: usize = crate::core_list::at(&xs, j);")
             && main.content.contains("crate::seq::salvo_pair_mut(&mut xs[..], __h7, __h8)")
             && main.content.contains("crate::merge(__pm11, __pm12)"),
         "{}",
@@ -16557,7 +16557,7 @@ fn rustc_compiles_and_runs_the_total_at() {
     );
     let list = files.iter().find(|f| f.rel_path.ends_with("core/list.rs")).unwrap();
     assert!(
-        list.content.contains("f({ let __l1 = crate::core_list::at__List_IdxInt(&*list, index); &mut list[__l1] });"),
+        list.content.contains("f({ let __l1 = crate::core_list::at(&*list, index); &mut list[__l1] });"),
         "{}",
         list.content
     );
@@ -16737,9 +16737,9 @@ struct A canbe Mut { b: B, d: List<Mut Word> }
 
 fn at(a: A, index: Int) [] -> ref(a) Mut Word? => a, index {
     if index < 0 {
-        return a.d.get(-index)
+        return a.d.at(-index)
     }
-    return a.b.c.get(index)
+    return a.b.c.at(index)
 }
 
 fn print_one(w: Word) [Console] => w {

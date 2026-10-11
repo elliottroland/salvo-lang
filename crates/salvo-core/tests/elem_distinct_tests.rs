@@ -28,10 +28,7 @@ export fn get<T>(list: List<T>, index: Idx(list) Int) [] -> proj(list) T\n\
 => list, index {\n\
     return get(list, index + 0)!\n\
 }\n\
-export fn at<T>(list: List<Mut T>, index: Int) [] -> ref(list) Mut T?\n\
-=> list, index {\n\
-    return get(list, index)\n\
-}\n";
+export intrinsic fn at<T>(list: List<Mut T>, index: Int) [] -> ref(list) Mut T? => list, index\n";
 
 /// A miniature `core.ref`, verbatim the declarations of `std/core/ref.sv`:
 /// the proof that two handles name different elements [ref-notsame].

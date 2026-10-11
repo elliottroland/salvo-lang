@@ -74,10 +74,9 @@ export platform fn get<K, V>(map: Map<K, V>(?hash, ?eq), key: K) [] -> (proj(map
 // [key], or `None` when the key is absent — `at` for a map, the by-key
 // mint (the list's is by index). `get` is the read-only sibling. A handle
 // is a position in the map: an in-place write through it moves nothing,
-// while adding or removing an entry ends it [fate-poison].
-export fn at<K, V>(map: Map<K, Mut V>(?hash, ?eq), key: K) [] -> ref(map) Mut V? => map, key {
-    return get(map, key)
-}
+// while adding or removing an entry ends it [fate-poison]. A host primitive,
+// as a list's: its position is the entry's slot.
+export platform fn at<K, V>(map: Map<K, Mut V>(?hash, ?eq), key: K) [] -> ref(map) Mut V? => map, key
 
 // Stores [value] under [key], replacing any value already there. The map
 // takes ownership of both, so both are moved; a key that is already present
@@ -142,8 +141,11 @@ export fn get<K, V>(map: Map<K, V>(?hash, ?eq), key: KeyOf(map) K) [] -> proj(ma
 // [qual-depend] [ref-handle] The **total** mint: a key carrying the claim
 // answers the handle itself, as the total [get] answers the value.
 export fn at<K, V>(map: Map<K, Mut V>(?hash, ?eq), key: KeyOf(map) K) [] -> ref(map) Mut V => map, key {
-    return get(map, key)
+    return at_present(map, key)
 }
+
+// The mint behind the total [at]: a presence the claim already proved.
+platform fn at_present<K, V>(map: Map<K, Mut V>(?hash, ?eq), key: K) [] -> ref(map) Mut V => map, key
 
 // Returns the number of entries in the map
 export platform fn size<K, V canbe linear>(map: Map<K, V>) [] -> Int => map

@@ -97,32 +97,24 @@ pub fn get_platform<T>(d: &std::collections::VecDeque<T>, mut index: i32) -> Opt
     crate::platform_core_deque::get(d, index)
 }
 
-pub fn get_platform__loc<T>(d: &std::collections::VecDeque<T>, mut index: i32) -> Option<usize> {
-    if index >= 0 && (index as usize) < d.len() { Some(index as usize) } else { None }
-}
-
 pub fn get<T>(d: &std::collections::VecDeque<T>, mut index: i32) -> &T {
     return crate::core_deque::get_at_platform::<T>(d, i32::wrapping_add(index, 0i32));
-}
-
-pub fn get__loc<T>(d: &std::collections::VecDeque<T>, mut index: i32) -> usize {
-    return crate::core_deque::get_at_platform__loc(d, i32::wrapping_add(index, 0i32));
 }
 
 pub fn get_at_platform<T>(d: &std::collections::VecDeque<T>, mut index: i32) -> &T {
     crate::platform_core_deque::get_at(d, index)
 }
 
-pub fn get_at_platform__loc<T>(d: &std::collections::VecDeque<T>, mut index: i32) -> usize {
+pub fn at_platform<T>(d: &std::collections::VecDeque<T>, mut index: i32) -> Option<usize> {
+    if index >= 0 && (index as usize) < d.len() { Some(index as usize) } else { None }
+}
+
+pub fn at<T>(d: &std::collections::VecDeque<T>, mut index: i32) -> usize {
+    return crate::core_deque::at_proven_platform(d, i32::wrapping_add(index, 0i32));
+}
+
+pub fn at_proven_platform<T>(d: &std::collections::VecDeque<T>, mut index: i32) -> usize {
     index as usize
-}
-
-pub fn at__Deque_Int<T>(d: &std::collections::VecDeque<T>, mut index: i32) -> Option<usize> {
-    return crate::core_deque::get_platform__loc(d, index);
-}
-
-pub fn at__Deque_IdxInt<T>(d: &std::collections::VecDeque<T>, mut index: i32) -> usize {
-    return crate::core_deque::get__loc(d, index);
 }
 
 pub fn replace_platform<T>(d: &mut std::collections::VecDeque<T>, mut index: i32, mut value: T) -> T {
@@ -150,7 +142,7 @@ pub fn drain<T>(mut d: std::collections::VecDeque<T>, each: &mut dyn FnMut(T)) {
         { let __arg1 = {
             let mut __nn_1: Option<T> = crate::core_deque::remove_first_platform::<T>(&mut m);
             if __nn_1.is_none() {
-                panic!("salvo: value is absent at core.deque:131:14");
+                panic!("salvo: value is absent at core.deque:132:14");
             } else {
                 let mut __some_2 = __nn_1.unwrap();
                 __some_2

@@ -7353,12 +7353,17 @@ between endpoints and delivers what arrives into the scheduler.
     answers `ref(list) Mut T?`, the handle [col-locate]. A plain `proj`
     passed to a kept `Mut` position — of a named callee or a fn value —
     is refused naming `at` as the remedy.
-  * **The mint.** A fn declared `-> ref(c) Mut T` (or its optional) whose
-    body returns a projection of `c` is minting the handle: the checker
-    accepts the `proj → ref` promotion at the return (distributed over the
-    optional's arms) and records the value as the handle. A `ref` return
-    is a derived return like `proj(c)` [readonly-return]: its source is
-    `c`, which is lent mutably.
+  * **The mint** (user decision 2026-10-10). A `ref(c) T` is a *position*
+    in `c`; `ref(c) T <: proj T` is free, and **`proj → ref` does not
+    exist**: a borrow has forgotten where its element is, and a position is
+    never recovered. A fn declared `-> ref(c) …` returns a position: a
+    place (a field path, a search loop's element, a bound handle), another
+    mint's result, `None`, or `x!` of those. Returning a reader's result
+    (`return get(list, i)`), directly or through a local, is an error naming
+    `-> ref(…)` on the reader as the remedy. std's `at` for `List`, `Deque`
+    and `Map` are host primitives, not readers plus a conversion. A `ref`
+    return is a derived return like `proj(c)` [readonly-return]: its source
+    is `c`, which is lent mutably.
   * **A mint may delegate** (user decision 2026-10-10): its body may return
     another mint's handle of `c` (`return at(t.members, i)`, `return
     pick(t, i)`), a fn value's, or an effect member's; the handle is the

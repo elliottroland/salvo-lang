@@ -1110,7 +1110,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     pub fn fn_decl(&mut self, f: &FnDecl, recv: Option<&str>, indent: usize) -> String {
         // [rs-path] A mint renders as its path, under its own name: there is
         // no `&mut`-answering face beside it.
-        if self.s.is_mint(f) && f.kind != FnKind::Intrinsic && f.body.is_some() {
+        if self.s.is_mint(f) && f.kind != FnKind::Intrinsic && (f.body.is_some() || f.kind == FnKind::Platform) {
             return self.fn_decl_mode(f, recv, indent, true);
         }
         let mut out = self.fn_decl_mode(f, recv, indent, false);
@@ -1364,18 +1364,21 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let args: Vec<String> = f.params.iter().skip(f.effect_params).map(|p| rs_ident(&p.local.0)).collect();
         let anchor = self.f.loc.as_ref().map(|(a, _)| rs_ident(a)).unwrap_or_default();
         let list = matches!(module.0.as_slice(), [a, b] if a == "core" && (b == "list" || b == "deque"));
-        if list && f.name == "get" && args.len() == 2 {
+        // [ref-handle] std's mints `at` / `at_proven` are host primitives
+        // whose position is the backend's own: the index, bounds-checked or
+        // proven; the entry's slot.
+        if list && (f.name == "get" || f.name == "at") && args.len() == 2 {
             return format!("{pad}if {i} >= 0 && ({i} as usize) < {anchor}.len() {{ Some({i} as usize) }} else {{ None }}\n", i = args[1]);
         }
-        if list && f.name == "get_at" && args.len() == 2 {
+        if list && (f.name == "get_at" || f.name == "at_proven") && args.len() == 2 {
             return format!("{pad}{} as usize\n", args[1]);
         }
         // [ref-handle] A map's position is its entry's slot.
-        if matches!(module.0.as_slice(), [a, b] if a == "core" && b == "map") && f.name == "get" {
+        if matches!(module.0.as_slice(), [a, b] if a == "core" && b == "map") && (f.name == "get" || f.name == "at") {
             return format!("{pad}crate::{}::slot_of({})\n", host_mod_name(&module), args.join(", "));
         }
         // The total read's lowering: the key's presence is proved.
-        if matches!(module.0.as_slice(), [a, b] if a == "core" && b == "map") && f.name == "get_present" {
+        if matches!(module.0.as_slice(), [a, b] if a == "core" && b == "map") && (f.name == "get_present" || f.name == "at_present") {
             return format!("{pad}crate::{}::slot_of({}).expect(\"salvo: a `KeyOf` key is present\")\n", host_mod_name(&module), args.join(", "));
         }
         let call = format!("crate::{}::{}({})", host_mod_name(&module), rs_ident(&f.name), args.join(", "));

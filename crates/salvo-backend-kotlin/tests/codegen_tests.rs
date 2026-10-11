@@ -4494,9 +4494,9 @@ struct A canbe Mut { b: B, d: List<Mut Word> }
 
 fn at(a: A, index: Int) [] -> ref(a) Mut Word? => a, index {
     if index < 0 {
-        return a.d.get(-index)
+        return a.d.at(-index)
     }
-    return a.b.c.get(index)
+    return a.b.c.at(index)
 }
 
 fn print_one(w: Word) [Console] => w {

@@ -13,28 +13,22 @@ last step runs the full and fresh suites).
 
 ## Resume here
 
-**Next step: 1** (started, nothing of it built yet). Steps done: 0.
+**Next step: 2.** Steps done: 0, 1.
 
-Where step 1 stands (2026-10-10, end of a session whose context ran out):
-- The plan above was reworked from the abandoned `to_ref` plan; `to_ref` was
-  built partway and fully reverted (see "Background"). Nothing of it remains.
-- Already committed with this plan: the backend fix listed under step 1
-  (`diverges` covers `Switch`; `fn_body` in locator mode answers an escaping
-  tail through its returns), in `crates/salvo-backend-rust/src/ir_emit/body.rs`.
-- Next concrete actions: (1) in `std/core/list.sv`, `deque.sv`, `map.sv`,
-  turn both `at`s into platform primitives — the optional `at` a bodyless
-  `platform fn`; the total `at` (at `Idx(…)` / `KeyOf(…)`) delegating to a
-  private bodyless platform mint for the proven case (as the total `get`
-  delegates to `get_at` / `get_present`); (2) add the Kotlin host functions
-  beside the `get`s (`std/platform/core/list.kt:12,16`, `deque.kt:39,42`,
-  `map.kt`): an `at` is its `get`; (3) Rust: `platform_loc_body`
-  (`crates/salvo-backend-rust/src/ir_emit/decls.rs`) gains those names —
-  `List`/`Deque` `at` the bounds-checked index, the proven one the index,
-  `Map`'s `at` `slot_of(..)` (`std/platform/core/map.rs:239`), the proven one
-  `slot_of(..).expect(..)`; the Rust host files need no `at` (a mint renders
-  as its path only); (4) the checker rule; (5) the sweep; (6) regenerate
-  examples and host projects (`salvo platform generate --backend '*'` in
-  `std/` and `modules/aws`), commit, update this section.
+Where things stand (2026-10-10, after step 1):
+- Std's `at` (optional and total) on `List`, `Deque`, `Map` are platform
+  primitives (`at`, private `at_proven` / `at_present`); Kotlin hosts have
+  them (`std/platform/core/{list,deque,map}.kt`); Rust's `platform_loc_body`
+  answers them. The checker refuses a mint returning a reader's call or a
+  local bound from one (`reader_call` / `reader_bound` in check.rs).
+- Found on the way: `check_platform_boundary` lowered a platform fn's result
+  without the fn's generics in scope, so the IR saw `T` as a named type
+  (not `Var`); fixed by entering the generics.
+- Rust: `lends_loc` treats any `is_mint` call as a locator (so the platform
+  `at`s render as paths). Sites still `Mut`-gated: `is_mint`,
+  `member_lends_mut`, `fn_ty_lends_mut`, `mut_lend`, `let_stmt` (step 2).
+- `cargo test` is green (all 76 result lines ok). Not yet run: nextest/fresh.
+- Next concrete actions (step 2): see the step-2 section below.
 
 Before resuming: read AGENTS.md, then this file top to bottom, then
 `git log --oneline -10` to see which step commits exist. The step list below
@@ -83,7 +77,8 @@ positions are preserved, never recovered").
 
 ### Step 1 — No conversion: std's mints are primitives, and the checker rule
 
-**Status: not started.**
+**Status: done** (commit "Make std's at functions platform primitives and refuse
+a mint that returns a reader").
 
 - **Std**: `at` (both forms) on `List`, `Deque` and `Map` becomes a
   bodyless `platform fn`; Kotlin host files (`std/platform/core/*.kt`) gain

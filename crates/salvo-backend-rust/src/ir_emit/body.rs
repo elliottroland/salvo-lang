@@ -2955,7 +2955,9 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         }
         match &e.kind {
             ExprKind::Call { target: FnRef::Decl(id), .. } => {
-                self.s.locs.contains(id) && self.s.fn_decl(id).is_some_and(|f| is_mut(&f.ret) || is_mut(&f.ret.strip_quals().without_none()))
+                // [rs-path] A mint — std's platform `at`s among them — is its
+                // path fn.
+                self.s.fn_decl(id).is_some_and(|f| self.s.is_mint(f) || (self.s.locs.contains(id) && (is_mut(&f.ret) || is_mut(&f.ret.strip_quals().without_none()))))
             }
             _ => false,
         }

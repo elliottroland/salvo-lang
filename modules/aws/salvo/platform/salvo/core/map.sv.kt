@@ -217,6 +217,14 @@ inline fun <K, V> get(map: Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> B
 inline fun <K, V> getPresent(map: Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V =
     map.values[map.find(key, hash(key), eq)] as V
 
+// [ref-handle] The mints: a handle is the value itself on Kotlin, so `at` is
+// its `get` (and the proven one its `getPresent`).
+inline fun <K, V> at(map: Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V? =
+    get(map, key, hash, eq)
+
+inline fun <K, V> atPresent(map: Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V =
+    getPresent(map, key, hash, eq)
+
 inline fun <K, V> put(map: MutMap<K, V>, key: K, value: V, hash: (K) -> Long, eq: (K, K) -> Boolean) {
     map.store(key, value, hash, eq)
 }
