@@ -1214,6 +1214,52 @@ impl Checked {
             moved_projection: self.moved_projections.contains(&key),
         }
     }
+
+    /// [unify-checker] The `use`-statement facts at one span, in one lookup
+    /// (UNIFY_CHECKER.md, the use cluster): the faces to bind, whether it is a
+    /// `use addr`, and the dependency wiring. (`route_stubs`/`use_handler_args`
+    /// are read in the handler-construction helper at a different span, so they
+    /// stay direct.)
+    pub fn use_info(&self, key: Key) -> UseInfo<'_> {
+        UseInfo {
+            use_effects: self.use_effects.get(&key),
+            use_addr: self.use_addrs.get(&key),
+            use_deps: self.use_deps.get(&key),
+            use_with_items: self.use_with_items.get(&key),
+        }
+    }
+
+    /// [unify-checker] The spawn/reply-mint facts at one span, in one lookup
+    /// (UNIFY_CHECKER.md): a `spawn`'s deps/effects, and a `replyto` that mints
+    /// a task (vs a member).
+    pub fn spawn_info(&self, key: Key) -> SpawnInfo<'_> {
+        SpawnInfo {
+            spawn_deps: self.spawn_deps.get(&key),
+            spawn_dep_items: self.spawn_dep_items.get(&key),
+            spawn_effects: self.spawn_effects.get(&key),
+            replyto_task: self.replyto_tasks.get(&key),
+            task_mint_effects: self.task_mint_effects.get(&key),
+            replyto_member: self.replyto_members.get(&key),
+        }
+    }
+}
+
+/// [unify-checker] `use`-statement facts at one span (UNIFY_CHECKER.md).
+pub struct UseInfo<'c> {
+    pub use_effects: Option<&'c Vec<Ty>>,
+    pub use_addr: Option<&'c Ty>,
+    pub use_deps: Option<&'c Vec<Ty>>,
+    pub use_with_items: Option<&'c Vec<Option<usize>>>,
+}
+
+/// [unify-checker] spawn / reply-mint facts at one span (UNIFY_CHECKER.md).
+pub struct SpawnInfo<'c> {
+    pub spawn_deps: Option<&'c Vec<Ty>>,
+    pub spawn_dep_items: Option<&'c Vec<Option<usize>>>,
+    pub spawn_effects: Option<&'c Vec<Ty>>,
+    pub replyto_task: Option<&'c FnKey>,
+    pub task_mint_effects: Option<&'c Vec<Ty>>,
+    pub replyto_member: Option<&'c String>,
 }
 
 /// [unify-checker] The call-cluster facts at one call span (UNIFY_CHECKER.md).

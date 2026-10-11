@@ -40,6 +40,39 @@ throwaway. User decision: skip it, go straight to Option 3's clustering, which
 *is* a step toward 4 (cohesive records the builder consumes, then inlines into
 nodes).
 
+## Correction (2026-10-10, after Phase 0): the goal is view accessors, not storage-collapse
+
+Phase 1 was planned as "collapse each cluster's tables into one
+`HashMap<Key, ClusterFacts>`". Investigating the writers/readers showed this is
+the **wrong move**, and the plan is corrected:
+
+- **The tables are not IR-builder-exclusive.** `call_fn` has 13 readers across
+  the checker (overload resolution, `deduce.rs`, …); `effect_calls`/`may_throw`
+  are read by the checker's own hot paths; `self_sends`/`facade_sends`/
+  `addr_calls` are also read by `features.rs` (`.keys().any`). Collapsing their
+  *storage* would force rewriting every checker reader and complicate the
+  checker's own logic — wide, risky, and low value.
+- **Option 4's backend-visible goal is ALREADY met.** The backends read only
+  the IR; nothing after `build` reads `Checked` (refs pass, dump, both
+  emitters are clean). The IR nodes are self-contained. The span tables are
+  **builder-private handoff state** the backends never see.
+- **The only remaining "Option 4" would be merging the checker and IR builder
+  into one pass** so facts never need a span-keyed intermediary. That is a
+  massive rewrite with **no** backend-visible benefit (the tables are already
+  invisible downstream). Not worth it; recorded as rejected.
+
+**So the valuable, safe work — and what this doc now plans — is the ergonomic
+win: one view accessor per builder read-cluster** (like Phase 0's `call_info`),
+so the builder reads one struct per concern instead of N scattered
+`.get(&self.key(span))`s. The tables stay as sound checker state. This fully
+answers the stated pain ("check multiple places when building the IR") without
+destabilising the checker. Each accessor is a pure refactor gated on the IR
+goldens.
+
+Steps are therefore: a `*_info(key)` view accessor for each cluster the builder
+reads together, and switch the builder's lowering for that construct to use it.
+No `Checked` field is removed; no writer site changes.
+
 ## Constraints any change must respect
 
 1. **Writers set one fact at a time.** ~200 checker sites do
@@ -161,3 +194,21 @@ binding/place, refs, lambda), then Phase F (inline into IR nodes).
 - 2026-10-10 — Phase 0 done: `Checked::call_info` + `CallInfo` view, builder's
   `call` reads it in one lookup. Goldens/corpus/core tests green. Committed.
   `[unify-checker]` is the label (implementation, not a language rule).
+- 2026-10-10 — Correction recorded (see section above): storage-collapse is the
+  wrong move; the work is view accessors per builder read-cluster, tables left
+  as checker state.
+- 2026-10-10 — `use_info` + `spawn_info` views added; builder's `use_stmt`,
+  `Spawn` and `ReplyTo` lowering read them in one lookup each. IR corpus green.
+  Committed.
+
+### Done so far / remaining clusters
+- ✅ call (`call_info`), use (`use_info`), spawn+reply (`spawn_info`).
+- TODO view accessors where the builder reads ≥3 tables at one span:
+  **expr-type** (`expr_ty`/`repr_ty`/`promotions`/`coerce`/`field_casts`/
+  `widen_targets` — but `ty_of`/`repr_of` are already accessors; check density
+  before adding), **test/narrow** (`is_tests`/`predicate_tests`/`pick_left`/
+  `safe_strip`/`elvis_picks`), **interp** (`interp_to_str`/`interp_union`/
+  `interp_implicit`), **binding/place** (`binding_modes`/`handle_muts`/
+  `virtual_place_binds`/`moved_projections`). Only add an accessor where the
+  builder genuinely reads several at one span — a single-table read is already
+  one lookup and needs no view. Gate each on the IR corpus.

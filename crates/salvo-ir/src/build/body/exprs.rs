@@ -254,27 +254,29 @@ impl<'a, 'p> Lower<'a, 'p> {
             AExpr::SelfAddr { .. } => Expr { ty: self.ty_of(span), span, kind: ExprKind::SelfAddr },
             AExpr::Spawn { handler, with_items, pool, join, .. } => {
                 let key = self.key(span);
-                let deps: Vec<Ty> = self.ctx.checked.spawn_deps.get(&key).map(|v| v.iter().map(erase).collect()).unwrap_or_default();
-                let items: Vec<Option<usize>> = self.ctx.checked.spawn_dep_items.get(&key).cloned().unwrap_or_else(|| vec![None; deps.len()]);
+                let info = self.ctx.checked.spawn_info(key);
+                let deps: Vec<Ty> = info.spawn_deps.map(|v| v.iter().map(erase).collect()).unwrap_or_default();
+                let items: Vec<Option<usize>> = info.spawn_dep_items.cloned().unwrap_or_else(|| vec![None; deps.len()]);
                 let h = match self.construct_handler(handler, &deps, &items, with_items, span) {
                     Some(h) => h,
                     None => self.expr(handler),
                 };
                 let pool = pool.as_ref().map(|p| Box::new(self.expr(p)));
                 let join = join.as_ref().map(|j| Box::new(self.expr(j)));
-                let effects: Vec<Ty> = self.ctx.checked.spawn_effects.get(&key).map(|v| v.iter().map(erase).collect()).unwrap_or_default();
+                let effects: Vec<Ty> = info.spawn_effects.map(|v| v.iter().map(erase).collect()).unwrap_or_default();
                 Expr { ty: self.ty_of(span), span, kind: ExprKind::Spawn { handler: Box::new(h), deps: Vec::new(), pool, join, effects } }
             }
             AExpr::ReplyTo { member, captures, gated, pool, .. } => {
                 let key = self.key(span);
+                let info = self.ctx.checked.spawn_info(key);
                 let caps: Vec<Expr> = captures.iter().map(|x| self.expr(x)).collect();
                 let pool = pool.as_ref().map(|p| Box::new(self.expr(p)));
-                let target = match self.ctx.checked.replyto_tasks.get(&key).copied() {
+                let target = match info.replyto_task.copied() {
                     Some(k) => {
-                        let effects: Vec<Expr> = self.ctx.checked.task_mint_effects.get(&key).cloned().unwrap_or_default().iter().map(|t| self.effect_instance(t, span)).collect();
+                        let effects: Vec<Expr> = info.task_mint_effects.cloned().unwrap_or_default().iter().map(|t| self.effect_instance(t, span)).collect();
                         ReplyTarget::Task { target: self.ctx.decl_id(k), effects }
                     }
-                    None => ReplyTarget::Member(self.ctx.checked.replyto_members.get(&key).cloned().unwrap_or(member.name.clone())),
+                    None => ReplyTarget::Member(info.replyto_member.cloned().unwrap_or(member.name.clone())),
                 };
                 Expr { ty: self.ty_of(span), span, kind: ExprKind::ReplyTo { target, captures: caps, gated: *gated, pool } }
             }
@@ -1920,9 +1922,10 @@ impl<'a, 'p> Lower<'a, 'p> {
 
     pub(crate) fn use_stmt(&mut self, handler: &AExpr, with_items: &[AExpr], span: Span) -> Vec<Stmt> {
         let key = self.key(span);
-        let faces: Vec<Ty> = self.ctx.checked.use_effects.get(&key).map(|v| v.iter().map(erase).collect()).unwrap_or_default();
+        let info = self.ctx.checked.use_info(key);
+        let faces: Vec<Ty> = info.use_effects.map(|v| v.iter().map(erase).collect()).unwrap_or_default();
         // `use addr`: the addr is the instance.
-        if let Some(effect) = self.ctx.checked.use_addrs.get(&key).map(erase) {
+        if let Some(effect) = info.use_addr.map(erase) {
             let a = self.expr(handler);
             let local = self.fresh("__use");
             let id = self.id();
@@ -1931,8 +1934,8 @@ impl<'a, 'p> Lower<'a, 'p> {
             return vec![Stmt::Let { id, local, ty: effect, value: inst }];
         }
         // `use H(args)`: a construct, then one instance per face.
-        let deps: Vec<Ty> = self.ctx.checked.use_deps.get(&key).map(|v| v.iter().map(erase).collect()).unwrap_or_default();
-        let items: Vec<Option<usize>> = self.ctx.checked.use_with_items.get(&key).cloned().unwrap_or_else(|| vec![None; deps.len()]);
+        let deps: Vec<Ty> = info.use_deps.map(|v| v.iter().map(erase).collect()).unwrap_or_default();
+        let items: Vec<Option<usize>> = info.use_with_items.cloned().unwrap_or_else(|| vec![None; deps.len()]);
         let Some(construct) = self.construct_handler(handler, &deps, &items, with_items, span) else {
             self.error(span, "`use` of something that is not a handler construction");
             return vec![Stmt::Expr(unsupported(Ty::Unknown, span, "use"))];
