@@ -138,6 +138,59 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-10 — The std front-half cache: `check_project` skips std, 7.4× faster LSP checks (user decision, option A)
+
+Built the mechanism `[deduce-std-explicit]` was the groundwork for (ROADMAP §5
+step 3): the language server reuses the standard library's check across edits
+instead of re-checking std's 42 files on every keystroke. **`analyze` of the
+demo fell from ~449ms to ~61ms** once the cache is built (a one-time ~450ms at
+session start). 1760 tests green; `STD_CACHE.md` retired into this entry.
+
+- **Why it could not be a memoization wrapper (the finding that shaped it).**
+  `Resolution<'p>` and `Symbols<'p>` borrow the `Program`, so neither survives
+  the fresh merged `Program` each analysis builds; and `check_program`'s
+  whole-program fixpoint reads every file, so a project's `Checked` cannot be
+  produced without re-checking std. The cache therefore had to be a **seam in
+  the checker**, not a cache around it.
+- **The seam** (`crates/salvo-core/src/check.rs`, `deduce.rs`).
+  `StdCache` wraps the `Checked` of a **std-only** program (every row a std
+  row) plus `std_files`, the count of leading std files. `check_project` seeds
+  a round's `Checked` from a clone of it and **skips std files** in the two
+  body-walk pre-passes, the main check loop, and `deduce::infer`'s fixpoint
+  (std fns are all-written, so the fixpoint discarded their walked result
+  anyway). `fn_decls` in `infer` still covers every fn (a project fn may call a
+  std fn), and `states`/`param_mutations`/`parking` are seeded with std's rows
+  so project checking and `deadlock::check` read std facts unchanged.
+- **Structural soundness, not a differential check** (user decision, A2). The
+  cache *is* a `Checked`, produced by the one real checker — there is no
+  parallel representation to keep in sync. It is sound because every std row is
+  invariant under project code: the invariance audit (recorded in the retired
+  `STD_CACHE.md`, now here) confirmed each of the seven `FnKey`-keyed contract
+  tables is a pure function of the std fn's own declaration and body, and that
+  `check_call` reads only a callee's `FnKey` contract plus its declaration,
+  never a std callee's body-span entries. Three tables depend on the fn's
+  *callees*, but a std fn only calls std fns, so the dependency is std-internal.
+  `[deduce-std-explicit]` is what pins the deductions those rest on. The
+  guarantee is checked by a test, `std_cache_matches_a_full_check`
+  (`analysis.rs`), which asserts a cached run gives project files the identical
+  diagnostics a full check gives — not a runtime diff in production.
+- **Wiring and the A4 fallback** (`crates/salvo-cli`). `build_std_cache`
+  checks the embedded std alone; the `Server` holds one `RefCell<Option<_>>`,
+  built on first use. `analyze_project` uses it only when `std_cache_applies`:
+  the merged program's leading `std_files` files are that std, unshadowed, and
+  nothing after is std unless it is a shadow — so a std shadow or a `std = true`
+  project (whose files are all `is_std`) falls back to a full `check_program`.
+- **`[std-cache]` is an implementation label, not a language rule** — it lives
+  in code comments and here, not in LANGUAGE_SPEC.md (which is semantics). The
+  language-visible half, `[deduce-std-explicit]`, is already a spec rule.
+- **Option B (std as a precompiled, index-free library) was recorded in
+  ROADMAP §5 as a future successor**, not built: A recovers essentially all the
+  cost per session, and B's cross-run persistence is not worth its front-half
+  refactor yet.
+- **Gotcha reconfirmed**: a `std/*.sv` edit needs `touch
+  crates/salvo-cli/src/analysis.rs` before `cargo build`, and here also means
+  the cache's embedded std is only as fresh as the last such rebuild.
+
 ### 2026-10-10 — `[deduce-std-explicit]`: exported std fns need total deduction clauses (user decision, option a)
 
 Phase 3's enabling rule for the std front-half cache (ROADMAP §5 step 3),

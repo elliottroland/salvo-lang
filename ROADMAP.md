@@ -1254,7 +1254,7 @@ backends**.
   v1); and an `iter fn` over a recursive subject snapshots per field, which is a
   deep copy.
 
-### 5 — LSP responsiveness: debounce, per-file parse cache, and a cached std front-half (user decisions 2026-10-10; phases 1–2 built, 3 rule built, cache seam designed, 4–5 open)
+### 5 — LSP responsiveness: debounce, per-file parse cache, and a cached std front-half (user decisions 2026-10-10; phases 1–3 built, 4 recorded, 5 open)
 
 The language server re-runs the whole `analyze` pipeline on every document
 event with no incremental state (`crates/salvo-cli/src/lsp.rs`,
@@ -1299,33 +1299,18 @@ it would save only the cheap transcription and inherit every coupling of the
      — a plain entry for every non-implicit, non-Copy-scalar parameter — and
      the diagnostic suggests the inferred clause verbatim. std swept (33 fns);
      the suggestions were correct by construction and changed no emitted code.
-   - **Still to build: the cache itself — and it needs a `check_program`
-     seam, not just memoization (architectural finding, 2026-10-10).**
-     `Resolution<'p>` and `Symbols<'p>` both *borrow* the `Program`
-     (`crates/salvo-core/src/resolve.rs`, `program.rs`): their scopes and
-     indices are `&'p` references into one `Program`'s ASTs, so neither can be
-     cached across the fresh `Program` each analysis builds (std + project
-     concatenated). `Checked` is owned (no `'p`), but `check_program` cannot
-     *produce* a project's `Checked` without live `&Resolution`/`&Symbols` over
-     the whole merged program, and its fixpoint (`deduce::infer`, overload
-     resolution) reads every file — so there is no way today to reuse std's
-     result and check only the project. The real work is therefore a **seam in
-     `check_program`**: a mode that accepts std's precomputed contracts
-     (sound to trust now that `[deduce-std-explicit]` pins them) and **skips
-     re-checking std bodies**, checking only project (and dependency) files
-     against them. Measured cost confirms the prize — `salvo analyze --src demo`
-     is ~460ms for 42 std files + 1 user file, so std body-checking is almost
-     all of it. **This is a front-half architecture change (a std-as-library
-     boundary in resolve/check), not an incremental cache, and wants its own
-     design pass — flagged for the user before building.** Index remapping
-     (`FnKey.file`, `Key.0`, `DefSite.file`, `Resolution.scopes` are all
-     global-file-index-keyed) is part of it. A dependency's own fns are still
-     inferred (the rule binds std trees only), so either the seam covers std
-     alone and deps check with the project, or `[deduce-std-explicit]` is later
-     extended to any `std = true` dependency. **Option A chosen (user,
-     2026-10-10): the skip-std-bodies seam** — see `STD_CACHE.md` for the
-     correctness surface and sub-decisions; it dies into COMPLETED.md when the
-     work lands.
+   - ✅ **The cache itself is built** (2026-10-10, COMPLETED.md; `[std-cache]`).
+     `salvo_core::StdCache` wraps the `Checked` of a std-only program;
+     `check_project` seeds a round from it and skips std files in both the
+     per-file walk and the deduction fixpoint. The language server builds it
+     once per session (`analysis::build_std_cache`) and reuses it, gated
+     (`std_cache_applies`) on the merged program's leading files being that std
+     unshadowed and the project not being `std = true` (A4) — else a full
+     `check_program`. **Measured 7.4×: `analyze` of the demo fell from ~449ms
+     to ~61ms** once the cache is built. A dependency's own fns are still
+     inferred (they check as project files `>= std_files`); extending
+     `[deduce-std-explicit]` to a `std = true` dependency would let the cache
+     cover it too, a later item.
 4. **(Future, recorded.) std as a precompiled library — Option B.** A's larger
    successor: give the front-half a real std-as-a-crate boundary, with std
    checked once into an **owned, index-free** interface summary (contracts
@@ -1336,8 +1321,7 @@ it would save only the cheap transcription and inherit every coupling of the
    "Salvo sees everything in one program" assumption (for std only, which is
    fixed) and needs a path-based parallel to the `FnKey`-keyed tables. Not
    worth it over A until cross-run persistence or workspace scale demands it;
-   recorded so A's seam is designed without foreclosing it. Full writeup was in
-   `STD_CACHE.md` (Option B); preserve it here when that doc is retired.
+   recorded so A's seam is designed without foreclosing it.
 
 5. **(Follow-on, for `salvo build` — not the LSP.)** Once step 3's annotation
    guarantee holds, std's *IR* is a pure function of std's sources too, which

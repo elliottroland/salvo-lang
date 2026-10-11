@@ -32,6 +32,62 @@ use crate::types::{is_subtype, FnId, FnParamContract, Qual, QualEffect, Ty};
 /// Table key: (file index, expression span).
 pub type Key = (usize, Span);
 
+/// [std-cache] The reusable result of checking the standard library on its
+/// own, for the language server (ROADMAP §5 step 3). std occupies the leading
+/// `std_files` indices of a merged program (loaded first, in sorted order), so
+/// a project check can **skip** those files' bodies and read std's facts from
+/// here instead — sound because every exported std fn has a total deduction
+/// clause [deduce-std-explicit], which makes std's checked output a pure
+/// function of std's own sources (the invariance audit, COMPLETED.md's
+/// 2026-10-10 std-cache entry).
+///
+/// It wraps a whole `Checked` — the result of checking a **std-only** program,
+/// in which every row *is* a std row — rather than a hand-picked subset. That
+/// is the structural guarantee (user decision 2026-10-10, A2): the cache is a
+/// real `Checked`, produced by the one real checker, so every std fact a
+/// project check or a whole-program pass (`deadlock::check`) might read is
+/// present and identical to a full check, with nothing to keep in sync and no
+/// per-table proof of what some consumer happens to read.
+#[derive(Default)]
+pub struct StdCache {
+    /// How many leading files of a merged program this std occupies (the skip
+    /// boundary): file index `< std_files` is std, `>=` is project/dependency.
+    pub std_files: usize,
+    /// The std-only check. Its keys use indices `0..std_files`, which are the
+    /// same leading indices std takes in the merged program (std loads first,
+    /// sorted), so they transfer without remapping in the common case the
+    /// language server gates on (no std shadow, project not `std = true`).
+    checked: Checked,
+}
+
+impl StdCache {
+    /// Wraps the `Checked` of a std-only program (every row a std row).
+    pub fn new(checked: Checked, std_files: usize) -> Self {
+        StdCache { std_files, checked }
+    }
+
+    /// Seeds a fresh round's `Checked` with std's rows: the round starts from
+    /// a clone of the std-only check and project checking adds project-keyed
+    /// rows on top. std rows are therefore exactly what the real checker
+    /// produced, never recomputed. Project checking only writes rows at
+    /// project file indices (`>= std_files`), so it never overwrites a std row.
+    fn seeded(&self) -> Checked {
+        self.checked.clone()
+    }
+
+    /// std's `param_mutations` rows (all of them — the cache's `Checked` is
+    /// std-only), for seeding the round accumulator.
+    fn std_param_mutations(&self) -> impl Iterator<Item = (&FnKey, &HashSet<String>)> {
+        self.checked.param_mutations.iter()
+    }
+
+    /// std's parking handlers, for seeding the round accumulator that
+    /// `deadlock::check` reads.
+    fn std_parking_handlers(&self) -> impl Iterator<Item = &String> {
+        self.checked.parking_handlers.iter()
+    }
+}
+
 /// [effect-dispatch] An effect-member call, resolved.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MemberCall {
@@ -424,7 +480,7 @@ pub struct PredicateArg {
 }
 
 /// The checker's output.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Checked {
     pub expr_ty: HashMap<Key, Ty>,
     /// [op-order] [op-equality] How a comparison operator lowers, keyed by the
@@ -1159,9 +1215,32 @@ pub fn check_program<'p>(
     resolution: &Resolution<'p>,
     symbols: &Symbols<'p>,
 ) -> Checked {
-    let mut out = check_program_rounds(program, resolution, symbols);
+    let mut out = check_program_rounds(program, resolution, symbols, None);
     crate::literal::lower_tables(&mut out);
     check_std_deductions_total(program, &mut out);
+    out
+}
+
+/// [std-cache] Checks a project reusing a `StdCache`: std's leading files are
+/// not re-checked — their contracts are seeded from the cache and their
+/// bodies are skipped in both the per-file walk and the deduction fixpoint
+/// (ROADMAP §5 step 3). For the language server, where the same std is
+/// checked against edit after edit. The caller is responsible for the
+/// fallback (A4): use this only when the program's leading `cache.std_files`
+/// files really are that std — no std shadow, project not itself `std = true`.
+///
+/// The result's std rows are exactly the cache's (seeded, not recomputed), so
+/// it is identical to `check_program` on the project rows, which is all the
+/// language server consumes. `check_std_deductions_total` is **not** run (std
+/// is not being developed here, and its bodies were not walked).
+pub fn check_project<'p>(
+    program: &'p Program,
+    resolution: &Resolution<'p>,
+    symbols: &Symbols<'p>,
+    cache: &StdCache,
+) -> Checked {
+    let mut out = check_program_rounds(program, resolution, symbols, Some(cache));
+    crate::literal::lower_tables(&mut out);
     out
 }
 
@@ -1344,6 +1423,7 @@ fn check_program_rounds<'p>(
     program: &'p Program,
     resolution: &Resolution<'p>,
     symbols: &Symbols<'p>,
+    cache: Option<&StdCache>,
 ) -> Checked {
     // [fate-move-mode] S2 state carried across the rounds: bind events
     // whose bound variable an earlier round saw moved or mutated
@@ -1368,6 +1448,22 @@ fn check_program_rounds<'p>(
     // refusal it drives lands in the round whose diagnostics are kept.
     let mut parking: HashSet<String> = HashSet::new();
 
+    // [std-cache] The accumulators are rebuilt each round from the files that
+    // are walked — and std is not. So seed the ones that also surface as `out`
+    // tables with std's cached rows, or the final `out.param_mutations =
+    // mutations` would drop them and `parking_handlers` would lose std's
+    // parking handlers (which `deadlock::check` reads). `candidates`, `claims`
+    // and `mut_fields` drive only inference *of the walked fns*; std fns are
+    // not re-inferred, so they need no std seed.
+    if let Some(cache) = cache {
+        mutations.extend(
+            cache
+                .std_param_mutations()
+                .map(|(k, v)| (*k, v.clone())),
+        );
+        parking.extend(cache.std_parking_handlers().cloned());
+    }
+
     // [qual-refn] Refinements are resolved and validated once: they depend
     // on declarations and per-file visibility only, not on anything a
     // checking round produces. Every round replays their diagnostics and
@@ -1388,8 +1484,9 @@ fn check_program_rounds<'p>(
         &mut mutations,
         &mut mut_fields,
         &mut parking,
+        cache,
     );
-    crate::deduce::infer(program, &mut out, &claims, &mutations);
+    crate::deduce::infer(program, &mut out, &claims, &mutations, cache.map(|c| c.std_files));
     let mut inferred = std::mem::take(&mut out.deductions);
     let mut prev_candidates = candidates.clone();
     let mut prev_claims = claims.clone();
@@ -1420,11 +1517,12 @@ fn check_program_rounds<'p>(
             &mut mutations,
             &mut mut_fields,
             &mut parking,
+            cache,
         );
         // Deductions are a whole-program fact (strictest over the call
         // graph), re-inferred against this round's final call
         // resolutions [deduce-infer].
-        crate::deduce::infer(program, &mut out, &claims, &mutations);
+        crate::deduce::infer(program, &mut out, &claims, &mutations, cache.map(|c| c.std_files));
         let stable = out.deductions == inferred
             && candidates == prev_candidates
             && claims == prev_claims
@@ -1484,8 +1582,18 @@ fn check_once<'p>(
     param_mutations: &mut HashMap<FnKey, HashSet<String>>,
     mut_fields: &mut MutFieldFacts,
     parking_handlers: &mut HashSet<String>,
+    cache: Option<&StdCache>,
 ) -> Checked {
-    let mut out = Checked::default();
+    // [std-cache] Start from std's rows when caching (so project call sites
+    // and whole-program passes read std facts without std being re-checked);
+    // the std files themselves are skipped below. The whole-program tables
+    // reset just below (`type_ref_keys` …) are recomputed over the merged
+    // program each round — cheap, no body walk — so overwriting std's copies
+    // of them is correct.
+    let mut out = match cache {
+        Some(cache) => cache.seeded(),
+        None => Checked::default(),
+    };
     out.type_ref_keys = crate::resolve::written_keys(program, resolution, symbols);
     out.type_ref_span_keys = crate::resolve::written_keys_by_span(program, resolution, symbols);
     for (file, scope) in resolution.scopes.iter().enumerate() {
@@ -1534,6 +1642,10 @@ fn check_once<'p>(
     let mark = out.errors.len();
     out.platform_closure_all = crate::abi::platform_closure_all(program, symbols);
     for (file_idx, (file, ast)) in program.files.iter().zip(&program.modules).enumerate() {
+        // [std-cache] std's implicit signatures came from the cache.
+        if cache.is_some_and(|c| file_idx < c.std_files) {
+            continue;
+        }
         let mut checker = Checker::new(
             file_idx,
             file.content.len(),
@@ -1562,17 +1674,23 @@ fn check_once<'p>(
     // the table stops growing, since a delegating minter may call another
     // pattern fn. The cross-round facts are cloned for the same reason: a body
     // checked before its callee resolved must not leave facts behind.
-    let has_patterns = program.modules.iter().any(|m| {
-        m.items.iter().any(|i| {
-            matches!(i, Item::Fn(f) if f.body.is_some()
-                && f.return_type.as_ref().is_some_and(|t| split_iter_qualifier(t).is_some()))
-        })
+    let has_patterns = program.modules.iter().enumerate().any(|(file_idx, m)| {
+        // [std-cache] std's patterns are already resolved in the cache.
+        !cache.is_some_and(|c| file_idx < c.std_files)
+            && m.items.iter().any(|i| {
+                matches!(i, Item::Fn(f) if f.body.is_some()
+                    && f.return_type.as_ref().is_some_and(|t| split_iter_qualifier(t).is_some()))
+            })
     });
     if has_patterns {
         let mut scratch = Checked::default();
         scratch.refinements = refinements.clone();
         scratch.implicit_params = out.implicit_params.clone();
         scratch.implicit_members = out.implicit_members.clone();
+        // [std-cache] Carry std's resolved iter-returns in, so a project
+        // pattern fn delegating to a std one sees it, and so the wholesale
+        // `take` below does not drop them.
+        scratch.iter_returns = out.iter_returns.clone();
         let mut mc = move_candidates.clone();
         let mut pc = param_claims.clone();
         let mut pm = param_mutations.clone();
@@ -1581,6 +1699,10 @@ fn check_once<'p>(
         for _ in 0..8 {
             let before = scratch.iter_returns.len();
             for (file_idx, (file, ast)) in program.files.iter().zip(&program.modules).enumerate() {
+                // [std-cache] Skip std's bodies: their iter-returns are seeded.
+                if cache.is_some_and(|c| file_idx < c.std_files) {
+                    continue;
+                }
                 let mut checker = Checker::new(
                     file_idx,
                     file.content.len(),
@@ -1607,6 +1729,10 @@ fn check_once<'p>(
         out.iter_returns = std::mem::take(&mut scratch.iter_returns);
     }
     for (file_idx, (file, ast)) in program.files.iter().zip(&program.modules).enumerate() {
+        // [std-cache] Skip std's bodies: their facts came from the cache.
+        if cache.is_some_and(|c| file_idx < c.std_files) {
+            continue;
+        }
         let mut checker = Checker::new(
             file_idx,
             file.content.len(),

@@ -90,6 +90,7 @@ pub(crate) fn infer(
     checked: &mut Checked,
     claims: &HashMap<FnKey, HashSet<String>>,
     mutations: &HashMap<FnKey, HashSet<String>>,
+    skip_below: Option<usize>,
 ) {
     let no_mutations: HashSet<String> = HashSet::new();
     let no_state: HashSet<String> = HashSet::new();
@@ -111,6 +112,14 @@ pub(crate) fn infer(
         .collect();
     let mut fns: Vec<FnInfo<'_>> = Vec::new();
     for (file_idx, ast) in program.modules.iter().enumerate() {
+        // [std-cache] std fns are not re-inferred: their contracts are
+        // written (all-written → the fixpoint would discard the walked
+        // result anyway [deduce-std-explicit]) and already in
+        // `checked.deductions`, seeded by the cache. Skipping them is what
+        // makes the project check cheap.
+        if skip_below.is_some_and(|n| file_idx < n) {
+            continue;
+        }
         for (item_idx, item) in ast.items.iter().enumerate() {
             if let Item::Fn(f) = item {
                 fns.push(FnInfo {
@@ -123,7 +132,20 @@ pub(crate) fn infer(
             }
         }
     }
-    let fn_decls: HashMap<FnKey, &FnDecl> = fns.iter().map(|f| (f.key, f.decl)).collect();
+    // [std-cache] `fn_decls` covers **every** fn (std included): a project fn
+    // may call a std fn, and the callee's declaration must be found by key
+    // even though std is not re-inferred. It is only AST references, cheap.
+    let fn_decls: HashMap<FnKey, &FnDecl> = program
+        .modules
+        .iter()
+        .enumerate()
+        .flat_map(|(file_idx, ast)| {
+            ast.items.iter().enumerate().filter_map(move |(item_idx, item)| match item {
+                Item::Fn(f) => Some((FnKey { file: file_idx, item: item_idx }, f)),
+                _ => None,
+            })
+        })
+        .collect();
     // [call-resolve] Effect members have no `FnKey` — the handler is picked
     // at run time — but they *declare* their deductions ([decl-explicit]),
     // and the checker recorded which effect instance each member call
@@ -172,6 +194,16 @@ pub(crate) fn infer(
     // each round's result.
     let mut errors: Vec<FileDiagnostic> = Vec::new();
     let mut states: HashMap<FnKey, Vec<ParamDeduction>> = HashMap::new();
+    // [std-cache] Seed std fns' deductions from the cache (in `checked`,
+    // seeded by `check_once`): they are not re-inferred, but a project fn
+    // calling one reads its contract from `states` by key.
+    if let Some(n) = skip_below {
+        for (key, ded) in &checked.deductions {
+            if key.file < n {
+                states.insert(*key, ded.clone());
+            }
+        }
+    }
     for f in &fns {
         let mutated = mutations.get(&f.key).unwrap_or(&no_mutations);
         let mut state = match &f.decl.deductions {

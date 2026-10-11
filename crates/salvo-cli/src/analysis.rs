@@ -161,7 +161,32 @@ pub fn analyze_sources(
     native_ext: &str,
     overlay: &HashMap<PathBuf, String>,
 ) -> Result<Analysis, String> {
-    analyze_project(src, project, native_ext, overlay, None)
+    analyze_project(src, project, native_ext, overlay, None, None)
+}
+
+/// [std-cache] Checks the embedded std on its own, for reuse across LSP
+/// analyses. The result's file indices are 0..N (std only), the same leading
+/// indices std takes in a merged program, so the cache transfers without
+/// remapping when the project neither shadows std nor is itself `std = true`.
+pub fn build_std_cache(native_ext: &str) -> salvo_core::StdCache {
+    let mut sources = SourceSet::default();
+    load_embedded_std(&mut sources, native_ext);
+    let std_files = sources.files.len();
+    let mut modules = Vec::with_capacity(sources.files.len());
+    for file in &sources.files {
+        let (module, _diags) = salvo_syntax::parse_module_deferred(&file.content);
+        modules.push(module);
+    }
+    let _ = salvo_core::expand(&sources.files, &mut modules);
+    let program = Program {
+        files: sources.files,
+        modules,
+        companions: sources.companions,
+    };
+    let symbols = Symbols::collect(&program);
+    let resolution = salvo_core::resolve(&program);
+    let checked = salvo_core::check_program(&program, &resolution, &symbols);
+    salvo_core::StdCache::new(checked, std_files)
 }
 
 /// [lsp-parse-cache] [manifest-discovery] `analyze_sources` for a document,
@@ -175,8 +200,9 @@ pub fn analyze_for_document_cached(
     fallback: &Path,
     overlay: &HashMap<PathBuf, String>,
     cache: &mut ParseCache,
+    std_cache: &salvo_core::StdCache,
 ) -> Result<Analysis, String> {
-    analyze_for_document_impl(path, fallback, overlay, Some(cache))
+    analyze_for_document_impl(path, fallback, overlay, Some(cache), Some(std_cache))
 }
 
 fn analyze_for_document_impl(
@@ -184,13 +210,14 @@ fn analyze_for_document_impl(
     fallback: &Path,
     overlay: &HashMap<PathBuf, String>,
     cache: Option<&mut ParseCache>,
+    std_cache: Option<&salvo_core::StdCache>,
 ) -> Result<Analysis, String> {
     match salvo_core::Project::find(path)? {
         Some(project) => {
             let src = project.src();
-            analyze_project(&src, Some(project), "", overlay, cache)
+            analyze_project(&src, Some(project), "", overlay, cache, std_cache)
         }
-        None => analyze_project(fallback, None, "", overlay, cache),
+        None => analyze_project(fallback, None, "", overlay, cache, std_cache),
     }
 }
 
@@ -200,6 +227,7 @@ fn analyze_project(
     native_ext: &str,
     overlay: &HashMap<PathBuf, String>,
     mut cache: Option<&mut ParseCache>,
+    std_cache: Option<&salvo_core::StdCache>,
 ) -> Result<Analysis, String> {
     if !src.is_dir() {
         return Err(format!(
@@ -317,7 +345,12 @@ fn analyze_project(
         let completions = completion_index(&resolution);
         let type_completions = type_completion_index(&resolution);
         // `check_program` folds resolution errors into its own.
-        let mut checked = salvo_core::check_program(&program, &resolution, &symbols);
+        let mut checked = match std_cache {
+            Some(cache) if std_cache_applies(&program, cache) => {
+                salvo_core::check_project(&program, &resolution, &symbols, cache)
+            }
+            _ => salvo_core::check_program(&program, &resolution, &symbols),
+        };
         checked.errors.retain(|d| !parse_broken.contains(&d.file));
         diagnostics.append(&mut checked.errors);
         // [platform-root] Platform declarations need a platform root.
@@ -338,6 +371,16 @@ fn analyze_project(
         completions,
         type_completions,
     })
+}
+
+/// [std-cache] Whether `cache` may stand in for checking `program`'s std: its
+/// leading `cache.std_files` files are std and unshadowed, and nothing after
+/// them is std except a shadowing file. A std shadow or a `std = true` project
+/// (whose files are all `is_std`) fails this and gets a full check (A4).
+fn std_cache_applies(program: &Program, cache: &salvo_core::StdCache) -> bool {
+    cache.std_files <= program.files.len()
+        && program.files[..cache.std_files].iter().all(|f| f.is_std && !f.is_shadow)
+        && program.files[cache.std_files..].iter().all(|f| !f.is_std || f.is_shadow)
 }
 
 /// [lsp-completion] The per-file index of type-like names, generated ones
@@ -621,7 +664,7 @@ mod tests {
         let mut cache = ParseCache::new();
         // First analysis: everything a cache miss.
         let cached1 =
-            analyze_project(&root, None, "", &HashMap::new(), Some(&mut cache)).expect("a1");
+            analyze_project(&root, None, "", &HashMap::new(), Some(&mut cache), None).expect("a1");
         let fresh1 = analyze_sources(&root, None, "", &HashMap::new()).expect("f1");
         assert_eq!(
             messages(&cached1),
@@ -636,7 +679,7 @@ mod tests {
         let mut overlay = HashMap::new();
         overlay.insert(root.join("main.sv"), edited.to_string());
         let cached2 =
-            analyze_project(&root, None, "", &overlay, Some(&mut cache)).expect("a2");
+            analyze_project(&root, None, "", &overlay, Some(&mut cache), None).expect("a2");
         let fresh2 = analyze_sources(&root, None, "", &overlay).expect("f2");
         assert_eq!(
             messages(&cached2),
@@ -649,5 +692,50 @@ mod tests {
              exercises a changed file: {:?}",
             cached2.diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
         );
+    }
+
+    // [std-cache] Reusing a std-only check must give the project files the
+    // same diagnostics a full check gives: the seeded std rows stand in for
+    // the ones a full check would compute.
+    #[test]
+    fn std_cache_matches_a_full_check() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tmp/std_cache_test");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("main.sv"),
+            "fn main() [use] {\n    use StdOutConsole()\n    let xs = list_of(1, 2, 3)\n    \
+             let n = size(xs)\n    println(\"${n}\")\n}\n",
+        )
+        .unwrap();
+
+        let project_messages = |a: &Analysis| -> Vec<(String, u32, String)> {
+            let mut v: Vec<_> = a
+                .diagnostics
+                .iter()
+                .filter(|d| !a.program.files[d.file].is_std)
+                .map(|d| (a.program.files[d.file].name.clone(), d.span.start, d.message.clone()))
+                .collect();
+            v.sort();
+            v
+        };
+
+        let full = analyze_sources(&root, None, "", &HashMap::new()).expect("full");
+        let std_cache = build_std_cache("");
+        let cached = analyze_project(&root, None, "", &HashMap::new(), None, Some(&std_cache))
+            .expect("cached");
+        assert!(
+            std_cache_applies(&cached.program, &std_cache),
+            "the gate fell back to a full check, so this test compared a full \
+             check with itself"
+        );
+        assert_eq!(
+            project_messages(&cached),
+            project_messages(&full),
+            "the std cache diverged from a full check"
+        );
+        let errors: Vec<_> = cached.diagnostics.iter().filter(|d| d.is_error()).map(|d| &d.message).collect();
+        assert!(errors.is_empty(), "the cached analysis reported errors: {errors:?}");
     }
 }

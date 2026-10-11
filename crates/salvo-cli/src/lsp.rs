@@ -111,6 +111,7 @@ fn serve() -> Result<(), Box<dyn Error + Sync + Send>> {
         connection: &connection,
         dirty: false,
         parse_cache: std::cell::RefCell::new(crate::analysis::ParseCache::new()),
+        std_cache: std::cell::RefCell::new(None),
     };
     server.main_loop()?;
     drop(server);
@@ -142,6 +143,10 @@ struct Server<'c> {
     /// request handlers analyse through `&self`; the server loop is
     /// single-threaded, so there is never contention.
     parse_cache: std::cell::RefCell<crate::analysis::ParseCache>,
+    /// [std-cache] The embedded std checked on its own, built on the first
+    /// analysis and reused by every later one whose program starts with that
+    /// std unshadowed. A `RefCell` for the same reason as `parse_cache`.
+    std_cache: std::cell::RefCell<Option<salvo_core::StdCache>>,
 }
 
 impl Server<'_> {
@@ -287,6 +292,18 @@ impl Server<'_> {
         Ok(())
     }
 
+    /// [std-cache] The server's std cache, checked on first use. The returned
+    /// borrow is shared, so hold it only across one analysis.
+    fn std_cache(&self) -> std::cell::Ref<'_, salvo_core::StdCache> {
+        {
+            let mut std_cache = self.std_cache.borrow_mut();
+            if std_cache.is_none() {
+                *std_cache = Some(crate::analysis::build_std_cache(""));
+            }
+        }
+        std::cell::Ref::map(self.std_cache.borrow(), |c| c.as_ref().expect("built above"))
+    }
+
     /// [manifest-discovery] The analysis a document belongs to: its
     /// project's source root, or the workspace root when no manifest is
     /// above it.
@@ -295,11 +312,13 @@ impl Server<'_> {
         if is_embedded_std_copy(path) {
             return None;
         }
+        let std_cache = self.std_cache();
         match analyze_for_document_cached(
             path,
             &self.root,
             &self.overlay,
             &mut self.parse_cache.borrow_mut(),
+            &std_cache,
         ) {
             Ok(analysis) => Some(analysis),
             Err(err) => {
@@ -1234,6 +1253,7 @@ impl Server<'_> {
                     &self.root,
                     &self.overlay,
                     &mut self.parse_cache.borrow_mut(),
+                    &self.std_cache(),
                 )
                 .ok()?;
                 return Some(CompletionResponse::Array(import_completions(&analysis, written)));
@@ -1257,6 +1277,7 @@ impl Server<'_> {
             &self.root,
             &overlay,
             &mut self.parse_cache.borrow_mut(),
+            &self.std_cache(),
         )
         .ok()?;
         let checked = analysis.checked.as_ref()?;

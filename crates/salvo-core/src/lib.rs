@@ -35,8 +35,8 @@ pub mod types;
 pub mod wire;
 
 pub use check::{
-    check_program, Checked, Coercion, CompareVia, ImplicitArg, ImplicitParam, PassDriver,
-    PassMember,
+    check_program, check_project, Checked, Coercion, CompareVia, ImplicitArg, ImplicitParam, PassDriver,
+    PassMember, StdCache,
     ThrowSite,
     UnionTest, OK_QUALIFIER, THROWN_QUALIFIER, THROW_EFFECT,
 };
