@@ -200,15 +200,34 @@ binding/place, refs, lambda), then Phase F (inline into IR nodes).
 - 2026-10-10 — `use_info` + `spawn_info` views added; builder's `use_stmt`,
   `Spawn` and `ReplyTo` lowering read them in one lookup each. IR corpus green.
   Committed.
+- 2026-10-10 — `pick_info` (qualifier-pick/elvis: `is_tests`/`elvis_picks`/
+  `pick_left`/`predicate_tests`) and `interp_info` (`interp_implicit`/
+  `interp_union`/`interp_to_str`) views added; builder reads each in one lookup.
+  Corpus + core green. Committed. **This completes the view-accessor work: every
+  builder site that read ≥3 checker tables at one span now reads one view
+  (call, use, spawn/reply, pick, interp).**
 
-### Done so far / remaining clusters
-- ✅ call (`call_info`), use (`use_info`), spawn+reply (`spawn_info`).
-- TODO view accessors where the builder reads ≥3 tables at one span:
-  **expr-type** (`expr_ty`/`repr_ty`/`promotions`/`coerce`/`field_casts`/
-  `widen_targets` — but `ty_of`/`repr_of` are already accessors; check density
-  before adding), **test/narrow** (`is_tests`/`predicate_tests`/`pick_left`/
-  `safe_strip`/`elvis_picks`), **interp** (`interp_to_str`/`interp_union`/
-  `interp_implicit`), **binding/place** (`binding_modes`/`handle_muts`/
-  `virtual_place_binds`/`moved_projections`). Only add an accessor where the
-  builder genuinely reads several at one span — a single-table read is already
-  one lookup and needs no view. Gate each on the IR corpus.
+### Status: DONE (view-accessor form)
+
+The valuable, safe unification is complete. Five view accessors on `Checked`
+(`call_info`, `use_info`, `spawn_info`, `pick_info`, `interp_info`) replace the
+multi-table lookups the IR builder did per node. The remaining `checked.X.get`
+reads in the builder are **single-table per site** (one construct reads one
+table — `comparisons` at an operator, `for_drivers` at a `for`, `promotions` at
+a widen, `is_tests` alone at an `is`/`when`, `expr_ty`/`repr_ty` via the
+existing `ty_of`/`repr_of` accessors, the binding/place sets); a view there
+would not reduce "multiple places" because there is only one. No `Checked`
+field was removed and no checker writer site changed — the tables remain sound
+checker state; only the builder's read surface was unified.
+
+**Not pursued (recorded):** collapsing the tables' storage into cluster maps
+(fights the checker's own many readers of `call_fn` etc.) and merging the
+checker+builder into one pass to eliminate the span-keyed handoff entirely (a
+massive rewrite with no backend-visible benefit, since the IR is already
+self-contained and the tables are builder-private). See the "Correction"
+section.
+
+**When retiring this doc:** the five accessors are the whole deliverable; fold
+this plan's reasoning into COMPLETED.md's decision log and delete the file, per
+the design-doc convention. ROADMAP §13(b) can then note the builder reads
+clustered views and the deeper table-elimination was judged not worth it.

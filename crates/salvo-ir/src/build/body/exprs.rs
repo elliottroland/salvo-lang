@@ -499,15 +499,16 @@ impl<'a, 'p> Lower<'a, 'p> {
         let span = e.span();
         let value = self.expr(e);
         let str_ty = Ty::named("Str");
-        if let Some(local) = self.ctx.checked.interp_implicit.get(&self.key(span)).cloned() {
+        let info = self.ctx.checked.interp_info(self.key(span));
+        if let Some(local) = info.implicit.cloned() {
             return Expr { ty: str_ty, span, kind: ExprKind::Call { target: FnRef::Local(Local(local)), type_args: Vec::new(), args: vec![value] } };
         }
         // [interp-union] A union is the text of the arm it holds: a switch on
         // the value, each arm calling its own `to_str`.
-        if let Some(arms) = self.ctx.checked.interp_union.get(&self.key(span)).cloned() {
+        if let Some(arms) = info.union.cloned() {
             return self.interp_union(value, &arms, span);
         }
-        if let Some(k) = self.ctx.checked.interp_to_str.get(&self.key(span)).copied() {
+        if let Some(k) = info.to_str.copied() {
             let at = Span::new(span.end, span.end);
             let mut args = vec![value];
             args.extend(self.implicit_args_at(at));
@@ -1424,15 +1425,23 @@ impl<'a, 'p> Lower<'a, 'p> {
         if pick.is_some() {
             // [pick] `s ^Q?: r`: the picked arm is the value; the rest goes
             // to the right side, where `_` is what remains.
-            let test = self.ctx.checked.is_tests.get(&self.key(span)).cloned();
+            // [unify-checker] Pull every fact out of the view up front, before
+            // any `&mut self` call, so no shared borrow of `checked` is held.
+            let (test, picked_ty, rest_ty, picked_predicate_tests) = {
+                let info = self.ctx.checked.pick_info(self.key(span));
+                (
+                    info.is_test.cloned(),
+                    info.elvis_pick.map(erase).unwrap_or(Ty::Unknown),
+                    info.pick_left.map(erase).unwrap_or(Ty::Unknown),
+                    info.predicate_tests.cloned(),
+                )
+            };
             let s = self.expr_subject(subject);
             let subj_ty = s.ty.clone();
             let tmp = self.fresh("__pick");
             let lid = self.id();
             let bind = Stmt::Let { id: lid, local: tmp.clone(), ty: subj_ty.clone(), value: s };
             let id = self.id();
-            let picked_ty = self.ctx.checked.elvis_picks.get(&self.key(span)).map(erase).unwrap_or(Ty::Unknown);
-            let rest_ty = self.ctx.checked.pick_left.get(&self.key(span)).map(erase).unwrap_or(Ty::Unknown);
             let nar = self.fresh("__picked");
             let nid = self.id();
             let picked_ty_c = picked_ty.clone();
@@ -1446,7 +1455,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             let saved = self.placeholder.replace(rest);
             let r = self.expr(rhs);
             self.placeholder = saved;
-            if let Some(checks) = self.ctx.checked.predicate_tests.get(&self.key(span)).cloned() {
+            if let Some(checks) = picked_predicate_tests {
                 // [qual-predicate] a predicate pick: a branch on the
                 // `qualifies` conjunction, the rest in `otherwise`.
                 let read_tmp = |l: &Local| Expr { ty: subj_ty.clone(), span, kind: ExprKind::Read { place: Place { root: l.clone(), steps: Vec::new() }, consume: false } };

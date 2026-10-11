@@ -1242,6 +1242,48 @@ impl Checked {
             replyto_member: self.replyto_members.get(&key),
         }
     }
+
+    /// [unify-checker] The qualifier-`pick`/elvis facts at one span, in one
+    /// lookup (UNIFY_CHECKER.md): the `is`-test lowering, the picked and left
+    /// arm types, and any predicate-qualifier conjunction. (`is_tests` and
+    /// `predicate_tests` are also read on their own at `is`/`when` sites; this
+    /// view is for the pick site that reads all four.)
+    pub fn pick_info(&self, key: Key) -> PickInfo<'_> {
+        PickInfo {
+            is_test: self.is_tests.get(&key),
+            elvis_pick: self.elvis_picks.get(&key),
+            pick_left: self.pick_left.get(&key),
+            predicate_tests: self.predicate_tests.get(&key),
+        }
+    }
+
+    /// [unify-checker] string-interpolation rendering facts at one span, in
+    /// one lookup (UNIFY_CHECKER.md).
+    pub fn interp_info(&self, key: Key) -> InterpInfo<'_> {
+        InterpInfo {
+            implicit: self.interp_implicit.get(&key),
+            union: self.interp_union.get(&key),
+            to_str: self.interp_to_str.get(&key),
+        }
+    }
+}
+
+/// [unify-checker] qualifier-`pick` / elvis facts at one span (UNIFY_CHECKER.md).
+pub struct PickInfo<'c> {
+    pub is_test: Option<&'c UnionTest>,
+    pub elvis_pick: Option<&'c Ty>,
+    pub pick_left: Option<&'c Ty>,
+    pub predicate_tests: Option<&'c Vec<PredicateCheck>>,
+}
+
+/// [unify-checker] string-interpolation rendering facts at one span
+/// (UNIFY_CHECKER.md): how an interpolated value reaches text — an enclosing
+/// fn's implicit `to_str`, a union's per-arm dispatch, or a resolved `to_str`.
+/// Mutually exclusive; checked in that order.
+pub struct InterpInfo<'c> {
+    pub implicit: Option<&'c String>,
+    pub union: Option<&'c Vec<ArmText>>,
+    pub to_str: Option<&'c FnKey>,
 }
 
 /// [unify-checker] `use`-statement facts at one span (UNIFY_CHECKER.md).
