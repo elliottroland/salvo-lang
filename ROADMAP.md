@@ -1147,7 +1147,7 @@ GROUP_BORROWING.md; [rs-path], [ref-anchor], [ref-notsame],
    follows the kind; (c) an opt-in slot-map container if recursive types or
    performance ever need O(1) handles (no region over ordinary containers:
    see the entry for why). Std's `at` was widened from `List<Mut T>` to any
-   element (permission follows `T`'s kind) — the user to confirm the API
+   element (permission follows `T`'s kind); the user confirmed the API
    shape.
 1. **Recursive containers** (a type holding its own element type) have no
    finite path: refused, and waiting on the recursive-types work (item 17).

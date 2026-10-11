@@ -164,7 +164,7 @@ nextest run`, warm); the fresh suite (`SALVO_E2E_FRESH=1`, 6m01) is green too.
 - **std's `at` is generic over the element** (`List<T>` → `ref(list) T?`,
   permission following `T`'s kind) so a generic `-> ref(xs) T?` has a
   primitive to forward from at `T = Str` as well as `T = Mut X`. This widens
-  the old `List<Mut T>` signature: flagged for the user.
+  the old `List<Mut T>` signature (confirmed by the user).
 - **Fixed on the way.** `check_platform_boundary` lowered a platform fn's
   result without the fn's own generics in scope, so the IR saw `T` as a named
   type instead of a variable and the Rust path computation failed with "no
