@@ -16911,6 +16911,66 @@ fn rustc_compiles_and_runs_deque_handles_and_the_total_map_at() {
     run_rust_files(&files, "deque-map-at", DEQUE_MAP_AT_OUTPUT);
 }
 
+
+/// [rs-path] [ref-handle] One rendering for a `ref` result, whatever `T` is:
+/// `head_of` at a `Mut` element and at `Str`, a `Pick` group through one and
+/// two implicit layers at both, and a read-only handle held across a write
+/// through another handle.
+pub const REF_ONE_RENDERING_DEMO: &str = r#"struct Counter canbe Mut { n: Int }
+
+fn head_of<T>(xs: List<T>) -> ref(xs) T? => xs {
+    return at(xs, 0)
+}
+
+params Pick<C, L, T> {
+    fn pick(c: C, l: L) -> ref(c) T?
+}
+
+fn pick_via<C, L, T>(c: C, l: L, ?Pick<C, L, T>) -> ref(c) T? => c, l {
+    return pick(c, l)
+}
+
+fn pick2<C, L, T>(c: C, l: L, ?Pick<C, L, T>) -> ref(c) T? => c, l {
+    return pick_via(c, l)
+}
+
+fn pick<T>(c: List<T>, l: Int) -> ref(c) T? => c, l {
+    return at(c, l)
+}
+
+fn bump(c: Mut Counter) -> None => c: Mut {
+    c.n = c.n + 1
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let cs: Mut List<Mut Counter> = mut_list_of(Mut Counter { n: 1 }, Mut Counter { n: 2 })
+    let h = head_of(cs)!
+    h.n = h.n + 10
+    bump(pick_via(cs, 1)!)
+    bump(pick2(cs, 1)!)
+    println("${get(cs, 0)!.n} ${get(cs, 1)!.n}")
+    let ss: List<Str> = list_of("a", "b")
+    println("${head_of(ss)!} ${pick_via(ss, 1)!} ${pick2(ss, 0)!}")
+    // a read-only handle held across a write through another handle
+    let r = head_of(ss)!
+    let w = head_of(cs)!
+    w.n = w.n + 100
+    println("${r} ${get(cs, 0)!.n}")
+}
+"#;
+
+pub const REF_ONE_RENDERING_OUTPUT: &str = "11 4\na b a\na 111\n";
+
+#[test]
+fn rustc_compiles_and_runs_one_rendering_for_a_ref_result() {
+    let files = generate(&[("main.sv", REF_ONE_RENDERING_DEMO)]);
+    let main = files.iter().find(|f| f.rel_path.to_str() == Some("main.rs")).unwrap();
+    // The path function only: no borrow-answering face beside it.
+    assert!(!main.content.contains("__loc") && main.content.contains("-> Option<usize>"), "{}", main.content);
+    run_rust_files(&files, "ref-one-rendering", REF_ONE_RENDERING_OUTPUT);
+}
+
 /// [proj-opt-slot] [rs-opt-borrow] Unions of borrows: a `proj Mut A | B`
 /// value, an owned union and an optional `get` all reach kept `A | B` and
 /// `(A | B)?` parameters, which bind, narrow and pass the union on; a `Mut A

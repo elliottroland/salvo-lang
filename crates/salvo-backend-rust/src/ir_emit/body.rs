@@ -12,7 +12,7 @@ use salvo_core::types::Ty;
 use salvo_ir::{ArmTest, Block, Expr, ExprKind, FnKind, FnRef, Justification, Lit, Local, Op, Param, PassMode, Place, Stmt, Step};
 
 use super::decls::{fn_ty_param_mode, FnPos};
-use super::{is_copy_ty, is_mut, is_mut_borrow, is_proj, is_ref, ModuleEmitter};
+use super::{is_copy_ty, is_mut, is_mut_borrow, is_proj, ModuleEmitter};
 use crate::emit::{escape_char, escape_format_text, escape_string, rs_ident, stateful_trait_name, stateless_trait_name};
 use crate::intrinsics::Spread;
 
@@ -609,7 +609,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         }
         // [rs-elem-mut] A mutable handle on an element is its position, the
         // element re-rendered at every use [rs-loc].
-        if salvo_ir::build::refs::has_ref(ty) && is_mut(&ty.strip_quals().without_none()) || (is_ref(ty) && is_mut(ty)) {
+        if salvo_ir::build::refs::has_ref(ty) {
             // [rs-path] Another name for a handle: the same binding.
             if let Some(r) = bare(value) {
                 if let Some(b) = self.handle_of(&r.0) {

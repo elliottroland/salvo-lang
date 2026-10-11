@@ -588,19 +588,15 @@ impl<'p> Shared<'p> {
     /// lends mutably is passed as its locator).
     pub fn fn_ty_lends_mut(&self, t: &Ty) -> bool {
         match self.unalias(t).strip_quals() {
-            Ty::Fn { ret, .. } => {
-                let v = ret.strip_quals().without_none();
-                (is_ref(ret) && is_mut(ret)) || (is_ref(&v) && is_mut(&v))
-            }
+            Ty::Fn { ret, .. } => salvo_ir::build::refs::has_ref(ret),
             _ => false,
         }
     }
 
-    /// [rs-path] Whether a fn mints a mutable handle: its result is a `ref`
-    /// carrying `Mut` (or the optional of one).
+    /// [rs-path] Whether a fn mints a handle: its result has a `ref` arm,
+    /// `Mut` or not (a handle's permission follows its element's kind).
     pub fn is_mint(&self, f: &FnDecl) -> bool {
-        let v = f.ret.strip_quals().without_none();
-        (is_ref(&f.ret) && is_mut(&f.ret)) || (is_ref(&v) && is_mut(&v))
+        salvo_ir::build::refs::has_ref(&f.ret)
     }
 
     /// [rs-loc] A call that lends mutably from a fn whose result is a read
@@ -683,8 +679,7 @@ impl<'p> Shared<'p> {
         if iface.actor || self.platform_effects.contains_key(&iface.name) || m.send {
             return false;
         }
-        let v = m.ret.strip_quals().without_none();
-        ((is_ref(&m.ret) && is_mut(&m.ret)) || (is_ref(&v) && is_mut(&v))) && self.member_lend_param(m).is_some()
+        salvo_ir::build::refs::has_ref(&m.ret) && self.member_lend_param(m).is_some()
     }
 
     /// The parameter (an index into the member's own) a lending member's
@@ -720,8 +715,7 @@ impl<'p> Shared<'p> {
         for m in &self.ir.modules {
             for d in &m.decls {
                 if let Decl::Fn(f) = d {
-                    let v = f.ret.strip_quals().without_none();
-                    if f.body.is_some() && ((is_ref(&f.ret) && is_mut(&f.ret)) || (is_ref(&v) && is_mut(&v))) {
+                    if f.body.is_some() && salvo_ir::build::refs::has_ref(&f.ret) {
                         work.push(f.id.clone());
                     }
                 }

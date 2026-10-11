@@ -13,22 +13,24 @@ last step runs the full and fresh suites).
 
 ## Resume here
 
-**Next step: 2.** Steps done: 0, 1.
+**Next step: 3.** Steps done: 0, 1, 2.
 
-Where things stand (2026-10-10, after step 1):
-- Std's `at` (optional and total) on `List`, `Deque`, `Map` are platform
-  primitives (`at`, private `at_proven` / `at_present`); Kotlin hosts have
-  them (`std/platform/core/{list,deque,map}.kt`); Rust's `platform_loc_body`
-  answers them. The checker refuses a mint returning a reader's call or a
-  local bound from one (`reader_call` / `reader_bound` in check.rs).
-- Found on the way: `check_platform_boundary` lowered a platform fn's result
-  without the fn's generics in scope, so the IR saw `T` as a named type
-  (not `Var`); fixed by entering the generics.
-- Rust: `lends_loc` treats any `is_mint` call as a locator (so the platform
-  `at`s render as paths). Sites still `Mut`-gated: `is_mint`,
-  `member_lends_mut`, `fn_ty_lends_mut`, `mut_lend`, `let_stmt` (step 2).
-- `cargo test` is green (all 76 result lines ok). Not yet run: nextest/fresh.
-- Next concrete actions (step 2): see the step-2 section below.
+Where things stand (2026-10-10, after step 2):
+- Mints are recognised by a `ref` arm alone: `is_mint`, `member_lends_mut`,
+  `fn_ty_lends_mut`, the `compute_locs` seeds and `let_stmt`'s handle test no
+  longer ask for `Mut`. Std's `at`s are generic over any element
+  (`List<T>` -> `ref(list) T?`; permission follows `T`'s kind), so a generic
+  `-> ref(xs) T?` has a primitive to forward from at `T = Str` too. (This
+  widened std's `at` from `List<Mut T>`; flag it to the user at the end.)
+- Tests added on both backends: `REF_ONE_RENDERING_DEMO` (head_of, Pick through
+  one and two implicit layers at `Mut` and `Str`, a read-only handle held
+  across a write through another).
+- `cargo test` is green. Not yet run: nextest / fresh (step 4).
+- Next (step 3): delete the second face. What still exists: `mut_lend` /
+  `mut_lend_call` (a *reader* used as a mutable handle, rendered through its
+  `__loc` twin), `compute_locs` / `Shared::locs`, `fn_decl`'s non-mint loc
+  mode, `loc_call`'s `__loc` suffix, `member_loc_sig`'s `__loc` naming. Done
+  when `grep -rn '__loc' crates std examples` is empty (decision log aside).
 
 Before resuming: read AGENTS.md, then this file top to bottom, then
 `git log --oneline -10` to see which step commits exist. The step list below
@@ -100,7 +102,7 @@ a mint that returns a reader").
 
 ### Step 2 — One rendering for a `ref` result
 
-**Status: not started.**
+**Status: done** (commit "Render every ref result as its path").
 
 - **Mint recognition by `ref` alone**: a function, effect member, fn type or
   implicit-group member is a mint when its result has a `ref` arm
