@@ -1190,7 +1190,7 @@ impl Checked {
     /// [unify-checker] The call-cluster facts at one call span, gathered in
     /// one lookup: which kind of call this resolved to and its modifiers. The
     /// IR builder reads this instead of consulting a dozen span-keyed tables
-    /// at every call node (UNIFY_CHECKER.md, the call cluster). A borrowing
+    /// at every call node (COMPLETED.md's unify-checker entry, the call cluster). A borrowing
     /// view over the underlying tables for now; the storage behind it is being
     /// unified into one `HashMap<Key, CallFacts>` without re-touching the
     /// builder. Every field is independently `None`/absent — a given call sets
@@ -1216,7 +1216,7 @@ impl Checked {
     }
 
     /// [unify-checker] The `use`-statement facts at one span, in one lookup
-    /// (UNIFY_CHECKER.md, the use cluster): the faces to bind, whether it is a
+    /// (COMPLETED.md's unify-checker entry, the use cluster): the faces to bind, whether it is a
     /// `use addr`, and the dependency wiring. (`route_stubs`/`use_handler_args`
     /// are read in the handler-construction helper at a different span, so they
     /// stay direct.)
@@ -1230,7 +1230,7 @@ impl Checked {
     }
 
     /// [unify-checker] The spawn/reply-mint facts at one span, in one lookup
-    /// (UNIFY_CHECKER.md): a `spawn`'s deps/effects, and a `replyto` that mints
+    /// (COMPLETED.md's unify-checker entry): a `spawn`'s deps/effects, and a `replyto` that mints
     /// a task (vs a member).
     pub fn spawn_info(&self, key: Key) -> SpawnInfo<'_> {
         SpawnInfo {
@@ -1244,7 +1244,7 @@ impl Checked {
     }
 
     /// [unify-checker] The qualifier-`pick`/elvis facts at one span, in one
-    /// lookup (UNIFY_CHECKER.md): the `is`-test lowering, the picked and left
+    /// lookup (COMPLETED.md's unify-checker entry): the `is`-test lowering, the picked and left
     /// arm types, and any predicate-qualifier conjunction. (`is_tests` and
     /// `predicate_tests` are also read on their own at `is`/`when` sites; this
     /// view is for the pick site that reads all four.)
@@ -1258,7 +1258,7 @@ impl Checked {
     }
 
     /// [unify-checker] string-interpolation rendering facts at one span, in
-    /// one lookup (UNIFY_CHECKER.md).
+    /// one lookup (COMPLETED.md's unify-checker entry).
     pub fn interp_info(&self, key: Key) -> InterpInfo<'_> {
         InterpInfo {
             implicit: self.interp_implicit.get(&key),
@@ -1268,7 +1268,7 @@ impl Checked {
     }
 }
 
-/// [unify-checker] qualifier-`pick` / elvis facts at one span (UNIFY_CHECKER.md).
+/// [unify-checker] qualifier-`pick` / elvis facts at one span (COMPLETED.md's unify-checker entry).
 pub struct PickInfo<'c> {
     pub is_test: Option<&'c UnionTest>,
     pub elvis_pick: Option<&'c Ty>,
@@ -1277,7 +1277,7 @@ pub struct PickInfo<'c> {
 }
 
 /// [unify-checker] string-interpolation rendering facts at one span
-/// (UNIFY_CHECKER.md): how an interpolated value reaches text — an enclosing
+/// (COMPLETED.md's unify-checker entry): how an interpolated value reaches text — an enclosing
 /// fn's implicit `to_str`, a union's per-arm dispatch, or a resolved `to_str`.
 /// Mutually exclusive; checked in that order.
 pub struct InterpInfo<'c> {
@@ -1286,7 +1286,7 @@ pub struct InterpInfo<'c> {
     pub to_str: Option<&'c FnKey>,
 }
 
-/// [unify-checker] `use`-statement facts at one span (UNIFY_CHECKER.md).
+/// [unify-checker] `use`-statement facts at one span (COMPLETED.md's unify-checker entry).
 pub struct UseInfo<'c> {
     pub use_effects: Option<&'c Vec<Ty>>,
     pub use_addr: Option<&'c Ty>,
@@ -1294,7 +1294,7 @@ pub struct UseInfo<'c> {
     pub use_with_items: Option<&'c Vec<Option<usize>>>,
 }
 
-/// [unify-checker] spawn / reply-mint facts at one span (UNIFY_CHECKER.md).
+/// [unify-checker] spawn / reply-mint facts at one span (COMPLETED.md's unify-checker entry).
 pub struct SpawnInfo<'c> {
     pub spawn_deps: Option<&'c Vec<Ty>>,
     pub spawn_dep_items: Option<&'c Vec<Option<usize>>>,
@@ -1304,7 +1304,7 @@ pub struct SpawnInfo<'c> {
     pub replyto_member: Option<&'c String>,
 }
 
-/// [unify-checker] The call-cluster facts at one call span (UNIFY_CHECKER.md).
+/// [unify-checker] The call-cluster facts at one call span (COMPLETED.md's unify-checker entry).
 /// A read-only view the IR builder assembles once per call node; the fields
 /// are borrows from the checker's tables. The discriminating facts
 /// (`may_throw`/`addr_call`/`member_call`/`local_call`/`call_fn`/…) are

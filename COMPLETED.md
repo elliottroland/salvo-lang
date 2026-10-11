@@ -138,6 +138,46 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-10 — Unifying the checker's side tables: view accessors for the IR builder (UNIFY_CHECKER.md retired)
+
+The IR builder read ~50 span-keyed `Checked` tables, one `.get(&self.key(span))`
+per fact per node — the "check multiple places when building the IR" friction
+(ROADMAP §13(b)). Investigated, then unified the builder's read surface. **1760
+tests green; `UNIFY_CHECKER.md` retired into this entry.** `[unify-checker]` is
+the implementation label (not a language rule).
+
+- **The finding that bounded the work.** The backends read only the IR; nothing
+  after the builder reads `Checked` (refs pass, dump, both emitters are clean).
+  The IR nodes are already self-contained — facts the checker records by span
+  are baked into node fields during `build`. So the span tables are
+  **builder-private handoff state**, not something downstream sees.
+- **Two deeper options rejected, recorded.** (1) Collapsing the tables' storage
+  into per-cluster `HashMap<Key, Facts>` fights the checker's own many readers
+  (`call_fn` has 13 readers across overload resolution, `deduce`, etc.;
+  `self_sends`/`facade_sends`/`addr_calls` are read by `features.rs`): wide,
+  risky, low value. (2) Merging the checker and IR builder into one pass to
+  eliminate the span-keyed handoff is a massive rewrite with **no**
+  backend-visible benefit, since the IR is already self-contained. Both parked.
+- **What was built — the ergonomic win.** Five view accessors on `Checked`,
+  each gathering one builder read-cluster in a single lookup, with the builder's
+  lowering for that construct switched to read the view:
+  `call_info` (the call cluster — ~13 tables: `call_fn`, `call_type_args`,
+  `call_effects`, `may_throw`, `addr_calls`, `self_sends`, `facade_sends`,
+  `dot_calls`, `member_calls`, `effect_calls`, `local_calls`,
+  `local_call_names`, `implicit_args`, `fn_value_calls`, `moved_projections`),
+  `use_info`, `spawn_info` (spawn + reply-mint), `pick_info`
+  (qualifier-pick/elvis), `interp_info` (string-interpolation rendering). Pure
+  refactors — the IR goldens and both codegen corpus tests were unchanged after
+  each; no `Checked` field removed, no checker writer site touched. The
+  remaining builder reads are single-table-per-site (one construct, one table),
+  where a view would not reduce anything.
+- **Gotcha (recorded for the next such refactor):** a view borrows
+  `self.ctx.checked`; the builder's lowering then calls `&mut self`
+  (`self.expr`, `self.fresh`, `self.id`). Pull every needed field out of the
+  view into owned locals *before* the first `&mut self` call (a leading `let (…)
+  = { let info = checked.X(key); (info.a.cloned(), …) };` block), or the borrow
+  checker rejects it. The pick site needed exactly this.
+
 ### 2026-10-10 — The std front-half cache: `check_project` skips std, 7.4× faster LSP checks (user decision, option A)
 
 Built the mechanism `[deduce-std-explicit]` was the groundwork for (ROADMAP §5
