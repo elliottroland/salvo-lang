@@ -237,26 +237,36 @@ parallel computation, so there is nothing to keep in sync.
 Two consequences:
 
 - **One producer.** std's rows are produced only by the normal checker. The
-  cache is captured from a genuine `check_program` (over the real merged
-  program) the first time, then reused while only the project changes. No
-  "check std in isolation" second path that could diverge.
+  cache is captured from a genuine `check_program` (over a std-only program)
+  the first time, then reused while only the project changes.
 - **Soundness is a stated per-table invariant, by construction — not a diff.**
-  The cache carries exactly the `Checked` tables whose std rows are *invariant
-  under project changes*. `[deduce-std-explicit]` establishes this for
-  `deductions`. For each other cached table the invariance is argued at the
-  site where it is written (it is a function of the fn's own declaration +
-  body given pinned deductions, not of callers), and tagged with the rule
-  label. **If a table's std rows are not provably caller-independent, it is not
-  cached** — its std rows are recomputed (cheaply) rather than policed. The
-  first implementation step is this audit of the seven `FnKey`-keyed tables
-  (`deductions`, `fn_effects`, `fn_lends`, `param_mutations`, `iter_returns`,
-  `implicit_params`, `established_quals`), which decides the cached set.
 
-The verification that no project call reads a *std body-span* entry (only the
-std callee's `FnKey` contract) is part of the same audit: if the project hot
-path never indexes a std file's `(file, span)` tables, std bodies can be
-skipped in `check_once` outright; any that are read must be in the cached
-`Checked` too.
+**The invariance audit (2026-10-10), the proof the design rests on.** The seven
+`FnKey`-keyed tables are the only facts a project call reads *about* a std
+callee; the audit confirmed each std row is a pure function of that std fn's own
+declaration and body, never of its callers or of project code:
+
+| table | computed from | caller-dependent? |
+|---|---|---|
+| `deductions` | the fn's own written total clause, a fixed point overlaid every round ([deduce-std-explicit]) | no — pinned by the clause |
+| `fn_effects` | the fn's own declared effect list (+ its handler's deps) | no |
+| `fn_lends` | a written projection clause, else inferred from the fn's own body | no |
+| `param_mutations` | the fn's own body mutation events, keyed by `own_fn` | no |
+| `iter_returns` | which iterator struct the fn's own body mints | no |
+| `implicit_params` | the fn's own declared `?name`/`?Group` params | no |
+| `established_quals` | the fn's own `+Q` clause entries | no |
+
+Three (`deductions`, `fn_lends`, `iter_returns`) depend on the fn's **callees**
+— but a std fn only calls std fns (a project name is not visible from a std
+body), so the dependency is std-internal and still invariant under project
+code. The audit also confirmed `check_call` reads **only** a resolved callee's
+`FnKey`-keyed contract tables plus its AST declaration (via resolution/symbols)
+— the one `expr_ty`-family read in the whole call path is of the *caller's own
+argument*, never the std callee's body-span entries. So std bodies can be
+skipped outright in the project hot path; nothing a project call needs is
+produced only by walking a std body. **No differential check is required; the
+invariant is the guarantee.**
+
 
 
 ### A3 — Build and index remap
