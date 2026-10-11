@@ -1,4 +1,4 @@
-# Finishing `ref`: a `ref(c)` result is always a locator
+# Finishing `ref`: positions are preserved, never recovered
 
 Status: **in progress** — decided by the user 2026-10-10, built one step at a
 time (below), each step committed on its own. This document is the working
@@ -7,124 +7,103 @@ session resumes from **"Resume here"**. When the last step lands it is retired
 into COMPLETED.md's decision log, and anything still open moves to ROADMAP.md
 (the design-document rule, AGENTS.md). ROADMAP.md item 15 points here.
 
+The user asked for the steps to be worked through **without stopping between
+them**, committing after each; the suite need not be green between steps (the
+last step runs the full and fresh suites).
+
 ## Resume here
 
-**Next step: 1** (`to_ref`). Steps done: 0.
+**Next step: 1** (started, nothing of it built yet). Steps done: 0.
+
+Where step 1 stands (2026-10-10, end of a session whose context ran out):
+- The plan above was reworked from the abandoned `to_ref` plan; `to_ref` was
+  built partway and fully reverted (see "Background"). Nothing of it remains.
+- Already committed with this plan: the backend fix listed under step 1
+  (`diverges` covers `Switch`; `fn_body` in locator mode answers an escaping
+  tail through its returns), in `crates/salvo-backend-rust/src/ir_emit/body.rs`.
+- Next concrete actions: (1) in `std/core/list.sv`, `deque.sv`, `map.sv`,
+  turn both `at`s into platform primitives — the optional `at` a bodyless
+  `platform fn`; the total `at` (at `Idx(…)` / `KeyOf(…)`) delegating to a
+  private bodyless platform mint for the proven case (as the total `get`
+  delegates to `get_at` / `get_present`); (2) add the Kotlin host functions
+  beside the `get`s (`std/platform/core/list.kt:12,16`, `deque.kt:39,42`,
+  `map.kt`): an `at` is its `get`; (3) Rust: `platform_loc_body`
+  (`crates/salvo-backend-rust/src/ir_emit/decls.rs`) gains those names —
+  `List`/`Deque` `at` the bounds-checked index, the proven one the index,
+  `Map`'s `at` `slot_of(..)` (`std/platform/core/map.rs:239`), the proven one
+  `slot_of(..).expect(..)`; the Rust host files need no `at` (a mint renders
+  as its path only); (4) the checker rule; (5) the sweep; (6) regenerate
+  examples and host projects (`salvo platform generate --backend '*'` in
+  `std/` and `modules/aws`), commit, update this section.
 
 Before resuming: read AGENTS.md, then this file top to bottom, then
 `git log --oneline -10` to see which step commits exist. The step list below
-is the source of truth for what is done; a step's **Status** line is updated
-in the same commit that finishes it.
+is the source of truth; a step's **Status** line is updated in the commit that
+finishes it, together with this section.
 
 ## The decisions (user, 2026-10-10)
 
-1. **On Rust, a `ref(c)` result has exactly one rendering: the path** into
-   `c`, with its own `Walk` [rs-path] — whatever its type arguments are, and
-   whoever calls it. No mint has a second, borrow-answering face; no call site
-   chooses between faces. A read through a handle walks the path (`walk_ref`,
-   or the inline place with `&`); a write walks it mutably. Kotlin is
-   unaffected (a handle is the element there).
-2. **No reader is copied into a path version.** A reader's borrow becomes a
-   position by **`p.to_ref(c)`**, a std intrinsic the backend monomorphizes per
-   (container, element) pair; on Rust it recovers the position from the
-   borrow's address (option (A) below). Every function is emitted once.
-3. **`to_ref`'s shape**:
-
-       // core.ref: the backend's, per (container, element) pair.
-       export intrinsic fn to_ref<C, T>(p: proj(c) T, c: C) [] -> ref(c) T => p, c
-
-       // The optional form, plain Salvo.
-       export fn to_ref<C, T>(p: (proj(c) T)?, c: C) [] -> (ref(c) T)? => p, c {
-           when p {
-               is None { return None }
-               else { return p.to_ref(c) }
-           }
-       }
-
-   `p` first, so it reads `p.to_ref(c)`. Over a `Mut` element kind the result
-   is a mutable handle; over any other, a handle with nothing to write.
-4. **Explicit.** The `proj → ref` promotion at a mint's return stays only for
-   **places** (a search loop's element over the container, a field path) and
-   **mints** (a delegating mint's `return at(c, l)`). A reader's result becomes
-   a handle only by writing `to_ref`: std's `at` becomes `return get(list,
-   index).to_ref(list)`; the user's `fn at(a: A, index: Int) -> ref(a) Mut
-   Str?` becomes `return a.b.c.get(index).to_ref(a)`. A returned reader result
-   without it is a checker error naming `to_ref`.
-5. **Std's `at` bodies are rewritten** with `to_ref`, for uniformity. The
-   backend's inline position forms for std's platform readers (`get` →
-   bounds-checked index, `get_at` → the index, `Map`'s `get` → `slot_of`,
-   `get_present` → `slot_of(..).expect(..)`) are `to_ref`'s fast path over
-   them, so nothing gets slower.
-6. **Zero-sized elements**: `to_ref` refuses them (a loud backend error) —
-   their addresses cannot be told apart, and they hold no state.
+1. **`ref` and `proj` relate in one direction only.**
+   - `ref(c) T` is a **position** in `c`; whether it can be written follows
+     from `T`'s kind (`Mut`) and from `c` being lent mutably.
+   - `proj(c) T` is a **borrow that may not be a position**: a key, either of
+     two sources, a view, a derived value.
+   - `ref → proj` is free (`ref(c) T <: proj T`, already the subtype rule).
+   - **`proj → ref` does not exist.** A handle comes only from where the
+     position is known: a **place** (a field path, a search loop's element
+     over the container, a bound handle) or a **mint** (a function or member
+     returning `ref`, or `x!` of one). A mint returning a reader's result is
+     a checker error naming the remedy: declare the reader `-> ref(…)`.
+   - Because `ref`'s permission follows `T`'s kind, one `-> ref(xs) T?`
+     declaration serves read-only and mutating callers alike.
+2. **On Rust, a `ref(c)` result has exactly one rendering: the path** into
+   `c` [rs-path], whatever its type arguments and whoever calls it. No mint
+   has a borrow-answering second face; no call site chooses between faces.
+   Kotlin is unaffected (a handle is the element there).
+3. **Std's mints are primitives**, not readers plus a conversion: `at` on
+   `List`, `Deque` and `Map` (optional and total) is a `platform fn` beside
+   `get`, its position form the backend's (a bounds-checked index, the index,
+   `slot_of`, `slot_of(..).expect(..)`), its Kotlin host implementation the
+   element.
+4. Read-only callers of a `ref`-returning reader re-walk the path on Rust
+   where a borrow would be direct; recovering that is the "two-function
+   choice" follow-up, a backend optimization — not part of this work.
 
 ## The sequence
 
-Each step ends with `cargo build` warning-free, `cargo test`, a warm
-`cargo nextest run`, a commit, and this file's Status lines and "Resume here"
-updated in that commit. The last step also runs the fresh suite.
+Each step ends with `cargo build` warning-free, a commit, and this file's
+Status lines and "Resume here" updated in that commit. The last step also runs
+`cargo test`, a warm `cargo nextest run` and the fresh suite.
 
 ### Step 0 — Propagate this plan
 
 **Status: done** (commit "Plan finishing ref: one rendering for a ref
-result, and to_ref").
+result, and to_ref"; the plan was reworked in the commit "Rework the ref plan:
+positions are preserved, never recovered").
 
-ROADMAP.md item 15 points here and carries the two items found on the way
-(the E0308 defect until step 3 lands; the type-argument inference gap, which
-is not part of this work); AGENTS.md's documentation map lists this file.
-
-### Step 1 — `to_ref`
+### Step 1 — No conversion: std's mints are primitives, and the checker rule
 
 **Status: not started.**
 
-Add `to_ref` (both forms, decision 3) to `std/core/ref.sv`, beside
-`NotSame`. Nothing about the promotion rule changes yet.
+- **Std**: `at` (both forms) on `List`, `Deque` and `Map` becomes a
+  bodyless `platform fn`; Kotlin host files (`std/platform/core/*.kt`) gain
+  their `at`s (the same as the `get`s); the Rust backend's position forms
+  (`platform_loc_body`) answer `at` as they answered `get` inside `at`.
+- **Checker** ([ref-handle]): the `proj → ref` promotion at a mint's return
+  (a fn or handler member whose declared result has a `ref` arm) accepts
+  only a place, a bound handle, a search loop's element, a mint call, `None`,
+  and `x!` / present / branches of those. A returned reader call — directly,
+  or through a local bound from one — is an error naming `-> ref(…)` on the
+  reader as the remedy.
+- **Sweep** (no shims): every mint body in std, the examples, the corpora,
+  inline `.sv` sources in tests, `docs/language/`, LANGUAGE_SPEC.md and both
+  backend specs that returns a reader's result: rewrite the reader as `->
+  ref(…)` or the mint as a place. The user's `demo/` is theirs — list it.
+- Also in this commit: the backend fix found on the way — a mint's body whose
+  tail `when` returns in every arm answers through its returns
+  (`diverges` covers `Switch`; `fn_body` in locator mode).
 
-- **Checker**: `to_ref`'s first parameter's type names a *later* parameter
-  (`proj(c)` with `c` second). Check that a forward qualifier argument
-  resolves; if it does not, make it (or order the intrinsic's parameters
-  `(c, p)` internally and keep `p.to_ref(c)` as the written form). The
-  argument must be a projection of `c` — the checker already proves that for
-  a derived return; reuse that. Check `when … else` over an optional works
-  in std.
-- **Kotlin**: the identity.
-- **Rust**: `to_ref` mints a handle. Its path is computed per (container,
-  element) pair by a generated `locate(&C, &E) -> Option<P>` from the same
-  enumeration the path types come from:
-  - a contiguous level (`Vec`, the map's slot slab): `as_ptr_range()`
-    contains the address, and the offset divided by the element size is the
-    index — O(1), integers only, no `unsafe`;
-  - a struct level: which field's range holds the address;
-  - a level with its own allocation (each team's `roster` in a map of
-    teams): a scan of that level, then O(1) in the buffer that holds it;
-  - `VecDeque`: its two slices; the map slab needs an occupied-slots
-    iterator (a small host addition);
-  - the fast path: when `p` is a call of a std platform reader with an
-    inline position form, use that form instead of `locate`;
-  - zero-sized element types: a loud error.
-  `to_ref` must work both in ordinary code (`let h = find(xs).to_ref(xs)!`)
-  and inside a mint's path computation (`loc_expr` / `mint()` in `paths.rs`).
-- **Tests** (both backends, compile-and-run): `to_ref` over a flat list, the
-  `League` (map of rosters plus a bench), a `Grid`, a `Deque`, a reader with
-  real logic (a search through a heap of candidates), and the optional form;
-  a checker test that a `to_ref` of a projection of *another* container is
-  refused.
-
-### Step 2 — Explicit: the promotion only for places and mints
-
-**Status: not started.**
-
-- **Checker**: a mint returning a reader's result (not a place, not a mint)
-  without `to_ref` is an error naming `p.to_ref(c)` as the remedy.
-- **Sweep** (no compatibility shims): every `at` and every other mint body in
-  `std/`, the examples (source and regenerated output), the corpora, inline
-  `.sv` sources in Rust tests, `docs/language/` (Mutable-Handles.md, notably
-  the `a.b.c.get(index)` example), LANGUAGE_SPEC.md and both backend specs.
-  The user's `demo/` is theirs: list it, do not edit it.
-- **Rust**: std's `at` bodies now go through `to_ref`'s fast path; the
-  generated code should be unchanged or equivalent — diff the examples.
-
-### Step 3 — One rendering for a `ref` result
+### Step 2 — One rendering for a `ref` result
 
 **Status: not started.**
 
@@ -132,123 +111,138 @@ Add `to_ref` (both forms, decision 3) to `std/core/ref.sv`, beside
   implicit-group member is a mint when its result has a `ref` arm
   (`salvo_ir::build::refs::has_ref`), `Mut` or not. Sites: `Shared::is_mint`,
   `member_lends_mut` (and its name), `fn_ty_lends_mut`, the handle-binding
-  test in `let_stmt`, `mint()`'s arms in `paths.rs`.
+  test in `let_stmt`, `mint()`'s arms in `paths.rs`, `compute_locs`' seeds.
 - **One face**: a mint renders only as its path function; a `ref` member of a
-  fn type or implicit renders as a locator closure answering the path type
-  (`&mut dyn FnMut(&C, &L) -> Option<__Pk>`, `__Pk: Walk<C, T>` in generic
-  code), never as a borrow-answering closure. This fixes the E0308 (see
-  "Background").
+  fn type or implicit renders as a locator closure answering the path type,
+  never as a borrow-answering closure (fixes the E0308, "Background").
 - **Reads through a locator**: a handle used only for reading is materialized
-  with `&` at each use (inline place, or `Walk::walk_ref`); never bound as a
-  long-lived `&`, since a write through another handle into the same
-  container may come between two reads [fate-poison].
-- **Tests**: the probe shapes in "Background", both backends — `head_of` at
-  `T = Mut X` and `T = Str` (Rust: the path function only), a `Pick`-style
-  group through one and two implicit layers at both kinds of `T`; a read-only
-  handle held across a write through another handle.
+  with `&` at each use (inline place, or `Walk::walk_ref`), never held as a
+  long-lived `&`.
+- **Tests**, both backends: `fn head_of<T>(xs: List<T>) -> ref(xs) T?` at
+  `T = Mut X` and `T = Str` (Rust: the path function only); a `Pick`-style
+  group (`fn pick(c: C, l: L) -> ref(c) T?`) through one and two implicit
+  layers at both kinds of `T`; a read-only handle held across a write
+  through another handle.
 
-### Step 4 — Retire `__loc`
+### Step 3 — Retire `__loc`
 
 **Status: not started.**
 
-Remove what produced locator twins: the second face of a mint, the
-per-call-site choice (`mut_lend` / `mut_lend_call`), the path copy of a
-reader (`compute_locs` / `Shared::locs`, `fn_decl`'s loc mode for non-mints,
-`loc_call`), the `__loc` naming in `member_loc_sig`, and the emitted
-`get_platform__loc` functions (`platform_loc_body`) — std readers' position
-forms are inline (step 1). Done when `grep -rn '__loc' crates std examples`
-is empty (the decision log aside). Regenerate the examples and both host
-projects, review the snapshot diffs.
+With no conversion, nothing needs a locator twin. Remove: the second face of
+a mint, the per-call-site choice (`mut_lend` / `mut_lend_call`), the path
+copies of readers (`compute_locs` / `Shared::locs`, `fn_decl`'s loc mode for
+non-mints, `loc_call`), the `__loc` naming in `member_loc_sig`, and the
+emitted `get_platform__loc` functions (`platform_loc_body` serves the `at`
+primitives directly). Done when `grep -rn '__loc' crates std examples` is
+empty (the decision log aside). Regenerate the examples and both host
+projects; review the snapshot diffs.
 
-### Step 5 — Specs, docs, the record; retire this file
+### Step 4 — Specs, docs, the record; retire this file
 
 **Status: not started.**
 
 - BACKEND_SPEC.rust.md: [rs-loc] rewritten (locator closures stay, twins go);
-  [rs-path] states a `ref` result is always the path; `to_ref`'s rendering;
+  [rs-path] states a `ref` result is always the path; std's `at` primitives;
   the effect-member and fn-value bullets lose their `Mut` conditions.
-- LANGUAGE_SPEC.md: a `[ref-to-ref]` rule; [ref-handle] states what a mint
-  may return (a place, a mint, or `p.to_ref(c)`).
-- docs/language/Mutable-Handles.md: `to_ref`; wiki sync.
+- LANGUAGE_SPEC.md: [ref-handle] states the one-way relation and what a mint
+  may return; docs/language/Mutable-Handles.md likewise; wiki sync.
 - COMPLETED.md: a decision-log entry (the reasoning in "Background", the
-  probe table, the removal of mints' second face and of reader copies,
-  `to_ref`), gotchas, test counts.
-- ROADMAP.md: item 15's pointer removed; leftovers (the follow-ups below)
-  recorded.
-- Retire this file. Fresh `SALVO_E2E_FRESH=1 cargo nextest run`.
+  probe table, the explored-and-dropped `to_ref`, the region revisited),
+  gotchas, test counts.
+- ROADMAP.md: item 15's pointer removed; leftovers recorded (the follow-ups
+  below; the opt-in slot-map container).
+- `cargo test`, warm `cargo nextest run`, fresh `SALVO_E2E_FRESH=1 cargo
+  nextest run`; retire this file.
 
 ## Background (the reasoning, kept for the record)
 
-### Why: `Mut`-gated rendering is `proj Mut` coming back
+### Why: `Mut`-gated rendering was `proj Mut` coming back
 
 Before this work the Rust backend decided a function's rendering from the
 **`Mut` written on its declared return** (`is_mint`, `member_lends_mut`,
 `fn_ty_lends_mut`, the `has_ref(..) && is_mut(..)` tests around `let_stmt`): a
 return written `ref(c) Mut T` rendered as its path function only; a return
 written `ref(c) T`, with the `Mut` arriving through a type argument, rendered
-as a borrow function **plus** a `__loc` twin, each call site picking one.
-That is the earlier `proj Mut` idea — "a borrow that is mutable when its type
-is" — coming back in through `ref`. It works for named functions (a call site
-can pick a face) and cannot work for a function passed as a value or an
-implicit: a generic function is one Rust function, so its fn-typed parameter
-has one type. Probes (2026-10-10, scratch programs, both backends):
+as a borrow function **plus** a `__loc` twin, each call site picking one. That
+is the earlier `proj Mut` idea coming back in through `ref`. It works for
+named functions and cannot work for a function passed as a value or an
+implicit. Probes (2026-10-10, scratch programs, both backends):
 
 | Shape | Kotlin | Rust before this work |
 |---|---|---|
 | `fn head_of<T>(xs: List<T>) -> ref(xs) T?`, called directly, `T = Mut Counter` and `T = Str` | correct | correct (borrow face or `__loc` per call) |
 | `?Ref` (`at: -> ref(c) Mut T?`) through one and two generic layers, and a generic consumer writing through it | correct | correct |
 | a group `Pick` whose member is `-> ref(c) T?`, through an implicit, `T = Mut Counter` | correct | refused: "a locator returns something other than a handle of its anchor [rs-loc]" |
-| the same, `T = Str`, read only | correct | rustc E0308: the implicit typed `&mut dyn FnMut(&C, &L) -> Option<T>` — an *owned* `T`, the borrow dropped — with an unused `Walk` type parameter |
+| the same, `T = Str`, read only | correct | rustc E0308: the implicit typed `&mut dyn FnMut(&C, &L) -> Option<T>` — an *owned* `T`, the borrow dropped |
 
-### Readers forwarded from a mint: three options
+### Why no conversion: the cost of recovering a discarded position
 
-A mint's body may return the result of a user reader (`fn find(xs) ->
-proj(xs) T?`, then `return find(xs)`). How the backend turns that borrow into
-a position:
+A reader returns a bare borrow, forgetting where the element is; any
+`proj → ref` conversion has to recover the position. Explored on
+2026-10-10, in order, and set aside:
 
-- **(a)** refuse it, requiring `find` to be declared `ref` — not taken: an
-  asymmetry (std readers promotable, user readers not), and every ordinary
-  caller of `find` re-walks on read.
-- **(b)** copy the reader into a path version (today's `__loc`) — first
-  chosen, then set aside: path mode copies the functions whose *result* a
-  mint returns, transitively (`compute_locs` / `forwarded_callees`), changing
-  their returns and their `for` loops over the anchor, and refusing anything
-  else (`loc_expr`). Generalizing it — locals computed by other means,
-  containers of borrows, fn values and implicits, effect handlers, generic
-  code — would mean a second analysis of every such reader, a parallel copy
-  of arbitrarily complex and nested functions.
-- **(A)** recover the position from the borrow — **chosen**: the reader runs
-  as itself and returns its `&T`; `to_ref` turns the address back into a path
-  (one generated `locate` per type pair, not per reader). Correct by
-  construction (the checker proves the borrow derives from the container); a
-  value has one home and buffers never overlap, so exactly one path matches;
-  `locate` goes by the address the reader returned, never by value. Its cost
-  is proportional to the data (a scan per separately allocated nested level),
-  not to the code. Example (`League`): test the bench's range (O(1)), then
-  scan the teams' slots for the roster holding the address.
+- **Copying readers into path versions** (today's `__loc` for readers): a
+  parallel copy of every reader a mint forwards from, transitively, bounded
+  only by a refusal list (`loc_expr`). Arbitrarily complex and nested readers
+  would need a second analysis.
+- **`p.to_ref(c)`, recovering the position from the borrow's address**: a
+  generated `locate` per (container, element) pair (O(1) per contiguous
+  level by address arithmetic, a scan per separately allocated level). Built
+  partway and reverted. What sank it, once the user's refinements were in:
+  - the container should come from the borrow's provenance, which a
+    function boundary loses for keys (a reader `-> proj(m) Str` may return a
+    key or a value) — so the result must be `ref(c) T | NoRef`, `NoRef` a
+    singleton because `T` may be `X?`;
+  - parity then forces **Kotlin** to check membership too (an identity scan
+    per level), where `to_ref` had been the identity — the user's objection;
+  - every caller must discharge `NoRef`.
+- **Raw pointers under `ref`** (`salvo_ref` resolving on demand): provenance
+  (a pointer from a reader's `&T` may not be written through; the fix needs
+  the index, or exposed provenance), aliasing (`&C` held across a write is
+  undefined behaviour), the rustc backstop lost (Miri needed), validity
+  resting on fate poisoning alone.
+- **The region store, revisited** (values extracted into a central store,
+  placeholders left behind, the store keyed by address so accesses can tell
+  a placeholder from a value): code that does not know it is in a region —
+  host code, Rust's own algorithms (`sort`, `contains`, slices), derives,
+  the wire encoder — reads the placeholder; every element read everywhere
+  would pay a thread-local lookup; a reallocation inside host code has no
+  hook, and a Rust *move* (a struct passed, returned or reallocated) changes
+  addresses with no event at all. Kotlin needs none of it.
 
-### Considered and set aside: a raw pointer under `ref`
+What remains is to never throw the position away: a reader that should yield
+handles returns `ref`. The one cost — re-walks on read-only uses on Rust — is
+an optimization question (follow-up 1).
 
-A `*mut T` in the handle, resolved on demand, would make handles O(1) and
-delete the path machinery, recursive types included. Set aside, at least for
-now: **provenance** (a pointer made from a reader's `&T` may not be written
-through; a writable one needs the buffer's own pointer plus the index —
-`locate` again — or *exposed provenance*, the least precisely specified part
-of Rust's memory model); **aliasing** (any `&C` held across a write through
-the pointer is undefined behaviour); **the backstop goes** (a lowering
-mistake becomes silent undefined behaviour instead of a rustc error; the e2e
-suite would need Miri); and **validity rests on fate poisoning alone**.
-Recursive types will get paths as lists, which stays in safe Rust.
+### Parked: an opt-in slot-map container
+
+If recursive types or performance ever need O(1) handles, the sound form is a
+container that *is* a slot map (elements in an arena it owns, handles stable
+keys) — the group-borrowing design's Part 3 container, as an opt-in type,
+not a region over ordinary containers. Recursive types are planned with paths
+as lists instead.
 
 ## Follow-ups, after this lands (to discuss; not part of the sequence)
 
-1. **Generalizing the two-function choice.** With one face everywhere, reads
-   through a `ref` pay a re-walk where a borrow would have been direct. A
-   borrow face could come back as a *backend* optimization — a generic body
-   knows per use whether it writes, so a fn value or implicit could carry both
-   faces — strictly as an optimization over a design already correct with one
+1. **The two-function choice.** A direct-borrow face for read-only uses of a
+   `ref`-returning function, as a backend optimization: a generic body knows
+   per use whether it writes, so a fn value or implicit could carry both
+   faces — strictly an optimization over a design already correct with one
    face, and only once measured.
-2. **Whether `ref` merges into `proj Mut` after all.** With `ref`'s rendering
-   independent of `Mut`, the remaining distinction is permission (may this
-   result be written through, and is it a place?) versus kind (`Mut` on the
-   value).
+2. **Whether `ref` merges into `proj Mut` after all**, now that the relation
+   is one-way and permission follows the kind.
+
+## Found on the way (recorded in ROADMAP item 15, not part of this work)
+
+- Overload ranking: `f<T>(x: T)` and `f<T>(x: T?)` both fit a `Str`, and the
+  optional form wins (it is the more specific *pattern*); an exact-fit-first
+  rule fixes it (prototyped 2026-10-10, reverted: it is a ranking rule, the
+  user's call).
+- Rust: a read-only fn iterating a field `List<Mut T>` of a kept parameter
+  renders `iter_mut()` over `&` (E0596); the loop element is typed as a
+  handle, so the fix belongs with per-binding mutation inference.
+- Rust: `walk_pair` (the `Walk` impls) over a `VecDeque` uses slice
+  splitting, which `VecDeque` lacks; latent until a program has `Deque`
+  handles and a generic handle fn.
+- Type arguments are not inferred from an in-scope implicit (already ROADMAP
+  item 15.4).

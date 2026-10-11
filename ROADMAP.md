@@ -1138,15 +1138,15 @@ entries and its "Design record: group borrowing", which retired
 GROUP_BORROWING.md; [rs-path], [ref-anchor], [ref-notsame],
 [elem-distinct], [proj-opt-slot], [rs-opt-borrow]). What is left:
 
-0. **Finishing `ref`: one rendering for a `ref` result, and `to_ref`**
-   (user decisions 2026-10-10) — **in progress; FINISH_REF.md is the plan
-   and the handoff** (its "Resume here" says which step is next). On Rust a
-   `ref(c)` result is always the path, whatever its type arguments; a
-   reader's borrow becomes a handle by an explicit `p.to_ref(c)`; `__loc`
-   twins go. Until its step 3 lands, an open defect: a group member `->
-   ref(c) T?` (no `Mut`) through an implicit is refused on Rust at `T = Mut
-   X` and fails rustc (E0308, an owned `T` in the closure type) at `T = Str`.
-
+0. **Finishing `ref`: positions are preserved, never recovered** (user
+   decisions 2026-10-10) — **in progress; FINISH_REF.md is the plan and the
+   handoff** (its "Resume here" says which step is next). `proj → ref`
+   conversion goes away: a handle comes only from a place or a mint, std's
+   `at`s become primitives, and on Rust a `ref` result is always the path,
+   whatever its type arguments; `__loc` twins go. Until its step 2 lands, an
+   open defect: a group member `-> ref(c) T?` (no `Mut`) through an implicit
+   is refused on Rust at `T = Mut X` and fails rustc (E0308, an owned `T` in
+   the closure type) at `T = Str`.
 1. **Recursive containers** (a type holding its own element type) have no
    finite path: refused, and waiting on the recursive-types work (item 17).
 2. **Open defect: a read through a field of a nested `get` fails rustc**
@@ -1177,6 +1177,33 @@ GROUP_BORROWING.md; [rs-path], [ref-anchor], [ref-notsame],
    `?Ref<C, L, Counter>` that fills it is not consulted.
    `outer_at<C, L, Counter>(c, l)` works. Inferring from the implicit that
    fills the group would remove the annotation.
+5. **Overload ranking prefers a wrap over an exact fit** (found 2026-10-10).
+   With `fn f<T>(x: T)` and `fn f<T>(x: T?)`, `f("a")` picks the optional
+   form: by signature `T?` is the more specific pattern. An exact-fit-first
+   rule (drop candidates that must wrap a present argument into an optional
+   when another fits as it is) fixes it; prototyped and reverted, since it
+   is a ranking rule — **DECISION**.
+6. **Open defect: a read-only loop over a `List<Mut T>` field borrows
+   mutably on Rust** (found 2026-10-10, predates the `ref` work):
+
+   ```
+   struct Player canbe Mut { goals: Int }
+   struct League canbe Mut { bench: List<Mut Player> }
+   fn most_goals(l: League) -> Int => l {
+       let best = -1
+       for p in l.bench { if p.goals > best { best = p.goals } }
+       return best
+   }   // rustc E0596: `for mut p in (&mut l.bench).iter_mut()` over `&League`
+   ```
+
+   The loop element is typed as a handle (`ref … Mut`), so `vec_iter` picks
+   `iter_mut`; whether it is written should come from per-binding mutation
+   inference ([rs-elem-mut]).
+7. **Latent defect: `walk_pair` over a `VecDeque`** (found 2026-10-10): the
+   generated `Walk` impls split with `salvo_pair_mut(&mut c[..], …)`, which
+   a `VecDeque` cannot take; rustc errors once a program has `Deque` handles
+   and a fn generic over a handle's container. `make_contiguous()` (indices
+   are what paths hold) would fix it.
 
 ### 16 — Composing iterators: stages over a generic source (after the redesign)
 

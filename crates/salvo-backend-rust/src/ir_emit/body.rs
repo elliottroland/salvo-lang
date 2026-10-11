@@ -312,6 +312,12 @@ pub(crate) fn walk_expr(e: &Expr, fs: &mut impl FnMut(&Stmt), fe: &mut impl FnMu
 pub(crate) fn diverges(e: &Expr) -> bool {
     match &e.kind {
         ExprKind::Throw { .. } | ExprKind::Unreachable { .. } => true,
+        // Every arm of a choice ends in an escape (a `when` whose arms all
+        // `return`).
+        ExprKind::Switch { arms, .. } => {
+            let blk = |b: &Block| b.value.as_ref().map(|v| diverges(v)).unwrap_or_else(|| matches!(b.stmts.last(), Some(Stmt::Return(_) | Stmt::Break | Stmt::Continue)) || matches!(b.stmts.last(), Some(Stmt::Expr(x)) if diverges(x)));
+            !arms.is_empty() && arms.iter().all(|a| blk(&a.body))
+        }
         ExprKind::Branch { arms, otherwise, .. } => {
             let blk = |b: &Block| b.value.as_ref().map(|v| diverges(v)).unwrap_or_else(|| matches!(b.stmts.last(), Some(Stmt::Return(_) | Stmt::Break | Stmt::Continue)) || matches!(b.stmts.last(), Some(Stmt::Expr(x)) if diverges(x)));
             arms.iter().all(|(_, b)| blk(b)) && otherwise.as_ref().map_or(arms.len() == 1 && matches!(arms[0].0.kind, ExprKind::Bool(true)), blk)
@@ -450,6 +456,12 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         self.scan(b);
         let mut out = self.stmts(&b.stmts, indent);
         if let (Some(v), Some((_, opt))) = (&b.value, self.f.loc.clone()) {
+            // A tail that escapes in every arm answers through its returns.
+            if diverges(v) {
+                let code = self.value(v, indent);
+                out.push_str(&format!("{}{code};\n", Self::pad(indent)));
+                return out;
+            }
             let code = self.loc_expr(v, opt, indent);
             out.push_str(&format!("{}return {code};\n", Self::pad(indent)));
         } else if let Some(v) = &b.value {
