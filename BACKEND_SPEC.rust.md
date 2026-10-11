@@ -664,12 +664,12 @@ the blanket rule:
   * A **statement-scoped** handle — `bump(at(es, 0)!)` in a `&mut`
     position — materializes the element for that one call: the mint's path
     is bound, then walked into a borrow,
-    `{ let __h1: Option<usize> = crate::core_list::at__List_Int(&es, 0i32); … &mut es[__h2] }`
+    `{ let __h1: Option<usize> = crate::core_list::at_platform(&es, 0i32); … &mut es[__h2] }`
     inside the `!` block [rs-assert-trap]. The read borrow of the search
     ends before the write borrow begins, and the `&mut` lives exactly as
     long as the call.
   * A **bound** handle is its path [rs-path]:
-    `let __h2: usize = crate::core_list::at__List_Int(&squad, 0i32).expect("salvo: value is absent at main:231:16");`
+    `let __h2: usize = crate::core_list::at_platform(&squad, 0i32).expect("salvo: value is absent at main:231:16");`
     — the presence check traps at the mint, matching Kotlin's `!!` timing —
     and every use re-materializes the place: `squad[__h2].hp = …`,
     `crate::bump(&mut xs[__h1]);`, `squad[__h3].name.clone()` in a value
@@ -679,7 +679,7 @@ the blanket rule:
     between two writes through `__h2`), which a live `&mut` binding would make
     E0502 — the same alignment argument as [rs-borrow-locals], resolved the
     other way. The total mint answers `usize` directly
-    (`let __h11: usize = crate::core_list::at__List_IdxInt(&squad, i);`).
+    (`let __h11: usize = crate::core_list::at(&squad, i);`).
   * A kept parameter whose **elements** carry `Mut` (`List<Mut T>`,
     `Mut T[]`) renders `&mut Vec<T>`: the container lends mutable handles, so
     the write must reach the caller's storage through it even though no
@@ -742,47 +742,50 @@ the blanket rule:
     the body mutates is lent mutably;
   * a container that holds the element type in itself (a recursive type)
     has no finite path: a loud error naming it (ROADMAP, item 17).
-* [rs-loc] **Locator-specialized lending** (④a, 2026-09-24; re-based on
-  [rs-path] 2026-10-10): a **mint** — a fn whose result is a `ref(c) Mut`
-  handle — renders **only** as its path fn, under its own name: no
-  `&mut`-answering face beside it (`pub fn wounded(squad: &Vec<crate::Fighter>) -> Option<usize>`;
-  std's `at` overloads mangle as `at__List_Int`/`at__List_IdxInt`). A
-  *reader* (a `proj`-returning fn, e.g. `get`) used as a handle keeps its
-  natural face and gains a **demand-driven locator variant**, `{name}__loc`.
-  * Either answers **position data** — the path type [rs-path], optional
+* [rs-loc] **Mints render as their path** (④a, 2026-09-24; re-based on
+  [rs-path] and finished 2026-10-10 — "positions are preserved, never
+  recovered"): a **mint** — a fn whose result has a `ref(c)` arm, `Mut` or
+  not (a handle's permission follows its element's kind) — renders
+  **only** as its path fn, under its own name: no borrow-answering face
+  beside it, no per-call-site choice, and no `__loc` twin of a reader
+  (`pub fn wounded(squad: &Vec<crate::Fighter>) -> Option<usize>`; std's
+  platform `at`s are `at_platform` for the optional form and `at` for the
+  total one). A reader (a `proj`-returning fn, e.g. `get`) is never turned
+  into a handle: the checker refuses a `ref` result built from one
+  [ref-handle], so no analysis has to recover a position from a borrow.
+  * A mint answers **position data** — the path type [rs-path], optional
     exactly where the result is, so `!` keeps its message and timing. Its
     lent parameters drop to *read* mode (the search borrows nothing
     mutably), and it carries **no lifetimes** — a locator is owned data,
-    which is what lets it pass through closures. A **platform** fn's variant
-    finds the host's borrow by address
-    (`….map(|__x| list.iter().position(|__e| std::ptr::eq(__e, __x)).expect("salvo: a borrow outside its container"))`),
-    except `List`/`Deque`'s `get`, whose position is the index under a bounds
-    test, the total `get_at`, which is the index, and `Map`'s `get`, whose
-    position is the entry's slot (and the total `get`'s `get_present`, the
-    slot the `KeyOf` claim proved present).
-  * Body transform: return-path forwards take their callees' path fns or
-    `__loc` variants (demand closes transitively); a derived-return intrinsic takes
-    its **locator form**; an intrinsic without one, or a return shape beyond
-    the plain and optional element lend, is a reported error, never a silent
-    read lowering [backend-never-wrong].
-  * **Search loops**: inside a locator variant, a `for` directly over a list
+    which is what lets it pass through closures. std's `at` mints are
+    **platform primitives** whose position the backend writes
+    (`platform_loc_body`): `List`/`Deque`'s optional `at` is the index under
+    a bounds test, the proven `at_proven` is the index, and `Map`'s `at` is
+    the entry's slot (`at_present`, the slot the `KeyOf` claim proved
+    present). On Kotlin the same primitives are the host's `get`: a handle
+    is the element.
+  * Body transform: return-path forwards take their callees' path fns; an
+    intrinsic without a locator form, or a return shape beyond the plain and
+    optional element lend, is a reported error, never a silent read lowering
+    [backend-never-wrong].
+  * **Search loops**: inside a mint, a `for` directly over a list
     lowers to an *indexed* loop whose element binding is a borrow of the
     indexed place, so `return e` answers the found **position**:
     `for __li1 in 0..squad.len() { let f = &squad[__li1]; if (f.hp < 10i32) { return Some(__li1); }; }`.
-  * **Fn values**: a fn type whose return is a wholesale mutable lend
+  * **Fn values**: a fn type whose return has a `ref` arm
     renders as a **locator closure** —
     `at: &mut dyn FnMut(&Vec<crate::Entity>, &L) -> Option<usize>`,
     read-mode parameters — and a lambda filling such a position emits in
-    locator mode (`&mut |mut c, mut k| -> Option<usize> { crate::core_list::at__List_Int(c, k) }`),
+    locator mode (`&mut |mut c, mut k| -> Option<usize> { crate::core_list::at_platform(c, k) }`),
     a named mint through its path fn
-    (`&mut |__a0: &Vec<crate::Fighter>, __a1: &i32| crate::core_list::at__List_Int(__a0, *__a1)`).
+    (`&mut |__a0: &Vec<crate::Fighter>, __a1: &i32| crate::core_list::at_platform(__a0, *__a1)`).
     The call materializes the borrow:
     `match at(&*squad, l) { Some(__l1) => Some(&mut squad[__l1]), None => None }`.
     This is what lets a mutable handle cross a closure boundary at all; a
     `&mut`-returning `FnMut` would tie the borrow to the closure. The
     `?at`/`Ref` idiom [col-locate] rides it, with implicit positions
     rendered the same way.
-  * **Effect members** that lend mutably are mints too, and render the same
+  * **Effect members** whose result has a `ref` arm are mints too, and render the same
     way (2026-10-10): **only** the path face, under the member's own name,
     on both traits and the handle —
     `fn lease(&mut self, es: &Vec<crate::Entity>) -> Option<usize>;` —
@@ -810,7 +813,7 @@ the blanket rule:
     — and the body indexes `c[__cN]`. The call site computes the positions
     first (a bound handle's own path, or the mint's) and passes
     the container `&mut` once:
-    `{ let __q7 = crate::core_list::at__List_Int(&squad, i).expect(…); let __c8 = __q7; …; crate::strike(&mut squad, __c8, __c10) };`.
+    `{ let __q7 = crate::core_list::at_platform(&squad, i).expect(…); let __c8 = __q7; …; crate::strike(&mut squad, __c8, __c10) };`.
     The parameter's type is the path type [rs-path] (`a: ref(l) Mut Player`
     over a `League` takes `__c1: crate::__Path_League__Player`), and an
     argument's path is taken relative to the container argument.
@@ -821,10 +824,10 @@ the blanket rule:
     the same element. The container may be a field path at the call:
     `crate::rotate(&mut team.members, __c11, __c12)`. Reported, loudly: an
     anchored argument whose position cannot be computed.
-  * **Maps** (2026-10-08): `core.map`'s `at` is the by-key mint, and a map
+  * **Maps** (2026-10-08): `core.map`'s `at` is the by-key mint (a platform primitive), and a map
     position is its entry's **slot** in the insertion-ordered slab
     (`platform_core_map::slot_of`; `Map` implements `Index<usize>` /
-    `IndexMut<usize>` over slots), so `get`'s locator form is
+    `IndexMut<usize>` over slots), so `at`'s position is
     `slot_of(map, key, hash, eq)` and every list rendering above applies
     unchanged — a handle chains through a map (`at(at(m, k)!, i)!`).
     Slots are stable until an entry is added or removed, which poisons the

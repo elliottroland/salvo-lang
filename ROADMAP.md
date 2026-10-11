@@ -1138,15 +1138,17 @@ entries and its "Design record: group borrowing", which retired
 GROUP_BORROWING.md; [rs-path], [ref-anchor], [ref-notsame],
 [elem-distinct], [proj-opt-slot], [rs-opt-borrow]). What is left:
 
-0. **Finishing `ref`: positions are preserved, never recovered** (user
-   decisions 2026-10-10) — **in progress; FINISH_REF.md is the plan and the
-   handoff** (its "Resume here" says which step is next). `proj → ref`
-   conversion goes away: a handle comes only from a place or a mint, std's
-   `at`s become primitives, and on Rust a `ref` result is always the path,
-   whatever its type arguments; `__loc` twins go. Until its step 2 lands, an
-   open defect: a group member `-> ref(c) T?` (no `Mut`) through an implicit
-   is refused on Rust at `T = Mut X` and fails rustc (E0308, an owned `T` in
-   the closure type) at `T = Str`.
+0. **Follow-ups to "positions are preserved, never recovered"** (landed
+   2026-10-10, COMPLETED.md's entry of that name; to discuss, not scheduled):
+   (a) *the two-function choice* — a direct-borrow face for read-only uses of
+   a `ref`-returning function on Rust, as a backend optimization once
+   measured (today a read-only use re-walks the path); (b) whether `ref`
+   merges into `proj Mut` now that the relation is one-way and permission
+   follows the kind; (c) an opt-in slot-map container if recursive types or
+   performance ever need O(1) handles (no region over ordinary containers:
+   see the entry for why). Std's `at` was widened from `List<Mut T>` to any
+   element (permission follows `T`'s kind) — the user to confirm the API
+   shape.
 1. **Recursive containers** (a type holding its own element type) have no
    finite path: refused, and waiting on the recursive-types work (item 17).
 2. **Open defect: a read through a field of a nested `get` fails rustc**

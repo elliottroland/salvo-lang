@@ -470,14 +470,14 @@ it again.
 
 ```
 // Salvo                              // Rust
-let boss = at(squad, i)!              let __h1: usize = at__List_Int(&squad, i).expect(…);
+let boss = at(squad, i)!              let __h1: usize = at_platform(&squad, i).expect(…);
 boss.hp = boss.hp + 5                 squad[__h1].hp = squad[__h1].hp + 5;
 let n = size(squad)                   let n = squad.len();          // legal: no live borrow
 boss.hp = boss.hp + n                 squad[__h1].hp = squad[__h1].hp + n;
 ```
 
 A mint renders as its path function under its own name, and nothing else:
-std's `at` overloads become `at__List_Int` and `at__List_IdxInt`, which
+std's `at` overloads become `at_platform` (the optional form, a platform primitive) and `at`, which
 answer a position, and there is no `&mut`-returning version beside them.
 Since the path is read off the types and the mint's body, it exists for any
 container's `at`, and what you can do with a handle never depends on how

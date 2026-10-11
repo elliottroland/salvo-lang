@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1615 tests, complete: the toolchain tests are
+cargo test                  # 1761 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,71 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-10 — Positions are preserved, never recovered: `proj → ref` is gone, a `ref` result is always the path (user decision; FINISH_REF.md retired)
+
+`ref(c) T` is a **position** in `c`; `proj T` is a borrow that may not be one.
+`ref → proj` is free (`ref(c) T <: proj T`); **`proj → ref` does not exist.** A
+handle comes only from a place (a field path, a search loop's element, a bound
+handle) or from a mint (a fn or member returning `ref`, or `x!` of one). A mint
+returning a reader's result — directly, or through a local bound from one — is a
+checker error naming `-> ref(…)` on the reader as the remedy ([ref-handle];
+`reader_call` / `reader_bound` in check.rs). **1761 tests green** (`cargo
+nextest run`, warm); the fresh suite (`SALVO_E2E_FRESH=1`, 6m01) is green too.
+
+- **Built.** (1) std's `at` on `List`, `Deque` and `Map` (optional and total)
+  are **platform primitives** — the optional a bodyless `platform fn`, the
+  total delegating to a private platform mint (`at_proven`, `at_present`),
+  as the total `get` delegates to `get_at` / `get_present`. Kotlin hosts: `at`
+  is `get`. Rust: `platform_loc_body` writes the position (bounds-checked
+  index, the index, `slot_of`, `slot_of(..).expect(..)`). (2) On Rust a
+  mint is recognised by its `ref` arm alone, `Mut` or not (`is_mint`,
+  `member_lends_mut`, `fn_ty_lends_mut`, `let_stmt`), and renders as its path
+  fn only: no borrow face, no per-call-site choice. (3) `__loc` is gone:
+  `mut_lend` / `mut_lend_call`, `compute_locs` / `Shared::locs`, the non-mint
+  loc twins and the suffix are deleted. The two `__loc` strings left in the
+  Rust tests are negative assertions.
+- **std's `at` is generic over the element** (`List<T>` → `ref(list) T?`,
+  permission following `T`'s kind) so a generic `-> ref(xs) T?` has a
+  primitive to forward from at `T = Str` as well as `T = Mut X`. This widens
+  the old `List<Mut T>` signature: flagged for the user.
+- **Fixed on the way.** `check_platform_boundary` lowered a platform fn's
+  result without the fn's own generics in scope, so the IR saw `T` as a named
+  type instead of a variable and the Rust path computation failed with "no
+  storage of `Deque<Mut T>` holds a `T`". It now enters the fn's (and an
+  effect's) generics first. `diverges` covers `Switch`, and `fn_body` in
+  locator mode answers an escaping tail through its returns.
+- **Tests.** `REF_ONE_RENDERING_DEMO` on both backends: `head_of<T>(xs: List<T>)
+  -> ref(xs) T?` at `T = Mut Counter` and `Str`, a `Pick` group through one and
+  two implicit layers at both, and a read-only handle held across a write
+  through another. The test prelude in `elem_distinct_tests.rs` declares `at`
+  an intrinsic; four test sources that returned `get(..)` from a mint now
+  return `at(..)`.
+- **Before this work** the Rust backend chose a function's rendering from the
+  `Mut` written on its return (`ref(c) Mut T` a path only; `ref(c) T` a borrow
+  plus a `__loc` twin), which is the earlier `proj Mut` idea returning through
+  `ref`. Probes: direct calls were correct either way; a `Pick` group member
+  `-> ref(c) T?` through an implicit was refused at `T = Mut X` ("a locator
+  returns something other than a handle of its anchor") and failed rustc E0308
+  at `T = Str` (the implicit typed an owned `T`).
+- **Explored and dropped, in order** (the reasoning is why no conversion
+  exists): (a) copying readers into path versions — a parallel analysis of
+  arbitrarily complex readers; (b) `p.to_ref(c)` recovering the position from
+  the borrow's address with a generated `locate` — built partway and fully
+  reverted: provenance is lost across a function boundary for keys (a reader
+  `-> proj(m) Str` may return a key or a value), forcing a `ref(c) T | NoRef`
+  result (`NoRef` a singleton since `T` may be `X?`), and parity then makes
+  **Kotlin** scan for membership, so `to_ref` would no longer be the identity
+  (the user's objection); (c) raw pointers under `ref` — provenance, aliasing
+  UB for a `&C` held across a write, losing rustc as the backstop, Miri;
+  (d) a region store keyed by address with placeholders — host code and Rust's
+  own algorithms read the placeholder, every read pays a thread-local lookup,
+  and a Rust move changes addresses with no hook. **Parked:** an opt-in
+  slot-map container (the group-borrowing design's Part 3), the sound form if
+  O(1) handles are ever needed.
+- **Left for later** (ROADMAP item 15): the two-function choice (a direct
+  borrow face as an optimization), whether `ref` merges into `proj Mut`, the
+  overload-ranking decision (15.5), and the open defects 15.2, 15.6, 15.7.
 
 ### 2026-10-10 — Unifying the checker's side tables: view accessors for the IR builder (UNIFY_CHECKER.md retired)
 
