@@ -1053,13 +1053,15 @@ fn main() [use] {
 
 const LIFT_BINDING_OUTPUT: &str = "ok 7\nerr zero\nsize 3\n";
 
-/// [elvis] [placeholder] Step 4: `?:` picks the non-`None` arms, and `_` on the
-/// right is the `None` side. The shapes here are the ones that emit differently:
+/// [elvis] [placeholder] The positional pick: `?:` keeps the first arm
+/// (`Forward(1)`); a run of `?`s keeps that many (`??:` keeps two). The shapes
+/// here are the ones that emit differently:
 ///
 /// - an escaping right side (`?: return None`), which is why step 2 came first;
 /// - a value right side, where the two sides must agree on a representation —
 ///   a bare `Str` **wraps** into the subject's `Str | Int` union, exactly as an
-///   `if`'s branches converge;
+///   `if`'s branches converge, and `??:` on a `Str | Int | None` keeps both
+///   value arms;
 /// - precedence: `n ?: 0 > 3` is `(n ?: 0) > 3` and `n ?: 1 + 1` is
 ///   `n ?: (1 + 1)`, Kotlin's tier;
 /// - right-associative chaining.
@@ -1103,7 +1105,7 @@ fn main() [use] {
     println(greet(named))
     println(greet(plain))
 
-    let v: Str | Int = pick(2) ?: "none"
+    let v: Str | Int = pick(2) ??: "none"
     when v {
         is Str { println("str ${v}") }
         is Int { println("int ${v}") }
@@ -1121,53 +1123,13 @@ fn main() [use] {
 
 const ELVIS_OUTPUT: &str = "shout Addy!\nshout none\nhello Addy\nhello friend\nint 2\nbigger\nsum 5\nchain 7\n";
 
-/// [safe-call] Step 4's other half: `?.` reads a field or calls a dot-notation
-/// function on the non-`None` side, and the result carries a `None` arm of its
-/// own — so it composes with `?:` and re-tests at each link.
+/// [elvis] [placeholder] The positional pick. `?:` keeps the first arm
+/// (`Forward(1)`), `:?` the last (`Backward(1)`); `_` on the right is the arms
+/// left behind, tags and all — the one place the placeholder earns its keep,
+/// since `Err Str` has no other spelling there.
 ///
-/// The four shapes are the ones that emit differently: a member whose type is
-/// plain (needs the wrapper on Rust) and one already optional (must **not** be
-/// wrapped twice — an E0308 rustc caught, which Kotlin never saw, having no
-/// wrapper to double), each with the receiver present and absent.
-const SAFE_CALL_DEMO: &str = r#"
-struct Address {
-    city: Str,
-    zip: Str? = None
-}
-
-struct Person {
-    name: Str,
-    address: Address? = None
-}
-
-fn show(label: Str, v: Str?) [Console] -> None {
-    let s: Str = v ?: "-"
-    println("${label} ${s}")
-}
-
-fn main() [use] {
-    use StdOutConsole()
-    let full = Person {name: "Ada", address: Address {city: "Bath", zip: "BA1"}}
-    let bare = Person {name: "Bob"}
-    show("city", full.address?.city)
-    show("nocity", bare.address?.city)
-    show("zip", full.address?.zip)
-    show("nozip", bare.address?.zip)
-    let nick: Str? = "addy"
-    show("call", nick?.to_upper())
-}
-"#;
-
-const SAFE_CALL_OUTPUT: &str = "city Bath\nnocity -\nzip BA1\nnozip -\ncall ADDY\n";
-
-/// [pick] Step 5: the qualifier form of `?:`. `^Ok?:` **lifts** the tag, so the
-/// picked value is a plain `Int`; `Ok?:` keeps it, so the value is an `Ok Int`
-/// that can be returned as-is. `_` on the right is the **unpicked** arm with its
-/// own tag, which is the one place the placeholder earns its keep — `Err Str` has
-/// no other spelling there.
-///
-/// The subject is a **call**, so it is evaluated once into a temporary
-/// [is-bind-once]: the test, the picked read and `_` all reach the same value.
+/// The subject is a **call**, so it is evaluated once into a temporary: the
+/// test, the picked read and `_` all reach the same value.
 const PICK_DEMO: &str = r#"
 fn parse(text: Str) -> Ok Int | Err Str {
     if size(text) == 0 {
@@ -1177,13 +1139,17 @@ fn parse(text: Str) -> Ok Int | Err Str {
 }
 
 fn doubled(text: Str) -> Ok Int | Err Str {
-    let n: Int = parse(text) ^Ok?: return _
-    return ok(n * 2)
+    let got: Ok Int = parse(text) ?: return _
+    if got is ^Ok n {
+        return ok(n * 2)
+    }
+    return got
 }
 
-fn kept(text: Str) -> Ok Int | Err Str {
-    let n: Ok Int = parse(text) Ok?: return _
-    return n
+fn tail(text: Str) -> Ok Int | Err Str {
+    // Backward(1) keeps the last arm, `Err Str`; `_` is the `Ok Int`.
+    let e: Err Str = parse(text) :? return _
+    return e
 }
 
 fn show(label: Str, r: Ok Int | Err Str) [Console] -> None {
@@ -1197,7 +1163,7 @@ fn show(label: Str, r: Ok Int | Err Str) [Console] -> None {
 // `r` is an `Ok Int` below, so it needs no further check.
 fn guarded(text: Str) [Console] -> None {
     let r = parse(text)
-    let n: Int = r ^Ok?: return
+    let n: Ok Int = r ?: return
     let same: Ok Int = r
     println("guarded ${n} ${same}")
 }
@@ -1206,15 +1172,15 @@ fn main() [use] {
     use StdOutConsole()
     show("doubled", doubled("abc"))
     show("doubled", doubled(""))
-    show("kept", kept("abcd"))
-    show("kept", kept(""))
+    show("tail", tail("abcd"))
+    show("tail", tail(""))
     guarded("hello")
     guarded("")
 }
 "#;
 
 const PICK_OUTPUT: &str =
-    "doubled ok 6\ndoubled err empty\nkept ok 4\nkept err empty\nguarded 5 5\n";
+    "doubled ok 6\ndoubled err empty\ntail ok 4\ntail err empty\nguarded 5 5\n";
 
 /// [rewrap] A value spanning **fewer arms than its storage** is produced by
 /// mapping arm to arm, which is what the three shapes deferred out of the `?`
@@ -1264,8 +1230,11 @@ fn show(n: Int) [Console] -> None {
 }
 
 fn run(text: Str) -> Err Str | Thrown Str {
-    let n: Int = attempt(text) ^Ok?: return _
-    return err("len ${n}")
+    let got: Ok Int = attempt(text) ?: return _
+    if got is ^Ok n {
+        return err("len ${n}")
+    }
+    return err("unreachable")
 }
 
 fn report(text: Str) [Console] -> None {
@@ -1298,20 +1267,12 @@ fn kotlinc_compiles_and_runs_a_sub_union_rewrap() -> KotlinCase {
     kotlin_case(files, "rewrap", REWRAP_OUTPUT)
 }
 
-fn kotlinc_compiles_and_runs_a_qualifier_pick() -> KotlinCase {
+fn kotlinc_compiles_and_runs_a_positional_pick() -> KotlinCase {
     let program = build_program(&[("main.sv", PICK_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "pick", PICK_OUTPUT)
-}
-
-fn kotlinc_compiles_and_runs_the_safe_call() -> KotlinCase {
-    let program = build_program(&[("main.sv", SAFE_CALL_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
-        panic!("codegen errors:\n{}", errors.join("\n"));
-    });
-    kotlin_case(files, "safe-call", SAFE_CALL_OUTPUT)
 }
 
 fn kotlinc_compiles_and_runs_the_elvis_operator() -> KotlinCase {
@@ -4934,7 +4895,7 @@ fn kotlinc_compiles_and_runs_a_lending_member_through_a_struct_field() -> Kotlin
 /// optional handle, a `Mut Str` element — fits a kept owned `T?` parameter,
 /// of a fn or an effect member; owned optionals, literals and `None` still
 /// do; `copy` of one is an owned optional. On Rust the parameter is
-/// `Option<&T>`, so the body's lets, narrowings, `?:` and `?.` read the
+/// `Option<&T>`, so the body's lets, narrowings and `?:` read the
 /// borrow it holds.
 pub const OPT_SLOT_DEMO: &str = r#"
 struct Entity canbe Mut { name: Str, hp: Int }
@@ -4946,7 +4907,7 @@ fn inner(s: Str?) -> Str {
 fn outer(s: Str?) -> Str {
     let t = s
     let u = inner(t)
-    let n = s?.to_upper() ?: "?"
+    let n = if s is Str v { to_upper(v) } else { "?" }
     let c = copy(s)
     let none = if s is None { "absent" } else { "present" }
     return "${u} ${n} ${inner(c)} ${none}"
@@ -5399,8 +5360,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_escapes_in_expression_position,
     kotlinc_compiles_and_runs_a_lift_binding,
     kotlinc_compiles_and_runs_the_elvis_operator,
-    kotlinc_compiles_and_runs_the_safe_call,
-    kotlinc_compiles_and_runs_a_qualifier_pick,
+    kotlinc_compiles_and_runs_a_positional_pick,
     kotlinc_compiles_and_runs_a_sub_union_rewrap,
     kotlinc_compiles_and_runs_a_group_over_plain_arms,
     kotlinc_compiles_and_runs_a_hand_written_pass,

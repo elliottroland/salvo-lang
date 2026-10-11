@@ -550,14 +550,14 @@ pub fn add_sorted<T: Clone>(list: &mut Vec<T>, mut elem: T, cmp: &mut dyn FnMut(
 
 pub fn binary_search<T: Clone>(list: &Vec<T>, elem: &T, cmp: &mut dyn FnMut(&T, &T) -> i32) -> Option<i32> {
     let mut found: i32 = {
-        let mut __elv_1: Option<i32> = crate::core_list::search_sorted_by_platform::<T>(list, elem, &mut *cmp);
-        if __elv_1.is_none() {
+        let mut __pick_1: Option<i32> = crate::core_list::search_sorted_by_platform::<T>(list, elem, &mut *cmp);
+        if __pick_1.is_some() {
+            let mut __picked_2 = __pick_1.unwrap();
+            __picked_2
+        } else {
             {
                 return None;
             }
-        } else {
-            let mut __some_2 = __elv_1.unwrap();
-            __some_2
         }
     };
     if crate::core_index::Idx__Int_qualifies(found, list, &mut |__a0| crate::core_list::size_platform(__a0)) {

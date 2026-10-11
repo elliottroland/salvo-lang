@@ -1544,15 +1544,13 @@ pub enum Stmt {
     Comp(CompStmt),
 }
 
-/// [pick] A qualifier named before an `?:`.
-#[derive(Clone, Debug, PartialEq)]
-pub struct ElvisPick {
-    /// The qualifiers naming the arms to pick.
-    pub quals: Vec<TypeRef>,
-    /// Every qualifier was `^`-marked, so the picked value reads **without**
-    /// them — `^Ok` gives `T` where `Ok` gives `Ok T` [qual-lift].
-    pub lift: bool,
-    pub span: Span,
+/// [elvis] Which end of the subject's declared arm order a positional pick
+/// counts from. `Forward` picks the first `count` arms (`?:`, `??:`, …);
+/// `Backward` picks the last `count` arms (`:?`, `:??`, …).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ElvisDir {
+    Forward,
+    Backward,
 }
 
 /// Destructuring patterns for `let`.
@@ -1807,47 +1805,31 @@ pub enum Expr {
     /// the outcome `Ok T | Aborted M`, and an `abort` performed inside it
     /// becomes the `Aborted M` arm.
     Try { body: Block, span: Span },
-    /// [elvis] `subject ?: rhs` — the **optional-or-else** operator (user
-    /// decision 2026-09-21, step 4 of the `?` family sequence). The subject
-    /// must have a `None` arm; the expression is the subject's non-`None` arms
-    /// when it has one of them, and `rhs` otherwise. `rhs` sees `_` bound to
-    /// the `None` side, so `x ?: return _` is the same as `x ?: return None`.
+    /// [elvis] `subject ?…?: rhs` / `subject :?…? rhs` — the **positional
+    /// pick** operator (user decision, redesign superseding the 2026-09-21
+    /// named-qualifier form). A run of `n` `?`s names how many arms of the
+    /// subject's union, counted from the declared **front** (`dir: Forward`)
+    /// or **back** (`dir: Backward`), the operator picks: those `n` arms
+    /// become the expression's value when the subject holds one of them, and
+    /// `rhs` runs otherwise. `rhs` sees `_` bound to the arms the pick did
+    /// *not* claim — on the opposite side from `dir` — so `x ?: return _` on
+    /// an `Emitted Str | Finished | Err Int` subject is `Forward(1)`, picking
+    /// `Emitted Str` and leaving `_` as `Finished | Err Int`.
     ///
-    /// Reserved for `T?`: a *qualifier* is picked by naming it (step 5).
+    /// `n` must be at least 1 and less than the subject's arm count: `n = 0`
+    /// is a parse error (nothing named), and `n >=` the arm count leaves
+    /// nothing for `rhs` (checker error, [elvis]).
     Elvis {
         subject: Box<Expr>,
-        /// [pick] The qualifier picked before the `?:`, if any: `x Ok?: r` picks
-        /// the `Ok` arm keeping its tag, `x ^Ok?: r` picks it and **lifts** the
-        /// tag (the same `^Q` notation an `is` check uses [qual-lift]). `None`
-        /// here is the plain `?:`, which picks the non-`None` arms [elvis].
-        pick: Option<ElvisPick>,
+        dir: ElvisDir,
+        /// How many arms, in declared order from `dir`'s end, the pick keeps.
+        count: u32,
         rhs: Box<Expr>,
         span: Span,
     },
-    /// [safe-call] `subject?.name` / `subject?.name(args)` — a field read or a
-    /// dot-notation call on the **non-`None`** side of an optional (user
-    /// decision 2026-09-21, step 4). The result is the member's own type
-    /// re-unioned with `None`, so a chain re-tests at each link, as Kotlin's
-    /// does.
-    ///
-    /// Reserved for `T?`, like `?:`. Held as its own node rather than a flag on
-    /// `Field`/`Call` because the *whole* postfix step is conditional: the
-    /// member is not reached at all when the subject is `None`.
-    SafeField {
-        /// The receiver, held separately so the checker can strip its `None`
-        /// before `inner` is typed.
-        base: Box<Expr>,
-        /// The **equivalent ordinary access** over the same base: a `Field`, or
-        /// a `Call` whose callee is one. Holding it means the whole existing
-        /// path types and emits it — field overrides, overload resolution,
-        /// effects, diagnostics — with `?.` adding only the conditional and the
-        /// `None` arm of the result.
-        inner: Box<Expr>,
-        span: Span,
-    },
     /// [placeholder] `_` — the value the enclosing construct left unnamed.
-    /// Legal only inside an `?:` right-hand side today, where it is the
-    /// `None` side of the subject.
+    /// Legal only inside an `?:` right-hand side today, where it is the arms
+    /// the pick did **not** claim.
     Placeholder { span: Span },
     /// [expr-escape] `return expr?` — an **expression** of type `Never`
     /// (user decision 2026-09-21), not a statement. The three escapes are
@@ -2094,7 +2076,6 @@ impl Expr {
             | Expr::Continue { span, .. }
             | Expr::Elvis { span, .. }
             | Expr::Placeholder { span }
-            | Expr::SafeField { span, .. }
             | Expr::SelfScoped { span, .. }
             | Expr::SelfAddr { span, .. }
             | Expr::Spawn { span, .. }

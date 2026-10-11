@@ -708,24 +708,14 @@ pub fn walk_expr<V: Visitor>(v: &mut V, e: &Expr) {
         }
         Expr::Elvis {
             subject,
-            pick,
+            dir: _,
+            count: _,
             rhs,
             span,
         } => {
             v.visit_span(span);
             walk_expr(v, subject);
-            if let Some(p) = pick {
-                v.visit_span(&p.span);
-                for q in &p.quals {
-                    walk_type_ref(v, q);
-                }
-            }
             walk_expr(v, rhs);
-        }
-        Expr::SafeField { base, inner, span } => {
-            v.visit_span(span);
-            walk_expr(v, base);
-            walk_expr(v, inner);
         }
         Expr::Return { value, span } | Expr::Break { value, span } => {
             v.visit_span(span);

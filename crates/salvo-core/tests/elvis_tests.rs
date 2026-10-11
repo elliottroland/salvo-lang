@@ -1,11 +1,13 @@
 //! The optional-or-else operator `?:` and the placeholder `_` [elvis]
 //! [placeholder].
 //!
-//! `?:` picks the **non-`None` arms** of its subject, and its right side runs
-//! only when the subject is `None`. Reserved for `T?`: a qualifier is picked by
-//! naming it (step 5 of the `?` family sequence). The right side is an ordinary
-//! expression, which since [expr-escape] includes `return`/`break`/`continue` —
-//! so `maybe_t() ?: return None` is the form the whole sequence was for.
+//! `?…?:` / `:?…?` is the **positional pick**: a run of `n` `?`s names how many
+//! arms of the subject's union — counted from the declared front (`Forward`) or
+//! back (`Backward`) — the operator keeps. Those become the value; the right
+//! side runs otherwise, with `_` bound to the arms left behind. `?:` is
+//! `Forward(1)`. The right side is an ordinary expression, which since
+//! [expr-escape] includes `return`/`break`/`continue` — so `maybe_t() ?: return
+//! None` is the form the whole sequence was for.
 
 use std::path::Path;
 
@@ -64,9 +66,10 @@ fn errors(src: &str) -> Vec<String> {
 
 /// [elvis] The two shapes that matter: a right side that **escapes** (the
 /// result is just the picked type) and one that gives a **value** (the result
-/// is the join). `_` is the `None` side, so `return _` is `return None`.
+/// is the join). `?:` is `Forward(1)`, so on a `Str?` it picks the `Str` arm
+/// and `_` is the `None` left behind.
 #[test]
-fn an_elvis_picks_the_non_none_arms() {
+fn an_elvis_picks_the_first_arm() {
     let errs = errors(
         "fn nick(s: Str?) [] -> Str? {\n\
          \x20   let n: Str = s ?: return None\n\
@@ -79,157 +82,92 @@ fn an_elvis_picks_the_non_none_arms() {
     assert!(errs.is_empty(), "expected a clean `?:`, got: {errs:?}");
 }
 
-/// [elvis] Reserved for `T?`: without a `None` arm nothing can take the right
-/// side, which is the same "dead scaffolding" refusal a throw-free `try` gets.
+/// [elvis] A pick that keeps every arm leaves nothing for the right side — the
+/// same "dead scaffolding" refusal a throw-free `try` gets. A non-union subject
+/// has one arm, so `?:` on it is refused the same way.
 #[test]
-fn an_elvis_needs_an_optional_subject() {
-    let errs = errors("fn f(s: Str) [] -> Str {\n    return s ?: \"other\"\n}\n");
+fn a_pick_must_leave_something() {
+    let one = errors("fn f(s: Str) [] -> Str {\n    return s ?: \"other\"\n}\n");
     assert!(
-        errs.iter()
-            .any(|e| e.contains("needs an optional on its left") && e.contains("no `None` arm")),
-        "expected the non-optional refusal, got: {errs:?}"
+        one.iter().any(|e| e.contains("leave nothing for the right-hand side")),
+        "expected the nothing-left refusal on a one-arm subject, got: {one:?}"
+    );
+    // `??:` on a `Str?` keeps both arms.
+    let all = errors("fn f(s: Str?) [] -> Str? {\n    return s ??: None\n}\n");
+    assert!(
+        all.iter().any(|e| e.contains("leave nothing for the right-hand side")),
+        "expected the nothing-left refusal when the pick keeps every arm, got: {all:?}"
     );
 }
 
-/// [placeholder] `_` is the **unpicked** side of a qualifier pick [pick], so it
-/// reads only in the right-hand side of one. A plain `?:` leaves `None`, which
-/// the program can already write, so there it would name a value that has a
-/// name — and outside either, reading `_` is an error rather than a silent
+/// [placeholder] `_` is the arms a pick left behind, so it reads only in the
+/// right-hand side of a pick. Outside one it is an error, not a silent
 /// `Unknown`.
 #[test]
-fn a_placeholder_outside_an_elvis_is_an_error() {
+fn a_placeholder_outside_a_pick_is_an_error() {
     let errs = errors("fn f() [] -> Str {\n    return _\n}\n");
     assert!(
-        errs.iter()
-            .any(|e| e.contains("unpicked") && e.contains("qualifier pick")),
+        errs.iter().any(|e| e.contains("right-hand side of a pick")),
         "expected the stray-placeholder error, got: {errs:?}"
     );
 }
 
-/// [elvis] A right side whose type is **not one of the subject's arms** would
-/// need the picked value re-wrapped as well, and the picked value has no span of
-/// its own to hang a coercion on. Refused by name for now, with `when` as the
-/// remedy.
+/// [elvis] [rewrap] Widening is now allowed (user decision 2026-10-11): a right
+/// side outside the subject's arms joins into the result. `Int? ?: "none"` is
+/// `Int | Str`.
 #[test]
-fn a_widening_right_side_is_refused_for_now() {
+fn a_widening_right_side_joins() {
     let errs = errors("fn f(n: Int?) [] -> Str | Int {\n    return n ?: \"none\"\n}\n");
-    assert!(
-        errs.iter().any(|e| e.contains("widens the result is not supported yet")),
-        "expected the widening-right-side refusal, got: {errs:?}"
-    );
+    assert!(errs.is_empty(), "expected a clean widening pick, got: {errs:?}");
 }
 
-/// [safe-call] `?.` reaches a member on the non-`None` side, and the result
-/// carries a `None` arm — so a field whose own type is optional stays one arm
-/// deep (the arms dedupe) and a plain field gains one.
+/// [elvis] `_` carries the arms left behind, tags and all, so the right side
+/// can route on them. A multi-arm `_` is a sub-union of the storage [rewrap].
 #[test]
-fn a_safe_call_re_unions_none() {
-    let errs = errors(
-        "struct Address {\n    city: Str,\n    zip: Str? = None\n}\n\
-         struct Person {\n    home: Address? = None\n}\n\
-         fn f(p: Person) [] -> Str? {\n    return p.home?.city\n}\n\
-         fn g(p: Person) [] -> Str? {\n    return p.home?.zip\n}\n",
-    );
-    assert!(errs.is_empty(), "expected a clean `?.`, got: {errs:?}");
-}
-
-/// [safe-call] Reserved for `T?`, like `?:`: with no `None` arm the `?` asks a
-/// question that has one answer.
-#[test]
-fn a_safe_call_needs_an_optional_receiver() {
-    let errs = errors("fn f(s: Str) [] -> Str? {\n    return s?.to_upper()\n}\n");
-    assert!(
-        errs.iter()
-            .any(|e| e.contains("needs an optional receiver") && e.contains("drop the `?`")),
-        "expected the non-optional refusal, got: {errs:?}"
-    );
-}
-
-/// [safe-call] [loop-while-is] The receiver must be a **place**: the form reads
-/// it twice, once to test and once to reach the member, which is the same rule
-/// (and the same remedy) a call subject in an `is` already has.
-#[test]
-fn a_safe_call_receiver_must_be_a_place() {
-    let errs = errors(
-        "fn id(x: Str?) [] -> Str? {\n    return x\n}\n\
-         fn f(s: Str?) [] -> Str? {\n    return id(s)?.to_upper()\n}\n",
-    );
-    assert!(
-        errs.iter()
-            .any(|e| e.contains("`?.` receiver must be a variable") && e.contains("bind the value")),
-        "expected the place refusal, got: {errs:?}"
-    );
-}
-
-/// [pick] The two picks: `^Ok` **lifts** the tag (the value is a plain `Int`)
-/// and `Ok` keeps it (an `Ok Int`). `_` on the right is the unpicked arm with
-/// its own tag — the one place the placeholder earns its keep, since `Err Str`
-/// has no other spelling there.
-#[test]
-fn a_qualifier_pick_lifts_or_keeps() {
+fn the_placeholder_carries_the_left_arms() {
     let errs = errors(
         "fn parse(t: Str) [] -> Ok Int | Err Str {\n    return err(t)\n}\n\
-         fn lifted(t: Str) [] -> Ok Int | Err Str {\n\
-         \x20   let n: Int = parse(t) ^Ok?: return _\n\
-         \x20   return ok(n)\n\
-         }\n\
-         fn kept(t: Str) [] -> Ok Int | Err Str {\n\
-         \x20   let n: Ok Int = parse(t) Ok?: return _\n\
+         fn routed(t: Str) [] -> Ok Int | Err Str {\n\
+         \x20   let n: Ok Int = parse(t) ?: return _\n\
          \x20   return n\n\
          }\n",
     );
-    assert!(errs.is_empty(), "expected clean picks, got: {errs:?}");
+    assert!(errs.is_empty(), "expected a clean `_` on the left arm, got: {errs:?}");
 }
 
-/// [pick] A pick that matches nothing can never run; one that matches
-/// *everything* leaves the right-hand side dead. Both are the "dead
-/// scaffolding" refusal a throw-free `try` gets [try].
+/// [elvis] A **backward** pick (`:?`) keeps the last arm. On `Ok Int | Err Str`
+/// it picks `Err Str` and leaves `Ok Int` to `_`.
 #[test]
-fn a_pick_must_match_something_and_leave_something() {
-    let never = errors(
-        "fn f(r: Ok Int | Err Str) [] -> Int {\n    return r Str?: 0\n}\n",
+fn a_backward_pick_keeps_the_last_arm() {
+    let errs = errors(
+        "fn parse(t: Str) [] -> Ok Int | Err Str {\n    return err(t)\n}\n\
+         fn tail(t: Str) [] -> Ok Int | Err Str {\n\
+         \x20   let e: Err Str = parse(t) :? return _\n\
+         \x20   return e\n\
+         }\n",
     );
-    assert!(
-        never.iter().any(|e| e.contains("can never match") || e.contains("names qualifiers")),
-        "expected the no-match refusal, got: {never:?}"
-    );
-    let all = errors(
-        "fn f(r: Ok Int | Ok Str) [] -> Int {\n    return r Ok?: 0\n}\n",
-    );
-    assert!(
-        all.iter()
-            .any(|e| e.contains("can never run") || e.contains("several arms")),
-        "expected the dead-right-side refusal, got: {all:?}"
-    );
+    assert!(errs.is_empty(), "expected a clean backward pick, got: {errs:?}");
 }
 
-/// [pick] [rewrap] **Either side may span several arms.** A multi-arm side is a
-/// sub-union of the storage, produced by mapping arm to arm — the mapping
-/// [let-infer]'s `Rewrap` already performed for an annotated slot, now reached
-/// from a site that has no slot. Both directions here: two arms *picked*, and two
-/// arms left to `_`.
+/// [elvis] A pick may span several arms on either side (`??:` keeps two). On
+/// `Ok Int | Ok Str | Err Str` the two-arm forward pick keeps `Ok Int | Ok Str`
+/// and leaves `Err Str`.
 #[test]
-fn a_pick_may_span_several_arms_on_either_side() {
-    let picked = errors(
-        "fn f(r: Ok Int | Ok Str | Err Str) [] -> Int | Str | Bool {\n\
-         \x20   return r ^Ok?: true\n\
+fn a_pick_may_span_several_arms() {
+    let errs = errors(
+        "fn f(r: Ok Int | Ok Str | Err Str) [] -> Ok Int | Ok Str | Err Str {\n\
+         \x20   let kept: Ok Int | Ok Str = r ??: return _\n\
+         \x20   return kept\n\
          }\n",
     );
-    assert!(picked.is_empty(), "expected a clean multi-arm pick, got: {picked:?}");
-    let left = errors(
-        "fn f(r: Ok Int | Err Str | Err Int) [] -> Err Str | Err Int {\n\
-         \x20   let n: Int = r ^Ok?: return _\n\
-         \x20   return err(n)\n\
-         }\n",
-    );
-    assert!(left.is_empty(), "expected a clean multi-arm `_`, got: {left:?}");
+    assert!(errs.is_empty(), "expected a clean multi-arm pick, got: {errs:?}");
 }
 
 /// [elvis-guard] A `?:` whose right side **leaves** has proved its subject was
-/// there, so the place narrows on the path below — the same facts an `is` guard
-/// leaves [is-narrow-guard], reached from an expression instead of a condition.
-/// Interpolation is the probe: it refuses a possibly-`None` value
-/// [interp-no-none], so it passes only if the narrowing landed.
+/// one of the picked arms, so the place narrows on the path below — the same
+/// facts an `is` guard leaves [is-narrow-guard], reached from an expression.
+/// Interpolation is the probe: it refuses a possibly-`None` value, so it passes
+/// only if the narrowing landed.
 #[test]
 fn a_guarding_elvis_narrows_its_subject() {
     let errs = errors(
@@ -242,7 +180,7 @@ fn a_guarding_elvis_narrows_its_subject() {
 }
 
 /// [elvis-guard] A right side that **yields a value** proves nothing: that path
-/// is the one where the subject was absent, so the place keeps its type.
+/// is the one where the subject was not picked, so the place keeps its type.
 #[test]
 fn a_valued_elvis_does_not_narrow() {
     let errs = errors(
@@ -257,19 +195,18 @@ fn a_valued_elvis_does_not_narrow() {
     );
 }
 
-/// [elvis-guard] [pick] After a guarding **pick** the place reads as the matched
-/// **arm**, tag included — the lift applies to the value the expression
-/// produced, not to the variable, and naming the lifted type there would match
-/// no arm of the storage.
+/// [elvis-guard] After a guarding pick the place reads as the picked arm, tag
+/// included.
 #[test]
 fn a_guarding_pick_narrows_to_the_arm() {
     let errs = errors(
         "fn parse(t: Str) [] -> Ok Int | Err Str {\n    return err(t)\n}\n\
          fn f(text: Str) [] -> None {\n\
          \x20   let r = parse(text)\n\
-         \x20   let n: Int = r ^Ok?: return\n\
+         \x20   let n: Ok Int = r ?: return\n\
          \x20   let again: Ok Int = r\n\
          }\n",
     );
     assert!(errs.is_empty(), "expected `r` to read as `Ok Int`, got: {errs:?}");
 }
+

@@ -1551,10 +1551,6 @@ impl Rewrite {
                 self.expr(subject);
                 self.expr(rhs);
             }
-            Expr::SafeField { base, inner, .. } => {
-                self.expr(base);
-                self.expr(inner);
-            }
             Expr::Placeholder { .. } => {}
             // [actor-spawn-expr] Every clause is an ordinary expression, so
             // an `iter fn` subject read inside one rewrites like any other.
@@ -1738,10 +1734,6 @@ fn collect_shadowing(body: &Block, reserved: &[&Ident], out: &mut Vec<(String, S
             Expr::Elvis { subject, rhs, .. } => {
                 walk_expr(subject, reserved, out);
                 walk_expr(rhs, reserved, out);
-            }
-            Expr::SafeField { base, inner, .. } => {
-                walk_expr(base, reserved, out);
-                walk_expr(inner, reserved, out);
             }
             Expr::Placeholder { .. } => {}
             // [actor-spawn-expr] [actor-replyto] [actor-waitfor] The
@@ -2194,10 +2186,6 @@ fn walk_expr_with(expr: &Expr, on_stmt: &mut dyn FnMut(&Stmt), on_expr: &mut dyn
         Expr::Elvis { subject, rhs, .. } => {
             e(subject);
             e(rhs);
-        }
-        Expr::SafeField { base, inner, .. } => {
-            e(base);
-            e(inner);
         }
         Expr::Spawn { handler, with_items, pool, .. } => {
             e(handler);

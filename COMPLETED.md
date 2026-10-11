@@ -138,7 +138,53 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
-### 2026-10-10 — Positions are preserved, never recovered: `proj → ref` is gone, a `ref` result is always the path (user decision; FINISH_REF.md retired)
+### 2026-10-11 — The elvis family is one positional pick; named-qualifier picks, predicate picks and `?.` safe-call are gone (user decision)
+
+The `?`-family operators collapse to a single **positional pick**. `Expr::Elvis`
+is now `{ subject, dir: ElvisDir(Forward|Backward), count: u32, rhs }`: a run of
+`n` `?`s before `:` is `Forward(n)` and keeps the first `n` arms of the
+subject's declared union; after `:` (`:?`, `:??`) is `Backward(n)` and keeps the
+last `n`. `?:` is `Forward(1)`. `_` in the right side is the arms left behind, a
+sub-union by `[rewrap]`. **`?` and `:` lex as separate tokens** (`QuestionColon`
+deleted); the parser counts a run. What this **removed**:
+
+- **Named-qualifier picks** (`x Ok?: r`, `^Ok` lift) — `check_pick`, the
+  `ElvisPick` AST node, `peek_elvis_pick`, and the `pick: Option<ElvisPick>`
+  field. The tag-lift a pick used to do is now reached with `is ^Ok` after the
+  pick. Deleted outright (user: no need to keep in the ROADMAP; the existing
+  syntax is enough until a real site reads worse without the sugar).
+- **Predicate picks** (`i Idx(heap)?: break`, `[pick-qualifies]`) — the
+  runtime-`qualifies` form on a non-union subject. std's two users (`std/heap.sv`
+  sift, `std/core/list.test.sv`) were rewritten with `if …is Idx(…)` guards and,
+  for the heap, an `if`-expression that keeps the `Idx` claim across the
+  conditional child choice (reassigning a narrowed local strips its dependent
+  claim, so the choice is a fresh binding, not a mutation).
+- **The `?.` safe-call** (`QuestionDot`, `Expr::SafeField`, `safe_strip`,
+  `[safe-call]`/`[kt-safe-call]`/`[rs-safe-call]`) — removed entirely (user bet:
+  the multi-line pick right side makes it redundant). No `.sv` source used it.
+
+What this **changed in behaviour**: **widening is now allowed** — a right side
+outside the subject's arms joins into the result (`Int? ?: "none"` is `Int |
+Str`), where the old form refused it; the picked value is wrapped into the join
+via a new `elvis_widen` coercion table. And `?:` on a *multi-value-arm* optional
+(`Str | Int | None`) now keeps only the **first** arm (`Str`), where the old
+"non-`None` arms" form kept both — the demos use `??:` for that now. Every
+ordinary `x ?: default` on a two-arm `T?` is unchanged (`Forward(1)` keeps the
+one value arm).
+
+The IR lowers a pick to a `Branch` whose condition is a disjunction of `Test`
+nodes over the picked arms (so any mix of value arms and `None` is expressible),
+with the `_` binding emitted **only when the right side reads it** (a plain `?:`
+default never does, and a dead `None`-typed `__rest` local produced invalid
+`val __rest: Unit = null`). Both backends render the `Branch` with no
+elvis-specific emitter code. `Checked` tables: `pick_left` and `elvis_picks`
+kept, `elvis_tests: PickTest` added, `safe_strip` removed, `predicate_tests`
+kept (still used by `is`). Spec: `[elvis]`/`[placeholder]`/`[rewrap]` rewritten,
+`[pick]`/`[pick-qualifies]`/`[safe-call]` deleted, backend specs updated. All
+goldens, examples (both backends) and host projects regenerated. **Warm `cargo
+test` green.**
+
+
 
 `ref(c) T` is a **position** in `c`; `proj T` is a borrow that may not be one.
 `ref → proj` is free (`ref(c) T <: proj T`); **`proj → ref` does not exist.** A

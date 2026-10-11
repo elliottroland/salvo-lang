@@ -231,6 +231,23 @@ pub struct UnionTest {
     pub values: Vec<(usize, bool, Vec<salvo_syntax::ast::TypeLit>)>,
 }
 
+/// [elvis] How a positional pick (`?:`, `??:`, `:?`, …) lowers against the
+/// subject's declared union: which arms are the **picked** side, expressed as
+/// indices into the subject's non-`None` value arms plus whether the `None`
+/// arm itself is picked. The emitters build a test for the picked side and
+/// route the rest to `rhs`.
+#[derive(Clone, Debug)]
+pub struct PickTest {
+    /// Number of non-`None` arms in the subject's declared union.
+    pub size: usize,
+    /// Indices (into the non-`None` value arms) the pick keeps.
+    pub value_arms: Vec<usize>,
+    /// Whether the subject's `None` arm is on the picked side.
+    pub picks_none: bool,
+    /// Whether the subject has a `None` arm at all.
+    pub nullable: bool,
+}
+
 /// [iter-protocol] Which function a `for` calls to drive a pass — the `next`
 /// that advances it, or the `close` that releases it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -769,18 +786,23 @@ pub struct Checked {
     /// shadowing local for the branch, so reads and any nested `when` see it
     /// at this type.
     pub widen_targets: HashMap<Key, Ty>,
-    /// [pick] The **unpicked** arm at each qualifier pick — the type `_` reads
-    /// as on the right-hand side, tag and all. Keyed by the operator's span.
+    /// [elvis] The **unpicked** arms at each positional pick — the type `_`
+    /// reads as on the right-hand side, tags and all. Keyed by the operator's
+    /// span.
     pub pick_left: HashMap<Key, Ty>,
-    /// [safe-call] The receiver type a `?.` stripped, keyed by the receiver's
-    /// span. Present only while the inner access is being typed; the checker
-    /// reads it back instead of re-typing the receiver, which is also what keeps
-    /// the receiver evaluated once.
-    pub safe_strip: HashMap<Key, Ty>,
-    /// [elvis] The **picked** type at each `?:` — the subject's non-`None`
-    /// arms. Keyed by the operator's span; the emitters read it to know what
-    /// the left branch yields.
+    /// [elvis] The **picked** type at each `?:` — the subject's arms the run of
+    /// `?`s selected (a sub-union, by `[rewrap]`). Keyed by the operator's
+    /// span; the emitters read it to know what the left branch yields.
     pub elvis_picks: HashMap<Key, Ty>,
+    /// [elvis] How a positional pick lowers at runtime, keyed by the
+    /// operator's span: which of the subject's arms are the *picked* side.
+    pub elvis_tests: HashMap<Key, PickTest>,
+    /// [elvis] [rewrap] When a pick's result **widens** past its picked arms
+    /// (`Int? ?: "none"` is `Int | Str`), the coercion that lifts the picked
+    /// value into the join, keyed by the operator's span. The emitters wrap
+    /// the picked value (only); the right side carries its own coercion at
+    /// its own span.
+    pub elvis_widen: HashMap<Key, Coercion>,
     /// Calls that may throw [throw], keyed by the call span: the `throw`
     /// operation itself and every call whose callee declares `[Throw<M>]`.
     /// The emitters need each one because the control transfer is *their*
@@ -1243,17 +1265,14 @@ impl Checked {
         }
     }
 
-    /// [unify-checker] The qualifier-`pick`/elvis facts at one span, in one
-    /// lookup (COMPLETED.md's unify-checker entry): the `is`-test lowering, the picked and left
-    /// arm types, and any predicate-qualifier conjunction. (`is_tests` and
-    /// `predicate_tests` are also read on their own at `is`/`when` sites; this
-    /// view is for the pick site that reads all four.)
+    /// [unify-checker] The positional-pick / elvis facts at one span, in one
+    /// lookup (COMPLETED.md's unify-checker entry): the runtime test, and the
+    /// picked and left arm types.
     pub fn pick_info(&self, key: Key) -> PickInfo<'_> {
         PickInfo {
-            is_test: self.is_tests.get(&key),
+            elvis_test: self.elvis_tests.get(&key),
             elvis_pick: self.elvis_picks.get(&key),
             pick_left: self.pick_left.get(&key),
-            predicate_tests: self.predicate_tests.get(&key),
         }
     }
 
@@ -1268,12 +1287,11 @@ impl Checked {
     }
 }
 
-/// [unify-checker] qualifier-`pick` / elvis facts at one span (COMPLETED.md's unify-checker entry).
+/// [unify-checker] positional-`pick` / elvis facts at one span (COMPLETED.md's unify-checker entry).
 pub struct PickInfo<'c> {
-    pub is_test: Option<&'c UnionTest>,
+    pub elvis_test: Option<&'c PickTest>,
     pub elvis_pick: Option<&'c Ty>,
     pub pick_left: Option<&'c Ty>,
-    pub predicate_tests: Option<&'c Vec<PredicateCheck>>,
 }
 
 /// [unify-checker] string-interpolation rendering facts at one span
@@ -16047,7 +16065,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             Expr::Assert { .. } => false,
             // [elvis] Neither side escapes by itself: a diverging right side
             // is recognized by its recorded type, like any diverging call.
-            Expr::Elvis { .. } | Expr::Placeholder { .. } | Expr::SafeField { .. } => false,
+            Expr::Elvis { .. } | Expr::Placeholder { .. } => false,
             // [expr-escape] All three leave the enclosing block. `diverges`
             // above already answers for them off the recorded type; listed
             // here because this match is deliberately exhaustive, so a new
@@ -16148,7 +16166,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // a `fn` whose only tail is `unreachable!()` has no missing return
             // [fn-must-return], which `expr_exits` above answers.
             Expr::Unreachable { .. } | Expr::Assert { .. } => false,
-            Expr::Elvis { .. } | Expr::Placeholder { .. } | Expr::SafeField { .. } => false,
+            Expr::Elvis { .. } | Expr::Placeholder { .. } => false,
             // [expr-escape] Only `return` leaves the *function*; the guard
             // above has already answered `false` for the other two.
             Expr::Return { .. } => true,
@@ -20352,8 +20370,7 @@ fn collect_binder_arg_sites<'p>(
             | Expr::IncDec { operand: base, .. }
             | Expr::Spread { operand: base, .. }
             | Expr::Is { subject: base, .. }
-            | Expr::Widen { subject: base, .. }
-            | Expr::SafeField { base, .. } => expr(base, name, out),
+            | Expr::Widen { subject: base, .. } => expr(base, name, out),
             Expr::Binary { lhs, rhs, .. } => {
                 expr(lhs, name, out);
                 expr(rhs, name, out);
@@ -20474,7 +20491,6 @@ fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
             collect_assigned_expr(subject, out);
             collect_assigned_expr(rhs, out);
         }
-        Expr::SafeField { inner, .. } => collect_assigned_expr(inner, out),
         Expr::Placeholder { .. } => {}
         // [expr-escape] The escapes carry a value expression, which may hold
         // assignments of its own (a block-valued `if`, say).
@@ -20708,7 +20724,6 @@ fn expr_mentions(expr: &Expr, name: &str) -> bool {
         Expr::Elvis { subject, rhs, .. } => {
             expr_mentions(subject, name) || expr_mentions(rhs, name)
         }
-        Expr::SafeField { inner, .. } => expr_mentions(inner, name),
         Expr::Placeholder { .. } => false,
         // [expr-escape] `return x` mentions `x`.
         Expr::Return { value, .. } | Expr::Break { value, .. } => {
@@ -20889,245 +20904,141 @@ struct IsInfo {
 impl<'p, 'r> Checker<'p, 'r> {
     // ================= widening checks [qual-lift] =================
 
-    /// Analyzes a `^` check: the **dual of `is`**. The runtime test is the
-    /// one `is` of the same qualifiers performs — same arm, same lowering —
-    /// but the matched type is *generalized* (the qualifiers removed) rather
-    /// than refined, so the subject reads without them inside the branch.
-    /// [pick] `subject Qual?: rhs` — the qualifier form of `?:`. The named arm
-    /// is **picked**: it becomes the expression's value, with its tag kept, or
-    /// lifted when the qualifier was written `^Qual` [qual-lift]. Everything the
-    /// pick did not claim goes to the right-hand side, where `_` names it
-    /// [placeholder] — which is the one place `_` earns its keep, since the
-    /// unpicked side carries a tag and so has no other spelling.
-    ///
-    /// First slice: **one pick, one matched arm, one remaining arm**. A pick
-    /// matching or leaving several arms needs the arm-mapping re-wrap
-    /// ([let-infer], the same one step 3's multi-arm lift waits on), so it is
-    /// refused by name rather than emitted wrong [backend-never-wrong].
-    fn check_pick(
+    /// [elvis] `subject ?…?: rhs` / `subject :?…? rhs` — the positional pick.
+    /// `dir`/`count` name a run of arms of the subject's union, counted from
+    /// the declared front (`Forward`) or back (`Backward`): those become the
+    /// value (a sub-union by `[rewrap]`), and `rhs` runs otherwise with `_`
+    /// bound to the arms left behind. Widening is allowed — a `rhs` outside
+    /// the subject's arms joins into the result (user decision 2026-10-11).
+    fn check_elvis(
         &mut self,
         subject: &'p Expr,
-        pick: &'p salvo_syntax::ast::ElvisPick,
+        dir: salvo_syntax::ast::ElvisDir,
+        count: u32,
         rhs: &'p Expr,
         span: Span,
     ) -> Ty {
+        use salvo_syntax::ast::ElvisDir;
         let subj_ty = self.check_expr(subject, None);
         if subj_ty.is_unknown() {
-            // [type-unknown-lenient]
+            // [type-unknown-lenient] One mistake, one diagnostic.
             let _ = self.check_expr(rhs, None);
             return Ty::Unknown;
         }
-        let pat = self.parse_check(&pick.quals);
-        if pat.unresolved {
-            let _ = self.check_expr(rhs, None);
-            return Ty::Unknown;
-        }
-        if pat.base.is_some() || pat.is_none {
-            self.error(
-                span,
-                "a pick names qualifiers, not types: `x Ok?: r` picks the `Ok` \
-                 arm"
-                    .to_string(),
-            );
-            let _ = self.check_expr(rhs, None);
-            return Ty::Unknown;
-        }
-        let Ty::Union(arms) = &subj_ty else {
-            // [pick-qualifies] A predicate qualifier on a non-union subject
-            // is the pick's *runtime* form (user decision 2026-09-24), the
-            // same duality `is` has [is-qualifies]: `i * 2 + 1 Idx(heap)?:
-            // break` calls `qualifies` and, when it holds, the value is the
-            // claimed subject — `Idx(heap) Int`. The right side runs when
-            // the claim does not hold; `_` there is the plain subject.
-            let resolved: Vec<Option<&'p QualifierDecl>> = pat
-                .quals
-                .iter()
-                .map(|q| {
-                    let subj = subj_ty.clone();
-                    self.qualifier_for(q.as_str(), Some(&subj))
-                })
-                .collect();
-            let is_predicate =
-                resolved.iter().all(|d| d.is_some_and(|d| d.has_body));
-            if !is_predicate {
-                let constructive = pat
-                    .quals
-                    .iter()
-                    .zip(&resolved)
-                    .find(|(_, d)| d.is_some_and(|d| !d.has_body))
-                    .map(|(q, _)| q.clone());
-                match constructive {
-                    // [qual-constructive] No runtime test exists, so nothing
-                    // could decide the pick.
-                    Some(q) => self.error(
-                        span,
-                        format!(
-                            "`{q}` is a constructive qualifier; values only gain \
-                             it from constructor functions, so a pick cannot \
-                             test for it on a non-union value"
-                        ),
-                    ),
-                    None => self.error(
-                        span,
-                        format!(
-                            "`{}?:` needs a union arm or a predicate qualifier on \
-                             its left, but `{subj_ty}` is one type with no \
-                             runtime test",
-                            pat.quals.join(" ")
-                        ),
-                    ),
-                }
-                let _ = self.check_expr(rhs, None);
-                return Ty::Unknown;
-            }
-            if pick.lift {
-                // A predicate pick *establishes*; the subject carries no tag
-                // to lift off.
-                self.error(
-                    span,
-                    format!(
-                        "`^` lifts a tag the subject already carries; a \
-                         predicate pick establishes `{}` instead — drop the `^`",
-                        pat.quals.join(" ")
-                    ),
-                );
-                let _ = self.check_expr(rhs, None);
-                return Ty::Unknown;
-            }
-            let dependent_args =
-                self.check_predicate_quals(&pat, &resolved, &subj_ty, span);
-            let quals: Vec<Qual> = pat
-                .quals
-                .iter()
-                .map(|n| Qual {
-                    effect: false,
-                    name: n.clone(),
-                    args: dependent_args.get(n).cloned().unwrap_or_default(),
-                })
-                .collect();
-            let picked = subj_ty.clone().qualify(quals);
-            self.out.elvis_picks.insert(self.key(span), picked.clone());
-            // [placeholder] `_` is the subject as it was: the claim did not
-            // hold, and nothing else changed.
-            self.out.pick_left.insert(self.key(span), subj_ty.clone());
-            let saved = self.placeholder_ty.replace(subj_ty.clone());
-            // [elvis-guard] A right side that leaves takes its flow effects
-            // with it: a `return elem` there moves `elem` on a path the code
-            // below never shares, so the consumption must not poison the
-            // fall-through (found on `std.heap`'s sift, 2026-09-24).
-            let entry = self.snapshot_narrows();
-            let rhs_ty = self.check_expr(rhs, None);
-            self.placeholder_ty = saved;
-            if matches!(rhs_ty, Ty::Never) {
-                self.restore_narrows(&entry);
-                // [elvis-guard] The claim held on the path below.
-                let repr = self.repr_of(subject, &subj_ty);
-                self.install_elvis_guard(subject, &picked, &repr);
-                return picked;
-            }
-            // A value-yielding right side keeps the claim only when it
-            // carries it too; otherwise the expression is the *unclaimed*
-            // join — a claim and its absence are one representation, never
-            // two union arms.
-            let join = if is_subtype(&rhs_ty, &picked) {
-                picked
-            } else {
-                self.mk_union(vec![subj_ty.clone(), rhs_ty.clone()])
-            };
-            let rhs_repr = self.repr_of(rhs, &rhs_ty);
-            self.maybe_coerce(rhs.span(), &rhs_ty, &rhs_repr, &join);
-            return join;
+        // The pick selects over the subject's **declared arms**, in order
+        // [union-arm-identity]. A non-union subject has one arm, which leaves
+        // nothing for the other side — refused like a non-optional `?:` used
+        // to be, and the same "dead scaffolding" a throw-free `try` gets.
+        let declared: Vec<Ty> = match &subj_ty {
+            Ty::Union(arms) => arms.clone(),
+            _ => vec![subj_ty.clone()],
         };
-        let (matched, remaining): (Vec<Ty>, Vec<Ty>) = arms
-            .iter()
-            .cloned()
-            .partition(|arm| self.arm_matches(arm, &pat));
-        let names = pat.quals.join(" ");
-        if matched.is_empty() {
-            self.error(
-                span,
-                format!("no arm of `{subj_ty}` carries `{names}`, so the pick can never match"),
-            );
+        let n = count as usize;
+        if n == 0 {
+            // The parser only builds a pick with at least one `?`, so this is
+            // defensive.
+            self.error(span, "a pick needs at least one `?`".to_string());
             let _ = self.check_expr(rhs, None);
             return Ty::Unknown;
         }
-        if remaining.is_empty() {
+        if n >= declared.len() {
             self.error(
                 span,
                 format!(
-                    "`{names}` picks every arm of `{subj_ty}`, so the right-hand \
-                     side can never run"
+                    "the pick keeps {n} arm{} of `{subj_ty}`, which has {}: it \
+                     would leave nothing for the right-hand side (the same dead \
+                     scaffolding a throw-free `try` is refused for)",
+                    if n == 1 { "" } else { "s" },
+                    declared.len()
                 ),
             );
             let _ = self.check_expr(rhs, None);
             return Ty::Unknown;
         }
-        // [rewrap] Either side may span several arms. A multi-arm side is a
-        // *sub-union* of the storage, built by mapping arm to arm rather than by
-        // reading one payload — the same mapping [let-infer]'s `Rewrap` performs
-        // for an annotated slot, recorded here because these values have no slot.
-        // The picked value: the arms, lifted when the pick said `^`.
-        let lift_arm = |c: &mut Self, arm: &Ty| -> Option<Ty> {
-            if pick.lift {
-                strip_quals_named(arm, &pat.quals).or_else(|| {
-                    c.error(span, format!("`{names}` cannot be lifted off `{arm}`"));
-                    None
-                })
-            } else {
-                Some(arm.clone())
-            }
+        // Picked arms: the first `n` for `Forward`, the last `n` for
+        // `Backward`. The rest go to `_`.
+        let (picked_arms, left_arms): (Vec<Ty>, Vec<Ty>) = match dir {
+            ElvisDir::Forward => (
+                declared[..n].to_vec(),
+                declared[n..].to_vec(),
+            ),
+            ElvisDir::Backward => (
+                declared[declared.len() - n..].to_vec(),
+                declared[..declared.len() - n].to_vec(),
+            ),
         };
-        let mut picked_arms = Vec::new();
-        for arm in &matched {
-            match lift_arm(self, arm) {
-                Some(t) => picked_arms.push(t),
-                None => return Ty::Unknown,
-            }
-        }
-        let arm = matched[0].clone();
-        let picked = if picked_arms.len() == 1 {
-            picked_arms.remove(0)
-        } else {
-            self.mk_union(picked_arms)
+        let picked = self.mk_union(picked_arms.clone());
+        let left = self.mk_union(left_arms.clone());
+        // The runtime test the emitters need: which of the subject's value
+        // arms are on the picked side, and whether the `None` arm is. Only the
+        // checker knows the subject's arm identity, and a *call* subject has no
+        // recorded representation for an emitter to rebuild it from.
+        let value_arms: Vec<&Ty> = subj_ty.value_arms();
+        let value_arm_index = |arm: &Ty| -> Option<usize> {
+            value_arms.iter().position(|a| *a == arm)
         };
-        let left = if remaining.len() == 1 {
-            remaining[0].clone()
-        } else {
-            self.mk_union(remaining.clone())
-        };
-        // The arm tests the emitters need: which arm is picked, and what the
-        // other one reads as. Expressed in [union-arm-identity]'s indices.
-        if let Some(test) = self.union_test_for(&subj_ty, &pat) {
-            self.out.is_tests.insert(self.key(span), test);
-        }
+        let picked_value_arms: Vec<usize> =
+            picked_arms.iter().filter_map(|a| value_arm_index(a)).collect();
+        let picks_none = picked_arms.iter().any(|a| a.is_none_ty());
+        self.out.elvis_tests.insert(
+            self.key(span),
+            PickTest {
+                size: value_arms.len(),
+                value_arms: picked_value_arms,
+                picks_none,
+                nullable: subj_ty.has_none_arm(),
+            },
+        );
         self.out.elvis_picks.insert(self.key(span), picked.clone());
         self.out.pick_left.insert(self.key(span), left.clone());
-        // [placeholder] `_` is the unpicked arm, tag and all.
-        let saved = self.placeholder_ty.replace(left);
-        // [elvis-guard] A leaving right side takes its flow effects with it
-        // (see the predicate pick above).
+        // [placeholder] `_` reads as the arms the pick left behind, tags and
+        // all.
+        let saved = self.placeholder_ty.replace(left.clone());
+        // [elvis-guard] A leaving right side takes its flow effects with it:
+        // a `return elem` there moves `elem` on a path the fall-through never
+        // shares, so the consumption must not poison it.
         let entry = self.snapshot_narrows();
         let rhs_ty = self.check_expr(rhs, None);
         self.placeholder_ty = saved;
+        // A diverging right side contributes nothing to the type [type-any-never]
+        // and *proves* the subject was one of the picked arms, so the place
+        // narrows [elvis-guard].
         if matches!(rhs_ty, Ty::Never) {
             self.restore_narrows(&entry);
-            // [elvis-guard] The pick held, so the subject reads as the matched
-            // arm on the path below. Note **`arm`, not `picked`**: the lift
-            // applies to the value the expression produced, while the place
-            // still holds the tagged arm — `r ^Ok?: return` leaves `r` an
-            // `Ok Int`, and saying `Int` there would name a type that matches no
-            // arm of the storage (which is exactly what the Rust backend
-            // reported when this narrowed to the lifted type).
             let repr = self.repr_of(subject, &subj_ty);
-            self.install_elvis_guard(subject, &arm, &repr);
+            self.install_elvis_guard(subject, &picked, &repr);
             return picked;
         }
+        // Both sides join. The right side is coerced into the join exactly as
+        // an `if`'s branches are — and widening past the subject's arms is now
+        // allowed (`Int? ?: "none"` is `Int | Str`): the picked value is also
+        // coerced into the join at the operator's span.
         let join = self.mk_union(vec![picked.clone(), rhs_ty.clone()]);
         let rhs_repr = self.repr_of(rhs, &rhs_ty);
         self.maybe_coerce(rhs.span(), &rhs_ty, &rhs_repr, &join);
+        // [rewrap] The picked value widens into the join too when `rhs` widened
+        // it. Compute that coercion into `elvis_widen` (not the ordinary
+        // `coerce` table, whose entry at this span is the Elvis node's own
+        // outer coercion): temporarily borrow the `coerce` slot, record, and
+        // move the result across.
+        if join != picked {
+            let key = self.key(span);
+            let saved = self.out.coerce.remove(&key);
+            self.maybe_coerce(span, &picked, &picked, &join);
+            if let Some(c) = self.out.coerce.remove(&key) {
+                self.out.elvis_widen.insert(key, c);
+            }
+            if let Some(outer) = saved {
+                self.out.coerce.insert(key, outer);
+            }
+        }
         join
     }
 
+    /// Analyzes a `^` check: the **dual of `is`**. The runtime test is the
+    /// one `is` of the same qualifiers performs — same arm, same lowering —
+    /// but the matched type is *generalized* (the qualifiers removed) rather
+    /// than refined, so the subject reads without them inside the branch.
     fn widen_info(
         &mut self,
         subject: &'p Expr,
@@ -22018,17 +21929,6 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     // ================= expressions =================
     fn check_expr(&mut self, expr: &'p Expr, expected: Option<&Ty>) -> Ty {
-        // [safe-call] The receiver of a `?.` is typed **once**, by the
-        // `SafeField` arm, which records the type with its `None` stripped. The
-        // equivalent inner access then walks the same expression, and reads the
-        // stripped type back here rather than checking it again — which is what
-        // gives the single evaluation as well as the narrowing.
-        if let Some(stripped) = self.out.safe_strip.get(&self.key(expr.span())).cloned() {
-            self.out
-                .expr_ty
-                .insert(self.key(expr.span()), stripped.clone());
-            return stripped;
-        }
         let ty = self.check_expr_inner(expr, expected);
         self.out.expr_ty.insert(self.key(expr.span()), ty.clone());
         if let Some(exp) = expected {
@@ -22993,189 +22893,18 @@ impl<'p, 'r> Checker<'p, 'r> {
             } => self.check_if(branches, Some(else_block), *span),
             // [try] The throw delimiter: an intrinsic, not an effect.
             Expr::Try { body, span } => self.check_try(body, *span),
-            // [elvis] `subject ?: rhs`. The subject must have a `None` arm;
-            // the expression's value is the subject's **non-`None` arms** when
-            // it holds one, and `rhs` otherwise. Reserved for `T?` — a
-            // qualifier is picked by naming it (step 5 of the sequence).
+            // [elvis] `subject ?…?: rhs` / `subject :?…? rhs` — the positional
+            // pick. A run of `count` `?`s names how many arms of the subject's
+            // union it keeps, counted from the declared **front** (`Forward`)
+            // or **back** (`Backward`); those arms become the value, and `rhs`
+            // runs otherwise with `_` bound to the arms left behind.
             Expr::Elvis {
                 subject,
-                pick: Some(pick),
+                dir,
+                count,
                 rhs,
                 span,
-            } => self.check_pick(subject, pick, rhs, *span),
-            Expr::Elvis {
-                subject,
-                pick: None,
-                rhs,
-                span,
-            } => {
-                let subj_ty = self.check_expr(subject, None);
-                // A `T?` whose non-`None` side is what the caller asked for:
-                // pass the expectation down so a literal still adopts a width.
-                let picked = subj_ty.without_none();
-                if subj_ty.is_unknown() {
-                    // [type-unknown-lenient] One mistake, one diagnostic.
-                    let _ = self.check_expr(rhs, None);
-                    return Ty::Unknown;
-                }
-                if !subj_ty.has_none_arm() {
-                    self.error(
-                        *span,
-                        format!(
-                            "`?:` needs an optional on its left, but `{subj_ty}` has \
-                             no `None` arm: nothing can take the right-hand side"
-                        ),
-                    );
-                    let _ = self.check_expr(rhs, None);
-                    return picked;
-                }
-                if picked.is_none_ty() {
-                    self.error(
-                        *span,
-                        "`?:` on a plain `None` has nothing to pick: every value \
-                         takes the right-hand side"
-                            .to_string(),
-                    );
-                }
-                // [placeholder] No `_` here (user decision 2026-09-21): the
-                // side a plain `?:` does not pick is always `None`, and `None`
-                // is already writable — so the placeholder would name a value
-                // the program can spell. It earns its keep only where a
-                // *qualifier* is picked and the unpicked side carries a tag
-                // (step 5), so `_` stays an error until then.
-                // [elvis-guard] A leaving right side takes its flow effects
-                // with it (see the pick's twin note in `check_pick`).
-                let entry = self.snapshot_narrows();
-                let rhs_ty = self.check_expr(rhs, None);
-                self.out
-                    .elvis_picks
-                    .insert(self.key(*span), picked.clone());
-                // The test the emitters need: "one of the value arms", i.e. not
-                // `None`. Recorded here because only the checker knows the
-                // subject's arm identity [union-arm-identity] — and because a
-                // *call* subject has no recorded representation for an emitter
-                // to rebuild it from.
-                let value_arms = subj_ty.value_arms();
-                self.out.is_tests.insert(
-                    self.key(*span),
-                    UnionTest {
-                        size: value_arms.len(),
-                        arms: (0..value_arms.len()).collect(),
-                        nullable: true,
-                        match_none: false,
-                        values: Vec::new(),
-                    },
-                );
-                // A diverging right side contributes nothing, exactly as a
-                // branch that escapes does [type-any-never] — and it *proves*
-                // the subject was there, so the place narrows [elvis-guard].
-                if matches!(rhs_ty, Ty::Never) {
-                    self.restore_narrows(&entry);
-                    let repr = self.repr_of(subject, &subj_ty);
-                    self.install_elvis_guard(subject, &picked, &repr);
-                    return picked;
-                }
-                let join = self.mk_union(vec![picked.clone(), rhs_ty.clone()]);
-                // The two sides must agree on a *representation*, exactly as an
-                // `if`'s branches do: the right side is coerced into the join
-                // (a bare `Str` wraps into the subject's `Str | Int` union).
-                let rhs_repr = self.repr_of(rhs, &rhs_ty);
-                self.maybe_coerce(rhs.span(), &rhs_ty, &rhs_repr, &join);
-                // What is *not* supported yet: a right side that widens the
-                // join past the subject's own arms (`Int? ?: "none"`, joining
-                // `Int | Str`). There the **picked** value would need wrapping
-                // too, and the picked value has no span of its own to hang a
-                // coercion on — it is the subject's payload, materialized
-                // inside the lowering. Refused rather than mis-emitted
-                // [backend-never-wrong]; `when` says it today.
-                if join != picked {
-                    self.error(
-                        *span,
-                        format!(
-                            "the right side of `?:` has type `{rhs_ty}`, which is \
-                             not one of `{picked}`'s arms: a right side that \
-                             widens the result is not supported yet — use `when` \
-                             for that, or give the right side a type the left \
-                             side already has"
-                        ),
-                    );
-                }
-                join
-            }
-            // [safe-call] `base?.member` — the member is reached only when the
-            // base is not `None`, and the result carries a `None` arm of its
-            // own, so a chain re-tests at each link.
-            //
-            // The *equivalent ordinary access* is what gets typed (`inner`), so
-            // field overrides, overload resolution, effects and diagnostics are
-            // the ordinary ones. All this arm does is strip the `None` from the
-            // base first and put one back on the result.
-            Expr::SafeField { base, inner, span } => {
-                let base_ty = self.check_expr(base, None);
-                if base_ty.is_unknown() {
-                    // [type-unknown-lenient] One mistake, one diagnostic.
-                    return Ty::Unknown;
-                }
-                if !base_ty.has_none_arm() {
-                    self.error(
-                        *span,
-                        format!(
-                            "`?.` needs an optional receiver, but `{base_ty}` has no \
-                             `None` arm: drop the `?` and read it directly"
-                        ),
-                    );
-                    return Ty::Unknown;
-                }
-                let stripped = base_ty.without_none();
-                if stripped.is_none_ty() {
-                    self.error(
-                        *span,
-                        "`?.` on a plain `None` reaches nothing".to_string(),
-                    );
-                    return Ty::Unknown;
-                }
-                // [loop-while-is] The receiver must be a **place**: the form
-                // reads it twice — once to test, once to reach the member — and
-                // the same rule already governs a call subject in an `is`, for
-                // the same reason. The remedy is the same too: bind it first.
-                if Place::of_expr(base).is_none() {
-                    self.error(
-                        *span,
-                        "a `?.` receiver must be a variable or a field of one: \
-                         the form reads it twice, so bind the value with `let` \
-                         first"
-                            .to_string(),
-                    );
-                    return Ty::Unknown;
-                }
-                // The base inside `inner` is the *same* expression, so the
-                // stripped type is recorded against its span and read back when
-                // `inner` walks it — one type, and the **narrowing** the
-                // emitters already know how to unwrap (a logical type with its
-                // `None` gone, over a storage type that still has it).
-                self.out
-                    .safe_strip
-                    .insert(self.key(base.span()), stripped.clone());
-                self.out.repr_ty.insert(self.key(base.span()), base_ty.clone());
-                let inner_ty = self.check_expr(inner, None);
-                self.out.safe_strip.remove(&self.key(base.span()));
-                if inner_ty.is_unknown() {
-                    return Ty::Unknown;
-                }
-                // The result is the member's own type, plus `None` for the path
-                // where the receiver was absent — so `p?.name` on a `Str` field
-                // is `Str?`, and a `Str?` field stays `Str?` (arms dedupe).
-                //
-                // Which of those two it was is recorded, because the Rust
-                // representation differs: a member that is *already* optional
-                // must not be wrapped a second time. The emitters cannot read
-                // it off the inner node's type — the inner access shares this
-                // expression's span by construction.
-                if inner_ty.has_none_arm() {
-                    let _ = span;
-                }
-                Ty::union_of(vec![inner_ty, Ty::named("None")])
-            }
+            } => self.check_elvis(subject, *dir, *count, rhs, *span),
             // [placeholder] Outside an `?:` right-hand side there is no value
             // for `_` to mean.
             Expr::Placeholder { span } => match self.placeholder_ty.clone() {
@@ -23183,9 +22912,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                 None => {
                     self.error(
                         *span,
-                        "`_` is the **unpicked** side of a qualifier pick, so it \
-                         reads only in the right-hand side of one: a plain `?:` \
-                         leaves `None`, which is already writable"
+                        "`_` is the arms a pick left behind, so it reads only in \
+                         the right-hand side of a pick (`r ?: f(_)`)"
                             .to_string(),
                     );
                     Ty::Unknown
@@ -25493,8 +25221,8 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// applicability, the filled value slots (places resolved to fate roots,
     /// constants taken whole), the `qualifies` effects — records the runtime
     /// lowering in `predicate_tests` at `span`, and answers the lowered
-    /// value arguments per qualifier for the then-narrow. Shared by `is`
-    /// and the qualifier pick [pick-qualifies].
+    /// value arguments per qualifier for the then-narrow. Used by `is`
+    /// predicate checks.
     fn check_predicate_quals(
         &mut self,
         pat: &CheckPat,

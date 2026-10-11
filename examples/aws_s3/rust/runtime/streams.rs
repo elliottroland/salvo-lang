@@ -589,21 +589,21 @@ pub fn record(e: &mut crate::runtime_streams::InEntry, mut message: String) -> c
 pub fn take_ahead(e: &mut crate::runtime_streams::InEntry, mut n: i32) -> crate::core_bytes::Bytes {
     let mut all: i32 = crate::core_bytes::size_platform(&e.ahead);
     let mut front: crate::core_bytes::Bytes = {
-        let mut __elv_1: Option<crate::core_bytes::Bytes> = crate::core_bytes::slice_platform(&e.ahead, 0i32, n);
-        if __elv_1.is_none() {
-            crate::core_bytes::bytes_of(vec![])
+        let mut __pick_1: Option<crate::core_bytes::Bytes> = crate::core_bytes::slice_platform(&e.ahead, 0i32, n);
+        if __pick_1.is_some() {
+            let mut __picked_2 = __pick_1.unwrap();
+            __picked_2
         } else {
-            let mut __some_2 = __elv_1.unwrap();
-            __some_2
+            crate::core_bytes::bytes_of(vec![])
         }
     };
     let mut rest: crate::core_bytes::Bytes = {
-        let mut __elv_3: Option<crate::core_bytes::Bytes> = crate::core_bytes::slice_platform(&e.ahead, n, all);
-        if __elv_3.is_none() {
-            crate::core_bytes::bytes_of(vec![])
+        let mut __pick_4: Option<crate::core_bytes::Bytes> = crate::core_bytes::slice_platform(&e.ahead, n, all);
+        if __pick_4.is_some() {
+            let mut __picked_5 = __pick_4.unwrap();
+            __picked_5
         } else {
-            let mut __some_4 = __elv_3.unwrap();
-            __some_4
+            crate::core_bytes::bytes_of(vec![])
         }
     };
     e.ahead = crate::core_bytes::mut_bytes(vec![rest.clone()]);
@@ -659,12 +659,12 @@ pub fn read_line(e: &mut crate::runtime_streams::InEntry) -> crate::runtime_stre
                 n = i32::wrapping_sub(n, 1i32);
             };
             return crate::runtime_streams::Read { data: {
-                let mut __elv_3: Option<crate::core_bytes::Bytes> = crate::core_bytes::slice_platform(&line, 0i32, n);
-                if __elv_3.is_none() {
-                    crate::core_bytes::bytes_of(vec![])
+                let mut __pick_3: Option<crate::core_bytes::Bytes> = crate::core_bytes::slice_platform(&line, 0i32, n);
+                if __pick_3.is_some() {
+                    let mut __picked_4 = __pick_3.unwrap();
+                    __picked_4
                 } else {
-                    let mut __some_4 = __elv_3.unwrap();
-                    __some_4
+                    crate::core_bytes::bytes_of(vec![])
                 }
             }, end: false, fault: None };
         };

@@ -536,18 +536,12 @@ impl<'s> Lexer<'s> {
                 self.bump();
                 TokenKind::SlashEq
             }
-            // [elvis] [safe-call] `?:` and `?.` are one token each, and only
-            // when the characters are adjacent — a nullable type followed by a
-            // colon or a dot never occurs, and requiring adjacency keeps
-            // `x ? : y` from quietly meaning something.
-            ('?', Some(':')) => {
-                self.bump();
-                TokenKind::QuestionColon
-            }
-            ('?', Some('.')) => {
-                self.bump();
-                TokenKind::QuestionDot
-            }
+            // [elvis] `?` and `:` are separate tokens (`Question`, `Colon`):
+            // the elvis family counts a *run* of `?`s (`??:`, `:??`), which the
+            // parser recognises by looking ahead over plain `Question` tokens
+            // rather than any glued pair. There is no `?.` — the safe-call
+            // operator was removed (user decision 2026-10-11): the multi-line
+            // elvis form makes it redundant.
             ('(', _) => TokenKind::LParen,
             (')', _) => TokenKind::RParen,
             ('{', _) => TokenKind::LBrace,

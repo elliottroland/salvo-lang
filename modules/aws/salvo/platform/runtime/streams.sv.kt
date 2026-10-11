@@ -455,28 +455,22 @@ fun record(e: InEntry, message: String): Fault {
 fun takeAhead(e: InEntry, n: Int): salvo.platform.core.bytes.Bytes {
     val all: Int = salvo.core.bytes.sizePlatform((e.ahead as salvo.platform.core.bytes.MutBytes))
     val front: salvo.platform.core.bytes.Bytes = run {
-        val __elv_1: salvo.platform.core.bytes.Bytes? = salvo.core.bytes.slicePlatform((e.ahead as salvo.platform.core.bytes.MutBytes), 0, n)
-        when {
-            (__elv_1 == null) -> {
-                salvo.core.bytes.bytesOf(arrayOf<UByte>())
-            }
-            else -> {
-                val __some_2: salvo.platform.core.bytes.Bytes = __elv_1!!
-                __some_2
-            }
-        }
+        val __pick_1: salvo.platform.core.bytes.Bytes? = salvo.core.bytes.slicePlatform((e.ahead as salvo.platform.core.bytes.MutBytes), 0, n)
+        (if ((__pick_1 != null)) {
+            val __picked_2: salvo.platform.core.bytes.Bytes = __pick_1!!
+            __picked_2
+        } else {
+            salvo.core.bytes.bytesOf(arrayOf<UByte>())
+        })
     }
     val rest: salvo.platform.core.bytes.Bytes = run {
-        val __elv_3: salvo.platform.core.bytes.Bytes? = salvo.core.bytes.slicePlatform((e.ahead as salvo.platform.core.bytes.MutBytes), n, all)
-        when {
-            (__elv_3 == null) -> {
-                salvo.core.bytes.bytesOf(arrayOf<UByte>())
-            }
-            else -> {
-                val __some_4: salvo.platform.core.bytes.Bytes = __elv_3!!
-                __some_4
-            }
-        }
+        val __pick_4: salvo.platform.core.bytes.Bytes? = salvo.core.bytes.slicePlatform((e.ahead as salvo.platform.core.bytes.MutBytes), n, all)
+        (if ((__pick_4 != null)) {
+            val __picked_5: salvo.platform.core.bytes.Bytes = __pick_4!!
+            __picked_5
+        } else {
+            salvo.core.bytes.bytesOf(arrayOf<UByte>())
+        })
     }
     e.ahead = salvo.core.bytes.mutBytes(arrayOf<salvo.platform.core.bytes.Bytes>(rest))
     e.position = (e.position + (n).toLong())
@@ -528,16 +522,13 @@ fun readLine(e: InEntry): Read {
                 n = (n - 1)
             }
             return Read(data = run {
-                val __elv_3: salvo.platform.core.bytes.Bytes? = salvo.core.bytes.slicePlatform(line, 0, n)
-                when {
-                    (__elv_3 == null) -> {
-                        salvo.core.bytes.bytesOf(arrayOf<UByte>())
-                    }
-                    else -> {
-                        val __some_4: salvo.platform.core.bytes.Bytes = __elv_3!!
-                        __some_4
-                    }
-                }
+                val __pick_3: salvo.platform.core.bytes.Bytes? = salvo.core.bytes.slicePlatform(line, 0, n)
+                (if ((__pick_3 != null)) {
+                    val __picked_4: salvo.platform.core.bytes.Bytes = __pick_3!!
+                    __picked_4
+                } else {
+                    salvo.core.bytes.bytesOf(arrayOf<UByte>())
+                })
             }, end = false, fault = null)
         }
         val got: HostRead = hostReadPlatform(e.host, 8192)

@@ -538,8 +538,6 @@ fn expr_names<'p>(expr: &'p Expr, used: &mut HashSet<&'p str>) {
             expr_names(subject, used);
             expr_names(rhs, used);
         }
-        // [safe-call] The inner access names the function [mod-used-only].
-        Expr::SafeField { inner, .. } => expr_names(inner, used),
         Expr::Placeholder { .. } => {}
         Expr::Ident(id) => {
             used.insert(&id.name);

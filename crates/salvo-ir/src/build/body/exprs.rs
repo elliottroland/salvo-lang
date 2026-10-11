@@ -223,8 +223,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 let b = self.block(body, true);
                 Expr { ty: self.ty_of(span), span, kind: ExprKind::Try { body: b } }
             }
-            AExpr::Elvis { subject, pick, rhs, .. } => self.elvis(subject, pick.as_ref(), rhs, span),
-            AExpr::SafeField { base, inner, .. } => self.safe_field(base, inner, span),
+            AExpr::Elvis { subject, rhs, .. } => self.elvis(subject, rhs, span),
             AExpr::Placeholder { .. } => match self.placeholder.clone() {
                 Some(local) => {
                     let ty = self.ty_of(span);
@@ -1420,155 +1419,86 @@ impl<'a, 'p> Lower<'a, 'p> {
         self.block_expr(vec![bind], sw, span)
     }
 
-    fn elvis(&mut self, subject: &AExpr, pick: Option<&ast::ElvisPick>, rhs: &AExpr, span: Span) -> Expr {
+    fn elvis(&mut self, subject: &AExpr, rhs: &AExpr, span: Span) -> Expr {
+        // [elvis] `s ?…?: r` / `s :?…? r`: evaluate `s` once into a temporary,
+        // test whether it holds one of the **picked** arms; if so the value is
+        // the subject narrowed to the picked type (widened into the result when
+        // the right side widened it [rewrap]); otherwise `r`, with `_` bound to
+        // the subject narrowed to the arms left behind.
         let ty = self.ty_of(span);
-        if pick.is_some() {
-            // [pick] `s ^Q?: r`: the picked arm is the value; the rest goes
-            // to the right side, where `_` is what remains.
-            // [unify-checker] Pull every fact out of the view up front, before
-            // any `&mut self` call, so no shared borrow of `checked` is held.
-            let (test, picked_ty, rest_ty, picked_predicate_tests) = {
-                let info = self.ctx.checked.pick_info(self.key(span));
-                (
-                    info.is_test.cloned(),
-                    info.elvis_pick.map(erase).unwrap_or(Ty::Unknown),
-                    info.pick_left.map(erase).unwrap_or(Ty::Unknown),
-                    info.predicate_tests.cloned(),
-                )
-            };
-            let s = self.expr_subject(subject);
-            let subj_ty = s.ty.clone();
-            let tmp = self.fresh("__pick");
-            let lid = self.id();
-            let bind = Stmt::Let { id: lid, local: tmp.clone(), ty: subj_ty.clone(), value: s };
-            let id = self.id();
-            let nar = self.fresh("__picked");
-            let nid = self.id();
-            let picked_ty_c = picked_ty.clone();
-            let narrow = Stmt::Narrow { id: nid, local: nar.clone(), ty: picked_ty.clone(), from: Place { root: tmp.clone(), steps: Vec::new() }, from_ty: subj_ty.clone(), because: Justification::Arm { switch: id, arm: 0 } };
-            let value = Expr { ty: picked_ty, span, kind: ExprKind::Read { place: Place { root: nar.clone(), steps: Vec::new() }, consume: true } };
-            let rest = self.fresh("__rest");
-            let rid = self.id();
-            let rest_c = rest.clone();
-            let rest_ty_c = rest_ty.clone();
-            let rest_narrow = Stmt::Narrow { id: rid, local: rest.clone(), ty: rest_ty, from: Place { root: tmp.clone(), steps: Vec::new() }, from_ty: subj_ty.clone(), because: Justification::Arm { switch: id, arm: 1 } };
-            let saved = self.placeholder.replace(rest);
-            let r = self.expr(rhs);
-            self.placeholder = saved;
-            if let Some(checks) = picked_predicate_tests {
-                // [qual-predicate] a predicate pick: a branch on the
-                // `qualifies` conjunction, the rest in `otherwise`.
-                let read_tmp = |l: &Local| Expr { ty: subj_ty.clone(), span, kind: ExprKind::Read { place: Place { root: l.clone(), steps: Vec::new() }, consume: false } };
-                let mut cond: Option<Expr> = None;
-                for check in checks {
-                    let call = self.qualifies_call(&check, read_tmp(&tmp), span);
-                    cond = Some(match cond {
-                        None => call,
-                        Some(prev) => Expr { ty: Ty::named("Bool"), span, kind: ExprKind::Op { op: Op::And, args: vec![prev, call] } },
-                    });
-                }
-                let cond = cond.unwrap_or(Expr { ty: Ty::named("Bool"), span, kind: ExprKind::Bool(true) });
-                let narrow = Stmt::Narrow { id: nid, local: nar, ty: picked_ty_c.clone(), from: Place { root: tmp.clone(), steps: Vec::new() }, from_ty: subj_ty.clone(), because: Justification::Cond { branch: id, arm: 0 } };
-                let rest_narrow = Stmt::Narrow { id: rid, local: rest_c, ty: rest_ty_c, from: Place { root: tmp.clone(), steps: Vec::new() }, from_ty: subj_ty.clone(), because: Justification::After { branch: id, arm: 0 } };
-                let br = Expr {
-                    ty: ty.clone(),
-                    span,
-                    kind: ExprKind::Branch {
-                        id,
-                        arms: vec![(cond, Block { stmts: vec![narrow], value: Some(Box::new(value)) })],
-                        otherwise: Some(Block { stmts: vec![rest_narrow], value: Some(Box::new(r)) }),
-                    },
-                };
-                return self.block_expr(vec![bind], br, span);
-            }
-            let arm_test_ = match &test {
-                Some(t) => arm_test(t),
-                None => ArmTest::Else,
-            };
-            let sw = Expr {
-                ty: ty.clone(),
-                span,
-                kind: ExprKind::Switch {
-                    id,
-                    subject: Box::new(Expr { ty: subj_ty, span, kind: ExprKind::Read { place: Place { root: tmp, steps: Vec::new() }, consume: false } }),
-                    arms: vec![
-                        SwitchArm { test: arm_test_, body: Block { stmts: vec![narrow], value: Some(Box::new(value)) } },
-                        SwitchArm { test: ArmTest::Else, body: Block { stmts: vec![rest_narrow], value: Some(Box::new(r)) } },
-                    ],
-                },
-            };
-            return self.block_expr(vec![bind], sw, span);
-        }
-        // `s ?: r`: switch on s; `None` → r (with `_` bound to the subject); else the value.
+        // [unify-checker] Pull every fact out of the view up front, before any
+        // `&mut self` call, so no shared borrow of `checked` is held.
+        let (pick, picked_ty, rest_ty, widen) = {
+            let info = self.ctx.checked.pick_info(self.key(span));
+            (
+                info.elvis_test.cloned(),
+                info.elvis_pick.map(erase).unwrap_or(Ty::Unknown),
+                info.pick_left.map(erase).unwrap_or(Ty::Unknown),
+                self.ctx.checked.elvis_widen.get(&self.key(span)).cloned(),
+            )
+        };
         let s = self.expr_subject(subject);
         let subj_ty = s.ty.clone();
-        let tmp = self.fresh("__elv");
+        let tmp = self.fresh("__pick");
         let lid = self.id();
         let bind = Stmt::Let { id: lid, local: tmp.clone(), ty: subj_ty.clone(), value: s };
         let id = self.id();
-        let saved = self.placeholder.replace(tmp.clone());
+        // The picked value: the subject narrowed to the picked type, consumed,
+        // and widened into the result if the pick widened.
+        let nar = self.fresh("__picked");
+        let nid = self.id();
+        let narrow = Stmt::Narrow { id: nid, local: nar.clone(), ty: picked_ty.clone(), from: Place { root: tmp.clone(), steps: Vec::new() }, from_ty: subj_ty.clone(), because: Justification::Cond { branch: id, arm: 0 } };
+        let read_picked = Expr { ty: picked_ty.clone(), span, kind: ExprKind::Read { place: Place { root: nar, steps: Vec::new() }, consume: true } };
+        let value = match &widen {
+            Some(c) => apply_coercion(c, read_picked, span),
+            None => read_picked,
+        };
+        // The right side: `_` bound to the subject narrowed to the arms left.
+        let rest = self.fresh("__rest");
+        let rid = self.id();
+        let rest_narrow = Stmt::Narrow { id: rid, local: rest.clone(), ty: rest_ty, from: Place { root: tmp.clone(), steps: Vec::new() }, from_ty: subj_ty.clone(), because: Justification::After { branch: id, arm: 0 } };
+        let saved = self.placeholder.replace(rest.clone());
         let r = self.expr(rhs);
         self.placeholder = saved;
-        let picked_ty = self.ctx.checked.elvis_picks.get(&self.key(span)).map(erase).unwrap_or_else(|| subj_ty.without_none());
-        let nar = self.fresh("__some");
-        let nid = self.id();
-        let narrow = Stmt::Narrow { id: nid, local: nar.clone(), ty: picked_ty.clone(), from: Place { root: tmp.clone(), steps: Vec::new() }, from_ty: subj_ty.clone(), because: Justification::Arm { switch: id, arm: 1 } };
-        let value = Expr { ty: picked_ty, span, kind: ExprKind::Read { place: Place { root: nar, steps: Vec::new() }, consume: true } };
-        let sw = Expr {
+        // The `_` binding is dead unless the right side actually read it (a
+        // plain `?:` that only supplies a default never does) — and binding it
+        // to the arms left behind can produce a `None`-typed local the backends
+        // reject (`val __rest: Unit = null`). So emit it only when used.
+        let mut uses_rest = false;
+        visit_reads(&r, &mut |l: &Local| {
+            if *l == rest {
+                uses_rest = true;
+            }
+        });
+        let otherwise_stmts = if uses_rest { vec![rest_narrow] } else { Vec::new() };
+        // The condition: the subject is one of the picked arms. A disjunction
+        // of `Test` nodes — one per picked value arm, plus a `None` test when
+        // the pick keeps the `None` arm. Testing the picked side directly
+        // handles any mix of value arms and `None`.
+        let read_tmp = || Expr { ty: subj_ty.clone(), span, kind: ExprKind::Read { place: Place { root: tmp.clone(), steps: Vec::new() }, consume: false } };
+        let mut tests: Vec<Expr> = Vec::new();
+        if let Some(p) = &pick {
+            for arm in &p.value_arms {
+                tests.push(Expr { ty: Ty::named("Bool"), span, kind: ExprKind::Test { id: self.id(), subject: Box::new(read_tmp()), test: ArmTest::Arm(*arm) } });
+            }
+            if p.picks_none {
+                tests.push(Expr { ty: Ty::named("Bool"), span, kind: ExprKind::Test { id: self.id(), subject: Box::new(read_tmp()), test: ArmTest::None } });
+            }
+        }
+        let cond = tests
+            .into_iter()
+            .reduce(|prev, t| Expr { ty: Ty::named("Bool"), span, kind: ExprKind::Op { op: Op::Or, args: vec![prev, t] } })
+            .unwrap_or(Expr { ty: Ty::named("Bool"), span, kind: ExprKind::Bool(true) });
+        let br = Expr {
             ty: ty.clone(),
             span,
-            kind: ExprKind::Switch {
+            kind: ExprKind::Branch {
                 id,
-                subject: Box::new(Expr { ty: subj_ty, span, kind: ExprKind::Read { place: Place { root: tmp, steps: Vec::new() }, consume: false } }),
-                arms: vec![
-                    SwitchArm { test: ArmTest::None, body: Block { stmts: Vec::new(), value: Some(Box::new(r)) } },
-                    SwitchArm { test: ArmTest::Else, body: Block { stmts: vec![narrow], value: Some(Box::new(value)) } },
-                ],
+                arms: vec![(cond, Block { stmts: vec![narrow], value: Some(Box::new(value)) })],
+                otherwise: Some(Block { stmts: otherwise_stmts, value: Some(Box::new(r)) }),
             },
         };
-        self.block_expr(vec![bind], sw, span)
-    }
-
-    fn safe_field(&mut self, base: &AExpr, inner: &AExpr, span: Span) -> Expr {
-        // `b?.f`: switch on b; `None` → None; else the inner, with `b` narrowed.
-        let ty = self.ty_of(span);
-        let s = self.expr_subject(base);
-        let subj_ty = s.ty.clone();
-        let tmp = self.fresh("__safe");
-        let lid = self.id();
-        let bind = Stmt::Let { id: lid, local: tmp.clone(), ty: subj_ty.clone(), value: s };
-        let id = self.id();
-        let nar = self.fresh("__some");
-        let nid = self.id();
-        let narrow = Stmt::Narrow { id: nid, local: nar.clone(), ty: subj_ty.without_none(), from: Place { root: tmp.clone(), steps: Vec::new() }, from_ty: subj_ty.clone(), because: Justification::Arm { switch: id, arm: 1 } };
-        // The inner expression reads the base: bind it under the base's name.
-        self.push_scope();
-        if let AExpr::Ident(b) = base {
-            self.rebind(&b.name, nar.clone(), subj_ty.without_none());
-        }
-        let alias = self.stored_place_of(base).filter(|p| !p.steps.is_empty());
-        if let Some(p) = &alias {
-            self.place_aliases.push((p.clone(), nar.clone(), subj_ty.without_none()));
-        }
-        let in_ = self.expr(inner);
-        if alias.is_some() {
-            self.place_aliases.pop();
-        }
-        self.pop_scope();
-        let none = Expr { ty: ty.clone(), span, kind: ExprKind::MakeNone };
-        let sw = Expr {
-            ty: ty.clone(),
-            span,
-            kind: ExprKind::Switch {
-                id,
-                subject: Box::new(Expr { ty: subj_ty, span, kind: ExprKind::Read { place: Place { root: tmp, steps: Vec::new() }, consume: false } }),
-                arms: vec![
-                    SwitchArm { test: ArmTest::None, body: Block { stmts: Vec::new(), value: Some(Box::new(none)) } },
-                    SwitchArm { test: ArmTest::Else, body: Block { stmts: vec![narrow], value: Some(Box::new(in_)) } },
-                ],
-            },
-        };
-        self.block_expr(vec![bind], sw, span)
+        self.block_expr(vec![bind], br, span)
     }
 
     // --------------------------------------------------------- branching --

@@ -20275,7 +20275,8 @@ Module {
                                         named: [],
                                         span: 32695..32728,
                                     },
-                                    pick: None,
+                                    dir: Forward,
+                                    count: 1,
                                     rhs: Return {
                                         value: Some(
                                             Ident(

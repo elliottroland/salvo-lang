@@ -154,32 +154,29 @@ Conventions:
 
 ## Type mappings
 
-* [safe-call] [rs-safe-call] `receiver?.member` is a block that tests the
-  receiver once and wraps the member read:
+* [elvis] [rs-elvis] `subject ?…?: rhs` / `subject :?…? rhs` is a block that
+  evaluates the subject once into a temporary and tests whether it holds one of
+  the **picked** arms — the picked value when it does, `rhs` when it does not:
 
   ```rust
   {
-      let mut __safe_1: Option<&crate::P> = maybe.clone();
-      if __safe_1.is_none() {
-          None
+      let mut __pick_1: Option<i32> = search(list, elem);
+      if __pick_1.is_some() {
+          let mut __picked_2 = __pick_1.unwrap();
+          __picked_2
       } else {
-          let mut __some_2 = __safe_1.unwrap();
-          Some(__some_2.age.clone())
+          return None
       }
   }
   ```
 
-  The `Some(..)` is **omitted** when the member is already optional, or the
-  result would be an `Option<Option<T>>` the declared type does not have — an
-  E0308 rustc caught, which Kotlin never saw, having no wrapper to double.
-* [elvis] [rs-elvis] `subject ?: rhs` is the same block with the right side in
-  the absent branch: `{ let mut __elv_3 = &n; if __elv_3.is_none() { 7i32 }
-  else { let mut __some_4 = __elv_3.unwrap(); __some_4 } }` — the subject
-  evaluated once, bound by reference when it is a place and by value when it
-  is a call's result, and unwrapped as a narrowed read [rs-read-mode]. An
-  `if` rather than `unwrap_or_else` because the right side may be an
-  **escape**: a `return` inside a closure returns from the closure
-  [expr-escape].
+  The subject is bound by reference when it is a place and by value when it is
+  a call's result, and the picked arms are read as a narrowed read
+  [rs-read-mode]. An `if` rather than `unwrap_or_else` because the right side
+  may be an **escape**: a `return` inside a closure returns from the closure
+  [expr-escape]. A pick that **widens** its result wraps the picked value into
+  the join union [rewrap]. (There is no `?.` safe-call operator — it was
+  removed 2026-10-11.)
 * [type-basic] Internal types map natively: `Str`→`String`, `Int`→`i32`,
   `Long`→`i64`, `Float`→`f32`, `Double`→`f64`, `Bool`→`bool`,
   `Char`→`char`, `Byte`→`u8`, `None`→`()`, `Never`→`()` (a platform

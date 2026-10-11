@@ -1096,10 +1096,6 @@ impl<'p> Walk<'_, 'p> {
                 self.expr(subject);
                 self.expr(rhs);
             }
-            // [safe-call] The equivalent ordinary access carries the
-            // deductions: the receiver and the arguments are used exactly as
-            // they would be without the `?`.
-            Expr::SafeField { inner, .. } => self.expr(inner),
             Expr::Placeholder { .. } => {}
             Expr::Call {
                 callee, args, span, ..

@@ -153,28 +153,22 @@ fun splitOnce(str: String, sep: String): Pair<String, String>? {
     if ((at != null)) {
         val i: Int = at!!
         val before: String = run {
-            val __elv_1: String? = substrPlatform(str, 0, i)
-            when {
-                (__elv_1 == null) -> {
-                    ""
-                }
-                else -> {
-                    val __some_2: String = __elv_1!!
-                    __some_2
-                }
-            }
+            val __pick_1: String? = substrPlatform(str, 0, i)
+            (if ((__pick_1 != null)) {
+                val __picked_2: String = __pick_1!!
+                __picked_2
+            } else {
+                ""
+            })
         }
         val after: String = run {
-            val __elv_3: String? = substrPlatform(str, (i + sizePlatform(sep)), sizePlatform(str))
-            when {
-                (__elv_3 == null) -> {
-                    ""
-                }
-                else -> {
-                    val __some_4: String = __elv_3!!
-                    __some_4
-                }
-            }
+            val __pick_4: String? = substrPlatform(str, (i + sizePlatform(sep)), sizePlatform(str))
+            (if ((__pick_4 != null)) {
+                val __picked_5: String = __pick_4!!
+                __picked_5
+            } else {
+                ""
+            })
         }
         return Pair(before, after)
     }
@@ -186,28 +180,22 @@ fun splitLast(str: String, sep: String): Pair<String, String>? {
     if ((at != null)) {
         val i: Int = at!!
         val before: String = run {
-            val __elv_1: String? = substrPlatform(str, 0, i)
-            when {
-                (__elv_1 == null) -> {
-                    ""
-                }
-                else -> {
-                    val __some_2: String = __elv_1!!
-                    __some_2
-                }
-            }
+            val __pick_1: String? = substrPlatform(str, 0, i)
+            (if ((__pick_1 != null)) {
+                val __picked_2: String = __pick_1!!
+                __picked_2
+            } else {
+                ""
+            })
         }
         val after: String = run {
-            val __elv_3: String? = substrPlatform(str, (i + sizePlatform(sep)), sizePlatform(str))
-            when {
-                (__elv_3 == null) -> {
-                    ""
-                }
-                else -> {
-                    val __some_4: String = __elv_3!!
-                    __some_4
-                }
-            }
+            val __pick_4: String? = substrPlatform(str, (i + sizePlatform(sep)), sizePlatform(str))
+            (if ((__pick_4 != null)) {
+                val __picked_5: String = __pick_4!!
+                __picked_5
+            } else {
+                ""
+            })
         }
         return Pair(before, after)
     }

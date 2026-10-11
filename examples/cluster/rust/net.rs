@@ -1822,14 +1822,14 @@ impl crate::net::__Stateless_RouteSelector for LeastLoaded {
             };
         }
         let mut chosen: crate::net::RouteMember = {
-            let mut __elv_2 = &best;
-            if __elv_2.is_none() {
+            let mut __pick_2 = &best;
+            if __pick_2.is_some() {
+                let mut __picked_3 = __pick_2.as_ref().unwrap();
+                __picked_3.clone()
+            } else {
                 {
                     return None;
                 }
-            } else {
-                let mut __some_3 = __elv_2.as_ref().unwrap();
-                __some_3.clone()
             }
         };
         return Some(chosen.addr);
@@ -1857,12 +1857,12 @@ impl crate::net::__Stateless_RouteSelector for Sharded {
             return None;
         };
         let mut k: i64 = {
-            let mut __elv_1 = key;
-            if __elv_1.is_none() {
-                0i64
+            let mut __pick_1 = key;
+            if __pick_1.is_some() {
+                let mut __picked_2 = __pick_1.unwrap();
+                __picked_2
             } else {
-                let mut __some_2 = __elv_1.unwrap();
-                __some_2
+                0i64
             }
         };
         let mut magnitude: i64 = if (k < 0i64) {
@@ -1872,14 +1872,14 @@ impl crate::net::__Stateless_RouteSelector for Sharded {
         };
         let mut slot: i32 = ((i64::wrapping_rem(magnitude, ((n) as i64))) as i32);
         let mut picked: &crate::net::RouteMember = {
-            let mut __elv_3: Option<&crate::net::RouteMember> = crate::core_list::get_platform::<crate::net::RouteMember>(&view.members, slot);
-            if __elv_3.is_none() {
+            let mut __pick_4: Option<&crate::net::RouteMember> = crate::core_list::get_platform::<crate::net::RouteMember>(&view.members, slot);
+            if __pick_4.is_some() {
+                let mut __picked_5 = __pick_4.unwrap();
+                __picked_5
+            } else {
                 {
                     return None;
                 }
-            } else {
-                let mut __some_4 = __elv_3.unwrap();
-                __some_4
             }
         };
         return Some(picked.addr);
@@ -1970,14 +1970,14 @@ impl crate::net::__Stateful_RouteSelector for Elected {
     fn changed(&mut self, view: &crate::net::RouteView) {
         self.chosen = None;
         let mut l: crate::net::NodeId = {
-            let mut __elv_1: Option<crate::net::NodeId> = self.__dep0.leader();
-            if __elv_1.is_none() {
+            let mut __pick_1: Option<crate::net::NodeId> = self.__dep0.leader();
+            if __pick_1.is_some() {
+                let mut __picked_2 = __pick_1.unwrap();
+                __picked_2
+            } else {
                 {
                     return;
                 }
-            } else {
-                let mut __some_2 = __elv_1.unwrap();
-                __some_2
             }
         };
         for mut a in view.members.iter() {

@@ -361,8 +361,10 @@ fn describe(s: Str?) -> Str {
 binds nothing and takes no `^`: a failed test tells you nothing about the value
 on the branch it guards, so there is nothing to name or to lift.
 
-`?:` is `!` with a path instead of a panic. It picks the non-`None` side of its
-subject, and its right side runs only when the subject is `None`:
+`?:` is `!` with a path instead of a panic. It is the **positional pick**: a run
+of `?`s names how many arms of the subject's union it keeps, counted from the
+front, and the picked value is the subject when it holds one of them — otherwise
+the right side runs. On an optional, `?:` keeps the one value arm:
 
 ```
 fn greet(p: Person) -> Str {
@@ -384,73 +386,50 @@ fn shout(p: Person) -> Str? {
 A right side that leaves contributes nothing to the type, so `nick` above is a
 plain `Str`.
 
-`?.` is the other half: it reaches a field, or a dot-notation function, on the
-non-`None` side, and hands back an optional of its own.
+The pick selects by **position** over the subject's declared arm order, not by
+name. `?:` keeps the first arm; `:?` keeps the last; a run of `?`s keeps that
+many. On `Ok Int | Err Str`:
 
 ```
-struct Address { city: Str, zip: Str? = None }
-struct Person  { home: Address? = None }
-
-let city: Str? = p.home?.city        // `Str` field, so `Str?`
-let zip: Str?  = p.home?.zip         // already `Str?`, so still `Str?`
-let shout: Str? = p.home?.city?.to_upper()
-let shown: Str = p.home?.city ?: "-"
-```
-
-A qualifier is picked by naming it. `Ok?:` picks the `Ok` arm keeping its tag;
-`^Ok?:` picks it and lifts the tag, exactly as `is ^Ok` does:
-
-```
-fn doubled(text: Str) -> Ok Int | Err Str {
-    let n: Int = parse(text) ^Ok?: return _
-    return ok(n * 2)
+fn tail(text: Str) -> Ok Int | Err Str {
+    let e: Err Str = parse(text) :? return _   // keep the last arm, Err Str
+    return e
 }
 ```
 
-`_` is the **unpicked** side, tags and all — `Err Str` here, so the right side
-can hand it to something that expects an error. That is the one place the
-placeholder is needed: a plain `?:` leaves `None`, which is already writable.
-There is no way to strip a tag here, so turning a `Thrown` into an `Err` is a
-`when`.
+`_` is **the arms the pick left behind**, tags and all — the sub-union on the
+opposite side from the pick's direction. In `?: return _` on `Ok Int | Err Str`,
+`_` is the `Err Str`, so the right side can hand it to something that expects an
+error. That is the one place the placeholder is needed, and it reads only inside
+a pick's right-hand side.
 
-A `?:` whose right side leaves also **narrows its subject** below, because the
-value must have been there for the code to be running:
+A pick whose right side leaves also **narrows its subject** below, because the
+subject must have been one of the picked arms for the code to be running:
 
 ```
 let v: Str = t ?: return        // `t` reads as `Str` from here on
-let n: Int = r ^Ok?: return     // `r` reads as `Ok Int` — the arm, tag and all
+let r2: Ok Int = r ?: return    // `r` reads as `Ok Int` — the picked arm
 ```
 
-The pick narrows to the arm rather than to the lifted value: the lift applies to
-what the expression produced, while the variable still holds the tagged arm. A
-right side that yields a value narrows nothing, since that is the path where the
-subject was absent.
+A right side that yields a value narrows nothing, since that is the path where
+the subject was not picked.
 
-The subject is evaluated once, so it can be a call. A pick that matches no arm,
-or that matches every arm and leaves the right side unreachable, is an error.
+The subject is evaluated once, so it can be a call. A pick that keeps **every**
+arm (so the right side is unreachable) is an error — the same dead-scaffolding
+refusal a throw-free `try` gets.
 
-On a value that is **not** a union, a pick of a predicate qualifier is the runtime test — the same duality `is` has, reached from `?:` instead of a condition. The claim is *applied* when it holds, which is what makes a bounds-checked loop read without a single `!`:
+**Widening is allowed**: a right side whose type is outside the subject's arms
+joins into the result, so `n ?: "none"` on an `Int?` is an `Int | Str`.
 
-```
-let i_child = i * 2 + 1 Idx(heap)?: break
-// i_child is an Idx(heap) Int here: get(heap, i_child) answers the element
-```
+The operator works on any union: `??:` on `Str | Int | None` keeps the first two
+arms, `Str | Int`. Its precedence is Kotlin's — tighter than `is` and comparison,
+looser than arithmetic, and right-associative — so `count ?: 0 > 3` reads as
+`(count ?: 0) > 3` and `a ?: b ?: 0` tries each in turn. There is no safe-call
+`?.` operator: a value known to be non-null is reached with `!`, and the pick's
+multi-line right side covers the rest.
 
-The right side runs when the claim does not hold — `_` there is the plain subject — and a right side that yields a value drops the claim (`5 Idx(xs)?: 0` is an `Int`): a claim and its absence are one representation, never two union arms.
-
-Because the result carries a `None` arm, each link re-tests and the chain reads
-left to right. The receiver has to be a variable or a field of one: the form
-reads it twice, once to ask and once to reach the member, so a call belongs in a
-`let` first.
-
-The operator keys on a `None` arm rather than on the `?` spelling, so it works on
-any union with one: `Str | Int | None` picks `Str | Int`. Its precedence is
-Kotlin's — tighter than `is` and comparison, looser than arithmetic, and
-right-associative — so `count ?: 0 > 3` reads as `(count ?: 0) > 3` and
-`a ?: b ?: 0` tries each in turn. A subject with no `None` arm is an error:
-nothing could take the right side.
-
-When a value is known to be non-null but this can't be proven by the compiler, then you can use `!` to get the non-null value out or panic (equivalent to `unwrap` in Rust):
+To get a non-null value out when the compiler cannot prove it (equivalent to
+Rust's `unwrap`):
 
 ```
 let person: Person = Person {name: "Roland", surname: "Elliott", age: 36}

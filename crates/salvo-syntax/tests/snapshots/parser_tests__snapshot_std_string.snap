@@ -6085,7 +6085,8 @@ Module {
                                                                 named: [],
                                                                 span: 9011..9034,
                                                             },
-                                                            pick: None,
+                                                            dir: Forward,
+                                                            count: 1,
                                                             rhs: Str {
                                                                 parts: [
                                                                     Text(
@@ -6174,7 +6175,8 @@ Module {
                                                                 named: [],
                                                                 span: 9061..9098,
                                                             },
-                                                            pick: None,
+                                                            dir: Forward,
+                                                            count: 1,
                                                             rhs: Str {
                                                                 parts: [
                                                                     Text(
@@ -6519,7 +6521,8 @@ Module {
                                                                 named: [],
                                                                 span: 9455..9478,
                                                             },
-                                                            pick: None,
+                                                            dir: Forward,
+                                                            count: 1,
                                                             rhs: Str {
                                                                 parts: [
                                                                     Text(
@@ -6608,7 +6611,8 @@ Module {
                                                                 named: [],
                                                                 span: 9505..9542,
                                                             },
-                                                            pick: None,
+                                                            dir: Forward,
+                                                            count: 1,
                                                             rhs: Str {
                                                                 parts: [
                                                                     Text(

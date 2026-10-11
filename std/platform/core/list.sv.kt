@@ -536,18 +536,15 @@ fun<T> addSorted(list: salvo.platform.core.list.MutList<T>, elem: T, cmp: (T, T)
 
 fun<T> binarySearch(list: List<T>, elem: T, cmp: (T, T) -> Int): Int? {
     val found: Int = run {
-        val __elv_1: Int? = searchSortedByPlatform(list, elem, cmp)
-        when {
-            (__elv_1 == null) -> {
-                run {
-                    return null
-                }
+        val __pick_1: Int? = searchSortedByPlatform(list, elem, cmp)
+        (if ((__pick_1 != null)) {
+            val __picked_2: Int = __pick_1!!
+            __picked_2
+        } else {
+            run {
+                return null
             }
-            else -> {
-                val __some_2: Int = __elv_1!!
-                __some_2
-            }
-        }
+        })
     }
     if (salvo.core.index.Idx_qualifies(found, list, ::sizePlatform)) {
         return found

@@ -32,16 +32,13 @@ fun roundTrip(sqs: salvo.aws.sqs.Sqs, console: salvo.core.console.Console, name:
     }
     val created_2: salvo.aws.sqs.CreateQueueOutput = ((created as Union2.U1<*, *>).value as salvo.aws.sqs.CreateQueueOutput)
     val url: String = run {
-        val __elv_3: String? = created_2.queueUrl
-        when {
-            (__elv_3 == null) -> {
-                "?"
-            }
-            else -> {
-                val __some_4: String = __elv_3!!
-                __some_4
-            }
-        }
+        val __pick_3: String? = created_2.queueUrl
+        (if ((__pick_3 != null)) {
+            val __picked_4: String = __pick_3!!
+            __picked_4
+        } else {
+            "?"
+        })
     }
     salvo.core.console.println(console, "created ${url}")
     val sent: Union2<salvo.aws.sqs.SendMessageOutput, salvo.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>>> = run {
@@ -52,23 +49,20 @@ fun roundTrip(sqs: salvo.aws.sqs.Sqs, console: salvo.core.console.Console, name:
     }
     when {
         (sent is Union2.U1<*, *>) -> {
-            val sent_5: salvo.aws.sqs.SendMessageOutput = ((sent as Union2.U1<*, *>).value as salvo.aws.sqs.SendMessageOutput)
+            val sent_6: salvo.aws.sqs.SendMessageOutput = ((sent as Union2.U1<*, *>).value as salvo.aws.sqs.SendMessageOutput)
             salvo.core.console.println(console, "sent ${run {
-                val __elv_6: String? = sent_5.messageId
-                when {
-                    (__elv_6 == null) -> {
-                        "?"
-                    }
-                    else -> {
-                        val __some_7: String = __elv_6!!
-                        __some_7
-                    }
-                }
+                val __pick_7: String? = sent_6.messageId
+                (if ((__pick_7 != null)) {
+                    val __picked_8: String = __pick_7!!
+                    __picked_8
+                } else {
+                    "?"
+                })
             }}")
         }
         (sent is Union2.U2<*, *>) -> {
-            val sent_8: salvo.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>> = ((sent as Union2.U2<*, *>).value as salvo.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>>)
-            salvo.core.console.println(console, "send_message: ${describe(salvo.core.checked.detach(sent_8))}")
+            val sent_10: salvo.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>> = ((sent as Union2.U2<*, *>).value as salvo.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>>)
+            salvo.core.console.println(console, "send_message: ${describe(salvo.core.checked.detach(sent_10))}")
         }
         else -> throw IllegalStateException("salvo: unreachable arm")
     }
@@ -80,38 +74,32 @@ fun roundTrip(sqs: salvo.aws.sqs.Sqs, console: salvo.core.console.Console, name:
     }
     when {
         (got is Union2.U1<*, *>) -> {
-            val got_9: salvo.aws.sqs.ReceiveMessageOutput = ((got as Union2.U1<*, *>).value as salvo.aws.sqs.ReceiveMessageOutput)
+            val got_11: salvo.aws.sqs.ReceiveMessageOutput = ((got as Union2.U1<*, *>).value as salvo.aws.sqs.ReceiveMessageOutput)
             val messages: List<salvo.aws.sqs.Message> = run {
-                val __elv_10: List<salvo.aws.sqs.Message>? = got_9.messages
-                when {
-                    (__elv_10 == null) -> {
-                        listOf<salvo.aws.sqs.Message>()
-                    }
-                    else -> {
-                        val __some_11: List<salvo.aws.sqs.Message> = __elv_10!!
-                        __some_11
-                    }
-                }
+                val __pick_12: List<salvo.aws.sqs.Message>? = got_11.messages
+                (if ((__pick_12 != null)) {
+                    val __picked_13: List<salvo.aws.sqs.Message> = __pick_12!!
+                    __picked_13
+                } else {
+                    listOf<salvo.aws.sqs.Message>()
+                })
             }
             salvo.core.console.println(console, "received ${salvo.core.list.sizePlatform(messages)} message(s)")
             for (m in salvo.platform.core.list.each(messages)) {
                 salvo.core.console.println(console, "  ${run {
-                    val __elv_12: String? = m.body
-                    when {
-                        (__elv_12 == null) -> {
-                            ""
-                        }
-                        else -> {
-                            val __some_13: String = __elv_12!!
-                            __some_13
-                        }
-                    }
+                    val __pick_15: String? = m.body
+                    (if ((__pick_15 != null)) {
+                        val __picked_16: String = __pick_15!!
+                        __picked_16
+                    } else {
+                        ""
+                    })
                 }}")
             }
         }
         (got is Union2.U2<*, *>) -> {
-            val got_14: salvo.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>> = ((got as Union2.U2<*, *>).value as salvo.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>>)
-            salvo.core.console.println(console, "receive_message: ${describe(salvo.core.checked.detach(got_14))}")
+            val got_18: salvo.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>> = ((got as Union2.U2<*, *>).value as salvo.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>>)
+            salvo.core.console.println(console, "receive_message: ${describe(salvo.core.checked.detach(got_18))}")
         }
         else -> throw IllegalStateException("salvo: unreachable arm")
     }
@@ -123,12 +111,12 @@ fun roundTrip(sqs: salvo.aws.sqs.Sqs, console: salvo.core.console.Console, name:
     }
     when {
         (gone is Union2.U1<*, *>) -> {
-            val gone_15: Unit = ((gone as Union2.U1<*, *>).value as Unit)
+            val gone_19: Unit = ((gone as Union2.U1<*, *>).value as Unit)
             salvo.core.console.println(console, "deleted")
         }
         (gone is Union2.U2<*, *>) -> {
-            val gone_16: salvo.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>> = ((gone as Union2.U2<*, *>).value as salvo.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>>)
-            salvo.core.console.println(console, "delete_queue: ${describe(salvo.core.checked.detach(gone_16))}")
+            val gone_20: salvo.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>> = ((gone as Union2.U2<*, *>).value as salvo.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>>)
+            salvo.core.console.println(console, "delete_queue: ${describe(salvo.core.checked.detach(gone_20))}")
         }
         else -> throw IllegalStateException("salvo: unreachable arm")
     }
@@ -235,21 +223,18 @@ fun main() {
             (missing is Union2.U1<*, *>) -> {
                 val missing_8: salvo.aws.sqs.GetQueueUrlOutput = ((missing as Union2.U1<*, *>).value as salvo.aws.sqs.GetQueueUrlOutput)
                 salvo.core.console.println(__handle_2, "unexpected: ${run {
-                    val __elv_9: String? = missing_8.queueUrl
-                    when {
-                        (__elv_9 == null) -> {
-                            "?"
-                        }
-                        else -> {
-                            val __some_10: String = __elv_9!!
-                            __some_10
-                        }
-                    }
+                    val __pick_9: String? = missing_8.queueUrl
+                    (if ((__pick_9 != null)) {
+                        val __picked_10: String = __pick_9!!
+                        __picked_10
+                    } else {
+                        "?"
+                    })
                 }}")
             }
             (missing is Union2.U2<*, *>) -> {
-                val missing_11: salvo.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>> = ((missing as Union2.U2<*, *>).value as salvo.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>>)
-                salvo.core.console.println(__handle_2, "get_queue_url: ${describe(salvo.core.checked.detach(missing_11))}")
+                val missing_12: salvo.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>> = ((missing as Union2.U2<*, *>).value as salvo.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>>)
+                salvo.core.console.println(__handle_2, "get_queue_url: ${describe(salvo.core.checked.detach(missing_12))}")
             }
             else -> throw IllegalStateException("salvo: unreachable arm")
         }

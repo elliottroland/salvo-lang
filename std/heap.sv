@@ -186,19 +186,25 @@ export fn pop<T>(heap: NonEmpty Heap<T>(?cmp) Mut List<T>) -> T
     ignore(heap.swap(0, heap.size() - 1))
     let elem = heap.remove_at(heap.size() - 1)!
     // The root is a valid index (the early return above handled the
-    // one-element heap, and `remove_at` left at least one element), and the
-    // pick **applies** the claim [pick-qualifies]: from here every read in
-    // the sift is the total `get` [col-idx] — no `!` anywhere.
-    let i = 0 Idx(heap)?: return elem
+    // one-element heap, and `remove_at` left at least one element), so from
+    // here every read in the sift is the total `get` [col-idx] — no `!`
+    // anywhere.
+    let i = 0
+    if i !is Idx(heap) { return elem }
     while i < heap.size() {
         // If there are no children, then we're done.
-        let i_child = i * 2 + 1 Idx(heap)?: break
+        let i_child0 = i * 2 + 1
+        if i_child0 !is Idx(heap) { break }
 
         // We want to compare with the smallest of the two child indices,
-        // because if we swap this child will become the root.
-        let i_right = i_child + 1
-        if i_right is Idx(heap) && heap.get(i_right) < heap.get(i_child) {
-            i_child = i_right
+        // because if we swap this child will become the root. Both candidates
+        // carry the `Idx` claim — `i_child0` from the guard above, `i_right`
+        // from the `is Idx` test — so the `if`-expression keeps it.
+        let i_right = i_child0 + 1
+        let i_child = if i_right is Idx(heap) && heap.get(i_right) < heap.get(i_child0) {
+            i_right
+        } else {
+            i_child0
         }
 
         // If the parent is already smaller than the smallest child, then the

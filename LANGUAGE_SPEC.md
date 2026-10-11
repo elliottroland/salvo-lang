@@ -390,17 +390,29 @@ Conventions:
     build modes, and every language surveyed that made assertions optional
     (Java's `-ea`, Kotlin's inherited `assert`) ended up with a vocabulary nobody
     trusts.
-* [elvis] `subject ?: rhs` **picks the non-`None` arms** of its subject (user
-  decision 2026-09-21, step 4 of the `?` family sequence): the expression is
-  that value when the subject has one, and `rhs` otherwise. Reserved for `T?` —
-  a *qualifier* is picked by naming it (step 5) — and it keys on the **presence
-  of a `None` arm**, not on the `?` spelling, so `Str | None` written longhand
-  works and `Str | Int | None` picks `Str | Int`.
+* [elvis] `subject ?…?: rhs` / `subject :?…? rhs` is the **positional pick**
+  (user decision 2026-10-11, superseding the 2026-09-21 named-qualifier form):
+  a run of `n` `?`s names how many arms of the subject's union it keeps,
+  counted from the declared **front** (`Forward`: `?:`, `??:`, …) or **back**
+  (`Backward`: `:?`, `:??`, …). Those arms become the expression's value when
+  the subject holds one of them; otherwise `rhs` runs, with `_` bound to the
+  arms the pick did *not* claim. `?:` is `Forward(1)`.
+  * **Positional, not named.** The pick selects by *position* over the
+    subject's declared arm order [union-arm-identity], not by qualifier name.
+    `?:` on a `Str?` (arms `Str, None`) keeps `Str` and leaves `None`; `:?` on
+    `Ok Int | Err Str` keeps `Err Str` and leaves `Ok Int`; `??:` on
+    `Ok Int | Ok Str | Err Str` keeps the first two.
+  * **`_` carries the arms left behind, tags and all** — a sub-union of the
+    storage, by `[rewrap]`, on the opposite side from `dir`. `err(_)` on a
+    `Thrown Str` honestly gives `Err Thrown Str`.
+  * **Widening is allowed** (the one semantic the old form refused): a `rhs`
+    whose type is outside the subject's arms joins into the result, so
+    `Int? ?: "none"` is `Int | Str`. Both sides are coerced into the join —
+    the right side at its own span, the picked value at the operator's span
+    [rewrap].
   * **Precedence is Kotlin's**: tighter than `is`/comparison/equality, looser
     than additive, right-associative. `m[k] ?: 0 > 3` is `(m[k] ?: 0) > 3`;
-    `a ?: b + 1` is `a ?: (b + 1)`; `a ?: b ?: c` is `a ?: (b ?: c)`. Borrowed
-    with the spelling, so a reader who knows Kotlin's `?:` learns no new
-    binding.
+    `a ?: b + 1` is `a ?: (b + 1)`; `a ?: b ?: c` is `a ?: (b ?: c)`.
   * **The subject is evaluated once**, and the form needs no position
     restriction (unlike a call subject in an `is` [loop-while-is]): the
     temporary is internal to the lowering.
@@ -408,144 +420,55 @@ Conventions:
     includes `return`/`break`/`continue` — that is what step 2 was for. A
     diverging right side contributes nothing to the type, so
     `maybe_t() ?: return None` has the picked type exactly.
-  * **The two sides must agree on a representation**, as an `if`'s branches do:
-    the right side is coerced into the join, so a bare `Str` wraps into the
-    subject's `Str | Int`. A right side that *widens* the join past the
-    subject's own arms (`Int? ?: "none"`) is **refused for now**: the picked
-    value would need wrapping too and has no span of its own to hang a
-    coercion on. `when` says it today.
-  * A subject with no `None` arm is an error (nothing can take the right side,
-    the same refusal a throw-free `try` gets [try]); so is a subject that is
-    only `None`.
-  * Backends: Kotlin's own `?:`, since the `T?` representation *is* a Kotlin
-    nullable [kt-elvis]; on Rust a `match` on the `Option` — a `match` rather
-    than `unwrap_or_else` precisely because the right side may escape, and a
-    `return` inside a closure would return from the closure [rs-elvis].
-* [pick] `subject Qual?: rhs` is the **qualifier form** of `?:` (user decision
-  2026-09-21, step 5): the named arm is *picked* — it becomes the expression's
-  value — and everything the pick did not claim goes to the right-hand side,
-  where `_` names it [placeholder].
-  * **`^Qual` lifts, `Qual` keeps.** `r ^Ok?: …` yields `T`, `r Ok?: …` yields
-    `Ok T`. The same `^Q` notation an `is` check uses [qual-lift], which is why
-    step 3 came first: one mark, two places.
-  * **`_` carries its tags** (user decision 2026-09-21): the unpicked arm reads
-    as `Err Str`, not `Str`, so the right side can route on it. There is no way
-    to strip a tag here — replacing one tag with another is an `if` or a `when`,
-    and `err(_)` on a `Thrown Str` honestly gives `Err Thrown Str`.
-  * **One pick per `?:`.** A *chain* of picks (`r ^Ok?: Err?: err(_)`), where
-    only the last one carries a right-hand side and each earlier arm iterators
-    through as a value, is **not built** — and is recorded as a question rather
-    than a plan (ROADMAP.md, "Pick chains"): the same program is expressible
-    with one pick and a `when`, so the case for the sugar wants a real site that
-    reads worse without it. The multi-arm work it would have needed is done
-    [rewrap].
-  * **The subject is evaluated once**, into a temporary registered exactly as a
-    hoisted `is` subject is [is-bind-once] — so, unlike `?.`, the subject need
-    not be a place.
-  * **A pick that matches nothing** can never run; one that matches
-    *everything* leaves the right side dead. Both are errors, the same "dead
-    scaffolding" refusal a throw-free `try` gets [try]. A pick naming a *type*
-    rather than a qualifier is an error too.
-  * **Either side may span several arms** (2026-09-21): a multi-arm side is a
-    *sub-union* of the storage, produced by the arm mapping [rewrap]. So
-    `attempt(t) ^Ok?: return _` works over `Ok Int | Err Str | Thrown Str`,
-    where `_` is the two-arm `Err Str | Thrown Str`.
-* [pick-qualifies] A predicate qualifier on a **non-union** subject is the
-  pick's *runtime* form (user decision 2026-09-24) — the same duality `is`
-  has between arm identity [is-narrowing] and a `qualifies` call
-  [is-qualifies], reached from `?:` instead of a condition:
-
-  ```
-  let i_child = i * 2 + 1 Idx(heap)?: break
-  // i_child: Idx(heap) Int
-  ```
-
-  The subject is evaluated once into the pick's temporary, `qualifies` is
-  called on it (dependent slots filled exactly as an `is` fills them
-  [qual-depend], constants included [qual-const]), and when the claim holds
-  the temporary *is* the value — claimed. When it does not, the right side
-  runs; `_` there is the plain subject.
-  * **`^` is refused**: a predicate pick establishes; the subject carries
-    no tag to lift off. A constructive qualifier is refused too — no
-    runtime test exists, so nothing could decide the pick
-    [qual-constructive].
-  * **A value-yielding right side drops the claim** unless it carries it:
-    a claim and its absence are one representation, never two union arms —
-    `5 Idx(xs)?: 0` is an `Int`. A diverging right side leaves the claimed
-    type, and narrows a place subject below [elvis-guard].
-  * `qualifies` effects must be available at the pick, as at any test site
-    [is-qualifies-effects].
-  * Lowered as the elvis conditional with the predicate call as its
-    condition, on both backends; the claim itself erases [qual-erasure].
-* [safe-call] `receiver?.member` / `receiver?.member(args)` reaches a field or
-  a dot-notation function on the **non-`None`** side of an optional (user
-  decision 2026-09-21, step 4). The result is the member's own type **plus
-  `None`**, so a chain re-tests at each link and composes with `?:`
-  (`p.home?.city ?: "-"`). Reserved for `T?`, like `?:`.
-  * **The member is typed by the ordinary path.** The node holds the equivalent
-    plain access (`Field`, or a `Call` whose callee is one), so field overrides,
-    overload resolution, effects and diagnostics are exactly those of
-    `member(receiver, args)`. `?.` adds the condition and the `None` arm, and
-    nothing else.
-  * **The receiver must be a place** — a variable or a field of one. The form
-    reads it twice, once to test and once to reach the member, which is the rule
-    (and the remedy: bind it with `let`) a call subject in an `is` already has
-    [loop-while-is].
-  * **A member that is already optional is not wrapped twice**: `p?.zip` on a
-    `Str?` field is `Str?`, because the result's `None` arms dedupe
-    [union-arm-identity]. Which of the two cases applied is recorded for the
-    emitters, since the inner access shares the operator's span.
-  * A receiver with no `None` arm is an error naming the remedy (drop the `?`);
-    so is one that is only `None`.
-  * Backends: Kotlin cannot use its own `?.`, because Salvo's dot-notation is a
-    *free function* call — `xs?.size()` is `size(xs)` guarded on `xs` — so it
-    emits a conditional whose arms are the narrowed read and `null`
-    [kt-safe-call]. Rust emits the same shape over the `Option`
-    [rs-safe-call].
+  * A pick that keeps **every** arm (`n` ≥ the arm count) leaves nothing for
+    the right side — an error, the same "dead scaffolding" a throw-free `try`
+    gets [try]; a non-union subject has one arm, so `?:` on it is refused the
+    same way. `n = 0` is a parse error (no pick without a `?`).
+  * **The placeholder `_`** reads only in a pick's right-hand side, where it is
+    the arms left behind; reading it anywhere else is an error [placeholder].
+  * Backends: the pick lowers to a conditional (`if`/`when`) testing whether
+    the subject holds one of the picked arms — the picked value in the then
+    branch, `rhs` in the else — on both backends [kt-elvis] [rs-elvis]. The
+    `T?` representation *is* a Kotlin nullable, so a `Forward(1)` on a `T?`
+    is a plain null test there.
 * [elvis-guard] **A leaving right side takes its flow effects with it**: a
   `return elem` there moves `elem` on a path the fall-through never shares,
   so its consumptions are restored at the join (found on `std.heap`'s
   sift, 2026-09-24 — the pick's `?: return elem` poisoned the fn's own
   final `return elem`). A value-yielding right side merges its effects as
   ever, since both paths continue.
-* [elvis-guard] A `?:` (plain or a pick) whose right side **leaves** narrows its
-  subject on the path below (user decision 2026-09-21): the value was there, or
-  the code would not be running. The same facts an `is` guard leaves
+* [elvis-guard] A pick whose right side **leaves** narrows its subject on the
+  path below (user decision 2026-09-21): the subject was one of the picked
+  arms, or the code would not be running. The same facts an `is` guard leaves
   [is-narrow-guard], reached from an expression rather than a condition, and
   installed only when the subject is a narrowable place [flow-place].
   * **Only when the right side diverges.** One that yields a value leaves the
     subject possibly-unpicked, since that is the path it took.
-  * **A pick narrows to the matched *arm*, tag included** — not to the lifted
-    type. `r ^Ok?: return` leaves `r` an `Ok Int`: the lift applies to the value
-    the expression produced, while the place still holds the tagged arm. Naming
-    the lifted type there would name a type matching no arm of the storage,
-    which is exactly what the Rust backend reported when it did.
+  * **It narrows to the picked arms.** `r ?: return` on an `Ok Int | Err Str`
+    leaves `r` an `Ok Int` below.
   * Consequence for the lowering: the picked value is **read** out of the
-    subject, not moved out of it, since the subject is still live below. A place
-    subject is therefore not hoisted into a temporary at all — reading one twice
-    is free [loop-while-is] — while any other subject is, once.
+    subject, not moved out of it, since the subject is still live below.
 * [rewrap] A value spanning **fewer arms than its storage** is produced by
   mapping arm to arm: each source arm to the target arm of the same type, and a
   source arm the target does not have to an unreachable. This is what
   [let-infer]'s `Rewrap` coercion has always emitted for an annotated slot
-  (`let b: Str | Int = a` out of a `Str | Int | Bool`); since 2026-09-21 the
-  sites that produce such a value **with no slot** reach the same mapping:
+  (`let b: Str | Int = a` out of a `Str | Int | Bool`); the sites that produce
+  such a value **with no slot** reach the same mapping:
   * a **multi-arm lift binding** [qual-lift], whose source arms are recorded
     *lifted* — the mapping pairs arms by type equality, and a lifted arm's type
     is the arm without its qualifier, while positions stay the storage's since
     qualifiers erase;
-  * a **pick's picked side**, same treatment;
-  * a **pick's unpicked side** (`_`), whose source arms keep their tags, because
-    `_` never lifts [pick].
+  * a **pick's picked side**, and a pick that **widens** its result into a
+    larger union, same treatment;
+  * a **pick's unpicked side** (`_`), whose source arms keep their tags.
   * The mapping **consumes** its input, so it takes an owned copy: the subject is
     still readable after the form ([elvis-guard], and the arms the right side
     reads). Kotlin needs no copy, its values being references.
-* [placeholder] `_` reads as **the value the enclosing construct left
-  unnamed**, and **no construct binds one yet** (user decision 2026-09-21): a
-  plain `?:` leaves `None`, which the program can already write, so a
-  placeholder there would name a value that has a name. It earns its keep where
-  a *qualifier* is picked and the unpicked side carries a tag (step 5), which is
-  where `x Ok?: err(_)` needs it.
+
+* [placeholder] `_` reads as **the arms a pick left behind** — the sub-union of
+  the subject the pick did not claim, on the opposite side from its direction
+  [elvis]. It reads only inside a pick's right-hand side; reading it anywhere
+  else is an error, not a silent `Unknown`.
   * It is not a name: it cannot be declared, shadowed or captured. The word is
     reserved, and appeared in no `.sv` source when it was.
   * **A `for` binder may be `_`**: `for _ in range(0, 3) { … }` drives the iterator
@@ -556,15 +479,8 @@ Conventions:
     drops the `val` line for an iterator loop and names an unreachable local for a
     native `for`, which has no wildcard form. Two such loops in one function are
     independent, since neither introduces a name to collide.
-  * Reading it is an **error** until a construct binds it, not a silent
+  * Reading it outside a pick's right-hand side is an **error**, not a silent
     `Unknown`.
-  * Considered and rejected for now (user decision 2026-09-21): a general rule
-    covering other "single unnamed value" scopes. `waitfor` was the candidate
-    and it wants ordinary **binder inference** instead — `waitfor out { … }`
-    with the `Reply<T>` inferred from where `out` is used — so `_` stays one
-    piece of the `?:` form rather than a rule about scopes. Single-parameter
-    lambdas stay out too: `i -> f(i)` already says it, and Scala's placeholder
-    scoping is the cautionary case.
 * [type-none-unit] `None` is **one spelling for two things** — the absent
   arm of a `T?` and the sole value of the `None` type — and the targets
   spell them differently (Rust `None` vs `()`, Kotlin `null` vs `Unit`),

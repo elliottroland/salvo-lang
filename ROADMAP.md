@@ -1485,14 +1485,6 @@ several are "revisit only if a customer appears".
   `examples/`, for no behaviour — do it when one of the paths next needs a
   change.
 
-- **Pick chains** (`^Ok?: Err?: err(_)`) — recorded rather than scheduled at the
-  user's call: the same program is expressible today with one pick plus a `when`,
-  so a chain buys brevity and the evidence that would settle it is *a real program
-  in `examples/` or `std/` that reads worse without one*. Decided and still
-  standing if built: picks consume arms **in order**, and the empty pick may appear
-  anywhere in the chain. Cost: `Expr::Elvis` needs `picks: Vec<ElvisPick>`, the
-  checker consumes arms pick by pick, both emitters emit an `if`/`else if` chain;
-  the parser's lookahead already exists.
 - **Value-level parity for hash and random.** Callable `hash` lowers to each
   backend's **native** hashing, so hash *values* diverge across backends —
   accepted deliberately, on the analogy of random numbers. The shape and the

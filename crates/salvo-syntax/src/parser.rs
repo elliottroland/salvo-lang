@@ -4892,115 +4892,74 @@ impl<'s> Parser<'s> {
         Some((refs, binding, lifted))
     }
 
-    /// [elvis] `subject ?: rhs`, **right-associative**, sitting where Kotlin's
-    /// elvis sits: tighter than `is`/comparison/equality, looser than
-    /// additive. So `m[k] ?: 0 > 3` is `(m[k] ?: 0) > 3` and `a ?: b + 1` is
-    /// `a ?: (b + 1)`, and a reader who knows Kotlin's `?:` does not have to
+    /// [elvis] The **positional pick** operator, **right-associative**, sitting
+    /// where Kotlin's elvis sits: tighter than `is`/comparison/equality, looser
+    /// than additive. So `m[k] ?: 0 > 3` is `(m[k] ?: 0) > 3` and `a ?: b + 1`
+    /// is `a ?: (b + 1)`, and a reader who knows Kotlin's `?:` does not have to
     /// learn a different binding.
     ///
-    /// The right side is an ordinary expression — which since step 2 includes
-    /// `return`/`break`/`continue`, so `x ?: return _` needs no exception
-    /// [expr-escape].
+    /// A run of `n` `?`s names how many arms of the subject's union — counted
+    /// from the declared **front** (`?:`, `??:`, …) or **back** (`:?`, `:??`,
+    /// …) — the operator picks: those arms become the value when the subject
+    /// holds one of them, and `rhs` runs otherwise, with `_` bound to the arms
+    /// the pick did *not* claim. `?:` is `Forward(1)`.
+    ///
+    /// The right side is an ordinary expression — which since [expr-escape]
+    /// includes `return`/`break`/`continue`, so `x ?: return _` needs no
+    /// exception.
     fn parse_elvis(&mut self) -> Option<Expr> {
         let lhs = self.parse_additive()?;
         if !self.same_line() {
             return Some(lhs);
         }
-        // [pick] A qualifier may be named before the operator: `x Ok?: r`,
-        // `x ^Ok?: r`. Recognised by scanning ahead for the `?:` — an
-        // expression is never followed by a bare type name otherwise, and the
-        // two-token lookahead keeps that unambiguous.
-        let pick = self.peek_elvis_pick();
-        if pick.is_none() && !matches!(self.kind(), TokenKind::QuestionColon) {
-            return Some(lhs);
-        }
-        let pick = match pick {
-            Some(()) => {
-                let start = self.peek().span;
-                let lift = self.eat(&TokenKind::Caret).is_some();
-                let mut quals = vec![self.parse_type_ref()?];
-                let mut end = quals[0].span;
-                // Further qualifiers, each carrying its own `^` when lifted.
-                while !matches!(self.kind(), TokenKind::QuestionColon) {
-                    let marked = self.eat(&TokenKind::Caret).is_some();
-                    if marked != lift {
-                        self.error(
-                            "a pick either lifts every qualifier or none: mark \
-                             them all with `^`, or split the pick",
-                            self.peek().span,
-                        );
-                    }
-                    let r = self.parse_type_ref()?;
-                    end = r.span;
-                    quals.push(r);
+        // The operator is a run of `?`s with a `:` at one end: `?…?:` counts
+        // from the front, `:?…?` from the back. The two `Question` runs never
+        // *both* appear — a `:` with `?`s on both sides is not a pick — so the
+        // direction is whichever side the `:` is not on. `?` and `:` are
+        // separate tokens [elvis], so this scans a run rather than matching one
+        // glued pair.
+        let (dir, count) = match self.kind() {
+            TokenKind::Question => {
+                // Forward: `?…?:`. Require the run to end in a `:`, otherwise
+                // this is some other `?` (none exists today, but stay precise).
+                let mut n = 0u32;
+                while matches!(self.peek_at(n as usize).kind, TokenKind::Question) {
+                    n += 1;
                 }
-                Some(ElvisPick {
-                    quals,
-                    lift,
-                    span: start.to(end),
-                })
+                if !matches!(self.peek_at(n as usize).kind, TokenKind::Colon) {
+                    return Some(lhs);
+                }
+                for _ in 0..n {
+                    self.bump();
+                }
+                self.expect(&TokenKind::Colon)?;
+                (ElvisDir::Forward, n)
             }
-            None => None,
+            TokenKind::Colon => {
+                // Backward: `:?…?`. A `:` on its own line or not followed by a
+                // `?` is not a pick (it may be a type ascription elsewhere).
+                if !matches!(self.peek_at(1).kind, TokenKind::Question) {
+                    return Some(lhs);
+                }
+                self.bump();
+                let mut n = 0u32;
+                while matches!(self.kind(), TokenKind::Question) {
+                    self.bump();
+                    n += 1;
+                }
+                (ElvisDir::Backward, n)
+            }
+            _ => return Some(lhs),
         };
-        self.expect(&TokenKind::QuestionColon)?;
         let rhs = self.parse_elvis()?;
         let span = lhs.span().to(rhs.span());
         Some(Expr::Elvis {
             subject: Box::new(lhs),
-            pick,
+            dir,
+            count,
             rhs: Box::new(rhs),
             span,
         })
-    }
-
-    /// [pick] Whether a qualifier pick starts here: `[^]Name+` followed by
-    /// `?:`, each name optionally carrying a value-argument block
-    /// (`Idx(heap)?:` [qual-depend]) or type arguments. Pure lookahead —
-    /// nothing is consumed.
-    fn peek_elvis_pick(&self) -> Option<()> {
-        let mut i = 0usize;
-        if matches!(self.peek_at(i).kind, TokenKind::Caret) {
-            i += 1;
-        }
-        let mut names = 0usize;
-        loop {
-            match &self.peek_at(i).kind {
-                TokenKind::Ident(n) if n.chars().next().is_some_and(|c| c.is_uppercase()) => {
-                    i += 1;
-                    names += 1;
-                    // `<…>` type arguments and `(…)` value arguments ride
-                    // with the name; skip each balanced group.
-                    for (open, close) in
-                        [(TokenKind::Lt, TokenKind::Gt), (TokenKind::LParen, TokenKind::RParen)]
-                    {
-                        if self.peek_at(i).kind == open {
-                            let mut depth = 0usize;
-                            loop {
-                                let k = &self.peek_at(i).kind;
-                                if *k == open {
-                                    depth += 1;
-                                } else if *k == close {
-                                    depth -= 1;
-                                    if depth == 0 {
-                                        i += 1;
-                                        break;
-                                    }
-                                } else if matches!(k, TokenKind::Eof) {
-                                    return None;
-                                }
-                                i += 1;
-                            }
-                        }
-                    }
-                }
-                TokenKind::Caret if names > 0 => i += 1,
-                _ => break,
-            }
-        }
-        if names == 0 {
-            return None;
-        }
-        matches!(self.peek_at(i).kind, TokenKind::QuestionColon).then_some(())
     }
 
     fn parse_additive(&mut self) -> Option<Expr> {
@@ -5138,47 +5097,6 @@ impl<'s> Parser<'s> {
         let mut expr = self.parse_primary()?;
         loop {
             match self.kind() {
-                // [safe-call] `?.` reads a field or calls a dot-notation
-                // function on the non-`None` side. Same postfix tier as `.`, so
-                // it chains with everything else.
-                TokenKind::QuestionDot if self.same_line() => {
-                    self.bump();
-                    let field = self.ident()?;
-                    let (args, end) = if self.at(&TokenKind::LParen) {
-                        let (args, named, end) = self.parse_call_args()?;
-                        if let Some(first) = named.first() {
-                            self.error(
-                                "a `?.` call takes its arguments positionally",
-                                first.span,
-                            );
-                        }
-                        (Some(args), end)
-                    } else {
-                        (None, field.span)
-                    };
-                    let span = expr.span().to(end);
-                    let base = expr.clone();
-                    let access = Expr::Field {
-                        base: Box::new(expr),
-                        field,
-                        span,
-                    };
-                    let inner = match args {
-                        Some(args) => Expr::Call {
-                            callee: Box::new(access),
-                            type_args: Vec::new(),
-                            args,
-                            named: Vec::new(),
-                            span,
-                        },
-                        None => access,
-                    };
-                    expr = Expr::SafeField {
-                        base: Box::new(base),
-                        inner: Box::new(inner),
-                        span,
-                    };
-                }
                 TokenKind::Dot => {
                     self.bump();
                     // `t.0` — a tuple element by constant index

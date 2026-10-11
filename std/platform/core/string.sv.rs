@@ -215,21 +215,21 @@ pub fn split_once(str: &String, sep: &String) -> Option<(String, String)> {
     if at.is_some() {
         let mut i = at.unwrap();
         let mut before: String = {
-            let mut __elv_1: Option<String> = crate::core_string::substr_platform(str, 0i32, i);
-            if __elv_1.is_none() {
-                String::from("")
+            let mut __pick_1: Option<String> = crate::core_string::substr_platform(str, 0i32, i);
+            if __pick_1.is_some() {
+                let mut __picked_2 = __pick_1.unwrap();
+                __picked_2
             } else {
-                let mut __some_2 = __elv_1.unwrap();
-                __some_2
+                String::from("")
             }
         };
         let mut after: String = {
-            let mut __elv_3: Option<String> = crate::core_string::substr_platform(str, i32::wrapping_add(i, crate::core_string::size_platform(sep)), crate::core_string::size_platform(str));
-            if __elv_3.is_none() {
-                String::from("")
+            let mut __pick_4: Option<String> = crate::core_string::substr_platform(str, i32::wrapping_add(i, crate::core_string::size_platform(sep)), crate::core_string::size_platform(str));
+            if __pick_4.is_some() {
+                let mut __picked_5 = __pick_4.unwrap();
+                __picked_5
             } else {
-                let mut __some_4 = __elv_3.unwrap();
-                __some_4
+                String::from("")
             }
         };
         return Some((before.clone(), after.clone()));
@@ -242,21 +242,21 @@ pub fn split_last(str: &String, sep: &String) -> Option<(String, String)> {
     if at.is_some() {
         let mut i = at.unwrap();
         let mut before: String = {
-            let mut __elv_1: Option<String> = crate::core_string::substr_platform(str, 0i32, i);
-            if __elv_1.is_none() {
-                String::from("")
+            let mut __pick_1: Option<String> = crate::core_string::substr_platform(str, 0i32, i);
+            if __pick_1.is_some() {
+                let mut __picked_2 = __pick_1.unwrap();
+                __picked_2
             } else {
-                let mut __some_2 = __elv_1.unwrap();
-                __some_2
+                String::from("")
             }
         };
         let mut after: String = {
-            let mut __elv_3: Option<String> = crate::core_string::substr_platform(str, i32::wrapping_add(i, crate::core_string::size_platform(sep)), crate::core_string::size_platform(str));
-            if __elv_3.is_none() {
-                String::from("")
+            let mut __pick_4: Option<String> = crate::core_string::substr_platform(str, i32::wrapping_add(i, crate::core_string::size_platform(sep)), crate::core_string::size_platform(str));
+            if __pick_4.is_some() {
+                let mut __picked_5 = __pick_4.unwrap();
+                __picked_5
             } else {
-                let mut __some_4 = __elv_3.unwrap();
-                __some_4
+                String::from("")
             }
         };
         return Some((before.clone(), after.clone()));
