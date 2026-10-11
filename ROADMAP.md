@@ -1322,7 +1322,12 @@ it would save only the cheap transcription and inherit every coupling of the
      global-file-index-keyed) is part of it. A dependency's own fns are still
      inferred (the rule binds std trees only), so either the seam covers std
      alone and deps check with the project, or `[deduce-std-explicit]` is later
-     extended to any `std = true` dependency.
+     extended to any `std = true` dependency. **The options are sketched in
+     `STD_CACHE.md`** (root-level design doc): A — a skip-std-bodies seam in
+     `check_program` (recommended); B — std as a precompiled library with an
+     owned, index-free interface (A's larger successor); C — whole-`Checked`
+     memoization (rejected alone). The doc has the correctness surface and the
+     open sub-decisions; it dies into COMPLETED.md when the work lands.
 
 4. **(Follow-on, for `salvo build` — not the LSP.)** Once step 3's annotation
    guarantee holds, std's *IR* is a pure function of std's sources too, which
