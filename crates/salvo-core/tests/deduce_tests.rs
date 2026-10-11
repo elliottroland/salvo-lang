@@ -2068,3 +2068,136 @@ fn a_projected_non_scalar_is_still_a_view() {
         "got {messages:?}"
     );
 }
+
+// ===== [deduce-std-explicit] A `std = true` tree needs total clauses =====
+
+/// Checks `src` as the one file of a `std = true` tree (so it is
+/// `is_std && is_shadow`, exactly what `mark_std_tree` sets), with the
+/// prelude as embedded std. Returns the rendered error messages.
+fn check_std_tree(src: &str) -> Vec<String> {
+    let mut sources = SourceSet::default();
+    sources.add(
+        "std/core/prelude.sv",
+        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        STD_PRELUDE.to_string(),
+        true,
+    );
+    sources.add(
+        "main.sv",
+        SourceSet::classify(Path::new("main.sv")).unwrap(),
+        src.to_string(),
+        false,
+    );
+    // The whole tree *is* std, like std's own manifest (`std = true`).
+    sources.mark_std_tree();
+    let mut modules = Vec::new();
+    for file in &sources.files {
+        let (module, diagnostics) = salvo_syntax::parse_module(&file.content);
+        let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+        assert!(errors.is_empty(), "parse errors: {errors:?}");
+        modules.push(module);
+    }
+    let _expansion = salvo_core::expand(&sources.files, &mut modules);
+    let program = Program {
+        files: sources.files,
+        modules,
+        companions: Vec::new(),
+    };
+    let symbols = Symbols::collect(&program);
+    let resolution = resolve(&program);
+    let checked = check_program(&program, &resolution, &symbols);
+    checked
+        .errors
+        .iter()
+        .filter(|d| d.is_error())
+        .map(|d| d.message.clone())
+        .collect()
+}
+
+/// [deduce-std-explicit] An exported bodied fn with a non-scalar parameter
+/// and no clause is refused, and the diagnostic names the missing parameter
+/// and the inferred clause to write.
+#[test]
+fn an_exported_std_fn_without_a_clause_is_refused() {
+    let errs = check_std_tree(
+        "export fn keep(s: List<Int>) [] -> List<Int> {\n    return s\n}\n",
+    );
+    assert!(
+        errs.iter().any(|m| {
+            m.contains("[deduce-std-explicit]")
+                && m.contains("`s`")
+                && m.contains("`fn keep`")
+        }),
+        "expected the missing-clause refusal: {errs:?}"
+    );
+    // `keep` returns its parameter, so the inferred clause moves it.
+    assert!(
+        errs.iter().any(|m| m.contains("=> !s")),
+        "the diagnostic should suggest the inferred total clause: {errs:?}"
+    );
+}
+
+/// [deduce-std-explicit] A total clause (every non-scalar parameter named)
+/// satisfies the rule.
+#[test]
+fn an_exported_std_fn_with_a_total_clause_is_accepted() {
+    let errs = check_std_tree(
+        "export fn keep(s: List<Int>) [] -> List<Int> => !s {\n    return s\n}\n",
+    );
+    assert!(
+        !errs.iter().any(|m| m.contains("[deduce-std-explicit]")),
+        "a total clause should satisfy the rule: {errs:?}"
+    );
+}
+
+/// [deduce-std-explicit] A *partial* clause — present, but not naming every
+/// parameter — is still refused: an unmentioned parameter is still inferred,
+/// so it is not pinned, which is the whole point of the rule.
+#[test]
+fn a_partial_std_clause_is_still_refused() {
+    let errs = check_std_tree(
+        "export fn two(a: List<Int>, b: List<Int>) [] -> List<Int> => !a {\n    \
+         return a\n}\n",
+    );
+    assert!(
+        errs.iter().any(|m| m.contains("[deduce-std-explicit]") && m.contains("`b`")),
+        "the unmentioned parameter should still be refused: {errs:?}"
+    );
+}
+
+/// [deduce-std-explicit] [copy-scalar-free] A Copy scalar needs no entry —
+/// its keep-all is invariant, so leaving it out is sound and not flagged.
+#[test]
+fn a_scalar_parameter_needs_no_entry() {
+    let errs = check_std_tree("export fn id(n: Int) [] -> Int {\n    return n\n}\n");
+    assert!(
+        !errs.iter().any(|m| m.contains("[deduce-std-explicit]")),
+        "a scalar-only exported fn should not be flagged: {errs:?}"
+    );
+}
+
+/// [deduce-std-explicit] The rule is about the public surface: a
+/// module-private fn is not flagged (it is not something the cache keys on).
+#[test]
+fn a_private_std_fn_is_not_flagged() {
+    let errs = check_std_tree("fn helper(s: List<Int>) [] -> List<Int> {\n    return s\n}\n");
+    assert!(
+        !errs.iter().any(|m| m.contains("[deduce-std-explicit]")),
+        "a private fn should not be flagged: {errs:?}"
+    );
+}
+
+/// [deduce-std-explicit] An ordinary (non-std) tree is unaffected: a project
+/// fn may leave its deductions to inference.
+#[test]
+fn an_ordinary_fn_is_not_flagged() {
+    let (_program, checked) =
+        check_src("export fn keep(s: List<Int>) [] -> List<Int> {\n    return s\n}\n");
+    assert!(
+        !checked
+            .errors
+            .iter()
+            .any(|d| d.message.contains("[deduce-std-explicit]")),
+        "a non-std fn should never be flagged"
+    );
+}

@@ -28,7 +28,7 @@ export struct Finished {}
 // [qual-ctor-fn] Tags a value as the element arm. The value is moved into the
 // result, so nothing is kept ([] deductions); linear values may be tagged,
 // since the obligation travels with them [linear-generics].
-export fn emitted<T canbe linear>(value: T) [] -> +Emitted T {
+export fn emitted<T canbe linear>(value: T) [] -> +Emitted T => !value {
     return value
 }
 

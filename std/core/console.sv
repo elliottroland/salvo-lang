@@ -5,7 +5,7 @@ export effect Console {
 
 export threadsafe platform handler StdOutConsole() of Console
 
-export fn println(message: Str) [Console] -> None {
+export fn println(message: Str) [Console] -> None => message {
     print(message)
     print("\n")
 }

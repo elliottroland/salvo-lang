@@ -49,7 +49,7 @@ export fn filter<It, T>(it: Mut It, keep: (T) -> Bool, ?Yield<It, T>) [] -> Mut 
 
 // Folds [it] into a single value, starting from [init] and combining with
 // [f] — the accumulator first, the element second.
-export fn reduce<It, T, A>(it: Mut It, init: A, f: (A, T) -> A, ?Yield<It, T>) [] -> A => it: Mut, f {
+export fn reduce<It, T, A>(it: Mut It, init: A, f: (A, T) -> A, ?Yield<It, T>) [] -> A => it: Mut, init, f {
     let acc = init
     for x in it {
         acc = f(acc, x)
@@ -93,7 +93,7 @@ export fn map_to<D, It, T, U>(
     f: (T) -> U,
     ?add: (dest: Mut D, elem: U) -> None,
     ?Yield<It, T>
-) [] -> Mut D =>[add] dest: Mut, !elem => it: Mut, f {
+) [] -> Mut D =>[add] dest: Mut, !elem => !dest, it: Mut, f {
     for x in it {
         add(dest, f(x))
     }
@@ -111,7 +111,7 @@ export fn filter_to<D, It, T>(
     ?add: (dest: Mut D, elem: T) -> None,
     ?copy: (v: T) -> T,
     ?Yield<It, T>
-) [] -> Mut D =>[add] dest: Mut, !elem => it: Mut, keep {
+) [] -> Mut D =>[add] dest: Mut, !elem => !dest, it: Mut, keep {
     for x in it {
         if keep(x) {
             add(dest, copy(x))

@@ -84,6 +84,34 @@ const CONTEXTUAL_PATTERNS: &[(&str, &str, &str)] = &[
         "keyword.declaration.salvo",
         "the compile-time modifier",
     ),
+    // [threadsafe-platform] `threadsafe platform handler H of E`: only
+    // `platform` may follow it, mirroring the parser's own lookahead.
+    (
+        "\\\\bthreadsafe(?=\\\\s+platform\\\\b)",
+        "keyword.declaration.salvo",
+        "the threadsafe-platform modifier",
+    ),
+    // [platform-iterable] `iterable platform type List<T> : Iter<self, T>`:
+    // only `platform` may follow it.
+    (
+        "\\\\biterable(?=\\\\s+platform\\\\b)",
+        "keyword.declaration.salvo",
+        "the iterable-platform modifier",
+    ),
+    // [noremote] `noremote struct S`, `noremote intrinsic type T`, and the
+    // rest of the declarations it may precede — mirroring the parser's own
+    // lookahead, including `noremote opaque struct S`.
+    (
+        "\\\\bnoremote(?=\\\\s+(struct|linear|intrinsic|type|fn|handler|effect|qualifier|opaque)\\\\b)",
+        "keyword.declaration.salvo",
+        "the noremote modifier",
+    ),
+    // [struct-opaque] `opaque struct Map<K, V>`, `opaque linear struct S`.
+    (
+        "\\\\bopaque(?=\\\\s+(struct|linear)\\\\b)",
+        "keyword.declaration.salvo",
+        "the opaque-struct modifier",
+    ),
     // [obligation-by] [fn-by] `: Ordered<self> by auto`, `-> Int by auto`: the
     // stamping clause, recognised by the lowercase scope that follows.
     (
@@ -123,10 +151,12 @@ const CONTEXTUAL_PATTERNS: &[(&str, &str, &str)] = &[
         "keyword.control.salvo",
         "the spawn expression",
     ),
-    // `waitfor out: Reply<T> { … }`: a name and a colon follow — no call of a
-    // function named `waitfor` can look like that.
+    // `waitfor out: Reply<T> { … }` or `waitfor out { … }`
+    // [waitfor-infer]: a name follows, then either the type-annotating colon
+    // or straight into the block — no call of a function named `waitfor`
+    // can look like that.
     (
-        "\\\\bwaitfor(?=\\\\s+[A-Za-z_][A-Za-z0-9_]*\\\\s*:)",
+        "\\\\bwaitfor(?=\\\\s+[A-Za-z_][A-Za-z0-9_]*\\\\s*(:|\\\\{))",
         "keyword.control.salvo",
         "the waitfor bridge",
     ),
@@ -532,6 +562,16 @@ mod tests {
             salvo_syntax::parser::ACTOR_MODIFIER,
             salvo_syntax::parser::MAILBOX_SLOT,
             salvo_syntax::parser::EXPORT_MODIFIER,
+            salvo_syntax::parser::INIT_BLOCK,
+            salvo_syntax::parser::ASSERT_FORM,
+            salvo_syntax::parser::UNREACHABLE_FORM,
+            salvo_syntax::parser::THREADSAFE_MODIFIER,
+            salvo_syntax::parser::ITERABLE_MODIFIER,
+            salvo_syntax::parser::NOREMOTE_MODIFIER,
+            salvo_syntax::parser::OPAQUE_MODIFIER,
+            salvo_syntax::parser::COMPTIME_WORD,
+            salvo_syntax::parser::BY_WORD,
+            salvo_syntax::parser::REFUSE_FORM,
         ] {
             assert!(
                 CONTEXTUAL_PATTERNS.iter().any(|(regex, _, _)| regex.contains(word)),

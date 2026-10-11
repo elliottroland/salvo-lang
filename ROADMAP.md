@@ -1254,6 +1254,85 @@ backends**.
   v1); and an `iter fn` over a recursive subject snapshots per field, which is a
   deep copy.
 
+### 5 — LSP responsiveness: debounce, per-file parse cache, and a cached std front-half (user decisions 2026-10-10; phases 1–2 built, 3 part-built, 4 open)
+
+The language server re-runs the whole `analyze` pipeline on every document
+event with no incremental state (`crates/salvo-cli/src/lsp.rs`,
+`analysis.rs`): std's ~42 files plus any dependencies plus the project are
+parsed, resolved and checked from scratch on each keystroke. The cost is
+`check_program`'s whole-program fixpoint (`crates/salvo-core/src/check.rs`,
+the `check_once` → `deduce::infer` loop, `MAX_ROUNDS = 4`), not parsing. And
+because the server is single-threaded with no debounce or cancellation, a full
+analysis runs to completion before the next batch of events is read, so an
+analysis in flight reflects a buffer from several keystrokes ago and the
+backlog empties one whole analysis at a time — the user's report that the LSP
+"loops through previous issues in order even after they're addressed" (there
+is no literal queue; `main_loop` already coalesces to one `dirty` flag — the
+latency *is* the symptom). Four phases, agreed in order; the IR does **not**
+help here (it is built *from* `check_program`'s output — `salvo-ir`'s
+`build_program` copies the checker's answers and infers nothing — so caching
+it would save only the cheap transcription and inherit every coupling of the
+`Checked` cache):
+
+1. ✅ **Debounce + drop-stale, in the LSP loop** (built 2026-10-10,
+   COMPLETED.md; [lsp-debounce]). On `dirty`, the loop waits a 120ms quiet
+   period and absorbs any message arriving inside it, so a burst of keystrokes
+   produces one analysis of the latest buffer. Requests (hover, completion,
+   go-to-definition) are unaffected — they analyse on demand.
+2. ✅ **Per-file parse cache in the server** (built 2026-10-10, COMPLETED.md;
+   [lsp-parse-cache]). Each file's parsed `Module` and parse diagnostics are
+   kept keyed by a content hash; on a keystroke only the edited file is
+   reparsed. Sound because parsing is per-file and local. `ParseCache` in
+   `analysis.rs`, held by the server, dropped per analysis to what the current
+   files produce.
+3. **A cached std front-half (resolve + check), reused across projects.** The
+   win, and the hard part: std's `Checked` is **not** today a pure function of
+   std's sources. The whole-program deduction fixpoint back-propagates callers'
+   facts into any std fn with an *unwritten* deduction clause, and overload
+   resolution merges std's `Core`-rung candidates with the project's — so a
+   project call can change a std fn's inferred contract.
+   - ✅ **The enabling rule — total clauses on exported std fns —
+     is built** (2026-10-10, COMPLETED.md; `[deduce-std-explicit]`, option (a)).
+     `check_std_deductions_total` in `crates/salvo-core/src/check.rs` requires,
+     in an `is_std && is_shadow` tree (what `std = true` sets via
+     `mark_std_tree`), a *total* deduction clause on every exported bodied `fn`
+     — a plain entry for every non-implicit, non-Copy-scalar parameter — and
+     the diagnostic suggests the inferred clause verbatim. std swept (33 fns);
+     the suggestions were correct by construction and changed no emitted code.
+   - **Still to build: the cache itself — and it needs a `check_program`
+     seam, not just memoization (architectural finding, 2026-10-10).**
+     `Resolution<'p>` and `Symbols<'p>` both *borrow* the `Program`
+     (`crates/salvo-core/src/resolve.rs`, `program.rs`): their scopes and
+     indices are `&'p` references into one `Program`'s ASTs, so neither can be
+     cached across the fresh `Program` each analysis builds (std + project
+     concatenated). `Checked` is owned (no `'p`), but `check_program` cannot
+     *produce* a project's `Checked` without live `&Resolution`/`&Symbols` over
+     the whole merged program, and its fixpoint (`deduce::infer`, overload
+     resolution) reads every file — so there is no way today to reuse std's
+     result and check only the project. The real work is therefore a **seam in
+     `check_program`**: a mode that accepts std's precomputed contracts
+     (sound to trust now that `[deduce-std-explicit]` pins them) and **skips
+     re-checking std bodies**, checking only project (and dependency) files
+     against them. Measured cost confirms the prize — `salvo analyze --src demo`
+     is ~460ms for 42 std files + 1 user file, so std body-checking is almost
+     all of it. **This is a front-half architecture change (a std-as-library
+     boundary in resolve/check), not an incremental cache, and wants its own
+     design pass — flagged for the user before building.** Index remapping
+     (`FnKey.file`, `Key.0`, `DefSite.file`, `Resolution.scopes` are all
+     global-file-index-keyed) is part of it. A dependency's own fns are still
+     inferred (the rule binds std trees only), so either the seam covers std
+     alone and deps check with the project, or `[deduce-std-explicit]` is later
+     extended to any `std = true` dependency.
+
+4. **(Follow-on, for `salvo build` — not the LSP.)** Once step 3's annotation
+   guarantee holds, std's *IR* is a pure function of std's sources too, which
+   is the property the Kotlin std **classes** cache
+   (`salvo-backend-kotlin/src/stdlib.rs`, `[kt-std-library]`) relies on today
+   by the weaker "verify byte-identical or recompile whole" fallback. Promote
+   that cache to a sound IR-keyed std cache, and give the Rust backend an
+   equivalent (which §0h already notes needs std's Rust output to stop
+   depending on the program first). Depends on step 3 landing.
+
 ## Recorded, not scheduled
 
 Each was considered and deliberately parked. Nothing here is blocking, and
@@ -1535,7 +1614,8 @@ several are "revisit only if a customer appears".
   intermediate `let`**, **`Byte` is not operator-numeric**, and **generic
   (`Ty::Var`) operands stay lenient** — each documented where its rule lives.
 - **LSP**: `[symbol]` resolution is name-based over the AST rather than
-  import-visibility-exact [doc-symbol-ref]; no incremental analysis; no
+  import-visibility-exact [doc-symbol-ref]; incremental analysis and a cached
+  std front-half are now scheduled (section 5); no
   `positionEncoding` negotiation for UTF-8-native clients; signature *hover*
   covers fn decls only (effect members and define fns have no `FnKey`); the
   def-site table is name-keyed, so go-to-definition on a shared effect-member

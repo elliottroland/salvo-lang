@@ -19,11 +19,11 @@ export provenance qualifier Err<T> of T
 // value is moved into the result, so nothing is kept ([] deductions);
 // linear values may be tagged, since the obligation travels with them
 // [linear-generics].
-export fn ok<T canbe linear>(value: T) [] -> +Ok T {
+export fn ok<T canbe linear>(value: T) [] -> +Ok T => !value {
     return value
 }
 
 // [qual-ctor-fn] Tags a value as the failure arm of a result union.
-export fn err<T canbe linear>(value: T) [] -> +Err T {
+export fn err<T canbe linear>(value: T) [] -> +Err T => !value {
     return value
 }

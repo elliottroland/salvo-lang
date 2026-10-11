@@ -222,7 +222,21 @@ Module {
                         ),
                     ],
                 ),
-                deductions: None,
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "message",
+                                    span: 245..252,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 245..252,
+                        },
+                    ],
+                ),
                 return_type: Some(
                     Named {
                         qualifiers: [],
@@ -251,7 +265,7 @@ Module {
                                     callee: Ident(
                                         Ident {
                                             name: "print",
-                                            span: 248..253,
+                                            span: 259..264,
                                         },
                                     ),
                                     type_args: [],
@@ -259,12 +273,12 @@ Module {
                                         Ident(
                                             Ident {
                                                 name: "message",
-                                                span: 254..261,
+                                                span: 265..272,
                                             },
                                         ),
                                     ],
                                     named: [],
-                                    span: 248..262,
+                                    span: 259..273,
                                 },
                             ),
                             Expr(
@@ -272,7 +286,7 @@ Module {
                                     callee: Ident(
                                         Ident {
                                             name: "print",
-                                            span: 267..272,
+                                            span: 278..283,
                                         },
                                     ),
                                     type_args: [],
@@ -283,18 +297,18 @@ Module {
                                                     "\n",
                                                 ),
                                             ],
-                                            span: 273..277,
+                                            span: 284..288,
                                         },
                                     ],
                                     named: [],
-                                    span: 267..278,
+                                    span: 278..289,
                                 },
                             ),
                         ],
-                        span: 242..280,
+                        span: 253..291,
                     },
                 ),
-                span: 199..280,
+                span: 199..291,
             },
         ),
     ],

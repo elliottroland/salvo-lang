@@ -1161,7 +1161,183 @@ pub fn check_program<'p>(
 ) -> Checked {
     let mut out = check_program_rounds(program, resolution, symbols);
     crate::literal::lower_tables(&mut out);
+    check_std_deductions_total(program, &mut out);
     out
+}
+
+/// [deduce-std-explicit] In a `std = true` tree, every exported bodied `fn`
+/// must carry a **total** deduction clause: a plain entry for every
+/// non-implicit parameter whose contract a caller could change (Copy scalars
+/// excepted — their keep-all is invariant [copy-scalar-free]). The reason is
+/// the std front-half cache (ROADMAP §5 step 3): a written entry is a fixed
+/// point of inference [deduce-syntax], so once every exported std fn pins
+/// every such parameter, std's checked contracts stop depending on the
+/// project that uses it, and the cache is sound. An *unmentioned* parameter is
+/// still inferred — so a merely-present clause (`=> []`, or one that lists some
+/// parameters) is not enough; the clause must be total.
+///
+/// Fires only on `is_std && is_shadow` — a std tree **on disk**, which is what
+/// `mark_std_tree` sets for a `std = true` manifest. The embedded std a normal
+/// project carries is `is_std && !is_shadow`: the user cannot edit it, and once
+/// std ships fully annotated it satisfies the rule anyway, so it is never
+/// flagged.
+///
+/// Runs after the fixpoint, where `out.deductions` is the final inferred
+/// contract — which is also what the diagnostic suggests as the fix, so the
+/// clause to write is exactly the one the body already implies.
+fn check_std_deductions_total(program: &Program, out: &mut Checked) {
+    for (file_idx, (file, ast)) in program.files.iter().zip(&program.modules).enumerate() {
+        if !(file.is_std && file.is_shadow) {
+            continue;
+        }
+        for (item_idx, item) in ast.items.iter().enumerate() {
+            let Item::Fn(f) = item else { continue };
+            // Only exported, bodied, ordinary fns: a signature (intrinsic,
+            // effect member) declares its contract already, a private fn is
+            // not part of the public surface the cache keys on, and a
+            // generated fn (`stamped`, `iter`) is not hand-written.
+            if !f.exported || f.body.is_none() || f.intrinsic || f.is_iter || f.stamped.is_some() {
+                continue;
+            }
+            // The parameters a total clause must mention: non-implicit, and
+            // not a Copy scalar (whose keep-all cannot be changed by any
+            // caller, so leaving it out is sound) [copy-scalar-free].
+            let needed: Vec<&str> = f
+                .params
+                .iter()
+                .filter(|p| !p.implicit && !is_copy_scalar_param(p))
+                .map(|p| p.name.name.as_str())
+                .collect();
+            if needed.is_empty() {
+                continue;
+            }
+            // Which of those the written clause already names with a plain
+            // entry (a projection/`with`/`preserve`/result entry is extra, not
+            // a parameter's own keptness entry — so it does not count).
+            let mentioned: HashSet<&str> = f
+                .deductions
+                .iter()
+                .flatten()
+                .filter_map(|d| d.param_name())
+                .map(|n| n.name.as_str())
+                .collect();
+            let missing: Vec<&str> = needed
+                .iter()
+                .copied()
+                .filter(|n| !mentioned.contains(n))
+                .collect();
+            if missing.is_empty() {
+                continue;
+            }
+            // Suggest the total clause the inferred contract implies: the fix
+            // is correct by construction, since it is what the body produces.
+            let key = FnKey { file: file_idx, item: item_idx };
+            let suggestion = out
+                .deductions
+                .get(&key)
+                .map(|ded| total_deduction_clause(f, ded))
+                .filter(|s| !s.is_empty());
+            let fix = match suggestion {
+                Some(clause) => format!(" — its inferred contract is `=> {clause}`"),
+                None => String::new(),
+            };
+            out.errors.push(FileDiagnostic::error(
+                file_idx,
+                f.name.span,
+                format!(
+                    "exported `fn {}` in a `std = true` tree must declare a deduction \
+                     clause naming every parameter, so its ownership contract does not \
+                     depend on the program that uses it [deduce-std-explicit]: {} \
+                     {} not covered{fix}",
+                    f.name.name,
+                    missing
+                        .iter()
+                        .map(|n| format!("`{n}`"))
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    if missing.len() == 1 { "is" } else { "are" },
+                ),
+            ));
+        }
+    }
+}
+
+/// [copy-scalar-free] A parameter typed as a bare Copy scalar (`Int`, `Long`,
+/// `Float`, `Double`, `Bool`, `Char`, `Byte`, no qualifiers, no arguments):
+/// its deduction is keep-all and no caller can change it, so a total clause
+/// need not mention it.
+fn is_copy_scalar_param(p: &ast::Param) -> bool {
+    matches!(
+        &p.ty,
+        ast::Type::Named { qualifiers, base }
+            if qualifiers.is_empty()
+                && base.args.is_empty()
+                && matches!(
+                    base.name.name.as_str(),
+                    "Int" | "Long" | "Float" | "Double" | "Bool" | "Char" | "Byte"
+                )
+    )
+}
+
+/// [deduce-std-explicit] The **total** deduction clause an inferred contract
+/// implies: a plain entry for every non-implicit, non-scalar parameter —
+/// `!p` moved, `p: ...` for a qualifier effect, bare `p` for keep-all (which
+/// the hover omits but a total clause states, so inference treats it as
+/// fixed) — plus a trailing `proj(...)` for inferred lends not already shown
+/// on the return type. The order follows the parameter list.
+fn total_deduction_clause(f: &ast::FnDecl, deductions: &[crate::deduce::ParamDeduction]) -> String {
+    use crate::types::QualEffect;
+    let by_name: HashMap<&str, &crate::deduce::ParamDeduction> =
+        deductions.iter().map(|d| (d.param.as_str(), d)).collect();
+    // Lends already shown as `-> T holds proj(p)` are not repeated.
+    let opaque: HashSet<&str> = f
+        .deductions
+        .iter()
+        .flatten()
+        .filter(|d| matches!(d.target, ast::DeductionTarget::Opaque))
+        .filter_map(|d| d.proj_sources())
+        .flatten()
+        .map(|i| i.name.as_str())
+        .collect();
+    let mut entries: Vec<String> = Vec::new();
+    for p in &f.params {
+        if p.implicit || is_copy_scalar_param(p) {
+            continue;
+        }
+        let name = p.name.name.as_str();
+        match by_name.get(name) {
+            None => entries.push(name.to_string()),
+            Some(d) if !d.kept => entries.push(format!("!{name}")),
+            Some(d) => match &d.effect {
+                QualEffect::KeepAll => entries.push(name.to_string()),
+                QualEffect::Exhaustive(keep) if keep.is_empty() => {
+                    entries.push(format!("{name}: None"))
+                }
+                QualEffect::Exhaustive(keep) => {
+                    entries.push(format!("{name}: {}", keep.join(" ")))
+                }
+                QualEffect::Remove(dropped) => entries.push(format!(
+                    "{name}: {}",
+                    dropped
+                        .iter()
+                        .map(|q| format!("-{q}"))
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                )),
+            },
+        }
+    }
+    let lent: Vec<&str> = f
+        .params
+        .iter()
+        .filter_map(|p| by_name.get(p.name.name.as_str()))
+        .filter(|d| d.lent && !opaque.contains(d.param.as_str()))
+        .map(|d| d.param.as_str())
+        .collect();
+    if !lent.is_empty() {
+        entries.push(format!("proj({})", lent.join(", ")));
+    }
+    entries.join(", ")
 }
 
 fn check_program_rounds<'p>(
@@ -14868,6 +15044,21 @@ impl<'p, 'r> Checker<'p, 'r> {
         sends.first().copied()
     }
 
+    /// [task-mint] A free `fn` visible under `member`'s name that is *not* a
+    /// `send fn` — the shape that makes `free_send_target` return `None` for
+    /// a reason worth naming. Resolution mirrors `free_send_target`'s own
+    /// scope ladder, so the rung reported is the one that would have won had
+    /// the function been declared `send`.
+    fn free_plain_fn(&self, member: &Ident) -> Option<&'p FnDecl> {
+        let entries = self.scope.fns.get(member.name.as_str())?;
+        let best = entries.iter().map(|e| e.rung).max()?;
+        entries
+            .iter()
+            .filter(|e| e.rung == best && !e.decl.is_send)
+            .map(|e| e.decl)
+            .next()
+    }
+
     /// [task-mint] [task-pool-inherit] `replyto k(captures) on POOL` where `k`
     /// is a free `send fn`: the mint that makes a plain function a citizen of
     /// the concurrent world (user decision 2026-09-17, FC-2 + FC-3).
@@ -15107,6 +15298,21 @@ impl<'p, 'r> Checker<'p, 'r> {
             for c in captures {
                 self.check_expr(c, None);
             }
+            // [task-mint] `member` may be a free `fn` that simply isn't
+            // `send` yet — a more specific diagnostic than "no handler to
+            // mint into" when that's the actual fix.
+            if self.free_plain_fn(member).is_some() {
+                self.error(
+                    member.span,
+                    format!(
+                        "`{}` is a plain `fn`, so `{form}` cannot target it: a free \
+                         function minted this way runs as a detached task, which needs \
+                         `send fn {}(...)` instead of `fn {}(...)` [task-mint]",
+                        member.name, member.name, member.name
+                    ),
+                );
+                return Ty::Unknown;
+            }
             let detail = if self.in_lambda() {
                 " — and a lambda is not one: a function value runs wherever it is \
                  called, so it has no member for an answer to arrive at"
@@ -15125,6 +15331,21 @@ impl<'p, 'r> Checker<'p, 'r> {
         let Some(target) = h.fns.iter().find(|f| f.name.name == member.name) else {
             for c in captures {
                 self.check_expr(c, None);
+            }
+            // [task-mint] Same specific diagnostic as above: `member` exists
+            // as a free `fn`, just not a `send` one, so saying so beats
+            // reporting it as a missing handler member.
+            if self.free_plain_fn(member).is_some() {
+                self.error(
+                    member.span,
+                    format!(
+                        "`{}` is a plain `fn`, so `{form}` cannot target it: a free \
+                         function minted this way runs as a detached task, which needs \
+                         `send fn {}(...)` instead of `fn {}(...)` [task-mint]",
+                        member.name, member.name, member.name
+                    ),
+                );
+                return Ty::Unknown;
             }
             // [actor-replyto] A **remote** mint — `k` is a member of an
             // `actor effect` in scope rather than of this handler — is the

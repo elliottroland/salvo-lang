@@ -1991,6 +1991,31 @@ Conventions:
   so this is the only place a reader of the call can find it. Rendered
   against the scope of the *file the cursor is in*, since that decides
   which refinements apply.
+* [deduce-std-explicit] **In a `std = true` tree, every exported bodied `fn`
+  must carry a *total* deduction clause** — a plain entry for every
+  non-implicit parameter whose contract a caller could change (a Copy scalar
+  [copy-scalar-free] is exempt: its keep-all is invariant). The reason is the
+  language server's std front-half cache (ROADMAP §5): a *written* entry is a
+  fixed point of inference [deduce-syntax] [deduce-infer], so once every
+  exported std fn pins every such parameter, std's checked ownership contracts
+  stop depending on the project that uses it, and that project's calls cannot
+  shift them — which is what lets std be checked once and the result reused.
+  * **Total, not merely present.** A clause is partial [deduce-syntax] — a
+    parameter it does not name is still inferred — so a bare `=> []` or a
+    clause that lists only some parameters does **not** pin the rest. The rule
+    requires every non-scalar parameter to appear with its own plain entry
+    (`p`, `!p`, `p: …`); a `proj`/`with`/`preserve`/result entry is additional,
+    not a substitute.
+  * **The tree, not the embedded copy.** It binds a std tree **on disk** (the
+    `is_std && is_shadow` the manifest's `std = true` produces) — the standard
+    library being developed — never the embedded std a normal project carries,
+    which the user cannot edit and which satisfies the rule anyway once it
+    ships annotated.
+  * **The fix is the inferred contract.** The diagnostic suggests the exact
+    total clause the body already implies (the final inferred deductions), so
+    annotating is transcription, not redesign; a suggestion that would be
+    *wrong* is impossible, since it is what the checker derived — and the
+    written clause is then validated against the body like any other.
 
 ## Control flow and expressions
 

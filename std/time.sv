@@ -106,42 +106,42 @@ export fn hours(n: Long) [] -> Duration {
 
 // [d] in whole nanoseconds, which is exact: nanoseconds are the
 // representation.
-export fn to_nanos(d: Duration) [] -> Long {
+export fn to_nanos(d: Duration) [] -> Long => d {
     return d.nanos
 }
 
 // [d] in whole microseconds, truncated toward zero.
-export fn to_micros(d: Duration) [] -> Long {
+export fn to_micros(d: Duration) [] -> Long => d {
     return d.nanos / 1000L
 }
 
 // [d] in whole milliseconds, truncated toward zero.
-export fn to_millis(d: Duration) [] -> Long {
+export fn to_millis(d: Duration) [] -> Long => d {
     return d.nanos / 1000000L
 }
 
 // [d] in whole seconds, truncated toward zero.
-export fn to_seconds(d: Duration) [] -> Long {
+export fn to_seconds(d: Duration) [] -> Long => d {
     return d.nanos / 1000000000L
 }
 
 // The sum of two spans.
-export fn plus(d1: Duration, d2: Duration) [] -> Duration {
+export fn plus(d1: Duration, d2: Duration) [] -> Duration => d1, d2 {
     return Duration {nanos: d1.nanos + d2.nanos}
 }
 
 // [d2] taken off [d1], which may be negative.
-export fn minus(d1: Duration, d2: Duration) [] -> Duration {
+export fn minus(d1: Duration, d2: Duration) [] -> Duration => d1, d2 {
     return Duration {nanos: d1.nanos - d2.nanos}
 }
 
 // [d] repeated [n] times.
-export fn times(d: Duration, n: Long) [] -> Duration {
+export fn times(d: Duration, n: Long) [] -> Duration => d {
     return Duration {nanos: d.nanos * n}
 }
 
 // [d] with its sign removed.
-export fn abs(d: Duration) [] -> Duration {
+export fn abs(d: Duration) [] -> Duration => !d {
     if d.nanos < 0 {
         return Duration {nanos: 0L - d.nanos}
     }
@@ -157,7 +157,7 @@ export fn abs(d: Duration) [] -> Duration {
 // Minutes and hours invite a *composite* reading (`1h30m`), which is a
 // formatting decision this function is the wrong size for — and which belongs
 // with the calendar layer, where the units have calendars behind them.
-export fn to_str(d: Duration) [] -> Str {
+export fn to_str(d: Duration) [] -> Str => d {
     if d.nanos < 0 {
         let positive = Duration {nanos: 0L - d.nanos}
         return "-${to_str(positive)}"
@@ -197,51 +197,51 @@ export fn epoch_second(n: Long) [] -> Instant {
 }
 
 // [at] as nanoseconds since the Unix epoch.
-export fn to_epoch_nano(at: Instant) [] -> Long {
+export fn to_epoch_nano(at: Instant) [] -> Long => at {
     return at.nanos
 }
 
 // [at] as whole milliseconds since the Unix epoch, truncated toward zero —
 // the number to hand to a system that speaks epoch millis.
-export fn to_epoch_milli(at: Instant) [] -> Long {
+export fn to_epoch_milli(at: Instant) [] -> Long => at {
     return at.nanos / 1000000L
 }
 
 // [at] as whole seconds since the Unix epoch, truncated toward zero.
-export fn to_epoch_second(at: Instant) [] -> Long {
+export fn to_epoch_second(at: Instant) [] -> Long => at {
     return at.nanos / 1000000000L
 }
 
 // The span from [start] to [end] — negative when [end] is the earlier of the
 // two, since a [Duration] is signed. Named for how it reads at the call site:
 // the argument order *is* the direction of the answer.
-export fn between(start: Instant, end: Instant) [] -> Duration {
+export fn between(start: Instant, end: Instant) [] -> Duration => start, end {
     return Duration {nanos: end.nanos - start.nanos}
 }
 
 // The span from [start] to [end] on the monotonic clock — the honest way to
 // measure an interval, because no clock adjustment can distort it.
-export fn between(start: Tick, end: Tick) [] -> Duration {
+export fn between(start: Tick, end: Tick) [] -> Duration => start, end {
     return Duration {nanos: end.nanos - start.nanos}
 }
 
 // [d] after [at].
-export fn plus(at: Instant, d: Duration) [] -> Instant {
+export fn plus(at: Instant, d: Duration) [] -> Instant => at, d {
     return Instant {nanos: at.nanos + d.nanos}
 }
 
 // [d] before [at].
-export fn minus(at: Instant, d: Duration) [] -> Instant {
+export fn minus(at: Instant, d: Duration) [] -> Instant => at, d {
     return Instant {nanos: at.nanos - d.nanos}
 }
 
 // [d] after [at].
-export fn plus(at: Tick, d: Duration) [] -> Tick {
+export fn plus(at: Tick, d: Duration) [] -> Tick => at, d {
     return Tick {nanos: at.nanos + d.nanos}
 }
 
 // [d] before [at].
-export fn minus(at: Tick, d: Duration) [] -> Tick {
+export fn minus(at: Tick, d: Duration) [] -> Tick => at, d {
     return Tick {nanos: at.nanos - d.nanos}
 }
 
@@ -295,7 +295,7 @@ export effect Clock {
 
 // [time-ticker] How long ago [since] was — `between(since, tick())`, which is
 // the shape almost every measurement takes.
-export fn elapsed(since: Tick) [Ticker] -> Duration {
+export fn elapsed(since: Tick) [Ticker] -> Duration => since {
     return between(since, tick())
 }
 

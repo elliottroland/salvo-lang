@@ -15,7 +15,7 @@ export linear struct Checked<T> {
 }
 
 // Wraps [value] in the obligation.
-export fn checked<T canbe linear>(value: T) -> Checked<T> {
+export fn checked<T canbe linear>(value: T) -> Checked<T> => !value {
     return Checked<T> { value: value }
 }
 

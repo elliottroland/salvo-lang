@@ -22,7 +22,7 @@ export fn heap_of<T>(?Ordered<T>) -> +Heap<T>(?cmp) Mut List<T> {
     return mut_list_of()
 }
 
-export fn heap_of<T>(first: T, ...elems: T[], ?Ordered<T>) -> Heap<T>(?cmp) NonEmpty Mut List<T> {
+export fn heap_of<T>(first: T, ...elems: T[], ?Ordered<T>) -> Heap<T>(?cmp) NonEmpty Mut List<T> => !first, elems {
     let list = mut_list_of(first, ...elems)
     heapify(list)
     return list
@@ -123,11 +123,11 @@ fn heapify_part<T>(list: NonEmpty Mut List<T>, n: Int, i: Int, ?Ordered<T>)
 
 // Returns a projection of the smallest element (by the heap's [cmp]) in the heap, or None
 // if the heap is empty.
-export fn peek<T>(heap: Heap List<T>) -> proj(heap) T? {
+export fn peek<T>(heap: Heap List<T>) -> proj(heap) T? => heap {
     return heap.get(0)
 }
 
-export fn peek<T>(heap: NonEmpty Heap List<T>) -> proj(heap) T {
+export fn peek<T>(heap: NonEmpty Heap List<T>) -> proj(heap) T => heap {
     return heap.get(0)!
 }
 
@@ -163,7 +163,7 @@ export fn push<T>(heap: Heap<T>(?cmp) Mut List<T>, elem: T) -> None
 }
 
 // Pops the smallest element in the heap, preserving the heap property.
-export fn pop<T>(heap: Heap<T>(?cmp) Mut List<T>) -> T? {
+export fn pop<T>(heap: Heap<T>(?cmp) Mut List<T>) -> T? => heap: Mut Heap {
     if heap !is NonEmpty {
         return None
     }

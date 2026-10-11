@@ -451,6 +451,60 @@ handler Asker() [Counter] of Ask {
     );
 }
 
+/// [task-mint] A `replyto` whose target exists as a free `fn` — just not a
+/// `send fn` — gets a diagnostic naming that fix specifically, rather than
+/// falling through to "no member" (inside a handler) or "legal only inside a
+/// handler member" (anywhere else): both are true but neither says what to
+/// change.
+#[test]
+fn replyto_toward_a_plain_free_fn_names_the_missing_send() {
+    let from_handler = errors(
+        "\
+actor effect Ask {
+    send fn go(out: Reply<Int>) => !out
+}
+
+handler Asker() [Counter] of Ask {
+    mailbox { capacity: 1 }
+
+    send fn go(out: Reply<Int>) {
+        go@self(replyto describe(1))
+    }
+}
+
+fn describe(n: Int) -> Str {
+    return \"n\"
+}
+",
+    );
+    assert!(
+        from_handler.iter().any(|m| {
+            m.contains("`describe` is a plain `fn`")
+                && m.contains("send fn describe(...)")
+        }),
+        "expected the plain-fn refusal from inside a handler member: {from_handler:?}"
+    );
+
+    let from_main = errors(
+        "\
+fn main() [use, spawn] {
+    let r = replyto describe(1)
+}
+
+fn describe(n: Int) -> Str {
+    return \"n\"
+}
+",
+    );
+    assert!(
+        from_main.iter().any(|m| {
+            m.contains("`describe` is a plain `fn`")
+                && m.contains("send fn describe(...)")
+        }),
+        "expected the plain-fn refusal outside any handler: {from_main:?}"
+    );
+}
+
 /// The target member's parameters are the captures *plus one*: the trailing
 /// parameter is the answer the token carries, which is what types the
 /// `Reply<T>`. Writing the wrong number of captures says how many are wanted.

@@ -8,6 +8,68 @@ use std::path::{Path, PathBuf};
 use include_dir::{include_dir, Dir};
 
 use salvo_core::{Checked, DefSite, FileDiagnostic, Program, SourceSet, Symbols};
+use salvo_syntax::ast::Module;
+use salvo_syntax::diag::Diagnostic;
+
+/// [lsp-parse-cache] A per-server cache of parsed modules, keyed by the
+/// **content** of the file that produced them: parsing is per-file and
+/// local, so a file whose text has not changed since it was last parsed
+/// reuses its module (and its parse diagnostics) rather than being lexed and
+/// parsed again. Only the edited file misses on a keystroke; std and every
+/// untouched project file hit.
+///
+/// The cached module is the *pre-expansion* parse (`parse_module_deferred`):
+/// the whole-program `iter fn`/`test`/comptime expansion runs fresh on the
+/// cloned modules each analysis, since it depends on the whole program, not
+/// one file [iter-fn]. Diagnostics here carry no file index — that is
+/// assigned at use, so a cached entry is valid wherever the file lands.
+///
+/// Keyed by content hash. A collision would reuse the wrong module; with a
+/// 64-bit hash over editor-sized files that is not a practical risk, and the
+/// cache is advisory (a wrong hit degrades to stale diagnostics for one
+/// keystroke, never miscompilation — the backends never see this).
+#[derive(Default)]
+pub struct ParseCache {
+    entries: HashMap<u64, (Module, Vec<Diagnostic>)>,
+}
+
+impl ParseCache {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The parsed module for `content`: the cached one when its hash is
+    /// known, otherwise freshly parsed and remembered.
+    fn parse(&mut self, content: &str) -> (Module, Vec<Diagnostic>) {
+        let key = content_hash(content);
+        if let Some(hit) = self.entries.get(&key) {
+            return hit.clone();
+        }
+        let parsed = salvo_syntax::parse_module_deferred(content);
+        self.entries.insert(key, parsed.clone());
+        parsed
+    }
+
+    /// Drops every entry no file in `live` still produces, so the cache does
+    /// not grow without bound as a file is edited (each distinct text leaves
+    /// an entry otherwise). Called once per analysis with that analysis's
+    /// file contents.
+    fn retain_live(&mut self, live: &std::collections::HashSet<u64>) {
+        self.entries.retain(|k, _| live.contains(k));
+    }
+}
+
+/// FNV-1a over the file text — the same stable 64-bit hash the Kotlin std
+/// cache uses for its keys ([kt-std-library]); it need only be stable within
+/// one server run.
+fn content_hash(content: &str) -> u64 {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in content.as_bytes() {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    h
+}
 
 /// The standard library, embedded into the binary at build time. Every file
 /// in it is a language file: std reaches its target languages through the
@@ -99,24 +161,36 @@ pub fn analyze_sources(
     native_ext: &str,
     overlay: &HashMap<PathBuf, String>,
 ) -> Result<Analysis, String> {
-    analyze_project(src, project, native_ext, overlay)
+    analyze_project(src, project, native_ext, overlay, None)
 }
 
-/// [manifest-discovery] `analyze_sources` for a document: the nearest
-/// manifest above `path` decides the source root and whether the tree is
-/// std; with none, `fallback` (the workspace root) is analysed as before and
-/// the analysis says so (`manifest_missing`).
-pub fn analyze_for_document(
+/// [lsp-parse-cache] [manifest-discovery] `analyze_sources` for a document,
+/// reusing a server-held parse cache so unchanged files skip lexing and
+/// parsing. The nearest manifest above `path` decides the source root and
+/// whether the tree is std; with none, `fallback` (the workspace root) is
+/// analysed and the analysis says so (`manifest_missing`). The cache is
+/// advisory — behaviour matches a fresh parse.
+pub fn analyze_for_document_cached(
     path: &Path,
     fallback: &Path,
     overlay: &HashMap<PathBuf, String>,
+    cache: &mut ParseCache,
+) -> Result<Analysis, String> {
+    analyze_for_document_impl(path, fallback, overlay, Some(cache))
+}
+
+fn analyze_for_document_impl(
+    path: &Path,
+    fallback: &Path,
+    overlay: &HashMap<PathBuf, String>,
+    cache: Option<&mut ParseCache>,
 ) -> Result<Analysis, String> {
     match salvo_core::Project::find(path)? {
         Some(project) => {
             let src = project.src();
-            analyze_project(&src, Some(project), "", overlay)
+            analyze_project(&src, Some(project), "", overlay, cache)
         }
-        None => analyze_project(fallback, None, "", overlay),
+        None => analyze_project(fallback, None, "", overlay, cache),
     }
 }
 
@@ -125,6 +199,7 @@ fn analyze_project(
     project: Option<salvo_core::Project>,
     native_ext: &str,
     overlay: &HashMap<PathBuf, String>,
+    mut cache: Option<&mut ParseCache>,
 ) -> Result<Analysis, String> {
     if !src.is_dir() {
         return Err(format!(
@@ -186,10 +261,21 @@ fn analyze_project(
     // a program-level pass: the first needs the rest of the program's structs
     // [iter-fn], the second needs to know which files are annexes
     // [test-file].
+    //
+    // [lsp-parse-cache] With a cache, an unchanged file reuses its parsed
+    // module; `live` collects this analysis's file hashes so the cache can
+    // drop everything else and not grow with each edit.
     let mut diagnostics: Vec<FileDiagnostic> = Vec::new();
     let mut modules = Vec::with_capacity(sources.files.len());
+    let mut live: std::collections::HashSet<u64> = std::collections::HashSet::new();
     for file in &sources.files {
-        let (module, diags) = salvo_syntax::parse_module_deferred(&file.content);
+        let (module, diags) = match cache.as_deref_mut() {
+            Some(cache) => {
+                live.insert(content_hash(&file.content));
+                cache.parse(&file.content)
+            }
+            None => salvo_syntax::parse_module_deferred(&file.content),
+        };
         diagnostics.extend(diags.into_iter().map(|d| FileDiagnostic {
             file: modules.len(),
             severity: d.severity,
@@ -198,6 +284,9 @@ fn analyze_project(
             suggested_imports: Vec::new(),
         }));
         modules.push(module);
+    }
+    if let Some(cache) = cache {
+        cache.retain_live(&live);
     }
     let expansion = salvo_core::expand(&sources.files, &mut modules);
     diagnostics.extend(expansion.diagnostics);
@@ -495,5 +584,70 @@ mod tests {
                 )
             });
         assert_eq!(sites.len(), 2, "expected both overloads: {sites:?}");
+    }
+
+    // [lsp-parse-cache] The cache is advisory: analysing with it must give
+    // the same diagnostics as analysing without, including after an edit —
+    // the edited file re-parses while the rest hit the cache, and a stale
+    // entry for the pre-edit text is dropped rather than reused.
+    #[test]
+    fn parse_cache_matches_a_fresh_analysis_across_an_edit() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tmp/parse_cache_test");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        // Two files, so one is edited and one stays put (a cache hit).
+        std::fs::write(
+            root.join("main.sv"),
+            "fn main() [] {\n    let x = helper()\n}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("lib.sv"),
+            "export fn helper() [] -> Int {\n    return 1\n}\n",
+        )
+        .unwrap();
+
+        let messages = |a: &Analysis| -> Vec<(usize, u32, String)> {
+            let mut v: Vec<_> = a
+                .diagnostics
+                .iter()
+                .map(|d| (d.file, d.span.start, d.message.clone()))
+                .collect();
+            v.sort();
+            v
+        };
+
+        let mut cache = ParseCache::new();
+        // First analysis: everything a cache miss.
+        let cached1 =
+            analyze_project(&root, None, "", &HashMap::new(), Some(&mut cache)).expect("a1");
+        let fresh1 = analyze_sources(&root, None, "", &HashMap::new()).expect("f1");
+        assert_eq!(
+            messages(&cached1),
+            messages(&fresh1),
+            "cold cache diverged from a fresh analysis"
+        );
+
+        // Edit main.sv to introduce an error (calling a name that is not in
+        // scope), then re-analyse. lib.sv is unchanged, so it hits the cache;
+        // main.sv's new text misses and re-parses.
+        let edited = "fn main() [] {\n    let x = nonexistent_fn()\n}\n";
+        let mut overlay = HashMap::new();
+        overlay.insert(root.join("main.sv"), edited.to_string());
+        let cached2 =
+            analyze_project(&root, None, "", &overlay, Some(&mut cache)).expect("a2");
+        let fresh2 = analyze_sources(&root, None, "", &overlay).expect("f2");
+        assert_eq!(
+            messages(&cached2),
+            messages(&fresh2),
+            "post-edit cache diverged from a fresh analysis"
+        );
+        assert!(
+            cached2.diagnostics.iter().any(|d| d.is_error()),
+            "the edit should have produced an error, so the test actually \
+             exercises a changed file: {:?}",
+            cached2.diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+        );
     }
 }

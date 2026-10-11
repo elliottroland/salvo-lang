@@ -15,6 +15,6 @@ export provenance qualifier Other<T> of T
 
 // [qual-ctor-fn] Tags [value] as the open arm of a literal union: a value the
 // union does not list, such as a service's enum value this client predates.
-export fn other<T>(value: T) [] -> +Other T {
+export fn other<T>(value: T) [] -> +Other T => !value {
     return value
 }

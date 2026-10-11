@@ -1423,9 +1423,78 @@ fn main() [use] -> None {
     lsp.child.wait().expect("failed to wait for salvo lsp");
 }
 
-/// [qual-preserve] [qual-refn-docs] A `preserve` refinement reaches the hover
-/// of the refined call — including a call written inside a wrapper whose own
-/// clause repeats the promise, the shape std's total `swap` has.
+/// [lsp-hover-overloads] A sibling overload's own doc comment renders inside
+/// the "Also visible under this name" entry, as an indented continuation of
+/// its bullet — a reader comparing candidates needs more than a bare
+/// signature, and the resolved overload already gets its docs shown.
+#[test]
+fn hover_shows_doc_comments_of_sibling_overloads() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_overload_docs");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    // Line numbers matter below; keep this source in sync with them.
+    let source = "\
+// Describes an amount as a count.
+fn describe(n: Int) -> Str {
+    return \"int\"
+}
+
+// Describes an amount as free text.
+fn describe(s: Str) -> Str {
+    return s
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    println(describe(1))
+}
+";
+    std::fs::write(root.join("main.sv"), source).unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {
+                "uri": uri, "languageId": "salvo", "version": 1, "text": source
+            }}
+        }),
+    );
+    let params = expect_diagnostics(&lsp.rx);
+    assert_eq!(
+        params["diagnostics"].as_array().unwrap().len(),
+        0,
+        "diagnostics: {params}"
+    );
+
+    // Hovering the resolved `Int` overload at the call site in `main`.
+    let value = hover(&mut lsp, 50, &uri, 12, 13);
+    assert!(
+        value.starts_with("```salvo\nfn describe(n: Int) -> Str"),
+        "expected the resolved overload first: {value}"
+    );
+    assert!(
+        value.contains("Describes an amount as a count."),
+        "expected the resolved overload's own doc comment: {value}"
+    );
+    assert!(
+        value.contains("Also visible under this name:")
+            && value.contains("fn describe(s: Str) -> Str")
+            && value.contains("Describes an amount as free text."),
+        "expected the sibling's doc comment inside the overload list: {value}"
+    );
+
+    send(
+        &mut lsp.stdin,
+        json!({"jsonrpc": "2.0", "id": 99, "method": "shutdown", "params": null}),
+    );
+    expect_response(&lsp.rx, 99);
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
+    lsp.child.wait().expect("failed to wait for salvo lsp");
+}
+
+
 #[test]
 fn hover_shows_preserve_refinements() {
     let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_preserve");
@@ -2203,6 +2272,84 @@ fn show(o: Outer) [Console] {
     // `stamp` in `println(o.inner.stamp.to_str())`: line 23, column 20.
     let def = definition(&mut lsp, 4, &uri, 23, 21);
     assert_eq!(def["range"]["start"]["line"], 12, "{def}");
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "id": 99, "method": "shutdown", "params": null}));
+    expect_response(&lsp.rx, 99);
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
+    lsp.child.wait().expect("failed to wait for salvo lsp");
+}
+
+/// [lsp-debounce] A burst of edits collapses into one analysis of the final
+/// buffer. The server waits out a short quiet period before analysing and
+/// absorbs messages that arrive inside it, so intermediate (here broken)
+/// states never get their own publish: the only diagnostics that come back
+/// describe the last edit. This is what stops the editor from "working
+/// through previous versions in order" when the whole-program check is slower
+/// than typing.
+#[test]
+fn a_burst_of_edits_publishes_only_the_final_state() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_debounce");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("main.sv"), "fn main() [] {\n}\n").unwrap();
+
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+
+    // Open clean; expect a clean publish.
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {
+                "uri": uri, "languageId": "salvo", "version": 1,
+                "text": "fn main() [] {\n}\n"
+            }}
+        }),
+    );
+    let params = expect_diagnostics(&lsp.rx);
+    assert_eq!(params["diagnostics"].as_array().unwrap().len(), 0, "{params}");
+
+    // Fire a rapid burst of changes with no reads between them. Every
+    // intermediate text is broken (a type mismatch); only the final one is
+    // clean. Sent back-to-back, they should all land inside one debounce
+    // window and coalesce.
+    for v in 2..=7 {
+        let broken = format!(
+            "fn main() [] {{\n    let x: Int = \"v{v}\"\n}}\n"
+        );
+        send(
+            &mut lsp.stdin,
+            json!({
+                "jsonrpc": "2.0", "method": "textDocument/didChange",
+                "params": {
+                    "textDocument": {"uri": uri, "version": v},
+                    "contentChanges": [{"text": broken}]
+                }
+            }),
+        );
+    }
+    // Final edit: clean.
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didChange",
+            "params": {
+                "textDocument": {"uri": uri, "version": 8},
+                "contentChanges": [{"text": "fn main() [] {\n    let x: Int = 42\n    let _ = x\n}\n"}]
+            }
+        }),
+    );
+
+    // The next publish must be clean: the burst coalesced into one analysis
+    // of the final buffer. If the server analysed each intermediate edit it
+    // would publish the broken states first, and this would see one of them.
+    let params = expect_diagnostics(&lsp.rx);
+    assert_eq!(
+        params["diagnostics"].as_array().unwrap().len(),
+        0,
+        "the burst should have coalesced to the final clean state: {params}"
+    );
+
     send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "id": 99, "method": "shutdown", "params": null}));
     expect_response(&lsp.rx, 99);
     send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));

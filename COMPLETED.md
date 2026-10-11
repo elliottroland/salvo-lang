@@ -138,6 +138,156 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-10 — `[deduce-std-explicit]`: exported std fns need total deduction clauses (user decision, option a)
+
+Phase 3's enabling rule for the std front-half cache (ROADMAP §5 step 3),
+built. The user chose **option (a)**: require *total* clauses, after the design
+point surfaced that a partial clause does not pin unmentioned parameters.
+Language rule, `std/` sweep, checker enforcement, tests, spec. **1759 tests
+green; no emitted code changed** (the clauses equal the inferred contracts, so
+every codegen golden held).
+
+- **Why total, not merely present.** A written deduction entry is a fixed point
+  of inference [deduce-syntax], but a clause is *partial* — an unnamed
+  parameter is still inferred and so still movable by a project caller. For the
+  cache's soundness (std's checked contracts must not depend on the project
+  that uses it) every non-scalar parameter of an exported std fn must be pinned,
+  so the rule requires a plain entry for each. Copy scalars are exempt
+  [copy-scalar-free]: their keep-all is invariant.
+- **The rule** (`check_std_deductions_total`, `crates/salvo-core/src/check.rs`).
+  Runs after the fixpoint, where `out.deductions` is final. Fires on
+  `is_std && is_shadow` — a std tree on disk, which `mark_std_tree` sets for a
+  `std = true` manifest — so the embedded std a normal project carries
+  (`is_std && !is_shadow`, uneditable) is never flagged. Exported, bodied,
+  non-intrinsic, non-`iter`, non-stamped fns only. The diagnostic names the
+  uncovered parameters and suggests the **inferred** total clause verbatim
+  (`total_deduction_clause`), so the fix is transcription and a wrong
+  suggestion is impossible — it is what the checker derived, then validated
+  against the body like any written clause.
+- **The sweep.** 33 exported std fns lacked a total clause (far fewer than the
+  ~115 first feared — most of those were scalar-only or already total). Each
+  clause was taken from the diagnostic's inferred suggestion and verified:
+  constructors consume (`checked`/`ok`/`err`/`emitted`/`other`/`thrown`
+  `=> !value`), `Duration`/`Instant` accessors keep (`=> d`, `=> at`),
+  `abs(d) => !d` (a `return d` path moves the struct out), `pop` keeps a
+  narrowed `Mut Heap`, `reduce`/`map_to`/`filter_to` gained their missing
+  parameter beside the existing `=>[add]` implicit clause. All validated with
+  no emitted-code change, which the codegen suite confirms.
+- **Tests**: six in `deduce_tests.rs` (`check_std_tree` builds a `std = true`
+  tree via `mark_std_tree`) — missing clause refused with the suggestion,
+  total clause accepted, partial clause still refused, scalar needs no entry,
+  private fn and ordinary non-std fn not flagged. Four std parser-AST insta
+  snapshots re-accepted (they now carry the clauses; diffs were only
+  `Deduction` nodes and span shifts).
+- **Spec**: `[deduce-std-explicit]` added to LANGUAGE_SPEC.md beside the
+  deduction-inference rules. **Still open** (ROADMAP §5 step 3): the cache
+  itself, and whether to extend the rule to a `std = true` *dependency*.
+- **Architectural finding on the cache (surfaced, not built).** The cache
+  cannot be a memoization wrapper: `Resolution<'p>` and `Symbols<'p>` borrow
+  the `Program` (their scopes/indices are `&'p` into one `Program`'s ASTs), so
+  neither survives the fresh merged `Program` each analysis builds; and
+  `check_program`'s whole-program fixpoint reads every file, so a project's
+  `Checked` cannot be produced without re-checking std too. Reusing std's
+  result requires a **seam in `check_program`** — a mode that trusts std's
+  precomputed, now-pinned contracts and skips re-checking std bodies — which is
+  a front-half architecture change (a std-as-library boundary), not an
+  increment. Measured prize: `salvo analyze --src demo` is ~460ms for 42 std +
+  1 user file, nearly all std. Left for a user design pass (ROADMAP §5 step 3).
+- **Gotcha confirmed**: a `std/*.sv` edit does not rebuild the embedded std
+  unless the file holding `include_dir!` (`analysis.rs`) is touched — cargo has
+  no `rerun-if-changed` for the embed. Tests run against embedded std, so the
+  touch-and-rebuild is required before trusting them.
+
+### 2026-10-10 — LSP responsiveness phases 1–2 built; phase 3 surfaced a totality question
+
+Built on the plan recorded in the entry below (ROADMAP §5). No language-surface
+change; `crates/salvo-cli` only. **156 salvo-cli tests green.**
+
+- **[lsp-debounce] Debounce + drop-stale in the server loop**
+  (`crates/salvo-cli/src/lsp.rs`). `main_loop` now, after draining the queue
+  with an edit pending, waits a 120ms quiet window on `recv_timeout` and
+  handles anything that arrives inside it before publishing — so a burst of
+  keystrokes collapses into **one** analysis of the final buffer instead of one
+  per keystroke. This is the fix for the user's "loops through previous issues
+  in order" report: the whole-program check is slower than typing, so running
+  it once per burst is what stops diagnostics trailing several edits behind.
+  Requests (hover/completion/goto) still analyse on demand and see the current
+  overlay. One `dispatch` helper now carries the match the inner and outer
+  loops share. Test `a_burst_of_edits_publishes_only_the_final_state` in
+  `lsp_tests.rs` fires six broken edits then a clean one back-to-back and
+  asserts the next publish is clean.
+- **[lsp-parse-cache] Per-file parse cache**
+  (`crates/salvo-cli/src/analysis.rs`). A `ParseCache` keyed by FNV-1a of each
+  file's text holds its pre-expansion `parse_module_deferred` result; the
+  server owns one behind a `RefCell` (the request handlers analyse through
+  `&self`; the loop is single-threaded, so no contention). On a keystroke only
+  the edited file misses; std and untouched project files hit. The cache is
+  dropped each analysis to the hashes the current files produce, so it does not
+  grow as a file is edited. `analyze_for_document_cached` is the LSP entry
+  point; `analyze_sources` stays uncached for the one-shot CLI. Advisory by
+  construction — the whole-program `expand` and check still run on the (cloned)
+  modules, so a wrong hit degrades to one stale keystroke, never
+  miscompilation. Test `parse_cache_matches_a_fresh_analysis_across_an_edit`
+  proves cached and fresh analyses give identical diagnostics, cold and after
+  an edit.
+- Removed the previous session's leftover `SALVO_TIME_PROBE` timing
+  instrumentation from `analysis.rs` (it was scaffolding, flagged for removal).
+- **Phase 3 is paused on a design point, not started in code.** Implementing
+  the `std = true` deduction-clause rule revealed that a written clause is
+  *partial* [deduce-syntax]: parameters it does not mention are still inferred,
+  so a bare `=> []` does **not** make an exported std fn immune to a project
+  caller's facts. The cache-soundness guarantee therefore needs *total* clauses
+  (every non-implicit parameter mentioned), or a new "unmentioned params are
+  sealed in a std tree" inference rule, or a separate immunity marker — a
+  wider, more opinionated change than "force a clause", and one where a wrong
+  clause silently alters std's Rust ownership contract. Left for a user call;
+  ROADMAP §5 step 3 states the options. The correct gate is `is_std &&
+  is_shadow` (what `mark_std_tree` sets), so embedded std in a normal project —
+  `is_std && !is_shadow`, uneditable by the user — is never caught.
+
+### 2026-10-10 — LSP latency, std-front-half caching, and `replyto` to a plain `fn` (user decisions, design only)
+
+
+A read-only review session that then recorded a plan; no code changed here.
+Two decisions, both from reviewing the four LSP/compiler issues the previous
+agent had worked on (keyword highlighting, hover overloads, the `replyto`
+diagnostic, and diagnostics latency).
+
+- **`replyto` targeting a plain free `fn` is working-as-intended, not a bug**
+  (user: "I forgot that it is limited to send functions ... No need to change
+  the language"). [task-mint] already says targeting a plain `fn` stays an
+  error — a fulfilled token must not run arbitrary synchronous code on the
+  fulfiller's thread — so a target must be a `send fn` (a free `send fn`
+  [free-send-fn] or a handler send member). The only ask was that the
+  diagnostic name the `send fn` remedy, which the previous agent's
+  `check_replyto` → `free_plain_fn` change does
+  (`crates/salvo-core/src/check.rs`, test
+  `replyto_toward_a_plain_free_fn_names_the_missing_send`). Recorded so this is
+  not re-litigated as a defect.
+- **LSP responsiveness gets a four-phase plan** (ROADMAP §5): debounce +
+  drop-stale in the server loop, a per-file parse cache, then a cached std
+  front-half reused across projects, with an IR-keyed std codegen cache as a
+  `salvo build` follow-on. The bottleneck is `check_program`'s whole-program
+  fixpoint, not parsing; the server is single-threaded with no debounce, which
+  is why the user saw it "loop through previous issues in order". The IR does
+  **not** help, because it is built *from* the checker's output
+  (`salvo-ir::build_program` infers nothing).
+- **Caching the std front-half needs std's `Checked` to be a pure function of
+  std's sources, which it is not today**: the deduction fixpoint
+  back-propagates callers' facts into std fns with *unwritten* clauses, and
+  overload resolution merges std's `Core`-rung candidates with the project's.
+  The enabling decision: **force an explicit deduction clause on every exported
+  `fn` in a `std = true` tree** (detected via the manifest, as the user
+  suggested). Written clauses are fixed points of inference, so a fully
+  annotated std surface stops depending on any project. This is enforcement,
+  not a language-surface change (so no DECISION), but it is a new rule — a
+  neutral label such as `[deduce-std-explicit]` in LANGUAGE_SPEC.md — and the
+  `std/` sweep that adds the clauses must flag any fn whose inferred contract
+  is awkward to state by hand rather than guess at it. Once it holds, std's IR
+  is program-independent too, which lets the Kotlin std classes cache
+  ([kt-std-library]) drop its "verify byte-identical" fallback and gives Rust a
+  tractable equivalent.
+
 ### 2026-10-10 — Handles are storage paths, part three: unions of borrows, element containers, `Deque`'s `at`; GROUP_BORROWING.md retired
 
 The last of the `ref(c)` sequence (user decisions 2026-10-10), built

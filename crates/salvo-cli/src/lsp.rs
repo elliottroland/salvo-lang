@@ -17,6 +17,7 @@ use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::time::Duration;
 
 use lsp_server::{Connection, Message, Notification, Request, Response};
 use lsp_types::notification::{
@@ -45,8 +46,15 @@ use salvo_syntax::ast::{FnDecl, Item, QualSubject};
 use salvo_syntax::diag::Severity;
 use salvo_syntax::Span;
 
-use crate::analysis::{analyze_for_document, Analysis};
+use crate::analysis::{analyze_for_document_cached, Analysis};
 use crate::docs;
+
+/// [lsp-debounce] How long the loop waits for the edit stream to go quiet
+/// before analysing. Long enough that a run of keystrokes collapses into one
+/// analysis, short enough to feel immediate once typing pauses. A fast typist
+/// hits ~100ms between keys, so 120ms coalesces a burst without a visible lag
+/// after the last keystroke.
+const DEBOUNCE: Duration = Duration::from_millis(120);
 
 /// Runs the server until the client disconnects or asks for shutdown.
 /// Backend-neutral, like `salvo analyze` [cli-analyze]: nothing a backend
@@ -102,6 +110,7 @@ fn serve() -> Result<(), Box<dyn Error + Sync + Send>> {
         published: HashSet::new(),
         connection: &connection,
         dirty: false,
+        parse_cache: std::cell::RefCell::new(crate::analysis::ParseCache::new()),
     };
     server.main_loop()?;
     drop(server);
@@ -128,6 +137,11 @@ struct Server<'c> {
     /// [lsp-coalesce] A document changed since diagnostics were last
     /// published: they are published once the queue is drained.
     dirty: bool,
+    /// [lsp-parse-cache] Parsed modules kept across analyses, so an unchanged
+    /// file is not re-parsed on every keystroke. A `RefCell` because the
+    /// request handlers analyse through `&self`; the server loop is
+    /// single-threaded, so there is never contention.
+    parse_cache: std::cell::RefCell<crate::analysis::ParseCache>,
 }
 
 impl Server<'_> {
@@ -135,21 +149,45 @@ impl Server<'_> {
     /// published once nothing is waiting. Each keystroke used to re-analyse the
     /// whole program before the next message was read, so a completion asked
     /// for after five keystrokes waited behind five analyses.
+    ///
+    /// [lsp-debounce] Publishing is also debounced: after the queue drains
+    /// with edits pending, the loop waits for a short quiet period before
+    /// analysing, and any message arriving inside that window is handled and
+    /// resets the wait. A burst of keystrokes therefore produces **one**
+    /// analysis, of the latest buffer — the whole-program check is the
+    /// expensive step [cli-lsp], and running it once per burst instead of once
+    /// per keystroke is what keeps diagnostics from trailing several edits
+    /// behind. Requests (hover, completion, go-to-definition) are unaffected:
+    /// they analyse on demand and always see the current overlay.
     fn main_loop(&mut self) -> Result<(), Box<dyn Error + Sync + Send>> {
         while let Ok(msg) = self.connection.receiver.recv() {
-            let mut next = Some(msg);
-            while let Some(msg) = next.take() {
-                match msg {
-                    Message::Request(req) => {
-                        if self.connection.handle_shutdown(&req)? {
+            if self.dispatch(msg)? {
+                return Ok(());
+            }
+            // Drain whatever is already queued, then — if an edit is pending —
+            // wait out a quiet period, absorbing any late-arriving messages so
+            // only the final buffer state is analysed [lsp-debounce].
+            loop {
+                while let Ok(msg) = self.connection.receiver.try_recv() {
+                    if self.dispatch(msg)? {
+                        return Ok(());
+                    }
+                }
+                if !self.dirty {
+                    break;
+                }
+                // A message inside the window keeps the burst open; silence (or
+                // disconnect — the outer `recv` exits next) ends it and we
+                // publish. `recv_timeout`'s error does not distinguish the two,
+                // but publishing on a disconnect is harmless.
+                match self.connection.receiver.recv_timeout(DEBOUNCE) {
+                    Ok(msg) => {
+                        if self.dispatch(msg)? {
                             return Ok(());
                         }
-                        self.handle_request(req)?;
                     }
-                    Message::Notification(note) => self.handle_notification(note)?,
-                    Message::Response(_) => {}
+                    Err(_) => break,
                 }
-                next = self.connection.receiver.try_recv().ok();
             }
             if self.dirty {
                 self.dirty = false;
@@ -157,6 +195,22 @@ impl Server<'_> {
             }
         }
         Ok(())
+    }
+
+    /// Handles one message. Returns `true` when it was a shutdown request and
+    /// the loop should exit.
+    fn dispatch(&mut self, msg: Message) -> Result<bool, Box<dyn Error + Sync + Send>> {
+        match msg {
+            Message::Request(req) => {
+                if self.connection.handle_shutdown(&req)? {
+                    return Ok(true);
+                }
+                self.handle_request(req)?;
+            }
+            Message::Notification(note) => self.handle_notification(note)?,
+            Message::Response(_) => {}
+        }
+        Ok(false)
     }
 
     fn handle_request(&mut self, req: Request) -> Result<(), Box<dyn Error + Sync + Send>> {
@@ -241,7 +295,12 @@ impl Server<'_> {
         if is_embedded_std_copy(path) {
             return None;
         }
-        match analyze_for_document(path, &self.root, &self.overlay) {
+        match analyze_for_document_cached(
+            path,
+            &self.root,
+            &self.overlay,
+            &mut self.parse_cache.borrow_mut(),
+        ) {
             Ok(analysis) => Some(analysis),
             Err(err) => {
                 eprintln!("salvo lsp: {err}");
@@ -545,6 +604,7 @@ impl Server<'_> {
                             file: key.file,
                             span: d.name.span,
                         },
+                        &link,
                     )
                 });
                 return Some(markdown_hover(
@@ -967,8 +1027,8 @@ impl Server<'_> {
         // effect-member case is the one that matters most (`read_to` of
         // `core.fs` has three), and it arrives through this path rather than
         // the fn-ref one, since a member has no `FnKey`.
-        let others =
-            decl_name.and_then(|name| self.overload_section(analysis, file_idx, &name, target));
+        let others = decl_name
+            .and_then(|name| self.overload_section(analysis, file_idx, &name, target, link));
         Some(markdown_hover(
             docs::hover_markdown(&signature, &[body, fields, origin, others]),
             view.range(span),
@@ -994,6 +1054,7 @@ impl Server<'_> {
         file_idx: usize,
         name: &str,
         here: DefSite,
+        link: &dyn Fn(usize, Span) -> Option<String>,
     ) -> Option<String> {
         let sites = analysis.overloads.get(file_idx)?.get(name)?;
         let mut lines: Vec<String> = Vec::new();
@@ -1004,6 +1065,7 @@ impl Server<'_> {
             let Some(items) = analysis.program.modules.get(site.file) else {
                 continue;
             };
+            let source = analysis.program.files.get(site.file).map(|f| f.content.as_str()).unwrap_or("");
             // A **top-level fn** is not a `DeclAt` — `decl_at` covers the
             // declarations that hover through `declaration_hover`, and a fn
             // resolves through `fn_refs` instead — so it is matched here by
@@ -1016,7 +1078,14 @@ impl Server<'_> {
             // backticks of its own (`effect `Store``), and nesting them makes
             // markdown swallow the line.
             let mut note: Option<String> = None;
+            // [lsp-hover-overloads] A sibling's own doc comment, rendered the
+            // same way the resolved overload's is — a reader comparing
+            // candidates needs more than a bare signature to choose between
+            // them.
+            let mut docs: Option<String> = None;
             let signature = if let Some(f) = fn_decl {
+                let scope = docs::fn_scope(f, site.file, source, &analysis.program.modules, link);
+                docs = docs::render(&f.docs, &scope);
                 fn_decl_signature(f, None)
             } else {
                 let Some(found) = decl_at(&items.items, &|s: Span| s == site.span) else {
@@ -1025,6 +1094,8 @@ impl Server<'_> {
                 match found {
                     DeclAt::Member { owner, decl, .. } => {
                         note = Some(format!("of {owner}"));
+                        let scope = docs::fn_scope(decl, site.file, source, &analysis.program.modules, link);
+                        docs = docs::render(&decl.docs, &scope);
                         fn_decl_signature(decl, None)
                     }
                     DeclAt::Field { owner, decl, .. } => {
@@ -1045,9 +1116,19 @@ impl Server<'_> {
                 .get(site.file)
                 .map(|f| f.module.to_string())
                 .unwrap_or_default();
-            lines.push(match note {
+            let heading = match note {
                 Some(note) => format!("- `{signature}` — {note} *({module})*"),
                 None => format!("- `{signature}` *({module})*"),
+            };
+            // A doc comment renders as an indented continuation of the
+            // bullet, so it reads as *that* overload's description rather
+            // than a new list item.
+            lines.push(match docs {
+                Some(docs) => {
+                    let indented: Vec<String> = docs.lines().map(|l| format!("  {l}")).collect();
+                    format!("{heading}\n{}", indented.join("\n"))
+                }
+                None => heading,
             });
         }
         if lines.is_empty() {
@@ -1059,6 +1140,7 @@ impl Server<'_> {
             lines.join("\n")
         ))
     }
+
 
     /// Go-to-definition [lsp-definition]: a fn name resolves through
     /// `Checked::fn_refs` (overload-precise) to its declaration's name
@@ -1147,7 +1229,13 @@ impl Server<'_> {
             .or_else(|| trimmed.strip_prefix("import "));
         if let Some(written) = import_path {
             if written.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.') {
-                let analysis = analyze_for_document(&path, &self.root, &self.overlay).ok()?;
+                let analysis = analyze_for_document_cached(
+                    &path,
+                    &self.root,
+                    &self.overlay,
+                    &mut self.parse_cache.borrow_mut(),
+                )
+                .ok()?;
                 return Some(CompletionResponse::Array(import_completions(&analysis, written)));
             }
         }
@@ -1164,7 +1252,13 @@ impl Server<'_> {
         };
         let mut overlay = self.overlay.clone();
         overlay.insert(path.clone(), patched);
-        let analysis = analyze_for_document(&path, &self.root, &overlay).ok()?;
+        let analysis = analyze_for_document_cached(
+            &path,
+            &self.root,
+            &overlay,
+            &mut self.parse_cache.borrow_mut(),
+        )
+        .ok()?;
         let checked = analysis.checked.as_ref()?;
         let view = doc_view(&analysis, &path)?;
         let fns = analysis.completions.get(view.file)?;
