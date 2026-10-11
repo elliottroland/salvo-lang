@@ -249,8 +249,11 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
     record in COMPLETED.md "Design record: the IR"). Both emitters read only
     the IR. **Open:** (a) with the user, revisit whether the actor *codecs*
     belong in the IR (consistency between backends against their tie to the
-    `UnionN` layout); (b) the ~80 remaining span-keyed `Checked` tables are
-    read only by the IR builder and could become builder inputs; (c)
+    `UnionN` layout); (b) the ~50 span-keyed `Checked` tables that are read
+    only by the IR builder — a checker→builder handoff, since the backends read
+    only the IR — are being unified toward **attributed IR nodes** (Option 4,
+    user 2026-10-10), via clustering by consumer (Option 3); the plan and
+    work-in-progress are in `UNIFY_CHECKER.md`; (c)
     `BACKEND_SPEC.kotlin.md` still describes several AST-emitter spellings
     and wants a pass rule by rule; (d) a single-face `use` takes a
     `ReentrantLock` it does not need. TOUR.md §10 lists the decisions still
