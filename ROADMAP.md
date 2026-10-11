@@ -1254,7 +1254,7 @@ backends**.
   v1); and an `iter fn` over a recursive subject snapshots per field, which is a
   deep copy.
 
-### 5 — LSP responsiveness: debounce, per-file parse cache, and a cached std front-half (user decisions 2026-10-10; phases 1–2 built, 3 part-built, 4 open)
+### 5 — LSP responsiveness: debounce, per-file parse cache, and a cached std front-half (user decisions 2026-10-10; phases 1–2 built, 3 rule built, cache seam designed, 4–5 open)
 
 The language server re-runs the whole `analyze` pipeline on every document
 event with no incremental state (`crates/salvo-cli/src/lsp.rs`,
@@ -1322,14 +1322,24 @@ it would save only the cheap transcription and inherit every coupling of the
      global-file-index-keyed) is part of it. A dependency's own fns are still
      inferred (the rule binds std trees only), so either the seam covers std
      alone and deps check with the project, or `[deduce-std-explicit]` is later
-     extended to any `std = true` dependency. **The options are sketched in
-     `STD_CACHE.md`** (root-level design doc): A — a skip-std-bodies seam in
-     `check_program` (recommended); B — std as a precompiled library with an
-     owned, index-free interface (A's larger successor); C — whole-`Checked`
-     memoization (rejected alone). The doc has the correctness surface and the
-     open sub-decisions; it dies into COMPLETED.md when the work lands.
+     extended to any `std = true` dependency. **Option A chosen (user,
+     2026-10-10): the skip-std-bodies seam** — see `STD_CACHE.md` for the
+     correctness surface and sub-decisions; it dies into COMPLETED.md when the
+     work lands.
+4. **(Future, recorded.) std as a precompiled library — Option B.** A's larger
+   successor: give the front-half a real std-as-a-crate boundary, with std
+   checked once into an **owned, index-free** interface summary (contracts
+   keyed by module path + item name, not file index) that `resolve`/`check`
+   consult, so a project analysis never puts std files in its `Program` at all.
+   Persists across compiler runs (keyed by the embedded-std hash) and helps
+   multi-project workspaces. A large front-half refactor — it touches the
+   "Salvo sees everything in one program" assumption (for std only, which is
+   fixed) and needs a path-based parallel to the `FnKey`-keyed tables. Not
+   worth it over A until cross-run persistence or workspace scale demands it;
+   recorded so A's seam is designed without foreclosing it. Full writeup was in
+   `STD_CACHE.md` (Option B); preserve it here when that doc is retired.
 
-4. **(Follow-on, for `salvo build` — not the LSP.)** Once step 3's annotation
+5. **(Follow-on, for `salvo build` — not the LSP.)** Once step 3's annotation
    guarantee holds, std's *IR* is a pure function of std's sources too, which
    is the property the Kotlin std **classes** cache
    (`salvo-backend-kotlin/src/stdlib.rs`, `[kt-std-library]`) relies on today

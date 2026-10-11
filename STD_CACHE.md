@@ -10,6 +10,14 @@ Written 2026-10-10. When a decision is made and the work lands, this document
 dies into COMPLETED.md's decision log (the retired-design-doc rule) and
 ROADMAP §5 step 3 is closed.
 
+## Status
+
+- **2026-10-10 — Option A chosen (user).** Build the skip-std-bodies seam.
+  Option B (std as a precompiled library) is **recorded in ROADMAP §5 as a
+  future item**, not built now. Option C is rejected. Sub-decisions for A are
+  being worked through; see "Sub-decisions for A" at the end, updated per
+  round.
+
 ## The problem, precisely
 
 The language server re-runs the whole pipeline on every keystroke
@@ -177,3 +185,94 @@ Open sub-decisions within A, for the design session:
    itself `std = true`, the seam is **off** — fall back to today's full check.
    That keeps std-development (where the std bodies are the thing being
    checked) correct and simple.
+
+## Sub-decisions for A
+
+Grounded in an audit of what a project call site reads about a std callee
+(2026-10-10). Two seam points, both now justified:
+
+- **`check_once`**: do not walk the bodies of trusted (std) files; publish
+  their contracts into the tables call sites read.
+- **`deduce::infer`**: a std fn's entries are all `written`
+  ([deduce-std-explicit]), and the fixpoint already *discards* the walked
+  result of an all-written fn (the overlay `if c.written { *n = c.clone() }`).
+  So std fns can be skipped in the `fns` loop outright — today they are walked
+  and thrown away, pure waste.
+
+**The `FnKey`-keyed callee facts (the cache's core).** Only seven `Checked`
+tables are keyed by the callee's `FnKey`, i.e. are facts a project call reads
+*about std*:
+`deductions`, `fn_effects`, `fn_lends`, `param_mutations`, `iter_returns`,
+`implicit_params`, `established_quals`. These plus the std fns' declared
+signatures (return/throw types, send/parking flags — read from the AST via
+`resolution`/`symbols`, which are rebuilt cheaply every analysis) are the
+contract surface. `StdContracts` carries the seven tables' std entries; the
+declarations come free from the always-rebuilt resolution.
+
+Everything else is either (a) `Key = (file, span)`-keyed — a fact about an
+expression *in a file*, so a project call site produces its own entry when the
+project is checked, and std's entries are only needed to *emit* or *hover in*
+std; or (b) whole-program accumulators (`parking`, `candidates`, …) that the
+seam seeds from the cache and then only grows with project facts.
+
+### A1 — Where the seam lives
+
+- **(i) A new `check_project(program, resolution, symbols, std: &StdContracts)`
+  entry beside `check_program`.** The LSP calls it; `salvo analyze`/`salvo
+  build` keep calling `check_program` (full check). Cleanest separation, no
+  mode flag threaded through the fixpoint, and the full path stays exactly as
+  tested. Recommended.
+- (ii) A `trusted: Option<(&HashSet<usize>, &StdContracts)>` parameter on
+  `check_program`. Less duplication but threads a mode through every round.
+
+### A2 — Structural, not a differential check (user decision 2026-10-10)
+
+The cache is **not** a separate `StdContracts` type copied into `Checked` —
+that would be two representations to keep in sync, policed by a runtime diff
+(rejected). Instead **the cache *is* a `Checked`**: `check_project` seeds its
+`out` from the std rows of a real full check and adds only project rows on top.
+std rows are therefore always "whatever the real checker produced", never a
+parallel computation, so there is nothing to keep in sync.
+
+Two consequences:
+
+- **One producer.** std's rows are produced only by the normal checker. The
+  cache is captured from a genuine `check_program` (over the real merged
+  program) the first time, then reused while only the project changes. No
+  "check std in isolation" second path that could diverge.
+- **Soundness is a stated per-table invariant, by construction — not a diff.**
+  The cache carries exactly the `Checked` tables whose std rows are *invariant
+  under project changes*. `[deduce-std-explicit]` establishes this for
+  `deductions`. For each other cached table the invariance is argued at the
+  site where it is written (it is a function of the fn's own declaration +
+  body given pinned deductions, not of callers), and tagged with the rule
+  label. **If a table's std rows are not provably caller-independent, it is not
+  cached** — its std rows are recomputed (cheaply) rather than policed. The
+  first implementation step is this audit of the seven `FnKey`-keyed tables
+  (`deductions`, `fn_effects`, `fn_lends`, `param_mutations`, `iter_returns`,
+  `implicit_params`, `established_quals`), which decides the cached set.
+
+The verification that no project call reads a *std body-span* entry (only the
+std callee's `FnKey` contract) is part of the same audit: if the project hot
+path never indexes a std file's `(file, span)` tables, std bodies can be
+skipped in `check_once` outright; any that are read must be in the cached
+`Checked` too.
+
+
+### A3 — Build and index remap
+
+Reuse `salvo-backend-kotlin/src/stdlib.rs::std_library_files`' std-only
+`Program` construction to check std in isolation. In the common LSP case std
+occupies the leading indices of the merged program unchanged, so the remap is
+the identity; compute the offset defensively anyway. **Recompute per LSP
+session** (held in the `Server`, like the parse cache), not persisted to disk —
+persistence is Option B's job, and a per-session build is a one-time ~400ms at
+startup, paid back on the first keystroke.
+
+### A4 — Fallback
+
+The seam is **off** — fall back to today's full `check_program` — when the
+project shadows std (`apply_std_shadow` removed/replaced std files) or is itself
+`std = true` (`mark_std_tree`). There the std bodies are the thing being
+checked, and the index assumptions do not hold. Detected before building the
+cache; the LSP already knows both conditions from the analysis.
