@@ -15741,7 +15741,7 @@ fn a_mut_used_lender_renders_as_its_path_fn() {
     );
     assert!(
         !main.content.contains("Option<&mut crate::Entity>") && !main.content.contains("__loc"),
-        "a minting fn keeps no `&mut` face and no `__loc` twin:\n{}",
+        "a minting fn keeps no `&mut` face:\n{}",
         main.content
     );
     // The mutable use materializes the position where it stands.
@@ -15962,11 +15962,9 @@ fn rustc_compiles_and_runs_the_locate_bundle() {
     run_rust_files(&files, "locate_bundle", "5 17\n");
 }
 
-/// [rs-loc] ④a slice 4 — an **effect member** lends a mutable handle: the
-/// trait carries both faces (the read one, explicitly lifetime-tagged so
-/// the borrow ties to the container rather than to `&mut self`, and the
-/// `__loc` one), every handler and adapter implements both, and a `Mut`
-/// position routes to the locator face.
+/// [rs-path] An **effect member** that mints a handle: the trait carries its
+/// path face only, under the member's own name, every handler and adapter
+/// implements it, and a use routes to it.
 const LENDING_MEMBER_DEMO: &str = r#"
 struct Entity canbe Mut { hp: Int }
 
@@ -16007,7 +16005,7 @@ fn a_lending_effect_member_lends_through_the_trait() {
     assert!(
         main.content
             .contains("fn lease(&mut self, es: &Vec<crate::Entity>) -> Option<usize>;")
-            && !main.content.contains("lease__loc"),
+            && !main.content.contains("lease_loc"),
         "{}",
         main.content
     );

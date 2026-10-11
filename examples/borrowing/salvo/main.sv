@@ -78,7 +78,7 @@ fn heal(f: Mut Fighter) -> None => f: Mut {
 // A lender of your own: `-> ref(squad) Mut Fighter` says the result is a
 // handle into `squad`. The shape to look at in the generated Rust: the loop
 // becomes an indexed one and the found *position* travels out
-// (`wounded__loc(squad: &Vec<Fighter>) -> Option<usize>`), so no reference
+// (`wounded(squad: &Vec<Fighter>) -> Option<usize>`), so no reference
 // outlives the search.
 fn wounded(squad: List<Mut Fighter>) -> (ref(squad) Mut Fighter)? {
     for f in squad {

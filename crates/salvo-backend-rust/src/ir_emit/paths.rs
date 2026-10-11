@@ -708,13 +708,10 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             // Inside a locator, a forwarded call answers its own locator's
             // path whatever its type says (a reader forwarding a reader).
             ExprKind::Call { target: FnRef::Decl(id), args, .. }
-                if self.lends_loc(e) || (self.f.loc.is_some() && self.s.locs.contains(id) && self.s.ast_fn(id).is_none_or(|af| !af.intrinsic)) =>
+                if self.lends_loc(e) =>
             {
                 let f = self.s.fn_decl(id)?;
-                let k = match self.s.mut_lend(e) {
-                    Some((_, k)) => k,
-                    None => self.s.lend_param(f)?,
-                };
+                let k = self.s.lend_param(f)?;
                 let mut pre = Vec::new();
                 let prefix = self.anchor_handle(args.get(k)?, indent, &mut pre)?;
                 let pt = if salvo_ir::build::refs::has_ref(&e.ty) {

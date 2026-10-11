@@ -1113,11 +1113,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         if self.s.is_mint(f) && f.kind != FnKind::Intrinsic && (f.body.is_some() || f.kind == FnKind::Platform) {
             return self.fn_decl_mode(f, recv, indent, true);
         }
-        let mut out = self.fn_decl_mode(f, recv, indent, false);
-        if self.s.locs.contains(&f.id) && f.kind != FnKind::Intrinsic {
-            out.push_str(&self.fn_decl_mode(f, recv, indent, true));
-        }
-        out
+        self.fn_decl_mode(f, recv, indent, false)
     }
 
     fn fn_decl_mode(&mut self, f: &FnDecl, recv: Option<&str>, indent: usize, loc: bool) -> String {
@@ -1277,10 +1273,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         self.f.lt = None;
         self.f.ret = Some(f.ret.clone());
         self.f.ret_lt = self.s.holds_proj(&f.ret);
-        let mut name = if recv.is_some() { rs_ident(&f.name) } else { self.fn_rust_name(&f.id) };
-        if loc && !self.s.is_mint(f) {
-            name.push_str("__loc");
-        }
+        let name = if recv.is_some() { rs_ident(&f.name) } else { self.fn_rust_name(&f.id) };
         let g = if tps.is_empty() { String::new() } else { format!("<{}>", tps.join(", ")) };
         let vis = if recv.is_some() { "" } else { "pub " };
         let head = format!("{pad}{vis}fn {name}{g}({}){ret}", ps.join(", "));

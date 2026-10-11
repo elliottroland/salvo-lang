@@ -90,7 +90,6 @@ fn run(
         platform_effects: reach.platform_effects.clone(),
         platform_hosts: BTreeSet::new(),
         borrowing: HashSet::new(),
-        locs: HashSet::new(),
         statics: HashMap::new(),
         paths: HashMap::new(),
         path_enums: Vec::new(),
@@ -127,7 +126,6 @@ fn run(
             break;
         }
     }
-    shared.compute_locs();
     shared.compute_paths();
     if skeletons {
         let mut files = Vec::new();
@@ -410,8 +408,6 @@ pub(crate) struct Shared<'p> {
     pub platform_hosts: BTreeSet<ModulePath>,
     /// [rs-proj-struct] struct keys carrying a lifetime.
     pub borrowing: HashSet<String>,
-    /// [rs-loc] fns that get a locator variant (`f__loc`).
-    pub locs: HashSet<DeclId>,
     /// [mod-use] Per module, its statics' locals.
     pub statics: HashMap<ModulePath, HashSet<String>>,
     /// [rs-path] Path types by (container, element).
@@ -599,22 +595,6 @@ impl<'p> Shared<'p> {
         salvo_ir::build::refs::has_ref(&f.ret)
     }
 
-    /// [rs-loc] A call that lends mutably from a fn whose result is a read
-    /// projection: the callee and the index of the parameter it lends from.
-    pub fn mut_lend(&self, e: &salvo_ir::Expr) -> Option<(DeclId, usize)> {
-        let salvo_ir::ExprKind::Call { target: salvo_ir::FnRef::Decl(id), .. } = &e.kind else { return None };
-        let lends_mut = |t: &Ty| is_ref(t) && is_mut(t);
-        let value = |t: &Ty| -> Ty { t.strip_quals().without_none() };
-        if !lends_mut(&e.ty) && !lends_mut(&value(&e.ty)) {
-            return None;
-        }
-        let f = self.fn_decl(id)?;
-        if lends_mut(&f.ret) || lends_mut(&value(&f.ret)) {
-            return None;
-        }
-        Some((id.clone(), self.lend_param(f)?))
-    }
-
     /// [rs-proj-generic] The type variables whose `proj` is the variable
     /// itself: no parameter the result can borrow from holds one, so the
     /// borrow is the instantiation's (`filter` over a pass yields `T`s).
@@ -691,109 +671,6 @@ impl<'p> Shared<'p> {
             return Some(i);
         }
         m.params.iter().position(|p| p.mode != salvo_ir::PassMode::Moved && !is_copy_ty(&p.ty) && !matches!(self.unalias(&p.ty).strip_quals(), Ty::Fn { .. }))
-    }
-
-    /// [rs-loc] Every fn some mutable lend reaches, and every fn those
-    /// forward their result from.
-    fn compute_locs(&mut self) {
-        let mut work: Vec<DeclId> = Vec::new();
-        let mut bodies: Vec<&'p salvo_ir::Block> = Vec::new();
-        for m in &self.ir.modules {
-            for d in &m.decls {
-                match d {
-                    Decl::Fn(f) => bodies.extend(f.body.as_ref()),
-                    Decl::Impl(h) => {
-                        for f in h.members.iter().chain(h.init.as_ref()) {
-                            bodies.extend(f.body.as_ref());
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        }
-        // Every declared mutable lender: a handle binds its position.
-        for m in &self.ir.modules {
-            for d in &m.decls {
-                if let Decl::Fn(f) = d {
-                    if f.body.is_some() && salvo_ir::build::refs::has_ref(&f.ret) {
-                        work.push(f.id.clone());
-                    }
-                }
-            }
-        }
-        for b in bodies {
-            body::walk_block(b, &mut |_| {}, &mut |e| {
-                if let Some((id, _)) = self.mut_lend(e) {
-                    work.push(id);
-                }
-                if let salvo_ir::ExprKind::FnValue(salvo_ir::FnRef::Decl(id)) = &e.kind {
-                    if self.fn_ty_lends_mut(&e.ty) {
-                        work.push(id.clone());
-                    }
-                }
-            });
-        }
-        // A lending member's body forwards its result like a lender's does.
-        for m in &self.ir.modules {
-            for d in &m.decls {
-                let Decl::Impl(h) = d else { continue };
-                for face in &h.faces {
-                    let Ty::Named { name: fname, .. } = face.strip_quals() else { continue };
-                    let Some(iface) = self.interface(fname) else { continue };
-                    for im in iface.members.iter().filter(|im| self.member_lends_mut(iface, im)) {
-                        for f in h.members.iter().filter(|f| f.name == im.name) {
-                            if let Some(b) = &f.body {
-                                self.forwarded_callees(b, &mut work);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        while let Some(id) = work.pop() {
-            if !self.locs.insert(id.clone()) {
-                continue;
-            }
-            let Some(f) = self.fn_decl(&id) else { continue };
-            let Some(b) = &f.body else { continue };
-            self.forwarded_callees(b, &mut work);
-        }
-    }
-
-    /// The fns whose result a body hands back as its own.
-    fn forwarded_callees(&self, b: &'p salvo_ir::Block, work: &mut Vec<DeclId>) {
-        let mut rets: Vec<&salvo_ir::Expr> = Vec::new();
-        fn collect<'b>(b: &'b salvo_ir::Block, out: &mut Vec<&'b salvo_ir::Expr>) {
-            for s in &b.stmts {
-                match s {
-                    salvo_ir::Stmt::Return(Some(e)) => out.push(e),
-                    salvo_ir::Stmt::Loop { body, .. } | salvo_ir::Stmt::ForEach { body, .. } => collect(body, out),
-                    salvo_ir::Stmt::Expr(salvo_ir::Expr { kind: salvo_ir::ExprKind::Branch { arms, otherwise, .. }, .. }) => {
-                        for (_, a) in arms {
-                            collect(a, out);
-                        }
-                        if let Some(o) = otherwise {
-                            collect(o, out);
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            if let Some(v) = &b.value {
-                out.push(v);
-            }
-        }
-        collect(b, &mut rets);
-        for mut e in rets {
-            while let salvo_ir::ExprKind::Present { value } = &e.kind {
-                e = value;
-            }
-            if let salvo_ir::ExprKind::Call { target: salvo_ir::FnRef::Decl(g), .. } = &e.kind {
-                if self.fn_decl(g).is_some_and(|g| g.kind != salvo_ir::FnKind::Intrinsic) {
-                    work.push(g.clone());
-                }
-            }
-        }
     }
 
     pub fn prefix(&self, m: &ModulePath) -> String {

@@ -13,24 +13,24 @@ last step runs the full and fresh suites).
 
 ## Resume here
 
-**Next step: 3.** Steps done: 0, 1, 2.
+**Next step: 4.** Steps done: 0, 1, 2, 3.
 
-Where things stand (2026-10-10, after step 2):
-- Mints are recognised by a `ref` arm alone: `is_mint`, `member_lends_mut`,
-  `fn_ty_lends_mut`, the `compute_locs` seeds and `let_stmt`'s handle test no
-  longer ask for `Mut`. Std's `at`s are generic over any element
-  (`List<T>` -> `ref(list) T?`; permission follows `T`'s kind), so a generic
-  `-> ref(xs) T?` has a primitive to forward from at `T = Str` too. (This
-  widened std's `at` from `List<Mut T>`; flag it to the user at the end.)
-- Tests added on both backends: `REF_ONE_RENDERING_DEMO` (head_of, Pick through
-  one and two implicit layers at `Mut` and `Str`, a read-only handle held
-  across a write through another).
-- `cargo test` is green. Not yet run: nextest / fresh (step 4).
-- Next (step 3): delete the second face. What still exists: `mut_lend` /
-  `mut_lend_call` (a *reader* used as a mutable handle, rendered through its
-  `__loc` twin), `compute_locs` / `Shared::locs`, `fn_decl`'s non-mint loc
-  mode, `loc_call`'s `__loc` suffix, `member_loc_sig`'s `__loc` naming. Done
-  when `grep -rn '__loc' crates std examples` is empty (decision log aside).
+Where things stand (2026-10-10, after step 3):
+- `__loc` is gone: `mut_lend` / `mut_lend_call`, `compute_locs` / `Shared::locs`,
+  the non-mint loc twins and the `__loc` suffix are deleted; a mint renders as
+  its path fn only. The two remaining `__loc` greps are *negative assertions*
+  in `crates/salvo-backend-rust/tests/codegen_tests.rs` (kept as guards).
+- `cargo test` is green (76 result lines ok).
+- Step 4 left: BACKEND_SPEC.rust.md ([rs-loc] at ~line 751 and 764 still
+  describe `{name}__loc` twins; [rs-path]; effect-member / fn-value bullets
+  lose their `Mut` conditions; std's `at`s now take any element), COMPLETED.md
+  decision-log entry + gotchas + test counts (+ mention the
+  `check_platform_boundary` generics fix and std's `at` widening to any `T`),
+  ROADMAP.md (drop item 15's pointer here; keep 15.4-15.7 and the follow-ups;
+  the opt-in slot-map container), docs/language pages that mention locators,
+  AGENTS.md map row for FINISH_REF.md (delete with the file), then warm
+  `cargo nextest run --no-fail-fast` and `SALVO_E2E_FRESH=1 cargo nextest run`,
+  then delete FINISH_REF.md.
 
 Before resuming: read AGENTS.md, then this file top to bottom, then
 `git log --oneline -10` to see which step commits exist. The step list below
@@ -123,7 +123,7 @@ a mint that returns a reader").
 
 ### Step 3 — Retire `__loc`
 
-**Status: not started.**
+**Status: done** (commit "Retire the __loc locator twins").
 
 With no conversion, nothing needs a locator twin. Remove: the second face of
 a mint, the per-call-site choice (`mut_lend` / `mut_lend_call`), the path

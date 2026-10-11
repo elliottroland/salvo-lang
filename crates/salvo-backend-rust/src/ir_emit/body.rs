@@ -2944,26 +2944,13 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         }
     }
 
-    /// [rs-loc] A mutable lend as (anchor text, position code), when it
-    /// has one: a lending call, a lending callback, or `x!` of either.
-    /// [rs-loc] Whether `e` is a call `loc_of` can render as a position: a
-    /// mutable lend through a reading accessor (`mut_lend`), or a call to a
-    /// handle mint with a locator variant (`at`, [ref-handle]).
+    /// [rs-path] Whether `e` is a call to a mint, which renders as a
+    /// position (its path fn).
     pub(crate) fn lends_loc(&self, e: &Expr) -> bool {
-        if self.s.mut_lend(e).is_some() {
-            return true;
-        }
-        match &e.kind {
-            ExprKind::Call { target: FnRef::Decl(id), .. } => {
-                // [rs-path] A mint — std's platform `at`s among them — is its
-                // path fn.
-                self.s.fn_decl(id).is_some_and(|f| self.s.is_mint(f) || (self.s.locs.contains(id) && (is_mut(&f.ret) || is_mut(&f.ret.strip_quals().without_none()))))
-            }
-            _ => false,
-        }
+        matches!(&e.kind, ExprKind::Call { target: FnRef::Decl(id), .. } if self.s.fn_decl(id).is_some_and(|f| self.s.is_mint(f)))
     }
 
-    /// `g__loc(args)`: the anchor argument read.
+    /// A mint's call as its path fn: the anchor argument read.
     pub(crate) fn loc_call(&mut self, id: &salvo_ir::DeclId, f: &salvo_ir::FnDecl, args: &[Expr], indent: usize) -> String {
         let mut ps = self.s.unalias_params(&f.params);
         if let Some(a) = self.s.lend_param(f) {
@@ -2971,44 +2958,14 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         }
         let a = self.args(&ps, args, FnPos::Param, indent);
         // [rs-path] A mint is its path fn, under its own name.
-        let suffix = if self.s.is_mint(f) { "" } else { "__loc" };
-        format!("{}{suffix}({})", self.fn_path(id), a.join(", "))
-    }
-
-    /// [rs-loc] A mutable lend: the position, then the element of the anchor.
-    fn mut_lend_call(&mut self, e: &Expr, id: &salvo_ir::DeclId, k: usize, args: &[Expr], indent: usize) -> String {
-        let Some(f) = self.s.fn_decl(id) else { return "()".to_string() };
-        let Some(anchor) = args.get(k).and_then(|a| match &a.kind {
-            ExprKind::Read { place, .. } => Some(place.clone()),
-            ExprKind::DropMut { value } => match &value.kind {
-                ExprKind::Read { place, .. } => Some(place.clone()),
-                _ => None,
-            },
-            _ => None,
-        }) else {
-            self.error("a mutable lend from something that is not a place [rs-loc]");
-            return "()".to_string();
-        };
-        let loc = self.loc_call(id, f, args, indent);
-        let (a, _) = self.place_text(&anchor, indent);
-        let i = self.fresh("l");
-        if e.ty.strip_quals().has_none_arm() {
-            format!("{{ match {loc} {{ Some({i}) => Some(&mut {a}[{i}]), None => None }} }}")
-        } else {
-            format!("{{ let {i} = {loc}; &mut {a}[{i}] }}")
-        }
+        format!("{}({})", self.fn_path(id), a.join(", "))
     }
 
     pub(crate) fn call(&mut self, e: &Expr, target: &FnRef, type_args: &[Ty], args: &[Expr], indent: usize) -> String {
-        // [rs-path] A mint used as a value — a path fn, or a reader lending
-        // a handle: the path, walked once.
-        let mints = self.s.mut_lend(e).is_some() || matches!(target, FnRef::Decl(id) if self.s.fn_decl(id).is_some_and(|f| self.s.is_mint(f)));
-        if mints {
+        // [rs-path] A mint used as a value — a path fn: the path, walked once.
+        if matches!(target, FnRef::Decl(id) if self.s.fn_decl(id).is_some_and(|f| self.s.is_mint(f))) {
             if let Some(m) = self.mint(e, indent) {
                 return self.materialize(m);
-            }
-            if let Some((id, k)) = self.s.mut_lend(e) {
-                return self.mut_lend_call(e, &id, k, args, indent);
             }
         }
         match target {
