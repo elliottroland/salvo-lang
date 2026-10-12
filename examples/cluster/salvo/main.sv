@@ -225,11 +225,11 @@ fn checkout(skus: List<Str>) [any Inventory, Console] -> None {
     println("  apple and pear on one shard: ${eq(get(shards, 0)!, get(shards, 1)!)}")
 }
 
-fn count(word: Str) [any Search] -> Int {
+fn count(word: Str) [any Search] -> Int => !word {
     return waitfor out: Reply<Int> { query(word, out) }
 }
 
-fn find(key: Str) [any Lookup] -> Str {
+fn find(key: Str) [any Lookup] -> Str => !key {
     return waitfor out: Reply<Str> { lookup(key, out) }
 }
 

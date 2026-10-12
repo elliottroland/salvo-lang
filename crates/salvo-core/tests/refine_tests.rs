@@ -258,7 +258,7 @@ fn a_constructive_qualifier_may_hold_refinements() {
 #[test]
 fn a_refinement_is_only_in_scope_with_its_qualifier() {
     let quals = format!(
-        "{PRELUDE}{NONEMPTY}\nfn qualified<T>(s: Store<T>) -> +NonEmpty Store<T> {{\n    \
+        "{PRELUDE}{NONEMPTY}\nfn qualified<T>(s: Store<T>) -> +NonEmpty Store<T>\n=> !s {{\n    \
          return s\n}}\n"
     );
     // Importing the qualifier: the refinement applies.
@@ -452,11 +452,19 @@ fn a_refinement_qualifier_must_apply_to_the_parameter() {
 /// [qual-refn-infer] A refinement reaches the *inferred* contract, so the
 /// fact propagates one frame outward: a fn whose parameter declares the
 /// qualifier and whose body pushes may promise it back.
+///
+/// NOTE (deduction-defaults change): deductions are no longer inferred from
+/// the body, so the promise that used to be inferred silently now has to be
+/// written explicitly (`s: Mut NonEmpty, !v`) — the same form the sibling
+/// test `a_written_list_may_promise_a_refined_qualifier` already uses. The
+/// test's point (a refinement can be promised back one frame outward) still
+/// holds; only the "inferred without being written" half of the old
+/// behavior is gone.
 #[test]
 fn a_refinement_reaches_an_inferred_deduction() {
     let src = format!(
         "{PRELUDE}{NONEMPTY}\n\
-         fn refill<T>(s: Mut NonEmpty Store<T>, v: T) -> None => !v {{\n    \
+         fn refill<T>(s: Mut NonEmpty Store<T>, v: T) -> None => s: Mut NonEmpty, !v {{\n    \
          push(s, v)\n}}\n\n\
          fn f(s: Mut Store<Int>) -> None {{\n    \
          push(s, 1)\n    \

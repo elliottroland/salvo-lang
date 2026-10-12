@@ -24678,29 +24678,27 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 let is_kept_param = self.var_by_id(cap.var_id).is_some_and(|v| v.is_param)
                     && !self.param_owned(&cap.name);
-                if is_kept_param && self.own_written.contains(&cap.name) {
+                if is_kept_param {
+                    // [deduce-default] A kept parameter — by default or by a
+                    // written entry — cannot be captured-and-mutated: the
+                    // caller keeps it, so the closure cannot own it. (Before
+                    // 2026-10-11 an unwritten parameter was *claimed* as moved
+                    // by the capture; there is no such inference now, so the
+                    // move must be declared with `=> !p`, or the capture made
+                    // over a `copy`.)
                     if self.inferred.is_some() {
                         self.error(
                             span,
                             format!(
                                 "this lambda captures and mutates `{}`, which is a kept \
-                                 parameter (the caller keeps it); capture \
-                                 `copy({})` instead",
-                                cap.name, cap.name
+                                 parameter (the caller keeps it): capture \
+                                 `copy({})` instead, or declare the move with \
+                                 `=> !{}`",
+                                cap.name, cap.name, cap.name
                             ),
                         );
                     }
                     continue;
-                }
-                if self.var_by_id(cap.var_id).is_some_and(|v| v.is_param) {
-                    if let Some(key) = self.own_fn {
-                        if !self.own_written.contains(&cap.name) {
-                            self.param_claims
-                                .entry(key)
-                                .or_default()
-                                .insert(cap.name.clone());
-                        }
-                    }
                 }
                 // Consume the original: the closure owns the value now.
                 self.poison_derived(cap.var_id, &cap.name, FateEvent::Moved, span, Some(&[]));

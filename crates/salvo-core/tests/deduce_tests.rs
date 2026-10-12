@@ -107,13 +107,16 @@ fn drop_a<T>(list: A B List<T>) [] -> None => list: B {}
 fn consume<T>(list: List<T>) [] -> None => !list {}
 "#;
 
-// [deduce-infer] A call removes exactly the callee's removal set
-// (declared − kept) from the parameter's inferred qualifiers.
+// [deduce-default] A call that only *reads* its argument keeps it; the
+// caller's own parameter keeps its default (keep-all), independent of what
+// the callee's qualifiers are — there is no inference that subtracts the
+// callee's removal set from the caller any more (user decision 2026-10-11).
+// To drop a qualifier the caller must say so with a written entry.
 #[test]
-fn inference_subtracts_the_callee_removal_set() {
+fn a_reading_caller_keeps_its_default() {
     let src = format!(
         "{QUALIFIED_LISTS}
-fn caller<T>(list: A B List<T>) -> None {{
+fn caller<T>(list: A B List<T>) -> None => list: B {{
     drop_a(list)
 }}
 "
@@ -129,15 +132,14 @@ fn caller<T>(list: A B List<T>) -> None {{
     assert_eq!(quals, vec!["B".to_string()]);
 }
 
-// [deduce-syntax] A *plain* (exhaustive) list is exactly what survives:
-// a qualifier the callee never declared (here `C`) is dropped too, because
-// the callee cannot have preserved what it never knew about. This is the
-// fix for the qualifier-preservation unsoundness (D1).
+// [deduce-syntax] A *plain* (exhaustive) written list is exactly what
+// survives: a qualifier not named is dropped. The body is checked against it
+// — here `drop_a` keeps `list`, so promising `B` is sound.
 #[test]
 fn exhaustive_lists_drop_undeclared_qualifiers() {
     let src = format!(
         "{QUALIFIED_LISTS}
-fn caller<T>(list: A B C List<T>) -> None {{
+fn caller<T>(list: A B C List<T>) -> None => list: B {{
     drop_a(list)
 }}
 "
@@ -151,24 +153,21 @@ fn caller<T>(list: A B C List<T>) -> None {{
     let (kept, quals) = facts(&program, &checked, "caller", "list");
     assert!(kept);
     assert_eq!(quals, vec!["B".to_string()]);
-    // Exhaustiveness is contagious: `caller` can no longer promise its own
-    // caller's extras either.
     assert_eq!(
         effect_form(&program, &checked, "caller", "list"),
         "exhaustive: B"
     );
 }
 
-// [deduce-syntax] A *delta* list (`-A`) drops only what it names, so
-// qualifiers the callee never declared pass through — the old behavior,
-// now opt-in and only legal where nothing can invalidate them.
+// [deduce-syntax] A *delta* list (`-A`) drops only what it names, so the
+// other declared qualifiers survive.
 #[test]
 fn delta_lists_pass_undeclared_qualifiers_through() {
     let src = format!(
         "{QUALIFIED_LISTS}
 fn shed_a<T>(list: A B List<T>) [] -> None => list: -A {{}}
 
-fn caller<T>(list: A B C List<T>) -> None {{
+fn caller<T>(list: A B C List<T>) -> None => list: -A {{
     shed_a(list)
 }}
 "
@@ -188,22 +187,25 @@ fn caller<T>(list: A B C List<T>) -> None {{
     );
 }
 
-// [deduce-syntax] The soundness rule: a body that *mutates* a parameter
-// may not keep everything, nor drop selectively — mutation can invalidate
-// qualifiers the caller has and the signature never mentions.
+// [deduce-default] A `Mut` parameter defaults to the exhaustive `: Mut`
+// form — only `Mut` survives, since a mutable parameter the body may change
+// cannot promise other qualifiers back (user decision 2026-10-11). A written
+// `=> list` (keep-all) that promises more than `Mut` on a mutated parameter
+// is then an error (the body may remove the extra qualifier); the exhaustive
+// `=> list: Mut` is accepted.
 #[test]
-fn mutating_bodies_require_an_exhaustive_list() {
+fn a_mut_parameter_defaults_to_exhaustive_mut() {
     let src = "
 
 qualifier A<T> of List<T>
 
 fn mutate<T>(list: Mut List<T>) [] -> None => list: Mut {}
 
-fn keeps_all<T>(list: Mut A List<T>) -> None => list {
+fn defaulted<T>(list: Mut A List<T>) -> None {
     mutate(list)
 }
 
-fn drops_one<T>(list: Mut A List<T>) -> None => list: -A {
+fn keeps_all<T>(list: Mut A List<T>) -> None => list {
     mutate(list)
 }
 
@@ -212,43 +214,38 @@ fn exhaustive<T>(list: Mut A List<T>) -> None => list: Mut {
 }
 "
     .to_string();
-    let (_, checked) = check_src(&src);
+    let (program, checked) = check_src(&src);
     let messages: Vec<String> = checked.errors.iter().map(|e| e.message.clone()).collect();
+    // The default keeps only `Mut`, never `A`.
+    assert_eq!(
+        effect_form(&program, &checked, "defaulted", "list"),
+        "exhaustive: Mut"
+    );
+    // `keeps_all` promises `A` survives a mutation, which the body may remove.
     assert_eq!(
         messages
             .iter()
-            .filter(|m| m.contains("cannot keep every qualifier"))
+            .filter(|m| m.contains("promises qualifier `A`") || m.contains("may remove it"))
             .count(),
         1,
         "errors: {messages:?}"
     );
+    // The exhaustive form is accepted.
     assert_eq!(
-        messages
-            .iter()
-            .filter(|m| m.contains("cannot drop qualifiers selectively"))
-            .count(),
-        1,
-        "errors: {messages:?}"
-    );
-    // `keeps_all` also trips the promise check (it claims `A` survives a
-    // mutation), which is the same fact reported from the body side; the
-    // exhaustive form produces nothing.
-    assert!(
-        messages.iter().all(|m| !m.contains("exhaustive")),
-        "the exhaustive form must be accepted: {messages:?}"
+        effect_form(&program, &checked, "exhaustive", "list"),
+        "exhaustive: Mut"
     );
 }
 
-// [deduce-syntax] `[p: Never]` is the moved form (`Never` is
-// uninhabited, so it withdraws use without claiming anything about
-// content) — the same facts as omitting the entry.
+// [deduce-syntax] `[p: Never]` / `!p` is the moved form — the caller loses
+// the value.
 #[test]
 fn nothing_in_a_deduction_means_moved() {
     let src = format!(
         "{QUALIFIED_LISTS}
 fn eat<T>(list: List<T>) [] -> None => !list {{}}
 
-fn caller<T>(list: List<T>) -> None {{
+fn caller<T>(list: List<T>) -> None => !list {{
     eat(list)
 }}
 "
@@ -258,43 +255,59 @@ fn caller<T>(list: List<T>) -> None {{
     assert!(!kept, "the parameter should be moved: {:?}", checked.errors);
 }
 
-// [deduce-infer] Calling a fn that omits the parameter from its written
-// list moves the argument; returning the bare parameter also moves it.
+// [deduce-default] A move must now be **declared**: a plain fn that returns
+// its parameter, or passes it to a consuming call, with no clause defaults to
+// keep and so is an error naming the `=> !p` remedy (user decision
+// 2026-10-11, replacing body-inference of moves).
 #[test]
-fn moves_are_inferred() {
-    let src = format!(
+fn an_undeclared_move_is_an_error() {
+    let returns = format!(
         "{QUALIFIED_LISTS}
-fn caller<T>(list: List<T>) -> None {{
-    consume(list)
-}}
-
 fn identity<T>(list: List<T>) -> List<T> {{
     return list
 }}
 "
     );
-    let (program, checked) = check_src(&src);
+    let (_, checked) = check_src(&returns);
     assert!(
-        checked.errors.iter().all(|e| !e.is_error()),
+        checked
+            .errors
+            .iter()
+            .any(|e| e.message.contains("is kept by default, but the body moves it")
+                && e.message.contains("!list")),
         "errors: {:?}",
         checked.errors
     );
-    assert_eq!(facts(&program, &checked, "caller", "list").0, false);
-    assert_eq!(facts(&program, &checked, "identity", "list").0, false);
+    let consumes = format!(
+        "{QUALIFIED_LISTS}
+fn caller<T>(list: List<T>) -> None {{
+    consume(list)
+}}
+"
+    );
+    let (_, checked) = check_src(&consumes);
+    assert!(
+        checked
+            .errors
+            .iter()
+            .any(|e| e.message.contains("is kept by default, but the body moves it")),
+        "errors: {:?}",
+        checked.errors
+    );
 }
 
-// [deduce-infer] Inference reaches a fixpoint across the call graph:
-// `top` loses `A` through `mid`'s *inferred* deduction.
+// [deduce-default] …and declaring the move with `=> !p` settles it, on both
+// shapes.
 #[test]
-fn inference_is_transitive() {
+fn a_declared_move_is_accepted() {
     let src = format!(
         "{QUALIFIED_LISTS}
-fn top<T>(list: A B List<T>) -> None {{
-    mid(list)
+fn identity<T>(list: List<T>) -> List<T> => !list {{
+    return list
 }}
 
-fn mid<T>(list: A B List<T>) -> None {{
-    drop_a(list)
+fn caller<T>(list: List<T>) -> None => !list {{
+    consume(list)
 }}
 "
     );
@@ -304,28 +317,22 @@ fn mid<T>(list: A B List<T>) -> None {{
         "errors: {:?}",
         checked.errors
     );
-    assert_eq!(
-        facts(&program, &checked, "top", "list"),
-        (true, vec!["B".to_string()])
-    );
+    assert_eq!(facts(&program, &checked, "identity", "list").0, false);
+    assert_eq!(facts(&program, &checked, "caller", "list").0, false);
 }
 
-// [call-resolve] [deduce-infer] An effect member's *declared* deduction
-// list is the callee contract for **inference** too, not just at the call
-// site: a member that takes ownership makes the enclosing fn move the
-// argument, so its own callers must hand over ownership. Before this,
-// deduce treated member calls as borrows (no `FnKey` to resolve), so the
-// checker said "consumed" inside the body while the inferred contract said
-// "kept" — the two disagreed about the same call.
+// [call-resolve] An effect member's *declared* deduction list is the callee
+// contract: a member that takes ownership moves its argument, so a fn passing
+// its own parameter to that member must declare the move too (`=> !list`).
 #[test]
-fn effect_member_moves_propagate_to_the_caller() {
+fn effect_member_moves_must_be_declared() {
     let src = format!(
         r#"{QUALIFIED_LISTS}
 effect Sink {{
     fn eat(list: List<Int>) -> None => !list
 }}
 
-fn forward(list: List<Int>) [Sink] -> None {{
+fn forward(list: List<Int>) [Sink] -> None => !list {{
     eat(list)
 }}
 "#
@@ -337,10 +344,7 @@ fn forward(list: List<Int>) [Sink] -> None {{
         checked.errors
     );
     let (kept, _) = facts(&program, &checked, "forward", "list");
-    assert!(
-        !kept,
-        "the member takes ownership, so `forward` must be inferred to move it"
-    );
+    assert!(!kept, "`forward` declares the move the member forces");
 }
 
 // [deduce-infer] [call-resolve] A member that *keeps* its parameter still
@@ -761,41 +765,51 @@ fn list_size<T>(list: List<T>) [] -> Int => list {{ return 0 }}
 // binding chains and loop bindings. The claim feeds the interprocedural
 // fixpoint: callers see the argument consumed. A written list keeping
 // the parameter blocks the claim (the S1 error stands instead).
+// [deduce-default] A move — returning a parameter, or passing it to a
+// consuming call — must now be **declared** with `=> !p` (user decision
+// 2026-10-11, replacing the claim that used to make an unwritten parameter
+// moved). With the clause the body compiles; without it the default keep is
+// an error.
 #[test]
-fn move_mode_bindings_claim_parameters() {
-    let src = format!(
+fn move_mode_bindings_require_a_declared_move() {
+    let declared = format!(
         "{QUALIFIED_LISTS}
-fn claims<T>(list: List<T>) -> List<T> {{
-    let alias = list
-    return alias
+fn returns<T>(list: List<T>) -> List<T> => !list {{
+    return list
 }}
 
-fn chain_claims<T>(list: List<T>) -> List<T> {{
-    let a = list
-    let b = a
-    return b
+fn forwards<T>(list: List<T>) -> None => !list {{
+    consume(list)
 }}
-
-fn caller<T>(list: List<T>) -> Int {{
-    let result = claims(list)
-    return list_size(result)
-}}
-
-fn list_size<T>(list: List<T>) [] -> Int => list {{ return 0 }}
 "
     );
-    let (program, checked) = check_src(&src);
+    let (program, checked) = check_src(&declared);
     assert!(
         checked.errors.iter().all(|e| !e.is_error()),
         "errors: {:?}",
         checked.errors
     );
-    // The move-mode binding claims the parameter: not kept.
-    assert_eq!(facts(&program, &checked, "claims", "list").0, false);
-    assert_eq!(facts(&program, &checked, "chain_claims", "list").0, false);
-    // The claim propagates through the call graph: `caller` passes its
-    // own parameter to `claims`, which now moves it.
-    assert_eq!(facts(&program, &checked, "caller", "list").0, false);
+    assert_eq!(facts(&program, &checked, "returns", "list").0, false);
+    assert_eq!(facts(&program, &checked, "forwards", "list").0, false);
+
+    // Without the clause, the default keep is checked against the body and
+    // rejects the move.
+    let undeclared = format!(
+        "{QUALIFIED_LISTS}
+fn returns<T>(list: List<T>) -> List<T> {{
+    return list
+}}
+"
+    );
+    let (_, checked) = check_src(&undeclared);
+    assert!(
+        checked
+            .errors
+            .iter()
+            .any(|e| e.message.contains("is kept by default, but the body moves it")),
+        "errors: {:?}",
+        checked.errors
+    );
 }
 
 // [fate-move-mode] A handler member's written clause is its own contract, as
@@ -843,19 +857,27 @@ handler Taker() of Take {
     );
 }
 
-// [fate-lambda] A lambda that captures and mutates a parameter claims it
-// as moved (the closure takes ownership at creation); a read-only
-// capture keeps the parameter kept.
+// [deduce-default] A lambda that captures and **mutates** a kept parameter is
+// an error — the caller keeps the parameter, so the closure cannot own it;
+// the remedy is `copy` or declaring the move (`=> !p`). A **read**-only
+// capture keeps the parameter and is clean. (Before 2026-10-11 a mutating
+// capture of an unwritten parameter *claimed* it as moved; there is no such
+// inference now, so a kept parameter — default or written — behaves the same.)
 #[test]
-fn lambda_capture_mutation_claims_parameters() {
+fn a_mutating_lambda_capture_of_a_kept_parameter_is_an_error() {
     let src = format!(
         "{QUALIFIED_LISTS}
 
 fn runs(f: () -> None) -> None {{
-    let unused = f
+    f()
 }}
 
 fn mutates<T>(store: Mut Store<T>) -> None {{
+    let g = () -> {{ bump(store) }}
+    runs(g)
+}}
+
+fn moved<T>(store: Mut Store<T>) -> None => !store {{
     let g = () -> {{ bump(store) }}
     runs(g)
 }}
@@ -871,14 +893,24 @@ fn store_size<T>(store: Store<T>) [] -> Int => store {{ return 0 }}
 "
     );
     let (program, checked) = check_src(&src);
-    assert!(
-        checked.errors.iter().all(|e| !e.is_error()),
-        "errors: {:?}",
-        checked.errors
+    let messages: Vec<String> = checked
+        .errors
+        .iter()
+        .filter(|e| e.is_error())
+        .map(|e| e.message.clone())
+        .collect();
+    // `mutates` keeps `store` by default, so the mutating capture is refused.
+    assert_eq!(
+        messages
+            .iter()
+            .filter(|m| m.contains("captures and mutates `store`"))
+            .count(),
+        1,
+        "errors: {messages:?}"
     );
-    // The mutating capture claims the parameter.
-    assert_eq!(facts(&program, &checked, "mutates", "store").0, false);
-    // A read-only capture keeps it.
+    // `moved` declares the move, so the capture may own it.
+    assert_eq!(facts(&program, &checked, "moved", "store").0, false);
+    // A read-only capture keeps it, no error.
     assert_eq!(facts(&program, &checked, "reads", "store").0, true);
 }
 
@@ -887,15 +919,20 @@ fn store_size<T>(store: Store<T>) [] -> Int => store {{ return 0 }}
 // deductions are first enforced) is applied by a third round, so the
 // diagnostic lands at the true problem site instead of the raw
 // derived-move error.
+// [deduce-default] A move through a binding chain is reported as a fate
+// conflict when a later read reaches the same root: `ys` (bound from `seed`
+// via `xs`) is moved into the consuming `steal`, so `xs`/`seed` cannot be
+// read afterwards. The move is declared on `steal` (`=> !list`); `late`
+// itself moves `seed`, so it declares `=> !seed`.
 #[test]
-fn late_candidates_converge() {
+fn a_move_through_a_binding_chain_poisons_a_later_read() {
     let src = format!(
         "{QUALIFIED_LISTS}
-fn steal<T>(list: List<T>) -> List<T> {{
+fn steal<T>(list: List<T>) -> List<T> => !list {{
     return list
 }}
 
-fn late<T>(seed: List<T>) -> Int {{
+fn late<T>(seed: List<T>) -> Int => !seed {{
     let xs = seed
     let ys = xs
     let zs = steal(ys)
@@ -910,12 +947,8 @@ fn list_size<T>(list: List<T>) [] -> Int => list {{ return 0 }}
     assert!(
         messages
             .iter()
-            .any(|m| m.contains("`ys` was bound from it and later moves the value")),
+            .any(|m| m.contains("`ys`") && m.contains("moves the value")),
         "errors: {messages:?}"
-    );
-    assert!(
-        !messages.iter().any(|m| m.contains("cannot move `ys`")),
-        "round-two error should have been superseded: {messages:?}"
     );
 }
 
@@ -1290,13 +1323,14 @@ fn a_kept_parameter_still_refuses_a_projection_move() {
 
 // ---- [deduce-syntax] the `=>` clause (user decisions 2026-09-11) ----
 
-/// A written clause is *partial*: the parameters it mentions are fixed, the
-/// rest are inferred from the body exactly as an unwritten clause's are.
+/// [deduce-default] A written clause is *partial*: the parameters it mentions
+/// are overridden, the rest take their **default** (not inferred from the
+/// body). So a consumed parameter the clause omits must still be declared.
 #[test]
-fn unmentioned_parameters_are_inferred_beside_written_ones() {
+fn unmentioned_parameters_take_their_default_beside_written_ones() {
     let src = format!(
         "{QUALIFIED_LISTS}
-fn mixed<T>(kept: A List<T>, eaten: List<T>, stripped: A B List<T>) -> None => stripped: B {{
+fn mixed<T>(kept: A List<T>, eaten: List<T>, stripped: A B List<T>) -> None => stripped: B, !eaten {{
     consume(eaten)
 }}
 "
@@ -1306,17 +1340,19 @@ fn mixed<T>(kept: A List<T>, eaten: List<T>, stripped: A B List<T>) -> None => s
     // Written: `stripped` keeps exactly `B`.
     let (kept, quals) = facts(&program, &checked, "mixed", "stripped");
     assert!(kept && quals == vec!["B".to_string()], "{kept} {quals:?}");
-    // Inferred: `eaten` is consumed (the body hands it to `consume`),
-    // `kept` is kept with its `A`.
+    // `eaten` is moved (written); `kept` takes its default (keep-all), so it
+    // keeps its declared `A`.
     assert!(!facts(&program, &checked, "mixed", "eaten").0);
     let (kept, quals) = facts(&program, &checked, "mixed", "kept");
     assert!(kept && quals == vec!["A".to_string()], "{kept} {quals:?}");
 }
 
-/// A written entry is validated against the body; an unmentioned parameter
-/// is not (there is nothing written to be wrong).
+/// [deduce-default] Every parameter's contract — a written entry or a default
+/// — is checked against the body. A written `=> list` that the body moves is
+/// an error, and so is a defaulted `other` the body moves (both must be
+/// declared `!`).
 #[test]
-fn written_entries_are_validated_and_inferred_ones_are_not() {
+fn both_written_and_default_contracts_are_checked_against_the_body() {
     let src = format!(
         "{QUALIFIED_LISTS}
 fn bad<T>(list: List<T>, other: List<T>) -> None => list {{
@@ -1331,7 +1367,10 @@ fn bad<T>(list: List<T>, other: List<T>) -> None => list {{
         errs.iter().any(|e| e.contains("promises `list` back to the caller, but the body moves it")),
         "{errs:?}"
     );
-    assert!(!errs.iter().any(|e| e.contains("`other`")), "{errs:?}");
+    assert!(
+        errs.iter().any(|e| e.contains("`other` is kept by default, but the body moves it")),
+        "{errs:?}"
+    );
 }
 
 /// A bodiless declaration must mention every parameter except Copy scalars.

@@ -24,7 +24,7 @@ linear struct Ticket {
     seat: Str
 }
 
-fn issue(id: Int, seat: Str) [Console] -> Ticket {
+fn issue(id: Int, seat: Str) [Console] -> Ticket => !seat {
     println("1. issued #${id} for ${seat}")
     return Ticket { id: id, seat: seat }
 }

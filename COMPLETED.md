@@ -138,7 +138,59 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
-### 2026-10-11 — Terminal `...` scopes for `if`/loops/`try`/`waitfor` (user decision)
+### 2026-10-11 — Default deductions replace body-inference: `send fn` consumes, plain `fn` keeps (Mut keeps only Mut), checked against the body (user decision)
+
+A function's deduction contract is now a function of its **signature alone**,
+not inferred from its body ([deduce-default]). The per-parameter default: a
+`send fn` consumes every parameter (the message owns its payload); a plain `fn`
+keeps every parameter, and a `Mut`-declared parameter keeps only `Mut` (the
+exhaustive form, since a mutable parameter the body may change cannot promise
+other qualifiers back). A written `=> …` entry overrides its own parameter. The
+whole contract — defaults and written entries alike — is then **checked against
+the body**: a kept parameter the body *moves* (returns owned, stores in a
+literal, spreads, `break`s with, or passes to a consuming call) is an error
+naming the `=> !p` remedy, and a kept qualifier the body may remove is an error.
+Copy scalars are exempt (a move of one is free). So a move is always
+**declared**, never inferred — a body edit that starts moving a kept parameter
+is a compile error at that function, not a silent change to what callers depend
+on.
+
+What this **removed** from `crates/salvo-core/src/deduce.rs`: the whole-program
+body-inference fixpoint for deductions (`optimistic` seeding of unwritten params
+replaced by `defaults`/`default_param`; `infer_body` kept, but now only used to
+*validate* the contract, not to produce it); `exhaustive_for_mutated` /
+`exhaustive_for_mutated_unwritten` (the Mut-exhaustive form is now a plain
+default, not mutation-driven); `apply_claims` and the move-mode "claims"
+mechanism (a move-mode binding or mutating lambda-capture reaching an unwritten
+parameter used to *claim* it as moved — now it is simply a move of a kept
+parameter, which must be declared); `validate_written` (generalized to
+`validate_contract`, which checks every parameter — a default keep like a
+written one). The checker's `finish_lambda_captures` now refuses a
+mutating lambda capture of *any* kept parameter (default or written), not only a
+written-kept one, closing the gap the claim mechanism used to paper over.
+
+Scope of the sweep (backwards compatibility is not a requirement, so every
+example was rewritten): std needed no `=> !p` additions once Copy scalars were
+exempted; four examples that demonstrate ownership gained explicit moves —
+`throw-and-release` (`open_file`/`read_size`/`port_from_file`), `cluster`
+(`count`/`find`), `linearity` (`issue`), `qualifiers` (`authenticate`/`freshen`)
+— and roughly a hundred `=> !p` clauses were added across the test suites' inline
+`.sv` fixtures (helper constructors like `ok<T>(value: T) -> +Ok T { return
+value }` now declare `=> !value`). `deduce_tests.rs` was rewritten to the new
+model (inference/claim-propagation tests became "a move must be declared"
+tests). The `Checked::deductions` table, `param_mode.rs`, both emitters and the
+LSP hover read the contract unchanged — they never cared whether it was inferred
+or defaulted. Spec: `[deduce-default]` (aliasing the old `[deduce-infer]`),
+`[deduce-fixpoint]` and `docs/language/Deductions-and-Ownership.md` rewritten;
+wiki synced. **Warm toolchain suite green on both backends.**
+
+Gotcha: a Copy scalar stored in a struct/tuple literal looks like a move but is
+free, so `validate_contract` exempts the primitive-named types
+(`is_copy_scalar_param`); without that exemption every `fn range(start: Int,
+end: Int, step: Int)` that builds a `Range` struct would spuriously demand `=>
+!start, !end, !step`.
+
+
 
 A body-taking construct may write its body as a trailing `...` where the `{`
 would go: the **rest of the enclosing block** becomes the body

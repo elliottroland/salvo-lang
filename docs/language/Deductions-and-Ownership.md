@@ -93,16 +93,24 @@ In Rust, the `NonEmpty` state was not captured: this is a Salvo compile-time inf
 fn consume<T>(list: List<T>) -> None => !list
 ```
 
-Calling `consume(list)` _moves_ the variable to the function: `list`'s type narrows to `Never` (a value that no longer exists is an impossibility), and any future reference to it in the calling function is a compile-time error until the variable is reassigned. This holds whether the consumption is written or inferred — a function that returns its parameter moves it, and callers are checked against that inferred contract just the same. It also holds uniformly across all types: for basic value types the underlying backends copy the value and the generated code would remain valid, but the Salvo-level contract is enforced consistently regardless of the type. The analysis is branch-aware: consuming a value in a branch that always exits (via `return`, `break`, or `continue`) does not affect the code after the branch, while a value consumed on only some fall-through paths is conservatively unusable afterwards. Loops account for the back edge too: a value read early in a loop body and consumed later in the same body is an error, since the read happens after the consumption from the second iteration onwards (reassigning before the body ends keeps it valid).
+Calling `consume(list)` _moves_ the variable to the function: `list`'s type narrows to `Never` (a value that no longer exists is an impossibility), and any future reference to it in the calling function is a compile-time error until the variable is reassigned. A function that returns its parameter, or passes it to a consuming call, moves it — and must declare the move with `=> !p` (a kept default checked against such a body is an error). It also holds uniformly across all types: for basic value types the underlying backends copy the value and the generated code would remain valid, but the Salvo-level contract is enforced consistently regardless of the type. The analysis is branch-aware: consuming a value in a branch that always exits (via `return`, `break`, or `continue`) does not affect the code after the branch, while a value consumed on only some fall-through paths is conservatively unusable afterwards. Loops account for the back edge too: a value read early in a loop body and consumed later in the same body is an error, since the read happens after the consumption from the second iteration onwards (reassigning before the body ends keeps it valid).
 
 Consuming calls are not the only way a value moves. Every other escape route consumes a bare variable the same way, and the error at a later use names the event: storing it in a struct, array, or tuple literal (the literal owns it now), spreading it (`...n` reads all of its fields into a new value and consumes the source), returning it, `break`-ing with it, and passing it to a `use` handler constructor (the handler stores it for the rest of the scope). A `break` with a value reaches the code after the loop on every exit path, so a variable consumed by `break` is unusable after the loop even when the `break` sits inside a branch. Reads, by contrast, never consume anything — in particular, string interpolation is a read: `"${n}"` formats the value and retains nothing, so `n` stays usable. As always, `copy(...)` at the move site keeps the original usable, and reassignment revives it.
 
-**Write what inference cannot reach; the rest is inferred.** A parameter the clause does not mention gets the contract the compiler reads off the body — kept with the qualifiers that survive every call the body makes, or consumed when the body moves it — so most functions write no clause at all, and a clause may be *partial*: `=> list: Mut` on a three-parameter function says nothing about the other two. What is written is checked against the body (a promise to keep what the body moves is an error) and is otherwise fixed. Two places have no body to infer from and must therefore say everything: an `effect` member and an `intrinsic fn` must mention every parameter — except Copy scalars (`Int`, `Bool`, …), whose fate is nothing to deduce. A function *type* is bodiless too but keeps the default of keeping everything; `=>[f] …` on the enclosing declaration is how to say otherwise, and it needs the fn type's parameters named (`f: (v: List<Int>) -> Int`).
+**Defaults you can override; everything is checked against the body.** A parameter the clause does not mention takes its **default** (user decision 2026-10-11, replacing body-inference): a plain `fn` *keeps* every parameter, and a `Mut` parameter keeps only `Mut` (the exhaustive form, since a mutable parameter the body may change cannot promise other qualifiers back); a `send fn` *consumes* every parameter (the message owns its payload). A written entry overrides its own parameter, so a clause may be *partial*: `=> list: Mut` on a three-parameter function says nothing about the other two, which keep their defaults. The whole contract — defaults and written entries alike — is then **checked against the body**: a kept parameter the body moves (returns, stores, or passes to a consuming call) is an error naming the `=> !p` remedy, and a kept qualifier the body may remove is an error too. Copy scalars (`Int`, `Bool`, …) are exempt — their fate is nothing to deduce. Two places still have no body to check against and must say everything: an `effect` member and an `intrinsic fn` must mention every parameter (except Copy scalars). A function *type* keeps the default of keeping everything; `=>[f] …` on the enclosing declaration is how to say otherwise.
 
 ```
-// Nothing written: `list` is inferred `Mut` (because `take_head` might be
-// called on it) — the hover shows `=> list: Mut`.
-fn maybe_take_head<T>(list: Mut NonEmpty List<T>) [Random<Int>] -> T? {
+// `give_back` returns its parameter, which **moves** it — so the move must
+// be declared. Without `=> !list` this is an error; with it, callers hand
+// over ownership.
+fn give_back(list: List<Str>) -> List<Str> => !list {
+    return list
+}
+
+// A `Mut` parameter keeps only `Mut` by default — a mutating body cannot
+// promise other qualifiers back, so the hover shows `=> list: Mut` with no
+// clause written.
+fn maybe_take_head<T>(list: Mut NonEmpty List<T>) [Random<Int>] -> T? => !list {
     if next_random() > 0 {
         return take_head(list)
     }
@@ -110,7 +118,7 @@ fn maybe_take_head<T>(list: Mut NonEmpty List<T>) [Random<Int>] -> T? {
 }
 ```
 
-Inference is the strictest deduction over every function the body hands the value to (moves included), computed to a fixpoint across the program. The price of inferring is that a body edit can change a contract callers depend on with no signature change; the hover always shows the effective clause, and `!p` can be written where a move is meant to be part of the contract.
+The contract is a function of the signature alone — no whole-program fixpoint, and no body edit silently changing what callers depend on: a body that starts moving a kept parameter is a *compile error* at that function, not a quiet contract change.
 
 ## Why returning a parameter is a move
 
@@ -223,7 +231,7 @@ Salvo has no references, but variables can still overlap: `let m = n` and `let n
 
 - **Borrow-mode** (a derived variable that is only ever read): reads flow freely and every ancestor stays usable. Mutating, moving, or reassigning a **root** poisons every variable derived from it — the derived values may no longer exist, so using one afterwards is an error naming both the link and the event. Reassigning a poisoned variable revives it.
 - **Move-mode** (a derived variable that is later moved or mutated): the binding *takes ownership* — every ancestor is consumed at the binding itself, and using an ancestor afterwards is an error naming the binding. From the binding on, the variable is the value's independent owner. This is what makes zero-copy consuming pipelines legal: the whole chain of bindings hands the value along, and the Rust backend emits real moves with no clones.
-- Move-mode needs every ancestor to be *owned* by the function. Locals always are. A parameter is owned when the function's deductions move it — and when its entry is inferred, a move-mode binding reaching a parameter *claims* it: the parameter becomes moved, and callers hand over ownership. A **written** entry that keeps the parameter pins it as borrowed instead: moving or mutating anything derived from it stays a compile-time error — you cannot move out of a borrow — and the remedy is `copy`.
+- Move-mode needs every ancestor to be *owned* by the function. Locals always are. A parameter is owned when the function's deductions move it — declared with `=> !p` (user decision 2026-10-11: a move is declared, never inferred from a binding). A parameter kept by default or by a written entry pins it as borrowed: moving or mutating anything derived from it is a compile-time error — you cannot move out of a borrow — and the remedy is `copy` or declaring `=> !p`.
 - The same ownership rule applies to a **projection in a moved position** — passing `h.tags` to a call that consumes it, or storing it in a literal. If the projected data is mutable, the move consumes the owner (`h` is unusable afterwards) or, for a kept parameter, is an error with the `copy` remedy. Projections of immutable data are free: whether a backend copies or shares immutable data is unobservable.
 
 The escape hatch is one word: the standard library's `copy` duplicates a value, leaving the source untouched and producing a fresh value with no links. Its parameter says `proj T` because a projection is exactly what `copy` is *for* — and an owned value satisfies a projected position too, so `copy` of anything works. The result is un-projected one level with the rest kept: `copy` of a `proj Mut Str` is a `Mut Str` of your own.
@@ -253,10 +261,10 @@ One fix is a single copy at the escape point — one copy for the whole function
     return copy(longest)
 ```
 
-The other fix is to *not* promise the parameter back: drop the written entry, and the compiler infers that the pipeline consumes `persons` — the bindings become move-mode, the function demands ownership from its callers, and the whole thing compiles with **zero copies** (in Rust: the argument moves in, the loop iterates by value, the field moves out, the result moves up):
+The other fix is to *declare* the move: write `=> !persons` instead of `=> persons` — the bindings become move-mode, the function demands ownership from its callers, and the whole thing compiles with **zero copies** (in Rust: the argument moves in, the loop iterates by value, the field moves out, the result moves up):
 
 ```
-fn longest_name(persons: Person[]) -> Str {   // inferred: persons is moved
+fn longest_name(persons: Person[]) -> Str => !persons {   // persons is moved
     let longest = ""
     for person in persons {
         if longest.size() < person.name.size() {

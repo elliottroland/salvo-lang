@@ -27,7 +27,7 @@ linear struct FileHandle {
     name: Str
 }
 
-fn open_file(name: Str) [Console] -> FileHandle {
+fn open_file(name: Str) [Console] -> FileHandle => !name {
     println("1. open ${name}")
     return FileHandle { name: name }
 }
@@ -41,7 +41,7 @@ fn close(handle: FileHandle) [Console] -> None => !handle {
 
 // Two exits, two releases. Leave one out and the compiler says which path
 // leaks: "`handle` still owns a linear value when it goes out of scope".
-fn read_size(name: Str, want: Int) [Console] -> Int {
+fn read_size(name: Str, want: Int) [Console] -> Int => !name {
     let there_is = size(name)
     let handle = open_file(name)
     if want > there_is {
@@ -83,7 +83,7 @@ fn port_of(config: Str) [Throw<Str>] -> Int => config {
 // holding the handle across it is rejected — the release has to come first.
 // `copy` is what lets the name outlive the handle: a plain binding would share
 // its fate and die with it.
-fn port_from_file(name: Str, text: Str) [Console, Throw<Str>] -> Int => text {
+fn port_from_file(name: Str, text: Str) [Console, Throw<Str>] -> Int => !name, text {
     let handle = open_file(name)
     let from = copy(handle.name)
     close(handle)

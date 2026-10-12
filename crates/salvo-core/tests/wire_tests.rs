@@ -263,7 +263,7 @@ fn a_protocol_with_a_noremote_payload_cannot_be_named_for_a_group() {
     let errs = messages(&format!(
         "{IMPORT}noremote struct Canvas {{ n: Int }}\n\
          actor effect Painter {{ send fn paint(c: Canvas) => !c }}\n\
-         fn main(nodes: Addr<NodeGroup>) [spawn] -> None {{\n    let _bad = actor_group<Painter>(nodes)\n}}\n"
+         fn main(nodes: Addr<NodeGroup>) [spawn] -> None\n=> !nodes {{\n    let _bad = actor_group<Painter>(nodes)\n}}\n"
     ));
     assert_eq!(errs.len(), 1, "{errs:?}");
     assert!(
@@ -280,7 +280,7 @@ fn a_protocol_with_a_noremote_payload_cannot_be_named_for_a_group() {
          actor effect Counter {{ send fn bump(n: Int) => !n }}\n\
          fn open<E>(nodes: Addr<NodeGroup>, ?protocol: () -> Protocol<E>) [spawn] -> Int => !nodes {{\n\
              return actor_group<E>(nodes)\n}}\n\
-         fn main(a: Addr<NodeGroup>, b: Addr<NodeGroup>) [spawn] -> None {{\n\
+         fn main(a: Addr<NodeGroup>, b: Addr<NodeGroup>) [spawn] -> None\n=> !a, !b {{\n\
              let _ok = open<Counter>(a)\n    let _bad = open<Painter>(b)\n}}\n"
     ));
     assert_eq!(errs.len(), 1, "one refusal, at the concrete `open<Painter>` call: {errs:?}");

@@ -94,7 +94,7 @@ provenance qualifier Authenticated of Request
 
 // Minting a provenance claim: there is no predicate to satisfy, so the
 // constructor is the only way in [qual-ctor-fn].
-fn authenticate(request: Mut Request) -> +Authenticated Mut Request {
+fn authenticate(request: Mut Request) -> +Authenticated Mut Request => !request {
     return request
 }
 
@@ -102,7 +102,7 @@ fn authenticate(request: Mut Request) -> +Authenticated Mut Request {
 // contents, so a mutating call takes it away.
 qualifier Fresh of Request
 
-fn freshen(request: Mut Request) -> +Fresh Mut Request {
+fn freshen(request: Mut Request) -> +Fresh Mut Request => !request {
     return request
 }
 

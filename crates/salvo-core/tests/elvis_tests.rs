@@ -18,7 +18,7 @@ use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 /// is loaded as a *std* file rather than pasted into the source under test.
 /// Module `core.prelude`: `core.*` is implicitly imported, so the test source
 /// sees these names without an `import`.
-const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\nexport intrinsic type List<T> canbe Mut\nexport intrinsic fn first<T>(list: List<T>) [] -> proj(list) T? => list\nexport intrinsic fn to_upper(s: Str) [] -> Str => s\nexport intrinsic fn note(s: Str) [] -> None => s\nexport qualifier Ok<T> of T\nexport qualifier Err<T> of T\nexport fn ok<T>(value: T) [] -> +Ok T {\n    return value\n}\nexport fn err<T>(value: T) [] -> +Err T {\n    return value\n}\n";
+const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\nexport intrinsic type List<T> canbe Mut\nexport intrinsic fn first<T>(list: List<T>) [] -> proj(list) T? => list\nexport intrinsic fn to_upper(s: Str) [] -> Str => s\nexport intrinsic fn note(s: Str) [] -> None => s\nexport qualifier Ok<T> of T\nexport qualifier Err<T> of T\nexport fn ok<T>(value: T) [] -> +Ok T\n=> !value {\n    return value\n}\nexport fn err<T>(value: T) [] -> +Err T\n=> !value {\n    return value\n}\n";
 
 fn errors(src: &str) -> Vec<String> {
     let mut sources = SourceSet::default();
@@ -126,8 +126,8 @@ fn a_widening_right_side_joins() {
 #[test]
 fn the_placeholder_carries_the_left_arms() {
     let errs = errors(
-        "fn parse(t: Str) [] -> Ok Int | Err Str {\n    return err(t)\n}\n\
-         fn routed(t: Str) [] -> Ok Int | Err Str {\n\
+        "fn parse(t: Str) [] -> Ok Int | Err Str\n=> !t {\n    return err(t)\n}\n\
+         fn routed(t: Str) [] -> Ok Int | Err Str\n=> !t {\n\
          \x20   let n: Ok Int = parse(t) ?: return _\n\
          \x20   return n\n\
          }\n",
@@ -140,8 +140,8 @@ fn the_placeholder_carries_the_left_arms() {
 #[test]
 fn a_backward_pick_keeps_the_last_arm() {
     let errs = errors(
-        "fn parse(t: Str) [] -> Ok Int | Err Str {\n    return err(t)\n}\n\
-         fn tail(t: Str) [] -> Ok Int | Err Str {\n\
+        "fn parse(t: Str) [] -> Ok Int | Err Str\n=> !t {\n    return err(t)\n}\n\
+         fn tail(t: Str) [] -> Ok Int | Err Str\n=> !t {\n\
          \x20   let e: Err Str = parse(t) :? return _\n\
          \x20   return e\n\
          }\n",
@@ -200,8 +200,8 @@ fn a_valued_elvis_does_not_narrow() {
 #[test]
 fn a_guarding_pick_narrows_to_the_arm() {
     let errs = errors(
-        "fn parse(t: Str) [] -> Ok Int | Err Str {\n    return err(t)\n}\n\
-         fn f(text: Str) [] -> None {\n\
+        "fn parse(t: Str) [] -> Ok Int | Err Str\n=> !t {\n    return err(t)\n}\n\
+         fn f(text: Str) [] -> None\n=> !text {\n\
          \x20   let r = parse(text)\n\
          \x20   let n: Ok Int = r ?: return\n\
          \x20   let again: Ok Int = r\n\

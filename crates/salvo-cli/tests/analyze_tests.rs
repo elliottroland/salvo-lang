@@ -325,15 +325,22 @@ fn use_after_consume_is_an_error() {
     );
 }
 
-// [deduce-consume] *Inferred* deductions are enforced like declared ones
-// (second checking round): a callee that returns its parameter moves it,
-// so the caller's argument is consumed with no annotation in sight.
+// [deduce-consume] A *declared* consuming parameter is enforced like an
+// inferred one used to be (second checking round): a callee that consumes
+// its parameter moves it, so the caller's argument is consumed with the
+// annotation in the signature.
+//
+// NOTE (deduction-defaults change): deductions are no longer inferred from
+// the body, so `give_back`'s move (it returns `list`) has to be declared
+// with `=> !list` — it can no longer be inferred from the `return list`
+// alone. The test's point (a parameter's move at the callee reaches the
+// caller's argument with no annotation *at the call site*) still holds.
 #[test]
 fn inferred_moves_consume_arguments() {
     let dir = src_dir("consume_inferred");
     fs::write(
         dir.join("main.sv"),
-        "fn give_back(list: List<Str>) -> List<Str> {\n    return list\n}\n\n\
+        "fn give_back(list: List<Str>) -> List<Str>\n=> !list {\n    return list\n}\n\n\
          fn main() [use] {\n    use StdOutConsole\n    \
          let strings = list_of(\"a\", \"b\")\n    give_back(strings)\n    \
          println(\"${strings.size()}\")\n}\n",
@@ -351,7 +358,7 @@ fn inferred_moves_consume_arguments() {
     // Rebinding through the return value keeps it usable.
     fs::write(
         dir.join("main.sv"),
-        "fn give_back(list: List<Str>) -> List<Str> {\n    return list\n}\n\n\
+        "fn give_back(list: List<Str>) -> List<Str>\n=> !list {\n    return list\n}\n\n\
          fn main() [use] {\n    use StdOutConsole\n    \
          let strings: List<Str> = list_of(\"a\", \"b\")\n    \
          strings = give_back(strings)\n    \
@@ -1031,7 +1038,7 @@ fn s2_move_mode_pipelines_stay_clean() {
         "struct Person {\n    name: Str,\n    age: Int\n}\n\n\
          struct Label {\n    text: Str\n}\n\n\
          fn consume(text: Str) -> None => !text {\n}\n\n\
-         fn longest_name(persons: List<Person>) -> Str {\n    let longest = \"\"\n    \
+         fn longest_name(persons: List<Person>) -> Str\n=> !persons {\n    let longest = \"\"\n    \
          for person in persons {\n        let name = person.name\n        \
          if size(name) > size(longest) {\n            longest = name\n        }\n    }\n    \
          return longest\n}\n\n\
@@ -1161,6 +1168,12 @@ fn l3_same_call_ordering() {
 // when the enclosing fn's contract is inferable, an error when it is a
 // written-kept parameter); and a lambda can never consume a capture
 // (it may run any number of times) — `copy` is the remedy everywhere.
+//
+// NOTE (deduction-defaults change): `infer_claims`'s consumption of `xs`
+// used to be inferred purely from the lambda capturing-and-mutating it;
+// deductions are no longer inferred from the body, so the claim now has
+// to be written (`=> !xs`). The test's point (the claim, once established,
+// propagates to the caller's argument) still holds.
 #[test]
 fn l4_lambda_captures() {
     let dir = src_dir("l4_captures");
@@ -1189,7 +1202,7 @@ fn l4_lambda_captures() {
          let h = () -> { consume_list(copy(xs)) }\n    run(h)\n}\n\n\
          fn kept_mutates(xs: Mut List<Int>) -> None => xs: Mut {\n    \
          let g = () -> { add(xs, 1) }\n    run(g)\n}\n\n\
-         fn infer_claims(xs: Mut List<Int>) {\n    let g = () -> { add(xs, 1) }\n    run(g)\n}\n\n\
+         fn infer_claims(xs: Mut List<Int>)\n=> !xs {\n    let g = () -> { add(xs, 1) }\n    run(g)\n}\n\n\
          fn claim_reaches_caller() -> Int {\n    let xs = mut_list_of(1)\n    \
          infer_claims(xs)\n    return size(xs)\n}\n",
     )
@@ -1383,12 +1396,12 @@ fn l7a_generic_linear_opt_in() {
 fn close(x: FileHandle) -> None => !x { discard(x) }
 \n\n\
          fn open_file(n: Int) -> FileHandle {\n    return FileHandle {fd: n}\n}\n\n\
-         fn hold<T canbe linear>(value: T) -> T {\n    return value\n}\n\n\
+         fn hold<T canbe linear>(value: T) -> T\n=> !value {\n    return value\n}\n\n\
          fn eat<T canbe linear>(value: T) -> None => !value {\n}\n\n\
-         fn forward<T canbe linear>(value: T) -> T {\n    let kept = unopted(value)\n    \
+         fn forward<T canbe linear>(value: T) -> T\n=> !value {\n    let kept = unopted(value)\n    \
          return kept\n}\n\n\
-         fn unopted<T>(value: T) -> T {\n    return value\n}\n\n\
-         fn bad_clause<T canbe Mut>(value: T) -> T {\n    return value\n}\n\n\
+         fn unopted<T>(value: T) -> T\n=> !value {\n    return value\n}\n\n\
+         fn bad_clause<T canbe Mut>(value: T) -> T\n=> !value {\n    return value\n}\n\n\
          fn variadic_refused() {\n    let h = open_file(1)\n    \
          let h2 = open_file(2)\n    let xs = mut_list_of(h, h2)\n}\n\n\
          fn ok_hold() {\n    let h = hold(open_file(9))\n    close(h)\n}\n",
@@ -1589,11 +1602,11 @@ fn l7d_fn_type_contracts() {
     let dir = src_dir("l7d_contracts");
     fs::write(
         dir.join("main.sv"),
-        "fn apply_consuming(f: (v: List<Int>) -> Int, data: List<Int>) -> Int =>[f] !v {\n    \
+        "fn apply_consuming(f: (v: List<Int>) -> Int, data: List<Int>) -> Int =>[f] !v => !data {\n    \
          return f(data)\n}\n\n\
          fn apply_keeping(f: (v: List<Int>) -> Int, data: List<Int>) -> Int =>[f] v => data {\n    \
          return f(data) + f(data)\n}\n\n\
-         fn double_use_bad(f: (v: List<Int>) -> Int, data: List<Int>) -> Int =>[f] !v {\n    \
+         fn double_use_bad(f: (v: List<Int>) -> Int, data: List<Int>) -> Int =>[f] !v => !data {\n    \
          let a = f(data)\n    return f(data)\n}\n\n\
          fn eat(v: List<Int>) -> Int => !v {\n    return 0\n}\n\n\
          fn consuming_where_keeping_bad() -> Int {\n    let xs = list_of(1, 2)\n    \
@@ -1729,17 +1742,29 @@ fn exhaustive_deductions_drop_undeclared_qualifiers() {
     );
 
     // A mutating body may not keep everything.
+    //
+    // NOTE (deduction-defaults change): the contract is now a pure function
+    // of the signature (user decision 2026-10-11) — `from_written` no longer
+    // consults body mutations, so the old "mutated by this function, so the
+    // deduction cannot keep every qualifier" message (raised at the written
+    // clause itself) can no longer fire from a plain `Mut List<Int>` with no
+    // qualifier to invalidate. The soundness rule survives, enforced instead
+    // by the body-validation pass with a more precise message naming the
+    // qualifier it may lose; reproducing it needs a qualifier on the
+    // parameter's type for the body to actually invalidate.
     fs::write(
         dir.join("main.sv"),
-        "fn grow(list: Mut List<Int>) -> None => list {\n    list.add(1)\n}\n",
+        format!(
+            "{prelude}\
+             fn grow(list: Mut NonEmpty List<Int>) -> None => list {{\n    list.add(1)\n}}\n"
+        ),
     )
     .unwrap();
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success());
     assert!(
-        stderr
-            .contains("is mutated by this function, so the deduction cannot keep every qualifier"),
+        stderr.contains("promises qualifier `NonEmpty` on `list`, but the body may remove it"),
         "stderr: {stderr}"
     );
 }
@@ -2319,7 +2344,7 @@ fn route_binds_any_and_needs_a_selector() {
              actor effect Ping {{\n    send fn ping(k: Key Str, out: Reply<Str>) => !k, !out\n}}\n\n\
              fn one() [any Ping] -> Str {{\n    return waitfor out: Reply<Str> {{ ping(\"a\", out) }}\n}}\n\n\
              fn strong() [Ping] -> Str {{\n    return waitfor out: Reply<Str> {{ ping(\"a\", out) }}\n}}\n\n\
-             fn main(g: Addr<ActorGroup<Ping>>) [use] {{\n{tail}}}\n"
+             fn main(g: Addr<ActorGroup<Ping>>) [use]\n=> !g {{\n{tail}}}\n"
         )
     };
     fs::write(
@@ -2375,7 +2400,7 @@ fn route_refusals_name_the_fix() {
     fs::write(
         dir.join("main.sv"),
         "import net\n\nactor effect Two {\n    send fn go(a: Key Str, b: Key Int) => !a, !b\n}\n\n\
-         fn main(g: Addr<ActorGroup<Two>>) [use] {\n    use Sharded<Two>()\n    use route_any(g)\n}\n",
+         fn main(g: Addr<ActorGroup<Two>>) [use]\n=> !g {\n    use Sharded<Two>()\n    use route_any(g)\n}\n",
     )
     .unwrap();
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
@@ -2395,7 +2420,7 @@ fn route_refusals_name_the_fix() {
     fs::write(
         dir.join("main.sv"),
         "import net\nimport lib.group_of\nimport lib.Ping\n\n\
-         fn main(g: Addr<ActorGroup<Ping>>) [use] {\n    use LeastLoaded<Ping>(true)\n    let h = group_of(g)\n    use route_any(h)\n}\n",
+         fn main(g: Addr<ActorGroup<Ping>>) [use]\n=> !g {\n    use LeastLoaded<Ping>(true)\n    let h = group_of(g)\n    use route_any(h)\n}\n",
     )
     .unwrap();
     // …unless it spells it, which this file does in `main`'s signature — so

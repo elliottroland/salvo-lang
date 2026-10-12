@@ -381,10 +381,10 @@ fn a_leaving_right_side_keeps_its_consumptions_to_itself() {
         struct Key { s: Str }\n\
         qualifier Ok<T> of T\n\
         qualifier Err<T> of T\n\
-        fn ok<T>(v: T) [] -> +Ok T { return v }\n\
-        fn err<T>(v: T) [] -> +Err T { return v }\n\
-        fn classify(k: Key) [] -> Ok Key | Err Key { return ok(k) }\n\
-        fn f(k: Key, prize: Key) [] -> Key => !prize {\n    \
+        fn ok<T>(v: T) [] -> +Ok T\n=> !v {\n    return v }\n\
+        fn err<T>(v: T) [] -> +Err T\n=> !v {\n    return v }\n\
+        fn classify(k: Key) [] -> Ok Key | Err Key\n=> !k {\n    return ok(k) }\n\
+        fn f(k: Key, prize: Key) [] -> Key => !prize, !k {\n    \
         let r = classify(k)\n    \
         let hit: Ok Key = r ?: return prize\n    \
         return prize\n}\n";

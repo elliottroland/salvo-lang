@@ -167,7 +167,8 @@ fn compare(a: Int, b: Int) [] -> Int => a, b {
 fn a_group_spread_is_filled_by_the_canonical_overload() {
     let errs = errors(
         r#"
-fn min_of<T>(a: T, b: T, ?Ordered<T>) [] -> T {
+fn min_of<T>(a: T, b: T, ?Ordered<T>) [] -> T
+=> !a, !b {
     if cmp(a, b) <= 0 {
         return a
     }
@@ -273,7 +274,8 @@ fn older(a: Person, b: Person) [] -> Bool => a, b {
     return cmp(a, b) > 0
 }
 
-fn min_of<T>(a: T, b: T, ?Ordered<T>) [] -> T {
+fn min_of<T>(a: T, b: T, ?Ordered<T>) [] -> T
+=> !a, !b {
     if cmp(a, b) <= 0 {
         return a
     }
@@ -443,7 +445,8 @@ struct Person {
     }
 }
 
-fn min_of<T>(a: T, b: T, ?Ordered<T>) [] -> T {
+fn min_of<T>(a: T, b: T, ?Ordered<T>) [] -> T
+=> !a, !b {
     if cmp(a, b) <= 0 {
         return a
     }
@@ -483,7 +486,8 @@ export struct Person {
             r#"
 import people.Person
 
-fn min_of<T>(a: T, b: T, ?Ordered<T>) [] -> T {
+fn min_of<T>(a: T, b: T, ?Ordered<T>) [] -> T
+=> !a, !b {
     if cmp(a, b) <= 0 {
         return a
     }
@@ -518,7 +522,8 @@ export fn cmp(a: Person, b: Person) [] -> Int => a, b {
             r#"
 import people.Person
 
-fn min_of<T>(a: T, b: T, ?Ordered<T>) [] -> T {
+fn min_of<T>(a: T, b: T, ?Ordered<T>) [] -> T
+=> !a, !b {
     if cmp(a, b) <= 0 {
         return a
     }
@@ -615,7 +620,8 @@ fn cmp(a: Person, b: Person) [] -> Int => a, b {
     return cmp(a.name, b.name)
 }
 
-fn min_of<T>(a: T, b: T, ?Ordered<T>) [] -> T {
+fn min_of<T>(a: T, b: T, ?Ordered<T>) [] -> T
+=> !a, !b {
     if cmp(a, b) <= 0 {
         return a
     }
@@ -669,7 +675,8 @@ fn cmp(a: Person, b: Person) [] -> Int => a, b {
     return cmp(a.name, b.name)
 }
 
-fn min_of<T>(a: T, b: T, ?Ordered<T>) [] -> T {
+fn min_of<T>(a: T, b: T, ?Ordered<T>) [] -> T
+=> !a, !b {
     if cmp(a, b) <= 0 {
         return a
     }
@@ -766,7 +773,8 @@ struct Point : Ordered<self> by auto, Hashed<self> by auto {
     y: Int
 }
 
-fn min_of<T>(a: T, b: T, ?Ordered<T>) [] -> T {
+fn min_of<T>(a: T, b: T, ?Ordered<T>) [] -> T
+=> !a, !b {
     if cmp(a, b) <= 0 {
         return a
     }

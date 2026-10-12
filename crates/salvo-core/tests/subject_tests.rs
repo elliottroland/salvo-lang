@@ -68,11 +68,13 @@ struct Store<T> canbe Mut {
 qualifier NonEmpty<T> of Store<T>
 provenance qualifier Authenticated<T> of Store<T>
 
-fn nonempty<T>(s: Store<T>) -> +NonEmpty Store<T> {
+fn nonempty<T>(s: Store<T>) -> +NonEmpty Store<T>
+=> !s {
     return s
 }
 
-fn authenticate<T>(s: Store<T>) -> +Authenticated Store<T> {
+fn authenticate<T>(s: Store<T>) -> +Authenticated Store<T>
+=> !s {
     return s
 }
 
@@ -181,9 +183,9 @@ fn provenance_is_droppable_and_survives_storage() {
                struct Request { body: Str }\n\
                struct Wrapper { req: Authenticated Request }\n\
                provenance qualifier Authenticated of Request\n\
-               fn authenticate(r: Request) -> +Authenticated Request { return r }\n\
+               fn authenticate(r: Request) -> +Authenticated Request\n=> !r {\n return r\n}\n\
                fn plain(r: Request) -> Str { return r.body }\n\
-               fn f(r: Request) -> Str {\n    \
+               fn f(r: Request) -> Str\n=> !r {\n    \
                let a = authenticate(r)\n    \
                let w = Wrapper {req: a}\n    \
                return plain(w.req)\n}\n";
@@ -200,7 +202,7 @@ fn a_protocol_tag_stacks_with_state_claims_without_with() {
                struct Box canbe Mut { n: Int }\n\
                qualifier Filled of Box\n\
                provenance qualifier Ok<T> of T\n\
-               fn ok<T>(value: T) -> +Ok T { return value }\n\
+               fn ok<T>(value: T) -> +Ok T\n=> !value {\n return value\n}\n\
                fn fill() -> +Filled Box { return Box { n: 1 } }\n\
                fn f() -> Ok Filled Box {\n    \
                return ok(fill())\n}\n";
@@ -237,7 +239,7 @@ fn a_handler_constructor_argument_accepts_the_claim() {
         "{PRELUDE}\neffect Pick {{\n    fn pick() -> None\n}}\n\n\
          handler First(s: NonEmpty Store<Int>) of Pick {{\n    \
          fn pick() -> None {{\n    }}\n}}\n\n\
-         fn f(plain: Store<Int>) [use] -> None {{\n    use First(nonempty(plain))\n}}\n"
+         fn f(plain: Store<Int>) [use] -> None\n=> !plain {{\n    use First(nonempty(plain))\n}}\n"
     );
     let errors = errors(&src);
     assert!(errors.is_empty(), "got {errors:?}");

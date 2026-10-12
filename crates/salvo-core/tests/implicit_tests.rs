@@ -415,7 +415,7 @@ fn a_contract_mismatch_is_explained_rather_than_printed() {
          fn add(a: T, b: T) -> T\n\
          fn zero() -> T\n\
          }\n\
-         fn add(a: Int, b: Int) -> Int { return a }\n\
+         fn add(a: Int, b: Int) -> Int\n=> !a {\n return a\n}\n\
          fn zero() -> Int { return 0 }\n\
          fn total<T>(a: T, ?Field<T>) -> T => !a {\n\
          return add(a, zero())\n\
@@ -440,7 +440,7 @@ fn a_contract_mismatch_is_explained_rather_than_printed() {
 fn an_override_with_the_wrong_contract_is_explained() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn eats(a: Int, b: Int) -> Int {{ return a }}\n\
+         fn eats(a: Int, b: Int) -> Int\n=> !a {{ return a }}\n\
          fn total<T>(a: T, ?Field<T>) -> T => !a {{\n\
          return add(a, zero())\n\
          }}\n\

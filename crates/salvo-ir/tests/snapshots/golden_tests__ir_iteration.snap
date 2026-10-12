@@ -27,7 +27,7 @@ struct Countdown canbe Mut wire {
   at: Int
 }
 
-fn main::countdown(moved from: Int) -> Mut Countdown {
+fn main::countdown(lent from: Int) -> Mut Countdown {
   return construct Mut Countdown { at: read from }
 }
 
@@ -75,7 +75,7 @@ struct __Iter_halving_Int canbe Mut wire {
   at: Int
 }
 
-fn main::halving(moved start: Int) -> Mut __Iter_halving_Int {
+fn main::halving(lent start: Int) -> Mut __Iter_halving_Int {
   return construct Mut __Iter_halving_Int { start: read start, at: read start }
 }
 
@@ -122,7 +122,7 @@ struct __Iter_fibs_Int canbe Mut wire {
   made: Int
 }
 
-fn main::fibs(moved count: Int) -> Mut __Iter_fibs_Int {
+fn main::fibs(lent count: Int) -> Mut __Iter_fibs_Int {
   return construct Mut __Iter_fibs_Int { count: read count, a: 0, b: 1, made: 0 }
 }
 
@@ -144,7 +144,7 @@ struct __Iter_naturals_Int canbe Mut wire {
   at: Int
 }
 
-fn main::naturals(moved from: Int) -> Mut __Iter_naturals_Int {
+fn main::naturals(lent from: Int) -> Mut __Iter_naturals_Int {
   return construct Mut __Iter_naturals_Int { from: read from, at: read from }
 }
 

@@ -6599,18 +6599,27 @@ between endpoints and delivers what arrives into the scheduler.
     callback that *consumes* what it is given can only be called once
     ([once-fn]; `hand_over` in `examples/linearity/` is the shape).
 
-  * **Unmentioned means inferred.** A parameter the clause does not mention
-    gets the entry the body implies [deduce-infer] — the clause is partial,
-    and most fns write none. What is written is fixed and validated against
-    the body. A declaration *without a body* (an effect member, a `platform
-    effect` member, an `intrinsic fn`) must mention every parameter except
-    Copy scalars [copy-scalar-free], implicits and variadics; a fn *type*
-    keeps its default (kept) and its *parameter* entries are written only
-    through `=>[f]`, never inline (`f: (v: T) -> [v] U` is a parse error:
-    ambiguous with the next parameter) — its *lends* are the one inline
-    statement, after its own return type (`-> Mut It holds proj(c)`), which
-    the next parameter cannot be confused with because the sources sit inside
-    `proj(…)`.
+  * [deduce-default] **Unmentioned means defaulted.** A parameter the clause
+    does not mention takes its **default** (user decision 2026-10-11, replacing
+    body-inference): a plain `fn` *keeps* every parameter, with a `Mut`-declared
+    parameter taking the exhaustive `: Mut` (a mutable parameter the body may
+    change cannot promise other qualifiers back); a `send fn` *consumes* every
+    parameter. A written entry overrides its own parameter — the clause is
+    partial, overlaid on the defaults. The whole contract (defaults and written
+    entries alike) is then **checked against the body**: a kept parameter the
+    body moves is an error naming the `=> !p` remedy, and a kept qualifier the
+    body may remove is an error. The contract is a function of the signature
+    alone — no whole-program inference fixpoint, so a body edit that starts
+    moving a kept parameter is a *compile error at that function*, not a quiet
+    change to what callers depend on. A declaration *without a body* (an effect
+    member, a `platform effect` member, an `intrinsic fn`) must still mention
+    every parameter except Copy scalars [copy-scalar-free], implicits and
+    variadics; a fn *type* keeps its default (kept) and its *parameter* entries
+    are written only through `=>[f]`, never inline (`f: (v: T) -> [v] U` is a
+    parse error: ambiguous with the next parameter) — its *lends* are the one
+    inline statement, after its own return type (`-> Mut It holds proj(c)`),
+    which the next parameter cannot be confused with because the sources sit
+    inside `proj(…)`.
   * The removal set is computed against the qualifiers the *argument*
     actually carries, not against the parameter's declared set. That is
     what makes the exhaustive form sound: it also drops qualifiers the
@@ -6719,48 +6728,40 @@ between endpoints and delivers what arrives into the scheduler.
     that does not exist, for a rule the same file could simply assert; and
     **staying with consume-and-return**, which was the status quo the decision
     overturned.
-* [deduce-infer] A parameter the clause does not mention is inferred as the
-  strictest deduction over all uses of it in the body;
-  deductions never depend on the return value. If inference is impossible,
-  they must be written.
-  * Inference runs as a whole-program fixpoint after checking
-    (`deduce.rs`), starting optimistic (keep-all for every parameter);
-    facts only shrink along `KeepAll` → `Remove` (growing) →
-    `Exhaustive` (shrinking), so it terminates. Results
-    are stored in the typed IR (`Checked::deductions`); Kotlin ignores
-    them — they are the Rust backend's ownership/borrow contract.
-  * Moves are inferred when a bare parameter is: passed to a call whose
-    contract consumes it, returned *owned* (a return under a wholesale
-    `proj(p)` is a borrow, not a move [readonly-return]), `break`-ed,
-    stored in a
-    struct/array/tuple literal, or passed to a `use` handler
-    constructor. Binding a bare parameter (or a projection of one) with
-    `let`/assignment is *not* a move by itself — it fate-links the new
-    variable to the parameter [fate-link] — but a binding that is later
-    moved or mutated *claims* the parameter as moved (move-mode takes
-    ownership through the chain [fate-move-mode]); the claims are
-    seeded into the fixpoint between the checking rounds. Effect-member
-    calls have no `FnKey` (the handler is chosen at run time) but their
-    *declared* clause is the contract: inference reads it through the
-    checker's recorded effect instance, so a member that takes ownership
-    moves the argument here exactly as it does at the call site. Value flow
-    out of a branch/loop tail is not tracked as a move yet.
-  * A written entry is validated against the same body facts: it may be
-    *stricter* than the body (drop qualifiers, move a parameter the body
-    gives back), but promising a parameter back that the body moves, or
-    a qualifier the body may remove, is an error. Unmentioned parameters
-    are not validated (nothing is written to be wrong); every bodied fn
-    joins the fixpoint, and its written entries are overlaid on each round.
-    * **Handler members** are validated the same way. They carry no
-      `FnKey` (not top-level items), so they are checked outside the
-      fixpoint — sound because the dependency runs one way: a member's body
-      facts depend on other fns' contracts, and a fn's contract depends on
-      members' *declared* clauses, never their bodies.
+* [deduce-default] [deduce-infer] A parameter the clause does not mention takes a **default**,
+  not a body inference (user decision 2026-10-11; `[deduce-infer]` kept as an
+  alias for older cross-references, which now read "defaulted" where they said
+  "inferred"): a plain `fn` keeps every parameter, a `Mut`-declared parameter
+  takes the exhaustive `: Mut`, and a `send fn` consumes every parameter. A
+  written entry overrides its own parameter. Deductions never depend on the
+  return value.
+  * The contract is a function of the signature alone: computed in one pass
+    (`deduce.rs`), **no whole-program fixpoint** for deductions. Results are
+    stored in the typed IR (`Checked::deductions`); Kotlin ignores them — they
+    are the Rust backend's ownership/borrow contract.
+  * **The whole contract is checked against the body** — defaults and written
+    entries alike (before 2026-10-11 only written entries were checked; an
+    unmentioned one was *inferred* from the body and so could never fail). It
+    may be *stricter* than the body (drop qualifiers, or move a parameter the
+    body gives back), but a **kept** parameter the body *moves* — returned
+    *owned* (a return under a wholesale `proj(p)` is a borrow, not a move
+    [readonly-return]), `break`-ed, stored in a struct/array/tuple literal,
+    spread, or passed to a consuming call or a `use` handler constructor — is
+    an error naming the `=> !p` remedy, and a kept qualifier the body may remove
+    is an error. Copy scalars are exempt (a move of one is free). Binding a
+    bare parameter with `let`/assignment is *not* a move by itself — it
+    fate-links the new variable [fate-link] — but moving or mutating the derived
+    variable is a move of the parameter, which must be declared (there is no
+    inferred *claim* any more). Effect-member calls read the member's *declared*
+    clause as the contract, through the checker's recorded effect instance.
+  * **Handler members** are checked the same way, outside any fixpoint.
+  * A move is therefore always **declared**: a body edit that starts moving a
+    kept parameter is a compile error at that function, never a silent change to
+    what callers depend on.
 * [deduce-consume] Deduction clauses are enforced flow-sensitively at call
-  sites on bare identifier arguments — written entries directly, and
-  unmentioned parameters through their *inferred* facts: checking and
-  inference iterate to a fixpoint [deduce-fixpoint], so `return list` in a
-  callee consumes the caller's argument exactly like an explicit `!list`.
+  sites on bare identifier arguments: a callee's contract (default or written)
+  decides whether the caller's argument is consumed, so `return list` in a
+  callee declared `=> !list` consumes the caller's argument.
   * A parameter *not kept* is consumed — the variable's type narrows to
     `Never`, and any later reference to it is a compile error (a
     `Never`-typed value represents an impossibility). Reassigning the
@@ -6814,16 +6815,16 @@ between endpoints and delivers what arrives into the scheduler.
 
 * [deduce-fixpoint] Checking and deduction inference iterate until the
   driving facts stabilize (decision L3a, 2026-09-02): after each
-  checking round the inferred deductions, move-mode candidates, and
-  parameter claims [fate-move-mode] are compared with the previous
+  checking round the move-mode candidates, parameter mutations and
+  parking facts [fate-move-mode] are compared with the previous
   round's — another round runs only when something changed, capped at
-  four rounds total. Stable programs finish in two rounds (the
-  pre-existing behavior and cost); a late-discovered fact (e.g. a
-  move-mode candidate first visible under round-two narrowing) gets one
-  more round, so the diagnostic lands at the true site. A program still
-  unstable at the cap gets a deterministic error naming each fn whose
-  inferred contract oscillates (overload resolution can flip with
-  narrowing), with the remedy of writing the entry explicitly.
+  four rounds total. (Deductions no longer drive it: since 2026-10-11 a
+  contract is a function of the signature alone [deduce-default], computed
+  once per round and identical each time, so the iteration is for the fate
+  facts the checker needs, not for the contracts.) Stable programs finish
+  in two rounds (the pre-existing behavior and cost); a late-discovered
+  fact (e.g. a move-mode candidate first visible under round-two
+  narrowing) gets one more round, so the diagnostic lands at the true site.
 * [deduce-same-call] Arguments are evaluated left to right; within one
   call, an argument may not *mention* (read, project, interpolate, or
   capture) a value that an earlier argument of the same call consumed —

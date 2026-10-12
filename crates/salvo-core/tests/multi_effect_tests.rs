@@ -341,7 +341,8 @@ handler Both() of Ping, Pong {
         return "int"
     }
 
-    fn ping(m: Str) -> Str {
+    fn ping(m: Str) -> Str
+    => !m {
         return m
     }
 }

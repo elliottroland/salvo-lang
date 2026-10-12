@@ -230,7 +230,7 @@ fn canbe_linear_on_a_declaration_names_the_obligation_form() {
 fn canbe_linear_on_a_type_parameter_still_works() {
     let errs = errors(&format!(
         "{LINES}\n\
-         fn hold<T canbe linear>(value: T) -> T {{\n    return value\n}}\n\
+         fn hold<T canbe linear>(value: T) -> T\n=> !value {{\n    return value\n}}\n\
          fn go() -> None {{\n    let l = hold(open_lines(\"a\"))\n    close(l)\n}}\n"
     ));
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
@@ -569,7 +569,8 @@ fn err<T canbe linear>(value: T) -> +Err T => !value {
     return value
 }
 
-fn open(flag: Bool, n: Str) -> Ok Lines | Err Str {
+fn open(flag: Bool, n: Str) -> Ok Lines | Err Str
+=> !n {
     if flag {
         return ok(open_lines(n))
     }
@@ -581,7 +582,7 @@ fn open(flag: Bool, n: Str) -> Ok Lines | Err Str {
 fn a_linear_union_arm_settles_by_narrowing() {
     let errs = errors(&format!(
         "{LINES}{FALLIBLE}\n\
-         fn happy(flag: Bool, n: Str) -> None {{\n    \
+         fn happy(flag: Bool, n: Str) -> None\n=> !n {{\n    \
          let r = open(flag, n)\n    \
          when r {{\n        \
          is Ok {{ close(r) }}\n        \
@@ -614,10 +615,10 @@ fn an_unclosed_linear_arm_still_leaks() {
 fn an_optional_linear_handle_owes_nothing_on_none() {
     let errs = errors(&format!(
         "{LINES}\n\
-         fn find(flag: Bool, n: Str) -> Lines? {{\n    \
+         fn find(flag: Bool, n: Str) -> Lines?\n=> !n {{\n    \
          if flag {{\n        return open_lines(n)\n    }}\n    \
          return None\n}}\n\
-         fn maybe(flag: Bool, n: Str) -> None {{\n    \
+         fn maybe(flag: Bool, n: Str) -> None\n=> !n {{\n    \
          let h = find(flag, n)\n    \
          if h is Lines s {{\n        close(s)\n    }}\n}}\n"
     ));
@@ -748,7 +749,7 @@ fn a_conditional_container_owes_when_instantiated_linear() {
 fn a_conditional_container_forwards_through_its_discharger() {
     let errs = errors(&format!(
         "{LINES}{BOX}\n\
-         fn go(n: Str) -> None {{\n    \
+         fn go(n: Str) -> None\n=> !n {{\n    \
          let b = Box<Lines> {{ item: open_lines(n) }}\n    \
          let l = unbox(b)\n    close(l)\n}}\n"
     ));
@@ -789,7 +790,7 @@ fn a_concrete_linear_field_needs_the_marker() {
     let errs = errors(&format!(
         "{LINES}\nlinear struct Session {{\n    file: Lines\n}}\n\
          fn end_session(s: Session) -> None => !s {{\n    close(s.file)\n}}\n\
-         fn go(n: Str) -> None {{\n    \
+         fn go(n: Str) -> None\n=> !n {{\n    \
          let s = Session {{ file: open_lines(n) }}\n    end_session(s)\n}}\n"
     ));
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");

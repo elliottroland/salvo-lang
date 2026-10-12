@@ -711,7 +711,8 @@ fn reader(lines: List<Str>) -> Reader => !lines {
     return Reader { lines: lines, at: 0 }
 }
 
-fn read_all(lines: List<Str>) [Throw<Str>, Console] -> Int {
+fn read_all(lines: List<Str>) [Throw<Str>, Console] -> Int
+=> !lines {
     let count = 0
     for outcome in reader(lines) {
         when outcome {
@@ -2768,7 +2769,7 @@ fn kotlinc_compiles_and_runs_the_comparison_groups() -> KotlinCase {
 // [cmp-groups] The three capabilities, asked for by name. Nothing about a `T`
 // is knowable, so an ordering arrives as an implicit parameter — and the call
 // site fills it with the canonical overload for the type it instantiates.
-fn min_of<T>(a: T, b: T, ?Ordered<T>) [] -> T {
+fn min_of<T>(a: T, b: T, ?Ordered<T>) [] -> T => !a, !b {
     if cmp(a, b) <= 0 {
         return a
     }
@@ -2814,7 +2815,7 @@ fn main() [use] {
     println("same ${alike(7, 7)} ${alike(ab, b)} ${alike(ab, same_ab)}")
     println("digest ${digest_agrees(ab, same_ab)} ${digest_agrees(3, 3)}")
     // `min_of` answers one of its arguments, so it **moves** them: the
-    // deduction is inferred from the body [deduce-infer], and these two are
+    // deduction is declared `=> !a, !b` [deduce-default], and these two are
     // the last use of their values.
     println("min ${min_of(4, 2)} ${min_of(ab, b)}")
 }
@@ -2866,7 +2867,7 @@ fn cmp(a: Person, b: Person) [] -> Int => a, b {
     return cmp(a.name, b.name)
 }
 
-fn min_of<T>(a: T, b: T, ?Ordered<T>) [] -> T {
+fn min_of<T>(a: T, b: T, ?Ordered<T>) [] -> T => !a, !b {
     if cmp(a, b) <= 0 {
         return a
     }
@@ -2931,7 +2932,7 @@ fn eq<T>(a: Box<T>, b: Box<T>, ?Eq<T>) [] -> Bool => a, b {
     return eq(a.item, b.item)
 }
 
-fn min_of<T>(a: T, b: T, ?Ordered<T>) [] -> T {
+fn min_of<T>(a: T, b: T, ?Ordered<T>) [] -> T => !a, !b {
     if cmp(a, b) <= 0 {
         return a
     }
@@ -3067,7 +3068,7 @@ struct Age {
 
 // [implicit-forward] Generic code publishes the capability in its signature,
 // and the operators inside go through the parameter.
-fn larger_of<T>(a: T, b: T, ?Ordered<T>) [] -> T {
+fn larger_of<T>(a: T, b: T, ?Ordered<T>) [] -> T => !a, !b {
     if a > b {
         return a
     }
@@ -4762,7 +4763,7 @@ struct P { x: Int }
 fn to_str(p: P) -> Str { return "P(${p.x})" }
 type Either = Int | Str | P
 
-fn widen(x: Int | Str) -> Int | Str | Bool { return x }
+fn widen(x: Int | Str) -> Int | Str | Bool => !x { return x }
 fn either(n: Int) -> Either {
     if n == 0 { return 5 }
     if n == 1 { return "s" }
@@ -6192,11 +6193,13 @@ fn main() [use] -> None {
 const MANGLED_ALIAS_LIB: &str = r#"
 export qualifier Loud of Str
 
-export fn loud(s: Str) -> +Loud Str {
+export fn loud(s: Str) -> +Loud Str
+=> !s {
     return s
 }
 
-export fn shout(s: Str) -> Str {
+export fn shout(s: Str) -> Str
+=> !s {
     return s
 }
 
@@ -6958,7 +6961,8 @@ struct Person {
     age: Int
 }
 
-fn longest_name(persons: List<Person>) -> Str {
+fn longest_name(persons: List<Person>) -> Str
+=> !persons {
     let longest = ""
     for person in persons {
         let name = person.name
@@ -7107,7 +7111,7 @@ fn open_file(n: Int) [Console] -> FileHandle {
     return FileHandle {fd: n}
 }
 
-fn hold<T canbe linear>(value: T) -> T {
+fn hold<T canbe linear>(value: T) -> T => !value {
     return value
 }
 
@@ -7230,7 +7234,7 @@ fn apply_keeping(f: (v: List<Person>) -> Int, data: List<Person>) -> Int =>[f] v
     return f(data) + f(data)
 }
 
-fn apply_consuming(f: (v: List<Person>) -> Int, data: List<Person>) -> Int =>[f] !v {
+fn apply_consuming(f: (v: List<Person>) -> Int, data: List<Person>) -> Int =>[f] !v => !data {
     return f(data)
 }
 
@@ -8888,11 +8892,13 @@ qualifier Err<T> of T
 
 type Result = Ok Int | Err Str
 
-fn tag_ok<T>(value: T) -> +Ok T {
+fn tag_ok<T>(value: T) -> +Ok T
+=> !value {
     return value
 }
 
-fn tag_err<T>(value: T) -> +Err T {
+fn tag_err<T>(value: T) -> +Err T
+=> !value {
     return value
 }
 
@@ -8964,7 +8970,8 @@ effect Stash {
 }
 
 handler FirstStash of Stash {
-    fn pick<T>(a: T, b: T) -> T {
+    fn pick<T>(a: T, b: T) -> T
+    => !a, !b {
         return a
     }
 }
@@ -9191,7 +9198,7 @@ struct Environment.Name {
 
 qualifier Environment.Tag of Str
 
-fn tag(value: Str) -> +Environment.Tag Str {
+fn tag(value: Str) -> +Environment.Tag Str => !value {
     return value
 }
 
@@ -9289,7 +9296,7 @@ struct Environment {
 
 qualifier Environment.Tag of Str
 
-fn tag(v: Str) -> +Environment.Tag Str {
+fn tag(v: Str) -> +Environment.Tag Str => !v {
     return v
 }
 
@@ -9352,11 +9359,11 @@ const QUAL_SUBJECTS: &str = r#"
 qualifier Checked of List<Int>
 provenance qualifier Trusted of List<Int>
 
-fn check(l: Mut List<Int>) -> +Checked Mut List<Int> {
+fn check(l: Mut List<Int>) -> +Checked Mut List<Int> => !l {
     return l
 }
 
-fn trust(l: Mut List<Int>) -> +Trusted Mut List<Int> {
+fn trust(l: Mut List<Int>) -> +Trusted Mut List<Int> => !l {
     return l
 }
 
@@ -10963,7 +10970,7 @@ handler RoundRobin(members: List<Addr<Resizer>>) of any Resizer {
 }
 
 // Any Resizer will do: one send, one reply.
-fn thumbnail(name: Str) [any Resizer] -> Str {
+fn thumbnail(name: Str) [any Resizer] -> Str => !name {
     return waitfor out: Reply<Str> { resize(name, 100, out) }
 }
 
@@ -12898,14 +12905,16 @@ fn close(s: InputStream) [Console] -> None => !s {
     discard(s)
 }
 
-fn open(path: Str) -> Ok InputStream | Err Str {
+fn open(path: Str) -> Ok InputStream | Err Str
+=> !path {
     if size(path) > 0 {
         return ok(InputStream {path: path})
     }
     return err("empty path")
 }
 
-fn attempt(path: Str) [Console] -> None {
+fn attempt(path: Str) [Console] -> None
+=> !path {
     let r = open(path)
     when r {
         is Ok {

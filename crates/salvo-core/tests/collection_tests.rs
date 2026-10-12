@@ -515,7 +515,7 @@ fn equality_ignores_qualifiers() {
     let msgs = lit_messages(
         "qualifier Tagged of Point\n\n\
          struct Point : Eq<self> by auto {\n    x: Int,\n    y: Int\n}\n\n\
-         fn tagged(p: Point) -> +Tagged Point {\n    return p\n}\n\n\
+         fn tagged(p: Point) -> +Tagged Point\n=> !p {\n    return p\n}\n\n\
          fn probe(a: Point, b: Point) -> Bool => !a, b {\n    \
          let t = tagged(a)\n    return t == b\n}\n",
     );

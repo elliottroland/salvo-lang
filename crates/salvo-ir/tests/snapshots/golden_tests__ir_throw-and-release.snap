@@ -18,7 +18,7 @@ fn main::close(lent console: Console; moved handle: FileHandle) -> None {
   call core.basic::discard<FileHandle>(!read handle)
 }
 
-fn main::read_size(lent console: Console; moved name: Str, moved want: Int) -> Int {
+fn main::read_size(lent console: Console; moved name: Str, lent want: Int) -> Int {
   bind#1 let there_is: Int = call core.string::size(read name)
   bind#2 let handle: FileHandle = call main::open_file(read console, !read name)
   branch#3 cond#0 (read want > read there_is) {
@@ -27,7 +27,7 @@ fn main::read_size(lent console: Console; moved name: Str, moved want: Int) -> I
     return !read there_is
   }
   call main::close(read console, !read handle)
-  return !read want
+  return read want
 }
 
 fn main::parse_port(lent text: Str) -> Int throws Str {

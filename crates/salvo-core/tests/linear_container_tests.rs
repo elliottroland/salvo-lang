@@ -395,7 +395,8 @@ effect Parking {
 handler Parked() of Parking {
     waiting: Mut List<Token> = mut_list_of()
 
-    fn park(t: Token) -> None {
+    fn park(t: Token) -> None
+    => !t {
         add(waiting, t)
     }
 

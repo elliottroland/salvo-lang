@@ -253,7 +253,7 @@ fn without_the_guard_the_plain_overload_wins() {
 #[test]
 fn the_not_is_spelling_narrows_the_same_way() {
     let errs = errors(
-        "fn describe(s: Str?) -> Str {\n    \
+        "fn describe(s: Str?) -> Str\n=> !s {\n    \
          if s !is Str {\n        return \"none\"\n    }\n    \
          let text: Str = s\n    return text\n}\n",
     );

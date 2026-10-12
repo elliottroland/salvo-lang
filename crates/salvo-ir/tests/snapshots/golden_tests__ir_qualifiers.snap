@@ -24,8 +24,8 @@ fn main::head(lent list: List<Int>) -> Int {
   }
 }
 
-fn main::celsius(moved degrees: Int) -> Int {
-  return !read degrees
+fn main::celsius(lent degrees: Int) -> Int {
+  return read degrees
 }
 
 fn main::describe(Int)(lent temp: Int) -> Str {

@@ -1484,7 +1484,7 @@ handler Binning() of Bin {
     }
 }
 
-fn skip(s: Str) [] -> Str { return s }
+fn skip(s: Str) [] -> Str => !s { return s }
 
 // 0c item 1: a second `let n` after a loop that declared one.
 fn rebind(m: Mut Map<Int, Node>, k: Int) [] -> Int => m: Mut {

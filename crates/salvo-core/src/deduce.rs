@@ -186,16 +186,20 @@ pub(crate) fn infer(
         .collect();
     let expr_ty = checked.expr_ty.clone();
 
-    // Initial state: written entries as declared (validating their shape),
-    // everything unwritten optimistic (kept with its declared quals).
-    // [deduce-syntax] A clause is *partial*: the parameters it does not
-    // mention are inferred exactly as an unwritten clause's are, so every
-    // bodied fn joins the fixpoint and the written entries are overlaid on
-    // each round's result.
+    // [deduce-default] The contract of every fn is a function of its
+    // signature alone (user decision 2026-10-11): the per-parameter default
+    // (a `send fn` consumes, a plain `fn` keeps, a `Mut` parameter keeps only
+    // `Mut`), with any written entry overriding its parameter. No body
+    // inference, so no fixpoint over the call graph — the contract is known in
+    // one pass. `claims` and `mutations` are no longer consulted here (a
+    // move-mode binding reaching a kept parameter is reported by the fate
+    // analysis and by the body validation below, not resolved by changing the
+    // contract); the parameters are kept so the checker's call sites compile.
+    let _ = (&claims, &mutations);
     let mut errors: Vec<FileDiagnostic> = Vec::new();
     let mut states: HashMap<FnKey, Vec<ParamDeduction>> = HashMap::new();
     // [std-cache] Seed std fns' deductions from the cache (in `checked`,
-    // seeded by `check_once`): they are not re-inferred, but a project fn
+    // seeded by `check_once`): they are not re-derived, but a project fn
     // calling one reads its contract from `states` by key.
     if let Some(n) = skip_below {
         for (key, ded) in &checked.deductions {
@@ -205,76 +209,24 @@ pub(crate) fn infer(
         }
     }
     for f in &fns {
-        let mutated = mutations.get(&f.key).unwrap_or(&no_mutations);
-        let mut state = match &f.decl.deductions {
-            Some(list) => from_written(f.decl, list, mutated, |span, msg| {
+        let state = match &f.decl.deductions {
+            Some(list) => from_written(f.decl, list, &no_mutations, |span, msg| {
                 errors.push(FileDiagnostic::error(f.key.file, span, msg));
             }),
-            None => optimistic(f.decl),
+            None => defaults(f.decl),
         };
-        // A mutated parameter cannot keep everything: state its declared
-        // set exhaustively. Written entries stay as written (their own
-        // validation reports the mutation).
-        exhaustive_for_mutated_unwritten(f.decl, &mut state, mutated);
-        apply_claims(&mut state, claims.get(&f.key));
         states.insert(f.key, state);
     }
 
-    // Fixpoint over the call graph for the inferred entries. Constraints
-    // are monotone (facts only disappear), so this terminates.
-    loop {
-        let mut changed = false;
-        for f in &fns {
-            let Some(body) = &f.decl.body else { continue };
-            let mut new = infer_body(
-                f,
-                body,
-                &checked.call_fn,
-                &fn_decls,
-                &states,
-                &provenance,
-                &effects,
-                &effect_calls,
-                &no_state,
-                &checked.refinements,
-
-                &proj_fields,
-
-                &expr_ty,
-            );
-            exhaustive_for_mutated(
-                f.decl,
-                &mut new,
-                mutations.get(&f.key).unwrap_or(&no_mutations),
-            );
-            apply_claims(&mut new, claims.get(&f.key));
-            // Overlay the written entries: they are the contract, fixed.
-            if let Some(current) = states.get(&f.key) {
-                for (n, c) in new.iter_mut().zip(current) {
-                    if c.written {
-                        *n = c.clone();
-                    } else {
-                        n.lent = c.lent;
-                    }
-                }
-            }
-            if states.get(&f.key) != Some(&new) {
-                states.insert(f.key, new);
-                changed = true;
-            }
-        }
-        if !changed {
-            break;
-        }
-    }
-
-    // Validate written lists against the body facts [deduce-infer]: the
-    // contract may be *stricter* than the body (dropping qualifiers or
-    // moving parameters the body gives back), never looser.
+    // [deduce-default] Validate every bodied fn's contract — defaults and
+    // written entries alike — against the body: the contract may be *stricter*
+    // than the body (dropping qualifiers, or moving a parameter the body gives
+    // back) but never looser, so a kept parameter the body moves is an error
+    // naming the `!p` remedy. (Before 2026-10-11 an unwritten parameter was
+    // inferred from the body and so could never fail this; now the default
+    // keep is checked like a written one.)
     for f in &fns {
-        let (Some(list), Some(body)) = (&f.decl.deductions, &f.decl.body) else {
-            continue;
-        };
+        let Some(body) = &f.decl.body else { continue };
         let inferred = infer_body(
             f,
             body,
@@ -286,30 +238,23 @@ pub(crate) fn infer(
             &effect_calls,
             &no_state,
             &checked.refinements,
-
             &proj_fields,
-
             &expr_ty,
         );
-        let written = &states[&f.key];
-        validate_written(f.key.file, f.decl, list, written, &inferred, &mut errors);
+        let contract = &states[&f.key];
+        validate_contract(f.key.file, f.decl, contract, &inferred, &mut errors);
     }
 
     // [effect-handler] Handler members are declarations with bodies too, and
     // their contract is applied at call sites like a named call's
-    // ([decl-explicit], [call-resolve]) — so a written list that promises
-    // more than the body delivers is the same bug there. They carry no
-    // `FnKey` (not top-level items), so they are validated here instead of
-    // joining the fixpoint, which is sound because the dependency runs one
-    // way: a member's body facts depend on other fns' contracts, and a fn's
-    // contract depends on members' *declared* lists, never their bodies.
+    // ([decl-explicit], [call-resolve]) — so a contract that promises more
+    // than the body delivers is the same bug there. They carry no `FnKey`
+    // (not top-level items), so they are validated here.
     for (file_idx, ast) in program.modules.iter().enumerate() {
         for (item_idx, item) in ast.items.iter().enumerate() {
             let Item::Handler(h) = item else { continue };
             for m in &h.fns {
-                let (Some(list), Some(body)) = (&m.deductions, &m.body) else {
-                    continue;
-                };
+                let Some(body) = &m.body else { continue };
                 let info = FnInfo {
                     key: FnKey {
                         file: file_idx,
@@ -317,7 +262,10 @@ pub(crate) fn infer(
                     },
                     decl: m,
                 };
-                let written = from_written(m, list, &no_mutations, |_, _| {});
+                let contract = match &m.deductions {
+                    Some(list) => from_written(m, list, &no_mutations, |_, _| {}),
+                    None => defaults(m),
+                };
                 let state_names: HashSet<String> =
                     h.state.iter().map(|s| s.name.name.clone()).collect();
                 let inferred = infer_body(
@@ -331,55 +279,16 @@ pub(crate) fn infer(
                     &effect_calls,
                     &state_names,
                     &checked.refinements,
-
                     &proj_fields,
-
                     &expr_ty,
                 );
-                validate_written(file_idx, m, list, &written, &inferred, &mut errors);
+                validate_contract(file_idx, m, &contract, &inferred, &mut errors);
             }
         }
     }
 
     checked.errors.extend(errors);
     checked.deductions = states;
-}
-
-/// `exhaustive_for_mutated` for the *unwritten* entries only: a written
-/// entry is validated on its own terms [deduce-syntax].
-fn exhaustive_for_mutated_unwritten(
-    decl: &FnDecl,
-    state: &mut [ParamDeduction],
-    mutated: &HashSet<String>,
-) {
-    let written: Vec<bool> = state.iter().map(|d| d.written).collect();
-    let saved: Vec<ParamDeduction> = state.to_vec();
-    exhaustive_for_mutated(decl, state, mutated);
-    for (i, w) in written.iter().enumerate() {
-        if *w {
-            state[i] = saved[i].clone();
-        }
-    }
-}
-
-/// [deduce-syntax] Forces the exhaustive form on every parameter the body
-/// invalidates: keeping "everything else" is exactly the unsound claim,
-/// because mutation can falsify qualifiers the caller has and this
-/// signature never mentions. The surviving set is what inference already
-/// computed from the declared qualifiers.
-fn exhaustive_for_mutated(
-    decl: &FnDecl,
-    state: &mut [ParamDeduction],
-    mutated: &HashSet<String>,
-) {
-    for (d, p) in state.iter_mut().zip(&decl.params) {
-        if !d.kept || !mutated.contains(&d.param) {
-            continue;
-        }
-        let declared = declared_quals(&p.ty);
-        let keep = d.effect.kept_quals(&declared);
-        d.effect = QualEffect::Exhaustive(keep);
-    }
 }
 
 /// The qualifier names written on the outside of a parameter type, in
@@ -477,17 +386,14 @@ pub(crate) fn from_written(
                 // [qual-preserve] Not an ownership entry.
                 !matches!(d.kind, DeductionKind::Preserve(_)) && d.param_name().is_some_and(|n| n.name == name)
             }) else {
-                // [deduce-syntax] Unmentioned: inferred from the body (the
-                // fixpoint replaces this optimistic start), or, without a
-                // body, kept — the bodiless-declaration rule requires the
-                // entry to be written, so this is only ever a placeholder.
-                return ParamDeduction {
-                    param: name,
-                    kept: true,
-                    effect: QualEffect::KeepAll,
-                    lent,
-                    written: false,
-                };
+                // [deduce-default] Unmentioned by the clause: the parameter
+                // takes its default (a written clause is partial — the entries
+                // it omits are not inferred, they default like a clauseless
+                // fn's, per-parameter). The `lent` flag still comes from any
+                // `proj(…)` entry naming this parameter.
+                let mut d = default_param(decl, p);
+                d.lent = lent;
+                return d;
             };
             let invalidates = mutated.contains(&name);
             let effect = match &d.kind {
@@ -635,6 +541,43 @@ pub(crate) fn from_written(
         .collect()
 }
 
+/// [deduce-default] The **default** deduction for one parameter, used where no
+/// written entry overrides it (user decision 2026-10-11, replacing
+/// body-inference): a `send fn` consumes every parameter (the message owns its
+/// payload); a plain `fn` keeps every parameter, and a parameter whose declared
+/// type carries `Mut` keeps only `Mut` (the exhaustive form, since a mutable
+/// parameter the body may change cannot promise other qualifiers back).
+pub(crate) fn default_param(decl: &FnDecl, p: &Param) -> ParamDeduction {
+    if decl.is_send {
+        return ParamDeduction {
+            param: p.name.name.clone(),
+            kept: false,
+            effect: QualEffect::Exhaustive(Vec::new()),
+            lent: false,
+            written: false,
+        };
+    }
+    let declared = declared_quals(&p.ty);
+    let effect = if declared.iter().any(|q| q == "Mut") {
+        QualEffect::Exhaustive(vec!["Mut".to_string()])
+    } else {
+        QualEffect::KeepAll
+    };
+    ParamDeduction {
+        param: p.name.name.clone(),
+        kept: true,
+        effect,
+        lent: false,
+        written: false,
+    }
+}
+
+/// [deduce-default] Every parameter at its default: the contract of a fn with
+/// no written clause.
+pub(crate) fn defaults(decl: &FnDecl) -> Vec<ParamDeduction> {
+    decl.params.iter().map(|p| default_param(decl, p)).collect()
+}
+
 /// Re-derives one fn's deduction facts from its body, given the current
 /// state of every other fn [deduce-infer].
 #[allow(clippy::too_many_arguments)]
@@ -672,45 +615,86 @@ fn infer_body<'a, 'p>(
     walk.params
 }
 
-/// Validates a *written* deduction list against the facts inferred from the
-/// body [deduce-infer]: the contract may be stricter than the body (drop
-/// qualifiers, move parameters the body gives back), never looser.
-fn validate_written(
+/// [deduce-default] Whether a parameter type is a **Copy scalar** by its
+/// written name (`Int`, `Long`, …): such a value is duplicated for free on
+/// both backends, so its deduction is nothing to decide — moving one is not a
+/// move the caller can observe. Name-based (deduction runs without the symbol
+/// table); an alias to a scalar is not caught, which only risks a spurious
+/// move error on an alias and never unsound output.
+fn is_copy_scalar_param(ty: &Type) -> bool {
+    let base = match ty {
+        Type::Named { qualifiers, base } if qualifiers.is_empty() && base.args.is_empty() => base,
+        Type::Nullable { inner, .. } => return is_copy_scalar_param(inner),
+        _ => return false,
+    };
+    matches!(
+        base.name.name.as_str(),
+        "Int" | "Long" | "Float" | "Double" | "Bool" | "Char" | "Byte"
+    )
+}
+
+/// [deduce-default] Validates a fn's **contract** (defaults, written entries,
+/// or a mix) against the facts the body produces: the contract may be stricter
+/// than the body (drop qualifiers, move a parameter the body gives back) but
+/// never looser. A kept parameter the body moves, or a kept qualifier the body
+/// may remove, is an error. Unlike the old `validate_written`, this checks
+/// every parameter — a default `keep` is checked exactly as a written `=> p`
+/// is, so a clauseless fn that moves a parameter is caught (the remedy is to
+/// write `=> !p`).
+fn validate_contract(
     file: usize,
     decl: &FnDecl,
-    list: &[Deduction],
-    written: &[ParamDeduction],
+    contract: &[ParamDeduction],
     inferred: &[ParamDeduction],
     errors: &mut Vec<FileDiagnostic>,
 ) {
-    for ((w, i), p) in written.iter().zip(inferred).zip(&decl.params) {
-        let Some(entry) = list.iter().find(|d| {
-            !matches!(d.kind, DeductionKind::Preserve(_)) && d.param_name().is_some_and(|n| n.name == w.param)
-        }) else {
+    // The written clause entry for a parameter, if any — used for the error
+    // span and to read a `+Q` reapplied set. Absent for a defaulted parameter.
+    let entry_for = |name: &str| -> Option<&Deduction> {
+        decl.deductions.as_ref().and_then(|list| {
+            list.iter().find(|d| {
+                !matches!(d.kind, DeductionKind::Preserve(_))
+                    && d.param_name().is_some_and(|n| n.name == name)
+            })
+        })
+    };
+    for ((w, i), p) in contract.iter().zip(inferred).zip(&decl.params) {
+        // [deduce-default] A Copy scalar's fate is nothing to deduce — it is
+        // duplicated for free — so a default-keep is never contradicted by the
+        // body "moving" one.
+        if is_copy_scalar_param(&p.ty) {
             continue;
-        };
+        }
+        let entry = entry_for(&w.param);
+        // Where to point the diagnostic: a written entry's span, else the
+        // parameter's own.
+        let span = entry.map(|e| e.span).unwrap_or(p.name.span);
         if w.kept && !i.kept {
-            errors.push(FileDiagnostic::error(
-                file,
-                entry.span,
+            let remedy = if entry.is_some() {
                 format!(
                     "deduction promises `{}` back to the caller, but the body \
                      moves it",
                     w.param
-                ),
-            ));
+                )
+            } else {
+                format!(
+                    "`{}` is kept by default, but the body moves it (returns it, \
+                     stores it, or passes it to a consuming call): write `=> !{}` \
+                     to declare the move, or `copy(…)` at the move site to keep \
+                     the caller's value",
+                    w.param, w.param
+                )
+            };
+            errors.push(FileDiagnostic::error(file, span, remedy));
             continue;
         }
         let declared = declared_quals(&p.ty);
         let promised = w.effect.kept_quals(&declared);
         let survives = i.effect.kept_quals(&declared);
         // [deduce-reapply] A claim written `+Q` is **established by this
-        // function**, so the body is not asked whether it survived — that is
-        // the whole difference between the two spellings. Trusted like `as Q`
-        // and like a refinement, and gated to the qualifier's own file by the
-        // checker.
-        let reapplied: Vec<&str> = match &entry.kind {
-            DeductionKind::Exhaustive { reapplied, .. } => {
+        // function**, so the body is not asked whether it survived.
+        let reapplied: Vec<&str> = match entry.map(|e| &e.kind) {
+            Some(DeductionKind::Exhaustive { reapplied, .. }) => {
                 reapplied.iter().map(|q| q.name.name.as_str()).collect()
             }
             _ => Vec::new(),
@@ -739,7 +723,7 @@ fn validate_written(
                     w.param
                 )
             };
-            errors.push(FileDiagnostic::error(file, entry.span, message));
+            errors.push(FileDiagnostic::error(file, span, message));
         }
     }
 }
@@ -793,19 +777,6 @@ fn bare_ident(e: &Expr) -> Option<&str> {
         Expr::Ident(id) => Some(&id.name),
         Expr::Spread { operand, .. } => bare_ident(operand),
         _ => None,
-    }
-}
-
-/// Marks every claimed parameter as moved [fate-move-mode]: a move-mode
-/// binding (or moved-position projection) took ownership of data reached
-/// through it, so the fn demands ownership from its callers.
-fn apply_claims(state: &mut [ParamDeduction], claims: Option<&HashSet<String>>) {
-    let Some(claims) = claims else { return };
-    for p in state.iter_mut() {
-        if claims.contains(&p.param) {
-            p.kept = false;
-            p.effect = QualEffect::Exhaustive(Vec::new());
-        }
     }
 }
 

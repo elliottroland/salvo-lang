@@ -785,7 +785,7 @@ fn describe(person: Person) -> Str {
     return person.name
 }
 
-fn narrow(value: Int | Str) -> Str {
+fn narrow(value: Int | Str) -> Str => !value {
     if value is Str {
         return value
     }
@@ -1324,7 +1324,7 @@ fn describe(n: Int) -> Str {
     return \"int\"
 }
 
-fn describe(s: Str) -> Str {
+fn describe(s: Str) -> Str => !s {
     return s
 }
 
@@ -1440,7 +1440,7 @@ fn describe(n: Int) -> Str {
 }
 
 // Describes an amount as free text.
-fn describe(s: Str) -> Str {
+fn describe(s: Str) -> Str => !s {
     return s
 }
 
