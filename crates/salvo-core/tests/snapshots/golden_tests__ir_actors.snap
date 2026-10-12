@@ -16,8 +16,8 @@ impl Counting() of Counter stateful {
     assign sum = (read sum + read n)
   }
   fn total(lent out: Reply<Int>) -> None {
-    call core.actor::send<Int>(!read out, !read sum)
     obligation release [out]
+    call core.actor::send<Int>(!read out, !read sum)
   }
 }
 
@@ -29,12 +29,12 @@ actor interface Ledger {
 impl Bookkeeping() of Ledger deps [Counter] stateful {
   mailbox construct Mailbox { capacity: 4 }
   fn report(lent label: Str, lent out: Reply<Str>) -> None {
-    member main::Counter#1(read __dep0, replyto reported(read label, !read out))
     obligation release [out]
+    member main::Counter#1(read __dep0, replyto reported(read label, !read out))
   }
   fn reported(lent label: Str, lent out: Reply<Str>, lent total: Int) -> None {
-    call core.actor::send<Str>(!read out, concat(read label, "=", call core.basic::to_str(Int)(read total)))
     obligation release [out]
+    call core.actor::send<Str>(!read out, concat(read label, "=", call core.basic::to_str(Int)(read total)))
   }
 }
 
@@ -48,8 +48,8 @@ impl Desking(lent room: Int) of Desk stateful {
   mailbox construct Mailbox { capacity: read room }
   state waiting: Mut Deque<Reply<Str>> = call core.deque::mut_deque_of()<Reply<Str>>()
   fn ticket(lent out: Reply<Str>) -> None {
-    call core.deque::add_last<Reply<Str>>(read waiting, !read out)
     obligation release [out]
+    call core.deque::add_last<Reply<Str>>(read waiting, !read out)
   }
   fn serve(lent name: Str) -> None {
     bind#1 let next: Reply<Str>? = call core.deque::remove_first<Reply<Str>>(read waiting)
@@ -59,8 +59,8 @@ impl Desking(lent room: Int) of Desk stateful {
         narrow#3[switch#2.arm#0] next~1: Reply<Str> = next
         obligation discharge [next.arms{0}]
         obligation gain [next~1]
-        call core.actor::send<Str>(!read next~1, concat("served ", read name))
         obligation release [next~1]
+        call core.actor::send<Str>(!read next~1, concat("served ", read name))
       }
       arm#1 (none) {
         call core.basic::discard<Str>(!read name)
@@ -68,10 +68,10 @@ impl Desking(lent room: Int) of Desk stateful {
     }
   }
   fn close_up(lent reason: Str) -> None {
+    obligation release [waiting]
     call core.deque::drain<Reply<Str>>(drop_mut(!read waiting), lambda(lent r: Reply<Str>) -> None captures [reason] {
       value call core.actor::send<Str>(!read r, concat("closed: ", read reason))
     })
-    obligation release [waiting]
     assign waiting = call core.deque::mut_deque_of()<Reply<Str>>()
   }
 }
@@ -102,14 +102,14 @@ impl Breaking() of Fragile {
 
 fn main::formatted(moved label: Str, moved out: Reply<Str>, moved total: Int) -> None {
   obligation gain-params [out]
-  call core.actor::send<Str>(!read out, concat(read label, " totalled ", call core.basic::to_str(Int)(read total)))
   obligation release [out]
+  call core.actor::send<Str>(!read out, concat(read label, " totalled ", call core.basic::to_str(Int)(read total)))
 }
 
 fn main::report_line(moved counter: Addr<Counter>, moved label: Str, moved out: Reply<Str>) -> None {
   obligation gain-params [out]
-  send main::Counter#1(read counter, replyto task main::formatted(read label, !read out))
   obligation release [out]
+  send main::Counter#1(read counter, replyto task main::formatted(read label, !read out))
 }
 
 fn main::main() -> None {
@@ -212,29 +212,29 @@ impl __Stub_Counter(moved addr: Addr<Counter>) of Counter {
   }
   fn total(moved out: Reply<Int>) -> None {
     obligation gain-params [out]
-    send main::Counter#1(read addr, !read out)
     obligation release [out]
+    send main::Counter#1(read addr, !read out)
   }
 }
 
 impl __Stub_Ledger(moved addr: Addr<Ledger>) of Ledger {
   fn report(moved label: Str, moved out: Reply<Str>) -> None {
     obligation gain-params [out]
-    send main::Ledger#0(read addr, !read label, !read out)
     obligation release [out]
+    send main::Ledger#0(read addr, !read label, !read out)
   }
   fn reported(moved label: Str, moved out: Reply<Str>, moved total: Int) -> None {
     obligation gain-params [out]
-    send main::Ledger#1(read addr, !read label, !read out, !read total)
     obligation release [out]
+    send main::Ledger#1(read addr, !read label, !read out, !read total)
   }
 }
 
 impl __Stub_Desk(moved addr: Addr<Desk>) of Desk {
   fn ticket(moved out: Reply<Str>) -> None {
     obligation gain-params [out]
-    send main::Desk#0(read addr, !read out)
     obligation release [out]
+    send main::Desk#0(read addr, !read out)
   }
   fn serve(moved name: Str) -> None {
     send main::Desk#1(read addr, !read name)
@@ -259,8 +259,8 @@ fn __dispatch_Counting_Counter(lent_mut __handler: Counting, moved __msg: __Msg_
     arm#1 (arm 1) {
       unpack#3 (out: Reply<Int>) = __msg as variant 1
       obligation gain [out]
-      handler_call main::Counter#1(read __handler, !read out)
       obligation release [out]
+      handler_call main::Counter#1(read __handler, !read out)
     }
   }
 }
@@ -270,14 +270,14 @@ fn __dispatch_Bookkeeping_Ledger(lent_mut __handler: Bookkeeping, moved __msg: _
     arm#0 (arm 0) {
       unpack#2 (label: Str, out: Reply<Str>) = __msg as variant 0
       obligation gain [out]
-      handler_call main::Ledger#0(read __handler, !read label, !read out)
       obligation release [out]
+      handler_call main::Ledger#0(read __handler, !read label, !read out)
     }
     arm#1 (arm 1) {
       unpack#3 (label: Str, out: Reply<Str>, total: Int) = __msg as variant 1
       obligation gain [out]
-      handler_call main::Ledger#1(read __handler, !read label, !read out, !read total)
       obligation release [out]
+      handler_call main::Ledger#1(read __handler, !read label, !read out, !read total)
     }
   }
 }
@@ -287,8 +287,8 @@ fn __dispatch_Desking_Desk(lent_mut __handler: Desking, moved __msg: __Msg_Desk)
     arm#0 (arm 0) {
       unpack#2 (out: Reply<Str>) = __msg as variant 0
       obligation gain [out]
-      handler_call main::Desk#0(read __handler, !read out)
       obligation release [out]
+      handler_call main::Desk#0(read __handler, !read out)
     }
     arm#1 (arm 1) {
       unpack#3 (name: Str) = __msg as variant 1

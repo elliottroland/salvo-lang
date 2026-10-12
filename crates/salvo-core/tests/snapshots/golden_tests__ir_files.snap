@@ -45,8 +45,8 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
       narrow#4[switch#2.arm#1] wrote~2: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = wrote
       obligation discharge [wrote.arms{1}]
       obligation gain [wrote~2]
-      call core.console::println(read console, concat("write failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read wrote~2))))
       obligation release [wrote~2]
+      call core.console::println(read console, concat("write failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read wrote~2))))
     }
   }
   bind#5 let text: Str | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = call fs::read_to_str(read fs, read streams, call fs.path::path("notes.txt"))
@@ -61,8 +61,8 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
       narrow#8[switch#6.arm#1] text~4: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = text
       obligation discharge [text.arms{1}]
       obligation gain [text~4]
-      call core.console::println(read console, concat("read failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read text~4))))
       obligation release [text~4]
+      call core.console::println(read console, concat("read failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read text~4))))
     }
   }
   bind#9 let opened: InStream | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member fs::Fs#0(read fs, call fs.path::path("notes.txt"))
@@ -72,9 +72,9 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
       narrow#11[switch#10.arm#0] opened~5: InStream = opened
       obligation discharge [opened.arms{0,1}]
       obligation gain [opened~5]
-      bind#12 let p: Mut Lines = call stream::lines(!read opened~5)
-      obligation gain [p]
       obligation release [opened~5]
+      bind#12 let p: Mut Lines = call stream::lines(!read opened~5)
+      obligation gain [p.fields{s}]
       loop#13 {
         bind#14 let __step~7: Str | Finished = call stream::next(Mut Lines)(read streams, read p)
         switch#15 read __step~7 {
@@ -88,23 +88,23 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
           }
         }
       }
+      obligation release [p.fields{s}]
       bind#18 let closed: Ok None | Checked<InvalidUtf8 | StreamFailed> = call stream::close(Lines)(read streams, drop_mut(!read p))
       obligation gain [closed.arms{1}]
-      obligation release [p]
       branch#19 cond#0 check#20 (read closed is arm 1) {
         narrow#21[check#20] closed~9: Checked<InvalidUtf8 | StreamFailed> = closed
         obligation discharge [closed.arms{1}]
         obligation gain [closed~9]
-        call core.console::println(read console, concat("close failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read closed~9))))
         obligation release [closed~9]
+        call core.console::println(read console, concat("close failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read closed~9))))
       }
     }
     arm#1 (arm 1) {
       narrow#22[switch#10.arm#1] opened~10: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = opened
       obligation discharge [opened.arms{0,1}]
       obligation gain [opened~10]
-      call core.console::println(read console, concat("open failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read opened~10))))
       obligation release [opened~10]
+      call core.console::println(read console, concat("open failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read opened~10))))
     }
   }
   bind#23 let out: OutStream | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member fs::Fs#3(read fs, call fs.path::path("notes.txt"))
@@ -114,21 +114,21 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
       narrow#25[switch#24.arm#0] out~11: OutStream = out
       obligation discharge [out.arms{0,1}]
       obligation gain [out~11]
+      obligation release [out~11]
       bind#26 let w: OutStream = !read out~11
       obligation gain [w]
-      obligation release [out~11]
       bind#27 let at: Long = member stream::Streams#11(read streams, read w)
       bind#28 let n: Long = member stream::Streams#9(read streams, read w, "delta")
       call core.console::println(read console, concat("appended ", call core.basic::to_str(Long)(read n), " bytes at offset ", call core.basic::to_str(Long)(read at)))
+      obligation release [w]
       bind#29 let shut: Ok None | Checked<InvalidUtf8 | StreamFailed> = member stream::Streams#13(read streams, !read w)
       obligation gain [shut.arms{1}]
-      obligation release [w]
       branch#30 cond#0 check#31 (read shut is arm 1) {
         narrow#32[check#31] shut~12: Checked<InvalidUtf8 | StreamFailed> = shut
         obligation discharge [shut.arms{1}]
         obligation gain [shut~12]
-        call core.console::println(read console, concat("close failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read shut~12))))
         obligation release [shut~12]
+        call core.console::println(read console, concat("close failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read shut~12))))
       }
       bind#33 let resumed: InStream | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member fs::Fs#1(read fs, call fs.path::path("notes.txt"), read at)
       obligation gain [resumed.arms{0,1}]
@@ -137,9 +137,9 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
           narrow#35[switch#34.arm#0] resumed~13: InStream = resumed
           obligation discharge [resumed.arms{0,1}]
           obligation gain [resumed~13]
+          obligation release [resumed~13]
           bind#36 let s: InStream = !read resumed~13
           obligation gain [s]
-          obligation release [resumed~13]
           bind#37 let line: Str? = member stream::Streams#0(read streams, read s)
           switch#38 read line {
             arm#0 (arm 0) {
@@ -150,23 +150,23 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
               call core.console::println(read console, concat("at ", call core.basic::to_str(Long)(read at), ": end of file"))
             }
           }
+          obligation release [s]
           bind#40 let done: Ok None | Checked<InvalidUtf8 | StreamFailed> = member stream::Streams#7(read streams, !read s)
           obligation gain [done.arms{1}]
-          obligation release [s]
           branch#41 cond#0 check#42 (read done is arm 1) {
             narrow#43[check#42] done~15: Checked<InvalidUtf8 | StreamFailed> = done
             obligation discharge [done.arms{1}]
             obligation gain [done~15]
-            call core.console::println(read console, concat("close failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read done~15))))
             obligation release [done~15]
+            call core.console::println(read console, concat("close failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read done~15))))
           }
         }
         arm#1 (arm 1) {
           narrow#44[switch#34.arm#1] resumed~16: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = resumed
           obligation discharge [resumed.arms{0,1}]
           obligation gain [resumed~16]
-          call core.console::println(read console, concat("reopen failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read resumed~16))))
           obligation release [resumed~16]
+          call core.console::println(read console, concat("reopen failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read resumed~16))))
         }
       }
     }
@@ -174,8 +174,8 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
       narrow#45[switch#24.arm#1] out~17: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = out
       obligation discharge [out.arms{0,1}]
       obligation gain [out~17]
-      call core.console::println(read console, concat("append failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read out~17))))
       obligation release [out~17]
+      call core.console::println(read console, concat("append failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read out~17))))
     }
   }
   bind#46 let bin: OutStream | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member fs::Fs#2(read fs, call fs.path::path("raw.bin"))
@@ -185,30 +185,30 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
       narrow#48[switch#47.arm#0] bin~18: OutStream = bin
       obligation discharge [bin.arms{0,1}]
       obligation gain [bin~18]
+      obligation release [bin~18]
       bind#49 let w: OutStream = !read bin~18
       obligation gain [w]
-      obligation release [bin~18]
       bind#50 let data: Bytes = call core.bytes::bytes_of(array[Byte[]](call core.basic::to_byte(0), call core.basic::to_byte(255), call core.basic::to_byte(200)))
       bind#51 let n: Long = member stream::Streams#10(read streams, read w, read data)
       bind#52 let m: Long = member stream::Streams#8(read streams, read w, "hé")
       call core.console::println(read console, concat("wrote ", call core.basic::to_str(Long)(read n), " raw bytes and ", call core.basic::to_str(Long)(read m), " encoded"))
+      obligation release [w]
       bind#53 let shut: Ok None | Checked<InvalidUtf8 | StreamFailed> = member stream::Streams#13(read streams, !read w)
       obligation gain [shut.arms{1}]
-      obligation release [w]
       branch#54 cond#0 check#55 (read shut is arm 1) {
         narrow#56[check#55] shut~19: Checked<InvalidUtf8 | StreamFailed> = shut
         obligation discharge [shut.arms{1}]
         obligation gain [shut~19]
-        call core.console::println(read console, concat("close failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read shut~19))))
         obligation release [shut~19]
+        call core.console::println(read console, concat("close failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read shut~19))))
       }
     }
     arm#1 (arm 1) {
       narrow#57[switch#47.arm#1] bin~20: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = bin
       obligation discharge [bin.arms{0,1}]
       obligation gain [bin~20]
-      call core.console::println(read console, concat("raw open failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read bin~20))))
       obligation release [bin~20]
+      call core.console::println(read console, concat("raw open failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read bin~20))))
     }
   }
   bind#58 let raw: InStream | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member fs::Fs#0(read fs, call fs.path::path("raw.bin"))
@@ -218,9 +218,9 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
       narrow#60[switch#59.arm#0] raw~21: InStream = raw
       obligation discharge [raw.arms{0,1}]
       obligation gain [raw~21]
+      obligation release [raw~21]
       bind#61 let s: InStream = !read raw~21
       obligation gain [s]
-      obligation release [raw~21]
       bind#62 let head: Bytes | Checked<InvalidUtf8 | StreamFailed> = member stream::Streams#2(read streams, read s, 3)
       obligation gain [head.arms{1}]
       switch#63 read head {
@@ -233,8 +233,8 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
           narrow#65[switch#63.arm#1] head~23: Checked<InvalidUtf8 | StreamFailed> = head
           obligation discharge [head.arms{1}]
           obligation gain [head~23]
-          call core.console::println(read console, concat("byte read failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read head~23))))
           obligation release [head~23]
+          call core.console::println(read console, concat("byte read failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read head~23))))
         }
       }
       bind#66 let tail: Str | Checked<InvalidUtf8 | StreamFailed> = member stream::Streams#1(read streams, read s)
@@ -249,27 +249,27 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
           narrow#69[switch#67.arm#1] tail~25: Checked<InvalidUtf8 | StreamFailed> = tail
           obligation discharge [tail.arms{1}]
           obligation gain [tail~25]
-          call core.console::println(read console, concat("decode failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read tail~25))))
           obligation release [tail~25]
+          call core.console::println(read console, concat("decode failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read tail~25))))
         }
       }
+      obligation release [s]
       bind#70 let done: Ok None | Checked<InvalidUtf8 | StreamFailed> = member stream::Streams#7(read streams, !read s)
       obligation gain [done.arms{1}]
-      obligation release [s]
       branch#71 cond#0 check#72 (read done is arm 1) {
         narrow#73[check#72] done~26: Checked<InvalidUtf8 | StreamFailed> = done
         obligation discharge [done.arms{1}]
         obligation gain [done~26]
-        call core.console::println(read console, concat("close failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read done~26))))
         obligation release [done~26]
+        call core.console::println(read console, concat("close failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read done~26))))
       }
     }
     arm#1 (arm 1) {
       narrow#74[switch#59.arm#1] raw~27: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = raw
       obligation discharge [raw.arms{0,1}]
       obligation gain [raw~27]
-      call core.console::println(read console, concat("raw read failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read raw~27))))
       obligation release [raw~27]
+      call core.console::println(read console, concat("raw read failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read raw~27))))
     }
   }
   bind#75 let split: InStream | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member fs::Fs#1(read fs, call fs.path::path("raw.bin"), 5L)
@@ -279,9 +279,9 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
       narrow#77[switch#76.arm#0] split~28: InStream = split
       obligation discharge [split.arms{0,1}]
       obligation gain [split~28]
+      obligation release [split~28]
       bind#78 let s: InStream = !read split~28
       obligation gain [s]
-      obligation release [split~28]
       bind#79 let broken: Str | Checked<InvalidUtf8 | StreamFailed> = member stream::Streams#1(read streams, read s)
       obligation gain [broken.arms{1}]
       switch#80 read broken {
@@ -294,13 +294,13 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
           narrow#82[switch#80.arm#1] broken~30: Checked<InvalidUtf8 | StreamFailed> = broken
           obligation discharge [broken.arms{1}]
           obligation gain [broken~30]
-          call core.console::println(read console, concat("mid-character: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read broken~30))))
           obligation release [broken~30]
+          call core.console::println(read console, concat("mid-character: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read broken~30))))
         }
       }
+      obligation release [s]
       bind#83 let done: Ok None | Checked<InvalidUtf8 | StreamFailed> = member stream::Streams#7(read streams, !read s)
       obligation gain [done.arms{1}]
-      obligation release [s]
       switch#84 read done {
         arm#0 (arm 0) {
           narrow#85[switch#84.arm#0] done~31: Ok None = done
@@ -311,8 +311,8 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
           narrow#86[switch#84.arm#1] done~32: Checked<InvalidUtf8 | StreamFailed> = done
           obligation discharge [done.arms{1}]
           obligation gain [done~32]
-          call core.console::println(read console, concat("and again at close: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read done~32))))
           obligation release [done~32]
+          call core.console::println(read console, concat("and again at close: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read done~32))))
         }
       }
     }
@@ -320,8 +320,8 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
       narrow#87[switch#76.arm#1] split~33: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = split
       obligation discharge [split.arms{0,1}]
       obligation gain [split~33]
-      call core.console::println(read console, concat("split open failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read split~33))))
       obligation release [split~33]
+      call core.console::println(read console, concat("split open failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read split~33))))
     }
   }
   bind#88 let held: InStream | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member fs::Fs#0(read fs, call fs.path::path("raw.bin"))
@@ -331,9 +331,9 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
       narrow#90[switch#89.arm#0] held~34: InStream = held
       obligation discharge [held.arms{0,1}]
       obligation gain [held~34]
+      obligation release [held~34]
       bind#91 let s: InStream = !read held~34
       obligation gain [s]
-      obligation release [held~34]
       bind#92 let buf: Mut Bytes = call core.bytes::mut_bytes(array[Bytes[]]())
       bind#93 let steps: Int = 0
       bind#94 let moved: Int = 0
@@ -361,30 +361,30 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
             narrow#103[switch#99.arm#1] got~36: Checked<InvalidUtf8 | StreamFailed> = got
             obligation discharge [got.arms{1}]
             obligation gain [got~36]
-            call core.console::println(read console, concat("fill failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read got~36))))
             obligation release [got~36]
+            call core.console::println(read console, concat("fill failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read got~36))))
             assign reading = false
           }
         }
       }
       call core.console::println(read console, concat("filled ", call core.basic::to_str(Int)(read moved), " bytes in ", call core.basic::to_str(Int)(read steps), " reads, one buffer"))
+      obligation release [s]
       bind#104 let done: Ok None | Checked<InvalidUtf8 | StreamFailed> = member stream::Streams#7(read streams, !read s)
       obligation gain [done.arms{1}]
-      obligation release [s]
       branch#105 cond#0 check#106 (read done is arm 1) {
         narrow#107[check#106] done~37: Checked<InvalidUtf8 | StreamFailed> = done
         obligation discharge [done.arms{1}]
         obligation gain [done~37]
-        call core.console::println(read console, concat("close failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read done~37))))
         obligation release [done~37]
+        call core.console::println(read console, concat("close failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read done~37))))
       }
     }
     arm#1 (arm 1) {
       narrow#108[switch#89.arm#1] held~38: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = held
       obligation discharge [held.arms{0,1}]
       obligation gain [held~38]
-      call core.console::println(read console, concat("fill open failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read held~38))))
       obligation release [held~38]
+      call core.console::println(read console, concat("fill open failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read held~38))))
     }
   }
   bind#109 let lined: InStream | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member fs::Fs#0(read fs, call fs.path::path("notes.txt"))
@@ -394,9 +394,9 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
       narrow#111[switch#110.arm#0] lined~39: InStream = lined
       obligation discharge [lined.arms{0,1}]
       obligation gain [lined~39]
+      obligation release [lined~39]
       bind#112 let s: InStream = !read lined~39
       obligation gain [s]
-      obligation release [lined~39]
       bind#113 let line: Mut Str = call core.string::mut_str(array[Str[]]())
       bind#114 let longest: Int = 0
       bind#115 let reading: Bool = true
@@ -414,23 +414,23 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
         }
       }
       call core.console::println(read console, concat("longest line: ", call core.basic::to_str(Int)(read longest), " characters"))
+      obligation release [s]
       bind#120 let done: Ok None | Checked<InvalidUtf8 | StreamFailed> = member stream::Streams#7(read streams, !read s)
       obligation gain [done.arms{1}]
-      obligation release [s]
       branch#121 cond#0 check#122 (read done is arm 1) {
         narrow#123[check#122] done~40: Checked<InvalidUtf8 | StreamFailed> = done
         obligation discharge [done.arms{1}]
         obligation gain [done~40]
-        call core.console::println(read console, concat("close failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read done~40))))
         obligation release [done~40]
+        call core.console::println(read console, concat("close failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read done~40))))
       }
     }
     arm#1 (arm 1) {
       narrow#124[switch#110.arm#1] lined~41: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = lined
       obligation discharge [lined.arms{0,1}]
       obligation gain [lined~41]
-      call core.console::println(read console, concat("lines open failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read lined~41))))
       obligation release [lined~41]
+      call core.console::println(read console, concat("lines open failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read lined~41))))
     }
   }
   bind#125 let ch: Mut Chunks | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = call fs::open_chunks(read fs, read streams, call fs.path::path("raw.bin"), 4)
@@ -439,10 +439,10 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
     arm#0 (arm 0) {
       narrow#127[switch#126.arm#0] ch~42: Mut Chunks = ch
       obligation discharge [ch.arms{0,1}]
-      obligation gain [ch~42]
+      obligation gain [ch~42.fields{s}]
+      obligation release [ch~42.fields{s}]
       bind#128 let p: Mut Chunks = !read ch~42
-      obligation gain [p]
-      obligation release [ch~42]
+      obligation gain [p.fields{s}]
       bind#129 let seen: Int = 0
       loop#130 {
         bind#131 let __step~44: Bytes | Finished = call stream::next(Mut Chunks)(read streams, read p)
@@ -458,23 +458,23 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
         }
       }
       call core.console::println(read console, concat("chunks saw ", call core.basic::to_str(Int)(read seen), " bytes"))
+      obligation release [p.fields{s}]
       bind#135 let done: Ok None | Checked<InvalidUtf8 | StreamFailed> = call stream::close(Chunks)(read streams, drop_mut(!read p))
       obligation gain [done.arms{1}]
-      obligation release [p]
       branch#136 cond#0 check#137 (read done is arm 1) {
         narrow#138[check#137] done~46: Checked<InvalidUtf8 | StreamFailed> = done
         obligation discharge [done.arms{1}]
         obligation gain [done~46]
-        call core.console::println(read console, concat("close failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read done~46))))
         obligation release [done~46]
+        call core.console::println(read console, concat("close failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read done~46))))
       }
     }
     arm#1 (arm 1) {
       narrow#139[switch#126.arm#1] ch~47: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = ch
       obligation discharge [ch.arms{0,1}]
       obligation gain [ch~47]
-      call core.console::println(read console, concat("chunks failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read ch~47))))
       obligation release [ch~47]
+      call core.console::println(read console, concat("chunks failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read ch~47))))
     }
   }
   bind#140 let copied: Long | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = call fs::copy_file(read fs, read streams, call fs.path::path("notes.txt"), call fs.path::path("notes-copy.txt"))
@@ -489,8 +489,8 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
       narrow#143[switch#141.arm#1] copied~49: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = copied
       obligation discharge [copied.arms{1}]
       obligation gain [copied~49]
-      call core.console::println(read console, concat("copy failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read copied~49))))
       obligation release [copied~49]
+      call core.console::println(read console, concat("copy failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read copied~49))))
     }
   }
   bind#144 let whole: Bytes | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = call fs::read_to_bytes(read fs, read streams, call fs.path::path("raw.bin"))
@@ -505,8 +505,8 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
       narrow#147[switch#145.arm#1] whole~51: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = whole
       obligation discharge [whole.arms{1}]
       obligation gain [whole~51]
-      call core.console::println(read console, concat("byte read failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read whole~51))))
       obligation release [whole~51]
+      call core.console::println(read console, concat("byte read failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read whole~51))))
     }
   }
   bind#148 let failures: Mut List<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = call core.list::mut_list_of()<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>()
@@ -522,8 +522,8 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
       narrow#152[switch#150.arm#1] missing~53: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = missing
       obligation discharge [missing.arms{1}]
       obligation gain [missing~53]
-      call core.list::add<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(read failures, call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read missing~53))
       obligation release [missing~53]
+      call core.list::add<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(read failures, call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read missing~53))
     }
   }
   bind#153 let not_a_dir: List<Str> | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member fs::Fs#6(read fs, call fs.path::path("notes.txt"))
@@ -538,8 +538,8 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
       narrow#156[switch#154.arm#1] not_a_dir~55: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = not_a_dir
       obligation discharge [not_a_dir.arms{1}]
       obligation gain [not_a_dir~55]
-      call core.list::add<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(read failures, call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read not_a_dir~55))
       obligation release [not_a_dir~55]
+      call core.list::add<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(read failures, call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read not_a_dir~55))
     }
   }
   call core.console::println(read console, concat("failures: ", call core.basic::to_str(Int)(call core.list::size<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(drop_mut(read failures)))))
@@ -553,8 +553,8 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
       narrow#162[check#161] gone~56: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = gone
       obligation discharge [gone.arms{1}]
       obligation gain [gone~56]
-      call core.console::println(read console, concat("delete failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read gone~56))))
       obligation release [gone~56]
+      call core.console::println(read console, concat("delete failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read gone~56))))
     }
   }
   call core.console::println(read console, "cleaned up")
@@ -573,8 +573,8 @@ fn main::sandbox_edges(lent fs: Fs, lent console: Console, lent streams: Streams
       narrow#4[switch#2.arm#1] inside~2: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = inside
       obligation discharge [inside.arms{1}]
       obligation gain [inside~2]
-      call core.console::println(read console, concat("through `..`: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read inside~2))))
       obligation release [inside~2]
+      call core.console::println(read console, concat("through `..`: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read inside~2))))
     }
   }
   bind#5 let up: Str | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = call fs::read_to_str(read fs, read streams, call fs.path::path("../secret.txt"))
@@ -589,8 +589,8 @@ fn main::sandbox_edges(lent fs: Fs, lent console: Console, lent streams: Streams
       narrow#8[switch#6.arm#1] up~4: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = up
       obligation discharge [up.arms{1}]
       obligation gain [up~4]
-      call core.console::println(read console, concat("climbing out: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read up~4))))
       obligation release [up~4]
+      call core.console::println(read console, concat("climbing out: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read up~4))))
     }
   }
   bind#9 let absolute: Str | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = call fs::read_to_str(read fs, read streams, call fs.path::path("/etc/hosts"))
@@ -605,8 +605,8 @@ fn main::sandbox_edges(lent fs: Fs, lent console: Console, lent streams: Streams
       narrow#12[switch#10.arm#1] absolute~6: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = absolute
       obligation discharge [absolute.arms{1}]
       obligation gain [absolute~6]
-      call core.console::println(read console, concat("absolute path: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read absolute~6))))
       obligation release [absolute~6]
+      call core.console::println(read console, concat("absolute path: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read absolute~6))))
     }
   }
   bind#13 let probe: Path = call fs.path::path("probe.txt")
@@ -617,8 +617,8 @@ fn main::sandbox_edges(lent fs: Fs, lent console: Console, lent streams: Streams
     narrow#17[check#16] gone~7: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = gone
     obligation discharge [gone.arms{1}]
     obligation gain [gone~7]
-    call core.console::println(read console, concat("delete failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read gone~7))))
     obligation release [gone~7]
+    call core.console::println(read console, concat("delete failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read gone~7))))
   }
 }
 
@@ -640,8 +640,8 @@ fn main::main() -> None {
     narrow#15[check#14] made~11: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = made
     obligation discharge [made.arms{1}]
     obligation gain [made~11]
-    call core.console::println(read __handle~2, concat("cannot create the working directory: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read made~11))))
     obligation release [made~11]
+    call core.console::println(read __handle~2, concat("cannot create the working directory: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read made~11))))
     return none[None]
   }
   call core.console::println(read __handle~2, "-- the real filesystem, scoped to one directory --")
@@ -657,8 +657,8 @@ fn main::main() -> None {
     narrow#22[check#21] gone~14: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = gone
     obligation discharge [gone.arms{1}]
     obligation gain [gone~14]
-    call core.console::println(read __handle~2, concat("cleanup failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read gone~14))))
     obligation release [gone~14]
+    call core.console::println(read __handle~2, concat("cleanup failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read gone~14))))
   }
   call core.console::println(read __handle~2, "-- the same code, with no disk at all --")
   branch#23 cond#0 true {

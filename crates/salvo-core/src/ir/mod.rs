@@ -44,12 +44,22 @@ pub fn dump_program(
     // it is inserted only here (and before `ir::check`), never in the IR the
     // backends consume.
     obligations::annotate(&mut ir, &symbols);
+    let diags = check::check(&ir);
     let mut text = String::new();
     for m in &ir.modules {
         if !text.is_empty() {
             text.push('\n');
         }
         text.push_str(&dump::Dumper::module(&ir, m));
+    }
+    // [ir-linear-check] D4b: `salvo ir` dumps even an invalid program and
+    // reports each linear leak inline as `!!! <error>`, exit 0 — the dump is a
+    // debugging view; `salvo build` is what fails (D4a).
+    if !diags.is_empty() {
+        text.push_str("\n");
+        for d in &diags {
+            text.push_str(&format!("!!! {}: {}\n", d.span.start, d.message));
+        }
     }
     Ok((text, errors))
 }

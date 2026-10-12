@@ -112,24 +112,51 @@ pub fn linear_arms(symbols: &Symbols, own: &HashSet<String>, ty: &Ty) -> Option<
 pub fn linear_fields(symbols: &Symbols, own: &HashSet<String>, ty: &Ty) -> Vec<String> {
     let Ty::Named { name, args } = ty.strip_quals() else { return Vec::new() };
     let Some(s) = symbols.structs.get(name.as_str()) else { return Vec::new() };
+    let generic_names: HashSet<&str> = s.generics.iter().map(|g| g.name.as_str()).collect();
     let subst: std::collections::HashMap<String, Ty> = s.generics.iter().map(|g| g.name.clone()).zip(args.iter().cloned()).collect();
     s.fields
         .iter()
-        .filter(|f| {
-            if let Some(gname) = bare_generic_name(&f.ty) {
-                if let Some(arg) = subst.get(&gname) {
-                    return ty_own_linear(symbols, own, arg);
-                }
-                return own.contains(&gname);
-            }
-            crate::approx_ty(&f.ty, &subst).is_some_and(|t| ty_own_linear(symbols, own, &t))
-        })
+        .filter(|f| field_ty_linear(symbols, own, &f.ty, &subst, &generic_names))
         .map(|f| f.name.name.clone())
         .collect()
 }
 
-/// The name of a type that is a bare generic reference (`T`), if it is one.
-fn bare_generic_name(t: &salvo_syntax::ast::Type) -> Option<String> {
+/// Whether a struct field's written type carries a linear obligation, handling
+/// a bare generic parameter (via the instantiation or the enclosing fn's
+/// opt-ins) and a union field arm-by-arm (so one unresolvable arm does not
+/// hide a linear one).
+fn field_ty_linear(symbols: &Symbols, own: &HashSet<String>, t: &salvo_syntax::ast::Type, subst: &std::collections::HashMap<String, Ty>, generics: &HashSet<&str>) -> bool {
+    use salvo_syntax::ast::Type;
+    match t {
+        Type::Union { arms, .. } => arms.iter().any(|a| field_ty_linear(symbols, own, a, subst, generics)),
+        Type::Nullable { inner, .. } => field_ty_linear(symbols, own, inner, subst, generics),
+        Type::QualifiedGroup { base, .. } => field_ty_linear(symbols, own, base, subst, generics),
+        _ => {
+            if let Some(gname) = bare_name(t).filter(|n| generics.contains(n.as_str())) {
+                return match subst.get(&gname) {
+                    Some(arg) => ty_own_linear(symbols, own, arg),
+                    None => own.contains(&gname),
+                };
+            }
+            // Expand a type alias (`Target = ToActor | ToWaiter | ToTask`) so a
+            // field written at the alias is tested against its definition.
+            if let Some(name) = bare_name(t) {
+                if let Some(alias) = symbols.type_aliases.get(name.as_str()) {
+                    if let Some(def) = &alias.alias {
+                        if alias.generics.is_empty() {
+                            return field_ty_linear(symbols, own, def, subst, generics);
+                        }
+                    }
+                }
+            }
+            crate::approx_ty(t, subst).is_some_and(|ty| ty_own_linear(symbols, own, &ty))
+        }
+    }
+}
+
+/// The name of an argument-less, unqualified named type reference, generic or
+/// not; the caller decides whether it is a generic parameter.
+fn bare_name(t: &salvo_syntax::ast::Type) -> Option<String> {
     match t {
         salvo_syntax::ast::Type::Named { qualifiers, base } if qualifiers.is_empty() && base.args.is_empty() => Some(base.name.name.clone()),
         _ => None,

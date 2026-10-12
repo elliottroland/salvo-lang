@@ -354,17 +354,18 @@ new decision is needed from the user. Spec labels to add as they land:
   - **Generic container fields:** `linear_fields` resolves a field's bare
     generic type through the struct's instantiation (fixed `detach`).
 
-  **Remaining ~45 are the hard interprocedural/aliasing cases**, concentrated
-  in the actor runtime scheduler (`runtime::*`) — re-gained-then-moved fields,
-  multi-field decomposition interleaved with whole-value moves. Tracked by the
-  `#[ignore]`d harness `crates/salvo-core/tests/ir_linear_falsepos.rs`
-  (`cargo test -p salvo-core --test ir_linear_falsepos -- --ignored`). The
-  check stays **unwired** (no gate) until this reaches zero — the AST checker
-  remains the enforcer, so nothing regresses, and #2 is visible in the dump but
-  not yet a build error. Next: continue the per-path analysis (the oscillation
-  at ~17–45 suggests the container whole-vs-field settlement interaction and
-  the join across re-gained fields need a cleaner model), then wire the gate
-  (D4a) and the `salvo ir` `!!!` annotation (D4b).
+  **Remaining 7 are one coherent cluster** (down from ~45 after fixing a
+  `bare_name` bug that misread any argument-less named type as a generic, and
+  after making `break`/`continue` leave only the *loop* — reporting obligations
+  gained inside the loop, not those inherited and settled after it). All 7 are
+  in the actor runtime (`runtime::*`) and share a root cause: a **struct field
+  whose type is a union with linear arms** (e.g. `Token { target: ToActor |
+  ToWaiter | ToTask }` where `ToTask` is linear). The AST-based
+  `linear::linear_fields`/`approx_ty` does not resolve such a field's union
+  linearity, so the container's `container_fields` misses it and decomposition
+  never settles the container. The fix is to compute a field's linearity from
+  the IR builder's already-resolved `StructDecl.fields` types rather than
+  re-approximating from the AST — a clean next step. Tracked by the harness.
 
 - **2026-10-12 — Phase 1 implementation finding: the balance must be
   per-arm and path-sensitive, and Gain must fire on synthetic bindings.**

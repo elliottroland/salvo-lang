@@ -9503,6 +9503,29 @@ replaced the working document TESTING.md).
   operation parenthesized, and a unary operand too unless it is a binary
   operation, so `!(read x)` never reads as `!read x` (user request
   2026-10-06).
+* [ir-obligation] The IR carries a **linear-obligation ledger** as `Obligation`
+  directive statements, inserted by a pass (`salvo_core::ir::obligations`) over
+  the built IR — but only on the dump/check path, never in the IR a backend
+  emits, since the directives would perturb a backend's statement-shape
+  analysis. One directive marks each of the four points where a fn's
+  outstanding-obligation set changes (user decision 2026-10-12, IR_CHECKER.md
+  D3): `GainParams` (linear parameters moved in), `Gain` (a binding of a linear
+  value — including a synthetic one, with its linear union *arms* named),
+  `Release` (a consuming read moves the value on), and `Discharge` (a `Narrow`
+  proves a linear arm absent, or a value is settled in place). A linear struct
+  is settled by **decomposition** — moving out all its linear fields; a borrow
+  (`ref`/`proj`, and a lent parameter) owes nothing. The dump shows the ledger,
+  which is what makes the reasoning auditable.
+* [ir-linear-check] The IR-level linear check (`salvo_core::ir::check`) is a
+  **per-path balance** over the ledger and the `Branch`/`Switch` control flow
+  (user decision 2026-10-12): an obligation — or a still-possible linear union
+  arm — outstanding when a path leaves (`return`/fall-through off the body; a
+  `break`/`continue` leaves only the loop, so only obligations gained inside it
+  count) is a leak. It catches what the AST checker's sugar-by-sugar flow
+  analysis misses — a linear union arm an elvis pick discards (noticeboard #2) —
+  and reports zero leaks on all known-good std and example code. `salvo ir`
+  prints each leak inline as `!!! <error>` and still exits 0; the hard build
+  gate (and deleting the AST-side enforcement) is the next phase.
 
 ## Comments and documentation
 

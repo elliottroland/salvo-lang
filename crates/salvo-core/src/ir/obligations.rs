@@ -43,7 +43,10 @@ pub fn annotate(program: &mut Program, symbols: &Symbols) {
 fn annotate_fn(f: &mut FnDecl, symbols: &Symbols) {
     let own: HashSet<String> = f.type_params.iter().filter(|p| p.canbe_linear).map(|p| p.name.clone()).collect();
     let Some(body) = &mut f.body else { return };
-    let a = Annotator { symbols, own: &own };
+    // [ref-handle] Parameters not moved in (lent/kept) are borrows: a narrow
+    // of one carries no obligation, however linear its type.
+    let borrowed: HashSet<String> = f.params.iter().filter(|p| p.mode != PassMode::Moved).map(|p| p.local.0.clone()).collect();
+    let a = Annotator { symbols, own: &own, borrowed: &borrowed };
 
     // [ir-obligation] GainParams: declared params (not effects/implicits)
     // that are linear and moved into the fn. A lent/kept parameter's
@@ -65,15 +68,19 @@ fn annotate_fn(f: &mut FnDecl, symbols: &Symbols) {
 struct Annotator<'a, 'p> {
     symbols: &'a Symbols<'p>,
     own: &'a HashSet<String>,
+    borrowed: &'a HashSet<String>,
 }
 
 impl Annotator<'_, '_> {
     fn is_linear(&self, ty: &Ty) -> bool {
-        // [proj-type] [ref-handle] A borrow (`proj`/`ref`) carries no
-        // obligation — it is a view into a value owned elsewhere, like the
-        // checker's `links` fate.
+        // [proj-type] [ref-handle] A borrow carries no obligation — neither a
+        // whole `ref`/`proj` value nor a union all of whose linear arms are
+        // borrows (`ref X?` = `ref X | None`).
         if ty.is_proj() {
             return false;
+        }
+        if matches!(ty.strip_quals(), Ty::Union(_)) {
+            return linear_arms(self.symbols, self.own, ty).is_some();
         }
         ty_own_linear(self.symbols, self.own, ty)
     }
@@ -112,7 +119,9 @@ impl Annotator<'_, '_> {
             // narrowed local gains whatever is still linear. A narrow to a
             // wholly non-linear type is a pure discharge of the source.
             if let Stmt::Narrow { local, ty, from, from_ty, .. } = &s {
-                let from_linear = self.is_linear(from_ty);
+                // A narrow of a borrowed value (a lent/kept parameter, or a
+                // view) transfers no obligation: it is a borrow of a borrow.
+                let from_linear = self.is_linear(from_ty) && !self.borrowed.contains(&from.root.0);
                 out.push(s.clone());
                 if from_linear {
                     let dref = self.ref_of(from.clone(), from_ty);
@@ -126,27 +135,32 @@ impl Annotator<'_, '_> {
             }
 
             // A leaving statement (`return`/`break`/`continue`) consumes
-            // *before* it leaves, so Release precedes it; every other
-            // statement's effects follow it, in evaluation order.
+            // *before* it leaves; and a consuming read inside a branch
+            // condition or switch subject is evaluated before the fork — so a
+            // statement's releases always precede it, while a `Gain` (a new
+            // binding) follows it.
             let leaves = matches!(s, Stmt::Return(_) | Stmt::Break | Stmt::Continue);
-            if leaves {
-                if !releases.is_empty() {
-                    out.push(Stmt::Obligation(Obligation { kind: ObligationKind::Release, refs: releases, span }));
-                }
-                out.push(s);
-            } else {
-                out.push(s);
+            if !releases.is_empty() {
+                out.push(Stmt::Obligation(Obligation { kind: ObligationKind::Release, refs: releases, span }));
+            }
+            out.push(s);
+            if !leaves {
                 if let Some(refs) = gain {
                     out.push(Stmt::Obligation(Obligation { kind: ObligationKind::Gain, refs, span }));
-                }
-                if !releases.is_empty() {
-                    out.push(Stmt::Obligation(Obligation { kind: ObligationKind::Release, refs: releases, span }));
                 }
             }
         }
         block.stmts = out;
         if let Some(v) = &mut block.value {
             self.recurse_expr(v);
+            // A consuming read in the block's tail value releases here — the
+            // value (and its obligation) flows out to whatever uses the block.
+            let mut refs = Vec::new();
+            walk_expr(v, &mut |e| self.collect_consumes(e, &mut refs));
+            if !refs.is_empty() {
+                let span = v.span;
+                block.stmts.push(Stmt::Obligation(Obligation { kind: ObligationKind::Release, refs, span }));
+            }
         }
     }
 
@@ -312,6 +326,16 @@ fn walk_expr(e: &Expr, f: &mut impl FnMut(&Expr)) {
             }
         }
         ExprKind::UnionToStr { value, .. } | ExprKind::AddrInstance { addr: value } | ExprKind::Handle { instance: value } => walk_expr(value, f),
+        // A branch's conditions and a switch's subject are evaluated on the
+        // *current* path (before the fork), so their consuming reads release
+        // here. Arm bodies are separate paths, handled by `block` recursion —
+        // do not descend into them.
+        ExprKind::Branch { arms, .. } => {
+            for (cond, _body) in arms {
+                walk_expr(cond, f);
+            }
+        }
+        ExprKind::Switch { subject, .. } => walk_expr(subject, f),
         _ => {}
     }
 }

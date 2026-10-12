@@ -16,8 +16,8 @@ fn main::open_file(lent console: Console; moved name: Str) -> FileHandle {
 fn main::close(lent console: Console; moved handle: FileHandle) -> None {
   obligation gain-params [handle]
   call core.console::println(read console, concat("1. close ", read handle.name))
-  call core.basic::discard<FileHandle>(!read handle)
   obligation release [handle]
+  call core.basic::discard<FileHandle>(!read handle)
 }
 
 fn main::read_size(lent console: Console; moved name: Str, lent want: Int) -> Int {
@@ -26,12 +26,12 @@ fn main::read_size(lent console: Console; moved name: Str, lent want: Int) -> In
   obligation gain [handle]
   branch#3 cond#0 (read want > read there_is) {
     call core.console::println(read console, "1. asked for more than there is")
-    call main::close(read console, !read handle)
     obligation release [handle]
+    call main::close(read console, !read handle)
     return !read there_is
   }
-  call main::close(read console, !read handle)
   obligation release [handle]
+  call main::close(read console, !read handle)
   return read want
 }
 
@@ -57,8 +57,8 @@ fn main::port_from_file(lent console: Console; moved name: Str, lent text: Str) 
   bind#1 let handle: FileHandle = call main::open_file(read console, !read name)
   obligation gain [handle]
   bind#2 let from: Str = call core.basic::copy<Str>(read handle.name)
-  call main::close(read console, !read handle)
   obligation release [handle]
+  call main::close(read console, !read handle)
   call core.console::println(read console, concat("2. reading a port out of ", read from))
   return call main::parse_port(read text)
 }

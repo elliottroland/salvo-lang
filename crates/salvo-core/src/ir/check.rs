@@ -32,6 +32,9 @@ pub fn check(program: &Program) -> Vec<IrDiagnostic> {
             out.extend(check_one(decl));
         }
     }
+    // A leak reachable by more than one walk path reports once.
+    out.sort_by(|a, b| (a.span.start, &a.message).cmp(&(b.span.start, &b.message)));
+    out.dedup_by(|a, b| a.span.start == b.span.start && a.message == b.message);
     out
 }
 
@@ -75,7 +78,7 @@ type Owed = BTreeMap<Key, Outstanding>;
 fn check_fn(f: &FnDecl, out: &mut Vec<IrDiagnostic>) {
     let Some(body) = &f.body else { return };
     let mut owed = Owed::new();
-    let flow = walk_block(body, &mut owed, out);
+    let flow = walk_block(body, &mut owed, None, out);
     // Fall-through off the end of the body: anything still owed leaks.
     if flow == Flow::FallsThrough {
         report_all(&owed, out, body.span);
@@ -91,30 +94,42 @@ enum Flow {
 }
 
 /// Walk a block's statements, updating `owed` for the fall-through path and
-/// returning whether the block falls through or leaves. Branch/switch arms are
-/// checked independently; their fall-through states are joined.
-fn walk_block(block: &Block, owed: &mut Owed, out: &mut Vec<IrDiagnostic>) -> Flow {
+/// returning whether the block falls through or leaves. `loop_base` is the
+/// obligation set at the nearest enclosing loop entry: a `break`/`continue`
+/// leaves the *loop*, not the fn, so only obligations gained *within* the loop
+/// (not in `loop_base`) leak there; `return` and fn-body fall-through leak
+/// everything. Branch/switch arms are checked independently and joined.
+fn walk_block(block: &Block, owed: &mut Owed, loop_base: Option<&Owed>, out: &mut Vec<IrDiagnostic>) -> Flow {
     for s in &block.stmts {
         match s {
             Stmt::Obligation(o) => apply(o, owed),
-            Stmt::Return(_) => {
-                // A return leaves the fn: nothing may be outstanding.
+            Stmt::Return(value) => {
+                // The returned expression is evaluated first (its own
+                // branches/switches may gain, release, and leak); then the
+                // return leaves the fn with nothing allowed outstanding.
+                if let Some(e) = value {
+                    if walk_expr(e, owed, loop_base, out) == Flow::Leaves {
+                        return Flow::Leaves;
+                    }
+                }
                 report_all(owed, out, stmt_span(s));
                 return Flow::Leaves;
             }
             Stmt::Break | Stmt::Continue => {
-                report_all(owed, out, stmt_span(s));
+                // Leaves the loop: only obligations gained inside the loop leak.
+                report_since(owed, loop_base, out, stmt_span(s));
                 return Flow::Leaves;
             }
             Stmt::Loop { body, .. } | Stmt::ForEach { body, .. } => {
-                // A loop body is its own path; what it owes at its edges must
-                // settle there. It does not change the enclosing fall-through
-                // set (a `break value` carries no obligation).
+                // The loop body is its own path, entered with the current set
+                // as its loop base; its fall-through (loop end) does not change
+                // the enclosing set, and a `break value` carries no obligation.
                 let mut inner = owed.clone();
-                let _ = walk_block(body, &mut inner, out);
+                let base = owed.clone();
+                let _ = walk_block(body, &mut inner, Some(&base), out);
             }
             Stmt::Let { value, .. } | Stmt::Assign { value, .. } | Stmt::Expr(value) => {
-                if walk_expr(value, owed, out) == Flow::Leaves {
+                if walk_expr(value, owed, loop_base, out) == Flow::Leaves {
                     return Flow::Leaves;
                 }
             }
@@ -122,7 +137,7 @@ fn walk_block(block: &Block, owed: &mut Owed, out: &mut Vec<IrDiagnostic>) -> Fl
         }
     }
     if let Some(v) = &block.value {
-        if walk_expr(v, owed, out) == Flow::Leaves {
+        if walk_expr(v, owed, loop_base, out) == Flow::Leaves {
             return Flow::Leaves;
         }
     }
@@ -131,7 +146,7 @@ fn walk_block(block: &Block, owed: &mut Owed, out: &mut Vec<IrDiagnostic>) -> Fl
 
 /// Walk an expression for the control flow it contains (branch/switch arms,
 /// which fork the obligation set) and the escape it may perform.
-fn walk_expr(e: &Expr, owed: &mut Owed, out: &mut Vec<IrDiagnostic>) -> Flow {
+fn walk_expr(e: &Expr, owed: &mut Owed, loop_base: Option<&Owed>, out: &mut Vec<IrDiagnostic>) -> Flow {
     match &e.kind {
         ExprKind::Branch { arms, otherwise, .. } => {
             let mut joined: Option<Owed> = None;
@@ -144,7 +159,7 @@ fn walk_expr(e: &Expr, owed: &mut Owed, out: &mut Vec<IrDiagnostic>) -> Flow {
                 if let Some((subject, tested)) = negative_arm_test(cond) {
                     discharge_arms(&mut path, &subject, &tested);
                 }
-                if walk_block(body, &mut path, out) == Flow::FallsThrough {
+                if walk_block(body, &mut path, loop_base, out) == Flow::FallsThrough {
                     any_fallthrough = true;
                     joined = Some(join(joined, path));
                 }
@@ -152,7 +167,7 @@ fn walk_expr(e: &Expr, owed: &mut Owed, out: &mut Vec<IrDiagnostic>) -> Flow {
             match otherwise {
                 Some(body) => {
                     let mut path = owed.clone();
-                    if walk_block(body, &mut path, out) == Flow::FallsThrough {
+                    if walk_block(body, &mut path, loop_base, out) == Flow::FallsThrough {
                         any_fallthrough = true;
                         joined = Some(join(joined, path));
                     }
@@ -194,7 +209,7 @@ fn walk_expr(e: &Expr, owed: &mut Owed, out: &mut Vec<IrDiagnostic>) -> Flow {
             let mut any_fallthrough = false;
             for arm in arms {
                 let mut path = base.clone();
-                if walk_block(&arm.body, &mut path, out) == Flow::FallsThrough {
+                if walk_block(&arm.body, &mut path, loop_base, out) == Flow::FallsThrough {
                     any_fallthrough = true;
                     joined = Some(join(joined, path));
                 }
@@ -277,18 +292,34 @@ fn join(a: Option<Owed>, b: Owed) -> Owed {
 
 fn report_all(owed: &Owed, out: &mut Vec<IrDiagnostic>, _at: Span) {
     for (place, o) in owed {
-        let what = match &o.arms {
-            Some(arms) if !arms.is_empty() => {
-                let a: Vec<String> = arms.iter().map(|i| format!("arm {i}")).collect();
-                format!("`{place}` still owns a linear value ({}) when the path leaves", a.join(", "))
-            }
-            _ => format!("`{place}` still owns a linear value when the path leaves"),
-        };
-        out.push(IrDiagnostic {
-            span: o.span,
-            message: format!("{what}; move it onward (pass, return, or store it) or discharge it"),
-        });
+        report_one(place, o, out);
     }
+}
+
+/// Report obligations outstanding at a `break`/`continue`: only those gained
+/// *inside* the loop (not present at the loop entry `base`). An obligation
+/// inherited from outside the loop is settled after the loop, not here.
+fn report_since(owed: &Owed, base: Option<&Owed>, out: &mut Vec<IrDiagnostic>, _at: Span) {
+    for (place, o) in owed {
+        let inherited = base.is_some_and(|b| b.contains_key(place));
+        if !inherited {
+            report_one(place, o, out);
+        }
+    }
+}
+
+fn report_one(place: &str, o: &Outstanding, out: &mut Vec<IrDiagnostic>) {
+    let what = match &o.arms {
+        Some(arms) if !arms.is_empty() => {
+            let a: Vec<String> = arms.iter().map(|i| format!("arm {i}")).collect();
+            format!("`{place}` still owns a linear value ({}) when the path leaves", a.join(", "))
+        }
+        _ => format!("`{place}` still owns a linear value when the path leaves"),
+    };
+    out.push(IrDiagnostic {
+        span: o.span,
+        message: format!("{what}; move it onward (pass, return, or store it) or discharge it"),
+    });
 }
 
 /// If `cond` is a negated arm-test `!(subject is arm k)`, the subject's place

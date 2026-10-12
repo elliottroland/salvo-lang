@@ -138,6 +138,49 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-12 — Checker/IR merge, Phase 1: linear-obligation ledger on the IR + a per-path check that catches noticeboard #2 (user decisions; IR_CHECKER.md)
+
+The IR now carries a **linear-obligation ledger** and a **per-path check** reads
+it; the check catches a dropped linear union arm the AST checker misses
+(noticeboard #2) and reports **zero false positives** on all of std and the
+examples. Full design and the iteration log are in IR_CHECKER.md; the four
+design decisions (D1–D4) are recorded there. This is the substrate for Phase 2
+(moving linear enforcement off `check.rs`).
+
+- **`[ir-obligation]` the directive** (`salvo_core::ir::nodes::Obligation`,
+  `Stmt::Obligation`): one node marking each change to a fn's
+  outstanding-obligation set — `GainParams` / `Gain` / `Release` / `Discharge`,
+  with per-arm granularity (`ObligationRef { place, arms, container_fields }`).
+  Inserted by `ir::obligations::annotate` **only on the dump/check path**
+  (`dump_program`, and before `ir::check`), never in `build_program`'s output —
+  inserting them there perturbed the Rust emitter's handle analysis and
+  regressed `runtime.rs`, so the backends get the un-annotated IR and emit
+  byte-identical code. The dump renders the ledger (golden snapshots updated;
+  the emitted Rust/Kotlin is unchanged).
+- **`[ir-linear-check]` the check** (`salvo_core::ir::check`): a per-path
+  balance over the ledger and `Branch`/`Switch`/`Narrow` structure. A leak is an
+  obligation (or a still-possible linear arm) outstanding when a path leaves;
+  `break`/`continue` leave only the loop. `salvo ir` prints each leak inline as
+  `!!! …` and exits 0 (D4b).
+- **One shared linearity predicate** (`salvo_core::linear`): `ty_own_linear`,
+  `linear_arms`, `linear_fields`, extracted from `check.rs`, which now delegates
+  to it — one definition both the AST checker and the IR check use.
+- **Driving false positives 4131 → 0** took a sequence of soundness fixes, each
+  grounded in a real flow pattern (full log in IR_CHECKER.md): narrow-transfer;
+  container decomposition (settle a struct when its linear fields are moved
+  out); borrows (`ref`/`proj`, lent params, nullable borrows) owe nothing;
+  positive/negative arm-test discharge; switch-dispatches-its-subject;
+  actor-expression traversal (`Send`/`ReplyTo`/…); generic/alias/union field
+  linearity; `break`/`continue` leave only the loop; releases precede their
+  statement; tail-value reads release; and a lent parameter's narrow transfers
+  nothing. Tests: `crates/salvo-core/tests/ir_linear_tests.rs` (zero-FP on
+  std+examples, and #2 caught).
+- **Not yet done (Phase 2):** the hard build gate (D4a) — IR-check failures do
+  not yet fail `salvo build`/`analyze`; the AST checker remains the sole
+  enforcer, so nothing regresses. Wiring the gate pairs with deleting the
+  AST-side `check_linear_frame_drop`/`check_linear_exit`/`linear_settled`, so
+  the two don't double-report.
+
 ### 2026-10-12 — Checker/IR merge, Phase 0: `salvo-ir` folded into `salvo_core::ir`, spans on `Block`/`Param` (user decision; IR_CHECKER.md)
 
 First phase of merging the IR builder and the semantic checker so sugar is
