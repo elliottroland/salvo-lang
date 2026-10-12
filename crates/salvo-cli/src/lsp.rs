@@ -986,8 +986,9 @@ impl Server<'_> {
                 let scope = scope(Vec::new());
                 (type_signature(t), docs::render(&t.docs, &scope), None)
             }
-            // A field: its own declaration line, whose declares it, and
-            // its docs [doc-struct-fields].
+            // A field: its own declaration line, who declares it, its docs
+            // [doc-struct-fields], and — when its type is a struct — that
+            // struct's own field list [lsp-hover-field-struct].
             DeclAt::Field {
                 owner,
                 siblings,
@@ -1004,10 +1005,17 @@ impl Server<'_> {
                             .map(|text| format!(" = {text}"))
                     })
                     .unwrap_or_default();
+                // The owner note, then the referenced struct's fields when
+                // there is one — one section, so both reach the hover.
+                let mut extra = format!("Field of {owner}.");
+                if let Some(fields) = struct_field_section(analysis, file_idx, &decl.ty, link) {
+                    extra.push_str("\n\n");
+                    extra.push_str(&fields);
+                }
                 (
                     format!("{}: {}{}", decl.name.name, decl.ty, default),
                     docs::render(&decl.docs, &scope),
-                    Some(format!("Field of {owner}.")),
+                    Some(extra),
                 )
             }
             // An effect, handler, or qualifier member fn: its signature
@@ -1331,6 +1339,30 @@ impl Server<'_> {
                 });
             }
         }
+        // [lsp-completion] Local bindings in scope — parameters and `let`/
+        // binding locals of the enclosing fn, declared before the cursor.
+        // Offered where a value is written (not after a `.`, not where a
+        // type is expected), and ranked first there, since the thing a
+        // reader reaches for is usually a name already in hand.
+        if !dot && !type_position {
+            let cursor_off = word as u32;
+            let mut seen_locals: HashSet<String> = HashSet::new();
+            for local in checked.local_decls.get(&view.file).into_iter().flatten() {
+                let in_scope = local.fn_body.start <= cursor_off
+                    && cursor_off <= local.fn_body.end
+                    && local.span.start < cursor_off;
+                if !in_scope || !seen_locals.insert(local.name.clone()) {
+                    continue;
+                }
+                items.push(CompletionItem {
+                    label: local.name.clone(),
+                    kind: Some(CompletionItemKind::VARIABLE),
+                    detail: Some(local.ty.to_string()),
+                    sort_text: Some(format!("0{}", local.name)),
+                    ..Default::default()
+                });
+            }
+        }
         let mut seen: HashSet<(String, String)> = HashSet::new();
         for f in fns {
             let rank = if dot {
@@ -1428,6 +1460,69 @@ impl Server<'_> {
     fn respond(&self, response: Response) -> Result<(), Box<dyn Error + Sync + Send>> {
         self.connection.sender.send(Message::Response(response))?;
         Ok(())
+    }
+}
+
+/// [lsp-hover-field-struct] When a field's type is (possibly through `Mut`,
+/// `?`, or a module key) a **struct**, the struct's own `docs::field_section`
+/// — so hovering a struct-typed field shows that struct's shape, as hovering
+/// the struct name does. `None` for a non-struct field type, or a struct the
+/// viewer may not see inside [struct-opaque]. The heading names the struct so
+/// a reader can tell these fields apart from the field's own owner note.
+fn struct_field_section(
+    analysis: &Analysis,
+    viewer: usize,
+    ty: &salvo_syntax::ast::Type,
+    link: &dyn Fn(usize, Span) -> Option<String>,
+) -> Option<String> {
+    let name = type_struct_name(ty)?;
+    for (idx, (file, module)) in analysis
+        .program
+        .files
+        .iter()
+        .zip(&analysis.program.modules)
+        .enumerate()
+    {
+        for item in &module.items {
+            if let salvo_syntax::ast::Item::Struct(s) = item {
+                if s.name.name == name {
+                    // [struct-opaque] An opaque struct's fields are hidden
+                    // outside its module (and its test annex), exactly as
+                    // completion hides them.
+                    if s.opaque && !sees_inside(&analysis.program, &file.module, viewer) {
+                        return None;
+                    }
+                    let source = file.content.as_str();
+                    let scope = docs::struct_scope(s, idx, source, &analysis.program.modules, link);
+                    let section = docs::field_section(&s.fields, &scope)?;
+                    // Re-head the reused **Fields** section with the struct's
+                    // name: without it, two field lists (the owner's and this
+                    // one's) would read as one.
+                    return Some(section.replacen(
+                        "**Fields**",
+                        &format!("**`{name}` fields**"),
+                        1,
+                    ));
+                }
+            }
+        }
+    }
+    None
+}
+
+/// [lsp-hover-field-struct] The base **type name** of a field type when it is
+/// a plain named type — through `Mut`/qualifiers and `?` (a `Str?` field is a
+/// `Str`, an `Address?` field is an `Address`). `None` for arrays, tuples, fn
+/// types and unions, whose shape a single struct's field list would not
+/// describe. The module key (`§…`) is stripped, as `receiver_name` does.
+fn type_struct_name(ty: &salvo_syntax::ast::Type) -> Option<String> {
+    use salvo_syntax::ast::Type;
+    match ty {
+        Type::Named { base, .. } => {
+            Some(base.name.name.split('§').next().unwrap_or(&base.name.name).to_string())
+        }
+        Type::Nullable { inner, .. } => type_struct_name(inner),
+        _ => None,
     }
 }
 

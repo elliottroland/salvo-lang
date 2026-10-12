@@ -825,6 +825,13 @@ pub struct Checked {
     /// name mapped to where its declaration's identifier is written.
     /// Drives go-to-definition for everything `fn_refs` does not cover.
     pub def_refs: HashMap<Key, DefSite>,
+    /// [lsp-completion] Every local binding — parameter, `let`, `is`/`when`
+    /// binding, `for` binder — declared in each file, keyed by file index,
+    /// with its declaration span and the span of the fn body it belongs to.
+    /// The language server offers the ones visible at the cursor (in the
+    /// enclosing fn, declared before it) as completions. Presentation-only,
+    /// like `fate_reads`.
+    pub local_decls: HashMap<usize, Vec<LocalDecl>>,
     /// [type-identity] The key every written type reference resolves to,
     /// by the reference's address, where it is not the written name (a
     /// clash or an alias): what an emitter rendering a written type reads.
@@ -1141,8 +1148,20 @@ pub enum ImplicitArg {
     OriginNext { name: String, next_fn: FnKey },
 }
 
-/// One fate link of a derived variable, exposed for tooling
-/// [fate-link]: the root variable's name and the span of the binding
+/// [lsp-completion] One local binding declared in a file, for completion: its
+/// name, its type as declared, the span of its own declaration, and the span
+/// of the enclosing fn body (so the language server offers it only inside that
+/// fn, and only after its declaration). A parameter's "fn body" span is the
+/// body too, so parameters are offered throughout the body.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LocalDecl {
+    pub name: String,
+    pub ty: Ty,
+    pub span: Span,
+    pub fn_body: Span,
+}
+/// One fate link of a derived variable, exposed for tooling [fate-link]:
+/// the root variable's name and the span of the binding
 /// that created the link.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FateRead {
@@ -2458,6 +2477,10 @@ struct Checker<'p, 'r> {
     /// The fn currently being checked, when it is a top-level `fn` item
     /// (member fns have no key).
     own_fn: Option<FnKey>,
+    /// [lsp-completion] The body span of the fn whose body is being checked,
+    /// recorded with every local it declares so the language server can offer
+    /// the locals visible at a cursor inside that body. `None` outside a body.
+    cur_fn_body: Option<Span>,
     /// [comptime-fields] Inside a `comptime struct`/`comptime type` declaration:
     /// its fields may name the other compile-time types.
     in_comptime_decl: bool,
@@ -2791,6 +2814,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             param_mutations,
             mut_fields,
             own_fn: None,
+            cur_fn_body: None,
             in_comptime_decl: false,
             own_stamp: None,
             own_contract: None,
@@ -8353,6 +8377,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.generics = saved_generics;
             return;
         };
+        // [lsp-completion] Record locals of this body (params below, `let`/
+        // binding locals in `declare_var`) against the body span.
+        self.cur_fn_body = Some(body.span);
         // [mod-use] The module's bindings sit outermost, so a function's own
         // declaration of the same effect shadows them.
         let mut env = self.module_avails.clone();
@@ -8429,6 +8456,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .expr_ty
                 .entry(self.key(p.name.span))
                 .or_insert_with(|| ty.clone());
+            // [lsp-completion] A parameter is a local offered throughout the
+            // body. Implicits (`?cmp`) are the fn's own machinery, not names a
+            // caller writes, so they are left out.
+            if !p.implicit {
+                self.record_local_decl(&p.name, ty.clone());
+            }
             let id = self.next_var_id;
             self.next_var_id += 1;
             // [implicit-same-name] A second implicit of one name is bound
@@ -8621,6 +8654,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.can_spawn = saved_can_spawn;
         self.own_implicits = saved_implicits;
         self.generics = saved_generics;
+        self.cur_fn_body = None;
     }
 
     /// [param-const] **A parameter cannot be assigned** (user decision
@@ -9936,6 +9970,27 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.locals.iter_mut().rev().find_map(|s| s.get_mut(name))
     }
 
+    /// [lsp-completion] Records a local binding so the language server can
+    /// offer it as a completion inside its fn. Only while a fn body is being
+    /// checked (`cur_fn_body` set); `_`-prefixed names and compiler temporaries
+    /// (`__…`) are not names a programmer would complete, so they are left out.
+    fn record_local_decl(&mut self, name: &Ident, ty: Ty) {
+        let Some(fn_body) = self.cur_fn_body else { return };
+        if name.name.starts_with('_') {
+            return;
+        }
+        self.out
+            .local_decls
+            .entry(self.file_idx)
+            .or_default()
+            .push(crate::check::LocalDecl {
+                name: name.name.clone(),
+                ty,
+                span: name.span,
+                fn_body,
+            });
+    }
+
     /// Declares a new local, enforcing the no-shadowing rule
     /// [var-no-shadow].
     fn declare(&mut self, name: &Ident, ty: Ty) {
@@ -9965,6 +10020,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             .expr_ty
             .entry(self.key(name.span))
             .or_insert_with(|| ty.clone());
+        // [lsp-completion] Offer this binding as a completion inside its fn.
+        self.record_local_decl(name, ty.clone());
         if self.lookup(&name.name).is_some() {
             self.error(
                 name.span,

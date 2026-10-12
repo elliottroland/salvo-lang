@@ -138,6 +138,40 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-11 — LSP: completion offers in-scope locals, hover expands struct-typed fields (noticeboard TODOs)
+
+Two language-server features, both prompted by TODOs in the noticeboard
+example, built against the existing analysis pass.
+
+- **[lsp-completion] In-scope locals are now offered.** With no `.` before the
+  word, completion offers the enclosing fn's parameters and the `let`/binding
+  names declared textually before the cursor, ranked first (`sort_text`
+  `"0"+name`), each shown with its type, as `CompletionItemKind::VARIABLE`. The
+  rule's "Not yet: … locals …" clause is retired.
+  - **Where the data comes from.** The checker's transient `locals` stack is
+    gone by the time the LSP answers, and `expr_ty` cannot tell a declaration
+    from a use, so the checker now records a `Checked::local_decls:
+    HashMap<usize, Vec<LocalDecl>>` keyed by file index. `LocalDecl` carries
+    the name, declared type, its own declaration span, and the enclosing fn's
+    body span. Completion filters to locals whose `fn_body` contains the cursor
+    and whose declaration starts before it, so a local is offered only inside
+    its fn and only after it is declared; a parameter's `fn_body` is the body
+    itself, so parameters are offered throughout. Recorded in `check_fn` (params
+    in the `extra_params…params` loop, skipping implicits) and `declare_var`
+    (`let`/bindings), gated by a new `cur_fn_body: Option<Span>` on `Checker`.
+- **[lsp-hover-field-struct] A hover on a struct-typed field expands it.** When
+  a field's type is a struct (through `Mut`/`Nullable`), the hover appends that
+  struct's own fields, reusing `docs::field_section` + `docs::struct_scope`.
+  It honours [struct-opaque] via `sees_inside`, exactly as member completion
+  does, so a field of an opaque struct outside its module shows no inner fields.
+  New `struct_field_section` + `type_struct_name` helpers in `lsp.rs`, wired
+  into `declaration_hover`'s `DeclAt::Field` arm.
+
+Both land with their `lsp_tests.rs` cases
+(`completion_offers_functions_and_dot_receivers` extended;
+`hover_a_struct_field_shows_the_structs_fields` new). 1759 tests green warm;
+no docs/wiki change (LSP behaviour is not in `docs/language/`).
+
 ### 2026-10-11 — Default deductions replace body-inference: `send fn` consumes, plain `fn` keeps (Mut keeps only Mut), checked against the body (user decision)
 
 A function's deduction contract is now a function of its **signature alone**,

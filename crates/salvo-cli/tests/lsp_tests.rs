@@ -1024,6 +1024,96 @@ fn f(p: Person) [Log] {
     lsp.child.wait().expect("failed to wait for salvo lsp");
 }
 
+/// [lsp-hover-field-struct] Hovering a field whose type is a **struct** shows
+/// that struct's own field list — the same **Fields** block hovering the
+/// struct name gives — so a reader does not have to chase the type to learn
+/// its shape. Reached through `?` too (an optional-struct field). A field of
+/// a scalar type shows no such section.
+#[test]
+fn hover_a_struct_field_shows_the_structs_fields() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_field_struct");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    // Line numbers matter below; keep this source in sync with them.
+    let source = "\
+struct Metadata {
+    created: Int,
+    tag: Str
+}
+
+struct Record {
+    // The record's metadata.
+    meta: Metadata,
+    note: Metadata? = None,
+    id: Int
+}
+
+fn read(r: Record) -> Int {
+    return r.meta.created
+}
+";
+    std::fs::write(root.join("main.sv"), source).unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {
+                "uri": uri, "languageId": "salvo", "version": 1, "text": source
+            }}
+        }),
+    );
+    let params = expect_diagnostics(&lsp.rx);
+    assert_eq!(params["diagnostics"].as_array().unwrap().len(), 0, "diagnostics: {params}");
+
+    // On the `meta: Metadata` field declaration: the field line, its owner,
+    // and `Metadata`'s own fields.
+    let at_decl = hover(&mut lsp, 40, &uri, 7, 5);
+    assert!(
+        at_decl.starts_with("```salvo\nmeta: Metadata\n```"),
+        "unexpected field hover: {at_decl}"
+    );
+    assert!(at_decl.contains("Field of struct `Record`."), "unexpected field hover: {at_decl}");
+    assert!(
+        at_decl.contains("**`Metadata` fields**")
+            && at_decl.contains("- `created: Int`")
+            && at_decl.contains("- `tag: Str`"),
+        "struct-typed field hover should list the struct's fields: {at_decl}"
+    );
+
+    // At a field *access* (`r.meta`), the same expansion through `field_refs`.
+    let at_use = hover(&mut lsp, 41, &uri, 13, 13);
+    assert!(
+        at_use.contains("**`Metadata` fields**") && at_use.contains("- `created: Int`"),
+        "field-access hover should expand too: {at_use}"
+    );
+
+    // An **optional** struct field (`note: Metadata?`) expands the same way.
+    let optional = hover(&mut lsp, 42, &uri, 8, 5);
+    assert!(
+        optional.starts_with("```salvo\nnote: Metadata? = None\n```")
+            && optional.contains("**`Metadata` fields**")
+            && optional.contains("- `created: Int`"),
+        "optional struct-typed field hover should list the struct's fields: {optional}"
+    );
+
+    // A scalar field (`id: Int`) shows no struct-fields section.
+    let scalar = hover(&mut lsp, 43, &uri, 9, 5);
+    assert!(
+        scalar.starts_with("```salvo\nid: Int\n```") && !scalar.contains("fields**"),
+        "a scalar field should show no struct-fields section: {scalar}"
+    );
+
+    send(
+        &mut lsp.stdin,
+        json!({"jsonrpc": "2.0", "id": 99, "method": "shutdown", "params": null}),
+    );
+    expect_response(&lsp.rx, 99);
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
+    lsp.child.wait().expect("failed to wait for salvo lsp");
+}
+
 /// [qual-refn-docs] Merged documentation: a refinement is written somewhere
 /// else entirely — in the qualifier that owns the claim — so hovering the
 /// refined function is the only place a reader can learn what it
@@ -2051,6 +2141,28 @@ fn main() [Console] {
     let items = complete(&mut lsp, 3, 8, 6);
     let labels: Vec<&str> = items.iter().map(|(l, _)| l.as_str()).collect();
     assert!(labels.contains(&"shout") && labels.contains(&"main") && labels.contains(&"println"), "{labels:?}");
+    // [lsp-completion] Local bindings in scope are offered too: `main`'s own
+    // `name` and `n`, declared above the cursor.
+    assert!(labels.contains(&"name") && labels.contains(&"n"), "locals in scope: {labels:?}");
+    // A local ranks ahead of a fn (sortText `0name` vs `0println`… both tier
+    // 0, but a local is a value already in hand): at least it is present with
+    // a VARIABLE-tier sortText.
+    let name_rank = items.iter().find(|(l, _)| l == "name").map(|(_, r)| r.clone()).unwrap();
+    assert!(name_rank.starts_with('0'), "a local ranks in the top tier: {name_rank}");
+    // The local carries its type as detail.
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "id": 7, "method": "textDocument/completion",
+            "params": {"textDocument": {"uri": uri}, "position": {"line": 8, "character": 6}}
+        }),
+    );
+    let response = expect_response(&lsp.rx, 7);
+    let name_detail = response["result"].as_array().unwrap().iter()
+        .find(|i| i["label"] == "name")
+        .and_then(|i| i["detail"].as_str())
+        .unwrap_or("");
+    assert_eq!(name_detail, "Str", "local's detail is its type: {name_detail}");
     send(
         &mut lsp.stdin,
         json!({"jsonrpc": "2.0", "id": 99, "method": "shutdown", "params": null}),

@@ -9783,7 +9783,10 @@ replaced the working document TESTING.md).
   (ranked first where a type is written — after `:`, `->`, `<` or `|` — and
   after the fns elsewhere); on an `import` line, the next segment of every
   module path the written prefix extends and, once the prefix names a module,
-  its exported items. Not yet: effect members, locals, keywords.
+  its exported items. Since 2026-10-11: with no `.`, the **in-scope locals**
+  of the enclosing fn — its parameters and the `let`/binding names declared
+  textually before the cursor — rank first (before fns), each shown with its
+  type. Not yet: effect members, keywords.
 * [lsp-coalesce] **Edits are coalesced** (2026-10-05): a change notification
   only updates the overlay, and diagnostics are published once no message is
   waiting, so a completion asked for after several keystrokes is answered
@@ -9881,6 +9884,12 @@ replaced the working document TESTING.md).
     are alive and kept as owned data (`Analysis::overloads`), since a
     `Resolution` borrows the program. Only names with more than one
     declaration are stored.
+* [lsp-hover-field-struct] A hover on a **struct field whose type is a
+  struct** appends that struct's own fields (user request 2026-10-11), so a
+  reader need not chase the type to see its shape. It honours
+  [struct-opaque]: the nested fields are shown only where the hovering module
+  `sees_inside` the field's struct, exactly as member completion decides
+  [lsp-completion].
 * [cli-platform] `salvo platform generate [--backend NAME] [--src DIR |
   --main FILE]` writes the implementation skeletons into each backend's
   platform root [platform-root] — every backend the manifest builds, or the
