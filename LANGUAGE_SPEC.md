@@ -481,6 +481,31 @@ Conventions:
     independent, since neither introduces a name to collide.
   * Reading it outside a pick's right-hand side is an **error**, not a silent
     `Unknown`.
+* [safe-nav] `base?.field` / `base?.m(args)` is **safe navigation**: the whole
+  expression is `None` when `base` is, otherwise the link performed on `base`
+  narrowed to its non-`None` arm, lifted back into an optional. It guards
+  **one** link — `a?.b.c` is a parse error (the `.c` would read a field of an
+  optional); write `a?.b?.c` — so a chain is nested safe-navs. The receiver
+  must be able to be absent (a `?.` on a non-optional is refused, like a
+  pointless `!`). It is a separate operator from `?:`, which supplies a default
+  (`last_updated?.nanos ?: -1L`).
+  * **Checked through the ordinary path.** A field link types as
+    `field_ty` on the non-`None` receiver; a call link resolves exactly as the
+    dot call `base.m(args)` would ([fn-dot], receiver as argument zero), under a
+    narrowing of the receiver to its non-`None` type. A link that is *already*
+    optional is not wrapped again (no `Option<Option<T>>`).
+  * **A call link needs a place receiver** (a variable or field), because the
+    receiver is read twice (the `None` test, then the call) and the call reads
+    it narrowed — the same twice-read rule a `when`/`!` subject obeys. A field
+    link needs no place, so a field chain `a?.b?.c` composes freely.
+  * **Lowered by reconstruction** ([ir-switch]): no dedicated IR node. The
+    receiver is bound once, then a two-arm `Switch` yields `None` for the absent
+    arm and, for the present arm, the link on the narrowed receiver — whose
+    `Narrow` carries `Justification::SafeNav`, the hint a backend reads to
+    reconstruct a native chain. The whole short-circuit is therefore the same
+    machinery `!`/`?:` use; the linear check, narrowing and effects all apply
+    unchanged. (Was built then removed 2026-10-11, re-added 2026-10-12 as this
+    reconstruction form when a real use arose — see COMPLETED.md.)
 * [type-none-unit] `None` is **one spelling for two things** — the absent
   arm of a `T?` and the sole value of the `None` type — and the targets
   spell them differently (Rust `None` vs `()`, Kotlin `null` vs `Unit`),

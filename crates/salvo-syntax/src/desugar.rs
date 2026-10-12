@@ -1413,6 +1413,17 @@ impl Rewrite {
             | Expr::IncDec { operand: base, .. }
             | Expr::Spread { operand: base, .. }
             | Expr::Unary { operand: base, .. } => self.expr(base),
+            Expr::SafeNav { base, access, .. } => {
+                self.expr(base);
+                if let SafeAccess::Call { args, named, .. } = access {
+                    for arg in args {
+                        self.expr(arg);
+                    }
+                    for arg in named {
+                        self.expr(&mut arg.value);
+                    }
+                }
+            }
             // [assert-fn] Both forms hold ordinary expressions, rewritten like
             // any others so an `iter fn` body may assert.
             Expr::Assert { cond, message, .. } => {
@@ -1781,6 +1792,17 @@ fn collect_shadowing(body: &Block, reserved: &[&Ident], out: &mut Vec<(String, S
             | Expr::Spread { operand: base, .. }
             | Expr::Unary { operand: base, .. }
             | Expr::Widen { subject: base, .. } => walk_expr(base, reserved, out),
+            Expr::SafeNav { base, access, .. } => {
+                walk_expr(base, reserved, out);
+                if let SafeAccess::Call { args, named, .. } = access {
+                    for arg in args {
+                        walk_expr(arg, reserved, out);
+                    }
+                    for arg in named {
+                        walk_expr(&arg.value, reserved, out);
+                    }
+                }
+            }
             Expr::Assert { cond, message, .. } => {
                 walk_expr(cond, reserved, out);
                 if let Some(m) = message {
@@ -2222,6 +2244,17 @@ fn walk_expr_with(expr: &Expr, on_stmt: &mut dyn FnMut(&Stmt), on_expr: &mut dyn
         | Expr::Unary { operand: base, .. }
         | Expr::Widen { subject: base, .. }
         | Expr::Is { subject: base, .. } => e(base),
+        Expr::SafeNav { base, access, .. } => {
+            e(base);
+            if let SafeAccess::Call { args, named, .. } = access {
+                for a in args {
+                    e(a);
+                }
+                for a in named {
+                    e(&a.value);
+                }
+            }
+        }
         Expr::Assert { cond, message, .. } => {
             e(cond);
             if let Some(m) = message {

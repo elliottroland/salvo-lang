@@ -1719,6 +1719,18 @@ pub enum Expr {
     /// *can* be absent: a `!` on a type with no `None` arm says something false
     /// and is refused (user decision 2026-09-23).
     NonNull { operand: Box<Expr>, span: Span },
+    /// `base?.field` or `base?.method(args)` — safe navigation [safe-nav].
+    /// The whole expression is `None` when `base` is `None`; otherwise it is
+    /// the `access` performed on the non-`None` `base`, wrapped back into an
+    /// optional. One `?.` guards exactly **one** link: `a?.b.c` is a parse
+    /// error (the `.c` would read a field of an optional) — write `a?.b?.c`.
+    /// It rides on ordinary dot/dot-call lowering: a call access splices
+    /// `base` as the receiver exactly as `a.m(args)` does.
+    SafeNav {
+        base: Box<Expr>,
+        access: SafeAccess,
+        span: Span,
+    },
     /// [assert-fn] `assert!(cond)` / `assert!(cond, "why")`: a condition that
     /// must hold, checked at run time in every build [assert-trap], and — when
     /// the condition is an `is` test — **narrowing** for the rest of the scope
@@ -1954,6 +1966,23 @@ pub enum StrExprPart {
 /// A call argument (possibly spread).
 pub type Arg = Expr;
 
+/// [safe-nav] The single link a `?.` performs on its non-`None` receiver:
+/// a field read, or a method/dot call. The receiver is held by the
+/// enclosing [`Expr::SafeNav`]; it is spliced in as the call's first
+/// argument at lowering, exactly as a plain `a.m(args)` dot call is.
+#[derive(Clone, Debug, PartialEq)]
+pub enum SafeAccess {
+    /// `base?.field`
+    Field(Ident),
+    /// `base?.method(args)` — `field` is the member name after `?.`.
+    Call {
+        field: Ident,
+        type_args: Vec<Type>,
+        args: Vec<Arg>,
+        named: Vec<NamedArg>,
+    },
+}
+
 /// One `name = value` argument [implicit-override]: an implicit parameter
 /// supplied at the call site rather than resolved.
 #[derive(Clone, Debug, PartialEq)]
@@ -2061,6 +2090,7 @@ impl Expr {
             | Expr::Is { span, .. }
             | Expr::Widen { span, .. }
             | Expr::NonNull { span, .. }
+            | Expr::SafeNav { span, .. }
             | Expr::Assert { span, .. }
             | Expr::Unreachable { span, .. }
             | Expr::IncDec { span, .. }

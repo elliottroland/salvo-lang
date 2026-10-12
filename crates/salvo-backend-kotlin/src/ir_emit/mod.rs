@@ -1309,7 +1309,17 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 out.push('"');
                 out
             }
-            ExprKind::Branch { arms, otherwise, .. } => self.branch(e, arms, otherwise.as_ref(), indent),
+            ExprKind::Branch { arms, otherwise, .. } => {
+                // [safe-nav] A `?.` whose links are all field reads renders as
+                // a native Kotlin optional chain (`a?.b?.c`); anything else
+                // (a call link) falls back to the generic branch, which is
+                // correct if less idiomatic.
+                if let Some(chain) = self.safe_nav_chain(e, indent) {
+                    chain
+                } else {
+                    self.branch(e, arms, otherwise.as_ref(), indent)
+                }
+            }
             ExprKind::Switch { subject, arms, .. } => self.switch(e, subject, arms, indent),
             ExprKind::Test { id, subject, test } => {
                 self.test_arms.insert((id.0, usize::MAX), test.clone());
@@ -2027,6 +2037,24 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         if value { format!("({out})") } else { out }
     }
 
+    /// [safe-nav] Render a `?.` lowering as a native Kotlin optional chain
+    /// when every link is a field read: `receiver?.f?.g`. Returns `None` for a
+    /// call link (resolved to a free function, which a native `?.` cannot
+    /// spell) or a non-`?.` branch, so the caller falls back to the generic
+    /// branch. The `None`/absent arm needs nothing: a Kotlin `?.` is already
+    /// the whole short-circuit.
+    fn safe_nav_chain(&mut self, e: &Expr, indent: usize) -> Option<String> {
+        let nav = salvo_core::ir::safe_nav::match_safe_nav(e)?;
+        // The link must be a field read of the narrowed receiver.
+        let (field, _) = field_link(nav.value, nav.nav)?;
+        // The receiver: a nested `?.` chain, or a plain expression.
+        let recv = match self.safe_nav_chain(nav.receiver, indent) {
+            Some(inner) => inner,
+            None => self.expr(nav.receiver, indent),
+        };
+        Some(format!("{recv}?.{field}"))
+    }
+
     fn switch(&mut self, e: &Expr, subject: &Expr, arms: &[salvo_core::ir::SwitchArm], indent: usize) -> String {
         let pad = "    ".repeat(indent);
         let value = !e.ty.is_none_ty() && arms.iter().any(|a| a.body.value.is_some());
@@ -2065,6 +2093,21 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
 /// Two types equal up to qualifiers (the IR keeps only `Mut`).
 fn erase_eq(a: &Ty, b: &Ty) -> bool {
     a.strip_quals() == b.strip_quals()
+}
+
+/// [safe-nav] If `value` is a plain field read of the narrowed receiver
+/// `nav` (`Read(nav.field)`), the field name and its type. `None` for a call
+/// link or any read that is not exactly `nav.field`.
+fn field_link<'a>(value: &'a Expr, nav: &Local) -> Option<(&'a str, &'a Ty)> {
+    match &value.kind {
+        ExprKind::Read { place, .. } if place.root == *nav && place.steps.len() == 1 => {
+            match &place.steps[0] {
+                Step::Field(f) => Some((f.as_str(), &value.ty)),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
 }
 
 /// The node id of a `Switch`/`Branch` expression.

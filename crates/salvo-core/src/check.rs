@@ -207,6 +207,17 @@ struct LeadCandidate {
     rung: crate::resolve::Rung,
 }
 
+/// [safe-nav] What the IR builder needs to lower `base?.link`.
+#[derive(Clone, Debug)]
+pub struct SafeNavInfo {
+    /// The receiver type with its `None` arm removed — the type the link
+    /// was checked against, and the type the narrowed receiver reads at.
+    pub inner: Ty,
+    /// The link's own result is already optional, so the whole `?.` result
+    /// is that type unchanged; the builder must not wrap it again.
+    pub already_opt: bool,
+}
+
 /// How an `is` check (or `when` branch check) lowers at runtime against the
 /// subject's *declared* representation.
 #[derive(Clone, Debug)]
@@ -521,6 +532,14 @@ pub struct Checked {
     pub coerce: HashMap<Key, Coercion>,
     /// Keyed by the span of the `is` expression or the `when` branch.
     pub is_tests: HashMap<Key, UnionTest>,
+    /// [safe-nav] A `base?.link`, keyed by the `SafeNav` expression's span:
+    /// what the IR builder needs to lower it to a short-circuiting
+    /// `Switch`/`Branch` over the receiver. The checker typed the link on
+    /// the **non-`None`** receiver (recorded as `inner`); `already_opt` says
+    /// the link's own result is already optional, so the builder must not
+    /// wrap it a second time (the old `?.` produced `Option<Option<T>>`
+    /// otherwise).
+    pub safe_navs: HashMap<Key, SafeNavInfo>,
     /// [when-exhaustive] `when` expressions (keyed by the `when`'s span)
     /// the checker proved cover every runtime arm of their union subject
     /// without a written `else`. The IR builder reads this to give such a
@@ -15881,6 +15900,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             // [elvis] Neither side escapes by itself: a diverging right side
             // is recognized by its recorded type, like any diverging call.
             Expr::Elvis { .. } | Expr::Placeholder { .. } => false,
+            // [safe-nav] A `?.` yields an optional; it exits nothing by itself.
+            Expr::SafeNav { .. } => false,
             // [expr-escape] All three leave the enclosing block. `diverges`
             // above already answers for them off the recorded type; listed
             // here because this match is deliberately exhaustive, so a new
@@ -15982,6 +16003,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // [fn-must-return], which `expr_exits` above answers.
             Expr::Unreachable { .. } | Expr::Assert { .. } => false,
             Expr::Elvis { .. } | Expr::Placeholder { .. } => false,
+            Expr::SafeNav { .. } => false,
             // [expr-escape] Only `return` leaves the *function*; the guard
             // above has already answered `false` for the other two.
             Expr::Return { .. } => true,
@@ -20306,6 +20328,18 @@ fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
             collect_assigned_expr(subject, out);
             collect_assigned_expr(rhs, out);
         }
+        // [safe-nav] The receiver and any call arguments may hold assignments.
+        Expr::SafeNav { base, access, .. } => {
+            collect_assigned_expr(base, out);
+            if let ast::SafeAccess::Call { args, named, .. } = access {
+                for a in args {
+                    collect_assigned_expr(a, out);
+                }
+                for n in named {
+                    collect_assigned_expr(&n.value, out);
+                }
+            }
+        }
         Expr::Placeholder { .. } => {}
         // [expr-escape] The escapes carry a value expression, which may hold
         // assignments of its own (a block-valued `if`, say).
@@ -20538,6 +20572,17 @@ fn expr_mentions(expr: &Expr, name: &str) -> bool {
         }
         Expr::Elvis { subject, rhs, .. } => {
             expr_mentions(subject, name) || expr_mentions(rhs, name)
+        }
+        // [safe-nav] Mentions whatever its receiver or call arguments mention.
+        Expr::SafeNav { base, access, .. } => {
+            expr_mentions(base, name)
+                || match access {
+                    ast::SafeAccess::Call { args, named, .. } => {
+                        args.iter().any(|a| expr_mentions(a, name))
+                            || named.iter().any(|n| expr_mentions(&n.value, name))
+                    }
+                    ast::SafeAccess::Field(_) => false,
+                }
         }
         Expr::Placeholder { .. } => false,
         // [expr-escape] `return x` mentions `x`.
@@ -22587,6 +22632,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 t.without_none()
             }
+            Expr::SafeNav { base, access, span } => self.check_safe_nav(base, access, *span, expected),
             // [assert-fn] [assert-narrow] `assert!(cond)` / `assert!(cond, why)`
             // — a condition that must hold, checked in every build
             // [assert-trap]. When the condition is an `is` test its narrowing
@@ -25889,6 +25935,109 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.reset_assigned(&branch.body);
         }
         join
+    }
+
+    /// [safe-nav] `base?.field` / `base?.method(args)`. Types the link on the
+    /// receiver's **non-`None`** arm and makes the whole expression optional:
+    /// `None` when the receiver is, otherwise the link's result lifted into an
+    /// optional. One `?.` guards one link, so this never looks past the single
+    /// access — a chain `a?.b?.c` is nested `SafeNav` nodes, each checked here.
+    fn check_safe_nav(
+        &mut self,
+        base: &'p Expr,
+        access: &'p ast::SafeAccess,
+        span: Span,
+        expected: Option<&Ty>,
+    ) -> Ty {
+        let base_ty = self.check_expr(base, None);
+        // The receiver must be able to be absent — otherwise `?.` guards
+        // nothing. `Unknown` passes through (do not cascade,
+        // [type-unknown-lenient]).
+        if !base_ty.has_none_arm() && !matches!(base_ty, Ty::Unknown) {
+            self.error(
+                span,
+                format!(
+                    "`?.` guards a value that can be absent, but this receiver is \
+                     `{base_ty}` — it is never `None`, so write a plain `.`"
+                ),
+            );
+        }
+        let inner = base_ty.without_none();
+        let link_ty = self.safe_access_ty(base, &base_ty, access, &inner, expected, span);
+        // Do not double-wrap a link that is already optional ([safe-nav], the
+        // old `Option<Option<T>>` bug).
+        let already_opt = link_ty.has_none_arm();
+        self.out.safe_navs.insert(
+            self.key(span),
+            SafeNavInfo { inner: inner.clone(), already_opt },
+        );
+        if already_opt {
+            link_ty
+        } else {
+            self.mk_union(vec![link_ty, Ty::none()])
+        }
+    }
+
+    /// [safe-nav] The type of the single link, given the receiver's non-`None`
+    /// type `inner`. A field reads directly off `inner`. A call resolves as
+    /// the dot call `base.m(args)` would, which needs the receiver to read at
+    /// `inner`: that is a narrowing, so a call receiver must be a place (a
+    /// chain `a?.b?.c` whose links are fields does not need one).
+    fn safe_access_ty(
+        &mut self,
+        base: &'p Expr,
+        base_ty: &Ty,
+        access: &'p ast::SafeAccess,
+        inner: &Ty,
+        expected: Option<&Ty>,
+        span: Span,
+    ) -> Ty {
+        match access {
+            ast::SafeAccess::Field(field) => {
+                self.record_field_ref(inner, field);
+                self.field_ty_or_error(inner, field)
+            }
+            ast::SafeAccess::Call { field, type_args, args, named } => {
+                let name = field.name.as_str();
+                if !self.scope.effect_members.contains_key(name) && !self.has_callable(name) {
+                    for a in args {
+                        self.check_expr(a, None);
+                    }
+                    self.error_unresolved(
+                        field.span,
+                        format!(
+                            "no function named `{name}` is in scope: `?.` calls a \
+                             function with the receiver as its first argument \
+                             ([fn-dot])"
+                        ),
+                        name,
+                    );
+                    return Ty::Unknown;
+                }
+                // The receiver is read twice (the `None` test, then the call),
+                // and the call reads it at the non-`None` type, so a call
+                // receiver must be a place to carry the narrowing.
+                let Some(place) = Place::of_expr(base) else {
+                    self.error(
+                        span,
+                        "`?.` on a method call needs a variable or field as its \
+                         receiver; bind the chain so far to a local first",
+                    );
+                    for a in args {
+                        self.check_expr(a, None);
+                    }
+                    return Ty::Unknown;
+                };
+                self.out.dot_calls.insert(self.key(span));
+                let narrow = [Narrow { place, narrowed: inner.clone(), declared: base_ty.clone() }];
+                self.with_narrows(&narrow, |c| {
+                    let mut all_args: Vec<&'p Expr> = Vec::with_capacity(args.len() + 1);
+                    all_args.push(base);
+                    all_args.extend(args.iter());
+                    c.resolve_named_call(name, field.span, type_args, &all_args, named, expected, None, span)
+                })
+            }
+        }
     }
 
     // ================= coercions =================

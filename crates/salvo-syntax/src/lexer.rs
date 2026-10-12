@@ -539,9 +539,11 @@ impl<'s> Lexer<'s> {
             // [elvis] `?` and `:` are separate tokens (`Question`, `Colon`):
             // the elvis family counts a *run* of `?`s (`??:`, `:??`), which the
             // parser recognises by looking ahead over plain `Question` tokens
-            // rather than any glued pair. There is no `?.` — the safe-call
-            // operator was removed (user decision 2026-10-11): the multi-line
-            // elvis form makes it redundant.
+            // rather than any glued pair. [safe-nav] `?.` is likewise not a
+            // glued token: the postfix parser takes a `Question` immediately
+            // followed by a `Dot`. (The safe-call operator was removed on
+            // 2026-10-11 and re-added 2026-10-12 as reconstruction-lowered
+            // optional chaining, when a real use arose — see COMPLETED.md.)
             ('(', _) => TokenKind::LParen,
             (')', _) => TokenKind::RParen,
             ('{', _) => TokenKind::LBrace,

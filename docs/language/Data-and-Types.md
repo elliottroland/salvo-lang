@@ -424,9 +424,17 @@ joins into the result, so `n ?: "none"` on an `Int?` is an `Int | Str`.
 The operator works on any union: `??:` on `Str | Int | None` keeps the first two
 arms, `Str | Int`. Its precedence is Kotlin's — tighter than `is` and comparison,
 looser than arithmetic, and right-associative — so `count ?: 0 > 3` reads as
-`(count ?: 0) > 3` and `a ?: b ?: 0` tries each in turn. There is no safe-call
-`?.` operator: a value known to be non-null is reached with `!`, and the pick's
-multi-line right side covers the rest.
+`(count ?: 0) > 3` and `a ?: b ?: 0` tries each in turn.
+
+The safe-navigation operator `?.` reaches through a value that may be absent:
+`a?.b` is `None` when `a` is, otherwise `a.b` lifted back into an optional, and
+`a?.m(args)` calls `m` the same way (dot-notation, so `m` takes the receiver as
+its first argument). It guards **one** link, so a chain spells every hop:
+`notice.metadata.last_updated?.nanos` is a plain read of a non-optional
+`last_updated`, while `o?.inner?.nanos` guards both. It pairs with `?:` for a
+default — `last_updated?.nanos ?: -1L` — the two staying separate operators.
+A method-call link needs a variable or field as its receiver (it is read
+twice); bind a longer chain to a local first.
 
 To get a non-null value out when the compiler cannot prove it (equivalent to
 Rust's `unwrap`):

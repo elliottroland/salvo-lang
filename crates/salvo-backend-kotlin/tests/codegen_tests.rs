@@ -5294,7 +5294,77 @@ fn kotlinc_compiles_and_runs_handles_into_element_containers() -> KotlinCase {
     kotlin_case(files, "elem-container", ELEM_CONTAINER_OUTPUT)
 }
 
+// ===== [safe-nav] `?.` optional chaining =====
+
+/// The same source and expected stdout as the Rust backend's
+/// `rustc_runs_safe_navigation`: a `?.` field chain feeding a `?:`, and a
+/// `?.` call link on a place receiver. On Kotlin the field chain renders as a
+/// native `o?.inner?.nanos` ([safe-nav], asserted in
+/// `safe_navigation_field_chain_is_native_kotlin`); both backends must agree
+/// on the short-circuiting result.
+const SAFE_NAV_DEMO: &str = r#"
+struct Inner {
+    nanos: Long
+}
+
+struct Outer {
+    inner: Inner?
+}
+
+fn label(i: Inner) -> Str {
+    return "nanos=${i.nanos}"
+}
+
+fn nanos_or(o: Outer?) -> Long {
+    return o?.inner?.nanos ?: -1L
+}
+
+fn describe(i: Inner?) -> Str {
+    return i?.label() ?: "absent"
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let a = Outer { inner: Inner { nanos: 42L } }
+    let b = Outer { inner: None }
+    let c: Outer? = None
+    println(to_str(nanos_or(a)))
+    println(to_str(nanos_or(b)))
+    println(to_str(nanos_or(c)))
+    println(describe(Inner { nanos: 42L }))
+    let no_inner: Inner? = None
+    println(describe(no_inner))
+}
+"#;
+
+fn kotlinc_compiles_and_runs_safe_navigation() -> KotlinCase {
+    let program = build_program(&[("main.sv", SAFE_NAV_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program)
+        .unwrap_or_else(|errors| panic!("codegen errors:\n{}", errors.join("\n")));
+    kotlin_case(files, "safe-nav", "42\n-1\n-1\nnanos=42\nabsent\n")
+}
+
+// [safe-nav] [kt-safe-nav]
+#[test]
+fn safe_navigation_field_chain_is_native_kotlin() {
+    let program = build_program(&[("main.sv", SAFE_NAV_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program)
+        .unwrap_or_else(|errors| panic!("codegen errors:\n{}", errors.join("\n")));
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
+        .unwrap();
+    // A field-only `?.` chain is a native Kotlin optional chain, not a raw
+    // `when`/`if` over the receiver.
+    assert!(
+        main.content.contains("o?.inner?.nanos"),
+        "expected a native `?.` chain, got:\n{}",
+        main.content
+    );
+}
+
 const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
+    kotlinc_compiles_and_runs_safe_navigation,
     kotlinc_compiles_and_runs_one_rendering_for_a_ref_result,
     kotlinc_compiles_and_runs_handles_into_element_containers,
     kotlinc_compiles_and_runs_unions_of_borrows,

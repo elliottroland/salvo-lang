@@ -138,6 +138,56 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-12 — Safe navigation `?.` re-added as reconstruction-lowered optional chaining ([safe-nav])
+
+`?.` is back (it was built as a `QuestionDot`/`Expr::SafeField` node in Sept
+2026 and **removed 2026-10-11** on the bet that the multi-line `?:` right side
+made it redundant — see the removal entry below). A real use arose in
+`salvo-noticeboard`'s `disk.sv` (`last_updated?.nanos ?: -1L`), so the user
+asked for it back, and chose the design in discussion:
+
+- **Reconstruction, not a new control-flow node** (user decision). `?.` lowers
+  to the same canonical shape `!`/`?:` use: a `block_expr` wrapper binds the
+  receiver once, then a two-arm `Switch` yields `MakeNone` for the absent arm
+  and, for the present arm, the link performed on the receiver narrowed to its
+  non-`None` type, lifted back into an optional with `Present`. So the linear
+  check, narrowing, effects and both emitters' existing machinery all apply
+  unchanged. New AST node `Expr::SafeNav { base, access }` with
+  `SafeAccess::{Field, Call}`; the checker types it **through the ordinary
+  path** (field → `field_ty_or_error` on the non-`None` receiver; call →
+  `resolve_named_call` with the receiver spliced in as argument zero, under a
+  narrowing), recording `Checked::safe_navs`.
+- **The hint is a `Justification`, not a marker** (user decision — "if you go
+  with the marker that probably isn't needed, since it will just be a different
+  sort of justification"). The present arm's `Narrow` carries
+  `Justification::SafeNav { switch }`; the dump renders it `switch#N.?.`. A
+  backend recognizes the lowering by that justification
+  (`salvo_core::ir::safe_nav::match_safe_nav`) and reconstructs a native chain.
+- **One `?.` guards one link** (user decision): `a?.b.c` is a parse error;
+  `a?.b?.c` is nested `SafeNav`s. A field chain composes freely; a **call**
+  link needs a *place* receiver (it is read twice and the call reads it
+  narrowed), so `(a?.b)?.m()` must bind the prefix to a local first — a
+  documented limitation, diagnosed clearly.
+- **`?.` and `?:` stay separate operators** (user decision): `x?.f ?: d`
+  composes the two.
+- **Backends.** Kotlin reconstructs a field-only chain as a native
+  `receiver?.f?.g` ([kt-safe-nav]); a call link (a Salvo dot call is a free
+  function, which `receiver?.m()` cannot spell) falls back to the generic
+  `Switch`. Rust (user chose the combinator chain as the target) keeps the
+  **generic block** rendering for now — correct on every shape — because the
+  per-read `.clone()`/`as_ref`/Copy ownership model makes a correct
+  `.and_then`/`.map` chain a follow-up; the IR hint is in place for it
+  ([rs-safe-nav]). Never-wrong holds throughout: an unlowerable link is a
+  codegen error, not wrong output.
+- Tests: `rustc_runs_safe_navigation` and the Kotlin twin
+  `kotlinc_compiles_and_runs_safe_navigation` (same source, same stdout
+  `42/-1/-1/nanos=42/absent`), plus `safe_navigation_field_chain_is_native_kotlin`
+  asserting the native `o?.inner?.nanos`. Warm `cargo nextest run`: 1766.
+- Spec: `[safe-nav]` in LANGUAGE_SPEC.md, `[kt-safe-nav]`/`[rs-safe-nav]` in the
+  backend specs, the `?.` paragraph in docs/language/Data-and-Types.md, and the
+  lexer removal note rewritten. **This reverses the dated 2026-10-11 removal
+  below** — recorded here rather than left stale in prose.
+
 ### 2026-10-12 — Checker/IR merge polish: named-discharger hint restored on IR leaks + synthetic-local message cleanup (IR_CHECKER.md)
 
 The two optional message-quality follow-ups left after the merge are done.

@@ -7307,6 +7307,55 @@ fn rustc_runs_effect_members_taking_fn_values() {
     run_rust_files(&files, "effect-fn-params", "18 4 57\n");
 }
 
+// ===== [safe-nav] `?.` optional chaining =====
+
+/// The same source and expected stdout as the Kotlin backend's
+/// `kotlinc_compiles_and_runs_safe_navigation`. A `?.` field chain feeds a
+/// `?:`, and a `?.` call link on a place receiver rides on dot-call lowering;
+/// the whole thing short-circuits to `None` at the first absent link. Run on
+/// both backends, since the lowering (a short-circuiting `Switch`) and both
+/// the native (Kotlin) and generic (Rust) renderings must agree.
+const SAFE_NAV_DEMO: &str = r#"
+struct Inner {
+    nanos: Long
+}
+
+struct Outer {
+    inner: Inner?
+}
+
+fn label(i: Inner) -> Str {
+    return "nanos=${i.nanos}"
+}
+
+fn nanos_or(o: Outer?) -> Long {
+    return o?.inner?.nanos ?: -1L
+}
+
+fn describe(i: Inner?) -> Str {
+    return i?.label() ?: "absent"
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let a = Outer { inner: Inner { nanos: 42L } }
+    let b = Outer { inner: None }
+    let c: Outer? = None
+    println(to_str(nanos_or(a)))
+    println(to_str(nanos_or(b)))
+    println(to_str(nanos_or(c)))
+    println(describe(Inner { nanos: 42L }))
+    let no_inner: Inner? = None
+    println(describe(no_inner))
+}
+"#;
+
+#[test]
+fn rustc_runs_safe_navigation() {
+    let files = generate(&[("main.sv", SAFE_NAV_DEMO)]);
+    run_rust_files(&files, "safe-nav", "42\n-1\n-1\nnanos=42\nabsent\n");
+}
+
 // ===== [str-drop-mut] [rs-mut-str] `Mut Str` is a `String` =====
 
 /// The same source and the same expected stdout as the Kotlin backend's

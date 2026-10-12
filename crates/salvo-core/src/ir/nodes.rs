@@ -429,6 +429,12 @@ pub enum Justification {
     Test { test: NodeId },
     /// Inside arm `arm` of `Switch` `switch`.
     Arm { switch: NodeId, arm: usize },
+    /// [safe-nav] Inside the present arm of a `?.`'s `Switch` `switch`: the
+    /// receiver tested non-`None`, so the link reads it narrowed. A distinct
+    /// justification (rather than a plain `Arm`) is the hint a backend uses to
+    /// reconstruct the chain as a native `a?.b` (Kotlin) or an
+    /// `.and_then`/`.map` combinator chain (Rust).
+    SafeNav { switch: NodeId },
     /// Inside arm `arm` of `Branch` `branch`, whose condition tested it.
     Cond { branch: NodeId, arm: usize },
     /// After `branch`'s arm `arm` left (returned, broke, threw): the test

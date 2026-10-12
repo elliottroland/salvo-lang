@@ -79,8 +79,15 @@ Conventions:
   value in the then branch, `rhs` in the else. For a `Forward(1)` pick on a `T?`
   the `T?` representation is a Kotlin nullable, so the test is a plain null
   check. A `return` on the right is legal there for the same reason it is in
-  Salvo [expr-escape]. (There is no `?.` safe-call operator — it was removed
-  2026-10-11.)
+  Salvo [expr-escape].
+* [safe-nav] [kt-safe-nav] A field-only `?.` chain renders as a **native Kotlin
+  optional chain**: the reconstruction `Switch` ([safe-nav], [ir-switch]) is
+  recognized by its present arm's `Justification::SafeNav` and emitted as
+  `receiver?.field?.field` — Kotlin's `?.` is already the whole short-circuit,
+  so the `None` arm needs nothing. A `?.` **call** link does not fold into a
+  native chain (a Salvo dot call is a free function, which `receiver?.m()`
+  cannot spell), so it falls back to the generic `Switch` rendering — correct,
+  if less idiomatic.
 * [type-basic] Internal types map natively: `Str`→`String`,
   `Bool`→`Boolean`, `Int`/`Long`/`Float`/`Double`/`Char` keep
   their names, `Any`→`Any`, `Never`→**`Nothing`** — the JVM's bottom type keeps

@@ -320,6 +320,10 @@ impl<'a> Dumper<'a> {
                 let why = match because {
                     Justification::Test { test } => format!("check#{}", test.0),
                     Justification::Arm { switch, arm } => format!("switch#{}.arm#{arm}", switch.0),
+                    // [safe-nav] `?.` marks the hint: the present arm of a
+                    // safe-navigation switch, which backends reconstruct as a
+                    // native optional chain.
+                    Justification::SafeNav { switch } => format!("switch#{}.?.", switch.0),
                     Justification::Cond { branch, arm } => format!("branch#{}.cond#{arm}", branch.0),
                     Justification::After { branch, arm } => format!("after branch#{}.cond#{arm}", branch.0),
                     Justification::LoopValue { loop_ } => format!("loop#{} value", loop_.0),

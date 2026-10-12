@@ -594,6 +594,27 @@ pub fn walk_expr<V: MutVisitor>(v: &mut V, e: &mut Expr) {
             v.visit_span(span);
             walk_expr(v, operand);
         }
+        Expr::SafeNav { base, access, span } => {
+            v.visit_span(span);
+            walk_expr(v, base);
+            match access {
+                SafeAccess::Field(field) => v.visit_ident(field),
+                SafeAccess::Call { field, type_args, args, named } => {
+                    v.visit_ident(field);
+                    for t in type_args {
+                        walk_type(v, t);
+                    }
+                    for a in args {
+                        walk_expr(v, a);
+                    }
+                    for n in named {
+                        v.visit_span(&mut n.span);
+                        v.visit_ident(&mut n.name);
+                        walk_expr(v, &mut n.value);
+                    }
+                }
+            }
+        }
         Expr::Assert {
             cond,
             message,

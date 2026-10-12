@@ -295,6 +295,9 @@ impl<'p> Walk<'_, '_, 'p> {
             Expr::Elvis { .. } | Expr::Placeholder { .. } => {
                 Some(HashSet::new())
             }
+            // [safe-nav] The result is an optional value handed out by value;
+            // it lends nothing.
+            Expr::SafeNav { .. } => Some(HashSet::new()),
             // A struct literal: `proj` fields take the roots of what they
             // store; owned fields that are themselves views take their lends.
             Expr::StructLit { ty, fields, .. } => {

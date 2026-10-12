@@ -42,7 +42,7 @@ use std::collections::{HashMap, HashSet};
 use salvo_syntax::ast::{
     DeductionTarget, Ident,
     Block, Deduction, DeductionKind, EffectDecl, Expr, FnDecl, Item, LambdaBody, Param,
-    QualSubject, Stmt, StrExprPart, StructLitFieldKind, Type,
+    QualSubject, SafeAccess, Stmt, StrExprPart, StructLitFieldKind, Type,
 };
 use salvo_syntax::Span;
 
@@ -1068,6 +1068,19 @@ impl<'p> Walk<'_, 'p> {
                 self.expr(rhs);
             }
             Expr::Placeholder { .. } => {}
+            // [safe-nav] The receiver is read (navigated), and any call
+            // arguments are evaluated; mirror a dot read/call's effects.
+            Expr::SafeNav { base, access, .. } => {
+                self.expr(base);
+                if let SafeAccess::Call { args, named, .. } = access {
+                    for a in args {
+                        self.expr(a);
+                    }
+                    for n in named {
+                        self.expr(&n.value);
+                    }
+                }
+            }
             Expr::Call {
                 callee, args, span, ..
             } => self.call(callee, args, *span),

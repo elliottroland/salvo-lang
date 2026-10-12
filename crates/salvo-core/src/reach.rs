@@ -32,7 +32,7 @@
 use std::collections::HashSet;
 
 use salvo_syntax::ast::{
-    Block, EffectRef, Expr, FnDecl, Item, LambdaBody, Module, Stmt, StrExprPart,
+    Block, EffectRef, Expr, FnDecl, Item, LambdaBody, Module, SafeAccess, Stmt, StrExprPart,
     StructLitFieldKind, Type, TypeRef,
 };
 
@@ -537,6 +537,23 @@ fn expr_names<'p>(expr: &'p Expr, used: &mut HashSet<&'p str>) {
         Expr::Elvis { subject, rhs, .. } => {
             expr_names(subject, used);
             expr_names(rhs, used);
+        }
+        // [safe-nav] A `?.m(args)` call-link names `m` just like a dot call;
+        // a field link names nothing a module provides.
+        Expr::SafeNav { base, access, .. } => {
+            expr_names(base, used);
+            if let SafeAccess::Call { field, type_args, args, named } = access {
+                used.insert(&field.name);
+                for t in type_args {
+                    type_names(t, used);
+                }
+                for a in args {
+                    expr_names(a, used);
+                }
+                for n in named {
+                    expr_names(&n.value, used);
+                }
+            }
         }
         Expr::Placeholder { .. } => {}
         Expr::Ident(id) => {

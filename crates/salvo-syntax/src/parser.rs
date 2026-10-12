@@ -5375,6 +5375,33 @@ impl<'s> Parser<'s> {
                         span,
                     };
                 }
+                // [safe-nav] `base?.field` / `base?.method(args)`: a `?`
+                // immediately followed by `.`. A single `?` run ending in
+                // `:` is the elvis operator and belongs to the lower
+                // precedence tier (`parse_elvis`), so only `?.` is taken
+                // here. One `?.` guards one link: the field, and a call on
+                // it when `(` follows on the same line.
+                TokenKind::Question
+                    if self.same_line()
+                        && matches!(self.peek_at(1).kind, TokenKind::Dot) =>
+                {
+                    self.bump(); // `?`
+                    self.bump(); // `.`
+                    let field = self.ident()?;
+                    let (access, end) = if self.at(&TokenKind::LParen) && self.same_line() {
+                        let (args, named, end) = self.parse_call_args()?;
+                        (SafeAccess::Call { field, type_args: Vec::new(), args, named }, end)
+                    } else {
+                        let fspan = field.span;
+                        (SafeAccess::Field(field), fspan)
+                    };
+                    let span = expr.span().to(end);
+                    expr = Expr::SafeNav {
+                        base: Box::new(expr),
+                        access,
+                        span,
+                    };
+                }
                 // [is-not] `!` directly before `is` is the **negated check**,
                 // not an assert: `s !is Str` used to parse as `(s!) is Str`,
                 // which type-checked and meant the opposite of what it reads

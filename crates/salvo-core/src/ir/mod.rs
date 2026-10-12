@@ -11,6 +11,7 @@ pub mod check;
 pub mod dump;
 pub mod nodes;
 pub mod obligations;
+pub mod safe_nav;
 pub mod walk;
 
 pub use build::actors::enum_key;
