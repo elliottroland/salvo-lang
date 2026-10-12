@@ -1,5 +1,5 @@
 ---
-source: crates/salvo-ir/tests/golden_tests.rs
+source: crates/salvo-core/tests/golden_tests.rs
 expression: text
 ---
 module main
@@ -33,9 +33,11 @@ impl Sessions() of Session deps [Timer] stateful {
   mailbox construct Mailbox { capacity: 8 }
   fn open(lent started: Tick, lent budget: Duration, lent out: Reply<Str>) -> None {
     member time::Timer#0(read __dep0, call time::plus(Duration, Duration)(read budget, call time::seconds(1L)), replyto expire(read started, read budget, !read out))
+    obligation release [out]
   }
   fn expire(lent started: Tick, lent budget: Duration, lent out: Reply<Str>, lent f: Fired) -> None {
     call core.actor::send<Str>(!read out, call main::verdict(read started, read f.at, read budget))
+    obligation release [out]
   }
 }
 
@@ -57,9 +59,11 @@ impl Napping() of Sleeper deps [Timer, Ticker] stateful {
   mailbox construct Mailbox { capacity: 8 }
   fn nap(lent wait: Duration, lent out: Reply<Str>) -> None {
     member time::Timer#0(read __dep0, !read wait, replyto woke(member time::Ticker#0(read __dep1), !read out))
+    obligation release [out]
   }
   fn woke(lent started: Tick, lent out: Reply<Str>, lent f: Fired) -> None {
     call core.actor::send<Str>(!read out, concat("napped ", call time::to_str(call time::elapsed(read __dep1, read started))))
+    obligation release [out]
   }
 }
 
@@ -128,19 +132,27 @@ enum __Cont_Napping {
 
 impl __Stub_Session(moved addr: Addr<Session>) of Session {
   fn open(moved started: Tick, moved budget: Duration, moved out: Reply<Str>) -> None {
+    obligation gain-params [out]
     send main::Session#0(read addr, !read started, !read budget, !read out)
+    obligation release [out]
   }
   fn expire(moved started: Tick, moved budget: Duration, moved out: Reply<Str>, moved f: Fired) -> None {
+    obligation gain-params [out]
     send main::Session#1(read addr, !read started, !read budget, !read out, !read f)
+    obligation release [out]
   }
 }
 
 impl __Stub_Sleeper(moved addr: Addr<Sleeper>) of Sleeper {
   fn nap(moved wait: Duration, moved out: Reply<Str>) -> None {
+    obligation gain-params [out]
     send main::Sleeper#0(read addr, !read wait, !read out)
+    obligation release [out]
   }
   fn woke(moved started: Tick, moved out: Reply<Str>, moved f: Fired) -> None {
+    obligation gain-params [out]
     send main::Sleeper#1(read addr, !read started, !read out, !read f)
+    obligation release [out]
   }
 }
 
@@ -148,11 +160,15 @@ fn __dispatch_Sessions_Session(lent_mut __handler: Sessions, moved __msg: __Msg_
   switch#1 read __msg {
     arm#0 (arm 0) {
       unpack#2 (started: Tick, budget: Duration, out: Reply<Str>) = __msg as variant 0
+      obligation gain [out]
       handler_call main::Session#0(read __handler, !read started, !read budget, !read out)
+      obligation release [out]
     }
     arm#1 (arm 1) {
       unpack#3 (started: Tick, budget: Duration, out: Reply<Str>, f: Fired) = __msg as variant 1
+      obligation gain [out]
       handler_call main::Session#1(read __handler, !read started, !read budget, !read out, !read f)
+      obligation release [out]
     }
   }
 }
@@ -161,11 +177,15 @@ fn __dispatch_Napping_Sleeper(lent_mut __handler: Napping, moved __msg: __Msg_Sl
   switch#1 read __msg {
     arm#0 (arm 0) {
       unpack#2 (wait: Duration, out: Reply<Str>) = __msg as variant 0
+      obligation gain [out]
       handler_call main::Sleeper#0(read __handler, !read wait, !read out)
+      obligation release [out]
     }
     arm#1 (arm 1) {
       unpack#3 (started: Tick, out: Reply<Str>, f: Fired) = __msg as variant 1
+      obligation gain [out]
       handler_call main::Sleeper#1(read __handler, !read started, !read out, !read f)
+      obligation release [out]
     }
   }
 }

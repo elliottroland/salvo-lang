@@ -1,5 +1,5 @@
 ---
-source: crates/salvo-ir/tests/golden_tests.rs
+source: crates/salvo-core/tests/golden_tests.rs
 expression: text
 ---
 module main
@@ -15,13 +15,17 @@ fn main::issue(lent console: Console; lent id: Int, moved seat: Str) -> Ticket {
 }
 
 fn main::redeem(lent console: Console; moved ticket: Ticket) -> None {
+  obligation gain-params [ticket]
   call core.console::println(read console, concat("1. redeemed #", call core.basic::to_str(Int)(read ticket.id)))
   call core.basic::discard<Ticket>(!read ticket)
+  obligation release [ticket]
 }
 
 fn main::one_use(lent console: Console) -> None {
   bind#1 let ticket: Ticket = call main::issue(read console, 1, "12A")
+  obligation gain [ticket]
   call main::redeem(read console, !read ticket)
+  obligation release [ticket]
   call core.console::println(read console, "2. gone after one use")
 }
 
@@ -31,56 +35,76 @@ fn main::describe(lent console: Console; lent ticket: Ticket) -> None {
 
 fn main::borrow_then_use(lent console: Console) -> None {
   bind#1 let ticket: Ticket = call main::issue(read console, 2, "3C")
+  obligation gain [ticket]
   call main::describe(read console, read ticket)
   call main::describe(read console, read ticket)
   call main::redeem(read console, !read ticket)
+  obligation release [ticket]
 }
 
 fn main::read_a_field(lent console: Console) -> None {
   bind#1 let ticket: Ticket = call main::issue(read console, 3, "1A")
+  obligation gain [ticket]
   bind#2 let seat: Str = read ticket.seat
   call core.console::println(read console, concat("4. read ", read seat, ", and #", call core.basic::to_str(Int)(read ticket.id), " is still owed"))
   call main::redeem(read console, !read ticket)
+  obligation release [ticket]
 }
 
 fn main::hand_over<T canbe linear>(lent console: Console; moved value: T, moved to: (T) [Console] -> None) -> None {
+  obligation gain-params [value]
   call local to(read console, !read value)
+  obligation release [value]
 }
 
 fn main::generic_handoff(lent console: Console) -> None {
   bind#1 let ticket: Ticket = call main::issue(read console, 4, "9B")
+  obligation gain [ticket]
   call main::hand_over<Ticket>(read console, !read ticket, lambda(lent __leff0: Console, lent t: Ticket) -> None {
     value call main::redeem(read __leff0, !read t)
   })
+  obligation release [ticket]
 }
 
 fn main::scrap(moved ticket: Ticket) -> None {
+  obligation gain-params [ticket]
   call core.basic::discard<Ticket>(!read ticket)
+  obligation release [ticket]
 }
 
 fn main::a_queue_of_tickets(lent console: Console) -> None {
   bind#1 let queue: Mut Deque<Ticket> = call core.deque::mut_deque_of()<Ticket>()
+  obligation gain [queue]
   call core.deque::add_last<Ticket>(read queue, call main::issue(read console, 5, "2B"))
   call core.deque::add_last<Ticket>(read queue, call main::issue(read console, 6, "2C"))
   call core.console::println(read console, concat("6. queued ", call core.basic::to_str(Int)(call core.deque::size<Ticket>(drop_mut(read queue)))))
   bind#2 let first: Ticket? = call core.deque::remove_first<Ticket>(read queue)
+  obligation gain [first.arms{0}]
   switch#3 read first {
     arm#0 (arm 0) {
       narrow#4[switch#3.arm#0] first~1: Ticket = first
+      obligation discharge [first.arms{0}]
+      obligation gain [first~1]
       call main::redeem(read console, !read first~1)
+      obligation release [first~1]
     }
     arm#1 (none) {
     }
   }
   loop#5 {
     bind#7 let __subject~2: Ticket? = call core.deque::remove_first<Ticket>(read queue)
+    obligation gain [__subject~2.arms{0}]
     branch#9 cond#0 !(check#6 (read __subject~2 is arm 0)) {
       break
     }
     narrow#8[check#6] next: Ticket = __subject~2
+    obligation discharge [__subject~2.arms{0}]
+    obligation gain [next]
     call main::redeem(read console, !read next)
+    obligation release [next]
   }
   call core.deque::drain<Ticket>(drop_mut(!read queue), fn main::scrap)
+  obligation release [queue]
   call core.console::println(read console, "6. queue drained")
 }
 

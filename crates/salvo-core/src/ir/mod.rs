@@ -6,8 +6,10 @@
 //! deductions) runs on this IR. See IR_CHECKER.md.
 
 pub mod build;
+pub mod check;
 pub mod dump;
 pub mod nodes;
+pub mod obligations;
 pub mod walk;
 
 pub use build::actors::enum_key;
@@ -37,7 +39,11 @@ pub fn dump_program(
         })
         .map(|u| &u.file.module)
         .collect();
-    let (ir, errors) = build::build_program(program, &symbols, &resolution, &checked, Some(&wanted));
+    let (mut ir, errors) = build::build_program(program, &symbols, &resolution, &checked, Some(&wanted));
+    // [ir-obligation] The ledger is for reading and checking, not emission, so
+    // it is inserted only here (and before `ir::check`), never in the IR the
+    // backends consume.
+    obligations::annotate(&mut ir, &symbols);
     let mut text = String::new();
     for m in &ir.modules {
         if !text.is_empty() {

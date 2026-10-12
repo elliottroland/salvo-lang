@@ -369,6 +369,54 @@ pub enum Stmt {
     Return(Option<Expr>),
     Break,
     Continue,
+    /// [ir-obligation] A directive recording a change to the set of linear
+    /// obligations the enclosing fn currently owes. It emits no code — the
+    /// backends skip it — but it is the ledger the IR-level linear check
+    /// (`ir::check`) reads, and it is dumped so `salvo ir` shows the
+    /// reasoning. See IR_CHECKER.md §3 (D3).
+    Obligation(Obligation),
+}
+
+/// [ir-obligation] One line of the obligation ledger: the four points at
+/// which a fn's outstanding-obligation set changes.
+#[derive(Clone)]
+pub struct Obligation {
+    pub kind: ObligationKind,
+    /// The obligations this transition gains, releases, or discharges.
+    pub refs: Vec<ObligationRef>,
+    pub span: Span,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ObligationKind {
+    /// At the top of a fn body: obligations entering from linear parameters
+    /// (concrete linear, or a `canbe linear` generic parameter).
+    GainParams,
+    /// After a binding whose value (or named arms of it) is linear: the
+    /// obligation enters the scope from the new value — including a value
+    /// received from a call (its linear arms named).
+    Gain,
+    /// After a value is moved out: the obligations that are no longer ours.
+    Release,
+    /// An obligation settled in place, without moving the value (consumed
+    /// where it lives, or narrowed to a non-linear arm on every path).
+    Discharge,
+}
+
+/// [ir-obligation] One obligation named by a directive: the place that holds
+/// (or held) the linear value, and — when it is a union — which of its
+/// runtime arms [union-arm-identity] carry the obligation. `arms` is `None`
+/// for a value that is linear as a whole (a linear leaf such as a `Checked`
+/// or a struct), `Some(indices)` for a union some of whose arms are linear.
+#[derive(Clone)]
+pub struct ObligationRef {
+    pub place: Place,
+    pub arms: Option<Vec<usize>>,
+    /// [linear-group] When the value is a linear struct with linear *fields*,
+    /// their names: the container is settled by decomposition once every one
+    /// has been moved out ([linear-container]). Empty for a linear leaf or a
+    /// union.
+    pub container_fields: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug)]

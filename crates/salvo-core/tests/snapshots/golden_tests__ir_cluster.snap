@@ -1,5 +1,5 @@
 ---
-source: crates/salvo-ir/tests/golden_tests.rs
+source: crates/salvo-core/tests/golden_tests.rs
 expression: text
 ---
 module main
@@ -26,6 +26,7 @@ impl Sequencing(lent who: Str) of Sequencer stateful {
   fn next(lent out: Reply<Str>) -> None {
     assign n = (read n + 1)
     call core.actor::send<Str>(!read out, concat(read who, "#", call core.basic::to_str(Int)(read n)))
+    obligation release [out]
   }
 }
 
@@ -35,6 +36,7 @@ impl Stocking(lent shard: Str) of Inventory stateful {
   fn reserve(lent sku: Str, lent qty: Int, lent out: Reply<Str>) -> None {
     assign served = (read served + read qty)
     call core.actor::send<Str>(!read out, concat(read shard, ":", call core.basic::to_str(Int)(read served)))
+    obligation release [out]
   }
 }
 
@@ -48,6 +50,7 @@ impl Indexing(lent words: List<Str>) of Search {
       }
     }
     call core.actor::send<Int>(!read out, !read n)
+    obligation release [out]
   }
 }
 
@@ -55,6 +58,7 @@ impl Looking(lent who: Str) of Lookup {
   mailbox construct Mailbox { capacity: 16 }
   fn lookup(lent key: Str, lent out: Reply<Str>) -> None {
     call core.actor::send<Str>(!read out, concat(read key, " from ", read who))
+    obligation release [out]
   }
 }
 
@@ -62,9 +66,11 @@ impl SlowLooking(lent who: Str, lent timer: Addr<Timer>) of Lookup stateful {
   mailbox construct Mailbox { capacity: 16 }
   fn lookup(lent key: Str, lent out: Reply<Str>) -> None {
     send time::Timer#0(read timer, call time::millis(150L), replyto answer(read key, !read out))
+    obligation release [out]
   }
   fn answer(lent key: Str, lent out: Reply<Str>, lent fired: Fired) -> None {
     call core.actor::send<Str>(!read out, concat(read key, " from ", read who))
+    obligation release [out]
   }
 }
 
@@ -75,6 +81,7 @@ impl Scattering(lent group: Addr<ActorGroup<Search>>, lent gather: Addr<Gather>)
       send net::ActorGroup#2(read group, !read ms)
     }
     send main::Gather#0(read gather, read word, read members, !read out)
+    obligation release [out]
   }
 }
 
@@ -89,6 +96,7 @@ impl Gathering() of Gather stateful {
   state total: Int = 0
   fn scatter(lent word: Str, lent members: List<Addr<Search>>, lent out: Reply<Int>) -> None {
     call core.deque::add_last<Reply<Int>>(read pending, !read out)
+    obligation release [out]
     assign left = call core.list::size<Addr<Search>>(read members)
     assign total = 0
     foreach#1 m: proj Addr<Search> in read members {
@@ -100,10 +108,14 @@ impl Gathering() of Gather stateful {
     assign left = (read left - 1)
     branch#1 cond#0 (read left == 0) {
       bind#2 let out: Reply<Int>? = call core.deque::remove_first<Reply<Int>>(read pending)
+      obligation gain [out.arms{0}]
       switch#3 read out {
         arm#0 (arm 0) {
           narrow#4[switch#3.arm#0] out~1: Reply<Int> = out
+          obligation discharge [out.arms{0}]
+          obligation gain [out~1]
           call core.actor::send<Int>(!read out~1, call core.basic::copy<Int>(read total))
+          obligation release [out~1]
         }
         arm#1 (none) {
         }
@@ -119,6 +131,7 @@ impl Hedging(lent group: Addr<ActorGroup<Lookup>>, lent racer: Addr<Race>) of an
       send net::ActorGroup#2(read group, !read ms)
     }
     send main::Race#0(read racer, read key, read members, !read out)
+    obligation release [out]
   }
 }
 
@@ -131,16 +144,21 @@ impl Racing() of Race stateful {
   state pending: Mut Deque<Reply<Str>> = call core.deque::mut_deque_of()<Reply<Str>>()
   fn race(lent key: Str, lent members: List<Addr<Lookup>>, lent out: Reply<Str>) -> None {
     call core.deque::add_last<Reply<Str>>(read pending, !read out)
+    obligation release [out]
     foreach#1 m: proj Addr<Lookup> in read members {
       send main::Lookup#0(read m, call core.basic::copy<Str>(read key), replyto first())
     }
   }
   fn first(lent answer: Str) -> None {
     bind#1 let out: Reply<Str>? = call core.deque::remove_first<Reply<Str>>(read pending)
+    obligation gain [out.arms{0}]
     switch#2 read out {
       arm#0 (arm 0) {
         narrow#3[switch#2.arm#0] out~1: Reply<Str> = out
+        obligation discharge [out.arms{0}]
+        obligation gain [out~1]
         call core.actor::send<Str>(!read out~1, !read answer)
+        obligation release [out~1]
       }
       arm#1 (none) {
         call core.basic::discard<Str>(!read answer)
@@ -325,6 +343,7 @@ impl Booting(lent at: NodeEndpoint, lent all: List<NodeEndpoint>, lent net: Addr
     bind#8 let timer: Addr<Timer> = spawn[Addr<Timer>](construct DefaultTimer { }, on: read p) serves [Timer]
     spawn[Addr<Lookup>](construct SlowLooking { who: "b (slow)", timer: read timer }, on: read p, in: read looks) serves [Lookup]
     call core.actor::send<Addr<Sequencer>>(!read done, !read mine)
+    obligation release [done]
   }
   fn stop(lent done: Reply<Bool>) -> None {
     bind#1 let group: Addr<NodeGroup>? = read nodes
@@ -333,6 +352,7 @@ impl Booting(lent at: NodeEndpoint, lent all: List<NodeEndpoint>, lent net: Addr
       send net::NodeGroup#2(read group~1)
     }
     call core.actor::send<Bool>(!read done, true)
+    obligation release [done]
   }
 }
 
@@ -406,6 +426,7 @@ impl __Route_Inventory(lent group: Addr<ActorGroup<Inventory>>, lent config: Rou
     bind#1 let __pick: RoutePick<Inventory> = call net::route_pick(Addr<ActorGroup<E>>, RouteConfig, Long, Long)<Inventory>(read __dep0, read group, read config, call core.basic::copy<Long>(read seen), call net::key_hash<Str>(read sku))
     assign seen = call core.basic::copy<Long>(read __pick.version)
     send main::Inventory#0(read __pick.to, read sku, read qty, !read out)
+    obligation release [out]
   }
 }
 
@@ -416,6 +437,7 @@ impl __Route_Lookup(lent group: Addr<ActorGroup<Lookup>>, lent config: RouteConf
     bind#1 let __pick: RoutePick<Lookup> = call net::route_pick(Addr<ActorGroup<E>>, RouteConfig, Long)<Lookup>(read __dep0, read group, read config, call core.basic::copy<Long>(read seen))
     assign seen = call core.basic::copy<Long>(read __pick.version)
     send main::Lookup#0(read __pick.to, read key, !read out)
+    obligation release [out]
   }
 }
 
@@ -426,6 +448,7 @@ impl __Route_Search(lent group: Addr<ActorGroup<Search>>, lent config: RouteConf
     bind#1 let __pick: RoutePick<Search> = call net::route_pick(Addr<ActorGroup<E>>, RouteConfig, Long)<Search>(read __dep0, read group, read config, call core.basic::copy<Long>(read seen))
     assign seen = call core.basic::copy<Long>(read __pick.version)
     send main::Search#0(read __pick.to, read word, !read out)
+    obligation release [out]
   }
 }
 
@@ -436,6 +459,7 @@ impl __Route_Sequencer(lent group: Addr<ActorGroup<Sequencer>>, lent config: Rou
     bind#1 let __pick: RoutePick<Sequencer> = call net::route_pick(Addr<ActorGroup<E>>, RouteConfig, Long)<Sequencer>(read __dep0, read group, read config, call core.basic::copy<Long>(read seen))
     assign seen = call core.basic::copy<Long>(read __pick.version)
     send main::Sequencer#0(read __pick.to, !read out)
+    obligation release [out]
   }
 }
 
@@ -542,46 +566,62 @@ enum __Cont___Route_Sequencer {
 
 impl __Stub_Sequencer(moved addr: Addr<Sequencer>) of Sequencer {
   fn next(moved out: Reply<Str>) -> None {
+    obligation gain-params [out]
     send main::Sequencer#0(read addr, !read out)
+    obligation release [out]
   }
 }
 
 impl __Stub_Inventory(moved addr: Addr<Inventory>) of Inventory {
   fn reserve(moved sku: Str, moved qty: Int, moved out: Reply<Str>) -> None {
+    obligation gain-params [out]
     send main::Inventory#0(read addr, !read sku, !read qty, !read out)
+    obligation release [out]
   }
 }
 
 impl __Stub_Search(moved addr: Addr<Search>) of Search {
   fn query(moved word: Str, moved out: Reply<Int>) -> None {
+    obligation gain-params [out]
     send main::Search#0(read addr, !read word, !read out)
+    obligation release [out]
   }
 }
 
 impl __Stub_Lookup(moved addr: Addr<Lookup>) of Lookup {
   fn lookup(moved key: Str, moved out: Reply<Str>) -> None {
+    obligation gain-params [out]
     send main::Lookup#0(read addr, !read key, !read out)
+    obligation release [out]
   }
 }
 
 impl __Stub_Gather(moved addr: Addr<Gather>) of Gather {
   fn scatter(moved word: Str, moved members: List<Addr<Search>>, moved out: Reply<Int>) -> None {
+    obligation gain-params [out]
     send main::Gather#0(read addr, !read word, !read members, !read out)
+    obligation release [out]
   }
 }
 
 impl __Stub_Race(moved addr: Addr<Race>) of Race {
   fn race(moved key: Str, moved members: List<Addr<Lookup>>, moved out: Reply<Str>) -> None {
+    obligation gain-params [out]
     send main::Race#0(read addr, !read key, !read members, !read out)
+    obligation release [out]
   }
 }
 
 impl __Stub_Boot(moved addr: Addr<Boot>) of Boot {
   fn boot(moved done: Reply<Addr<Sequencer>>) -> None {
+    obligation gain-params [done]
     send main::Boot#0(read addr, !read done)
+    obligation release [done]
   }
   fn stop(moved done: Reply<Bool>) -> None {
+    obligation gain-params [done]
     send main::Boot#1(read addr, !read done)
+    obligation release [done]
   }
 }
 
@@ -589,7 +629,9 @@ fn __dispatch_Sequencing_Sequencer(lent_mut __handler: Sequencing, moved __msg: 
   switch#1 read __msg {
     arm#0 (arm 0) {
       unpack#2 (out: Reply<Str>) = __msg as variant 0
+      obligation gain [out]
       handler_call main::Sequencer#0(read __handler, !read out)
+      obligation release [out]
     }
   }
 }
@@ -598,7 +640,9 @@ fn __dispatch_Stocking_Inventory(lent_mut __handler: Stocking, moved __msg: __Ms
   switch#1 read __msg {
     arm#0 (arm 0) {
       unpack#2 (sku: Str, qty: Int, out: Reply<Str>) = __msg as variant 0
+      obligation gain [out]
       handler_call main::Inventory#0(read __handler, !read sku, !read qty, !read out)
+      obligation release [out]
     }
   }
 }
@@ -607,7 +651,9 @@ fn __dispatch_Indexing_Search(lent_mut __handler: Indexing, moved __msg: __Msg_S
   switch#1 read __msg {
     arm#0 (arm 0) {
       unpack#2 (word: Str, out: Reply<Int>) = __msg as variant 0
+      obligation gain [out]
       handler_call main::Search#0(read __handler, !read word, !read out)
+      obligation release [out]
     }
   }
 }
@@ -616,7 +662,9 @@ fn __dispatch_Looking_Lookup(lent_mut __handler: Looking, moved __msg: __Msg_Loo
   switch#1 read __msg {
     arm#0 (arm 0) {
       unpack#2 (key: Str, out: Reply<Str>) = __msg as variant 0
+      obligation gain [out]
       handler_call main::Lookup#0(read __handler, !read key, !read out)
+      obligation release [out]
     }
   }
 }
@@ -625,7 +673,9 @@ fn __dispatch_SlowLooking_Lookup(lent_mut __handler: SlowLooking, moved __msg: _
   switch#1 read __msg {
     arm#0 (arm 0) {
       unpack#2 (key: Str, out: Reply<Str>) = __msg as variant 0
+      obligation gain [out]
       handler_call main::Lookup#0(read __handler, !read key, !read out)
+      obligation release [out]
     }
   }
 }
@@ -634,7 +684,9 @@ fn __dispatch_priv_SlowLooking(lent_mut __handler: SlowLooking, moved __msg: __P
   switch#1 read __msg {
     arm#0 (arm 0) {
       unpack#2 (key: Str, out: Reply<Str>, fired: Fired) = __msg as variant 0
+      obligation gain [out]
       handler_call answer(read __handler, !read key, !read out, !read fired)
+      obligation release [out]
     }
   }
 }
@@ -643,7 +695,9 @@ fn __dispatch_Scattering_Search(lent_mut __handler: Scattering, moved __msg: __M
   switch#1 read __msg {
     arm#0 (arm 0) {
       unpack#2 (word: Str, out: Reply<Int>) = __msg as variant 0
+      obligation gain [out]
       handler_call main::Search#0(read __handler, !read word, !read out)
+      obligation release [out]
     }
   }
 }
@@ -652,7 +706,9 @@ fn __dispatch_Gathering_Gather(lent_mut __handler: Gathering, moved __msg: __Msg
   switch#1 read __msg {
     arm#0 (arm 0) {
       unpack#2 (word: Str, members: List<Addr<Search>>, out: Reply<Int>) = __msg as variant 0
+      obligation gain [out]
       handler_call main::Gather#0(read __handler, !read word, !read members, !read out)
+      obligation release [out]
     }
   }
 }
@@ -670,7 +726,9 @@ fn __dispatch_Hedging_Lookup(lent_mut __handler: Hedging, moved __msg: __Msg_Loo
   switch#1 read __msg {
     arm#0 (arm 0) {
       unpack#2 (key: Str, out: Reply<Str>) = __msg as variant 0
+      obligation gain [out]
       handler_call main::Lookup#0(read __handler, !read key, !read out)
+      obligation release [out]
     }
   }
 }
@@ -679,7 +737,9 @@ fn __dispatch_Racing_Race(lent_mut __handler: Racing, moved __msg: __Msg_Race) -
   switch#1 read __msg {
     arm#0 (arm 0) {
       unpack#2 (key: Str, members: List<Addr<Lookup>>, out: Reply<Str>) = __msg as variant 0
+      obligation gain [out]
       handler_call main::Race#0(read __handler, !read key, !read members, !read out)
+      obligation release [out]
     }
   }
 }
@@ -697,11 +757,15 @@ fn __dispatch_Booting_Boot(lent_mut __handler: Booting, moved __msg: __Msg_Boot)
   switch#1 read __msg {
     arm#0 (arm 0) {
       unpack#2 (done: Reply<Addr<Sequencer>>) = __msg as variant 0
+      obligation gain [done]
       handler_call main::Boot#0(read __handler, !read done)
+      obligation release [done]
     }
     arm#1 (arm 1) {
       unpack#3 (done: Reply<Bool>) = __msg as variant 1
+      obligation gain [done]
       handler_call main::Boot#1(read __handler, !read done)
+      obligation release [done]
     }
   }
 }
@@ -710,7 +774,9 @@ fn __dispatch___Route_Inventory_Inventory(lent_mut __handler: __Route_Inventory,
   switch#1 read __msg {
     arm#0 (arm 0) {
       unpack#2 (sku: Str, qty: Int, out: Reply<Str>) = __msg as variant 0
+      obligation gain [out]
       handler_call main::Inventory#0(read __handler, !read sku, !read qty, !read out)
+      obligation release [out]
     }
   }
 }
@@ -719,7 +785,9 @@ fn __dispatch___Route_Lookup_Lookup(lent_mut __handler: __Route_Lookup, moved __
   switch#1 read __msg {
     arm#0 (arm 0) {
       unpack#2 (key: Str, out: Reply<Str>) = __msg as variant 0
+      obligation gain [out]
       handler_call main::Lookup#0(read __handler, !read key, !read out)
+      obligation release [out]
     }
   }
 }
@@ -728,7 +796,9 @@ fn __dispatch___Route_Search_Search(lent_mut __handler: __Route_Search, moved __
   switch#1 read __msg {
     arm#0 (arm 0) {
       unpack#2 (word: Str, out: Reply<Int>) = __msg as variant 0
+      obligation gain [out]
       handler_call main::Search#0(read __handler, !read word, !read out)
+      obligation release [out]
     }
   }
 }
@@ -737,7 +807,9 @@ fn __dispatch___Route_Sequencer_Sequencer(lent_mut __handler: __Route_Sequencer,
   switch#1 read __msg {
     arm#0 (arm 0) {
       unpack#2 (out: Reply<Str>) = __msg as variant 0
+      obligation gain [out]
       handler_call main::Sequencer#0(read __handler, !read out)
+      obligation release [out]
     }
   }
 }

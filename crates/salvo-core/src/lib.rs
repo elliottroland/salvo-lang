@@ -19,6 +19,7 @@ pub mod erase;
 pub mod expand;
 pub mod ir;
 pub mod lends;
+pub mod linear;
 pub mod literal;
 pub mod lock;
 pub mod naming;

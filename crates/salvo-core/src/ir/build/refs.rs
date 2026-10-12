@@ -230,6 +230,11 @@ fn stmt(s: &mut Stmt, env: &mut HashMap<String, Ty>, lends: &HashMap<DeclId, Opt
         Stmt::Expr(e) => expr(e, env, lends),
         Stmt::Return(Some(e)) => expr(e, env, lends),
         Stmt::Return(None) | Stmt::Break | Stmt::Continue => {}
+        Stmt::Obligation(o) => {
+            for r in &mut o.refs {
+                place_exprs(&mut r.place, env, lends);
+            }
+        }
     }
 }
 

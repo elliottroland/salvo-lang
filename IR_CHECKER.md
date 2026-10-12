@@ -212,11 +212,25 @@ new decision is needed from the user. Spec labels to add as they land:
   `Obligation` directive (§3 D3) and emit it at the four transition points
   during lowering, driven by the checker's working-memory linearity facts. Add
   the IR-level balance check (`ir/check/`), emitting a diagnostic at the span of
-  any obligation outstanding at a scope exit. Change the emission gate to require
-  IR-check clean (D4a). Teach the dump to print `!!! <error>` inline and
-  `salvo ir` to dump-and-report, exit 0 (D4b). First real client: the linear
+  any obligation outstanding at a scope exit. First real client: the linear
   balance that catches noticeboard #2 (a dropped `Err Checked<…>` arm). Add a
   focused corpus `.sv` reproducing it. Resolves noticeboard #2.
+
+  **Soundness-before-gating (refinement, 2026-10-12).** The balance check
+  hard-gates the build (D4a) — so a *false positive* would break a
+  currently-valid program (std and every example carry correctly-discharged
+  linear values). To de-risk, within Phase 1: (1) emit all four directives from
+  the *same* checker signals that already make the AST check correct — Release
+  from `consume` (`linear_moves ∪ state_takes ∪ moved_projections`), Discharge
+  from narrow-to-non-linear (the `linear_settled` logic); (2) validate the
+  balance check against the whole corpus (std + examples + the backend codegen
+  cases) and iterate to **zero false positives** on known-good code *before* it
+  gates; (3) only then wire the hard gate and add the #2 positive test. If a
+  class of false positive cannot be resolved cleanly in Phase 1, the IR check
+  ships **advisory (warn, no gate)** in Phase 1 and the hard gate moves to
+  Phase 2, where the AST enforcement is deleted and the two can be diffed
+  directly. The AST check stays live throughout Phase 1, so real leaks are still
+  caught meanwhile.
 
 - **Phase 2 — move linear-obligation enforcement onto the IR.** Make the balance
   check the *sole* enforcer of linearity; delete the AST-side
@@ -253,6 +267,139 @@ new decision is needed from the user. Spec labels to add as they land:
 ---
 
 ## Decision log (this doc)
+
+- **2026-10-12 — Phase 1 status: directives + per-path check built; the check
+  is NOT yet sound enough to gate (needs the Phase 2 flow work).** The
+  `Obligation` directive, the shared `crate::linear` predicate, the
+  annotation pass (`ir::obligations`), and the per-path balance check
+  (`ir::check`) are all built and compile. The ledger dumps correctly, and the
+  #2 case shows exactly the intended shape — `gain [__pick~1.arms{1}]`,
+  `discharge` on the kept (narrowed-to-`Int`) path, and nothing on the `else`
+  path where `return 0` drops the `Problem` arm.
+
+  **But validating the check against known-good code (std + examples) found
+  ~4131 false positives**, so it CANNOT gate the build yet (per the
+  Soundness-before-gating refinement, a false positive breaks a valid program).
+  The false positives are **not** random — they are a few flow patterns the
+  coarse directive placement does not yet model, the same patterns the AST
+  checker's `linear_settled`/`with_narrows` flow analysis handles:
+  - **Per-arm narrowing (`is`/`when`/`if … is Err`).** A `Ok A | Err Checked<E>`
+    value handled by narrowing each arm and consuming/returning it per branch:
+    the discharge happens *through* the narrow-and-consume in each arm, which
+    the current `discharge_of` (only a `Narrow` that drops to a wholly
+    non-linear type) and `releases_in` (only a direct `Read{consume}` in the
+    same statement) do not jointly capture. Dominant class (`opened`, `closed`,
+    `content`, `got.arms{…}`, `__subject~1`).
+  - **A linear value returned by `return x`** is a release, now ordered before
+    the leave — fixed — but a value consumed deeper (passed to a consuming
+    call whose result is returned) still needs the release attributed to the
+    leaving statement.
+  - **Loop-carried and reassigned linear locals** (`out`, `done`, `m`): a
+    value re-bound each iteration, or moved then rebound.
+
+  **Resolution (chosen, within the pre-approved fallback):** Phase 1 ships the
+  **directives + the ledger in the dump** (correct, and the point of D3's
+  "make the IR reason visibly"), plus `ir::check` present but **not wired as a
+  gate and not run by default**. The hard gate (D4a), the `salvo ir` `!!!`
+  inline annotation (D4b), and driving the false-positive count to zero move to
+  **Phase 2**, where the AST enforcement is deleted and the IR check is iterated
+  against the AST checker's behaviour as the reference oracle — the natural
+  place to get the flow analysis exactly right, rather than guessing twice. The
+  AST checker stays the sole enforcer through Phase 1, so nothing regresses and
+  real leaks (including the std ones, which are *not* real — they are false
+  positives) stay correctly handled.
+
+  **Open question deferred to Phase 2 (noticeboard #2):** the whole merge was
+  motivated by #2, which the AST checker misses. Phase 1 makes #2 *visible in
+  the dump* but does not yet *fail the build* on it. Catching #2 as an error
+  requires the sound per-arm flow check — so #2's fix lands with Phase 2, not
+  Phase 1. (If the user wants #2 enforced sooner, the alternative is a narrow,
+  special-cased check for exactly "a linear union arm dropped by a pick with no
+  narrow/consume on the dropped path" — smaller, but it is the thin end of the
+  flow analysis Phase 2 does properly.)
+
+- **2026-10-12 — Phase 1 progress: directives + per-path check built; false
+  positives driven from 4131 → ~45 on std; check unwired pending the rest.**
+  Built and committed as a checkpoint (user: committing mid-solution is fine):
+  the `Obligation` directive, the shared `crate::linear` predicate, the
+  annotation pass (`ir::obligations`), and the per-path balance check
+  (`ir::check`). The ledger dumps correctly and the #2 case shows the intended
+  shape (gain the `Problem` arm, discharge on the narrowed-to-`Int` path,
+  nothing on the `else` path that drops it).
+
+  **Key architecture fix: the ledger lives only on the dump/check path, never
+  in the IR the backends emit.** Inserting directives into `build_program`'s
+  output changed what the Rust emitter's handle analysis (`paths.rs`) saw and
+  regressed `runtime.rs` codegen. So `obligations::annotate` now runs *only* in
+  `dump_program` (for `salvo ir`) and before `ir::check` — the emitters get the
+  un-annotated IR and generate byte-identical code. Golden snapshots updated to
+  show the ledger; the Rust/Kotlin codegen goldens are unchanged.
+
+  **Validating the check against known-good code (std + examples) drove a
+  sequence of soundness fixes**, each grounded in a real flow pattern seen in
+  the dump (4131 → 2071 → 180 → 147 → 101 → 64 → 17 → ~45):
+  - **Narrow-transfer:** a `Narrow` of a linear source transfers its obligation
+    to the narrowed binding (source discharged on the path, binding gains).
+  - **Container decomposition:** a linear struct is settled once all its linear
+    fields are moved out (`ObligationRef.container_fields`); a field-release
+    `x.f` decrements the container's pending fields.
+  - **Borrows owe nothing:** a `ref`/`proj`-qualified type (and borrowed union
+    arms) carry no obligation.
+  - **Negative/positive arm tests:** falling past `x is arm k` (or guarding an
+    arm with `!(x is arm k)`) proves the arm absent and discharges it.
+  - **Switch dispatches its subject:** the subject leaves the set on entry
+    (distributed to per-arm narrows).
+  - **Actor expression forms** (`Send`/`ReplyTo`/`SelfSend`/`HandlerCall`/
+    `Spawn`) carry consuming reads that release — traversed now.
+  - **Generic container fields:** `linear_fields` resolves a field's bare
+    generic type through the struct's instantiation (fixed `detach`).
+
+  **Remaining ~45 are the hard interprocedural/aliasing cases**, concentrated
+  in the actor runtime scheduler (`runtime::*`) — re-gained-then-moved fields,
+  multi-field decomposition interleaved with whole-value moves. Tracked by the
+  `#[ignore]`d harness `crates/salvo-core/tests/ir_linear_falsepos.rs`
+  (`cargo test -p salvo-core --test ir_linear_falsepos -- --ignored`). The
+  check stays **unwired** (no gate) until this reaches zero — the AST checker
+  remains the enforcer, so nothing regresses, and #2 is visible in the dump but
+  not yet a build error. Next: continue the per-path analysis (the oscillation
+  at ~17–45 suggests the container whole-vs-field settlement interaction and
+  the join across re-gained fields need a cleaner model), then wire the gate
+  (D4a) and the `salvo ir` `!!!` annotation (D4b).
+
+- **2026-10-12 — Phase 1 implementation finding: the balance must be
+  per-arm and path-sensitive, and Gain must fire on synthetic bindings.**
+  Building the directive emission surfaced two things the flat model missed,
+  and the second needs a user call on the obligation *semantics*:
+  1. **Gain must fire on synthetic bindings, not just source `let`s.** The
+     elvis `?:` pick desugars to a synthetic `let __pick~1: Int | Problem`
+     built inside `exprs.rs`, bypassing `let_stmt` — so a Gain hook placed only
+     in `let_stmt` misses exactly the #2 case. Fix (mechanical): emit Gain
+     centrally for every `Stmt::Let` whose type is linear, wherever built. Not
+     a semantics question.
+  2. **The #2 leak is per-arm and path-sensitive — the flat per-scope balance
+     cannot express it.** For `attempt() ?: return 0` where `attempt()` returns
+     `Ok Int | Err Problem` (Problem linear): the pick binds `__pick~1`
+     (gains the Problem-arm obligation), narrows to `Int` on the kept path
+     (the Problem arm is proven *absent* there — so the obligation is
+     discharged-by-narrowing on that path), and on the else path the value
+     still holds the `Problem` arm and `return 0` drops it — the leak. A flat
+     "gained once, released once per scope" counter cannot see this: the
+     obligation is live on one path and gone on another, and the drop is at a
+     path exit. The IR already carries what's needed — `Stmt::Narrow` with a
+     `Justification` says which arm is live where, and `Switch`/`Branch` arms
+     delimit the paths — so the balance check must walk the control-flow arms
+     and track the outstanding set **per path**, discharging an arm-obligation
+     when a narrow proves that arm absent and reporting it when a path exits
+     (return/break/fall-through) with the arm still possible.
+
+  **This is a refinement of the D3 obligation model; the user signed it off
+  (2026-10-12).** The directive node already
+  supports per-arm refs (`ObligationRef.arms`); the confirmed checker reasoning
+  is: (a) a `Discharge` is emitted when a `Narrow` removes a
+  linear arm from a value's live type (arm proven absent on that path); (b) the
+  balance check is per-path over the `Branch`/`Switch` arm structure, and an
+  obligation (or a still-possible linear arm) outstanding at a path exit is the
+  leak.
 
 - **2026-10-12 — all four design decisions made (user).** D1: merge `salvo-ir`
   into `salvo_core::ir`, making core the single home of checking (no new crate).

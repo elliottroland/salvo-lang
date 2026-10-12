@@ -12871,33 +12871,8 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// `Box<Int>` is plain. Depth-guarded: mutually recursive containers
     /// terminate conservatively.
     fn ty_own_linear_guarded(&self, ty: &Ty, depth: usize) -> bool {
-        if depth > 8 {
-            return false;
-        }
-        match ty.strip_quals() {
-            Ty::Named { name, args } => {
-                if self.has_auto_linear(name) {
-                    return true;
-                }
-                if args.is_empty() {
-                    return false;
-                }
-                // [linear-container] Which parameters hold, then whether the
-                // instantiation puts a linear type in one of them.
-                self.linear_opt_in_positions(name.as_str())
-                    .into_iter()
-                    .filter_map(|i| args.get(i))
-                    .any(|arg| self.ty_own_linear_guarded(arg, depth + 1))
-            }
-            Ty::Union(arms) => arms
-                .iter()
-                .any(|a| self.ty_own_linear_guarded(a, depth + 1)),
-            // [linear-generics] An opted-in type parameter is treated as
-            // linear inside its fn (worst case), which also makes calls
-            // that forward it to other generics require *their* opt-in.
-            Ty::Var(name) => self.own_linear_generics.contains(name),
-            _ => false,
-        }
+        let _ = depth;
+        crate::linear::ty_own_linear(self.symbols, &self.own_linear_generics, ty)
     }
 
     /// [linear-group] Whether a declaration is **linear**: it carries the
@@ -12912,8 +12887,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// [linear-generics]. Attaching an obligation on the strength of a
     /// function name is what [qual-*] keeps the compiler from doing.
     fn has_auto_linear(&self, name: &str) -> bool {
-        self.symbols.structs.get(name).is_some_and(|s| s.linear)
-            || self.opaque_linear(name)
+        crate::linear::has_auto_linear(self.symbols, name)
     }
 
     /// [linear-group] The opaque half of the same rule: `linear intrinsic
@@ -12922,7 +12896,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// discharge set is computed the same way; it simply has no fields for
     /// linearity to reach through.
     fn opaque_linear(&self, name: &str) -> bool {
-        self.symbols.intrinsic_types.get(name).is_some_and(|t| t.linear)
+        crate::linear::opaque_linear(self.symbols, name)
     }
 
     /// [linear-generics] Whether values of this struct *can* owe: the
@@ -13429,24 +13403,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// which is exactly what `intrinsic type List<T canbe linear>` claims
     /// about its elements.
     fn linear_opt_in_positions(&self, name: &str) -> Vec<usize> {
-        if let Some(s) = self.symbols.structs.get(name) {
-            return s
-                .generic_canbe
-                .iter()
-                .filter(|(_, q)| q.name.name == "linear")
-                .filter(|(id, _)| s.fields.iter().any(|f| type_mentions_generic(&f.ty, &id.name)))
-                .filter_map(|(id, _)| s.generics.iter().position(|g| g.name == id.name))
-                .collect();
-        }
-        if let Some(t) = self.symbols.intrinsic_types.get(name) {
-            return t
-                .generic_canbe
-                .iter()
-                .filter(|(_, q)| q.name.name == "linear")
-                .filter_map(|(id, _)| t.generics.iter().position(|g| g.name == id.name))
-                .collect();
-        }
-        Vec::new()
+        crate::linear::linear_opt_in_positions(self.symbols, name)
     }
 
     /// [linear-composite] R4 part 2 (interim, user decision 2026-09-08):

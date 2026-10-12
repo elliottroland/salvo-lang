@@ -1031,6 +1031,9 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             }
             Stmt::Break => self.out.push_str(&format!("{pad}break\n")),
             Stmt::Continue => self.out.push_str(&format!("{pad}continue\n")),
+            // [ir-obligation] A ledger directive: metadata for the IR-level
+            // linear check, no runtime effect.
+            Stmt::Obligation(_) => {}
         }
     }
 

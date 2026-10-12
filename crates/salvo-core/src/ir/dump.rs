@@ -342,6 +342,29 @@ impl<'a> Dumper<'a> {
             }
             Stmt::Break => self.out.push_str("break"),
             Stmt::Continue => self.out.push_str("continue"),
+            Stmt::Obligation(o) => {
+                let kind = match o.kind {
+                    ObligationKind::GainParams => "gain-params",
+                    ObligationKind::Gain => "gain",
+                    ObligationKind::Release => "release",
+                    ObligationKind::Discharge => "discharge",
+                };
+                let _ = write!(self.out, "obligation {kind} [");
+                for (i, r) in o.refs.iter().enumerate() {
+                    if i > 0 {
+                        self.out.push_str(", ");
+                    }
+                    self.place(&r.place, indent);
+                    if let Some(arms) = &r.arms {
+                        let a: Vec<String> = arms.iter().map(|a| a.to_string()).collect();
+                        let _ = write!(self.out, ".arms{{{}}}", a.join(","));
+                    }
+                    if !r.container_fields.is_empty() {
+                        let _ = write!(self.out, ".fields{{{}}}", r.container_fields.join(","));
+                    }
+                }
+                self.out.push(']');
+            }
         }
     }
 

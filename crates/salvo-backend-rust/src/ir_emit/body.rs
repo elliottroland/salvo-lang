@@ -567,6 +567,9 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             }
             Stmt::Break => format!("{pad}break;\n"),
             Stmt::Continue => format!("{pad}continue;\n"),
+            // [ir-obligation] A ledger directive: metadata for the IR-level
+            // linear check, no runtime effect.
+            Stmt::Obligation(_) => String::new(),
         }
     }
 
