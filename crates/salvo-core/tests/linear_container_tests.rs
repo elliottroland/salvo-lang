@@ -146,9 +146,9 @@ fn go() [] -> None {
 }
 ",
     );
-    // discharger-name hint deferred to IR follow-up (IR_CHECKER.md)
     assert!(
-        errs.iter().any(|m| m.contains("`queue` still owns a linear value")),
+        errs.iter().any(|m| m.contains("`queue` still owns a linear value")
+            && m.contains("discharge it with `drain`")),
         "expected a leak of the container: {errs:?}"
     );
 }
@@ -294,9 +294,9 @@ fn go() [] -> None {
 }
 ",
     );
-    // discharger-name hint deferred to IR follow-up (IR_CHECKER.md)
     assert!(
-        leaked.iter().any(|m| m.contains("still owns a linear value")),
+        leaked.iter().any(|m| m.contains("still owns a linear value")
+            && m.contains("discharge it with `drain`")),
         "the container still owes: {leaked:?}"
     );
 }

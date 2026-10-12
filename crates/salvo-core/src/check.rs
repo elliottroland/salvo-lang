@@ -12973,73 +12973,10 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// **every handler's implementing body**, wherever the handler lives,
     /// since discharger status attaches to the *member declaration*
     /// [linear-discard].
-    /// [type-identity] The file a declaration is in, by its address.
-    fn file_declaring(&self, addr: usize) -> Option<usize> {
-        self.resolution.decl_files.get(&addr).copied()
-    }
-
     fn discharge_set(&self, type_name: &str) -> Vec<String> {
-        // The declaring file is what the rule keys on, and either
-        // declaration form can carry the obligation: a `linear struct` or a
-        // `linear intrinsic type` [linear-group].
-        // [type-identity] Which file declares it, by the declaration itself.
-        let struct_file = match self.symbols.structs.get(type_name) {
-            Some(d) => self.file_declaring(*d as *const ast::StructDecl as usize),
-            // [linear-container] …or a **conditional container**, whose
-            // terminal is what a leak diagnostic must name: `drain` for a
-            // `List`/`Map` of obligations (user decision 2026-09-16). An
-            // opaque type qualifies whether it is linear outright
-            // (`linear intrinsic type Reply<T>`) or only when instantiated
-            // with one.
-            None if self.opaque_linear(type_name)
-                || !self.linear_opt_in_positions(type_name).is_empty() =>
-            {
-                match self.symbols.intrinsic_types.get(type_name) {
-                    Some(d) => self.file_declaring(*d as *const ast::TypeDecl as usize),
-                    None => self.scope.opaque_type_files.get(type_name).copied(),
-                }
-            }
-            None => return Vec::new(),
-        };
-        let mut out: Vec<String> = Vec::new();
-        for (fn_name, entries) in self.scope.fns.iter() {
-            for e in entries {
-                if Some(e.key.file) != struct_file {
-                    continue;
-                }
-                let consumes_self_typed = e.decl.params.iter().any(|p| {
-                    let base_matches = match &p.ty {
-                        ast::Type::Named { base, .. } => base.name.name == crate::typekey::plain(type_name),
-                        ast::Type::QualifiedGroup { base, .. } => matches!(
-                            base.as_ref(),
-                            ast::Type::Named { base: b, .. } if b.name.name == crate::typekey::plain(type_name)
-                        ),
-                        _ => false,
-                    };
-                    base_matches && self.param_consumed_by_entry(e, &p.name.name)
-                });
-                if consumes_self_typed {
-                    out.push((*fn_name).to_string());
-                    break;
-                }
-            }
-        }
-        // [linear-group] Consuming *members* of an effect declared in the
-        // type's own file. A member has no body to infer from, so its
-        // written clause is the whole contract [decl-explicit].
-        for (effect_name, effect) in self.scope.effects.iter() {
-            if self.scope.effect_files.get(effect_name).copied() != struct_file {
-                continue;
-            }
-            for m in &effect.fns {
-                if member_consumes_type(m, type_name) {
-                    out.push(m.name.name.clone());
-                }
-            }
-        }
-        out.sort();
-        out.dedup();
-        out
+        let empty = std::collections::HashMap::new();
+        let deductions = self.inferred.unwrap_or(&empty);
+        crate::linear::discharge_set(self.symbols, self.resolution, self.scope, deductions, type_name)
     }
 
     /// [linear-group] The declaration-site check for the *opaque* form,
@@ -13322,32 +13259,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .collect::<Vec<_>>()
                 .join(" / ")
         }
-    }
-
-    /// Whether an overload entry's written/inferred contract consumes
-    /// `param` — the declaration-side predicate `discharge_set` needs (the
-    /// effective contract of an arbitrary decl, not the currently-checked
-    /// fn).
-    fn param_consumed_by_entry(&self, entry: &crate::resolve::FnEntry<'p>, param: &str) -> bool {
-        // A written `!p` decides outright; otherwise consult the inferred
-        // facts when available (round two).
-        if let Some(list) = &entry.decl.deductions {
-            if list.iter().any(|d| {
-                d.param_name().is_some_and(|n| n.name == param)
-                    && matches!(
-                        d.kind,
-                        ast::DeductionKind::Moved | ast::DeductionKind::Deferred
-                    )
-            }) {
-                return true;
-            }
-        }
-        if let Some(inferred) = self.inferred {
-            if let Some(facts) = inferred.get(&entry.key) {
-                return facts.iter().any(|f| f.param == param && !f.kept);
-            }
-        }
-        false
     }
 
     /// `ty_own_linear` over written (AST) types, without lowering: used by
@@ -30803,28 +30714,6 @@ pub(crate) fn type_mentions_generic(ty: &ast::Type, name: &str) -> bool {
         }
         _ => false,
     }
-}
-
-/// [linear-group] Whether an effect **member**'s written clause consumes a
-/// parameter of `type_name` — the member-side of the discharge-set
-/// predicate. Written only, because a member has no body to infer from
-/// ([decl-explicit] makes the clause complete).
-fn member_consumes_type(member: &FnDecl, type_name: &str) -> bool {
-    member.params.iter().any(|p| {
-        let base_matches = match &p.ty {
-            ast::Type::Named { base, .. } => base.name.name == crate::typekey::plain(type_name),
-            ast::Type::QualifiedGroup { base, .. } => matches!(
-                base.as_ref(),
-                ast::Type::Named { base: b, .. } if b.name.name == crate::typekey::plain(type_name)
-            ),
-            _ => false,
-        };
-        base_matches
-            && member.deductions.iter().flatten().any(|d| {
-                d.param_name().is_some_and(|n| n.name == p.name.name)
-                    && matches!(d.kind, ast::DeductionKind::Moved)
-            })
-    })
 }
 
 /// [is-bind-once] Whether an expression is a **place** — a name, or a

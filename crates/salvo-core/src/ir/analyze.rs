@@ -46,9 +46,21 @@ pub fn analyze(program: &Program, symbols: &Symbols, resolution: &Resolution, ch
     let throws = super::check::throws_map(&ir);
     for module in &ir.modules {
         let file = file_of.get(module.file_name.as_str()).copied().unwrap_or(0);
+        let scope = resolution.scopes.get(file);
         for decl in &module.decls {
             for d in super::check::check_one(decl, &throws) {
-                out.push(FileDiagnostic::error(file, d.span, d.message));
+                // [linear-group] Name the dischargers in the remedy ("discharge
+                // it with `drain` / `close`"), computed from the leaked type in
+                // the file's resolution scope.
+                let mut message = d.message;
+                if let (Some(ty), Some(scope)) = (&d.discharge_type, scope) {
+                    let set = crate::linear::discharge_set(symbols, resolution, scope, &checked.deductions, ty);
+                    if !set.is_empty() && message.ends_with("discharge it") {
+                        let named: Vec<String> = set.iter().map(|f| format!("`{f}`")).collect();
+                        message.push_str(&format!(" with {}", named.join(" / ")));
+                    }
+                }
+                out.push(FileDiagnostic::error(file, d.span, message));
             }
         }
     }

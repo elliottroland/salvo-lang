@@ -206,9 +206,9 @@ fn a_leak_names_close_as_the_discharge() {
     let errs = errors(&format!(
         "{LINES}\nfn go() -> None {{\n    let l = open_lines(\"a\")\n}}\n"
     ));
-    // discharger-name hint deferred to IR follow-up (IR_CHECKER.md)
     assert!(
-        errs.iter().any(|e| e.contains("still owns a linear value")),
+        errs.iter().any(|e| e.contains("still owns a linear value")
+            && e.contains("discharge it with `close`")),
         "got {errs:?}"
     );
 }
@@ -426,10 +426,10 @@ fn storing_into_a_container_makes_the_container_owe() {
         "{LINES}\nfn go() -> None {{\n    let xs: Mut List<Lines> = mut_list_of()\n    \
          add(xs, open_lines(\"a\"))\n}}\n"
     ));
-    // discharger-name hint deferred to IR follow-up (IR_CHECKER.md)
     assert!(
         errs.iter()
-            .any(|e| e.contains("`xs` still owns a linear value")),
+            .any(|e| e.contains("`xs` still owns a linear value")
+                && e.contains("discharge it with `drain`")),
         "got {errs:?}"
     );
     // …and draining it discharges every element through the callback.
@@ -712,9 +712,10 @@ fn alternative_dischargers_are_all_named() {
          fn spawn() -> Thread {\n    return Thread { id: 1 }\n}\n\
          fn go() -> None {\n    let t = spawn()\n}\n",
     );
-    // discharger-name hint deferred to IR follow-up (IR_CHECKER.md)
     assert!(
-        errs.iter().any(|e| e.contains("still owns a linear value")),
+        errs.iter().any(|e| e.contains("still owns a linear value")
+            && e.contains("`join`")
+            && e.contains("`stop`")),
         "got {errs:?}"
     );
 }
@@ -998,9 +999,9 @@ fn a_leak_names_the_member_as_the_discharge() {
          fn leak() [Sink] -> Int {{\n    \
              let t = Token {{ handle: 1 }}\n    return peek(t)\n}}\n"
     ));
-    // discharger-name hint deferred to IR follow-up (IR_CHECKER.md)
     assert!(
-        errs.iter().any(|m| m.contains("still owns a linear value")),
+        errs.iter().any(|m| m.contains("still owns a linear value")
+            && m.contains("discharge it with `close`")),
         "got {errs:?}"
     );
 }
@@ -1120,11 +1121,11 @@ fn answer() -> Int {
 }
 ",
     );
-    // discharger-name hint deferred to IR follow-up (IR_CHECKER.md)
     assert!(
         leaked
             .iter()
-            .any(|m| m.contains("still owns a linear value")),
+            .any(|m| m.contains("still owns a linear value")
+                && m.contains("discharge it with `deliver`")),
         "a dropped token must be a leak, got {leaked:?}"
     );
 }

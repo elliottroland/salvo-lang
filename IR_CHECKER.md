@@ -14,9 +14,10 @@ Steps 2–4 (fate/consume, loop-totality, exhaustiveness, deadlock) with a
 separability lens showed none belongs on the IR — they are type-system or
 whole-program-graph checks that correctly stay in `check.rs`/`deadlock.rs` (see
 the decision log). The one desugar-sensitive flow analysis that needed the IR —
-linear obligations — is there and gating the build. Only optional
-message-quality follow-ups remain (named-discharger hint; synthetic local/span
-polish).
+linear obligations — is there and gating the build. The two optional
+message-quality follow-ups (named-discharger hint; synthetic local/span polish)
+are now also **done** (2026-10-12). Nothing remains open except the speculative
+Phase 4 table-consolidation idea.
 
 ---
 
@@ -316,6 +317,55 @@ new decision is needed from the user. Spec labels to add as they land:
 ---
 
 ## Decision log (this doc)
+
+- **2026-10-12 — Both deferred message-quality follow-ups DONE.** (1) The
+  **named-discharger hint** is restored: `discharge_set`/`discharge_hint` (plus
+  `param_consumed_by_entry`, `member_consumes_type`, `linear_type_name`) were
+  extracted from `check.rs` into `crate::linear` as free functions over
+  `(symbols, resolution, scope, deductions, …)`; `check.rs`'s `discharge_set`
+  method now delegates (and the dead `file_declaring`/`param_consumed_by_entry`
+  methods + the `member_consumes_type` free fn were removed). `ir::analyze`
+  computes the hint per leak from `IrDiagnostic.discharge_type` (a new field
+  carrying the leaked type's name, set by the annotator via `linear_type_name`
+  into `ObligationRef.ty_name`) using the leak file's resolution scope +
+  `checked.deductions`, and appends ` with \`close\` / \`drain\`` to the
+  remedy. The ~8 linear/actor test assertions loosened earlier are tightened
+  back to name the discharger. (2) **Synthetic local polish:** a leaked place
+  whose name starts with `__` (a desugaring temporary like `__pick~1`) is
+  reported as "this value" rather than exposing the internal name. The #2 case
+  now reads: "this value still owns a linear value (arm 1) when the path
+  leaves; … or discharge it with `close`". 1764 tests green warm. One
+  definition of `discharge_set` is now shared by the checker and the IR
+  analysis. Nothing open remains but the speculative Phase 4 idea.
+
+- **2026-10-12 — Could the four dropped analyses still *contribute information*
+  to the IR (vs moving their *checks*)? Mostly already present; one small
+  candidate (exhaustiveness); none is "Phase 4".** Separating two independent
+  questions the Steps 1–4 analysis conflated: (a) recording a checker
+  *conclusion* as an IR fact, vs (b) moving the *check* onto the IR (what Steps
+  1–4 were, dropped). (a) is still worth asking per analysis:
+  - **Consume / `Never` (Step 1): already in the IR.** `ExprKind::Read {
+    consume: true }` is exactly "this read ends the value's life" (from
+    `linear_moves`). Use-after-move can't appear in a valid IR (it is rejected
+    before the IR is built), so there is nothing more to add.
+  - **Loop-totality (Step 2): already in the IR.** `Justification::LoopValue`
+    records "the loop assigns its value on every path out," the checker's
+    totality conclusion, carried for narrowing. Nothing to add.
+  - **Exhaustiveness (Step 3): a real (small, optional) candidate.** The IR's
+    `Switch`/`ArmTest` records the handled arms but not an explicit "the checker
+    proved this `when` exhaustive, no implicit fallthrough." Backends re-derive
+    it from arm structure today. Making it explicit — e.g. an `Unreachable`
+    fallthrough arm for an else-less exhaustive `when`, consistent with the
+    existing `ExprKind::Unreachable` for proven-dead points — would make the IR
+    self-describing. Not needed (backends cope); a "would be cleaner."
+  - **Deadlock (Step 4): nothing node-shaped.** A whole-program graph property;
+    there is no IR *node* to attach it to.
+  - **This is NOT Phase 4.** Phase 4 "consolidate" is the opposite direction:
+    *removing* now-redundant `Checked`-table lookups the IR builder makes
+    because the IR structure already encodes the same thing. Making a checker
+    conclusion explicit in the IR (the exhaustiveness idea) is a third category
+    (self-describing-ness), separate from both adding-missing-facts and
+    table-consolidation. No hidden Phase-4 work lurks in the four steps.
 
 - **2026-10-12 — Phase 2 Steps 2–4 reassessed with the separability lens: none
   is worth migrating. The IR-merge is effectively COMPLETE at Step 0.** Having

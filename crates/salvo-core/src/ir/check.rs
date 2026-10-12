@@ -27,6 +27,9 @@ use super::nodes::*;
 pub struct IrDiagnostic {
     pub span: Span,
     pub message: String,
+    /// The leaked linear type's name, if known — so the gate (`ir::analyze`)
+    /// can name its dischargers in the remedy ("discharge it with `drain`").
+    pub discharge_type: Option<String>,
 }
 
 /// Check every fn body in `program`, returning one diagnostic per leaked
@@ -97,6 +100,8 @@ struct Outstanding {
     /// decomposition.
     pending_fields: std::collections::BTreeSet<String>,
     had_fields: bool,
+    /// The leaked type's name, for naming its dischargers.
+    ty_name: Option<String>,
 }
 
 /// The obligation set on one path: place-key → what is outstanding.
@@ -382,6 +387,7 @@ fn apply(o: &Obligation, owed: &mut Owed) {
                         arms: r.arms.clone(),
                         pending_fields: r.container_fields.iter().cloned().collect(),
                         had_fields: !r.container_fields.is_empty(),
+                        ty_name: r.ty_name.clone(),
                     },
                 );
             }
@@ -460,14 +466,18 @@ fn report_since(owed: &Owed, base: Option<&Owed>, out: &mut Vec<IrDiagnostic>, _
 }
 
 fn report_one(place: &str, o: &Outstanding, out: &mut Vec<IrDiagnostic>, tail: &str) {
+    // A synthetic local (a desugaring temporary like `__pick~1`) has no
+    // user-facing name; describe it as the value rather than exposing the
+    // internal name.
+    let subject = if place.starts_with("__") { "this value".to_string() } else { format!("`{place}`") };
     let value = match &o.arms {
         Some(arms) if !arms.is_empty() => {
             let a: Vec<String> = arms.iter().map(|i| format!("arm {i}")).collect();
-            format!("`{place}` still owns a linear value ({})", a.join(", "))
+            format!("{subject} still owns a linear value ({})", a.join(", "))
         }
-        _ => format!("`{place}` still owns a linear value"),
+        _ => format!("{subject} still owns a linear value"),
     };
-    out.push(IrDiagnostic { span: o.span, message: format!("{value} {tail}") });
+    out.push(IrDiagnostic { span: o.span, message: format!("{value} {tail}"), discharge_type: o.ty_name.clone() });
 }
 
 /// If `cond` is a negated arm-test `!(subject is arm k)`, the subject's place

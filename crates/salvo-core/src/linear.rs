@@ -162,3 +162,156 @@ fn bare_name(t: &salvo_syntax::ast::Type) -> Option<String> {
         _ => None,
     }
 }
+
+/// [linear-group] The dischargers of a linear type `type_name`: the same-file
+/// fns and effect members that consume a value of it — what a leak diagnostic
+/// names as the remedy ("discharge it with `drain` / `close`"). Shared by the
+/// AST checker (declaration-site "no discharger" check, leak hints) and the
+/// IR-level linear check (`ir::analyze`), so both name the same set.
+///
+/// `scope` is the resolution scope the leak (or the declaration) is reported
+/// in — a discharger must be visible there; `deductions` is the inferred
+/// contract table (`Checked::deductions`), consulted when a fn has no written
+/// `!p` clause.
+pub fn discharge_set(
+    symbols: &Symbols,
+    resolution: &crate::resolve::Resolution,
+    scope: &crate::resolve::ModuleScope,
+    deductions: &std::collections::HashMap<crate::resolve::FnKey, Vec<crate::deduce::ParamDeduction>>,
+    type_name: &str,
+) -> Vec<String> {
+    use salvo_syntax::ast;
+    // The declaring file keys the rule: either a `linear struct` or a
+    // `linear intrinsic type` [linear-group] / conditional container.
+    let file_declaring = |addr: usize| resolution.decl_files.get(&addr).copied();
+    let struct_file = match symbols.structs.get(type_name) {
+        Some(d) => file_declaring(*d as *const ast::StructDecl as usize),
+        None if opaque_linear(symbols, type_name) || !linear_opt_in_positions(symbols, type_name).is_empty() => {
+            match symbols.intrinsic_types.get(type_name) {
+                Some(d) => file_declaring(*d as *const ast::TypeDecl as usize),
+                None => scope.opaque_type_files.get(type_name).copied(),
+            }
+        }
+        None => return Vec::new(),
+    };
+    let mut out: Vec<String> = Vec::new();
+    for (fn_name, entries) in scope.fns.iter() {
+        for e in entries {
+            if Some(e.key.file) != struct_file {
+                continue;
+            }
+            let consumes_self_typed = e.decl.params.iter().any(|p| {
+                let base_matches = match &p.ty {
+                    ast::Type::Named { base, .. } => base.name.name == crate::typekey::plain(type_name),
+                    ast::Type::QualifiedGroup { base, .. } => matches!(
+                        base.as_ref(),
+                        ast::Type::Named { base: b, .. } if b.name.name == crate::typekey::plain(type_name)
+                    ),
+                    _ => false,
+                };
+                base_matches && param_consumed_by_entry(e, deductions, &p.name.name)
+            });
+            if consumes_self_typed {
+                out.push((*fn_name).to_string());
+                break;
+            }
+        }
+    }
+    // [linear-group] Consuming *members* of an effect declared in the type's
+    // own file; a member has no body, so its written clause is the contract.
+    for (effect_name, effect) in scope.effects.iter() {
+        if scope.effect_files.get(effect_name).copied() != struct_file {
+            continue;
+        }
+        for m in &effect.fns {
+            if member_consumes_type(m, type_name) {
+                out.push(m.name.name.clone());
+            }
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// [linear-group] The leak-diagnostic remedy phrase for a linear type `ty`:
+/// its dischargers named (`` `drain` / `close` ``), or the generic "its
+/// discharger" when none is visible. The `ty` is the leaked value's type; for
+/// a union the first auto-linear arm names the type.
+pub fn discharge_hint(
+    symbols: &Symbols,
+    resolution: &crate::resolve::Resolution,
+    scope: &crate::resolve::ModuleScope,
+    deductions: &std::collections::HashMap<crate::resolve::FnKey, Vec<crate::deduce::ParamDeduction>>,
+    ty: &Ty,
+) -> String {
+    let name = match ty.strip_quals() {
+        Ty::Named { name, .. } => Some(name.clone()),
+        Ty::Union(arms) => arms.iter().find_map(|a| match a.strip_quals() {
+            Ty::Named { name, .. } if has_auto_linear(symbols, name) => Some(name.clone()),
+            _ => None,
+        }),
+        _ => None,
+    };
+    let set = name.as_deref().map(|n| discharge_set(symbols, resolution, scope, deductions, n)).unwrap_or_default();
+    if set.is_empty() {
+        "its discharger".to_string()
+    } else {
+        set.iter().map(|f| format!("`{f}`")).collect::<Vec<_>>().join(" / ")
+    }
+}
+
+/// Whether a fn entry's written/inferred contract consumes `param`.
+fn param_consumed_by_entry(
+    entry: &crate::resolve::FnEntry,
+    deductions: &std::collections::HashMap<crate::resolve::FnKey, Vec<crate::deduce::ParamDeduction>>,
+    param: &str,
+) -> bool {
+    use salvo_syntax::ast;
+    if let Some(list) = &entry.decl.deductions {
+        if list.iter().any(|d| {
+            d.param_name().is_some_and(|n| n.name == param)
+                && matches!(d.kind, ast::DeductionKind::Moved | ast::DeductionKind::Deferred)
+        }) {
+            return true;
+        }
+    }
+    if let Some(facts) = deductions.get(&entry.key) {
+        return facts.iter().any(|f| f.param == param && !f.kept);
+    }
+    false
+}
+
+/// Whether an effect member's written clause consumes a value of `type_name`.
+fn member_consumes_type(member: &salvo_syntax::ast::FnDecl, type_name: &str) -> bool {
+    use salvo_syntax::ast;
+    member.params.iter().any(|p| {
+        let base_matches = match &p.ty {
+            ast::Type::Named { base, .. } => base.name.name == crate::typekey::plain(type_name),
+            ast::Type::QualifiedGroup { base, .. } => matches!(
+                base.as_ref(),
+                ast::Type::Named { base: b, .. } if b.name.name == crate::typekey::plain(type_name)
+            ),
+            _ => false,
+        };
+        base_matches
+            && member.deductions.iter().flatten().any(|d| {
+                d.param_name().is_some_and(|n| n.name == p.name.name) && matches!(d.kind, ast::DeductionKind::Moved)
+            })
+    })
+}
+
+/// The name of a leaked linear type, for naming its dischargers in a leak
+/// diagnostic: a linear leaf's own name, or a union's first linear arm.
+/// `None` when none applies.
+pub fn linear_type_name(symbols: &Symbols, _own: &HashSet<String>, ty: &Ty) -> Option<String> {
+    let names_linear = |name: &str| has_auto_linear(symbols, name) || !linear_opt_in_positions(symbols, name).is_empty();
+    match ty.strip_quals() {
+        Ty::Named { name, .. } if names_linear(name) => Some(name.clone()),
+        Ty::Union(arms) => arms.iter().find_map(|a| match a.strip_quals() {
+            Ty::Named { name, .. } if names_linear(name) => Some(name.clone()),
+            _ => None,
+        }),
+        _ => None,
+    }
+}

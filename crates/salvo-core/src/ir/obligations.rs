@@ -14,7 +14,7 @@
 
 use std::collections::HashSet;
 
-use crate::linear::{linear_arms, ty_own_linear};
+use crate::linear::{linear_arms, linear_type_name, ty_own_linear};
 use crate::program::Symbols;
 use crate::types::Ty;
 
@@ -94,7 +94,7 @@ impl Annotator<'_, '_> {
         } else {
             Vec::new()
         };
-        ObligationRef { place, arms, container_fields }
+        ObligationRef { place, arms, container_fields, ty_name: linear_type_name(self.symbols, self.own, ty) }
     }
 
     /// Rewrite a block's statements, inserting `Gain`/`Release`/`Discharge`

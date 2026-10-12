@@ -138,6 +138,19 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-12 — Checker/IR merge polish: named-discharger hint restored on IR leaks + synthetic-local message cleanup (IR_CHECKER.md)
+
+The two optional message-quality follow-ups left after the merge are done.
+`discharge_set` (+ `discharge_hint`, `param_consumed_by_entry`,
+`member_consumes_type`, `linear_type_name`) moved from `check.rs` into
+`crate::linear` as free functions over `(symbols, resolution, scope,
+deductions)`, so the AST checker and the IR analysis name a linear type's
+dischargers from one definition. `ir::analyze` enriches each leak remedy with
+`` with `close` / `drain` `` computed in the leak file's scope; the IR leak
+message also now says "this value" instead of exposing a desugaring temporary's
+name (`__pick~1`). The linear/actor test assertions loosened during the merge
+are tightened back to name the discharger. 1764 tests green.
+
 ### 2026-10-12 — Checker/IR merge concluded: Steps 1–4 investigated, none migrates; the merge is complete at Step 0 (IR_CHECKER.md)
 
 After the linear-obligation flow check landed on the IR and became the enforcer

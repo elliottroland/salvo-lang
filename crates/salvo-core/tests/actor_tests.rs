@@ -796,9 +796,9 @@ fn main() [use, spawn] {
 }
 ",
     );
-    // discharger-name hint deferred to IR follow-up (IR_CHECKER.md)
     assert!(
-        errs.iter().any(|m| m.contains("still owns a linear value")),
+        errs.iter().any(|m| m.contains("still owns a linear value")
+            && m.contains("discharge it with `send`")),
         "expected the token leak: {errs:?}"
     );
 }

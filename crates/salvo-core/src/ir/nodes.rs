@@ -417,6 +417,10 @@ pub struct ObligationRef {
     /// has been moved out ([linear-container]). Empty for a linear leaf or a
     /// union.
     pub container_fields: Vec<String>,
+    /// The name of the linear type (a leaf, or a union's first linear arm),
+    /// for naming its dischargers in a leak diagnostic. `None` when no single
+    /// name applies.
+    pub ty_name: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug)]
