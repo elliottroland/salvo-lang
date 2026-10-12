@@ -51,7 +51,7 @@ fn dump(src: &str) -> String {
     let expansion = salvo_core::expand(&sources.files, &mut modules);
     assert!(!expansion.diagnostics.iter().any(|d| d.is_error()));
     let program = Program { files: sources.files, modules, companions: sources.companions };
-    let (text, errors) = salvo_ir::dump_program(&program, false, None).expect("checks");
+    let (text, errors) = salvo_core::ir::dump_program(&program, false, None).expect("checks");
     assert!(errors.is_empty(), "{errors:?}");
     text
 }

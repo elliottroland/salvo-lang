@@ -4,8 +4,8 @@
 //! the handler's members (IR record §6, step 4). Generated after every module is
 //! built, since a handler's faces live in other modules.
 
-use salvo_core::naming::msg_variant_name;
-use salvo_core::types::Ty;
+use crate::naming::msg_variant_name;
+use crate::types::Ty;
 
 use super::Ctx;
 use crate::ir::*;
@@ -20,8 +20,8 @@ fn declared_params(m: &FnDecl) -> Vec<&Param> {
 
 /// The type of a generated enum: a key naming its module, since the same
 /// name may be generated in two.
-pub fn enum_key(name: &str, module: &salvo_core::ModulePath) -> String {
-    format!("{name}{}{}", salvo_core::typekey::SEP, module.0.join("."))
+pub fn enum_key(name: &str, module: &crate::ModulePath) -> String {
+    format!("{name}{}{}", crate::typekey::SEP, module.0.join("."))
 }
 
 struct Iface {
@@ -36,7 +36,7 @@ pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
     // The interface a face names, wherever it is declared.
     let key_of = |id: &DeclId, name: &str| -> String {
         for (k, m) in &ctx.symbols.key_modules {
-            if **m == id.module && salvo_core::typekey::plain(k) == name {
+            if **m == id.module && crate::typekey::plain(k) == name {
                 return k.to_string();
             }
         }
@@ -52,18 +52,18 @@ pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
     }
     let find = |face: &Ty| -> Option<usize> {
         let Ty::Named { name, .. } = face.strip_quals() else { return None };
-        ifaces.iter().position(|i| i.key == *name).or_else(|| ifaces.iter().position(|i| i.name == salvo_core::typekey::plain(name)))
+        ifaces.iter().position(|i| i.key == *name).or_else(|| ifaces.iter().position(|i| i.name == crate::typekey::plain(name)))
     };
 
     let mut made: Vec<(usize, EnumDecl)> = Vec::new();
     let mut stubs: Vec<(usize, ImplDecl)> = Vec::new();
     let mut counter = 0usize;
-    let mut next_id = |module: &salvo_core::ModulePath| -> DeclId {
+    let mut next_id = |module: &crate::ModulePath| -> DeclId {
         counter += 1;
         DeclId { module: module.clone(), item: GENERATED_BASE + counter, sub: 0 }
     };
     // Phase 1: the message enum of every actor interface.
-    let mut message_of: Vec<(DeclId, DeclId, salvo_core::ModulePath)> = Vec::new(); // interface, enum, module
+    let mut message_of: Vec<(DeclId, DeclId, crate::ModulePath)> = Vec::new(); // interface, enum, module
     for (mi, m) in program.modules.iter().enumerate() {
         for d in &m.decls {
             let Decl::Interface(i) = d else { continue };
@@ -111,7 +111,7 @@ pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
                         throws: None,
                         result_check: None,
                         factories: None,
-                        body: Some(Block { stmts: vec![Stmt::Expr(send)], value: None }),
+                        body: Some(Block { stmts: vec![Stmt::Expr(send)], value: None, span: x.span }),
                         span: x.span,
                     }
                 })
@@ -125,7 +125,7 @@ pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
                     type_params: Vec::new(),
                     faces: vec![face],
                     face_any: vec![false],
-                    ctor_params: vec![Param { local: addr, ty: addr_ty, mode: salvo_core::param_mode::PassMode::Moved, variadic: false, check: None }],
+                    ctor_params: vec![Param { local: addr, ty: addr_ty, mode: crate::param_mode::PassMode::Moved, variadic: false, check: None, span: i.span }],
                     deps: Vec::new(),
                     state: Vec::new(),
                     mailbox: None,
@@ -236,10 +236,10 @@ pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
                     };
                     let call = Expr { ty: Ty::none(), span: h.span, kind: ExprKind::HandlerCall { instance: Box::new(read(&handler_l, &handler_ty)), member: target, args } };
                     let unpack = Stmt::Unpack { id: NodeId(2 + vi as u32), locals, from: Place { root: msg_l.clone(), steps: Vec::new() }, from_ty: enum_ty.clone(), variant: vi };
-                    arms.push(SwitchArm { test: ArmTest::Arm(vi), body: Block { stmts: vec![unpack, Stmt::Expr(call)], value: None } });
+                    arms.push(SwitchArm { test: ArmTest::Arm(vi), body: Block { stmts: vec![unpack, Stmt::Expr(call)], value: None, span: h.span } });
                 }
                 let switch = Expr { ty: Ty::none(), span: h.span, kind: ExprKind::Switch { id: sw_id, subject: Box::new(read(&msg_l, &enum_ty)), arms } };
-                let param = |local: Local, ty: Ty, mode: salvo_core::param_mode::PassMode| Param { local, ty, mode, variadic: false, check: None };
+                let param = |local: Local, ty: Ty, mode: crate::param_mode::PassMode| Param { local, ty, mode, variadic: false, check: None, span: h.span };
                 fns.push((
                     mi,
                     FnDecl {
@@ -249,7 +249,7 @@ pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
                         kind: FnKind::Plain,
                         send: false,
                         type_params: Vec::new(),
-                        params: vec![param(handler_l, handler_ty.clone(), salvo_core::param_mode::PassMode::LentMut), param(msg_l, enum_ty, salvo_core::param_mode::PassMode::Moved)],
+                        params: vec![param(handler_l, handler_ty.clone(), crate::param_mode::PassMode::LentMut), param(msg_l, enum_ty, crate::param_mode::PassMode::Moved)],
                         effect_params: 0,
                         implicit_params: 0,
                         ret: Ty::none(),
@@ -259,7 +259,7 @@ pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
                         throws: None,
                         result_check: None,
                         factories: None,
-                        body: Some(Block { stmts: vec![Stmt::Expr(switch)], value: None }),
+                        body: Some(Block { stmts: vec![Stmt::Expr(switch)], value: None, span: h.span }),
                         span: h.span,
                     },
                 ));

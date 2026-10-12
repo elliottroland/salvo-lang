@@ -18,7 +18,7 @@
 
 use std::collections::HashMap;
 
-use salvo_core::types::Ty;
+use crate::types::Ty;
 
 use crate::ir::*;
 

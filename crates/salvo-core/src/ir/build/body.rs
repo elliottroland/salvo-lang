@@ -3,8 +3,8 @@
 
 use std::collections::HashMap;
 
-use salvo_core::types::Ty;
-use salvo_core::FnKey;
+use crate::types::Ty;
+use crate::FnKey;
 use salvo_syntax::ast::{self, Expr as AExpr, Pattern, Stmt as AStmt};
 use salvo_syntax::Span;
 
@@ -240,7 +240,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         self.last_branch = saved_last;
         self.effect_env.truncate(saved_env);
         self.pop_scope();
-        Block { stmts, value: tail }
+        Block { stmts, value: tail, span: block.span }
     }
 
     pub(crate) fn stmt(&mut self, s: &AStmt) -> Vec<Stmt> {

@@ -1320,7 +1320,7 @@ backlog empties one whole analysis at a time — the user's report that the LSP
 "loops through previous issues in order even after they're addressed" (there
 is no literal queue; `main_loop` already coalesces to one `dirty` flag — the
 latency *is* the symptom). Four phases, agreed in order; the IR does **not**
-help here (it is built *from* `check_program`'s output — `salvo-ir`'s
+help here (it is built *from* `check_program`'s output — `salvo_core::ir`'s
 `build_program` copies the checker's answers and infers nothing — so caching
 it would save only the cheap transcription and inherit every coupling of the
 `Checked` cache):

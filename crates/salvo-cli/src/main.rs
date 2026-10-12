@@ -350,7 +350,7 @@ fn ir_command(src: Option<PathBuf>, all: bool, module: Option<String>) -> ExitCo
         }
         return ExitCode::FAILURE;
     }
-    match salvo_ir::dump_program(program, all, module.as_deref()) {
+    match salvo_core::ir::dump_program(program, all, module.as_deref()) {
         Ok((text, errors)) => {
             print!("{text}");
             for e in &errors {

@@ -1,30 +1,35 @@
 //! The IR: a minimal, decided form of a Salvo program (IR record).
+//!
+//! Moved into `salvo-core` from the former `salvo-ir` crate on 2026-10-12 so
+//! that core is the single home of checking: the IR is built from the checked
+//! AST here, and the "real" semantic validation (linear obligations,
+//! deductions) runs on this IR. See IR_CHECKER.md.
 
 pub mod build;
 pub mod dump;
-pub mod ir;
+pub mod nodes;
 pub mod walk;
 
-pub use build::build_program;
 pub use build::actors::enum_key;
-pub use ir::*;
+pub use build::build_program;
+pub use nodes::*;
 
 /// Checks `program` the way a build does, builds the IR of its modules and
 /// renders them: every user module, or with `all` every reached module, or
 /// only `module`.
 pub fn dump_program(
-    program: &salvo_core::Program,
+    program: &crate::Program,
     all: bool,
     module: Option<&str>,
 ) -> Result<(String, Vec<String>), Vec<String>> {
-    let symbols = salvo_core::Symbols::collect(program);
-    let resolution = salvo_core::resolve(program);
-    let checked = salvo_core::check_program(program, &resolution, &symbols);
+    let symbols = crate::Symbols::collect(program);
+    let resolution = crate::resolve(program);
+    let checked = crate::check_program(program, &resolution, &symbols);
     if checked.errors.iter().any(|d| d.is_error()) {
         return Err(checked.errors.iter().map(|d| d.render(&program.files)).collect());
     }
-    let reachable = salvo_core::reachable_modules(program, &resolution, &checked);
-    let wanted: std::collections::HashSet<&salvo_core::ModulePath> = program
+    let reachable = crate::reachable_modules(program, &resolution, &checked);
+    let wanted: std::collections::HashSet<&crate::ModulePath> = program
         .units()
         .filter(|u| match module {
             Some(m) => u.file.module.0.join(".") == m,

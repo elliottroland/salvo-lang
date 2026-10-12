@@ -65,13 +65,13 @@ fn check_corpus(file: &str) {
         let reachable = salvo_core::reachable_modules(&program, &resolution, &checked);
         let wanted: std::collections::HashSet<&salvo_core::ModulePath> =
             program.units().filter(|u| reachable.contains(&u.file.module)).map(|u| &u.file.module).collect();
-        let (ir, errors) = salvo_ir::build_program(&program, &symbols, &resolution, &checked, Some(&wanted));
+        let (ir, errors) = salvo_core::ir::build_program(&program, &symbols, &resolution, &checked, Some(&wanted));
         built += 1;
         for e in errors {
             failures.push(format!("{name}: {e}"));
         }
         for m in &ir.modules {
-            let text = salvo_ir::dump::Dumper::module(&ir, m);
+            let text = salvo_core::ir::dump::Dumper::module(&ir, m);
             for line in text.lines().filter(|l| l.contains("UNSUPPORTED")) {
                 failures.push(format!("{name} ({}): {}", m.path.0.join("."), line.trim()));
             }

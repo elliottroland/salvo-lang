@@ -1,4 +1,4 @@
-//! [kt-ir] The Kotlin emitter: renders `salvo_ir` modules (IR record). It
+//! [kt-ir] The Kotlin emitter: renders `salvo_core::ir` modules (IR record). It
 //! replaced the AST emitter on 2026-10-06.
 //!
 //! What it decides is representation and idiom only: how a union is laid out
@@ -10,7 +10,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 
 use salvo_core::types::Ty;
 use salvo_core::{ModulePath, Program};
-use salvo_ir::{
+use salvo_core::ir::{
     ArmTest, Block, Decl, DeclId, Expr, ExprKind, FnDecl, FnKind, FnRef, ImplDecl, InterfaceDecl, Lit,
     Local, Module as IrModule, Op, Place, Program as IrProgram, Stmt, Step, StructDecl,
 };
@@ -30,12 +30,12 @@ pub fn emit_program_ir(program: &Program, abi: bool) -> Result<(Vec<EmittedFile>
     let (symbols, resolution) = salvo_backend::driver::resolve_for_emission(program, &mut checked);
     let reach = salvo_backend::driver::reach(program, &resolution, &symbols, &checked, abi);
     let wanted: HashSet<&ModulePath> = reach.emitted.iter().copied().collect();
-    let (mut ir, build_errors) = salvo_ir::build_program(program, &symbols, &resolution, &checked, Some(&wanted));
+    let (mut ir, build_errors) = salvo_core::ir::build_program(program, &symbols, &resolution, &checked, Some(&wanted));
     if !build_errors.is_empty() {
         return Err(build_errors);
     }
     // [proj-opt-slot] A borrow of one value is that value here.
-    salvo_ir::walk::unwrap_single_borrows(&mut ir);
+    salvo_core::ir::walk::unwrap_single_borrows(&mut ir);
     let fn_names = salvo_core::naming::FnNames::compute(program);
     let mut shared = Shared {
         program,
@@ -273,7 +273,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 Decl::Fn(f) => f.kind == FnKind::Platform,
                 Decl::PlatformType(t) => t.platform,
                 Decl::Static(_) => false,
-                Decl::Enum(e) => matches!(e.kind, salvo_ir::EnumKind::Message { .. }) && keep.contains(e.name.trim_start_matches("__Msg_")),
+                Decl::Enum(e) => matches!(e.kind, salvo_core::ir::EnumKind::Message { .. }) && keep.contains(e.name.trim_start_matches("__Msg_")),
             }
         };
         let mut body = String::new();
@@ -382,10 +382,10 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     }
 
     /// [actor-msg] The generated enum a type key names, and its module.
-    fn generated_enum(&self, key: &str) -> Option<(&'p salvo_ir::EnumDecl, salvo_core::ModulePath)> {
+    fn generated_enum(&self, key: &str) -> Option<(&'p salvo_core::ir::EnumDecl, salvo_core::ModulePath)> {
         let module = salvo_core::typekey::module_of(key)?;
         self.s.ir.modules.iter().filter(|m| m.path.0.join(".") == module).flat_map(|m| &m.decls).find_map(|d| match d {
-            Decl::Enum(e) if salvo_ir::enum_key(&e.name, &e.id.module) == key => Some((e, e.id.module.clone())),
+            Decl::Enum(e) if salvo_core::ir::enum_key(&e.name, &e.id.module) == key => Some((e, e.id.module.clone())),
             _ => None,
         })
     }
@@ -521,7 +521,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
 
     /// A declaration's generic parameter list; empty for an erased one
     /// [effect-generic-decl].
-    fn decl_type_params(&self, name: &str, tps: &[salvo_ir::TypeParam]) -> String {
+    fn decl_type_params(&self, name: &str, tps: &[salvo_core::ir::TypeParam]) -> String {
         if self.s.erased.is_erased(name) {
             String::new()
         } else {
@@ -529,7 +529,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         }
     }
 
-    fn type_params(&self, tps: &[salvo_ir::TypeParam]) -> String {
+    fn type_params(&self, tps: &[salvo_core::ir::TypeParam]) -> String {
         if tps.is_empty() {
             String::new()
         } else {
@@ -557,7 +557,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 let name = kt_local(&st.local);
                 let _ = &name;
                 self.out.push_str(&format!("val {name}: {ty} by lazy {{\n"));
-                self.assigned = assigned_locals(&Block { stmts: st.stmts.clone(), value: None });
+                self.assigned = assigned_locals(&Block { stmts: st.stmts.clone(), value: None, span: st.span });
                 let saved = std::mem::take(&mut self.out);
                 self.stmts(&st.stmts, 1);
                 let body = std::mem::replace(&mut self.out, saved);
@@ -626,7 +626,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         }
     }
 
-    fn params(&mut self, params: &[salvo_ir::Param]) -> String {
+    fn params(&mut self, params: &[salvo_core::ir::Param]) -> String {
         let mut parts = Vec::new();
         for p in params {
             // [fn-variadic] the tail arrives as one array of the element type.
@@ -992,8 +992,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 // The arm the justification names tells same-typed arms
                 // apart (`Ok Int | Thrown Int`).
                 let test = match because {
-                    salvo_ir::Justification::Test { test } => self.test_arms.get(&(test.0, usize::MAX)).cloned(),
-                    salvo_ir::Justification::Arm { switch, arm } => self.test_arms.get(&(switch.0, *arm)).cloned(),
+                    salvo_core::ir::Justification::Test { test } => self.test_arms.get(&(test.0, usize::MAX)).cloned(),
+                    salvo_core::ir::Justification::Arm { switch, arm } => self.test_arms.get(&(switch.0, *arm)).cloned(),
                     _ => None,
                 };
                 let code = match test {
@@ -1148,8 +1148,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             ExprKind::HandlerCall { instance, member, args } => {
                 let inst = self.expr(instance, indent);
                 let name = match member {
-                    salvo_ir::HandlerMember::Face(m) => self.member_name(m),
-                    salvo_ir::HandlerMember::Own(n) => kt_ident(n),
+                    salvo_core::ir::HandlerMember::Face(m) => self.member_name(m),
+                    salvo_core::ir::HandlerMember::Own(n) => kt_ident(n),
                 };
                 let a = self.exprs(args, indent);
                 format!("{inst}.{name}({})", a.join(", "))
@@ -1531,7 +1531,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         for f in &h.faces {
             if let Ty::Named { name, .. } = f.strip_quals() {
                 if let Some(i) = self.interface_by_name(&salvo_core::typekey::plain(name)) {
-                    let same: Vec<&salvo_ir::Member> = i.members.iter().filter(|m| m.name == member).collect();
+                    let same: Vec<&salvo_core::ir::Member> = i.members.iter().filter(|m| m.name == member).collect();
                     // [effect-member-overload] several members of the name:
                     // the one whose parameters match.
                     let pick = match (same.as_slice(), &declared) {
@@ -1551,7 +1551,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         kt_ident(member)
     }
 
-    fn member_name(&self, m: &salvo_ir::MemberRef) -> String {
+    fn member_name(&self, m: &salvo_core::ir::MemberRef) -> String {
         let name = self
             .s
             .ir
@@ -1865,7 +1865,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     /// objects alias, so only two things are left to do — an arm whose
     /// `Mut` drop is a conversion (`Mut Str`, a `StringBuilder`) converts,
     /// and an arm that sits at another position in the target moves there.
-    fn borrow_as(&mut self, code: &str, from: &Ty, arms: &[salvo_ir::BorrowArm], to: &Ty) -> String {
+    fn borrow_as(&mut self, code: &str, from: &Ty, arms: &[salvo_core::ir::BorrowArm], to: &Ty) -> String {
         let suffix = |f: &Ty, t: &Ty| -> Option<&'static str> {
             let drops = f.quals().iter().any(|q| q.name == "Mut") && !t.quals().iter().any(|q| q.name == "Mut");
             match f.strip_quals() {
@@ -2024,7 +2024,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         if value { format!("({out})") } else { out }
     }
 
-    fn switch(&mut self, e: &Expr, subject: &Expr, arms: &[salvo_ir::SwitchArm], indent: usize) -> String {
+    fn switch(&mut self, e: &Expr, subject: &Expr, arms: &[salvo_core::ir::SwitchArm], indent: usize) -> String {
         let pad = "    ".repeat(indent);
         let value = !e.ty.is_none_ty() && arms.iter().any(|a| a.body.value.is_some());
         let s = self.expr(subject, indent);

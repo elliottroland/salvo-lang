@@ -112,10 +112,10 @@ crates/
 │                         #   analysis pipeline (analysis.rs), LSP server (lsp.rs), tm-grammar (lang.rs)
 ├── salvo-syntax/         # lexer, parser, AST, spans, diagnostics (no deps)
 │   └── tests/corpus/     # language-docs-example .sv files + insta snapshots
-├── salvo-core/           # SourceSet, Program, Symbols + resolve.rs/types.rs/check.rs/deduce.rs/reach.rs
+├── salvo-core/           # SourceSet, Program, Symbols + resolve.rs/types.rs/check.rs/deduce.rs/reach.rs;
+│                         #   ir/ — the IR (IR record): nodes, builder from Program+Checked, dump
 ├── salvo-backend/        # Backend trait, BackendRegistry, BackendError; driver.rs (the
 │                         #   shared front half of emission), emit_util.rs (shared helpers)
-├── salvo-ir/             # the IR (IR record): nodes, builder from Program+Checked, dump
 ├── salvo-backend-kotlin/ # Kotlin emitter over the IR (ir_emit/) + golden/kotlinc tests
 ├── salvo-backend-rust/   # Rust emitter (emit.rs) + golden/rustc tests
 └── salvo-testkit/        # dev-dependency for the test crates: toolchain probing
@@ -137,6 +137,39 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-12 — Checker/IR merge, Phase 0: `salvo-ir` folded into `salvo_core::ir`, spans on `Block`/`Param` (user decision; IR_CHECKER.md)
+
+First phase of merging the IR builder and the semantic checker so sugar is
+desugared **once** and the "real" checks (linear obligations, deductions) run on
+the IR rather than re-derived on the AST. Full design + the four decisions are
+in IR_CHECKER.md; this entry records Phase 0, which is pure plumbing (no
+behaviour change — all 1759 tests green, dump byte-identical).
+
+- **The `salvo-ir` crate is gone; the IR is now `salvo_core::ir`.** Rationale
+  (user, D1): make core the single home of checking and stop crate
+  proliferation — the alternative (a `salvo-ir-check` crate) would force a
+  dependency cycle (checks read the IR, the IR reads `Checked`) or a third
+  crate for one pipeline. `crates/salvo-ir/src/{ir.rs→nodes.rs,build/*,dump,walk}`
+  moved under `crates/salvo-core/src/ir/`; the old crate-root `lib.rs`
+  (`dump_program`, the `pub use`s) became `ir/mod.rs`. Inside the moved files
+  every `salvo_core::` reference became `crate::`. The two backend crates and
+  the CLI re-point `use salvo_ir::…` → `use salvo_core::ir::…`; the `salvo-ir`
+  workspace member, `[workspace.dependencies]` entry, and the three consumers'
+  `salvo-ir` deps are deleted. IR tests moved to `salvo-core/tests/`
+  (`op_tests.rs` → `ir_op_tests.rs` to avoid colliding with core's own
+  `op_tests.rs`; snapshots keep their `golden_tests__` prefix); `insta` added as
+  a core dev-dependency. The `../../std` / `../../examples` relative paths in the
+  tests survive because both crates sit at `crates/<name>/`.
+- **Spans added to IR `Block` and `Param`** (`ir/nodes.rs`), threaded from the
+  AST span in hand at each construction site (`block.span`, a parameter's span,
+  or the most-local synthetic span). The dumper does **not** print them, so
+  goldens are untouched — that is the invariant the golden test guards. The
+  lighter set (not a general per-`Stmt` span, not `Place`/`SwitchArm`/`ArmTest`)
+  is deliberate: `Expr` already carries a span and most statements wrap an
+  `Expr`/`Block`, so this is what the Phase 1 obligation checker needs without
+  retrofitting ~213 `Stmt` + ~90 `Place` sites across both emitters. See
+  IR_CHECKER.md §4 Phase 0.
 
 ### 2026-10-11 — LSP: completion offers in-scope locals, hover expands struct-typed fields (noticeboard TODOs)
 

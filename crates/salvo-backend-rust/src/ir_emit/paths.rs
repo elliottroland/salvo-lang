@@ -16,7 +16,7 @@ use std::collections::HashMap;
 
 use salvo_core::types::Ty;
 use salvo_core::ModulePath;
-use salvo_ir::build::refs::{ref_container, storage};
+use salvo_core::ir::build::refs::{ref_container, storage};
 
 use super::body::Kind;
 use super::{rs_ident, ModuleEmitter, Shared};
@@ -195,10 +195,10 @@ impl<'p> Shared<'p> {
         };
         for m in &self.ir.modules {
             for d in &m.decls {
-                let fns: Vec<&salvo_ir::FnDecl> = match d {
-                    salvo_ir::Decl::Fn(f) => vec![f],
-                    salvo_ir::Decl::Impl(h) => h.members.iter().chain(h.init.iter()).collect(),
-                    salvo_ir::Decl::Interface(i) => {
+                let fns: Vec<&salvo_core::ir::FnDecl> = match d {
+                    salvo_core::ir::Decl::Fn(f) => vec![f],
+                    salvo_core::ir::Decl::Impl(h) => h.members.iter().chain(h.init.iter()).collect(),
+                    salvo_core::ir::Decl::Interface(i) => {
                         for mem in &i.members {
                             seen_ty(&mem.ret, &mut pairs);
                         }
@@ -221,7 +221,7 @@ impl<'p> Shared<'p> {
                         super::body::walk_block(
                             b,
                             &mut |s| match s {
-                                salvo_ir::Stmt::Let { ty, .. } | salvo_ir::Stmt::ForEach { ty, .. } | salvo_ir::Stmt::Narrow { ty, .. } => collect_handles(ty, &mut from_stmts),
+                                salvo_core::ir::Stmt::Let { ty, .. } | salvo_core::ir::Stmt::ForEach { ty, .. } | salvo_core::ir::Stmt::Narrow { ty, .. } => collect_handles(ty, &mut from_stmts),
                                 _ => {}
                             },
                             &mut |e| collect_handles(&e.ty, &mut from_exprs),
@@ -284,8 +284,8 @@ pub fn collect_handles(t: &Ty, out: &mut Vec<(Ty, Ty)>) {
 impl<'a, 'p> ModuleEmitter<'a, 'p> {
     /// The path type a locator variant of `f` answers: its result's, a
     /// handle's or a reader's (a path in the lent parameter).
-    pub fn loc_path_ty(&mut self, f: &salvo_ir::FnDecl, anchor: usize) -> Option<PathTy> {
-        if salvo_ir::build::refs::has_ref(&f.ret) {
+    pub fn loc_path_ty(&mut self, f: &salvo_core::ir::FnDecl, anchor: usize) -> Option<PathTy> {
+        if salvo_core::ir::build::refs::has_ref(&f.ret) {
             return self.handle_path_ty(&f.ret);
         }
         let c = f.params.get(anchor)?.ty.clone();
@@ -632,8 +632,8 @@ pub struct Mint {
 impl<'a, 'p> ModuleEmitter<'a, 'p> {
     /// The handle a container argument is: a place (through a handle local
     /// or not), or a nested mint, its path bound in `pre`.
-    pub fn anchor_handle(&mut self, a: &salvo_ir::Expr, indent: usize, pre: &mut Vec<String>) -> Option<Handle> {
-        use salvo_ir::{ExprKind, Place, Step};
+    pub fn anchor_handle(&mut self, a: &salvo_core::ir::Expr, indent: usize, pre: &mut Vec<String>) -> Option<Handle> {
+        use salvo_core::ir::{ExprKind, Place, Step};
         match &a.kind {
             ExprKind::DropMut { value } => self.anchor_handle(value, indent, pre),
             ExprKind::Read { place, .. } => {
@@ -666,11 +666,11 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             ExprKind::Branch { arms, otherwise: None, .. }
                 if arms.len() == 1
                     && matches!(arms[0].0.kind, ExprKind::Bool(true))
-                    && matches!(arms[0].1.stmts.as_slice(), [salvo_ir::Stmt::Let { .. }])
-                    && matches!(arms[0].1.value.as_deref().map(|v| &v.kind), Some(ExprKind::Read { place, .. }) if matches!(&arms[0].1.stmts[0], salvo_ir::Stmt::Let { local, .. } if *local == place.root)) =>
+                    && matches!(arms[0].1.stmts.as_slice(), [salvo_core::ir::Stmt::Let { .. }])
+                    && matches!(arms[0].1.value.as_deref().map(|v| &v.kind), Some(ExprKind::Read { place, .. }) if matches!(&arms[0].1.stmts[0], salvo_core::ir::Stmt::Let { local, .. } if *local == place.root)) =>
             {
                 let b = &arms[0].1;
-                let salvo_ir::Stmt::Let { value, .. } = &b.stmts[0] else { return None };
+                let salvo_core::ir::Stmt::Let { value, .. } = &b.stmts[0] else { return None };
                 let Some(ExprKind::Read { place, .. }) = b.value.as_deref().map(|v| &v.kind) else { return None };
                 let h = self.anchor_handle(value, indent, pre)?;
                 let mut steps = h.steps.clone();
@@ -702,8 +702,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     /// The mint `e` is, when it is one: a call to a fn answering a handle
     /// (a path fn), a reader used as a handle (its locator), a lending
     /// member or callback, or `x!` of one.
-    pub fn mint(&mut self, e: &salvo_ir::Expr, indent: usize) -> Option<Mint> {
-        use salvo_ir::{ExprKind, FnRef, PassMode, Stmt};
+    pub fn mint(&mut self, e: &salvo_core::ir::Expr, indent: usize) -> Option<Mint> {
+        use salvo_core::ir::{ExprKind, FnRef, PassMode, Stmt};
         match &e.kind {
             // Inside a locator, a forwarded call answers its own locator's
             // path whatever its type says (a reader forwarding a reader).
@@ -714,7 +714,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 let k = self.s.lend_param(f)?;
                 let mut pre = Vec::new();
                 let prefix = self.anchor_handle(args.get(k)?, indent, &mut pre)?;
-                let pt = if salvo_ir::build::refs::has_ref(&e.ty) {
+                let pt = if salvo_core::ir::build::refs::has_ref(&e.ty) {
                     self.handle_path_ty(&e.ty)?
                 } else {
                     match self.s.path_ty(&args[k].ty, &storage(&e.ty)) {
@@ -731,7 +731,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             ExprKind::Call { target: FnRef::Decl(id), args, .. } => {
                 // An intrinsic with a locator form (a list's `get`).
                 let af = self.s.ast_fn(id).filter(|af| af.intrinsic)?;
-                if !salvo_ir::build::refs::has_ref(&e.ty) && self.f.loc.is_none() {
+                if !salvo_core::ir::build::refs::has_ref(&e.ty) && self.f.loc.is_none() {
                     return None;
                 }
                 let name = af.name.name.clone();
@@ -790,7 +790,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 }
                 let at = sarms.iter().find_map(|a| {
                     let from_stmt = a.body.stmts.iter().find_map(|s| match s {
-                        Stmt::Expr(salvo_ir::Expr { kind: ExprKind::Unreachable { at, .. }, .. }) => Some(at.clone()),
+                        Stmt::Expr(salvo_core::ir::Expr { kind: ExprKind::Unreachable { at, .. }, .. }) => Some(at.clone()),
                         _ => None,
                     });
                     match a.body.value.as_deref().map(|x| &x.kind) {
@@ -849,7 +849,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
 
     /// [rs-path] The path type parameters a fn's handles into generic
     /// containers need, in a stable order: one per (container, element).
-    pub fn generic_path_pairs(f: &salvo_ir::FnDecl) -> Vec<(Ty, Ty)> {
+    pub fn generic_path_pairs(f: &salvo_core::ir::FnDecl) -> Vec<(Ty, Ty)> {
         let mut pairs: Vec<(Ty, Ty)> = Vec::new();
         for p in &f.params {
             collect_handles(&p.ty, &mut pairs);

@@ -7375,7 +7375,7 @@ between endpoints and delivers what arrives into the scheduler.
     IR has `BorrowAs { value, arms }` pairing each target arm with the arm
     that lands there — `borrow_as[proj Mut A -> A, B -> B](…)`, and for a
     single value `borrow_as[proj X -> X](…)` (user decision: uniform, even
-    where no backend acts on it). `salvo_ir::walk::unwrap_single_borrows`
+    where no backend acts on it). `salvo_core::ir::walk::unwrap_single_borrows`
     is the opt-in pass for a backend whose borrow of one value is that
     value (both, today).
   * **`copy` of one is an owned union**: `copy(value: proj T)` against a
@@ -9449,14 +9449,14 @@ replaced the working document TESTING.md).
   unsupported constructs are codegen/checker errors. Each backend spec
   lists its current deliberate cuts.
 
-## The IR (`salvo-ir`; narrative in docs/language/The-IR.md)
+## The IR (`salvo_core::ir`; narrative in docs/language/The-IR.md)
 
 * [ir-build] The IR builder turns the checked program into the IR, copying
   every answer the checker recorded. It infers nothing: where the checker
   left no answer, the node is `Unsupported` and an error names it, so a
   backend never renders a guess [backend-never-wrong]. Both backends read
   the IR only; the checker's span-keyed tables are the builder's inputs.
-* [ir-nodes] The node set (`crates/salvo-ir/src/ir.rs`): every expression
+* [ir-nodes] The node set (`crates/salvo-core/src/ir/nodes.rs`): every expression
   carries its resolved type; every reference is absolute (a `DeclId`, a
   local, or an interface member by index), so the IR has no imports;
   effects are leading parameters and a member call names its instance.
@@ -9496,7 +9496,7 @@ replaced the working document TESTING.md).
   step. `ForEach` is the one loop with a subject, for the intrinsic
   containers a backend iterates natively [iter-for-native]. A loop's value,
   its `else` and its ran-flag are explicit locals, only when present.
-* [ir-dump] The text form (`salvo_ir::dump`) is for reading and golden
+* [ir-dump] The text form (`salvo_core::ir::dump`) is for reading and golden
   tests, never parsed back: one declaration per paragraph, `#n` node ids,
   `!read` for a consuming read, parameter modes before each parameter. An
   `Op` [ir-op] is written inline (`(read i < 4)`, `!(read a)`): every binary

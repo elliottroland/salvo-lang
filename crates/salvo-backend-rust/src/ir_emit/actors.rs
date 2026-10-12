@@ -5,7 +5,7 @@
 //! backend's for now).
 
 use salvo_core::types::Ty;
-use salvo_ir::{Decl, Expr, ExprKind, FnDecl, ImplDecl, InterfaceDecl, Local, ReplyTarget};
+use salvo_core::ir::{Decl, Expr, ExprKind, FnDecl, ImplDecl, InterfaceDecl, Local, ReplyTarget};
 
 use super::body::rs_local;
 use super::{is_copy_ty, ModuleEmitter};
@@ -21,7 +21,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         format!("{}{item}", self.s.prefix(m))
     }
 
-    pub fn iface_by_id(&self, id: &salvo_ir::DeclId) -> Option<&'p InterfaceDecl> {
+    pub fn iface_by_id(&self, id: &salvo_core::ir::DeclId) -> Option<&'p InterfaceDecl> {
         match self.s.decls.get(id) {
             Some(Decl::Interface(i)) => Some(i),
             _ => None,
@@ -54,7 +54,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         h.members.iter().filter(|m| m.send && !faces.iter().any(|f| f.members.iter().any(|fm| fm.name == m.name))).collect()
     }
 
-    fn declared_params(m: &FnDecl) -> Vec<&salvo_ir::Param> {
+    fn declared_params(m: &FnDecl) -> Vec<&salvo_core::ir::Param> {
         m.params.iter().skip(m.effect_params).take(m.params.len() - m.effect_params - m.implicit_params).collect()
     }
 
@@ -82,10 +82,10 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     /// [actor-msg] A generated enum: its variants, and — for a message enum
     /// with a wire form — the codec and the protocol constant (the codec is
     /// the backend's, IR record §9 decision 2).
-    pub fn enum_decl(&mut self, e: &salvo_ir::EnumDecl) {
+    pub fn enum_decl(&mut self, e: &salvo_core::ir::EnumDecl) {
         let name = rs_ident(&e.name);
         match &e.kind {
-            salvo_ir::EnumKind::Message { interface } => {
+            salvo_core::ir::EnumKind::Message { interface } => {
                 // A generic protocol is refused where its stub is rendered.
                 let Some(i) = self.iface_by_id(interface) else { return };
                 if !i.type_params.is_empty() && !self.s.erased.is_erased(&i.name) {
@@ -93,7 +93,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 }
             }
             // Nothing parks: nothing to resume into.
-            salvo_ir::EnumKind::Continuation { .. } if e.variants.is_empty() => return,
+            salvo_core::ir::EnumKind::Continuation { .. } if e.variants.is_empty() => return,
             _ => {}
         }
         let mut out = format!("\npub enum {name} {{\n");
@@ -106,7 +106,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             }
         }
         out.push_str("}\n");
-        if let (salvo_ir::EnumKind::Message { interface }, Some(hash)) = (&e.kind, &e.protocol_hash) {
+        if let (salvo_core::ir::EnumKind::Message { interface }, Some(hash)) = (&e.kind, &e.protocol_hash) {
             let msg = &name;
             let mut enc = String::new();
             let mut dec = String::new();
@@ -139,7 +139,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     /// refused (its enum, codec, hash and stub are the builder's and
     /// [`enum_decl`]'s).
     pub fn actor_interface(&mut self, i: &InterfaceDecl) {
-        let sends: Vec<&salvo_ir::Member> = i.members.iter().filter(|m| m.send).collect();
+        let sends: Vec<&salvo_core::ir::Member> = i.members.iter().filter(|m| m.send).collect();
         if sends.is_empty() {
             return;
         }
@@ -181,7 +181,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
 
     /// [actor-dispatch] The path of the generated function delivering the
     /// message enum `which` selects to `h`'s members.
-    fn dispatch_fn(&mut self, h: &ImplDecl, which: impl Fn(&salvo_ir::EnumKind) -> bool) -> Option<String> {
+    fn dispatch_fn(&mut self, h: &ImplDecl, which: impl Fn(&salvo_core::ir::EnumKind) -> bool) -> Option<String> {
         let id = h.dispatch.iter().find(|d| matches!(self.s.decls.get(&d.message), Some(Decl::Enum(e)) if which(&e.kind)))?.func.clone();
         Some(self.fn_path(&id))
     }
@@ -204,12 +204,12 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let mut dispatch_names: Vec<(String, String)> = Vec::new();
         for face in faces {
             let msg = self.path_in(&face.id.module, &format!("__Msg_{}", rs_ident(&face.name)));
-            match self.dispatch_fn(h, |k| matches!(k, salvo_ir::EnumKind::Message { interface } if *interface == face.id)) {
+            match self.dispatch_fn(h, |k| matches!(k, salvo_core::ir::EnumKind::Message { interface } if *interface == face.id)) {
                 Some(f) => dispatch_names.push((msg, f)),
                 None => self.error(format!("handler `{}` has no dispatcher for `{}`", h.name, face.name)),
             }
         }
-        let priv_fn = if has_priv { self.dispatch_fn(h, |k| matches!(k, salvo_ir::EnumKind::Private { handler } if *handler == h.id)) } else { None };
+        let priv_fn = if has_priv { self.dispatch_fn(h, |k| matches!(k, salvo_core::ir::EnumKind::Private { handler } if *handler == h.id)) } else { None };
         out.push_str("}\n");
         // handle
         let mut handle = String::new();
@@ -399,7 +399,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         format!("({{ let __h = {h}; let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn({pool_code}, __cap as usize, std::boxed::Box::new({actor}::new(__h)), {dec}); {init}{joined}{result} }})")
     }
 
-    pub fn send(&mut self, addr: &Expr, member: &salvo_ir::MemberRef, args: &[Expr], indent: usize) -> String {
+    pub fn send(&mut self, addr: &Expr, member: &salvo_core::ir::MemberRef, args: &[Expr], indent: usize) -> String {
         let Some(iface) = self.iface_by_id(&member.interface) else {
             self.error("a send to an unknown interface");
             return "()".to_string();
@@ -462,7 +462,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     self.error("`replyto` of an unknown task");
                     return "()".to_string();
                 };
-                let declared: Vec<salvo_ir::Param> = decl.params.iter().skip(decl.effect_params).cloned().collect();
+                let declared: Vec<salvo_core::ir::Param> = decl.params.iter().skip(decl.effect_params).cloned().collect();
                 let Some(last) = declared.last().cloned() else {
                     self.error("a task target has no answer parameter");
                     return "()".to_string();
@@ -493,7 +493,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         }
     }
 
-    pub fn waitfor(&mut self, local: &Local, token_ty: &Ty, body: &salvo_ir::Block, indent: usize) -> String {
+    pub fn waitfor(&mut self, local: &Local, token_ty: &Ty, body: &salvo_core::ir::Block, indent: usize) -> String {
         let pad = "    ".repeat(indent + 1);
         let close = "    ".repeat(indent);
         let payload_ty = match token_ty.strip_quals() {
@@ -522,7 +522,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let Some(h) = self.s.impl_decl(&hname) else { return "()".to_string() };
         let faces = self.actor_faces(h);
         let decl = h.members.iter().find(|m| m.name == member);
-        let ps: Vec<salvo_ir::Param> = decl.map(|m| Self::declared_params(m).into_iter().cloned().collect()).unwrap_or_default();
+        let ps: Vec<salvo_core::ir::Param> = decl.map(|m| Self::declared_params(m).into_iter().cloned().collect()).unwrap_or_default();
         let mut a = Vec::new();
         for (i, x) in args.iter().enumerate() {
             let slot = ps.get(i).map(|p| p.ty.clone()).unwrap_or_else(|| x.ty.clone());

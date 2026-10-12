@@ -174,7 +174,7 @@ impl<'a> Dumper<'a> {
             Decl::Fn(f) => self.fn_decl(f, 0),
             Decl::Static(st) => {
                 let _ = write!(self.out, "static {}: {} ", st.local.0, st.ty);
-                self.block(&Block { stmts: st.stmts.clone(), value: None }, 0);
+                self.block(&Block { stmts: st.stmts.clone(), value: None, span: st.span }, 0);
                 self.out.push('\n');
             }
             Decl::PlatformType(t) => {

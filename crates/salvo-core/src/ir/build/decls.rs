@@ -3,10 +3,10 @@
 
 use std::collections::HashMap;
 
-use salvo_core::param_mode::{Modes, PassMode};
-use salvo_core::source::SourceFile;
-use salvo_core::types::{is_proj_name, Ty};
-use salvo_core::FnKey;
+use crate::param_mode::{Modes, PassMode};
+use crate::source::SourceFile;
+use crate::types::{is_proj_name, Ty};
+use crate::FnKey;
 use salvo_syntax::ast::{self, Item};
 
 use super::{body::Lower, erase, AModule, Ctx};
@@ -112,7 +112,7 @@ pub fn build_module(ctx: &Ctx<'_>, file_idx: usize, file: &SourceFile, module: &
                     }));
                 }
             }
-            Item::Effect(e) if e.name.name == salvo_core::THROW_EFFECT => {}
+            Item::Effect(e) if e.name.name == crate::THROW_EFFECT => {}
             Item::Effect(e) => out.decls.push(Decl::Interface(interface_decl(ctx, file_idx, id, e))),
             Item::Handler(h) => out.decls.push(Decl::Impl(impl_decl(ctx, file_idx, id, h, &statics, &mut errors))),
             Item::Fn(f) if f.body.is_some() || f.platform || f.intrinsic => {
@@ -179,7 +179,7 @@ fn struct_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, s: &ast::StructDecl, 
         linear: s.linear,
         opaque: s.opaque,
         canbe_mut: s.auto_qualifiers.iter().any(|q| q.name.name == "Mut"),
-        has_wire_form: salvo_core::struct_has_wire_form(ctx.symbols, s),
+        has_wire_form: crate::struct_has_wire_form(ctx.symbols, s),
         span: s.span,
     }
 }
@@ -213,26 +213,27 @@ fn interface_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, e: &ast::EffectDec
                     variadic: p.variadic,
                     // [platform-check] a `Reply<T>` the host answers on.
                     check: ctx.checked.boundary_checks.get(&(file_idx, p.name.span)).cloned(),
+                    span: p.span,
                 });
             }
             // [implicit-param] a member's implicits are trailing parameters.
             if let Some(imps) = ctx.checked.implicit_members.get(&(file_idx, m.name.span)) {
                 for ip in imps {
-                    params.push(Param { local: Local(ip.local.clone()), ty: erase(&ip.ty), mode: PassMode::Lent, variadic: false, check: None });
+                    params.push(Param { local: Local(ip.local.clone()), ty: erase(&ip.ty), mode: PassMode::Lent, variadic: false, check: None, span: ip.span });
                 }
             }
             // [platform-check] [platform-factory] the host boundary of a
             // platform-handled member: its result check, and the factories of
             // its result and reply payloads.
             let result_check = ctx.checked.boundary_checks.get(&(file_idx, m.name.span)).cloned();
-            let mut factories: Vec<salvo_core::abi::Factories> = Vec::new();
+            let mut factories: Vec<crate::abi::Factories> = Vec::new();
             factories.extend(ctx.checked.factories.get(&(file_idx, m.name.span)).cloned());
             for p in &m.params {
                 factories.extend(ctx.checked.factories.get(&(file_idx, p.name.span)).cloned());
             }
             Member {
                 name: m.name.name.clone(),
-                emitted_name: salvo_core::effect_member_name(e, i),
+                emitted_name: crate::effect_member_name(e, i),
                 type_params: type_params(&m.generics, &m.generic_canbe),
                 params,
                 ret: m.return_type.as_ref().map(|t| ctx.written_ty(file_idx, t)).unwrap_or_else(Ty::none),
@@ -245,7 +246,7 @@ fn interface_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, e: &ast::EffectDec
         .collect();
     // [protocol-hash] every message payload has a wire form (the types are
     // the resolved ones, so a clashing name is told from its namesakes).
-    let has_wire = members.iter().filter(|m| m.send).all(|m| m.params.iter().all(|p| salvo_core::wire_blocker(ctx.symbols, p.ty.strip_quals()).is_none()));
+    let has_wire = members.iter().filter(|m| m.send).all(|m| m.params.iter().all(|p| crate::wire_blocker(ctx.symbols, p.ty.strip_quals()).is_none()));
     let protocol_hash = if e.is_actor && has_wire {
         ctx.checked.protocol_hashes.get(ctx.symbols.key_or(e, &e.name.name)).cloned()
     } else {
@@ -288,6 +289,7 @@ fn impl_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, h: &ast::HandlerDecl, s
             mode: if p.implicit { PassMode::Lent } else { modes.default_param(&p.ty, p.variadic) },
             variadic: p.variadic,
             check: None,
+            span: p.span,
         })
         .collect();
     let state = fields(ctx, file_idx, &h.state, errors);
@@ -308,7 +310,7 @@ fn impl_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, h: &ast::HandlerDecl, s
         })
         .collect();
     let member_fn = |f: &ast::FnDecl, errors: &mut Vec<String>| {
-        let faces_n = salvo_core::effects::handler_member_faces(&face_decls, f).len();
+        let faces_n = crate::effects::handler_member_faces(&face_decls, f).len();
         let mut d = fn_decl(ctx, file_idx, id.clone(), None, f, FnKind::Member { faces: faces_n }, None, &[], errors);
         // Members have no FnKey: build the body with the handler's scope.
         d.body = f.body.as_ref().map(|b| {
@@ -318,7 +320,7 @@ fn impl_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, h: &ast::HandlerDecl, s
             lower.effect_env.extend(dep_locals.clone());
             lower.in_handler = Some(h.name.name.clone());
             let eff_member = face_decls.iter().find_map(|e| {
-                salvo_core::effect_member_index(e, f).map(|i| (*e, i))
+                crate::effect_member_index(e, f).map(|i| (*e, i))
             });
             let mut params: Vec<Param> = Vec::new();
             for p in f.params.iter().filter(|p| !p.implicit) {
@@ -333,7 +335,7 @@ fn impl_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, h: &ast::HandlerDecl, s
                     None if f.is_send => modes.member_param(f, p),
                     None => modes.default_param(&p.ty, p.variadic),
                 };
-                params.push(Param { local: Local(p.name.name.clone()), ty: ctx.written_ty(file_idx, &p.ty), mode, variadic: p.variadic, check: None });
+                params.push(Param { local: Local(p.name.name.clone()), ty: ctx.written_ty(file_idx, &p.ty), mode, variadic: p.variadic, check: None, span: p.span });
             }
             for p in &params {
                 lower.bind_owned(&p.local.0, p.ty.clone(), p.mode == PassMode::Moved);
@@ -377,7 +379,7 @@ fn impl_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, h: &ast::HandlerDecl, s
         mailbox,
         init,
         members,
-        stateful: salvo_core::handler_is_stateful(h, parks),
+        stateful: crate::handler_is_stateful(h, parks),
         platform: h.platform,
         threadsafe: h.threadsafe,
         intrinsic: h.intrinsic,
@@ -422,12 +424,12 @@ fn fn_decl(
         .cloned()
         .unwrap_or(declared_effects)
         .into_iter()
-        .filter(|t| !matches!(t, Ty::Named { name, .. } if name == salvo_core::THROW_EFFECT))
+        .filter(|t| !matches!(t, Ty::Named { name, .. } if name == crate::THROW_EFFECT))
         .map(|t| erase(&t))
         .collect();
     let throws: Option<Ty> = table_key.and_then(|k| ctx.checked.fn_effects.get(&k)).and_then(|effs| {
         effs.iter().find_map(|t| match t {
-            Ty::Named { name, args } if name == salvo_core::THROW_EFFECT => Some(args.first().map(erase).unwrap_or(Ty::Unknown)),
+            Ty::Named { name, args } if name == crate::THROW_EFFECT => Some(args.first().map(erase).unwrap_or(Ty::Unknown)),
             _ => None,
         })
     });
@@ -446,7 +448,7 @@ fn fn_decl(
         used.push(name.clone());
         let local = Local(name);
         lower.effect_env.push((t.clone(), local.clone()));
-        params.push(Param { local, ty: t.clone(), mode: PassMode::Lent, variadic: false, check: None });
+        params.push(Param { local, ty: t.clone(), mode: PassMode::Lent, variadic: false, check: None, span: f.span });
     }
     let effect_params = params.len();
     for p in f.params.iter().filter(|p| !p.implicit) {
@@ -457,7 +459,7 @@ fn fn_decl(
         };
         let ty = ctx.written_ty(file_idx, &p.ty);
         lower.bind_owned(&p.name.name, ty.clone(), mode == PassMode::Moved);
-        params.push(Param { local: Local(p.name.name.clone()), ty, mode, variadic: p.variadic, check: None });
+        params.push(Param { local: Local(p.name.name.clone()), ty, mode, variadic: p.variadic, check: None, span: p.span });
     }
     let mut implicit_params = 0;
     if let Some(k) = key {
@@ -466,7 +468,7 @@ fn fn_decl(
                 let ty = erase(&ip.ty);
                 lower.bind(&ip.local, ty.clone());
                 lower.implicit_locals.insert(ip.name.clone(), Local(ip.local.clone()));
-                params.push(Param { local: Local(ip.local.clone()), ty, mode: PassMode::Lent, variadic: false, check: None });
+                params.push(Param { local: Local(ip.local.clone()), ty, mode: PassMode::Lent, variadic: false, check: None, span: ip.span });
                 implicit_params += 1;
             }
         }
@@ -476,7 +478,7 @@ fn fn_decl(
             let ty = erase(&ip.ty);
             lower.bind(&ip.local, ty.clone());
             lower.implicit_locals.insert(ip.name.clone(), Local(ip.local.clone()));
-            params.push(Param { local: Local(ip.local.clone()), ty, mode: PassMode::Lent, variadic: false, check: None });
+            params.push(Param { local: Local(ip.local.clone()), ty, mode: PassMode::Lent, variadic: false, check: None, span: ip.span });
             implicit_params += 1;
         }
     }
@@ -531,7 +533,7 @@ fn fn_decl(
         .params
         .iter()
         .filter_map(|p| {
-            let c = salvo_core::check::ref_anchor_of(&p.ty)?;
+            let c = crate::check::ref_anchor_of(&p.ty)?;
             let at = params.iter().position(|q| q.local.0 == p.name.name)?;
             let anchor = params.iter().position(|q| q.local.0 == c.name)?;
             Some((at, anchor))
@@ -596,7 +598,7 @@ fn proj_from(t: &ast::Type, out: &mut Vec<String>) {
 /// name in snake case (`Console` → `console`, `Random<Int>` → `random`).
 pub(crate) fn effect_local_name(t: &Ty) -> String {
     let base = match t.strip_quals() {
-        Ty::Named { name, .. } => salvo_core::typekey::plain(name).to_string(),
+        Ty::Named { name, .. } => crate::typekey::plain(name).to_string(),
         other => other.to_string(),
     };
     let mut out = String::new();

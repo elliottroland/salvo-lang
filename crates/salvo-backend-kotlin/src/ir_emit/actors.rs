@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 
 use salvo_core::types::Ty;
-use salvo_ir::{Decl, Expr, ExprKind, FnDecl, ImplDecl, InterfaceDecl, ReplyTarget, StructDecl};
+use salvo_core::ir::{Decl, Expr, ExprKind, FnDecl, ImplDecl, InterfaceDecl, ReplyTarget, StructDecl};
 
 use super::{kt_local, ModuleEmitter};
 use crate::emit::{kotlin_package, kt_ident};
@@ -149,8 +149,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     /// [actor-msg] A generated enum as a sealed class; a message enum with a
     /// wire form also gets its codec and the protocol constant (the codec is
     /// the backend's, IR record §9 decision 2).
-    pub(super) fn enum_decl(&mut self, e: &salvo_ir::EnumDecl) {
-        use salvo_ir::EnumKind;
+    pub(super) fn enum_decl(&mut self, e: &salvo_core::ir::EnumDecl) {
+        use salvo_core::ir::EnumKind;
         let name = e.name.clone();
         if let EnumKind::Message { interface } = &e.kind {
             let Some(i) = self.s.ir.modules.iter().flat_map(|m| &m.decls).find_map(|d| match d {
@@ -170,7 +170,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 self.out.push_str(&format!("    object {} : {name}()\n", v.name));
                 continue;
             }
-            let payload: Vec<String> = v.fields.iter().map(|(n, t)| format!("val {}: {}", kt_local(&salvo_ir::Local(n.clone())), self.ty(t))).collect();
+            let payload: Vec<String> = v.fields.iter().map(|(n, t)| format!("val {}: {}", kt_local(&salvo_core::ir::Local(n.clone())), self.ty(t))).collect();
             self.out.push_str(&format!("    class {}({}) : {name}()\n", v.name, payload.join(", ")));
         }
         self.out.push_str("}\n");
@@ -183,7 +183,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 let mut decs = Vec::new();
                 for (n, t) in &v.fields {
                     let c = self.codec(t);
-                    encs.push(format!("{c}.enc(v.{}, out)", kt_local(&salvo_ir::Local(n.clone()))));
+                    encs.push(format!("{c}.enc(v.{}, out)", kt_local(&salvo_core::ir::Local(n.clone()))));
                     decs.push(format!("{c}.dec(inp)"));
                 }
                 enc.push_str(&format!("            is {msg}.{} -> {{ {} }}\n", v.name, encs.join("; ")));
@@ -203,7 +203,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     /// [kt-actor] The message classes, their codec, the protocol constant and
     /// the addr stub of an actor interface.
     pub(super) fn actor_interface(&mut self, i: &InterfaceDecl) {
-        let sends: Vec<&salvo_ir::Member> = i.members.iter().filter(|m| m.send).collect();
+        let sends: Vec<&salvo_core::ir::Member> = i.members.iter().filter(|m| m.send).collect();
         if sends.is_empty() {
             return;
         }
@@ -266,7 +266,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     }
 
     /// The declared (non-effect, non-implicit) parameters of a member.
-    fn declared_params<'f>(m: &'f FnDecl) -> Vec<&'f salvo_ir::Param> {
+    fn declared_params<'f>(m: &'f FnDecl) -> Vec<&'f salvo_core::ir::Param> {
         m.params.iter().skip(m.effect_params).take(m.params.len() - m.effect_params - m.implicit_params).collect()
     }
 
@@ -295,7 +295,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let has_priv = Self::has_private(h, faces);
         // Dispatch: the functions the builder generated, one per face and one
         // for the private messages [actor-dispatch].
-        let dispatcher = |this: &mut Self, which: &dyn Fn(&salvo_ir::EnumKind) -> bool| -> Option<String> {
+        let dispatcher = |this: &mut Self, which: &dyn Fn(&salvo_core::ir::EnumKind) -> bool| -> Option<String> {
             let id = h.dispatch.iter().find(|d| this.s.ir.modules.iter().flat_map(|m| &m.decls).any(|x| matches!(x, Decl::Enum(e) if e.id == d.message && which(&e.kind))))?.func.clone();
             Some(this.fn_name(&id))
         };
@@ -303,7 +303,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let mut only: Option<(String, String)> = None;
         for face in faces {
             let msg = self.msg_class(face);
-            let Some(f) = dispatcher(self, &|k| matches!(k, salvo_ir::EnumKind::Message { interface } if *interface == face.id)) else {
+            let Some(f) = dispatcher(self, &|k| matches!(k, salvo_core::ir::EnumKind::Message { interface } if *interface == face.id)) else {
                 self.error(format!("handler `{}` has no dispatcher for `{}`", h.name, face.name));
                 continue;
             };
@@ -311,7 +311,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             only = Some((msg, f));
         }
         if has_priv {
-            if let Some(f) = dispatcher(self, &|k| matches!(k, salvo_ir::EnumKind::Private { handler } if *handler == h.id)) {
+            if let Some(f) = dispatcher(self, &|k| matches!(k, salvo_core::ir::EnumKind::Private { handler } if *handler == h.id)) {
                 handle_arms.push_str(&format!("            is {priv_cls} -> {f}(handler, msg)\n"));
             }
         }
@@ -564,7 +564,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         }
     }
 
-    pub(super) fn send(&mut self, addr: &Expr, member: &salvo_ir::MemberRef, args: &[Expr], indent: usize) -> String {
+    pub(super) fn send(&mut self, addr: &Expr, member: &salvo_core::ir::MemberRef, args: &[Expr], indent: usize) -> String {
         let a = self.expr(addr, indent);
         let iface = self.s.ir.modules.iter().flat_map(|m| &m.decls).find_map(|d| match d {
             Decl::Interface(i) if i.id == member.interface => Some(i),
@@ -613,7 +613,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     self.error("`replyto` of an unknown task");
                     return "TODO()".to_string();
                 };
-                let declared: Vec<&salvo_ir::Param> = decl.params.iter().skip(decl.effect_params).collect();
+                let declared: Vec<&salvo_core::ir::Param> = decl.params.iter().skip(decl.effect_params).collect();
                 let Some(last) = declared.last() else {
                     self.error("a task target has no answer parameter");
                     return "TODO()".to_string();
@@ -643,7 +643,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         }
     }
 
-    pub(super) fn waitfor(&mut self, local: &salvo_ir::Local, token_ty: &Ty, body: &salvo_ir::Block, indent: usize) -> String {
+    pub(super) fn waitfor(&mut self, local: &salvo_core::ir::Local, token_ty: &Ty, body: &salvo_core::ir::Block, indent: usize) -> String {
         let pad = "    ".repeat(indent + 1);
         let close = "    ".repeat(indent);
         let payload_ty = match token_ty.strip_quals() {

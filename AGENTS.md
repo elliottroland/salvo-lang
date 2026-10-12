@@ -103,9 +103,9 @@ crates/
 ├── salvo-cli/            # binary "salvo": clap CLI, backend registry, embeds std/ via include_dir
 ├── salvo-syntax/         # lexer, parser, AST, spans, diagnostics (no deps)
 │   └── tests/corpus/     # language-docs example .sv files + insta snapshots
-├── salvo-core/           # SourceSet, Program, Symbols, resolve.rs, types.rs, check.rs
+├── salvo-core/           # SourceSet, Program, Symbols, resolve.rs, types.rs, check.rs;
+│                         #   ir/ — the IR (IR record): nodes, builder from Program+Checked, dump, `salvo ir`
 ├── salvo-backend/        # Backend trait, BackendRegistry, BackendError
-├── salvo-ir/             # the IR (IR record): nodes, builder from Program+Checked, dump, `salvo ir`
 ├── salvo-backend-kotlin/ # Kotlin emitter over the IR (ir_emit/) + golden/kotlinc tests
 ├── salvo-backend-rust/   # Rust emitter (emit.rs) + golden/rustc tests
 └── salvo-testkit/        # dev-dependency: toolchain probing + the e2e content cache

@@ -6,7 +6,7 @@
 use std::collections::BTreeSet;
 
 use salvo_core::types::Ty;
-use salvo_ir::{Decl, FnKind, ImplDecl, PlatformTypeDecl};
+use salvo_core::ir::{Decl, FnKind, ImplDecl, PlatformTypeDecl};
 
 use super::{decls::subst_ty, ModuleEmitter};
 use crate::emit::{platform_trait_name, rs_ident};

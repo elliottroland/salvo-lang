@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use salvo_core::types::Ty;
 use salvo_core::{ModulePath, Program};
-use salvo_ir::{Decl, DeclId, FnDecl, ImplDecl, InterfaceDecl, Module as IrModule, Program as IrProgram, StructDecl};
+use salvo_core::ir::{Decl, DeclId, FnDecl, ImplDecl, InterfaceDecl, Module as IrModule, Program as IrProgram, StructDecl};
 
 use crate::emit::{
     generate_scheduler_file, generate_seq_file, generate_strings_file, generate_time_file, generate_unions_file,
@@ -51,12 +51,12 @@ fn run(
     let (symbols, resolution) = salvo_backend::driver::resolve_for_emission(program, &mut checked);
     let reach = salvo_backend::driver::reach(program, &resolution, &symbols, &checked, abi);
     let wanted: HashSet<&ModulePath> = reach.emitted.iter().copied().collect();
-    let (mut ir, build_errors) = salvo_ir::build_program(program, &symbols, &resolution, &checked, Some(&wanted));
+    let (mut ir, build_errors) = salvo_core::ir::build_program(program, &symbols, &resolution, &checked, Some(&wanted));
     if !build_errors.is_empty() {
         return Err(build_errors);
     }
     // [proj-opt-slot] A borrow of one value is that value here.
-    salvo_ir::walk::unwrap_single_borrows(&mut ir);
+    salvo_core::ir::walk::unwrap_single_borrows(&mut ir);
     PLAIN_EFFECTS.with(|p| *p.borrow_mut() = symbols.effects.iter().filter(|(_, e)| !e.is_actor).map(|(k, _)| k.to_string()).collect());
     let (mod_names, mut used) = module_mod_names(&reach.emitted);
     // [rs-crate] The crate root: the module declaring `fn main` with a body,
@@ -462,10 +462,10 @@ impl<'p> Shared<'p> {
     }
 
     /// [actor-msg] The generated enum a type key names, and its module.
-    pub fn generated_enum(&self, key: &str) -> Option<(&'p salvo_ir::EnumDecl, ModulePath)> {
+    pub fn generated_enum(&self, key: &str) -> Option<(&'p salvo_core::ir::EnumDecl, ModulePath)> {
         let module = salvo_core::typekey::module_of(key)?;
         self.ir.modules.iter().filter(|m| m.path.0.join(".") == module).flat_map(|m| &m.decls).find_map(|d| match d {
-            Decl::Enum(e) if salvo_ir::enum_key(&e.name, &e.id.module) == key => Some((e, e.id.module.clone())),
+            Decl::Enum(e) if salvo_core::ir::enum_key(&e.name, &e.id.module) == key => Some((e, e.id.module.clone())),
             _ => None,
         })
     }
@@ -530,7 +530,7 @@ impl<'p> Shared<'p> {
                 if let Some(target) = alias.alias.as_ref() {
                     let subst: HashMap<String, Ty> = alias.generics.iter().map(|g| g.name.clone()).zip(args.iter().cloned()).collect();
                     if let Some(expanded) = salvo_core::approx_ty(target, &subst) {
-                        return self.unalias(&salvo_ir::build::erase(&expanded)).qualify(quals);
+                        return self.unalias(&salvo_core::ir::build::erase(&expanded)).qualify(quals);
                     }
                 }
             }
@@ -538,7 +538,7 @@ impl<'p> Shared<'p> {
         t.clone()
     }
 
-    pub fn unalias_params(&self, ps: &[salvo_ir::Param]) -> Vec<salvo_ir::Param> {
+    pub fn unalias_params(&self, ps: &[salvo_core::ir::Param]) -> Vec<salvo_core::ir::Param> {
         ps.iter()
             .map(|p| {
                 let ty = self.unalias(&p.ty);
@@ -548,9 +548,9 @@ impl<'p> Shared<'p> {
                 // `get` answers, and what an owned union lends arm by arm.
                 // A mutated one borrows each arm mutably.
                 if let Some(t) = self.kept_union(&ty, p) {
-                    return salvo_ir::Param { ty: t, mode: salvo_ir::PassMode::Moved, ..p.clone() };
+                    return salvo_core::ir::Param { ty: t, mode: salvo_core::ir::PassMode::Moved, ..p.clone() };
                 }
-                salvo_ir::Param { ty, ..p.clone() }
+                salvo_core::ir::Param { ty, ..p.clone() }
             })
             .collect()
     }
@@ -560,11 +560,11 @@ impl<'p> Shared<'p> {
     /// non-`Copy` value arm borrowed (`proj`, or `ref` for a mutated one),
     /// `Copy` arms by value. A type variable's arm, a fn arm, or an arm
     /// that holds a borrow itself leaves the parameter as it was.
-    fn kept_union(&self, ty: &Ty, p: &salvo_ir::Param) -> Option<Ty> {
-        if p.mode == salvo_ir::PassMode::Moved || p.variadic {
+    fn kept_union(&self, ty: &Ty, p: &salvo_core::ir::Param) -> Option<Ty> {
+        if p.mode == salvo_core::ir::PassMode::Moved || p.variadic {
             return None;
         }
-        let mutable = p.mode == salvo_ir::PassMode::LentMut;
+        let mutable = p.mode == salvo_core::ir::PassMode::LentMut;
         let ty = salvo_core::types::spread_union_quals(ty);
         let Ty::Union(arms) = &ty else { return None };
         let values: Vec<&Ty> = arms.iter().filter(|a| !a.is_none_ty()).collect();
@@ -584,7 +584,7 @@ impl<'p> Shared<'p> {
     /// lends mutably is passed as its locator).
     pub fn fn_ty_lends_mut(&self, t: &Ty) -> bool {
         match self.unalias(t).strip_quals() {
-            Ty::Fn { ret, .. } => salvo_ir::build::refs::has_ref(ret),
+            Ty::Fn { ret, .. } => salvo_core::ir::build::refs::has_ref(ret),
             _ => false,
         }
     }
@@ -592,15 +592,15 @@ impl<'p> Shared<'p> {
     /// [rs-path] Whether a fn mints a handle: its result has a `ref` arm,
     /// `Mut` or not (a handle's permission follows its element's kind).
     pub fn is_mint(&self, f: &FnDecl) -> bool {
-        salvo_ir::build::refs::has_ref(&f.ret)
+        salvo_core::ir::build::refs::has_ref(&f.ret)
     }
 
     /// [rs-proj-generic] The type variables whose `proj` is the variable
     /// itself: no parameter the result can borrow from holds one, so the
     /// borrow is the instantiation's (`filter` over a pass yields `T`s).
-    pub fn plain_proj_vars(&self, tps: &[salvo_ir::TypeParam], params: &[salvo_ir::Param], borrows: &[usize]) -> HashSet<String> {
-        let sources: Vec<&salvo_ir::Param> = if borrows.is_empty() {
-            params.iter().filter(|p| p.mode != salvo_ir::PassMode::Moved && !matches!(self.unalias(&p.ty).strip_quals(), Ty::Fn { .. })).collect()
+    pub fn plain_proj_vars(&self, tps: &[salvo_core::ir::TypeParam], params: &[salvo_core::ir::Param], borrows: &[usize]) -> HashSet<String> {
+        let sources: Vec<&salvo_core::ir::Param> = if borrows.is_empty() {
+            params.iter().filter(|p| p.mode != salvo_core::ir::PassMode::Moved && !matches!(self.unalias(&p.ty).strip_quals(), Ty::Fn { .. })).collect()
         } else {
             borrows.iter().filter_map(|i| params.get(*i)).collect()
         };
@@ -611,7 +611,7 @@ impl<'p> Shared<'p> {
     /// platform fn that the host keeps: `Some(boxed, once)` — boxed and
     /// `Send + 'static` in the runtime, a plain `fn` pointer elsewhere.
     pub fn kept_param(&self, f: &FnDecl, i: usize) -> Option<(bool, bool)> {
-        if f.kind != salvo_ir::FnKind::Platform || i < f.effect_params {
+        if f.kind != salvo_core::ir::FnKind::Platform || i < f.effect_params {
             return None;
         }
         let af = self.ast_fn(&f.id)?;
@@ -649,28 +649,28 @@ impl<'p> Shared<'p> {
             return Some(i);
         }
         // No source named: the first borrowed parameter.
-        f.params.iter().enumerate().skip(f.effect_params).find(|(_, p)| p.mode != salvo_ir::PassMode::Moved && !is_copy_ty(&p.ty)).map(|(i, _)| i)
+        f.params.iter().enumerate().skip(f.effect_params).find(|(_, p)| p.mode != salvo_core::ir::PassMode::Moved && !is_copy_ty(&p.ty)).map(|(i, _)| i)
     }
 
     /// [rs-loc] An effect member whose result lends mutably from a
     /// parameter, on an interface rendered as a plain trait: it renders as
     /// its path face only, under its own name [rs-path].
-    pub fn member_lends_mut(&self, iface: &InterfaceDecl, m: &salvo_ir::Member) -> bool {
+    pub fn member_lends_mut(&self, iface: &InterfaceDecl, m: &salvo_core::ir::Member) -> bool {
         if iface.actor || self.platform_effects.contains_key(&iface.name) || m.send {
             return false;
         }
-        salvo_ir::build::refs::has_ref(&m.ret) && self.member_lend_param(m).is_some()
+        salvo_core::ir::build::refs::has_ref(&m.ret) && self.member_lend_param(m).is_some()
     }
 
     /// The parameter (an index into the member's own) a lending member's
     /// result borrows from: the one `proj(…)` names, else the first borrowed.
-    pub fn member_lend_param(&self, m: &salvo_ir::Member) -> Option<usize> {
+    pub fn member_lend_param(&self, m: &salvo_core::ir::Member) -> Option<usize> {
         let mut names = Vec::new();
         decls::proj_sources(&m.ret, &mut names);
         if let Some(i) = names.first().and_then(|n| m.params.iter().position(|p| &p.local.0 == n)) {
             return Some(i);
         }
-        m.params.iter().position(|p| p.mode != salvo_ir::PassMode::Moved && !is_copy_ty(&p.ty) && !matches!(self.unalias(&p.ty).strip_quals(), Ty::Fn { .. }))
+        m.params.iter().position(|p| p.mode != salvo_core::ir::PassMode::Moved && !is_copy_ty(&p.ty) && !matches!(self.unalias(&p.ty).strip_quals(), Ty::Fn { .. }))
     }
 
     pub fn prefix(&self, m: &ModulePath) -> String {
@@ -865,7 +865,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 Decl::Impl(h) => h.platform,
                 Decl::Fn(_) | Decl::Static(_) | Decl::PlatformType(_) => false,
                 // A message enum travels with its interface.
-                Decl::Enum(e) => matches!(e.kind, salvo_ir::EnumKind::Message { .. }) && keep.contains(e.name.trim_start_matches("__Msg_")),
+                Decl::Enum(e) => matches!(e.kind, salvo_core::ir::EnumKind::Message { .. }) && keep.contains(e.name.trim_start_matches("__Msg_")),
             }
         };
         let mut body = String::new();

@@ -15,7 +15,6 @@ doctest = false
 salvo-syntax = { workspace = true }
 salvo-core = { workspace = true }
 salvo-backend = { workspace = true }
-salvo-ir = { workspace = true }
 
 [dev-dependencies]
 salvo-testkit = { workspace = true }

@@ -4,11 +4,11 @@
 
 use std::collections::{HashMap, HashSet};
 
-use salvo_core::check::{Checked, Coercion};
-use salvo_core::program::{Program as CoreProgram, Symbols};
-use salvo_core::resolve::Resolution;
-use salvo_core::types::{is_proj_name, Qual, Ty};
-use salvo_core::FnKey;
+use crate::check::{Checked, Coercion};
+use crate::program::{Program as CoreProgram, Symbols};
+use crate::resolve::Resolution;
+use crate::types::{is_proj_name, Qual, Ty};
+use crate::FnKey;
 use salvo_syntax::ast::{self, Expr as AExpr, Item};
 use salvo_syntax::Span;
 
@@ -62,7 +62,7 @@ impl<'p> Ctx<'p> {
 
     pub fn written_ty(&self, file_idx: usize, ty: &ast::Type) -> Ty {
         let _ = file_idx;
-        if let Some(t) = self.checked.written_types.get(&salvo_core::check::written_type_key(ty)) {
+        if let Some(t) = self.checked.written_types.get(&crate::check::written_type_key(ty)) {
             return erase(t);
         }
         match self.approx_keyed(ty, &HashMap::new(), 0) {
@@ -76,7 +76,7 @@ impl<'p> Ctx<'p> {
     /// every name resolved to its key and every alias expanded
     /// [type-identity], which is what the checker's lowering would give.
     fn approx_keyed(&self, t: &ast::Type, subst: &HashMap<String, Ty>, depth: usize) -> Option<Ty> {
-        use salvo_core::types::Qual;
+        use crate::types::Qual;
         if depth > 32 {
             return None;
         }
@@ -200,8 +200,8 @@ impl Program {
 pub fn erase(ty: &Ty) -> Ty {
     // [type-literal] literals collapse into their base first, so a union of
     // literals of one base is that base.
-    if salvo_core::literal::mentions_lit(ty) {
-        return erase(&salvo_core::literal::collapse_ty(ty));
+    if crate::literal::mentions_lit(ty) {
+        return erase(&crate::literal::collapse_ty(ty));
     }
     match ty {
         Ty::Qualified { quals, base } => {
@@ -266,7 +266,7 @@ pub fn build_program<'p>(
     symbols: &'p Symbols<'p>,
     resolution: &'p Resolution<'p>,
     checked: &'p Checked,
-    modules: Option<&HashSet<&salvo_core::ModulePath>>,
+    modules: Option<&HashSet<&crate::ModulePath>>,
 ) -> (Program, Vec<String>) {
     let ctx = Ctx { program, symbols, resolution, checked, names: Ctx::compute_names(program) };
     let mut out = Program { modules: Vec::new(), names: HashMap::new() };
@@ -310,7 +310,7 @@ pub fn apply_coercion(c: &Coercion, value: Expr, span: Span) -> Expr {
         }
         Coercion::NoneUnit => Expr { ty: Ty::none(), span, kind: ExprKind::Unit },
         Coercion::BorrowAs { from, to } => {
-            let arms = salvo_core::types::read_arm_map(&erase(from), &erase(to))
+            let arms = crate::types::read_arm_map(&erase(from), &erase(to))
                 .unwrap_or_default()
                 .into_iter()
                 .map(|(from, to)| crate::ir::BorrowArm { from, to })

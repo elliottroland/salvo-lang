@@ -9,7 +9,7 @@
 use std::collections::{HashMap, HashSet};
 
 use salvo_core::types::Ty;
-use salvo_ir::{ArmTest, Block, Expr, ExprKind, FnKind, FnRef, Justification, Lit, Local, Op, Param, PassMode, Place, Stmt, Step};
+use salvo_core::ir::{ArmTest, Block, Expr, ExprKind, FnKind, FnRef, Justification, Lit, Local, Op, Param, PassMode, Place, Stmt, Step};
 
 use super::decls::{fn_ty_param_mode, FnPos};
 use super::{is_copy_ty, is_mut, is_mut_borrow, is_proj, ModuleEmitter};
@@ -444,9 +444,9 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         }
     }
 
-    pub fn member_decl(&self, m: &salvo_ir::MemberRef) -> Option<&'p salvo_ir::Member> {
+    pub fn member_decl(&self, m: &salvo_core::ir::MemberRef) -> Option<&'p salvo_core::ir::Member> {
         match self.s.decls.get(&m.interface) {
-            Some(salvo_ir::Decl::Interface(i)) => i.members.get(m.index),
+            Some(salvo_core::ir::Decl::Interface(i)) => i.members.get(m.index),
             _ => None,
         }
     }
@@ -609,7 +609,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         }
         // [rs-elem-mut] A mutable handle on an element is its position, the
         // element re-rendered at every use [rs-loc].
-        if salvo_ir::build::refs::has_ref(ty) {
+        if salvo_core::ir::build::refs::has_ref(ty) {
             // [rs-path] Another name for a handle: the same binding.
             if let Some(r) = bare(value) {
                 if let Some(b) = self.handle_of(&r.0) {
@@ -1499,7 +1499,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         format!("{{\n{out}{pad}}}")
     }
 
-    fn branch(&mut self, e: &Expr, id: salvo_ir::NodeId, arms: &[(Expr, Block)], otherwise: Option<&Block>, indent: usize) -> String {
+    fn branch(&mut self, e: &Expr, id: salvo_core::ir::NodeId, arms: &[(Expr, Block)], otherwise: Option<&Block>, indent: usize) -> String {
         let _ = id;
         let slot = (!e.ty.is_none_ty()).then(|| e.ty.clone());
         let tail = self.f.borrow_tail.take();
@@ -1533,7 +1533,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     /// [actor-dispatch] A member of a handler *instance*, called directly:
     /// a face's through its trait (the instance is the implementing struct),
     /// the handler's own as an inherent method.
-    fn handler_call(&mut self, instance: &Expr, member: &salvo_ir::HandlerMember, args: &[Expr], indent: usize) -> String {
+    fn handler_call(&mut self, instance: &Expr, member: &salvo_core::ir::HandlerMember, args: &[Expr], indent: usize) -> String {
         let Ty::Named { name, .. } = instance.ty.strip_quals().clone() else {
             self.error("a handler call on something that is not a handler");
             return "()".to_string();
@@ -1543,7 +1543,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             return "()".to_string();
         };
         match member {
-            salvo_ir::HandlerMember::Face(m) => {
+            salvo_core::ir::HandlerMember::Face(m) => {
                 let Some(mem) = self.member_decl(m) else {
                     self.error("a handler call of an unknown member");
                     return "()".to_string();
@@ -1561,7 +1561,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 let all: Vec<String> = std::iter::once(inst).chain(a).collect();
                 format!("{path}::{}({})", rs_ident(&mem.emitted_name), all.join(", "))
             }
-            salvo_ir::HandlerMember::Own(n) => {
+            salvo_core::ir::HandlerMember::Own(n) => {
                 let inst = self.raw(instance, indent);
                 let own = h.members.iter().chain(h.init.as_ref()).find(|f| &f.name == n);
                 let mut ps: Vec<Param> = own
@@ -1588,7 +1588,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         }
     }
 
-    fn switch(&mut self, e: &Expr, id: salvo_ir::NodeId, subject: &Expr, arms: &[salvo_ir::SwitchArm], indent: usize) -> String {
+    fn switch(&mut self, e: &Expr, id: salvo_core::ir::NodeId, subject: &Expr, arms: &[salvo_core::ir::SwitchArm], indent: usize) -> String {
         let slot = (!e.ty.is_none_ty()).then(|| e.ty.clone());
         let tail = self.f.borrow_tail.take();
         let (subj, prelude) = match &subject.kind {
@@ -2166,7 +2166,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     /// handle argument is a position in its container, computed first (a
     /// bound handle's own position, or the mint's locator), so the container
     /// argument's `&mut` is the only borrow the call takes.
-    fn anchored_args(&mut self, f: &salvo_ir::FnDecl, params: &[Param], args: &[Expr], indent: usize) -> (Vec<String>, Vec<String>) {
+    fn anchored_args(&mut self, f: &salvo_core::ir::FnDecl, params: &[Param], args: &[Expr], indent: usize) -> (Vec<String>, Vec<String>) {
         // Call arguments align with the IR params (effects first).
         let anchored: HashMap<usize, usize> = f.ref_anchors.iter().copied().collect();
         let mut lets = Vec::new();
@@ -2951,7 +2951,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     }
 
     /// A mint's call as its path fn: the anchor argument read.
-    pub(crate) fn loc_call(&mut self, id: &salvo_ir::DeclId, f: &salvo_ir::FnDecl, args: &[Expr], indent: usize) -> String {
+    pub(crate) fn loc_call(&mut self, id: &salvo_core::ir::DeclId, f: &salvo_core::ir::FnDecl, args: &[Expr], indent: usize) -> String {
         let mut ps = self.s.unalias_params(&f.params);
         if let Some(a) = self.s.lend_param(f) {
             ps[a].mode = PassMode::Lent;
@@ -2995,7 +2995,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                         let pt = ptys.get(i).cloned().unwrap_or_else(|| x.ty.clone());
                         let mode = modes.get(i).copied().unwrap_or(PassMode::Lent);
                         // A by-value slot of a non-copy type moves.
-                        Param { local: Local(String::new()), ty: pt, mode, variadic: false, check: None }
+                        Param { local: Local(String::new()), ty: pt, mode, variadic: false, check: None, span: x.span }
                     })
                     .collect();
                 let (lets, a) = self.call_args_with(&ps, args, &[l.0.clone()], indent);
@@ -3098,7 +3098,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         }
     }
 
-    fn intrinsic_call(&mut self, e: &Expr, id: &salvo_ir::DeclId, af: &salvo_syntax::ast::FnDecl, type_args: &[Ty], args: &[Expr], indent: usize) -> String {
+    fn intrinsic_call(&mut self, e: &Expr, id: &salvo_core::ir::DeclId, af: &salvo_syntax::ast::FnDecl, type_args: &[Ty], args: &[Expr], indent: usize) -> String {
         let name = af.name.name.as_str();
         let recv = af.params.first().and_then(|p| salvo_backend::emit_util::type_base_name(&p.ty));
         let _ = type_args;

@@ -708,7 +708,7 @@ the blanket rule:
   path from its container — field and tuple steps, list/deque/array
   indices, map *slots* — computed once at the mint by running the mint's
   body, and walked at every use. The IR names each handle's container type
-  on its `ref` qualifier ([ref-handle], `salvo_ir::build::refs`), and the
+  on its `ref` qualifier ([ref-handle], `salvo_core::ir::build::refs`), and the
   path's type belongs to the (container type, element type) pair, read off
   the type definitions:
   * **one way** from container to element: the tuple of its dynamic
@@ -867,7 +867,7 @@ the blanket rule:
     through `match &mut x` or `.as_deref_mut()`), and `copy` of it clones
     arm by arm (`.cloned()` for an optional of one).
   * A single borrowed value (`proj X` into a kept `X`) is already `&X`:
-    `salvo_ir::walk::unwrap_single_borrows` reduces its `BorrowAs` to the
+    `salvo_core::ir::walk::unwrap_single_borrows` reduces its `BorrowAs` to the
     value (or a `DropMut`).
 * Views of temporaries are refused by the checker [proj-anywhere]; the
   only thing this backend adds is that rustc would have said the same

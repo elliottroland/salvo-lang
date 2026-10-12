@@ -1,14 +1,14 @@
 //! Expressions (IR record §2): every construct lowered to the node set, every
 //! resolution copied from the checker.
 
-use salvo_core::check::{CompareVia, ImplicitArg, UnionTest};
-use salvo_core::param_mode::PassMode;
-use salvo_core::types::Ty;
+use crate::check::{CompareVia, ImplicitArg, UnionTest};
+use crate::param_mode::PassMode;
+use crate::types::Ty;
 use salvo_syntax::ast::{self, BinaryOp, Expr as AExpr, LambdaBody, Pattern, StrExprPart, UnaryOp};
 use salvo_syntax::Span;
 
 use super::Lower;
-use crate::build::{apply_coercion, erase, unsupported};
+use crate::ir::build::{apply_coercion, erase, unsupported};
 use crate::ir::*;
 
 impl<'a, 'p> Lower<'a, 'p> {
@@ -240,7 +240,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                     span,
                     kind: ExprKind::Branch {
                         id: NodeId(0),
-                        arms: vec![(Expr { ty: Ty::named("Bool"), span, kind: ExprKind::Bool(true) }, Block { stmts, value: None })],
+                        arms: vec![(Expr { ty: Ty::named("Bool"), span, kind: ExprKind::Bool(true) }, Block { stmts, value: None, span })],
                         otherwise: None,
                     },
                 }
@@ -298,7 +298,7 @@ impl<'a, 'p> Lower<'a, 'p> {
     /// threads other effects than the fn declares (a pure fn where effects
     /// are threaded — the variance rule), an adapter lambda takes the
     /// type's effects and passes on the ones the fn needs.
-    fn fn_value(&mut self, k: salvo_core::FnKey, span: Span) -> Expr {
+    fn fn_value(&mut self, k: crate::FnKey, span: Span) -> Expr {
         let ty = self.ty_of(span);
         let id = self.ctx.decl_id(k);
         let taken: Vec<Ty> = self.ctx.checked.lambda_effects.get(&self.key(span)).map(|v| v.iter().map(erase).collect()).unwrap_or_default();
@@ -312,7 +312,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         };
         let mut ps: Vec<Param> = Vec::new();
         for (i, t) in taken.iter().enumerate() {
-            ps.push(Param { local: Local(format!("__fx{i}")), ty: t.clone(), mode: PassMode::Lent, variadic: false, check: None });
+            ps.push(Param { local: Local(format!("__fx{i}")), ty: t.clone(), mode: PassMode::Lent, variadic: false, check: None, span });
         }
         let mut args: Vec<Expr> = Vec::new();
         for t in &declared {
@@ -326,11 +326,11 @@ impl<'a, 'p> Lower<'a, 'p> {
         }
         for (i, t) in params.iter().enumerate() {
             let l = Local(format!("__a{i}"));
-            ps.push(Param { local: l.clone(), ty: t.clone(), mode: PassMode::Lent, variadic: false, check: None });
+            ps.push(Param { local: l.clone(), ty: t.clone(), mode: PassMode::Lent, variadic: false, check: None, span });
             args.push(Expr { ty: t.clone(), span, kind: ExprKind::Read { place: Place { root: l, steps: Vec::new() }, consume: false } });
         }
         let call = Expr { ty: ret.clone(), span, kind: ExprKind::Call { target: FnRef::Decl(id), type_args: Vec::new(), args } };
-        Expr { ty, span, kind: ExprKind::Lambda { params: ps, ret, body: Block { stmts: Vec::new(), value: Some(Box::new(call)) }, captures: Vec::new() } }
+        Expr { ty, span, kind: ExprKind::Lambda { params: ps, ret, body: Block { stmts: Vec::new(), value: Some(Box::new(call)), span }, captures: Vec::new() } }
     }
 
     fn ident(&mut self, id: &ast::Ident) -> Expr {
@@ -444,7 +444,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             span,
             kind: ExprKind::Branch {
                 id,
-                arms: vec![(Expr { ty: Ty::named("Bool"), span, kind: ExprKind::Bool(true) }, Block { stmts, value: Some(Box::new(value)) })],
+                arms: vec![(Expr { ty: Ty::named("Bool"), span, kind: ExprKind::Bool(true) }, Block { stmts, value: Some(Box::new(value)), span })],
                 otherwise: None,
             },
         }
@@ -529,8 +529,8 @@ impl<'a, 'p> Lower<'a, 'p> {
     /// [interp-union] `${u}` for a union `u`: the union's own `to_str`, given
     /// the function that renders each arm (the backend dispatches on the arm
     /// the value holds).
-    fn interp_union(&mut self, value: Expr, arms: &[salvo_core::check::ArmText], span: Span) -> Expr {
-        use salvo_core::check::ArmText;
+    fn interp_union(&mut self, value: Expr, arms: &[crate::check::ArmText], span: Span) -> Expr {
+        use crate::check::ArmText;
         let str_ty = Ty::named("Str");
         let runtime: Vec<Ty> = value.ty.strip_quals().value_arms().into_iter().cloned().collect();
         if runtime.len() != arms.len() {
@@ -548,9 +548,9 @@ impl<'a, 'p> Lower<'a, 'p> {
                 }
                 ArmText::Native if matches!(arm_ty.strip_quals(), Ty::Named { name, .. } if name == "Str") => {
                     // A `Str` is its own text.
-                    let p = Param { local: Local("__s".into()), ty: arm_ty.clone(), mode: PassMode::Lent, variadic: false, check: None };
+                    let p = Param { local: Local("__s".into()), ty: arm_ty.clone(), mode: PassMode::Lent, variadic: false, check: None, span };
                     let read = Expr { ty: arm_ty.clone(), span, kind: ExprKind::Read { place: Place { root: p.local.clone(), steps: Vec::new() }, consume: false } };
-                    Expr { ty: fn_ty, span, kind: ExprKind::Lambda { params: vec![p], ret: str_ty.clone(), body: Block { stmts: Vec::new(), value: Some(Box::new(read)) }, captures: Vec::new() } }
+                    Expr { ty: fn_ty, span, kind: ExprKind::Lambda { params: vec![p], ret: str_ty.clone(), body: Block { stmts: Vec::new(), value: Some(Box::new(read)), span }, captures: Vec::new() } }
                 }
                 ArmText::Native => match self.intrinsic_fn("to_str", &[arm_ty.clone()]) {
                     Some(id) => Expr { ty: fn_ty, span, kind: ExprKind::FnValue(FnRef::Decl(id)) },
@@ -570,15 +570,15 @@ impl<'a, 'p> Lower<'a, 'p> {
     /// [iter-protocol] A pass member (`iter`, `next`): the fn reference, its
     /// result type at `subject_ty`, and the effect instances its declaration
     /// takes [fn-effects].
-    fn pass_member_full(&mut self, m: &salvo_core::check::PassMember, subject_ty: &Ty) -> (FnRef, Ty, Vec<Ty>) {
+    fn pass_member_full(&mut self, m: &crate::check::PassMember, subject_ty: &Ty) -> (FnRef, Ty, Vec<Ty>) {
         match m {
-            salvo_core::check::PassMember::Fn(k) => {
+            crate::check::PassMember::Fn(k) => {
                 let effects: Vec<Ty> = self
                     .ctx
                     .checked
                     .fn_effects
                     .get(k)
-                    .map(|v| v.iter().filter(|t| !matches!(t, Ty::Named { name, .. } if name == salvo_core::THROW_EFFECT)).map(erase).collect())
+                    .map(|v| v.iter().filter(|t| !matches!(t, Ty::Named { name, .. } if name == crate::THROW_EFFECT)).map(erase).collect())
                     .unwrap_or_default();
                 let ret = match self.ctx.fn_by_key(*k) {
                     Some(d) => {
@@ -594,7 +594,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 };
                 (FnRef::Decl(self.ctx.decl_id(*k)), ret, effects)
             }
-            salvo_core::check::PassMember::Implicit(n) => {
+            crate::check::PassMember::Implicit(n) => {
                 let local = self.lookup(n).map(|b| b.local.clone()).or_else(|| self.implicit_locals.get(n).cloned()).unwrap_or(Local(n.clone()));
                 let (ret, effects) = match self.lookup(&local.0).map(|b| b.ty.clone()) {
                     Some(Ty::Fn { ret, effects, .. }) => ((*ret).clone(), effects.clone()),
@@ -685,13 +685,13 @@ impl<'a, 'p> Lower<'a, 'p> {
                     stmts.extend(after_left);
                 }
                 stmts.extend(right_pending);
-                let right = Block { stmts, value: Some(Box::new(r)) };
+                let right = Block { stmts, value: Some(Box::new(r)), span };
                 let id = self.id();
                 let lit = |v: bool| Expr { ty: bool_ty.clone(), span, kind: ExprKind::Bool(v) };
                 let (arms, otherwise) = if op == BinaryOp::And {
-                    (vec![(l, right)], Some(Block { stmts: Vec::new(), value: Some(Box::new(lit(false))) }))
+                    (vec![(l, right)], Some(Block { stmts: Vec::new(), value: Some(Box::new(lit(false))), span }))
                 } else {
-                    (vec![(l, Block { stmts: Vec::new(), value: Some(Box::new(lit(true))) })], Some(right))
+                    (vec![(l, Block { stmts: Vec::new(), value: Some(Box::new(lit(true))), span })], Some(right))
                 };
                 Expr { ty, span, kind: ExprKind::Branch { id, arms, otherwise } }
             }
@@ -803,11 +803,11 @@ impl<'a, 'p> Lower<'a, 'p> {
                             Ty::Fn { params, ret, .. } => (params.clone(), (**ret).clone()),
                             _ => (Vec::new(), Ty::Unknown),
                         };
-                        let ps: Vec<Param> = params.iter().enumerate().map(|(i, t)| Param { local: Local(format!("__i{i}")), ty: t.clone(), mode: PassMode::Lent, variadic: false, check: None }).collect();
+                        let ps: Vec<Param> = params.iter().enumerate().map(|(i, t)| Param { local: Local(format!("__i{i}")), ty: t.clone(), mode: PassMode::Lent, variadic: false, check: None, span: at }).collect();
                         let mut args: Vec<Expr> = ps.iter().map(|p| Expr { ty: p.ty.clone(), span: at, kind: ExprKind::Read { place: Place { root: p.local.clone(), steps: Vec::new() }, consume: false } }).collect();
                         args.extend(self.implicit_list(nested, &[], at));
                         let call = Expr { ty: ret.clone(), span: at, kind: ExprKind::Call { target: FnRef::Decl(id), type_args: Vec::new(), args } };
-                        out.push(Expr { ty: want, span: at, kind: ExprKind::Lambda { params: ps, ret, body: Block { stmts: Vec::new(), value: Some(Box::new(call)) }, captures: Vec::new() } });
+                        out.push(Expr { ty: want, span: at, kind: ExprKind::Lambda { params: ps, ret, body: Block { stmts: Vec::new(), value: Some(Box::new(call)), span: at }, captures: Vec::new() } });
                     }
                 }
                 ImplicitArg::OriginNext { next_fn, .. } => {
@@ -936,7 +936,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             // Effects as values: the instances a callee declaring effects takes.
             if let Some(effs) = info.call_effects.cloned() {
                 for t in effs {
-                    if matches!(&t, Ty::Named { name, .. } if name == salvo_core::THROW_EFFECT) {
+                    if matches!(&t, Ty::Named { name, .. } if name == crate::THROW_EFFECT) {
                         continue;
                     }
                     lowered.push(self.effect_instance(&t, span));
@@ -972,7 +972,7 @@ impl<'a, 'p> Lower<'a, 'p> {
     /// place handed to a `Moved` parameter is consumed; a variadic tail is
     /// one list argument.
     fn args_for(&mut self, callee: Option<Callee<'p>>, args: &[&AExpr], span: Span) -> Vec<Expr> {
-        let modes = salvo_core::param_mode::Modes { symbols: self.ctx.symbols, checked: self.ctx.checked, program: self.ctx.program };
+        let modes = crate::param_mode::Modes { symbols: self.ctx.symbols, checked: self.ctx.checked, program: self.ctx.program };
         let params: Option<&[ast::Param]> = callee.as_ref().map(|c| match c { Callee::Fn(_, d) => d.params.as_slice(), Callee::Member(m) => m.params.as_slice() });
         let fixed: Vec<&ast::Param> = params.map(|ps| ps.iter().filter(|p| !p.implicit).collect()).unwrap_or_default();
         let variadic_at = fixed.iter().position(|p| p.variadic);
@@ -1136,7 +1136,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 let local = Local(format!("__leff{i}"));
                 let t = erase(t);
                 self.effect_env.push((t.clone(), local.clone()));
-                ps.push(Param { local, ty: t, mode: PassMode::Lent, variadic: false, check: None });
+                ps.push(Param { local, ty: t, mode: PassMode::Lent, variadic: false, check: None, span });
             }
         }
         for (i, p) in params.iter().enumerate() {
@@ -1147,12 +1147,12 @@ impl<'a, 'p> Lower<'a, 'p> {
                 _ => PassMode::Lent,
             };
             let local = self.bind(&p.name.name, pty.clone());
-            ps.push(Param { local, ty: pty, mode, variadic: false, check: None });
+            ps.push(Param { local, ty: pty, mode, variadic: false, check: None, span: p.span });
         }
         let block = match body {
             LambdaBody::Expr(e) => {
                 let v = self.expr(e);
-                Block { stmts: Vec::new(), value: Some(Box::new(v)) }
+                Block { stmts: Vec::new(), value: Some(Box::new(v)), span: e.span() }
             }
             LambdaBody::Block(b) => self.block(b, !ret.is_none_ty() && !ret.is_unknown()),
         };
@@ -1317,7 +1317,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         }
     }
 
-    fn qualifies_call(&mut self, check: &salvo_core::check::PredicateCheck, subject: Expr, span: Span) -> Expr {
+    fn qualifies_call(&mut self, check: &crate::check::PredicateCheck, subject: Expr, span: Span) -> Expr {
         let bool_ty = Ty::named("Bool");
         let Some(target) = self.qualifies_ref(&check.name, &subject.ty) else {
             self.error(span, format!("qualifier `{}` has no `qualifies`", check.name));
@@ -1380,7 +1380,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                     Ty::Array(_) => "[]".to_string(),
                     _ => return None,
                 };
-                many.iter().copied().find(|d| salvo_core::refine::of_base(&d.of, &d.generics).is_some_and(|of| of == base)).or_else(|| candidates.first().copied())?
+                many.iter().copied().find(|d| crate::refine::of_base(&d.of, &d.generics).is_some_and(|of| of == base)).or_else(|| candidates.first().copied())?
             }
         };
         let fi = decl.fns.iter().position(|f| f.name.name == "qualifies")?;
@@ -1402,7 +1402,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         let lid = self.id();
         let bind = Stmt::Let { id: lid, local: tmp.clone(), ty: subj_ty.clone(), value: s };
         let msg = "value is absent".to_string();
-        let trap = Block { stmts: vec![Stmt::Expr(Expr { ty: Ty::Never, span, kind: ExprKind::Unreachable { message: Some(Box::new(Expr { ty: Ty::named("Str"), span, kind: ExprKind::Str(msg) })), at: self.location(span) } })], value: None };
+        let trap = Block { stmts: vec![Stmt::Expr(Expr { ty: Ty::Never, span, kind: ExprKind::Unreachable { message: Some(Box::new(Expr { ty: Ty::named("Str"), span, kind: ExprKind::Str(msg) })), at: self.location(span) } })], value: None, span };
         let nar = self.fresh("__some");
         let nid = self.id();
         let narrow = Stmt::Narrow { id: nid, local: nar.clone(), ty: ty.clone(), from: Place { root: tmp.clone(), steps: Vec::new() }, from_ty: subj_ty.clone(), because: Justification::Arm { switch: id, arm: 1 } };
@@ -1413,7 +1413,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             kind: ExprKind::Switch {
                 id,
                 subject: Box::new(Expr { ty: subj_ty, span, kind: ExprKind::Read { place: Place { root: tmp, steps: Vec::new() }, consume: false } }),
-                arms: vec![SwitchArm { test: ArmTest::None, body: trap }, SwitchArm { test: ArmTest::Else, body: Block { stmts: vec![narrow], value: Some(Box::new(value)) } }],
+                arms: vec![SwitchArm { test: ArmTest::None, body: trap }, SwitchArm { test: ArmTest::Else, body: Block { stmts: vec![narrow], value: Some(Box::new(value)), span } }],
             },
         };
         self.block_expr(vec![bind], sw, span)
@@ -1494,8 +1494,8 @@ impl<'a, 'p> Lower<'a, 'p> {
             span,
             kind: ExprKind::Branch {
                 id,
-                arms: vec![(cond, Block { stmts: vec![narrow], value: Some(Box::new(value)) })],
-                otherwise: Some(Block { stmts: otherwise_stmts, value: Some(Box::new(r)) }),
+                arms: vec![(cond, Block { stmts: vec![narrow], value: Some(Box::new(value)), span })],
+                otherwise: Some(Block { stmts: otherwise_stmts, value: Some(Box::new(r)), span }),
             },
         };
         self.block_expr(vec![bind], br, span)
@@ -1520,10 +1520,10 @@ impl<'a, 'p> Lower<'a, 'p> {
                 // The arm's scope stays open for the nested chain's first arm.
                 let rest = self.if_chain_nested(&branches[i..], else_block, span, value, cond_pending, c);
                 otherwise = Some(match (value, rest) {
-                    (true, (stmts, e)) => Block { stmts, value: Some(Box::new(e)) },
+                    (true, (stmts, e)) => Block { stmts, value: Some(Box::new(e)), span },
                     (false, (mut stmts, e)) => {
                         stmts.push(Stmt::Expr(e));
-                        Block { stmts, value: None }
+                        Block { stmts, value: None, span }
                     }
                 });
                 break;
@@ -1582,7 +1582,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             otherwise = else_block.map(|b| self.block(b, value));
         } else {
             let e = self.if_expr(&branches[1..], else_block, span, value);
-            otherwise = Some(if value { Block { stmts: Vec::new(), value: Some(Box::new(e)) } } else { Block { stmts: vec![Stmt::Expr(e)], value: None } });
+            otherwise = Some(if value { Block { stmts: Vec::new(), value: Some(Box::new(e)), span } } else { Block { stmts: vec![Stmt::Expr(e)], value: None, span } });
         }
         self.set_last_branch(id);
         (pending, Expr { ty, span, kind: ExprKind::Branch { id, arms, otherwise } })
@@ -1661,7 +1661,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         let narrows = std::mem::take(&mut self.pending_after_test);
         let not = Expr { ty: Ty::named("Bool"), span, kind: ExprKind::Op { op: Op::Not, args: vec![c] } };
         let bid = self.id();
-        stmts.push(Stmt::Expr(Expr { ty: Ty::none(), span, kind: ExprKind::Branch { id: bid, arms: vec![(not, Block { stmts: vec![Stmt::Break], value: None })], otherwise: None } }));
+        stmts.push(Stmt::Expr(Expr { ty: Ty::none(), span, kind: ExprKind::Branch { id: bid, arms: vec![(not, Block { stmts: vec![Stmt::Break], value: None, span })], otherwise: None } }));
         stmts.extend(narrows);
         if let Some(r) = &ran {
             stmts.push(Stmt::Assign { place: Place { root: r.clone(), steps: Vec::new() }, value: Expr { ty: Ty::named("Bool"), span, kind: ExprKind::Bool(true) } });
@@ -1676,7 +1676,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         self.loop_results.pop();
         self.loops -= 1;
         self.pop_scope();
-        out.push(Stmt::Loop { id: loop_id, body: Block { stmts, value: None } });
+        out.push(Stmt::Loop { id: loop_id, body: Block { stmts, value: None, span: body.span } });
         if let (Some(r), Some(eb)) = (ran, else_block) {
             let b = self.block(eb, result.is_some());
             let mut arm = b;
@@ -1715,7 +1715,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         if driver.is_none() && self.ctx.checked.binding_modes.contains(&self.key(iterable.span())) {
             self.consume_if_owned(&mut subject);
             if matches!(subject.kind, ExprKind::Read { consume: true, .. }) {
-                elem_ty = elem_ty.remove_quals(&salvo_core::types::proj_names());
+                elem_ty = elem_ty.remove_quals(&crate::types::proj_names());
             }
         }
         self.push_scope();
@@ -1809,15 +1809,15 @@ impl<'a, 'p> Lower<'a, 'p> {
                         id: swid,
                         subject: Box::new(Expr { ty: step_ty, span, kind: ExprKind::Read { place: Place { root: step, steps: Vec::new() }, consume: false } }),
                         arms: vec![
-                            SwitchArm { test: ArmTest::Arm(d.emitted_arm), body: Block { stmts: arm_stmts, value: None } },
-                            SwitchArm { test: ArmTest::Else, body: Block { stmts: vec![Stmt::Break], value: None } },
+                            SwitchArm { test: ArmTest::Arm(d.emitted_arm), body: Block { stmts: arm_stmts, value: None, span: body.span } },
+                            SwitchArm { test: ArmTest::Else, body: Block { stmts: vec![Stmt::Break], value: None, span } },
                         ],
                     },
                 }));
                 self.loop_results.pop();
                 self.loops -= 1;
                 self.pop_scope();
-                out.push(Stmt::Loop { id: loop_id, body: Block { stmts, value: None } });
+                out.push(Stmt::Loop { id: loop_id, body: Block { stmts, value: None, span: body.span } });
             }
             None => {
                 // [iter-for-native] an intrinsic container.
@@ -1842,7 +1842,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 self.loop_results.pop();
                 self.loops -= 1;
                 self.pop_scope();
-                out.push(Stmt::ForEach { id: loop_id, local, ty: elem_ty, iterable: subject, body: Block { stmts, value: None } });
+                out.push(Stmt::ForEach { id: loop_id, local, ty: elem_ty, iterable: subject, body: Block { stmts, value: None, span: body.span } });
             }
         }
         if let (Some(r), Some(eb)) = (ran, else_block) {
@@ -1992,7 +1992,7 @@ impl<'a, 'p> Lower<'a, 'p> {
 
 /// What a call resolved to, for argument modes.
 pub(crate) enum Callee<'p> {
-    Fn(salvo_core::FnKey, &'p ast::FnDecl),
+    Fn(crate::FnKey, &'p ast::FnDecl),
     Member(&'p ast::FnDecl),
 }
 

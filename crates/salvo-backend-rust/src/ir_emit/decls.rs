@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 
 use salvo_core::types::Ty;
-use salvo_ir::{Decl, ExprKind, FnDecl, FnKind, ImplDecl, InterfaceDecl, Param, PassMode, Stmt, StructDecl, TypeParam};
+use salvo_core::ir::{Decl, ExprKind, FnDecl, FnKind, ImplDecl, InterfaceDecl, Param, PassMode, Stmt, StructDecl, TypeParam};
 
 use super::{is_copy_ty, is_mut, is_proj, ModuleEmitter};
 use crate::emit::{
@@ -100,7 +100,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     if let Some(target) = alias.alias.as_ref() {
                         let subst: std::collections::HashMap<String, Ty> = alias.generics.iter().map(|g| g.name.clone()).zip(args.iter().cloned()).collect();
                         if let Some(expanded) = salvo_core::approx_ty(target, &subst) {
-                            return self.ty(&salvo_ir::build::erase(&expanded));
+                            return self.ty(&salvo_core::ir::build::erase(&expanded));
                         }
                     }
                 }
@@ -429,11 +429,11 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     /// An interface member's signature, `RECV` standing for the receiver.
     /// [rs-path] The signature of a lending member, which renders as its
     /// path face only: its anchor lent, the answer a path.
-    pub(super) fn member_loc_sig(&mut self, m: &salvo_ir::Member) -> Option<String> {
+    pub(super) fn member_loc_sig(&mut self, m: &salvo_core::ir::Member) -> Option<String> {
         let a = self.s.member_lend_param(m)?;
         let mut params = self.s.unalias_params(&m.params);
         params[a].mode = PassMode::Lent;
-        let loc = salvo_ir::Member {
+        let loc = salvo_core::ir::Member {
             name: m.name.clone(),
             emitted_name: m.emitted_name.clone(),
             type_params: Vec::new(),
@@ -450,7 +450,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         Some(format!("{sig} -> {position}"))
     }
 
-    pub(super) fn member_sig(&mut self, m: &salvo_ir::Member) -> String {
+    pub(super) fn member_sig(&mut self, m: &salvo_core::ir::Member) -> String {
         let mut ps: Vec<String> = Vec::new();
         let params = self.s.unalias_params(&m.params);
         let lt = self.ret_lifetime(&params, &m.ret, &[], true);
@@ -547,7 +547,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
              pub fn locked<__H: {stateful}{g} + 'static>(inner: __H) -> Self {{\n        Self {{ inner: {inner}::Locked(std::sync::Arc::new(std::sync::Mutex::new(inner))) }}\n    }}\n    \
              pub fn share_locked(inner: std::sync::Arc<std::sync::Mutex<dyn {stateful}{g}>>) -> Self {{\n        Self {{ inner: {inner}::Locked(inner) }}\n    }}\n"
         ));
-        let forwarded: Vec<(&salvo_ir::Member, String, String)> = i
+        let forwarded: Vec<(&salvo_core::ir::Member, String, String)> = i
             .members
             .iter()
             .zip(&sigs)
@@ -583,7 +583,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     /// of the same name, re-exported here, with a static assertion of the
     /// contract its kind promises — so a host type that is not `Send` (or
     /// `Clone`, or `Sync`) is the host compiler's error at this line.
-    fn platform_type(&mut self, t: &salvo_ir::PlatformTypeDecl) -> String {
+    fn platform_type(&mut self, t: &salvo_core::ir::PlatformTypeDecl) -> String {
         let module = self.module.path.clone();
         self.s.platform_hosts.insert(module.clone());
         let name = rs_ident(&t.name);
@@ -1015,7 +1015,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         out
     }
 
-    fn member_matches(&self, f: &FnDecl, m: &salvo_ir::Member) -> bool {
+    fn member_matches(&self, f: &FnDecl, m: &salvo_core::ir::Member) -> bool {
         let declared = f.params.len() - f.effect_params;
         declared == m.params.len() || f.params.len() == m.params.len()
     }
@@ -1030,15 +1030,15 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
 
     /// A handler member implementing an interface member: the trait's
     /// signature (substituted with the face's arguments), the body's code.
-    fn member_fn(&mut self, h: &ImplDecl, f: &FnDecl, m: &salvo_ir::Member, stateful: bool, face_args: &[Ty], iface: &InterfaceDecl) -> String {
+    fn member_fn(&mut self, h: &ImplDecl, f: &FnDecl, m: &salvo_core::ir::Member, stateful: bool, face_args: &[Ty], iface: &InterfaceDecl) -> String {
         // [rs-path] A lending member answers only where its result is.
         let loc = self.s.member_lends_mut(iface, m);
         self.member_fn_mode(h, f, m, stateful, face_args, iface, loc)
     }
 
-    fn member_fn_mode(&mut self, h: &ImplDecl, f: &FnDecl, m: &salvo_ir::Member, stateful: bool, face_args: &[Ty], iface: &InterfaceDecl, loc: bool) -> String {
+    fn member_fn_mode(&mut self, h: &ImplDecl, f: &FnDecl, m: &salvo_core::ir::Member, stateful: bool, face_args: &[Ty], iface: &InterfaceDecl, loc: bool) -> String {
         let subst: std::collections::HashMap<String, Ty> = iface.type_params.iter().map(|t| t.name.clone()).zip(face_args.iter().cloned()).collect();
-        let sig_member = salvo_ir::Member {
+        let sig_member = salvo_core::ir::Member {
             params: m.params.clone(),
             ret: m.ret.clone(),
             name: m.name.clone(),
@@ -1136,7 +1136,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         // path type parameter of its own, walked through `Walk`.
         for (k, (c, e)) in Self::generic_path_pairs(f).into_iter().enumerate() {
             let name = format!("__P{k}");
-            let (ct, et) = (self.ty(&salvo_ir::build::refs::storage(&c)), self.ty(&e));
+            let (ct, et) = (self.ty(&salvo_core::ir::build::refs::storage(&c)), self.ty(&e));
             tps.push(format!("{name}: crate::seq::Walk<{ct}, {et}> + Copy + PartialEq"));
             self.f.gen_paths.push((super::paths::path_key(&c, &e), name));
         }
@@ -1471,7 +1471,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     /// [mod-use] A module-level `use`: a lazily built `'static`, reached
     /// through an accessor fn. A handler instance is held shared (its faces'
     /// handles share it); a face is its handle.
-    fn static_decl(&mut self, st: &salvo_ir::StaticDecl) {
+    fn static_decl(&mut self, st: &salvo_core::ir::StaticDecl) {
         self.f = super::body::FnState::default();
         let name = super::body::rs_local(&st.local.0);
         let Some(Stmt::Let { value, .. }) = st.stmts.first() else {

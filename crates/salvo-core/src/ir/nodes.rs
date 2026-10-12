@@ -4,9 +4,9 @@
 //! infer. What a backend adds is representation and idiom (IR record §1).
 
 
-pub use salvo_core::param_mode::PassMode;
-pub use salvo_core::types::Ty;
-pub use salvo_core::ModulePath;
+pub use crate::param_mode::PassMode;
+pub use crate::types::Ty;
+pub use crate::ModulePath;
 pub use salvo_syntax::Span;
 
 /// The identity of a declaration: its module and its position among the
@@ -164,7 +164,7 @@ pub struct UnionDecl {
     pub ty: Ty,
     /// [platform-factory] the factories a host builds this union with, when
     /// a platform signature reaches it.
-    pub factories: Option<salvo_core::abi::Factories>,
+    pub factories: Option<crate::abi::Factories>,
     pub span: Span,
 }
 
@@ -199,10 +199,10 @@ pub struct Member {
     /// [actor-send-fn] a message: asynchronous, answers nothing.
     pub send: bool,
     /// [platform-check] what a platform handler's answer is checked for.
-    pub result_check: Option<salvo_core::abi::BoundaryCheck>,
+    pub result_check: Option<crate::abi::BoundaryCheck>,
     /// [platform-factory] the factories of the result and of the `Reply<T>`
     /// payloads a host builds, when a platform handler implements the effect.
-    pub factories: Vec<salvo_core::abi::Factories>,
+    pub factories: Vec<crate::abi::Factories>,
     pub span: Span,
 }
 
@@ -312,9 +312,9 @@ pub struct FnDecl {
     /// [throw] the message type this fn may throw, when it declares `[Throw<M>]`.
     pub throws: Option<Ty>,
     /// [platform-check] a platform fn's result check.
-    pub result_check: Option<salvo_core::abi::BoundaryCheck>,
+    pub result_check: Option<crate::abi::BoundaryCheck>,
     /// [platform-factory] a platform fn's result factories.
-    pub factories: Option<salvo_core::abi::Factories>,
+    pub factories: Option<crate::abi::Factories>,
     pub body: Option<Block>,
     pub span: Span,
 }
@@ -328,7 +328,10 @@ pub struct Param {
     pub variadic: bool,
     /// [platform-check] for a `Reply<T>` of a platform-handled member: what
     /// the host's answer on it is checked for.
-    pub check: Option<salvo_core::abi::BoundaryCheck>,
+    pub check: Option<crate::abi::BoundaryCheck>,
+    /// The parameter's source span (the AST parameter it lowers from, or the
+    /// nearest source construct for a synthetic one). Not shown in the dump.
+    pub span: Span,
 }
 
 #[derive(Clone)]
@@ -336,6 +339,10 @@ pub struct Block {
     pub stmts: Vec<Stmt>,
     /// The block's value, when it has one.
     pub value: Option<Box<Expr>>,
+    /// The block's source span: where its scope ends for a "still owed at end
+    /// of scope" error. A synthetic block takes the nearest source span.
+    /// Not shown in the dump.
+    pub span: Span,
 }
 
 #[derive(Clone)]

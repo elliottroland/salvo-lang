@@ -9,7 +9,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use crate::EmittedFile;
 use salvo_core::types::Ty;
 use salvo_core::{ModulePath, Program};
-use salvo_ir::{Decl, FnKind, Module as IrModule};
+use salvo_core::ir::{Decl, FnKind, Module as IrModule};
 
 use super::{host_package, kt_local, ModuleEmitter, Shared};
 use crate::emit::{kotlin_package, kt_ident};
@@ -29,7 +29,7 @@ pub fn platform_skeletons_ir(program: &Program) -> Result<Vec<EmittedFile>, Vec<
     if wanted.is_empty() {
         return Ok(Vec::new());
     }
-    let (ir, build_errors) = salvo_ir::build_program(program, &symbols, &resolution, &checked, None);
+    let (ir, build_errors) = salvo_core::ir::build_program(program, &symbols, &resolution, &checked, None);
     if !build_errors.is_empty() {
         return Err(build_errors);
     }
@@ -199,7 +199,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
 
     /// [platform-type] The host's class for a platform type, and the `each`
     /// of an iterable one [platform-iterable].
-    fn platform_type_skeleton(&mut self, t: &salvo_ir::PlatformTypeDecl) {
+    fn platform_type_skeleton(&mut self, t: &salvo_core::ir::PlatformTypeDecl) {
         let file_idx = self.s.program.files.iter().position(|f| f.module == t.id.module);
         let ast = file_idx.and_then(|fi| match self.s.program.modules[fi].items.get(t.id.item) {
             Some(salvo_syntax::ast::Item::Type(td)) => Some(td),

@@ -39,7 +39,7 @@ fn example_ir_is_stable() {
     for dir in dirs {
         let name = dir.file_name().unwrap().to_string_lossy().to_string();
         let program = example_program(&dir);
-        let (text, errors) = salvo_ir::dump_program(&program, false, None).unwrap_or_else(|e| panic!("{name}: {e:?}"));
+        let (text, errors) = salvo_core::ir::dump_program(&program, false, None).unwrap_or_else(|e| panic!("{name}: {e:?}"));
         assert!(errors.is_empty(), "{name}: {errors:?}");
         insta::assert_snapshot!(format!("ir_{name}"), text);
     }
