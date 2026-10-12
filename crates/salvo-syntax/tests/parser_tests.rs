@@ -3084,3 +3084,66 @@ fn a_struct_literal_field_may_be_written_by_its_name_alone() {
     assert!(matches!(&fields[0].kind, StructLitFieldKind::Named { name, value: Expr::Ident(v) } if name.name == "x" && v.name == "x"));
     assert!(!matches!(&stmts[1], Stmt::Let { value: Expr::StructLit { .. }, .. }));
 }
+
+// --- Terminal `...` scopes [terminal-scope] ---
+
+/// [terminal-scope] A trailing `...` where a body `{` would go makes the rest
+/// of the enclosing block the construct's body — for `if`, loops, `try` and
+/// `waitfor`. The `if` form takes an optional inline braced `else`.
+#[test]
+fn terminal_scopes_parse_for_every_body_taking_construct() {
+    let source = "\
+fn f(x: Str?) {\n\
+\x20   if x is Str ...\n\
+\x20   g(x)\n\
+}\n\
+fn h(x: Str?) {\n\
+\x20   if x is Str ... else {\n\
+\x20       done()\n\
+\x20   }\n\
+\x20   g(x)\n\
+}\n\
+fn loops(xs: List<Int>) {\n\
+\x20   for n in xs ...\n\
+\x20   use_it(n)\n\
+}\n\
+fn whl(i: Int) {\n\
+\x20   while i < 3 ...\n\
+\x20   step(i)\n\
+}\n";
+    let errors = errors_of(source);
+    assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+}
+
+/// [terminal-scope] It is statement-only: a `...` in a value position (a `let`
+/// value, a call argument, an operand) is a parse error naming the braced form.
+#[test]
+fn a_terminal_scope_in_value_position_is_an_error() {
+    for src in [
+        "fn f(x: Str?) {\n    let v = if x is Str ...\n}\n",
+        "fn f(x: Str?) {\n    g(if x is Str ...)\n}\n",
+        "fn f(x: Str?) {\n    let v = 1 + if x is Str ...\n}\n",
+    ] {
+        let errors = errors_of(src);
+        assert!(
+            errors.iter().any(|e| e.contains("terminal scope")),
+            "expected the terminal-scope refusal for `{src}`, got: {errors:?}"
+        );
+    }
+}
+
+/// [terminal-scope] A terminal `if` takes only an optional braced `else` — no
+/// `elif`, no `else ...`.
+#[test]
+fn a_terminal_if_refuses_elif_and_else_dots() {
+    let elif = errors_of("fn f(x: Str?) {\n    if x is Str ...\n    elif false {\n    }\n}\n");
+    assert!(
+        elif.iter().any(|e| e.contains("cannot have `elif`")),
+        "expected the elif refusal, got: {elif:?}"
+    );
+    let else_dots = errors_of("fn f(x: Str?) {\n    if x is Str ... else ...\n}\n");
+    assert!(
+        else_dots.iter().any(|e| e.contains("`else ...` is not allowed")),
+        "expected the else-dots refusal, got: {else_dots:?}"
+    );
+}

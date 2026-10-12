@@ -138,7 +138,45 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
-### 2026-10-11 — The elvis family is one positional pick; named-qualifier picks, predicate picks and `?.` safe-call are gone (user decision)
+### 2026-10-11 — Terminal `...` scopes for `if`/loops/`try`/`waitfor` (user decision)
+
+A body-taking construct may write its body as a trailing `...` where the `{`
+would go: the **rest of the enclosing block** becomes the body
+([terminal-scope]). It removes a nesting level for the guard-then-continue
+shape — the structural companion to the elvis guard. Confirmed semantics (user,
+five answered questions):
+
+1. `...` is written where the body `{` goes and swallows everything to the end
+   of the enclosing block; nothing follows it at the same level.
+2. The `if` form takes **only** an optional braced `else`, written inline right
+   after the `...` (it runs when the condition fails; the `...` rest-of-block is
+   the then-body). No `elif`, no `else ...` — more complex chains use braces.
+3. **Statement-only**: `...` in a value position (`let v = if cond ...`,
+   `f(if cond ...)`, an operand) is a parse error naming the braced form.
+4. Loops take it too (`for x in e ...`, `while cond ...`): the rest of the block
+   is the loop body, and no `else` may follow.
+5. `try ...` and `waitfor out ...` follow the same rest-of-block rule.
+
+Implementation is entirely in the parser (`salvo-syntax`): a terminal body is
+the same `Block` a braced body is, so the checker, narrowing and both emitters
+are untouched — purely syntactic. A `allow_terminal` flag is set per statement
+in `parse_block`/`parse_terminal_rest` and cleared through `sub_expr` around
+every sub-expression (conditions, operands, `let`/escape/assignment values); the
+terminal `...` is also gated on `group_depth == 0`, which rules out
+parens/calls/brackets without per-site clears. `parse_if` handles the inline
+`else`-then-rest ordering specially; `parse_body`/`parse_terminal_rest` serve
+`try`/`while`/`for`/`waitfor`. New tests: three parser cases
+(`parser_tests.rs`) and one both-backends e2e run
+(`run_compiles_and_runs_terminal_scopes_on_each_backend`). Docs:
+`Control-Flow.md` gets a "Terminal `...` scopes" section, LANGUAGE_SPEC.md a
+`[terminal-scope]` rule, wiki synced. **Warm suite green.**
+
+Gotcha the e2e test surfaced: a terminal **loop** body swallows *all* remaining
+statements, so a `println` after `for n in xs ...` runs every iteration — which
+is the point, but reads as a bug if you expected it to run once. Terminal loops
+are for when the loop genuinely is the tail of the block.
+
+
 
 The `?`-family operators collapse to a single **positional pick**. `Expr::Elvis`
 is now `{ subject, dir: ElvisDir(Forward|Backward), count: u32, rhs }`: a run of

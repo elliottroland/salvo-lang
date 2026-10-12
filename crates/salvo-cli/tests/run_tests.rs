@@ -1654,3 +1654,52 @@ fn a_generic_union_with_a_scalar_arm_prints_on_both_backends() {
     }
     __stamp.verified();
 }
+
+/// [terminal-scope] A trailing `...` makes the rest of the enclosing block the
+/// construct's body — `if` (with an optional inline `else`), loops, `try` and
+/// `waitfor`. Runs on both backends with the same stdout.
+const TERMINAL_SCOPE: &str = "\
+fn label(x: Str?) [Console] -> None {\n\
+\x20   if x is Str ... else {\n\
+\x20       println(\"absent\")\n\
+\x20   }\n\
+\x20   println(\"present ${x}\")\n\
+}\n\
+fn count(xs: List<Int>) [Console] -> None {\n\
+\x20   let total = 0\n\
+\x20   for n in xs ...\n\
+\x20   total = total + n\n\
+\x20   println(\"running ${total}\")\n\
+}\n\
+fn main() [use] {\n\
+\x20   use StdOutConsole()\n\
+\x20   label(\"here\")\n\
+\x20   label(None)\n\
+\x20   count(list_of(1, 2, 3))\n\
+}\n";
+
+const TERMINAL_SCOPE_STDOUT: &str = "present here\nabsent\nrunning 1\nrunning 3\nrunning 6\n";
+
+#[test]
+fn run_compiles_and_runs_terminal_scopes_on_each_backend() {
+    let Some(__stamp) = e2e_stamp("run_terminal_scopes", &["kotlinc", "rustc"]) else {
+        return;
+    };
+    for (backend, tool) in [("kotlin", "kotlinc"), ("rust", "rustc")] {
+        if !have(tool) {
+            eprintln!("skipping {backend}: {tool} not found on PATH");
+            continue;
+        }
+        let dir = work_dir(&format!("terminal_scope_{backend}"));
+        fs::write(dir.join("main.sv"), TERMINAL_SCOPE).unwrap();
+        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", "."]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "{backend} failed, stderr: {stderr}");
+        assert_eq!(
+            String::from_utf8_lossy(&out.stdout),
+            TERMINAL_SCOPE_STDOUT,
+            "{backend} stdout (stderr: {stderr})"
+        );
+    }
+    __stamp.verified();
+}

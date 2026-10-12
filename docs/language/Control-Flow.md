@@ -26,6 +26,34 @@ let full_name = if person.surname is Str {
 
 Conditions are boolean expressions -- `if`, `elif` and `while` accept `Bool` and nothing else. There is no truthiness: a number, a string or a possibly-absent `Bool?` is not a decision, so compare explicitly (`n != 0`, `name.size() > 0`, `flag!`). The `is` expressions we've been using for unions *are* booleans, although there is some special syntax to bind the casted value in the scope of the if block.
 
+## Terminal `...` scopes
+
+A body-taking construct — `if`, `while`, `for`, `try`, `waitfor` — can write its body as a trailing `...` instead of a `{ … }` block. The **rest of the enclosing block** then becomes the body. It is for the guard-then-continue shape, where braces would indent everything that follows:
+
+```
+fn greet(x: Str?) [Console] -> None {
+    if x is Str ...
+    println("hello ${x}")      // runs only when x is a Str; x reads as Str here
+}
+```
+
+A terminal `...` is **statement-only**: it is the whole statement, never a value or a nested expression. `let v = if cond ...` and `f(if cond ...)` are errors — use a `{ … }` block in a value position. And since the body runs to the end of the block, nothing can follow it at the same level.
+
+The `if` form takes an optional `else`, written as an ordinary braced block **inline right after the `...`**; it runs when the condition fails, while the `...` body (the rest of the block) runs when it holds:
+
+```
+fn label(x: Str?) [Console] -> None {
+    if x is Str ... else {
+        println("absent")
+    }
+    println("present ${x}")    // the rest of the block: the then-body
+}
+```
+
+There is no `elif` and no `else ...` on a terminal `if`: only the `if` branch is the terminal scope. Anything more complex is written with braces throughout.
+
+Loops take `...` the same way — `for n in xs ...` and `while cond ...` make the rest of the block the loop body (and take no `else`) — as do `try ...` and `waitfor out ...`.
+
 ## When expressions
 
 A `when` expression is always exhaustive. That is its purpose, and it happens in one of two ways depending on whether a subject is given.

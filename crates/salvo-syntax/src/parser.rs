@@ -47,6 +47,14 @@ pub struct Parser<'s> {
     /// position) is legal. Anywhere else each form is a parse error naming the
     /// scope it belongs to.
     in_compfn: bool,
+    /// [terminal-scope] True while parsing a statement's own expression at the
+    /// top of a block, where a body-taking construct (`if`/`while`/`for`/
+    /// `try`/`waitfor`) may write its body as a terminal `...` that runs to the
+    /// end of the enclosing block instead of a braced block. Cleared the moment
+    /// parsing descends into any sub-expression (a condition, an operand, a
+    /// `let` value, a call argument, a parenthesised group), so `...` is a body
+    /// only for the construct that *is* the statement.
+    allow_terminal: bool,
 }
 
 struct Snapshot {
@@ -165,6 +173,7 @@ impl<'s> Parser<'s> {
             group_depth: 0,
             no_struct: false,
             in_compfn: false,
+            allow_terminal: false,
         }
     }
 
@@ -3902,6 +3911,69 @@ impl<'s> Parser<'s> {
         })
     }
 
+    /// [terminal-scope] Runs `f` with terminal-`...` bodies **disallowed** —
+    /// used for every sub-expression (a condition, an operand, a call
+    /// argument, a `let` value), so `...` is a body only for the construct
+    /// that *is* a statement. Restores the flag afterwards.
+    fn sub_expr<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
+        let saved = std::mem::replace(&mut self.allow_terminal, false);
+        let out = f(self);
+        self.allow_terminal = saved;
+        out
+    }
+
+    /// [terminal-scope] The remaining statements of the enclosing block as a
+    /// `Block` — a terminal scope's body. The enclosing `parse_block` loop sees
+    /// `}` next and ends, so nothing may follow at the same level.
+    fn parse_terminal_rest(&mut self) -> Block {
+        let start = self.peek().span;
+        let saved_depth = std::mem::replace(&mut self.group_depth, 0);
+        let saved_no_struct = std::mem::replace(&mut self.no_struct, false);
+        let mut stmts = Vec::new();
+        while !self.at(&TokenKind::RBrace) && !self.at_eof() {
+            let before = self.pos;
+            self.allow_terminal = true;
+            match self.parse_stmt() {
+                Some(stmt) => stmts.push(stmt),
+                None => self.recover_in_block(),
+            }
+            self.allow_terminal = false;
+            if self.pos == before {
+                self.bump();
+            }
+        }
+        self.group_depth = saved_depth;
+        self.no_struct = saved_no_struct;
+        let end = self.peek().span;
+        Block { stmts, span: start.to(end) }
+    }
+
+    /// [terminal-scope] Parses a body-taking construct's body for the simple
+    /// constructs (`try`/`while`/`for`/`waitfor`, which take no inline `else`
+    /// after a terminal `...`): a braced block, or — only when the construct is
+    /// itself a statement — a terminal `...` whose body is the rest of the
+    /// enclosing block. The second element is `true` for the terminal form.
+    fn parse_body(&mut self, what: &str) -> Option<(Block, bool)> {
+        if self.at(&TokenKind::Ellipsis) {
+            if !self.allow_terminal || self.group_depth != 0 {
+                let span = self.peek().span;
+                self.error(
+                    format!(
+                        "`...` is a terminal scope — the rest of the enclosing \
+                         block becomes {what}'s body — so it is only a statement, \
+                         never a value or a nested expression: write a `{{ … }}` \
+                         block here"
+                    ),
+                    span,
+                );
+                return None;
+            }
+            self.bump(); // `...`
+            return Some((self.parse_terminal_rest(), true));
+        }
+        Some((self.parse_block()?, false))
+    }
+
     fn parse_block(&mut self) -> Option<Block> {
         let start = self.expect(&TokenKind::LBrace)?.span;
         // Blocks reset grouping: statements inside are newline-terminated
@@ -3911,10 +3983,14 @@ impl<'s> Parser<'s> {
         let mut stmts = Vec::new();
         while !self.at(&TokenKind::RBrace) && !self.at_eof() {
             let before = self.pos;
+            // [terminal-scope] A statement's own expression may end in a
+            // terminal `...` body; a sub-expression may not.
+            self.allow_terminal = true;
             match self.parse_stmt() {
                 Some(stmt) => stmts.push(stmt),
                 None => self.recover_in_block(),
             }
+            self.allow_terminal = false;
             if self.pos == before {
                 self.bump();
             }
@@ -4033,7 +4109,7 @@ impl<'s> Parser<'s> {
                 let expr = self.parse_expr()?;
                 if self.at(&TokenKind::Eq) && self.same_line() {
                     self.bump();
-                    let value = self.parse_expr()?;
+                    let value = self.sub_expr(|p| p.parse_expr())?;
                     let span = expr.span().to(value.span());
                     return Some(Stmt::Assign {
                         target: expr,
@@ -4050,7 +4126,7 @@ impl<'s> Parser<'s> {
                 if let Some(op) = compound_op(self.kind()) {
                     if self.same_line() {
                         let op_span = self.bump().span;
-                        let rhs = self.parse_expr()?;
+                        let rhs = self.sub_expr(|p| p.parse_expr())?;
                         let span = expr.span().to(rhs.span());
                         let value = Expr::Binary {
                             op,
@@ -4475,7 +4551,8 @@ impl<'s> Parser<'s> {
             None
         };
         self.expect(&TokenKind::Eq)?;
-        let value = self.parse_expr()?;
+        // [terminal-scope] A `let` value is a sub-expression: no terminal `...`.
+        let value = self.sub_expr(|p| p.parse_expr())?;
         let span = start.to(value.span());
         Some(Stmt::Let {
             pattern,
@@ -4654,7 +4731,7 @@ impl<'s> Parser<'s> {
         let mut lhs = self.parse_and()?;
         while self.at(&TokenKind::PipePipe) && self.same_line() {
             self.bump();
-            let rhs = self.parse_and()?;
+            let rhs = self.sub_expr(|p| p.parse_and())?;
             let span = lhs.span().to(rhs.span());
             lhs = Expr::Binary {
                 op: BinaryOp::Or,
@@ -4670,7 +4747,7 @@ impl<'s> Parser<'s> {
         let mut lhs = self.parse_equality()?;
         while self.at(&TokenKind::AmpAmp) && self.same_line() {
             self.bump();
-            let rhs = self.parse_equality()?;
+            let rhs = self.sub_expr(|p| p.parse_equality())?;
             let span = lhs.span().to(rhs.span());
             lhs = Expr::Binary {
                 op: BinaryOp::And,
@@ -4694,7 +4771,7 @@ impl<'s> Parser<'s> {
                 break;
             }
             self.bump();
-            let rhs = self.parse_comparison()?;
+            let rhs = self.sub_expr(|p| p.parse_comparison())?;
             let span = lhs.span().to(rhs.span());
             lhs = Expr::Binary {
                 op,
@@ -4776,7 +4853,7 @@ impl<'s> Parser<'s> {
                         _ => BinaryOp::GtEq,
                     };
                     self.bump();
-                    let rhs = self.parse_additive()?;
+                    let rhs = self.sub_expr(|p| p.parse_additive())?;
                     let span = lhs.span().to(rhs.span());
                     lhs = Expr::Binary {
                         op,
@@ -4951,7 +5028,7 @@ impl<'s> Parser<'s> {
             }
             _ => return Some(lhs),
         };
-        let rhs = self.parse_elvis()?;
+        let rhs = self.sub_expr(|p| p.parse_elvis())?;
         let span = lhs.span().to(rhs.span());
         Some(Expr::Elvis {
             subject: Box::new(lhs),
@@ -4974,7 +5051,7 @@ impl<'s> Parser<'s> {
                 break;
             }
             self.bump();
-            let rhs = self.parse_multiplicative()?;
+            let rhs = self.sub_expr(|p| p.parse_multiplicative())?;
             let span = lhs.span().to(rhs.span());
             lhs = Expr::Binary {
                 op,
@@ -4999,7 +5076,7 @@ impl<'s> Parser<'s> {
                 break;
             }
             self.bump();
-            let rhs = self.parse_unary()?;
+            let rhs = self.sub_expr(|p| p.parse_unary())?;
             let span = lhs.span().to(rhs.span());
             lhs = Expr::Binary {
                 op,
@@ -5018,7 +5095,7 @@ impl<'s> Parser<'s> {
             TokenKind::PlusPlus | TokenKind::MinusMinus => {
                 let down = matches!(self.kind(), TokenKind::MinusMinus);
                 let start = self.bump().span;
-                let operand = self.parse_unary()?;
+                let operand = self.sub_expr(|p| p.parse_unary())?;
                 let span = start.to(operand.span());
                 Some(Expr::IncDec {
                     operand: Box::new(operand),
@@ -5029,7 +5106,7 @@ impl<'s> Parser<'s> {
             }
             TokenKind::Minus => {
                 let start = self.bump().span;
-                let operand = self.parse_unary()?;
+                let operand = self.sub_expr(|p| p.parse_unary())?;
                 let span = start.to(operand.span());
                 Some(Expr::Unary {
                     op: UnaryOp::Neg,
@@ -5039,7 +5116,7 @@ impl<'s> Parser<'s> {
             }
             TokenKind::Bang => {
                 let start = self.bump().span;
-                let operand = self.parse_unary()?;
+                let operand = self.sub_expr(|p| p.parse_unary())?;
                 let span = start.to(operand.span());
                 Some(Expr::Unary {
                     op: UnaryOp::Not,
@@ -5049,7 +5126,7 @@ impl<'s> Parser<'s> {
             }
             TokenKind::Ellipsis => {
                 let start = self.bump().span;
-                let operand = self.parse_unary()?;
+                let operand = self.sub_expr(|p| p.parse_unary())?;
                 let span = start.to(operand.span());
                 Some(Expr::Spread {
                     operand: Box::new(operand),
@@ -5514,8 +5591,9 @@ impl<'s> Parser<'s> {
             TokenKind::KwReturn | TokenKind::KwBreak => {
                 let is_break = matches!(self.kind(), TokenKind::KwBreak);
                 let start = self.bump().span;
+                // [terminal-scope] An escape's value is a sub-expression.
                 let value = if self.stmt_value_follows() {
-                    Some(Box::new(self.parse_expr()?))
+                    Some(Box::new(self.sub_expr(|p| p.parse_expr())?))
                 } else {
                     None
                 };
@@ -6037,17 +6115,70 @@ impl<'s> Parser<'s> {
 
     fn parse_condition(&mut self) -> Option<Expr> {
         let saved = std::mem::replace(&mut self.no_struct, true);
-        let result = self.parse_expr();
+        // [terminal-scope] A condition is a sub-expression: no terminal `...`
+        // in it, but the construct's *body* keeps the statement's flag.
+        let result = self.sub_expr(|p| p.parse_expr());
         self.no_struct = saved;
         result
     }
 
     fn parse_if(&mut self) -> Option<Expr> {
         let start = self.expect(&TokenKind::KwIf)?.span;
-        let mut branches = Vec::new();
         let cond = self.parse_condition()?;
+        // [terminal-scope] `if cond ...` — the then-body is the rest of the
+        // enclosing block. An optional braced `else` is written inline right
+        // after the `...`, before that rest; no `elif`, no `else ...`.
+        if self.at(&TokenKind::Ellipsis) {
+            if !self.allow_terminal || self.group_depth != 0 {
+                let span = self.peek().span;
+                self.error(
+                    "`...` is a terminal scope — the rest of the enclosing block \
+                     becomes the `if`'s then-body — so it is only a statement, \
+                     never a value or a nested expression: write a `{ … }` block",
+                    span,
+                );
+                return None;
+            }
+            self.bump(); // `...`
+            let mut else_block = None;
+            if self.at(&TokenKind::KwElif) {
+                let span = self.peek().span;
+                self.error(
+                    "a terminal `if … ...` cannot have `elif`: the `...` body is \
+                     the rest of the block, so there is nowhere for an `elif` to \
+                     go — write the braced `if { … } elif { … }` form",
+                    span,
+                );
+                return None;
+            }
+            if self.at(&TokenKind::KwElse) {
+                self.bump();
+                if self.at(&TokenKind::Ellipsis) {
+                    let span = self.peek().span;
+                    self.error(
+                        "`else ...` is not allowed on a terminal `if`: only the \
+                         `if` branch is the terminal scope, and its `else` is an \
+                         ordinary `{ … }` block",
+                        span,
+                    );
+                    return None;
+                }
+                else_block = Some(self.parse_block()?);
+            }
+            // Now the rest of the enclosing block is the then-body.
+            let then_block = self.parse_terminal_rest();
+            let end = else_block
+                .as_ref()
+                .map(|b| b.span)
+                .unwrap_or(then_block.span);
+            return Some(Expr::If {
+                branches: vec![(cond, then_block)],
+                else_block,
+                span: start.to(end),
+            });
+        }
         let block = self.parse_block()?;
-        branches.push((cond, block));
+        let mut branches = vec![(cond, block)];
         let mut else_block = None;
         let mut end = branches.last().unwrap().1.span;
         loop {
@@ -6074,16 +6205,16 @@ impl<'s> Parser<'s> {
         })
     }
 
-    /// `try { ... }` — the throw delimiter [try]. Always a block, like
-    /// every other body-taking construct.
+    /// `try { ... }` / `try ...` — the throw delimiter [try]. A braced block,
+    /// or a terminal `...` scope [terminal-scope] when `try` is a statement.
     fn parse_try(&mut self) -> Option<Expr> {
         let start = self.expect(&TokenKind::KwTry)?.span;
-        if !self.at(&TokenKind::LBrace) {
+        if !self.at(&TokenKind::LBrace) && !self.at(&TokenKind::Ellipsis) {
             let span = self.peek().span;
-            self.error("`try` takes a block: `try { ... }`", span);
+            self.error("`try` takes a block: `try { ... }` (or `try ...`)", span);
             return None;
         }
-        let body = self.parse_block()?;
+        let (body, _terminal) = self.parse_body("the `try`")?;
         let span = start.to(body.span);
         Some(Expr::Try { body, span })
     }
@@ -6238,7 +6369,7 @@ impl<'s> Parser<'s> {
         } else {
             None
         };
-        if !self.at(&TokenKind::LBrace) {
+        if !self.at(&TokenKind::LBrace) && !self.at(&TokenKind::Ellipsis) {
             let span = self.peek().span;
             self.error(
                 "`waitfor` takes a binder and a block that sends the token \
@@ -6248,7 +6379,7 @@ impl<'s> Parser<'s> {
             );
             return None;
         }
-        let body = self.parse_block()?;
+        let (body, _terminal) = self.parse_body("the `waitfor`")?;
         let span = start.to(body.span);
         Some(Expr::WaitFor {
             binding,
@@ -6368,9 +6499,11 @@ impl<'s> Parser<'s> {
     fn parse_while(&mut self) -> Option<Expr> {
         let start = self.expect(&TokenKind::KwWhile)?.span;
         let cond = self.parse_condition()?;
-        let body = self.parse_block()?;
+        let (body, terminal) = self.parse_body("the loop")?;
         let mut end = body.span;
-        let else_block = if self.at(&TokenKind::KwElse) {
+        // [terminal-scope] A terminal loop body is the rest of the block, so
+        // nothing — not even an `else` — can follow it.
+        let else_block = if !terminal && self.at(&TokenKind::KwElse) {
             self.bump();
             let b = self.parse_block()?;
             end = b.span;
@@ -6391,9 +6524,9 @@ impl<'s> Parser<'s> {
         let pattern = self.parse_pattern()?;
         self.expect(&TokenKind::KwIn)?;
         let iterable = self.parse_condition()?;
-        let body = self.parse_block()?;
+        let (body, terminal) = self.parse_body("the loop")?;
         let mut end = body.span;
-        let else_block = if self.at(&TokenKind::KwElse) {
+        let else_block = if !terminal && self.at(&TokenKind::KwElse) {
             self.bump();
             let b = self.parse_block()?;
             end = b.span;

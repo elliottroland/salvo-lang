@@ -2078,6 +2078,28 @@ Conventions:
     2026-10-05).
 * [if-else-none] A missing `else` contributes `None` to an
   if-expression's type (`Str` + no else → `Str?`).
+* [terminal-scope] A body-taking construct — `if`, `while`, `for`, `try`,
+  `waitfor` — may write its body as a trailing `...` where the `{` would go
+  (user decision 2026-10-11): the **rest of the enclosing block** becomes the
+  body. It removes a level of nesting for the guard-then-continue shape, the
+  structural companion to the elvis guard [elvis-guard].
+  * **Statement-only.** A `...` body is legal only when the construct is itself
+    a statement — the whole statement, not a sub-expression. In a value
+    position (a `let` value, a call argument, an operator operand, inside
+    parentheses) it is a parse error naming the braced form. Nothing may follow
+    a terminal scope at the same block level, since it ran to the end.
+  * **`if cond ...`** makes the rest of the block the then-body. An optional
+    braced `else { … }` is written **inline right after the `...`**, before
+    that rest, and runs when the condition fails. No `elif`, and no `else ...`:
+    the `if` branch is the only terminal scope, its `else` an ordinary block.
+    Anything more complex uses the braced form throughout.
+  * **`while cond ...` / `for x in e ...`** make the rest of the block the loop
+    body; no `else` can follow (nothing follows a terminal scope).
+  * **`try ...` / `waitfor out ...`** make the rest of the block the
+    throw-delimited body / the async continuation.
+  * It is purely syntactic: a terminal body is the same `Block` a braced body
+    is, so the checker, narrowing and both emitters treat it identically.
+
 * [is-narrowing] `is` checks flow-narrow their subject *place*
   [flow-place]: matched type in the then-branch, remaining arms in the
   else-branch; `elif` chains accumulate exclusions; `&&`/`||`/`!`
