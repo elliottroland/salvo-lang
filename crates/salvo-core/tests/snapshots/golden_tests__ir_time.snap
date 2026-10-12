@@ -44,6 +44,8 @@ impl Sessions() of Session deps [Timer] stateful {
 impl TestTicker(lent timer: Addr<Timer>) of Ticker {
   fn tick() -> Tick {
     bind#1 let fired: Fired = waitfor answer: Reply<Fired> {
+      obligation gain [answer]
+      obligation release [answer]
       send time::Timer#0(read timer, call time::nanos(0L), !read answer)
     }
     return read fired.at
@@ -92,8 +94,12 @@ fn main::main() -> None {
   bind#15 let ctl: Addr<TimerCtl> = !read __destructured~9.1
   bind#16 let sessions: Addr<Session> = spawn[Addr<Session>](construct Sessions { __dep0: instance_at(read timer) }, on: read p) serves [Session]
   bind#17 let outcome: Str = waitfor answer: Reply<Str> {
+    obligation gain [answer]
+    obligation release [answer]
     send main::Session#0(read sessions, construct Tick { nanos: 0L }, read budget, !read answer)
     waitfor settled: Reply<Idle> {
+      obligation gain [settled]
+      obligation release [settled]
       call core.actor::on_idle(read p, !read settled)
     }
     send time::TimerCtl#0(read ctl, call time::millis(2500L))
@@ -101,8 +107,12 @@ fn main::main() -> None {
   call core.console::println(read __handle~2, concat("session: ", read outcome))
   bind#18 let sleeper: Addr<Sleeper> = spawn[Addr<Sleeper>](construct Napping { __dep0: instance_at(read timer), __dep1: handle[Ticker](construct TestTicker { timer: read timer }) }, on: call core.actor::thread()) serves [Sleeper]
   bind#19 let napped: Str = waitfor answer: Reply<Str> {
+    obligation gain [answer]
+    obligation release [answer]
     send main::Sleeper#0(read sleeper, call time::seconds(2L), !read answer)
     waitfor settled: Reply<Idle> {
+      obligation gain [settled]
+      obligation release [settled]
       call core.actor::on_idle(read p, !read settled)
     }
     send time::TimerCtl#0(read ctl, call time::seconds(2L))

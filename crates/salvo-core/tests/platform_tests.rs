@@ -51,8 +51,13 @@ fn check_files(files: &[(&str, &str)]) -> Vec<FileDiagnostic> {
     };
     let symbols = Symbols::collect(&program);
     let resolution = resolve(&program);
+    let checked = check_program(&program, &resolution, &symbols);
     let mut errors: Vec<FileDiagnostic> = resolution.errors.clone();
-    errors.extend(check_program(&program, &resolution, &symbols).errors);
+    // [ir-analyze] The path-exit/throw linear leak checks moved to the IR.
+    if !checked.errors.iter().any(|d| d.is_error()) {
+        errors.extend(salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked));
+    }
+    errors.extend(checked.errors);
     errors
 }
 

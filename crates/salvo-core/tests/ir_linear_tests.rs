@@ -42,7 +42,7 @@ fn ir_linear_check_has_no_false_positives() {
     dirs.sort();
     let mut leaks = Vec::new();
     for dir in dirs {
-        let name = dir.file_name().unwrap().to_string_lossy().to_string();
+        let _name = dir.file_name().unwrap().to_string_lossy().to_string();
         let program = example_program(&dir);
         let symbols = salvo_core::Symbols::collect(&program);
         let resolution = salvo_core::resolve(&program);
@@ -50,14 +50,10 @@ fn ir_linear_check_has_no_false_positives() {
         if checked.errors.iter().any(|d| d.is_error()) {
             continue;
         }
-        let (mut ir, _errs) = salvo_core::ir::build_program(&program, &symbols, &resolution, &checked, None);
-        salvo_core::ir::obligations::annotate(&mut ir, &symbols);
-        for module in &ir.modules {
-            for decl in &module.decls {
-                for d in salvo_core::ir::check::check_one(decl) {
-                    leaks.push(format!("{}::{}: {}", module.path.0.join("."), decl.name(), d.message));
-                }
-            }
+        let (ir, _errs) = salvo_core::ir::build_program(&program, &symbols, &resolution, &checked, None);
+        let _ = &ir;
+        for d in salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked) {
+            leaks.push(format!("file{}: {}", d.file, d.message));
         }
     }
     leaks.sort();

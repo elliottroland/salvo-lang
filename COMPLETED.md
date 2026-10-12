@@ -138,6 +138,54 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-12 — Checker/IR merge, Phase 2 Step 0: the IR linear check becomes the enforcer; AST path-exit/throw enforcement deleted (user decisions; IR_CHECKER.md)
+
+The IR-level linear check now **gates the build**: `salvo build`/`analyze`/the
+LSP fail on a path-exit, throw-path, or `waitfor`-token linear leak, and the
+AST checker no longer does that enforcement. This is the first tenant of a new
+IR-analysis stage that later flow analyses (fate/release, loop-totality,
+exhaustiveness, deadlock) will join (IR_CHECKER.md §4, restructured).
+
+- **`salvo_core::ir::analyze::analyze(program, symbols, resolution, checked) ->
+  Vec<FileDiagnostic>`**: builds the IR (scoped to **non-std** user modules —
+  the std-cache path does not walk std bodies, so std's `linear_moves` tables
+  are absent and building its IR would report spurious leaks), annotates
+  obligations, runs `ir::check`, and attributes each leak to its file via
+  `Module.file_name`. Wired into `check_for_emission` (gates emission) and
+  `analyze_project` (CLI + LSP), run **only on an otherwise-clean program** —
+  the IR reads checker tables that are complete only when the check found no
+  errors (running on an erroneous program risked false positives: valid fns
+  were flagged when the moves table was partial).
+- **Control leaves on `Never`** (user model): `throw` and the `return`/`break`/
+  `continue` statements are propagating leaves (set must be empty for the
+  destination scope); an `unreachable` trap and a diverging call (`exit_process`)
+  are terminal (no requirement); a call to a `throws` fn is a conditional leave
+  (its throw edge), caught unless inside a `try`. A `waitfor` reply token is
+  gained at the body start and must be sent to before the body ends. This
+  subsumed the old `check_linear_throw` as a consequence of the model.
+- **Deleted from `check.rs`**: `check_linear_frame_drop`, `check_linear_exit`,
+  `check_linear_throw`, `error_once`, and their 10 call sites (the co-located
+  `check_state_whole` calls stay). **Kept**: `owes_linear`, `linear_settled`,
+  the branch-merge machinery, and the structural/typing linear checks
+  (composite-storage, generic-instantiation, discard-site, declaration-site
+  discharger, assignment-overwrite, copy-of-linear, lambda-swallow, fate-
+  conflict) — those are AST-shape/type-system checks that belong in the checker,
+  not flow analysis.
+- **Behavior change (user decision, option 1):** the flow analysis runs only on
+  a clean program (whole-program gate), so a program with structural linear
+  errors reports those first; its path-exit leaks surface once they are fixed.
+  Three CLI tests that bundled a path-exit leak with structural errors
+  (`l6_linear_obligations`, `l7a_generic_linear_opt_in`,
+  `an_fs_failure_must_be_acknowledged`) were split: the leak case moved to its
+  own clean program (`l6_path_exit_leaks`, `l7a_opted_body_leaks`), the
+  multi-error program keeps its structural assertions (and `an_fs` now asserts
+  the surviving fate-conflict message). Leak wording is the uniform IR phrasing.
+- **Deferred follow-ups** (IR_CHECKER.md decision log): the named-discharger
+  hint ("discharge it with `drain`/`close`/…"), which needs `discharge_set`
+  extracted to `crate::linear`; and the synthetic local name / span polish for
+  the desugared-pick leak (`__pick~1`). Both are message quality, not
+  correctness — every leak is caught. 1764 tests green warm.
+
 ### 2026-10-12 — Checker/IR merge, Phase 1: linear-obligation ledger on the IR + a per-path check that catches noticeboard #2 (user decisions; IR_CHECKER.md)
 
 The IR now carries a **linear-obligation ledger** and a **per-path check** reads

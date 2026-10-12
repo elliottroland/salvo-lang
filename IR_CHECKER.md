@@ -7,8 +7,10 @@ semantic checks (linear obligations, deductions, consume/fate, totality) run
 ([Non-negotiable invariants] in AGENTS.md); this doc is the options + the plan,
 not a licence to implement.
 
-Status: **design signed off (user, 2026-10-12); Phase 0 next.** The plan in §4
-is being executed in order, one commit per phase, no stop between phases.
+Status: **Phase 0, Phase 1, and Phase 2 Step 0 done. The IR check is now the
+enforcer for path-exit/throw/waitfor linear leaks, gating `salvo build` and
+`analyze`.** Step 1 (fate/release/consume migration) is next. The plan in §4 is
+being executed in order, one commit per step.
 
 ---
 
@@ -184,6 +186,41 @@ Settled during Phase 1 implementation (will record the outcome here):
 
 ## 4. Phased plan (each phase builds + warm `cargo nextest run` green, then a commit)
 
+**Phase 2 restructured (user decision 2026-10-12): a dedicated IR-analysis
+stage, migrated into one analysis at a time.** The IR is the home for
+"what happens as this code runs" — flow, consumption, control-leaves, the actor
+graph — while `check.rs` stays the typing/resolution/declaration-shape pass. The
+natural IR tenants are: linear obligations (done); the fate/release/
+consume-after-move family (shares linear's flow bookkeeping); loop-totality
+(`Justification::LoopValue`); exhaustiveness-at-use (`Unreachable`
+revalidation); and deadlock (whole-program actor graph). These migrate behind
+one seam, one at a time, each landing green against std+examples as its oracle.
+
+- **Step 0 — stand up the seam, linear-only.** Add
+  `salvo_core::ir::analyze(program, symbols, resolution, checked) ->
+  Vec<FileDiagnostic>`: build the IR, run the obligation annotation + the linear
+  check, map `IrDiagnostic` → `FileDiagnostic`. Call it at the emission gate
+  (`check_for_emission`), the CLI `analyze` path, and the LSP, after a clean
+  type-check (the IR assumes no type errors). Delete the AST-side linear
+  path-exit/throw enforcement (`check_linear_frame_drop`, `check_linear_exit`,
+  `check_linear_throw`, `linear_settled`) in the same change. Rewrite the linear
+  tests to go through the seam. Land green. This pays the test-rewrite cost once
+  and gives every later tenant a stable home.
+- **Step 1 — fate / release / consume-after-move.** The highest-value, most
+  entangled with linear's bookkeeping; do it while that code is fresh. Scope
+  starts as "discover how separable it is from type-checking" — if inextricable,
+  report back rather than force it.
+- **Step 2 — loop-totality** (`LoopValue`): small, already half-encoded.
+- **Step 3 — exhaustiveness-at-use** (`Unreachable` revalidation): contained.
+- **Step 4 — deadlock**: last; whole-program graph, doesn't share the walk, so
+  settle the flow analyses first to avoid conflating a graph bug with a flow bug.
+
+Each step: add the analysis to `ir::analyze`, drive its false positives to zero
+against std+examples, delete its AST counterpart in the same commit, land green.
+
+### Earlier phase history (superseded by the restructure above)
+
+
 Each phase is one commit per AGENTS.md (feature + tests + spec + docs + the
 COMPLETED.md decision-log entry land together). No stop between phases unless a
 new decision is needed from the user. Spec labels to add as they land:
@@ -267,6 +304,59 @@ new decision is needed from the user. Spec labels to add as they land:
 ---
 
 ## Decision log (this doc)
+
+- **2026-10-12 — Phase 2 Step 0 behavior decision (user, option 1): the IR
+  flow analysis runs only on an otherwise-clean program; tests that bundled a
+  path-exit leak with structural linear errors are split.** The IR builder
+  reads the checker's tables (`linear_moves`, coercions, …), which are complete
+  only when the check found no errors — so running the flow analysis on an
+  erroneous program risks false positives (observed: valid fns `ok_return`/
+  `ok_alias` flagged when the moves table was incomplete). Therefore
+  `analyze_project` gates the IR analysis on a clean check (whole-program,
+  coarse — one erroneous fn suppresses flow analysis for all), and
+  `ir::analyze` scopes to **non-std** modules (the std-cache path does not walk
+  std bodies, so std's tables are absent). Consequence: a program with
+  structural linear errors reports those; its path-exit leaks surface once they
+  are fixed — "fix errors top-down," not "all at once." The three CLI tests
+  that encoded the old all-at-once behavior (`l6_linear_obligations`,
+  `l7a_generic_linear_opt_in`, `an_fs_failure_must_be_acknowledged`) are split
+  (option 1): the path-exit-leak case moves to its own clean program where the
+  flow analysis runs; the multi-error program keeps only its structural
+  assertions. Per-fn gating (option 2 — report clean fns' leaks even amid other
+  fns' errors) was considered and deferred as a larger, separately-scoped
+  change. Leak wording is now the uniform IR phrasing ("still owns a linear
+  value when the path leaves").
+
+- **2026-10-12 — Phase 2 Step 0 in progress: IR-analysis seam built, AST
+  path-exit/throw enforcement deleted, with ONE deferred follow-up (the
+  named-discharger hint).** Done: `salvo_core::ir::analyze::analyze(program,
+  symbols, resolution, checked) -> Vec<FileDiagnostic>` builds the IR, annotates
+  obligations, runs the linear check, and attributes each leak to its file (via
+  `Module.file_name` → `program.files` index). Wired into `check_for_emission`
+  (gates emission) and `analyze_project` (CLI + LSP, run only when the
+  type-check is clean). Deleted the AST-side `check_linear_frame_drop`,
+  `check_linear_exit`, `check_linear_throw`, and `error_once` (and their 10 call
+  sites, leaving the co-located `check_state_whole` calls). KEPT `owes_linear`,
+  `linear_settled`, and the branch-merge machinery — the surviving
+  assignment-overwrite check (`owes_linear` at check.rs ~21409) still uses them.
+  Added `WaitFor` handling to the obligation annotator + check: the reply token
+  a `waitfor` mints is gained at the body start and must be sent to before the
+  body ends (catches the `waitfor`-token leak). The `Never`/throw model carried
+  over from Step (1).
+  - **DEFERRED follow-up — the named-discharger hint.** The AST leak messages
+    named the specific discharger (`discharge it with \`drain\`/\`close\`/
+    \`send\``), computed by `Checker::discharge_set`/`linear_discharge_hint`,
+    which depend on per-file `scope`/`inferred` Checker state. The IR message is
+    currently the generic "move it onward (pass, return, or store it) or
+    discharge it". Porting `discharge_set` cleanly means extracting it (and
+    `param_consumed_by_entry`, `file_declaring`, `member_consumes_type`) into
+    `crate::linear` as free functions over `(symbols, resolution, deductions)`,
+    callable from both the surviving checker uses (check.rs ~23823, ~28643) and
+    `ir::analyze` — a ~60-line extraction deferred to keep the seam landing. The
+    ~11 linear/actor tests that asserted the specific discharger name are
+    updated to assert the leak itself ("still owns a linear value"); when the
+    hint is ported, tighten them back. The hint is a message-quality
+    refinement, not a correctness gap — the leaks are all caught.
 
 - **2026-10-12 — Phase 2 step (1) done: the IR check leaves on `Never`, which
   subsumes the throw path (user model).** The user's framing: `return`,

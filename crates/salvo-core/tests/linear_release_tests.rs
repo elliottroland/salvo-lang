@@ -57,13 +57,23 @@ fn errors(src: &str) -> Vec<String> {
     let symbols = Symbols::collect(&program);
     let resolution = resolve(&program);
     let checked = check_program(&program, &resolution, &symbols);
-    resolution
+    let mut msgs: Vec<String> = resolution
         .errors
         .iter()
         .chain(checked.errors.iter())
         .filter(|d| d.is_error())
         .map(|d| d.message.clone())
-        .collect()
+        .collect();
+    // [ir-analyze] The flow linear checks (path-exit/throw leaks) moved to the
+    // IR analysis; include its diagnostics so these tests see them.
+    if !checked.errors.iter().any(|d| d.is_error()) {
+        msgs.extend(
+            salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked)
+                .into_iter()
+                .map(|d| d.message),
+        );
+    }
+    msgs
 }
 
 const PRELUDE: &str = r#"

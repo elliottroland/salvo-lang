@@ -125,7 +125,7 @@ fn errors_in(files: &[(&str, &str)]) -> Vec<String> {
     let symbols = Symbols::collect(&program);
     let resolution = resolve(&program);
     let checked = check_program(&program, &resolution, &symbols);
-    parse_errors
+    let mut msgs: Vec<String> = parse_errors
         .into_iter()
         .chain(
             resolution
@@ -135,7 +135,15 @@ fn errors_in(files: &[(&str, &str)]) -> Vec<String> {
                 .filter(|d| d.is_error())
                 .map(|d| d.message.clone()),
         )
-        .collect()
+        .collect();
+    if !checked.errors.iter().any(|d| d.is_error()) {
+        msgs.extend(
+            salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked)
+                .into_iter()
+                .map(|d| d.message),
+        );
+    }
+    msgs
 }
 
 // ===== the shape itself =====

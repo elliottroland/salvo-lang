@@ -352,6 +352,17 @@ fn analyze_project(
             _ => salvo_core::check_program(&program, &resolution, &symbols),
         };
         checked.errors.retain(|d| !parse_broken.contains(&d.file));
+        // [ir-analyze] Run the IR-level analyses only on a clean program: the
+        // IR builder reads the checker's tables (`linear_moves`, coercions, …),
+        // which are only complete when the check found no errors. On a program
+        // with errors those tables are partial, so the IR obligation ledger —
+        // and the leaks derived from it — would be unreliable. The actionable
+        // signal there is the errors already reported; the path-exit leaks
+        // surface once those are fixed.
+        let clean = parse_broken.is_empty() && !diagnostics.iter().any(|d| d.is_error()) && !checked.errors.iter().any(|d| d.is_error());
+        if clean {
+            diagnostics.extend(salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked));
+        }
         diagnostics.append(&mut checked.errors);
         // [platform-root] Platform declarations need a platform root.
         let backends = project.as_ref().map(salvo_core::required_backends).unwrap_or_else(|| vec!["rust"]);

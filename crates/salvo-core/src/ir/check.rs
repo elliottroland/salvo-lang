@@ -33,15 +33,7 @@ pub struct IrDiagnostic {
 /// obligation.
 pub fn check(program: &Program) -> Vec<IrDiagnostic> {
     // Which top-level fns may throw: a call to one is a conditional leave.
-    let throws: HashMap<DeclId, bool> = program
-        .modules
-        .iter()
-        .flat_map(|m| m.decls.iter())
-        .filter_map(|d| match d {
-            Decl::Fn(f) => Some((f.id.clone(), f.throws.is_some())),
-            _ => None,
-        })
-        .collect();
+    let throws = throws_map(program);
     let mut out = Vec::new();
     for module in &program.modules {
         for decl in &module.decls {
@@ -55,8 +47,23 @@ pub fn check(program: &Program) -> Vec<IrDiagnostic> {
 }
 
 /// Check one declaration (a fn, or a handler's members), returning the leaks.
-pub fn check_one(decl: &Decl) -> Vec<IrDiagnostic> {
-    check_one_with(decl, &HashMap::new())
+/// `throws` says which top-level fns may throw (a call to one is a conditional
+/// leave); build it once with [`throws_map`] and pass it for every decl.
+pub fn check_one(decl: &Decl, throws: &HashMap<DeclId, bool>) -> Vec<IrDiagnostic> {
+    check_one_with(decl, throws)
+}
+
+/// The map of which top-level fns may throw, keyed by `DeclId`.
+pub fn throws_map(program: &Program) -> HashMap<DeclId, bool> {
+    program
+        .modules
+        .iter()
+        .flat_map(|m| m.decls.iter())
+        .filter_map(|d| match d {
+            Decl::Fn(f) => Some((f.id.clone(), f.throws.is_some())),
+            _ => None,
+        })
+        .collect()
 }
 
 fn check_one_with(decl: &Decl, throws: &HashMap<DeclId, bool>) -> Vec<IrDiagnostic> {
@@ -251,6 +258,21 @@ fn walk_expr(e: &Expr, owed: &mut Owed, ctx: &Ctx, out: &mut Vec<IrDiagnostic>) 
             let inner = Ctx { throws: ctx.throws, loop_base: ctx.loop_base, in_try: true };
             walk_block(body, owed, &inner, out)
         }
+        ExprKind::WaitFor { body, .. } => {
+            // [actor-waitfor] The reply token minted here must be sent to
+            // within the body: anything gained inside the body (the token)
+            // and still outstanding at its end leaks. Outer obligations pass
+            // through unchanged.
+            let base = owed.clone();
+            let flow = walk_block(body, owed, ctx, out);
+            if flow == Flow::FallsThrough {
+                report_since(owed, Some(&base), out, body.span);
+                // The body-gained obligations are settled-or-reported; keep
+                // only what pre-existed for the continuation.
+                owed.retain(|k, _| base.contains_key(k));
+            }
+            Flow::FallsThrough
+        }
         _ => {
             // Evaluate operands left-to-right; any that leaves stops the rest.
             let mut flow = Flow::FallsThrough;
@@ -267,7 +289,7 @@ fn walk_expr(e: &Expr, owed: &mut Owed, ctx: &Ctx, out: &mut Vec<IrDiagnostic>) 
             if !ctx.in_try {
                 if let ExprKind::Call { target: FnRef::Decl(id), .. } = &e.kind {
                     if ctx.throws.get(id).copied().unwrap_or(false) {
-                        report_all_msg(owed, out, e.span, "across a call that may throw");
+                        report_all_msg(owed, out, e.span, "across a call that may throw: the code after it does not run on the throw path, so release it before the call, or move it onward so the obligation travels with it");
                     }
                 }
             }
@@ -412,17 +434,16 @@ fn join(a: Option<Owed>, b: Owed) -> Owed {
 
 fn report_all(owed: &Owed, out: &mut Vec<IrDiagnostic>, _at: Span) {
     for (place, o) in owed {
-        report_one(place, o, out, "when the path leaves");
+        report_one(place, o, out, "when the path leaves; move it onward (pass, return, or store it) or discharge it");
     }
 }
 
 /// Report every outstanding obligation at a conditional leave (a throwing
-/// call), with a context phrase (e.g. "across a call that may throw"). The
-/// obligation stays owed on the normal (non-throw) path, so the caller does
-/// not clear the set.
-fn report_all_msg(owed: &Owed, out: &mut Vec<IrDiagnostic>, _at: Span, context: &str) {
+/// call), with a context phrase. The obligation stays owed on the normal
+/// (non-throw) path, so the caller does not clear the set.
+fn report_all_msg(owed: &Owed, out: &mut Vec<IrDiagnostic>, _at: Span, tail: &str) {
     for (place, o) in owed {
-        report_one(place, o, out, context);
+        report_one(place, o, out, tail);
     }
 }
 
@@ -433,23 +454,20 @@ fn report_since(owed: &Owed, base: Option<&Owed>, out: &mut Vec<IrDiagnostic>, _
     for (place, o) in owed {
         let inherited = base.is_some_and(|b| b.contains_key(place));
         if !inherited {
-            report_one(place, o, out, "when the path leaves");
+            report_one(place, o, out, "when the path leaves; move it onward (pass, return, or store it) or discharge it");
         }
     }
 }
 
-fn report_one(place: &str, o: &Outstanding, out: &mut Vec<IrDiagnostic>, context: &str) {
-    let what = match &o.arms {
+fn report_one(place: &str, o: &Outstanding, out: &mut Vec<IrDiagnostic>, tail: &str) {
+    let value = match &o.arms {
         Some(arms) if !arms.is_empty() => {
             let a: Vec<String> = arms.iter().map(|i| format!("arm {i}")).collect();
-            format!("`{place}` still owns a linear value ({}) {context}", a.join(", "))
+            format!("`{place}` still owns a linear value ({})", a.join(", "))
         }
-        _ => format!("`{place}` still owns a linear value {context}"),
+        _ => format!("`{place}` still owns a linear value"),
     };
-    out.push(IrDiagnostic {
-        span: o.span,
-        message: format!("{what}; move it onward (pass, return, or store it) or discharge it"),
-    });
+    out.push(IrDiagnostic { span: o.span, message: format!("{value} {tail}") });
 }
 
 /// If `cond` is a negated arm-test `!(subject is arm k)`, the subject's place

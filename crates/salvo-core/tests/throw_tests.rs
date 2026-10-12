@@ -55,13 +55,22 @@ fn errors(src: &str) -> Vec<String> {
     let symbols = Symbols::collect(&program);
     let resolution = resolve(&program);
     let checked = check_program(&program, &resolution, &symbols);
-    resolution
+    let mut msgs: Vec<String> = resolution
         .errors
         .iter()
         .chain(checked.errors.iter())
         .filter(|d| d.is_error())
         .map(|d| d.message.clone())
-        .collect()
+        .collect();
+    // [ir-analyze] The path-exit/throw linear leak checks moved to the IR.
+    if !checked.errors.iter().any(|d| d.is_error()) {
+        msgs.extend(
+            salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked)
+                .into_iter()
+                .map(|d| d.message),
+        );
+    }
+    msgs
 }
 
 /// The two names the intrinsic needs from core, plus a pair of throwing

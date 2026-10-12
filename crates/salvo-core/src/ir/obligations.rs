@@ -195,6 +195,16 @@ impl Annotator<'_, '_> {
             ExprKind::Test { subject, .. } => self.recurse_expr(subject),
             ExprKind::Try { body } => self.block(body),
             ExprKind::Lambda { body, .. } => self.block(body),
+            // [actor-waitfor] A `waitfor` mints a linear reply token the body
+            // must send to; it is gained at the body's start and must be
+            // settled before the body ends.
+            ExprKind::WaitFor { local, token_ty, body } => {
+                self.block(body);
+                if self.is_linear(token_ty) {
+                    let r = self.ref_of(Place { root: local.clone(), steps: Vec::new() }, token_ty);
+                    body.stmts.insert(0, Stmt::Obligation(Obligation { kind: ObligationKind::Gain, refs: vec![r], span: body.span }));
+                }
+            }
             _ => {}
         }
     }

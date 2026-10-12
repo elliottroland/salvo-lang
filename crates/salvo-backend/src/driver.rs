@@ -24,6 +24,12 @@ pub fn check_for_emission(
     if checked.errors.iter().any(|d| d.is_error()) {
         return Err(checked.errors.iter().map(|d| d.render(&program.files)).collect());
     }
+    // [ir-analyze] The IR-level analyses (linear obligations, …) run on a
+    // type-checked program and gate emission like any other error.
+    let ir_diags = salvo_core::ir::analyze::analyze(program, &symbols, &resolution, &checked);
+    if ir_diags.iter().any(|d| d.is_error()) {
+        return Err(ir_diags.iter().map(|d| d.render(&program.files)).collect());
+    }
     let warnings: Vec<String> = checked
         .errors
         .iter()

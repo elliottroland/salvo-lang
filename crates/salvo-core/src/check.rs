@@ -8608,10 +8608,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         }
         self.own_mut_paths = saved_mut_paths;
-        // [linear-obligation] A moved-in linear parameter must be
-        // discharged by the body.
-        self.check_linear_frame_drop();
-        // [linear-state] …and a handler member must leave its state whole.
+        // [linear-state] A handler member must leave its state whole. (The
+        // linear-obligation leak check moved to the IR analysis [ir-analyze].)
         self.check_state_whole(f.name.span, "end this member");
         self.locals.pop();
         // [fn-must-return] A fn with a non-`None` return type must return
@@ -13641,86 +13639,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// Reports every live linear obligation in the top scope frame —
-    /// called just before the frame pops [linear-obligation]. The
-    /// reported variables are marked consumed so enclosing checks do not
-    /// re-report them.
-    fn check_linear_frame_drop(&mut self) {
-        let Some(frame) = self.locals.last() else {
-            return;
-        };
-        let owed: Vec<(String, Span)> = frame
-            .iter()
-            .filter(|(name, var)| self.owes_linear(name, var))
-            .map(|(name, var)| (name.clone(), var.decl_span))
-            .collect();
-        for (name, decl_span) in owed {
-            let hint = self
-                .lookup(&name)
-                .map(|v| self.linear_discharge_hint(&v.declared))
-                .unwrap_or_else(|| "its discharger".to_string());
-            self.error(
-                decl_span,
-                format!(
-                    "`{name}` still owns a linear value when it goes out of \
-                     scope; move it onward (pass, return, or store it) or \
-                     discharge it with {hint}"
-                ),
-            );
-            if let Some(var) = self.lookup_mut(&name) {
-                var.narrowed = Ty::Never;
-            }
-        }
-    }
-
-    /// Reports live linear obligations in every frame at (or above)
-    /// `from_frame` — used at `return` (all frames) and `break`/
-    /// `continue` (frames inside the loop) [linear-obligation]. Reported
-    /// variables are marked consumed.
-    fn check_linear_exit(&mut self, from_frame: usize, span: Span, what: &str) {
-        let owed: Vec<String> = self
-            .locals
-            .iter()
-            .skip(from_frame)
-            .flat_map(|frame| {
-                frame
-                    .iter()
-                    .filter(|(name, var)| self.owes_linear(name, var))
-                    .map(|(name, _)| name.clone())
-            })
-            .collect();
-        for name in owed {
-            let hint = self
-                .lookup(&name)
-                .map(|v| self.linear_discharge_hint(&v.declared))
-                .unwrap_or_else(|| "its discharger".to_string());
-            self.error(
-                span,
-                format!(
-                    "cannot {what} while `{name}` still owns a linear value; \
-                     move it onward, or discharge it with {hint}"
-                ),
-            );
-            if let Some(var) = self.lookup_mut(&name) {
-                var.narrowed = Ty::Never;
-            }
-        }
-    }
-
-    /// `error`, unless an identical diagnostic was already reported: one
-    /// exit can be reached by two walks (a `throw` inside a loop, say), so
-    /// the same broken fact can be found twice on one path.
-    fn error_once(&mut self, span: Span, message: String) {
-        let seen = self
-            .out
-            .errors
-            .iter()
-            .any(|e| e.file == self.file_idx && e.span == span && e.message == message);
-        if !seen {
-            self.error(span, message);
-        }
-    }
-
     // ================= fn-type effects [fn-effects] =================
 
     /// Lowers a fn type's effect list [fn-effects]. `use` is not meaningful
@@ -13941,7 +13859,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // Inside a `try`: the delimiter collects the message type; the
             // wrap into its `M` is filled in once the body is checked.
             Some(ctx) => {
-                let floor = ctx.entry_depth;
+                let _ = ctx.entry_depth;
                 ctx.sites.push((span, message.clone()));
                 self.out.may_throw.insert(
                     self.key(span),
@@ -13955,7 +13873,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         arm: None,
                     },
                 );
-                self.check_linear_throw(floor, span);
+                // [ir-analyze] The throw-path linear leak check moved to the IR.
             }
             // Outside every `try`: the enclosing fn must declare it.
             None => {
@@ -13981,7 +13899,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         arm,
                     },
                 );
-                self.check_linear_throw(0, span);
+                // [ir-analyze] The throw-path linear leak check moved to the IR.
             }
         }
     }
@@ -14022,39 +13940,6 @@ impl<'p, 'r> Checker<'p, 'r> {
             );
         }
         None
-    }
-
-    /// The linear-obligation check at a throw [linear-obligation]: the
-    /// same walk as an early `return`. Since `defer` was removed
-    /// (2026-09-10) there is no way to discharge on a path the author does
-    /// not write, so the diagnostic says to release before the call or to
-    /// move the value onward.
-    fn check_linear_throw(&mut self, from_frame: usize, span: Span) {
-        let owed: Vec<String> = self
-            .locals
-            .iter()
-            .skip(from_frame)
-            .flat_map(|frame| {
-                frame
-                    .iter()
-                    .filter(|(name, var)| self.owes_linear(name, var))
-                    .map(|(name, _)| name.clone())
-            })
-            .collect();
-        for name in owed {
-            self.error_once(
-                span,
-                format!(
-                    "`{name}` still owns a linear value across a call that may \
-                     throw: the code after it does not run on the throw path, so \
-                     release it before the call, or move it onward so the \
-                     obligation travels with it"
-                ),
-            );
-            if let Some(var) = self.lookup_mut(&name) {
-                var.narrowed = Ty::Never;
-            }
-        }
     }
 
     /// `throw(message)` [throw]. Not an ordinary effect-member call: there
@@ -15949,9 +15834,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.declare(binding, token);
         let (value, _) = self.check_branch_block(body, Vec::new());
         let _ = value;
-        // [linear-obligation] The frame dies here, which is what reports a
-        // token the block never sent to.
-        self.check_linear_frame_drop();
+        // [ir-analyze] The linear-obligation leak check moved to the IR.
         self.locals.pop();
         payload
     }
@@ -21293,8 +21176,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 _ => None,
             };
         }
-        // [linear-obligation] Nothing linear may die with the scope.
-        self.check_linear_frame_drop();
+        // [ir-analyze] The linear-obligation leak check moved to the IR.
         self.warn_unused_locals();
         self.locals.pop();
         self.effect_env.truncate(effect_depth);
@@ -23067,9 +22949,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                             // to derived-variable poison [fate-poison]).
                             self.fate_move(v, "return", "a `return`", *span);
                         }
-                        // [linear-obligation] Nothing linear may be
-                        // alive anywhere when the fn exits.
-                        self.check_linear_exit(0, *span, "return");
+                        // [ir-analyze] The linear-obligation leak check at a
+                        // return moved to the IR analysis.
                         // [linear-state] …and no state field may be left
                         // with a hole in it.
                         self.check_state_whole(*span, "return");
@@ -23081,8 +22962,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 format!("bare `return` in a function returning `{expected}`"),
                             );
                         }
-                        // [linear-obligation]
-                        self.check_linear_exit(0, *span, "return");
                         // [linear-state]
                         self.check_state_whole(*span, "return");
                     }
@@ -23129,7 +23008,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // exit is exactly where its state lands).
                 match self.loop_stack.last().map(|c| c.entry_depth) {
                     Some(depth) => {
-                        self.check_linear_exit(depth, *span, "break");
+                        let _ = depth;
+                        // [ir-analyze] The break-path linear leak check moved
+                        // to the IR analysis.
                         let snap = self.snapshot_narrows();
                         if let Some(ctx) = self.loop_stack.last_mut() {
                             ctx.break_states.push(snap);
@@ -23149,11 +23030,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                     Some(ctx) => ctx.may_skip_value = true,
                     None => self.error(*span, "`continue` outside of a loop"),
                 }
-                // [linear-obligation] Frames inside the loop iteration
-                // die at a `continue`.
-                if let Some(depth) = self.loop_stack.last().map(|c| c.entry_depth) {
-                    self.check_linear_exit(depth, *span, "continue");
-                }
+                // [ir-analyze] The continue-path linear leak check moved to
+                // the IR analysis.
+                let _ = self.loop_stack.last().map(|c| c.entry_depth);
                 Ty::Never
             }
             // [actor-spawn-expr] The asynchronous binding of a handler: its
@@ -24603,9 +24482,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.can_spawn = saved_can_spawn;
         self.own_handler = saved_own_handler;
         self.ret_ty = saved_ret;
-        // [linear-obligation] Lambda parameters are owned by the body:
-        // a linear one must be discharged before the body ends.
-        self.check_linear_frame_drop();
+        // [ir-analyze] A lambda parameter's linear-obligation leak check
+        // moved to the IR analysis.
         self.locals.pop();
         let used = self.effect_uses.pop().unwrap_or_default();
         if let Some(saved) = saved_effects {

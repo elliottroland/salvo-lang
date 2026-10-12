@@ -78,6 +78,8 @@ impl Scattering(lent group: Addr<ActorGroup<Search>>, lent gather: Addr<Gather>)
   mailbox construct Mailbox { capacity: 16 }
   fn query(lent word: Str, lent out: Reply<Int>) -> None {
     bind#1 let members: List<Addr<Search>> = waitfor ms: Reply<List<Addr<Search>>> {
+      obligation gain [ms]
+      obligation release [ms]
       send net::ActorGroup#2(read group, !read ms)
     }
     obligation release [out]
@@ -128,6 +130,8 @@ impl Hedging(lent group: Addr<ActorGroup<Lookup>>, lent racer: Addr<Race>) of an
   mailbox construct Mailbox { capacity: 16 }
   fn lookup(lent key: Str, lent out: Reply<Str>) -> None {
     bind#1 let members: List<Addr<Lookup>> = waitfor ms: Reply<List<Addr<Lookup>>> {
+      obligation gain [ms]
+      obligation release [ms]
       send net::ActorGroup#2(read group, !read ms)
     }
     obligation release [out]
@@ -170,6 +174,8 @@ impl Racing() of Race stateful {
 impl LastHost(lent nodes: Addr<NodeGroup>, lent me: NodeEndpoint) of Leader {
   fn leader() -> NodeId? {
     bind#1 let peers: List<Node> = waitfor out: Reply<List<Node>> {
+      obligation gain [out]
+      obligation release [out]
       send net::NodeGroup#0(read nodes, !read out)
     }
     bind#2 let best_host: Str = call core.basic::copy<Str>(read me.host)
@@ -186,6 +192,8 @@ impl LastHost(lent nodes: Addr<NodeGroup>, lent me: NodeEndpoint) of Leader {
 
 fn main::fresh_id(lent sequencer: Sequencer) -> Str {
   return waitfor out: Reply<Str> {
+    obligation gain [out]
+    obligation release [out]
     member main::Sequencer#0(read sequencer, !read out)
   }
 }
@@ -194,6 +202,8 @@ fn main::checkout(lent inventory: Inventory, lent console: Console; lent skus: L
   bind#1 let shards: Mut List<Str> = call core.list::mut_list_of()<Str>()
   foreach#2 sku: proj Str in read skus {
     bind#3 let answer: Str = waitfor out: Reply<Str> {
+      obligation gain [out]
+      obligation release [out]
       member main::Inventory#0(read inventory, call core.basic::copy<Str>(read sku), 1, !read out)
     }
     bind#4 let parts: Mut List<Str> = call core.string::split(read answer, ":")
@@ -295,12 +305,16 @@ fn main::checkout(lent inventory: Inventory, lent console: Console; lent skus: L
 
 fn main::count(lent search: Search; moved word: Str) -> Int {
   return waitfor out: Reply<Int> {
+    obligation gain [out]
+    obligation release [out]
     member main::Search#0(read search, !read word, !read out)
   }
 }
 
 fn main::find(lent lookup: Lookup; moved key: Str) -> Str {
   return waitfor out: Reply<Str> {
+    obligation gain [out]
+    obligation release [out]
     member main::Lookup#0(read lookup, !read key, !read out)
   }
 }
@@ -358,6 +372,8 @@ impl Booting(lent at: NodeEndpoint, lent all: List<NodeEndpoint>, lent net: Addr
 
 fn main::settle(lent timer: Addr<Timer>) -> None {
   bind#1 let _f: Fired = waitfor f: Reply<Fired> {
+    obligation gain [f]
+    obligation release [f]
     send time::Timer#0(read timer, call time::millis(400L), !read f)
   }
 }
@@ -384,11 +400,15 @@ fn main::main() -> None {
   bind#15 let pb: Pool = call net::pool_at(call net::new_node(), 1)
   bind#16 let booter: Addr<Boot> = spawn[Addr<Boot>](construct Booting { at: call core.basic::copy<NodeEndpoint>(read b), all: call core.basic::copy<List<NodeEndpoint>>(read all), net: call core.basic::copy<Addr<MemNet>>(read network), __dep0: handle[Transport](construct MemTransport { me: call core.basic::copy<NodeEndpoint>(read b), net: call core.basic::copy<Addr<MemNet>>(read network) }) }, on: read pb) serves [Boot]
   bind#17 let remote_seq: Addr<Sequencer> = waitfor done: Reply<Addr<Sequencer>> {
+    obligation gain [done]
+    obligation release [done]
     send main::Boot#0(read booter, !read done)
   }
   bind#18 let timer: Addr<Timer> = spawn[Addr<Timer>](construct DefaultTimer { }, on: call core.actor::pool(Int)(1)) serves [Timer]
   call main::settle(call core.basic::copy<Addr<Timer>>(read timer))
   bind#19 let members: List<Node> = waitfor out: Reply<List<Node>> {
+    obligation gain [out]
+    obligation release [out]
     send net::NodeGroup#0(read nodes, !read out)
   }
   call core.console::println(read __handle~2, concat("nodes: ", call core.basic::to_str(Int)((call core.list::size<Node>(read members) + 1)), ", sequencers: ", call core.basic::to_str(Int)(call core.list::size<Addr<Sequencer>>(waitfor out: Reply<List<Addr<Sequencer>>> {
@@ -409,6 +429,8 @@ fn main::main() -> None {
   bind#25 let __handle~10: Lookup = handle[Lookup](read __use~9)
   call core.console::println(read __handle~2, concat("  ", call main::find(read __handle~10, "k1")))
   bind#26 let _stopped: Bool = waitfor done: Reply<Bool> {
+    obligation gain [done]
+    obligation release [done]
     send main::Boot#1(read booter, !read done)
   }
   call main::settle(call core.basic::copy<Addr<Timer>>(read timer))

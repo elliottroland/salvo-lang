@@ -5,6 +5,7 @@
 //! AST here, and the "real" semantic validation (linear obligations,
 //! deductions) runs on this IR. See IR_CHECKER.md.
 
+pub mod analyze;
 pub mod build;
 pub mod check;
 pub mod dump;
