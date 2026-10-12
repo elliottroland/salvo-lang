@@ -7,10 +7,16 @@ semantic checks (linear obligations, deductions, consume/fate, totality) run
 ([Non-negotiable invariants] in AGENTS.md); this doc is the options + the plan,
 not a licence to implement.
 
-Status: **Phase 0, Phase 1, and Phase 2 Step 0 done. The IR check is now the
-enforcer for path-exit/throw/waitfor linear leaks, gating `salvo build` and
-`analyze`.** Step 1 (fate/release/consume migration) is next. The plan in §4 is
-being executed in order, one commit per step.
+Status: **The checker/IR merge is complete.** Phase 0 (crate merge), Phase 1
+(linear-obligation ledger + per-path check), and Phase 2 Step 0/1 (the IR check
+is the enforcer; the `Never`/leave model) are done and committed. Investigating
+Steps 2–4 (fate/consume, loop-totality, exhaustiveness, deadlock) with a
+separability lens showed none belongs on the IR — they are type-system or
+whole-program-graph checks that correctly stay in `check.rs`/`deadlock.rs` (see
+the decision log). The one desugar-sensitive flow analysis that needed the IR —
+linear obligations — is there and gating the build. Only optional
+message-quality follow-ups remain (named-discharger hint; synthetic local/span
+polish).
 
 ---
 
@@ -205,18 +211,24 @@ one seam, one at a time, each landing green against std+examples as its oracle.
   path-exit/throw enforcement (`check_linear_frame_drop`, `check_linear_exit`,
   `check_linear_throw`, `linear_settled`) in the same change. Rewrite the linear
   tests to go through the seam. Land green. This pays the test-rewrite cost once
-  and gives every later tenant a stable home.
-- **Step 1 — fate / release / consume-after-move.** The highest-value, most
-  entangled with linear's bookkeeping; do it while that code is fresh. Scope
-  starts as "discover how separable it is from type-checking" — if inextricable,
-  report back rather than force it.
-- **Step 2 — loop-totality** (`LoopValue`): small, already half-encoded.
-- **Step 3 — exhaustiveness-at-use** (`Unreachable` revalidation): contained.
-- **Step 4 — deadlock**: last; whole-program graph, doesn't share the walk, so
-  settle the flow analyses first to avoid conflating a graph bug with a flow bug.
+  and gives every later tenant a stable home. **DONE** (commit 9bb42362).
+- **Step 1 — fate / release / consume-after-move. DROPPED (inextricable).**
+  Investigated per its own charter; the consume/move analysis is load-bearing
+  for type-checking (`fate_move` sets `narrowed = Never`, read by `check_expr`
+  to reject later uses), not a separable flow pass. Stays in `check.rs`. See the
+  decision log (2026-10-12 Step 1 FINDING).
+- **Step 2 — loop-totality. DROPPED (TYPING).** `may_skip_value` feeds the
+  loop's value *type*; it is type inference, not a flow check.
+- **Step 3 — exhaustiveness-at-use. DROPPED (TYPING).** Computed while typing
+  the `when`; needs the subject's arm set; not sugar-sensitive.
+- **Step 4 — deadlock. DROPPED (graph, not flow).** A whole-program cycle check
+  over the actor wait-for graph at the handler/effect level; the IR's per-path
+  structure buys it nothing. Stays in `deadlock.rs`.
 
-Each step: add the analysis to `ir::analyze`, drive its false positives to zero
-against std+examples, delete its AST counterpart in the same commit, land green.
+**Outcome: the merge is complete at Step 0.** The one desugar-sensitive flow
+analysis that needed the IR — linear obligations — is migrated and gating the
+build; the rest correctly stay in the checker. See the decision log for the
+full separability reassessment (2026-10-12 Steps 2–4).
 
 ### Earlier phase history (superseded by the restructure above)
 
@@ -304,6 +316,86 @@ new decision is needed from the user. Spec labels to add as they land:
 ---
 
 ## Decision log (this doc)
+
+- **2026-10-12 — Phase 2 Steps 2–4 reassessed with the separability lens: none
+  is worth migrating. The IR-merge is effectively COMPLETE at Step 0.** Having
+  found Step 1 (fate/consume) inextricable, I examined the other planned IR
+  tenants the same way. Conclusion: the linear-obligation flow check (done in
+  Steps 0–1) was the one analysis that genuinely belonged on the IR; the rest
+  are type-system-integrated or whole-program-graph work that the IR does not
+  express better, so moving them would be re-deriving, not simplifying — the
+  "worse layering" the narrow Phase 2 was chosen to avoid.
+  - **Step 2 — loop-totality (`while-value`): TYPING, drop.** `LoopCtx`'s
+    `may_skip_value` makes "`None` join the loop's value *type*" (check.rs
+    ~20763) and `break_states` merge flow state that drives subsequent
+    type-checking. It is type inference of the loop expression, not a separable
+    flow check. The IR's `Justification::LoopValue` is a *record* of the
+    checker's conclusion (consumed for narrowing), not something the IR would
+    re-derive.
+  - **Step 3 — exhaustiveness-at-use (`when`): mostly TYPING, drop.**
+    "non-exhaustive `when`: unhandled union arm" (check.rs ~25954) is computed
+    while typing the `when` (its result type depends on which arms exit /
+    whether it is exhaustive) and needs the subject's full arm set (a type
+    fact). It is not desugar-sensitive and is already integrated with type
+    inference; re-deriving it from `Switch`/`ArmTest` on the IR gains nothing.
+  - **Step 4 — deadlock: a whole-program graph analysis, not a flow pass; drop
+    as an IR migration.** `deadlock.rs` is a cycle check over the actor
+    wait-for/effect graph, built from `Symbols`/`Checked` at the handler/effect
+    level — not a per-path, per-expression property. The IR's control-flow
+    structure (branches, narrows) buys it nothing; rebuilding its graph from IR
+    `Send`/`ReplyTo` nodes would be a lateral move. It stays where it is.
+  - **Bottom line.** The checker/IR merge's goal — "stop re-deriving *sugar*
+    meaning twice; run the desugar-sensitive flow check on the lowered form" —
+    is met by the linear-obligation check (Steps 0–1), which catches what the
+    AST missed (#2) precisely because it reads the desugared IR. The remaining
+    checks are not sugar-sensitive flow properties; they are the type system's
+    own ownership/typing/graph reasoning and correctly stay in `check.rs` /
+    `deadlock.rs`. **No further migration is planned.** What remains are the two
+    deferred *message-quality* follow-ups (named-discharger hint; synthetic
+    local/span polish) — optional, not architectural.
+
+- **2026-10-12 — Phase 2 Step 1 FINDING: fate/release/consume-after-move is
+  inextricable from type-checking; do NOT migrate it. Step 1 is dropped.**
+  Investigated how separable the consume/move analysis in `check.rs` is (the
+  Step 1 charter was "discover how separable, report back rather than force").
+  Conclusion: it is load-bearing for *type-checking itself*, not just a set of
+  flow diagnostics, so moving it to the IR would not simplify anything — the
+  checker must track moves regardless.
+  - **The decisive fact:** `fate_move` (check.rs ~21633) ends by setting
+    `var.narrowed = Ty::Never` (+ `consumed_by`). That `narrowed == Never`
+    marker is **read inside `check_expr` when resolving an `Ident`**
+    (check.rs ~21989): a later use of a moved variable is caught *there* and
+    returns `Ty::Unknown` to stop the cascade. So the move state is how the
+    checker type-checks subsequent expressions — remove it and later uses of a
+    moved value would type-check as their original type (wrong). The
+    branch-merge of this state (`narrowed`/`links`/`moved_places`) likewise
+    drives both the "consumed on some paths but not others" diagnostic *and*
+    the narrowed types used for subsequent checking.
+  - **Classification of the family** (FLOW = IR-movable; TYPING = must stay):
+    - use-after-move (`consumed (moved) … type is Never`): TYPING (the
+      `narrowed=Never` read above).
+    - consumed-on-some-paths (merge): TYPING (branch-merge of the same state).
+    - derived-variable poison / "shares its fate, … was moved after": TYPING
+      (fate links feed `check_expr`).
+    - assignment-overwrite drops linear (`owes_linear` at assign): TYPING
+      (reads the same move/own state).
+    - **dropped-immediately** (an expression statement whose result type is
+      linear, check.rs ~21489): FLOW and cleanly IR-expressible — but it is a
+      single, already-correct, non-sugar-sensitive, non-duplicated check;
+      moving it buys nothing and is pure churn. **Left in the checker.**
+  - **Consequence for the plan:** the consume/move analysis stays in
+    `check.rs`. This matches the Phase 2 scope finding (the structural/typing
+    linear checks stay) — fate/consume is the type-system's ownership tracking,
+    not a flow pass layered on top. The IR flow check (linear obligations) and
+    the AST consume tracking are *complementary*, not duplicative: the IR
+    catches "a linear value reaches a scope exit still owed" (desugar-sensitive,
+    which the AST missed — #2); the AST catches "a moved value is used again"
+    (needs the type-state). Keeping both is correct, not a failure to finish.
+  - **Remaining steps re-scoped:** Step 2 (loop-totality / `LoopValue`), Step 3
+    (exhaustiveness-at-use / `Unreachable` revalidation), Step 4 (deadlock) are
+    re-examined next with the same separability lens before migrating; each only
+    moves if it is genuinely a flow property the IR expresses better. If a step
+    turns out TYPING-bound like Step 1, it is dropped with this same reasoning.
 
 - **2026-10-12 — Phase 2 Step 0 behavior decision (user, option 1): the IR
   flow analysis runs only on an otherwise-clean program; tests that bundled a

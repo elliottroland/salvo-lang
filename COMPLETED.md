@@ -138,6 +138,34 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-12 — Checker/IR merge concluded: Steps 1–4 investigated, none migrates; the merge is complete at Step 0 (IR_CHECKER.md)
+
+After the linear-obligation flow check landed on the IR and became the enforcer
+(Step 0), the remaining planned IR tenants were each examined for separability
+from type-checking before migrating. None belongs on the IR:
+
+- **fate / consume-after-move (Step 1): inextricable.** `fate_move`
+  (`check.rs`) sets `var.narrowed = Ty::Never`, which `check_expr` reads when
+  resolving an identifier to reject a moved value's later use — so the move
+  state is load-bearing for type-checking, not a separable flow diagnostic.
+  Stays in `check.rs`.
+- **loop-totality (Step 2): typing.** `may_skip_value` feeds the loop
+  expression's value *type*; type inference, not a flow pass.
+- **exhaustiveness-at-use (Step 3): typing.** Computed while typing a `when`;
+  needs the subject's union arm set; not sugar-sensitive.
+- **deadlock (Step 4): a whole-program graph check**, not a per-path flow
+  property; the IR's control-flow structure buys it nothing. Stays in
+  `deadlock.rs`.
+
+So the merge's goal — stop re-deriving *sugar* meaning twice and run the
+desugar-sensitive flow check on the lowered form — is met by the linear check
+alone, which catches what the AST missed (noticeboard #2) precisely because it
+reads the desugared IR. The IR flow check and the AST's ownership tracking are
+complementary, not duplicative. No further migration is planned; only two
+optional message-quality follow-ups remain (named-discharger hint; synthetic
+local/span polish for the desugared-pick leak). Full reasoning in
+IR_CHECKER.md's decision log.
+
 ### 2026-10-12 — Checker/IR merge, Phase 2 Step 0: the IR linear check becomes the enforcer; AST path-exit/throw enforcement deleted (user decisions; IR_CHECKER.md)
 
 The IR-level linear check now **gates the build**: `salvo build`/`analyze`/the
