@@ -5,14 +5,20 @@
 //! reads the directives the IR builder placed and reports a linear obligation
 //! that is still outstanding when a path exits.
 //!
-//! Model (user decision 2026-10-12): the outstanding-obligation set is tracked
+//! Model (user decisions 2026-10-12): the outstanding-obligation set is tracked
 //! **per path**. `GainParams`/`Gain` add; `Release` (a move) and `Discharge`
 //! (a narrow that proves a linear arm absent) remove. A `Branch`/`Switch` forks
-//! the set per arm; an arm that leaves (`return`/`break`/`continue`) must leave
-//! nothing outstanding, and the fall-through states join. At the fn body's end
-//! and at every `return`, the set must be empty — a leftover is the leak.
+//! the set per arm; the fall-through states join.
+//!
+//! Control *leaves* a path wherever evaluation reaches a `Never`-typed
+//! expression — `throw`, an `unreachable` trap, a call to a `-> Never` fn — and
+//! at the `return`/`break`/`continue` statements, which the IR keeps as
+//! statements. A call to a `throws` fn is a *conditional* leave: on the throw
+//! edge control leaves the fn. At every such leave the outstanding set must be
+//! empty for the destination's scope (the whole set at a fn leave; only what
+//! was gained inside the loop at a `break`/`continue`) — a leftover is the leak.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use super::nodes::*;
 
@@ -26,10 +32,20 @@ pub struct IrDiagnostic {
 /// Check every fn body in `program`, returning one diagnostic per leaked
 /// obligation.
 pub fn check(program: &Program) -> Vec<IrDiagnostic> {
+    // Which top-level fns may throw: a call to one is a conditional leave.
+    let throws: HashMap<DeclId, bool> = program
+        .modules
+        .iter()
+        .flat_map(|m| m.decls.iter())
+        .filter_map(|d| match d {
+            Decl::Fn(f) => Some((f.id.clone(), f.throws.is_some())),
+            _ => None,
+        })
+        .collect();
     let mut out = Vec::new();
     for module in &program.modules {
         for decl in &module.decls {
-            out.extend(check_one(decl));
+            out.extend(check_one_with(decl, &throws));
         }
     }
     // A leak reachable by more than one walk path reports once.
@@ -40,15 +56,19 @@ pub fn check(program: &Program) -> Vec<IrDiagnostic> {
 
 /// Check one declaration (a fn, or a handler's members), returning the leaks.
 pub fn check_one(decl: &Decl) -> Vec<IrDiagnostic> {
+    check_one_with(decl, &HashMap::new())
+}
+
+fn check_one_with(decl: &Decl, throws: &HashMap<DeclId, bool>) -> Vec<IrDiagnostic> {
     let mut out = Vec::new();
     match decl {
-        Decl::Fn(f) => check_fn(f, &mut out),
+        Decl::Fn(f) => check_fn(f, throws, &mut out),
         Decl::Impl(h) => {
             if let Some(init) = &h.init {
-                check_fn(init, &mut out);
+                check_fn(init, throws, &mut out);
             }
             for m in &h.members {
-                check_fn(m, &mut out);
+                check_fn(m, throws, &mut out);
             }
         }
         _ => {}
@@ -75,10 +95,19 @@ struct Outstanding {
 /// The obligation set on one path: place-key → what is outstanding.
 type Owed = BTreeMap<Key, Outstanding>;
 
-fn check_fn(f: &FnDecl, out: &mut Vec<IrDiagnostic>) {
+/// Read-only context for a walk: which fns throw, the loop-entry snapshot (for
+/// `break`/`continue` scope), and whether a `try` currently catches throws.
+struct Ctx<'a> {
+    throws: &'a HashMap<DeclId, bool>,
+    loop_base: Option<&'a Owed>,
+    in_try: bool,
+}
+
+fn check_fn(f: &FnDecl, throws: &HashMap<DeclId, bool>, out: &mut Vec<IrDiagnostic>) {
     let Some(body) = &f.body else { return };
     let mut owed = Owed::new();
-    let flow = walk_block(body, &mut owed, None, out);
+    let ctx = Ctx { throws, loop_base: None, in_try: false };
+    let flow = walk_block(body, &mut owed, &ctx, out);
     // Fall-through off the end of the body: anything still owed leaks.
     if flow == Flow::FallsThrough {
         report_all(&owed, out, body.span);
@@ -86,7 +115,7 @@ fn check_fn(f: &FnDecl, out: &mut Vec<IrDiagnostic>) {
 }
 
 /// Whether a block/stmt sequence falls through to its continuation or leaves
-/// (returns, breaks, continues — the obligations must be settled before).
+/// (a `Never` expression, or `return`/`break`/`continue`).
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Flow {
     FallsThrough,
@@ -94,12 +123,8 @@ enum Flow {
 }
 
 /// Walk a block's statements, updating `owed` for the fall-through path and
-/// returning whether the block falls through or leaves. `loop_base` is the
-/// obligation set at the nearest enclosing loop entry: a `break`/`continue`
-/// leaves the *loop*, not the fn, so only obligations gained *within* the loop
-/// (not in `loop_base`) leak there; `return` and fn-body fall-through leak
-/// everything. Branch/switch arms are checked independently and joined.
-fn walk_block(block: &Block, owed: &mut Owed, loop_base: Option<&Owed>, out: &mut Vec<IrDiagnostic>) -> Flow {
+/// returning whether the block falls through or leaves.
+fn walk_block(block: &Block, owed: &mut Owed, ctx: &Ctx, out: &mut Vec<IrDiagnostic>) -> Flow {
     for s in &block.stmts {
         match s {
             Stmt::Obligation(o) => apply(o, owed),
@@ -108,7 +133,7 @@ fn walk_block(block: &Block, owed: &mut Owed, loop_base: Option<&Owed>, out: &mu
                 // branches/switches may gain, release, and leak); then the
                 // return leaves the fn with nothing allowed outstanding.
                 if let Some(e) = value {
-                    if walk_expr(e, owed, loop_base, out) == Flow::Leaves {
+                    if walk_expr(e, owed, ctx, out) == Flow::Leaves {
                         return Flow::Leaves;
                     }
                 }
@@ -117,19 +142,20 @@ fn walk_block(block: &Block, owed: &mut Owed, loop_base: Option<&Owed>, out: &mu
             }
             Stmt::Break | Stmt::Continue => {
                 // Leaves the loop: only obligations gained inside the loop leak.
-                report_since(owed, loop_base, out, stmt_span(s));
+                report_since(owed, ctx.loop_base, out, stmt_span(s));
                 return Flow::Leaves;
             }
             Stmt::Loop { body, .. } | Stmt::ForEach { body, .. } => {
                 // The loop body is its own path, entered with the current set
                 // as its loop base; its fall-through (loop end) does not change
                 // the enclosing set, and a `break value` carries no obligation.
-                let mut inner = owed.clone();
                 let base = owed.clone();
-                let _ = walk_block(body, &mut inner, Some(&base), out);
+                let mut inner = owed.clone();
+                let inner_ctx = Ctx { throws: ctx.throws, loop_base: Some(&base), in_try: ctx.in_try };
+                let _ = walk_block(body, &mut inner, &inner_ctx, out);
             }
             Stmt::Let { value, .. } | Stmt::Assign { value, .. } | Stmt::Expr(value) => {
-                if walk_expr(value, owed, loop_base, out) == Flow::Leaves {
+                if walk_expr(value, owed, ctx, out) == Flow::Leaves {
                     return Flow::Leaves;
                 }
             }
@@ -137,29 +163,36 @@ fn walk_block(block: &Block, owed: &mut Owed, loop_base: Option<&Owed>, out: &mu
         }
     }
     if let Some(v) = &block.value {
-        if walk_expr(v, owed, loop_base, out) == Flow::Leaves {
+        if walk_expr(v, owed, ctx, out) == Flow::Leaves {
             return Flow::Leaves;
         }
     }
     Flow::FallsThrough
 }
 
-/// Walk an expression for the control flow it contains (branch/switch arms,
-/// which fork the obligation set) and the escape it may perform.
-fn walk_expr(e: &Expr, owed: &mut Owed, loop_base: Option<&Owed>, out: &mut Vec<IrDiagnostic>) -> Flow {
+/// Walk an expression in evaluation order, updating `owed` and reporting leaks
+/// at every point control may leave: a `Never`-typed expression (`throw`, an
+/// `unreachable` trap, a `-> Never` call), and the throw edge of a call to a
+/// `throws` fn. Returns whether evaluation falls through to the expression's
+/// value or leaves.
+fn walk_expr(e: &Expr, owed: &mut Owed, ctx: &Ctx, out: &mut Vec<IrDiagnostic>) -> Flow {
     match &e.kind {
         ExprKind::Branch { arms, otherwise, .. } => {
             let mut joined: Option<Owed> = None;
             let mut any_fallthrough = false;
             for (cond, body) in arms {
+                // The condition is evaluated on the current path, before the
+                // fork — a `Never` or throwing call in it leaves here.
+                if walk_expr(cond, owed, ctx, out) == Flow::Leaves {
+                    return Flow::Leaves;
+                }
                 let mut path = owed.clone();
                 // [ir-obligation] A negated arm-test `!(x is arm k)` guarding
-                // this arm proves `x` is not in arm k *inside* the arm, so its
-                // obligation on that arm is discharged here.
+                // this arm proves `x` is not in arm k *inside* the arm.
                 if let Some((subject, tested)) = negative_arm_test(cond) {
                     discharge_arms(&mut path, &subject, &tested);
                 }
-                if walk_block(body, &mut path, loop_base, out) == Flow::FallsThrough {
+                if walk_block(body, &mut path, ctx, out) == Flow::FallsThrough {
                     any_fallthrough = true;
                     joined = Some(join(joined, path));
                 }
@@ -167,17 +200,15 @@ fn walk_expr(e: &Expr, owed: &mut Owed, loop_base: Option<&Owed>, out: &mut Vec<
             match otherwise {
                 Some(body) => {
                     let mut path = owed.clone();
-                    if walk_block(body, &mut path, loop_base, out) == Flow::FallsThrough {
+                    if walk_block(body, &mut path, ctx, out) == Flow::FallsThrough {
                         any_fallthrough = true;
                         joined = Some(join(joined, path));
                     }
                 }
                 None => {
-                    // No `otherwise`: the subject may skip every arm, so the
-                    // pre-branch set survives on that implicit path — except
-                    // that falling past a positive arm-test (`x is arm k`)
-                    // proves `x` is not in that arm, discharging `x`'s
-                    // obligation on it [ir-obligation].
+                    // No `otherwise`: the subject may skip every arm. Falling
+                    // past a positive arm-test (`x is arm k`) proves `x` is not
+                    // in that arm, discharging `x`'s obligation on it.
                     let mut path = owed.clone();
                     for (cond, _) in arms {
                         if let Some((subject, tested)) = positive_arm_test(cond) {
@@ -188,19 +219,16 @@ fn walk_expr(e: &Expr, owed: &mut Owed, loop_base: Option<&Owed>, out: &mut Vec<
                     joined = Some(join(joined, path));
                 }
             }
-            if any_fallthrough {
-                *owed = joined.unwrap_or_default();
-                Flow::FallsThrough
-            } else {
-                Flow::Leaves
-            }
+            *owed = joined.unwrap_or_default();
+            if any_fallthrough { Flow::FallsThrough } else { Flow::Leaves }
         }
         ExprKind::Switch { subject, arms, .. } => {
+            if walk_expr(subject, owed, ctx, out) == Flow::Leaves {
+                return Flow::Leaves;
+            }
             // [ir-obligation] A switch dispatches on its subject: the subject's
-            // obligation is distributed to the per-arm narrows (each arm either
-            // narrows-and-handles its arm or proves the subject absent there),
-            // so it leaves the outstanding set on entry. A narrowed binding
-            // that an arm then drops is still caught inside that arm.
+            // obligation is distributed to the per-arm narrows, so it leaves
+            // the set on entry. A narrowed binding an arm drops is still caught.
             let mut base = owed.clone();
             if let ExprKind::Read { place, .. } = &subject.kind {
                 base.remove(&place_key(place));
@@ -209,22 +237,114 @@ fn walk_expr(e: &Expr, owed: &mut Owed, loop_base: Option<&Owed>, out: &mut Vec<
             let mut any_fallthrough = false;
             for arm in arms {
                 let mut path = base.clone();
-                if walk_block(&arm.body, &mut path, loop_base, out) == Flow::FallsThrough {
+                if walk_block(&arm.body, &mut path, ctx, out) == Flow::FallsThrough {
                     any_fallthrough = true;
                     joined = Some(join(joined, path));
                 }
             }
-            if any_fallthrough {
-                *owed = joined.unwrap_or_default();
-                Flow::FallsThrough
-            } else {
-                Flow::Leaves
+            *owed = joined.unwrap_or_default();
+            if any_fallthrough { Flow::FallsThrough } else { Flow::Leaves }
+        }
+        ExprKind::Try { body } => {
+            // A `try` catches throws: inside it, a throwing call is not a fn
+            // leave. The body's own value flows out.
+            let inner = Ctx { throws: ctx.throws, loop_base: ctx.loop_base, in_try: true };
+            walk_block(body, owed, &inner, out)
+        }
+        _ => {
+            // Evaluate operands left-to-right; any that leaves stops the rest.
+            let mut flow = Flow::FallsThrough;
+            each_operand(e, &mut |sub| {
+                if flow == Flow::FallsThrough && walk_expr(sub, owed, ctx, out) == Flow::Leaves {
+                    flow = Flow::Leaves;
+                }
+            });
+            if flow == Flow::Leaves {
+                return Flow::Leaves;
+            }
+            // The throw edge of a call to a `throws` fn: control may leave the
+            // fn here (unless a `try` catches it), so the set must be empty.
+            if !ctx.in_try {
+                if let ExprKind::Call { target: FnRef::Decl(id), .. } = &e.kind {
+                    if ctx.throws.get(id).copied().unwrap_or(false) {
+                        report_all_msg(owed, out, e.span, "across a call that may throw");
+                    }
+                }
+            }
+            // A `throw` leaves the fn with the error propagating, so nothing
+            // may be outstanding — the same rule as `return`. Other
+            // `Never`-typed expressions (an `unreachable` trap, a diverging
+            // call like `exit_process`) *terminate* the path rather than
+            // propagate out of it: control never continues, there is no "after"
+            // to leak into, so they end the path without a discharge
+            // requirement.
+            if matches!(e.kind, ExprKind::Throw { .. }) {
+                report_all(owed, out, e.span);
+                return Flow::Leaves;
+            }
+            if e.ty == Ty::Never {
+                return Flow::Leaves;
+            }
+            Flow::FallsThrough
+        }
+    }
+}
+
+/// Visit the immediate operand expressions of `e` in evaluation order (not
+/// descending into branch/switch/try, which `walk_expr` handles, nor into
+/// lambda bodies, which are their own fns).
+fn each_operand(e: &Expr, f: &mut impl FnMut(&Expr)) {
+    match &e.kind {
+        ExprKind::Call { args, .. } | ExprKind::Op { args, .. } | ExprKind::Tuple(args) | ExprKind::List(args) | ExprKind::Array(args) | ExprKind::Concat(args) => {
+            for a in args {
+                f(a);
             }
         }
-        // Other expression forms do not themselves fork or leave in a way the
-        // ledger needs: their consuming reads were turned into Release
-        // directives at the enclosing statement.
-        _ => Flow::FallsThrough,
+        ExprKind::MemberCall { instance, args, .. } | ExprKind::HandlerCall { instance, args, .. } => {
+            f(instance);
+            for a in args {
+                f(a);
+            }
+        }
+        ExprKind::Construct { fields } => {
+            for (_, v) in fields {
+                f(v);
+            }
+        }
+        ExprKind::Send { addr, args, .. } => {
+            f(addr);
+            for a in args {
+                f(a);
+            }
+        }
+        ExprKind::SelfSend { args, .. } => {
+            for a in args {
+                f(a);
+            }
+        }
+        ExprKind::ReplyTo { captures, .. } => {
+            for c in captures {
+                f(c);
+            }
+        }
+        ExprKind::Spawn { handler, deps, .. } => {
+            f(handler);
+            for d in deps {
+                f(d);
+            }
+        }
+        ExprKind::MakeUnion { value, .. }
+        | ExprKind::Rewrap { value, .. }
+        | ExprKind::DropMut { value }
+        | ExprKind::Present { value }
+        | ExprKind::BorrowAs { value, .. }
+        | ExprKind::Widen { value }
+        | ExprKind::Spread { value }
+        | ExprKind::UnionToStr { value, .. }
+        | ExprKind::AddrInstance { addr: value }
+        | ExprKind::Handle { instance: value }
+        | ExprKind::Throw { message: value } => f(value),
+        _ => {}
     }
 }
 
@@ -292,7 +412,17 @@ fn join(a: Option<Owed>, b: Owed) -> Owed {
 
 fn report_all(owed: &Owed, out: &mut Vec<IrDiagnostic>, _at: Span) {
     for (place, o) in owed {
-        report_one(place, o, out);
+        report_one(place, o, out, "when the path leaves");
+    }
+}
+
+/// Report every outstanding obligation at a conditional leave (a throwing
+/// call), with a context phrase (e.g. "across a call that may throw"). The
+/// obligation stays owed on the normal (non-throw) path, so the caller does
+/// not clear the set.
+fn report_all_msg(owed: &Owed, out: &mut Vec<IrDiagnostic>, _at: Span, context: &str) {
+    for (place, o) in owed {
+        report_one(place, o, out, context);
     }
 }
 
@@ -303,18 +433,18 @@ fn report_since(owed: &Owed, base: Option<&Owed>, out: &mut Vec<IrDiagnostic>, _
     for (place, o) in owed {
         let inherited = base.is_some_and(|b| b.contains_key(place));
         if !inherited {
-            report_one(place, o, out);
+            report_one(place, o, out, "when the path leaves");
         }
     }
 }
 
-fn report_one(place: &str, o: &Outstanding, out: &mut Vec<IrDiagnostic>) {
+fn report_one(place: &str, o: &Outstanding, out: &mut Vec<IrDiagnostic>, context: &str) {
     let what = match &o.arms {
         Some(arms) if !arms.is_empty() => {
             let a: Vec<String> = arms.iter().map(|i| format!("arm {i}")).collect();
-            format!("`{place}` still owns a linear value ({}) when the path leaves", a.join(", "))
+            format!("`{place}` still owns a linear value ({}) {context}", a.join(", "))
         }
-        _ => format!("`{place}` still owns a linear value when the path leaves"),
+        _ => format!("`{place}` still owns a linear value {context}"),
     };
     out.push(IrDiagnostic {
         span: o.span,

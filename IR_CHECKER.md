@@ -268,6 +268,66 @@ new decision is needed from the user. Spec labels to add as they land:
 
 ## Decision log (this doc)
 
+- **2026-10-12 — Phase 2 step (1) done: the IR check leaves on `Never`, which
+  subsumes the throw path (user model).** The user's framing: `return`,
+  `break`, `continue`, `throw`, and a diverging call all produce `Never`, so
+  "control leaves here, nothing may be outstanding" is one invariant, not five
+  special cases. Rebuilt `ir::check` around it:
+  - A `throw` (and the `return`/`break`/`continue` statements) is a
+    **propagating** leave: the outstanding set must be empty for the
+    destination scope (whole set at a fn leave; only loop-gained at a
+    `break`/`continue`).
+  - An **`unreachable` trap** and a **diverging call** (`exit_process`, a
+    `-> Never` fn that terminates) are **terminal**: control never continues,
+    there is no "after" to leak into, so they end the path with no discharge
+    requirement.
+  - A call to a **`throws` fn** is a **conditional** leave: on the throw edge
+    the set must be empty (reported as "across a call that may throw"), on the
+    normal edge evaluation continues. A `try` body catches throws, so inside it
+    a throwing call is not a fn leave (`Ctx.in_try`).
+  This closed the one flow false-negative (the throw path) as a consequence of
+  the model, not a bolt-on. Still **zero false positives** on std+examples; the
+  dropped-arm (#2) and throw-path cases are both caught. Tests in
+  `ir_linear_tests.rs` (3 now). Steps (2) oracle + (3) gate/delete next.
+
+- **2026-10-12 — Phase 2 scope finding: "linear enforcement" on the AST side
+  is ~15–20 distinct checks, not one; moving *all* of it is a large,
+  heterogeneous project. Recommend narrowing Phase 2 to the flow/obligation
+  check only.** Starting Phase 2 (wire the gate + delete AST enforcement), the
+  oracle step surfaced that the AST checker's linear diagnostics are many and
+  varied, and only one of them is the per-path "obligation outstanding at exit"
+  check the IR models today. Enumerated from the linear test assertions:
+  - **Flow/obligation (what the IR check already does):** a value still owed at
+    a path exit (`still owns a linear value`), including `break`/`continue` and
+    fall-through.
+  - **Throw paths (flow, but the IR check does NOT model yet):** `across a call
+    that may throw` — a call to a `throws` fn is an implicit exit; any obligation
+    outstanding there leaks on the throw path. The IR has the data
+    (`FnDecl.throws` on the callee, `ExprKind::Try` for the catch scope) but the
+    check does not consult it. **This is a false negative** — the IR check would
+    miss it today.
+  - **Not flow at all** — structural/typing checks done during AST checking:
+    `discard cannot drop a linear value` (discard-site); `[linear-composite]`
+    storage refusals (struct field, tuple component, array element, type
+    argument); `cannot instantiate generic parameter T … with linear type`;
+    `no discharger` / `declare linear struct` (declaration-site); `alias cannot
+    be linear`; `all-or-none` decomposition; `cannot be given away`.
+
+  **Implication:** moving *all* linear enforcement onto the IR is far larger
+  than the per-path check suggested, and several of those checks are a poor fit
+  for an IR flow pass — they are AST-shape or type-system checks the checker is
+  the right place for; reimplementing them on the IR would be re-deriving, not
+  simplifying.
+
+  **Recommendation (awaiting user call):** scope Phase 2 to the **flow
+  obligation check only**. (1) add throw-path modeling to the IR check; (2)
+  prove via an oracle that the IR check fires on every AST "still owns … at
+  exit" / "across a call that may throw" case; (3) wire the gate (D4a) for those
+  diagnostics and delete *only* the AST path-exit/throw enforcement
+  (`check_linear_frame_drop`, `check_linear_exit`, `check_linear_throw`,
+  `linear_settled`), leaving the structural/typing linear checks in `check.rs`.
+  Defer any further migration to a later, separately-scoped phase.
+
 - **2026-10-12 — Phase 1 status: directives + per-path check built; the check
   is NOT yet sound enough to gate (needs the Phase 2 flow work).** The
   `Obligation` directive, the shared `crate::linear` predicate, the
