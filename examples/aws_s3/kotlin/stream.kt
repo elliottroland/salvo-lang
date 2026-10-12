@@ -48,7 +48,9 @@ fun toStr(kind: Union2<InvalidUtf8, StreamFailed>): String {
             val kind_2: StreamFailed = ((kind as Union2.U2<*, *>).value as StreamFailed)
             return "stream failed: ${kind_2.source}: ${kind_2.message}"
         }
-        else -> throw IllegalStateException("salvo: unreachable arm")
+        else -> {
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at stream:51:5"))
+        }
     }
 }
 
@@ -213,7 +215,9 @@ fun pipeStep(streams: Streams, to: OutStream, done: salvo.SalvoReply, moved: Lon
                     val closed_5: salvo.core.checked.Checked<Union2<InvalidUtf8, StreamFailed>> = ((closed as Union2.U2<*, *>).value as salvo.core.checked.Checked<Union2<InvalidUtf8, StreamFailed>>)
                     salvo.SalvoSched.replyWire(done, Union2.U2<Long, salvo.core.checked.Checked<Union2<InvalidUtf8, StreamFailed>>>(closed_5), salvo.Union2Codec(salvo.LongCodec, salvo.core.checked.__Codec_Checked(salvo.Union2Codec(__Codec_InvalidUtf8, __Codec_StreamFailed))))
                 }
-                else -> throw IllegalStateException("salvo: unreachable arm")
+                else -> {
+                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at stream:185:13"))
+                }
             }
         }
         (got is Union3.U3<*, *, *>) -> {
@@ -227,11 +231,15 @@ fun pipeStep(streams: Streams, to: OutStream, done: salvo.SalvoReply, moved: Lon
                     val closed_8: salvo.core.checked.Checked<Union2<InvalidUtf8, StreamFailed>> = ((closed as Union2.U2<*, *>).value as salvo.core.checked.Checked<Union2<InvalidUtf8, StreamFailed>>)
                     salvo.core.checked.ignore(closed_8)
                 }
-                else -> throw IllegalStateException("salvo: unreachable arm")
+                else -> {
+                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at stream:192:13"))
+                }
             }
             salvo.SalvoSched.replyWire(done, Union2.U2<Long, salvo.core.checked.Checked<Union2<InvalidUtf8, StreamFailed>>>(got_6), salvo.Union2Codec(salvo.LongCodec, salvo.core.checked.__Codec_Checked(salvo.Union2Codec(__Codec_InvalidUtf8, __Codec_StreamFailed))))
         }
-        else -> throw IllegalStateException("salvo: unreachable arm")
+        else -> {
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at stream:177:5"))
+        }
     }
 }
 
@@ -253,7 +261,9 @@ fun next__Lines(streams: Streams, p: Lines): Union2<String, salvo.core.iterator.
         (line == null) -> {
             return Union2.U2<String, salvo.core.iterator.Finished>(salvo.core.iterator.finished())
         }
-        else -> throw IllegalStateException("salvo: unreachable arm")
+        else -> {
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at stream:221:5"))
+        }
     }
 }
 
@@ -373,7 +383,9 @@ fun readInt(streams: Streams, s: InStream): Union3<Int, End, salvo.core.checked.
             val r_3: salvo.core.checked.Checked<Union2<InvalidUtf8, StreamFailed>> = ((r as Union3.U3<*, *, *>).value as salvo.core.checked.Checked<Union2<InvalidUtf8, StreamFailed>>)
             return Union3.U3<Int, End, salvo.core.checked.Checked<Union2<InvalidUtf8, StreamFailed>>>(r_3)
         }
-        else -> throw IllegalStateException("salvo: unreachable arm")
+        else -> {
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at stream:362:5"))
+        }
     }
 }
 

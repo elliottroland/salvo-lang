@@ -198,9 +198,11 @@ pub fn host_received(mut reply: crate::scheduler::SalvoReply, mut handle: i64, m
     } else if matches!(got, crate::unions::Union3::U2(_)) {
         let mut got_2 = match &got { crate::unions::Union3::U2(__v) => __v, _ => unreachable!() };
         (reply).send(std::boxed::Box::<crate::unions::Union3<crate::stream::Packet, crate::stream::End, crate::core_checked::Checked<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>>>::new(crate::unions::Union3::U2(got_2.clone())));
-    } else {
+    } else if matches!(got, crate::unions::Union3::U3(_)) {
         let mut got_3 = match got { crate::unions::Union3::U3(__v) => __v, _ => unreachable!() };
         (reply).send(std::boxed::Box::<crate::unions::Union3<crate::stream::Packet, crate::stream::End, crate::core_checked::Checked<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>>>::new(crate::unions::Union3::U3(crate::core_result::err::<crate::core_checked::Checked<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>>(crate::core_checked::checked::<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>(got_3)))));
+    } else {
+        panic!("salvo: unhandled union arm at stream.host:71:5");
     };
 }
 
@@ -402,9 +404,11 @@ impl crate::stream::__Stateless_Streams for DefaultStreams {
         return if matches!(r, crate::unions::Union2::U1(_)) {
             let mut r_1 = match r { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
             return crate::unions::Union2::U1(crate::core_result::ok::<String>(r_1));
-        } else {
+        } else if matches!(r, crate::unions::Union2::U2(_)) {
             let mut r_2 = match r { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
             return crate::unions::Union2::U2(crate::core_result::err::<crate::core_checked::Checked<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>>(crate::core_checked::checked::<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>(r_2)));
+        } else {
+            panic!("salvo: unhandled union arm at stream.host:264:9");
         };
     }
     fn read_bytes(&self, s: &crate::stream::InStream, max: i32) -> crate::unions::Union2<crate::core_bytes::Bytes, crate::core_checked::Checked<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>> {
@@ -412,9 +416,11 @@ impl crate::stream::__Stateless_Streams for DefaultStreams {
         return if matches!(r, crate::unions::Union2::U1(_)) {
             let mut r_1 = match r { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
             return crate::unions::Union2::U1(crate::core_result::ok::<crate::core_bytes::Bytes>(r_1));
-        } else {
+        } else if matches!(r, crate::unions::Union2::U2(_)) {
             let mut r_2 = match r { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
             return crate::unions::Union2::U2(crate::core_result::err::<crate::core_checked::Checked<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>>(crate::core_checked::checked::<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>(r_2)));
+        } else {
+            panic!("salvo: unhandled union arm at stream.host:272:9");
         };
     }
     fn read_to__InStream_Bytes_Int(&self, s: &crate::stream::InStream, buf: &mut crate::core_bytes::Bytes, max: i32) -> crate::unions::Union2<i32, crate::core_checked::Checked<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>> {
@@ -422,9 +428,11 @@ impl crate::stream::__Stateless_Streams for DefaultStreams {
         return if matches!(r, crate::unions::Union2::U1(_)) {
             let mut r_1 = match &r { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
             return crate::unions::Union2::U1(crate::core_result::ok::<i32>(r_1));
-        } else {
+        } else if matches!(r, crate::unions::Union2::U2(_)) {
             let mut r_2 = match r { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
             return crate::unions::Union2::U2(crate::core_result::err::<crate::core_checked::Checked<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>>(crate::core_checked::checked::<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>(r_2)));
+        } else {
+            panic!("salvo: unhandled union arm at stream.host:280:9");
         };
     }
     fn read_to__InStream_Str(&self, s: &crate::stream::InStream, buf: &mut String) -> crate::unions::Union2<i64, crate::core_checked::Checked<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>> {
@@ -432,9 +440,11 @@ impl crate::stream::__Stateless_Streams for DefaultStreams {
         return if matches!(r, crate::unions::Union2::U1(_)) {
             let mut r_1 = match &r { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
             return crate::unions::Union2::U1(crate::core_result::ok::<i64>(r_1));
-        } else {
+        } else if matches!(r, crate::unions::Union2::U2(_)) {
             let mut r_2 = match r { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
             return crate::unions::Union2::U2(crate::core_result::err::<crate::core_checked::Checked<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>>(crate::core_checked::checked::<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>(r_2)));
+        } else {
+            panic!("salvo: unhandled union arm at stream.host:288:9");
         };
     }
     fn read_line_to(&self, s: &crate::stream::InStream, buf: &mut String) -> bool {
@@ -449,9 +459,11 @@ impl crate::stream::__Stateless_Streams for DefaultStreams {
         return if matches!(r, crate::unions::Union2::U1(_)) {
             let mut r_1 = match &r { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
             return crate::unions::Union2::U1(crate::core_result::ok::<()>(()));
-        } else {
+        } else if matches!(r, crate::unions::Union2::U2(_)) {
             let mut r_2 = match r { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
             return crate::unions::Union2::U2(crate::core_result::err::<crate::core_checked::Checked<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>>(crate::core_checked::checked::<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>(r_2)));
+        } else {
+            panic!("salvo: unhandled union arm at stream.host:305:9");
         };
     }
     fn write(&self, s: &crate::stream::OutStream, text: &String) -> i64 {
@@ -471,9 +483,11 @@ impl crate::stream::__Stateless_Streams for DefaultStreams {
         return if matches!(r, crate::unions::Union2::U1(_)) {
             let mut r_1 = match &r { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
             return crate::unions::Union2::U1(crate::core_result::ok::<()>(()));
-        } else {
+        } else if matches!(r, crate::unions::Union2::U2(_)) {
             let mut r_2 = match r { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
             return crate::unions::Union2::U2(crate::core_result::err::<crate::core_checked::Checked<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>>(crate::core_checked::checked::<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>(r_2)));
+        } else {
+            panic!("salvo: unhandled union arm at stream.host:342:9");
         };
     }
     fn close__OutStream(&self, s: crate::stream::OutStream) -> crate::unions::Union2<(), crate::core_checked::Checked<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>> {
@@ -482,9 +496,11 @@ impl crate::stream::__Stateless_Streams for DefaultStreams {
         return if matches!(r, crate::unions::Union2::U1(_)) {
             let mut r_1 = match &r { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
             return crate::unions::Union2::U1(crate::core_result::ok::<()>(()));
-        } else {
+        } else if matches!(r, crate::unions::Union2::U2(_)) {
             let mut r_2 = match r { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
             return crate::unions::Union2::U2(crate::core_result::err::<crate::core_checked::Checked<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>>(crate::core_checked::checked::<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>(r_2)));
+        } else {
+            panic!("salvo: unhandled union arm at stream.host:351:9");
         };
     }
     fn receive(&self, s: crate::stream::InStream, reply: crate::scheduler::SalvoReply) {

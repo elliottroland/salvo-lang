@@ -155,10 +155,12 @@ pub fn size_of(fs: &crate::fs::Fs, streams: &crate::stream::Streams, path: &crat
     return if matches!(info, crate::unions::Union2::U1(_)) {
         let mut info_1 = match &info { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
         return Some(info_1.size);
-    } else {
+    } else if matches!(info, crate::unions::Union2::U2(_)) {
         let mut info_2 = match info { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
         crate::core_checked::ignore::<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>(info_2);
         return None;
+    } else {
+        panic!("salvo: unhandled union arm at main:37:5");
     };
 }
 
@@ -187,9 +189,11 @@ pub fn upload(s3: &crate::aws_s3::S3, fs: &crate::fs::Fs, console: &crate::core_
                 String::from("?")
             }
         }));
-    } else {
+    } else if matches!(put, crate::unions::Union2::U2(_)) {
         let mut put_7 = match put { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
         crate::core_console::println(console, &format!("put {}: {}", key, crate::describe((&(crate::core_checked::detach::<crate::unions::Union2<crate::aws_s3::S3Error, crate::aws::AwsError>>(put_7))).as_ref())));
+    } else {
+        panic!("salvo: unhandled union arm at main:58:5");
     };
 }
 
@@ -239,9 +243,11 @@ pub fn download(s3: &crate::aws_s3::S3, fs: &crate::fs::Fs, console: &crate::cor
     if matches!(copied, crate::unions::Union2::U1(_)) {
         let mut copied_10 = match &copied { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
         crate::core_console::println(console, &format!("piped {} bytes into {}", copied_10, crate::fs_path::to_str(path)));
-    } else {
+    } else if matches!(copied, crate::unions::Union2::U2(_)) {
         let mut copied_11 = match copied { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
         crate::core_console::println(console, &format!("pipe: {}", crate::stream::to_str((&(crate::core_checked::detach::<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>(copied_11))).as_ref())));
+    } else {
+        panic!("salvo: unhandled union arm at main:88:5");
     };
 }
 
@@ -253,9 +259,11 @@ pub fn round_trip(s3: &crate::aws_s3::S3, fs: &crate::fs::Fs, console: &crate::c
         let mut back_1 = match &back { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
         crate::core_console::println(console, &format!("back.txt: {} bytes", crate::core_string::size_platform(back_1)));
         console.print(back_1);
-    } else {
+    } else if matches!(back, crate::unions::Union2::U2(_)) {
         let mut back_2 = match back { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
         crate::core_console::println(console, &format!("back.txt: {}", crate::fs::to_str((&(crate::core_checked::detach::<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>(back_2))).as_ref())));
+    } else {
+        panic!("salvo: unhandled union arm at main:99:5");
     };
 }
 

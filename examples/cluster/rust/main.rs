@@ -813,7 +813,9 @@ impl Gathering {
             if out.is_some() {
                 let mut out_1 = out.unwrap();
                 crate::scheduler::salvo_reply_wire::<i32>(out_1, self.total);
+            } else if out.is_none() {
             } else {
+                panic!("salvo: unhandled union arm at main:135:13");
             };
         };
     }
@@ -1024,8 +1026,10 @@ impl Racing {
         if out.is_some() {
             let mut out_1 = out.unwrap();
             crate::scheduler::salvo_reply_wire::<String>(out_1, answer);
-        } else {
+        } else if out.is_none() {
             std::mem::drop(answer);
+        } else {
+            panic!("salvo: unhandled union arm at main:169:9");
         };
     }
 }

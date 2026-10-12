@@ -1739,7 +1739,9 @@ fun main() {
             val verdict_26: String = ((verdict as Union2.U2<*, *>).value as String)
             salvo.core.console.println(__handle_2, "err: ${verdict_26}")
         }
-        else -> throw IllegalStateException("salvo: unreachable arm")
+        else -> {
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:87:5"))
+        }
     }
 }
 

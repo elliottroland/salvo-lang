@@ -416,8 +416,10 @@ impl crate::__Stateful_Desk for Desking {
         if next.is_some() {
             let mut next_1 = next.unwrap();
             crate::scheduler::salvo_reply_wire::<String>(next_1, format!("served {}", name));
-        } else {
+        } else if next.is_none() {
             std::mem::drop(name);
+        } else {
+            panic!("salvo: unhandled union arm at main:114:9");
         };
     }
     fn close_up(&mut self, reason: String) {

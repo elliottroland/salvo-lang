@@ -2065,9 +2065,11 @@ pub fn main() {
     if matches!(verdict, crate::unions::Union2::U1(_)) {
         let mut verdict_25 = match &verdict { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
         crate::core_console::println(&__handle_2, &format!("ok: {}", verdict_25));
-    } else {
+    } else if matches!(verdict, crate::unions::Union2::U2(_)) {
         let mut verdict_26 = match &verdict { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
         crate::core_console::println(&__handle_2, &format!("err: {}", verdict_26));
+    } else {
+        panic!("salvo: unhandled union arm at main:81:5");
     };
 }
 

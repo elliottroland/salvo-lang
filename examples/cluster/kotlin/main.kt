@@ -382,7 +382,9 @@ class Gathering : Gather {
                 }
                 (out == null) -> {
                 }
-                else -> throw IllegalStateException("salvo: unreachable arm")
+                else -> {
+                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:135:13"))
+                }
             }
         }
     }
@@ -512,7 +514,9 @@ class Racing : Race {
             (out == null) -> {
                 run { answer; Unit }
             }
-            else -> throw IllegalStateException("salvo: unreachable arm")
+            else -> {
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:169:9"))
+            }
         }
     }
 }

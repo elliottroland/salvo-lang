@@ -168,7 +168,9 @@ class DefaultFs(private val __dep0: RawFs, private val __dep1: salvo.stream.Stre
                 val r_2: Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming> = ((r as Union2.U2<*, *>).value as Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>)
                 return Union2.U2<salvo.stream.InStream, salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>>(salvo.core.result.err(salvo.core.checked.checked(r_2)))
             }
-            else -> throw IllegalStateException("salvo: unreachable arm")
+            else -> {
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at fs.host:62:9"))
+            }
         }
     }
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
@@ -184,7 +186,9 @@ class DefaultFs(private val __dep0: RawFs, private val __dep1: salvo.stream.Stre
                 val r_2: Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming> = ((r as Union2.U2<*, *>).value as Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>)
                 return Union2.U2<salvo.stream.InStream, salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>>(salvo.core.result.err(salvo.core.checked.checked(r_2)))
             }
-            else -> throw IllegalStateException("salvo: unreachable arm")
+            else -> {
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at fs.host:71:9"))
+            }
         }
     }
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
@@ -200,7 +204,9 @@ class DefaultFs(private val __dep0: RawFs, private val __dep1: salvo.stream.Stre
                 val r_2: Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming> = ((r as Union2.U2<*, *>).value as Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>)
                 return Union2.U2<salvo.stream.OutStream, salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>>(salvo.core.result.err(salvo.core.checked.checked(r_2)))
             }
-            else -> throw IllegalStateException("salvo: unreachable arm")
+            else -> {
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at fs.host:80:9"))
+            }
         }
     }
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
@@ -216,7 +222,9 @@ class DefaultFs(private val __dep0: RawFs, private val __dep1: salvo.stream.Stre
                 val r_2: Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming> = ((r as Union2.U2<*, *>).value as Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>)
                 return Union2.U2<salvo.stream.OutStream, salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>>(salvo.core.result.err(salvo.core.checked.checked(r_2)))
             }
-            else -> throw IllegalStateException("salvo: unreachable arm")
+            else -> {
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at fs.host:89:9"))
+            }
         }
     }
     override fun exists(path: salvo.fs.path.Path): Boolean {
@@ -236,7 +244,9 @@ class DefaultFs(private val __dep0: RawFs, private val __dep1: salvo.stream.Stre
                 val r_2: Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming> = ((r as Union2.U2<*, *>).value as Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>)
                 return Union2.U2<salvo.fs.FileInfo, salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>>(salvo.core.result.err(salvo.core.checked.checked(r_2)))
             }
-            else -> throw IllegalStateException("salvo: unreachable arm")
+            else -> {
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at fs.host:103:9"))
+            }
         }
     }
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
@@ -252,7 +262,9 @@ class DefaultFs(private val __dep0: RawFs, private val __dep1: salvo.stream.Stre
                 val r_2: Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming> = ((r as Union2.U2<*, *>).value as Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>)
                 return Union2.U2<List<String>, salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>>(salvo.core.result.err(salvo.core.checked.checked(r_2)))
             }
-            else -> throw IllegalStateException("salvo: unreachable arm")
+            else -> {
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at fs.host:112:9"))
+            }
         }
     }
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
@@ -268,7 +280,9 @@ class DefaultFs(private val __dep0: RawFs, private val __dep1: salvo.stream.Stre
                 val r_2: Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming> = ((r as Union2.U2<*, *>).value as Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>)
                 return Union2.U2<Unit, salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>>(salvo.core.result.err(salvo.core.checked.checked(r_2)))
             }
-            else -> throw IllegalStateException("salvo: unreachable arm")
+            else -> {
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at fs.host:121:9"))
+            }
         }
     }
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
@@ -284,7 +298,9 @@ class DefaultFs(private val __dep0: RawFs, private val __dep1: salvo.stream.Stre
                 val r_2: Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming> = ((r as Union2.U2<*, *>).value as Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>)
                 return Union2.U2<Unit, salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>>(salvo.core.result.err(salvo.core.checked.checked(r_2)))
             }
-            else -> throw IllegalStateException("salvo: unreachable arm")
+            else -> {
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at fs.host:130:9"))
+            }
         }
     }
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
@@ -301,7 +317,9 @@ class DefaultFs(private val __dep0: RawFs, private val __dep1: salvo.stream.Stre
                 val r_2: Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming> = ((r as Union2.U2<*, *>).value as Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>)
                 return Union2.U2<Unit, salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>>(salvo.core.result.err(salvo.core.checked.checked(r_2)))
             }
-            else -> throw IllegalStateException("salvo: unreachable arm")
+            else -> {
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at fs.host:140:9"))
+            }
         }
     }
 }

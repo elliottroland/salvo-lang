@@ -130,7 +130,9 @@ pub fn a_queue_of_tickets(console: &crate::core_console::Console) {
     if first.is_some() {
         let mut first_1 = first.unwrap();
         crate::redeem(console, first_1);
+    } else if first.is_none() {
     } else {
+        panic!("salvo: unhandled union arm at main:136:5");
     };
     loop {
         let mut __subject_2: Option<crate::Ticket> = crate::core_deque::remove_first_platform::<crate::Ticket>(&mut queue);

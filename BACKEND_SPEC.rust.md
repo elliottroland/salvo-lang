@@ -1020,9 +1020,16 @@ the blanket rule:
     — with `None => None` when both sides are nullable.
 * [when-union-subject] `when` over a subject lowers to the `if`/`else if`
   chain of its arms' tests, each branch opening with its narrowing binding as
-  above; the last arm is the `else`, since the checker proved the arms
-  exhaustive [when-exhaustive]. `if` is an expression, so `when`-as-value
-  needs no extra lowering (`let mut w: i32 = if matches!(v, …) { … 1i32 } else if … { … } else { 4i32 };`).
+  above. An exhaustive Salvo `when` with no written `else` arrives from the
+  IR with an explicit `Else` arm ([ir-switch], an `Unreachable` trap), so
+  every real arm gets its own `matches!` test and the chain ends in
+  `else { panic!("salvo: unhandled union arm at …") }` [when-exhaustive];
+  the trap is dead (the checker proved the arms total) but makes the
+  exhaustiveness explicit rather than leaving the final arm an untested
+  `else`. `if` is an expression, so `when`-as-value needs no extra lowering
+  (`let mut w: i32 = if matches!(v, …) { … 1i32 } else if … { … } else { panic!(…) };`).
+  The emitter's own `else { unreachable!() }` fallback remains only for a
+  future else-less value-switch the IR does not close.
 
 ## Control flow
 

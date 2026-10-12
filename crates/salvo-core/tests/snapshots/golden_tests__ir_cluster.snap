@@ -121,6 +121,9 @@ impl Gathering() of Gather stateful {
         }
         arm#1 (none) {
         }
+        arm#2 (else) {
+          unreachable("unhandled union arm") at main:135:13
+        }
       }
     }
   }
@@ -166,6 +169,9 @@ impl Racing() of Race stateful {
       }
       arm#1 (none) {
         call core.basic::discard<Str>(!read answer)
+      }
+      arm#2 (else) {
+        unreachable("unhandled union arm") at main:169:9
       }
     }
   }

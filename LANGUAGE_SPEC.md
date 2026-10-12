@@ -2247,6 +2247,15 @@ Conventions:
   arms are consumed sequentially (each branch matches what previous
   branches left), and a branch that can match nothing is an error. A
   `None` arm is handled via the subject's nullability.
+  * **The exhaustiveness verdict is an IR fact, not re-derived per
+    backend** (2026-10-12). When the arms cover every runtime arm and no
+    branch wrote an `else`, the IR builder gives the `Switch` an explicit
+    `Else` arm whose body is an `Unreachable` trap [ir-switch]
+    [assert-trap], so "the fallthrough is dead" is carried in the IR
+    rather than each emitter synthesizing its own unreachable `else`
+    (`panic!` on Rust, `throw` on Kotlin). The checker records the verdict
+    (`Checked::when_exhaustive`, keyed by the `when`'s span) and the
+    builder reads it.
 * [when-condition] `when` is **always exhaustive**, and a *subject-less*
   `when` is the second way it can be: `when { cond { … } … else { … } }`,
   a condition chain whose `else` is **mandatory** (user decision
@@ -9482,7 +9491,9 @@ replaced the working document TESTING.md).
   optional else. `if`/`elif`/`else` and a subjectless `when` lower to it.
 * [ir-switch] `Switch` chooses on the arms of a subject union; each arm
   tests `Arm`, `Arms`, `None`, `Lit` or `Else`. `when x`, `?:`, `!` and
-  `?.` lower to it.
+  `?.` lower to it. An exhaustive `when` with no written `else` carries an
+  explicit `Else` arm trapping as `Unreachable`, so the dead fallthrough is
+  in the IR rather than re-derived by a backend [when-exhaustive].
 * [ir-test] `Test` is `subject is …` used as a `Bool` condition.
 * [ir-narrow] Narrowing is a `Narrow` statement: a new local at the narrower
   type, read from the subject's place, with a `Justification` naming the

@@ -124,7 +124,9 @@ fun toStr(kind: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory,
             val kind_7: Streaming = ((kind as Union7.U7<*, *, *, *, *, *, *>).value as Streaming)
             return salvo.stream.toStr(kind_7.error)
         }
-        else -> throw IllegalStateException("salvo: unreachable arm")
+        else -> {
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at fs:66:5"))
+        }
     }
 }
 

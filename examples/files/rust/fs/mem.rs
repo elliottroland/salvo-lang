@@ -271,8 +271,10 @@ impl crate::stream::__Stateful_Streams for MemFs {
             let mut line_1 = line.as_ref().unwrap();
             crate::core_string::append_platform(&mut *buf, line_1);
             return true;
-        } else {
+        } else if line.is_none() {
             return false;
+        } else {
+            panic!("salvo: unhandled union arm at fs.mem:217:9");
         };
     }
     fn position__InStream(&mut self, s: &crate::stream::InStream) -> i64 {

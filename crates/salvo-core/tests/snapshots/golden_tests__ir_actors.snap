@@ -65,6 +65,9 @@ impl Desking(lent room: Int) of Desk stateful {
       arm#1 (none) {
         call core.basic::discard<Str>(!read name)
       }
+      arm#2 (else) {
+        unreachable("unhandled union arm") at main:114:9
+      }
     }
   }
   fn close_up(lent reason: Str) -> None {

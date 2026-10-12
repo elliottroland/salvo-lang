@@ -64,7 +64,9 @@ fun roundTrip(sqs: salvo.aws.sqs.Sqs, console: salvo.core.console.Console, name:
             val sent_10: salvo.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>> = ((sent as Union2.U2<*, *>).value as salvo.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>>)
             salvo.core.console.println(console, "send_message: ${describe(salvo.core.checked.detach(sent_10))}")
         }
-        else -> throw IllegalStateException("salvo: unreachable arm")
+        else -> {
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:47:5"))
+        }
     }
     val got: Union2<salvo.aws.sqs.ReceiveMessageOutput, salvo.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>>> = run {
         val (r, __wid) = salvo.SalvoSched.waiter()
@@ -101,7 +103,9 @@ fun roundTrip(sqs: salvo.aws.sqs.Sqs, console: salvo.core.console.Console, name:
             val got_18: salvo.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>> = ((got as Union2.U2<*, *>).value as salvo.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>>)
             salvo.core.console.println(console, "receive_message: ${describe(salvo.core.checked.detach(got_18))}")
         }
-        else -> throw IllegalStateException("salvo: unreachable arm")
+        else -> {
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:55:5"))
+        }
     }
     val gone: Union2<Unit, salvo.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>>> = run {
         val (r, __wid) = salvo.SalvoSched.waiter()
@@ -118,7 +122,9 @@ fun roundTrip(sqs: salvo.aws.sqs.Sqs, console: salvo.core.console.Console, name:
             val gone_20: salvo.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>> = ((gone as Union2.U2<*, *>).value as salvo.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>>)
             salvo.core.console.println(console, "delete_queue: ${describe(salvo.core.checked.detach(gone_20))}")
         }
-        else -> throw IllegalStateException("salvo: unreachable arm")
+        else -> {
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:69:5"))
+        }
     }
 }
 
@@ -236,7 +242,9 @@ fun main() {
                 val missing_12: salvo.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>> = ((missing as Union2.U2<*, *>).value as salvo.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>>)
                 salvo.core.console.println(__handle_2, "get_queue_url: ${describe(salvo.core.checked.detach(missing_12))}")
             }
-            else -> throw IllegalStateException("salvo: unreachable arm")
+            else -> {
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:177:9"))
+            }
         }
     }
 }

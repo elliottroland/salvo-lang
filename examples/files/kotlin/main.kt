@@ -44,7 +44,9 @@ fun workflow(fs: salvo.fs.Fs, console: salvo.core.console.Console, streams: salv
             val wrote_2: salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> = ((wrote as Union2.U2<*, *>).value as salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>)
             salvo.core.console.println(console, "write failed: ${kindName__FsError(salvo.core.checked.detach(wrote_2))}")
         }
-        else -> throw IllegalStateException("salvo: unreachable arm")
+        else -> {
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:70:5"))
+        }
     }
     val text: Union2<String, salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>> = salvo.fs.readToStr(fs, streams, salvo.fs.path.path("notes.txt"))
     when {
@@ -56,7 +58,9 @@ fun workflow(fs: salvo.fs.Fs, console: salvo.core.console.Console, streams: salv
             val text_4: salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> = ((text as Union2.U2<*, *>).value as salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>)
             salvo.core.console.println(console, "read failed: ${kindName__FsError(salvo.core.checked.detach(text_4))}")
         }
-        else -> throw IllegalStateException("salvo: unreachable arm")
+        else -> {
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:75:5"))
+        }
     }
     val opened: Union2<salvo.stream.InStream, salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>> = fs.openRead(salvo.fs.path.path("notes.txt"))
     when {
@@ -86,7 +90,9 @@ fun workflow(fs: salvo.fs.Fs, console: salvo.core.console.Console, streams: salv
             val opened_10: salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> = ((opened as Union2.U2<*, *>).value as salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>)
             salvo.core.console.println(console, "open failed: ${kindName__FsError(salvo.core.checked.detach(opened_10))}")
         }
-        else -> throw IllegalStateException("salvo: unreachable arm")
+        else -> {
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:84:5"))
+        }
     }
     val out: Union2<salvo.stream.OutStream, salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>> = fs.openAppend(salvo.fs.path.path("notes.txt"))
     when {
@@ -115,7 +121,9 @@ fun workflow(fs: salvo.fs.Fs, console: salvo.core.console.Console, streams: salv
                         (line == null) -> {
                             salvo.core.console.println(console, "at ${at}: end of file")
                         }
-                        else -> throw IllegalStateException("salvo: unreachable arm")
+                        else -> {
+                            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:123:21"))
+                        }
                     }
                     val done: Union2<Unit, salvo.core.checked.Checked<Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>>> = streams.close__InStream(s)
                     if ((done is Union2.U2<*, *>)) {
@@ -127,14 +135,18 @@ fun workflow(fs: salvo.fs.Fs, console: salvo.core.console.Console, streams: salv
                     val resumed_16: salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> = ((resumed as Union2.U2<*, *>).value as salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>)
                     salvo.core.console.println(console, "reopen failed: ${kindName__FsError(salvo.core.checked.detach(resumed_16))}")
                 }
-                else -> throw IllegalStateException("salvo: unreachable arm")
+                else -> {
+                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:119:13"))
+                }
             }
         }
         (out is Union2.U2<*, *>) -> {
             val out_17: salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> = ((out as Union2.U2<*, *>).value as salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>)
             salvo.core.console.println(console, "append failed: ${kindName__FsError(salvo.core.checked.detach(out_17))}")
         }
-        else -> throw IllegalStateException("salvo: unreachable arm")
+        else -> {
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:102:5"))
+        }
     }
     val bin: Union2<salvo.stream.OutStream, salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>> = fs.openWrite(salvo.fs.path.path("raw.bin"))
     when {
@@ -155,7 +167,9 @@ fun workflow(fs: salvo.fs.Fs, console: salvo.core.console.Console, streams: salv
             val bin_20: salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> = ((bin as Union2.U2<*, *>).value as salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>)
             salvo.core.console.println(console, "raw open failed: ${kindName__FsError(salvo.core.checked.detach(bin_20))}")
         }
-        else -> throw IllegalStateException("salvo: unreachable arm")
+        else -> {
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:143:5"))
+        }
     }
     val raw: Union2<salvo.stream.InStream, salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>> = fs.openRead(salvo.fs.path.path("raw.bin"))
     when {
@@ -172,7 +186,9 @@ fun workflow(fs: salvo.fs.Fs, console: salvo.core.console.Console, streams: salv
                     val head_23: salvo.core.checked.Checked<Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>> = ((head as Union2.U2<*, *>).value as salvo.core.checked.Checked<Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>>)
                     salvo.core.console.println(console, "byte read failed: ${kindName__StreamError(salvo.core.checked.detach(head_23))}")
                 }
-                else -> throw IllegalStateException("salvo: unreachable arm")
+                else -> {
+                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:164:13"))
+                }
             }
             val tail: Union2<String, salvo.core.checked.Checked<Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>>> = streams.readAll(s)
             when {
@@ -184,7 +200,9 @@ fun workflow(fs: salvo.fs.Fs, console: salvo.core.console.Console, streams: salv
                     val tail_25: salvo.core.checked.Checked<Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>> = ((tail as Union2.U2<*, *>).value as salvo.core.checked.Checked<Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>>)
                     salvo.core.console.println(console, "decode failed: ${kindName__StreamError(salvo.core.checked.detach(tail_25))}")
                 }
-                else -> throw IllegalStateException("salvo: unreachable arm")
+                else -> {
+                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:171:13"))
+                }
             }
             val done: Union2<Unit, salvo.core.checked.Checked<Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>>> = streams.close__InStream(s)
             if ((done is Union2.U2<*, *>)) {
@@ -196,7 +214,9 @@ fun workflow(fs: salvo.fs.Fs, console: salvo.core.console.Console, streams: salv
             val raw_27: salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> = ((raw as Union2.U2<*, *>).value as salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>)
             salvo.core.console.println(console, "raw read failed: ${kindName__FsError(salvo.core.checked.detach(raw_27))}")
         }
-        else -> throw IllegalStateException("salvo: unreachable arm")
+        else -> {
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:160:5"))
+        }
     }
     val split: Union2<salvo.stream.InStream, salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>> = fs.openReadAt(salvo.fs.path.path("raw.bin"), 5L)
     when {
@@ -213,7 +233,9 @@ fun workflow(fs: salvo.fs.Fs, console: salvo.core.console.Console, streams: salv
                     val broken_30: salvo.core.checked.Checked<Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>> = ((broken as Union2.U2<*, *>).value as salvo.core.checked.Checked<Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>>)
                     salvo.core.console.println(console, "mid-character: ${kindName__StreamError(salvo.core.checked.detach(broken_30))}")
                 }
-                else -> throw IllegalStateException("salvo: unreachable arm")
+                else -> {
+                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:191:13"))
+                }
             }
             val done: Union2<Unit, salvo.core.checked.Checked<Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>>> = streams.close__InStream(s)
             when {
@@ -225,14 +247,18 @@ fun workflow(fs: salvo.fs.Fs, console: salvo.core.console.Console, streams: salv
                     val done_32: salvo.core.checked.Checked<Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>> = ((done as Union2.U2<*, *>).value as salvo.core.checked.Checked<Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>>)
                     salvo.core.console.println(console, "and again at close: ${kindName__StreamError(salvo.core.checked.detach(done_32))}")
                 }
-                else -> throw IllegalStateException("salvo: unreachable arm")
+                else -> {
+                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:196:13"))
+                }
             }
         }
         (split is Union2.U2<*, *>) -> {
             val split_33: salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> = ((split as Union2.U2<*, *>).value as salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>)
             salvo.core.console.println(console, "split open failed: ${kindName__FsError(salvo.core.checked.detach(split_33))}")
         }
-        else -> throw IllegalStateException("salvo: unreachable arm")
+        else -> {
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:187:5"))
+        }
     }
     val held: Union2<salvo.stream.InStream, salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>> = fs.openRead(salvo.fs.path.path("raw.bin"))
     when {
@@ -265,7 +291,9 @@ fun workflow(fs: salvo.fs.Fs, console: salvo.core.console.Console, streams: salv
                         salvo.core.console.println(console, "fill failed: ${kindName__StreamError(salvo.core.checked.detach(got_36))}")
                         reading = false
                     }
-                    else -> throw IllegalStateException("salvo: unreachable arm")
+                    else -> {
+                        throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:219:17"))
+                    }
                 }
             }
             salvo.core.console.println(console, "filled ${moved} bytes in ${steps} reads, one buffer")
@@ -279,7 +307,9 @@ fun workflow(fs: salvo.fs.Fs, console: salvo.core.console.Console, streams: salv
             val held_38: salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> = ((held as Union2.U2<*, *>).value as salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>)
             salvo.core.console.println(console, "fill open failed: ${kindName__FsError(salvo.core.checked.detach(held_38))}")
         }
-        else -> throw IllegalStateException("salvo: unreachable arm")
+        else -> {
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:209:5"))
+        }
     }
     val lined: Union2<salvo.stream.InStream, salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>> = fs.openRead(salvo.fs.path.path("notes.txt"))
     when {
@@ -313,7 +343,9 @@ fun workflow(fs: salvo.fs.Fs, console: salvo.core.console.Console, streams: salv
             val lined_41: salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> = ((lined as Union2.U2<*, *>).value as salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>)
             salvo.core.console.println(console, "lines open failed: ${kindName__FsError(salvo.core.checked.detach(lined_41))}")
         }
-        else -> throw IllegalStateException("salvo: unreachable arm")
+        else -> {
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:246:5"))
+        }
     }
     val ch: Union2<salvo.stream.Chunks, salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>> = salvo.fs.openChunks(fs, streams, salvo.fs.path.path("raw.bin"), 4)
     when {
@@ -345,7 +377,9 @@ fun workflow(fs: salvo.fs.Fs, console: salvo.core.console.Console, streams: salv
             val ch_47: salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> = ((ch as Union2.U2<*, *>).value as salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>)
             salvo.core.console.println(console, "chunks failed: ${kindName__FsError(salvo.core.checked.detach(ch_47))}")
         }
-        else -> throw IllegalStateException("salvo: unreachable arm")
+        else -> {
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:275:5"))
+        }
     }
     val copied: Union2<Long, salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>> = salvo.fs.copyFile(fs, streams, salvo.fs.path.path("notes.txt"), salvo.fs.path.path("notes-copy.txt"))
     when {
@@ -357,7 +391,9 @@ fun workflow(fs: salvo.fs.Fs, console: salvo.core.console.Console, streams: salv
             val copied_49: salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> = ((copied as Union2.U2<*, *>).value as salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>)
             salvo.core.console.println(console, "copy failed: ${kindName__FsError(salvo.core.checked.detach(copied_49))}")
         }
-        else -> throw IllegalStateException("salvo: unreachable arm")
+        else -> {
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:295:5"))
+        }
     }
     val whole: Union2<salvo.platform.core.bytes.Bytes, salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>> = salvo.fs.readToBytes(fs, streams, salvo.fs.path.path("raw.bin"))
     when {
@@ -369,7 +405,9 @@ fun workflow(fs: salvo.fs.Fs, console: salvo.core.console.Console, streams: salv
             val whole_51: salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> = ((whole as Union2.U2<*, *>).value as salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>)
             salvo.core.console.println(console, "byte read failed: ${kindName__FsError(salvo.core.checked.detach(whole_51))}")
         }
-        else -> throw IllegalStateException("salvo: unreachable arm")
+        else -> {
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:300:5"))
+        }
     }
     val failures: salvo.platform.core.list.MutList<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> = mutableListOf<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>()
     val missing: Union2<String, salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>> = salvo.fs.readToStr(fs, streams, salvo.fs.path.path("nope.txt"))
@@ -382,7 +420,9 @@ fun workflow(fs: salvo.fs.Fs, console: salvo.core.console.Console, streams: salv
             val missing_53: salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> = ((missing as Union2.U2<*, *>).value as salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>)
             salvo.core.list.addPlatform(failures, salvo.core.checked.detach(missing_53))
         }
-        else -> throw IllegalStateException("salvo: unreachable arm")
+        else -> {
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:310:5"))
+        }
     }
     val notADir: Union2<List<String>, salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>> = fs.listDir(salvo.fs.path.path("notes.txt"))
     when {
@@ -394,7 +434,9 @@ fun workflow(fs: salvo.fs.Fs, console: salvo.core.console.Console, streams: salv
             val notADir_55: salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> = ((notADir as Union2.U2<*, *>).value as salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>)
             salvo.core.list.addPlatform(failures, salvo.core.checked.detach(notADir_55))
         }
-        else -> throw IllegalStateException("salvo: unreachable arm")
+        else -> {
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:315:5"))
+        }
     }
     salvo.core.console.println(console, "failures: ${salvo.core.list.sizePlatform(failures)}")
     for (kind in salvo.platform.core.list.each(failures)) {
@@ -422,7 +464,9 @@ fun sandboxEdges(fs: salvo.fs.Fs, console: salvo.core.console.Console, streams: 
             val inside_2: salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> = ((inside as Union2.U2<*, *>).value as salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>)
             salvo.core.console.println(console, "through `..`: ${kindName__FsError(salvo.core.checked.detach(inside_2))}")
         }
-        else -> throw IllegalStateException("salvo: unreachable arm")
+        else -> {
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:340:5"))
+        }
     }
     val up: Union2<String, salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>> = salvo.fs.readToStr(fs, streams, salvo.fs.path.path("../secret.txt"))
     when {
@@ -434,7 +478,9 @@ fun sandboxEdges(fs: salvo.fs.Fs, console: salvo.core.console.Console, streams: 
             val up_4: salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> = ((up as Union2.U2<*, *>).value as salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>)
             salvo.core.console.println(console, "climbing out: ${kindName__FsError(salvo.core.checked.detach(up_4))}")
         }
-        else -> throw IllegalStateException("salvo: unreachable arm")
+        else -> {
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:345:5"))
+        }
     }
     val absolute: Union2<String, salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>> = salvo.fs.readToStr(fs, streams, salvo.fs.path.path("/etc/hosts"))
     when {
@@ -446,7 +492,9 @@ fun sandboxEdges(fs: salvo.fs.Fs, console: salvo.core.console.Console, streams: 
             val absolute_6: salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> = ((absolute as Union2.U2<*, *>).value as salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>)
             salvo.core.console.println(console, "absolute path: ${kindName__FsError(salvo.core.checked.detach(absolute_6))}")
         }
-        else -> throw IllegalStateException("salvo: unreachable arm")
+        else -> {
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:350:5"))
+        }
     }
     val probe: salvo.fs.path.Path = salvo.fs.path.path("probe.txt")
     salvo.core.console.println(console, "probe still there: ${fs.exists(probe)}")

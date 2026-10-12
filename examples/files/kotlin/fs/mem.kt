@@ -206,7 +206,9 @@ class MemFs : salvo.fs.Fs, salvo.stream.Streams {
             (line == null) -> {
                 return false
             }
-            else -> throw IllegalStateException("salvo: unreachable arm")
+            else -> {
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at fs.mem:217:9"))
+            }
         }
     }
     override fun position__InStream(s: salvo.stream.InStream): Long {

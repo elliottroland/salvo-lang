@@ -48,6 +48,9 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
       obligation release [wrote~2]
       call core.console::println(read console, concat("write failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read wrote~2))))
     }
+    arm#2 (else) {
+      unreachable("unhandled union arm") at main:70:5
+    }
   }
   bind#5 let text: Str | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = call fs::read_to_str(read fs, read streams, call fs.path::path("notes.txt"))
   obligation gain [text.arms{1}]
@@ -63,6 +66,9 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
       obligation gain [text~4]
       obligation release [text~4]
       call core.console::println(read console, concat("read failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read text~4))))
+    }
+    arm#2 (else) {
+      unreachable("unhandled union arm") at main:75:5
     }
   }
   bind#9 let opened: InStream | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member fs::Fs#0(read fs, call fs.path::path("notes.txt"))
@@ -105,6 +111,9 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
       obligation gain [opened~10]
       obligation release [opened~10]
       call core.console::println(read console, concat("open failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read opened~10))))
+    }
+    arm#2 (else) {
+      unreachable("unhandled union arm") at main:84:5
     }
   }
   bind#23 let out: OutStream | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member fs::Fs#3(read fs, call fs.path::path("notes.txt"))
@@ -149,6 +158,9 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
             arm#1 (none) {
               call core.console::println(read console, concat("at ", call core.basic::to_str(Long)(read at), ": end of file"))
             }
+            arm#2 (else) {
+              unreachable("unhandled union arm") at main:123:21
+            }
           }
           obligation release [s]
           bind#40 let done: Ok None | Checked<InvalidUtf8 | StreamFailed> = member stream::Streams#7(read streams, !read s)
@@ -168,6 +180,9 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
           obligation release [resumed~16]
           call core.console::println(read console, concat("reopen failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read resumed~16))))
         }
+        arm#2 (else) {
+          unreachable("unhandled union arm") at main:119:13
+        }
       }
     }
     arm#1 (arm 1) {
@@ -176,6 +191,9 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
       obligation gain [out~17]
       obligation release [out~17]
       call core.console::println(read console, concat("append failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read out~17))))
+    }
+    arm#2 (else) {
+      unreachable("unhandled union arm") at main:102:5
     }
   }
   bind#46 let bin: OutStream | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member fs::Fs#2(read fs, call fs.path::path("raw.bin"))
@@ -210,6 +228,9 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
       obligation release [bin~20]
       call core.console::println(read console, concat("raw open failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read bin~20))))
     }
+    arm#2 (else) {
+      unreachable("unhandled union arm") at main:143:5
+    }
   }
   bind#58 let raw: InStream | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member fs::Fs#0(read fs, call fs.path::path("raw.bin"))
   obligation gain [raw.arms{0,1}]
@@ -236,6 +257,9 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
           obligation release [head~23]
           call core.console::println(read console, concat("byte read failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read head~23))))
         }
+        arm#2 (else) {
+          unreachable("unhandled union arm") at main:164:13
+        }
       }
       bind#66 let tail: Str | Checked<InvalidUtf8 | StreamFailed> = member stream::Streams#1(read streams, read s)
       obligation gain [tail.arms{1}]
@@ -251,6 +275,9 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
           obligation gain [tail~25]
           obligation release [tail~25]
           call core.console::println(read console, concat("decode failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read tail~25))))
+        }
+        arm#2 (else) {
+          unreachable("unhandled union arm") at main:171:13
         }
       }
       obligation release [s]
@@ -270,6 +297,9 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
       obligation gain [raw~27]
       obligation release [raw~27]
       call core.console::println(read console, concat("raw read failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read raw~27))))
+    }
+    arm#2 (else) {
+      unreachable("unhandled union arm") at main:160:5
     }
   }
   bind#75 let split: InStream | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member fs::Fs#1(read fs, call fs.path::path("raw.bin"), 5L)
@@ -297,6 +327,9 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
           obligation release [broken~30]
           call core.console::println(read console, concat("mid-character: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read broken~30))))
         }
+        arm#2 (else) {
+          unreachable("unhandled union arm") at main:191:13
+        }
       }
       obligation release [s]
       bind#83 let done: Ok None | Checked<InvalidUtf8 | StreamFailed> = member stream::Streams#7(read streams, !read s)
@@ -314,6 +347,9 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
           obligation release [done~32]
           call core.console::println(read console, concat("and again at close: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read done~32))))
         }
+        arm#2 (else) {
+          unreachable("unhandled union arm") at main:196:13
+        }
       }
     }
     arm#1 (arm 1) {
@@ -322,6 +358,9 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
       obligation gain [split~33]
       obligation release [split~33]
       call core.console::println(read console, concat("split open failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read split~33))))
+    }
+    arm#2 (else) {
+      unreachable("unhandled union arm") at main:187:5
     }
   }
   bind#88 let held: InStream | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member fs::Fs#0(read fs, call fs.path::path("raw.bin"))
@@ -365,6 +404,9 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
             call core.console::println(read console, concat("fill failed: ", call main::kind_name(StreamError)(call core.checked::detach<InvalidUtf8 | StreamFailed>(!read got~36))))
             assign reading = false
           }
+          arm#2 (else) {
+            unreachable("unhandled union arm") at main:219:17
+          }
         }
       }
       call core.console::println(read console, concat("filled ", call core.basic::to_str(Int)(read moved), " bytes in ", call core.basic::to_str(Int)(read steps), " reads, one buffer"))
@@ -385,6 +427,9 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
       obligation gain [held~38]
       obligation release [held~38]
       call core.console::println(read console, concat("fill open failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read held~38))))
+    }
+    arm#2 (else) {
+      unreachable("unhandled union arm") at main:209:5
     }
   }
   bind#109 let lined: InStream | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member fs::Fs#0(read fs, call fs.path::path("notes.txt"))
@@ -432,6 +477,9 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
       obligation release [lined~41]
       call core.console::println(read console, concat("lines open failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read lined~41))))
     }
+    arm#2 (else) {
+      unreachable("unhandled union arm") at main:246:5
+    }
   }
   bind#125 let ch: Mut Chunks | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = call fs::open_chunks(read fs, read streams, call fs.path::path("raw.bin"), 4)
   obligation gain [ch.arms{0,1}]
@@ -476,6 +524,9 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
       obligation release [ch~47]
       call core.console::println(read console, concat("chunks failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read ch~47))))
     }
+    arm#2 (else) {
+      unreachable("unhandled union arm") at main:275:5
+    }
   }
   bind#140 let copied: Long | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = call fs::copy_file(read fs, read streams, call fs.path::path("notes.txt"), call fs.path::path("notes-copy.txt"))
   obligation gain [copied.arms{1}]
@@ -492,6 +543,9 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
       obligation release [copied~49]
       call core.console::println(read console, concat("copy failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read copied~49))))
     }
+    arm#2 (else) {
+      unreachable("unhandled union arm") at main:295:5
+    }
   }
   bind#144 let whole: Bytes | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = call fs::read_to_bytes(read fs, read streams, call fs.path::path("raw.bin"))
   obligation gain [whole.arms{1}]
@@ -507,6 +561,9 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
       obligation gain [whole~51]
       obligation release [whole~51]
       call core.console::println(read console, concat("byte read failed: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read whole~51))))
+    }
+    arm#2 (else) {
+      unreachable("unhandled union arm") at main:300:5
     }
   }
   bind#148 let failures: Mut List<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = call core.list::mut_list_of()<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>()
@@ -525,6 +582,9 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
       obligation release [missing~53]
       call core.list::add<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(read failures, call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read missing~53))
     }
+    arm#2 (else) {
+      unreachable("unhandled union arm") at main:310:5
+    }
   }
   bind#153 let not_a_dir: List<Str> | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member fs::Fs#6(read fs, call fs.path::path("notes.txt"))
   obligation gain [not_a_dir.arms{1}]
@@ -540,6 +600,9 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
       obligation gain [not_a_dir~55]
       obligation release [not_a_dir~55]
       call core.list::add<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(read failures, call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read not_a_dir~55))
+    }
+    arm#2 (else) {
+      unreachable("unhandled union arm") at main:315:5
     }
   }
   call core.console::println(read console, concat("failures: ", call core.basic::to_str(Int)(call core.list::size<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(drop_mut(read failures)))))
@@ -576,6 +639,9 @@ fn main::sandbox_edges(lent fs: Fs, lent console: Console, lent streams: Streams
       obligation release [inside~2]
       call core.console::println(read console, concat("through `..`: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read inside~2))))
     }
+    arm#2 (else) {
+      unreachable("unhandled union arm") at main:340:5
+    }
   }
   bind#5 let up: Str | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = call fs::read_to_str(read fs, read streams, call fs.path::path("../secret.txt"))
   obligation gain [up.arms{1}]
@@ -592,6 +658,9 @@ fn main::sandbox_edges(lent fs: Fs, lent console: Console, lent streams: Streams
       obligation release [up~4]
       call core.console::println(read console, concat("climbing out: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read up~4))))
     }
+    arm#2 (else) {
+      unreachable("unhandled union arm") at main:345:5
+    }
   }
   bind#9 let absolute: Str | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = call fs::read_to_str(read fs, read streams, call fs.path::path("/etc/hosts"))
   obligation gain [absolute.arms{1}]
@@ -607,6 +676,9 @@ fn main::sandbox_edges(lent fs: Fs, lent console: Console, lent streams: Streams
       obligation gain [absolute~6]
       obligation release [absolute~6]
       call core.console::println(read console, concat("absolute path: ", call main::kind_name(FsError)(call core.checked::detach<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read absolute~6))))
+    }
+    arm#2 (else) {
+      unreachable("unhandled union arm") at main:350:5
     }
   }
   bind#13 let probe: Path = call fs.path::path("probe.txt")

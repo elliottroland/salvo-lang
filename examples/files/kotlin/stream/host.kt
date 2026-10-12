@@ -116,7 +116,9 @@ fun hostReceived(reply: salvo.SalvoReply, handle: Long, got: Union3<salvo.platfo
             val got_3: Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed> = ((got as Union3.U3<*, *, *>).value as Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>)
             reply.send(Union3.U3<salvo.stream.Packet, salvo.stream.End, salvo.core.checked.Checked<Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>>>(salvo.core.result.err(salvo.core.checked.checked(got_3))))
         }
-        else -> throw IllegalStateException("salvo: unreachable arm")
+        else -> {
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at stream.host:71:5"))
+        }
     }
 }
 
@@ -301,7 +303,9 @@ class DefaultStreams(private val __dep0: RawStreams) : salvo.stream.Streams {
                 val r_2: Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed> = ((r as Union2.U2<*, *>).value as Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>)
                 return Union2.U2<String, salvo.core.checked.Checked<Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>>>(salvo.core.result.err(salvo.core.checked.checked(r_2)))
             }
-            else -> throw IllegalStateException("salvo: unreachable arm")
+            else -> {
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at stream.host:264:9"))
+            }
         }
     }
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
@@ -316,7 +320,9 @@ class DefaultStreams(private val __dep0: RawStreams) : salvo.stream.Streams {
                 val r_2: Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed> = ((r as Union2.U2<*, *>).value as Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>)
                 return Union2.U2<salvo.platform.core.bytes.Bytes, salvo.core.checked.Checked<Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>>>(salvo.core.result.err(salvo.core.checked.checked(r_2)))
             }
-            else -> throw IllegalStateException("salvo: unreachable arm")
+            else -> {
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at stream.host:272:9"))
+            }
         }
     }
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
@@ -331,7 +337,9 @@ class DefaultStreams(private val __dep0: RawStreams) : salvo.stream.Streams {
                 val r_2: Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed> = ((r as Union2.U2<*, *>).value as Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>)
                 return Union2.U2<Int, salvo.core.checked.Checked<Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>>>(salvo.core.result.err(salvo.core.checked.checked(r_2)))
             }
-            else -> throw IllegalStateException("salvo: unreachable arm")
+            else -> {
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at stream.host:280:9"))
+            }
         }
     }
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
@@ -346,7 +354,9 @@ class DefaultStreams(private val __dep0: RawStreams) : salvo.stream.Streams {
                 val r_2: Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed> = ((r as Union2.U2<*, *>).value as Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>)
                 return Union2.U2<Long, salvo.core.checked.Checked<Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>>>(salvo.core.result.err(salvo.core.checked.checked(r_2)))
             }
-            else -> throw IllegalStateException("salvo: unreachable arm")
+            else -> {
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at stream.host:288:9"))
+            }
         }
     }
     override fun readLineTo(s: salvo.stream.InStream, buf: salvo.platform.core.string.MutStr): Boolean {
@@ -368,7 +378,9 @@ class DefaultStreams(private val __dep0: RawStreams) : salvo.stream.Streams {
                 val r_2: Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed> = ((r as Union2.U2<*, *>).value as Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>)
                 return Union2.U2<Unit, salvo.core.checked.Checked<Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>>>(salvo.core.result.err(salvo.core.checked.checked(r_2)))
             }
-            else -> throw IllegalStateException("salvo: unreachable arm")
+            else -> {
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at stream.host:305:9"))
+            }
         }
     }
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
@@ -404,7 +416,9 @@ class DefaultStreams(private val __dep0: RawStreams) : salvo.stream.Streams {
                 val r_2: Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed> = ((r as Union2.U2<*, *>).value as Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>)
                 return Union2.U2<Unit, salvo.core.checked.Checked<Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>>>(salvo.core.result.err(salvo.core.checked.checked(r_2)))
             }
-            else -> throw IllegalStateException("salvo: unreachable arm")
+            else -> {
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at stream.host:342:9"))
+            }
         }
     }
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
@@ -420,7 +434,9 @@ class DefaultStreams(private val __dep0: RawStreams) : salvo.stream.Streams {
                 val r_2: Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed> = ((r as Union2.U2<*, *>).value as Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>)
                 return Union2.U2<Unit, salvo.core.checked.Checked<Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>>>(salvo.core.result.err(salvo.core.checked.checked(r_2)))
             }
-            else -> throw IllegalStateException("salvo: unreachable arm")
+            else -> {
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at stream.host:351:9"))
+            }
         }
     }
 }

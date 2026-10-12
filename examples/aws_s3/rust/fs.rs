@@ -185,9 +185,11 @@ pub fn to_str(mut kind: crate::unions::Union7<&crate::fs::NotFound, &crate::fs::
     } else if matches!(kind, crate::unions::Union7::U6(_)) {
         let mut kind_6 = match kind { crate::unions::Union7::U6(__v) => __v, _ => unreachable!() };
         return format!("io error: {}: {}", kind_6.path, kind_6.message);
-    } else {
+    } else if matches!(kind, crate::unions::Union7::U7(_)) {
         let mut kind_7 = match kind { crate::unions::Union7::U7(__v) => __v, _ => unreachable!() };
         return crate::stream::to_str((&kind_7.error).as_ref());
+    } else {
+        panic!("salvo: unhandled union arm at fs:66:5");
     };
 }
 

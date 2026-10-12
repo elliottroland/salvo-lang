@@ -184,7 +184,9 @@ class Desking(private val room: Int) : Desk {
             (next == null) -> {
                 run { name; Unit }
             }
-            else -> throw IllegalStateException("salvo: unreachable arm")
+            else -> {
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:114:9"))
+            }
         }
     }
     override fun closeUp(reason: String) {

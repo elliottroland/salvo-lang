@@ -1568,7 +1568,9 @@ fun describe(result: Union2<Int, String>): String {
             val result_2: String = ((result as Union2.U2<*, *>).value as String)
             "error: ${result_2}"
         }
-        else -> throw IllegalStateException("salvo: unreachable arm")
+        else -> {
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:10:15"))
+        }
     }
     return msg
 }
@@ -1603,7 +1605,9 @@ fun main() {
             val good_9: String = ((good as Union2.U2<*, *>).value as String)
             return
         }
-        else -> throw IllegalStateException("salvo: unreachable arm")
+        else -> {
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:37:17"))
+        }
     }
     salvo.core.console.println(__handle_2, "value plus one is ${(value + 1)}")
 }

@@ -29,7 +29,9 @@ fun sizeOf(fs: salvo.fs.Fs, streams: salvo.stream.Streams, path: salvo.fs.path.P
             salvo.core.checked.ignore(info_2)
             return null
         }
-        else -> throw IllegalStateException("salvo: unreachable arm")
+        else -> {
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:37:5"))
+        }
     }
 }
 
@@ -66,7 +68,9 @@ fun upload(s3: salvo.aws.s3.S3, fs: salvo.fs.Fs, console: salvo.core.console.Con
             val put_7: salvo.core.checked.Checked<Union2<salvo.aws.s3.S3Error, salvo.aws.AwsError>> = ((put as Union2.U2<*, *>).value as salvo.core.checked.Checked<Union2<salvo.aws.s3.S3Error, salvo.aws.AwsError>>)
             salvo.core.console.println(console, "put ${key}: ${describe(salvo.core.checked.detach(put_7))}")
         }
-        else -> throw IllegalStateException("salvo: unreachable arm")
+        else -> {
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:58:5"))
+        }
     }
 }
 
@@ -125,7 +129,9 @@ fun download(s3: salvo.aws.s3.S3, fs: salvo.fs.Fs, console: salvo.core.console.C
             val copied_11: salvo.core.checked.Checked<Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>> = ((copied as Union2.U2<*, *>).value as salvo.core.checked.Checked<Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>>)
             salvo.core.console.println(console, "pipe: ${salvo.stream.toStr(salvo.core.checked.detach(copied_11))}")
         }
-        else -> throw IllegalStateException("salvo: unreachable arm")
+        else -> {
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:88:5"))
+        }
     }
 }
 
@@ -144,7 +150,9 @@ fun roundTrip(s3: salvo.aws.s3.S3, fs: salvo.fs.Fs, console: salvo.core.console.
             val back_2: salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>> = ((back as Union2.U2<*, *>).value as salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>)
             salvo.core.console.println(console, "back.txt: ${salvo.fs.toStr(salvo.core.checked.detach(back_2))}")
         }
-        else -> throw IllegalStateException("salvo: unreachable arm")
+        else -> {
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:99:5"))
+        }
     }
 }
 

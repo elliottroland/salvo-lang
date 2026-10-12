@@ -88,6 +88,9 @@ fn main::report(lent console: Console; lent label: Str, lent config: Str) -> Non
       narrow#4[switch#2.arm#1] outcome~2: Str = outcome
       call core.console::println(read console, concat("3. ", read label, ": rejected — ", read outcome~2))
     }
+    arm#2 (else) {
+      unreachable("unhandled union arm") at main:116:5
+    }
   }
 }
 
@@ -112,6 +115,9 @@ fn main::main() -> None {
       narrow#8[switch#6.arm#1] guarded~4: Str = guarded
       call core.console::println(read __handle~2, concat("3. guarded: rejected — ", read guarded~4))
     }
+    arm#2 (else) {
+      unreachable("unhandled union arm") at main:143:5
+    }
   }
   bind#9 let mixed: Int | Str | Int = try[Int | Str | Int] {
     value call main::strict_port("")
@@ -133,7 +139,13 @@ fn main::main() -> None {
           narrow#16[switch#14.arm#1] why~8: Int = why
           call core.console::println(read __handle~2, concat("3. mixed: length ", call core.basic::to_str(Int)(read why~8)))
         }
+        arm#2 (else) {
+          unreachable("unhandled union arm") at main:163:13
+        }
       }
+    }
+    arm#2 (else) {
+      unreachable("unhandled union arm") at main:157:5
     }
   }
   bind#22 let outer: Int | Str = try[Int | Str] {
@@ -151,6 +163,9 @@ fn main::main() -> None {
         call core.console::println(read __handle~2, concat("3. inner caught: ", read inner~10))
         value call main::parse_port("also nope")
       }
+      arm#2 (else) {
+        unreachable("unhandled union arm") at main:180:9
+      }
     }
   }
   switch#23 read outer {
@@ -161,6 +176,9 @@ fn main::main() -> None {
     arm#1 (arm 1) {
       narrow#25[switch#23.arm#1] outer~12: Str = outer
       call core.console::println(read __handle~2, concat("3. outer caught: ", read outer~12))
+    }
+    arm#2 (else) {
+      unreachable("unhandled union arm") at main:191:5
     }
   }
 }

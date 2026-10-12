@@ -351,6 +351,21 @@ fn unions_emit_sealed_wrappers() {
     // payload through its narrowing binding [ir-narrow].
     assert!(main.content.contains("(result is Union2.U1<*, *>) ->"));
     assert!(main.content.contains("((result as Union2.U1<*, *>).value as Int)"));
+    // [when-exhaustive] An exhaustive `when` with no written `else` carries
+    // an explicit unreachable fallthrough from the IR, so the emitter prints
+    // it rather than synthesizing one: `else -> { throw AssertionError(...) }`
+    // naming the unhandled-arm trap.
+    assert!(
+        main.content.contains("else -> {")
+            && main.content.contains("unhandled union arm"),
+        "{}",
+        main.content
+    );
+    assert!(
+        !main.content.contains("IllegalStateException(\"salvo: unreachable arm\")"),
+        "the synthetic fallthrough should no longer appear: {}",
+        main.content
+    );
 }
 
 // [when-exhaustive]

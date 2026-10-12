@@ -1885,9 +1885,11 @@ pub fn describe(mut result: crate::unions::Union2<i32, &String>) -> String {
     let mut msg: String = if matches!(result, crate::unions::Union2::U1(_)) {
         let mut result_1 = match result { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
         format!("age {}", result_1)
-    } else {
+    } else if matches!(result, crate::unions::Union2::U2(_)) {
         let mut result_2 = match result { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
         format!("error: {}", result_2)
+    } else {
+        panic!("salvo: unhandled union arm at main:10:15");
     };
     return msg;
 }
@@ -1915,9 +1917,11 @@ pub fn main() {
     let mut value: i32 = if matches!(good, crate::unions::Union2::U1(_)) {
         let mut good_8 = match &good { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
         good_8
-    } else {
+    } else if matches!(good, crate::unions::Union2::U2(_)) {
         let mut good_9 = match &good { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
         return;
+    } else {
+        panic!("salvo: unhandled union arm at main:37:17");
     };
     crate::core_console::println(&__handle_2, &format!("value plus one is {}", i32::wrapping_add(value, 1i32)));
 }

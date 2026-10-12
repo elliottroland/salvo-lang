@@ -164,17 +164,21 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
     if matches!(wrote, crate::unions::Union2::U1(_)) {
         let mut wrote_1 = match &wrote { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
         crate::core_console::println(console, &format!("wrote {} bytes", wrote_1));
-    } else {
+    } else if matches!(wrote, crate::unions::Union2::U2(_)) {
         let mut wrote_2 = match wrote { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
         crate::core_console::println(console, &format!("write failed: {}", crate::kind_name__FsError((&(crate::core_checked::detach::<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>(wrote_2))).as_ref())));
+    } else {
+        panic!("salvo: unhandled union arm at main:70:5");
     };
     let mut text: crate::unions::Union2<String, crate::core_checked::Checked<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>> = crate::fs::read_to_str(fs, streams, &crate::fs_path::path(&String::from("notes.txt")));
     if matches!(text, crate::unions::Union2::U1(_)) {
         let mut text_3 = match &text { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
         crate::core_console::println(console, &format!("read back {} bytes", crate::core_string::byte_size_platform(text_3)));
-    } else {
+    } else if matches!(text, crate::unions::Union2::U2(_)) {
         let mut text_4 = match text { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
         crate::core_console::println(console, &format!("read failed: {}", crate::kind_name__FsError((&(crate::core_checked::detach::<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>(text_4))).as_ref())));
+    } else {
+        panic!("salvo: unhandled union arm at main:75:5");
     };
     let mut opened: crate::unions::Union2<crate::stream::InStream, crate::core_checked::Checked<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>> = fs.open_read(&crate::fs_path::path(&String::from("notes.txt")));
     if matches!(opened, crate::unions::Union2::U1(_)) {
@@ -195,9 +199,11 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
             let mut closed_9 = match closed { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
             crate::core_console::println(console, &format!("close failed: {}", crate::kind_name__StreamError((&(crate::core_checked::detach::<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>(closed_9))).as_ref())));
         };
-    } else {
+    } else if matches!(opened, crate::unions::Union2::U2(_)) {
         let mut opened_10 = match opened { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
         crate::core_console::println(console, &format!("open failed: {}", crate::kind_name__FsError((&(crate::core_checked::detach::<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>(opened_10))).as_ref())));
+    } else {
+        panic!("salvo: unhandled union arm at main:84:5");
     };
     let mut out: crate::unions::Union2<crate::stream::OutStream, crate::core_checked::Checked<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>> = fs.open_append(&crate::fs_path::path(&String::from("notes.txt")));
     if matches!(out, crate::unions::Union2::U1(_)) {
@@ -219,21 +225,27 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
             if line.is_some() {
                 let mut line_14 = line.as_ref().unwrap();
                 crate::core_console::println(console, &format!("at {}: {}", at, line_14));
-            } else {
+            } else if line.is_none() {
                 crate::core_console::println(console, &format!("at {}: end of file", at));
+            } else {
+                panic!("salvo: unhandled union arm at main:123:21");
             };
             let mut done: crate::unions::Union2<(), crate::core_checked::Checked<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>> = streams.close__InStream(s);
             if matches!(done, crate::unions::Union2::U2(_)) {
                 let mut done_15 = match done { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
                 crate::core_console::println(console, &format!("close failed: {}", crate::kind_name__StreamError((&(crate::core_checked::detach::<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>(done_15))).as_ref())));
             };
-        } else {
+        } else if matches!(resumed, crate::unions::Union2::U2(_)) {
             let mut resumed_16 = match resumed { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
             crate::core_console::println(console, &format!("reopen failed: {}", crate::kind_name__FsError((&(crate::core_checked::detach::<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>(resumed_16))).as_ref())));
+        } else {
+            panic!("salvo: unhandled union arm at main:119:13");
         };
-    } else {
+    } else if matches!(out, crate::unions::Union2::U2(_)) {
         let mut out_17 = match out { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
         crate::core_console::println(console, &format!("append failed: {}", crate::kind_name__FsError((&(crate::core_checked::detach::<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>(out_17))).as_ref())));
+    } else {
+        panic!("salvo: unhandled union arm at main:102:5");
     };
     let mut bin: crate::unions::Union2<crate::stream::OutStream, crate::core_checked::Checked<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>> = fs.open_write(&crate::fs_path::path(&String::from("raw.bin")));
     if matches!(bin, crate::unions::Union2::U1(_)) {
@@ -248,9 +260,11 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
             let mut shut_19 = match shut { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
             crate::core_console::println(console, &format!("close failed: {}", crate::kind_name__StreamError((&(crate::core_checked::detach::<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>(shut_19))).as_ref())));
         };
-    } else {
+    } else if matches!(bin, crate::unions::Union2::U2(_)) {
         let mut bin_20 = match bin { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
         crate::core_console::println(console, &format!("raw open failed: {}", crate::kind_name__FsError((&(crate::core_checked::detach::<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>(bin_20))).as_ref())));
+    } else {
+        panic!("salvo: unhandled union arm at main:143:5");
     };
     let mut raw: crate::unions::Union2<crate::stream::InStream, crate::core_checked::Checked<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>> = fs.open_read(&crate::fs_path::path(&String::from("raw.bin")));
     if matches!(raw, crate::unions::Union2::U1(_)) {
@@ -260,26 +274,32 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
         if matches!(head, crate::unions::Union2::U1(_)) {
             let mut head_22 = match &head { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
             crate::core_console::println(console, &format!("first three: {} = {}", crate::core_bytes::to_str_platform(head_22), crate::core_bytes::to_hex_platform(head_22)));
-        } else {
+        } else if matches!(head, crate::unions::Union2::U2(_)) {
             let mut head_23 = match head { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
             crate::core_console::println(console, &format!("byte read failed: {}", crate::kind_name__StreamError((&(crate::core_checked::detach::<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>(head_23))).as_ref())));
+        } else {
+            panic!("salvo: unhandled union arm at main:164:13");
         };
         let mut tail: crate::unions::Union2<String, crate::core_checked::Checked<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>> = streams.read_all(&s);
         if matches!(tail, crate::unions::Union2::U1(_)) {
             let mut tail_24 = match &tail { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
             crate::core_console::println(console, &format!("the rest, as text: {}", tail_24));
-        } else {
+        } else if matches!(tail, crate::unions::Union2::U2(_)) {
             let mut tail_25 = match tail { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
             crate::core_console::println(console, &format!("decode failed: {}", crate::kind_name__StreamError((&(crate::core_checked::detach::<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>(tail_25))).as_ref())));
+        } else {
+            panic!("salvo: unhandled union arm at main:171:13");
         };
         let mut done: crate::unions::Union2<(), crate::core_checked::Checked<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>> = streams.close__InStream(s);
         if matches!(done, crate::unions::Union2::U2(_)) {
             let mut done_26 = match done { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
             crate::core_console::println(console, &format!("close failed: {}", crate::kind_name__StreamError((&(crate::core_checked::detach::<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>(done_26))).as_ref())));
         };
-    } else {
+    } else if matches!(raw, crate::unions::Union2::U2(_)) {
         let mut raw_27 = match raw { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
         crate::core_console::println(console, &format!("raw read failed: {}", crate::kind_name__FsError((&(crate::core_checked::detach::<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>(raw_27))).as_ref())));
+    } else {
+        panic!("salvo: unhandled union arm at main:160:5");
     };
     let mut split: crate::unions::Union2<crate::stream::InStream, crate::core_checked::Checked<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>> = fs.open_read_at(&crate::fs_path::path(&String::from("raw.bin")), 5i64);
     if matches!(split, crate::unions::Union2::U1(_)) {
@@ -289,21 +309,27 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
         if matches!(broken, crate::unions::Union2::U1(_)) {
             let mut broken_29 = match &broken { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
             crate::core_console::println(console, &format!("unexpected: {} decoded", broken_29));
-        } else {
+        } else if matches!(broken, crate::unions::Union2::U2(_)) {
             let mut broken_30 = match broken { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
             crate::core_console::println(console, &format!("mid-character: {}", crate::kind_name__StreamError((&(crate::core_checked::detach::<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>(broken_30))).as_ref())));
+        } else {
+            panic!("salvo: unhandled union arm at main:191:13");
         };
         let mut done: crate::unions::Union2<(), crate::core_checked::Checked<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>> = streams.close__InStream(s);
         if matches!(done, crate::unions::Union2::U1(_)) {
             let mut done_31 = match &done { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
             crate::core_console::println(console, &String::from("unexpected: the failure was not recorded"));
-        } else {
+        } else if matches!(done, crate::unions::Union2::U2(_)) {
             let mut done_32 = match done { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
             crate::core_console::println(console, &format!("and again at close: {}", crate::kind_name__StreamError((&(crate::core_checked::detach::<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>(done_32))).as_ref())));
+        } else {
+            panic!("salvo: unhandled union arm at main:196:13");
         };
-    } else {
+    } else if matches!(split, crate::unions::Union2::U2(_)) {
         let mut split_33 = match split { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
         crate::core_console::println(console, &format!("split open failed: {}", crate::kind_name__FsError((&(crate::core_checked::detach::<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>(split_33))).as_ref())));
+    } else {
+        panic!("salvo: unhandled union arm at main:187:5");
     };
     let mut held: crate::unions::Union2<crate::stream::InStream, crate::core_checked::Checked<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>> = fs.open_read(&crate::fs_path::path(&String::from("raw.bin")));
     if matches!(held, crate::unions::Union2::U1(_)) {
@@ -328,10 +354,12 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
                     steps = i32::wrapping_add(steps, 1i32);
                     moved = i32::wrapping_add(moved, n);
                 };
-            } else {
+            } else if matches!(got, crate::unions::Union2::U2(_)) {
                 let mut got_36 = match got { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
                 crate::core_console::println(console, &format!("fill failed: {}", crate::kind_name__StreamError((&(crate::core_checked::detach::<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>(got_36))).as_ref())));
                 reading = false;
+            } else {
+                panic!("salvo: unhandled union arm at main:219:17");
             };
         }
         crate::core_console::println(console, &format!("filled {} bytes in {} reads, one buffer", moved, steps));
@@ -340,9 +368,11 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
             let mut done_37 = match done { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
             crate::core_console::println(console, &format!("close failed: {}", crate::kind_name__StreamError((&(crate::core_checked::detach::<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>(done_37))).as_ref())));
         };
-    } else {
+    } else if matches!(held, crate::unions::Union2::U2(_)) {
         let mut held_38 = match held { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
         crate::core_console::println(console, &format!("fill open failed: {}", crate::kind_name__FsError((&(crate::core_checked::detach::<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>(held_38))).as_ref())));
+    } else {
+        panic!("salvo: unhandled union arm at main:209:5");
     };
     let mut lined: crate::unions::Union2<crate::stream::InStream, crate::core_checked::Checked<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>> = fs.open_read(&crate::fs_path::path(&String::from("notes.txt")));
     if matches!(lined, crate::unions::Union2::U1(_)) {
@@ -370,9 +400,11 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
             let mut done_40 = match done { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
             crate::core_console::println(console, &format!("close failed: {}", crate::kind_name__StreamError((&(crate::core_checked::detach::<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>(done_40))).as_ref())));
         };
-    } else {
+    } else if matches!(lined, crate::unions::Union2::U2(_)) {
         let mut lined_41 = match lined { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
         crate::core_console::println(console, &format!("lines open failed: {}", crate::kind_name__FsError((&(crate::core_checked::detach::<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>(lined_41))).as_ref())));
+    } else {
+        panic!("salvo: unhandled union arm at main:246:5");
     };
     let mut ch: crate::unions::Union2<crate::stream::Chunks, crate::core_checked::Checked<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>> = crate::fs::open_chunks(fs, streams, &crate::fs_path::path(&String::from("raw.bin")), 4i32);
     if matches!(ch, crate::unions::Union2::U1(_)) {
@@ -395,42 +427,52 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
             let mut done_46 = match done { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
             crate::core_console::println(console, &format!("close failed: {}", crate::kind_name__StreamError((&(crate::core_checked::detach::<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>(done_46))).as_ref())));
         };
-    } else {
+    } else if matches!(ch, crate::unions::Union2::U2(_)) {
         let mut ch_47 = match ch { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
         crate::core_console::println(console, &format!("chunks failed: {}", crate::kind_name__FsError((&(crate::core_checked::detach::<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>(ch_47))).as_ref())));
+    } else {
+        panic!("salvo: unhandled union arm at main:275:5");
     };
     let mut copied: crate::unions::Union2<i64, crate::core_checked::Checked<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>> = crate::fs::copy_file(fs, streams, &crate::fs_path::path(&String::from("notes.txt")), &crate::fs_path::path(&String::from("notes-copy.txt")));
     if matches!(copied, crate::unions::Union2::U1(_)) {
         let mut copied_48 = match &copied { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
         crate::core_console::println(console, &format!("copied {} bytes", copied_48));
-    } else {
+    } else if matches!(copied, crate::unions::Union2::U2(_)) {
         let mut copied_49 = match copied { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
         crate::core_console::println(console, &format!("copy failed: {}", crate::kind_name__FsError((&(crate::core_checked::detach::<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>(copied_49))).as_ref())));
+    } else {
+        panic!("salvo: unhandled union arm at main:295:5");
     };
     let mut whole: crate::unions::Union2<crate::core_bytes::Bytes, crate::core_checked::Checked<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>> = crate::fs::read_to_bytes(fs, streams, &crate::fs_path::path(&String::from("raw.bin")));
     if matches!(whole, crate::unions::Union2::U1(_)) {
         let mut whole_50 = match &whole { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
         crate::core_console::println(console, &format!("raw.bin is {} bytes: {}", crate::core_bytes::size_platform(whole_50), crate::core_bytes::to_hex_platform(whole_50)));
-    } else {
+    } else if matches!(whole, crate::unions::Union2::U2(_)) {
         let mut whole_51 = match whole { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
         crate::core_console::println(console, &format!("byte read failed: {}", crate::kind_name__FsError((&(crate::core_checked::detach::<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>(whole_51))).as_ref())));
+    } else {
+        panic!("salvo: unhandled union arm at main:300:5");
     };
     let mut failures: Vec<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>> = vec![];
     let mut missing: crate::unions::Union2<String, crate::core_checked::Checked<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>> = crate::fs::read_to_str(fs, streams, &crate::fs_path::path(&String::from("nope.txt")));
     if matches!(missing, crate::unions::Union2::U1(_)) {
         let mut missing_52 = match &missing { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
         crate::core_console::println(console, &format!("unexpected: {}", missing_52));
-    } else {
+    } else if matches!(missing, crate::unions::Union2::U2(_)) {
         let mut missing_53 = match missing { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
         crate::core_list::add_platform::<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>(&mut failures, crate::core_checked::detach::<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>(missing_53));
+    } else {
+        panic!("salvo: unhandled union arm at main:310:5");
     };
     let mut not_a_dir: crate::unions::Union2<Vec<String>, crate::core_checked::Checked<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>> = fs.list_dir(&crate::fs_path::path(&String::from("notes.txt")));
     if matches!(not_a_dir, crate::unions::Union2::U1(_)) {
         let mut not_a_dir_54 = match &not_a_dir { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
         crate::core_console::println(console, &format!("unexpected: {}", crate::core_list::to_str(not_a_dir_54, &mut |__a0| format!("{}", __a0))));
-    } else {
+    } else if matches!(not_a_dir, crate::unions::Union2::U2(_)) {
         let mut not_a_dir_55 = match not_a_dir { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
         crate::core_list::add_platform::<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>(&mut failures, crate::core_checked::detach::<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>(not_a_dir_55));
+    } else {
+        panic!("salvo: unhandled union arm at main:315:5");
     };
     crate::core_console::println(console, &format!("failures: {}", crate::core_list::size_platform::<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>(&failures)));
     for mut kind in failures.iter() {
@@ -451,25 +493,31 @@ pub fn sandbox_edges(fs: &crate::fs::Fs, console: &crate::core_console::Console,
     if matches!(inside, crate::unions::Union2::U1(_)) {
         let mut inside_1 = match &inside { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
         crate::core_console::println(console, &format!("through `..`: wrote {} bytes", inside_1));
-    } else {
+    } else if matches!(inside, crate::unions::Union2::U2(_)) {
         let mut inside_2 = match inside { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
         crate::core_console::println(console, &format!("through `..`: {}", crate::kind_name__FsError((&(crate::core_checked::detach::<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>(inside_2))).as_ref())));
+    } else {
+        panic!("salvo: unhandled union arm at main:340:5");
     };
     let mut up: crate::unions::Union2<String, crate::core_checked::Checked<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>> = crate::fs::read_to_str(fs, streams, &crate::fs_path::path(&String::from("../secret.txt")));
     if matches!(up, crate::unions::Union2::U1(_)) {
         let mut up_3 = match &up { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
         crate::core_console::println(console, &String::from("unexpected: read outside the sandbox"));
-    } else {
+    } else if matches!(up, crate::unions::Union2::U2(_)) {
         let mut up_4 = match up { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
         crate::core_console::println(console, &format!("climbing out: {}", crate::kind_name__FsError((&(crate::core_checked::detach::<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>(up_4))).as_ref())));
+    } else {
+        panic!("salvo: unhandled union arm at main:345:5");
     };
     let mut absolute: crate::unions::Union2<String, crate::core_checked::Checked<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>> = crate::fs::read_to_str(fs, streams, &crate::fs_path::path(&String::from("/etc/hosts")));
     if matches!(absolute, crate::unions::Union2::U1(_)) {
         let mut absolute_5 = match &absolute { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
         crate::core_console::println(console, &String::from("unexpected: an absolute path resolved"));
-    } else {
+    } else if matches!(absolute, crate::unions::Union2::U2(_)) {
         let mut absolute_6 = match absolute { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
         crate::core_console::println(console, &format!("absolute path: {}", crate::kind_name__FsError((&(crate::core_checked::detach::<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>(absolute_6))).as_ref())));
+    } else {
+        panic!("salvo: unhandled union arm at main:350:5");
     };
     let mut probe: crate::fs_path::Path = crate::fs_path::path(&String::from("probe.txt"));
     crate::core_console::println(console, &format!("probe still there: {}", fs.exists(&probe)));

@@ -69,9 +69,11 @@ pub fn to_str(mut kind: crate::unions::Union2<&crate::stream::InvalidUtf8, &crat
     return if matches!(kind, crate::unions::Union2::U1(_)) {
         let mut kind_1 = match kind { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
         return format!("not valid UTF-8: {}", kind_1.source);
-    } else {
+    } else if matches!(kind, crate::unions::Union2::U2(_)) {
         let mut kind_2 = match kind { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
         return format!("stream failed: {}: {}", kind_2.source, kind_2.message);
+    } else {
+        panic!("salvo: unhandled union arm at stream:51:5");
     };
 }
 
@@ -296,20 +298,26 @@ pub fn pipe_step(streams: &crate::stream::Streams, mut to: crate::stream::OutStr
         if matches!(closed, crate::unions::Union2::U1(_)) {
             let mut closed_4 = match &closed { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
             crate::scheduler::salvo_reply_wire::<crate::unions::Union2<i64, crate::core_checked::Checked<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>>>(done, crate::unions::Union2::U1(crate::core_result::ok::<i64>(moved)));
-        } else {
+        } else if matches!(closed, crate::unions::Union2::U2(_)) {
             let mut closed_5 = match closed { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
             crate::scheduler::salvo_reply_wire::<crate::unions::Union2<i64, crate::core_checked::Checked<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>>>(done, crate::unions::Union2::U2(closed_5));
+        } else {
+            panic!("salvo: unhandled union arm at stream:185:13");
         };
-    } else {
+    } else if matches!(got, crate::unions::Union3::U3(_)) {
         let mut got_6 = match got { crate::unions::Union3::U3(__v) => __v, _ => unreachable!() };
         let mut closed: crate::unions::Union2<(), crate::core_checked::Checked<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>> = streams.close__OutStream(to);
         if matches!(closed, crate::unions::Union2::U1(_)) {
             let mut closed_7 = match &closed { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
-        } else {
+        } else if matches!(closed, crate::unions::Union2::U2(_)) {
             let mut closed_8 = match closed { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
             crate::core_checked::ignore::<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>(closed_8);
+        } else {
+            panic!("salvo: unhandled union arm at stream:192:13");
         };
         crate::scheduler::salvo_reply_wire::<crate::unions::Union2<i64, crate::core_checked::Checked<crate::unions::Union2<crate::stream::InvalidUtf8, crate::stream::StreamFailed>>>>(done, crate::unions::Union2::U2(got_6));
+    } else {
+        panic!("salvo: unhandled union arm at stream:177:5");
     };
 }
 
@@ -327,8 +335,10 @@ pub fn next__Lines(streams: &crate::stream::Streams, p: &mut crate::stream::Line
     return if line.is_some() {
         let mut line_1 = line.unwrap();
         return crate::unions::Union2::U1(crate::core_iterator::emitted::<String>(line_1));
-    } else {
+    } else if line.is_none() {
         return crate::unions::Union2::U2(crate::core_iterator::finished());
+    } else {
+        panic!("salvo: unhandled union arm at stream:221:5");
     };
 }
 
@@ -438,9 +448,11 @@ pub fn read_int(streams: &crate::stream::Streams, s: &crate::stream::InStream) -
     } else if matches!(r, crate::unions::Union3::U2(_)) {
         let mut r_2 = match &r { crate::unions::Union3::U2(__v) => __v, _ => unreachable!() };
         return crate::unions::Union3::U2(crate::stream::End {});
-    } else {
+    } else if matches!(r, crate::unions::Union3::U3(_)) {
         let mut r_3 = match r { crate::unions::Union3::U3(__v) => __v, _ => unreachable!() };
         return crate::unions::Union3::U3(r_3);
+    } else {
+        panic!("salvo: unhandled union arm at stream:362:5");
     };
 }
 

@@ -370,7 +370,12 @@ Conventions:
   builder by identity.
 * [when-union-subject] `when` over a wrapper union lowers to Kotlin
   `when (subj)` over the sealed wrappers; kotlinc re-proves the
-  exhaustiveness the checker established ([when-exhaustive]).
+  exhaustiveness the checker established ([when-exhaustive]). An exhaustive
+  Salvo `when` with no written `else` arrives from the IR with an explicit
+  `Else` arm ([ir-switch], an `Unreachable` trap), which the emitter prints
+  as `else -> { throw AssertionError(...) }`; the emitter's own fallback
+  `else` is now a safety net for any future else-less value-`when`, not the
+  normal path.
   * A nullable (`T?`) subject has no wrappers to match on, so it lowers to
     a *subject-less* Kotlin `when` on null tests with the last branch as
     `else` — the same construct [when-condition] uses, reached from the

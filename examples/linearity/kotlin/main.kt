@@ -77,7 +77,9 @@ fun aQueueOfTickets(console: salvo.core.console.Console) {
         }
         (first == null) -> {
         }
-        else -> throw IllegalStateException("salvo: unreachable arm")
+        else -> {
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:136:5"))
+        }
     }
     while (true) {
         val __subject_2: Ticket? = salvo.core.deque.removeFirstPlatform(queue)

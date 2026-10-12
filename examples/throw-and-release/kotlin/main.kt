@@ -89,7 +89,9 @@ fun report(console: salvo.core.console.Console, label: String, config: String) {
             val outcome_2: String = ((outcome as Union2.U2<*, *>).value as String)
             salvo.core.console.println(console, "3. ${label}: rejected — ${outcome_2}")
         }
-        else -> throw IllegalStateException("salvo: unreachable arm")
+        else -> {
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:116:5"))
+        }
     }
 }
 
@@ -117,7 +119,9 @@ fun main() {
             val guarded_4: String = ((guarded as Union2.U2<*, *>).value as String)
             salvo.core.console.println(__handle_2, "3. guarded: rejected — ${guarded_4}")
         }
-        else -> throw IllegalStateException("salvo: unreachable arm")
+        else -> {
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:143:5"))
+        }
     }
     val mixed: Union2<Int, Union2<String, Int>> = try {
         Union2.U1<Int, Union2<String, Int>>(strictPort(""))
@@ -145,10 +149,14 @@ fun main() {
                     val why_8: Int = ((why as Union2.U2<*, *>).value as Int)
                     salvo.core.console.println(__handle_2, "3. mixed: length ${why_8}")
                 }
-                else -> throw IllegalStateException("salvo: unreachable arm")
+                else -> {
+                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:163:13"))
+                }
             }
         }
-        else -> throw IllegalStateException("salvo: unreachable arm")
+        else -> {
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:157:5"))
+        }
     }
     val outer: Union2<Int, String> = try {
         val inner: Union2<Int, String> = try {
@@ -167,7 +175,9 @@ fun main() {
                 salvo.core.console.println(__handle_2, "3. inner caught: ${inner_10}")
                 parsePort("also nope")
             }
-            else -> throw IllegalStateException("salvo: unreachable arm")
+            else -> {
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:180:9"))
+            }
         })
     } catch (__signal: ThrowSignal) {
         Union2.U2<Int, String>(__signal.payload as String)
@@ -181,7 +191,9 @@ fun main() {
             val outer_12: String = ((outer as Union2.U2<*, *>).value as String)
             salvo.core.console.println(__handle_2, "3. outer caught: ${outer_12}")
         }
-        else -> throw IllegalStateException("salvo: unreachable arm")
+        else -> {
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:191:5"))
+        }
     }
 }
 

@@ -16,8 +16,11 @@ whole-program-graph checks that correctly stay in `check.rs`/`deadlock.rs` (see
 the decision log). The one desugar-sensitive flow analysis that needed the IR —
 linear obligations — is there and gating the build. The two optional
 message-quality follow-ups (named-discharger hint; synthetic local/span polish)
-are now also **done** (2026-10-12). Nothing remains open except the speculative
-Phase 4 table-consolidation idea.
+are now also **done** (2026-10-12), as is the one IR-enrichment that the Phase 4
+survey left open — recording the checker's **exhaustiveness** verdict as an
+explicit unreachable fallthrough arm in the IR (2026-10-12). Phase 4
+(table-consolidation) is closed as a category error / already-done. **Nothing
+remains open; this document is ready to be retired** per the AGENTS.md rule.
 
 ---
 
@@ -317,6 +320,79 @@ new decision is needed from the user. Spec labels to add as they land:
 ---
 
 ## Decision log (this doc)
+
+- **2026-10-12 — Exhaustiveness is now an explicit IR fact (DONE).** The one
+  genuinely-new IR-enrichment candidate the Phase 4 survey left open — "record
+  the checker's exhaustiveness conclusion in the IR rather than have each
+  backend re-derive it" — is implemented and committed.
+  - **The fact:** when `check_when` proves a subject `when` covers every runtime
+    arm and no branch wrote an `else`, it records the verdict in
+    `Checked::when_exhaustive` (a `HashSet<Key>` keyed by the `when`'s span).
+    The IR builder (`when_expr`) reads it and, when no arm is already `Else`,
+    appends an explicit `Else` arm whose body is an `Unreachable` trap
+    (`unreachable("unhandled union arm") at …`) — the same node `x!` already
+    uses for a proven-dead point. So "the fallthrough is dead" is in the IR.
+  - **Why this and not the dropped Step-3 "move exhaustiveness *checking* to the
+    IR":** the distinction surfaced earlier in this log. Checking exhaustiveness
+    is typing (it needs the union's arms and the `^`/qualifier match logic) and
+    stays in the checker. Recording the *conclusion* is the IR enrichment: it is
+    small, additive, and removes a re-derivation from both backends.
+  - **Backends:** no logic change needed — both already emit an `Else` arm body
+    verbatim. Kotlin now prints `else -> { throw AssertionError("salvo:
+    unhandled union arm at …") }` instead of its synthesized
+    `else -> throw IllegalStateException("salvo: unreachable arm")`; Rust gives
+    the previously-untested final arm its own `matches!` test and ends the chain
+    in `else { panic!("salvo: unhandled union arm at …") }`. Each backend's own
+    synthetic fallback is now a dead safety net for a hypothetical future
+    else-less value-switch, and is documented as such in the backend specs.
+    (Confirmed: the only else-less `Switch` shape was the exhaustive `when`;
+    `non_null`, pass-loops and actor dispatch all supply their own `Else`.)
+  - **Spec/tests:** `[when-exhaustive]` in LANGUAGE_SPEC.md gained the IR-fact
+    sub-bullet; `[ir-switch]` notes the explicit arm; both backend specs'
+    `[when-union-subject]` rules updated. `unions_emit_sealed_wrappers`
+    (Kotlin) now asserts the explicit `else -> { … unhandled union arm }` and
+    the absence of the old `IllegalStateException` string. All five IR goldens
+    and the loops/unions backend goldens + 8 regenerated example directories
+    updated. Warm `cargo nextest run`: 1764 passed.
+  - **This was the last blocker to retiring IR_CHECKER.md** (per AGENTS.md's
+    "a finished project's working document is retired").
+
+- **2026-10-12 — Phase 4 survey: reconfirms the Oct-2026 conclusion; no net-new
+  candidate; Phase 4 is effectively CLOSED.** Surveyed what "consolidate /
+  shed redundant `Checked`-table reads" could achieve, grounded in the current
+  code and the `checked-unify-options` memory (which already did this survey
+  once). Findings:
+  - **The framing "the IR encodes it, so drop the table" is a category error.**
+    Nothing downstream of the IR builder reads `Checked` — backends, the refs
+    pass, the dump, and both emitters read only the IR; the IR nodes are
+    self-contained. So the ~30+ span-keyed tables the builder reads are
+    **builder-private handoff state**, read *to produce* the IR node. The node
+    encoding the fact does not remove the need to read the table that created
+    it.
+  - **The new merge consumers do NOT add surface.** `ir::obligations` and
+    `ir::check`/`ir::analyze` read the *IR* (plus `symbols`/`resolution`/
+    `deductions` for the discharger hint), not the span-keyed `Checked` tables —
+    consistent with the "nothing downstream reads `Checked`" invariant. The
+    discharger-hint extraction (`discharge_set` → `crate::linear`) is a small
+    net *reduction* (one shared definition).
+  - **Direction 1 — ergonomic view accessors: DONE and exhausted** (the
+    `[unify-checker]` work: `call_info`/`use_info`/`spawn_info`/`pick_info`/
+    `interp_info`). Remaining builder reads are single-table-per-site
+    (`comparisons`, `for_drivers`, `promotions`, `is_tests`, `expr_ty`/`repr_ty`
+    via `ty_of`/`repr_of`); a view there groups nothing. Nothing more to add.
+  - **Direction 2 — collapse table *storage* into per-cluster maps: REJECTED**
+    (needs a user decision to revisit). It fights the checker's own many
+    readers — `call_fn` has 13 readers across overload resolution and `deduce`;
+    `self_sends`/`facade_sends`/`addr_calls` are also read by `features.rs`.
+    Wide, risky, low value.
+  - **Direction 3 — merge checker + builder into one pass: REJECTED.** A huge
+    rewrite with no backend-visible benefit (IR already self-contained); and the
+    fate/consume analysis is inextricable from type-checking anyway, so the
+    checker stays a full pass regardless.
+  - **Conclusion:** Phase 4's worthwhile work (view accessors) is already done;
+    the rest is not worthwhile or deliberately rejected. **Phase 4 is closed.**
+    After the exhaustiveness-in-IR addition (next), IR_CHECKER.md can be retired
+    per the AGENTS.md rule.
 
 - **2026-10-12 — Both deferred message-quality follow-ups DONE.** (1) The
   **named-discharger hint** is restored: `discharge_set`/`discharge_hint` (plus

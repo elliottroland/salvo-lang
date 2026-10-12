@@ -1630,6 +1630,18 @@ impl<'a, 'p> Lower<'a, 'p> {
             self.pop_scope();
             arms.push(SwitchArm { test: arm_test, body: b });
         }
+        // [when-exhaustive] [ir-switch] When the checker proved the arms cover every
+        // runtime arm and no branch wrote an `else`, the fallthrough is
+        // dead. Record that in the IR as an explicit `Else` arm trapping as
+        // unreachable, so the backends emit it rather than each synthesizing
+        // its own fallthrough. (A written `else` already produced an `Else`
+        // arm above; `non_null`, pass-loops and actor dispatch supply their
+        // own, so this is the one else-less `Switch` shape.)
+        if self.ctx.checked.when_exhaustive.contains(&self.key(span)) && !arms.iter().any(|a| matches!(a.test, ArmTest::Else)) {
+            let msg = "unhandled union arm".to_string();
+            let trap = Expr { ty: Ty::Never, span, kind: ExprKind::Unreachable { message: Some(Box::new(Expr { ty: Ty::named("Str"), span, kind: ExprKind::Str(msg) })), at: self.location(span) } };
+            arms.push(SwitchArm { test: ArmTest::Else, body: Block { stmts: vec![Stmt::Expr(trap)], value: None, span } });
+        }
         self.set_last_branch(id);
         Expr { ty, span, kind: ExprKind::Switch { id, subject: Box::new(s), arms } }
     }

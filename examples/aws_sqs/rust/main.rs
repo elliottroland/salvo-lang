@@ -153,9 +153,11 @@ pub fn round_trip(sqs: &crate::aws_sqs::Sqs, console: &crate::core_console::Cons
                 String::from("?")
             }
         }));
-    } else {
+    } else if matches!(sent, crate::unions::Union2::U2(_)) {
         let mut sent_10 = match sent { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
         crate::core_console::println(console, &format!("send_message: {}", crate::describe((&(crate::core_checked::detach::<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>(sent_10))).as_ref())));
+    } else {
+        panic!("salvo: unhandled union arm at main:47:5");
     };
     let mut got: crate::unions::Union2<crate::aws_sqs::ReceiveMessageOutput, crate::core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>> = {
         let (mut r, __wid) = crate::scheduler::salvo_waiter();
@@ -186,9 +188,11 @@ pub fn round_trip(sqs: &crate::aws_sqs::Sqs, console: &crate::core_console::Cons
                 }
             }));
         }
-    } else {
+    } else if matches!(got, crate::unions::Union2::U2(_)) {
         let mut got_18 = match got { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
         crate::core_console::println(console, &format!("receive_message: {}", crate::describe((&(crate::core_checked::detach::<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>(got_18))).as_ref())));
+    } else {
+        panic!("salvo: unhandled union arm at main:55:5");
     };
     let mut gone: crate::unions::Union2<(), crate::core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>> = {
         let (mut r, __wid) = crate::scheduler::salvo_waiter();
@@ -199,9 +203,11 @@ pub fn round_trip(sqs: &crate::aws_sqs::Sqs, console: &crate::core_console::Cons
     if matches!(gone, crate::unions::Union2::U1(_)) {
         let mut gone_19 = match &gone { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
         crate::core_console::println(console, &String::from("deleted"));
-    } else {
+    } else if matches!(gone, crate::unions::Union2::U2(_)) {
         let mut gone_20 = match gone { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
         crate::core_console::println(console, &format!("delete_queue: {}", crate::describe((&(crate::core_checked::detach::<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>(gone_20))).as_ref())));
+    } else {
+        panic!("salvo: unhandled union arm at main:69:5");
     };
 }
 
@@ -317,9 +323,11 @@ pub fn main() {
                     String::from("?")
                 }
             }));
-        } else {
+        } else if matches!(missing, crate::unions::Union2::U2(_)) {
             let mut missing_12 = match missing { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
             crate::core_console::println(&__handle_2, &format!("get_queue_url: {}", crate::describe((&(crate::core_checked::detach::<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>(missing_12))).as_ref())));
+        } else {
+            panic!("salvo: unhandled union arm at main:177:9");
         };
     };
 }

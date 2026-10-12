@@ -61,7 +61,9 @@ fun toStr__NetError(e: Union2<Unreachable, WireFailed>): String {
             val e_2: WireFailed = ((e as Union2.U2<*, *>).value as WireFailed)
             return "wire failed to ${toStr__NodeEndpoint(e_2.to)}: ${e_2.reason}"
         }
-        else -> throw IllegalStateException("salvo: unreachable arm")
+        else -> {
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at net:102:5"))
+        }
     }
 }
 
@@ -520,7 +522,9 @@ fun handshake(transport: Transport, group: String, from: NodeId, data: salvo.pla
         (msg == null) -> {
             return null
         }
-        else -> throw IllegalStateException("salvo: unreachable arm")
+        else -> {
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at net:432:5"))
+        }
     }
 }
 
@@ -599,7 +603,9 @@ class StaticNodeGroup(private val name: String, private val all: List<NodeEndpoi
             }
             (event == null) -> {
             }
-            else -> throw IllegalStateException("salvo: unreachable arm")
+            else -> {
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at net:527:9"))
+            }
         }
     }
 }
@@ -733,7 +739,9 @@ class GossipNodeGroup(private val name: String, private val seeds: List<NodeEndp
             }
             (event == null) -> {
             }
-            else -> throw IllegalStateException("salvo: unreachable arm")
+            else -> {
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at net:612:9"))
+            }
         }
     }
 }

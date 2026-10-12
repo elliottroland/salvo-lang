@@ -521,6 +521,13 @@ pub struct Checked {
     pub coerce: HashMap<Key, Coercion>,
     /// Keyed by the span of the `is` expression or the `when` branch.
     pub is_tests: HashMap<Key, UnionTest>,
+    /// [when-exhaustive] `when` expressions (keyed by the `when`'s span)
+    /// the checker proved cover every runtime arm of their union subject
+    /// without a written `else`. The IR builder reads this to give such a
+    /// `when` an explicit unreachable fallthrough arm, so that "the
+    /// fallthrough is dead" is a fact in the IR rather than something each
+    /// backend re-derives from the arm set.
+    pub when_exhaustive: HashSet<Key>,
     /// Predicate-qualifier `is` checks on non-union subjects, keyed by the
     /// span of the `is` expression: the qualifier names whose `qualifies`
     /// functions must be called (conjunction), each with the places filling
@@ -25867,6 +25874,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                     missing.join(", ")
                 ),
             );
+        } else if !branches.is_empty() && !unresolved_check {
+            // [when-exhaustive] The arms cover every runtime arm. Record the
+            // verdict so the IR can carry an explicit unreachable fallthrough
+            // rather than have each backend re-derive it.
+            let key = self.key(span);
+            self.out.when_exhaustive.insert(key);
         }
         let join = self.mk_union(branch_tys);
         for tail in tails.into_iter().flatten() {

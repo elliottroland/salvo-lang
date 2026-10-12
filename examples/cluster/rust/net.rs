@@ -95,9 +95,11 @@ pub fn to_str__NetError(mut e: crate::unions::Union2<&crate::net::Unreachable, &
     return if matches!(e, crate::unions::Union2::U1(_)) {
         let mut e_1 = match e { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
         return format!("unreachable: {}", crate::net::to_str__NodeEndpoint(&e_1.to));
-    } else {
+    } else if matches!(e, crate::unions::Union2::U2(_)) {
         let mut e_2 = match e { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
         return format!("wire failed to {}: {}", crate::net::to_str__NodeEndpoint(&e_2.to), e_2.reason);
+    } else {
+        panic!("salvo: unhandled union arm at net:102:5");
     };
 }
 
@@ -842,8 +844,10 @@ pub fn handshake(transport: &crate::net::Transport, group: &String, mut from: cr
     } else if matches!(msg, Some(crate::unions::Union4::U4(_))) {
         let mut msg_4 = match &msg { Some(crate::unions::Union4::U4(__v)) => __v, _ => unreachable!() };
         return Some(crate::unions::Union3::U3(crate::net::PeerIntro { peers: (msg_4.peers).clone() }));
-    } else {
+    } else if msg.is_none() {
         return None;
+    } else {
+        panic!("salvo: unhandled union arm at net:432:5");
     };
 }
 
@@ -917,7 +921,9 @@ impl StaticNodeGroup {
             }
         } else if matches!(event, Some(crate::unions::Union3::U3(_))) {
             let mut event_4 = match &event { Some(crate::unions::Union3::U3(__v)) => __v, _ => unreachable!() };
+        } else if event.is_none() {
         } else {
+            panic!("salvo: unhandled union arm at net:527:9");
         };
     }
 }
@@ -1079,7 +1085,9 @@ impl GossipNodeGroup {
             for mut e in event_5.peers.iter() {
                 crate::net::dial(&self.__dep0, &mut self.dialed, &self.name, (e).clone());
             }
+        } else if event.is_none() {
         } else {
+            panic!("salvo: unhandled union arm at net:612:9");
         };
     }
 }
