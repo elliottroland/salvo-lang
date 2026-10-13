@@ -46,21 +46,32 @@ pub fn dump_program(
     // it is inserted only here (and before `ir::check`), never in the IR the
     // backends consume.
     obligations::annotate(&mut ir, &symbols);
-    let diags = check::check(&ir);
+    // [ir-linear-check] D4b: `salvo ir` dumps even an invalid program and
+    // reports each linear leak inline as `!!! <loc>: <error>`, exit 0 — the
+    // dump is a debugging view; `salvo build` is what fails (D4a). Leaks are
+    // attributed per declaration (via `check_one`, as `ir::analyze` does), so
+    // each shows under the module whose fn produced it with a `module:line:col`
+    // location rather than a bare byte offset.
+    let throws = check::throws_map(&ir);
+    let file_content = |file_name: &str| -> Option<&str> { program.files.iter().find(|f| f.name == file_name).map(|f| f.content.as_str()) };
     let mut text = String::new();
     for m in &ir.modules {
         if !text.is_empty() {
             text.push('\n');
         }
         text.push_str(&dump::Dumper::module(&ir, m));
-    }
-    // [ir-linear-check] D4b: `salvo ir` dumps even an invalid program and
-    // reports each linear leak inline as `!!! <error>`, exit 0 — the dump is a
-    // debugging view; `salvo build` is what fails (D4a).
-    if !diags.is_empty() {
-        text.push_str("\n");
-        for d in &diags {
-            text.push_str(&format!("!!! {}: {}\n", d.span.start, d.message));
+        let content = file_content(&m.file_name);
+        for decl in &m.decls {
+            for d in check::check_one(decl, &throws) {
+                let loc = match content {
+                    Some(c) => {
+                        let (line, col) = salvo_syntax::span::line_col(c, d.span.start);
+                        format!("{}:{line}:{col}", m.path.0.join("."))
+                    }
+                    None => format!("{}:{}", m.path.0.join("."), d.span.start),
+                };
+                text.push_str(&format!("!!! {loc}: {}\n", d.message));
+            }
         }
     }
     Ok((text, errors))

@@ -123,6 +123,45 @@ export fn probe(flag: Bool) [Throw<Str>] -> None {\n\
     );
 }
 
+/// [ir-obligation] An `assert!(x is ^Ok)` proves the un-asserted (linear) arms
+/// absent past it, discharging them — so a value handled by an assert is not a
+/// leak (false positive fixed 2026-10-12).
+#[test]
+fn ir_linear_check_assert_narrowing_is_not_a_leak() {
+    let src = "\
+export struct Res { ok: Bool }\n\
+export struct FsError { code: Int }\n\
+export fn open_it(n: Int) -> Ok Res | Err Checked<FsError> => n {\n\
+    if n > 0 { return ok(Res { ok: true }) }\n\
+    return err(checked(FsError { code: n }))\n\
+}\n\
+export fn use_assert(n: Int) -> Res {\n\
+    let r = open_it(n)\n\
+    assert!(r is ^Ok, \"failed\")\n\
+    return r\n\
+}\n";
+    assert!(leaks_of(src).is_empty(), "assert narrowing reported a false leak: {:?}", leaks_of(src));
+}
+
+/// [ir-obligation] A `block_expr` wrapper (`Branch { [(true, body)], None }`)
+/// that releases a consumed parameter before a pick must not have that release
+/// undone by a synthetic "skipped every arm" path — an unconditional (`true`)
+/// arm is always taken (false positive fixed 2026-10-12).
+#[test]
+fn ir_linear_check_release_before_an_escaping_pick_is_not_a_leak() {
+    let src = "\
+export struct FsError { code: Int }\n\
+export linear struct Stream { fd: Int }\n\
+export fn close_stream(s: Stream) -> Ok None | Err Checked<FsError> => !s {\n\
+    discard(s)\n\
+    return ok(None)\n\
+}\n\
+export fn use_escape(s: Stream) -> None => !s {\n\
+    close_stream(s) ?: unreachable!(\"close failed\")\n\
+}\n";
+    assert!(leaks_of(src).is_empty(), "release-before-escaping-pick reported a false leak: {:?}", leaks_of(src));
+}
+
 /// Build the IR of `src` (with std) and return the IR check's leak messages,
 /// regardless of whether the AST checker also flags them.
 fn leaks_of(src: &str) -> Vec<String> {

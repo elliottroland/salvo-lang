@@ -138,6 +138,48 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-12 — IR linear-check false positives fixed; `salvo ir` dumps despite leaks
+
+Three kinks in the IR-level linear-obligation check (`ir::check`), from
+`salvo-noticeboard`'s `disk.sv`, plus a dump-resilience fix the user asked for.
+
+- **FP1 — `assert!` narrowing didn't discharge.** `let r = open(); assert!(r is
+  ^Ok, …); return r` reported `r` leaking its linear `Err Checked` arm, because
+  nothing discharged the arm the assert ruled out. `walk_expr` now handles
+  `ExprKind::Assert`: when the condition is a positive arm-test, it discharges
+  the **complement** arms (`discharge_complement`) — the assert proves them
+  absent past it, so a value an assert handles is not a leak. (`put`'s
+  `assert!(out_stream is ^Ok, …)` in disk.sv.)
+- **FP2 — a release before an escaping pick was undone.** `fn f(s: Stream) =>
+  !s { close(s) ?: unreachable!(…) }` reported `s` leaking even though the
+  `block_expr` wrapper released `s` before the pick. Cause: the `Branch` handler
+  added a synthetic "skipped every arm" fall-through path (cloned from the
+  *pre-arm* `owed`, still holding `s`) and `join`ed it back — but a wrapper's
+  single arm has condition `true`, is always taken, and has no skip path. Fixed:
+  the else-less `Branch` adds the skip path only when **no arm is
+  unconditional** (`cond == Bool(true)`). (`close`'s `?: unreachable!()` in
+  disk.sv.)
+- **Dump resilience (user steering).** `salvo ir` bailed when the IR linear
+  check failed because `ir_command` treated the IR-reliant leak diagnostics like
+  parse/type errors. Now `Analysis` carries `ir_reliant` (the `(file, span)` of
+  every `ir::analyze` diagnostic), and `ir_command` blocks the dump only on
+  non-IR-reliant errors. `dump_program` inlines each leak as
+  `!!! module:line:col: <message>` per module (via `check_one` per decl, so the
+  location is exact), exit 0. The dump is a debugging view; `salvo build` is the
+  hard gate.
+- **FP3 is parked for a decision** (see ROADMAP / the note to the user):
+  `read_notice`'s `read_long(in_stream) ?: return None` drops the `Err
+  Checked<StreamError>` arm on the error path, which the check flags — but that
+  is the *same shape* as noticeboard #2, the leak the feature exists to catch.
+  Whether an escaping `?:` right side (`return None`) should be allowed to drop
+  the error is a semantics call the user owns; not changed.
+- Tests: `ir_linear_check_assert_narrowing_is_not_a_leak`,
+  `ir_linear_check_release_before_an_escaping_pick_is_not_a_leak` (both now
+  clean), the preserved `ir_linear_check_catches_a_dropped_linear_arm` /
+  `…_leak_across_a_throwing_call`, and `dump_inlines_a_linear_leak_and_still_
+  produces_the_ir` (golden_tests). `[ir-linear-check]` in LANGUAGE_SPEC.md
+  updated. Warm `cargo nextest run`: 1773.
+
 ### 2026-10-12 — Rust safe-nav combinator chain ([rs-safe-nav])
 
 The follow-up left open when `?.` landed: the Rust backend now renders a

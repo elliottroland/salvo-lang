@@ -344,8 +344,20 @@ fn ir_command(src: Option<PathBuf>, all: bool, module: Option<String>) -> ExitCo
         }
     };
     let program = &analysis.program;
-    if analysis.diagnostics.iter().any(|d| d.is_error()) {
-        for diag in &analysis.diagnostics {
+    // [ir-linear-check] D4b: the dump is a debugging view, so a failing check
+    // that *relies on the IR* (the linear-obligation leak check) must not stop
+    // it — `dump_program` inlines those as `!!! …` and still returns the IR.
+    // Only diagnostics that prevent building a meaningful IR (parse and type
+    // errors — everything `dump_program` itself gates on) block the dump; the
+    // IR-reliant leaks are filtered out of the pre-check here and surface
+    // inline instead.
+    let blocking: Vec<&FileDiagnostic> = analysis
+        .diagnostics
+        .iter()
+        .filter(|d| d.is_error() && !analysis.ir_reliant.contains(&(d.file, d.span)))
+        .collect();
+    if !blocking.is_empty() {
+        for diag in &blocking {
             eprintln!("{}", diag.render(&program.files));
         }
         return ExitCode::FAILURE;

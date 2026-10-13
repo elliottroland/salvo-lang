@@ -119,6 +119,11 @@ pub struct Analysis {
     /// structs, effects, handlers, qualifiers, aliases and opaque types —
     /// with what kind of declaration it is.
     pub type_completions: Vec<Vec<(String, TypeKind)>>,
+    /// [ir-linear-check] The `(file, span start)` of every diagnostic that
+    /// *relies on the IR* — the linear-obligation leak check (`ir::analyze`).
+    /// `salvo ir` dumps the IR anyway and inlines these as `!!! …`, so they
+    /// must not block the dump the way a parse/type error does.
+    pub ir_reliant: std::collections::HashSet<(usize, salvo_syntax::Span)>,
 }
 
 /// [lsp-completion] What a type-like completion names.
@@ -294,6 +299,7 @@ fn analyze_project(
     // module; `live` collects this analysis's file hashes so the cache can
     // drop everything else and not grow with each edit.
     let mut diagnostics: Vec<FileDiagnostic> = Vec::new();
+    let mut ir_reliant: std::collections::HashSet<(usize, salvo_syntax::Span)> = std::collections::HashSet::new();
     let mut modules = Vec::with_capacity(sources.files.len());
     let mut live: std::collections::HashSet<u64> = std::collections::HashSet::new();
     for file in &sources.files {
@@ -361,7 +367,11 @@ fn analyze_project(
         // surface once those are fixed.
         let clean = parse_broken.is_empty() && !diagnostics.iter().any(|d| d.is_error()) && !checked.errors.iter().any(|d| d.is_error());
         if clean {
-            diagnostics.extend(salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked));
+            let ir_diags = salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked);
+            for d in &ir_diags {
+                ir_reliant.insert((d.file, d.span));
+            }
+            diagnostics.extend(ir_diags);
         }
         diagnostics.append(&mut checked.errors);
         // [platform-root] Platform declarations need a platform root.
@@ -381,6 +391,7 @@ fn analyze_project(
         comptime_hovers,
         completions,
         type_completions,
+        ir_reliant,
     })
 }
 

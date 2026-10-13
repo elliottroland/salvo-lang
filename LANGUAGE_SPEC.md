@@ -9581,9 +9581,20 @@ replaced the working document TESTING.md).
   `break`/`continue` leaves only the loop, so only obligations gained inside it
   count) is a leak. It catches what the AST checker's sugar-by-sugar flow
   analysis misses — a linear union arm an elvis pick discards (noticeboard #2) —
-  and reports zero leaks on all known-good std and example code. `salvo ir`
-  prints each leak inline as `!!! <error>` and still exits 0; the hard build
-  gate (and deleting the AST-side enforcement) is the next phase.
+  and reports zero leaks on all known-good std and example code.
+  * **What settles an arm.** A matched `when`/`if is` arm discharges its arm;
+    falling past an else-less branch's positive test discharges that arm on the
+    skip path; an `assert!(x is ^Ok)` discharges the *complement* arms past it
+    (the assert proves the rest absent, so a value an assert handles is not a
+    leak); a move (`Release`) and a `narrow` to a non-linear type discharge
+    outright. An **unconditional arm** (a `block_expr` wrapper, a desugared
+    `else`) is always taken, so an else-less branch with one adds no "skipped
+    every arm" skip path — the arm's own releases stand.
+  * **`salvo ir` dumps even a program this check rejects** (D4b): the dump is a
+    debugging view, so it prints the IR and inlines each leak as
+    `!!! module:line:col: <error>` beside the module it came from, exit 0. Only
+    parse/type errors (which make the IR meaningless) stop the dump; the
+    IR-reliant linear leaks never do. `salvo build` is the hard gate that fails.
 
 ## Comments and documentation
 

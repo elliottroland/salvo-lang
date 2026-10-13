@@ -218,17 +218,28 @@ fn walk_expr(e: &Expr, owed: &mut Owed, ctx: &Ctx, out: &mut Vec<IrDiagnostic>) 
                     }
                 }
                 None => {
-                    // No `otherwise`: the subject may skip every arm. Falling
-                    // past a positive arm-test (`x is arm k`) proves `x` is not
-                    // in that arm, discharging `x`'s obligation on it.
-                    let mut path = owed.clone();
-                    for (cond, _) in arms {
-                        if let Some((subject, tested)) = positive_arm_test(cond) {
-                            discharge_arms(&mut path, &subject, &tested);
+                    // No `otherwise`: the subject may skip every arm — *unless*
+                    // an arm is unconditional (`cond == true`, which a
+                    // `block_expr` wrapper and a desugared `else` produce),
+                    // in which case that arm is always taken and there is no
+                    // skip-past path. Adding one would merge back obligations
+                    // the always-taken arm had already released (a false leak,
+                    // found 2026-10-12 on `x ?: unreachable!()` whose wrapper
+                    // released a consumed parameter before the pick).
+                    let unconditional = arms.iter().any(|(c, _)| matches!(c.kind, ExprKind::Bool(true)));
+                    if !unconditional {
+                        // Falling past a positive arm-test (`x is arm k`)
+                        // proves `x` is not in that arm, discharging its
+                        // obligation on the skip path.
+                        let mut path = owed.clone();
+                        for (cond, _) in arms {
+                            if let Some((subject, tested)) = positive_arm_test(cond) {
+                                discharge_arms(&mut path, &subject, &tested);
+                            }
                         }
+                        any_fallthrough = true;
+                        joined = Some(join(joined, path));
                     }
-                    any_fallthrough = true;
-                    joined = Some(join(joined, path));
                 }
             }
             *owed = joined.unwrap_or_default();
@@ -262,6 +273,19 @@ fn walk_expr(e: &Expr, owed: &mut Owed, ctx: &Ctx, out: &mut Vec<IrDiagnostic>) 
             // leave. The body's own value flows out.
             let inner = Ctx { throws: ctx.throws, loop_base: ctx.loop_base, in_try: true };
             walk_block(body, owed, &inner, out)
+        }
+        // [ir-obligation] `assert!(subject is arm k)` proves, past this point,
+        // that `subject` is in arm `k` — so its *other* arms are proven absent
+        // and their obligations are discharged. (A failed assert traps, so the
+        // continuation only runs when the test held.) This is why a value
+        // narrowed by an `assert!` need not be re-handled: the obligation on
+        // the ruled-out linear arm is gone, exactly as it is inside a `when`
+        // arm or past an else-less branch's positive test.
+        ExprKind::Assert { cond, .. } => {
+            if let Some((subject, tested)) = positive_arm_test(cond) {
+                discharge_complement(owed, &subject, &tested);
+            }
+            Flow::FallsThrough
         }
         ExprKind::WaitFor { body, .. } => {
             // [actor-waitfor] The reply token minted here must be sent to
@@ -514,6 +538,19 @@ fn discharge_arms(owed: &mut Owed, subject: &Key, tested: &[usize]) {
         None => {
             // A whole-value linear leaf is not arm-structured; a positive
             // arm-test on it does not settle it.
+        }
+    }
+}
+
+/// Discharge the arms of `subject` that are *not* in `held`: a positive proof
+/// `subject is held` (an `assert!`) rules the others out. If no linear arm
+/// remains, the obligation is settled.
+fn discharge_complement(owed: &mut Owed, subject: &Key, held: &[usize]) {
+    let Some(o) = owed.get_mut(subject) else { return };
+    if let Some(live) = &mut o.arms {
+        live.retain(|a| held.contains(a));
+        if live.is_empty() {
+            owed.remove(subject);
         }
     }
 }
