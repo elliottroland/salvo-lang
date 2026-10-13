@@ -162,6 +162,23 @@ export fn use_escape(s: Stream) -> None => !s {\n\
     assert!(leaks_of(src).is_empty(), "release-before-escaping-pick reported a false leak: {:?}", leaks_of(src));
 }
 
+/// [ir-obligation] Reading a linear field of a **borrowed** (lent/kept) struct
+/// yields a borrow, not an owned value, so binding it owes nothing — a `let r
+/// = h.res` where `h` is lent must not be a leak (false positive fixed
+/// 2026-10-12).
+#[test]
+fn ir_linear_check_binding_a_borrowed_field_is_not_a_leak() {
+    let src = "\
+export linear struct Res { fd: Int }\n\
+export linear struct Holder { res: Res }\n\
+export fn consume(r: Res) -> None => !r { discard(r) }\n\
+export fn peek(h: Holder) -> Int {\n\
+    let r = h.res\n\
+    return r.fd\n\
+}\n";
+    assert!(leaks_of(src).is_empty(), "borrowed-field binding reported a false leak: {:?}", leaks_of(src));
+}
+
 /// Build the IR of `src` (with std) and return the IR check's leak messages,
 /// regardless of whether the AST checker also flags them.
 fn leaks_of(src: &str) -> Vec<String> {

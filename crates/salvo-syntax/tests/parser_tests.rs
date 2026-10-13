@@ -718,6 +718,27 @@ fn docs_keep_indentation_after_the_marker() {
     );
 }
 
+// [elvis-wrap] The forward elvis `?:` may start on a continuation line, so a
+// pick chain can wrap across lines (user request 2026-10-12).
+#[test]
+fn a_forward_elvis_may_wrap_to_the_next_line() {
+    let (module, diagnostics) = salvo_syntax::parse_module(
+        "fn f(x: Int?) -> Int {\n    return x\n        ?: 0\n}\n",
+    );
+    assert!(!diagnostics.iter().any(|d| d.is_error()), "{diagnostics:?}");
+    let salvo_syntax::ast::Item::Fn(f) = &module.items[0] else { panic!() };
+    // The body's return value is an `Elvis`, i.e. the wrapped `?:` was taken
+    // as the operator rather than left dangling.
+    let found = {
+        use salvo_syntax::ast::{Expr, Stmt};
+        f.body.as_ref().and_then(|b| b.stmts.iter().find_map(|s| match s {
+            Stmt::Expr(Expr::Return { value: Some(v), .. }) => Some(matches!(**v, Expr::Elvis { .. })),
+            _ => None,
+        })).unwrap_or(false)
+    };
+    assert!(found, "a wrapped `?:` should parse as an Elvis");
+}
+
 // [effect-prereq] `effect Fs [Streams] { … }`: the prerequisite list is a
 // handler-style effect list between the generics and the body.
 #[test]

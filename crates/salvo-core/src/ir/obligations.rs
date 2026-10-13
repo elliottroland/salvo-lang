@@ -209,10 +209,27 @@ impl Annotator<'_, '_> {
         }
     }
 
+    /// Whether a binding's value is a **borrow** of a linear place rather than
+    /// an owned value: a non-consuming `Read` whose read type is a `proj`
+    /// borrow, or whose place is rooted in a lent/kept local (`self.borrowed`)
+    /// — reading a field of a borrowed linear struct yields a borrow, which
+    /// owes nothing. A consuming read (`!read`, a move out) owns; a call or
+    /// construction produces an owned value.
+    fn value_is_borrow(&self, value: &Expr) -> bool {
+        match &value.kind {
+            ExprKind::Read { place, consume: false } => value.ty.is_proj() || self.borrowed.contains(&place.root.0),
+            _ => false,
+        }
+    }
+
     /// `Gain` for a binding of a linear value.
     fn gain_of(&self, s: &Stmt) -> Option<Vec<ObligationRef>> {
         match s {
-            Stmt::Let { local, ty, .. } if self.is_linear(ty) => {
+            // A binding of a linear value gains its obligation — unless the
+            // value is a *borrow* of a linear place (a non-consuming read of a
+            // field of a lent/kept root, or a `proj` read): a borrow owns
+            // nothing, the same rule a `Narrow` of a borrowed source obeys.
+            Stmt::Let { local, ty, value, .. } if self.is_linear(ty) && !self.value_is_borrow(value) => {
                 Some(vec![self.ref_of(Place { root: local.clone(), steps: Vec::new() }, ty)])
             }
             Stmt::ForEach { local, ty, .. } if self.is_linear(ty) => {

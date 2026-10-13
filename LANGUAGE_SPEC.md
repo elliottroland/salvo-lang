@@ -413,6 +413,12 @@ Conventions:
   * **Precedence is Kotlin's**: tighter than `is`/comparison/equality, looser
     than additive, right-associative. `m[k] ?: 0 > 3` is `(m[k] ?: 0) > 3`;
     `a ?: b + 1` is `a ?: (b + 1)`; `a ?: b ?: c` is `a ?: (b ?: c)`.
+  * **[elvis-wrap] The forward operator (`?…?:`) may start on a continuation
+    line**, so a pick chain can wrap (`a ?: b\n    ?: c`): a line beginning
+    with `?` is unambiguous, since nothing in Salvo starts a statement or
+    expression with `?`. The backward form (`:?…?`) keeps the same-line
+    requirement — a leading `:` could read as a type ascription (user request
+    2026-10-12).
   * **The subject is evaluated once**, and the form needs no position
     restriction (unlike a call subject in an `is` [loop-while-is]): the
     temporary is internal to the lowering.
@@ -9590,6 +9596,12 @@ replaced the working document TESTING.md).
     outright. An **unconditional arm** (a `block_expr` wrapper, a desugared
     `else`) is always taken, so an else-less branch with one adds no "skipped
     every arm" skip path — the arm's own releases stand.
+  * **What never owes.** A borrow carries no obligation: a lent/kept parameter
+    (only `Moved` linear params gain), a `proj`/`ref` value, and **binding a
+    linear field of a borrowed struct** (`let r = h.res` where `h` is lent is a
+    borrow of `h.res`, not a move, so `r` owes nothing). A binding owes only
+    when its value is an owned linear value — a call result, a construction, or
+    a consuming (`!read`) move-out.
   * **`salvo ir` dumps even a program this check rejects** (D4b): the dump is a
     debugging view, so it prints the IR and inlines each leak as a
     ` !!! module:line:col: <error>` note **at the end of the line that produced

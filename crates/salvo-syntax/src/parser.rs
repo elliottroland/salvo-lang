@@ -4986,15 +4986,20 @@ impl<'s> Parser<'s> {
     /// exception.
     fn parse_elvis(&mut self) -> Option<Expr> {
         let lhs = self.parse_additive()?;
-        if !self.same_line() {
-            return Some(lhs);
-        }
         // The operator is a run of `?`s with a `:` at one end: `?…?:` counts
         // from the front, `:?…?` from the back. The two `Question` runs never
         // *both* appear — a `:` with `?`s on both sides is not a pick — so the
         // direction is whichever side the `:` is not on. `?` and `:` are
         // separate tokens [elvis], so this scans a run rather than matching one
         // glued pair.
+        //
+        // [elvis-wrap] The **forward** operator (`?…?:`) may start on a
+        // continuation line, so a long pick chain can wrap
+        // (`a ?: b\n    ?: c`): a line beginning with `?` is unambiguous, since
+        // nothing in Salvo starts a statement or expression with `?`. The
+        // **backward** form (`:?…?`) keeps the same-line requirement, because a
+        // leading `:` on its own line could read as a type ascription
+        // elsewhere (user request 2026-10-12).
         let (dir, count) = match self.kind() {
             TokenKind::Question => {
                 // Forward: `?…?:`. Require the run to end in a `:`, otherwise
@@ -5012,7 +5017,7 @@ impl<'s> Parser<'s> {
                 self.expect(&TokenKind::Colon)?;
                 (ElvisDir::Forward, n)
             }
-            TokenKind::Colon => {
+            TokenKind::Colon if self.same_line() => {
                 // Backward: `:?…?`. A `:` on its own line or not followed by a
                 // `?` is not a pick (it may be a type ascription elsewhere).
                 if !matches!(self.peek_at(1).kind, TokenKind::Question) {

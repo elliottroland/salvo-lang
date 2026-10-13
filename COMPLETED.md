@@ -138,6 +138,31 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-12 — Two more disk.sv kinks: borrowed-field binding, and wrapping `?:`
+
+- **Binding a linear field of a borrowed struct is not a leak** (FP, `next` in
+  disk.sv). `let in_stream = stream.in_stream` where `stream` is a lent/kept
+  `NoticeStream` reads a field of a *borrow* — `in_stream` is a borrow, not a
+  move, so it owns nothing. The obligation annotator was gaining it anyway (a
+  `Let` of a linear type gained unconditionally). Fixed: `gain_of`'s `Let` case
+  now skips the gain when the value `is` a borrow — a non-consuming `Read`
+  whose type is a `proj`, or whose place is rooted in a lent/kept local
+  (`value_is_borrow`, mirroring the existing `Narrow`-of-a-borrowed-source
+  rule). A call result, a construction, or a `!read` move-out still owns.
+  Verified the genuine case still fires: `let r = make(); return` (an owned
+  value dropped) is still a leak.
+- **The forward `?:` may wrap to a continuation line** (user request, the
+  `read_notice` TODO). `parse_elvis` dropped out on `!same_line()`, so a `?:`
+  on the next line was left dangling. Now the forward form (`?…?:`) is taken
+  across a line break — a line beginning with `?` is unambiguous — while the
+  backward form (`:?…?`) keeps the same-line requirement (a leading `:` could
+  read as a type ascription). `[elvis-wrap]`. So a chain can read:
+  `let v = read()\n    ?: fallback()\n    ?: default()`.
+- Tests: `ir_linear_check_binding_a_borrowed_field_is_not_a_leak` (core),
+  `a_forward_elvis_may_wrap_to_the_next_line` (parser). `[elvis]`/`[elvis-wrap]`
+  and `[ir-linear-check]` in LANGUAGE_SPEC.md, the `?:` paragraph in
+  docs/language/Data-and-Types.md (wiki synced). Warm `cargo nextest run`: 1775.
+
 ### 2026-10-12 — IR linear-check false positives fixed; `salvo ir` dumps despite leaks; clearer leak messages
 
 Three kinks in the IR-level linear-obligation check (`ir::check`), from
