@@ -537,6 +537,15 @@ fn type_named_fn_parses() {
         }
         other => panic!("expected a type-fn call, got {other:?}"),
     }
+    // [fn-type-named] A `canbe` opt-in on the type's generics is parsed and
+    // becomes the fn's `generic_canbe` (needed for provenance fns like
+    // `fn Ok<T canbe linear>`).
+    let (m3, d3) = salvo_syntax::parse_module(
+        "fn Mut List<T canbe linear>(first: T) -> Mut List<T> => !first {\n    return mut_list_of(first)\n}\n",
+    );
+    assert!(!d3.iter().any(|d| d.is_error()), "{d3:?}");
+    let salvo_syntax::ast::Item::Fn(f3) = &m3.items[0] else { panic!() };
+    assert_eq!(f3.generic_canbe.len(), 1, "the `<T canbe linear>` opt-in is recorded");
 }
 
 // [name-casing] Generic parameters are type names.

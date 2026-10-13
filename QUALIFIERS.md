@@ -293,13 +293,23 @@ collection constructors to type-fn form (deferred to the cleanup after 3).
 - `[fn-type-named]` spec rule added to LANGUAGE_SPEC.md. ✓
 
 ### KNOWN GAP (blocks change 3's `canbe`): generics with `canbe` on a type-fn name
-`fn Ok<T canbe linear>(...)` fails to parse — `parse_type_fn_name` →
-`parse_type_ref` parses `<T>` as plain type args and chokes on `canbe linear`.
-A type-fn name's base generics need the `<T canbe linear>` opt-in like an
-ordinary fn's `parse_generics_canbe`. Fix in change 3: parse the base ref's
-generics with canbe-awareness (or special-case: after parsing the base name,
-if `<`, use a canbe-aware generics parse and attach the opt-ins to the fn's
-`generic_canbe`). Non-`canbe` type-fns (incl. `Mut List<T>`) work fully today.
+FIXED 2026-10-12. `parse_type_fn_name` now parses each ref as name +
+canbe-aware `<…>` (via `parse_generics_canbe`), returning `(Type, generics,
+generic_canbe)`; the base's `canbe` opt-ins thread into `FnDecl.generic_canbe`.
+`fn Mut List<T canbe linear>(…)` parses. `parse_fn_rest` gained a
+`type_canbe` param. Test: `type_named_fn_parses` extended.
+
+### Change 3 — provenance type-named fns — NOT STARTED
+Parsing is ready (base-less provenance names parse; `canbe` works; rule-(c)
+has a provenance branch). The remaining work is a **std migration**: re-express
+`ok`/`err`/`emitted`/… as `fn Ok<T>(…)`/`fn Err<T>(…)`/… in their own files,
+AND make the `+Ok` constructor-same-file rule ([qual-ctor-fn]) recognise a
+type-fn as a valid constructor (today it checks `f.constructs`; a type-fn whose
+base is a provenance qualifier is also a constructor). Best done together with
+change 4 (arm inference) since they share the "which provenance ctor builds
+this arm" machinery. The lowercase `ok`/`err` stay in parallel (Q4) until a
+later cleanup.
+
 
 
 ### Change 1 — type-named functions — IN PROGRESS (started 2026-10-12)

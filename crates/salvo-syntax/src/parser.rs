@@ -1739,7 +1739,7 @@ impl<'s> Parser<'s> {
         // The rest is a fn signature and body, with the comptime syntax on.
         let saved = std::mem::replace(&mut self.in_compfn, true);
         let fake_fn_span = start;
-        let rest = self.parse_fn_rest(fake_fn_span, name, None, Vec::new(), docs, false, FnFlavor::Plain);
+        let rest = self.parse_fn_rest(fake_fn_span, name, None, Vec::new(), Vec::new(), docs, false, FnFlavor::Plain);
         self.in_compfn = saved;
         let mut f = rest?;
         if let Some((_, param)) = &bound {
@@ -2516,13 +2516,13 @@ impl<'s> Parser<'s> {
         // canonical key derived from the type. Otherwise an ordinary lowercase
         // fn name.
         if self.at_type_name() {
-            let ty = self.parse_type_fn_name()?;
-            let (key, generics) = type_fn_key(&ty);
+            let (ty, generics, canbe) = self.parse_type_fn_name()?;
+            let (key, _) = type_fn_key(&ty);
             let name = Ident { name: key, span: ty.span() };
-            return self.parse_fn_rest(start, name, Some(ty), generics, docs, intrinsic, flavor);
+            return self.parse_fn_rest(start, name, Some(ty), generics, canbe, docs, intrinsic, flavor);
         }
         let name = self.ident_value("fn")?;
-        self.parse_fn_rest(start, name, None, Vec::new(), docs, intrinsic, flavor)
+        self.parse_fn_rest(start, name, None, Vec::new(), Vec::new(), docs, intrinsic, flavor)
     }
 
     /// Everything after the declaration word and the name: generics,
@@ -2534,6 +2534,7 @@ impl<'s> Parser<'s> {
         name: Ident,
         type_name: Option<Type>,
         type_generics: Vec<Ident>,
+        type_canbe: Vec<(Ident, TypeRef)>,
         docs: Vec<String>,
         intrinsic: bool,
         flavor: FnFlavor,
@@ -2562,9 +2563,10 @@ impl<'s> Parser<'s> {
             );
         }
         // [fn-type-named] A type-named fn's generics came from the type
-        // (`fn Mut List<T>` → `T`); only an ordinary fn reads `<…>` here.
+        // (`fn Mut List<T>` → `T`, `fn Ok<T canbe linear>` → the opt-in);
+        // only an ordinary fn reads `<…>` here.
         let (generics, generic_canbe) = if type_name.is_some() {
-            (type_generics, Vec::new())
+            (type_generics, type_canbe)
         } else {
             self.parse_generics_canbe()
         };
@@ -3368,25 +3370,63 @@ impl<'s> Parser<'s> {
     }
 
     /// [fn-type-named] Parse a function's **type name** — a run of qualifier
-    /// refs followed by a base ref (`Mut List<T>`, `Heap List<T>`, `Ok<T>`) —
-    /// stopping before the parameter list `(`. Unlike `parse_type_atom` this
-    /// never reads a trailing `(…)` as a qualified group: here the parens are
-    /// the fn's parameters.
-    fn parse_type_fn_name(&mut self) -> Option<Type> {
-        let mut refs = vec![self.parse_type_ref_opts(false)?];
-        // Continue the qualifier/base run only while a type-name token
-        // follows on the same line — the base is the last ref.
-        while (self.at_type_name()
-            || matches!(
-                self.kind(),
-                TokenKind::KwProj | TokenKind::KwRef | TokenKind::KwOnce | TokenKind::KwLinear
-            ))
-            && self.same_line()
-        {
-            refs.push(self.parse_type_ref_opts(false)?);
+    /// refs followed by a base (`Mut List<T>`, `Heap List<T>`, `Ok<T>`,
+    /// `Ok<T canbe linear>`) — stopping before the parameter list `(`. The
+    /// base's generics are parsed with `canbe` awareness, returned alongside
+    /// the type and its generic names.
+    fn parse_type_fn_name(&mut self) -> Option<(Type, Vec<Ident>, Vec<(Ident, TypeRef)>)> {
+        // Parse a run of refs; each is a name with optional (canbe-aware)
+        // `<…>` generics. The last is the base, the rest qualifiers. Value
+        // args (`(…)`) are never consumed — those are the fn's parameters.
+        let parse_one = |p: &mut Self| -> Option<(TypeRef, Vec<Ident>, Vec<(Ident, TypeRef)>)> {
+            let name = p.type_ref_name()?;
+            let (gen_idents, canbe) = if p.at(&TokenKind::Lt) {
+                p.parse_generics_canbe()
+            } else {
+                (Vec::new(), Vec::new())
+            };
+            let args: Vec<Type> = gen_idents
+                .iter()
+                .map(|g| Type::Named {
+                    qualifiers: Vec::new(),
+                    base: TypeRef {
+                        name: g.clone(),
+                        args: Vec::new(),
+                        value_args: Vec::new(),
+                        from: Vec::new(),
+                        at: None,
+                        binder: false,
+                        established: false,
+                        alias: None,
+                        span: g.span,
+                    },
+                })
+                .collect();
+            let span = name.span;
+            let r = TypeRef {
+                name,
+                args,
+                value_args: Vec::new(),
+                from: Vec::new(),
+                at: None,
+                binder: false,
+                established: false,
+                alias: None,
+                span,
+            };
+            Some((r, gen_idents, canbe))
+        };
+        let mut quals: Vec<TypeRef> = Vec::new();
+        let (mut base, mut generics, mut canbe) = parse_one(self)?;
+        while self.at_type_name() && self.same_line() {
+            quals.push(base);
+            let (r, g, c) = parse_one(self)?;
+            base = r;
+            generics = g;
+            canbe = c;
         }
-        let base = refs.pop().unwrap();
-        Some(Type::Named { qualifiers: refs, base })
+        let ty = Type::Named { qualifiers: quals, base };
+        Some((ty, generics, canbe))
     }
 
     fn parse_type_atom(&mut self) -> Option<Type> {
@@ -5909,7 +5949,7 @@ impl<'s> Parser<'s> {
             // the struct-literal / bare-ident handling below.
             if self.at_type_name() {
                 let snap = self.snapshot();
-                if let Some(ty) = self.parse_type_fn_name() {
+                if let Some((ty, _, _)) = self.parse_type_fn_name() {
                     // A `(` here is the call's argument list — UNLESS a `{`
                     // follows the parens, in which case this was a struct
                     // literal with value-args (`Ranked<T>(?cmp) { … }`), or
