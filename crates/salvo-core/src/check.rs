@@ -19200,8 +19200,75 @@ impl<'p, 'r> Checker<'p, 'r> {
             .is_some_and(|d| d.subject == QualSubject::Provenance)
     }
 
-    /// [qual-refn] Applies the refinements in scope to one kept argument of
-    /// a resolved call: removals first, then additions.
+    /// [arm-infer] Provenance-arm inference (user decision 2026-10-12): at a
+    /// position whose expected type is a wrapper union, a bare value that
+    /// matches no arm by subtyping may still be the payload of exactly one
+    /// *provenance-tagged* arm — `return name.size()` for `-> Ok Int | Err
+    /// Str` is implicitly `Ok(name.size())`. Returns the index (into the
+    /// union's value arms) of the one provenance arm whose inner type (the
+    /// arm with its provenance qualifier stripped) accepts `value`, or `None`
+    /// when zero or more than one qualify, or any non-provenance arm also
+    /// accepts the value (then the plain value should have matched and this
+    /// does not fire). The qualifier is erased [qual-erasure], so wrapping the
+    /// bare value into that arm *is* the mint — no ctor call need be emitted.
+    fn infer_provenance_arm(&self, value: &Ty, arms: &[&Ty]) -> Option<usize> {
+        // If any arm accepts the value outright, this is not an inference case.
+        if arms.iter().any(|arm| is_subtype(value, arm)) {
+            return None;
+        }
+        // [arm-infer] A *literal* union with an open provenance arm
+        // (`"A" | "B" | Other Str`) is the deliberate escape-hatch shape: a
+        // plain `Str` must be narrowed to a listed literal or wrapped
+        // *explicitly* with `other(…)` [type-literal], never auto-wrapped
+        // into the open arm. So inference does not fire when any arm is a
+        // literal type.
+        if arms.iter().any(|arm| crate::literal::mentions_lit(arm)) {
+            return None;
+        }
+        let mut found: Option<usize> = None;
+        for (i, arm) in arms.iter().enumerate() {
+            // A provenance-tagged arm: a qualified type one of whose
+            // qualifiers is a provenance qualifier with exactly one
+            // constructor in scope.
+            let Ty::Qualified { quals, base } = arm else {
+                continue;
+            };
+            let prov: Vec<&Qual> = quals
+                .iter()
+                .filter(|q| self.is_provenance_qual(&q.name))
+                .collect();
+            // Exactly one provenance qualifier on the arm, and the value fits
+            // the arm's inner payload (the arm with every provenance qual
+            // stripped). Other (non-provenance) qualifiers must still be met
+            // by the inner subtype check.
+            if prov.len() != 1 {
+                continue;
+            }
+            let inner = {
+                let keep: Vec<Qual> = quals
+                    .iter()
+                    .filter(|q| !self.is_provenance_qual(&q.name))
+                    .cloned()
+                    .collect();
+                if keep.is_empty() {
+                    (**base).clone()
+                } else {
+                    (**base).clone().qualify(keep)
+                }
+            };
+            if !is_subtype(value, &inner) {
+                continue;
+            }
+            if found.is_some() {
+                // More than one provenance arm qualifies — ambiguous, require
+                // the explicit constructor.
+                return None;
+            }
+            found = Some(i);
+        }
+        found
+    }
+
     ///
     /// The additions are what the feature exists for — `add`'s exhaustive
     /// `[list: Mut]` must drop `NonEmpty` ([deduce-syntax] is sound only
@@ -22776,7 +22843,18 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 }
                             }
                         }
-                        if iter_pattern.is_none() && !ref_mint && !is_subtype(&vty, &expected) {
+                        if iter_pattern.is_none()
+                            && !ref_mint
+                            && !is_subtype(&vty, &expected)
+                            // [arm-infer] A bare value that is the payload of
+                            // exactly one provenance-tagged arm is accepted:
+                            // `check_expr` above already recorded the
+                            // WrapUnion against the expected union.
+                            && !(expected.is_wrapper_union()
+                                && self
+                                    .infer_provenance_arm(&vty, &expected.value_arms())
+                                    .is_some())
+                        {
                             self.error(
                                 v.span(),
                                 format!("expected return type `{expected}`, found `{vty}`"),
@@ -26305,6 +26383,23 @@ impl<'p, 'r> Checker<'p, 'r> {
                     );
                 }
                 0 => {
+                    // [arm-infer] Before refusing, try provenance-arm
+                    // inference: a bare value may be the payload of exactly
+                    // one provenance-tagged arm (`return name.size()` for
+                    // `-> Ok Int | Err Str` is implicitly `Ok(…)`). The
+                    // qualifier is erased, so wrapping the value into that arm
+                    // *is* the mint — a plain `WrapUnion`, no ctor call.
+                    if let Some(i) = self.infer_provenance_arm(&effective, &arms) {
+                        self.out.coerce.insert(
+                            self.key(span),
+                            Coercion::WrapUnion {
+                                target: expected.clone(),
+                                arm: i,
+                                inner: None,
+                            },
+                        );
+                        return;
+                    }
                     // [qual-group] One shape reads confusingly here: an
                     // expected arm `Q (A | B)` whose inner arms are
                     // themselves qualified, reached by a value carrying

@@ -221,52 +221,72 @@ union). Build such a collection element-by-element, or type the first binding.
 The `*_of` fns always had this; the literals had bespoke `mk_union` checker
 logic that the constructors do not.
 
-### Change 4 (provenance arm inference)
-- **Q4a. "Unambiguous" definition.** Exactly one arm whose provenance
-  qualifier has a constructor fn that accepts the value's type. If two arms
-  could (`Ok Int | AlsoOk Int`), fall back to requiring the explicit `Ok(...)`.
-  Confirm: ambiguity = ">1 arm's provenance ctor accepts the value", and the
-  fallback is a *required explicit call*, not an error — i.e. the user writes
-  `Ok(x)` and it works, they just can't omit it.
-- **Q4b. Which fn is inferred?** Change 3 makes `Ok` a fn. Does inference
-  insert a call to the *type-named* `Ok` fn, or to the provenance qualifier's
-  constructor generally? If a provenance qual has *several* constructor fns,
-  "only infer when there's exactly one" (the user said "only one function for
-  a provenance qualifier" is the common case). Confirm: infer only when the
-  arm's provenance qual has exactly one constructor fn AND exactly one arm
-  qualifies.
-- **Q4c. Non-provenance arms.** `Int | Str` (no provenance tags) already works
-  by subtype arm-matching. Change 4 is specifically about *tagged* arms where
-  the plain value isn't a subtype. Confirm scope: only provenance-tagged arms.
+### Change 4 (provenance arm inference) — DONE (2026-10-12)
+Checker-only. `infer_provenance_arm(value, arms)` in check.rs: at a wrapper-
+union expected type, if no arm accepts `value` by subtyping, find the one
+provenance-tagged arm (a `Ty::Qualified` with exactly one provenance qual)
+whose inner payload (arm minus its provenance quals) accepts `value`; return
+its index if unique, else None. The qualifier is ERASED, so wrapping the bare
+value into that arm *is* the mint — a plain `Coercion::WrapUnion`, no ctor call
+synthesized. Two hooks: (1) coerce_repr's `0 =>` match arm (before the "no arm
+accepts" error) records the WrapUnion; (2) the return-type gate (`!is_subtype`
+error) also accepts when `infer_provenance_arm` succeeds, since check_expr
+already recorded the coercion. Verified both backends: `return n`/`return
+"neg"` → Ok/Err arms. Ambiguity (two provenance arms accept the value) and
+plain non-tagged unions both behave (explicit required / subtype match). Test:
+`provenance_arm_is_inferred_from_a_bare_value` (carry_tests). Spec: `[arm-infer]`.
 
-### Change 5 (conditional deductions)
-- **Q5a. Return type.** `-> list is NonEmpty => list` — the fn's actual return
-  type is `Bool` (backend), but the signature writes the *condition*. Is the
-  surface return type `Bool` (implicit) or must the user write it? The example
-  omits it. Recommendation: the `X is Q` return *is* the return type sugar,
-  lowering to `Bool`.
-- **Q5b. "Proof-only."** The `true` must be returned from a branch that proved
-  all named quals. How is "proved" established — via the existing narrowing
-  machinery (an `assert!`/`is` that installed the qual in that branch)? So the
-  body must have narrowed `list` to `NonEmpty` on the path that returns `true`.
-  Confirm this is checked against the flow narrows already tracked.
-- **Q5c. Call-site effect.** At `if non_empty(xs) { ... }`, the then-branch
-  installs `NonEmpty` on `xs` (and the else-branch via `!is`?). This is a new
-  narrowing source — like `assert!(xs is NonEmpty)` but as a reusable fn.
-  Confirm the then/else narrowing semantics.
+### Change 6 (retire `with`) — PLAN (decided, Option A)
+Delete `QualifierDecl.with` (ast.rs), its parse, and `refine::quals_compatible`
+**wholesale** (C6-1) — both its call sites go: the qualifier-declaration
+validation and the old refn conflict-suppression (the refn redesign replaces
+conflict handling with a declaration-time `+Q`/`-Q` contradiction error). No
+replacement compatibility relation: every state-qualifier pair composes freely
+now; incompatibility is implicit in which fns can mint a qualifier and the
+qualifier's own `qualifies` predicate (Q13). Sweep `with X` out of std
+qualifiers (`list.sv` `Sorted … with NonEmpty`, `set.sv` `Distinct with
+NonEmpty, Sorted`, and any others).
 
-### Change 6 (retire `with`)
-- **Q6a.** "Constructively incompatible" — what makes two state quals
-  incompatible once `with` is gone? Today `with` is a *declared allowlist*
-  (pairs must opt in). Removing it means *all* pairs are allowed unless
-  something else forbids them. What forbids them? If nothing does, then every
-  state-qual pair composes freely — is that the intent (drop the check
-  entirely), or is there a replacement rule (e.g. two quals over the same
-  `qualifies` predicate that can't both hold)? The user says "emergent from how
-  they apply to their types" — I need the concrete rule. **This is the key
-  open question for 6.**
+### Change 5 (conditional deductions) — PLAN (decided)
+A fn may declare a **qualifier-conditional response**: `fn non_empty<T>(list:
+List<T>) -> list is NonEmpty => list`. The `-> subject is Q` (and `subject !is
+Q`) response lowers the fn's actual return type to **Bool** (C5-1: build this
+primitive once; refn 6(c) reuses it). Spelling uses `is`/`!is`, no `+`/`-` (R4)
+— `list is NonEmpty` ≡ `list: +NonEmpty` in a deduction clause, `list !is
+NonEmpty` ≡ `-NonEmpty`. **Proof-only** for now (Q11): the `true`-returning
+path must have narrowed `subject` to the stated qualifier via existing flow
+narrows. Chainable with `&&` (`-> a is Q && b is R`) and `!` negates (C5-2).
+Call-site: `if non_empty(xs) { … }` installs `NonEmpty` on `xs` in the
+then-branch (and the `!is` form in the branch where it holds); **only the
+matching branch** learns the fact, the other learns nothing (R4). A new
+narrowing source, like a reusable `assert!(xs is NonEmpty)`.
 
-### Change 7 — deferred, design session later.
+### Change 7 (refn redesign) — PLAN (decided)
+New matching model (replaces name+exact-signature one-to-one):
+- A refn still **names** a function (R: Q1) and lives in a **qualifier body**,
+  speaking only about that qualifier (Q2). `@place` may scope the *match*
+  (`refn add@core.list(…)`) to exclude a same-named fn from another module
+  (Q6); no call-site disambiguation.
+- It matches **every in-scope overload of that name** whose params fit
+  positionally (one-to-many, Q1/Q2). Param match is **symmetric base-type
+  super/subtype** — refn param X matches fn param Y if the base (all quals
+  incl. `Mut` stripped) of one is a super/subtype of the other (Q3). A trailing
+  `*` matches all remaining params (R1: trailing-only). Implicit params need no
+  match. **Zero matches is an error** naming the refn (R2).
+- The refn params are the *gate* (does this refn attach at all); the **call
+  site** does the strict work (Q4): a refn applies to a call when every
+  argument is `<:` the relevant refn param, or covered by `*`. So a refn can
+  match a fn yet fire on none of its calls.
+- Effect (rule 6): all matching refns' modifications apply, order-independent.
+  (a) add `+Q`, (b) remove `-Q` (kept path only, R3), (c) a **Bool-conditional
+  response** on a predicate fn via change 5's `-> subject is Q` clause — if any
+  matched fn does **not keep** a parameter named in a qualifier-conditional,
+  that's an **error** (Q5) demanding a narrower refn. A direct `+Q`/`-Q`
+  contradiction for one (param, qualifier) across matching refns is a
+  declaration-time **error** (Q6), not call-site suppression.
+- Keep `preserve` (dependent qualifiers — std `index.sv`/`map.sv` rely on it);
+  it is orthogonal to add/remove/conditional.
+
 
 ---
 

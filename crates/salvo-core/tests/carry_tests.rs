@@ -999,3 +999,43 @@ fn provenance_type_named_fn_is_checked() {
         "a provenance type-fn whose return establishes the wrong tag is refused: {wrong:?}"
     );
 }
+
+#[test]
+fn provenance_arm_is_inferred_from_a_bare_value() {
+    // [arm-infer] A bare value that is the payload of exactly one
+    // provenance-tagged arm is wrapped into it: `return n` for an
+    // `Ok Int | Err Str` return is implicitly `Ok(n)`.
+    let prelude = "provenance qualifier Ok<T> of T\n\
+         provenance qualifier Err<T> of T\n\
+         fn Ok<T canbe linear>(v: T) [] -> +Ok T => !v {\n    return v\n}\n\
+         fn Err<T canbe linear>(v: T) [] -> +Err T => !v {\n    return v\n}\n";
+
+    let ok = errors(&format!(
+        "{prelude}fn classify(n: Int) -> Ok Int | Err Str {{\n    \
+         if n < 0 {{\n        return \"neg\"\n    }}\n    return n\n}}\n"
+    ));
+    assert!(ok.is_empty(), "bare values infer their provenance arm: {ok:?}");
+
+    // Ambiguous: two provenance arms accept an `Int`, so the bare value is
+    // refused and the explicit constructor is required.
+    let ambig = errors(&format!(
+        "{prelude}fn two(n: Int) -> Ok Int | Err Int {{\n    return n\n}}\n"
+    ));
+    assert!(
+        !ambig.is_empty(),
+        "a bare value matching two provenance arms is refused: {ambig:?}"
+    );
+
+    // [arm-infer] Not for a literal union with an open provenance arm: a
+    // plain value must be wrapped explicitly with the open constructor.
+    let open = errors(
+        "provenance qualifier Other<T> of T\n\
+         fn other<T>(v: T) [] -> +Other T => !v {\n    return v\n}\n\
+         type Class = \"A\" | \"B\" | Other Str\n\
+         fn f(s: Str) -> Class => s {\n    return s\n}\n",
+    );
+    assert!(
+        !open.is_empty(),
+        "a plain value is not auto-wrapped into an open literal-union arm: {open:?}"
+    );
+}

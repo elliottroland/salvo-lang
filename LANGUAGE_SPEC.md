@@ -1797,6 +1797,22 @@ Conventions:
     (`fn ok<T>(value: T) -> +Ok T`).
 * [qual-ctor-same-file] Constructor functions must be declared in the same
   file as their qualifier.
+* [arm-infer] **Provenance-arm inference** (user decision 2026-10-12): at a
+  position whose expected type is a wrapper union, a bare value that no arm
+  accepts by subtyping is wrapped into the one *provenance-tagged* arm whose
+  payload it fits — `return name.size()` for `-> Ok Int | Err Str` is
+  implicitly `Ok(name.size())`. The qualifier is erased [qual-erasure], so
+  wrapping the value into that arm *is* the mint; no constructor call is
+  emitted. Fires only when **exactly one** provenance-tagged arm (an arm
+  carrying exactly one provenance qualifier) accepts the value; zero or more
+  than one, or any non-provenance arm also accepting it, leaves the value
+  unwrapped — then the explicit constructor (`Ok(x)`) is required and *works*
+  (it is not an error to write it). Applies at every union-expected position
+  (a `return`, an argument to a union parameter, an annotated `let`), the same
+  rule everywhere. **Not** for a *literal* union with an open provenance arm
+  (`"A" | "B" | Other Str`): there a plain value must be narrowed to a listed
+  literal or wrapped explicitly with `other(…)` [type-literal], never
+  auto-wrapped into the open arm.
 * [qual-result-tags] std ships the result tags in `core.result`:
   `provenance qualifier Ok<T> of T`, `provenance qualifier Err<T> of T` (provenance
   as of 2026-09-23 [qual-subject]), and their constructors
