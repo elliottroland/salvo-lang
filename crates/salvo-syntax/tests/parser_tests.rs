@@ -718,25 +718,41 @@ fn docs_keep_indentation_after_the_marker() {
     );
 }
 
-// [elvis-wrap] The forward elvis `?:` may start on a continuation line, so a
-// pick chain can wrap across lines (user request 2026-10-12).
+// [elvis-wrap] [elvis-assoc] The forward elvis `?:` may start on a continuation
+// line, and is left-associative: a wrapped chain brackets everything before the
+// newline on the left, so a `return` right side does not swallow the next `?:`
+// (user decision 2026-10-12).
 #[test]
 fn a_forward_elvis_may_wrap_to_the_next_line() {
+    use salvo_syntax::ast::{Expr, ElvisDir, Stmt};
     let (module, diagnostics) = salvo_syntax::parse_module(
         "fn f(x: Int?) -> Int {\n    return x\n        ?: 0\n}\n",
     );
     assert!(!diagnostics.iter().any(|d| d.is_error()), "{diagnostics:?}");
     let salvo_syntax::ast::Item::Fn(f) = &module.items[0] else { panic!() };
-    // The body's return value is an `Elvis`, i.e. the wrapped `?:` was taken
-    // as the operator rather than left dangling.
-    let found = {
-        use salvo_syntax::ast::{Expr, Stmt};
+    let ret_val = |f: &salvo_syntax::ast::FnDecl| -> Option<Expr> {
         f.body.as_ref().and_then(|b| b.stmts.iter().find_map(|s| match s {
-            Stmt::Expr(Expr::Return { value: Some(v), .. }) => Some(matches!(**v, Expr::Elvis { .. })),
+            Stmt::Expr(Expr::Return { value: Some(v), .. }) => Some((**v).clone()),
             _ => None,
-        })).unwrap_or(false)
+        }))
     };
-    assert!(found, "a wrapped `?:` should parse as an Elvis");
+    assert!(matches!(ret_val(f), Some(Expr::Elvis { .. })), "a wrapped `?:` should parse as an Elvis");
+
+    // Left-associative, with a `return` right side bracketed by the newline:
+    // `x ??: return 1\n    ?: 2` is `(x ??: return 1) ?: 2` — the outer node is
+    // the second `?:`, whose subject is the first elvis.
+    let (module2, d2) = salvo_syntax::parse_module(
+        "fn g(x: Int | Str | None) -> Int {\n    return x ??: return 1\n        ?: 2\n}\n",
+    );
+    assert!(!d2.iter().any(|d| d.is_error()), "{d2:?}");
+    let salvo_syntax::ast::Item::Fn(g) = &module2.items[0] else { panic!() };
+    match ret_val(g) {
+        Some(Expr::Elvis { subject, dir, count, .. }) => {
+            assert!(matches!(dir, ElvisDir::Forward) && count == 1, "outer should be `?:`");
+            assert!(matches!(&*subject, Expr::Elvis { count: 2, .. }), "subject should be the `??:`");
+        }
+        other => panic!("expected a left-associated elvis chain, got {other:?}"),
+    }
 }
 
 // [effect-prereq] `effect Fs [Streams] { … }`: the prerequisite list is a

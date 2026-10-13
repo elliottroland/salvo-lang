@@ -55,6 +55,11 @@ pub struct Parser<'s> {
     /// `let` value, a call argument, a parenthesised group), so `...` is a body
     /// only for the construct that *is* the statement.
     allow_terminal: bool,
+    /// [elvis-wrap] Suppresses the forward `?:`'s line-wrap: set while parsing
+    /// a nested right side (a `return`/escape value) so a next-line `?:` is
+    /// left for the *enclosing* elvis chain to pick up, bracketing everything
+    /// before the newline on the left (user decision 2026-10-12).
+    elvis_no_wrap: bool,
 }
 
 struct Snapshot {
@@ -174,6 +179,7 @@ impl<'s> Parser<'s> {
             no_struct: false,
             in_compfn: false,
             allow_terminal: false,
+            elvis_no_wrap: false,
         }
     }
 
@@ -4985,63 +4991,83 @@ impl<'s> Parser<'s> {
     /// includes `return`/`break`/`continue`, so `x ?: return _` needs no
     /// exception.
     fn parse_elvis(&mut self) -> Option<Expr> {
-        let lhs = self.parse_additive()?;
-        // The operator is a run of `?`s with a `:` at one end: `?…?:` counts
-        // from the front, `:?…?` from the back. The two `Question` runs never
-        // *both* appear — a `:` with `?`s on both sides is not a pick — so the
-        // direction is whichever side the `:` is not on. `?` and `:` are
-        // separate tokens [elvis], so this scans a run rather than matching one
-        // glued pair.
+        let mut lhs = self.parse_additive()?;
+        // [elvis] [elvis-assoc] Elvis is **left-associative**: `a ?: b ?: c` is
+        // `(a ?: b) ?: c` (user decision 2026-10-12). Each operator folds the
+        // chain so far as its subject, so a chain of picks each handling the
+        // arms the last left behind reads left to right. A loop, like the other
+        // binary tiers, rather than a right recursion.
         //
         // [elvis-wrap] The **forward** operator (`?…?:`) may start on a
-        // continuation line, so a long pick chain can wrap
-        // (`a ?: b\n    ?: c`): a line beginning with `?` is unambiguous, since
-        // nothing in Salvo starts a statement or expression with `?`. The
-        // **backward** form (`:?…?`) keeps the same-line requirement, because a
-        // leading `:` on its own line could read as a type ascription
-        // elsewhere (user request 2026-10-12).
-        let (dir, count) = match self.kind() {
-            TokenKind::Question => {
-                // Forward: `?…?:`. Require the run to end in a `:`, otherwise
-                // this is some other `?` (none exists today, but stay precise).
-                let mut n = 0u32;
-                while matches!(self.peek_at(n as usize).kind, TokenKind::Question) {
-                    n += 1;
+        // continuation line, so a long chain can wrap (`a ?: b\n    ?: c`): a
+        // line beginning with `?` is unambiguous, since nothing in Salvo starts
+        // a statement or expression with `?`, and the newline brackets
+        // everything before it as this operator's subject (a `return`/escape
+        // right side stops at the newline, so it does not swallow the next
+        // operator). The **backward** form (`:?…?`) keeps the same-line
+        // requirement — a leading `:` could read as a type ascription.
+        loop {
+            // The operator is a run of `?`s with a `:` at one end: `?…?:`
+            // counts from the front, `:?…?` from the back. `?` and `:` are
+            // separate tokens [elvis], so this scans a run.
+            let (dir, count) = match self.kind() {
+                TokenKind::Question => {
+                    // Forward: `?…?:`. Require the run to end in a `:`,
+                    // otherwise this is some other `?` (none exists today).
+                    // Inside a nested right side (`elvis_no_wrap`) the operator
+                    // must be on the same line, so a next-line `?:` is left for
+                    // the enclosing chain [elvis-wrap].
+                    if self.elvis_no_wrap && !self.same_line() {
+                        break;
+                    }
+                    let mut n = 0u32;
+                    while matches!(self.peek_at(n as usize).kind, TokenKind::Question) {
+                        n += 1;
+                    }
+                    if !matches!(self.peek_at(n as usize).kind, TokenKind::Colon) {
+                        break;
+                    }
+                    for _ in 0..n {
+                        self.bump();
+                    }
+                    self.expect(&TokenKind::Colon)?;
+                    (ElvisDir::Forward, n)
                 }
-                if !matches!(self.peek_at(n as usize).kind, TokenKind::Colon) {
-                    return Some(lhs);
-                }
-                for _ in 0..n {
+                TokenKind::Colon if self.same_line() => {
+                    // Backward: `:?…?`. A `:` not followed by a `?` is not a
+                    // pick (it may be a type ascription elsewhere).
+                    if !matches!(self.peek_at(1).kind, TokenKind::Question) {
+                        break;
+                    }
                     self.bump();
+                    let mut n = 0u32;
+                    while matches!(self.kind(), TokenKind::Question) {
+                        self.bump();
+                        n += 1;
+                    }
+                    (ElvisDir::Backward, n)
                 }
-                self.expect(&TokenKind::Colon)?;
-                (ElvisDir::Forward, n)
-            }
-            TokenKind::Colon if self.same_line() => {
-                // Backward: `:?…?`. A `:` on its own line or not followed by a
-                // `?` is not a pick (it may be a type ascription elsewhere).
-                if !matches!(self.peek_at(1).kind, TokenKind::Question) {
-                    return Some(lhs);
-                }
-                self.bump();
-                let mut n = 0u32;
-                while matches!(self.kind(), TokenKind::Question) {
-                    self.bump();
-                    n += 1;
-                }
-                (ElvisDir::Backward, n)
-            }
-            _ => return Some(lhs),
-        };
-        let rhs = self.sub_expr(|p| p.parse_elvis())?;
-        let span = lhs.span().to(rhs.span());
-        Some(Expr::Elvis {
-            subject: Box::new(lhs),
-            dir,
-            count,
-            rhs: Box::new(rhs),
-            span,
-        })
+                _ => break,
+            };
+            // The right side is an operand one tier up (additive), *not* a
+            // recursive elvis: that is what makes the chain left-associative.
+            // It may still be a `return`/escape, whose value must not wrap a
+            // next-line `?:` — that operator brackets the whole chain so far on
+            // its left (`elvis_no_wrap`), not the escape's value.
+            let saved = std::mem::replace(&mut self.elvis_no_wrap, true);
+            let rhs = self.sub_expr(|p| p.parse_additive());
+            self.elvis_no_wrap = saved;
+            let rhs = rhs?;
+            let span = lhs.span().to(rhs.span());
+            lhs = Expr::Elvis {
+                subject: Box::new(lhs),
+                dir,
+                count,
+                rhs: Box::new(rhs),
+                span,
+            };
+        }
+        Some(lhs)
     }
 
     fn parse_additive(&mut self) -> Option<Expr> {

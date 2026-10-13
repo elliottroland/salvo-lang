@@ -138,6 +138,39 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-12 — Elvis is left-associative; wrapped chains bracket on the left
+
+The chained/wrapped `?:` from `salvo-noticeboard`'s `read_notice`/`next` was
+mis-parsing. User decision: **elvis binds left**, and a newline before a `?:`
+brackets everything prior as that operator's subject.
+
+- **Left-associative** ([elvis-assoc], was right): `parse_elvis` is now a loop
+  (like the other binary tiers) rather than a right recursion, and each
+  operator's right side parses one tier up (`parse_additive`), not a recursive
+  elvis. `a ?: b ?: c` is `(a ?: b) ?: c`, so a chain of picks each handling
+  the arms the previous left behind reads left to right. No std/example used a
+  chained elvis, so nothing migrated.
+- **A newline brackets the left** ([elvis-wrap] refined): a forward `?:` may
+  start a continuation line (added last session), and now a `return`/escape
+  right side does **not** swallow a next-line `?:` — a new parser flag
+  `elvis_no_wrap`, set while parsing an elvis operator's right side, makes the
+  forward wrap require same-line *there*, so the next-line operator is left for
+  the enclosing chain. `x ??: return e\n    ?: d` is `(x ??: return e) ?: d`.
+  A `return` that is itself the statement value still wraps its own value
+  (`return x\n    ?: 0` is `return (x ?: 0)`), since the flag is scoped to
+  elvis right sides, not all escape values.
+- Verified end to end on both backends: simple `?:`, a wrapped `?:`, and a
+  chained `a ?: b ?: -1` all give the right answers.
+- Tests: `a_forward_elvis_may_wrap_to_the_next_line` extended to assert the
+  left-association and the escape-bracketing. `[elvis]`/`[elvis-assoc]`/
+  `[elvis-wrap]` in LANGUAGE_SPEC.md. Warm `cargo nextest run`: 1775.
+- **Known separate issue (pre-existing, not this change):** a `??:` keeping
+  **≥2 value arms** of a *borrowed* optional union mis-compiles on the **Rust**
+  backend — the narrow of `Option<UnionN<…&T…>>` to `UnionN<…T…>` emits a plain
+  assignment instead of unwrapping and converging the arm representation
+  (`&String` vs `String`). Reproduces with a single `??:`, independent of the
+  associativity work. `read_notice` hits it; left for a focused codegen fix.
+
 ### 2026-10-12 — Two more disk.sv kinks: borrowed-field binding, and wrapping `?:`
 
 - **Binding a linear field of a borrowed struct is not a leak** (FP, `next` in

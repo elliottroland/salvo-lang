@@ -410,15 +410,24 @@ Conventions:
     `Int? ?: "none"` is `Int | Str`. Both sides are coerced into the join —
     the right side at its own span, the picked value at the operator's span
     [rewrap].
-  * **Precedence is Kotlin's**: tighter than `is`/comparison/equality, looser
-    than additive, right-associative. `m[k] ?: 0 > 3` is `(m[k] ?: 0) > 3`;
-    `a ?: b + 1` is `a ?: (b + 1)`; `a ?: b ?: c` is `a ?: (b ?: c)`.
+  * **Precedence is Kotlin's** for binding tightness: tighter than
+    `is`/comparison/equality, looser than additive. `m[k] ?: 0 > 3` is
+    `(m[k] ?: 0) > 3`; `a ?: b + 1` is `a ?: (b + 1)`. It is
+    **left-associative** (user decision 2026-10-12, [elvis-assoc]):
+    `a ?: b ?: c` is `(a ?: b) ?: c`, so a chain of picks — each handling the
+    arms the previous one left behind — reads left to right. (Kotlin's `?:` is
+    right-associative, but there both sides are the same type; Salvo's pick
+    changes the type arm by arm, and left folding is what lets
+    `x ??: handle_err(_) ?: default` mean "peel the error, then default".)
   * **[elvis-wrap] The forward operator (`?…?:`) may start on a continuation
     line**, so a pick chain can wrap (`a ?: b\n    ?: c`): a line beginning
     with `?` is unambiguous, since nothing in Salvo starts a statement or
-    expression with `?`. The backward form (`:?…?`) keeps the same-line
-    requirement — a leading `:` could read as a type ascription (user request
-    2026-10-12).
+    expression with `?`. A **newline brackets everything before it on the
+    left** (user decision 2026-10-12): a `return`/escape right side stops at
+    the newline, so the next-line `?:` applies to the whole chain so far, not
+    to the escape's value — `x ??: return e\n    ?: d` is `(x ??: return e)
+    ?: d`. The backward form (`:?…?`) keeps the same-line requirement — a
+    leading `:` could read as a type ascription.
   * **The subject is evaluated once**, and the form needs no position
     restriction (unlike a call subject in an `is` [loop-while-is]): the
     temporary is internal to the lowering.
