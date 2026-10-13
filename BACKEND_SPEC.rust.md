@@ -177,16 +177,21 @@ Conventions:
   [expr-escape]. A pick that **widens** its result wraps the picked value into
   the join union [rewrap].
 * [safe-nav] [rs-safe-nav] `base?.link` lowers by reconstruction to a
-  short-circuiting block ([safe-nav], [ir-switch]) and the Rust backend emits
-  that block as-is: a `let` binding the receiver, an `if is_none() { None }`,
-  and the link on the narrowed receiver in the `else`, lifted with `Some(..)`.
-  It is **correct** on every shape. A combinator chain
-  (`base.as_ref().and_then(..).map(..)`) is the intended idiomatic rendering
-  and the IR carries the hint (`Justification::SafeNav`, matched by
-  `salvo_core::ir::safe_nav`) to produce it, but it is not emitted yet: the
-  ownership model (per-read `.clone()`, `as_ref`, Copy vs non-Copy across the
-  chain) makes a correct combinator rendering a follow-up, and the block form
-  is never wrong in the meantime ([backend-never-wrong]).
+  short-circuiting block ([safe-nav], [ir-switch]). When every link is a
+  **field** read, the Rust backend renders it as an
+  `.and_then(..)`/`.map(..)` combinator chain
+  (`base.and_then(|x| x.inner.clone()).map(|y| y.nanos)`): an already-optional
+  link chains with `and_then`, a plain-value link with `map`, and each link's
+  field read reuses the ordinary read path so the clone/copy/borrow decision is
+  the emitter's own ([rs-read-mode]). The closure parameter *is* the link's
+  `nav` local, bound owned — `and_then` on an owned `Option<T>` gives `T` and on
+  an `Option<&T>` gives `&T`, and a non-consuming field read clones/copies
+  through either. A **call** link (a Salvo dot call is a free function, which a
+  combinator closure would have to wrap) and any non-field link fall back to the
+  generic block — a `let`, an `if is_none() { None }`, and the link on the
+  narrowed receiver in the `else`, lifted with `Some(..)`. Both forms are
+  correct on every shape ([backend-never-wrong]); the chain is the idiomatic
+  rendering of the common case.
 * [type-basic] Internal types map natively: `Str`→`String`, `Int`→`i32`,
   `Long`→`i64`, `Float`→`f32`, `Double`→`f64`, `Bool`→`bool`,
   `Char`→`char`, `Byte`→`u8`, `None`→`()`, `Never`→`()` (a platform

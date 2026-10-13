@@ -180,6 +180,23 @@ pub(crate) fn rs_local(l: &str) -> String {
     if s.starts_with("__") { s } else { rs_ident(&s) }
 }
 
+/// [safe-nav] If `value` is a plain field read of the narrowed receiver `nav`
+/// (`Read(nav.field)`, possibly wrapped in `Present`), the field name; `None`
+/// for a call link or any other shape.
+fn safe_nav_field<'a>(value: &'a Expr, nav: &Local) -> Option<&'a str> {
+    let read = match &value.kind {
+        ExprKind::Present { value } => value,
+        _ => value,
+    };
+    match &read.kind {
+        ExprKind::Read { place, .. } if place.root == *nav && place.steps.len() == 1 => match &place.steps[0] {
+            Step::Field(f) => Some(f.as_str()),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 /// The roots every `Assign` in the body writes.
 pub(crate) fn assigned_roots(b: Option<&Block>) -> HashSet<String> {
     let mut out = HashSet::new();
@@ -1198,7 +1215,18 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             }
             ExprKind::Spread { value } => self.value(value, indent),
             ExprKind::Concat(parts) => self.concat(parts, indent),
-            ExprKind::Branch { id, arms, otherwise } => self.branch(e, *id, arms, otherwise.as_ref(), indent),
+            ExprKind::Branch { id, arms, otherwise } => {
+                // [safe-nav] [rs-safe-nav] A `?.` whose links are all field
+                // reads renders as an `.as_ref().and_then(..).map(..)`
+                // combinator chain; anything else (a call link, or a shape the
+                // chain cannot express) falls back to the generic branch,
+                // which is correct if less idiomatic.
+                if let Some(code) = self.safe_nav_chain(e, indent) {
+                    code
+                } else {
+                    self.branch(e, *id, arms, otherwise.as_ref(), indent)
+                }
+            }
             ExprKind::Switch { id, subject, arms } => self.switch(e, *id, subject, arms, indent),
             ExprKind::Test { id, subject, test } => {
                 self.f.test_arms.insert((id.0, usize::MAX), test.clone());
@@ -1500,6 +1528,64 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         }
         self.f.kinds = saved;
         format!("{{\n{out}{pad}}}")
+    }
+
+    /// [safe-nav] [rs-safe-nav] Render a `?.` lowering as an
+    /// `.and_then(..)`/`.map(..)` combinator chain when every link is a field
+    /// read. Returns `None` for a call link, a non-field link, or a non-`?.`
+    /// branch, so the caller falls back to the generic (correct) block.
+    ///
+    /// Each link's body reuses `self.value` on the link's own `Read` node, so
+    /// the per-field clone/copy decision is the emitter's own ([rs-read-mode])
+    /// rather than re-derived here. The closure parameter *is* the link's
+    /// `nav` local (a fresh name, so no collision), bound `Owned`: `.and_then`
+    /// on an owned `Option<T>` gives `T`, and on an `Option<&T>` gives `&T` —
+    /// a non-`consume` field read `.clone()`s / copies through either, so the
+    /// body is valid for both.
+    fn safe_nav_chain(&mut self, e: &Expr, indent: usize) -> Option<String> {
+        use salvo_core::ir::safe_nav::match_safe_nav;
+        // Collect the links, innermost receiver last.
+        let mut links: Vec<(&Local, &Expr, bool)> = Vec::new(); // (nav, field-read value, already_opt)
+        let mut cur = e;
+        let receiver;
+        loop {
+            let nav = match_safe_nav(cur)?;
+            // The link must be a plain field read of the narrowed receiver.
+            if safe_nav_field(nav.value, nav.nav).is_none() {
+                return None;
+            }
+            links.push((nav.nav, nav.value, nav.already_opt));
+            // Recurse into a nested `?.` receiver; stop at the base.
+            if match_safe_nav(nav.receiver).is_some() {
+                cur = nav.receiver;
+            } else {
+                receiver = nav.receiver;
+                break;
+            }
+        }
+        links.reverse(); // base-first
+        let mut code = self.value(receiver, indent);
+        for (nav, value, already_opt) in links {
+            let p = rs_local(&nav.0);
+            // The closure parameter is the link's own `nav`, bound owned; the
+            // field read renders through `self.value`.
+            let saved = self.f.kinds.insert(nav.0.clone(), Kind::Owned);
+            let body = self.value(value, indent);
+            match saved {
+                Some(k) => {
+                    self.f.kinds.insert(nav.0.clone(), k);
+                }
+                None => {
+                    self.f.kinds.remove(&nav.0);
+                }
+            }
+            // An already-optional link chains with `and_then` (its body is an
+            // `Option`); a plain-value link with `map` (its body is the value,
+            // which `map` lifts into the `Option`).
+            let combinator = if already_opt { "and_then" } else { "map" };
+            code = format!("{code}.{combinator}(|{p}| {body})");
+        }
+        Some(code)
     }
 
     fn branch(&mut self, e: &Expr, id: salvo_core::ir::NodeId, arms: &[(Expr, Block)], otherwise: Option<&Block>, indent: usize) -> String {

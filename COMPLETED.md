@@ -138,6 +138,37 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-12 — Rust safe-nav combinator chain ([rs-safe-nav])
+
+The follow-up left open when `?.` landed: the Rust backend now renders a
+field-only `?.` chain as an `.and_then(..)`/`.map(..)` combinator chain instead
+of nested `if is_none() { None } else { … }` blocks. `o?.inner?.nanos` becomes
+`o.clone().and_then(|__nav_2| __nav_2.inner.clone()).map(|__nav_4| __nav_4.nanos)`.
+
+- **Reuses the emitter's own field-read path.** `safe_nav_chain` (body.rs)
+  walks the lowered shape with `salvo_core::ir::safe_nav::match_safe_nav`,
+  collecting the field links base-first. Each link's body is `self.value(..)`
+  on the link's own `Read` node, so the per-field clone/copy/borrow decision is
+  the ordinary one ([rs-read-mode]) rather than re-derived — the whole reason
+  this is safe. The closure parameter *is* the link's `nav` local (a fresh
+  name, no collision), bound `Owned`: `.and_then` on an owned `Option<T>` gives
+  `T` and on an `Option<&T>` gives `&T`, and a non-consuming field read
+  clones/copies through either, so the body compiles for an owned or a borrowed
+  receiver. An already-optional link chains with `and_then`, a plain-value link
+  with `map` (which lifts the field into the `Option`).
+- **Falls back where it cannot be a chain.** A **call** link (a Salvo dot call
+  is a free function a combinator closure would have to wrap) or any non-field
+  link makes `safe_nav_chain` return `None`, and the generic block is emitted —
+  correct, just less idiomatic. Verified: `i?.describe()` still emits the block
+  and runs. Never-wrong holds.
+- Verified by running the generated Rust across shapes: borrowed receiver
+  (`Option<&T>`), owned receiver, a non-Copy final field (`Str` → `.clone()`),
+  a `.map` vs `.and_then` mix, and a `?.` on a non-`?.` base (`t.mid?.leaf?.tag`),
+  all matching the Kotlin output. Test
+  `safe_navigation_field_chain_is_a_combinator_chain` asserts the chain is
+  emitted; `rustc_runs_safe_navigation` (the e2e twin) still passes.
+  BACKEND_SPEC.rust.md `[rs-safe-nav]` rewritten. Warm `cargo nextest run`: 1770.
+
 ### 2026-10-12 — Equality against a matching union arm ([op-arm-eq])
 
 The fourth `disk.sv` TODO: `if last_updated == -1L` on a `Long?` was two errors

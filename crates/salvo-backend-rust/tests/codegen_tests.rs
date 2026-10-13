@@ -7356,6 +7356,23 @@ fn rustc_runs_safe_navigation() {
     run_rust_files(&files, "safe-nav", "42\n-1\n-1\nnanos=42\nabsent\n");
 }
 
+// [safe-nav] [rs-safe-nav] A field-only `?.` chain is a combinator chain.
+#[test]
+fn safe_navigation_field_chain_is_a_combinator_chain() {
+    let files = generate(&[("main.sv", SAFE_NAV_DEMO)]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
+        .expect("main.rs");
+    // `o?.inner?.nanos` → an `and_then`/`map` chain, not nested `is_none()`
+    // blocks.
+    assert!(
+        main.content.contains(".and_then(|") && main.content.contains(".map(|"),
+        "expected a combinator chain, got:\n{}",
+        main.content
+    );
+}
+
 // ===== [when-bind] `when name = subject { … }` =====
 
 /// The same source and expected stdout as the Kotlin backend's
