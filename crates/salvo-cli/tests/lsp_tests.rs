@@ -2333,6 +2333,68 @@ fn main() [Console] {
     lsp.child.wait().expect("failed to wait for salvo lsp");
 }
 
+/// [lsp-signature-help] `textDocument/signatureHelp` inside a call's argument
+/// list returns one signature per overload, with the active parameter (the
+/// comma count before the cursor) marked.
+#[test]
+fn signature_help_offers_overloads_and_active_parameter() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_sighelp");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let source = "\
+fn pick(a: Int) -> Int => a {
+    return a
+}
+
+fn pick(a: Int, b: Int) -> Int => a, b {
+    return a + b
+}
+
+fn main() [Console] {
+    let x = pick(1, 2)
+}
+";
+    std::fs::write(root.join("main.sv"), source).unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {"uri": uri, "languageId": "salvo", "version": 1, "text": source}}
+        }),
+    );
+    let _ = expect_diagnostics(&lsp.rx);
+    let sig_help = |lsp: &mut Lsp, id: i64, line: u32, character: u32| -> serde_json::Value {
+        send(
+            &mut lsp.stdin,
+            json!({
+                "jsonrpc": "2.0", "id": id, "method": "textDocument/signatureHelp",
+                "params": {"textDocument": {"uri": uri}, "position": {"line": line, "character": character}}
+            }),
+        );
+        expect_response(&lsp.rx, id)["result"].clone()
+    };
+    // Cursor just after `pick(` (line 9, `    let x = pick(1, 2)` — `(` is at
+    // column 16, so column 17 is the first argument).
+    let result = sig_help(&mut lsp, 2, 9, 17);
+    let sigs = result["signatures"].as_array().expect("signatures");
+    // Both overloads of `pick` are offered.
+    assert_eq!(sigs.len(), 2, "two overloads: {result}");
+    let labels: Vec<&str> = sigs.iter().map(|s| s["label"].as_str().unwrap()).collect();
+    assert!(labels.iter().any(|l| l.contains("pick(a: Int)")), "{labels:?}");
+    assert!(labels.iter().any(|l| l.contains("pick(a: Int, b: Int)")), "{labels:?}");
+    // At the first argument, the active parameter is 0.
+    assert_eq!(result["activeParameter"].as_u64(), Some(0), "{result}");
+    // After the comma (column 20, the second argument), it is 1.
+    let result = sig_help(&mut lsp, 3, 9, 20);
+    assert_eq!(result["activeParameter"].as_u64(), Some(1), "{result}");
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "id": 99, "method": "shutdown", "params": null}));
+    expect_response(&lsp.rx, 99);
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
+    lsp.child.wait().expect("failed to wait for salvo lsp");
+}
+
 /// [lsp-completion] [struct-opaque] After the dot on a value of an opaque
 /// struct, the fields are offered in the declaring module and not elsewhere.
 #[test]

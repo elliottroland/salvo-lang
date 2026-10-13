@@ -25,7 +25,7 @@ use lsp_types::notification::{
     Notification as _, PublishDiagnostics,
 };
 use lsp_types::request::{
-    CodeActionRequest, Completion, GotoDefinition, HoverRequest, Request as _,
+    CodeActionRequest, Completion, GotoDefinition, HoverRequest, Request as _, SignatureHelpRequest,
 };
 use lsp_types::{
     CodeAction, CodeActionKind, CodeActionOrCommand, CodeActionParams,
@@ -34,9 +34,10 @@ use lsp_types::{
     DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
     DidSaveTextDocumentParams, GotoDefinitionParams, GotoDefinitionResponse, Hover,
     HoverContents, HoverParams, HoverProviderCapability, InitializeParams,
-    Location, MarkupContent, MarkupKind, OneOf, Position, PublishDiagnosticsParams, Range,
-    ServerCapabilities, TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Url,
-    WorkspaceEdit,
+    Location, MarkupContent, MarkupKind, OneOf, ParameterInformation, ParameterLabel, Position,
+    PublishDiagnosticsParams, Range, ServerCapabilities, SignatureHelp, SignatureHelpOptions,
+    SignatureHelpParams, SignatureInformation, TextDocumentSyncCapability, TextDocumentSyncKind,
+    TextEdit, Url, WorkspaceEdit,
 };
 
 use salvo_core::{
@@ -87,6 +88,13 @@ fn serve() -> Result<(), Box<dyn Error + Sync + Send>> {
         completion_provider: Some(CompletionOptions {
             trigger_characters: Some(vec![".".to_string()]),
             ..Default::default()
+        }),
+        // [lsp-signature-help] The parameter list of the call being written,
+        // one signature per overload, re-triggered on `(` and `,`.
+        signature_help_provider: Some(SignatureHelpOptions {
+            trigger_characters: Some(vec!["(".to_string(), ",".to_string()]),
+            retrigger_characters: Some(vec![",".to_string()]),
+            work_done_progress_options: Default::default(),
         }),
         ..Default::default()
     })?;
@@ -233,6 +241,11 @@ impl Server<'_> {
             Completion::METHOD => {
                 let params: CompletionParams = serde_json::from_value(req.params)?;
                 let result = self.completion(&params);
+                self.respond(Response::new_ok(req.id, result))?;
+            }
+            SignatureHelpRequest::METHOD => {
+                let params: SignatureHelpParams = serde_json::from_value(req.params)?;
+                let result = self.signature_help(&params);
                 self.respond(Response::new_ok(req.id, result))?;
             }
             CodeActionRequest::METHOD => {
@@ -1468,6 +1481,66 @@ impl Server<'_> {
         Some(CompletionResponse::Array(items))
     }
 
+    /// [lsp-signature-help] The parameter list of the call being written.
+    /// Walks left from the cursor to the enclosing unmatched `(`, reads the
+    /// callee name before it, and returns one signature per overload of that
+    /// name — with the active parameter (the top-level comma count before the
+    /// cursor) highlighted.
+    fn signature_help(&self, params: &SignatureHelpParams) -> Option<SignatureHelp> {
+        let doc = &params.text_document_position_params;
+        let path = file_path(&doc.text_document.uri)?;
+        let text = match self.overlay.get(&path) {
+            Some(t) => t.clone(),
+            None => std::fs::read_to_string(&path).ok()?,
+        };
+        let cursor = position_to_offset(&text, doc.position) as usize;
+        let (name_end, active) = enclosing_call(&text, cursor.min(text.len()))?;
+        // The callee name immediately before the `(`.
+        let bytes = text.as_bytes();
+        let mut start = name_end;
+        while start > 0 && (bytes[start - 1].is_ascii_alphanumeric() || bytes[start - 1] == b'_') {
+            start -= 1;
+        }
+        if start == name_end {
+            return None;
+        }
+        let name = &text[start..name_end];
+        let analysis = analyze_for_document_cached(
+            &path,
+            &self.root,
+            &self.overlay,
+            &mut self.parse_cache.borrow_mut(),
+            &self.std_cache(),
+        )
+        .ok()?;
+        let checked = analysis.checked.as_ref()?;
+        let view = doc_view(&analysis, &path)?;
+        let fns = analysis.completions.get(view.file)?;
+        let mut signatures: Vec<SignatureInformation> = Vec::new();
+        let mut seen: HashSet<String> = HashSet::new();
+        for f in fns.iter().filter(|f| f.name == name) {
+            let Some(label) = fn_signature(&analysis.program, checked, f.key) else { continue };
+            if !seen.insert(label.clone()) {
+                continue;
+            }
+            let parameters = signature_parameters(&label);
+            signatures.push(SignatureInformation {
+                label,
+                documentation: None,
+                parameters: Some(parameters),
+                active_parameter: Some(active as u32),
+            });
+        }
+        if signatures.is_empty() {
+            return None;
+        }
+        Some(SignatureHelp {
+            signatures,
+            active_signature: Some(0),
+            active_parameter: Some(active as u32),
+        })
+    }
+
     /// Quickfix code actions for the import suggestions carried on
     /// diagnostics [diag-import-suggest]: one "Add `import …`" action per
     /// suggested path, inserting the import line after the file's last
@@ -1682,6 +1755,120 @@ fn import_completions(analysis: &Analysis, written: &str) -> Vec<CompletionItem>
         }
     }
     out
+}
+
+/// [lsp-signature-help] From `cursor`, walk left to the `(` of the call the
+/// cursor is inside, skipping balanced `()`/`[]` and string literals. Returns
+/// the byte offset just after that `(` (where the callee name ends) and the
+/// active parameter index — the number of top-level commas between the `(`
+/// and the cursor. `None` when the cursor is not inside a call's argument
+/// list, or a statement boundary (`{`, `}`, `;`) is reached first.
+fn enclosing_call(text: &str, cursor: usize) -> Option<(usize, usize)> {
+    let bytes = text.as_bytes();
+    let mut depth = 0i32; // nested () inside the arg list
+    let mut brackets = 0i32; // nested [] inside the arg list
+    let mut commas = 0usize;
+    let mut i = cursor;
+    // Whether offset `j` sits inside a string literal on its own line. Cheap
+    // per-line scan: a call rarely spans many lines, and this only runs on a
+    // signature-help request.
+    let in_string = |j: usize| -> bool {
+        let line_start = text[..j].rfind('\n').map(|p| p + 1).unwrap_or(0);
+        let mut s = false;
+        let mut k = line_start;
+        let lb = text.as_bytes();
+        while k < j {
+            match lb[k] {
+                b'\\' if s => {
+                    k += 2;
+                    continue;
+                }
+                b'"' => s = !s,
+                _ => {}
+            }
+            k += 1;
+        }
+        s
+    };
+    while i > 0 {
+        i -= 1;
+        if in_string(i) {
+            continue;
+        }
+        match bytes[i] {
+            b')' => depth += 1,
+            b']' => brackets += 1,
+            b'(' => {
+                if depth == 0 {
+                    // The opening paren of the enclosing call: commas counted
+                    // at this level are the active parameter index.
+                    return Some((i, commas));
+                }
+                depth -= 1;
+            }
+            b'[' => {
+                if brackets == 0 {
+                    return None; // inside an index/collection literal, not a call
+                }
+                brackets -= 1;
+            }
+            b',' if depth == 0 && brackets == 0 => commas += 1,
+            b'{' | b'}' | b';' if depth == 0 && brackets == 0 => return None,
+            _ => {}
+        }
+    }
+    None
+}
+
+/// [lsp-signature-help] The parameter spans of a signature label
+/// (`fn f(a: Int, b: Str) -> …`): each parameter rendered as its own
+/// `ParameterInformation` with an offset range into the label, so the client
+/// can highlight the active one. The split is on top-level commas between the
+/// first `(` and its matching `)`.
+fn signature_parameters(label: &str) -> Vec<ParameterInformation> {
+    let bytes = label.as_bytes();
+    let Some(open) = label.find('(') else { return Vec::new() };
+    let mut depth = 0i32;
+    let mut params = Vec::new();
+    let mut seg_start = open + 1;
+    let mut i = open;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'(' | b'[' | b'<' => depth += 1,
+            b')' | b']' | b'>' => {
+                depth -= 1;
+                if depth == 0 {
+                    // The closing `)` of the parameter list.
+                    push_param(label, seg_start, i, &mut params);
+                    return params;
+                }
+            }
+            b',' if depth == 1 => {
+                push_param(label, seg_start, i, &mut params);
+                seg_start = i + 1;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    params
+}
+
+/// Pushes the parameter spanning `[start, end)` of `label` (trimmed of
+/// surrounding spaces) as a `ParameterInformation` with its label offsets.
+fn push_param(label: &str, start: usize, end: usize, out: &mut Vec<ParameterInformation>) {
+    let raw = &label[start..end];
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return;
+    }
+    let lead = raw.len() - raw.trim_start().len();
+    let begin = (start + lead) as u32;
+    let finish = begin + trimmed.len() as u32;
+    out.push(ParameterInformation {
+        label: ParameterLabel::LabelOffsets([begin, finish]),
+        documentation: None,
+    });
 }
 
 /// [lsp-completion] The byte offset within `line` where a `//` comment

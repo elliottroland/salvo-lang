@@ -9956,8 +9956,19 @@ replaced the working document TESTING.md).
   a `//` **comment** ordinary code completion is suppressed — except within a
   `[…]` reference, where the symbols a `[symbol]` doc reference resolves to
   (program types, qualifiers, effects, handlers, fns) are offered
-  [doc-symbol-ref]. Not yet: effect members; signature help for a call's
-  arguments (`next(` → the parameter list).
+  [doc-symbol-ref]. Not yet: effect members.
+* [lsp-signature-help] **`textDocument/signatureHelp` offers a call's
+  parameter list** (2026-10-12): inside a call's argument list, one signature
+  per overload of the callee, with the **active parameter** marked — the
+  number of top-level commas between the opening `(` and the cursor. Found by
+  walking left from the cursor to the enclosing unmatched `(` (skipping
+  balanced `()`/`[]` and string literals, stopping at a `{`/`}`/`;`
+  statement boundary), reading the callee name before it, and rendering each
+  matching overload with `fn_signature` — the same signature string hover
+  shows — its parameters split on top-level commas into label-offset ranges.
+  Re-triggered on `(` and `,`. Both a free call (`pick(`) and a dot call
+  (`stream.next(`) are covered, since the name before the `(` is matched
+  against every completion fn of that name.
 * [lsp-coalesce] **Edits are coalesced** (2026-10-05): a change notification
   only updates the overlay, and diagnostics are published once no message is
   waiting, so a completion asked for after several keystrokes is answered

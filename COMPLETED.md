@@ -138,7 +138,28 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
-### 2026-10-12 — LSP completion: overload collapse, comment-awareness, `[…]` refs, assertion builtins
+### 2026-10-12 — LSP signature help ([lsp-signature-help])
+
+The last of the five `disk.sv` autocomplete TODOs (TODO 2): `next(` → the
+overloads' argument lists. This is a new LSP capability, `textDocument/
+signatureHelp`, not a completion tweak.
+
+- Registered `signature_help_provider` (trigger `(` and `,`, re-trigger `,`)
+  and dispatched `SignatureHelpRequest`.
+- `signature_help` walks left from the cursor to the enclosing unmatched `(`
+  (`enclosing_call`, skipping balanced `()`/`[]` and string literals, stopping
+  at a `{`/`}`/`;` boundary), counts top-level commas for the active-parameter
+  index, reads the callee name, and returns one `SignatureInformation` per
+  overload of that name — reusing `fn_signature` (the same string hover
+  shows) and splitting its parameter list on top-level commas into
+  label-offset ranges (`signature_parameters`). Works for free calls and dot
+  calls alike (the name before `(` is matched against every completion fn).
+- Test: `signature_help_offers_overloads_and_active_parameter` in
+  `lsp_tests.rs`. [lsp-signature-help] added to LANGUAGE_SPEC.md; the
+  [lsp-completion] "Not yet" list trimmed. All five `disk.sv` autocomplete
+  TODOs are now done.
+
+
 
 Four of the five autocomplete TODOs in `disk.sv` (all in
 `crates/salvo-cli/src/lsp.rs` `fn completion`):
