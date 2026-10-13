@@ -138,7 +138,37 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
-### 2026-10-12 — One union-conversion primitive, and union-spanning generics ([generic-union-span])
+### 2026-10-12 — A `.method()` on a continuation line brackets the whole expression ([expr-wrap])
+
+The `next` TODO in `salvo-noticeboard`'s `disk.sv` — `return read_notice(…)\n
+?: return finished()\n    .emitted()` — still failed after the elvis
+left-assoc fix: the trailing `.emitted()` attached to the escape's
+`finished()` (so the body returned a bare `Notice`), not to the elvis result.
+The parser's postfix trailer loop consumed a `.member` across a newline, while
+every other trailer (`(call)`, `[index]`, `?.`, `!`) already required
+same-line.
+
+User's rule (the same steering as elvis): **a newline brackets everything
+before it on the left**. So a `.member`/`.method(…)` on a continuation line
+brackets the *whole* expression so far — `(read() ?: return done()).emit()`,
+exactly the parenthesised form.
+
+- `parse_postfix` split into `parse_postfix` + `parse_postfix_from(expr)`; the
+  `Dot` arm now requires `same_line()` like the other trailers.
+- New `newline_postfix(expr)`, applied at the top of `parse_expr` (after
+  `parse_or`): while a newline-leading `.` sits outside any brackets, it
+  brackets onto the whole expression. Gated by `!elvis_no_wrap` so an escape
+  right side inside an elvis (`?: return done()`) does **not** grab the
+  next-line `.` — that is what makes it bracket the elvis, not `done()`.
+- Generalises beyond elvis: a wrapped method chain `x\n .a()\n .b()` reads
+  `((x).a()).b()`, and a same-line chain is unchanged.
+- Verified end to end: the `next` wrapped form now equals the parenthesised
+  form on both backends (`present → emitted`, `absent → done`). Test:
+  `a_forward_elvis_may_wrap_to_the_next_line` extended to assert the
+  continuation brackets the elvis. [expr-wrap] added to LANGUAGE_SPEC.md
+  beside [elvis-wrap]. Warm `cargo nextest run`: 1776.
+
+
 
 Consolidated every "convert a value of one union type into another" path in
 the Rust backend into one primitive, and used it to add a new language

@@ -753,6 +753,27 @@ fn a_forward_elvis_may_wrap_to_the_next_line() {
         }
         other => panic!("expected a left-associated elvis chain, got {other:?}"),
     }
+
+    // [expr-wrap] A `.method()` on a continuation line brackets the whole
+    // expression so far on its left — the elvis, not the escape right side:
+    // `read()\n    ?: return done()\n    .emit()` is
+    // `(read() ?: return done()).emit()`. So the return value is a Call whose
+    // callee is a Field whose base is the Elvis (not `done().emit()`).
+    let (module3, d3) = salvo_syntax::parse_module(
+        "fn h(x: Int?) -> Int {\n    return x\n        ?: return 0\n        .plus_one()\n}\n",
+    );
+    assert!(!d3.iter().any(|d| d.is_error()), "{d3:?}");
+    let salvo_syntax::ast::Item::Fn(h) = &module3.items[0] else { panic!() };
+    match ret_val(h) {
+        Some(Expr::Call { callee, .. }) => match &*callee {
+            Expr::Field { base, field, .. } => {
+                assert_eq!(field.name, "plus_one");
+                assert!(matches!(&**base, Expr::Elvis { .. }), "`.plus_one()` should bracket the elvis, got {base:?}");
+            }
+            other => panic!("callee should be a field of the elvis, got {other:?}"),
+        },
+        other => panic!("expected `(elvis).plus_one()`, got {other:?}"),
+    }
 }
 
 // [effect-prereq] `effect Fs [Streams] { … }`: the prerequisite list is a

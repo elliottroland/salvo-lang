@@ -4643,7 +4643,7 @@ impl<'s> Parser<'s> {
                 return Some(lambda);
             }
         }
-        self.parse_or()
+        self.parse_or().and_then(|e| self.newline_postfix(e))
     }
 
     fn parse_lambda_from_ident(&mut self) -> Option<Expr> {
@@ -5202,10 +5202,19 @@ impl<'s> Parser<'s> {
     }
 
     fn parse_postfix(&mut self) -> Option<Expr> {
-        let mut expr = self.parse_primary()?;
+        let expr = self.parse_primary()?;
+        self.parse_postfix_from(expr)
+    }
+
+    /// The trailer loop (`.field`, `(call)`, `[index]`, `?.`, `!`, `@`),
+    /// starting from an already-parsed base. Same-line only: a trailer that
+    /// begins a continuation line is left for [`Self::newline_postfix`],
+    /// which brackets it onto the whole expression (user decision
+    /// 2026-10-12, [expr-wrap]).
+    fn parse_postfix_from(&mut self, mut expr: Expr) -> Option<Expr> {
         loop {
             match self.kind() {
-                TokenKind::Dot => {
+                TokenKind::Dot if self.same_line() => {
                     self.bump();
                     // `t.0` — a tuple element by constant index
                     // [expr-tuple-index].
@@ -5465,6 +5474,44 @@ impl<'s> Parser<'s> {
                 }
                 _ => break,
             }
+        }
+        Some(expr)
+    }
+
+    /// [expr-wrap] A trailer that begins a *continuation line* — a `.field`
+    /// or `.method(…)` after a newline, outside any brackets — brackets the
+    /// **whole** expression so far on its left (user decision 2026-10-12),
+    /// the same rule the elvis operator follows [elvis-wrap]. So
+    /// `a ?: b\n    .m()` is `(a ?: b).m()`, and a wrapped method chain
+    /// `x\n    .a()\n    .b()` is `((x).a()).b()`. Nothing in Salvo starts a
+    /// statement with `.`, so a leading dot is unambiguous. Applied once the
+    /// full expression is parsed.
+    fn newline_postfix(&mut self, mut expr: Expr) -> Option<Expr> {
+        // Each pass takes one continuation line: a newline-leading `.`
+        // outside any brackets. Its own same-line trailers (`.a().b[0]`)
+        // attach normally; the next newline-dot is a fresh pass, so every
+        // newline brackets what precedes it on the left.
+        while self.group_depth == 0 && !self.elvis_no_wrap && !self.same_line() && self.at(&TokenKind::Dot) {
+            // Consume the leading `.member` (and any same-line trailers after
+            // it) with the whole expression as the base. The newline barrier
+            // is lifted only for this first dot by stepping over it here and
+            // reading the member directly, then handing back to the same-line
+            // trailer loop.
+            self.bump(); // the continuation `.`
+            if let Some(indexed) = self.tuple_index_suffix(&expr) {
+                expr = indexed;
+                continue;
+            }
+            let field = self.ident()?;
+            let span = expr.span().to(field.span);
+            expr = Expr::Field {
+                base: Box::new(expr),
+                field,
+                span,
+            };
+            // Same-line trailers after the member (`()`, `[i]`, further
+            // `.x`) attach here as usual.
+            expr = self.parse_postfix_from(expr)?;
         }
         Some(expr)
     }

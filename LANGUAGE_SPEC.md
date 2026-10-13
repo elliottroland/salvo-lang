@@ -437,6 +437,16 @@ Conventions:
     to the escape's value — `x ??: return e\n    ?: d` is `(x ??: return e)
     ?: d`. The backward form (`:?…?`) keeps the same-line requirement — a
     leading `:` could read as a type ascription.
+  * **[expr-wrap] A postfix `.member`/`.method(…)` on a continuation line
+    brackets the whole expression so far on its left** (user decision
+    2026-10-12), the same bracket-left rule as [elvis-wrap] and unambiguous
+    for the same reason (nothing starts a statement with `.`). So the pick's
+    *result* can be used on the next line: `read()\n    ?: return done()\n
+    .emit()` is `(read() ?: return done()).emit()` — the `.emit()` applies to
+    the elvis, not to the escape's `done()`, because an escape right side
+    stops at the newline (as above). A same-line trailer is unchanged; only a
+    newline-leading one brackets left. (A wrapped method chain
+    `x\n    .a()\n    .b()` reads `((x).a()).b()` by the same rule.)
   * **The subject is evaluated once**, and the form needs no position
     restriction (unlike a call subject in an `is` [loop-while-is]): the
     temporary is internal to the lowering.
