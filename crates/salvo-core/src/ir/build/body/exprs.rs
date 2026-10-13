@@ -215,8 +215,34 @@ impl<'a, 'p> Lower<'a, 'p> {
             AExpr::When { binding, subject, branches, .. } => self.when_expr(binding.as_ref(), subject, branches, span, true),
             AExpr::WhenCond { branches, else_block, .. } => self.when_cond_expr(branches, Some(else_block), span, true),
             AExpr::While { cond, body, else_block, .. } => {
-                let result = self.fresh("__loop");
                 let ty = self.ty_of(span);
+                // [loop-never] A `while true` with no `break` is typed
+                // `Never` by the checker: it produces no value, so build it
+                // as a diverging statement block (no loop-value slot), the
+                // same shape as an escape in value position.
+                if matches!(ty, Ty::Never) {
+                    let mut stmts = self.while_stmt(cond, body, else_block.as_ref(), span, None);
+                    // The loop never terminates, so control never reaches
+                    // here — but a trap gives the block a `Never` tail the
+                    // backends can see (Rust reads `loop {}` as `!` on its
+                    // own; Kotlin's `while (true) {}` is `Unit`, so the trap
+                    // is what makes the fn type-check). Dead at runtime.
+                    stmts.push(Stmt::Expr(Expr {
+                        ty: Ty::Never,
+                        span,
+                        kind: ExprKind::Unreachable { message: None, at: self.location(span) },
+                    }));
+                    return Expr {
+                        ty: Ty::Never,
+                        span,
+                        kind: ExprKind::Branch {
+                            id: NodeId(0),
+                            arms: vec![(Expr { ty: Ty::named("Bool"), span, kind: ExprKind::Bool(true) }, Block { stmts, value: None, span })],
+                            otherwise: None,
+                        },
+                    };
+                }
+                let result = self.fresh("__loop");
                 let stmts = self.while_stmt(cond, body, else_block.as_ref(), span, Some((result.clone(), ty.clone())));
                 self.loop_value(stmts, result, ty, span)
             }
@@ -1881,19 +1907,30 @@ impl<'a, 'p> Lower<'a, 'p> {
         self.loops += 1;
         self.loop_results.push(result.as_ref().map(|(r, _)| r.clone()));
         let mut stmts = Vec::new();
-        let saved_pending = std::mem::take(&mut self.pending);
-        let c = self.condition(cond);
-        stmts.append(&mut self.pending);
-        self.pending = saved_pending;
-        let narrows = std::mem::take(&mut self.pending_after_test);
-        let not = Expr { ty: Ty::named("Bool"), span, kind: ExprKind::Op { op: Op::Not, args: vec![c] } };
-        let bid = self.id();
-        stmts.push(Stmt::Expr(Expr { ty: Ty::none(), span, kind: ExprKind::Branch { id: bid, arms: vec![(not, Block { stmts: vec![Stmt::Break], value: None, span })], otherwise: None } }));
-        stmts.extend(narrows);
+        // [loop-never] A literal-`true` condition needs no exit test: emit a
+        // bare infinite loop, so the host's own never-typing applies (rustc
+        // reads `loop {}` as `!`; a `loop { if !true { break } }` as `()`).
+        // The `while true` idiom therefore lowers to a true infinite loop on
+        // both backends, which is what makes a non-escaping one diverge.
+        let always = matches!(cond, AExpr::Bool { value: true, .. });
+        let body_just = if !always {
+            let saved_pending = std::mem::take(&mut self.pending);
+            let c = self.condition(cond);
+            stmts.append(&mut self.pending);
+            self.pending = saved_pending;
+            let narrows = std::mem::take(&mut self.pending_after_test);
+            let not = Expr { ty: Ty::named("Bool"), span, kind: ExprKind::Op { op: Op::Not, args: vec![c] } };
+            let bid = self.id();
+            stmts.push(Stmt::Expr(Expr { ty: Ty::none(), span, kind: ExprKind::Branch { id: bid, arms: vec![(not, Block { stmts: vec![Stmt::Break], value: None, span })], otherwise: None } }));
+            stmts.extend(narrows);
+            Some(Justification::Cond { branch: bid, arm: 0 })
+        } else {
+            None
+        };
         if let Some(r) = &ran {
             stmts.push(Stmt::Assign { place: Place { root: r.clone(), steps: Vec::new() }, value: Expr { ty: Ty::named("Bool"), span, kind: ExprKind::Bool(true) } });
         }
-        let b = self.with_test(Some(Justification::Cond { branch: bid, arm: 0 }), |me| me.block(body, result.is_some()));
+        let b = self.with_test(body_just, |me| me.block(body, result.is_some()));
         stmts.extend(b.stmts);
         match (b.value, &result) {
             (Some(v), Some((r, _))) if loop_body_value(&v) => stmts.push(Stmt::Assign { place: Place { root: r.clone(), steps: Vec::new() }, value: *v }),

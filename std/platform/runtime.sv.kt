@@ -2264,9 +2264,6 @@ fun awaitAnswer(wid: Int): salvo.platform.runtime.Dyn {
         1
     })
     while (true) {
-        if (!(true)) {
-            break
-        }
         val step: Union6<Got, RunActor, RunTask, Sleep, Again, Stuck> = __module_use1_0.waitStep(wid, pool, own, frame, thisParkerPlatform())
         if ((step is Union6.U1<*, *, *, *, *, *>)) {
             val g: Got = ((step as Union6.U1<*, *, *, *, *, *>).value as Got)
@@ -2289,6 +2286,7 @@ fun awaitAnswer(wid: Int): salvo.platform.runtime.Dyn {
             parkPlatform(thisParkerPlatform())
         }
     }
+    throw AssertionError("salvo: unreachable at runtime:1543:5")
     return unerasePlatform(erasePlatform(0))
 }
 
@@ -2333,9 +2331,6 @@ fun runTask(rt: RunTask) {
 fun servePool(pool: Int) {
     setHerePlatform(pool, noFrame())
     while (true) {
-        if (!(true)) {
-            break
-        }
         val w: Union3<RunActor, RunTask, Retire>? = __module_use1_0.nextWork(pool, thisParkerPlatform())
         if ((w is Union3.U1<*, *, *>)) {
             val ra: RunActor = ((w as Union3.U1<*, *, *>).value as RunActor)
@@ -2350,6 +2345,7 @@ fun servePool(pool: Int) {
             parkPlatform(thisParkerPlatform())
         }
     }
+    throw AssertionError("salvo: unreachable at runtime:1591:5")
 }
 
 fun tokenToActor(addr: Int, slot: Long): Token {

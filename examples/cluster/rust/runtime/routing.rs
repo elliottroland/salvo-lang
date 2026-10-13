@@ -1318,9 +1318,6 @@ pub fn send_remote(mut addr: i32, mut proto: String, mut payload: crate::core_by
         return;
     };
     loop {
-        if !(true) {
-            break;
-        };
         let mut got: i32 = crate::runtime_routing::__module_use0_0().take_credit(addr, crate::runtime::this_parker_platform());
         if (got == 1i32) {
             let mut from: i64 = crate::runtime_routing::here_node();
@@ -1338,6 +1335,7 @@ pub fn send_remote(mut addr: i32, mut proto: String, mut payload: crate::core_by
             return;
         };
     }
+    panic!("salvo: unreachable at runtime.routing:674:5");
 }
 
 pub fn answer_remote(mut t: crate::runtime_routing::ReplyParts, mut payload: crate::core_bytes::Bytes) {

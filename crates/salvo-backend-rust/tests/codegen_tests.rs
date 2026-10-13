@@ -17252,6 +17252,32 @@ fn rustc_compiles_and_runs_none_typed_return_into_optional() {
     run_rust_files(&files, "none-return", NONE_RETURN_OUTPUT);
 }
 
+/// [loop-never] A non-escaping `while true` is `Never`: a `-> T` fn whose
+/// tail is one needs no return, and it lowers to a bare `loop {}` (no exit
+/// test) that rustc types as `!`. The loop is guarded so the program ends.
+pub const LOOP_NEVER_DEMO: &str = r#"
+fn pick(n: Int) -> Int {
+    if n > 0 { return n }
+    while true {
+    }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    println("${pick(7)}")
+}
+"#;
+
+pub const LOOP_NEVER_OUTPUT: &str = "7\n";
+
+#[test]
+fn rustc_compiles_and_runs_an_infinite_loop_as_never() {
+    let files = generate(&[("main.sv", LOOP_NEVER_DEMO)]);
+    let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
+    assert!(main.content.contains("loop {"), "a bare `loop {{` is emitted: {}", main.content);
+    run_rust_files(&files, "loop-never", LOOP_NEVER_OUTPUT);
+}
+
 
 /// `detach<T, C>(T | Checked<C>)` meets `Str | Int | Checked<Bool>` with
 /// `T = Str | Int`, `C = Bool`, and answers the flat `Str | Int | Bool`. The

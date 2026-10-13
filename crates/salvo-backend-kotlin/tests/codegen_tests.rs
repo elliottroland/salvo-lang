@@ -1362,6 +1362,32 @@ fn kotlinc_compiles_and_runs_a_none_typed_return_into_optional() -> KotlinCase {
     kotlin_case(files, "none-return", NONE_RETURN_OUTPUT)
 }
 
+// [loop-never] A non-escaping `while true` is `Never`; twin of the Rust
+// `..._an_infinite_loop_as_never`. Kotlin's `while (true) {}` is `Unit`, so
+// the loop lowers with a trailing trap that gives it a `Nothing` tail.
+const LOOP_NEVER_DEMO: &str = r#"
+fn pick(n: Int) -> Int {
+    if n > 0 { return n }
+    while true {
+    }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    println("${pick(7)}")
+}
+"#;
+
+const LOOP_NEVER_OUTPUT: &str = "7\n";
+
+fn kotlinc_compiles_and_runs_an_infinite_loop_as_never() -> KotlinCase {
+    let program = build_program(&[("main.sv", LOOP_NEVER_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "loop-never", LOOP_NEVER_OUTPUT)
+}
+
 fn kotlinc_compiles_and_runs_a_positional_pick() -> KotlinCase {
     let program = build_program(&[("main.sv", PICK_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
@@ -5595,6 +5621,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_a_sub_union_rewrap,
     kotlinc_compiles_and_runs_a_union_spanning_generic,
     kotlinc_compiles_and_runs_a_none_typed_return_into_optional,
+    kotlinc_compiles_and_runs_an_infinite_loop_as_never,
     kotlinc_compiles_and_runs_a_group_over_plain_arms,
     kotlinc_compiles_and_runs_a_hand_written_pass,
     kotlinc_compiles_and_runs_a_released_raw_pass,

@@ -155,9 +155,6 @@ fun<It, T> next__Filtering(t: Filtering<It, T>): Union2<T, salvo.core.iterator.F
     val step: (It) -> Union2<T, salvo.core.iterator.Finished> = t.step
     val keep: (T) -> Boolean = t.keep
     while (true) {
-        if (!(true)) {
-            break
-        }
         val x: Union2<T, salvo.core.iterator.Finished> = step(t.src)
         if ((x is Union2.U2<*, *>)) {
             val x_1: salvo.core.iterator.Finished = ((x as Union2.U2<*, *>).value as salvo.core.iterator.Finished)
@@ -168,6 +165,7 @@ fun<It, T> next__Filtering(t: Filtering<It, T>): Union2<T, salvo.core.iterator.F
             return Union2.U1<T, salvo.core.iterator.Finished>(salvo.core.iterator.emitted(x_2))
         }
     }
+    throw AssertionError("salvo: unreachable at core.seq:179:5")
     return Union2.U2<T, salvo.core.iterator.Finished>(salvo.core.iterator.finished())
 }
 
@@ -268,9 +266,6 @@ fun<It, T> next__SkippingWhile(t: SkippingWhile<It, T>): Union2<T, salvo.core.it
     }
     val skip: (T) -> Boolean = t.skip
     while (true) {
-        if (!(true)) {
-            break
-        }
         val x: Union2<T, salvo.core.iterator.Finished> = step(t.src)
         if ((x is Union2.U2<*, *>)) {
             val x_1: salvo.core.iterator.Finished = ((x as Union2.U2<*, *>).value as salvo.core.iterator.Finished)
@@ -283,6 +278,7 @@ fun<It, T> next__SkippingWhile(t: SkippingWhile<It, T>): Union2<T, salvo.core.it
             return Union2.U1<T, salvo.core.iterator.Finished>(salvo.core.iterator.emitted(x_3))
         }
     }
+    throw AssertionError("salvo: unreachable at core.seq:288:5")
     return Union2.U2<T, salvo.core.iterator.Finished>(salvo.core.iterator.finished())
 }
 

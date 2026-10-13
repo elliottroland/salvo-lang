@@ -2421,6 +2421,25 @@ Conventions:
   * Tails and break values coerce to the join like `if` branch values;
     `break`/`continue` outside a loop are errors; a lambda body is a
     loop barrier.
+* [loop-never] A **`while true` with no `break` targeting it** never
+  terminates and never falls through, so it is typed **`Never`** (user
+  decision 2026-10-12): like `return`/`throw`/`unreachable!()` it ends the
+  path, so a fn whose tail is one needs no return [fn-must-return], and code
+  after it is unreachable [dead-code].
+  * **Only the literal `true`** triggers this — no constant folding, so
+    `while 1 == 1` is an ordinary loop. **Only a `break` of *this* loop**
+    lets control out: a `break` in a nested loop targets the inner one, and
+    `continue`/`return`/`throw` do not fall through here. An `else` is
+    statically unreachable under `while true` and does not matter.
+  * The predicate is the ordinary one [type-any-never]: once the loop's
+    recorded type is `Never`, `block_exits`/`block_returns` and the
+    `[dead-code]` pass see it with no special case.
+  * **Lowering**: a literal-`true` condition emits a bare infinite loop (no
+    exit test), so a host that types its own infinite loop as bottom does so
+    — Rust's `loop {}` is `!`. A `Never` one additionally gets a trailing
+    trap, since not every host agrees (Kotlin's `while (true) {}` is `Unit`,
+    so the trap is what makes it `Nothing`); the trap is unreachable at
+    runtime.
 * [loop-while-is] `while x is T (name)?` re-tests in the loop condition
   and re-binds per iteration at the top of the body.
 * [is-bind-once] **An `is` binding evaluates its subject exactly once.** The

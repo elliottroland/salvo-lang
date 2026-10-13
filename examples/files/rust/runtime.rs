@@ -2331,9 +2331,6 @@ pub fn await_answer(mut wid: i32) -> crate::runtime::Dyn {
         1i32
     };
     loop {
-        if !(true) {
-            break;
-        };
         let mut step: crate::unions::Union6<crate::runtime::Got, crate::runtime::RunActor, crate::runtime::RunTask, crate::runtime::Sleep, crate::runtime::Again, crate::runtime::Stuck> = crate::runtime::__module_use1_0().wait_step(wid, pool, own, frame, crate::runtime::this_parker_platform());
         if matches!(step, crate::unions::Union6::U1(_)) {
             let mut g = match step { crate::unions::Union6::U1(__v) => __v, _ => unreachable!() };
@@ -2356,6 +2353,7 @@ pub fn await_answer(mut wid: i32) -> crate::runtime::Dyn {
             crate::runtime::park_platform(&crate::runtime::this_parker_platform());
         };
     }
+    panic!("salvo: unreachable at runtime:1543:5");
     return crate::runtime::unerase_platform::<crate::runtime::Dyn>(crate::runtime::erase_platform::<i32>(0i32));
 }
 
@@ -2399,9 +2397,6 @@ pub fn run_task(mut rt: crate::runtime::RunTask) {
 pub fn serve_pool(mut pool: i32) {
     crate::runtime::set_here_platform(pool, crate::runtime::no_frame());
     loop {
-        if !(true) {
-            break;
-        };
         let mut w: Option<crate::unions::Union3<crate::runtime::RunActor, crate::runtime::RunTask, crate::runtime::Retire>> = crate::runtime::__module_use1_0().next_work(pool, crate::runtime::this_parker_platform());
         if matches!(w, Some(crate::unions::Union3::U1(_))) {
             let mut ra = match w { Some(crate::unions::Union3::U1(__v)) => __v, _ => unreachable!() };
@@ -2416,6 +2411,7 @@ pub fn serve_pool(mut pool: i32) {
             crate::runtime::park_platform(&crate::runtime::this_parker_platform());
         };
     }
+    panic!("salvo: unreachable at runtime:1591:5");
 }
 
 pub fn token_to_actor(mut addr: i32, mut slot: i64) -> crate::runtime::Token {

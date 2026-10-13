@@ -160,9 +160,6 @@ pub fn next__Filtering<It: Clone, T: Clone>(t: &mut crate::core_seq::Filtering<I
     let mut step = t.step.clone();
     let mut keep = t.keep.clone();
     loop {
-        if !(true) {
-            break;
-        };
         let mut x: crate::unions::Union2<T, crate::core_iterator::Finished> = step(&mut t.src);
         if matches!(x, crate::unions::Union2::U2(_)) {
             let mut x_1 = match &x { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
@@ -173,6 +170,7 @@ pub fn next__Filtering<It: Clone, T: Clone>(t: &mut crate::core_seq::Filtering<I
             return crate::unions::Union2::U1(crate::core_iterator::emitted::<T>(x_2));
         };
     }
+    panic!("salvo: unreachable at core.seq:179:5");
     return crate::unions::Union2::U2(crate::core_iterator::finished());
 }
 
@@ -316,9 +314,6 @@ pub fn next__SkippingWhile<It: Clone, T: Clone>(t: &mut crate::core_seq::Skippin
     };
     let mut skip = t.skip.clone();
     loop {
-        if !(true) {
-            break;
-        };
         let mut x: crate::unions::Union2<T, crate::core_iterator::Finished> = step(&mut t.src);
         if matches!(x, crate::unions::Union2::U2(_)) {
             let mut x_1 = match &x { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
@@ -331,6 +326,7 @@ pub fn next__SkippingWhile<It: Clone, T: Clone>(t: &mut crate::core_seq::Skippin
             return crate::unions::Union2::U1(crate::core_iterator::emitted::<T>(x_3));
         };
     }
+    panic!("salvo: unreachable at core.seq:288:5");
     return crate::unions::Union2::U2(crate::core_iterator::finished());
 }
 

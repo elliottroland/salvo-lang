@@ -142,7 +142,50 @@ fn code_after_a_diverging_statement_warns() {
     );
 }
 
-// ===== [assert-op] `!` =====
+// ===== [loop-never] `while true` with no break =====
+
+/// A `while true {}` with no `break` targeting it never terminates, so it is
+/// `Never`: a fn whose body ends in one needs no return, and code after it is
+/// unreachable.
+#[test]
+fn infinite_loop_with_no_break_is_never() {
+    // `-> Int` with no return, body ends in `while true {}`: accepted.
+    let spins = "fn f() -> Int {\n    while true {\n    }\n}\n";
+    assert!(errors(spins).is_empty(), "a non-escaping `while true` ends the fn: {:?}", errors(spins));
+    // Code after it is unreachable: a dead-code warning (not an error).
+    let after = "fn g() -> Int {\n    while true {\n    }\n    let x = 3\n}\n";
+    assert!(errors(after).is_empty(), "{:?}", errors(after));
+    assert!(
+        warnings(after).iter().any(|w| w.contains("unreachable")),
+        "code after an infinite loop warns: {:?}",
+        warnings(after)
+    );
+}
+
+/// A `break` targeting the `while true` lets control out, so it is **not**
+/// `Never`: a `-> Int` fn whose only tail is that loop is then missing a
+/// return.
+#[test]
+fn an_escapable_infinite_loop_is_not_never() {
+    let breaks = "fn f(n: Int) -> Int {\n    while true {\n        if n > 0 { break }\n    }\n}\n";
+    assert!(
+        errors(breaks).iter().any(|m| m.contains("return")),
+        "a `while true` with a break does not end the fn: {:?}",
+        errors(breaks)
+    );
+}
+
+/// A `break` in a *nested* loop targets the inner loop, so the outer
+/// `while true` still never terminates — `Never`, no return needed.
+#[test]
+fn a_nested_break_does_not_escape_the_outer_loop() {
+    let nested = "fn f(flag: Bool) -> Int {\n    while true {\n        while flag {\n            break\n        }\n    }\n}\n";
+    assert!(
+        errors(nested).is_empty(),
+        "a nested break leaves the outer `while true` diverging: {:?}",
+        errors(nested)
+    );
+}
 
 /// [assert-op] The operator asserts *presence*, so it needs something that can
 /// be absent. Before this rule the two backends disagreed about the leftover —

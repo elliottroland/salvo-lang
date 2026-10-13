@@ -181,9 +181,6 @@ class Wheeling : Wheel {
     override fun run() {
         __module_use0_0.wheelParker(salvo.runtime.thisParkerPlatform())
         while (true) {
-            if (!(true)) {
-                break
-            }
             val now: Long = salvo.runtime.nowNanos()
             val due: salvo.platform.core.list.MutList<salvo.SalvoReply> = __module_use0_0.takeDue(now)
             answerAll(due, now)
@@ -197,6 +194,7 @@ class Wheeling : Wheel {
                 salvo.runtime.parkNanosPlatform(salvo.runtime.thisParkerPlatform(), wait)
             }
         }
+        throw AssertionError("salvo: unreachable at runtime.timers:121:9")
     }
 }
 

@@ -1758,9 +1758,6 @@ pub fn route_keyed(route_selector: &crate::net::RouteSelector, mut group: usize,
     let mut cap: i64 = config.max_wait.nanos;
     let mut last: i64 = seen;
     loop {
-        if !(true) {
-            break;
-        };
         let mut version: i64 = crate::net::view_version(group);
         let mut view: crate::net::RouteView = crate::net::route_view(group);
         if (version != last) {
@@ -1778,6 +1775,7 @@ pub fn route_keyed(route_selector: &crate::net::RouteSelector, mut group: usize,
             wait = cap;
         };
     }
+    panic!("salvo: unreachable at net:1074:5");
     return crate::net::route_keyed(route_selector, group, config, seen, key);
 }
 

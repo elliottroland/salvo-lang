@@ -1042,9 +1042,6 @@ fun sendRemote(addr: Int, proto: String, payload: salvo.platform.core.bytes.Byte
         return
     }
     while (true) {
-        if (!(true)) {
-            break
-        }
         val got: Int = __module_use0_0.takeCredit(addr, salvo.runtime.thisParkerPlatform())
         if ((got == 1)) {
             val from: Long = hereNode()
@@ -1062,6 +1059,7 @@ fun sendRemote(addr: Int, proto: String, payload: salvo.platform.core.bytes.Byte
             return
         }
     }
+    throw AssertionError("salvo: unreachable at runtime.routing:674:5")
 }
 
 fun answerRemote(t: ReplyParts, payload: salvo.platform.core.bytes.Bytes) {

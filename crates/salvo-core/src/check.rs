@@ -23252,6 +23252,22 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if let Some(b) = else_block {
                     self.reset_assigned(b);
                 }
+                // [loop-never] A `while true` with no `break` targeting it
+                // never terminates and never falls through, so it is `Never`
+                // — like `return`/`throw`, it ends the path (user decision
+                // 2026-10-12). Only the literal `true` counts (no constant
+                // folding), and only a `break` of *this* loop lets control
+                // out: a `break` in a nested loop targets the inner one (the
+                // loop stack already attributes it there), and `continue`,
+                // `return`, and `throw` do not fall through here. An `else`
+                // is statically unreachable under `while true`, so it does
+                // not matter.
+                let infinite = matches!(cond.as_ref(), Expr::Bool { value: true, .. })
+                    && ctx.breaks.is_empty()
+                    && !ctx.may_skip_value;
+                if infinite {
+                    return Ty::Never;
+                }
                 self.finish_loop_value(body_ty, body_tail, ctx, else_ty, else_tail)
             }
             Expr::For {

@@ -1203,9 +1203,6 @@ fun routeKeyed(routeSelector: RouteSelector, group: Int, config: RouteConfig, se
     val cap: Long = config.maxWait.nanos
     var last: Long = seen
     while (true) {
-        if (!(true)) {
-            break
-        }
         val version: Long = viewVersion(group)
         val view: RouteView = routeView(group)
         if ((version != last)) {
@@ -1223,6 +1220,7 @@ fun routeKeyed(routeSelector: RouteSelector, group: Int, config: RouteConfig, se
             wait = cap
         }
     }
+    throw AssertionError("salvo: unreachable at net:1074:5")
     return routeKeyed(routeSelector, group, config, seen, key)
 }
 

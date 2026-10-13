@@ -296,9 +296,6 @@ impl crate::runtime_timers::__Stateless_Wheel for Wheeling {
     fn run(&self) {
         crate::runtime_timers::__module_use0_0().wheel_parker(crate::runtime::this_parker_platform());
         loop {
-            if !(true) {
-                break;
-            };
             let mut now: i64 = crate::runtime::now_nanos();
             let mut due: Vec<crate::scheduler::SalvoReply> = crate::runtime_timers::__module_use0_0().take_due(now);
             crate::runtime_timers::answer_all(due, now);
@@ -312,6 +309,7 @@ impl crate::runtime_timers::__Stateless_Wheel for Wheeling {
                 crate::runtime::park_nanos_platform(&crate::runtime::this_parker_platform(), wait);
             };
         }
+        panic!("salvo: unreachable at runtime.timers:121:9");
     }
 }
 

@@ -500,9 +500,6 @@ pub fn register_bytes(mut data: crate::core_bytes::Bytes) -> i64 {
 
 pub fn checkout_in(mut handle: i64) -> crate::runtime_streams::InEntry {
     loop {
-        if !(true) {
-            break;
-        };
         let mut got: crate::unions::Union3<crate::runtime_streams::InEntry, crate::runtime_streams::Busy, crate::runtime_streams::Unknown> = crate::runtime_streams::__module_use0_0().take_in(handle, crate::runtime::this_parker_platform());
         if matches!(got, crate::unions::Union3::U1(_)) {
             let mut e = match got { crate::unions::Union3::U1(__v) => __v, _ => unreachable!() };
@@ -514,14 +511,12 @@ pub fn checkout_in(mut handle: i64) -> crate::runtime_streams::InEntry {
         };
         crate::runtime::park_platform(&crate::runtime::this_parker_platform());
     }
+    panic!("salvo: unreachable at runtime.streams:261:5");
     return crate::runtime_streams::checkout_in(handle);
 }
 
 pub fn checkout_out(mut handle: i64) -> crate::runtime_streams::OutEntry {
     loop {
-        if !(true) {
-            break;
-        };
         let mut got: crate::unions::Union3<crate::runtime_streams::OutEntry, crate::runtime_streams::Busy, crate::runtime_streams::Unknown> = crate::runtime_streams::__module_use0_0().take_out(handle, crate::runtime::this_parker_platform());
         if matches!(got, crate::unions::Union3::U1(_)) {
             let mut e = match got { crate::unions::Union3::U1(__v) => __v, _ => unreachable!() };
@@ -533,6 +528,7 @@ pub fn checkout_out(mut handle: i64) -> crate::runtime_streams::OutEntry {
         };
         crate::runtime::park_platform(&crate::runtime::this_parker_platform());
     }
+    panic!("salvo: unreachable at runtime.streams:276:5");
     return crate::runtime_streams::checkout_out(handle);
 }
 
@@ -639,9 +635,6 @@ pub fn read_line(e: &mut crate::runtime_streams::InEntry) -> crate::runtime_stre
         return crate::runtime_streams::Read { data: crate::core_bytes::bytes_of(vec![]), end: true, fault: Some((f).clone()) };
     };
     loop {
-        if !(true) {
-            break;
-        };
         let mut at: Option<i32> = crate::core_bytes::index_of_platform(&e.ahead, (((10i32) as i32) as u8));
         if at.is_some() {
             let mut i = at.unwrap();
@@ -682,6 +675,7 @@ pub fn read_line(e: &mut crate::runtime_streams::InEntry) -> crate::runtime_stre
         };
         crate::core_bytes::append_platform(&mut e.ahead, &got.data);
     }
+    panic!("salvo: unreachable at runtime.streams:357:5");
     return crate::runtime_streams::read_line(&mut *e);
 }
 
@@ -692,9 +686,6 @@ pub fn read_all(e: &mut crate::runtime_streams::InEntry) -> crate::runtime_strea
     };
     let mut out: crate::core_bytes::Bytes = { let __arg2 = vec![{ let __arg1 = crate::core_bytes::size_platform(&e.ahead); crate::runtime_streams::take_ahead(&mut *e, __arg1) }]; crate::core_bytes::mut_bytes(__arg2) };
     loop {
-        if !(true) {
-            break;
-        };
         let mut got: crate::runtime_streams::HostRead = crate::runtime_streams::host_read_platform(&mut e.host, 65536i32);
         if got.error.is_some() {
             let mut message = got.error.as_ref().unwrap();
@@ -706,6 +697,7 @@ pub fn read_all(e: &mut crate::runtime_streams::InEntry) -> crate::runtime_strea
         e.position = i64::wrapping_add(e.position, ((crate::core_bytes::size_platform(&got.data)) as i64));
         crate::core_bytes::append_platform(&mut out, &got.data);
     }
+    panic!("salvo: unreachable at runtime.streams:389:5");
     return crate::runtime_streams::read_all(&mut *e);
 }
 

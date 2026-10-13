@@ -291,7 +291,22 @@ impl<'a, 'p> Lower<'a, 'p> {
                 out
             }
             AExpr::Continue { .. } => vec![Stmt::Continue],
-            AExpr::While { cond, body, else_block, span } => self.while_stmt(cond, body, else_block.as_ref(), *span, None),
+            AExpr::While { cond, body, else_block, span } => {
+                let mut stmts = self.while_stmt(cond, body, else_block.as_ref(), *span, None);
+                // [loop-never] A non-escaping `while true` is `Never`: append
+                // a trap so a backend whose infinite loop is not natively
+                // `Never` (Kotlin's `while (true) {}` is `Unit`) still sees
+                // the statement diverge. Dead at runtime; Rust's `loop {}` is
+                // `!` on its own, so the trap is simply unreachable there.
+                if matches!(self.ty_of(*span), Ty::Never) {
+                    stmts.push(Stmt::Expr(Expr {
+                        ty: Ty::Never,
+                        span: *span,
+                        kind: ExprKind::Unreachable { message: None, at: self.location(*span) },
+                    }));
+                }
+                stmts
+            }
             AExpr::For { pattern, iterable, body, else_block, span } => {
                 self.for_stmt(pattern, iterable, body, else_block.as_ref(), *span, None)
             }

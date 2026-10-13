@@ -138,7 +138,42 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
-### 2026-10-12 — `todo!()` builtin, and a dead-code-after-divergence warning
+### 2026-10-12 — A non-escaping `while true` is `Never` ([loop-never])
+
+The `disk.sv` `put` body ends `while true { }` then dead code; the user wants
+the loop to be `Never` so the dead code is flagged and no return is required.
+
+- **Rule** (user decision, literal-`true`-only): a `while true` whose body has
+  no `break` targeting *this* loop never terminates and never falls through,
+  so the checker types it `Never`. Only the literal `true` (no constant
+  folding); a `break` in a nested loop targets the inner one (the loop stack
+  already attributes it there); `continue`/`return`/`throw` do not fall
+  through. Detected in the `Expr::While` arm from `cond` being `Expr::Bool
+  { value: true }` and `ctx.breaks.is_empty() && !ctx.may_skip_value`.
+- Everything downstream follows from the recorded `Never`:
+  `block_exits`/`block_returns` satisfy [fn-must-return], and the [dead-code]
+  pass warns on code after it — no special case, the one divergence predicate
+  [type-any-never].
+- **Lowering**: `while_stmt` now omits the exit test for a literal-`true`
+  condition (a bare infinite loop), so Rust's `loop {}` is `!` natively. A
+  `Never` while (value- and statement-position both) gets a trailing
+  `unreachable!` trap, because Kotlin's `while (true) {}` is `Unit`, not
+  `Nothing` — the trap gives the block a `Never` tail both toolchains accept.
+  The IR builds a `Never` while as a `Branch { value: None }` (value position)
+  or appends the trap (statement position).
+- Swept the generated goldens the lowering change touched (the dead
+  `if !(true) { break }` is gone, a trailing `panic!/throw` trap added):
+  regenerated every `examples/**` rust+kotlin output and the std + aws host
+  projects. std's `await_answer` (`while true { … return … } return …`) is now
+  a `Never` loop with a dead trailing return — fine, std is exempt from the
+  dead-code warning and it still compiles.
+- Tests: `infinite_loop_with_no_break_is_never`,
+  `an_escapable_infinite_loop_is_not_never`,
+  `a_nested_break_does_not_escape_the_outer_loop` (assert_tests.rs);
+  `rustc_compiles_and_runs_an_infinite_loop_as_never` + Kotlin twin. [loop-never]
+  added to LANGUAGE_SPEC.md. Warm `cargo nextest run`: 1786.
+
+
 
 Two `disk.sv` TODOs, both language-design calls the user made:
 

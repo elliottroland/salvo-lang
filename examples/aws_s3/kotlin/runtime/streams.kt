@@ -359,9 +359,6 @@ fun registerBytes(data: salvo.platform.core.bytes.Bytes): Long {
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun checkoutIn(handle: Long): InEntry {
     while (true) {
-        if (!(true)) {
-            break
-        }
         val got: Union3<InEntry, Busy, Unknown> = __module_use0_0.takeIn(handle, salvo.runtime.thisParkerPlatform())
         if ((got is Union3.U1<*, *, *>)) {
             val e: InEntry = ((got as Union3.U1<*, *, *>).value as InEntry)
@@ -373,15 +370,13 @@ fun checkoutIn(handle: Long): InEntry {
         }
         salvo.runtime.parkPlatform(salvo.runtime.thisParkerPlatform())
     }
+    throw AssertionError("salvo: unreachable at runtime.streams:261:5")
     return checkoutIn(handle)
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun checkoutOut(handle: Long): OutEntry {
     while (true) {
-        if (!(true)) {
-            break
-        }
         val got: Union3<OutEntry, Busy, Unknown> = __module_use0_0.takeOut(handle, salvo.runtime.thisParkerPlatform())
         if ((got is Union3.U1<*, *, *>)) {
             val e: OutEntry = ((got as Union3.U1<*, *, *>).value as OutEntry)
@@ -393,6 +388,7 @@ fun checkoutOut(handle: Long): OutEntry {
         }
         salvo.runtime.parkPlatform(salvo.runtime.thisParkerPlatform())
     }
+    throw AssertionError("salvo: unreachable at runtime.streams:276:5")
     return checkoutOut(handle)
 }
 
@@ -495,9 +491,6 @@ fun readLine(e: InEntry): Read {
         return Read(data = salvo.core.bytes.bytesOf(arrayOf<UByte>()), end = true, fault = f)
     }
     while (true) {
-        if (!(true)) {
-            break
-        }
         val at: Int? = salvo.core.bytes.indexOfPlatform((e.ahead as salvo.platform.core.bytes.MutBytes), (10).toUByte())
         if ((at != null)) {
             val i: Int = at!!
@@ -541,6 +534,7 @@ fun readLine(e: InEntry): Read {
         }
         salvo.core.bytes.appendPlatform((e.ahead as salvo.platform.core.bytes.MutBytes), got.data)
     }
+    throw AssertionError("salvo: unreachable at runtime.streams:357:5")
     return readLine(e)
 }
 
@@ -552,9 +546,6 @@ fun readAll(e: InEntry): Read {
     }
     val out: salvo.platform.core.bytes.MutBytes = salvo.core.bytes.mutBytes(arrayOf<salvo.platform.core.bytes.Bytes>(takeAhead(e, salvo.core.bytes.sizePlatform((e.ahead as salvo.platform.core.bytes.MutBytes)))))
     while (true) {
-        if (!(true)) {
-            break
-        }
         val got: HostRead = hostReadPlatform(e.host, 65536)
         if ((got.error != null)) {
             val message: String = got.error!!
@@ -566,6 +557,7 @@ fun readAll(e: InEntry): Read {
         e.position = (e.position + (salvo.core.bytes.sizePlatform(got.data)).toLong())
         salvo.core.bytes.appendPlatform(out, got.data)
     }
+    throw AssertionError("salvo: unreachable at runtime.streams:389:5")
     return readAll(e)
 }
 
