@@ -2499,6 +2499,14 @@ Conventions:
     carried whether it sits on the return type or in that lifted constructor
     clause.
   * **No dot-notation**: a type-fn is never called `x.Mut List(…)`.
+* [col-pairs] **Key-value pair arguments** (user decision 2026-10-12): a
+  `k: v` argument at a call site is sugar for the 2-tuple `(k, v)`, so
+  `Map("a": 1, "b": 2)` fills a `...pairs: (K, V)[]` variadic as
+  `(("a", 1), ("b", 2))`. The sugar is general to any function with such a
+  variadic, not special to `Map`. Pairs are **all-or-nothing** in one call:
+  a `k: v` argument may not be mixed with a positional or `=`-named argument
+  (Q6). Each key is an expression (unlike a map *literal*, there is no
+  struct-literal ambiguity in call position, so an identifier key is allowed).
 * [fn-syntax] `fn name<G>(params) [effects] -> ReturnType`; => deductions
   no implicit returns from functions (unlike blocks); omitted return type
   means `None`; omitted effect list means pure (`[]`).

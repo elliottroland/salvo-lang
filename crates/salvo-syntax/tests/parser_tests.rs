@@ -1386,6 +1386,52 @@ fn a_named_argument_parses() {
     assert_eq!(named[0].name.name, "add");
 }
 
+/// [col-pairs] `k: v` arguments at a call site each become a 2-tuple `(k,
+/// v)`, filling a `...pairs: (K, V)[]` variadic — the sugar behind `Map("a":
+/// 1)`.
+#[test]
+fn key_value_pair_arguments_parse_as_tuples() {
+    let source = "fn f() {\n    let m = mut_map_of(\"a\": 1, \"b\": 2)\n}\n";
+    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    assert!(
+        !diagnostics.iter().any(|d| d.is_error()),
+        "unexpected errors: {:?}",
+        diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+    let salvo_syntax::ast::Item::Fn(f) = &module.items[0] else {
+        panic!("expected a fn item");
+    };
+    let salvo_syntax::ast::Stmt::Let { value, .. } = &f.body.as_ref().unwrap().stmts[0] else {
+        panic!("expected a let");
+    };
+    let salvo_syntax::ast::Expr::Call { args, named, .. } = value else {
+        panic!("expected a call");
+    };
+    assert!(named.is_empty(), "pairs are positional tuples, not named args");
+    assert_eq!(args.len(), 2, "two pair arguments");
+    for a in args {
+        assert!(
+            matches!(a, salvo_syntax::ast::Expr::Tuple { elems, .. } if elems.len() == 2),
+            "each pair is a 2-tuple, got {a:?}"
+        );
+    }
+}
+
+/// [col-pairs] Pairs are all-or-nothing: a positional argument cannot be
+/// mixed with `k: v` pairs in one call.
+#[test]
+fn mixing_a_pair_and_a_positional_argument_is_rejected() {
+    let source = "fn f() {\n    let m = mut_map_of(\"a\": 1, 99)\n}\n";
+    let (_, diagnostics) = salvo_syntax::parse_module(source);
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| d.is_error() && d.message.contains("pair")),
+        "expected the no-mixing error, got {:?}",
+        diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+}
+
 /// Implicit parameters trail the ordinary ones: a caller could not pass a
 /// positional parameter written after one.
 #[test]

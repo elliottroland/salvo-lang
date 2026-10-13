@@ -5645,12 +5645,42 @@ impl<'s> Parser<'s> {
         self.group_depth += 1;
         let mut args = Vec::new();
         let mut named: Vec<NamedArg> = Vec::new();
+        // [col-pairs] Whether this call uses the `k: v` pair sugar. Each pair
+        // becomes a 2-tuple `(k, v)` filling a `...pairs: (K, V)[]` variadic
+        // (so `Map("a": 1)` is `map_of(("a", 1))`). Pairs are all-or-nothing
+        // in one call (user decision 2026-10-12, Q6): no mixing with
+        // positional or `=`-named arguments.
+        let mut saw_pair = false;
+        let mut saw_plain = false;
         while !self.at(&TokenKind::RParen) && !self.at_eof() {
             let Some(arg) = self.parse_expr() else {
                 self.group_depth -= 1;
                 return None;
             };
-            if self.at(&TokenKind::Eq) {
+            if self.at(&TokenKind::Colon) {
+                // [col-pairs] `k: v` — a key-value pair argument.
+                let colon = self.bump().span;
+                if saw_plain || !named.is_empty() {
+                    self.error(
+                        "a `k: v` pair argument cannot be mixed with positional \
+                         or named arguments: a call uses pairs for every argument \
+                         or none",
+                        colon,
+                    );
+                    self.group_depth -= 1;
+                    return None;
+                }
+                let Some(value) = self.parse_expr() else {
+                    self.group_depth -= 1;
+                    return None;
+                };
+                saw_pair = true;
+                let span = arg.span().to(value.span());
+                args.push(Expr::Tuple {
+                    elems: vec![arg, value],
+                    span,
+                });
+            } else if self.at(&TokenKind::Eq) {
                 self.bump();
                 let Expr::Ident(name) = arg else {
                     let span = arg.span();
@@ -5669,6 +5699,16 @@ impl<'s> Parser<'s> {
                 let span = name.span.to(value.span());
                 named.push(NamedArg { name, value, span });
             } else {
+                if saw_pair {
+                    let span = arg.span();
+                    self.error(
+                        "a positional argument cannot be mixed with `k: v` pair \
+                         arguments: a call uses pairs for every argument or none",
+                        span,
+                    );
+                    self.group_depth -= 1;
+                    return None;
+                }
                 if let Some(prev) = named.first() {
                     let span = arg.span();
                     let prev_span = prev.span;
@@ -5680,6 +5720,7 @@ impl<'s> Parser<'s> {
                     self.group_depth -= 1;
                     return None;
                 }
+                saw_plain = true;
                 args.push(arg);
             }
             if self.eat(&TokenKind::Comma).is_none() {

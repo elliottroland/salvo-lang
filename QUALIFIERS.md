@@ -167,15 +167,37 @@ build**.
   today. Confirm the existing overload machinery keys on the *canonical type
   name* so these behave like `list_of`'s two shapes.
 
-### Change 2 (pair literal sugar)
-- **Q2a. Grammar.** `Map("a": 1, "b": 2)` — the `:` inside call args. Today
-  `:` in an arg list appears nowhere. Parse each `k: v` arg as a tuple `(k,
-  v)` when the callee's matching variadic param is `(K,V)[]`? Or always parse
-  `k: v` args as pairs and let the checker reject if the param isn't a pair
-  variadic? Recommendation: parse `k: v` in an arg list into a pair-arg AST
-  node, check it fills a `(K,V)[]` variadic.
-- **Q2b. Mixing.** Can positional and `k: v` args mix? (`f(1, "a": 2)`?)
-  Probably not — a `(K,V)[]` variadic takes all-pairs. Confirm.
+### Change 2 (pair literal sugar + retire collection literals)
+
+**Part A — pair sugar — DONE (2026-10-12).** `k: v` arguments at a call site
+each parse into a 2-tuple `(k, v)` in `parse_call_args_inner`
+(crates/salvo-syntax/src/parser.rs), filling a `...pairs: (K, V)[]` variadic.
+All-or-nothing per Q6: a pair cannot mix with a positional or `=`-named arg
+(both directions error with "pair"). No AST change — the checker/IR see
+ordinary `Expr::Tuple` args, so the existing variadic element-type match
+(`Ty::Array(Ty::Tuple([K,V]))`) works unchanged. Enforcing that the callee
+*has* a `(K,V)[]` variadic falls out of overload resolution (a mismatched
+callee simply fails to unify). Verified: `mut_map_of("a": 1, "b": 2)` →
+`{a:1,b:2}` on both backends. Tests: `key_value_pair_arguments_parse_as_tuples`,
+`mixing_a_pair_and_a_positional_argument_is_rejected` in parser_tests. Spec:
+`[col-pairs]` rule in LANGUAGE_SPEC.md (after `[fn-type-named]`).
+
+Note: `Map("a": 1)` as a *type-fn* needs a `fn Map<K,V>(...pairs:(K,V)[])`
+constructor in std — added in part B below (today std has only `map_of`).
+
+**Part B — retire `[...]`/`{...}` collection literals — NOT STARTED.** Delete
+`Expr::ArrayLit`/`SetLit`/`MapLit` (ast.rs ~1679), their parser producers
+(`parse_array_literal`, `parse_brace_collection`), their check.rs arms
+(~22483/22551/22617), `desugar_collection_literal` (~12137), the AST→IR arms
+(ir/build/body/exprs.rs ~71-99), the visit.rs/visit_mut.rs arms (~531/530),
+and the walks in desugar.rs/deduce.rs/lends.rs/reach.rs. Keep
+`ExprKind::List`/`Array` (the type-fn/variadic lowering still uses them).
+Add std type-fn constructors (`fn List`, `fn Mut List`, `fn Set`, `fn Mut Set`,
+`fn Map`, `fn Mut Set`, `fn Map`, `fn Mut Map`, `fn SortedSet`…) so the
+rewrites have a target, then sweep every `[...]`/`{...}` use in std, examples
+(source + narration + regenerated output), corpus, and the ~40 inline-`.sv`
+Rust test strings (see context-gatherer map). Large mechanical sweep — its own
+commit.
 
 ### Change 4 (provenance arm inference)
 - **Q4a. "Unambiguous" definition.** Exactly one arm whose provenance
