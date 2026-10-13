@@ -947,3 +947,31 @@ fn a_call_through_a_local_checks_its_arguments() {
     let errs = errors("fn g(f: (Str) -> Int) [] -> Int => f {\n    return f(\"a\", \"b\")\n}\n");
     assert!(errs.iter().any(|e| e.contains("`f` takes 1 argument(s), found 2")), "{errs:?}");
 }
+
+/// [fn-type-named] Rule (c): a type-named fn must return the named base with
+/// at least the named qualifiers. `fn Mut List<T> -> Mut List<T>` is fine;
+/// returning a plain `List<T>` (missing `Mut`) is refused, and a wrong base
+/// is refused.
+#[test]
+fn type_named_fn_return_is_checked() {
+    // Correct: returns exactly the named type.
+    let ok = errors(
+        "fn Mut List<T>(first: T) -> Mut List<T> => !first {\n    return mut_list_of(first)\n}\n",
+    );
+    assert!(ok.is_empty(), "a matching return is accepted: {ok:?}");
+
+    // Missing the named `Mut` qualifier on the return.
+    let miss = errors(
+        "fn Mut List<T>(first: T) -> List<T> => !first {\n    return mut_list_of(first)\n}\n",
+    );
+    assert!(
+        miss.iter().any(|e| e.contains("must carry the `Mut` qualifier")),
+        "a missing named qualifier is refused: {miss:?}"
+    );
+
+    // Extra qualifiers beyond the named ones are allowed (named ⊆ return).
+    let extra = errors(
+        "fn List<T>(first: T) -> Mut List<T> => !first {\n    return mut_list_of(first)\n}\n",
+    );
+    assert!(extra.is_empty(), "extra qualifiers on the return are allowed: {extra:?}");
+}

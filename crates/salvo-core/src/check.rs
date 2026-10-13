@@ -8083,6 +8083,12 @@ impl<'p, 'r> Checker<'p, 'r> {
         if let Some(rt) = &f.return_type {
             self.validate_type(rt);
         }
+        // [fn-type-named] Rule (c): a type-named fn must return a value whose
+        // type has the named base AND at least the named qualifiers (extra
+        // qualifiers allowed). Checked with the fn's generics in scope.
+        if f.type_name.is_some() {
+            self.check_type_named_fn(f);
+        }
         if f.constructs.is_some() {
             self.check_constructor_sig(f);
         }
@@ -20083,6 +20089,89 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// [qual-ctor-predicate]: a predicate-qualifier constructor asserts
     /// its predicate holds by construction, so callers get the qualified
     /// type without a runtime `is` check.
+    /// [fn-type-named] Rule (c): a type-named fn's return type must have the
+    /// named type's base and at least its qualifiers. Base equality plus
+    /// named-quals ⊆ return-quals — extra qualifiers on the return are fine
+    /// (`fn Heap List<T>` may return `Heap(?cmp) Mut List<T>`). A purely
+    /// *provenance* name (`fn Ok<T>` — the "base" is itself a provenance
+    /// qualifier) checks only that the qualifier is present on the return.
+    fn check_type_named_fn(&mut self, f: &'p FnDecl) {
+        let Some(name_ty) = &f.type_name else { return };
+        let span = name_ty.span();
+        let named = self.lower_type(name_ty);
+        // The components the name demands: its qualifier names, and its base
+        // name (unless the base is itself a provenance qualifier — the
+        // base-less provenance form).
+        let named_quals: Vec<String> = named.quals().iter().map(|q| q.name.clone()).collect();
+        let named_base = named.strip_quals().clone();
+        let base_name = match &named_base {
+            Ty::Named { name, .. } => Some(name.clone()),
+            _ => None,
+        };
+        let base_is_provenance = base_name.as_deref().is_some_and(|n| self.is_provenance_qual(n));
+        let Some(rt) = &f.return_type else {
+            self.error(
+                span,
+                "a type-named function must declare a return type [fn-type-named]",
+            );
+            return;
+        };
+        let ret = self.lower_type(rt);
+        let ret_quals: Vec<String> = ret.quals().iter().map(|q| q.name.clone()).collect();
+        // Every named qualifier must be present on the return.
+        for q in &named_quals {
+            if !ret_quals.contains(q) {
+                self.error(
+                    rt.span(),
+                    format!(
+                        "`{}` is named after `{named}`, so its return type must carry \
+                         the `{q}` qualifier [fn-type-named]",
+                        f.name.name
+                    ),
+                );
+            }
+        }
+        // The base must match — unless the name is the base-less provenance
+        // form, where the "base" is really a qualifier the return carries.
+        if let Some(bn) = &base_name {
+            if base_is_provenance {
+                // Provenance form: the qualifier (`Ok`) must be on the return.
+                let has = ret_quals.iter().any(|q| q == bn)
+                    || ret.strip_quals().quals().iter().any(|q| &q.name == bn);
+                if !has {
+                    self.error(
+                        rt.span(),
+                        format!(
+                            "`{}` is named after the provenance qualifier `{bn}`, so its \
+                             return type must carry it (`-> +{bn} T`) [fn-type-named]",
+                            f.name.name
+                        ),
+                    );
+                }
+            } else {
+                let ret_base = match ret.strip_quals() {
+                    Ty::Named { name, .. } => Some(name.clone()),
+                    _ => None,
+                };
+                if ret_base.as_deref() != Some(bn.as_str()) {
+                    self.error(
+                        rt.span(),
+                        format!(
+                            "`{}` is named after `{named}`, so its return type's base must \
+                             be `{bn}`, not `{ret}` [fn-type-named]",
+                            f.name.name
+                        ),
+                    );
+                }
+            }
+        } else {
+            self.error(
+                span,
+                "a type-named function's name must have a base type [fn-type-named]",
+            );
+        }
+    }
+
     fn check_constructor_sig(&mut self, f: &'p FnDecl) {
         let Some(cref) = &f.constructs else { return };
         let name = cref.name.name.as_str();

@@ -288,10 +288,19 @@ collection constructors to type-fn form (deferred to the cleanup after 3).
 (the new `type_name: None` field).
 
 ### Still TODO for change 1
-- Checker rule-(c) validation: for a `type_name`-bearing fn, check the return
-  type's base == named base and named quals ⊆ return quals; base required
-  unless the name is purely provenance (change 3). Emit a clear error otherwise.
+- Checker rule-(c) validation. ✓ DONE (`check_type_named_fn`, carry_tests
+  `type_named_fn_return_is_checked`). Handles the provenance base-less form too.
 - `[fn-type-named]` spec rule added to LANGUAGE_SPEC.md. ✓
+
+### KNOWN GAP (blocks change 3's `canbe`): generics with `canbe` on a type-fn name
+`fn Ok<T canbe linear>(...)` fails to parse — `parse_type_fn_name` →
+`parse_type_ref` parses `<T>` as plain type args and chokes on `canbe linear`.
+A type-fn name's base generics need the `<T canbe linear>` opt-in like an
+ordinary fn's `parse_generics_canbe`. Fix in change 3: parse the base ref's
+generics with canbe-awareness (or special-case: after parsing the base name,
+if `<`, use a canbe-aware generics parse and attach the opt-ins to the fn's
+`generic_canbe`). Non-`canbe` type-fns (incl. `Mut List<T>`) work fully today.
+
 
 ### Change 1 — type-named functions — IN PROGRESS (started 2026-10-12)
 
