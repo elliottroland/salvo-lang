@@ -379,9 +379,6 @@ pub fn used_names(module: &Module) -> HashSet<&str> {
             }
             Item::Qualifier(q) => {
                 type_names(&q.of, &mut used);
-                for w in &q.with {
-                    type_ref_names(w, &mut used);
-                }
                 for field in &q.field_overrides {
                     type_names(&field.ty, &mut used);
                 }

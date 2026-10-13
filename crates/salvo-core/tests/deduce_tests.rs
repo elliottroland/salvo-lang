@@ -100,8 +100,8 @@ fn effect_form(program: &Program, checked: &Checked, fn_name: &str, param: &str)
 const QUALIFIED_LISTS: &str = r#"
 
 qualifier A<T> of List<T>
-qualifier B<T> of List<T> with A<T>
-qualifier C<T> of List<T> with A<T>, B<T>
+qualifier B<T> of List<T>
+qualifier C<T> of List<T>
 
 fn drop_a<T>(list: A B List<T>) [] -> None => list: B {}
 fn consume<T>(list: List<T>) [] -> None => !list {}

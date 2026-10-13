@@ -115,11 +115,11 @@ fn provenance_survives_a_mutating_call() {
     assert!(errors(&src).is_empty(), "got {:?}", errors(&src));
 }
 
-// [qual-subject] [qual-with] Provenance composes without a `with`
-// declaration — with state claims and with other provenance claims —
-// while two state claims still need one.
+// [qual-subject] [qual-no-with] Qualifiers compose freely now that `with`
+// is retired — provenance with state, provenance with provenance, and two
+// state claims alike, with no declared compatibility.
 #[test]
-fn provenance_composes_without_with() {
+fn qualifiers_compose_without_with() {
     let ok = "\
                struct Request { body: Str }\n\
               qualifier Validated of Request\n\
@@ -129,16 +129,13 @@ fn provenance_composes_without_with() {
               fn b(r: Authenticated FromCache Request) -> Str { return r.body }\n";
     assert!(errors(ok).is_empty(), "got {:?}", errors(ok));
 
-    let bad = "\
+    // Two *state* qualifiers also compose now — no `with` needed.
+    let two_state = "\
                struct Request { body: Str }\n\
                qualifier Validated of Request\n\
                qualifier Checked of Request\n\
                fn a(r: Validated Checked Request) -> Str { return r.body }\n";
-    assert!(
-        errors(bad).iter().any(|m| m.contains("are not compatible")),
-        "got {:?}",
-        errors(bad)
-    );
+    assert!(errors(two_state).is_empty(), "got {:?}", errors(two_state));
 }
 
 // [qual-subject] Provenance is mint-only: nothing in the bits establishes

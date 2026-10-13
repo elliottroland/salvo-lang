@@ -633,7 +633,7 @@ export fn to_str<T>(list: List<T>, ?to_str: (x: T) -> Str) [] -> Str => list {
 // bound to a different `cmp` than the sort used would insert at a position
 // that is a lower bound for one ordering and nonsense for the other. The slot
 // makes the two different types, so they refuse to mix.
-export qualifier Sorted<T>(?cmp: (T, T) -> Int) of List<T> with NonEmpty {
+export qualifier Sorted<T>(?cmp: (T, T) -> Int) of List<T> {
     // [qual-refn] The claim's owner states what the insert below does to it,
     // because the primitive cannot: a function that mutates may not promise back
     // a qualifier it has never heard of [deduce-syntax], and inserting at the

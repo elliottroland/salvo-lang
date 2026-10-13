@@ -1540,17 +1540,17 @@ Conventions:
     the emitted name with the subject** (`Filled__List_qualifies`) and only
     when the name is actually overloaded, following [rs-fn-mangling]. Kotlin
     needs nothing — the JVM overloads on the parameter type.
-* [qual-with] Two qualifiers may stack on one type only if one declares
-  `with` the other; the `Mut` auto-qualifier composes with everything
-  [type-canbe-mut].
-  * Pairwise `with` compatibility is validated at declaration sites.
-  * One implementation, two callers: the declaration-site check and the
-    refinement-conflict rule [qual-refn-ambiguous] share
-    `refine::quals_compatible`, since a conflict is *precisely* "these two
-    could not have been written together".
-  * `with` is only ever this compatibility clause; opting a declaration
-    into a qualifier is `canbe` [canbe-optin].
-  * Provenance qualifiers need no `with` at all [qual-subject].
+* [qual-no-with] Qualifiers compose freely (user decision 2026-10-12,
+  retiring the `with` compatibility clause). Any number of qualifiers may
+  stack on one type; there is no declared allowlist and no declaration-site
+  compatibility check. What a value can actually be is implicit in which
+  functions mint each qualifier and each qualifier's own `qualifies`
+  predicate, not in a pairwise relation.
+  * The `with` *keyword* survives only for the handler-dependency clause
+    (`use H() with Dep()`); it is no longer a qualifier clause, and a `with`
+    after a qualifier's `of` type is a parse error.
+  * Provenance qualifiers always composed freely [qual-subject]; now every
+    qualifier does.
 * [qual-union-arm] In an un-parenthesized union, a qualifier binds to the
   single arm it is written on, never the whole union; qualifiers cannot
   apply to tuples.
@@ -1740,7 +1740,7 @@ Conventions:
     [qual-constructive] already gives.
   * **Droppable**, and it survives being stored into another value:
     forgetting an origin is safe, and a field typed `Q T` keeps the tag.
-  * **Composes without `with`** [qual-with]: an origin is orthogonal to
+  * **Composes without `with`** [qual-no-with]: an origin is orthogonal to
     every claim about contents and to other origins, so tags stack
     freely, including several over one base
     (`Authenticated EnvironmentId Str`). Two *state* claims still need an
@@ -3926,10 +3926,10 @@ Conventions:
     handle** (its dependencies were settled where it was built). The refusal
     of a `with` on a handler with an actor-effect or generic-instance
     dependency went with the fused emission (2026-09-28).
-  * `with` is a keyword already — the qualifier-compatibility clause spells
-    it (`qualifier Q of T with A`) — and the two positions cannot be
-    confused: one follows a qualifier's `of` type, the other a `use`/`spawn`
-    handler expression. Same-line, like every trailing clause.
+  * `with` is a keyword already — the handler-dependency clause spells it
+    (`use H() with Dep()`); the qualifier-compatibility clause that once
+    also used it is retired [qual-no-with]. Same-line, like every trailing
+    clause.
 * [spawn-inherit] **A spawned handler inherits the spawning scope's
   dependencies** (user decision 2026-09-20; the arc the shareable-by-default
   round was built for). A declared dependency the `with` clause does not

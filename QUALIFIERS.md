@@ -236,16 +236,26 @@ already recorded the coercion. Verified both backends: `return n`/`return
 plain non-tagged unions both behave (explicit required / subtype match). Test:
 `provenance_arm_is_inferred_from_a_bare_value` (carry_tests). Spec: `[arm-infer]`.
 
-### Change 6 (retire `with`) — PLAN (decided, Option A)
-Delete `QualifierDecl.with` (ast.rs), its parse, and `refine::quals_compatible`
-**wholesale** (C6-1) — both its call sites go: the qualifier-declaration
-validation and the old refn conflict-suppression (the refn redesign replaces
-conflict handling with a declaration-time `+Q`/`-Q` contradiction error). No
-replacement compatibility relation: every state-qualifier pair composes freely
-now; incompatibility is implicit in which fns can mint a qualifier and the
-qualifier's own `qualifies` predicate (Q13). Sweep `with X` out of std
-qualifiers (`list.sv` `Sorted … with NonEmpty`, `set.sv` `Distinct with
-NonEmpty, Sorted`, and any others).
+### Change 6 (retire `with`) — DONE (2026-10-12, Option A)
+Deleted `QualifierDecl.with` (ast.rs), its parse in `parse_qualifier` (a `with`
+after `of Type` is now a parse error; the `with` keyword survives for `use …
+with …`), and the declaration-site compatibility loop in check.rs. Made
+`refine::quals_compatible` a vacuous `true` (its callers in the refn conflict
+machinery are removed in change 7). Removed `.with` readers in reach.rs,
+check.rs (`check_qualifier_decl`), lsp.rs (hover). Swept `with` clauses from std
+(`list.sv` Sorted, `set.sv` Distinct, `heap.sv` Heap), corpus (qualifiers.sv +
+snapshot), and all inline test sites (deduce/refine/overload/name/subject tests
++ both codegen_tests). Converted `subject_tests::provenance_composes_without_with`
+→ `qualifiers_compose_without_with` (two state quals now compose, no error);
+deleted kotlin `incompatible_qualifiers_are_rejected`; dropped the `with Nope`
+name-resolution case. Two refn-conflict tests
+(`conflicting_refinements_in_one_place_are_an_error`,
+`refinements_from_two_places_make_the_call_ambiguous`) are `#[ignore]`d pending
+change 7 (the conflict model they test is being replaced). Spec: `[qual-with]`
+→ `[qual-no-with]`; docs/language/Qualifiers.md + Collections.md rewritten +
+wiki synced. NOTE for change 7: remove `quals_compatible`, the ignored tests,
+`report_refn_ambiguity`/`@place` call-site machinery, and the `[qual-refn-at]`/
+`[qual-refn-ambiguous]` rules.
 
 ### Change 5 (conditional deductions) — PLAN (decided)
 A fn may declare a **qualifier-conditional response**: `fn non_empty<T>(list:

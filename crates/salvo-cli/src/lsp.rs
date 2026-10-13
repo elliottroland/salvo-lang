@@ -2495,10 +2495,6 @@ fn qualifier_signature(decl: &salvo_syntax::ast::QualifierDecl) -> String {
         generic_list(&decl.generics),
         decl.of
     ));
-    if !decl.with.is_empty() {
-        let with: Vec<String> = decl.with.iter().map(|w| w.to_string()).collect();
-        sig.push_str(&format!(" with {}", with.join(", ")));
-    }
     sig
 }
 

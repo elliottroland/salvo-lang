@@ -299,10 +299,6 @@ fn unknown_names_are_reported_at_declaration_sites() {
             "qualifier Q of Nope\n",
             "unknown type `Nope`",
         ),
-        (
-            "qualifier Q of Int with Nope\n",
-            "unknown qualifier `Nope`",
-        ),
     ];
     for (body, want) in cases {
         let src = format!("{body}");

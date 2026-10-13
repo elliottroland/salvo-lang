@@ -720,8 +720,6 @@ pub struct QualifierDecl {
     /// place's fate roots.
     pub value_slots: Vec<ValueSlot>,
     pub of: Type,
-    /// Compatible qualifiers, e.g. `with Surname`.
-    pub with: Vec<TypeRef>,
     /// Field type overrides for predicate qualifiers on structs.
     pub field_overrides: Vec<FieldDecl>,
     /// Functions defined in the qualifier body (e.g. `qualifies`).

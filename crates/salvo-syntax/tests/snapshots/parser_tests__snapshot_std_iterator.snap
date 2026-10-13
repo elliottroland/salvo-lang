@@ -62,7 +62,6 @@ Module {
                         span: 1231..1232,
                     },
                 },
-                with: [],
                 field_overrides: [],
                 fns: [],
                 refns: [],

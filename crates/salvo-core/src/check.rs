@@ -19105,38 +19105,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
         }
-        // Multiple qualifiers require declared `with` compatibility
-        // [qual-with].
-        for i in 0..qualifiers.len() {
-            for j in (i + 1)..qualifiers.len() {
-                // The `Mut` auto-qualifier composes with everything
-                // [type-canbe-mut].
-                if qualifiers[i].name.name == "Mut" || qualifiers[j].name.name == "Mut" {
-                    continue;
-                }
-                let (Some(a), Some(b)) = (decls[i], decls[j]) else {
-                    continue;
-                };
-                if a.name.name == b.name.name {
-                    continue; // duplicate, already reported
-                }
-                // One rule, one implementation: a refinement conflict
-                // [qual-refn-ambiguous] is *precisely* "these two could not
-                // have been written together", so the two sites must not
-                // drift. Provenance composes freely [qual-subject], and so
-                // do the compiler's own qualifiers.
-                if !crate::refine::quals_compatible(a, b) {
-                    self.error(
-                        qualifiers[j].span,
-                        format!(
-                            "qualifiers `{}` and `{}` are not compatible \
-                             (neither declares `with` the other)",
-                            a.name.name, b.name.name
-                        ),
-                    );
-                }
-            }
-        }
+        // [qual-no-with] Several qualifiers compose freely (user decision
+        // 2026-10-12, retiring `with`): there is no declared compatibility
+        // allowlist. What a value can be is implicit in which functions mint
+        // each qualifier and each qualifier's own `qualifies` predicate, so
+        // nothing here forbids a pair.
     }
 
     /// [qual-overload] The qualifier a use of `name` means. One name may be
@@ -19674,11 +19647,6 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// bodiless (constructive) qualifiers take neither [qual-constructive].
     fn check_qualifier_decl(&mut self, q: &'p QualifierDecl) {
         self.validate_type(&q.of);
-        // [qual-with] Compatibility clauses name other qualifiers
-        // [name-resolve].
-        for w in &q.with {
-            self.require_name(w, true);
-        }
         let of_ty = self.lower_type(&q.of);
         match &of_ty {
             Ty::Union(_) => self.error(

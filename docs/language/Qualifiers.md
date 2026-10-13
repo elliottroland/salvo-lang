@@ -61,19 +61,16 @@ Qualifiers can also apply to the types of parts of tuples:
 let p = (person, check_surname(person))
 ```
 
-The final thing to note about qualifiers is that multiple qualifiers can apply to the same type simultaneously, and the order doesn't matter. In order for two qualifiers to be applied to the same instance, one of the qualifiers must explicitly state that it is compatible with the other:
+The final thing to note about qualifiers is that multiple qualifiers can apply to the same type simultaneously, and the order doesn't matter. Qualifiers compose freely — there is no compatibility clause to declare:
 
 ```
-// The `with` tells us that `Old` can be used with `Surname`
-qualifier Old of Person with Surname
-
-// We can apply both Old and Surname to the person
+// Old and Surname both apply, with nothing extra to declare.
 let p: Old Surname Person | None = check_old_surname(person)
 ```
 
 The same qualifier CANNOT be applied multiple times to the same type (i.e. `Old Old Person` is invalid). However, we will see that nested qualifiers _are_ possible.
 
-Note that on a qualifier declaration `with` is only ever this compatibility clause between two qualifiers. Declaring that a type or a type parameter _may carry_ a qualifier is a different thing, and uses `canbe` (see auto-qualifiers below, and `canbe linear` in [Linear types](Linear-Types.md)). The same word appears in one other place, where it cannot be confused with this one: after a `use` or `spawn`, `with` names the dependency instances to supply (see "Inheriting the scope, and overriding it with `with`").
+Whether a value can genuinely carry two particular claims at once is not spelled by a pairwise relation; it is implicit in which functions mint each qualifier and in each qualifier's own `qualifies` predicate. (The word `with` still appears elsewhere, where it cannot be confused with a qualifier: after a `use` or `spawn`, `with` names the dependency instances to supply — see "Inheriting the scope, and overriding it with `with`". Declaring that a type _may carry_ a qualifier is `canbe`, not `with`.)
 
 ## Auto-qualifiers and `Mut`
 
@@ -142,13 +139,12 @@ qualifier Positive of Int {
     }
 }
 
-qualifier NonNegative of Int with Positive {
+qualifier NonNegative of Int {
     fn qualifies(int: Int) -> Bool {
         return int >= 0
     }
 }
 
-// Incompatible with Positive, NonNegative
 qualifier Negative of Int {
     fn qualifies(int: Int) -> Bool {
         return int < 0

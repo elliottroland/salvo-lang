@@ -1834,27 +1834,6 @@ fn duplicate_qualifier_is_rejected() {
     );
 }
 
-// [qual-with]
-#[test]
-fn incompatible_qualifiers_are_rejected() {
-    let src = r#"
-export struct Person {
-    name: Str
-}
-
-export qualifier Old of Person
-export qualifier Surname of Person
-
-export fn f(p: Old Surname Person) -> None {
-}
-"#;
-    let errors = expect_errors(src);
-    assert!(
-        errors.iter().any(|e| e.contains("are not compatible")),
-        "unexpected errors: {errors:?}"
-    );
-}
-
 // [qual-of]
 #[test]
 fn qualifier_of_type_is_enforced() {
@@ -2615,7 +2594,7 @@ fn kotlinc_compiles_and_runs_a_heap() -> KotlinCase {
     let src = r#"
 // [cmp-carry] A binary heap in **user space**: a claim on an ordinary list,
 // carrying the ordering it is kept by, with mutators that keep the claim.
-export qualifier Heap<T>(?cmp: (T, T) -> Int) of List<T> with NonEmpty
+export qualifier Heap<T>(?cmp: (T, T) -> Int) of List<T>
 
 export fn empty_heap<T>(?cmp: (T, T) -> Int) [] -> +Heap<T>(?cmp) Mut List<T> {
     return mut_list_of()
@@ -12337,11 +12316,11 @@ fn kotlinc_compiles_and_runs_sequences() -> KotlinCase {
 /// re-resolving anything [kt-fn-mangling] — so the point of the pair is that
 /// the two backends produce the same answers from the same source.
 const OVERLOAD_OVERRIDE_DEMO: &str = r#"
-qualifier Even of Int with Small {
+qualifier Even of Int {
     fn qualifies(n: Int) -> Bool { return n % 2 == 0 }
 }
 
-qualifier Small of Int with Even {
+qualifier Small of Int {
     fn qualifies(n: Int) -> Bool { return n < 10 }
 }
 

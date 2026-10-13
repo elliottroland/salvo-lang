@@ -163,24 +163,12 @@ impl Refinements {
     }
 }
 
-/// Whether two qualifiers may apply to one value [qual-with]. Shared with
-/// the checker's declaration-site validation so the two cannot drift: a
-/// refinement conflict is *precisely* "these two could not have been
-/// written together".
-pub fn quals_compatible(a: &QualifierDecl, b: &QualifierDecl) -> bool {
-    if a.name.name == b.name.name {
-        return true;
-    }
-    // [qual-subject] Provenance composes with everything; so do the
-    // compiler's own qualifiers.
-    if a.subject == QualSubject::Provenance || b.subject == QualSubject::Provenance {
-        return true;
-    }
-    if a.intrinsic || b.intrinsic {
-        return true;
-    }
-    a.with.iter().any(|w| w.name.name == b.name.name)
-        || b.with.iter().any(|w| w.name.name == a.name.name)
+/// Whether two qualifiers may apply to one value. Since `with` was retired
+/// (user decision 2026-10-12, [qual-no-with]) every pair composes freely —
+/// there is no declared compatibility allowlist — so this is always `true`.
+/// Kept as a seam until the refn redesign removes its last callers.
+pub fn quals_compatible(_a: &QualifierDecl, _b: &QualifierDecl) -> bool {
+    true
 }
 
 /// One validated refinement, before visibility is applied.

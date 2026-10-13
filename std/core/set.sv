@@ -106,7 +106,7 @@ export fn eq<T>(a: Set<T>(?hash, ?eq), b: Set<T>(?hash, ?eq)) [] -> Bool => a, b
 // [qual-ctor-same-file], and a *set* is the thing that can honestly promise
 // it. (`to_list` over a `SortedSet` is in `core.sorted` and so cannot mint
 // it, which is why that one returns a plain list.)
-export qualifier Distinct<T> of List<T> with NonEmpty, Sorted
+export qualifier Distinct<T> of List<T>
 
 // [col-insertion-order] The elements as a list, in insertion order — which
 // is also what makes a set iterable, below. A set holds no duplicates, so

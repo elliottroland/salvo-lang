@@ -3659,7 +3659,6 @@ Module {
                         span: 6145..6149,
                     },
                 },
-                with: [],
                 field_overrides: [],
                 fns: [
                     FnDecl {

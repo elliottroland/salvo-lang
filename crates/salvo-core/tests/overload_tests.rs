@@ -181,9 +181,9 @@ fn any_is_the_least_specific_parameter() {
 /// ambiguity the caller settles with a rename.
 #[test]
 fn qualifier_sets_rank_by_inclusion() {
-    let quals = "qualifier Even of Int with Small {\n    \
+    let quals = "qualifier Even of Int {\n    \
                  fn qualifies(n: Int) -> Bool { return true }\n}\n\
-                 qualifier Small of Int with Even {\n    \
+                 qualifier Small of Int {\n    \
                  fn qualifies(n: Int) -> Bool { return true }\n}\n";
     // A superset wins.
     let decls = format!(
@@ -467,9 +467,9 @@ fn an_overloaded_fn_value_with_no_expectation_is_an_error() {
 /// answers *only* to the new name, so the old name is unambiguous again.
 #[test]
 fn a_rename_settles_an_ambiguity() {
-    let decls = "qualifier Even of Int with Small {\n    \
+    let decls = "qualifier Even of Int {\n    \
                  fn qualifies(n: Int) -> Bool { return true }\n}\n\
-                 qualifier Small of Int with Even {\n    \
+                 qualifier Small of Int {\n    \
                  fn qualifies(n: Int) -> Bool { return true }\n}\n\
                  fn label(n: Even Int) [] -> Bool => n { return true }\n\
                  fn label(n: Small Int) [] -> Str => n { return \"small\" }\n\

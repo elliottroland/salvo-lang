@@ -1,6 +1,6 @@
-qualifier Surname of Person with Old
+qualifier Surname of Person
 
-qualifier Old of Person with Surname
+qualifier Old of Person
 
 qualifier Ok<T> of T
 qualifier Err<T> of T
@@ -17,7 +17,7 @@ qualifier Positive of Int {
     }
 }
 
-qualifier NonNegative of Int with Positive {
+qualifier NonNegative of Int {
     fn qualifies(int: Int) -> Bool {
         return int >= 0
     }

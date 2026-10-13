@@ -7794,11 +7794,11 @@ fn rustc_compiles_and_runs_sequences() {
 /// own. Both mechanisms are compile-time only, so what the pair asserts is
 /// that the two targets agree about which declaration each call meant.
 const OVERLOAD_OVERRIDE_DEMO: &str = r#"
-qualifier Even of Int with Small {
+qualifier Even of Int {
     fn qualifies(n: Int) -> Bool { return n % 2 == 0 }
 }
 
-qualifier Small of Int with Even {
+qualifier Small of Int {
     fn qualifies(n: Int) -> Bool { return n < 10 }
 }
 
@@ -9411,7 +9411,7 @@ fn rustc_compiles_and_runs_bounds() {
 pub const HEAP_DEMO: &str = r#"
 // [cmp-carry] A binary heap in **user space**: a claim on an ordinary list,
 // carrying the ordering it is kept by, with mutators that keep the claim.
-export qualifier Heap<T>(?cmp: (T, T) -> Int) of List<T> with NonEmpty
+export qualifier Heap<T>(?cmp: (T, T) -> Int) of List<T>
 
 export fn empty_heap<T>(?cmp: (T, T) -> Int) [] -> +Heap<T>(?cmp) Mut List<T> {
     return mut_list_of()

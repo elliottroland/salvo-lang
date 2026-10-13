@@ -164,6 +164,9 @@ fn a_refinement_can_invalidate_a_qualifier() {
 /// **here**, so no `f@place` could separate them and the error belongs at the
 /// refinements themselves.
 #[test]
+#[ignore = "refn conflict model being replaced by the refn redesign (change 7): \
+            with `with` retired, two refinements establishing different qualifiers \
+            simply both apply; only a +Q/-Q contradiction is an error"]
 fn conflicting_refinements_in_one_place_are_an_error() {
     let src = format!(
         "{PRELUDE}{NONEMPTY}\n\
@@ -197,7 +200,7 @@ fn conflicting_refinements_in_one_place_are_an_error() {
 fn compatible_refinements_both_apply() {
     let src = format!(
         "{PRELUDE}{NONEMPTY}\n\
-         qualifier Sorted<T> of Store<T> with NonEmpty {{\n    \
+         qualifier Sorted<T> of Store<T> {{\n    \
          fn qualifies(s: Store<T>) -> Bool {{\n        return true\n    }}\n\n    \
          refn push(s: Mut Store<T>, value: T) => s: +Sorted\n}}\n\n\
          fn needs_sorted<T>(s: Sorted Store<T>) -> Int => s {{\n    return 2\n}}\n\n\
@@ -239,7 +242,7 @@ fn a_top_level_refinement_is_refused() {
 fn a_constructive_qualifier_may_hold_refinements() {
     let src = format!(
         "{PRELUDE}{NONEMPTY}\n\
-         qualifier Sorted<T> of Store<T> with NonEmpty {{\n    \
+         qualifier Sorted<T> of Store<T> {{\n    \
          refn push(s: Mut Store<T>, value: T) => s: +Sorted\n}}\n\n\
          fn needs_sorted<T>(s: Sorted Store<T>) -> None {{\n}}\n\n\
          fn f(s: Mut Store<Int>) -> None {{\n    \
@@ -750,6 +753,9 @@ fn needs_mine<T>(s: MyClaim Store<T>) [] -> Int => s {
 /// dropped for being incompatible with the first — a claim the caller could not
 /// have predicted.
 #[test]
+#[ignore = "refn conflict model being replaced by the refn redesign (change 7): \
+            with `with` retired, conflicts become declaration-time +Q/-Q errors, \
+            not call-site ambiguity"]
 fn refinements_from_two_places_make_the_call_ambiguous() {
     let main = format!("{MAIN_QUAL}\nfn f(s: Mut Store<Int>) -> None {{\n    push(s, 1)\n}}\n");
     let diags = diagnostics(&[("main.sv", &main), ("lib.sv", LIB)]);

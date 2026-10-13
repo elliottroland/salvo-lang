@@ -1852,15 +1852,10 @@ impl<'s> Parser<'s> {
         fn_slots.extend(block_slots);
         self.expect(&TokenKind::KwOf)?;
         let of = self.parse_type()?;
-        let mut with = Vec::new();
-        if self.eat(&TokenKind::KwWith).is_some() {
-            loop {
-                with.push(self.parse_type_ref()?);
-                if self.eat(&TokenKind::Comma).is_none() {
-                    break;
-                }
-            }
-        }
+        // [qual-no-with] The `with` compatibility clause is retired (user
+        // decision 2026-10-12): qualifiers compose freely, so there is no
+        // allowlist to declare. A `with` here is no longer a qualifier
+        // clause (the keyword survives for `use … with …`).
         let mut field_overrides = Vec::new();
         let mut fns = Vec::new();
         let mut refns = Vec::new();
@@ -1895,7 +1890,6 @@ impl<'s> Parser<'s> {
             fn_slots,
             value_slots,
             of,
-            with,
             field_overrides,
             fns,
             refns,
