@@ -2469,6 +2469,29 @@ Conventions:
 
 ## Functions
 
+* [fn-type-named] **A function may be named after a type** (user decision
+  2026-10-12): `fn Mut List<T>(first: T, ...elems: T[]) -> Mut List<T>`,
+  `fn List<T>(...)`, `fn Heap List<T>(...)`, `fn Ok<T>(t: T) -> +Ok T`. The
+  name is a type — qualifiers, a base, generics, whitespace — and it names
+  the function that *constructs* that type, so a caller need not know a
+  separate constructor's name.
+  * **A capitalized callee is a type-fn lookup**: in call position `Mut
+    List(1, 2, 3)`, `List(…)`, `Heap List(…)`, `Map("a": 1)` name the type-fn
+    (lowercase callees are ordinary value-fns [name-casing]).
+  * **Canonical key**: the name lowers to a key joining the qualifier names
+    and the base with `_` (`Mut List<T>` → `Mut_List`, `Ok<T>` → `Ok`), with
+    the type's generics as the fn's; a backend spells the fn by this key, so
+    it is a valid identifier that cannot collide with a lowercase value-fn.
+    Overloads key on it like any name (`List()` and `List(first, ...rest)`
+    are two overloads, ranked by the arity-shape tiebreak [fn-overload-rank]).
+  * **Rules**: the base type must be present (except a *provenance*
+    type-fn, whose name is purely a qualifier — `Ok<T>`); the base and every
+    named qualifier must be in scope where the fn is declared; and the fn
+    must return a value whose type has that base **and at least** the named
+    qualifiers (more are allowed — `Heap List<T>` may return `Heap(?cmp) Mut
+    List<T>`). The rule-(c) check is base-equality plus named-quals ⊆
+    return-quals, not a general subtype.
+  * **No dot-notation**: a type-fn is never called `x.Mut List(…)`.
 * [fn-syntax] `fn name<G>(params) [effects] -> ReturnType`; => deductions
   no implicit returns from functions (unlike blocks); omitted return type
   means `None`; omitted effect list means pure (`[]`).

@@ -1739,7 +1739,7 @@ impl<'s> Parser<'s> {
         // The rest is a fn signature and body, with the comptime syntax on.
         let saved = std::mem::replace(&mut self.in_compfn, true);
         let fake_fn_span = start;
-        let rest = self.parse_fn_rest(fake_fn_span, name, docs, false, FnFlavor::Plain);
+        let rest = self.parse_fn_rest(fake_fn_span, name, None, Vec::new(), docs, false, FnFlavor::Plain);
         self.in_compfn = saved;
         let mut f = rest?;
         if let Some((_, param)) = &bound {
@@ -2397,6 +2397,7 @@ impl<'s> Parser<'s> {
                         iter_state: Vec::new(),
                         is_send: true,
                         name,
+                        type_name: None,
                         scoped_to: None,
                         compfn: None,
                         by: None,
@@ -2510,8 +2511,18 @@ impl<'s> Parser<'s> {
         // whether or not the modifier was already consumed [doc-comment].
         let docs = self.docs_here();
         let start = self.expect(&TokenKind::KwFn)?.span;
+        // [fn-type-named] A capitalized name is a **type**: `fn Mut List<T>(…)`,
+        // `fn Ok<T>(…)`. The type's generics become the fn's; `name` holds the
+        // canonical key derived from the type. Otherwise an ordinary lowercase
+        // fn name.
+        if self.at_type_name() {
+            let ty = self.parse_type_fn_name()?;
+            let (key, generics) = type_fn_key(&ty);
+            let name = Ident { name: key, span: ty.span() };
+            return self.parse_fn_rest(start, name, Some(ty), generics, docs, intrinsic, flavor);
+        }
         let name = self.ident_value("fn")?;
-        self.parse_fn_rest(start, name, docs, intrinsic, flavor)
+        self.parse_fn_rest(start, name, None, Vec::new(), docs, intrinsic, flavor)
     }
 
     /// Everything after the declaration word and the name: generics,
@@ -2521,6 +2532,8 @@ impl<'s> Parser<'s> {
         &mut self,
         start: Span,
         name: Ident,
+        type_name: Option<Type>,
+        type_generics: Vec<Ident>,
         docs: Vec<String>,
         intrinsic: bool,
         flavor: FnFlavor,
@@ -2548,7 +2561,13 @@ impl<'s> Parser<'s> {
                 at,
             );
         }
-        let (generics, generic_canbe) = self.parse_generics_canbe();
+        // [fn-type-named] A type-named fn's generics came from the type
+        // (`fn Mut List<T>` → `T`); only an ordinary fn reads `<…>` here.
+        let (generics, generic_canbe) = if type_name.is_some() {
+            (type_generics, Vec::new())
+        } else {
+            self.parse_generics_canbe()
+        };
         let (mut params, implicit_groups) = self.parse_params()?;
 
         // Effects: `[Random<Int>, Console, use]`
@@ -2661,6 +2680,7 @@ impl<'s> Parser<'s> {
             is_send,
             iter_state,
             name,
+            type_name,
             scoped_to,
             compfn: None,
             by,
@@ -3347,6 +3367,28 @@ impl<'s> Parser<'s> {
         Some(ty)
     }
 
+    /// [fn-type-named] Parse a function's **type name** — a run of qualifier
+    /// refs followed by a base ref (`Mut List<T>`, `Heap List<T>`, `Ok<T>`) —
+    /// stopping before the parameter list `(`. Unlike `parse_type_atom` this
+    /// never reads a trailing `(…)` as a qualified group: here the parens are
+    /// the fn's parameters.
+    fn parse_type_fn_name(&mut self) -> Option<Type> {
+        let mut refs = vec![self.parse_type_ref_opts(false)?];
+        // Continue the qualifier/base run only while a type-name token
+        // follows on the same line — the base is the last ref.
+        while (self.at_type_name()
+            || matches!(
+                self.kind(),
+                TokenKind::KwProj | TokenKind::KwRef | TokenKind::KwOnce | TokenKind::KwLinear
+            ))
+            && self.same_line()
+        {
+            refs.push(self.parse_type_ref_opts(false)?);
+        }
+        let base = refs.pop().unwrap();
+        Some(Type::Named { qualifiers: refs, base })
+    }
+
     fn parse_type_atom(&mut self) -> Option<Type> {
         if self.at(&TokenKind::LParen) {
             return self.parse_paren_type();
@@ -3623,6 +3665,14 @@ impl<'s> Parser<'s> {
     }
 
     fn parse_type_ref(&mut self) -> Option<TypeRef> {
+        self.parse_type_ref_opts(true)
+    }
+
+    /// [fn-type-named] `parse_type_ref` with a flag to suppress the
+    /// value-argument block (`Heap(?cmp)`, `Buffer(8)`): a type-fn *name*
+    /// never carries value args — a following `(` there is the function's
+    /// parameter / argument list, not part of the type.
+    fn parse_type_ref_opts(&mut self, allow_value_args: bool) -> Option<TypeRef> {
         let name = self.type_ref_name()?;
         let mut args = Vec::new();
         let mut end = name.span;
@@ -3708,7 +3758,8 @@ impl<'s> Parser<'s> {
         // qualified group (`Ok (Ok Str | Err Int)`) and a fn type's named
         // parameter (`(v: Int) -> R`) never match.
         let mut value_args = Vec::new();
-        if name.name != "proj"
+        if allow_value_args
+            && name.name != "proj"
             && self.at(&TokenKind::LParen)
             && self.same_line()
             && (matches!(self.peek_at(1).kind, TokenKind::Question)
@@ -5850,6 +5901,43 @@ impl<'s> Parser<'s> {
     /// (`Person { ... }`, `Mut Person { ... }`, `Pair<Int, Str> { ... }`).
     fn parse_ident_expr(&mut self) -> Option<Expr> {
         if !self.no_struct {
+            // [fn-type-named] A capitalized type in call position names a
+            // type-fn: `Mut List(1, 2, 3)`, `List(…)`, `Heap List(…)`,
+            // `Ok(x)`. Parse the type *name* (stopping before `(`) first; if
+            // a `(` follows it is the call's argument list (Q1 — a
+            // capitalized callee is a type-fn lookup). Otherwise roll back to
+            // the struct-literal / bare-ident handling below.
+            if self.at_type_name() {
+                let snap = self.snapshot();
+                if let Some(ty) = self.parse_type_fn_name() {
+                    // A `(` here is the call's argument list — UNLESS a `{`
+                    // follows the parens, in which case this was a struct
+                    // literal with value-args (`Ranked<T>(?cmp) { … }`), or
+                    // the parens hold value-args (`?`-binders / identities)
+                    // rather than call arguments. Both roll back to the
+                    // struct-literal / value-args handling below.
+                    if self.at(&TokenKind::LParen) && self.same_line() {
+                        if let Some((args, named, end)) = self.parse_call_args() {
+                            if !(self.at(&TokenKind::LBrace) && self.same_line()) {
+                                let (key, _) = type_fn_key(&ty);
+                                let type_args = match &ty {
+                                    Type::Named { base, .. } => base.args.clone(),
+                                    _ => Vec::new(),
+                                };
+                                let callee = Expr::Ident(Ident { name: key, span: ty.span() });
+                                return Some(Expr::Call {
+                                    callee: Box::new(callee),
+                                    type_args,
+                                    args,
+                                    named,
+                                    span: ty.span().to(end),
+                                });
+                            }
+                        }
+                    }
+                }
+                self.rollback(snap);
+            }
             let snap = self.snapshot();
             if let Some(ty) = self.parse_type_atom() {
                 // [col-literal] With a type name in front, `{}` is a
@@ -6745,6 +6833,40 @@ enum FnFlavor {
     /// [actor-send-fn] `send fn`: an asynchronous member of an actor
     /// protocol — legal only inside an effect or a handler.
     Send,
+}
+
+/// [fn-type-named] The canonical key and generic parameters of a type-named
+/// function. The key is the qualifier names (in written order) then the base
+/// name, space-joined (`Mut List<T>` → `"Mut List"`, `Ok<T>` → `"Ok"`,
+/// `Heap List<T>` → `"Heap List"`); the generics are the base's bare
+/// type-variable arguments (`<T>` → `[T]`). Qualifier arguments and nested
+/// type arguments are not part of the key — the key names the *shape* of the
+/// type being constructed, which is what callers and overloads agree on.
+pub fn type_fn_key(ty: &Type) -> (String, Vec<Ident>) {
+    match ty {
+        Type::Named { qualifiers, base } => {
+            let mut parts: Vec<String> = qualifiers.iter().map(|q| q.name.name.clone()).collect();
+            parts.push(base.name.name.clone());
+            let generics: Vec<Ident> = base
+                .args
+                .iter()
+                .filter_map(|a| match a {
+                    Type::Named { qualifiers, base } if qualifiers.is_empty() && base.args.is_empty() => {
+                        Some(base.name.clone())
+                    }
+                    _ => None,
+                })
+                .collect();
+            // Join with `_`, not a space, so the key is a valid target-language
+            // identifier (the backends spell a fn by this key directly) and
+            // still cannot collide with a lowercase value-fn [name-casing].
+            (parts.join("_"), generics)
+        }
+        // A non-`Named` type name (a group, union, …) is not a valid
+        // type-fn name; a later check reports it, so the key only needs to
+        // be stable and non-colliding.
+        _ => ("<type-fn>".to_string(), Vec::new()),
+    }
 }
 
 /// [proj-anywhere] The source parameter of the first `proj(p)` in a

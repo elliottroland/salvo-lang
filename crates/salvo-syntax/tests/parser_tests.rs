@@ -496,7 +496,6 @@ fn casing_rule_is_enforced_on_declarations() {
         ("qualifier tag of Str\n", "qualifier names must start"),
         ("type alias = Str\n", "type names must start"),
         ("effect logger {\n    fn log(m: Str) -> None\n}\n", "effect names must start"),
-        ("fn Foo() -> None {\n}\n", "fn names must not start"),
         ("fn f(Bad: Str) -> None {\n}\n", "parameter names must not start"),
         ("struct S {\n    Value: Str\n}\n", "field names must not start"),
         ("fn f() -> None {\n    let Bad = 1\n}\n", "binding names must not start"),
@@ -508,6 +507,35 @@ fn casing_rule_is_enforced_on_declarations() {
             errors.iter().any(|m| m.contains(needle)),
             "expected {needle:?} for {source:?}, got {errors:?}"
         );
+    }
+}
+
+// [fn-type-named] A capitalized `fn` name is a type: the fn is named after
+// the type it constructs. The canonical key joins qualifiers and base with
+// `_`; the type's generics become the fn's.
+#[test]
+fn type_named_fn_parses() {
+    let (module, diagnostics) = salvo_syntax::parse_module(
+        "fn Mut List<T>(first: T) -> Mut List<T> => !first {\n    return mut_list_of(first)\n}\n",
+    );
+    assert!(!diagnostics.iter().any(|d| d.is_error()), "{diagnostics:?}");
+    let salvo_syntax::ast::Item::Fn(f) = &module.items[0] else { panic!() };
+    assert_eq!(f.name.name, "Mut_List");
+    assert!(f.type_name.is_some(), "type_name recorded");
+    assert_eq!(f.generics.len(), 1, "the type's `<T>` is the fn's generic");
+    // A call `Mut List(x)` resolves to the same canonical key.
+    let (m2, d2) = salvo_syntax::parse_module(
+        "fn g() -> None {\n    let x = Mut List(1, 2, 3)\n}\n",
+    );
+    assert!(!d2.iter().any(|d| d.is_error()), "{d2:?}");
+    let salvo_syntax::ast::Item::Fn(g) = &m2.items[0] else { panic!() };
+    let Some(salvo_syntax::ast::Stmt::Let { value, .. }) = g.body.as_ref().unwrap().stmts.first() else { panic!() };
+    match value {
+        salvo_syntax::ast::Expr::Call { callee, args, .. } => {
+            assert!(matches!(&**callee, salvo_syntax::ast::Expr::Ident(id) if id.name == "Mut_List"), "callee is the canonical key, got {callee:?}");
+            assert_eq!(args.len(), 3);
+        }
+        other => panic!("expected a type-fn call, got {other:?}"),
     }
 }
 

@@ -728,6 +728,7 @@ fn expand(
             name: f.name.name.clone(),
             span: mint_span,
         },
+        type_name: None,
         scoped_to: None,
         compfn: None,
         by: None,
@@ -854,6 +855,7 @@ fn expand(
         },
         // [fn-attached] An `iter fn` is never `@`-scoped: the form declares an
         // iterator, and the generated halves inherit its plain name.
+        type_name: None,
         scoped_to: None,
         compfn: None,
         by: None,
@@ -1214,6 +1216,7 @@ fn test_fn(test: TestDecl, fn_name: String) -> FnDecl {
             name: fn_name,
             span,
         },
+        type_name: None,
         scoped_to: None,
         compfn: None,
         by: None,

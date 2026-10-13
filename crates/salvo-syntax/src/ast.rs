@@ -906,6 +906,14 @@ pub struct FnDecl {
     /// reserved word.
     pub is_send: bool,
     pub name: Ident,
+    /// [fn-type-named] When this fn is **named after a type**
+    /// (`fn Mut List<T>(...)`, `fn Ok<T>(...)`), the type as written. `name`
+    /// then holds the canonical key derived from it (qualifiers sorted, then
+    /// the base, generics dropped — `Mut List<T>` → `"Mut List"`), and
+    /// `generics` holds the type's own type parameters. `None` for an
+    /// ordinary lowercase-named fn. A type-named fn constructs values of the
+    /// named type and is not callable with dot-notation [fn-type-named].
+    pub type_name: Option<Type>,
     /// [fn-attached] The type this fn is **declared on**, set when a fn written
     /// *inside* a struct body was hoisted to module level (user decision
     /// 2026-09-26). An ordinary top-level overload with two extra properties —
