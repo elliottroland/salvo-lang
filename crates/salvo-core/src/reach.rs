@@ -528,7 +528,7 @@ fn expr_names<'p>(expr: &'p Expr, used: &mut HashSet<&'p str>) {
                 expr_names(m, used);
             }
         }
-        Expr::Unreachable { message, .. } => {
+        Expr::Unreachable { message, .. } | Expr::Todo { message, .. } => {
             if let Some(m) = message {
                 expr_names(m, used);
             }

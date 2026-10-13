@@ -62,6 +62,86 @@ fn errors(src: &str) -> Vec<String> {
         .collect()
 }
 
+/// Like [`errors`], but keeps only the *warnings* — for `todo!()` and the
+/// dead-code-after-divergence warning, which do not reject the program.
+fn warnings(src: &str) -> Vec<String> {
+    let mut sources = SourceSet::default();
+    sources.add(
+        "std/core/prelude.sv",
+        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        STD_PRELUDE.to_string(),
+        true,
+    );
+    sources.add(
+        "main.sv",
+        SourceSet::classify(Path::new("main.sv")).unwrap(),
+        src.to_string(),
+        false,
+    );
+    let mut modules = Vec::with_capacity(sources.files.len());
+    for file in &sources.files {
+        let (ast, _) = salvo_syntax::parse_module(&file.content);
+        modules.push(ast);
+    }
+    let _expansion = salvo_core::expand(&sources.files, &mut modules);
+    let program = Program {
+        files: sources.files,
+        modules,
+        companions: Vec::new(),
+    };
+    let symbols = Symbols::collect(&program);
+    let resolution = resolve(&program);
+    let checked = check_program(&program, &resolution, &symbols);
+    checked
+        .errors
+        .iter()
+        .filter(|d| !d.is_error())
+        .map(|d| d.message.clone())
+        .collect()
+}
+
+// ===== [assert-fn] `todo!()` and dead code =====
+
+/// `todo!()` warns at every site, with or without a message, and does not
+/// reject the program.
+#[test]
+fn todo_warns_at_every_site() {
+    let src = "\
+fn stub() -> Int {\n    todo!()\n}\n\
+fn stub_msg() -> Int {\n    todo!(\"later\")\n}\n";
+    assert!(errors(src).is_empty(), "todo! is not an error: {:?}", errors(src));
+    let warnings = warnings(src);
+    let todos: Vec<&String> = warnings.iter().filter(|w| w.contains("not implemented")).collect();
+    assert_eq!(todos.len(), 2, "one warning per todo!(): {warnings:?}");
+}
+
+/// A statement after a diverging one (`return`, `unreachable!()`, `todo!()`)
+/// is unreachable: a warning on the first such statement, not an error.
+#[test]
+fn code_after_a_diverging_statement_warns() {
+    let after_return = "fn f() -> Int {\n    return 1\n    let x = 2\n}\n";
+    assert!(
+        warnings(after_return).iter().any(|w| w.contains("unreachable")),
+        "dead code after return warns: {:?}",
+        warnings(after_return)
+    );
+    assert!(errors(after_return).is_empty(), "it is a warning, not an error");
+    // After `unreachable!()` too.
+    let after_unreachable = "fn g() -> Int {\n    unreachable!()\n    let y = 2\n}\n";
+    assert!(
+        warnings(after_unreachable).iter().any(|w| w.contains("unreachable")),
+        "dead code after unreachable! warns: {:?}",
+        warnings(after_unreachable)
+    );
+    // Reachable code does not warn.
+    let live = "fn h() -> Int {\n    let z = 1\n    return z\n}\n";
+    assert!(
+        !warnings(live).iter().any(|w| w.contains("unreachable")),
+        "no false positive on live code: {:?}",
+        warnings(live)
+    );
+}
+
 // ===== [assert-op] `!` =====
 
 /// [assert-op] The operator asserts *presence*, so it needs something that can

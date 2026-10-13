@@ -183,6 +183,13 @@ impl<'a, 'p> Lower<'a, 'p> {
                 let m = message.as_ref().map(|m| Box::new(self.expr(m)));
                 Expr { ty: self.ty_of(span), span, kind: ExprKind::Unreachable { message: m, at: self.location(span) } }
             }
+            // [assert-fn] `todo!()` lowers to the same trap as `unreachable!()`
+            // — the warning is the checker's doing, so the IR and both
+            // backends need not distinguish them.
+            AExpr::Todo { message, .. } => {
+                let m = message.as_ref().map(|m| Box::new(self.expr(m)));
+                Expr { ty: self.ty_of(span), span, kind: ExprKind::Unreachable { message: m, at: self.location(span) } }
+            }
             AExpr::IncDec { operand, down, prefix, .. } => {
                 // `x++`: `x = x + 1`; as a value, the new (prefix) or old
                 // (postfix) value.

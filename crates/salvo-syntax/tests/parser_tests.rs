@@ -2643,6 +2643,22 @@ fn the_assert_postfix_survives_beside_not_is() {
     );
 }
 
+/// [assert-fn] `todo!()` / `todo!("why")` parse to `Expr::Todo`, the sibling
+/// of `unreachable!()`, with an optional message.
+#[test]
+fn todo_parses_to_its_own_node() {
+    match parse_expr_stmt("todo!()") {
+        salvo_syntax::ast::Expr::Todo { message, .. } => assert!(message.is_none()),
+        other => panic!("expected Expr::Todo, got {other:?}"),
+    }
+    match parse_expr_stmt("todo!(\"later\")") {
+        salvo_syntax::ast::Expr::Todo { message: Some(_), .. } => {}
+        other => panic!("expected Expr::Todo with a message, got {other:?}"),
+    }
+    // `todo` without the `!(` is still an ordinary identifier.
+    assert!(matches!(parse_expr_stmt("todo"), salvo_syntax::ast::Expr::Ident(_)));
+}
+
 /// A negated test narrows nothing on the branch it guards, so there is no
 /// value for a binding to name.
 #[test]

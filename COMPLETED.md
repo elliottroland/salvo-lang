@@ -138,7 +138,45 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
-### 2026-10-12 — LSP signature help ([lsp-signature-help])
+### 2026-10-12 — `todo!()` builtin, and a dead-code-after-divergence warning
+
+Two `disk.sv` TODOs, both language-design calls the user made:
+
+- **`todo!()`** ([assert-fn]): a third assertion-style builtin beside
+  `assert!`/`unreachable!`. Type `Never`, optional message, and lowered to the
+  *same* IR trap as `unreachable!()` (so no backend distinguishes them) — the
+  one difference is that the checker **warns at every `todo!()` site** so a
+  build flags unfinished code. std is exempt. User decision: it warns by its
+  mere presence; `unreachable!()` stays silent.
+- **Dead code after divergence** ([dead-code]): a statement reached only after
+  a `Never`-typed statement (`return`/`break`/`continue`/`throw`/
+  `unreachable!()`/`todo!()`) is unreachable; the checker **warns** on the
+  first such statement. User decision: a warning (not an error), and it fires
+  after `todo!()` and `unreachable!()` alike.
+
+Implementation (recommended "map to existing IR" route, so the backends and IR
+nodes/walkers were untouched):
+- New `Expr::Todo { message, span }` AST node (sibling of `Unreachable`),
+  parsed from `todo!(` by extending the `assert!`/`unreachable!` arm with a
+  `TODO_FORM` constant. Added to every exhaustive `Expr` match: visitors,
+  desugar (×3), and the salvo-core walkers in check.rs, reach.rs, deduce.rs,
+  lends.rs. `expr_exits`/`expr_returns` classify it like `unreachable!`.
+- Checker types `Expr::Todo` as `Never` and calls `self.warn(span, …)` (non-
+  std only). The IR builder maps `AExpr::Todo` to the existing
+  `ExprKind::Unreachable`.
+- Dead-code warning in `check_branch_block`: track whether a checked statement
+  was `Ty::Never`; warn (non-std) on the next statement, once per run. New
+  `Stmt::span()` accessor in ast.rs for the warning site.
+- Verified: `todo!()` warns at each site, dead code after `return`/
+  `unreachable!()` warns, live code does not; `todo!()` lowers to the same
+  trap and runs on both backends. Tests: `todo_warns_at_every_site` +
+  `code_after_a_diverging_statement_warns` (assert_tests.rs, with a new
+  `warnings()` harness that keeps non-error diagnostics),
+  `todo_parses_to_its_own_node` (parser_tests.rs). LSP completion offers
+  `todo!` beside the other two builtins. Specs: [assert-fn] extended,
+  [dead-code] added, [lsp-completion] updated. Warm `cargo nextest run`: 1782.
+
+
 
 The last of the five `disk.sv` autocomplete TODOs (TODO 2): `next(` → the
 overloads' argument lists. This is a new LSP capability, `textDocument/

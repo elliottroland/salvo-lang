@@ -360,15 +360,23 @@ Conventions:
     that is false, not merely unused.
 * [assert-fn] Two compiler-owned forms, spelled with a `!` because a bang in
   Salvo marks a place that can fail (user decision 2026-09-23, A-3):
-  `assert!(cond)` / `assert!(cond, "why")`, and `unreachable!()` /
-  `unreachable!("why")`.
+  `assert!(cond)` / `assert!(cond, "why")`, `unreachable!()` /
+  `unreachable!("why")`, and `todo!()` / `todo!("why")` (user decision
+  2026-10-12).
   * `assert!` has type `None` and continues when the condition holds;
     `unreachable!` has type **`Never`**, so it stands where any value is
     expected and ends the path exactly as `throw` and `return` do
     [expr-escape] [fn-must-return].
+  * **`todo!()` is `unreachable!()` that warns**: same `Never` type and the
+    same runtime trap [assert-trap], for a place not implemented yet — but
+    the checker emits a **warning at every `todo!()` site** so a build
+    surfaces unfinished code (std is exempt, like other smells). It takes an
+    optional message like `unreachable!`, and lowers to the same trap, so no
+    backend distinguishes the two.
   * The condition is a `Bool` [cond-bool] and the message a `Str`.
-  * **Contextual**: `assert` and `unreachable` stay ordinary identifiers, and
-    only `assert!(` / `unreachable!(` are the forms.
+  * **Contextual**: `assert`, `unreachable`, and `todo` stay ordinary
+    identifiers, and only `assert!(` / `unreachable!(` / `todo!(` are the
+    forms.
   * **Why not library functions**, which is what a reader expects from the call
     syntax: a function could not do any of the three things these do — the
     message is composed *only on failure* (an argument would be built on every
@@ -2050,6 +2058,15 @@ Conventions:
     escape nested in an expression where the enclosing block owes cleanup
     ([rs-exit-splice] runs at statement position), reported rather than
     emitted wrong [backend-never-wrong].
+* [dead-code] A statement reached only after a **diverging** statement in the
+  same block — one typed `Never` (`return`, `break`, `continue`, `throw`,
+  `unreachable!()`, `todo!()`) — is unreachable, and the checker **warns** on
+  the first such statement (user decision 2026-10-12). A warning, not an
+  error: the program is still well-defined, and the rule reuses the one
+  divergence predicate [type-any-never] over the types already recorded, so
+  every diverging form is caught uniformly with no per-form special case. One
+  warning per run of dead code (the first statement), and std is exempt, like
+  the unused-local warning.
 * [op-no-none] Arithmetic (`+ - * / %`) and comparison (`< > <= >=`,
   `== !=`) reject a possibly-`None` operand, and `None` itself, as an
   error (user decision 2026-09-02): nullability is tested with `is None`,
@@ -9951,8 +9968,8 @@ replaced the working document TESTING.md).
   bare-prefix entry** (typing `ne` offers one `next`, its detail noting the
   overload count — the signature is chosen after the name; after a `.`, where
   the receiver narrows the set, each signature stays its own entry); the two
-  **assertion builtins** `assert!` and `unreachable!` are offered by prefix
-  (`unr` → `unreachable!`) and are the two options for a bare `!`; and inside
+  **assertion builtins** `assert!`, `unreachable!`, and `todo!` are offered by
+  prefix (`unr` → `unreachable!`) and are the options for a bare `!`; and inside
   a `//` **comment** ordinary code completion is suppressed — except within a
   `[…]` reference, where the symbols a `[symbol]` doc reference resolves to
   (program types, qualifiers, effects, handlers, fns) are offered

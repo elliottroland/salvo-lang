@@ -1055,7 +1055,7 @@ impl<'p> Walk<'_, 'p> {
                     self.expr(m);
                 }
             }
-            Expr::Unreachable { message, .. } => {
+            Expr::Unreachable { message, .. } | Expr::Todo { message, .. } => {
                 if let Some(m) = message {
                     self.expr(m);
                 }

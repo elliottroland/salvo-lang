@@ -88,6 +88,12 @@ pub const EXPORT_MODIFIER: &str = "export";
 pub const ASSERT_FORM: &str = "assert";
 pub const UNREACHABLE_FORM: &str = "unreachable";
 
+/// [assert-fn] `todo!()` / `todo!("why")`: a place not yet implemented. Like
+/// `unreachable!()` it is type `Never` and traps at runtime, but it also
+/// **warns at every site** — the compiler flags unfinished code during a
+/// build. Contextual, like the other two.
+pub const TODO_FORM: &str = "todo";
+
 /// [actor-effect-kind] The contextual modifier that makes an effect an actor
 /// protocol: `actor effect E { … }`. Contextual, not reserved — and the only
 /// place the word appears in the language, since the phase decided against
@@ -5659,11 +5665,12 @@ impl<'s> Parser<'s> {
             // non-null assertion on a *name* followed by a call would be
             // `assert!` applied to a fn value, which is not callable).
             TokenKind::Ident(name)
-                if (name == ASSERT_FORM || name == UNREACHABLE_FORM)
+                if (name == ASSERT_FORM || name == UNREACHABLE_FORM || name == TODO_FORM)
                     && matches!(self.peek_at(1).kind, TokenKind::Bang)
                     && matches!(self.peek_at(2).kind, TokenKind::LParen) =>
             {
                 let assert = name == ASSERT_FORM;
+                let is_todo = name == TODO_FORM;
                 let start = self.bump().span;
                 self.bump(); // `!`
                 self.expect(&TokenKind::LParen)?;
@@ -5694,6 +5701,7 @@ impl<'s> Parser<'s> {
                         message,
                         span,
                     },
+                    None if is_todo => Expr::Todo { message, span },
                     None => Expr::Unreachable { message, span },
                 })
             }

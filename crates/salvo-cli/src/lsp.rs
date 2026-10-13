@@ -1408,14 +1408,14 @@ impl Server<'_> {
         // full `name!`.
         if !dot && !type_position {
             let bang = word > 0 && bytes[word - 1] == b'!';
-            for name in ["assert", "unreachable"] {
+            for name in ["assert", "unreachable", "todo"] {
                 items.push(CompletionItem {
                     label: format!("{name}!"),
                     kind: Some(CompletionItemKind::KEYWORD),
-                    detail: Some(if name == "assert" {
-                        "assert!(cond, message)".to_string()
-                    } else {
-                        "unreachable!(message?)".to_string()
+                    detail: Some(match name {
+                        "assert" => "assert!(cond, message)".to_string(),
+                        "todo" => "todo!(message?) — warns, not implemented".to_string(),
+                        _ => "unreachable!(message?)".to_string(),
                     }),
                     // A bare `!` ranks these first; otherwise after names.
                     sort_text: Some(format!("{}{name}", if bang { "0" } else { "3" })),

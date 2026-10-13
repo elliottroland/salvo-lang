@@ -289,7 +289,7 @@ impl<'p> Walk<'_, '_, 'p> {
         match e {
             // [assert-fn] An assertion lends nothing: it answers `None` (or
             // `Never`), and its parts are only read.
-            Expr::Assert { .. } | Expr::Unreachable { .. } => None,
+            Expr::Assert { .. } | Expr::Unreachable { .. } | Expr::Todo { .. } => None,
             // [elvis] Neither side lends: the picked value is a sub-union of
             // the subject's own payload, handed out by value.
             Expr::Elvis { .. } | Expr::Placeholder { .. } => {

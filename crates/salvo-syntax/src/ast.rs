@@ -1544,6 +1544,20 @@ pub enum Stmt {
     Comp(CompStmt),
 }
 
+impl Stmt {
+    /// The source span of the whole statement.
+    pub fn span(&self) -> Span {
+        match self {
+            Stmt::Let { span, .. }
+            | Stmt::Assign { span, .. }
+            | Stmt::Use { span, .. } => *span,
+            Stmt::Rename(decl) => decl.span,
+            Stmt::Expr(e) => e.span(),
+            Stmt::Comp(c) => c.span(),
+        }
+    }
+}
+
 /// [elvis] Which end of the subject's declared arm order a positional pick
 /// counts from. `Forward` picks the first `count` arms (`?:`, `??:`, …);
 /// `Backward` picks the last `count` arms (`:?`, `:??`, …).
@@ -1752,6 +1766,14 @@ pub enum Expr {
     /// says it cannot reach. Type `Never`, so it stands in for any value and
     /// ends a path like `throw` does [throw].
     Unreachable {
+        message: Option<Box<Expr>>,
+        span: Span,
+    },
+    /// [assert-fn] `todo!()` / `todo!("why")`: a place not yet implemented.
+    /// Type `Never` and lowered exactly like `unreachable!()` (it traps at
+    /// runtime), but the checker **warns at every site** so a build flags
+    /// unfinished code.
+    Todo {
         message: Option<Box<Expr>>,
         span: Span,
     },
@@ -2099,6 +2121,7 @@ impl Expr {
             | Expr::SafeNav { span, .. }
             | Expr::Assert { span, .. }
             | Expr::Unreachable { span, .. }
+            | Expr::Todo { span, .. }
             | Expr::IncDec { span, .. }
             | Expr::If { span, .. }
             | Expr::When { span, .. }

@@ -1432,7 +1432,7 @@ impl Rewrite {
                     self.expr(m);
                 }
             }
-            Expr::Unreachable { message, .. } => {
+            Expr::Unreachable { message, .. } | Expr::Todo { message, .. } => {
                 if let Some(m) = message {
                     self.expr(m);
                 }
@@ -1809,7 +1809,7 @@ fn collect_shadowing(body: &Block, reserved: &[&Ident], out: &mut Vec<(String, S
                     walk_expr(m, reserved, out);
                 }
             }
-            Expr::Unreachable { message, .. } => {
+            Expr::Unreachable { message, .. } | Expr::Todo { message, .. } => {
                 if let Some(m) = message {
                     walk_expr(m, reserved, out);
                 }
@@ -2261,7 +2261,7 @@ fn walk_expr_with(expr: &Expr, on_stmt: &mut dyn FnMut(&Stmt), on_expr: &mut dyn
                 e(m);
             }
         }
-        Expr::Unreachable { message, .. } => {
+        Expr::Unreachable { message, .. } | Expr::Todo { message, .. } => {
             if let Some(m) = message {
                 e(m);
             }

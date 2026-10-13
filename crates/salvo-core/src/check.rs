@@ -15978,6 +15978,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             // it does not continue — the same as a `throw` or a `return`. An
             // `assert!` continues when it holds, which is the whole point.
             Expr::Unreachable { .. } => true,
+            // [assert-fn] `todo!()` diverges like `unreachable!()`.
+            Expr::Todo { .. } => true,
             Expr::Assert { .. } => false,
             // [elvis] Neither side escapes by itself: a diverging right side
             // is recognized by its recorded type, like any diverging call.
@@ -16083,7 +16085,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // [assert-fn] It leaves the function, but not by returning a value:
             // a `fn` whose only tail is `unreachable!()` has no missing return
             // [fn-must-return], which `expr_exits` above answers.
-            Expr::Unreachable { .. } | Expr::Assert { .. } => false,
+            Expr::Unreachable { .. } | Expr::Todo { .. } | Expr::Assert { .. } => false,
             Expr::Elvis { .. } | Expr::Placeholder { .. } => false,
             Expr::SafeNav { .. } => false,
             // [expr-escape] Only `return` leaves the *function*; the guard
@@ -20400,7 +20402,7 @@ fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
                 collect_assigned_expr(m, out);
             }
         }
-        Expr::Unreachable { message, .. } => {
+        Expr::Unreachable { message, .. } | Expr::Todo { message, .. } => {
             if let Some(m) = message {
                 collect_assigned_expr(m, out);
             }
@@ -20649,7 +20651,7 @@ fn expr_mentions(expr: &Expr, name: &str) -> bool {
             expr_mentions(cond, name)
                 || message.as_ref().is_some_and(|m| expr_mentions(m, name))
         }
-        Expr::Unreachable { message, .. } => {
+        Expr::Unreachable { message, .. } | Expr::Todo { message, .. } => {
             message.as_ref().is_some_and(|m| expr_mentions(m, name))
         }
         Expr::Elvis { subject, rhs, .. } => {
@@ -21210,8 +21212,20 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         let mut value = Ty::none();
         let mut tail = None;
+        // [dead-code] The first statement reached only after a diverging one
+        // (`return`, `break`, `continue`, `throw`, `unreachable!()`,
+        // `todo!()` — all `Never`-typed) is unreachable. Warn once per block,
+        // on that first dead statement; std is exempt, like other smells.
+        let mut diverged = false;
         for stmt in &block.stmts {
+            if diverged && !self.is_std {
+                self.warn(stmt.span(), "this code is unreachable: an earlier statement never returns");
+                diverged = false; // one warning per run of dead code
+            }
             value = self.check_stmt(stmt);
+            if matches!(value, Ty::Never) {
+                diverged = true;
+            }
             tail = match stmt {
                 Stmt::Expr(e) => Some(TailInfo {
                     span: e.span(),
@@ -22762,6 +22776,20 @@ impl<'p, 'r> Checker<'p, 'r> {
             Expr::Unreachable { message, .. } => {
                 if let Some(m) = message {
                     self.check_assert_message(m);
+                }
+                Ty::Never
+            }
+            // [assert-fn] `todo!()` is `unreachable!()` that **warns**: a
+            // place not yet implemented, flagged at every site so a build
+            // surfaces unfinished code. Same `Never` type and same runtime
+            // trap; only the warning sets it apart. std is exempt — its
+            // stubs are the compiler's business, like unused locals.
+            Expr::Todo { message, span } => {
+                if let Some(m) = message {
+                    self.check_assert_message(m);
+                }
+                if !self.is_std {
+                    self.warn(*span, "`todo!()` marks code that is not implemented yet");
                 }
                 Ty::Never
             }
