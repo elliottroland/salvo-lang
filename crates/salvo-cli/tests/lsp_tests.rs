@@ -2256,6 +2256,83 @@ fn main() [Console] {
     lsp.child.wait().expect("failed to wait for salvo lsp");
 }
 
+/// [lsp-completion] Overloads of one name collapse to a single bare-prefix
+/// entry; a `//` comment offers no code completion, except inside a `[…]`
+/// reference where it offers code symbols; and the assertion builtins appear
+/// by prefix.
+#[test]
+fn completion_overloads_comments_and_builtins() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_completion_misc");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    // `pick` has two overloads; the comment lines exercise the `[…]` ref and
+    // plain-prose cases.
+    let source = "\
+struct Widget { size: Int }
+
+fn pick(a: Int) -> Int => a {
+    return a
+}
+
+fn pick(a: Int, b: Int) -> Int => a, b {
+    return a + b
+}
+
+// A reference to [Wi
+// Just some prose about wi
+fn main() [Console] {
+    pi
+    un
+}
+";
+    std::fs::write(root.join("main.sv"), source).unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {"uri": uri, "languageId": "salvo", "version": 1, "text": source}}
+        }),
+    );
+    let _ = expect_diagnostics(&lsp.rx);
+    let complete = |lsp: &mut Lsp, id: i64, line: u32, character: u32| -> Vec<(String, String)> {
+        send(
+            &mut lsp.stdin,
+            json!({
+                "jsonrpc": "2.0", "id": id, "method": "textDocument/completion",
+                "params": {"textDocument": {"uri": uri}, "position": {"line": line, "character": character}}
+            }),
+        );
+        let response = expect_response(&lsp.rx, id);
+        response["result"].as_array().unwrap_or_else(|| panic!("no completion list: {response}"))
+            .iter()
+            .map(|i| (i["label"].as_str().unwrap().to_string(), i["detail"].as_str().unwrap_or("").to_string()))
+            .collect()
+    };
+    // [lsp-completion] `pi` → one `pick` entry (not one per overload), its
+    // detail noting the count.
+    let items = complete(&mut lsp, 2, 13, 6);
+    let picks: Vec<&(String, String)> = items.iter().filter(|(l, _)| l == "pick").collect();
+    assert_eq!(picks.len(), 1, "one `pick` entry: {items:?}");
+    assert!(picks[0].1.contains("2 overloads"), "detail notes overloads: {picks:?}");
+    // [lsp-completion] `un` on a body line → the assertion builtins by prefix.
+    let items = complete(&mut lsp, 3, 14, 6);
+    let labels: Vec<&str> = items.iter().map(|(l, _)| l.as_str()).collect();
+    assert!(labels.contains(&"unreachable!") && labels.contains(&"assert!"), "builtins by prefix: {labels:?}");
+    // [doc-symbol-ref] Inside `[…]` in a comment: code symbols are offered.
+    let items = complete(&mut lsp, 4, 10, 20);
+    let labels: Vec<&str> = items.iter().map(|(l, _)| l.as_str()).collect();
+    assert!(labels.contains(&"Widget") && labels.contains(&"pick"), "refs in `[`: {labels:?}");
+    // Plain prose in a comment (no `[`): nothing is offered.
+    let items = complete(&mut lsp, 5, 11, 25);
+    assert!(items.is_empty(), "no completion in comment prose: {items:?}");
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "id": 99, "method": "shutdown", "params": null}));
+    expect_response(&lsp.rx, 99);
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
+    lsp.child.wait().expect("failed to wait for salvo lsp");
+}
+
 /// [lsp-completion] [struct-opaque] After the dot on a value of an opaque
 /// struct, the fields are offered in the declaring module and not elsewhere.
 #[test]

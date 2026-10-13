@@ -138,7 +138,36 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
-### 2026-10-12 — Same-line elvis chains, and returning a `None`-typed expression into an optional
+### 2026-10-12 — LSP completion: overload collapse, comment-awareness, `[…]` refs, assertion builtins
+
+Four of the five autocomplete TODOs in `disk.sv` (all in
+`crates/salvo-cli/src/lsp.rs` `fn completion`):
+
+- **Overloads collapse to one bare-prefix entry.** Typing `ne` offered one
+  entry per *overload* of `next`; now a bare prefix (not after a `.`) gives a
+  single entry per name, its detail noting "N overloads". After a `.`, where
+  the receiver narrows the set, each signature stays separate.
+- **No code completion inside a `//` comment.** Completion had no
+  comment-awareness; a `.` or prefix in a comment still offered code. A new
+  `comment_start` scans the line prefix (string-aware) for `//`; in a comment,
+  completion returns nothing — *except*:
+- **`[…]` references in comments complete to code symbols** [doc-symbol-ref].
+  Inside an unclosed `[…]` on a comment line, offer exactly the symbols a
+  `[symbol]` doc reference resolves to (program types, qualifiers, effects,
+  handlers, fns), via a new `doc_ref_completions`. User scoped TODO 4 to this:
+  "`[]` inside comments references code." (The auto-close-`]` editor nicety is
+  a client concern, not done here.)
+- **Assertion builtins** `assert!` / `unreachable!` are offered by prefix
+  (`unr` → `unreachable!`) and ranked first for a bare `!`.
+- Test: `completion_overloads_comments_and_builtins` in
+  `crates/salvo-cli/tests/lsp_tests.rs` covers all four. [lsp-completion] in
+  LANGUAGE_SPEC.md updated with the 2026-10-12 behaviours.
+- **Not done — TODO 2 (signature help):** `next(` → the overloads' argument
+  lists is LSP `textDocument/signatureHelp`, a new capability (not yet
+  registered), not a completion tweak. Left for a separate change; noted in
+  the [lsp-completion] "Not yet" list.
+
+
 
 Two defects behind `disk.sv` line 100 — `read_value<Str>() ??: return ignore(_) ?: return None`, the elvis chain all on *one line*.
 

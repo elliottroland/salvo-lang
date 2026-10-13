@@ -1251,6 +1251,29 @@ impl Server<'_> {
         let line_start = text[..cursor.min(text.len())].rfind('\n').map(|i| i + 1).unwrap_or(0);
         let line = &text[line_start..cursor.min(text.len())];
         let trimmed = line.trim_start();
+        // [lsp-completion] [doc-symbol-ref] Inside a `//` comment, ordinary
+        // code completion does not apply. A `[` reference links to code
+        // (`[Notice]`, `[read_notice]`), so when the cursor sits inside an
+        // unclosed `[…]` on the comment line, offer the symbols a
+        // `[symbol]` reference resolves to; anywhere else in a comment,
+        // offer nothing (prose is not code).
+        if let Some(rel) = comment_start(line) {
+            let after = &line[rel..];
+            let in_ref = after.rfind('[').is_some_and(|o| !after[o..].contains(']'));
+            if !in_ref {
+                return Some(CompletionResponse::Array(Vec::new()));
+            }
+            let analysis = analyze_for_document_cached(
+                &path,
+                &self.root,
+                &self.overlay,
+                &mut self.parse_cache.borrow_mut(),
+                &self.std_cache(),
+            )
+            .ok()?;
+            let view = doc_view(&analysis, &path)?;
+            return Some(CompletionResponse::Array(doc_ref_completions(&analysis, view.file)));
+        }
         let import_path = trimmed
             .strip_prefix("export import ")
             .or_else(|| trimmed.strip_prefix("import "));
@@ -1363,7 +1386,44 @@ impl Server<'_> {
                 });
             }
         }
+        // [lsp-completion] [assert] [unreachable] The two assertion builtins,
+        // offered where a statement/value is written (not after a `.`, not in
+        // a type position). They match by prefix like any name (`unr` →
+        // `unreachable!`, `ass` → `assert!`), and a bare `!` just typed
+        // offers exactly these two. The `!` is part of the inserted text, not
+        // the match word, so completing replaces the typed prefix with the
+        // full `name!`.
+        if !dot && !type_position {
+            let bang = word > 0 && bytes[word - 1] == b'!';
+            for name in ["assert", "unreachable"] {
+                items.push(CompletionItem {
+                    label: format!("{name}!"),
+                    kind: Some(CompletionItemKind::KEYWORD),
+                    detail: Some(if name == "assert" {
+                        "assert!(cond, message)".to_string()
+                    } else {
+                        "unreachable!(message?)".to_string()
+                    }),
+                    // A bare `!` ranks these first; otherwise after names.
+                    sort_text: Some(format!("{}{name}", if bang { "0" } else { "3" })),
+                    ..Default::default()
+                });
+            }
+        }
+        // [lsp-completion] One entry per function *name* when typing a bare
+        // prefix (`ne` → one `next`, however many overloads it has): the
+        // overloads differ only in signature, which the reader picks among
+        // after choosing the name. After a dot, where the receiver already
+        // narrows the set, each distinct signature stays its own entry.
+        let overloads: HashMap<&str, usize> = {
+            let mut m: HashMap<&str, usize> = HashMap::new();
+            for f in fns {
+                *m.entry(f.name.as_str()).or_default() += 1;
+            }
+            m
+        };
         let mut seen: HashSet<(String, String)> = HashSet::new();
+        let mut seen_name: HashSet<String> = HashSet::new();
         for f in fns {
             let rank = if dot {
                 match (&receiver, &f.receiver) {
@@ -1377,6 +1437,23 @@ impl Server<'_> {
                 "0"
             };
             let detail = fn_signature(&analysis.program, checked, f.key).unwrap_or_default();
+            if !dot {
+                // Collapse overloads of one name to a single entry; note the
+                // count so a reader knows to expand it.
+                if !seen_name.insert(f.name.clone()) {
+                    continue;
+                }
+                let n = overloads.get(f.name.as_str()).copied().unwrap_or(1);
+                let detail = if n > 1 { format!("{n} overloads") } else { detail };
+                items.push(CompletionItem {
+                    label: f.name.clone(),
+                    kind: Some(CompletionItemKind::FUNCTION),
+                    detail: Some(detail),
+                    sort_text: Some(format!("{rank}{}", f.name)),
+                    ..Default::default()
+                });
+                continue;
+            }
             if !seen.insert((f.name.clone(), detail.clone())) {
                 continue;
             }
@@ -1602,6 +1679,67 @@ fn import_completions(analysis: &Analysis, written: &str) -> Vec<CompletionItem>
                     });
                 }
             }
+        }
+    }
+    out
+}
+
+/// [lsp-completion] The byte offset within `line` where a `//` comment
+/// begins, or `None` when the cursor's line prefix is not in a comment. A
+/// `//` inside a string literal does not start a comment, so string state is
+/// tracked across the line prefix.
+fn comment_start(line: &str) -> Option<usize> {
+    let bytes = line.as_bytes();
+    let mut in_str = false;
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\\' if in_str => {
+                i += 2;
+                continue;
+            }
+            b'"' => in_str = !in_str,
+            b'/' if !in_str && i + 1 < bytes.len() && bytes[i + 1] == b'/' => return Some(i),
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
+/// [lsp-completion] [doc-symbol-ref] The symbols a `[symbol]` reference in a
+/// comment may point to: the program's declared types, qualifiers, effects,
+/// handlers, and functions — the same set [`docs::DocScope::resolve`]
+/// accepts. One entry per name.
+fn doc_ref_completions(analysis: &Analysis, view_file: usize) -> Vec<CompletionItem> {
+    use crate::analysis::TypeKind;
+    let mut out: Vec<CompletionItem> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    for (name, kind) in analysis.type_completions.get(view_file).into_iter().flatten() {
+        if seen.insert(name.clone()) {
+            let k = match kind {
+                TypeKind::Struct => CompletionItemKind::STRUCT,
+                TypeKind::Effect => CompletionItemKind::INTERFACE,
+                TypeKind::Handler => CompletionItemKind::CLASS,
+                TypeKind::Qualifier => CompletionItemKind::TYPE_PARAMETER,
+                TypeKind::Type => CompletionItemKind::CLASS,
+            };
+            out.push(CompletionItem {
+                label: name.clone(),
+                kind: Some(k),
+                sort_text: Some(format!("0{name}")),
+                ..Default::default()
+            });
+        }
+    }
+    for f in analysis.completions.get(view_file).into_iter().flatten() {
+        if !f.name.starts_with("__") && seen.insert(f.name.clone()) {
+            out.push(CompletionItem {
+                label: f.name.clone(),
+                kind: Some(CompletionItemKind::FUNCTION),
+                sort_text: Some(format!("1{}", f.name)),
+                ..Default::default()
+            });
         }
     }
     out

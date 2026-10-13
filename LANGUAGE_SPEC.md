@@ -9947,7 +9947,17 @@ replaced the working document TESTING.md).
   its exported items. Since 2026-10-11: with no `.`, the **in-scope locals**
   of the enclosing fn — its parameters and the `let`/binding names declared
   textually before the cursor — rank first (before fns), each shown with its
-  type. Not yet: effect members, keywords.
+  type. Since 2026-10-12: overloads of one name **collapse to a single
+  bare-prefix entry** (typing `ne` offers one `next`, its detail noting the
+  overload count — the signature is chosen after the name; after a `.`, where
+  the receiver narrows the set, each signature stays its own entry); the two
+  **assertion builtins** `assert!` and `unreachable!` are offered by prefix
+  (`unr` → `unreachable!`) and are the two options for a bare `!`; and inside
+  a `//` **comment** ordinary code completion is suppressed — except within a
+  `[…]` reference, where the symbols a `[symbol]` doc reference resolves to
+  (program types, qualifiers, effects, handlers, fns) are offered
+  [doc-symbol-ref]. Not yet: effect members; signature help for a call's
+  arguments (`next(` → the parameter list).
 * [lsp-coalesce] **Edits are coalesced** (2026-10-05): a change notification
   only updates the overlay, and diagnostics are published once no message is
   waiting, so a completion asked for after several keystrokes is answered
