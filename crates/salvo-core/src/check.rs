@@ -26656,6 +26656,69 @@ fn fn_value_fits(candidate: &Ty, want: &Ty) -> bool {
 
 // ================= unification =================
 
+/// [generic-union-span] Unify a union *parameter* against a union *argument*,
+/// allowing a bare type-variable parameter arm to bind to a **span** of ≥1
+/// argument arms rather than one — so `detach<T, C>(T | Checked<C>)` meeting
+/// `Str | Int | Checked<Bool>` binds `T = Str | Int`, `C = Bool`.
+///
+/// The split is: match each argument arm against the parameter's *concrete*
+/// (non-bare-variable) arms first; the argument arms none of them claims are
+/// the residual, which goes to the lone bare-variable parameter arm. Only one
+/// parameter arm may be an unbound bare variable for the span bind to apply;
+/// with more than one the partition is not unique by inference, so it falls
+/// back to the plain one-to-one rule — which an explicit turbofish satisfies
+/// (it has already bound the variables), and which otherwise leaves the
+/// variable for the "cannot infer type argument" check to report. With no
+/// variable arm this is the former behaviour: every argument arm must match
+/// some concrete parameter arm.
+fn unify_union_arms(parms: &[Ty], aarms: &[Ty], subst: &mut HashMap<String, Ty>) -> bool {
+    // A parameter arm is a *span slot* when it is a bare type variable the
+    // callee has not already bound to a concrete type.
+    let is_span_slot = |p: &Ty| matches!(p, Ty::Var(g) if subst.get(g).map(|b| matches!(b, Ty::Var(_))).unwrap_or(true));
+    let span_slots: Vec<&Ty> = parms.iter().filter(|p| is_span_slot(p)).collect();
+    // No span slot (or the classic all-concrete union): keep the one-to-one
+    // rule — every argument arm must match some parameter arm.
+    if span_slots.is_empty() {
+        return aarms
+            .iter()
+            .all(|a| parms.iter().any(|p| unify(p, a, &mut subst.clone()) && unify(p, a, subst)));
+    }
+    // The residual: argument arms no concrete parameter arm claims. A `None`
+    // argument arm is never part of a span (optionality is positional, not an
+    // arm a variable absorbs), so it must be matched by a concrete arm.
+    let concrete: Vec<&Ty> = parms.iter().filter(|p| !is_span_slot(p)).collect();
+    let one_to_one = |subst: &mut HashMap<String, Ty>| {
+        aarms
+            .iter()
+            .all(|a| parms.iter().any(|p| unify(p, a, &mut subst.clone()) && unify(p, a, subst)))
+    };
+    // More than one unbound span variable: the split is not unique by
+    // inference, so fall back to the plain one-to-one rule (which an
+    // explicit turbofish, having bound the variables, satisfies) rather than
+    // guessing a partition. A genuinely un-inferable variable is then
+    // reported by the "cannot infer type argument" check.
+    if span_slots.len() != 1 {
+        return one_to_one(subst);
+    }
+    let mut residual: Vec<Ty> = Vec::new();
+    for a in aarms {
+        let claimed = concrete.iter().any(|p| unify(p, a, &mut subst.clone()) && unify(p, a, subst));
+        if !claimed {
+            residual.push(a.clone());
+        }
+    }
+    let Ty::Var(g) = span_slots[0] else { return false };
+    // Nothing left over: every argument arm was a concrete match, so the
+    // span variable has no arms to bind. Leave it unbound (a later argument
+    // or the return context may still determine it) rather than binding the
+    // empty `Never`.
+    if residual.is_empty() {
+        return true;
+    }
+    let span = Ty::union_of(residual);
+    unify(&Ty::Var(g.clone()), &span, subst)
+}
+
 /// Structural unification of a (possibly generic) parameter type pattern
 /// against an argument type, binding `Var`s in `subst`. Lenient: `Unknown`
 /// matches anything; qualified arguments match unqualified parameters.
@@ -26831,11 +26894,7 @@ fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
         // qualified argument (`Ok Str`) could never match a union's
         // qualified arm (`Ok Str | Err Str`) [type-union].
         (Ty::Union(parms), _) => match arg {
-            Ty::Union(aarms) => aarms.iter().all(|a| {
-                parms
-                    .iter()
-                    .any(|p| unify(p, a, &mut subst.clone()) && unify(p, a, subst))
-            }),
+            Ty::Union(aarms) => unify_union_arms(parms, aarms, subst),
             _ => parms.iter().any(|p| unify(p, arg, subst)),
         },
         // `Qual T` can be passed where `T` is expected — except `once`,

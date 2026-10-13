@@ -1283,6 +1283,49 @@ fn kotlinc_compiles_and_runs_a_sub_union_rewrap() -> KotlinCase {
     kotlin_case(files, "rewrap", REWRAP_OUTPUT)
 }
 
+// [generic-union-span] A type parameter binding to a span of union arms,
+// twin of the Rust `rustc_compiles_and_runs_union_spanning_generic` test.
+const UNION_SPAN_DEMO: &str = r#"
+struct Box2<C> { value: C }
+
+fn detach<T, C>(value: T | Box2<C>) -> T | C => !value {
+    when value {
+        is Box2<C> { return value.value }
+        is T { return value }
+    }
+}
+
+fn show(v: Str | Int | Bool) [Console] -> None {
+    when v {
+        is Str { println("str ${v}") }
+        is Int { println("int ${v}") }
+        is Bool { println("bool ${v}") }
+    }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let a: Str | Int | Box2<Bool> = "hi"
+    let b: Str | Int | Box2<Bool> = 7
+    let c: Str | Int | Box2<Bool> = Box2<Bool> { value: true }
+    let d: Str | Int | Box2<Bool> = "tf"
+    show(detach(a))
+    show(detach(b))
+    show(detach(c))
+    show(detach<Str | Int, Bool>(d))
+}
+"#;
+
+const UNION_SPAN_OUTPUT: &str = "str hi\nint 7\nbool true\nstr tf\n";
+
+fn kotlinc_compiles_and_runs_a_union_spanning_generic() -> KotlinCase {
+    let program = build_program(&[("main.sv", UNION_SPAN_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "union-span", UNION_SPAN_OUTPUT)
+}
+
 fn kotlinc_compiles_and_runs_a_positional_pick() -> KotlinCase {
     let program = build_program(&[("main.sv", PICK_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
@@ -5514,6 +5557,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_the_elvis_operator,
     kotlinc_compiles_and_runs_a_positional_pick,
     kotlinc_compiles_and_runs_a_sub_union_rewrap,
+    kotlinc_compiles_and_runs_a_union_spanning_generic,
     kotlinc_compiles_and_runs_a_group_over_plain_arms,
     kotlinc_compiles_and_runs_a_hand_written_pass,
     kotlinc_compiles_and_runs_a_released_raw_pass,

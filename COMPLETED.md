@@ -138,7 +138,74 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
-### 2026-10-12 — Elvis is left-associative; wrapped chains bracket on the left
+### 2026-10-12 — One union-conversion primitive, and union-spanning generics ([generic-union-span])
+
+Consolidated every "convert a value of one union type into another" path in
+the Rust backend into one primitive, and used it to add a new language
+feature: a type parameter may bind to a **span** of union arms. User decisions
+(all four approved before building):
+
+- **A — union-spanning `T` is a supported feature.** `fn detach<T, C>(value:
+  T | Checked<C>) -> T | C` called with `Str | Int | Checked<Bool>` binds
+  `T = Str | Int`, `C = Bool`, and answers the flat `Str | Int | Bool`.
+- **B — flatten is bare-union-in-bare-union only.** `(A|B)|C` ≡ `A|B|C` (and a
+  span `T` flattens the same way), but a union behind a constructor/tag
+  (`List<A|B>`, `Ok (A|B)`, `Err Str`) is one arm and never flattens. "A union
+  never nests observably" is now stated in [type-union]. The two
+  constructor-payload shapes already worked; only speced.
+- **Arm identity is positional for layout**, so reordering (`Str|Bool` →
+  `Bool|Str`) is a generated permutation at the boundary — preserved by the
+  one primitive, which maps arms by *identity* not position.
+- **Lowering via option (2):** the generic body is one instantiation over the
+  nested slot (`Union2<T, …>`, `T` one arm); the call site rewraps the flat
+  argument to nested and the nested result back to flat. No per-arity body
+  monomorphisation. This is a backend spelling of a flat fact ([core-layers]),
+  so it lives in the backends, not core.
+- **At most one span-binding type param per union signature**; a non-unique
+  *inferred* split is refused (two bare-var arms `f<A,B>(A|B)` has no overload
+  match). An explicit turbofish always names the split.
+
+What it took:
+
+- **Checker** (`fn unify`, new `unify_union_arms`): a union parameter with a
+  lone bare type-variable arm binds that variable to the span of argument arms
+  the concrete arms do not claim; >1 span var falls back to the plain
+  one-to-one rule (so turbofish still works, and a truly un-inferable var is
+  reported by the existing "cannot infer" check). `subst_ty` already builds
+  substituted unions *raw* (no `union_of` flatten), so the nested callee slot
+  falls out for free.
+- **Rust backend** (`convert_union`, [rs-union-convert]): one `match` that maps
+  each source arm to the target arm of the same arm identity (exact, then
+  `alike`), with `own` to clone borrowed payloads, plus nested *spread* (a
+  source arm that is a bare union the target spreads) and *collapse* (a target
+  arm that is a bare union the source lands inside). `rewrap` and
+  `own_borrowed_union` are now thin wrappers over it. Flat↔nested rewrap is
+  injected in `arg` (flat→nested) and after the call (nested→flat), gated by
+  `span_nested_slot`.
+- **Kotlin backend** ([kt-union-convert]): the same spread/collapse added to
+  `rewrap`, an identity-reshape no-op guard (a nested single-arm wrapper
+  renders identically to its inner union), and the flat↔nested rewrap wired
+  into the `Decl` call via a new `ir_fn`/`span_nested_slot`/`subst_ty_raw`.
+- **Folded in** the two borrowed-union narrow fixes flagged as a "Known
+  separate issue" in the elvis entry below: a `??:` dropping `None` from a
+  borrowed optional union, and narrowing a borrowed union to a smaller
+  still-union (`&String` → `String`). Both are now the single `convert_union`.
+  These resolve the `read_notice`/`next` codegen TODOs in `disk.sv`.
+- Tests: `rustc_compiles_and_runs_union_spanning_generic` (Rust) and
+  `kotlinc_compiles_and_runs_a_union_spanning_generic` (Kotlin twin), same
+  source and stdout. Specs: [generic-union-span] in LANGUAGE_SPEC.md,
+  [type-union] strengthened, [rs-union-convert]/[kt-union-convert] in the
+  backend specs. Warm `cargo nextest run`: 1776 (1774 prior + the two new
+  union-span cases, Rust counted and the Kotlin twin inside the sharded
+  runner).
+- **Known remaining (separate, not this change):** the `read_notice` *scratch*
+  repro still trips an IR linear-check leak at the module span — a
+  linear-check question (does `??: return ignore(_)` discharge the peeled
+  `End | Checked` arm), independent of the codegen that this change fixed.
+  Not yet reproduced against the real `disk.sv` (its modules don't resolve
+  locally). Left for a focused IR-linear look.
+
+
 
 The chained/wrapped `?:` from `salvo-noticeboard`'s `read_notice`/`next` was
 mis-parsing. User decision: **elvis binds left**, and a newline before a `?:`
@@ -164,12 +231,8 @@ brackets everything prior as that operator's subject.
 - Tests: `a_forward_elvis_may_wrap_to_the_next_line` extended to assert the
   left-association and the escape-bracketing. `[elvis]`/`[elvis-assoc]`/
   `[elvis-wrap]` in LANGUAGE_SPEC.md. Warm `cargo nextest run`: 1775.
-- **Known separate issue (pre-existing, not this change):** a `??:` keeping
-  **≥2 value arms** of a *borrowed* optional union mis-compiles on the **Rust**
-  backend — the narrow of `Option<UnionN<…&T…>>` to `UnionN<…T…>` emits a plain
-  assignment instead of unwrapping and converging the arm representation
-  (`&String` vs `String`). Reproduces with a single `??:`, independent of the
-  associativity work. `read_notice` hits it; left for a focused codegen fix.
+- The `??:`-keeps-≥2-borrowed-arms Rust codegen bug this entry flagged as a
+  "Known separate issue" was fixed in the union-conversion entry above.
 
 ### 2026-10-12 — Two more disk.sv kinks: borrowed-field binding, and wrapping `?:`
 

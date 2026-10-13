@@ -17213,6 +17213,58 @@ fn rustc_compiles_and_runs_mut_optional_slots() {
     run_rust_files(&files, "mut-opt-slot", MUT_OPT_SLOT_OUTPUT);
 }
 
+/// [generic-union-span] A type parameter may bind to a *span* of union arms:
+/// `detach<T, C>(T | Checked<C>)` meets `Str | Int | Checked<Bool>` with
+/// `T = Str | Int`, `C = Bool`, and answers the flat `Str | Int | Bool`. The
+/// callee is one generic body over the nested `Union2<T, Checked<C>>`; the
+/// call site rewraps the flat argument to nested and the nested result back
+/// to flat.
+pub const UNION_SPAN_DEMO: &str = r#"
+struct Box2<C> { value: C }
+
+fn detach<T, C>(value: T | Box2<C>) -> T | C => !value {
+    when value {
+        is Box2<C> { return value.value }
+        is T { return value }
+    }
+}
+
+fn show(v: Str | Int | Bool) [Console] -> None {
+    when v {
+        is Str { println("str ${v}") }
+        is Int { println("int ${v}") }
+        is Bool { println("bool ${v}") }
+    }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let a: Str | Int | Box2<Bool> = "hi"
+    let b: Str | Int | Box2<Bool> = 7
+    let c: Str | Int | Box2<Bool> = Box2<Bool> { value: true }
+    let d: Str | Int | Box2<Bool> = "tf"
+    show(detach(a))
+    show(detach(b))
+    show(detach(c))
+    show(detach<Str | Int, Bool>(d))
+}
+"#;
+
+pub const UNION_SPAN_OUTPUT: &str = "str hi\nint 7\nbool true\nstr tf\n";
+
+#[test]
+fn rustc_compiles_and_runs_union_spanning_generic() {
+    let files = generate(&[("main.sv", UNION_SPAN_DEMO)]);
+    let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
+    // The callee is a Rust generic over the nested slot (`T` one arm).
+    assert!(
+        main.content.contains("pub fn detach<T") && main.content.contains("crate::unions::Union2<T, crate::Box2<C>>"),
+        "{}",
+        main.content
+    );
+    run_rust_files(&files, "union-span", UNION_SPAN_OUTPUT);
+}
+
 /// [ref-anchor] Element containers (user decisions 2026-10-10): a `ref(lib)`
 /// argument may be a handle anywhere *inside* `lib` — from a mint, inline
 /// nested `at`s, or `at` of a bound handle's field — and a `ref(c)` may name

@@ -279,6 +279,15 @@ Conventions:
   (`Str | Str` ≡ `Str`) — but *qualified* duplicates are distinct arms.
   * `Ty::Union` invariants: ≥ 2 arms, no nested unions (flattened), arms
     deduped, declaration order preserved.
+  * **A union never nests observably** (user decision 2026-10-12): a *bare*
+    union written inside a union flattens — `(A | B) | C` ≡ `A | B | C`, and
+    a type parameter bound to a union flattens the same way
+    [generic-union-span] — so there is one canonical flat shape. A union
+    that is the **payload of a type constructor or tag** does *not* flatten:
+    `List<A | B>`, `Ok (A | B)`, and `Err Str` are each one arm, since the
+    constructor is what the arm's identity is. So `List<A|B> | B` has two
+    arms and `Ok (Str|Int) | Err Str` has two arms — the parentheses there
+    are a payload, not grouping.
 * [union-arm-identity] Union arm identity is *positional over the runtime
   union's non-`None` arms, in order of first appearance* (qualifiers
   erased). For a union without literals the runtime union is the declared
@@ -1028,6 +1037,25 @@ Conventions:
   `Box<Str> { value: 7 }` is still reported. Each field's declared type is
   unified against its value's type, in field order, so a later field may widen
   an earlier binding exactly as a later argument does.
+* [generic-union-span] **A type parameter may bind to a *span* of union
+  arms** (user decision 2026-10-12): where a parameter type is a union with a
+  bare type-variable arm, that variable may absorb more than one of the
+  argument union's arms. `detach<T, C>(value: T | Checked<C>) -> T | C` called
+  with `Str | Int | Checked<Bool>` binds `T = Str | Int`, `C = Bool`, and
+  answers the flat `Str | Int | Bool` ([type-union] flattens the result, so
+  the span is never observably nested).
+  * **The split**: the argument's arms are matched against the parameter's
+    *concrete* (non-variable) arms first; whatever is left is the span, and it
+    goes to the lone bare-variable arm. **At most one** parameter arm may be an
+    unbound bare variable — with two (`f<A, B>(A | B)`) the split is not unique
+    by inference, so it is refused (no overload matches). An explicit type
+    argument (`detach<Str | Int, Bool>(…)`) names the split and always applies.
+  * **Lowering** is representation-only (`[core-layers]`: a backend's spelling
+    of a flat fact). The callee is one generic body over the *nested* slot
+    (`Union2<T, Checked<C>>`, `T` one arm); the caller rewraps the flat
+    argument to that nested shape and the nested result back to flat, through
+    the one union-conversion primitive [rs-union-convert] [kt-union-convert].
+    No per-arity monomorphisation of the body.
 * [col-to-str] `to_str` of a collection is **the language's format, not the
   target's**, and both backends emit the same string: `[1, 2, 3]` for a
   list, `{1, 2, 3}` for a set, `{a: 1, b: 2}` for a map — the shape of the

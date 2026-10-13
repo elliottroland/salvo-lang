@@ -884,6 +884,22 @@ the blanket rule:
   * A single borrowed value (`proj X` into a kept `X`) is already `&X`:
     `salvo_core::ir::walk::unwrap_single_borrows` reduces its `BorrowAs` to the
     value (or a `DropMut`).
+* [rs-union-convert] **One primitive converts a value of any union type into
+  any other** (`ModuleEmitter::convert_union`, 2026-10-12): a `match` that
+  maps each source arm to the target arm of the same **arm identity**
+  [union-arm-identity] — exact type, then `alike` (qualifiers and borrow
+  erased). It subsumes every union reshape this backend emits: a permutation
+  (`Str | Bool` → `Bool | Str`), a widen or narrow of arms, dropping or
+  keeping `None`, owning a borrowed arm (`own = true` clones a `proj` payload
+  into an owned slot — the former `own_borrowed_union`), and the flat↔nested
+  spread of a union-spanning generic [generic-union-span]. `rewrap` is
+  `convert_union` with `own = false`. Three arm shapes beyond a plain
+  one-to-one map: a source arm that is itself a bare union the target
+  *spreads* (recurse), a target arm that is a bare union the source
+  *collapses into* (wrap the payload into the inner union first), and no match
+  (`unreachable!`). The checker never emits a nested union (`[type-union]`
+  flattens), so the nested shape appears only at a generic call boundary,
+  where the callee is monomorphised over `Union2<T, …>` with `T` one arm.
 * Views of temporaries are refused by the checker [proj-anywhere]; the
   only thing this backend adds is that rustc would have said the same
   (E0716).

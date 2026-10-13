@@ -1593,11 +1593,39 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                         return self.intrinsic_call(e, f, type_args, args, indent);
                     }
                 }
-                let a = self.exprs(args, indent);
                 let name = self.fn_name(id);
                 let tas: Vec<String> = type_args.iter().map(|t| self.ty(t)).collect();
                 let ta = if tas.is_empty() || tas.iter().any(|t| t == "Any") { String::new() } else { format!("<{}>", tas.join(", ")) };
                 let _ = ta;
+                // [generic-union-span] A type parameter bound to a span of
+                // ≥2 union arms makes the callee's slots nested where the
+                // argument/result is flat: rewrap each argument flat→nested,
+                // and the whole call nested→flat.
+                if let Some(ir_fn) = self.ir_fn(id) {
+                    if type_args.len() == ir_fn.type_params.len() && !type_args.is_empty() {
+                        let subst: std::collections::HashMap<String, Ty> =
+                            ir_fn.type_params.iter().map(|t| t.name.clone()).zip(type_args.iter().cloned()).collect();
+                        let ptys: Vec<Ty> = ir_fn.params.iter().map(|p| p.ty.clone()).collect();
+                        let ret = ir_fn.ret.clone();
+                        let a: Vec<String> = args
+                            .iter()
+                            .enumerate()
+                            .map(|(i, x)| {
+                                let code = self.expr(x, indent);
+                                match ptys.get(i).and_then(|pt| self.span_nested_slot(pt, &subst)) {
+                                    Some(nested) => self.rewrap(&code, &x.ty.strip_quals().clone(), &nested),
+                                    None => code,
+                                }
+                            })
+                            .collect();
+                        let call = format!("{name}({})", a.join(", "));
+                        return match self.span_nested_slot(&ret, &subst) {
+                            Some(nested) => self.rewrap(&call, &nested, &e.ty),
+                            None => call,
+                        };
+                    }
+                }
+                let a = self.exprs(args, indent);
                 format!("{name}({})", a.join(", "))
             }
         }
@@ -1840,9 +1868,42 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         }
     }
 
+    /// The IR `FnDecl` a `DeclId` names, if it is a plain fn.
+    fn ir_fn(&self, id: &DeclId) -> Option<&'p FnDecl> {
+        self.s.ir.modules.iter().flat_map(|m| &m.decls).find_map(|d| match d {
+            Decl::Fn(f) if f.id == *id => Some(f),
+            _ => None,
+        })
+    }
+
+    /// [generic-union-span] The nested slot a declared union type becomes
+    /// when a type parameter in it is bound to a span of ≥2 union arms, or
+    /// `None`. Mirrors the Rust backend: the caller's value is flat, so a
+    /// bare type-variable arm bound to a multi-arm union makes the callee's
+    /// slot nest, and the value must be rewrapped. Substitution keeps arms
+    /// raw (never flattens), so the nested shape is preserved.
+    fn span_nested_slot(&self, declared: &Ty, subst: &std::collections::HashMap<String, Ty>) -> Option<Ty> {
+        let d = declared.strip_quals();
+        let Ty::Union(arms) = d else { return None };
+        let nests = arms.iter().any(|arm| {
+            matches!(arm, Ty::Var(g) if subst.get(g).is_some_and(|b| b.strip_quals().value_arms().len() >= 2))
+        });
+        if !nests {
+            return None;
+        }
+        Some(subst_ty_raw(d, subst))
+    }
+
     fn rewrap(&mut self, code: &str, from: &Ty, to: &Ty) -> String {
-        let from_arms: Vec<&Ty> = from.strip_quals().value_arms();
-        let to_arms: Vec<&Ty> = to.strip_quals().value_arms();
+        let from_arms: Vec<Ty> = from.strip_quals().value_arms().into_iter().cloned().collect();
+        let to_arms: Vec<Ty> = to.strip_quals().value_arms().into_iter().cloned().collect();
+        // [generic-union-span] An identity reshape — the two sides render to
+        // the same Kotlin type and agree on `None` — is a no-op. (Flattening
+        // means `(A|B|C)` and a nested `((A|B|C))` both render identically,
+        // so this also absorbs a single-arm wrapper around the same union.)
+        if self.ty(from) == self.ty(to) && from.strip_quals().has_none_arm() == to.strip_quals().has_none_arm() {
+            return code.to_string();
+        }
         if to_arms.len() < 2 {
             return format!("({code} as {})", self.ty(to));
         }
@@ -1851,26 +1912,75 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             return if from.strip_quals().has_none_arm() && !to.strip_quals().has_none_arm() { format!("{code}!!") } else { code.to_string() };
         }
         let n = from_arms.len();
+        let stars = vec!["*"; n].join(", ");
+        // The pattern that selects source arm `i` and the expression that
+        // reads its payload. With a single value arm there is no `UnionN`
+        // wrapper — the value is the non-null case itself.
+        let select = |i: usize| -> (String, String) {
+            if n >= 2 {
+                (format!("is Union{n}.U{}<{stars}>", i + 1), "it.value".to_string())
+            } else {
+                ("else".to_string(), "it".to_string())
+            }
+        };
+        // Where source arm `a` lands directly in the target.
+        let land = |ta: &[Ty], a: &Ty| -> Option<usize> {
+            ta.iter().position(|b| b == a).or_else(|| {
+                let same: Vec<usize> = ta.iter().enumerate().filter(|(_, b)| erase_eq(b, a)).map(|(j, _)| j).collect();
+                (same.len() == 1).then(|| same[0])
+            })
+        };
         let mut arms = Vec::new();
+        // With a single value arm the match is on nullability, so the
+        // `null` case must precede the catch-`else` value arm.
+        if n < 2 && from.strip_quals().has_none_arm() && to.strip_quals().has_none_arm() {
+            arms.push("null -> null".to_string());
+        }
         for (i, a) in from_arms.iter().enumerate() {
+            let (lhs, payload) = select(i);
             // The same arm, tag and all; else the arm of the same runtime
             // type (a lift drops the tag: `Ok Str` lands in `Str`).
-            let found = to_arms.iter().position(|b| b == a).or_else(|| {
-                let same: Vec<usize> = to_arms.iter().enumerate().filter(|(_, b)| erase_eq(b, a)).map(|(j, _)| j).collect();
-                (same.len() == 1).then(|| same[0])
-            });
-            if let Some(j) = found {
-                if let Some((ctor, _)) = self.union_arm(to, j) {
-                    let at = self.ty(a);
-                    let stars = vec!["*"; n].join(", ");
-                    arms.push(format!("is Union{n}.U{}<{stars}> -> {ctor}(it.value as {at})", i + 1));
+            match land(&to_arms, a) {
+                Some(j) => {
+                    if let Some((ctor, _)) = self.union_arm(to, j) {
+                        let at = self.ty(a);
+                        arms.push(format!("{lhs} -> {ctor}({payload} as {at})"));
+                    }
+                }
+                None => {
+                    // [generic-union-span] The source arm is itself a bare
+                    // union the target spreads: re-wrap the inner value.
+                    let inner_arms: Vec<&Ty> = a.strip_quals().value_arms();
+                    if inner_arms.len() >= 2 {
+                        let at = self.ty(a);
+                        let inner = self.rewrap(&format!("({payload} as {at})"), a, to);
+                        arms.push(format!("{lhs} -> {inner}"));
+                        continue;
+                    }
+                    // Or a target arm is itself a bare union containing this
+                    // source arm (`A` into `Ok (A | B)` / the nested span):
+                    // wrap into the inner union, then the outer arm.
+                    if let Some((oj, inner_ty)) = to_arms.iter().enumerate().find_map(|(k, t)| {
+                        let ia: Vec<Ty> = t.strip_quals().value_arms().into_iter().cloned().collect();
+                        (ia.len() >= 2 && land(&ia, a).is_some()).then(|| (k, t.clone()))
+                    }) {
+                        let at = self.ty(a);
+                        let inner = self.rewrap(&format!("({payload} as {at})"), a, &inner_ty);
+                        if let Some((ctor, _)) = self.union_arm(to, oj) {
+                            arms.push(format!("{lhs} -> {ctor}({inner})"));
+                        }
+                    }
                 }
             }
         }
-        if from.strip_quals().has_none_arm() && to.strip_quals().has_none_arm() {
+        if n >= 2 && from.strip_quals().has_none_arm() && to.strip_quals().has_none_arm() {
             arms.push("null -> null".to_string());
         }
-        arms.push("else -> throw IllegalStateException(\"salvo: unreachable union arm\")".to_string());
+        // A single-arm `from` already supplied an `else` branch; only a
+        // multi-arm match needs the catch-all.
+        if n >= 2 {
+            arms.push("else -> throw IllegalStateException(\"salvo: unreachable union arm\")".to_string());
+        }
         format!("{code}.let {{ when (it) {{ {} }} }}", arms.join("; "))
     }
 
@@ -2093,6 +2203,32 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
 /// Two types equal up to qualifiers (the IR keeps only `Mut`).
 fn erase_eq(a: &Ty, b: &Ty) -> bool {
     a.strip_quals() == b.strip_quals()
+}
+
+/// [generic-union-span] Substitute type parameters into `t`, keeping union
+/// arms *raw* (never flattening a substituted multi-arm union into the outer
+/// union) so a span-bound parameter yields the nested slot the callee is
+/// monomorphised over.
+fn subst_ty_raw(t: &Ty, s: &std::collections::HashMap<String, Ty>) -> Ty {
+    if s.is_empty() {
+        return t.clone();
+    }
+    match t {
+        Ty::Var(v) => s.get(v).cloned().unwrap_or_else(|| t.clone()),
+        Ty::Named { name, args } if args.is_empty() && s.contains_key(name) => s[name].clone(),
+        Ty::Named { name, args } => Ty::Named { name: name.clone(), args: args.iter().map(|a| subst_ty_raw(a, s)).collect() },
+        Ty::Qualified { quals, base } => Ty::Qualified { quals: quals.clone(), base: Box::new(subst_ty_raw(base, s)) },
+        Ty::Union(a) => Ty::Union(a.iter().map(|x| subst_ty_raw(x, s)).collect()),
+        Ty::Tuple(a) => Ty::Tuple(a.iter().map(|x| subst_ty_raw(x, s)).collect()),
+        Ty::Array(e) => Ty::Array(Box::new(subst_ty_raw(e, s))),
+        Ty::Fn { params, ret, contract, effects } => Ty::Fn {
+            params: params.iter().map(|x| subst_ty_raw(x, s)).collect(),
+            ret: Box::new(subst_ty_raw(ret, s)),
+            contract: contract.clone(),
+            effects: effects.iter().map(|x| subst_ty_raw(x, s)).collect(),
+        },
+        other => other.clone(),
+    }
 }
 
 /// [safe-nav] If `value` is a plain field read of the narrowed receiver

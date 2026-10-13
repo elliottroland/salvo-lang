@@ -351,6 +351,19 @@ Conventions:
     required — kotlinc rejects bare generic classes in `is`), multi-arm →
     `||` chain, all arms / `is None` → null tests. Interpolating a
     still-union value appends `.value`.
+* [kt-union-convert] The union re-wrap (`ModuleEmitter::rewrap`) maps each
+  source arm to the target arm of the same **arm identity**
+  [union-arm-identity] — exact type, then `erase_eq` — as a `let { when (it)
+  { is UnionN.Ui<*…> -> … } }` chain. Besides the plain one-to-one map it
+  handles the flat↔nested spread of a union-spanning generic
+  [generic-union-span]: a source arm that is itself a bare union the target
+  *spreads* (recurse into the inner value), and a target arm that is a bare
+  union the source *collapses into* (re-wrap into the inner union, then the
+  outer arm). An identity reshape — both sides render to the same Kotlin type
+  and agree on `None` — is a no-op (flattening means a nested single-arm
+  wrapper renders identically to its inner union). The mirror of Rust's
+  [rs-union-convert]; both backends emit the same shape so a span generic
+  runs identically.
 * [kt-union-nullable] A `None` arm becomes outer nullability
   (`Union2<..>?`); exactly one non-`None` arm stays plain `T?` (no
   wrapper).

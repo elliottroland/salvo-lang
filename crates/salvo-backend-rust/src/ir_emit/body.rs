@@ -1453,10 +1453,37 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     }
 
     /// A value moved between two union representations.
-    fn rewrap(&mut self, code: &str, from: &Ty, to: &Ty) -> String {
+    /// [rs-union-convert] The one primitive that converts a value of union
+    /// type `from` into union type `to`. Every reshape — a permutation
+    /// (`Str | Bool` → `Bool | Str`), a widen or narrow of arms, dropping or
+    /// keeping `None`, owning a borrowed arm, and the flat↔nested spread a
+    /// union-spanning generic needs — is this one `match`, mapping each
+    /// source arm to the target arm of the same **arm identity**
+    /// [union-arm-identity].
+    ///
+    /// `own` clones a borrowed payload into an owned target slot (the former
+    /// `own_borrowed_union`); without it a payload passes through unchanged
+    /// (the former `rewrap`). Arm identity is matched by exact type, then by
+    /// `alike` (qualifiers/borrow erased). Three arm shapes beyond a plain
+    /// one-to-one map:
+    ///   * a source arm that is itself a bare union the target *spreads*
+    ///     (its inner arms appear directly in `to`): recurse, so the inner
+    ///     value is re-wrapped into `to`;
+    ///   * a target arm that is itself a bare union the source *collapses
+    ///     into* (several source arms land in one `to` arm): wrap the payload
+    ///     into that inner union first;
+    ///   * no match: `unreachable!` (the runtime never produces it).
+    fn convert_union(&mut self, code: &str, from: &Ty, to: &Ty, own: bool) -> String {
         let fa: Vec<Ty> = from.strip_quals().value_arms().into_iter().cloned().collect();
         let ta: Vec<Ty> = to.strip_quals().value_arms().into_iter().cloned().collect();
         let (fo, to_opt) = (from.strip_quals().has_none_arm(), to.strip_quals().has_none_arm());
+        // [rs-union-convert] An identity reshape — same rendered type, same
+        // `None`, and (when owning) no borrowed arm to clone — is a no-op.
+        // (Flattening means a nested single-arm wrapper renders identically
+        // to its inner union, so this also absorbs that case.)
+        if self.ty(from) == self.ty(to) && fo == to_opt && !(own && fa.iter().any(is_proj)) {
+            return code.to_string();
+        }
         let pat = |s: &mut Self, arms: &[Ty], i: usize, opt: bool, inner: &str| -> String {
             let p = if arms.len() >= 2 {
                 s.s.union_sizes.insert(arms.len());
@@ -1466,27 +1493,53 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             };
             if opt { format!("Some({p})") } else { p }
         };
-        let mut arms = Vec::new();
-        for (i, a) in fa.iter().enumerate() {
-            let j = ta.iter().position(|b| b == a).or_else(|| {
+        // The payload of source arm `a`, owned if asked and the arm is a
+        // borrow.
+        let own_payload = |a: &Ty, inner: &str| -> String {
+            if own && !is_copy_ty(a) && is_proj(a) { format!("({inner}).clone()") } else { inner.to_string() }
+        };
+        // Where source arm `a` lands in the target: exact arm, then unique
+        // `alike` arm.
+        let land = |ta: &[Ty], a: &Ty| -> Option<usize> {
+            ta.iter().position(|b| b == a).or_else(|| {
                 let same: Vec<usize> = ta.iter().enumerate().filter(|(_, b)| alike(b, a)).map(|(j, _)| j).collect();
                 (same.len() == 1).then(|| same[0])
-            });
+            })
+        };
+        let mut arms = Vec::new();
+        for (i, a) in fa.iter().enumerate() {
             let lhs = pat(self, &fa, i, fo, "__v");
-            match j {
+            match land(&ta, a) {
                 Some(j) => {
-                    let rhs = pat(self, &ta, j, to_opt, "__v");
+                    let payload = own_payload(a, "__v");
+                    let rhs = pat(self, &ta, j, to_opt, &payload);
                     arms.push(format!("{lhs} => {rhs}"));
                 }
                 None => {
-                    // The arm is itself a union the target spreads.
+                    // The source arm is itself a bare union the target
+                    // spreads across its own arms: re-wrap the inner value
+                    // into the target.
                     let inner_arms: Vec<Ty> = a.strip_quals().value_arms().into_iter().cloned().collect();
                     if inner_arms.len() >= 2 {
-                        let inner = self.rewrap("__v", a, to);
+                        let inner = self.convert_union("__v", a, to, own);
                         arms.push(format!("{lhs} => {inner}"));
-                    } else {
-                        arms.push(format!("{lhs} => unreachable!(\"salvo: unreachable union arm\")"));
+                        continue;
                     }
+                    // Or the target has one arm that is itself a bare union
+                    // containing this source arm (`A` into `Ok (A | B)` /
+                    // the nested span of a generic): wrap into the inner
+                    // union, then into the outer arm.
+                    if let Some((oj, inner_ty)) = ta.iter().enumerate().find_map(|(k, t)| {
+                        let ia: Vec<&Ty> = t.strip_quals().value_arms();
+                        (ia.len() >= 2 && land(&ia.iter().map(|x| (*x).clone()).collect::<Vec<_>>(), a).is_some()).then(|| (k, t.clone()))
+                    }) {
+                        let payload = own_payload(a, "__v");
+                        let inner = self.convert_union(&payload, a, &inner_ty, own);
+                        let rhs = pat(self, &ta, oj, to_opt, &inner);
+                        arms.push(format!("{lhs} => {rhs}"));
+                        continue;
+                    }
+                    arms.push(format!("{lhs} => unreachable!(\"salvo: unreachable union arm\")"));
                 }
             }
         }
@@ -1494,12 +1547,44 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             arms.push(if to_opt { "None => None".to_string() } else { "None => unreachable!(\"salvo: unreachable union arm\")".to_string() });
         }
         if fa.len() < 2 && !fo {
-            // A plain value placed into the target.
-            let j = ta.iter().position(|b| alike(b, from)).unwrap_or(0);
-            return pat(self, &ta, j, to_opt, code);
+            // A plain value placed into the target: its one arm, owned if
+            // asked, into the arm it lands on.
+            let payload = own_payload(fa.first().unwrap_or(&Ty::Unknown), code);
+            let j = land(&ta, &from.strip_quals()).or_else(|| fa.first().and_then(|a| land(&ta, a))).unwrap_or(0);
+            return pat(self, &ta, j, to_opt, &payload);
         }
         arms.push("#[allow(unreachable_patterns)] _ => unreachable!(\"salvo: unreachable union arm\")".to_string());
         format!("(match {code} {{ {} }})", arms.join(", "))
+    }
+
+    /// The plain union reshape: payloads pass through unchanged
+    /// [rs-union-convert].
+    fn rewrap(&mut self, code: &str, from: &Ty, to: &Ty) -> String {
+        self.convert_union(code, from, to, false)
+    }
+
+    /// [generic-union-span] The *nested* slot a declared union type becomes
+    /// when a type parameter in it is bound to a span of ≥2 union arms, or
+    /// `None` when no such nesting arises. The caller's value is physically
+    /// flat (`union_of` never nests), so when a declared arm is a type
+    /// variable the call bound to a multi-arm union, the callee's
+    /// monomorphised slot nests (`Union2<Union2<A,B>, C>`) and the argument
+    /// must be rewrapped. Only a *bare* type-variable arm counts — a tagged
+    /// payload (`Ok T`) stays one arm whatever `T` is, so it never nests.
+    fn span_nested_slot(&self, declared: &Ty) -> Option<Ty> {
+        if self.f.call_subst.is_empty() {
+            return None;
+        }
+        let d = declared.strip_quals();
+        let Ty::Union(arms) = d else { return None };
+        // A bare type-variable arm bound to a multi-arm union is the trigger.
+        let nests = arms.iter().any(|arm| {
+            matches!(arm, Ty::Var(g) if self.f.call_subst.get(g).is_some_and(|b| b.strip_quals().value_arms().len() >= 2))
+        });
+        if !nests {
+            return None;
+        }
+        Some(super::decls::subst_ty(d, &self.f.call_subst))
     }
 
     // ----------------------------------------------------- control flow --
@@ -1774,6 +1859,19 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         }
     }
 
+    /// [rs-opt-borrow] Own a stored union of borrows into the target union
+    /// `to`, cloning each borrowed payload into its owned slot. A thin
+    /// wrapper over [`Self::convert_union`] with `own = true`; `sarms`/`sopt`
+    /// are the storage's value arms and whether it is `Option<…>`.
+    fn own_borrowed_union(&mut self, src: &str, sarms: &[Ty], sopt: bool, to: &Ty) -> String {
+        let mut from_arms: Vec<Ty> = sarms.to_vec();
+        if sopt {
+            from_arms.push(Ty::none());
+        }
+        let from = Ty::union_of(from_arms);
+        self.convert_union(src, &from, to, true)
+    }
+
     fn narrow(&mut self, local: &Local, ty: &Ty, from: &Place, from_ty: &Ty, because: &Justification, indent: usize) -> String {
         let pad = Self::pad(indent);
         let n = rs_local(&local.0);
@@ -1805,10 +1903,28 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             let sarms: Vec<Ty> = st.value_arms().into_iter().cloned().collect();
             let sopt = st.has_none_arm();
             let still_union = ty.strip_quals().has_none_arm() || ty.strip_quals().value_arms().len() >= 2;
-            if still_union && ty.strip_quals().value_arms().len() == sarms.len() {
-                self.f.tys.insert(local.0.clone(), st.clone());
+            if still_union {
+                // [rs-opt-borrow] The narrow keeps a union (≥2 arms, or one
+                // arm plus `None`). A bare alias is right only when nothing
+                // has to change: every stored arm is kept (same count), the
+                // `None` arm stays (or the target has none to drop), and the
+                // target keeps the arms as the stored borrows. Otherwise own
+                // the storage into the target union — unwrap the optional
+                // when the target drops `None`, map each kept arm, clone each
+                // borrowed payload into its owned slot, and send dropped arms
+                // to `unreachable!`.
+                let drops_none = sopt && !ty.strip_quals().has_none_arm();
+                let owns_arms = !is_proj(ty) && sarms.iter().any(is_proj);
+                let drops_arms = ty.strip_quals().value_arms().len() != sarms.len();
+                if !drops_none && !owns_arms && !drops_arms {
+                    self.f.tys.insert(local.0.clone(), st.clone());
+                    self.f.kinds.insert(local.0.clone(), Kind::Owned);
+                    return format!("{pad}let mut {n} = {src};\n");
+                }
+                let code = self.own_borrowed_union(&src, &sarms, sopt, ty);
+                self.f.tys.insert(local.0.clone(), ty.clone());
                 self.f.kinds.insert(local.0.clone(), Kind::Owned);
-                return format!("{pad}let mut {n} = {src};\n");
+                return format!("{pad}let mut {n} = {code};\n");
             }
             if !still_union {
                 let test = match because {
@@ -2304,6 +2420,15 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     }
 
     fn arg(&mut self, a: &Expr, p: &Param, fn_pos: FnPos, indent: usize) -> String {
+        // [generic-union-span] A type parameter bound to a *span* of ≥2
+        // union arms makes the callee's slot nested (`Union2<Union2<A,B>,
+        // C>`) where the argument is flat (`Union3<A,B,C>`): the arg is
+        // rewrapped flat→nested here, and the result nested→flat in `call`.
+        if let Some(nested) = self.span_nested_slot(&p.ty) {
+            let flat = a.ty.strip_quals().clone();
+            let v = self.value(a, indent);
+            return self.convert_union(&v, &flat, &nested, false);
+        }
         if matches!(p.ty.strip_quals(), Ty::Fn { .. }) {
             let pos = if p.mode == PassMode::Moved && fn_pos == FnPos::Param { FnPos::Owned } else { fn_pos };
             return self.fn_arg(a, &p.ty, pos, indent);
@@ -3135,6 +3260,11 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 if type_args.len() == f.type_params.len() {
                     self.f.call_subst = f.type_params.iter().map(|t| t.name.clone()).zip(type_args.iter().cloned()).collect();
                 }
+                // [generic-union-span] If the return type nests under the
+                // span binding, the result comes back nested and is
+                // flattened to `e.ty` after the call. Captured while the
+                // substitution is live.
+                let span_ret = self.span_nested_slot(&f.ret);
                 let (lets, mut a) = if f.ref_anchors.is_empty() { self.call_args(&ps, args, indent) } else { self.anchored_args(f, &ps, args, indent) };
                 // [runtime-kept-fn] A kept callback: boxed and owned, or a
                 // plain fn.
@@ -3182,6 +3312,12 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 let vars = self.s.plain_proj_vars(&f.type_params, &f.params, &f.borrows);
                 let tps: HashSet<String> = f.type_params.iter().map(|t| t.name.clone()).collect();
                 let ret = super::strip_nested_var_proj_in(&super::strip_plain_proj(&f.ret, &vars), false, &tps);
+                // [generic-union-span] Flatten a nested span result back to
+                // the call's own (flat) type before anything else uses it.
+                let code = match span_ret {
+                    Some(nested) => self.convert_union(&code, &nested, &e.ty, false),
+                    None => code,
+                };
                 self.deref_scalar(code, &ret, &e.ty)
             }
         }
