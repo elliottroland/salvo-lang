@@ -78,4 +78,13 @@ export fn drops_it() -> Int { return attempt() ?: return 0 }\n";
     assert!(text.contains("fn main::drops_it"), "the IR body is dumped:\n{text}");
     assert!(text.contains("!!! main:"), "the leak is inlined with a location:\n{text}");
     assert!(text.contains("still owns a linear value"), "the leak message is inlined:\n{text}");
+    // The arm is named by its type, not a bare index.
+    assert!(text.contains("the `Problem` arm"), "the leaked arm is named:\n{text}");
+    assert!(!text.contains("(arm 1)"), "the leak should not show a bare arm index:\n{text}");
+    // The note lands on the line that produced the leak (the bind of the
+    // picked value), not in a block after the fn.
+    let on_line = text
+        .lines()
+        .any(|l| l.contains("let __pick") && l.contains("!!! main:"));
+    assert!(on_line, "the leak note is on the line that produced it:\n{text}");
 }

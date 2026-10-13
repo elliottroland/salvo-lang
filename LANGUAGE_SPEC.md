@@ -9591,10 +9591,13 @@ replaced the working document TESTING.md).
     `else`) is always taken, so an else-less branch with one adds no "skipped
     every arm" skip path — the arm's own releases stand.
   * **`salvo ir` dumps even a program this check rejects** (D4b): the dump is a
-    debugging view, so it prints the IR and inlines each leak as
-    `!!! module:line:col: <error>` beside the module it came from, exit 0. Only
-    parse/type errors (which make the IR meaningless) stop the dump; the
-    IR-reliant linear leaks never do. `salvo build` is the hard gate that fails.
+    debugging view, so it prints the IR and inlines each leak as a
+    ` !!! module:line:col: <error>` note **at the end of the line that produced
+    it** (the binding of the leaked value), falling back to a line after the
+    module only when no dumped line carries the leak's span. Exit 0; only
+    parse/type errors (which make the IR meaningless) stop the dump. `salvo
+    build` is the hard gate that fails. The leak **names the arm by its type**
+    (`the \`Checked<FsError>\` arm`), not a bare index.
 
 ## Comments and documentation
 

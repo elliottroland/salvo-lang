@@ -138,10 +138,11 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
-### 2026-10-12 — IR linear-check false positives fixed; `salvo ir` dumps despite leaks
+### 2026-10-12 — IR linear-check false positives fixed; `salvo ir` dumps despite leaks; clearer leak messages
 
 Three kinks in the IR-level linear-obligation check (`ir::check`), from
-`salvo-noticeboard`'s `disk.sv`, plus a dump-resilience fix the user asked for.
+`salvo-noticeboard`'s `disk.sv`, plus a dump-resilience fix the user asked for
+and two diagnostic-quality refinements.
 
 - **FP1 — `assert!` narrowing didn't discharge.** `let r = open(); assert!(r is
   ^Ok, …); return r` reported `r` leaking its linear `Err Checked` arm, because
@@ -163,10 +164,16 @@ Three kinks in the IR-level linear-obligation check (`ir::check`), from
   check failed because `ir_command` treated the IR-reliant leak diagnostics like
   parse/type errors. Now `Analysis` carries `ir_reliant` (the `(file, span)` of
   every `ir::analyze` diagnostic), and `ir_command` blocks the dump only on
-  non-IR-reliant errors. `dump_program` inlines each leak as
-  `!!! module:line:col: <message>` per module (via `check_one` per decl, so the
-  location is exact), exit 0. The dump is a debugging view; `salvo build` is the
-  hard gate.
+  non-IR-reliant errors. `dump_program` inlines each leak **at the end of the
+  line that produced it** — the dumper (`Dumper::module_with_leaks`) matches a
+  leak's span against each statement's value span and appends ` !!! module:
+  line:col: <message>` there; a leak matching no line is appended after its
+  module. Exit 0; the dump is a debugging view, `salvo build` is the hard gate.
+- **Leak names the arm by type (user request).** `report_one` now renders the
+  live linear arms as `the \`Checked<FsError>\` arm` instead of `arm 1`, via a
+  new `linear_arm_names` (parallel to `linear_arms`) threaded through
+  `ObligationRef.arm_names` → `Outstanding`. A whole-value linear leaf is
+  unchanged (`still owns a linear value`).
 - **FP3 is parked for a decision** (see ROADMAP / the note to the user):
   `read_notice`'s `read_long(in_stream) ?: return None` drops the `Err
   Checked<StreamError>` arm on the error path, which the check flags — but that

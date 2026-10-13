@@ -94,7 +94,7 @@ impl Annotator<'_, '_> {
         } else {
             Vec::new()
         };
-        ObligationRef { place, arms, container_fields, ty_name: linear_type_name(self.symbols, self.own, ty) }
+        ObligationRef { place, arms, container_fields, ty_name: linear_type_name(self.symbols, self.own, ty), arm_names: crate::linear::linear_arm_names(self.symbols, self.own, ty) }
     }
 
     /// Rewrite a block's statements, inserting `Gain`/`Release`/`Discharge`

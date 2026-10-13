@@ -421,6 +421,11 @@ pub struct ObligationRef {
     /// for naming its dischargers in a leak diagnostic. `None` when no single
     /// name applies.
     pub ty_name: Option<String>,
+    /// [linear-group] For a union, each linear arm's runtime index paired with
+    /// its arm type's display name — so a leak names the arm (`the
+    /// `Checked<FsError>` arm`) instead of a bare index. Parallel to `arms`;
+    /// empty for a linear leaf.
+    pub arm_names: Vec<(usize, String)>,
 }
 
 #[derive(Clone, Copy, Debug)]

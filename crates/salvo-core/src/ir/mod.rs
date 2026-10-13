@@ -47,11 +47,11 @@ pub fn dump_program(
     // backends consume.
     obligations::annotate(&mut ir, &symbols);
     // [ir-linear-check] D4b: `salvo ir` dumps even an invalid program and
-    // reports each linear leak inline as `!!! <loc>: <error>`, exit 0 — the
-    // dump is a debugging view; `salvo build` is what fails (D4a). Leaks are
-    // attributed per declaration (via `check_one`, as `ir::analyze` does), so
-    // each shows under the module whose fn produced it with a `module:line:col`
-    // location rather than a bare byte offset.
+    // reports each linear leak inline — on the line that produced it (the
+    // dumper matches the leak's span against each statement). The dump is a
+    // debugging view; `salvo build` is what fails (D4a). A leak whose span
+    // matches no dumped line (e.g. a whole-fn `GainParams`) still appears,
+    // appended after its module.
     let throws = check::throws_map(&ir);
     let file_content = |file_name: &str| -> Option<&str> { program.files.iter().find(|f| f.name == file_name).map(|f| f.content.as_str()) };
     let mut text = String::new();
@@ -59,8 +59,10 @@ pub fn dump_program(
         if !text.is_empty() {
             text.push('\n');
         }
-        text.push_str(&dump::Dumper::module(&ir, m));
+        // Collect this module's leaks (per decl, so the file attribution is
+        // exact), rendered with a `module:line:col` location prefix.
         let content = file_content(&m.file_name);
+        let mut inline: Vec<(Span, String)> = Vec::new();
         for decl in &m.decls {
             for d in check::check_one(decl, &throws) {
                 let loc = match content {
@@ -70,9 +72,23 @@ pub fn dump_program(
                     }
                     None => format!("{}:{}", m.path.0.join("."), d.span.start),
                 };
-                text.push_str(&format!("!!! {loc}: {}\n", d.message));
+                inline.push((d.span, format!("{loc}: {}", d.message)));
             }
         }
+        let module_text = dump::Dumper::module_with_leaks(&ir, m, &inline);
+        // A leak whose span never appeared inline (no matching dumped line) is
+        // appended so nothing is dropped from the debugging view.
+        let mut unplaced: Vec<&String> = Vec::new();
+        for (_span, msg) in &inline {
+            if !module_text.contains(&format!("!!! {msg}")) {
+                unplaced.push(msg);
+            }
+        }
+        text.push_str(&module_text);
+        for msg in unplaced {
+            text.push_str(&format!("\n!!! {msg}"));
+        }
+        text.push('\n');
     }
     Ok((text, errors))
 }

@@ -8,11 +8,22 @@ use crate::ir::*;
 pub struct Dumper<'a> {
     program: &'a Program,
     out: String,
+    /// [ir-linear-check] Inline leak notes: each leak's span and message. When
+    /// a dumped statement carries a leak's span, ` !!! <message>` is appended
+    /// to that line, so a reader sees the leak beside the point that produced
+    /// it rather than in a block after the fn.
+    leaks: &'a [(Span, String)],
 }
 
 impl<'a> Dumper<'a> {
     pub fn module(program: &'a Program, module: &Module) -> String {
-        let mut d = Dumper { program, out: String::new() };
+        Self::module_with_leaks(program, module, &[])
+    }
+
+    /// Dump `module`, inlining each leak in `leaks` on the line whose statement
+    /// shares its span.
+    pub fn module_with_leaks(program: &'a Program, module: &Module, leaks: &'a [(Span, String)]) -> String {
+        let mut d = Dumper { program, out: String::new(), leaks };
         let _ = writeln!(d.out, "module {}", module.path.0.join("."));
         for decl in &module.decls {
             d.out.push('\n');
@@ -260,15 +271,31 @@ impl<'a> Dumper<'a> {
         for s in &b.stmts {
             self.out.push_str(&pad);
             self.stmt(s, indent + 1);
+            self.inline_leaks(dump_stmt_span(s));
             self.out.push('\n');
         }
         if let Some(v) = &b.value {
             self.out.push_str(&pad);
             self.out.push_str("value ");
             self.expr(v, indent + 1);
+            self.inline_leaks(v.span);
             self.out.push('\n');
         }
         let _ = write!(self.out, "{}}}", "  ".repeat(indent));
+    }
+
+    /// [ir-linear-check] Append ` !!! <message>` for every leak whose span is
+    /// `span` — called right after a statement/value line is written, so a
+    /// leak lands at the end of the line that produced it.
+    fn inline_leaks(&mut self, span: Span) {
+        if span == Span::default() {
+            return;
+        }
+        for (s, msg) in self.leaks {
+            if *s == span {
+                let _ = write!(self.out, "  !!! {msg}");
+            }
+        }
     }
 
     fn place(&mut self, p: &Place, indent: usize) {
@@ -761,5 +788,18 @@ impl<'a> Dumper<'a> {
                 let _ = write!(self.out, "UNSUPPORTED({what})");
             }
         }
+    }
+}
+
+/// [ir-linear-check] The span a leak on this statement would carry, matched
+/// against each leak's span to place its inline note. A leak's span is the
+/// point an obligation was gained — a binding/return/assign value's span — so
+/// it lands on that readable line rather than on the (same-span) `obligation
+/// gain` directive, which is excluded to avoid a double note.
+/// `Span::default()` for a statement that gains nothing, so it never matches.
+fn dump_stmt_span(s: &Stmt) -> Span {
+    match s {
+        Stmt::Return(Some(e)) | Stmt::Expr(e) | Stmt::Let { value: e, .. } | Stmt::Assign { value: e, .. } => e.span,
+        _ => Span::default(),
     }
 }

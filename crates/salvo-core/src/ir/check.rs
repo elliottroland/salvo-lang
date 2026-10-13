@@ -102,6 +102,9 @@ struct Outstanding {
     had_fields: bool,
     /// The leaked type's name, for naming its dischargers.
     ty_name: Option<String>,
+    /// [linear-group] Each linear arm's runtime index paired with its arm
+    /// type's display name, so a leak can name the arm instead of a number.
+    arm_names: Vec<(usize, String)>,
 }
 
 /// The obligation set on one path: place-key → what is outstanding.
@@ -412,6 +415,7 @@ fn apply(o: &Obligation, owed: &mut Owed) {
                         pending_fields: r.container_fields.iter().cloned().collect(),
                         had_fields: !r.container_fields.is_empty(),
                         ty_name: r.ty_name.clone(),
+                        arm_names: r.arm_names.clone(),
                     },
                 );
             }
@@ -496,7 +500,16 @@ fn report_one(place: &str, o: &Outstanding, out: &mut Vec<IrDiagnostic>, tail: &
     let subject = if place.starts_with("__") { "this value".to_string() } else { format!("`{place}`") };
     let value = match &o.arms {
         Some(arms) if !arms.is_empty() => {
-            let a: Vec<String> = arms.iter().map(|i| format!("arm {i}")).collect();
+            // Name each live linear arm by its type (`the `Checked<FsError>`
+            // arm`) rather than a bare index, falling back to the index only
+            // when the arm's name was not recorded.
+            let a: Vec<String> = arms
+                .iter()
+                .map(|i| match o.arm_names.iter().find(|(idx, _)| idx == i) {
+                    Some((_, name)) => format!("the `{name}` arm"),
+                    None => format!("arm {i}"),
+                })
+                .collect();
             format!("{subject} still owns a linear value ({})", a.join(", "))
         }
         _ => format!("{subject} still owns a linear value"),

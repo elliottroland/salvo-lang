@@ -105,6 +105,24 @@ pub fn linear_arms(symbols: &Symbols, own: &HashSet<String>, ty: &Ty) -> Option<
     (!linear.is_empty()).then_some(linear)
 }
 
+/// [linear-group] The linear arms of a union, each paired with the display
+/// name of its arm type (`(runtime index, "Checked<FsError>")`) — so a leak
+/// diagnostic can name the arm (`the `Err Checked<FsError>` arm`) rather than a
+/// bare index. Parallel to [`linear_arms`]: same indices, same runtime layout.
+pub fn linear_arm_names(symbols: &Symbols, own: &HashSet<String>, ty: &Ty) -> Vec<(usize, String)> {
+    let stripped = ty.strip_quals();
+    let Ty::Union(_) = stripped else { return Vec::new() };
+    let collapsed = crate::literal::collapse_ty(stripped);
+    let Ty::Union(arms) = collapsed.strip_quals() else { return Vec::new() };
+    let value_arms: Vec<&Ty> = arms.iter().filter(|a| !a.is_none_ty()).collect();
+    value_arms
+        .iter()
+        .enumerate()
+        .filter(|(_, a)| !a.is_proj() && ty_own_linear(symbols, own, a))
+        .map(|(i, a)| (i, a.to_string()))
+        .collect()
+}
+
 /// [linear-group] The names of a struct type's fields that themselves carry a
 /// linear obligation. Empty for a non-struct, a struct with no linear fields,
 /// or an unknown type. Used to decide when a linear container is settled by
