@@ -138,6 +138,36 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-12 — Equality against a matching union arm ([op-arm-eq])
+
+The fourth `disk.sv` TODO: `if last_updated == -1L` on a `Long?` was two errors
+("operand may be `None`" + "cannot compare `Long?` with `Long`"). The user chose
+to allow it, with the general rule they stated: *"the case when we can determine
+which arm should be compared based on the other type… `union is arm && arm ==
+value`"*.
+
+- **Rule** ([op-arm-eq]): `==`/`!=` (not ordering) are allowed when one operand
+  is a union and the other is a plain value whose type matches **exactly one**
+  of its value arms. The checker (`try_arm_compare`, in the comparison arm
+  before the `op-no-none`/same-type gates) records `Checked::arm_compares`
+  (`ArmCompare { test: UnionTest, arm_ty, subject_is_lhs }`), reusing
+  `union_test_for` so the arm identity is the runtime one. Scoped to a **basic**
+  arm type (its `==` is the host's own); a struct arm would need its `eq`
+  resolved at a span this fused form lacks, so it falls through to the ordinary
+  error. Zero matching arms, or ordering, stay refused — verified.
+- **IR** (`arm_compare` in exprs.rs): lowers `union == value` to
+  `subject is arm && (subject narrowed to arm) == value` — the subject bound
+  once, a `Test` + a `Branch` whose present arm narrows and compares with
+  `Op::Eq`, `false` otherwise; `!=` negates. No new node, no backend rule;
+  `None` (or any non-matching arm) takes the `false` branch.
+- The `disk.sv` shape works end to end: `let last_updated: Long? = raw; if
+  last_updated == -1L { last_updated = None }` compiles and runs identically on
+  both backends (the sentinel becomes `None`).
+- Tests: `rustc_runs_arm_equality` + `kotlinc_compiles_and_runs_arm_equality`
+  (same source, stdout `none/42/true/true`). Spec `[op-arm-eq]` under
+  `[op-no-none]` in LANGUAGE_SPEC.md and a paragraph in
+  docs/language/Data-and-Types.md. Warm `cargo nextest run`: 1769.
+
 ### 2026-10-12 — `when name = subject { … }` binding form ([when-bind])
 
 The second `disk.sv` TODO: a `when` whose subject is introduced inline, so the

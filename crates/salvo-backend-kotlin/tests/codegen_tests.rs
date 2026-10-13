@@ -5374,6 +5374,40 @@ fn kotlinc_compiles_and_runs_when_binding() -> KotlinCase {
     kotlin_case(files, "when-bind", "7\n-1\n99\n")
 }
 
+// ===== [op-arm-eq] `union == value` picks the arm by the value's type =====
+
+const ARM_EQ_DEMO: &str = r#"
+fn normalize(raw: Long) -> Long? {
+    let last_updated: Long? = raw
+    if last_updated == -1L { last_updated = None }
+    return last_updated
+}
+
+fn show(v: Long?) -> Str {
+    return when u = v {
+        is Long { to_str(u) }
+        is None { "none" }
+    }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    println(show(normalize(-1L)))
+    println(show(normalize(42L)))
+    let n: Long? = 7L
+    println(to_str(n != -1L))
+    let m: Long? = None
+    println(to_str(m != -1L))
+}
+"#;
+
+fn kotlinc_compiles_and_runs_arm_equality() -> KotlinCase {
+    let program = build_program(&[("main.sv", ARM_EQ_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program)
+        .unwrap_or_else(|errors| panic!("codegen errors:\n{}", errors.join("\n")));
+    kotlin_case(files, "arm-eq", "none\n42\ntrue\ntrue\n")
+}
+
 // [safe-nav] [kt-safe-nav]
 #[test]
 fn safe_navigation_field_chain_is_native_kotlin() {
@@ -5396,6 +5430,7 @@ fn safe_navigation_field_chain_is_native_kotlin() {
 const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_safe_navigation,
     kotlinc_compiles_and_runs_when_binding,
+    kotlinc_compiles_and_runs_arm_equality,
     kotlinc_compiles_and_runs_one_rendering_for_a_ref_result,
     kotlinc_compiles_and_runs_handles_into_element_containers,
     kotlinc_compiles_and_runs_unions_of_borrows,

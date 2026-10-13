@@ -709,6 +709,12 @@ impl<'a, 'p> Lower<'a, 'p> {
                 Expr { ty, span, kind: ExprKind::Op { op: o, args: vec![l, r] } }
             }
             BinaryOp::Eq | BinaryOp::NotEq | BinaryOp::Lt | BinaryOp::Gt | BinaryOp::LtEq | BinaryOp::GtEq => {
+                // [op-arm-eq] `union == value` reduced by the checker to an arm
+                // test plus a comparison of that arm: lower it to
+                // `subject is arm && arm == value`.
+                if let Some(ac) = self.ctx.checked.arm_compares.get(&self.key(span)).cloned() {
+                    return self.arm_compare(op, &ac, lhs, rhs, span);
+                }
                 let l = self.promoted(lhs);
                 let r = self.promoted(rhs);
                 let equality = matches!(op, BinaryOp::Eq | BinaryOp::NotEq);
@@ -762,6 +768,61 @@ impl<'a, 'p> Lower<'a, 'p> {
                 }
             }
         }
+    }
+
+    /// [op-arm-eq] Lower `union == value` (checker-recorded) to
+    /// `subject is arm && (subject narrowed to arm) == value`. The subject is
+    /// bound once so it is read for the test and the comparison without
+    /// re-evaluating; `!=` negates the whole thing.
+    fn arm_compare(&mut self, op: BinaryOp, ac: &crate::check::ArmCompare, lhs: &AExpr, rhs: &AExpr, span: Span) -> Expr {
+        let ty = self.ty_of(span);
+        let bool_ty = Ty::named("Bool");
+        let (subject_ast, value_ast) = if ac.subject_is_lhs { (lhs, rhs) } else { (rhs, lhs) };
+        let s = self.expr_subject(subject_ast);
+        let subj_ty = s.ty.clone();
+        // Bind the subject once.
+        let tmp = self.fresh("__cmp");
+        let lid = self.id();
+        let bind = Stmt::Let { id: lid, local: tmp.clone(), ty: subj_ty.clone(), value: s };
+        // `subject is arm`.
+        let tid = self.id();
+        let test = Expr {
+            ty: bool_ty.clone(),
+            span,
+            kind: ExprKind::Test { id: tid, subject: Box::new(Expr { ty: subj_ty.clone(), span, kind: ExprKind::Read { place: Place { root: tmp.clone(), steps: Vec::new() }, consume: false } }), test: arm_test(&ac.test) },
+        };
+        // The present arm: narrow the subject to the arm and compare with the
+        // value by the host's `==` (the arm is a basic type).
+        let nar = self.fresh("__arm");
+        let nid = self.id();
+        let narrow = Stmt::Narrow {
+            id: nid,
+            local: nar.clone(),
+            ty: ac.arm_ty.clone(),
+            from: Place { root: tmp.clone(), steps: Vec::new() },
+            from_ty: subj_ty.clone(),
+            because: Justification::Cond { branch: tid, arm: 0 },
+        };
+        let value = self.promoted(value_ast);
+        let read_arm = Expr { ty: ac.arm_ty.clone(), span, kind: ExprKind::Read { place: Place { root: nar, steps: Vec::new() }, consume: false } };
+        let cmp = Expr { ty: bool_ty.clone(), span, kind: ExprKind::Op { op: Op::Eq, args: vec![read_arm, value] } };
+        let present = Block { stmts: vec![narrow], value: Some(Box::new(cmp)), span };
+        // `test && present`, as a branch (the narrow holds only in the arm).
+        let bid = self.id();
+        let eq = Expr {
+            ty: bool_ty.clone(),
+            span,
+            kind: ExprKind::Branch {
+                id: bid,
+                arms: vec![(test, present)],
+                otherwise: Some(Block { stmts: Vec::new(), value: Some(Box::new(Expr { ty: bool_ty.clone(), span, kind: ExprKind::Bool(false) })), span }),
+            },
+        };
+        let result = match op {
+            BinaryOp::NotEq => Expr { ty: ty.clone(), span, kind: ExprKind::Op { op: Op::Not, args: vec![eq] } },
+            _ => eq,
+        };
+        self.block_expr(vec![bind], result, span)
     }
 
     // ------------------------------------------------------------- calls --

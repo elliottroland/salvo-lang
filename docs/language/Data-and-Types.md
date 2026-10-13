@@ -445,3 +445,9 @@ let person: Person = Person {name: "Roland", surname: "Elliott", age: 36}
 // Haven't done an explicit check, but we know `surname` is `Str` because we just constructed it
 println("Surname is ${person.surname!}")
 ```
+
+An optional (or any union) may also be compared with `==`/`!=` against a value
+whose type matches one of its arms: `x == -1L` on a `Long?` asks "is `x` present
+and equal to -1", with a `None` -- or any other arm -- comparing unequal. The
+value's type picks the arm, so this works for any union, not just optionals; it
+is `==`/`!=` only (ordering still needs the value narrowed first).

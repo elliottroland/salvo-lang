@@ -295,7 +295,7 @@ fn optional_operands_are_rejected() {
         \x20   let maybe: Int? = None\n\
         \x20   let a = maybe + 1\n\
         \x20   let b = maybe < 2\n\
-        \x20   let c = maybe == 3\n\
+        \x20   let c = maybe == \"x\"\n\
         \x20   let d = 1 - maybe\n\
         \x20   let e = None * 2\n\
          }\n",
@@ -326,6 +326,20 @@ fn narrowed_operands_are_accepted() {
         \x20       let b = m < 2\n\
         \x20   }\n\
         \x20   let c = maybe! + 1\n\
+         }\n",
+    );
+    assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+}
+
+// [op-arm-eq] Equality against a value matching one arm is legal without
+// narrowing: the checker reduces it to an arm test plus a comparison.
+#[test]
+fn equality_against_a_matching_arm_is_accepted() {
+    let errors = check_errors(
+        "fn f() -> None {\n\
+        \x20   let maybe: Int? = None\n\
+        \x20   let a = maybe == 3\n\
+        \x20   let b = maybe != 3\n\
          }\n",
     );
     assert!(errors.is_empty(), "unexpected errors: {errors:?}");

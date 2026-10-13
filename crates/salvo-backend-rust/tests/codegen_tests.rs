@@ -7389,6 +7389,44 @@ fn rustc_runs_when_binding() {
     run_rust_files(&files, "when-bind", "7\n-1\n99\n");
 }
 
+// ===== [op-arm-eq] `union == value` picks the arm by the value's type =====
+
+/// The same source and expected stdout as the Kotlin backend's
+/// `kotlinc_compiles_and_runs_arm_equality`. `x == -1L` on a `Long?` means
+/// "present and equal to -1" (`None` compares unequal), and the sentinel is
+/// then reassigned to `None` — the `disk.sv` TODO shape.
+const ARM_EQ_DEMO: &str = r#"
+fn normalize(raw: Long) -> Long? {
+    let last_updated: Long? = raw
+    if last_updated == -1L { last_updated = None }
+    return last_updated
+}
+
+fn show(v: Long?) -> Str {
+    return when u = v {
+        is Long { to_str(u) }
+        is None { "none" }
+    }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    println(show(normalize(-1L)))
+    println(show(normalize(42L)))
+    // `!=` is the negation: present-and-not-(-1), or absent.
+    let n: Long? = 7L
+    println(to_str(n != -1L))
+    let m: Long? = None
+    println(to_str(m != -1L))
+}
+"#;
+
+#[test]
+fn rustc_runs_arm_equality() {
+    let files = generate(&[("main.sv", ARM_EQ_DEMO)]);
+    run_rust_files(&files, "arm-eq", "none\n42\ntrue\ntrue\n");
+}
+
 // ===== [str-drop-mut] [rs-mut-str] `Mut Str` is a `String` =====
 
 /// The same source and the same expected stdout as the Kotlin backend's

@@ -1998,6 +1998,19 @@ Conventions:
   * Same parity motivation as [interp-no-none]: Kotlin compares against
     `null` happily while Rust rejects the `Option`.
   * `Unknown`/`Never` operands stay lenient [type-unknown-lenient].
+  * **Exception — equality against a matching arm** [op-arm-eq]: `== !=`
+    (not ordering) are allowed when one operand is a union and the other is
+    a plain value whose type matches **exactly one** of its value arms. The
+    checker reduces `union == value` to `union is arm && arm == value`, so
+    `x == -1L` on a `Long?` means "present and equal to -1" and a `None` (or
+    any non-matching arm) compares unequal rather than being a missing
+    narrowing (user decision 2026-10-12 — "the case when we can determine
+    which arm to compare based on the other type"). The arm must be a
+    **basic** type (its `==` is the host's own; a struct arm would need its
+    `eq` resolved at a span this fused form does not have, so it falls back
+    to the ordinary error). Zero matching arms, or ordering, stay refused.
+    `!=` negates the reduced test; the IR builds the `is`-test-and-compare
+    directly, so no backend rule is needed.
 * [op-arith] Arithmetic (`+ - * / %`, unary `-`) works on **numeric
   operands only** — `Int`, `Long`, `Float`, `Double` (user decision
   2026-09-14, closing the operand-typing DECISION). The result is the

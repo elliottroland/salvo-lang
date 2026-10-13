@@ -519,6 +519,14 @@ pub struct Checked {
     /// `cmp`/`eq` the checker resolved — a struct's canonical, or the enclosing
     /// fn's implicit parameter at a generic `T`.
     pub comparisons: HashMap<Key, CompareVia>,
+    /// [op-arm-eq] An equality whose one side is a union and whose other side
+    /// is a value matching exactly one of its arms, keyed by the comparison's
+    /// span. The checker proved which arm, and the IR lowers it to
+    /// `subject is arm && arm == value` — so `x == -1L` on a `Long?` means
+    /// "present and equal to -1", a `None` (or any other arm) comparing
+    /// unequal (user decision 2026-10-12). `==` is the recorded form; `!=`
+    /// negates it.
+    pub arm_compares: HashMap<Key, ArmCompare>,
     /// [op-promote] Operator operands widened by numeric promotion, keyed
     /// by the operand expression's span, mapped to the promoted type
     /// (`Int + Long` promotes the `Int` side to `Long`; `Float`/`Double`
@@ -1067,6 +1075,22 @@ pub enum CompareVia {
     /// [implicit-forward]: the only thing that *can* compare an opaque `T`,
     /// and the colouring that makes the capability visible in a signature.
     Implicit(String),
+}
+
+/// [op-arm-eq] An equality `union == value` the checker reduced to an arm
+/// test plus a comparison of that arm. The IR lowers it to
+/// `subject is <test> && (subject-narrowed-to-arm) == value`.
+#[derive(Clone, Debug)]
+pub struct ArmCompare {
+    /// The union-typed operand to test, as the arm test that selects the
+    /// matching arm (the IR turns it into an `ArmTest`).
+    pub test: UnionTest,
+    /// The type of the arm the value matches (what the narrowed subject reads
+    /// as, and the type the inner `==` compares at).
+    pub arm_ty: Ty,
+    /// True when the **left** operand is the union (and the right is the
+    /// value); false when they are swapped (`value == union`).
+    pub subject_is_lhs: bool,
 }
 
 /// `a`, `a and b`, `a, b and c` — for a diagnostic that lists names.
@@ -12183,6 +12207,64 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
+    /// [op-arm-eq] `union == value` / `value == union`: when one operand is a
+    /// union and the other is a plain value whose type matches exactly one of
+    /// its **value** arms, record the arm test so the IR can lower it to
+    /// `union is arm && arm == value`. Returns whether it fired (and so
+    /// replaces the ordinary operand rules). Scoped to a **basic**-typed arm
+    /// (the realistic case — `Int?`, `Long?`, `Char?`, …), where the inner
+    /// `==` is the host's own operator; a struct arm would need its `eq`
+    /// resolved at a span of its own, which this form does not have, so it
+    /// falls through to the ordinary rules there.
+    fn try_arm_compare(&mut self, op: BinaryOp, span: Span, lhs: &Expr, rhs: &Expr, l: &Ty, r: &Ty) -> bool {
+        if !matches!(op, BinaryOp::Eq | BinaryOp::NotEq) {
+            return false;
+        }
+        let (lw, rw) = (crate::literal::widen(l), crate::literal::widen(r));
+        // Identify the union side and the value side.
+        let (subject_ty, value_ty, subject_is_lhs, subject_expr) = if matches!(lw, Ty::Union(_)) && !matches!(rw, Ty::Union(_)) {
+            (&lw, &rw, true, lhs)
+        } else if matches!(rw, Ty::Union(_)) && !matches!(lw, Ty::Union(_)) {
+            (&rw, &lw, false, rhs)
+        } else {
+            return false;
+        };
+        let value_base = value_ty.strip_quals();
+        // The value must not itself be `None`/optional (`x == None` is the
+        // `is None` form, handled elsewhere), and must be a basic type.
+        if value_base.is_none_ty() || !value_base.is_basic() {
+            return false;
+        }
+        // Exactly one value arm shares the value's base type.
+        let matching: Vec<&Ty> = subject_ty
+            .value_arms()
+            .into_iter()
+            .filter(|a| a.strip_quals() == value_base)
+            .collect();
+        let [arm] = matching.as_slice() else {
+            return false;
+        };
+        let arm_ty = (*arm).clone();
+        // Build the arm test on the subject's representation, reusing the
+        // `is`-lowering so the runtime arm identity matches [union-arm-identity].
+        let repr = self.repr_of(subject_expr, subject_ty);
+        let pat = CheckPat {
+            quals: Vec::new(),
+            qual_args: Vec::new(),
+            base: Some(arm_ty.strip_quals().clone()),
+            is_none: false,
+            unresolved: false,
+        };
+        let Some(test) = self.union_test_for(&repr, &pat) else {
+            return false;
+        };
+        self.out.arm_compares.insert(
+            self.key(span),
+            ArmCompare { test, arm_ty, subject_is_lhs },
+        );
+        true
+    }
+
     /// [op-order] [op-equality] Operand rules for the comparison operators,
     /// which **resolve through the capability groups** (user decisions
     /// 2026-09-21): `a < b` is `cmp(a, b) < 0` and `a == b` is `eq(a, b)`.
@@ -22574,6 +22656,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                     _ => {
                         let l = self.check_expr(lhs, None);
                         let r = self.check_expr(rhs, None);
+                        // [op-arm-eq] `union == value` where the value matches
+                        // exactly one arm reduces to `union is arm && arm ==
+                        // value` — so an optional (or any union) can be
+                        // compared against a concrete arm, a non-matching arm
+                        // comparing unequal (user decision 2026-10-12). When
+                        // this fires it replaces the operand rules below.
+                        if self.try_arm_compare(*op, expr.span(), lhs, rhs, &l, &r) {
+                            return Ty::named("Bool");
+                        }
                         // [op-no-none] Comparison (ordering and equality)
                         // likewise: nullability is tested with `is None`.
                         self.reject_optional_operand(*op, lhs, &l);
