@@ -6423,6 +6423,18 @@ impl<'s> Parser<'s> {
         if self.at(&TokenKind::LBrace) {
             return self.parse_when_cond(start);
         }
+        // [when-bind] `when name = subject { … }`: a fresh local bound to the
+        // subject, scoped to the `when`. Recognized by an identifier followed
+        // by a single `=` (not `==`, which is a comparison in the subject).
+        let binding = if matches!(self.kind(), TokenKind::Ident(_))
+            && matches!(self.peek_at(1).kind, TokenKind::Eq)
+        {
+            let name = self.ident()?;
+            self.expect(&TokenKind::Eq)?;
+            Some(name)
+        } else {
+            None
+        };
         let subject = self.parse_condition()?;
         self.expect(&TokenKind::LBrace)?;
         let mut branches = Vec::new();
@@ -6465,6 +6477,7 @@ impl<'s> Parser<'s> {
         }
         let end = self.expect(&TokenKind::RBrace)?.span;
         Some(Expr::When {
+            binding,
             subject: Box::new(subject),
             branches,
             span: start.to(end),

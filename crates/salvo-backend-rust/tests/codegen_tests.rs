@@ -7356,6 +7356,39 @@ fn rustc_runs_safe_navigation() {
     run_rust_files(&files, "safe-nav", "42\n-1\n-1\nnanos=42\nabsent\n");
 }
 
+// ===== [when-bind] `when name = subject { … }` =====
+
+/// The same source and expected stdout as the Kotlin backend's
+/// `kotlinc_compiles_and_runs_when_binding`. The subject is bound inline and
+/// used in the arms, and the binding is scoped to the `when` (a later
+/// `last_updated` is a fresh name).
+const WHEN_BIND_DEMO: &str = r#"
+struct Meta {
+    last_updated: Long?
+}
+
+fn nanos(m: Meta) -> Long {
+    return when last_updated = m.last_updated {
+        is Long { last_updated }
+        is None { -1L }
+    }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    println(to_str(nanos(Meta { last_updated: 7L })))
+    println(to_str(nanos(Meta { last_updated: None })))
+    let last_updated = 99L
+    println(to_str(last_updated))
+}
+"#;
+
+#[test]
+fn rustc_runs_when_binding() {
+    let files = generate(&[("main.sv", WHEN_BIND_DEMO)]);
+    run_rust_files(&files, "when-bind", "7\n-1\n99\n");
+}
+
 // ===== [str-drop-mut] [rs-mut-str] `Mut Str` is a `String` =====
 
 /// The same source and the same expected stdout as the Kotlin backend's

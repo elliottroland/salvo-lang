@@ -2268,6 +2268,15 @@ Conventions:
     multi-qualifier types, which mean a *set* of claims) and a dedicated
     unwrap keyword (it would re-implement the exclusion list the subtype
     rule already has).
+* [when-bind] `when name = subject { … }` is the **binding form**: `name`
+  is a fresh local, scoped to the `when`, bound to `subject` and then matched
+  on. It removes the outer `let` the plain form needs when the subject is an
+  expression (`let x = e; when x { … }`), and the binding does not leak — a
+  `name` after the `when` is unrelated. Parsed as an identifier followed by a
+  single `=` (not `==`, a comparison in the subject). The checker introduces
+  the local in a scope spanning the `when` and otherwise matches exactly as
+  the plain form; the IR binds it once and switches on it, so no new node or
+  backend rule is needed.
 * [when-exhaustive] `when` must be exhaustive over the subject's arms;
   arms are consumed sequentially (each branch matches what previous
   branches left), and a branch that can match nothing is an error. A

@@ -652,11 +652,15 @@ pub fn walk_expr<V: Visitor>(v: &mut V, e: &Expr) {
             }
         }
         Expr::When {
+            binding,
             subject,
             branches,
             span,
         } => {
             v.visit_span(span);
+            if let Some(b) = binding {
+                v.visit_ident(b);
+            }
             walk_expr(v, subject);
             for br in branches {
                 v.visit_span(&br.span);

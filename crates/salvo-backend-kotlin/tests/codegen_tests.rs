@@ -5344,6 +5344,36 @@ fn kotlinc_compiles_and_runs_safe_navigation() -> KotlinCase {
     kotlin_case(files, "safe-nav", "42\n-1\n-1\nnanos=42\nabsent\n")
 }
 
+// ===== [when-bind] `when name = subject { … }` =====
+
+const WHEN_BIND_DEMO: &str = r#"
+struct Meta {
+    last_updated: Long?
+}
+
+fn nanos(m: Meta) -> Long {
+    return when last_updated = m.last_updated {
+        is Long { last_updated }
+        is None { -1L }
+    }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    println(to_str(nanos(Meta { last_updated: 7L })))
+    println(to_str(nanos(Meta { last_updated: None })))
+    let last_updated = 99L
+    println(to_str(last_updated))
+}
+"#;
+
+fn kotlinc_compiles_and_runs_when_binding() -> KotlinCase {
+    let program = build_program(&[("main.sv", WHEN_BIND_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program)
+        .unwrap_or_else(|errors| panic!("codegen errors:\n{}", errors.join("\n")));
+    kotlin_case(files, "when-bind", "7\n-1\n99\n")
+}
+
 // [safe-nav] [kt-safe-nav]
 #[test]
 fn safe_navigation_field_chain_is_native_kotlin() {
@@ -5365,6 +5395,7 @@ fn safe_navigation_field_chain_is_native_kotlin() {
 
 const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_safe_navigation,
+    kotlinc_compiles_and_runs_when_binding,
     kotlinc_compiles_and_runs_one_rendering_for_a_ref_result,
     kotlinc_compiles_and_runs_handles_into_element_containers,
     kotlinc_compiles_and_runs_unions_of_borrows,

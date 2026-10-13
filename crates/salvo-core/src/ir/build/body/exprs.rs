@@ -205,7 +205,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 }
             }
             AExpr::If { branches, else_block, .. } => self.if_expr(branches, else_block.as_ref(), span, true),
-            AExpr::When { subject, branches, .. } => self.when_expr(subject, branches, span, true),
+            AExpr::When { binding, subject, branches, .. } => self.when_expr(binding.as_ref(), subject, branches, span, true),
             AExpr::WhenCond { branches, else_block, .. } => self.when_cond_expr(branches, Some(else_block), span, true),
             AExpr::While { cond, body, else_block, .. } => {
                 let result = self.fresh("__loop");
@@ -1719,12 +1719,27 @@ impl<'a, 'p> Lower<'a, 'p> {
         self.if_expr(branches, else_block, span, value)
     }
 
-    pub(crate) fn when_expr(&mut self, subject: &AExpr, branches: &[ast::WhenBranch], span: Span, value: bool) -> Expr {
+    pub(crate) fn when_expr(&mut self, binding: Option<&ast::Ident>, subject: &AExpr, branches: &[ast::WhenBranch], span: Span, value: bool) -> Expr {
         let ty = if value { self.ty_of(span) } else { Ty::none() };
         let s = self.expr_subject(subject);
         let subj_ty = s.ty.clone();
         let id = self.id();
-        let place = self.stored_place_of(subject);
+        // [when-bind] `when name = subject { … }`: bind the subject once into
+        // the named local and switch on it; the arms narrow from that place.
+        // The plain form switches on the subject's own stored place.
+        let (prelude, subject_read, place) = match binding {
+            Some(name) => {
+                let local = self.bind(&name.name, subj_ty.clone());
+                let lid = self.id();
+                let bind = Stmt::Let { id: lid, local: local.clone(), ty: subj_ty.clone(), value: s };
+                let read = Expr { ty: subj_ty.clone(), span, kind: ExprKind::Read { place: Place { root: local.clone(), steps: Vec::new() }, consume: false } };
+                (vec![bind], read, Some(Place { root: local, steps: Vec::new() }))
+            }
+            None => {
+                let place = self.stored_place_of(subject);
+                (Vec::new(), s, place)
+            }
+        };
         let mut arms = Vec::new();
         for (i, br) in branches.iter().enumerate() {
             let test = self.ctx.checked.is_tests.get(&self.key(br.span)).cloned();
@@ -1770,7 +1785,12 @@ impl<'a, 'p> Lower<'a, 'p> {
             arms.push(SwitchArm { test: ArmTest::Else, body: Block { stmts: vec![Stmt::Expr(trap)], value: None, span } });
         }
         self.set_last_branch(id);
-        Expr { ty, span, kind: ExprKind::Switch { id, subject: Box::new(s), arms } }
+        let switch = Expr { ty: ty.clone(), span, kind: ExprKind::Switch { id, subject: Box::new(subject_read), arms } };
+        if prelude.is_empty() {
+            switch
+        } else {
+            self.block_expr(prelude, switch, span)
+        }
     }
 
     // ------------------------------------------------------------- loops --

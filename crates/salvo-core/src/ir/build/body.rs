@@ -299,8 +299,8 @@ impl<'a, 'p> Lower<'a, 'p> {
                 let x = self.if_expr(branches, else_block.as_ref(), *span, false);
                 vec![Stmt::Expr(x)]
             }
-            AExpr::When { subject, branches, span } => {
-                let x = self.when_expr(subject, branches, *span, false);
+            AExpr::When { binding, subject, branches, span } => {
+                let x = self.when_expr(binding.as_ref(), subject, branches, *span, false);
                 vec![Stmt::Expr(x)]
             }
             AExpr::WhenCond { branches, else_block, span } => {

@@ -1977,6 +1977,7 @@ Module {
                         stmts: [
                             Expr(
                                 When {
+                                    binding: None,
                                     subject: Ident(
                                         Ident {
                                             name: "outcome",
@@ -2007,6 +2008,7 @@ Module {
                                                 stmts: [
                                                     Expr(
                                                         When {
+                                                            binding: None,
                                                             subject: Ident(
                                                                 Ident {
                                                                     name: "outcome",

@@ -91,6 +91,17 @@ let value = when result {
 }
 ```
 
+When the subject is an expression rather than a variable, the **binding form** `when name = subject { ... }` introduces `name` for it, so no outer `let` is needed and the arms refer to `name`:
+
+```
+let nanos = when last_updated = meta.last_updated {
+    is Long { last_updated }   // `last_updated` is `Long` here
+    is None { -1 }
+}
+```
+
+The binding is scoped to the `when` -- a `last_updated` after it is an unrelated name.
+
 **Without a subject**, `when` is a chain of conditions -- an `if`-`elif`-`else` chain in `when`'s shape. The branch heads are ordinary boolean expressions, and the `else` is mandatory, since with no arms to cover it is the only thing that can make the chain exhaustive:
 
 ```

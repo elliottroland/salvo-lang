@@ -1309,6 +1309,7 @@ Module {
                             },
                             Expr(
                                 When {
+                                    binding: None,
                                     subject: Ident(
                                         Ident {
                                             name: "outcome",

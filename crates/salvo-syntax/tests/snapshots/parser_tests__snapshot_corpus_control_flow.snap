@@ -626,6 +626,7 @@ Module {
                                 ),
                                 ty: None,
                                 value: When {
+                                    binding: None,
                                     subject: Ident(
                                         Ident {
                                             name: "result",

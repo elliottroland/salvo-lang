@@ -2019,6 +2019,7 @@ impl<'w> Expander<'w> {
                 }
                 let when_span = self.fresh_span();
                 out.push(Stmt::Expr(Expr::When {
+                    binding: None,
                     subject: Box::new(value),
                     branches,
                     span: when_span,

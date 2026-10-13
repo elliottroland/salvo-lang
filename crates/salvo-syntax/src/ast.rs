@@ -1775,8 +1775,14 @@ pub enum Expr {
         else_block: Option<Block>,
         span: Span,
     },
-    /// `when subject { is X { } is Y { } }`
+    /// `when subject { is X { } is Y { } }`, or the **binding form**
+    /// `when name = subject { … }` [when-bind], where `name` is a fresh
+    /// local scoped to the `when` and bound to `subject` — so the arms refer
+    /// to it without an outer `let` and without shadowing concerns.
     When {
+        /// The binding name in `when name = subject { … }`; `None` for the
+        /// plain `when subject { … }`.
+        binding: Option<Ident>,
         subject: Box<Expr>,
         branches: Vec<WhenBranch>,
         span: Span,

@@ -22738,10 +22738,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ..
             } => self.check_if(branches, else_block.as_ref(), expr.span()),
             Expr::When {
+                binding,
                 subject,
                 branches,
                 span,
-            } => self.check_when(subject, branches, *span),
+            } => self.check_when(binding.as_ref(), subject, branches, *span),
             // [when-condition] The subject-less form is a condition chain
             // with a mandatory `else`: the same checking as
             // `if`/`elif`/`else`, and the `else` is what keeps `None` out of
@@ -25738,17 +25739,70 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// [when-union-subject], sequential arm consumption and exhaustiveness
     /// [when-exhaustive], branch values unioning into the result
     /// [when-value].
-    fn check_when(&mut self, subject: &'p Expr, branches: &'p [WhenBranch], span: Span) -> Ty {
+    fn check_when(
+        &mut self,
+        binding: Option<&'p Ident>,
+        subject: &'p Expr,
+        branches: &'p [WhenBranch],
+        span: Span,
+    ) -> Ty {
         let subj_ty = self.check_expr(subject, None);
-        let Expr::Ident(subject_id) = subject else {
-            self.error(span, "`when` requires a plain variable as its subject");
-            for b in branches {
-                self.check_branch_block(&b.body, Vec::new());
+        // [when-bind] `when name = subject { … }` introduces `name`, a fresh
+        // local bound to the subject and scoped to the `when`, and then
+        // matches on it. The plain form requires the subject to already be a
+        // variable, since the arms narrow it by name.
+        let scoped = binding.is_some();
+        if scoped {
+            self.locals.push(HashMap::new());
+        }
+        let subject_name: String = match binding {
+            Some(name) => {
+                self.declare(name, subj_ty.clone());
+                name.name.clone()
             }
-            return Ty::Unknown;
+            None => match subject {
+                Expr::Ident(id) => id.name.clone(),
+                _ => {
+                    if scoped {
+                        self.locals.pop();
+                    }
+                    self.error(
+                        span,
+                        "`when` requires a plain variable as its subject (or the \
+                         binding form `when name = subject { … }`)",
+                    );
+                    for b in branches {
+                        self.check_branch_block(&b.body, Vec::new());
+                    }
+                    return Ty::Unknown;
+                }
+            },
         };
-        let repr = self.repr_of(subject, &subj_ty);
-        let Ty::Union(all_arms) = &subj_ty else {
+        let result = self.check_when_body(binding, subject, &subject_name, &subj_ty, branches, span);
+        if scoped {
+            self.locals.pop();
+        }
+        result
+    }
+
+    /// The body of a `when` once the subject's name and type are fixed (the
+    /// binding form introduced its local; the plain form named a variable).
+    fn check_when_body(
+        &mut self,
+        binding: Option<&'p Ident>,
+        subject: &'p Expr,
+        subject_name: &str,
+        subj_ty: &Ty,
+        branches: &'p [WhenBranch],
+        span: Span,
+    ) -> Ty {
+        // For the binding form the subject reads at its declared type; for the
+        // plain form `repr_of` recovers a narrowed variable's storage type.
+        let repr = match binding {
+            Some(_) => subj_ty.clone(),
+            None => self.repr_of(subject, subj_ty),
+        };
+        let Ty::Union(all_arms) = subj_ty else {
             // [when-union-subject] A *qualified* union (`Ok (A | B)`, or an
             // `Thrown (Str | Int)` message [try]) is a claim **about** a
             // union, not a union: its arms belong to the inner type. The
@@ -25877,7 +25931,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 repr.clone()
             };
             let narrows = vec![Narrow {
-                place: Place::root(subject_id.name.clone()),
+                place: Place::root(subject_name.to_string()),
                 narrowed: narrow_ty,
                 declared,
             }];

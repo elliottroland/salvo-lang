@@ -138,6 +138,32 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-12 — `when name = subject { … }` binding form ([when-bind])
+
+The second `disk.sv` TODO: a `when` whose subject is introduced inline, so the
+arms refer to it without an outer `let` and "without shadowing concerns". The
+syntax was the user's (written in the TODO); the implementation is small and
+rides on the existing `when` machinery.
+
+- **AST**: `Expr::When` gains `binding: Option<Ident>`. **Parser**: after
+  `when`, an identifier followed by a single `=` (not `==`, a comparison in the
+  subject) is the binding; otherwise the plain form.
+- **Checker**: `check_when` takes the binding; when present it pushes a scope,
+  declares the local at the subject's type, and matches on it by name — so the
+  binding is **scoped to the `when`** and does not leak (a later `name` is
+  unrelated). The plain form still requires a variable subject. Factored the
+  shared tail into `check_when_body`.
+- **IR**: `when_expr` binds the subject once into the named local
+  (`block_expr([let name = subject], switch)`) and switches on it; the arms
+  narrow from `Place::root(name)`. No new node, no backend rule — both backends
+  render the `let` + `Switch` they already handle (the exhaustiveness `else`
+  arm from the 2026-10-12 work applies unchanged).
+- Tests: `rustc_runs_when_binding` + `kotlinc_compiles_and_runs_when_binding`
+  (same source, stdout `7/-1/99`, the last line proving the binding does not
+  leak). Spec `[when-bind]` in LANGUAGE_SPEC.md and the `when` page in
+  docs/language/Control-Flow.md. Parser AST snapshots re-accepted (only
+  `binding: None` added to existing `when`s). Warm `cargo nextest run`: 1767.
+
 ### 2026-10-12 — Safe navigation `?.` re-added as reconstruction-lowered optional chaining ([safe-nav])
 
 `?.` is back (it was built as a `QuestionDot`/`Expr::SafeField` node in Sept
