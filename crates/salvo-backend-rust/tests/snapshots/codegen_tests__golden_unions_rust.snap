@@ -1165,6 +1165,14 @@ pub fn err<T>(mut value: T) -> T {
     return value;
 }
 
+pub fn Ok<T>(mut value: T) -> T {
+    return value;
+}
+
+pub fn Err<T>(mut value: T) -> T {
+    return value;
+}
+
 // ===== core/set.rs =====
 use crate::core_iterator::Finished;
 use crate::core_string::append_platform;

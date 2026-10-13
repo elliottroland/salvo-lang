@@ -27,3 +27,17 @@ export fn ok<T canbe linear>(value: T) [] -> +Ok T => !value {
 export fn err<T canbe linear>(value: T) [] -> +Err T => !value {
     return value
 }
+
+// [fn-type-named] The same constructors, named after the provenance
+// qualifier they establish: `Ok(value)` reads as "the `Ok` arm of this
+// value". A type-named function whose name *is* a provenance qualifier
+// (no base type) is the provenance form of [fn-type-named] — it carries no
+// base, only the tag — and is a constructor like the lowercase `ok`/`err`
+// above, subject to the same same-file rule [qual-ctor-same-file].
+export fn Ok<T canbe linear>(value: T) [] -> +Ok T => !value {
+    return value
+}
+
+export fn Err<T canbe linear>(value: T) [] -> +Err T => !value {
+    return value
+}

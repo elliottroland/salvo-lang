@@ -300,16 +300,29 @@ generic_canbe)`; the base's `canbe` opt-ins thread into `FnDecl.generic_canbe`.
 `type_canbe` param. Test: `type_named_fn_parses` extended.
 
 ### Change 3 — provenance type-named fns — NOT STARTED
-Parsing is ready (base-less provenance names parse; `canbe` works; rule-(c)
-has a provenance branch). The remaining work is a **std migration**: re-express
-`ok`/`err`/`emitted`/… as `fn Ok<T>(…)`/`fn Err<T>(…)`/… in their own files,
-AND make the `+Ok` constructor-same-file rule ([qual-ctor-fn]) recognise a
-type-fn as a valid constructor (today it checks `f.constructs`; a type-fn whose
-base is a provenance qualifier is also a constructor). Best done together with
-change 4 (arm inference) since they share the "which provenance ctor builds
-this arm" machinery. The lowercase `ok`/`err` stay in parallel (Q4) until a
-later cleanup.
+### Change 3 — provenance type-named fns — DONE (2026-10-12)
+Landed. Key finding: a `-> +Ok T` establishment **parses into `f.constructs`**
+(the parser lifts the `+Q` out of the return type, leaving `T`), so a
+provenance type-fn is already a `constructs` constructor and the
+`[qual-ctor-same-file]` rule applies automatically via `f.constructs` — no new
+constructor-recognition machinery was needed. The only checker change was in
+`check_type_named_fn`: its provenance branch now treats the named qualifier as
+carried when it appears either on the lowered return `ret.quals()` **or** in
+the lifted `f.constructs` clause (`ctor_qual`), because the lowered return no
+longer shows the `+Q`.
 
+std migration: `std/core/result.sv` now declares `fn Ok<T canbe linear>(value:
+T) [] -> +Ok T => !value` and `fn Err<…>` alongside the lowercase `ok`/`err`
+(kept in parallel per Q4). Verified on both backends: `Ok(7)` / `Err("neg")`
+mint the correct union arms, `when` discriminates, identical stdout.
+
+Tests: `provenance_type_named_fn_is_checked` in carry_tests (accepts the
+matching tag, refuses a `-> +Err T` return under `fn Ok`). Spec: the
+`[fn-type-named]` rule gained a "Provenance form is a constructor" bullet.
+
+Still open for change 4: arm inference (`return name.size()` → implicit
+`Ok(...)`) — the "which provenance ctor builds this arm" machinery. Not part
+of change 3.
 
 
 ### Change 1 — type-named functions — IN PROGRESS (started 2026-10-12)

@@ -20118,9 +20118,17 @@ impl<'p, 'r> Checker<'p, 'r> {
         };
         let ret = self.lower_type(rt);
         let ret_quals: Vec<String> = ret.quals().iter().map(|q| q.name.clone()).collect();
+        // [qual-ctor-fn] A `-> +Q T` establishment parses into `f.constructs`
+        // (the `+Q` is lifted out of the return type by the parser), so the
+        // named qualifier of a provenance/constructive type-fn shows up there,
+        // not on the lowered return `ret`. Treat a constructed qualifier as
+        // carried.
+        let ctor_qual = f.constructs.as_ref().map(|c| c.name.name.clone());
+        let carries =
+            |q: &str| ret_quals.iter().any(|r| r == q) || ctor_qual.as_deref() == Some(q);
         // Every named qualifier must be present on the return.
         for q in &named_quals {
-            if !ret_quals.contains(q) {
+            if !carries(q) {
                 self.error(
                     rt.span(),
                     format!(
@@ -20135,8 +20143,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         // form, where the "base" is really a qualifier the return carries.
         if let Some(bn) = &base_name {
             if base_is_provenance {
-                // Provenance form: the qualifier (`Ok`) must be on the return.
-                let has = ret_quals.iter().any(|q| q == bn)
+                // Provenance form: the qualifier (`Ok`) must be on the return,
+                // typically as an establishment (`-> +Ok T`).
+                let has = carries(bn)
                     || ret.strip_quals().quals().iter().any(|q| &q.name == bn);
                 if !has {
                     self.error(

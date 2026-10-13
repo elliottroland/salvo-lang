@@ -975,3 +975,26 @@ fn type_named_fn_return_is_checked() {
     );
     assert!(extra.is_empty(), "extra qualifiers on the return are allowed: {extra:?}");
 }
+
+#[test]
+fn provenance_type_named_fn_is_checked() {
+    // [fn-type-named] The provenance form: the name *is* a provenance
+    // qualifier, no base type. A `-> +Ok T` establishment lifts into the
+    // constructor clause, so the named qualifier is carried there.
+    let ok = errors(
+        "provenance qualifier Ok<T> of T\n\
+         fn Ok<T canbe linear>(value: T) [] -> +Ok T => !value {\n    return value\n}\n",
+    );
+    assert!(ok.is_empty(), "a provenance type-fn that establishes its tag is accepted: {ok:?}");
+
+    // The return carries a *different* provenance tag than the name demands.
+    let wrong = errors(
+        "provenance qualifier Ok<T> of T\n\
+         provenance qualifier Err<T> of T\n\
+         fn Ok<T canbe linear>(value: T) [] -> +Err T => !value {\n    return value\n}\n",
+    );
+    assert!(
+        wrong.iter().any(|e| e.contains("must carry it") || e.contains("[fn-type-named]")),
+        "a provenance type-fn whose return establishes the wrong tag is refused: {wrong:?}"
+    );
+}

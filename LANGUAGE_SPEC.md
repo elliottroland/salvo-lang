@@ -2491,6 +2491,13 @@ Conventions:
     qualifiers (more are allowed — `Heap List<T>` may return `Heap(?cmp) Mut
     List<T>`). The rule-(c) check is base-equality plus named-quals ⊆
     return-quals, not a general subtype.
+  * **Provenance form is a constructor** [qual-ctor-fn]: a `-> +Ok T`
+    establishment lifts the `+Ok` into the constructor clause (`f.constructs`)
+    and leaves `T` as the return type, so `fn Ok<T>(t: T) -> +Ok T` is a
+    qualifier constructor exactly like the lowercase `ok`, subject to the
+    same-file rule [qual-ctor-same-file]. The named qualifier is checked as
+    carried whether it sits on the return type or in that lifted constructor
+    clause.
   * **No dot-notation**: a type-fn is never called `x.Mut List(…)`.
 * [fn-syntax] `fn name<G>(params) [effects] -> ReturnType`; => deductions
   no implicit returns from functions (unlike blocks); omitted return type

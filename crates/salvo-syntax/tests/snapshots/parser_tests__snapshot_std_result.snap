@@ -419,6 +419,389 @@ Module {
                 span: 1271..1347,
             },
         ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "[fn-type-named] The same constructors, named after the provenance",
+                    "qualifier they establish: `Ok(value)` reads as \"the `Ok` arm of this",
+                    "value\". A type-named function whose name *is* a provenance qualifier",
+                    "(no base type) is the provenance form of [fn-type-named] — it carries no",
+                    "base, only the tag — and is a constructor like the lowercase `ok`/`err`",
+                    "above, subject to the same same-file rule [qual-ctor-same-file].",
+                ],
+                exported: true,
+                intrinsic: false,
+                platform: false,
+                is_iter: false,
+                iter_state: [],
+                is_send: false,
+                name: Ident {
+                    name: "Ok",
+                    span: 1795..1797,
+                },
+                type_name: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Ok",
+                                span: 1795..1797,
+                            },
+                            args: [
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "T",
+                                            span: 1798..1799,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 1798..1799,
+                                    },
+                                },
+                            ],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 1795..1797,
+                        },
+                    },
+                ),
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [
+                    Ident {
+                        name: "T",
+                        span: 1798..1799,
+                    },
+                ],
+                generic_canbe: [
+                    (
+                        Ident {
+                            name: "T",
+                            span: 1798..1799,
+                        },
+                        TypeRef {
+                            name: Ident {
+                                name: "linear",
+                                span: 1806..1812,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 1806..1812,
+                        },
+                    ),
+                ],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "value",
+                            span: 1814..1819,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "T",
+                                    span: 1821..1822,
+                                },
+                                args: [],
+                                value_args: [],
+                                from: [],
+                                at: None,
+                                binder: false,
+                                established: false,
+                                alias: None,
+                                span: 1821..1822,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 1814..1822,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "value",
+                                    span: 1840..1845,
+                                },
+                                path: [],
+                            },
+                            kind: Moved,
+                            span: 1839..1845,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "T",
+                                span: 1834..1835,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 1834..1835,
+                        },
+                    },
+                ),
+                constructs: Some(
+                    TypeRef {
+                        name: Ident {
+                            name: "Ok",
+                            span: 1831..1833,
+                        },
+                        args: [],
+                        value_args: [],
+                        from: [],
+                        at: None,
+                        binder: false,
+                        established: false,
+                        alias: None,
+                        span: 1831..1833,
+                    },
+                ),
+                body: Some(
+                    Block {
+                        stmts: [
+                            Expr(
+                                Return {
+                                    value: Some(
+                                        Ident(
+                                            Ident {
+                                                name: "value",
+                                                span: 1859..1864,
+                                            },
+                                        ),
+                                    ),
+                                    span: 1852..1864,
+                                },
+                            ),
+                        ],
+                        span: 1846..1866,
+                    },
+                ),
+                span: 1792..1866,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [],
+                exported: true,
+                intrinsic: false,
+                platform: false,
+                is_iter: false,
+                iter_state: [],
+                is_send: false,
+                name: Ident {
+                    name: "Err",
+                    span: 1878..1881,
+                },
+                type_name: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Err",
+                                span: 1878..1881,
+                            },
+                            args: [
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "T",
+                                            span: 1882..1883,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 1882..1883,
+                                    },
+                                },
+                            ],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 1878..1881,
+                        },
+                    },
+                ),
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [
+                    Ident {
+                        name: "T",
+                        span: 1882..1883,
+                    },
+                ],
+                generic_canbe: [
+                    (
+                        Ident {
+                            name: "T",
+                            span: 1882..1883,
+                        },
+                        TypeRef {
+                            name: Ident {
+                                name: "linear",
+                                span: 1890..1896,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 1890..1896,
+                        },
+                    ),
+                ],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "value",
+                            span: 1898..1903,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "T",
+                                    span: 1905..1906,
+                                },
+                                args: [],
+                                value_args: [],
+                                from: [],
+                                at: None,
+                                binder: false,
+                                established: false,
+                                alias: None,
+                                span: 1905..1906,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 1898..1906,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "value",
+                                    span: 1925..1930,
+                                },
+                                path: [],
+                            },
+                            kind: Moved,
+                            span: 1924..1930,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "T",
+                                span: 1919..1920,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 1919..1920,
+                        },
+                    },
+                ),
+                constructs: Some(
+                    TypeRef {
+                        name: Ident {
+                            name: "Err",
+                            span: 1915..1918,
+                        },
+                        args: [],
+                        value_args: [],
+                        from: [],
+                        at: None,
+                        binder: false,
+                        established: false,
+                        alias: None,
+                        span: 1915..1918,
+                    },
+                ),
+                body: Some(
+                    Block {
+                        stmts: [
+                            Expr(
+                                Return {
+                                    value: Some(
+                                        Ident(
+                                            Ident {
+                                                name: "value",
+                                                span: 1944..1949,
+                                            },
+                                        ),
+                                    ),
+                                    span: 1937..1949,
+                                },
+                            ),
+                        ],
+                        span: 1931..1951,
+                    },
+                ),
+                span: 1875..1951,
+            },
+        ),
     ],
     uses: [],
 }
