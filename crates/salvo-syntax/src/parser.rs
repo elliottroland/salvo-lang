@@ -5017,7 +5017,17 @@ impl<'s> Parser<'s> {
                     // Inside a nested right side (`elvis_no_wrap`) the operator
                     // must be on the same line, so a next-line `?:` is left for
                     // the enclosing chain [elvis-wrap].
-                    if self.elvis_no_wrap && !self.same_line() {
+                    // Inside a nested right side (`elvis_no_wrap`) the
+                    // operator belongs to the enclosing chain, never to the
+                    // escape's value: a `return`/escape value parses a full
+                    // expression, and left-associativity means a following
+                    // `?:` brackets the whole chain so far, not the escape
+                    // value — whether it is on the same line (`a ??: return
+                    // b ?: c`) or the next ([elvis-wrap]). So break and leave
+                    // the operator for the outer loop. A *parenthesised*
+                    // sub-expression (`group_depth > 0`) is self-contained,
+                    // so the flag does not reach into it (`return (x ?: y)`).
+                    if self.elvis_no_wrap && self.group_depth == 0 {
                         break;
                     }
                     let mut n = 0u32;

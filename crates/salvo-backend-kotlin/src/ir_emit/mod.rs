@@ -1025,6 +1025,15 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     self.out.push_str(&format!("{pad}{code}\n{pad}return\n"));
                 } else if self.ret_is_unit {
                     self.out.push_str(&format!("{pad}return\n"));
+                } else if e.ty.is_none_ty()
+                    && !matches!(e.kind, ExprKind::MakeNone | ExprKind::Unit)
+                    && !matches!(e.ty, Ty::Never)
+                {
+                    // [type-none-unit] A `None`-typed expression returned where
+                    // an optional is expected: evaluate it (it may have an
+                    // effect, `return ignore(_)`), then return the absent
+                    // `null`.
+                    self.out.push_str(&format!("{pad}{code}\n{pad}return null\n"));
                 } else {
                     self.out.push_str(&format!("{pad}return {code}\n"));
                 }

@@ -934,6 +934,22 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             },
             _ => e.ty.clone(),
         };
+        // [type-none-unit] A `None`-typed expression into an *optional* slot
+        // (`T?`, a union with both value arms and `None`): the value is
+        // absent, but the expression may have an effect (`return ignore(_)`
+        // for a `Str?`), so evaluate it, then yield the absent optional. Not
+        // for a bare `None` slot (that is unit `()`, handled elsewhere), and
+        // not for a plain `None`/`MakeNone`/`Unit` expression.
+        if slot.strip_quals().has_none_arm()
+            && !slot.strip_quals().value_arms().is_empty()
+            && ety.is_none_ty()
+            && !matches!(e.kind, ExprKind::MakeNone | ExprKind::Unit)
+            && !matches!(e.ty, Ty::Never)
+            && !diverges(e)
+        {
+            let v = self.expr_stmt(e, indent);
+            return format!("{{ {v}; None }}");
+        }
         // A present value into an optional slot.
         if slot.strip_quals().has_none_arm() && !ety.strip_quals().has_none_arm() && !e.ty.strip_quals().without_none().is_none_ty() && !matches!(ety, Ty::Never | Ty::Unknown) && !ety.is_none_ty() && !matches!(e.kind, ExprKind::MakeNone | ExprKind::Unreachable { .. }) && !diverges(e) {
             let inner = slot.strip_quals().without_none();

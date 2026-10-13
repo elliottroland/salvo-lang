@@ -138,7 +138,41 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
-### 2026-10-12 — A `.method()` on a continuation line brackets the whole expression ([expr-wrap])
+### 2026-10-12 — Same-line elvis chains, and returning a `None`-typed expression into an optional
+
+Two defects behind `disk.sv` line 100 — `read_value<Str>() ??: return ignore(_) ?: return None`, the elvis chain all on *one line*.
+
+- **Parser (same-line left-assoc chain):** the `elvis_no_wrap` flag (set while
+  parsing an elvis operator's right side) only broke a following `?:` on a
+  *new* line; a same-line `?:` after an escape right side was still swallowed
+  by the escape's value (`x ??: return a ?: return b` parsed as
+  `x ??: (return a ?: return b)`). Now `elvis_no_wrap` breaks the forward
+  operator whenever it is set and we are not inside a parenthesised group
+  (`group_depth == 0`), same line or not — so the operator always goes to the
+  enclosing chain and `(x ??: return a) ?: return b` is the parse. A
+  parenthesised sub-expression is self-contained, so `return (x ?: y)` still
+  works. One rule now covers all three elvis shapes (same-line chain, wrapped
+  chain, `.method()` continuation): **a newline or an escape right side
+  brackets everything prior on the left.** Test: the same-line case added to
+  `a_forward_elvis_may_wrap_to_the_next_line`.
+- **Codegen (`None`-typed return into an optional) [type-none-unit]:** both
+  backends mis-compiled `return <None-returning call>` in a `-> Str?` fn —
+  Rust `return log_it();` (a `()` where `Option<String>` is wanted), Kotlin
+  the same. The `??:` RHS `return ignore(_)` is exactly this (ignore answers
+  `None`). Reproduces with a plain `return log_it()`, no elvis — a standalone
+  bug the chain merely surfaced. Fix: Rust `value_into` gains a branch for a
+  `None`-typed expression into a genuine optional slot (value arms *and*
+  `None`, so not a bare-`None`/unit slot) → `{ <eval>; None }`; Kotlin's
+  `Stmt::Return` gains the mirror → `<eval>; return null`. Tests:
+  `rustc_compiles_and_runs_none_typed_return_into_optional` + Kotlin twin.
+- Both verified end to end: the real `ignore` shape
+  (`fn ignore<T>(value: End | Checked<T>) => !value { if value is Checked<T>
+  { ignore(value) } }`) with `source() ??: return ignore(_) ?: return None`
+  gives `ok → payload`, `end → none`, `err → none` on both backends. [expr-wrap]
+  (same-line note) and [type-none-unit] (return-into-optional) updated in
+  LANGUAGE_SPEC.md. Warm `cargo nextest run`: 1777.
+
+
 
 The `next` TODO in `salvo-noticeboard`'s `disk.sv` — `return read_notice(…)\n
 ?: return finished()\n    .emitted()` — still failed after the elvis

@@ -555,6 +555,13 @@ Conventions:
     neither target compiles.
   * A `return None` from a `-> None` fn never needed it: the return
     statement renders no value at all.
+  * **A `None`-*typed* expression returned where the fn's own type is an
+    optional** (`return log_it()` / `return ignore(_)` in a `-> Str?` fn,
+    the shape `x ??: return ignore(_)` produces) is the mirror case: the
+    value is absent, but the expression may have an effect, so the emitters
+    evaluate it and then yield the absent optional — Rust `{ log_it(); None }`,
+    Kotlin `log_it(); return null` — never a bare `return log_it()` (which is
+    the unit value where the optional is wanted). Added 2026-10-12.
 * [type-array] `T[]` is an array; `arr[i]` is 0-indexed; size via
   `size()`. It has **no literal syntax and no generator syntax** since
   2026-09-13 — `[1, 2, 3]` is a `List` [col-literal] — so `array_of(...)`

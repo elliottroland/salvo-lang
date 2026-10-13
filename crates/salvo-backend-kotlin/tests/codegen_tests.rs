@@ -1326,6 +1326,42 @@ fn kotlinc_compiles_and_runs_a_union_spanning_generic() -> KotlinCase {
     kotlin_case(files, "union-span", UNION_SPAN_OUTPUT)
 }
 
+// [type-none-unit] Returning a `None`-typed expression into an optional
+// return type; twin of the Rust `..._none_typed_return_into_optional`.
+const NONE_RETURN_DEMO: &str = r#"
+fn log_it() -> None {
+    return None
+}
+
+fn pick(which: Int) -> Str? {
+    if which == 0 { return log_it() }
+    return "value"
+}
+
+fn show(r: Str?, tag: Str) [Console] -> None {
+    when r {
+        is Str { println("${tag}: ${r}") }
+        is None { println("${tag}: none") }
+    }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    show(pick(0), "zero")
+    show(pick(1), "one")
+}
+"#;
+
+const NONE_RETURN_OUTPUT: &str = "zero: none\none: value\n";
+
+fn kotlinc_compiles_and_runs_a_none_typed_return_into_optional() -> KotlinCase {
+    let program = build_program(&[("main.sv", NONE_RETURN_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "none-return", NONE_RETURN_OUTPUT)
+}
+
 fn kotlinc_compiles_and_runs_a_positional_pick() -> KotlinCase {
     let program = build_program(&[("main.sv", PICK_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
@@ -5558,6 +5594,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_a_positional_pick,
     kotlinc_compiles_and_runs_a_sub_union_rewrap,
     kotlinc_compiles_and_runs_a_union_spanning_generic,
+    kotlinc_compiles_and_runs_a_none_typed_return_into_optional,
     kotlinc_compiles_and_runs_a_group_over_plain_arms,
     kotlinc_compiles_and_runs_a_hand_written_pass,
     kotlinc_compiles_and_runs_a_released_raw_pass,

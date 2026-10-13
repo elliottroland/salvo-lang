@@ -754,6 +754,24 @@ fn a_forward_elvis_may_wrap_to_the_next_line() {
         other => panic!("expected a left-associated elvis chain, got {other:?}"),
     }
 
+    // [elvis-assoc] The chain is left-associative on a *single line* too, and
+    // an escape right side does not swallow the next operator:
+    // `x ??: return a ?: return b` is `(x ??: return a) ?: return b`, not
+    // `x ??: (return a ?: return b)`. The outer node is the `?:`, its subject
+    // the `??:`.
+    let (module_sl, dsl) = salvo_syntax::parse_module(
+        "fn s(x: Int | Str | None) -> Int {\n    return x ??: return 1 ?: return 2\n}\n",
+    );
+    assert!(!dsl.iter().any(|d| d.is_error()), "{dsl:?}");
+    let salvo_syntax::ast::Item::Fn(s) = &module_sl.items[0] else { panic!() };
+    match ret_val(s) {
+        Some(Expr::Elvis { subject, dir, count, .. }) => {
+            assert!(matches!(dir, ElvisDir::Forward) && count == 1, "outer should be `?:`");
+            assert!(matches!(&*subject, Expr::Elvis { count: 2, .. }), "subject should be the same-line `??:`");
+        }
+        other => panic!("expected a same-line left-associated chain, got {other:?}"),
+    }
+
     // [expr-wrap] A `.method()` on a continuation line brackets the whole
     // expression so far on its left — the elvis, not the escape right side:
     // `read()\n    ?: return done()\n    .emit()` is

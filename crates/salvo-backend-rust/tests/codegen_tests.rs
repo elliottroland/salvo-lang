@@ -17213,7 +17213,46 @@ fn rustc_compiles_and_runs_mut_optional_slots() {
     run_rust_files(&files, "mut-opt-slot", MUT_OPT_SLOT_OUTPUT);
 }
 
-/// [generic-union-span] A type parameter may bind to a *span* of union arms:
+/// [type-none-unit] Returning a `None`-typed expression (a call to a
+/// `None`-returning fn, used for its effect) where the function's own return
+/// type is an *optional* evaluates the call and then returns the absent
+/// value — `return log_it()` in a `Str?` fn is `{ log_it(); None }`, not a
+/// bare `return log_it()` (which would be `()` where `Option<String>` is
+/// wanted). The elvis `read() ??: return ignore(_)` produces exactly this
+/// shape.
+pub const NONE_RETURN_DEMO: &str = r#"
+fn log_it() -> None {
+    return None
+}
+
+fn pick(which: Int) -> Str? {
+    if which == 0 { return log_it() }
+    return "value"
+}
+
+fn show(r: Str?, tag: Str) [Console] -> None {
+    when r {
+        is Str { println("${tag}: ${r}") }
+        is None { println("${tag}: none") }
+    }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    show(pick(0), "zero")
+    show(pick(1), "one")
+}
+"#;
+
+pub const NONE_RETURN_OUTPUT: &str = "zero: none\none: value\n";
+
+#[test]
+fn rustc_compiles_and_runs_none_typed_return_into_optional() {
+    let files = generate(&[("main.sv", NONE_RETURN_DEMO)]);
+    run_rust_files(&files, "none-return", NONE_RETURN_OUTPUT);
+}
+
+
 /// `detach<T, C>(T | Checked<C>)` meets `Str | Int | Checked<Bool>` with
 /// `T = Str | Int`, `C = Bool`, and answers the flat `Str | Int | Bool`. The
 /// callee is one generic body over the nested `Union2<T, Checked<C>>`; the
