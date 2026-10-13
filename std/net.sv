@@ -622,7 +622,7 @@ export handler GossipNodeGroup(name: Str, seeds: List<NodeEndpoint>) [Transport,
                     if !(n is None) {
                         add(others, copy(n.at))
                     }
-                    introduce(copy(id), [copy(event.at)])
+                    introduce(copy(id), List(copy(event.at)))
                 }
                 introduce(copy(event.node), others)
                 add(dialed, to_str(event.at))
@@ -820,7 +820,7 @@ export handler ActorGrouping<E>(name: Str, proto: Protocol<E>) [spawn]
             w.joined(copy(member))
         }
         for p in peers {
-            share_members(name, proto.hash, copy(p), [copy(member)])
+            share_members(name, proto.hash, copy(p), List(copy(member)))
         }
     }
 

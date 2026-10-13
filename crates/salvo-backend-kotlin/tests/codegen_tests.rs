@@ -897,7 +897,7 @@ fn main() [use] {
     // Literals, not constructor calls: the element constructors claim
     // `NonEmpty` [col-of-nonempty], which a plain `List<List<Int>>` field
     // refuses (type arguments are invariant).
-    let all = Flat { rows: [[1, 2], [3, 4, 5]] }
+    let all = Flat { rows: List<List<Int>>(List(1, 2), List(3, 4, 5)) }
     for n in iter(all) {
         println("n ${n}")
     }
@@ -3862,7 +3862,7 @@ fn main() [use] -> None {
     println("${Point { x: 2.0, ratio: 3.0 }}")
     let xs: List<Double> = list_of(2.0, 0.5)
     println("${xs} ${to_str(xs)} ${list_of(4.0)}")
-    let m: Map<Str, Double> = {"a": 2.0}
+    let m: Map<Str, Double> = Map("a": 2.0)
     println("${m}")
 }
 "#;
@@ -3993,17 +3993,17 @@ fn total<C, It>(c: C, ?iter: (c: C) -> Mut It holds proj(c), ?Yield<It, Int>) ->
 fn main() [use] -> None {
     use StdOutConsole()
     println("${total(list_of(1, 2, 3))}")
-    println("${total([1, 2, 3])}")
+    println("${total(List(1, 2, 3))}")
 }
 "#;
 
-/// [col-literal] Bare collection literals as arguments.
+/// [col-no-literal] Bare collection constructors as arguments.
 const BARE_LITERAL_DEMO: &str = r#"
 fn main() [use] -> None {
     use StdOutConsole()
-    println("A ${size(to_set([1, 2]))}")
-    println("B ${size(to_list({3, 4}))}")
-    let words = to_set(["a", "b", "a"])
+    println("A ${size(to_set(List(1, 2)))}")
+    println("B ${size(to_list(Set(3, 4)))}")
+    let words = to_set(List("a", "b", "a"))
     println("C ${size(words)}")
 }
 "#;
@@ -6196,7 +6196,7 @@ fn main() [use] -> None {
     println("never: ${never}")
 
     // `break value` short-circuits; no `else` makes the value optional.
-    let found = for x in [0, 1, 2, 3, 4, 5] {
+    let found = for x in List(0, 1, 2, 3, 4, 5) {
         if x * x > 10 {
             break x
         }
@@ -6917,7 +6917,9 @@ fn show(v: Int?) [] -> Str => v {
 
 fn main() [use] -> None {
     use StdOutConsole()
-    let xs: List<P?> = [P { a: 1 }, None, P { a: 3 }]
+    // The first element fixes the constructor's `T`, so it is typed `P?`.
+    let first: P? = P { a: 1 }
+    let xs: List<P?> = List(first, None, P { a: 3 })
     for i in indices(xs) {
         let s = get(xs, i)
         if s is P p {
@@ -6926,7 +6928,7 @@ fn main() [use] -> None {
             println("none")
         }
     }
-    let ns = [4, 5]
+    let ns = List(4, 5)
     let v: Int? = get(ns, 1)
     println("${show(get(ns, 0))} ${show(v)} ${show(copy(get(ns, 7)))}")
 }
@@ -7146,9 +7148,10 @@ fn kotlinc_compiles_and_runs_copy() -> KotlinCase {
     kotlin_case(files, "copy", expected)
 }
 
-/// [cmp-carry] [col-literal] A collection literal takes its identity from
-/// the position, empty or not: before 2026-10-05 a literal was built with the
-/// host's hashing and the slotted annotation accepted it (ROADMAP §0j step 1).
+/// [cmp-carry] [fn-type-named] A collection constructor carries the identity
+/// it is given by `hash =`/`eq =`, empty or not: before 2026-10-05 a literal
+/// was built with the host's hashing and the slotted annotation accepted it
+/// (ROADMAP §0j step 1; literals retired [col-no-literal]).
 pub const LITERAL_IDENTITY_DEMO: &str = r#"
 fn fold_hash(s: Str) [] -> Long => s {
     return hash(size(s))
@@ -7159,14 +7162,14 @@ fn fold_eq(a: Str, b: Str) [] -> Bool => a, b {
 
 fn main() [use] {
     use StdOutConsole()
-    let m: Mut Map<Str, Int>(fold_hash, fold_eq) = {"ab": 1}
+    let m: Mut Map<Str, Int>(fold_hash, fold_eq) = Mut Map("ab": 1, hash = fold_hash, eq = fold_eq)
     put(m, "cd", 2)
-    let e: Mut Map<Str, Int>(fold_hash, fold_eq) = {}
+    let e: Mut Map<Str, Int>(fold_hash, fold_eq) = Mut Map<Str, Int>(hash = fold_hash, eq = fold_eq)
     put(e, "ab", 1)
     put(e, "cd", 2)
-    let s: Mut Set<Str>(fold_hash, fold_eq) = {"ab"}
+    let s: Mut Set<Str>(fold_hash, fold_eq) = Mut Set("ab", hash = fold_hash, eq = fold_eq)
     add(s, "cd")
-    let t: Mut Set<Str>(fold_hash, fold_eq) = {}
+    let t: Mut Set<Str>(fold_hash, fold_eq) = Mut Set<Str>(hash = fold_hash, eq = fold_eq)
     add(t, "ab")
     add(t, "cd")
     println("${size(m)} ${size(e)} ${size(s)} ${size(t)}")
@@ -8044,7 +8047,7 @@ export fn main() [use] -> None {
     )
 }
 
-/// [col-literal] The same source and expected output as the Rust backend's
+/// [col-no-literal] The same source and expected output as the Rust backend's
 /// `rustc_compiles_and_runs_collection_literals` [backend-parity].
 fn kotlinc_compiles_and_runs_collection_literals() -> KotlinCase {
     let src = r#"
@@ -8059,20 +8062,20 @@ export fn takes_set(s: Set<Int>) -> Int => s {
 
 export fn main() [use] -> None {
     use StdOutConsole()
-    let xs = [1, 2, 3]
+    let xs = List(1, 2, 3)
     println("list: ${to_str(xs)}")
-    let mxs: Mut List<Int> = [4, 5]
+    let mxs: Mut List<Int> = Mut List(4, 5)
     add(mxs, 6)
     println("mut list: ${to_str(mxs)}")
-    let s: Set<Str> = {"b", "a", "b"}
+    let s: Set<Str> = Set("b", "a", "b")
     println("set: ${to_str(s)}")
-    let m: Map<Str, Int> = {"one": 1, "two": 2}
+    let m: Map<Str, Int> = Map("one": 1, "two": 2)
     println("map: ${to_str(m)}")
-    let ms: Mut Set<Int> = {}
+    let ms: Mut Set<Int> = Mut Set<Int>()
     add(ms, 9)
     println("empty then filled: ${to_str(ms)}")
-    let mm: Map<Str, Int> = {}
-    println("empty map: ${to_str(mm)} via param: ${takes_set({})}")
+    let mm: Map<Str, Int> = Map<Str, Int>()
+    println("empty map: ${to_str(mm)} via param: ${takes_set(Set())}")
     let p: Point = {x: 1, y: 2}
     println("struct literal still: ${p.x},${p.y}")
     let arr = array_of(7, 8)
@@ -8125,21 +8128,21 @@ export fn main() [use] -> None {
     let ge = q >= p
     println("eq: ${eq} ne: ${ne} lt: ${lt} ge: ${ge}")
 
-    let seen: Mut Set<Point> = {}
+    let seen: Mut Set<Point> = Mut Set<Point>()
     add(seen, Point { x: 1, y: 2 })
     let dup = add(seen, Point { x: 1, y: 2 })
     println("struct key: size ${size(seen)} dup ${dup}")
 
-    let by: Mut Map<Point, Str> = {}
+    let by: Mut Map<Point, Str> = Mut Map<Point, Str>()
     put(by, Point { x: 9, y: 9 }, "nine")
     let hit = get(by, Point { x: 9, y: 9 })
     if hit is Str {
         println("struct lookup: ${hit}")
     }
 
-    let a = Version { parts: [1, 2, 0], label: ("a", 1) }
-    let b = Version { parts: [1, 3], label: ("a", 1) }
-    let c = Version { parts: [1, 2], label: ("a", 1) }
+    let a = Version { parts: List(1, 2, 0), label: ("a", 1) }
+    let b = Version { parts: List(1, 3), label: ("a", 1) }
+    let c = Version { parts: List(1, 2), label: ("a", 1) }
     let ab = a < b
     let ca = c < a
     println("list order: ${ab} prefix: ${ca}")
@@ -8372,13 +8375,13 @@ export fn main() [use] -> None {
     println("set_by ${to_str(s)}")
     let m = map_by(3, i -> (i, i * i))
     println("map_by ${to_str(m)}")
-    let dups = [1, 2, 2, 3]
+    let dups = List(1, 2, 2, 3)
     let uniq = to_set(dups)
     println("to_set ${to_str(uniq)}")
-    let pairs = [("a", 1), ("b", 2)]
+    let pairs = List(("a", 1), ("b", 2))
     let m2 = to_map(pairs)
     println("to_map pairs ${to_str(m2)}")
-    let words = ["alpha", "be"]
+    let words = List("alpha", "be")
     let m3 = to_map(words, w -> (w, size(w)))
     println("to_map rule ${to_str(m3)}")
     let arr = array_of(1, 2, 3)
@@ -8873,7 +8876,7 @@ fn main() [use] -> None {
     use ConsoleLogger()
     use LoggingAudit()
     note("first")
-    for i in [1, 2] {
+    for i in List(1, 2) {
         use MemTally
         add_up(i)
         log("loop ${i} tally ${tally()}")
@@ -8996,16 +8999,16 @@ fn main() [use] -> None {
     use StdOutConsole
     // [let-destructure] A loop element destructures like a `let`: a tuple by
     // position, a struct by field (renamed where the pattern says so).
-    let pairs: List<(Str, Int)> = [("a", 1), ("b", 2)]
+    let pairs: List<(Str, Int)> = List(("a", 1), ("b", 2))
     for (k, v) in iter(pairs) {
         println("${k}=${v}")
     }
-    let rows: List<Row> = [Row { name: "x", score: 7 }, Row { name: "y", score: 8 }]
+    let rows: List<Row> = List(Row { name: "x", score: 7 }, Row { name: "y", score: 8 })
     for {name: who, score} in iter(rows) {
         println("${who} ${score}")
     }
     // A binding the body assigns to is the local's own, not the element's.
-    let nums: List<(Int, Int)> = [(1, 2), (3, 4)]
+    let nums: List<(Int, Int)> = List((1, 2), (3, 4))
     for (a, b) in iter(nums) {
         a = a + b
         println("${a}")
@@ -9142,7 +9145,7 @@ fn tuples_past_three_emit_a_generated_class() {
 }
 
 // ===== union coercion inside arrays/tuples/lambda returns =====
-// [type-union] Elements of array/tuple literals and lambda tail returns
+// [type-union] Constructor arguments, tuple elements and lambda tail returns
 // receive expected types, so union wrapping is recorded and emitted.
 
 const NESTED_COERCION_DEMO: &str = r#"
@@ -9170,7 +9173,11 @@ fn describe(r: Result) -> Str {
 
 fn main() [use] -> None {
     use StdOutConsole
-    let arr: List<Result> = [tag_ok(1), tag_err("a")]
+    // [col-no-literal] A variadic constructor does not yet coerce
+    // differently-armed arguments into an explicit union `T`, so the second
+    // arm is coerced at its own binding.
+    let second: Result = tag_err("a")
+    let arr: List<Result> = List<Result>(tag_ok(1), second)
     for x in arr {
         println(describe(copy(x)))
     }
@@ -9196,10 +9203,11 @@ fn union_coercion_in_array_tuple_lambda() {
         .find(|f| f.rel_path.ends_with("main.kt"))
         .unwrap();
     for needle in [
-        // [col-literal] `[...]` builds a List now, so the coercion wrappers
-        // appear inside `listOf` rather than `arrayOf`.
-        "listOf<Union2<Int, String>>(Union2.U1<Int, String>(tagOk(1)), \
-         Union2.U2<Int, String>(tagErr(\"a\")))",
+        // [col-no-literal] `List<Result>(…)` lowers to `listOf`, with the
+        // coercion wrapper on the argument; the second arm is wrapped at its
+        // own binding.
+        "listOf<Union2<Int, String>>(Union2.U1<Int, String>(tagOk(1)), second)",
+        "Union2.U2<Int, String>(tagErr(\"a\"))",
         "Pair(\"t\", Union2.U1<Int, String>(tagOk(2)))",
         "Union2.U1<Int, String>(tagOk(3))",
     ] {
@@ -9761,7 +9769,7 @@ fn main() [use] -> None {
         }
     }
     let counted = try {
-        total(["ab", "cdefg"])
+        total(array_of("ab", "cdefg"))
     }
     when counted {
         is Ok {
@@ -10532,7 +10540,7 @@ actor effect Counting {
 // the frame is handed over, so a print here would race main's own.
 handler Tallying(label: Str) of Inbound, Counting {
     mailbox { capacity: 16 }
-    seen: Mut List<Str> = []
+    seen: Mut List<Str> = Mut List<Str>()
 
     send fn receive_frame(from: NodeEndpoint, frame: Bytes) => !from, !frame {
         seen.add("${label} <- ${to_str(from)}: ${str_of_bytes(frame) ?: "?"}")
@@ -10686,7 +10694,7 @@ fn main() [use] {
     let p = Pin {
         at: Point { x: -2, y: 5000000000 },
         label: "home",
-        tags: [Tag { name: "a" }, Tag { name: "bé" }],
+        tags: List(Tag { name: "a" }, Tag { name: "bé" }),
         kind: Square { side: 1.5 },
         raw: to_bytes("hi"),
         ok: true
@@ -10863,7 +10871,7 @@ fn main() [use, spawn] {
     use StdOutConsole()
     let a = NodeEndpoint { host: "a", port: 1 }
     let b = NodeEndpoint { host: "b", port: 1 }
-    let all = [copy(a), copy(b)]
+    let all = List(copy(a), copy(b))
     let net = spawn MemNetwork() on pool(1)
 
     // Node A: this one.
@@ -10902,9 +10910,9 @@ fn main() [use, spawn] {
     let x = NodeEndpoint { host: "x", port: 2 }
     let y = NodeEndpoint { host: "y", port: 2 }
     let z = NodeEndpoint { host: "z", port: 2 }
-    let gx = boot_node(copy(x), [copy(x)], copy(net2))
-    let gy = boot_node(copy(y), [copy(x)], copy(net2))
-    let gz = boot_node(copy(z), [copy(x)], copy(net2))
+    let gx = boot_node(copy(x), List(copy(x)), copy(net2))
+    let gy = boot_node(copy(y), List(copy(x)), copy(net2))
+    let gz = boot_node(copy(z), List(copy(x)), copy(net2))
     // Converging takes a few gossip rounds, and how long those take depends on
     // the machine's load: poll, bounded, rather than sleep a fixed time (a
     // fixed 500ms failed under a fully loaded fresh run, 2026-09-29).
@@ -11000,9 +11008,9 @@ fn kotlinc_compiles_and_runs_an_effect_typed_generic() -> KotlinCase {
 /// Rust-side borrow defect.
 const ELVIS_BORROW_DEMO: &str = r#"fn main() [use] {
     use StdOutConsole()
-    let xs: List<Int> = [3]
-    let names: List<Str> = ["ann"]
-    let m: Mut Map<Str, Int> = {}
+    let xs: List<Int> = List(3)
+    let names: List<Str> = List("ann")
+    let m: Mut Map<Str, Int> = Mut Map<Str, Int>()
     put(m, "a", 3)
     let a = get(xs, 0) ?: 10
     let b = get(m, "a") ?: 10
@@ -11117,7 +11125,7 @@ fn main() [use, spawn] {
     use MemTransport(copy(a), copy(net))
     let p = pool(1)
     let _c = connect(copy(a), copy(p))
-    let nodes = spawn StaticNodeGroup("demo", [copy(a)]) on p
+    let nodes = spawn StaticNodeGroup("demo", List(copy(a))) on p
     let pings = actor_group<Ping>(nodes)
     let one = spawn Pinging("one") on p in pings
     let (two, _admin) = spawn TwoFaced("two") on p in pings
@@ -11238,7 +11246,7 @@ fn main() [use, spawn] {
     let p = pool(2)
     let a = spawn Resizing("a") on p
     let b = spawn Resizing("b") on p
-    use RoundRobin([a, b])
+    use RoundRobin(List(a, b))
     println(thumbnail("cat.png"))
     println(thumbnail("dog.png"))
     println(thumbnail("owl.png"))
@@ -11281,14 +11289,14 @@ fn main() [use, spawn] {
     use MemTransport(copy(a), copy(net))
     let p = pool(1)
     let _connected = connect(copy(a), copy(p))
-    let nodes = spawn StaticNodeGroup("shop", [copy(a)]) on p
+    let nodes = spawn StaticNodeGroup("shop", List(copy(a))) on p
     let stock = actor_group<Inventory>(nodes)
     spawn Stocking("s1") on p in stock
     spawn Stocking("s2") on p in stock
 
     use Sharded<Inventory>()
     use route_any(stock)
-    checkout(["apple", "pear", "apple", "fig", "pear"])
+    checkout(List("apple", "pear", "apple", "fig", "pear"))
 }
 "#;
 
@@ -11337,7 +11345,7 @@ fn main() [use, spawn] {
     use StdOutConsole()
     let a = NodeEndpoint { host: "a", port: 1 }
     let b = NodeEndpoint { host: "b", port: 1 }
-    let all = [copy(a), copy(b)]
+    let all = List(copy(a), copy(b))
     let net = spawn MemNetwork() on pool(1)
     use MemTransport(copy(a), copy(net))
     let pa = pool(1)
@@ -11410,7 +11418,7 @@ fn main() [use, spawn] {
     use StdOutConsole()
     let a = NodeEndpoint { host: "a", port: 1 }
     let b = NodeEndpoint { host: "b", port: 1 }
-    let all = [copy(a), copy(b)]
+    let all = List(copy(a), copy(b))
     let net = spawn MemNetwork() on pool(1)
 
     use MemTransport(copy(a), copy(net))
@@ -11666,7 +11674,7 @@ fn main() [use] {
     // constructors claim `NonEmpty`, and a `List<NonEmpty List<Int>>` does not
     // fit a `List<List<Int>>` position (type arguments are invariant). A literal
     // claims nothing, which is what a nested plain list needs.
-    println("nested=${total_all([[1, 2], [3]])}")
+    println("nested=${total_all(List<List<Int>>(List(1, 2), List(3)))}")
     println("pair=${sum_pair(20, 22)}")
     println("lambda=${sum_pair(2, 3, add = (a: Int, b: Int) -> a * b)}")
 }
@@ -12822,7 +12830,7 @@ fn main() [use] {
     // (`NonEmpty List<Int>` [col-of-nonempty]) currently stops `It` binding
     // through the `?iter` position, and the sibling `next` at the nearer rung
     // then wins — an open defect, with this line as its repro (ROADMAP.md).
-    println("a list: ${total([1, 2, 3])}")
+    println("a list: ${total(List(1, 2, 3))}")
 }
 "#;
 
@@ -14347,7 +14355,7 @@ fn main() [use] {
     println("tally ${read()}")
     let xs: Mut List<Int> = mut_list_of()
     add@core.list(xs, 7)
-    let mapped = map(iter([1, 2, 3]), double)
+    let mapped = map(iter(List(1, 2, 3)), double)
     println("list ${size(xs)} mapped ${size(mapped)}")
     let mine = to_upper@Shout("hi")
     let theirs = to_upper@core.string("hi")
@@ -14998,7 +15006,7 @@ handler Counting() of Counter {
     // A faulted activation is what death *is* — there is no `kill`, and a
     // Salvo-level throw cannot cross a member boundary.
     send fn crash() {
-        let xs: List<Int> = [1]
+        let xs: List<Int> = List(1)
         sum = sum + get(xs, 9)!
     }
 }

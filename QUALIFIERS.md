@@ -185,19 +185,41 @@ callee simply fails to unify). Verified: `mut_map_of("a": 1, "b": 2)` →
 Note: `Map("a": 1)` as a *type-fn* needs a `fn Map<K,V>(...pairs:(K,V)[])`
 constructor in std — added in part B below (today std has only `map_of`).
 
-**Part B — retire `[...]`/`{...}` collection literals — NOT STARTED.** Delete
-`Expr::ArrayLit`/`SetLit`/`MapLit` (ast.rs ~1679), their parser producers
-(`parse_array_literal`, `parse_brace_collection`), their check.rs arms
-(~22483/22551/22617), `desugar_collection_literal` (~12137), the AST→IR arms
-(ir/build/body/exprs.rs ~71-99), the visit.rs/visit_mut.rs arms (~531/530),
-and the walks in desugar.rs/deduce.rs/lends.rs/reach.rs. Keep
-`ExprKind::List`/`Array` (the type-fn/variadic lowering still uses them).
-Add std type-fn constructors (`fn List`, `fn Mut List`, `fn Set`, `fn Mut Set`,
-`fn Map`, `fn Mut Set`, `fn Map`, `fn Mut Map`, `fn SortedSet`…) so the
-rewrites have a target, then sweep every `[...]`/`{...}` use in std, examples
-(source + narration + regenerated output), corpus, and the ~40 inline-`.sv`
-Rust test strings (see context-gatherer map). Large mechanical sweep — its own
-commit.
+**Part B — retire `[...]`/`{...}` collection literals — DONE (2026-10-12).**
+
+Design (chosen over wrappers): the type-fn collection constructors `List`,
+`Mut List`, `Set`, `Mut Set`, `Map`, `Mut Map`, `SortedSet`, `Mut SortedSet`,
+`SortedMap`, `Mut SortedMap` are **resolution-time aliases** of the existing
+`*_of` std fns, not new functions. `core_collection_type_fn_key(module,
+fn_name)` in resolve.rs maps each `*_of` (in its `core` module) to the
+canonical type-fn key, and `add_items` registers the decl under that key too.
+One implementation, one backend lowering; overloads, implicits and `+NonEmpty`
+establishment all preserved. Rejected a Salvo-level wrapper: a wrapper that
+spreads a `...rest: T[]` of a `canbe linear` T fails `[linear-container]`.
+
+Deleted: `Expr::ArrayLit`/`SetLit`/`MapLit` (ast.rs), their parser producers
+(`parse_array_literal`, `parse_brace_collection`), the `check_expr` arms +
+`desugar_collection_literal`/`collection_lit_ty`/`std_fn`/`concrete_elem`
+(check.rs), the AST→IR arms (exprs.rs), and the walk arms in
+visit/visit_mut/desugar/deduce/lends/reach/comptime. A `{...}` that is neither
+a struct literal nor a lambda now errors `[col-no-literal]`; `[...]` in
+expression position is a plain parse error.
+
+Swept: std (list/set/map/deque/heap/runtime tests, net.sv, routing.sv),
+examples (actors, cluster, collections incl. narration, files; all regenerated
+both backends), corpus, and ~165 inline-`.sv` test sites across the backend
+codegen, cli, and core test files (delegated). Identity-carrying cases pass
+`hash =`/`eq =`/`cmp =` named implicits. Spec: `[col-no-literal]` rule
+(replacing `[col-literal]`), docs/language/Collections.md rewritten + wiki
+synced.
+
+KNOWN LIMITATION (recorded in ROADMAP): a mixed-element list that the old
+literal inferred as a union — `[1, "a"]` → `List<Int | Str>` — does not work
+through the constructor (`List(1, "a")` fails overload resolution, since the
+`...rest: T[]` variadic unifies `T` against each arg and does not widen to a
+union). Build such a collection element-by-element, or type the first binding.
+The `*_of` fns always had this; the literals had bespoke `mk_union` checker
+logic that the constructors do not.
 
 ### Change 4 (provenance arm inference)
 - **Q4a. "Unambiguous" definition.** Exactly one arm whose provenance

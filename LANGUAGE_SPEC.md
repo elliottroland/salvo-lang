@@ -66,7 +66,7 @@ Conventions:
     surface by **dropping `Mut`** — free on both backends here, unlike
     `Mut Str` [str-drop-mut]. Constructors: `bytes_of(...)` (fixed) and
     `mut_bytes(...)` (a builder, empty or over given parts), mirroring
-    `mut_str`/`mut_list_of` [col-literal].
+    `mut_str`/`mut_list_of` [col-no-literal].
   * `slice` **copies**; nothing in the surface borrows, since a borrow would
     have to be stated in a deduction [proj-field]. Out-of-range reads answer
     `None` and `set` out of range does nothing (growing there would make it
@@ -572,7 +572,7 @@ Conventions:
     the unit value where the optional is wanted). Added 2026-10-12.
 * [type-array] `T[]` is an array; `arr[i]` is 0-indexed; size via
   `size()`. It has **no literal syntax and no generator syntax** since
-  2026-09-13 — `[1, 2, 3]` is a `List` [col-literal] — so `array_of(...)`
+  2026-09-13 — a list is `List(...)` [col-no-literal] — so `array_of(...)`
   and `array_by(n, init)` [col-by] are how one is built, and an array's
   remaining reason to exist is the variadic boundary (`...elems: T[]`).
   * The `Int[5] { i: Int -> 0 }` generator *form* was deleted with its
@@ -1050,8 +1050,8 @@ Conventions:
   `List<T>` reached the literal as `List<Unknown>`, looking concrete; the
   literal then adopted `Unknown` as its element type and discarded what its
   elements said. Both the argument's expected type and the element-type read
-  now treat `Unknown` as not concrete. An *empty* literal still needs its type
-  from the position, which is the rule this left standing [col-literal].
+  now treat `Unknown` as not concrete. An *empty* constructor still needs its
+  type from the position, which is the rule this left standing [col-no-literal].
 * [struct-literal-arg] **A bare generic struct literal determines its own type
   arguments from its field values** (fixed 2026-09-26): `unwrap(Box { value: 7 })`
   reads `T` off the field, where before it was "no matching overload for
@@ -1083,8 +1083,9 @@ Conventions:
     No per-arity monomorphisation of the body.
 * [col-to-str] `to_str` of a collection is **the language's format, not the
   target's**, and both backends emit the same string: `[1, 2, 3]` for a
-  list, `{1, 2, 3}` for a set, `{a: 1, b: 2}` for a map — the shape of the
-  literal that would build it [col-literal]. Elements appear in the
+  list, `{1, 2, 3}` for a set, `{a: 1, b: 2}` for a map — a fixed display
+  shape, independent of how the collection was built [col-no-literal].
+  Elements appear in the
   collection's own order ([col-insertion-order], or key order for the sorted
   pair).
   * Neither backend's native rendering is used, because they disagree with
@@ -1191,44 +1192,35 @@ Conventions:
   * A type variable is *not* checked at the declaration: like
     [linear-generics], the instantiation is where the key rule bites, which
     keeps generic code over keyed collections writable.
-* [col-literal] Each everyday collection has a literal, and each is sugar
-  for the matching constructor (user decisions 2026-09-12/13):
-  `[1, 2]` is `list_of`, `{1, 2}` is `set_of`, `{"a": 1}` is `map_of`.
-  * **Kinds are told apart inside the brace**: a brace lambda first
-    (`{ i: Int -> 0 }`), then a bare *struct* literal when the first entry
-    is `identifier:` — which is why a map key is an expression and
-    `{x: 1}` stays a struct literal — then `:` after the first element
-    means a map and its absence a set.
-  * **`{}` is an empty collection**, never an empty struct literal (a
-    fieldless struct is written with its name, `Finished {}`). Its kind
-    comes from the expected type, and the AST node is an empty `SetLit`
-    that the checker re-reads as a `Map`/`List` where the position says so
-    — so the emitters follow the *checked type*, not the node.
-  * **An empty literal needs a type from its position** — a `let`
-    annotation or the parameter it is passed to — and is an error
-    otherwise, naming both remedies. Overload probing therefore hands a
-    concrete expected type to literals as it does to nested calls.
-  * A literal **constructs**, so it adopts a `Mut` the position asks for
-    (`let ys: Mut List<Int> = [4, 5]`); no other qualifier is adopted,
-    since construction does not establish a claim [qual-constructive].
-  * A literal also adopts the position's **identity** [cmp-carry]: `let s:
-    Set<Str>(by_len, same_len) = {"ab"}` builds a set kept by those fns,
-    empty or not (2026-10-05; before, the literal was built with the
-    canonical identity and the slot pattern accepted it, so the value
-    silently hashed the host's way).
-  * **The checker resolves a set or map literal as that constructor call**
-    (2026-10-06, ROADMAP §0j step 7): `{a, b}` is `set_of(a, b)` (or
-    `mut_set_of` at a `Mut` position), `{k: v}` is `map_of((k, v))`, an empty
-    `{}` at a `Map` is `map_of()`. It records the constructor at the
-    literal's span, with its type arguments and its implicits filled from
-    the identities the literal's type carries, so a backend renders an
-    ordinary call (`literal_as_call`) and knows nothing of literals or
-    identities.
-  * Elements **move** into the literal [deduce-consume], and a linear one
-    is refused as it is in any composite [linear-composite].
-  * A bracket literal still types as an **array** where the position
-    expects one, which is what keeps a literal usable in a variadic
-    argument.
+* [col-no-literal] **Collections have no literal syntax** (user decision
+  2026-10-12, retiring the old `[col-literal]` forms). A collection is
+  built by its *type-named constructor* [fn-type-named], which resolves to
+  the same `*_of` std function the old literal desugared to:
+  * `List(1, 2, 3)` / `Mut List(1, 2, 3)` for a list (`list_of` /
+    `mut_list_of`), `Set("a", "b")` / `Mut Set(…)` for a set, `Map("a": 1,
+    "b": 2)` / `Mut Map(…)` for a map (the `k: v` pair-argument sugar
+    [col-pairs] fills the `(K, V)[]` variadic), and the `SortedSet` /
+    `SortedMap` pair for the ordered containers.
+  * **Empty is an overload, not a special form**: `List<Int>()`,
+    `Mut Set<Str>()`, `Map<Str, Int>()` — the no-argument constructor at
+    the element type the annotation or position gives it, exactly as the
+    `*_of` empty overloads work. There is no empty-brace `{}` collection.
+  * **Identity carries through named implicits**: a custom hash/eq/cmp is
+    passed as `Mut Set("x", hash = my_hash, eq = my_eq)` (or `cmp = …` for
+    the sorted containers), the implicit group members by name
+    [implicit-override], since there is no literal to adopt them from a
+    type annotation.
+  * The constructor **is** the `*_of` call: resolution aliases the
+    type-fn key to the existing declaration (its overloads, implicits and
+    `+NonEmpty` establishment intact), so one implementation and one
+    backend lowering serve both spellings and the emitters know nothing of
+    a "literal". Scoped to the `core` collection modules, so a user's own
+    `List`/`Set`/… wins by the ordinary scope ladder [fn-overload-scope].
+  * A `[...]` in expression position, or a `{...}` that is neither a
+    struct literal (`identifier:` / `Name {…}`) nor a brace lambda
+    (`{ i -> … }`), is a **parse error** naming the constructor form.
+  * An **array** (`T[]`, the variadic boundary) is still built with
+    `array_of(…)`; only the collection *literals* are gone.
 * [type-any-never] `Any` is the top type; `Never` is the bottom type
   (the type of `return`/`break`/`continue`), subtype of everything.
   * A *written* `Never` lowers to the bottom type, not to a nominal type
@@ -1361,7 +1353,8 @@ Conventions:
 * [struct-lit-shorthand] **A field may be written by its name alone** (user
   request 2026-10-05, noticeboard): `Person { name, age: 3 }` is `Person {
   name: name, age: 3 }`, the inverse of destructuring. Only after a type name:
-  a bare `{ name }` is a set literal [col-literal], and `{ name: … }` still
+  a bare `{ name }` with no type in front is a parse error now that collection
+  literals are retired [col-no-literal], and `{ name: … }` still
   needs its colon. The value is an ordinary read of the variable, so it moves
   as `name: name` would.
 * [struct-lit-infer] The struct literal's type annotation can be dropped

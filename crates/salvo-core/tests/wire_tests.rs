@@ -61,6 +61,13 @@ fn program(src: &str) -> (Program, Vec<FileDiagnostic>) {
         STD_PRELUDE.to_string(),
         true,
     );
+    // [fn-type-named] `List<T>()` resolves to `core.list`'s `list_of`.
+    sources.add(
+        "std/core/list.sv",
+        SourceSet::classify(Path::new("core/list.sv")).unwrap(),
+        "export intrinsic fn list_of<T>() [] -> List<T>\n".to_string(),
+        true,
+    );
     sources.add(
         "std/net.sv",
         SourceSet::classify(Path::new("net.sv")).unwrap(),
@@ -112,7 +119,7 @@ fn ordinary_data_encodes() {
         "{IMPORT}struct Tag {{ name: Str }}\n\
          struct Pin {{ x: Int, label: Str?, tags: List<Tag>, kind: Tag | Int | None, raw: Bytes }}\n\
          fn main() -> None {{\n    \
-         let p = Pin {{ x: 1, label: None, tags: [], kind: 2, raw: encode(3) }}\n    \
+         let p = Pin {{ x: 1, label: None, tags: List<Tag>(), kind: 2, raw: encode(3) }}\n    \
          let b = encode(p)\n    let _back = decode<Pin>(b)\n}}\n"
     ));
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");

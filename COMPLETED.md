@@ -138,7 +138,56 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
-### 2026-10-12 — A non-escaping `while true` is `Never` ([loop-never])
+### 2026-10-12 — Type-named constructors; collection literals retired ([fn-type-named], [col-pairs], [col-no-literal])
+
+Part of the seven-change qualifier/type-construction redesign (working doc
+QUALIFIERS.md). Three pieces landed this stretch, each its own commit:
+
+- **Type-named functions** [fn-type-named]: a capitalized callee is a type-fn
+  lookup — `Mut List(1, 2, 3)`, `List(…)`, `Heap List(…)`, `Ok(x)`. A decl
+  `fn Mut List<T>(…)` carries `FnDecl.type_name` and keys on a canonical name
+  joining the type's qualifiers and base with `_` (`Mut_List`), which the
+  backend spells directly. Rule (c): the return must carry the named base and
+  at least the named qualifiers (`check_type_named_fn`). `canbe` opts-in parse
+  on the type-fn's generics.
+
+- **Provenance constructors** are the base-less form: `fn Ok<T>(t) -> +Ok T`.
+  Key finding — a `-> +Q T` establishment parses into `f.constructs` (the
+  parser lifts the `+Q` out of the return), so a provenance type-fn is already
+  a `[qual-ctor-fn]` constructor and the same-file rule applies for free.
+  std/core/result.sv gained `Ok`/`Err` alongside lowercase `ok`/`err`.
+
+- **Key-value pair arguments** [col-pairs]: `k: v` at a call parses to a
+  2-tuple filling a `(K, V)[]` variadic (`Map("a": 1)`), all-or-nothing with
+  no positional/named mixing. Pure parser change — the checker/IR see ordinary
+  `Expr::Tuple` args.
+
+- **Collection literals retired** [col-no-literal], replacing `[col-literal]`
+  (user decision: full constructor set incl. sorted, `[...]` goes too, empty
+  via no-arg overloads). The constructors `List`/`Set`/`Map`/`SortedSet`/
+  `SortedMap` (+ `Mut` forms) are **resolution-time aliases** of the existing
+  `*_of` std fns — `core_collection_type_fn_key` in resolve.rs registers each
+  `*_of` under its canonical key, scoped to `core`. One implementation, one
+  backend lowering; overloads, implicits and `+NonEmpty` preserved. Chosen
+  over a Salvo wrapper, which can't forward a `canbe linear` variadic
+  (`[linear-container]`). Deleted `Expr::ArrayLit/SetLit/MapLit` and all their
+  check/IR/visitor/walk machinery; a stray `{...}`/`[...]` is now a parse
+  error naming the constructor form. Swept std, examples (regenerated both
+  backends), corpus, and ~165 inline test sites.
+
+- **Option explored and rejected**: Salvo-level wrapper functions over the
+  `*_of` (a `fn List<T>(…) { return list_of(…) }`). Rejected because spreading
+  a `...rest: T[]` of a `canbe linear` T from a fn *body* fails
+  `[linear-container]` — only a bodiless intrinsic may pass a linear variadic
+  through. The alias avoids a body entirely.
+
+- **Known limitation** (ROADMAP, "Recorded, not scheduled"): the constructor
+  does not infer a *union* element the way the literal did — `List(1, "a")`
+  fails where `[1, "a"]` inferred `List<Int | Str>`, because the variadic
+  unifies one `T`. The `*_of` always had this; the literals had bespoke
+  `mk_union` logic. Build element-by-element or type the binding.
+
+
 
 The `disk.sv` `put` body ends `while true { }` then dead code; the user wants
 the loop to be `Never` so the dead code is flagged and no return is required.

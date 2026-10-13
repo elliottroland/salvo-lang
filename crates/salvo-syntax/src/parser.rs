@@ -5962,7 +5962,6 @@ impl<'s> Parser<'s> {
                 self.no_struct = saved;
                 e
             }
-            TokenKind::LBracket => self.parse_array_literal(),
             TokenKind::LBrace => self.parse_brace_expr(),
             TokenKind::KwIf => self.parse_if(),
             TokenKind::KwWhen => self.parse_when(),
@@ -6021,12 +6020,11 @@ impl<'s> Parser<'s> {
             }
             let snap = self.snapshot();
             if let Some(ty) = self.parse_type_atom() {
-                // [col-literal] With a type name in front, `{}` is a
-                // fieldless struct literal (`Finished {}`) — the empty-brace
-                // collection reading applies only to a *bare* `{}`, which has
-                // no name to say what it builds.
+                // [col-no-literal] With a type name in front, `{}` is a
+                // fieldless struct literal (`Finished {}`). A bare `{}` with
+                // no name builds nothing — collection literals are retired.
                 // [struct-lit-shorthand] `Name { x, y }`: with a type name in
-                // front, a bare field name is `x: x` (bare, `{ x }` is a set).
+                // front, a bare field name is `x: x`.
                 let shorthand = matches!(self.peek_at(1).kind, TokenKind::Ident(_))
                     && matches!(self.peek_at(2).kind, TokenKind::Comma | TokenKind::RBrace);
                 let braced_body = self.at(&TokenKind::LBrace)
@@ -6067,16 +6065,16 @@ impl<'s> Parser<'s> {
     fn brace_is_struct_lit(&self) -> bool {
         debug_assert!(self.at(&TokenKind::LBrace));
         match &self.peek_at(1).kind {
-            // [col-literal] `{}` is an **empty collection literal**, not an
-            // empty struct literal: the collections are what people write
-            // empty, and a fieldless struct is written with its name
-            // (`Finished {}`). Its kind — Set or Map — comes from the
-            // expected type, and is an error where nothing supplies one.
+            // [col-no-literal] A bare `{}` is not a struct literal (a
+            // fieldless struct is written with its name, `Finished {}`), and
+            // collection literals are retired — so `parse_brace_expr` reports
+            // it rather than reading it as an empty collection.
             TokenKind::RBrace => false,
             TokenKind::Ellipsis => true,
             // [comptime-access] `{ [field]: … }` and `{ inline for … }` open a
             // struct literal only inside a compfn; elsewhere a `[` after `{`
-            // is a list inside a collection literal.
+            // has no meaning now that collection literals are retired
+            // [col-no-literal].
             TokenKind::LBracket => {
                 self.in_compfn
                     && (matches!(self.peek_at(2).kind, TokenKind::KwFor)
@@ -6206,30 +6204,12 @@ impl<'s> Parser<'s> {
     }
 
     /// `[1, 2, 3]`
-    fn parse_array_literal(&mut self) -> Option<Expr> {
-        let start = self.expect(&TokenKind::LBracket)?.span;
-        self.group_depth += 1;
-        let mut elems = Vec::new();
-        while !self.at(&TokenKind::RBracket) && !self.at_eof() {
-            let Some(e) = self.parse_expr() else {
-                self.group_depth -= 1;
-                return None;
-            };
-            elems.push(e);
-            if self.eat(&TokenKind::Comma).is_none() {
-                break;
-            }
-        }
-        self.group_depth -= 1;
-        let end = self.expect(&TokenKind::RBracket)?.span;
-        Some(Expr::ArrayLit {
-            elems,
-            span: start.to(end),
-        })
-    }
-
     /// A `{` in expression position: either a bare struct literal
     /// (`{name: ..., age: ...}`) or a brace lambda (`{ i: Int -> 0 }`).
+    /// Collection literals are retired [col-no-literal]: a collection is
+    /// built with its type-named constructor (`List(1, 2)`, `Set("a")`,
+    /// `Map("k": v)`), so a brace that is neither a lambda nor a struct
+    /// literal is a parse error here.
     fn parse_brace_expr(&mut self) -> Option<Expr> {
         if let Some(lambda) = {
             let snap = self.snapshot();
@@ -6246,92 +6226,17 @@ impl<'s> Parser<'s> {
         if self.brace_is_struct_lit() {
             return self.parse_struct_lit_body(None);
         }
-        // [col-literal] A brace collection: `{1, 2}` is a Set and
-        // `{"a": 1}` a Map. Reached only after the two older forms have been
-        // ruled out, which is what keeps `{x: 1}` a bare struct literal and
-        // `{ i: Int -> 0 }` a lambda — a map key is therefore an expression
-        // that is not a bare identifier.
-        self.parse_brace_collection()
-    }
-
-    /// `{1, 2, 3}` (Set) or `{"a": 1, "b": 2}` (Map), told apart by whether
-    /// a `:` follows the first element.
-    fn parse_brace_collection(&mut self) -> Option<Expr> {
-        let start = self.expect(&TokenKind::LBrace)?.span;
-        // [col-literal] `{}` — the kind is the expected type's to decide, so
-        // it parses as an empty Set literal and the checker reads the
-        // position (a `Map` there is equally an empty map).
-        if self.at(&TokenKind::RBrace) {
-            let end = self.bump().span;
-            return Some(Expr::SetLit {
-                elems: Vec::new(),
-                span: start.to(end),
-            });
-        }
-        self.group_depth += 1;
-        let first = match self.parse_expr() {
-            Some(e) => e,
-            None => {
-                self.group_depth -= 1;
-                return None;
-            }
-        };
-        if self.eat(&TokenKind::Colon).is_some() {
-            // A map: the first `:` decides, and every entry needs one.
-            let Some(value) = self.parse_expr() else {
-                self.group_depth -= 1;
-                return None;
-            };
-            let mut entries = vec![(first, value)];
-            while self.eat(&TokenKind::Comma).is_some() {
-                if self.at(&TokenKind::RBrace) {
-                    break;
-                }
-                let Some(k) = self.parse_expr() else {
-                    self.group_depth -= 1;
-                    return None;
-                };
-                if self.eat(&TokenKind::Colon).is_none() {
-                    let span = self.peek().span;
-                    self.error(
-                        "expected `:` after a map literal's key — a `{...}` \
-                         whose first entry has one is a map, so every entry \
-                         needs a value",
-                        span,
-                    );
-                    self.group_depth -= 1;
-                    return None;
-                }
-                let Some(v) = self.parse_expr() else {
-                    self.group_depth -= 1;
-                    return None;
-                };
-                entries.push((k, v));
-            }
-            self.group_depth -= 1;
-            let end = self.expect(&TokenKind::RBrace)?.span;
-            return Some(Expr::MapLit {
-                entries,
-                span: start.to(end),
-            });
-        }
-        let mut elems = vec![first];
-        while self.eat(&TokenKind::Comma).is_some() {
-            if self.at(&TokenKind::RBrace) {
-                break;
-            }
-            let Some(e) = self.parse_expr() else {
-                self.group_depth -= 1;
-                return None;
-            };
-            elems.push(e);
-        }
-        self.group_depth -= 1;
-        let end = self.expect(&TokenKind::RBrace)?.span;
-        Some(Expr::SetLit {
-            elems,
-            span: start.to(end),
-        })
+        // [col-no-literal] Neither a lambda nor a struct literal. The old
+        // brace-collection reading is gone; point at the constructor form.
+        let span = self.peek().span;
+        self.error(
+            "a `{...}` here is neither a struct literal nor a lambda. Collection \
+             literals are retired: build a collection with its constructor — \
+             `List(1, 2, 3)`, `Set(\"a\", \"b\")`, `Map(\"k\": v)` (or the `Mut`, \
+             `Sorted…` variants) [col-no-literal]",
+            span,
+        );
+        None
     }
 
     /// `{ i: Int -> 0 }` — a Kotlin-style brace lambda. Returns `None`

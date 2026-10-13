@@ -1388,6 +1388,18 @@ it would save only the cheap transcription and inherit every coupling of the
 Each was considered and deliberately parked. Nothing here is blocking, and
 several are "revisit only if a customer appears".
 
+- **A mixed-element collection constructor that infers a union element**
+  (found 2026-10-12, while retiring collection literals). The old literal
+  `[1, "a"]` inferred `List<Int | Str>` via bespoke `mk_union` checker logic.
+  The replacement constructor `List(1, "a")` goes through the `...rest: T[]`
+  variadic, which unifies `T` against each argument and does not widen to a
+  union, so it fails overload resolution even with an explicit
+  `List<Int | Str>` annotation. Build such a collection element-by-element
+  (`add`), or type the first binding to the union. If this proves common,
+  options: a variadic that unions its argument types under an explicit union
+  element type, or a dedicated multi-type constructor. The `*_of` fns always
+  had this limitation; only the literals papered over it.
+
 - **The whole program in the host project** (user, 2026-10-01; ABI D4).
   The alternative to generating only the declarations the platform surface
   reaches: write the entire emitted program into the platform root as

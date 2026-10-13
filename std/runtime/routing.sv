@@ -204,7 +204,7 @@ handler Routes() of RouteTable {
     task_keys: Mut List<Long> = mut_list_of()
     tasks: Mut List<ExportedTask> = mut_list_of()
     controls: Mut Map<ControlKey, Int> = mut_map_of()
-    local: List<(Str, Str)> = []
+    local: List<(Str, Str)> = List<(Str, Str)>()
     peers: Mut Map<Long, List<(Str, Str)>> = mut_map_of()
     dead_entry: Int = -1
     credit_waiters: Mut List<Parker> = mut_list_of()
@@ -470,7 +470,7 @@ handler Routes() of RouteTable {
         if v is List<Int> found {
             return copy(found)
         }
-        return []
+        return List<Int>()
     }
 
     fn version_of(group: Int) -> Long => group {

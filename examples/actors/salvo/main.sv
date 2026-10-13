@@ -140,7 +140,7 @@ handler Breaking() of Fragile {
     mailbox { capacity: 1 }
 
     send fn crash() {
-        let empty: List<Int> = []
+        let empty: List<Int> = List<Int>()
         // Reading past the end answers `None`; asserting it is the fault.
         let boom = get(empty, 7)!
         discard(boom)

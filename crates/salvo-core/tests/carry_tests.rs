@@ -843,9 +843,9 @@ fn a_written_lend_still_links_the_source_it_names() {
     );
 }
 
-// ===== [col-literal] a bare literal determines a type argument =====
+// ===== [col-no-literal] a bare literal determines a type argument =====
 
-/// [col-literal] A bare collection literal as an argument determines the
+/// [col-no-literal] A bare collection constructor as an argument determines the
 /// callee's type parameter (defect closed 2026-09-25). The cause was subtle
 /// enough to pin: substituting an **unbound** variable yields `Unknown`, so the
 /// parameter pattern `List<T>` arrived at the literal looking concrete
@@ -858,22 +858,23 @@ fn a_bare_literal_argument_determines_a_type_argument() {
     let errs = std_errors(
         "fn main() [use] -> None {\n    \
          use StdOutConsole()\n    \
-         let a = to_set([1, 2])\n    \
-         let b = to_list({3, 4})\n    \
-         let c = to_set([\"x\", \"y\"])\n    \
+         let a = to_set(List(1, 2))\n    \
+         let b = to_list(Set(3, 4))\n    \
+         let c = to_set(List(\"x\", \"y\"))\n    \
          println(\"${size(a)} ${size(b)} ${size(c)}\")\n}\n",
     );
     assert!(errs.is_empty(), "expected a clean check, got {errs:?}");
 }
 
-/// …and the diagnostic still fires where nothing *can* determine the argument,
-/// which is the rule the fix had to leave standing [col-literal].
+/// …and the diagnostic still fires where nothing *can* determine the argument
+/// (an empty `List()`),
+/// which is the rule the fix had to leave standing [col-no-literal].
 #[test]
 fn an_empty_literal_argument_still_needs_its_type() {
     let errs = std_errors(
         "fn main() [use] -> None {\n    \
          use StdOutConsole()\n    \
-         let a = to_set([])\n    \
+         let a = to_set(List())\n    \
          println(\"${size(a)}\")\n}\n",
     );
     assert!(

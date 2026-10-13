@@ -432,17 +432,7 @@ impl<'p> Walk<'_, '_, 'p> {
             | Expr::Lambda { .. }
             | Expr::While { .. }
             | Expr::For { .. } => Some(HashSet::new()),
-            Expr::MapLit { entries, .. } => {
-                let mut out = HashSet::new();
-                for (k, v) in entries {
-                    out.extend(self.lends_of_expr(k)?);
-                    out.extend(self.lends_of_expr(v)?);
-                }
-                Some(out)
-            }
-            Expr::ArrayLit { elems, .. }
-            | Expr::SetLit { elems, .. }
-            | Expr::Tuple { elems, .. } => {
+            Expr::Tuple { elems, .. } => {
                 let mut out = HashSet::new();
                 for e in elems {
                     out.extend(self.lends_of_expr(e)?);

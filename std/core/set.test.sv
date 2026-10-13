@@ -29,7 +29,7 @@ test "a set iterates in insertion order, and a re-added element goes last" {
 
 test "a duplicate in a constructor or a literal collapses" {
     let a = set_of(2, 1, 2)
-    let b = {"x", "y", "x"}
+    let b = Set("x", "y", "x")
     expect_eq("${a} ${size(a)}", "{2, 1} 2")
     expect_eq("${b}", "{x, y}")
 }
@@ -54,7 +54,7 @@ test "removing many keeps the rest findable and in order" {
 }
 
 test "a custom identity keys the set" {
-    let s: Mut Set<Str>(fold_hash, fold_eq) = {"Ab"}
+    let s: Mut Set<Str>(fold_hash, fold_eq) = Mut Set("Ab", hash = fold_hash, eq = fold_eq)
     expect(!add(s, "aB"), "equal under the fold")
     expect(contains(s, "AB"), "found under the fold")
     expect_eq(size(s), 1)
@@ -64,12 +64,12 @@ test "a set built concretely is found through a generic call, and back" {
     let s = mut_set_of("a")
     expect(add_generic(s, "b"), "added generically")
     expect(contains(s, "b") && contains_generic(s, "a"), "both paths agree")
-    let f: Mut Set<Str>(fold_hash, fold_eq) = {"Q"}
+    let f: Mut Set<Str>(fold_hash, fold_eq) = Mut Set("Q", hash = fold_hash, eq = fold_eq)
     expect(!add_generic(f, "q"), "the generic path keeps the custom identity")
 }
 
 test "to_set and set_by keep first-appearance order" {
-    expect_eq("${to_set([3, 3, 1, 2, 1])}", "{3, 1, 2}")
+    expect_eq("${to_set(List(3, 3, 1, 2, 1))}", "{3, 1, 2}")
     expect_eq("${set_by(4, i -> i % 2)}", "{0, 1}")
 }
 

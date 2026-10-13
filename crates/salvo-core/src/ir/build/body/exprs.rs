@@ -68,37 +68,6 @@ impl<'a, 'p> Lower<'a, 'p> {
                 }
             }
             AExpr::Call { callee, type_args: _, args, named, .. } => self.call(callee, args, named, span),
-            AExpr::ArrayLit { elems, .. } => {
-                let ty = self.ty_of(span);
-                let es: Vec<Expr> = elems.iter().map(|x| self.expr(x)).collect();
-                let kind = if matches!(ty.strip_quals(), Ty::Array(_)) { ExprKind::Array(es) } else { ExprKind::List(es) };
-                Expr { ty, span, kind }
-            }
-            AExpr::SetLit { .. } | AExpr::MapLit { .. } => {
-                // [col-literal] resolved as a constructor call at the literal's span.
-                match self.ctx.checked.call_fn.get(&self.key(span)).copied() {
-                    Some(k) => {
-                        let decl = self.ctx.fn_by_key(k);
-                        let elems: Vec<AExpr> = match e {
-                            AExpr::SetLit { elems, .. } => elems.clone(),
-                            AExpr::MapLit { entries, .. } => entries
-                                .iter()
-                                .map(|(k, v)| AExpr::Tuple { elems: vec![k.clone(), v.clone()], span: Span::new(k.span().start, v.span().end) })
-                                .collect(),
-                            _ => unreachable!(),
-                        };
-                        let refs: Vec<&AExpr> = elems.iter().collect();
-                        let type_args = self.type_args_of(span);
-                        let mut all = self.args_for(decl.map(|d| Callee::Fn(k, d)), &refs, span);
-                        all.extend(self.implicit_args_at(span));
-                        Expr { ty: self.ty_of(span), span, kind: ExprKind::Call { target: FnRef::Decl(self.ctx.decl_id(k)), type_args, args: all } }
-                    }
-                    None => {
-                        self.error(span, "collection literal without a resolved constructor");
-                        unsupported(self.ty_of(span), span, "collection literal")
-                    }
-                }
-            }
             AExpr::Tuple { elems, .. } => {
                 let es: Vec<Expr> = elems.iter().map(|x| self.expr(x)).collect();
                 let mut ty = self.ty_of(span);

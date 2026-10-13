@@ -49,24 +49,26 @@ fn count_unique(xs: Distinct List<Int>) [] -> Int => xs {
 fn main() [use] -> None {
     use StdOutConsole()
 
-    // ===== 1. the literals =====
+    // ===== 1. the constructors =====
     //
-    // Brackets build a *list*; braces build a set, or a map when the entries
-    // have values. `Mut` on the position asks for a mutable one, and an empty
-    // literal takes its type from where it is going.
-    let primes = [2, 3, 5, 7]
-    let vowels = {"a", "e", "i", "o", "u"}
-    let ages = {"ada": 36, "grace": 45}
+    // Each collection is built by a constructor named after its type:
+    // `List(...)` builds a list, `Set(...)` a set, `Map(k: v, ...)` a map.
+    // `Mut` in the name asks for a mutable one, and an empty collection is
+    // the constructor with no arguments at the type the position gives it.
+    let primes = List(2, 3, 5, 7)
+    let vowels = Set("a", "e", "i", "o", "u")
+    let ages = Map("ada": 36, "grace": 45)
     println("1. list ${to_str(primes)}")
     println("1. set ${to_str(vowels)} of ${size(vowels)}")
     println("1. map ${to_str(ages)}")
 
-    // A brace whose first entry is `name:` is a *struct* literal — which is
-    // why a map key is an expression, not a bare name.
+    // A brace whose first entry is `name:` is a *struct* literal — the one
+    // brace form that remains, which is why a map takes its entries as `k: v`
+    // *arguments* and a struct takes `name:` *fields*.
     let note: Note = {text: "still a struct literal"}
     println("1. struct ${note.text}")
 
-    let seen: Mut Set<Str> = {}
+    let seen: Mut Set<Str> = Mut Set<Str>()
     add(seen, "first")
     println("1. empty then filled ${to_str(seen)}")
 
@@ -75,14 +77,14 @@ fn main() [use] -> None {
     // A `Set`/`Map` iterates in *insertion* order, on both backends — Rust's
     // own hash containers have no order at all, so the backend ships one.
     // Overwriting a key keeps its position; removing one leaves the rest.
-    let tally: Mut Map<Str, Int> = mut_map_of(("pear", 1), ("apple", 2))
+    let tally: Mut Map<Str, Int> = Mut Map("pear": 1, "apple": 2)
     put(tally, "fig", 3)
     put(tally, "pear", 99)
     println("2. insertion order kept ${to_str(tally)}")
 
     // The sorted pair is ordered by its keys instead. Separate types, not a
     // qualifier: sortedness changes behaviour, so it must not be droppable.
-    let ranked: Mut SortedSet<Str> = mut_sorted_set_of("pear", "apple", "fig")
+    let ranked: Mut SortedSet<Str> = Mut SortedSet("pear", "apple", "fig")
     println("2. key order ${to_str(ranked)}")
     let smallest = min(ranked)
     if smallest is Str {
@@ -94,12 +96,12 @@ fn main() [use] -> None {
     // A struct with a `hash` and an `eq` is a set element and a map key by
     // value: two
     // equal points are the same key.
-    let corners: Mut Set<Point> = {}
+    let corners: Mut Set<Point> = Mut Set<Point>()
     add(corners, Point { x: 0, y: 0 })
     let again = add(corners, Point { x: 0, y: 0 })
     println("3. struct key: size ${size(corners)}, second add ${again}")
 
-    let labels: Mut Map<Point, Str> = {}
+    let labels: Mut Map<Point, Str> = Mut Map<Point, Str>()
     put(labels, Point { x: 1, y: 1 }, "diagonal")
     let found = get(labels, Point { x: 1, y: 1 })
     if found is Str {
@@ -125,7 +127,7 @@ fn main() [use] -> None {
     println("5. generated ${to_str(squares)}")
     let deduped = to_set(primes)
     println("5. to_set ${to_str(deduped)}")
-    let words = ["alpha", "be"]
+    let words = List("alpha", "be")
     let lengths = to_map(words, w -> (w, size(w)))
     println("5. to_map with a rule ${to_str(lengths)}")
 

@@ -826,7 +826,7 @@ fn fate_copy_produces_independent_values() {
          fn independent() -> Int {\n    let xs = mut_list_of(1)\n    let ys = copy(xs)\n    \
          add(xs, 2)\n    add(ys, 3)\n    return size(ys) + size(xs)\n}\n\n\
          fn main() [use] {\n    use StdOutConsole\n    \
-         println(longest_name([Person {name: \"a\"}]))\n    println(\"${independent()}\")\n}\n",
+         println(longest_name(array_of(Person {name: \"a\"})))\n    println(\"${independent()}\")\n}\n",
     )
     .unwrap();
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
@@ -928,7 +928,7 @@ fn l2_move_sites_consume_roots() {
          fn greet() -> Str {\n        return \"hi\"\n    }\n}\n\n\
          fn read(s: Str) -> None => s {\n}\n\n\
          fn tuple_store() {\n    let s = \"x\"\n    let t = (s, 1)\n    read(s)\n}\n\n\
-         fn array_store() {\n    let s = \"x\"\n    let a = [s]\n    read(s)\n}\n\n\
+         fn list_store() {\n    let s = \"x\"\n    let a = List(s)\n    read(s)\n}\n\n\
          fn struct_store() {\n    let s = \"x\"\n    let b = Box {item: s}\n    read(s)\n}\n\n\
          fn spread_store() {\n    let b = Box {item: \"x\"}\n    let c = Box {...b}\n    \
          read(b.item)\n}\n\n\
@@ -945,12 +945,18 @@ fn l2_move_sites_consume_roots() {
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success());
-    // Literal stores (tuple, array, struct) each consume `s`.
+    // Literal stores (tuple, struct) each consume `s`.
     assert_eq!(
         stderr
             .matches("`s` cannot be used here: it was consumed (moved) by a literal store")
             .count(),
-        3,
+        2,
+        "stderr: {stderr}"
+    );
+    // [col-no-literal] A list is built by a constructor call now, and
+    // `list_of` consumes its elements like any `!` parameter.
+    assert!(
+        stderr.contains("`s` cannot be used here: it was consumed (moved) by an earlier call"),
         "stderr: {stderr}"
     );
     // Spread consumes its base.
@@ -1002,7 +1008,7 @@ fn l2_move_sites_remedies_stay_clean() {
          fn greet() -> Str {\n        return \"hi\"\n    }\n}\n\n\
          fn read(s: Str) -> None => s {\n}\n\n\
          fn copy_remedies() [use] {\n    let s = \"x\"\n    \
-         let t = (copy(s), 1)\n    let a = [copy(s)]\n    \
+         let t = (copy(s), 1)\n    let a = List(copy(s))\n    \
          let b = Box {item: copy(s)}\n    let c = Box {...copy(b)}\n    \
          use FixedGreeter(copy(s))\n    read(s)\n    read(b.item)\n}\n\n\
          fn revive() {\n    let s = \"x\"\n    let t = (s, 1)\n    s = \"y\"\n    read(s)\n}\n\n\
@@ -2333,7 +2339,7 @@ fn a_spare_lend_on_an_opaque_slot_warns_once() {
             "fn total<C, It, T>(c: C, ?iter: {slot}, ?Yield<It, T>) -> Int\n=> c {{\n    \
              let n = 0\n    for _ in iter(c) {{\n        n = n + 1\n    }}\n    return n\n}}\n\n\
              fn main() [use] -> None {{\n    use StdOutConsole()\n    \
-             println(\"${{total([\"a\", \"b\"])}}\")\n}}\n"
+             println(\"${{total(List(\"a\", \"b\"))}}\")\n}}\n"
         )
     };
 
@@ -2373,7 +2379,7 @@ fn a_spare_lend_on_an_opaque_slot_warns_once() {
          => xs {\n    let n = 0\n    for _ in iter(xs) {\n        n = n + 1\n    }\n    \
          return n\n}\n\n\
          fn main() [use] -> None {\n    use StdOutConsole()\n    \
-         println(\"${walk([1, 2, 3])}\")\n}\n",
+         println(\"${walk(List(1, 2, 3))}\")\n}\n",
     )
     .unwrap();
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);

@@ -9,7 +9,7 @@ import core.Str
 intrinsic fn copy<T>(value: T) [] -> T => value
 
 fn chars(str: Str) [] -> Char[] => str {
-    return []
+    return array_of<Char>()
 }
 
 fn complicated_func<T>(list: List<T>) [] -> Str => list {

@@ -528,19 +528,10 @@ pub fn walk_expr<V: Visitor>(v: &mut V, e: &Expr) {
             walk_expr(v, base);
             walk_expr(v, index);
         }
-        Expr::ArrayLit { elems, span }
-        | Expr::SetLit { elems, span }
-        | Expr::Tuple { elems, span } => {
+        Expr::Tuple { elems, span } => {
             v.visit_span(span);
             for e in elems {
                 walk_expr(v, e);
-            }
-        }
-        Expr::MapLit { entries, span } => {
-            v.visit_span(span);
-            for (k, val) in entries {
-                walk_expr(v, k);
-                walk_expr(v, val);
             }
         }
         Expr::StructLit { ty, fields, span } => {

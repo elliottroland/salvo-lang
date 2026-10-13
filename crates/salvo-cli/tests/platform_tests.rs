@@ -493,7 +493,7 @@ fn main() [use] {
     let label = "late"
     println(call(() -> "${label} ran"))
     let why = run_guarded(() -> {
-        let xs: List<Int> = []
+        let xs: List<Int> = List<Int>()
         let _x = get(xs, 3)!
     })
     println("faulted: ${!(why is None)}")

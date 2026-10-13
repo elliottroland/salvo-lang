@@ -1463,19 +1463,9 @@ impl Rewrite {
                 self.expr(base);
                 self.expr(index);
             }
-            Expr::ArrayLit { elems, .. }
-            | Expr::SetLit { elems, .. }
-            | Expr::Tuple { elems, .. } => {
+            Expr::Tuple { elems, .. } => {
                 for elem in elems {
                     self.expr(elem);
-                }
-            }
-            // [col-literal] A map literal's keys and values are both
-            // ordinary expressions.
-            Expr::MapLit { entries, .. } => {
-                for (k, v) in entries {
-                    self.expr(k);
-                    self.expr(v);
                 }
             }
             Expr::StructLit { fields, .. } => {
@@ -1821,18 +1811,9 @@ fn collect_shadowing(body: &Block, reserved: &[&Ident], out: &mut Vec<(String, S
                 walk_expr(base, reserved, out);
                 walk_expr(index, reserved, out);
             }
-            Expr::ArrayLit { elems, .. }
-            | Expr::SetLit { elems, .. }
-            | Expr::Tuple { elems, .. } => {
+            Expr::Tuple { elems, .. } => {
                 for elem in elems {
                     walk_expr(elem, reserved, out);
-                }
-            }
-            // [col-literal] Keys and values are ordinary expressions.
-            Expr::MapLit { entries, .. } => {
-                for (k, v) in entries {
-                    walk_expr(k, reserved, out);
-                    walk_expr(v, reserved, out);
                 }
             }
             Expr::StructLit { fields, .. } => {
@@ -2273,15 +2254,9 @@ fn walk_expr_with(expr: &Expr, on_stmt: &mut dyn FnMut(&Stmt), on_expr: &mut dyn
             e(base);
             e(index);
         }
-        Expr::ArrayLit { elems, .. } | Expr::SetLit { elems, .. } | Expr::Tuple { elems, .. } => {
+        Expr::Tuple { elems, .. } => {
             for x in elems {
                 e(x);
-            }
-        }
-        Expr::MapLit { entries, .. } => {
-            for (k, v) in entries {
-                e(k);
-                e(v);
             }
         }
         Expr::StructLit { fields, .. } => {

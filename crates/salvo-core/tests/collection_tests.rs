@@ -270,7 +270,7 @@ fn a_fn_typed_local_outranks_a_same_named_effect_member() {
 }
 
 
-// ===== literals [col-literal] =====
+// ===== literals [col-no-literal] =====
 
 /// The prelude above plus what the literals need: `list_of` for the bracket
 /// form, and a struct to keep the bare-struct-literal reading honest.
@@ -331,6 +331,35 @@ const AUTO_PRELUDE: &str = concat!(
     "    }\n    return h\n}\n",
 );
 
+/// [fn-type-named] The collection constructors the type-named spellings
+/// (`List(…)`, `Mut Set(…)`, `Map("k": v)`) resolve to, each in the `core`
+/// module that owns it, as std declares them.
+const LIT_CONSTRUCTORS: &[(&str, &str)] = &[
+    (
+        "core/list.sv",
+        concat!(
+            "export intrinsic fn list_of<T>() [] -> List<T>\n",
+            "export intrinsic fn list_of<T>(first: T, ...rest: T[]) [] -> List<T> => !first\n",
+            "export intrinsic fn mut_list_of<T>() [] -> Mut List<T>\n",
+            "export intrinsic fn mut_list_of<T>(first: T, ...rest: T[]) [] -> Mut List<T> => !first\n",
+        ),
+    ),
+    (
+        "core/set.sv",
+        concat!(
+            "export intrinsic fn set_of<T>(...elems: T[], ?Hashed<T>) [] -> Set<T>(?hash, ?eq)\n",
+            "export intrinsic fn mut_set_of<T>(...elems: T[], ?Hashed<T>) [] -> Mut Set<T>(?hash, ?eq)\n",
+        ),
+    ),
+    (
+        "core/map.sv",
+        concat!(
+            "export intrinsic fn map_of<K, V>(...entries: (K, V)[], ?Hashed<K>) [] -> Map<K, V>(?hash, ?eq)\n",
+            "export intrinsic fn mut_map_of<K, V>(...entries: (K, V)[], ?Hashed<K>) [] -> Mut Map<K, V>(?hash, ?eq)\n",
+        ),
+    ),
+];
+
 fn lit_checked(src: &str) -> salvo_core::Checked {
     let mut sources = SourceSet::default();
     sources.add(
@@ -339,6 +368,14 @@ fn lit_checked(src: &str) -> salvo_core::Checked {
         LIT_PRELUDE.to_string(),
         true,
     );
+    for (path, text) in LIT_CONSTRUCTORS {
+        sources.add(
+            &format!("std/{path}"),
+            SourceSet::classify(Path::new(path)).unwrap(),
+            text.to_string(),
+            true,
+        );
+    }
     sources.add(
         "std/core/auto.sv",
         SourceSet::classify(Path::new("core/auto.sv")).unwrap(),
@@ -386,24 +423,24 @@ fn lit_messages(src: &str) -> Vec<String> {
         .collect()
 }
 
-/// [col-literal] The three literal forms type as their collections, and a
-/// `Mut` position is adopted by the literal.
+/// [col-no-literal] [fn-type-named] The three constructor forms type as their
+/// collections, and `Mut` on the type name builds the mutable one.
 #[test]
 fn the_literals_type_as_their_collections() {
     let msgs = lit_messages(
         "fn probe() -> Int {\n    \
-         let xs: List<Int> = [1, 2]\n    \
-         let s: Set<Str> = {\"a\", \"b\"}\n    \
-         let m: Map<Str, Int> = {\"a\": 1}\n    \
-         let ms: Mut Set<Int> = {1}\n    \
-         let mm: Mut Map<Str, Int> = {\"a\": 1}\n    \
-         let mxs: Mut List<Int> = [3]\n    \
+         let xs: List<Int> = List(1, 2)\n    \
+         let s: Set<Str> = Set(\"a\", \"b\")\n    \
+         let m: Map<Str, Int> = Map(\"a\": 1)\n    \
+         let ms: Mut Set<Int> = Mut Set(1)\n    \
+         let mm: Mut Map<Str, Int> = Mut Map(\"a\": 1)\n    \
+         let mxs: Mut List<Int> = Mut List(3)\n    \
          return size(xs) + size(s) + size(m) + size(ms) + size(mm) + size(mxs)\n}\n",
     );
     assert!(msgs.is_empty(), "expected no errors, got: {msgs:?}");
 }
 
-/// [col-literal] A brace whose first entry is `identifier:` is still a bare
+/// [col-no-literal] A brace whose first entry is `identifier:` is still a bare
 /// **struct** literal — which is what makes a map key an expression rather
 /// than a name.
 #[test]
@@ -415,7 +452,7 @@ fn an_identifier_key_is_still_a_struct_literal() {
     assert!(msgs.is_empty(), "expected no errors, got: {msgs:?}");
 }
 
-/// [col-literal] A *named* fieldless struct literal keeps working: only a
+/// [col-no-literal] A *named* fieldless struct literal keeps working: only a
 /// **bare** `{}` is an empty collection.
 #[test]
 fn a_named_fieldless_struct_literal_still_parses() {
@@ -426,15 +463,16 @@ fn a_named_fieldless_struct_literal_still_parses() {
     assert!(msgs.is_empty(), "expected no errors, got: {msgs:?}");
 }
 
-/// [col-literal] An empty literal takes its type from the position — and
-/// says so when there is none.
+/// [col-no-literal] [fn-type-named] An empty constructor takes its element type
+/// from its type arguments or from the position — and says so when there is
+/// none.
 #[test]
 fn an_empty_literal_needs_its_type_from_the_position() {
-    // From a `let` annotation, either kind.
+    // From the constructor's own type arguments, either kind.
     let ok = lit_messages(
         "fn probe() -> Int {\n    \
-         let s: Set<Int> = {}\n    let m: Map<Str, Int> = {}\n    \
-         let xs: List<Int> = []\n    \
+         let s: Set<Int> = Set<Int>()\n    let m: Map<Str, Int> = Map<Str, Int>()\n    \
+         let xs: List<Int> = List<Int>()\n    \
          return size(s) + size(m) + size(xs)\n}\n",
     );
     assert!(ok.is_empty(), "expected no errors, got: {ok:?}");
@@ -442,49 +480,48 @@ fn an_empty_literal_needs_its_type_from_the_position() {
     // From a parameter type.
     let via_param = lit_messages(
         "fn takes(s: Set<Int>) -> Int => s {\n    return size(s)\n}\n\n\
-         fn probe() -> Int {\n    return takes({})\n}\n",
+         fn probe() -> Int {\n    return takes(Set())\n}\n",
     );
     assert!(via_param.is_empty(), "expected no errors, got: {via_param:?}");
 
     // With nothing to say what it is, an error naming the remedies.
-    let bare = lit_messages("fn probe() -> Int {\n    let x = {}\n    return 0\n}\n");
-    assert_eq!(bare.len(), 1, "expected one error: {bare:?}");
-    assert!(
-        bare[0].contains("empty collection literal") && bare[0].contains("annotate the binding"),
-        "unexpected message: {}",
-        bare[0]
-    );
-    let bare_list = lit_messages("fn probe() -> Int {\n    let x = []\n    return 0\n}\n");
+    let bare_list = lit_messages("fn probe() -> Int {\n    let x = List()\n    return 0\n}\n");
     assert_eq!(bare_list.len(), 1, "expected one error: {bare_list:?}");
     assert!(
-        bare_list[0].contains("empty list literal"),
+        bare_list[0].contains("cannot infer type argument `T` of `List`"),
         "unexpected message: {}",
         bare_list[0]
     );
+    let bare = lit_messages("fn probe() -> Int {\n    let x = Set()\n    return 0\n}\n");
+    assert!(
+        bare.iter().any(|m| m.contains("cannot infer type argument `T` of `Set`")),
+        "unexpected messages: {bare:?}"
+    );
 }
 
-/// [col-literal] [col-key-eligible] A literal's key type is checked like any
-/// other: the rule does not have a hole where the syntax is new.
+/// [col-key-eligible] A constructor's key type is checked like any other:
+/// with no `hash` for `Double`, `Set(1.5)` and `Map(1.5: 1)` are refused at
+/// the implicit the constructor needs.
 #[test]
 fn a_literal_with_an_ineligible_key_is_refused() {
-    let set = lit_messages("fn probe() -> Int {\n    let s = {1.5}\n    return size(s)\n}\n");
+    let set = lit_messages("fn probe() -> Int {\n    let s = Set(1.5)\n    return size(s)\n}\n");
     assert!(
-        set.iter().any(|m| m.contains("cannot be a key")),
+        set.iter().any(|m| m.contains("no `hash` fits `?hash: (Double) -> Long`")),
         "expected the key refusal, got: {set:?}"
     );
-    let map = lit_messages("fn probe() -> Int {\n    let m = {1.5: 1}\n    return size(m)\n}\n");
+    let map = lit_messages("fn probe() -> Int {\n    let m = Map(1.5: 1)\n    return size(m)\n}\n");
     assert!(
-        map.iter().any(|m| m.contains("cannot be a key")),
+        map.iter().any(|m| m.contains("no `hash` fits `?hash: (Double) -> Long`")),
         "expected the key refusal, got: {map:?}"
     );
 }
 
-/// [col-literal] A map literal's entries all need values — the first `:` is
-/// what decides the brace is a map.
+/// [col-pairs] A `Map(…)` call's entries all need values: pair arguments are
+/// all-or-nothing, so a bare key among them is a parse error.
 #[test]
 fn a_map_literal_wants_a_value_for_every_entry() {
     let mut sources = SourceSet::default();
-    let src = "fn probe() -> Int {\n    let m = {\"a\": 1, \"b\"}\n    return 0\n}\n";
+    let src = "fn probe() -> Int {\n    let m = Map(\"a\": 1, \"b\")\n    return 0\n}\n";
     sources.add(
         "main.sv",
         SourceSet::classify(Path::new("main.sv")).unwrap(),
@@ -498,7 +535,7 @@ fn a_map_literal_wants_a_value_for_every_entry() {
         .map(|d| d.message.clone())
         .collect();
     assert!(
-        errs.iter().any(|m| m.contains("expected `:` after a map literal's key")),
+        errs.iter().any(|m| m.contains("cannot be mixed with `k: v` pair arguments")),
         "expected the parse error, got: {errs:?}"
     );
 }
@@ -889,7 +926,7 @@ fn the_generated_constructors_and_converters_type_correctly() {
                let s = set_by(3, i -> i)\n    \
                let m = map_by(2, i -> (i, i))\n    \
                let u = to_set(xs)\n    \
-               let pairs = [(1, 2)]\n    \
+               let pairs = list_by(1, i -> (1, 2))\n    \
                let m2 = to_map(pairs)\n    \
                let m3 = to_map(xs, x -> (x, x))\n    \
                return size(xs) + size(s) + size(m) + size(u) + size(m2) + size(m3)\n}\n";

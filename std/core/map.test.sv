@@ -69,7 +69,7 @@ test "an overwrite keeps the key's place; a removed key comes back last" {
 
 test "a repeated key keeps its first place and takes its last value" {
     let m = map_of(("k", 1), ("j", 2), ("k", 3))
-    let lit: Map<Str, Int> = {"x": 1, "y": 2, "x": 9}
+    let lit: Map<Str, Int> = Map("x": 1, "y": 2, "x": 9)
     expect_eq("${m} ${lit}", "{k: 3, j: 2} {x: 9, y: 2}")
 }
 
@@ -96,7 +96,7 @@ test "removing many keeps the rest findable and in order" {
 }
 
 test "a custom identity keys the map, through a generic call too" {
-    let m: Mut Map<Str, Int>(len_hash, len_eq) = {"ab": 1}
+    let m: Mut Map<Str, Int>(len_hash, len_eq) = Mut Map("ab": 1, hash = len_hash, eq = len_eq)
     put(m, "xy", 2)
     put_generic(m, "zz", 3)
     expect_eq("${m} ${size(m)}", "{zz: 3} 1")

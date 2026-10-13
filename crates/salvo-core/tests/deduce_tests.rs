@@ -985,16 +985,17 @@ fn take_person(p: Person) [] -> None => !p {}
 "#;
 
 fn disjoint_errors(body: &str) -> Vec<String> {
-    // `Str` and `mut_list_of` are not in this file's shared std prelude, so
-    // they are declared alongside it here (as std, since `intrinsic` is the
-    // compiler's modifier [intrinsic-std-only]).
+    // `Str`, `mut_list_of` and `array_of` are not in this file's shared std
+    // prelude, so they are declared alongside it here (as std, since
+    // `intrinsic` is the compiler's modifier [intrinsic-std-only]).
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/prelude.sv",
         SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
         format!(
             "{STD_PRELUDE}export intrinsic type Str\n\
-             export intrinsic fn mut_list_of<T>(...elems: T[]) [] -> Mut List<T>\n"
+             export intrinsic fn mut_list_of<T>(...elems: T[]) [] -> Mut List<T>\n\
+             export intrinsic fn array_of<T>(...elems: T[]) [] -> T[]\n"
         ),
         true,
     );
@@ -1147,7 +1148,7 @@ fn a_prefix_projection_is_poisoned_by_a_deeper_mutation() {
 #[test]
 fn a_dynamic_index_stays_conservative() {
     let errs = disjoint_errors(
-        "    let arr: Mut List<Str>[] = [mut_list_of(), mut_list_of()]\n\
+        "    let arr: Mut List<Str>[] = array_of(mut_list_of(), mut_list_of())\n\
          \x20   let one = arr[0]\n\
          \x20   add_tag(arr[1], \"z\")\n\
          \x20   let k = count(one)",

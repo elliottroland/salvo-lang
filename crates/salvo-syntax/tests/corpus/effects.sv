@@ -21,7 +21,7 @@ handler StdOutConsole of Console {
 }
 
 fn main() [use] -> None {
-    use CyclicRandom([1, 2, 3, 4])
+    use CyclicRandom(array_of(1, 2, 3, 4))
     let num = next_random()
 }
 

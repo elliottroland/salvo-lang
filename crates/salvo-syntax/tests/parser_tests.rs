@@ -3247,17 +3247,26 @@ fn a_struct_literal_parses_inside_parentheses_in_a_condition() {
 }
 
 /// [struct-lit-shorthand] `P { x, y: e }`: a bare field name after a type
-/// name is `x: x`; a bare `{ x }` stays a set literal.
+/// name is `x: x`; a bare `{ x }` is an error [col-no-literal].
 #[test]
 fn a_struct_literal_field_may_be_written_by_its_name_alone() {
     use salvo_syntax::ast::{Expr, Item, Stmt, StructLitFieldKind};
-    let (module, diagnostics) = salvo_syntax::parse_module("fn f() {\n    let p = P { x, y: 2 }\n    let s = { x }\n}\n");
+    let (module, diagnostics) = salvo_syntax::parse_module("fn f() {\n    let p = P { x, y: 2 }\n}\n");
     assert!(diagnostics.iter().all(|d| !d.is_error()), "{diagnostics:?}");
     let Item::Fn(f) = &module.items[0] else { panic!() };
     let stmts = &f.body.as_ref().unwrap().stmts;
     let Stmt::Let { value: Expr::StructLit { fields, .. }, .. } = &stmts[0] else { panic!("{:?}", stmts[0]) };
     assert!(matches!(&fields[0].kind, StructLitFieldKind::Named { name, value: Expr::Ident(v) } if name.name == "x" && v.name == "x"));
-    assert!(!matches!(&stmts[1], Stmt::Let { value: Expr::StructLit { .. }, .. }));
+    // [col-no-literal] Without a type name, a bare `{ x }` is neither a struct
+    // literal nor a lambda: it was a set literal, and collection literals are
+    // retired.
+    let (_, diagnostics) = salvo_syntax::parse_module("fn f() {\n    let s = { x }\n}\n");
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| d.is_error() && d.message.contains("Collection literals are retired") && d.message.contains("[col-no-literal]")),
+        "{diagnostics:?}"
+    );
 }
 
 // --- Terminal `...` scopes [terminal-scope] ---

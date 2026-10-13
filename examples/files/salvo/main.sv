@@ -322,7 +322,7 @@ fn workflow() [Fs, Console] -> None {
     }
 
     // 11. Tidying up: the same calls whichever filesystem answered.
-    for name in ["notes.txt", "notes-copy.txt", "raw.bin"] {
+    for name in List("notes.txt", "notes-copy.txt", "raw.bin") {
         let gone = delete(path(name))
         if gone is Err {
             println("delete failed: ${kind_name(detach(gone))}")

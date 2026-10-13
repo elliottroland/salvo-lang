@@ -1231,7 +1231,7 @@ fn main() [use] {
     println(describe(parse("42")))
     println(describe(parse("x")))
     println("${next(5)} ${next(1)}")
-    println(describe_attrs([Attr { data_type: "String", string_value: "hi" }, Attr { data_type: "Number" }]))
+    println(describe_attrs(List(Attr { data_type: "String", string_value: "hi" }, Attr { data_type: "Number" })))
 }
 "#;
 
@@ -1337,7 +1337,7 @@ export fn make_a() [] -> Token {
 
 export fn show_a(t: Token) [Clock] -> Str {
     let back = decode<Token>(encode(copy(t)))!
-    let s: Set<Token> = {copy(t), back}
+    let s: Set<Token> = Set(copy(t), back)
     return "a.Token ${t.id}, set of ${size(s)}, at ${now()}"
 }
 "#).unwrap();
@@ -1495,7 +1495,7 @@ fn rebind(m: Mut Map<Int, Node>, k: Int) [] -> Int => m: Mut {
     }
     let n = remove(m, k)
     if n is None { return -1 }
-    for _i in [1, 2] { seen = seen + copy(n).id }
+    for _i in List(1, 2) { seen = seen + copy(n).id }
     return seen
 }
 
@@ -1608,8 +1608,8 @@ fn a_struct_holding_itself_copies_on_both_backends() {
         "struct Node canbe Mut {\n    label: Str\n    kids: List<Mut Node>\n}\n\n\
          fn relabel(n: Mut Node) [] -> None {\n    n.label = \"changed\"\n}\n\n\
          fn main() [use] {\n    use StdOutConsole()\n    \
-         let kid: Mut Node = Mut Node { label: \"kid\", kids: [] }\n    \
-         let root: Mut Node = Mut Node { label: \"root\", kids: [kid] }\n    \
+         let kid: Mut Node = Mut Node { label: \"kid\", kids: List<Mut Node>() }\n    \
+         let root: Mut Node = Mut Node { label: \"root\", kids: List(kid) }\n    \
          let twin = copy(root)\n    relabel(root)\n    \
          println(\"${root.label} ${twin.label} ${size(twin.kids)}\")\n}\n",
     )

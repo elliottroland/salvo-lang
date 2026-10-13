@@ -36,7 +36,7 @@ test "pops come out in order, whatever order they went in" {
 }
 
 test "heapify arranges an arbitrary list" {
-    let names: Mut List<Int> = [4, 2, 8, 1]
+    let names: Mut List<Int> = Mut List(4, 2, 8, 1)
     heapify(names)
     expect_eq(pop(names)!, 1)
     expect_eq(pop(names)!, 2)

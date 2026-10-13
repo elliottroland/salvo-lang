@@ -23,7 +23,7 @@ const STD_PRELUDE: &str = concat!(
     "export intrinsic type Str\n",
     "export intrinsic type Bool\n",
     "export intrinsic type Opaque\n",
-    // [col-literal] Arrays lost their literal syntax, so a test that wants
+    // [col-no-literal] Arrays lost their literal syntax, so a test that wants
     // one builds it with the constructor.
     "export intrinsic fn array_of<T>(...elems: T[]) [] -> T[]\n",
     // [actor-spawn-expr] Std's process handle, whose type argument is an

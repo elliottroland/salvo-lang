@@ -40,7 +40,7 @@ test "a fault inside the boundary is answered, not raised" {
     let ok = guarded(() -> {})
     expect(ok is None, "a body that returns answers None")
     let why = guarded(() -> {
-        let xs: List<Int> = []
+        let xs: List<Int> = List<Int>()
         let _x = get(xs, 3)!
     })
     expect(!(why is None), "a faulting body answers its fault")
@@ -61,7 +61,7 @@ test "the scheduler runs an actor's messages in order on its pool" {
             unpark(copy(waker))
         } else {
             if n != next {
-                let xs: List<Int> = []
+                let xs: List<Int> = List<Int>()
                 let _out_of_order = get(xs, 0)!
             }
             next = next + 1
@@ -86,7 +86,7 @@ test "an actor that faults dies and later sends are dropped" {
     let pool = new_pool_of(1, -1)
     let fragile = spawn_body(copy(pool), 2, body_of((kind, slot, msg) -> {
         let _n: Int = unerase(msg)
-        let xs: List<Int> = []
+        let xs: List<Int> = List<Int>()
         let _boom = get(xs, 0)!
     }))
     let sturdy = spawn_body(pool, 2, body_of((kind, slot, msg) -> {
@@ -222,7 +222,7 @@ test "a watch is answered when the actor dies" {
     let pool = new_pool_of(1, -1)
     let fragile = spawn_body(pool, 2, body_of((kind, slot, msg) -> {
         let _n: Int = unerase(msg)
-        let xs: List<Int> = []
+        let xs: List<Int> = List<Int>()
         let _boom = get(xs, 0)!
     }))
     let w = waiter()
@@ -245,7 +245,7 @@ test "an unwatched death reaches the pool's sink" {
     let pool = new_pool_of(1, copy(sink))
     let fragile = spawn_body(pool, 2, body_of((kind, slot, msg) -> {
         let _n: Int = unerase(msg)
-        let xs: List<Int> = []
+        let xs: List<Int> = List<Int>()
         let _boom = get(xs, 0)!
     }))
     send_dyn(fragile, erase(1))
@@ -275,7 +275,7 @@ test "a dedicated pool retires when its actor dies" {
     let pool = new_dedicated_pool()
     let doomed = spawn_body(pool, 2, body_of((kind, slot, msg) -> {
         let _n: Int = unerase(msg)
-        let xs: List<Int> = []
+        let xs: List<Int> = List<Int>()
         let _boom = get(xs, 0)!
     }))
     let w = waiter()

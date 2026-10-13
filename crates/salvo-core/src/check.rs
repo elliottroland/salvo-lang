@@ -12108,111 +12108,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         })
     }
 
-    /// [col-literal] An expected element type only helps when it is
-    /// *concrete*: `to_set([1, 2])` expects `List<T>` for an unbound `T`, and
-    /// taking `T` as the element type would leave nothing to infer it from —
-    /// the literal's own elements are what determine it (and then bind `T`).
-    /// `Unknown` counts as not concrete for the same reason, and is the form
-    /// the case actually arrives in: substituting an unbound variable yields
-    /// `Unknown`, so testing only for `Var` missed it (fixed 2026-09-25).
-    fn concrete_elem(ty: Option<Ty>) -> Option<Ty> {
-        ty.filter(|t| !matches!(t.strip_quals(), Ty::Var(_)) && !ty_mentions_unknown(t))
-    }
-
-    /// [col-literal] The type of a collection literal: the named container
-    /// at its element types, carrying a `Mut` when the position asks for one.
-    ///
-    /// A literal *constructs*, so adopting `Mut` from the expected type is
-    /// sound and saves writing it twice (`let ys: Mut List<Int> = [4, 5]`).
-    /// Only `Mut`: every other qualifier is a claim about the value that
-    /// construction does not establish [qual-constructive].
-    /// [col-literal] A collection literal **is a constructor call**
-    /// (ROADMAP §0j step 7): `{a, b}` is `set_of(a, b)` (or `mut_set_of`),
-    /// `{k: v}` is `map_of((k, v))`, an empty `{}` at a `Map` is `map_of()`.
-    /// Recorded as one — the constructor at the literal's span, its type
-    /// arguments, and its implicits filled with the identities the literal's
-    /// type carries (or resolved by name) — so the backends render the call
-    /// and know nothing of literals' identities. For a map, each entry is a
-    /// tuple typed at the span from its key's start to its value's end.
-    fn desugar_collection_literal(&mut self, ty: &Ty, span: Span, entries: &[(Span, Ty)]) {
-        let (base, args) = match ty.strip_quals() {
-            Ty::Named { name, args } => (name.clone(), args.clone()),
-            _ => return,
-        };
-        let is_mut = ty.quals().iter().any(|q| q.name == "Mut");
-        let (ctor, module, slots, ngen): (&str, [&str; 2], &[&str], usize) = match base.as_str() {
-            "Set" => (if is_mut { "mut_set_of" } else { "set_of" }, ["core", "set"], &["hash", "eq"], 1),
-            "Map" => (if is_mut { "mut_map_of" } else { "map_of" }, ["core", "map"], &["hash", "eq"], 2),
-            _ => return,
-        };
-        if args.iter().take(ngen).any(|a| a.is_unknown()) {
-            return;
-        }
-        let Some((key, decl)) = self.std_fn(&module, ctor) else { return };
-        let mut subst: HashMap<String, Ty> = HashMap::new();
-        let gens: HashSet<String> = decl.generics.iter().map(|g| g.name.clone()).collect();
-        for (g, a) in decl.generics.iter().zip(args.iter()) {
-            subst.insert(g.name.clone(), a.clone());
-        }
-        for (slot, a) in slots.iter().zip(args.iter().skip(ngen)) {
-            if matches!(a, Ty::FnName(_)) {
-                subst.insert(FnId::subst_key(slot), a.clone());
-            }
-        }
-        for (s, t) in entries {
-            self.out.expr_ty.insert(self.key(*s), t.clone());
-        }
-        self.out.call_fn.insert(self.key(span), key);
-        self.out
-            .call_type_args
-            .insert(self.key(span), args.iter().take(ngen).cloned().collect());
-        let implicits = self.out.implicit_params.get(&key).cloned().unwrap_or_default();
-        self.fill_implicits(&implicits, ctor, &mut subst, &gens, &[], span);
-    }
-
-    /// A std fn by module and name: the first declaration of that name in
-    /// the module's file.
-    fn std_fn(&self, module: &[&str], name: &str) -> Option<(FnKey, &'p FnDecl)> {
-        self.resolution
-            .scopes
-            .iter()
-            .flat_map(|s| s.fns.get(name).into_iter().flatten())
-            .find(|e| {
-                let f = &self.files[e.key.file];
-                f.is_std && f.module.0.iter().map(String::as_str).eq(module.iter().copied())
-            })
-            .map(|e| (e.key, e.decl))
-    }
-
-    fn collection_lit_ty(&self, name: &str, args: Vec<Ty>, expected: Option<&Ty>) -> Ty {
-        // [cmp-carry] [col-literal] A literal takes its **identity** from the
-        // position as it takes its kind: `let s: Set<Str>(by_len, same_len) =
-        // {…}` builds the set keyed by those fns. Without this the literal was
-        // typed canonical, the unwritten-slot pattern accepted it, and the
-        // value silently kept the host's hashing (found 2026-10-05, ROADMAP
-        // §0j step 1).
-        let mut args = args;
-        if let Some(Ty::Named { name: want, args: want_args }) = expected.map(|t| t.strip_quals()) {
-            if want == name {
-                args.extend(want_args.iter().filter(|a| matches!(a, Ty::FnName(_))).cloned());
-            }
-        }
-        let ty = Ty::Named {
-            name: name.to_string(),
-            args,
-        };
-        let want_mut = expected.is_some_and(|t| t.quals().iter().any(|q| q.name == "Mut"));
-        if want_mut {
-            ty.qualify(vec![Qual {
-                name: "Mut".to_string(),
-                args: Vec::new(),
-                effect: false,
-            }])
-        } else {
-            ty
-        }
-    }
-
     /// [op-arm-eq] `union == value` / `value == union`: when one operand is a
     /// union and the other is a plain value whose type matches exactly one of
     /// its **value** arms, record the arm test so the IR can lower it to
@@ -16045,9 +15940,6 @@ impl<'p, 'r> Checker<'p, 'r> {
             | Expr::TupleIndex { .. }
             | Expr::Call { .. }
             | Expr::Index { .. }
-            | Expr::ArrayLit { .. }
-            | Expr::SetLit { .. }
-            | Expr::MapLit { .. }
             | Expr::Tuple { .. }
             | Expr::StructLit { .. }
             | Expr::Unary { .. }
@@ -16145,9 +16037,6 @@ impl<'p, 'r> Checker<'p, 'r> {
             | Expr::TupleIndex { .. }
             | Expr::Call { .. }
             | Expr::Index { .. }
-            | Expr::ArrayLit { .. }
-            | Expr::SetLit { .. }
-            | Expr::MapLit { .. }
             | Expr::Tuple { .. }
             | Expr::StructLit { .. }
             | Expr::Unary { .. }
@@ -20402,9 +20291,7 @@ fn collect_binder_arg_sites<'p>(
                 expr(base, name, out);
                 expr(index, name, out);
             }
-            Expr::Tuple { elems, .. }
-            | Expr::ArrayLit { elems, .. }
-            | Expr::SetLit { elems, .. } => {
+            Expr::Tuple { elems, .. } => {
                 for el in elems {
                     expr(el, name, out);
                 }
@@ -20643,17 +20530,9 @@ fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
             collect_assigned_expr(lhs, out);
             collect_assigned_expr(rhs, out);
         }
-        Expr::ArrayLit { elems, .. }
-        | Expr::SetLit { elems, .. }
-        | Expr::Tuple { elems, .. } => {
+        Expr::Tuple { elems, .. } => {
             for e in elems {
                 collect_assigned_expr(e, out);
-            }
-        }
-        Expr::MapLit { entries, .. } => {
-            for (k, v) in entries {
-                collect_assigned_expr(k, out);
-                collect_assigned_expr(v, out);
             }
         }
         Expr::StructLit { fields, .. } => {
@@ -20782,14 +20661,9 @@ fn expr_mentions(expr: &Expr, name: &str) -> bool {
             expr_mentions(callee, name) || args.iter().any(|a| expr_mentions(a, name))
         }
         Expr::Index { base, index, .. } => expr_mentions(base, name) || expr_mentions(index, name),
-        Expr::ArrayLit { elems, .. }
-        | Expr::SetLit { elems, .. }
-        | Expr::Tuple { elems, .. } => {
+        Expr::Tuple { elems, .. } => {
             elems.iter().any(|e| expr_mentions(e, name))
         }
-        Expr::MapLit { entries, .. } => entries
-            .iter()
-            .any(|(k, v)| expr_mentions(k, name) || expr_mentions(v, name)),
         Expr::StructLit { fields, .. } => fields.iter().any(|f| match &f.kind {
             StructLitFieldKind::Named { value, .. } => expr_mentions(value, name),
             StructLitFieldKind::Spread(e) => expr_mentions(e, name),
@@ -22475,189 +22349,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                         Ty::Unknown
                     }
                 }
-            }
-            // [col-literal] `[1, 2, 3]` is a **List** literal. It built an
-            // array until 2026-09-13; arrays kept the type syntax (`T[]`)
-            // and gained `array_of` as their constructor, because a list is
-            // the ordinary sequence and an array is the variadic boundary.
-            Expr::ArrayLit { elems, .. } => {
-                let expected_elem = Self::concrete_elem(match expected.map(|t| t.strip_quals()) {
-                    Some(Ty::Named { name, args }) if name == "List" && args.len() == 1 => {
-                        Some(args[0].clone())
-                    }
-                    // An array is still accepted as the *expected* type so a
-                    // literal in a variadic position keeps working.
-                    Some(Ty::Array(e)) => Some((**e).clone()),
-                    _ => None,
-                });
-                let want_array = matches!(
-                    expected.map(|t| t.strip_quals()),
-                    Some(Ty::Array(_))
-                );
-                let mut tys = Vec::new();
-                for e in elems {
-                    tys.push(self.check_expr(e, expected_elem.as_ref()));
-                }
-                // [linear-composite] An array holds many values; a linear
-                // one may not be among them.
-                for (e, ty) in elems.iter().zip(&tys) {
-                    if self.ty_own_linear(ty) {
-                        let linear = format!("{ty}");
-                        self.refuse_linear_composite(
-                            e.span(),
-                            &linear,
-                            "an array element".to_string(),
-                        );
-                    }
-                }
-                // Storing a value in an array literal moves it
-                // [deduce-consume]; spread elements move their operand.
-                for e in elems {
-                    self.fate_move(e, "store", "a literal store", e.span());
-                }
-                let elem = expected_elem.unwrap_or_else(|| {
-                    if tys.is_empty() {
-                        Ty::Unknown
-                    } else {
-                        self.mk_union(tys)
-                    }
-                });
-                if elems.is_empty() && elem.is_unknown() {
-                    self.error(
-                        expr.span(),
-                        concat!(
-                            "an empty list literal needs its element type ",
-                            "from the position it is in: annotate the binding ",
-                            "(`let xs: List<Int> = []`) or pass it where the ",
-                            "parameter's type says what it holds",
-                        )
-                            .to_string(),
-                    );
-                }
-                // [col-literal] A `Mut` on the literal asks for a mutable
-                // list (`Mut [1, 2]`); the qualifier arrives through the
-                // expected type or the literal's own qualifiers.
-                if want_array {
-                    Ty::Array(Box::new(elem))
-                } else {
-                    self.collection_lit_ty("List", vec![elem], expected)
-                }
-            }
-            // [col-literal] `{1, 2}` is a Set literal, `{"a": 1}` a Map
-            // literal. Both *construct*, so their elements move
-            // [deduce-consume], their key type must be hashable
-            // [col-key-eligible], and they adopt a `Mut` the position asks
-            // for exactly as a list literal does.
-            Expr::SetLit { elems, span } => {
-                // [col-literal] An empty `{}` takes its kind from the
-                // position: a `Map` there is an empty map, not an empty set.
-                if elems.is_empty() {
-                    if let Some(Ty::Named { name, args }) =
-                        expected.map(|t| t.strip_quals())
-                    {
-                        if name == "Map" && args.len() >= 2 {
-                            let ty = self.collection_lit_ty(
-                                "Map",
-                                vec![args[0].clone(), args[1].clone()],
-                                expected,
-                            );
-                            self.desugar_collection_literal(&ty, *span, &[]);
-                            return ty;
-                        }
-                        if name == "List" && args.len() == 1 {
-                            return self.collection_lit_ty(
-                                "List",
-                                vec![args[0].clone()],
-                                expected,
-                            );
-                        }
-                    }
-                }
-                let expected_elem = Self::concrete_elem(match expected.map(|t| t.strip_quals()) {
-                    Some(Ty::Named { name, args }) if name == "Set" && !args.is_empty() => {
-                        Some(args[0].clone())
-                    }
-                    _ => None,
-                });
-                let mut tys = Vec::new();
-                for e in elems {
-                    tys.push(self.check_expr(e, expected_elem.as_ref()));
-                }
-                for e in elems {
-                    self.fate_move(e, "store", "a literal store", e.span());
-                }
-                let elem = expected_elem.unwrap_or_else(|| {
-                    if tys.is_empty() {
-                        Ty::Unknown
-                    } else {
-                        self.mk_union(tys)
-                    }
-                });
-                // [col-literal] An empty literal carries no element to infer
-                // from, so the position must say what it is.
-                if elems.is_empty() && elem.is_unknown() {
-                    self.error(
-                        *span,
-                        concat!(
-                            "an empty collection literal needs its type from ",
-                            "the position it is in: annotate the binding ",
-                            "(`let s: Set<Int> = {}`) or pass it where the ",
-                            "parameter's type says which collection it is",
-                        )
-                            .to_string(),
-                    );
-                }
-                if let Some(reason) = self.key_ineligible(&elem) {
-                    self.error(*span, reason);
-                }
-                let ty = self.collection_lit_ty("Set", vec![elem], expected);
-                self.desugar_collection_literal(&ty, *span, &[]);
-                ty
-            }
-            Expr::MapLit { entries, span } => {
-                let (expected_key, expected_val) = match expected.map(|t| t.strip_quals()) {
-                    Some(Ty::Named { name, args }) if name == "Map" && args.len() >= 2 => {
-                        (
-                            Self::concrete_elem(Some(args[0].clone())),
-                            Self::concrete_elem(Some(args[1].clone())),
-                        )
-                    }
-                    _ => (None, None),
-                };
-                let mut key_tys = Vec::new();
-                let mut val_tys = Vec::new();
-                for (k, v) in entries {
-                    key_tys.push(self.check_expr(k, expected_key.as_ref()));
-                    val_tys.push(self.check_expr(v, expected_val.as_ref()));
-                }
-                for (k, v) in entries {
-                    self.fate_move(k, "store", "a literal store", k.span());
-                    self.fate_move(v, "store", "a literal store", v.span());
-                }
-                let key = expected_key.unwrap_or_else(|| {
-                    if key_tys.is_empty() {
-                        Ty::Unknown
-                    } else {
-                        self.mk_union(key_tys)
-                    }
-                });
-                let val = expected_val.unwrap_or_else(|| {
-                    if val_tys.is_empty() {
-                        Ty::Unknown
-                    } else {
-                        self.mk_union(val_tys)
-                    }
-                });
-                if let Some(reason) = self.key_ineligible(&key) {
-                    self.error(*span, reason);
-                }
-                let ty = self.collection_lit_ty("Map", vec![key.clone(), val.clone()], expected);
-                let tuples: Vec<(Span, Ty)> = entries
-                    .iter()
-                    .map(|(k, v)| (Span::new(k.span().start, v.span().end), Ty::Tuple(vec![key.clone(), val.clone()])))
-                    .collect();
-                self.desugar_collection_literal(&ty, *span, &tuples);
-                ty
             }
             Expr::Tuple { elems, .. } => {
                 let expected_elems: Option<&Vec<Ty>> = match expected {
@@ -28631,23 +28322,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // (`takes_ints(mut_list_of())`). A pattern still
                 // mentioning the callee's generics must not: coercion
                 // would be recorded against an unsubstituted `T`.
-                // [col-literal] A collection literal is in the same
-                // position: `takes_set({})` and `takes_ints([])` have
-                // nothing *inside* the literal to infer from, so the
-                // parameter's type is what says which collection it is and
-                // what it holds. Guarded like the call case — a pattern
-                // still mentioning the callee's generics would record a
-                // coercion against an unsubstituted `T`.
-                Expr::Call { .. }
-                | Expr::ArrayLit { .. }
-                | Expr::SetLit { .. }
-                | Expr::MapLit { .. } => {
+                Expr::Call { .. } => {
                     // An **unbound** variable substitutes to `Unknown`, so a
                     // pattern that still mentions one arrives here looking
                     // concrete (`List<T>` as `List<Unknown>`) — and handing
-                    // that in made the literal adopt `Unknown` as its element
-                    // type and discard what its own elements say, which is why
-                    // `to_set([1, 2])` could not infer `T` (fixed 2026-09-25).
+                    // that in made the argument adopt `Unknown` and discard
+                    // what it could infer, which is why `to_set(List(1, 2))`
+                    // could not infer `T` (fixed 2026-09-25).
                     let concrete = exp.filter(|t| {
                         !ty_mentions_vars(t, &lead_generics) && !ty_mentions_unknown(t)
                     });

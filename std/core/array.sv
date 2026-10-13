@@ -1,6 +1,6 @@
 // Arrays (`T[]`) are a language-level type: indexing (`arr[i]`) and
-// `for`-iteration are built in [type-array]. Since 2026-09-13 the bracket
-// literal `[1, 2]` builds a **List**, not an array [col-literal], so this
+// `for`-iteration are built in [type-array]. Arrays have no literal syntax
+// ([col-no-literal]; `List(1, 2)` builds a **List**, not an array), so this
 // module supplies the constructor too — arrays are fixed-size, so there is
 // nothing to mutate but element assignment.
 //
@@ -13,7 +13,7 @@
 // what makes this the constructor rather than a copy: a `...spread` argument
 // arrives as the whole array already [fn-variadic]. Arrays exist for the
 // variadic boundary, so a program that never spreads rarely needs one — a
-// `List` is the ordinary sequence [col-literal].
+// `List` is the ordinary sequence [col-no-literal].
 export intrinsic fn array_of<T canbe linear>(...elems: T[]) [] -> T[]
 
 // Builds an array of [size] elements, each from its index: `array_by(3, i ->

@@ -708,15 +708,9 @@ impl HoverRecorder<'_> {
                 LambdaBody::Expr(e) => self.expr(e),
                 LambdaBody::Block(b) => self.block(b),
             },
-            Expr::ArrayLit { elems, .. } | Expr::SetLit { elems, .. } | Expr::Tuple { elems, .. } => {
+            Expr::Tuple { elems, .. } => {
                 for e in elems {
                     self.expr(e);
-                }
-            }
-            Expr::MapLit { entries, .. } => {
-                for (k, v) in entries {
-                    self.expr(k);
-                    self.expr(v);
                 }
             }
             Expr::Index { base, index, .. } => {

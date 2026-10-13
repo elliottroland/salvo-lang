@@ -662,17 +662,9 @@ fn expr_names<'p>(expr: &'p Expr, used: &mut HashSet<&'p str>) {
             expr_names(base, used);
             expr_names(index, used);
         }
-        Expr::ArrayLit { elems, .. }
-        | Expr::SetLit { elems, .. }
-        | Expr::Tuple { elems, .. } => {
+        Expr::Tuple { elems, .. } => {
             for e in elems {
                 expr_names(e, used);
-            }
-        }
-        Expr::MapLit { entries, .. } => {
-            for (k, v) in entries {
-                expr_names(k, used);
-                expr_names(v, used);
             }
         }
         Expr::StructLit { ty, fields, .. } => {

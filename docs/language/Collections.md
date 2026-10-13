@@ -1,21 +1,23 @@
 # Collections
 
-`List<T>`, `Set<T>` and `Map<K, V>` are the everyday collections, and each has a literal:
+`List<T>`, `Set<T>` and `Map<K, V>` are the everyday collections, and each is built by a constructor named after its type:
 
 ```
-let xs = [1, 2, 3]                       // List<Int>
-let names = {"ada", "grace"}             // Set<Str>
-let ages = {"ada": 36, "grace": 45}      // Map<Str, Int>
+let xs = List(1, 2, 3)                   // List<Int>
+let names = Set("ada", "grace")          // Set<Str>
+let ages = Map("ada": 36, "grace": 45)   // Map<Str, Int>
 ```
 
-A literal builds an immutable collection; write `Mut` on the position to ask for a mutable one, exactly as with a struct literal:
+A collection is built immutable; write `Mut` in the constructor's name to ask for a mutable one, exactly as `Mut` reads on a type:
 
 ```
-let seen: Mut Set<Str> = {}
+let seen: Mut Set<Str> = Mut Set<Str>()
 add(seen, "ada")
 ```
 
-Besides the literals, each collection can be **generated** from a size and a rule, or **converted** from another:
+A map's entries are written as `key: value` *arguments* — the same `k: v` pair sugar any `(K, V)[]` variadic accepts. (A `key: value` with an *identifier* key is still fine here; there is no struct-literal ambiguity inside a call.)
+
+Besides the constructors, each collection can be **generated** from a size and a rule, or **converted** from another:
 
 ```
 let squares = list_by(4, i -> i * i)        // [0, 1, 4, 9]
@@ -25,11 +27,13 @@ let lengths = to_map(names, n -> (n, size(n)))
 
 There are two `to_map` forms — from a list of pairs, and from a list of anything plus a rule saying what key and value each element becomes. Duplicate keys are last-wins everywhere.
 
-Each literal is sugar for the corresponding constructor — `list_of`, `set_of`, `map_of`, with `mut_list_of`, `mut_set_of`, `mut_map_of` for the mutable forms — so anything a literal does can be written as a call.
+Each constructor resolves to the corresponding function — `list_of`, `set_of`, `map_of`, with `mut_list_of`, `mut_set_of`, `mut_map_of` for the mutable forms — so `List(1, 2, 3)` and `list_of(1, 2, 3)` are the same call; the type-named spelling is sugar.
 
-An **empty** literal has nothing to infer from, so its type comes from the position it is in: the annotation on a `let`, or the parameter it is passed to. Where nothing supplies one, that is an error naming both remedies.
+An **empty** collection is the constructor with no arguments. It has nothing to infer its type from, so that type comes from the position it is in — the annotation on a `let`, or the parameter it is passed to — or is written on the constructor itself (`List<Int>()`, `Mut Set<Str>()`). Where nothing supplies one, that is an error naming the remedies.
 
-A map literal's keys are expressions, which is why `{x: 1}` is *not* a map: a brace whose first entry is `identifier:` is a bare struct literal, which came first and stays. Write `{"x": 1}`, or `map_of((x, 1))` when the key really is a variable.
+A custom hash/eq (or `cmp` for the sorted containers) is passed by name: `Mut Set("x", hash = my_hash, eq = my_eq)`.
+
+There are no bracket or brace *literals* for collections: `[1, 2]` and `{1, 2}` are retired. A `{ name: value }` brace with an identifier key is still a **struct** literal, which is why a collection takes its entries through a constructor call.
 
 Taking something back **out** of a collection is a move, not a copy: `remove_first(list)` and `remove_at(list, i)` answer `T?` — the element, or `None` when there is nothing at that position — and `remove(map, key)` does the same for a map's value. `replace(map, key, value)` is the write that hands back what it displaced. None of them leaves a hole or duplicates anything, which is what lets a collection hold values that must be used exactly once (see "Linear types"); for ordinary data they are simply the operations you would expect. `drain(list, each)` consumes a collection and hands every element to a function, in order.
 
@@ -162,7 +166,7 @@ println("${jobs}")                 // [b]
 
 `get(d, i)` and `remove_at(d, i)` count from the front and answer `None` out of range, as a list's do; with `i is Idx(d)` proven, `get(d, i)` answers the element itself and `replace(d, i, x)` writes in place, and `for x in d` and `reversed(d)` walk it front to back and back to front. `to_list` and `to_deque` convert. Like a list it may hold linear values — a `Mut Deque<Reply<Str>>` owes, and `drain` is how it ends.
 
-A deque has no literal (`[…]` is a list) and no `==`, hash or ordering: it is a queue to work through, not a value to compare or use as a key. It also has no wire form yet, so a message that would carry one to another node is refused.
+A deque has no constructor shorthand of its own and no `==`, hash or ordering: it is a queue to work through, not a value to compare or use as a key. It also has no wire form yet, so a message that would carry one to another node is refused.
 
 ## Buffers
 
@@ -183,7 +187,7 @@ println("${size(table)} ${table}") // 8 [-1, -1, …]
 
 ## Arrays
 
-An array (`T[]`) is a fixed-size sequence, and it exists mostly for the *variadic* boundary: `...elems: T[]` is what a variadic parameter receives. Arrays have no literal syntax — `[1, 2]` builds a list — so they are constructed by function:
+An array (`T[]`) is a fixed-size sequence, and it exists mostly for the *variadic* boundary: `...elems: T[]` is what a variadic parameter receives. Arrays have no literal syntax (and `List(1, 2)` builds a list, not an array) — so they are constructed by function:
 
 ```
 // From its elements

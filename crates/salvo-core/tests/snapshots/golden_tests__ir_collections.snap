@@ -1,5 +1,5 @@
 ---
-source: crates/salvo-ir/tests/golden_tests.rs
+source: crates/salvo-core/tests/golden_tests.rs
 expression: text
 ---
 module main
@@ -24,9 +24,9 @@ fn main::count_unique(lent xs: List<Int>) -> Int {
 fn main::main() -> None {
   bind#1 let __use~1: StdOutConsole = construct StdOutConsole { }
   bind#2 let __handle~2: Console = read __use~1
-  bind#3 let primes: List<Int> = list[List<Int>](2, 3, 5, 7)
-  bind#4 let vowels: Set<Str> = call core.set::set_of<Str>(array[Str[]]("a", "e", "i", "o", "u"), fn core.compare::hash(Str), fn core.compare::eq(Str, Str))
-  bind#5 let ages: Map<Str, Int> = call core.map::map_of<Str, Int>(array[(Str, Int)[]](tuple("ada", 36), tuple("grace", 45)), fn core.compare::hash(Str), fn core.compare::eq(Str, Str))
+  bind#3 let primes: List<Int> = call core.list::list_of(T, T[])<Int>(2, array[Int[]](3, 5, 7))
+  bind#4 let vowels: Set<Str>(hash, eq) = call core.set::set_of<Str>(array[Str[]]("a", "e", "i", "o", "u"), fn core.compare::hash(Str), fn core.compare::eq(Str, Str))
+  bind#5 let ages: Map<Str, Int>(hash, eq) = call core.map::map_of<Str, Int>(array[(Str, Int)[]](tuple("ada", 36), tuple("grace", 45)), fn core.compare::hash(Str), fn core.compare::eq(Str, Str))
   call core.console::println(read __handle~2, concat("1. list ", call core.list::to_str<Int>(read primes, fn core.basic::to_str(Int))))
   call core.console::println(read __handle~2, concat("1. set ", call core.set::to_str<Str>(read vowels, fn core.basic::to_str(Str)), " of ", call core.basic::to_str(Int)(call core.set::size<Str>(read vowels))))
   call core.console::println(read __handle~2, concat("1. map ", call core.map::to_str<Str, Int>(read ages, fn core.basic::to_str(Str), fn core.basic::to_str(Int), fn core.compare::hash(Str), fn core.compare::eq(Str, Str))))
@@ -73,7 +73,7 @@ fn main::main() -> None {
   call core.console::println(read __handle~2, concat("5. generated ", call core.list::to_str<Int>(read squares, fn core.basic::to_str(Int))))
   bind#30 let deduped: Set<Int>(hash, eq) = call core.set::to_set<Int>(read primes, fn core.compare::hash(Int), fn core.compare::eq(Int, Int))
   call core.console::println(read __handle~2, concat("5. to_set ", call core.set::to_str<Int>(read deduped, fn core.basic::to_str(Int))))
-  bind#31 let words: List<Str> = list[List<Str>]("alpha", "be")
+  bind#31 let words: List<Str> = call core.list::list_of(T, T[])<Str>("alpha", array[Str[]]("be"))
   bind#32 let lengths: Map<Str, Int>(hash, eq) = call core.map::to_map(List<T>, (T) -> (K, V))<Str, Str, Int>(read words, lambda(lent w: Str) -> (Str, Int) {
     value tuple(read w, call core.string::size(read w))
   }, fn core.compare::hash(Str), fn core.compare::eq(Str, Str))

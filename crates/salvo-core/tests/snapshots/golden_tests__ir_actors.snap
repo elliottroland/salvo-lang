@@ -86,7 +86,7 @@ actor interface Fragile {
 impl Breaking() of Fragile {
   mailbox construct Mailbox { capacity: 1 }
   fn crash() -> None {
-    bind#1 let empty: List<Int> = list[List<Int>]()
+    bind#1 let empty: List<Int> = call core.list::list_of()<Int>()
     bind#6 let boom: Int = branch#5 cond#0 true {
       bind#3 let __nn~1: Int? = call core.list::get(List<T>, Int)<Int>(read empty, 7)
       value switch#2 read __nn~1 {

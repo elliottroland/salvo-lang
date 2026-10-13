@@ -13,7 +13,7 @@ test "reversed walks back to front" {
 }
 
 test "reversed of an empty list emits nothing" {
-    let xs: List<Int> = []
+    let xs: List<Int> = List<Int>()
     let seen: Mut List<Int> = mut_list_of()
     for x in reversed(xs) {
         add(seen, copy(x))
@@ -47,7 +47,7 @@ test "enumerate_rev descends from the last index to zero" {
 }
 
 test "enumerate of an empty list emits nothing" {
-    let xs: List<Str> = []
+    let xs: List<Str> = List<Str>()
     let seen: Mut List<Str> = mut_list_of()
     for pair in enumerate(xs) {
         add(seen, "${pair.index}")
@@ -92,7 +92,7 @@ test "an out-of-range index fails the Idx test" {
 test "a proven pair swaps totally" {
     // [col-idx] The total `swap`: no `Bool` to check — the claims did the
     // checking [col-bounds].
-    let xs: Mut List<Int> = [1, 2, 3]
+    let xs: Mut List<Int> = Mut List(1, 2, 3)
     let i = 0
     let j = 2
     assert!(i is Idx(xs))
@@ -105,7 +105,7 @@ test "add and swap preserve Idx claims" {
     // [qual-preserve] Growth keeps every existing index valid, and an
     // exchange moves no boundary — so the total `get` still applies after
     // both.
-    let xs: Mut List<Int> = [1, 2, 3]
+    let xs: Mut List<Int> = Mut List(1, 2, 3)
     let i = 1
     assert!(i is Idx(xs))
     add(xs, 4)
@@ -178,7 +178,7 @@ test "an out-of-range swap answers false, and the answer cannot be dropped" {
     // [col-bounds] The failure a swap reports is invisible at the call site,
     // which is why the answer is a `Checked`: `detach` reads it, `ignore` says
     // the miss was expected. Dropping it is a compile-time error.
-    let xs: Mut List<Int> = [1, 2]
+    let xs: Mut List<Int> = Mut List(1, 2)
     expect(!detach(swap(xs, 0, 9)), "out of range, so nothing moved")
     expect_eq(to_str(xs), "[1, 2]")
     ignore(swap(xs, 0, 1))

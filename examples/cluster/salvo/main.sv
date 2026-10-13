@@ -247,7 +247,7 @@ fn two_ids(seq: Addr<ActorGroup<Sequencer>>) [use, Leader, Console] -> None => !
 fn shop(stock: Addr<ActorGroup<Inventory>>) [use, Console] -> None => !stock {
     use Sharded<Inventory>()
     use route_any(stock)
-    checkout(["apple", "pear", "apple", "fig", "pear"])
+    checkout(List("apple", "pear", "apple", "fig", "pear"))
 }
 
 // ----------------------------------------------------------- node `b` ----
@@ -279,7 +279,7 @@ handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: Addr<MemNet>) [T
         spawn Stocking("shard-b") on p in stock
 
         let index = actor_group<Search>(copy(group))
-        spawn Indexing(["salvo", "actors", "salvo", "nodes"]) on p in index
+        spawn Indexing(List("salvo", "actors", "salvo", "nodes")) on p in index
 
         let looks = actor_group<Lookup>(group)
         let timer = spawn DefaultTimer() on p
@@ -306,7 +306,7 @@ fn main() [use, spawn] {
     use StdOutConsole()
     let a = NodeEndpoint { host: "a", port: 1 }
     let b = NodeEndpoint { host: "b", port: 1 }
-    let all = [copy(a), copy(b)]
+    let all = List(copy(a), copy(b))
     let network = spawn MemNetwork() on pool(1)
 
     // Node a: the transport, the node group — which connects the node to the
@@ -320,7 +320,7 @@ fn main() [use, spawn] {
     let stock = actor_group<Inventory>(copy(nodes))
     spawn Stocking("shard-a") on p in stock
     let index = actor_group<Search>(copy(nodes))
-    spawn Indexing(["salvo", "is", "salvo"]) on p in index
+    spawn Indexing(List("salvo", "is", "salvo")) on p in index
     let looks = actor_group<Lookup>(copy(nodes))
     spawn Looking("a") on p in looks
 

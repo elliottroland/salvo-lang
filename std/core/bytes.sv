@@ -25,8 +25,8 @@
 export iterable platform type Bytes canbe Mut : Iter<self, Byte>
 
 // The bytes of [elems], in order: `bytes_of(to_byte(0), to_byte(255))`.
-// Bytes have no literal syntax — a `[...]` literal is a `List` [col-literal] —
-// so this is the constructor.
+// Bytes have no literal syntax — collection literals are retired, and
+// `List(...)` builds a `List` [col-no-literal] — so this is the constructor.
 export fn bytes_of(...elems: Byte[]) [] -> Bytes => elems {
     let out = empty_bytes()
     for b in elems {

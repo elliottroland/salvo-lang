@@ -338,7 +338,7 @@ fn main::shop(lent console: Console; moved stock: Addr<ActorGroup<Inventory>>) -
   bind#2 let __handle~2: RouteSelector<Inventory> = handle[RouteSelector<Inventory>](read __use~1)
   bind#3 let __use~3: __Route_Inventory = construct __Route_Inventory { group: read stock, config: call net::default_route_config(), __dep0: read __handle~2 }
   bind#4 let __handle~4: Inventory = handle[Inventory](read __use~3)
-  call main::checkout(read __handle~4, read console, list[List<Str>]("apple", "pear", "apple", "fig", "pear"))
+  call main::checkout(read __handle~4, read console, call core.list::list_of(T, T[])<Str>("apple", array[Str[]]("pear", "apple", "fig", "pear")))
 }
 
 actor interface Boot {
@@ -358,7 +358,7 @@ impl Booting(lent at: NodeEndpoint, lent all: List<NodeEndpoint>, lent net: Addr
     bind#5 let stock: Addr<ActorGroup<Inventory>> = call net::actor_group(Addr<NodeGroup>)<Inventory>(call core.basic::copy<Addr<NodeGroup>>(read group), fn net::protocol)
     spawn[Addr<Inventory>](construct Stocking { shard: "shard-b" }, on: read p, in: read stock) serves [Inventory]
     bind#6 let index: Addr<ActorGroup<Search>> = call net::actor_group(Addr<NodeGroup>)<Search>(call core.basic::copy<Addr<NodeGroup>>(read group), fn net::protocol)
-    spawn[Addr<Search>](construct Indexing { words: list[List<Str>]("salvo", "actors", "salvo", "nodes") }, on: read p, in: read index) serves [Search]
+    spawn[Addr<Search>](construct Indexing { words: call core.list::list_of(T, T[])<Str>("salvo", array[Str[]]("actors", "salvo", "nodes")) }, on: read p, in: read index) serves [Search]
     bind#7 let looks: Addr<ActorGroup<Lookup>> = call net::actor_group(Addr<NodeGroup>)<Lookup>(!read group, fn net::protocol)
     bind#8 let timer: Addr<Timer> = spawn[Addr<Timer>](construct DefaultTimer { }, on: read p) serves [Timer]
     spawn[Addr<Lookup>](construct SlowLooking { who: "b (slow)", timer: read timer }, on: read p, in: read looks) serves [Lookup]
@@ -389,7 +389,7 @@ fn main::main() -> None {
   bind#2 let __handle~2: Console = read __use~1
   bind#3 let a: NodeEndpoint = construct NodeEndpoint { host: "a", port: 1 }
   bind#4 let b: NodeEndpoint = construct NodeEndpoint { host: "b", port: 1 }
-  bind#5 let all: List<NodeEndpoint> = list[List<NodeEndpoint>](call core.basic::copy<NodeEndpoint>(read a), call core.basic::copy<NodeEndpoint>(read b))
+  bind#5 let all: List<NodeEndpoint> = call core.list::list_of(T, T[])<NodeEndpoint>(call core.basic::copy<NodeEndpoint>(read a), array[NodeEndpoint[]](call core.basic::copy<NodeEndpoint>(read b)))
   bind#6 let network: Addr<MemNet> = spawn[Addr<MemNet>](construct MemNetwork { }, on: call core.actor::pool(Int)(1)) serves [MemNet]
   bind#7 let __use~3: MemTransport = construct MemTransport { me: call core.basic::copy<NodeEndpoint>(read a), net: call core.basic::copy<Addr<MemNet>>(read network) }
   bind#8 let __handle~4: Transport = handle[Transport](read __use~3)
@@ -400,7 +400,7 @@ fn main::main() -> None {
   bind#12 let stock: Addr<ActorGroup<Inventory>> = call net::actor_group(Addr<NodeGroup>)<Inventory>(call core.basic::copy<Addr<NodeGroup>>(read nodes), fn net::protocol)
   spawn[Addr<Inventory>](construct Stocking { shard: "shard-a" }, on: read p, in: read stock) serves [Inventory]
   bind#13 let index: Addr<ActorGroup<Search>> = call net::actor_group(Addr<NodeGroup>)<Search>(call core.basic::copy<Addr<NodeGroup>>(read nodes), fn net::protocol)
-  spawn[Addr<Search>](construct Indexing { words: list[List<Str>]("salvo", "is", "salvo") }, on: read p, in: read index) serves [Search]
+  spawn[Addr<Search>](construct Indexing { words: call core.list::list_of(T, T[])<Str>("salvo", array[Str[]]("is", "salvo")) }, on: read p, in: read index) serves [Search]
   bind#14 let looks: Addr<ActorGroup<Lookup>> = call net::actor_group(Addr<NodeGroup>)<Lookup>(call core.basic::copy<Addr<NodeGroup>>(read nodes), fn net::protocol)
   spawn[Addr<Lookup>](construct Looking { who: "a" }, on: read p, in: read looks) serves [Lookup]
   bind#15 let pb: Pool = call net::pool_at(call net::new_node(), 1)

@@ -376,18 +376,11 @@ fn a_nested_composite_reports_once() {
     assert_eq!(errs.len(), 1, "got {errs:?}");
 }
 
-/// The inferred stores: an array literal and a tuple literal, which have
-/// no written type to refuse.
+/// The inferred store: a tuple literal, which has no written type to refuse.
+/// (The array-literal half went with collection literals [col-no-literal]: a
+/// constructor call is checked against its callee's `canbe linear`.)
 #[test]
 fn literal_composites_are_refused() {
-    let arr = errors(&format!(
-        "{LINES}\nfn go() -> None {{\n    let xs = [open_lines(\"a\")]\n}}\n"
-    ));
-    assert!(
-        arr.iter()
-            .any(|e| e.contains("`Lines` is linear") && e.contains("an array element")),
-        "got {arr:?}"
-    );
     let tup = errors(&format!(
         "{LINES}\nfn go() -> None {{\n    let t = (open_lines(\"a\"), 1)\n}}\n"
     ));
