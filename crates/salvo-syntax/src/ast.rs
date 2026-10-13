@@ -963,12 +963,31 @@ pub struct FnDecl {
     pub deductions: Option<Vec<Deduction>>,
     /// `None` means the function returns `None` (the unit type).
     pub return_type: Option<Type>,
+    /// [deduce-conditional] A **qualifier-conditional response**: `fn
+    /// non_empty<T>(list: List<T>) -> list is NonEmpty => list` returns `Bool`
+    /// (so `return_type` is set to `Bool`), and the clause states what a
+    /// `true` result proves about a kept parameter. `subject !is Q` is the
+    /// negation. Chainable with `&&`, so several entries share the clause.
+    /// Proof-only and erased [qual-erasure]; checker-only metadata.
+    pub response: Option<Vec<ConditionalResponse>>,
     /// `-> T as Qualifier` marks a constructive-qualifier constructor: the
     /// body returns plain `T` values which gain the qualifier by
     /// construction; callers see `Qualifier T`.
     pub constructs: Option<TypeRef>,
     /// `None` for signatures (`intrinsic fn`, effect members).
     pub body: Option<Block>,
+    pub span: Span,
+}
+
+/// [deduce-conditional] One entry of a qualifier-conditional response:
+/// `list is NonEmpty` or `list !is NonEmpty`. A `true` result proves the
+/// (non-)qualifier about `subject` on the branch that took it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ConditionalResponse {
+    pub subject: Ident,
+    /// `!is`: the `true` result proves the qualifier is *absent*.
+    pub negated: bool,
+    pub qual: TypeRef,
     pub span: Span,
 }
 

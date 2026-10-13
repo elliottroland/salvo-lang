@@ -606,6 +606,7 @@ Module {
                                 },
                             },
                         ),
+                        response: None,
                         constructs: None,
                         body: Some(
                             Block {
@@ -747,6 +748,7 @@ Module {
                                 },
                             },
                         ),
+                        response: None,
                         constructs: None,
                         body: Some(
                             Block {
@@ -916,6 +918,7 @@ Module {
                                 },
                             },
                         ),
+                        response: None,
                         constructs: None,
                         body: Some(
                             Block {
@@ -1094,6 +1097,7 @@ Module {
                         },
                     },
                 ),
+                response: None,
                 constructs: Some(
                     TypeRef {
                         name: Ident {
@@ -1273,6 +1277,7 @@ Module {
                         },
                     },
                 ),
+                response: None,
                 constructs: None,
                 body: Some(
                     Block {
@@ -1921,6 +1926,7 @@ Module {
                         },
                     },
                 ),
+                response: None,
                 constructs: None,
                 body: Some(
                     Block {
@@ -2312,6 +2318,7 @@ Module {
                         },
                     },
                 ),
+                response: None,
                 constructs: None,
                 body: Some(
                     Block {
@@ -2557,6 +2564,7 @@ Module {
                                 },
                             },
                         ),
+                        response: None,
                         constructs: None,
                         body: Some(
                             Block {

@@ -1417,6 +1417,52 @@ fn key_value_pair_arguments_parse_as_tuples() {
     }
 }
 
+/// [deduce-conditional] A `-> subject is Q` response parses as a Bool-
+/// returning predicate carrying the conditional claim.
+#[test]
+fn conditional_response_parses() {
+    let source = "fn non_empty<T>(list: List<T>) -> list is NonEmpty => list {\n    return list is NonEmpty\n}\n";
+    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    assert!(
+        !diagnostics.iter().any(|d| d.is_error()),
+        "unexpected errors: {:?}",
+        diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+    let salvo_syntax::ast::Item::Fn(f) = &module.items[0] else {
+        panic!("expected a fn item");
+    };
+    let responses = f.response.as_ref().expect("a response clause");
+    assert_eq!(responses.len(), 1);
+    assert_eq!(responses[0].subject.name, "list");
+    assert_eq!(responses[0].qual.name.name, "NonEmpty");
+    assert!(!responses[0].negated);
+    // The real return type lowered to Bool.
+    assert!(
+        matches!(&f.return_type, Some(salvo_syntax::ast::Type::Named { base, .. }) if base.name.name == "Bool"),
+        "return type is Bool, got {:?}",
+        f.return_type
+    );
+}
+
+/// [deduce-conditional] `!is` parses negated, and `&&` chains entries.
+#[test]
+fn conditional_response_negation_and_chain_parse() {
+    let source = "fn ok(a: List<Int>, b: Int) -> a !is NonEmpty && b is Small => a, b {\n    return true\n}\n";
+    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    assert!(
+        !diagnostics.iter().any(|d| d.is_error()),
+        "unexpected errors: {:?}",
+        diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+    let salvo_syntax::ast::Item::Fn(f) = &module.items[0] else {
+        panic!("expected a fn item");
+    };
+    let responses = f.response.as_ref().expect("a response clause");
+    assert_eq!(responses.len(), 2);
+    assert!(responses[0].negated && responses[0].subject.name == "a");
+    assert!(!responses[1].negated && responses[1].subject.name == "b");
+}
+
 /// [col-pairs] Pairs are all-or-nothing: a positional argument cannot be
 /// mixed with `k: v` pairs in one call.
 #[test]

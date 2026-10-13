@@ -212,6 +212,7 @@ Module {
                         },
                     },
                 ),
+                response: None,
                 constructs: Some(
                     TypeRef {
                         name: Ident {
@@ -299,6 +300,7 @@ Module {
                         },
                     },
                 ),
+                response: None,
                 constructs: None,
                 body: Some(
                     Block {
@@ -536,6 +538,7 @@ Module {
                                 span: 3286..3306,
                             },
                         ),
+                        response: None,
                         constructs: None,
                         body: None,
                         span: 3263..3306,
@@ -668,6 +671,7 @@ Module {
                                 },
                             },
                         ),
+                        response: None,
                         constructs: None,
                         body: None,
                         span: 4530..4562,
@@ -826,6 +830,7 @@ Module {
                                 span: 4596..4616,
                             },
                         ),
+                        response: None,
                         constructs: None,
                         body: None,
                         span: 4567..4616,

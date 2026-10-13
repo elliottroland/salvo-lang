@@ -2404,6 +2404,7 @@ impl<'s> Parser<'s> {
                         effects: None,
                         deductions: None,
                         return_type: None,
+                        response: None,
                         constructs: None,
                         body: Some(body),
                         span,
@@ -2578,6 +2579,7 @@ impl<'s> Parser<'s> {
         let mut return_type = None;
         let mut constructs = None;
         let mut derived_return = None;
+        let mut response = None;
         // [proj-infer] `-> T holds proj(a, b)`: the opaque lends, held for
         // synthesis into the deduction list once the clause is parsed.
         let mut opaque_lends: Option<(Vec<Ident>, Span)> = None;
@@ -2601,6 +2603,52 @@ impl<'s> Parser<'s> {
                 self.bump();
                 constructs = Some(self.parse_type_ref()?);
             }
+            // [deduce-conditional] `-> list is NonEmpty` / `-> list !is Q`
+            // (chainable with `&&`): a qualifier-conditional response. The fn
+            // returns `Bool`; the clause says what a `true` result proves.
+            // Recognised by a lowercase identifier followed by `is` or `!is`.
+            if constructs.is_none()
+                && self.at_ident()
+                && (matches!(self.peek_at(1).kind, TokenKind::KwIs)
+                    || (matches!(self.peek_at(1).kind, TokenKind::Bang)
+                        && matches!(self.peek_at(2).kind, TokenKind::KwIs)))
+            {
+                let mut responses = Vec::new();
+                loop {
+                    let subject = self.ident()?;
+                    let negated = if self.at(&TokenKind::Bang) {
+                        self.bump();
+                        true
+                    } else {
+                        false
+                    };
+                    self.expect(&TokenKind::KwIs)?;
+                    let qual = self.parse_type_ref()?;
+                    let span = subject.span.to(qual.span);
+                    responses.push(ConditionalResponse { subject, negated, qual, span });
+                    // `&&` chains more entries; anything else ends the clause.
+                    if !(self.at(&TokenKind::AmpAmp) && self.same_line()) {
+                        break;
+                    }
+                    self.bump();
+                }
+                response = Some(responses);
+                // The real return type is `Bool`.
+                return_type = Some(Type::Named {
+                    qualifiers: Vec::new(),
+                    base: TypeRef {
+                        name: Ident { name: "Bool".to_string(), span: start },
+                        args: Vec::new(),
+                        value_args: Vec::new(),
+                        from: Vec::new(),
+                        at: None,
+                        binder: false,
+                        established: false,
+                        alias: None,
+                        span: start,
+                    },
+                });
+            } else {
             let ty = self.parse_type()?;
             // [proj-infer] `-> T holds proj(a, b)`: the result is owned and
             // holds borrows of the named parameters somewhere inside.
@@ -2614,6 +2662,7 @@ impl<'s> Parser<'s> {
             // on `T`, so the old prefix spelling reads identically.
             derived_return = first_proj_source(&ty);
             return_type = Some(ty);
+            }
         }
         // [deduce-syntax] `=> …` groups: the unnamed ones are the fn's own
         // clause; `=>[f] …` belongs to the fn-typed parameter `f`.
@@ -2689,6 +2738,7 @@ impl<'s> Parser<'s> {
             effects,
             deductions,
             return_type,
+            response,
             constructs,
             body,
             span: start.to(end),

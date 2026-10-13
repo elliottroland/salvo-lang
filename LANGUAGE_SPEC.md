@@ -385,12 +385,33 @@ Conventions:
     `Bool` value), and neither name can be shadowed or renamed. The call shape is
     kept because it reads like one; the semantics are the compiler's.
 * [assert-narrow] When an `assert!`'s condition is a narrowing test — `is` on a
-  type, a qualifier or a union arm, or their `&&` chains — the **then-narrows are
+  type, a qualifier or a union arm, their `&&` chains, or a call to a fn with a
+  qualifier-conditional response [deduce-conditional] — the **then-narrows are
   installed permanently** for the rest of the scope, exactly as the guard idiom
   installs its else-narrows [is-narrow-guard]. So `assert!(v is Int)` makes `v`
   an `Int` below, and `assert!(xs is NonEmpty)` makes `first(xs)` answer an
   element [col-nonempty]. This is what the form is *for*: an assertion that
   informs the type rather than merely checking.
+* [deduce-conditional] A function may declare a **qualifier-conditional
+  response** (user decision 2026-10-12): `fn non_empty<T>(list: List<T>) ->
+  list is NonEmpty => list`. The `-> subject is Q` (or `subject !is Q`,
+  chainable with `&&`) response lowers the fn's real return type to `Bool`;
+  the clause says what a `true` result proves.
+  * **Spelling** uses `is`/`!is`, no `+`/`-`: `list is NonEmpty` ≡ `list:
+    +NonEmpty` in a deduction clause, `list !is NonEmpty` ≡ `-NonEmpty`.
+  * **Call-site narrowing**: `if non_empty(xs) { … }` narrows `xs` to
+    `NonEmpty` in the then-branch (the `!is` form in whichever branch it
+    holds); **only the matching branch** learns the fact, the other learns
+    nothing. The same `CondInfo` path a literal `is` test uses, so `if`,
+    `elif`, the guard idiom and `assert!` all pick it up [assert-narrow].
+  * **Proof-only** [qual-erasure]: a `return true` must have narrowed the
+    subject to the qualifier (for `is`) or away from it (for `!is`) on that
+    path — the body earns the claim with a real `is` test. Trusted like a
+    refinement otherwise; no runtime check is emitted.
+  * The subject must be a **kept** parameter (a moved one tells the caller
+    nothing afterwards) and the qualifier must be in scope and apply.
+  * Checker-only metadata, erased: the IR and both backends see an ordinary
+    `-> Bool` fn.
 * [assert-trap] A failed assertion is **Salvo's** failure, not the host's: the
   text is `salvo: <what> at <module>:<line>:<col>`, identical on both backends
   (user decision 2026-09-23, A-2), where `<what>` is the written message when

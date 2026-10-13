@@ -755,6 +755,7 @@ fn expand(
                 .collect(),
         ),
         return_type: Some(pass_ty(true)),
+        response: None,
         constructs: None,
         body: Some(Block {
             stmts: vec![Stmt::Expr(Expr::Return {
@@ -877,6 +878,7 @@ fn expand(
         effects: f.effects.clone(),
         deductions: Some(next_deductions),
         return_type: next_return.clone(),
+        response: None,
         constructs: None,
         body: Some(next_body),
         span: f.span,
@@ -1236,6 +1238,7 @@ fn test_fn(test: TestDecl, fn_name: String) -> FnDecl {
         }),
         deductions: None,
         return_type: None,
+        response: None,
         constructs: None,
         body: Some(test.body),
         span: test.span,

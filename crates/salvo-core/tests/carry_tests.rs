@@ -1039,3 +1039,37 @@ fn provenance_arm_is_inferred_from_a_bare_value() {
         "a plain value is not auto-wrapped into an open literal-union arm: {open:?}"
     );
 }
+
+#[test]
+fn conditional_response_narrows_and_is_proof_checked() {
+    // [deduce-conditional] A `-> list is NonEmpty` fn returns Bool; its body
+    // must prove the claim on the `true` path.
+    let prelude = "export qualifier NonEmpty<T> of List<T> {\n    \
+         fn qualifies(list: List<T>) -> Bool {\n        return size(list) > 0\n    }\n}\n";
+
+    let ok = errors(&format!(
+        "{prelude}fn non_empty<T>(list: List<T>) -> list is NonEmpty => list {{\n    \
+         return list is NonEmpty\n}}\n"
+    ));
+    assert!(ok.is_empty(), "a proven conditional response is accepted: {ok:?}");
+
+    // A `return true` that proves nothing is refused.
+    let lies = errors(&format!(
+        "{prelude}fn non_empty<T>(list: List<T>) -> list is NonEmpty => list {{\n    \
+         return true\n}}\n"
+    ));
+    assert!(
+        lies.iter().any(|e| e.contains("[deduce-conditional]")),
+        "an unproven `return true` is refused: {lies:?}"
+    );
+
+    // The subject must be a kept parameter.
+    let moved = errors(&format!(
+        "{prelude}fn non_empty<T>(list: List<T>) -> list is NonEmpty => !list {{\n    \
+         return list is NonEmpty\n}}\n"
+    ));
+    assert!(
+        moved.iter().any(|e| e.contains("moves it")),
+        "a moved subject is refused: {moved:?}"
+    );
+}

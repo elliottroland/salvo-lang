@@ -264,6 +264,7 @@ Module {
                         },
                     },
                 ),
+                response: None,
                 constructs: None,
                 body: Some(
                     Block {
@@ -856,6 +857,7 @@ Module {
                 effects: None,
                 deductions: None,
                 return_type: None,
+                response: None,
                 constructs: None,
                 body: Some(
                     Block {
@@ -962,6 +964,7 @@ Module {
                         },
                     },
                 ),
+                response: None,
                 constructs: None,
                 body: Some(
                     Block {

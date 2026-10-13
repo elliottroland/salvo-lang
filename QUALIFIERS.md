@@ -257,19 +257,22 @@ wiki synced. NOTE for change 7: remove `quals_compatible`, the ignored tests,
 `report_refn_ambiguity`/`@place` call-site machinery, and the `[qual-refn-at]`/
 `[qual-refn-ambiguous]` rules.
 
-### Change 5 (conditional deductions) — PLAN (decided)
-A fn may declare a **qualifier-conditional response**: `fn non_empty<T>(list:
-List<T>) -> list is NonEmpty => list`. The `-> subject is Q` (and `subject !is
-Q`) response lowers the fn's actual return type to **Bool** (C5-1: build this
-primitive once; refn 6(c) reuses it). Spelling uses `is`/`!is`, no `+`/`-` (R4)
-— `list is NonEmpty` ≡ `list: +NonEmpty` in a deduction clause, `list !is
-NonEmpty` ≡ `-NonEmpty`. **Proof-only** for now (Q11): the `true`-returning
-path must have narrowed `subject` to the stated qualifier via existing flow
-narrows. Chainable with `&&` (`-> a is Q && b is R`) and `!` negates (C5-2).
-Call-site: `if non_empty(xs) { … }` installs `NonEmpty` on `xs` in the
-then-branch (and the `!is` form in the branch where it holds); **only the
-matching branch** learns the fact, the other learns nothing (R4). A new
-narrowing source, like a reusable `assert!(xs is NonEmpty)`.
+### Change 5 (conditional deductions) — DONE (2026-10-12)
+AST: `FnDecl.response: Option<Vec<ConditionalResponse>>` + `ConditionalResponse
+{ subject, negated, qual, span }`. Parser (`parse_fn_rest`, after `->`): a
+lowercase ident followed by `is`/`!is` parses the response clause (chained with
+`&&`), sets `return_type = Bool`. Checker: `response_narrows(call)` in the
+`analyze_cond` `other =>` arm builds then/else `Narrow`s for the argument bound
+to each subject param (adds the qual on `is`-true, removes on `!is`-true) — so
+`if`/`elif`/guard/`assert!` all narrow via the shared `CondInfo` path, no new
+flow machinery. `own_response` field; proof-only check at `Expr::Return` (a
+`return true` must have the subject narrowed to/away-from the qual on that
+path); kept-param + qual-applies validation in `check_fn`. Erased — IR/backends
+see `-> Bool`. Verified both backends: `if non_empty(xs) { first(xs) }` →
+`Int`; `!is` + else-branch; `&&` chain. Tests: `conditional_response_parses`,
+`conditional_response_negation_and_chain_parse` (parser_tests),
+`conditional_response_narrows_and_is_proof_checked` (carry_tests). Spec:
+`[deduce-conditional]` + `[assert-narrow]` updated. REUSED by change 7's 6(c).
 
 ### Change 7 (refn redesign) — PLAN (decided)
 New matching model (replaces name+exact-signature one-to-one):

@@ -2596,6 +2596,9 @@ struct Checker<'p, 'r> {
     /// value must be derived from `p`, and the return is a *borrow*, not
     /// a move.
     own_derived_return: Option<String>,
+    /// [deduce-conditional] The enclosing fn's qualifier-conditional response
+    /// clause, if any — checked proof-only at each `return true`.
+    own_response: Option<Vec<ast::ConditionalResponse>>,
     /// [qual-preserve] The enclosing fn's own `preserve` promises, per
     /// parameter — checked against every `Mut` use of the parameter in the
     /// body (the call must itself preserve the claim).
@@ -2878,6 +2881,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             is_std,
             own_linear_generics: HashSet::new(),
             own_derived_return: None,
+            own_response: None,
             own_preserve: HashMap::new(),
             reader_bound: HashMap::new(),
             own_derived_sources: Vec::new(),
@@ -8099,6 +8103,64 @@ impl<'p, 'r> Checker<'p, 'r> {
         // no annotation (the callee owns it), and a borrow of a moved
         // value could not outlive the call.
         self.own_derived_return = f.derived_return.as_ref().map(|id| id.name.clone());
+        self.own_response = f.response.clone();
+        // [deduce-conditional] Validate a qualifier-conditional response: each
+        // subject must be a *kept* parameter (a moved one tells the caller
+        // nothing afterwards), and the qualifier must be in scope and apply.
+        if let Some(responses) = &f.response {
+            for r in responses {
+                let Some(p) = f.params.iter().find(|p| p.name.name == r.subject.name) else {
+                    self.error(
+                        r.span,
+                        format!(
+                            "a conditional response names `{}`, which is not a \
+                             parameter of `{}` [deduce-conditional]",
+                            r.subject.name, f.name.name
+                        ),
+                    );
+                    continue;
+                };
+                // Kept unless a written deduction moves it (`=> !p` / `p:
+                // Never` / `p: None`-less move).
+                let moved = f.deductions.iter().flatten().any(|d| {
+                    d.param_name().is_some_and(|n| n.name == r.subject.name)
+                        && matches!(
+                            d.kind,
+                            ast::DeductionKind::Moved | ast::DeductionKind::Deferred
+                        )
+                });
+                if moved {
+                    self.error(
+                        r.span,
+                        format!(
+                            "a conditional response speaks about `{}`, but `{}` moves \
+                             it — a caller knows nothing about a moved value afterwards. \
+                             Keep the parameter (drop its `!{}`) [deduce-conditional]",
+                            r.subject.name, f.name.name, r.subject.name
+                        ),
+                    );
+                }
+                if self.qualifier_named(r.qual.name.name.as_str()).is_none() {
+                    self.error(
+                        r.qual.span,
+                        format!("unknown qualifier `{}` [deduce-conditional]", r.qual.name.name),
+                    );
+                } else {
+                    let subj = self.lower_type(&p.ty);
+                    if let Some(decl) = self.qualifier_for(r.qual.name.name.as_str(), Some(&subj)) {
+                        if !self.qual_applies(decl, subj.strip_quals()) {
+                            self.error(
+                                r.qual.span,
+                                format!(
+                                    "`{}` does not apply to `{}` [deduce-conditional]",
+                                    r.qual.name.name, subj
+                                ),
+                            );
+                        }
+                    }
+                }
+            }
+        }
         // [qual-preserve] The fn's own preserve entries: recorded for the
         // body walk, and validated — the entry needs a body to check
         // against (a bodiless declaration is what refinements are for), a
@@ -22728,6 +22790,42 @@ impl<'p, 'r> Checker<'p, 'r> {
             // from when they were statements — only where they live is.
             Expr::Return { value, span } => {
                 let expected = self.ret_ty.clone();
+                // [deduce-conditional] Proof-only: a `return true` in a fn
+                // with a qualifier-conditional response must have narrowed
+                // each `is`-subject to its qualifier on this path (and each
+                // `!is`-subject must *not* carry it). The body earns the
+                // claim with a real `is` test; nothing else may return `true`.
+                if let (Some(responses), Some(Expr::Bool { value: true, .. })) =
+                    (self.own_response.clone(), value.as_deref())
+                {
+                    for r in &responses {
+                        let have: Vec<String> = self
+                            .lookup(&r.subject.name)
+                            .map(|v| v.narrowed.quals().iter().map(|q| q.name.clone()).collect())
+                            .unwrap_or_default();
+                        let present = have.contains(&r.qual.name.name);
+                        if r.negated && present {
+                            self.error(
+                                *span,
+                                format!(
+                                    "this `return true` claims `{} !is {}`, but `{}` \
+                                     carries `{}` on this path [deduce-conditional]",
+                                    r.subject.name, r.qual.name.name, r.subject.name, r.qual.name.name
+                                ),
+                            );
+                        } else if !r.negated && !present {
+                            self.error(
+                                *span,
+                                format!(
+                                    "this `return true` claims `{} is {}`, but nothing on \
+                                     this path proved it — narrow `{}` with `is` first \
+                                     [deduce-conditional]",
+                                    r.subject.name, r.qual.name.name, r.subject.name
+                                ),
+                            );
+                        }
+                    }
+                }
                 match value {
                     Some(v) => {
                         // [proj-anywhere] A constructor call whose result
@@ -24906,6 +25004,78 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
+    /// [deduce-conditional] The narrows a Bool-returning call with a
+    /// qualifier-conditional response (`fn non_empty(list) -> list is
+    /// NonEmpty => list`) installs: for each response entry, the argument
+    /// bound to the named parameter gains (`is`) or loses (`!is`) the
+    /// qualifier on the branch the `true` result selects. Erased and trusted
+    /// — the fn's body proved it [deduce-conditional].
+    fn response_narrows(&mut self, cond: &'p Expr) -> CondInfo {
+        let mut out = CondInfo::default();
+        let Expr::Call { args, .. } = cond else {
+            return out;
+        };
+        let Some(callee) = self.out.call_fn.get(&self.key(cond.span())).copied() else {
+            return out;
+        };
+        // The callee's declaration: its FnEntry is in scope (the call
+        // resolved through it). Search the current file's fn scope by key.
+        let Some(f) = self
+            .scope
+            .fns
+            .values()
+            .flatten()
+            .find(|e| e.key == callee)
+            .map(|e| e.decl)
+        else {
+            return out;
+        };
+        let Some(responses) = f.response.clone() else {
+            return out;
+        };
+        // Positional parameters (implicits take no argument slot).
+        let fixed: Vec<&ast::Param> = f.params.iter().filter(|p| !p.implicit).collect();
+        for r in &responses {
+            let Some(idx) = fixed.iter().position(|p| p.name.name == r.subject.name) else {
+                continue;
+            };
+            let Some(arg) = args.get(idx) else { continue };
+            let Some(place) = Place::of_expr(arg) else { continue };
+            // The argument's current narrowed type and its storage repr.
+            let (narrowed_base, declared) = if place.is_root() {
+                match self.lookup(&place.root) {
+                    Some(v) => (v.narrowed.clone(), v.declared.clone()),
+                    None => continue,
+                }
+            } else {
+                let t = self.out.expr_ty.get(&self.key(arg.span())).cloned().unwrap_or(Ty::Unknown);
+                (t.clone(), t)
+            };
+            let qual = self.lower_quals(std::slice::from_ref(&r.qual), &HashMap::new(), 0);
+            let qual_set: HashSet<String> = qual.iter().map(|q| q.name.clone()).collect();
+            // `is` adds the qualifier on the true branch; `!is` removes it
+            // there. The opposite holds on the false branch.
+            let with_qual = narrowed_base.clone().qualify(qual.clone());
+            let without_qual = narrowed_base.clone().remove_quals(&qual_set);
+            let (then_ty, else_ty) = if r.negated {
+                (without_qual, with_qual)
+            } else {
+                (with_qual, without_qual)
+            };
+            out.then_narrows.push(Narrow {
+                place: place.clone(),
+                narrowed: then_ty,
+                declared: declared.clone(),
+            });
+            out.else_narrows.push(Narrow {
+                place,
+                narrowed: else_ty,
+                declared,
+            });
+        }
+        out
+    }
+
     fn analyze_cond(&mut self, cond: &'p Expr) -> CondInfo {
         match cond {
             // [qual-lift] The dual of `is`: same test, generalized type.
@@ -25015,7 +25185,12 @@ impl<'p, 'r> Checker<'p, 'r> {
             other => {
                 let ty = self.check_expr(other, None);
                 self.require_bool(&ty, other.span());
-                CondInfo::default()
+                // [deduce-conditional] A call to a fn with a qualifier-
+                // conditional response narrows its argument like a literal
+                // `is` test: `if non_empty(xs)` installs `NonEmpty` on `xs` in
+                // the then-branch (and the `!is` form in whichever branch it
+                // holds). Only the matching branch learns the fact.
+                self.response_narrows(other)
             }
         }
     }
