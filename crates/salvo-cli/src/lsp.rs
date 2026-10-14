@@ -1106,6 +1106,37 @@ impl Server<'_> {
             DeclAt::Handler(h) => Some(h.name.name.clone()),
             DeclAt::Type(t) => Some(t.name.name.clone()),
         };
+        // [lsp-hover-ref-name] A reference hover must land on a declaration
+        // whose name is the token under the cursor. A built-in auto-qualifier
+        // (`Mut`) has no declaration, but a spurious def-ref can still point
+        // its span at some `canbe Mut` type (`Set`) — which showed `type
+        // Set<T>` when hovering the `Mut` of `Mut Map`. When the hovered text
+        // is a bare identifier that disagrees with the resolved declaration's
+        // name, the resolution is wrong: fall through rather than show it.
+        // Only applied to recorded references (`site`), never the
+        // hover-your-own-declaration fallback, and only for a plain-identifier
+        // token so an alias or dotted path is unaffected.
+        if site.is_some() {
+            if let Some(dname) = &decl_name {
+                let hovered = view
+                    .content
+                    .get(span.start as usize..span.end as usize)
+                    .unwrap_or("")
+                    .trim();
+                let plain_ident = !hovered.is_empty()
+                    && hovered
+                        .chars()
+                        .all(|c| c.is_alphanumeric() || c == '_');
+                if plain_ident && hovered != dname {
+                    // A dot-name declaration (`Ns.Name`) is referenced by its
+                    // last segment; that is a match, not a mismatch.
+                    let last_seg = dname.rsplit('.').next().unwrap_or(dname);
+                    if hovered != last_seg {
+                        return None;
+                    }
+                }
+            }
+        }
         let source = &analysis.program.files.get(target.file)?.content;
         let scope = |locals: Vec<(String, Span)>| docs::DocScope {
             locals,
@@ -2866,12 +2897,42 @@ fn iter_fn_signature(module: &salvo_syntax::ast::Module, decl: &FnDecl) -> Optio
     Some(format!("iter {sig}"))
 }
 
+/// [fn-type-named] The readable head of a type-named fn: the type's
+/// qualifiers and base name, **without** the base's generic arguments
+/// (`Mut Map<K, V>` → `Mut Map`). The fn's own `<…>` with `canbe` bounds is
+/// appended by the caller, so the generics are shown once, with their bounds.
+fn type_fn_name_head(ty: &salvo_syntax::ast::Type) -> String {
+    use salvo_syntax::ast::Type;
+    match ty {
+        Type::Named { qualifiers, base } => {
+            let mut head = String::new();
+            for q in qualifiers {
+                head.push_str(&q.name.name);
+                head.push(' ');
+            }
+            head.push_str(&base.name.name);
+            head
+        }
+        // Not a `Named` type-fn name (a provenance form, say); fall back to its
+        // written form.
+        other => format!("{other}"),
+    }
+}
+
 /// A fn's source-like signature. `inferred` is the whole-program deduction
 /// list when there is one — effect and handler members have no `FnKey`, so
 /// they render their declared list only [doc-comment].
 fn fn_decl_signature(decl: &FnDecl, inferred: Option<&[ParamDeduction]>) -> String {
     let mut sig = String::from("fn ");
-    sig.push_str(&decl.name.name);
+    // [fn-type-named] A type-named constructor reads as its written type
+    // (`Mut Map`), not its canonical key (`Mut_Map`, which is `decl.name.name`).
+    // The qualifiers and base come from `type_name`; the generics with their
+    // `canbe` bounds come from the fn's own list (so `<K, V canbe linear>` still
+    // shows the linear opt-in), replacing the type's own generic arguments.
+    match &decl.type_name {
+        Some(ty) => sig.push_str(&type_fn_name_head(ty)),
+        None => sig.push_str(&decl.name.name),
+    }
     // [linear-generics] [lsp-hover-linear] With bounds: `<T canbe linear>` is
     // what tells a reader this function may be handed an obligation.
     sig.push_str(&generic_list_with_bounds(&decl.generics, &decl.generic_canbe));

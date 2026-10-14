@@ -2672,3 +2672,44 @@ fn a_slow_pass_dumps_the_analysed_buffer() {
     send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
     lsp.child.wait().expect("failed to wait for salvo lsp");
 }
+
+/// [fn-type-named] A type-named constructor hovers as its **readable** type
+/// (`fn Mut Map<K, V canbe linear>…`), not its canonical key (`Mut_Map`).
+/// Regression for the hover showing the mangled backend identifier after
+/// collection constructors became type-named functions.
+#[test]
+fn hovering_a_type_named_constructor_shows_the_readable_name() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_type_named_hover");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("main.sv"), "fn main() [] {\n}\n").unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}/main.sv", root.display());
+    // Line index 2 is the `tally` line; the callee `Mut Map` begins at col 35.
+    let buf = "fn main() [use] {\n    use StdOutConsole()\n    let tally: Mut Map<Str, Int> = Mut Map(\"a\": 1)\n    let _ = tally\n}\n";
+    send(&mut lsp.stdin, json!({
+        "jsonrpc": "2.0", "method": "textDocument/didOpen",
+        "params": {"textDocument": {"uri": uri, "languageId": "salvo", "version": 1, "text": buf}}
+    }));
+    let _ = expect_diagnostics(&lsp.rx);
+    // Column 36 = inside the `Mut` of the `Mut Map(...)` callee.
+    send(&mut lsp.stdin, json!({
+        "jsonrpc": "2.0", "id": 2, "method": "textDocument/hover",
+        "params": {"textDocument": {"uri": uri}, "position": {"line": 2, "character": 36}}
+    }));
+    let r = expect_response(&lsp.rx, 2);
+    let hover = r["result"]["contents"]["value"].as_str().unwrap_or("");
+    assert!(
+        hover.contains("fn Mut Map<"),
+        "constructor hover should read `fn Mut Map<…>`, got: {hover}"
+    );
+    assert!(
+        !hover.contains("Mut_Map"),
+        "constructor hover must not leak the canonical key `Mut_Map`: {hover}"
+    );
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "id": 99, "method": "shutdown", "params": null}));
+    expect_response(&lsp.rx, 99);
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
+    lsp.child.wait().unwrap();
+}
+

@@ -17359,8 +17359,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .map_or(0, |d| d.generics.len());
                 let args =
                     self.lower_identity_args(&q.args, &q.value_args, Some(arity), slots, subst, depth);
-                // [lsp-definition] qualifier name -> its declaration.
-                self.record_def_ref(q.name.span, &q.name.name);
+                // [lsp-definition] Only a user qualifier has a declaration to
+                // point at; a built-in auto-qualifier (`Mut`) does not.
+                if self.scope.is_qualifier(&q.name.name) {
+                    self.record_def_ref(q.name.span, &q.name.name);
+                }
                 out.push(Qual {
                     effect: false,
                     name: q.name.name.clone(),
@@ -17966,8 +17969,14 @@ impl<'p, 'r> Checker<'p, 'r> {
             // is visible wherever the value flows. Its `[from: p]` is not: the
             // source is a fact about the value, carried by fate links.
             .map(|q| {
-                // [lsp-definition] qualifier name -> its declaration.
-                self.record_def_ref(q.name.span, &q.name.name);
+                // [lsp-definition] qualifier name -> its declaration, but only
+                // a **user** qualifier has one: a built-in auto-qualifier
+                // (`Mut`, `once`) is a language keyword with no declaration to
+                // jump to, and recording a ref for it made hover resolve `Mut`
+                // to an arbitrary `canbe Mut` type (e.g. `Set`) [lsp-definition].
+                if self.scope.is_qualifier(&q.name.name) {
+                    self.record_def_ref(q.name.span, &q.name.name);
+                }
                 Qual {
                     // [fn-effects] A name in qualifier position that
                     // resolves to an *effect* is an effect claim on a
