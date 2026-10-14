@@ -2757,3 +2757,47 @@ fn hover_next_hides_generated_iterator_overloads() {
     send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
     lsp.child.wait().unwrap();
 }
+
+/// [lsp-definition] Go-to-definition on a call to a locally-declared function
+/// lands on that local declaration — the scenario behind a report of `notices`
+/// jumping into std. (A one-line editor/file desync, not a resolution bug, was
+/// the actual cause there; this guards the resolution path regardless.)
+#[test]
+fn goto_definition_lands_on_the_local_declaration() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_goto_local");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("main.sv"), "fn main() [] {\n}\n").unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}/main.sv", root.display());
+    // The call is a few lines above the declaration, as in the report.
+    let buf = concat!(
+        "fn use_it() -> Int {\n    return describe(5)\n}\n\n",
+        "fn describe(n: Int) [] -> Int => n {\n    return n\n}\n",
+    );
+    send(&mut lsp.stdin, json!({
+        "jsonrpc": "2.0", "method": "textDocument/didOpen",
+        "params": {"textDocument": {"uri": uri, "languageId": "salvo", "version": 1, "text": buf}}
+    }));
+    let _ = expect_diagnostics(&lsp.rx);
+    // Line index 1 (`    return describe(5)`), `describe` call at column 11.
+    send(&mut lsp.stdin, json!({
+        "jsonrpc": "2.0", "id": 2, "method": "textDocument/definition",
+        "params": {"textDocument": {"uri": uri}, "position": {"line": 1, "character": 12}}
+    }));
+    let r = expect_response(&lsp.rx, 2);
+    let result = &r["result"];
+    assert_eq!(
+        result["uri"].as_str(), Some(uri.as_str()),
+        "goto should land in the local file: {result}"
+    );
+    // The local `fn describe` is on line index 4.
+    assert_eq!(
+        result["range"]["start"]["line"].as_u64(), Some(4),
+        "goto should land on the local `fn describe` declaration (line 4): {result}"
+    );
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "id": 99, "method": "shutdown", "params": null}));
+    expect_response(&lsp.rx, 99);
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
+    lsp.child.wait().unwrap();
+}
