@@ -159,7 +159,7 @@ preference — the ladder is the point of this section, and assertions are its
 bottom rung:
 
 1. **Prove it.** A qualifier carries the fact in the type, established by
-   construction (`list_of(1, 2, 3)` is `NonEmpty`) or by a refinement, so nothing
+   construction (`List(1, 2, 3)` is `NonEmpty`) or by a refinement, so nothing
    checks it twice and nothing can fail.
 2. **Require it.** A linear type makes the caller *act* rather than merely know:
    forgetting is a compile error, not a run-time one.

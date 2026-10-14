@@ -11,19 +11,19 @@ fn add_generic<T>(s: Mut SortedSet<T>(?cmp), x: T) [] -> Bool => s: Mut, !x {
 }
 
 test "a sorted set keeps its members in order, each once" {
-    let s = mut_sorted_set_of(5, 1, 3, 1)
+    let s = Mut SortedSet(5, 1, 3, 1)
     let _a = add(s, 2)
     let _b = remove(s, 3)
     expect_eq("${s} ${size(s)} ${min_opt(s)!} ${max_opt(s)!}", "{1, 2, 5} 3 1 5")
 }
 
 test "strings sort by code point" {
-    let s = sorted_set_of("😀", "｡", "a")
+    let s = SortedSet("😀", "｡", "a")
     expect_eq("${s}", "{a, ｡, 😀}")
 }
 
 test "a custom ordering decides membership" {
-    let s: Mut SortedSet<Str>(by_len) = mut_sorted_set_of(cmp = by_len)
+    let s: Mut SortedSet<Str>(by_len) = Mut SortedSet(cmp = by_len)
     let _a = add(s, "bb")
     let _b = add(s, "a")
     expect(!add(s, "zz"), "as long as `bb`, so the same member")
@@ -32,7 +32,7 @@ test "a custom ordering decides membership" {
 }
 
 test "a sorted map keeps its keys in order; a repeated key takes the last value" {
-    let m = mut_sorted_map_of(("b", 2), ("a", 1), ("b", 20))
+    let m = Mut SortedMap(("b", 2), ("a", 1), ("b", 20))
     put(m, "c", 3)
     let gone = remove(m, "a")
     expect_eq("${m} ${gone!} ${first_key_opt(m)!} ${last_key_opt(m)!}", "{b: 20, c: 3} 1 b c")
@@ -40,6 +40,6 @@ test "a sorted map keeps its keys in order; a repeated key takes the last value"
 }
 
 test "two sorted sets and maps compare by their members" {
-    expect(sorted_set_of(3, 1) == sorted_set_of(1, 3), "same members")
-    expect(sorted_map_of(("a", 1)) != sorted_map_of(("a", 2)), "a value differs")
+    expect(SortedSet(3, 1) == SortedSet(1, 3), "same members")
+    expect(SortedMap(("a", 1)) != SortedMap(("a", 2)), "a value differs")
 }

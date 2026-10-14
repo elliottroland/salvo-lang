@@ -11,11 +11,11 @@ const STD_PRELUDE: &str = concat!(
     "export intrinsic type Int\n",
     "export intrinsic type Bool\n",
     "export intrinsic type List<T> canbe Mut\n",
-    "export intrinsic fn list_of<T>(...elems: T[]) [] -> List<T>\n",
+    "export intrinsic fn List<T>(...elems: T[]) [] -> List<T>\n",
 );
 
 const BAG: &str = "export opaque struct Bag {\n    items: List<Int>,\n    total: Int\n}\n\n\
-                   export fn bag() [] -> Bag {\n    return Bag { items: list_of<Int>(), total: 0 }\n}\n\n\
+                   export fn bag() [] -> Bag {\n    return Bag { items: List<Int>(), total: 0 }\n}\n\n\
                    export fn total(b: Bag) [] -> Int => b {\n    return b.total\n}\n";
 
 fn errors(files: &[(&str, &str)], annex: Option<&str>) -> Vec<String> {
@@ -62,7 +62,7 @@ fn outside_its_module_the_fields_are_not_there() {
                 fn fine() [] -> Int {\n    let b: Bag = bag()\n    return total(b)\n}\n\n\
                 fn read(b: Bag) [] -> Int => b {\n    return b.total\n}\n\n\
                 fn split(b: Bag) [] -> Int => b {\n    let {total} = b\n    return total\n}\n\n\
-                fn build() [] -> Bag {\n    return Bag { items: list_of<Int>(), total: 1 }\n}\n";
+                fn build() [] -> Bag {\n    return Bag { items: List<Int>(), total: 1 }\n}\n";
     let errs = errors(&[("bag.sv", BAG), ("main.sv", main)], None);
     let opaque: Vec<&String> = errs.iter().filter(|e| e.contains("`Bag` is opaque outside `bag`")).collect();
     assert_eq!(opaque.len(), 3, "{errs:?}");

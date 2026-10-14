@@ -454,8 +454,8 @@ export handler ManualTime() of Timer, TimerCtl {
     // element, so only `remove_at` reaches one [linear-container]. Keeping the
     // deadlines in a plain list beside it is what makes "which is earliest" a
     // question this handler can ask at all.
-    deadlines: Mut List<Long> = mut_list_of()
-    pending: Mut List<Reply<Fired>> = mut_list_of()
+    deadlines: Mut List<Long> = Mut List()
+    pending: Mut List<Reply<Fired>> = Mut List()
 
     send fn after(wait: Duration, done: Reply<Fired>) => !wait, !done {
         // [time-coupling] A deadline that is *already* due fires here rather

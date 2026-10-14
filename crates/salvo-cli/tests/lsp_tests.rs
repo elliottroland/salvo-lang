@@ -1138,7 +1138,7 @@ qualifier NonEmpty<T> of List<T> {
 }
 
 fn main() [use] {
-    let xs: Mut List<Int> = mut_list_of()
+    let xs: Mut List<Int> = Mut List()
     add(xs, 1)
 }
 ";
@@ -1748,7 +1748,7 @@ fn total<C, It>(c: C, ?iter: (c: C) -> Mut It holds proj(c), ?Yield<It, Int>) ->
 
 fn main() [use] {
     use StdOutConsole()
-    let xs = list_of(1, 2)
+    let xs = List(1, 2)
     let v = borrowed(xs)
     println(\"${v.at}\")
 }

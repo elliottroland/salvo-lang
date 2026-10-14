@@ -32,11 +32,11 @@ test "get and remove_at count from the front and answer None out of range" {
 
 test "iteration runs front to back and reversed back to front" {
     let d = to_deque(List(1, 2, 3))
-    let fwd: Mut List<Int> = mut_list_of()
+    let fwd: Mut List<Int> = Mut List()
     for x in d {
         add(fwd, copy(x))
     }
-    let back: Mut List<Int> = mut_list_of()
+    let back: Mut List<Int> = Mut List()
     for x in reversed(d) {
         add(back, copy(x))
     }

@@ -37,7 +37,7 @@ export fn bytes_of(...elems: Byte[]) [] -> Bytes => elems {
 
 // A buffer under construction, holding [parts] concatenated in order.
 // `mut_bytes()` is the empty one, which is how a read buffer starts;
-// mutability is asked for here, mirroring [mut_str] and [mut_list_of].
+// mutability is asked for here, mirroring [mut_str] and [Mut List].
 export fn mut_bytes(...parts: Bytes[]) [] -> Mut Bytes => parts {
     let out = empty_bytes()
     for part in parts {

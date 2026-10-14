@@ -4,27 +4,27 @@
 // narrowing both install.
 
 test "a contained key passes the KeyOf test" {
-    let m = mut_map_of(("a", 1), ("b", 2))
+    let m = Mut Map(("a", 1), ("b", 2))
     let k = "a"
     expect(k is KeyOf(m), "the map holds an entry under `a`")
 }
 
 test "an absent key fails the KeyOf test" {
-    let m = mut_map_of(("a", 1))
+    let m = Mut Map(("a", 1))
     let k = "z"
     expect(!(k is KeyOf(m)), "the map holds nothing under `z`")
 }
 
 test "the same key is a different fact per map" {
-    let with_it = mut_map_of(("a", 1))
-    let without_it = mut_map_of(("b", 2))
+    let with_it = Mut Map(("a", 1))
+    let without_it = Mut Map(("b", 2))
     let k = "a"
     expect(k is KeyOf(with_it), "present in the first map")
     expect(!(k is KeyOf(without_it)), "absent from the second")
 }
 
 test "assert! establishes the claim for the rest of the scope" {
-    let m = mut_map_of(("a", 1))
+    let m = Mut Map(("a", 1))
     let k = "a"
     assert!(k is KeyOf(m))
     // The claim is in `k`'s type from here on, and the total [get] consumes
@@ -37,7 +37,7 @@ test "assert! establishes the claim for the rest of the scope" {
 test "put preserves KeyOf claims, so the total read follows a write" {
     // [qual-preserve] Writing under a key never removes one: the claim
     // survives the mutation, and the total `get` still applies below it.
-    let m = mut_map_of(("a", 1))
+    let m = Mut Map(("a", 1))
     let k = "a"
     assert!(k is KeyOf(m))
     put(m, "b", 2)
@@ -60,7 +60,7 @@ fn put_generic<K, V>(m: Mut Map<K, V>(?hash, ?eq), k: K, v: V) [] -> None => m: 
 }
 
 test "an overwrite keeps the key's place; a removed key comes back last" {
-    let m = mut_map_of(("a", 1), ("b", 2), ("c", 3))
+    let m = Mut Map(("a", 1), ("b", 2), ("c", 3))
     put(m, "a", 10)
     let _gone = remove(m, "b")
     put(m, "b", 20)
@@ -68,13 +68,13 @@ test "an overwrite keeps the key's place; a removed key comes back last" {
 }
 
 test "a repeated key keeps its first place and takes its last value" {
-    let m = map_of(("k", 1), ("j", 2), ("k", 3))
+    let m = Map(("k", 1), ("j", 2), ("k", 3))
     let lit: Map<Str, Int> = Map("x": 1, "y": 2, "x": 9)
     expect_eq("${m} ${lit}", "{k: 3, j: 2} {x: 9, y: 2}")
 }
 
 test "replace answers what it displaced" {
-    let m = mut_map_of(("a", 1))
+    let m = Mut Map(("a", 1))
     let old = replace(m, "a", 5)
     let fresh = replace(m, "b", 6)
     expect(old! == 1 && fresh is None, "the old value, then nothing")
@@ -82,7 +82,7 @@ test "replace answers what it displaced" {
 }
 
 test "removing many keeps the rest findable and in order" {
-    let m: Mut Map<Int, Int> = mut_map_of()
+    let m: Mut Map<Int, Int> = Mut Map()
     for i in range(0, 50) {
         put(m, copy(i), i * 2)
     }
@@ -103,16 +103,16 @@ test "a custom identity keys the map, through a generic call too" {
 }
 
 test "drain hands every value over, in insertion order" {
-    let m: Mut Map<Int, Mut List<Int>> = mut_map_of()
-    put(m, 2, mut_list_of(20))
-    put(m, 1, mut_list_of(10))
+    let m: Mut Map<Int, Mut List<Int>> = Mut Map()
+    put(m, 2, Mut List(20))
+    put(m, 1, Mut List(10))
     let seen = into_values(m)
     expect_eq("${size(seen)} ${get(get(seen, 0)!, 0)!} ${get(get(seen, 1)!, 0)!}", "2 20 10")
 }
 
 test "two maps are equal with the same entries in any order" {
-    let a = map_of(("x", 1), ("y", 2))
-    let b = mut_map_of(("y", 2), ("x", 1))
+    let a = Map(("x", 1), ("y", 2))
+    let b = Mut Map(("y", 2), ("x", 1))
     expect(a == b, "same entries, other order")
     put(b, "x", 5)
     expect(a != b, "a value differs")
@@ -121,7 +121,7 @@ test "two maps are equal with the same entries in any order" {
 }
 
 test "entries and values walk the live entries in insertion order, borrowed" {
-    let m = mut_map_of(("a", 1), ("b", 2), ("c", 3))
+    let m = Mut Map(("a", 1), ("b", 2), ("c", 3))
     let _gone = remove(m, "b")
     let seen = mut_str("")
     for e in entries(m) {

@@ -74,7 +74,7 @@ A minted claim answers to the rules a constructor's `+Q` answers to, because tha
 These are enforced at each call site: passing a variable to `take_head` above removes `NonEmpty` from what the compiler knows about it, so a second `take_head(list)` without an intervening `is NonEmpty` check fails overload resolution:
 
 ```
-let list: Mut List<Int> = mut_list_of(1, 2, 3)
+let list: Mut List<Int> = Mut List(1, 2, 3)
 
 // We will discuss this "predicate qualifier" later
 if list is NonEmpty {
@@ -215,7 +215,7 @@ fn filter<It, T>(it: Mut It, keep: (T) -> Bool, ?Yield<It, T>) -> Mut List<proj 
 
 The result holds borrows of whatever the iterator walks — nothing is copied — and it lives no longer than the source. For a list of your own, `filter_to(dest, it, keep)` copies each kept element into `dest`, and it says so twice: in its `_to` name, and in the `?copy` implicit it takes so that the copy is the element type's own.
 
-**A view of a temporary.** A view's source must outlive it, so binding, returning or storing a view of a temporary is an error: `let p = iter(list_of(1, 2))` dies at the end of its statement (the diagnostic says to `let` the list first). *Using* one within the statement is fine — `map(iter(list_of(1, 2)), f)`, `for x in iter(list_of(1, 2))` — the temporary lives that long on both backends.
+**A view of a temporary.** A view's source must outlive it, so binding, returning or storing a view of a temporary is an error: `let p = iter(List(1, 2))` dies at the end of its statement (the diagnostic says to `let` the list first). *Using* one within the statement is fine — `map(iter(List(1, 2)), f)`, `for x in iter(List(1, 2))` — the temporary lives that long on both backends.
 
 **A capturing lambda is a view.** A lambda's body can hand out projections rooted in a *capture* — `indices.map(i -> all.get(i)!)` returns elements of `all`, and no function type can say so (`proj(…)` names parameters; captures have no name). So the closure itself carries the fact: it holds a borrow of every non-Copy variable it reads from the enclosing scope, exactly as a struct holds its `proj` fields. Binding the lambda links it to those variables, a call result built from the lambda is linked through it, and moving or mutating a captured variable poisons the closure — the same discipline every view lives under. A lambda that captures nothing holds nothing (`map(p, w -> w)` binds freely), a Copy scalar capture is the value itself, and a capture the body *consumes* is owned by the closure rather than borrowed — that is the lambda that becomes `once`.
 
@@ -280,13 +280,13 @@ Both modes in action on locals:
 ```
 // Borrow-mode: `ys` is only read, so `xs` stays usable — but mutating
 // the root poisons the derived variable.
-let xs = mut_list_of(1, 2, 3)
+let xs = Mut List(1, 2, 3)
 let ys = xs          // ys derived from xs (borrow-mode: ys is never moved/mutated)
 add(xs, 4)           // mutates the root...
 size(ys)             // ERROR: ys shared xs's fate and xs was mutated
 
 // Move-mode: `ys` is mutated later, so the binding takes ownership.
-let xs = mut_list_of(1, 2, 3)
+let xs = Mut List(1, 2, 3)
 let ys = xs          // ys takes ownership: xs is consumed here
 add(ys, 5)           // fine: ys owns the value
 add(xs, 4)           // ERROR: ys was bound from xs and later moves the value
@@ -298,7 +298,7 @@ add(zs, 6)           // fine, and ys is untouched
 **Lambdas follow the same discipline.** A lambda's relationship to the variables it captures is read off its body, and binds when the closure is created (a closure may run any number of times, so its contract cannot wait for the call): captured immutable values are free; a captured mutable value that the body only *reads* links the closure to it — the variable stays usable, but mutating it poisons the closure; a captured mutable value that the body *mutates* is consumed at creation — the closure owns it now (`copy` first to keep the original); and a lambda can never *consume* a capture, since every run after the first would use a moved value (`copy` inside the lambda instead).
 
 ```
-let xs = mut_list_of(1, 2)
+let xs = Mut List(1, 2)
 let f = (n: Int) -> { return n + size(xs) }   // reads xs: closure linked to it
 apply(f, 1)          // fine
 add(xs, 9)           // mutates the root: f is poisoned
@@ -322,7 +322,7 @@ Some consequences worth knowing:
 - **Fields are tracked apart.** A link records *which projection* of the value it came from, and an event only reaches what it could actually have changed: reading `p.name` while `p.tags` is mutated is fine, and so is the reverse. What overlaps still poisons — the same field, a *prefix* of it (mutating `o.inner.tags` invalidates a value derived from `o.inner`), the whole variable (a `Mut` argument or a reassignment reaches every field), and an array element reached by a computed index, since `xs[i]` and `xs[j]` cannot be told apart. A derivation the compiler cannot spell as a projection chain is treated as the whole value.
 
 ```
-let p = Person {name: "ann", tags: mut_list_of("x")}
+let p = Person {name: "ann", tags: Mut List("x")}
 let n = p.name           // derived from p.name
 add(p.tags, "y")         // mutates p.tags — a different field
 println(n)               // fine: the mutation could not have touched p.name
@@ -335,13 +335,13 @@ size(t)                  // ERROR: t shared p.tags's fate and p.tags was mutated
   Moving a field out is tracked the same way: the field leaves, the rest of the value stays. What left is remembered, so reading *that* field back is an error, and the value can no longer be handed on whole — but its other fields are still readable, and putting the field back with an assignment makes the value complete again.
 
 ```
-let p = Person {name: "ann", tags: mut_list_of("x")}
+let p = Person {name: "ann", tags: Mut List("x")}
 eat(p.tags)              // consumes the field
 println(p.name)          // fine: a different field
 size(p.tags)             // ERROR: `p.tags` was moved out of `p`
 take(p)                  // ERROR: `p` cannot be used as a whole — part of it is gone
 
-p.tags = mut_list_of()  // puts it back
+p.tags = Mut List()  // puts it back
 take(p)                  // fine again
 ```
 

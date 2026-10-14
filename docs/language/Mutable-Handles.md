@@ -41,7 +41,7 @@ fn bump(c: Mut Counter) -> None => c: Mut {
 
 fn main() [use] {
     use StdOutConsole()
-    let counters: List<Mut Counter> = list_of(Mut Counter {n: 1}, Mut Counter {n: 2})
+    let counters: List<Mut Counter> = List(Mut Counter {n: 1}, Mut Counter {n: 2})
 
     bump(at(counters, 0)!)             // a handle, used where it is minted
 
@@ -79,8 +79,8 @@ way: `at(m, key)` answers `ref(m) Mut V?`, and at a key proven present
 chains through a map exactly as through a list:
 
 ```
-let m: Mut Map<Str, Mut List<Mut Item>> = mut_map_of()
-put(m, "a", mut_list_of(Mut Item {tag: "x"}, Mut Item {tag: "y"}))
+let m: Mut Map<Str, Mut List<Mut Item>> = Mut Map()
+put(m, "a", Mut List(Mut Item {tag: "x"}, Mut Item {tag: "y"}))
 let it = at(at(m, "a")!, 1)!           // the list at "a", then its element 1
 it.tag = "z"
 ```
@@ -156,7 +156,7 @@ fn heal(e: Mut Entity) -> None => e: Mut {
 
 fn main() [use] {
     use StdOutConsole()
-    let squad: List<Mut Entity> = list_of(Mut Entity {hp: 50}, Mut Entity {hp: 3})
+    let squad: List<Mut Entity> = List(Mut Entity {hp: 50}, Mut Entity {hp: 3})
     heal(wounded(squad)!)                  // mutate through the lent handle
     println("${get(squad, 0)!.hp} ${get(squad, 1)!.hp}")   // 50 13
 }

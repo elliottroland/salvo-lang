@@ -213,7 +213,7 @@ fn fresh_id() [any Sequencer] -> Str {
 // keys, is what the caller can see. (Which physical member is shard 0 depends
 // on the members' order in the view, which this in-process fleet does not fix.)
 fn checkout(skus: List<Str>) [any Inventory, Console] -> None {
-    let shards: Mut List<Str> = mut_list_of()
+    let shards: Mut List<Str> = Mut List()
     for sku in skus {
         let answer = waitfor out: Reply<Str> { reserve(copy(sku), 1, out) }
         let parts = split(answer, ":")

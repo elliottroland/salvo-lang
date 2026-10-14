@@ -74,8 +74,8 @@ fn total<T>(xs: List<T>, ?Field<T>) -> T => xs {
     return acc
 }
 
-total(list_of(1, 2, 3))                          // 6
-total(list_of(2, 3, 4), add = times, zero = one) // 24 — override one or both
+total(List(1, 2, 3))                          // 6
+total(List(2, 3, 4), add = times, zero = one) // 24 — override one or both
 ```
 
 The spread has **no name of its own**, deliberately: its members become
@@ -251,12 +251,12 @@ Construction takes the ordering as an ordinary implicit, and the return type
 
 ```
 export fn heap_of<T>(?Ordered<T>) -> +Heap<T>(?cmp) Mut List<T> {
-    return mut_list_of()
+    return Mut List()
 }
 
 export fn heap_of<T>(first: T, ...elems: T[], ?Ordered<T>)
 -> Heap<T>(?cmp) NonEmpty Mut List<T> {
-    let list = mut_list_of(first, ...elems)
+    let list = Mut List(first, ...elems)
     heapify(list)
     return list
 }

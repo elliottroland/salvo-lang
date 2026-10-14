@@ -544,7 +544,7 @@ class StaticNodeGroup(private val name: String, private val all: List<NodeEndpoi
     val __mailboxCapacity: Int = 64
     var __addr: Int? = null
     val __parked: MutableMap<Long, __Cont_StaticNodeGroup> = mutableMapOf()
-    var known: salvo.platform.core.map.MutMap<NodeId, Node> = salvo.core.map.mutMapOfPlatform(arrayOf<Pair<NodeId, Node>>(), ::hash__NodeId, ::eq__NodeId_NodeId)
+    var known: salvo.platform.core.map.MutMap<NodeId, Node> = salvo.core.map.Mut_Map_platform(arrayOf<Pair<NodeId, Node>>(), ::hash__NodeId, ::eq__NodeId_NodeId)
     var watchers: salvo.platform.core.list.MutList<Int> = mutableListOf<Int>()
     fun init() {
         val me: NodeEndpoint = __dep0.localEndpoint()
@@ -667,8 +667,8 @@ class GossipNodeGroup(private val name: String, private val seeds: List<NodeEndp
     val __mailboxCapacity: Int = 64
     var __addr: Int? = null
     val __parked: MutableMap<Long, __Cont_GossipNodeGroup> = mutableMapOf()
-    var known: salvo.platform.core.map.MutMap<NodeId, Node> = salvo.core.map.mutMapOfPlatform(arrayOf<Pair<NodeId, Node>>(), ::hash__NodeId, ::eq__NodeId_NodeId)
-    var dialed: salvo.platform.core.set.MutSet<String> = salvo.core.set.mutSetOfPlatform(arrayOf<String>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+    var known: salvo.platform.core.map.MutMap<NodeId, Node> = salvo.core.map.Mut_Map_platform(arrayOf<Pair<NodeId, Node>>(), ::hash__NodeId, ::eq__NodeId_NodeId)
+    var dialed: salvo.platform.core.set.MutSet<String> = salvo.core.set.Mut_Set_platform(arrayOf<String>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     var watchers: salvo.platform.core.list.MutList<Int> = mutableListOf<Int>()
     fun init() {
         val me: NodeEndpoint = __dep0.localEndpoint()
@@ -1418,9 +1418,9 @@ class MemNetwork : MemNet {
     val __mailboxCapacity: Int = 64
     var __addr: Int? = null
     val __parked: MutableMap<Long, __Cont_MemNetwork> = mutableMapOf()
-    var listeners: salvo.platform.core.map.MutMap<NodeEndpoint, Int> = salvo.core.map.mutMapOfPlatform(arrayOf<Pair<NodeEndpoint, Int>>(), ::hash__NodeEndpoint, ::eq__NodeEndpoint_NodeEndpoint)
-    var cuts: salvo.platform.core.set.MutSet<String> = salvo.core.set.mutSetOfPlatform(arrayOf<String>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
-    var dead: salvo.platform.core.set.MutSet<NodeEndpoint> = salvo.core.set.mutSetOfPlatform(arrayOf<NodeEndpoint>(), ::hash__NodeEndpoint, ::eq__NodeEndpoint_NodeEndpoint)
+    var listeners: salvo.platform.core.map.MutMap<NodeEndpoint, Int> = salvo.core.map.Mut_Map_platform(arrayOf<Pair<NodeEndpoint, Int>>(), ::hash__NodeEndpoint, ::eq__NodeEndpoint_NodeEndpoint)
+    var cuts: salvo.platform.core.set.MutSet<String> = salvo.core.set.Mut_Set_platform(arrayOf<String>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+    var dead: salvo.platform.core.set.MutSet<NodeEndpoint> = salvo.core.set.Mut_Set_platform(arrayOf<NodeEndpoint>(), ::hash__NodeEndpoint, ::eq__NodeEndpoint_NodeEndpoint)
     var count: Int = 0
     override fun attach(at: NodeEndpoint, sink: Int) {
         salvo.core.set.removePlatform(dead, at, ::hash__NodeEndpoint, ::eq__NodeEndpoint_NodeEndpoint)

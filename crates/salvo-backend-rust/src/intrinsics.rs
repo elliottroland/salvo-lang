@@ -31,7 +31,7 @@ pub enum Spread {
     /// One `...spread`, forwarded as a borrowed collection in `args[0]`.
     Borrowed,
     /// The whole tail, assembled by the emitter into an owned collection in
-    /// `args[0]` — a mixed `list_of(first, ...rest)` call.
+    /// `args[0]` — a mixed `List(first, ...rest)` call.
     Owned,
 }
 
@@ -230,11 +230,11 @@ pub fn fn_call(
         //
         // A lone `...spread` fills `first` [fn-variadic], so it arrives as the
         // only argument and the spread *is* the list.
-        ("list_of" | "mut_list_of", _) if spread_any && args.len() == 1 => owned_vec(),
-        // `list_of(a, b, ...rest)`: the leading elements, then the tail's
+        ("List" | "Mut_List", _) if spread_any && args.len() == 1 => owned_vec(),
+        // `List(a, b, ...rest)`: the leading elements, then the tail's
         // elements. `vec![…]` and `extend` rather than one expression because
         // the tail is a collection, not an element.
-        ("list_of" | "mut_list_of", _) if spread_any => {
+        ("List" | "Mut_List", _) if spread_any => {
             let leading: Vec<&str> = args[..args.len() - 1].iter().map(|s| s.as_str()).collect();
             let tail = &args[args.len() - 1];
             let extend = match spread {
@@ -248,7 +248,7 @@ pub fn fn_call(
         }
         // No spread: the arguments are the elements. `vec![]` needs no element
         // type — rustc infers it from later use.
-        ("list_of" | "mut_list_of", _) => {
+        ("List" | "Mut_List", _) => {
             format!("vec![{}]", args.join(", "))
         }
         // `T?` is physical here, so an out-of-range index must produce

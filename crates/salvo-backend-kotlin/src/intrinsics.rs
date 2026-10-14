@@ -149,8 +149,8 @@ pub fn fn_call(
         // [col-of-nonempty] The empty constructor has no parameters and the
         // element one starts with a `T`, so these match on the *name*: the
         // receiver type no longer identifies them.
-        ("list_of", _) => format!("listOf<{}>({})", elem(), args.join(", ")),
-        ("mut_list_of", _) => {
+        ("List", _) => format!("listOf<{}>({})", elem(), args.join(", ")),
+        ("Mut_List", _) => {
             format!("mutableListOf<{}>({})", elem(), args.join(", "))
         }
         // [interp-to-str] `[1, 2, 3]`, the language's format rather than the

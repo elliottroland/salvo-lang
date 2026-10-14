@@ -10,7 +10,7 @@
 //!
 //! The rule is enforced in two places, because a key can arrive two ways:
 //! *written* (`Map<Double, Str>` in a signature, caught by the declaration
-//! walk) and *inferred* (`set_of(1.5)`, where the key exists only in the
+//! walk) and *inferred* (`Set(1.5)`, where the key exists only in the
 //! substitution the call resolved).
 
 use std::path::Path;
@@ -33,9 +33,9 @@ const STD_PRELUDE: &str = concat!(
     "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",
     "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
     "export intrinsic type Map<K, V>(?hash: (K) -> Long, ?eq: (K, K) -> Bool) canbe Mut\n",
-    "export intrinsic fn set_of<T>(...elems: T[]) [] -> Set<T>\n",
-    "export intrinsic fn mut_set_of<T>(...elems: T[]) [] -> Mut Set<T>\n",
-    "export intrinsic fn map_of<K, V>(...entries: (K, V)[]) [] -> Map<K, V>\n",
+    "export intrinsic fn Set<T>(...elems: T[]) [] -> Set<T>\n",
+    "export intrinsic fn Mut Set<T>(...elems: T[]) [] -> Mut Set<T>\n",
+    "export intrinsic fn Map<K, V>(...entries: (K, V)[]) [] -> Map<K, V>\n",
     "export intrinsic fn add<T>(set: Mut Set<T>, elem: T) [] -> Bool => set: Mut, !elem\n",
     "export intrinsic fn size<T>(set: Set<T>) [] -> Int => set\n",
     "export intrinsic fn size<K, V>(map: Map<K, V>) [] -> Int => map\n",
@@ -157,7 +157,7 @@ fn a_struct_key_names_the_default_hashed_clause() {
 fn an_ineligible_key_is_refused_at_every_declaration_site() {
     // return type
     assert_eq!(
-        messages("fn probe() -> Set<Double> {\n    return set_of()\n}\n").len(),
+        messages("fn probe() -> Set<Double> {\n    return Set()\n}\n").len(),
         1
     );
     // struct field
@@ -168,7 +168,7 @@ fn an_ineligible_key_is_refused_at_every_declaration_site() {
     // `let` annotation
     assert_eq!(
         messages(
-            "fn probe() -> Int {\n    let s: Set<Double> = set_of()\n    return size(s)\n}\n"
+            "fn probe() -> Int {\n    let s: Set<Double> = Set()\n    return size(s)\n}\n"
         )
         .len(),
         1
@@ -180,18 +180,18 @@ fn an_ineligible_key_is_refused_at_every_declaration_site() {
     );
 }
 
-/// [col-key-eligible] The **inferred** half: `set_of(1.5)` writes no type
+/// [col-key-eligible] The **inferred** half: `Set(1.5)` writes no type
 /// anywhere, so the ineligible key exists only in the resolved
 /// substitution.
 #[test]
 fn an_inferred_ineligible_key_is_refused() {
-    let msgs = messages("fn probe() -> Int {\n    let s = set_of(1.5)\n    return size(s)\n}\n");
+    let msgs = messages("fn probe() -> Int {\n    let s = Set(1.5)\n    return size(s)\n}\n");
     assert!(
         msgs.iter().any(|m| m.contains("`Double` cannot be a key")),
         "expected the key refusal, got: {msgs:?}"
     );
     let map = messages(
-        "fn probe() -> Int {\n    let m = map_of((1.5, 2))\n    return 0\n}\n",
+        "fn probe() -> Int {\n    let m = Map((1.5, 2))\n    return 0\n}\n",
     );
     assert!(
         map.iter().any(|m| m.contains("`Double` cannot be a key")),
@@ -210,7 +210,7 @@ fn a_type_variable_key_is_checked_at_the_instantiation_not_the_declaration() {
     // ... and the instantiation is where the refusal lands.
     let msgs = messages(
         "fn count<K>(m: Map<K, Str>) -> Int => m {\n    return size(m)\n}\n\n\
-         fn probe() -> Int {\n    let m = map_of((1.5, \"x\"))\n    return count(m)\n}\n",
+         fn probe() -> Int {\n    let m = Map((1.5, \"x\"))\n    return count(m)\n}\n",
     );
     assert!(
         msgs.iter().any(|m| m.contains("cannot be a key")),
@@ -229,12 +229,12 @@ fn a_linear_element_is_refused_by_the_instantiation_ban() {
     let msgs = messages(
         "linear struct Handle {\n    id: Int\n}\n\n\
          fn close(h: Handle) -> None => !h {\n    discard(h)\n}\n\n\
-         fn probe() -> Int {\n    let h = Handle { id: 1 }\n    let s = set_of(h)\n    \
+         fn probe() -> Int {\n    let h = Handle { id: 1 }\n    let s = Set(h)\n    \
          return size(s)\n}\n",
     );
     assert!(
         msgs.iter()
-            .any(|m| m.contains("cannot instantiate generic parameter `T` of `set_of`")),
+            .any(|m| m.contains("cannot instantiate generic parameter `T` of `Set`")),
         "expected the linear instantiation ban, got: {msgs:?}"
     );
 }
@@ -272,7 +272,7 @@ fn a_fn_typed_local_outranks_a_same_named_effect_member() {
 
 // ===== literals [col-no-literal] =====
 
-/// The prelude above plus what the literals need: `list_of` for the bracket
+/// The prelude above plus what the literals need: `List` for the bracket
 /// form, and a struct to keep the bare-struct-literal reading honest.
 const LIT_PRELUDE: &str = concat!(
     "export intrinsic type Int\n",
@@ -338,24 +338,24 @@ const LIT_CONSTRUCTORS: &[(&str, &str)] = &[
     (
         "core/list.sv",
         concat!(
-            "export intrinsic fn list_of<T>() [] -> List<T>\n",
-            "export intrinsic fn list_of<T>(first: T, ...rest: T[]) [] -> List<T> => !first\n",
-            "export intrinsic fn mut_list_of<T>() [] -> Mut List<T>\n",
-            "export intrinsic fn mut_list_of<T>(first: T, ...rest: T[]) [] -> Mut List<T> => !first\n",
+            "export intrinsic fn List<T>() [] -> List<T>\n",
+            "export intrinsic fn List<T>(first: T, ...rest: T[]) [] -> List<T> => !first\n",
+            "export intrinsic fn Mut List<T>() [] -> Mut List<T>\n",
+            "export intrinsic fn Mut List<T>(first: T, ...rest: T[]) [] -> Mut List<T> => !first\n",
         ),
     ),
     (
         "core/set.sv",
         concat!(
-            "export intrinsic fn set_of<T>(...elems: T[], ?Hashed<T>) [] -> Set<T>(?hash, ?eq)\n",
-            "export intrinsic fn mut_set_of<T>(...elems: T[], ?Hashed<T>) [] -> Mut Set<T>(?hash, ?eq)\n",
+            "export intrinsic fn Set<T>(...elems: T[], ?Hashed<T>) [] -> Set<T>(?hash, ?eq)\n",
+            "export intrinsic fn Mut Set<T>(...elems: T[], ?Hashed<T>) [] -> Mut Set<T>(?hash, ?eq)\n",
         ),
     ),
     (
         "core/map.sv",
         concat!(
-            "export intrinsic fn map_of<K, V>(...entries: (K, V)[], ?Hashed<K>) [] -> Map<K, V>(?hash, ?eq)\n",
-            "export intrinsic fn mut_map_of<K, V>(...entries: (K, V)[], ?Hashed<K>) [] -> Mut Map<K, V>(?hash, ?eq)\n",
+            "export intrinsic fn Map<K, V>(...entries: (K, V)[], ?Hashed<K>) [] -> Map<K, V>(?hash, ?eq)\n",
+            "export intrinsic fn Mut Map<K, V>(...entries: (K, V)[], ?Hashed<K>) [] -> Mut Map<K, V>(?hash, ?eq)\n",
         ),
     ),
 ];

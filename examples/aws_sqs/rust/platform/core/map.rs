@@ -179,7 +179,7 @@ pub fn canonical_hash<K: std::hash::Hash + ?Sized>(k: &K) -> i64 {
 /// repeated key keeps its first place and takes its last value
 /// [col-duplicate-keys].
 pub fn canonical_map<K: std::hash::Hash + PartialEq, V>(entries: Vec<(K, V)>) -> Map<K, V> {
-    map_of(entries, &mut |k: &K| canonical_hash(k), &mut |a: &K, b: &K| a == b)
+    Map(entries, &mut |k: &K| canonical_hash(k), &mut |a: &K, b: &K| a == b)
 }
 
 // [platform-iterable] [col-map-iter] The host's loop over a map: its keys,
@@ -199,7 +199,7 @@ pub fn into_each<K, V>(map: Map<K, V>) -> std::vec::IntoIter<K> {
 
 // A repeated key keeps the position of its first appearance and takes the
 // value of its last [col-duplicate-keys].
-pub fn map_of<K, V>(entries: Vec<(K, V)>, hash: HashFn<K>, eq: EqFn<K>) -> Map<K, V> {
+pub fn Map<K, V>(entries: Vec<(K, V)>, hash: HashFn<K>, eq: EqFn<K>) -> Map<K, V> {
     let mut m = Map::new();
     for (k, v) in entries {
         m.store(k, v, &mut *hash, &mut *eq);
@@ -207,8 +207,8 @@ pub fn map_of<K, V>(entries: Vec<(K, V)>, hash: HashFn<K>, eq: EqFn<K>) -> Map<K
     m
 }
 
-pub fn mut_map_of<K, V>(entries: Vec<(K, V)>, hash: HashFn<K>, eq: EqFn<K>) -> Map<K, V> {
-    map_of(entries, hash, eq)
+pub fn Mut_Map<K, V>(entries: Vec<(K, V)>, hash: HashFn<K>, eq: EqFn<K>) -> Map<K, V> {
+    Map(entries, hash, eq)
 }
 
 pub fn map_by<K, V>(size: i32, init: &mut dyn FnMut(i32) -> (K, V), hash: HashFn<K>, eq: EqFn<K>) -> Map<K, V> {
@@ -225,7 +225,7 @@ pub fn mut_map_by<K, V>(size: i32, init: &mut dyn FnMut(i32) -> (K, V), hash: Ha
 }
 
 pub fn to_map<K: Clone, V: Clone>(pairs: &Vec<(K, V)>, hash: HashFn<K>, eq: EqFn<K>) -> Map<K, V> {
-    map_of(pairs.clone(), hash, eq)
+    Map(pairs.clone(), hash, eq)
 }
 
 pub fn get<'a, K, V>(map: &'a Map<K, V>, key: &K, hash: HashFn<K>, eq: EqFn<K>) -> Option<&'a V> {

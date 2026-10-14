@@ -176,9 +176,9 @@ fun <T> canonicalSet(elems: Iterable<T>): SalvoSet<T> {
 // [platform-iterable] The host's loop over a set: its elements, in insertion order.
 fun <T> each(set: Set<T>): Iterable<T> = set
 
-inline fun <T> setOf(elems: Array<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): Set<T> = mutSetOf(elems, hash, eq)
+inline fun <T> Set(elems: Array<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): Set<T> = Mut_Set(elems, hash, eq)
 
-inline fun <T> mutSetOf(elems: Array<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): MutSet<T> {
+inline fun <T> Mut_Set(elems: Array<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): MutSet<T> {
     val s = SalvoSet<T>()
     for (e in elems) put(s, e, hash, eq)
     return s

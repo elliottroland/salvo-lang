@@ -7,6 +7,8 @@ use crate::stream::InStream;
 use crate::stream::InvalidUtf8;
 use crate::fs::IoError;
 use crate::core_map::Map;
+use crate::core_map::Mut_Map_platform;
+use crate::core_set::Mut_Set_platform;
 use crate::fs::NotADirectory;
 use crate::fs::NotFound;
 use crate::stream::OutStream;
@@ -26,8 +28,6 @@ use crate::stream::fresh_handle;
 use crate::core_checked::ignore;
 use crate::core_string::index_of_platform;
 use crate::core_bytes::mut_bytes;
-use crate::core_map::mut_map_of_platform;
-use crate::core_set::mut_set_of_platform;
 use crate::core_result::ok;
 use crate::core_map::put_platform;
 use crate::core_map::remove_platform;
@@ -97,9 +97,9 @@ pub struct MemFs {
 impl MemFs {
     pub fn new() -> Self {
         Self {
-            files: crate::core_map::mut_map_of_platform::<String, crate::core_bytes::Bytes>(vec![], &mut |__a0: &String| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__a0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &String, __a1: &String| (&__a0[..] == &__a1[..])),
-            reads: crate::core_map::mut_map_of_platform::<i64, crate::fs_mem::MemRead>(vec![], &mut |__a0: &i64| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i64, __a1: &i64| ((*__a0) == (*__a1))),
-            writes: crate::core_map::mut_map_of_platform::<i64, crate::fs_mem::MemWrite>(vec![], &mut |__a0: &i64| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i64, __a1: &i64| ((*__a0) == (*__a1)))
+            files: crate::core_map::Mut_Map_platform::<String, crate::core_bytes::Bytes>(vec![], &mut |__a0: &String| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__a0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &String, __a1: &String| (&__a0[..] == &__a1[..])),
+            reads: crate::core_map::Mut_Map_platform::<i64, crate::fs_mem::MemRead>(vec![], &mut |__a0: &i64| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i64, __a1: &i64| ((*__a0) == (*__a1))),
+            writes: crate::core_map::Mut_Map_platform::<i64, crate::fs_mem::MemWrite>(vec![], &mut |__a0: &i64| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i64, __a1: &i64| ((*__a0) == (*__a1)))
         }
     }
 }
@@ -182,7 +182,7 @@ impl crate::fs::__Stateful_Fs for MemFs {
         if !(crate::fs_mem::fs_has_children(&self.files, &path_text)) {
             return crate::unions::Union2::U2(crate::core_result::err::<crate::core_checked::Checked<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>>(crate::core_checked::checked::<crate::unions::Union7<crate::fs::NotFound, crate::fs::PermissionDenied, crate::fs::AlreadyExists, crate::fs::NotADirectory, crate::fs::PathEscapes, crate::fs::IoError, crate::fs::Streaming>>(crate::unions::Union7::U1(crate::fs::NotFound { path: (path_text).clone() }))));
         };
-        let mut names: crate::core_set::Set<String> = crate::core_set::mut_set_of_platform::<String>(vec![], &mut |__a0: &String| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__a0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &String, __a1: &String| (&__a0[..] == &__a1[..]));
+        let mut names: crate::core_set::Set<String> = crate::core_set::Mut_Set_platform::<String>(vec![], &mut |__a0: &String| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__a0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &String, __a1: &String| (&__a0[..] == &__a1[..]));
         let mut prefix: String = format!("{}/", path_text);
         for mut key in crate::platform_core_map::each(&self.files).map(|__x| __x.clone()) {
             if crate::core_string::starts_with_platform(&key, &prefix) {

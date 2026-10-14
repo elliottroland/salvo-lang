@@ -305,7 +305,7 @@ fn workflow() [Fs, Console] -> None {
     // 10. Failures, collected. A `Checked<FsError>` may not live in a list
     //    (nothing linear may live in a composite), so `detach` hands back the
     //    bare `FsError` — which is the whole reason it exists.
-    let failures: Mut List<FsError> = mut_list_of()
+    let failures: Mut List<FsError> = Mut List()
     let missing = read_to_str(path("nope.txt"))
     when missing {
         is Ok { println("unexpected: ${missing}") }

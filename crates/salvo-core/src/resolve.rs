@@ -1214,31 +1214,6 @@ fn check_dot_names(
     }
 }
 
-/// [fn-type-named] The canonical type-fn key a core collection constructor is
-/// *also* spelled as, or `None` when the fn is not one of them. The key joins
-/// the type's qualifiers and base with `_`, matching the parser's
-/// `type_fn_key`, so `mut_list_of` is reachable as `Mut List(...)`. Gated on
-/// the owning `core` module so a user's own `List`/`Set`/… is untouched.
-fn core_collection_type_fn_key(module: &ModulePath, fn_name: &str) -> Option<&'static str> {
-    let seg = |i: usize| module.0.get(i).map(String::as_str);
-    if seg(0) != Some("core") {
-        return None;
-    }
-    match (seg(1), fn_name) {
-        (Some("list"), "list_of") => Some("List"),
-        (Some("list"), "mut_list_of") => Some("Mut_List"),
-        (Some("set"), "set_of") => Some("Set"),
-        (Some("set"), "mut_set_of") => Some("Mut_Set"),
-        (Some("map"), "map_of") => Some("Map"),
-        (Some("map"), "mut_map_of") => Some("Mut_Map"),
-        (Some("sorted"), "sorted_set_of") => Some("SortedSet"),
-        (Some("sorted"), "mut_sorted_set_of") => Some("Mut_SortedSet"),
-        (Some("sorted"), "sorted_map_of") => Some("SortedMap"),
-        (Some("sorted"), "mut_sorted_map_of") => Some("Mut_SortedMap"),
-        _ => None,
-    }
-}
-
 /// Adds a module's items to a scope, optionally under a single-name filter
 /// with an alias (for imports). Every inserted name records `module` as an
 /// origin (under its visible name) for reachability [mod-used-only].
@@ -1319,29 +1294,6 @@ fn add_items<'p>(
                     module,
                 });
             origin(name, scope);
-            // [fn-type-named] The core collection constructors are also
-            // spelled as *type-named functions*: `List(1, 2, 3)` /
-            // `Mut Map("a": 1)` resolve to the very same `*_of` declaration
-            // (its overloads, implicits and `+NonEmpty` establishment intact),
-            // so the type-fn surface is pure sugar — one implementation, one
-            // backend lowering. The canonical key is the type name with its
-            // qualifiers and base joined by `_`, matching the parser's
-            // `type_fn_key`. Scoped to the `core` modules that own these
-            // types, so a user program's own `List`/`Set`/… is unaffected and
-            // wins by the ordinary scope ladder [fn-overload-scope].
-            if let Some(alias) = core_collection_type_fn_key(module, &f.name.name) {
-                scope
-                    .fns
-                    .entry(alias)
-                    .or_default()
-                    .push(FnEntry {
-                        key: *key,
-                        decl: f,
-                        rung: level.rung(),
-                        module,
-                    });
-                origin(alias, scope);
-            }
         }
     }
     for (file, s) in &items.structs {

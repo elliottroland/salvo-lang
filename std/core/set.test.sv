@@ -21,28 +21,28 @@ fn contains_generic<T>(s: Set<T>(?hash, ?eq), x: T) [] -> Bool => s, x {
 }
 
 test "a set iterates in insertion order, and a re-added element goes last" {
-    let s = mut_set_of(3, 1, 2)
+    let s = Mut Set(3, 1, 2)
     let _gone = remove(s, 3)
     let _back = add(s, 3)
     expect_eq("${s}", "{1, 2, 3}")
 }
 
 test "a duplicate in a constructor or a literal collapses" {
-    let a = set_of(2, 1, 2)
+    let a = Set(2, 1, 2)
     let b = Set("x", "y", "x")
     expect_eq("${a} ${size(a)}", "{2, 1} 2")
     expect_eq("${b}", "{x, y}")
 }
 
 test "adding an element already there answers false and changes nothing" {
-    let s = mut_set_of("a")
+    let s = Mut Set("a")
     expect(!add(s, "a"), "already present")
     expect(add(s, "b"), "new")
     expect_eq(size(s), 2)
 }
 
 test "removing many keeps the rest findable and in order" {
-    let s: Mut Set<Int> = mut_set_of()
+    let s: Mut Set<Int> = Mut Set()
     for i in range(0, 40) {
         let _new = add(s, i)
     }
@@ -61,7 +61,7 @@ test "a custom identity keys the set" {
 }
 
 test "a set built concretely is found through a generic call, and back" {
-    let s = mut_set_of("a")
+    let s = Mut Set("a")
     expect(add_generic(s, "b"), "added generically")
     expect(contains(s, "b") && contains_generic(s, "a"), "both paths agree")
     let f: Mut Set<Str>(fold_hash, fold_eq) = Mut Set("Q", hash = fold_hash, eq = fold_eq)
@@ -74,8 +74,8 @@ test "to_set and set_by keep first-appearance order" {
 }
 
 test "two sets are equal with the same elements in any order" {
-    let a = set_of(1, 2, 3)
-    let b = mut_set_of(3, 1)
+    let a = Set(1, 2, 3)
+    let b = Mut Set(3, 1)
     expect(a != b, "different sizes")
     let _new = add(b, 2)
     expect(a == b, "same elements, other order")

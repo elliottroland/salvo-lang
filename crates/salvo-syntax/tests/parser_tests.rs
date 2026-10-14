@@ -516,7 +516,7 @@ fn casing_rule_is_enforced_on_declarations() {
 #[test]
 fn type_named_fn_parses() {
     let (module, diagnostics) = salvo_syntax::parse_module(
-        "fn Mut List<T>(first: T) -> Mut List<T> => !first {\n    return mut_list_of(first)\n}\n",
+        "fn Mut List<T>(first: T) -> Mut List<T> => !first {\n    return Mut List(first)\n}\n",
     );
     assert!(!diagnostics.iter().any(|d| d.is_error()), "{diagnostics:?}");
     let salvo_syntax::ast::Item::Fn(f) = &module.items[0] else { panic!() };
@@ -541,7 +541,7 @@ fn type_named_fn_parses() {
     // becomes the fn's `generic_canbe` (needed for provenance fns like
     // `fn Ok<T canbe linear>`).
     let (m3, d3) = salvo_syntax::parse_module(
-        "fn Mut List<T canbe linear>(first: T) -> Mut List<T> => !first {\n    return mut_list_of(first)\n}\n",
+        "fn Mut List<T canbe linear>(first: T) -> Mut List<T> => !first {\n    return Mut List(first)\n}\n",
     );
     assert!(!d3.iter().any(|d| d.is_error()), "{d3:?}");
     let salvo_syntax::ast::Item::Fn(f3) = &m3.items[0] else { panic!() };
@@ -1302,7 +1302,7 @@ fn external_is_no_longer_a_keyword() {
 #[test]
 fn define_is_no_longer_a_keyword() {
     for source in [
-        "define fn list_of<T>(...elems: T[]) -> List<T> {\n}\n",
+        "define fn List<T>(...elems: T[]) -> List<T> {\n}\n",
         "define type LinkedList<T> {\n}\n",
         "define handler StdOutConsole of Console {\n}\n",
     ] {
@@ -1391,7 +1391,7 @@ fn a_named_argument_parses() {
 /// 1)`.
 #[test]
 fn key_value_pair_arguments_parse_as_tuples() {
-    let source = "fn f() {\n    let m = mut_map_of(\"a\": 1, \"b\": 2)\n}\n";
+    let source = "fn f() {\n    let m = Mut Map(\"a\": 1, \"b\": 2)\n}\n";
     let (module, diagnostics) = salvo_syntax::parse_module(source);
     assert!(
         !diagnostics.iter().any(|d| d.is_error()),
@@ -1496,7 +1496,7 @@ fn refn_at_wildcard_and_response_parse() {
 /// mixed with `k: v` pairs in one call.
 #[test]
 fn mixing_a_pair_and_a_positional_argument_is_rejected() {
-    let source = "fn f() {\n    let m = mut_map_of(\"a\": 1, 99)\n}\n";
+    let source = "fn f() {\n    let m = Mut Map(\"a\": 1, 99)\n}\n";
     let (_, diagnostics) = salvo_syntax::parse_module(source);
     assert!(
         diagnostics

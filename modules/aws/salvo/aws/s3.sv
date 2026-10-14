@@ -770,7 +770,7 @@ export effect S3Calls {
 // with is empty, minted in the `Streams` in scope. A test that needs real
 // answers implements [S3] itself.
 export handler FakeS3() [Streams] of S3, S3Calls {
-    recorded: Mut List<Str> = mut_list_of()
+    recorded: Mut List<Str> = Mut List()
 
     fn put_object(input: PutObjectInput, reply: Reply<Ok PutObjectOutput | Err Checked<S3Failure>>) -> None => !input, !reply {
         recorded.add("put_object")

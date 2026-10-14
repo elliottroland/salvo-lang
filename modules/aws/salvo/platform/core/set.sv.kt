@@ -6,9 +6,9 @@ package salvo.core.set
 
 import salvo.*
 
-fun<T> setOfPlatform(elems: Array<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): salvo.platform.core.set.Set<T> = salvo.platform.core.set.setOf(elems, hash, eq)
+fun<T> Set_platform(elems: Array<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): salvo.platform.core.set.Set<T> = salvo.platform.core.set.Set(elems, hash, eq)
 
-fun<T> mutSetOfPlatform(elems: Array<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): salvo.platform.core.set.MutSet<T> = salvo.platform.core.set.mutSetOf(elems, hash, eq)
+fun<T> Mut_Set_platform(elems: Array<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): salvo.platform.core.set.MutSet<T> = salvo.platform.core.set.Mut_Set(elems, hash, eq)
 
 fun<T> setByPlatform(size: Int, init: (Int) -> T, hash: (T) -> Long, eq: (T, T) -> Boolean): salvo.platform.core.set.Set<T> = salvo.platform.core.set.setBy(size, init, hash, eq)
 

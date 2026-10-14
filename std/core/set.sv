@@ -25,10 +25,15 @@ export iterable platform type Set<T>(?hash: (T) -> Long, ?eq: (T, T) -> Bool) ca
 // A duplicate element is dropped — the last one wins, as it does in a set
 // literal [col-duplicate-keys], so the result may be smaller than the
 // argument list.
-export platform fn set_of<T>(...elems: T[], ?Hashed<T>) [] -> Set<T>(?hash, ?eq)
+//
+// [fn-type-named] The constructor **is** the type-named function: `Set(...)`
+// resolves to this declaration (canonical key `Set`; `Mut_Set` for the
+// mutable pair), the key carried verbatim to the platform shim's
+// `<Key>_platform` wrapper.
+export platform fn Set<T>(...elems: T[], ?Hashed<T>) [] -> Set<T>(?hash, ?eq)
 
 // Mutable constructor
-export platform fn mut_set_of<T>(...elems: T[], ?Hashed<T>) [] -> Mut Set<T>(?hash, ?eq)
+export platform fn Mut Set<T>(...elems: T[], ?Hashed<T>) [] -> Mut Set<T>(?hash, ?eq)
 
 // [col-by] Builds a set from [size] generated elements. Duplicates collapse,
 // so the result may hold fewer than [size].

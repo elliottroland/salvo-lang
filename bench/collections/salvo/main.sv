@@ -14,7 +14,7 @@ fn ms_since(start: Long) [] -> Long {
 }
 
 fn set_int() [] -> Int {
-    let s: Mut Set<Int> = mut_set_of()
+    let s: Mut Set<Int> = Mut Set()
     let i = 0
     while i < 1000000 {
         let _new = add(s, i * 7)
@@ -32,7 +32,7 @@ fn set_int() [] -> Int {
 }
 
 fn map_str() [] -> Int {
-    let m: Mut Map<Str, Int> = mut_map_of()
+    let m: Mut Map<Str, Int> = Mut Map()
     let i = 0
     while i < 100000 {
         put(m, "key-${i}", copy(i))
@@ -51,7 +51,7 @@ fn map_str() [] -> Int {
 }
 
 fn remove_walk() [] -> Int {
-    let s: Mut Set<Int> = mut_set_of()
+    let s: Mut Set<Int> = Mut Set()
     let i = 0
     while i < 1000000 {
         let _new = add(s, copy(i))
@@ -70,7 +70,7 @@ fn remove_walk() [] -> Int {
 }
 
 fn sorted() [] -> Int {
-    let s: Mut SortedSet<Int> = mut_sorted_set_of()
+    let s: Mut SortedSet<Int> = Mut SortedSet()
     let i = 0
     while i < 20000 {
         let _new = add(s, (i * 7919) % 20011)

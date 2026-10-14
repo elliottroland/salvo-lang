@@ -76,7 +76,7 @@ fun<T> drain(list: List<T>, each: (T) -> Unit) {
             val __nn_1: T? = removeLastPlatform(m)
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at core.list:241:14"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at core.list:247:14"))
                 }
                 else -> {
                     val __some_2: T = __nn_1!!
@@ -105,7 +105,7 @@ fun<T> first(list: List<T>): T {
         val __nn_1: T? = getPlatform(list, 0)
         when {
             (__nn_1 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at core.list:298:12"))
+                throw AssertionError(("salvo: " + ("value is absent") + " at core.list:304:12"))
             }
             else -> {
                 val __some_2: T = __nn_1!!
@@ -144,7 +144,7 @@ fun<T> removeFrontWhile(list: salvo.platform.core.list.MutList<T>, keep: (T) -> 
             val __nn_1: T? = getPlatform(list, n)
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at core.list:341:34"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at core.list:347:34"))
                 }
                 else -> {
                     val __some_2: T = __nn_1!!
@@ -166,7 +166,7 @@ fun<T> removeBackWhile(list: salvo.platform.core.list.MutList<T>, keep: (T) -> B
             val __nn_1: T? = getPlatform(list, (at - 1))
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at core.list:353:26"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at core.list:359:26"))
                 }
                 else -> {
                     val __some_2: T = __nn_1!!
@@ -195,7 +195,7 @@ fun<T> subList(list: List<T>, from: Int, to: Int, copy: (T) -> T): salvo.platfor
             val __nn_1: T? = getPlatform(list, i)
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at core.list:371:23"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at core.list:377:23"))
                 }
                 else -> {
                     val __some_2: T = __nn_1!!
@@ -302,7 +302,7 @@ fun<T> contains(list: List<T>, elem: T, eq: (T, T) -> Boolean): Boolean {
             val __nn_1: T? = getPlatform(list, i)
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at core.list:421:15"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at core.list:427:15"))
                 }
                 else -> {
                     val __some_2: T = __nn_1!!
@@ -331,7 +331,7 @@ fun<T> all(list: List<T>, pick: (T) -> Boolean): Boolean {
             val __nn_1: T? = getPlatform(list, i)
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at core.list:438:18"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at core.list:444:18"))
                 }
                 else -> {
                     val __some_2: T = __nn_1!!
@@ -357,7 +357,7 @@ fun<T> count(list: List<T>, pick: (T) -> Boolean): Int {
             val __nn_1: T? = getPlatform(list, i)
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at core.list:451:17"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at core.list:457:17"))
                 }
                 else -> {
                     val __some_2: T = __nn_1!!
@@ -384,7 +384,7 @@ fun<T> partition(list: List<T>, pick: (T) -> Boolean, copy: (T) -> T): Pair<salv
             val __nn_1: T? = getPlatform(list, i)
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at core.list:468:17"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at core.list:474:17"))
                 }
                 else -> {
                     val __some_2: T = __nn_1!!

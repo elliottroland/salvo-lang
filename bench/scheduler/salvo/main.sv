@@ -87,7 +87,7 @@ handler Alarming() [Timer] of Alarms {
     mailbox { capacity: 16 }
 
     left: Int = 0
-    waiting: Mut List<Reply<Int>> = mut_list_of()
+    waiting: Mut List<Reply<Int>> = Mut List()
 
     send fn arm(n: Int, done: Reply<Int>) {
         left = n
@@ -104,7 +104,7 @@ handler Alarming() [Timer] of Alarms {
         left = left - 1
         if left == 0 {
             drain(waiting, r -> send(r, 0))
-            waiting = mut_list_of()
+            waiting = Mut List()
         }
     }
 }
@@ -126,7 +126,7 @@ fn main() [use, spawn] {
     discard(r1)
     println("ping-pong ${ms_since(t1)} ms")
 
-    let counters: Mut List<Addr<Counter>> = mut_list_of()
+    let counters: Mut List<Addr<Counter>> = Mut List()
     let t2 = monotonic_nanos()
     let i = 0
     while i < 1000 {

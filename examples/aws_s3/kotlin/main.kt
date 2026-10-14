@@ -157,7 +157,7 @@ fun roundTrip(s3: salvo.aws.s3.S3, fs: salvo.fs.Fs, console: salvo.core.console.
 }
 
 class MemS3(private val __dep0: salvo.stream.Streams) : salvo.aws.s3.S3 {
-    var objects: salvo.platform.core.map.MutMap<String, salvo.platform.core.bytes.Bytes> = salvo.core.map.mutMapOfPlatform(arrayOf<Pair<String, salvo.platform.core.bytes.Bytes>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+    var objects: salvo.platform.core.map.MutMap<String, salvo.platform.core.bytes.Bytes> = salvo.core.map.Mut_Map_platform(arrayOf<Pair<String, salvo.platform.core.bytes.Bytes>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun putObject(input: salvo.aws.s3.PutObjectInput, reply: salvo.SalvoReply) {
         val __destructured_1: salvo.aws.s3.PutObjectInput = input

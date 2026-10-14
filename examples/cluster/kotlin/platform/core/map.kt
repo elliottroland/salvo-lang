@@ -173,12 +173,12 @@ fun <K, V> canonicalMap(entries: Iterable<Pair<K, V>>): SalvoMap<K, V> {
 @Suppress("UNCHECKED_CAST")
 fun <K, V> each(map: Map<K, V>): Iterable<K> = map.liveSlots().map { map.keys[it] as K }.asIterable()
 
-inline fun <K, V> mapOf(entries: Array<Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): Map<K, V> =
-    mutMapOf(entries, hash, eq)
+inline fun <K, V> Map(entries: Array<Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): Map<K, V> =
+    Mut_Map(entries, hash, eq)
 
 // A repeated key keeps the position of its first appearance and takes the
 // value of its last [col-duplicate-keys].
-inline fun <K, V> mutMapOf(entries: Array<Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): MutMap<K, V> {
+inline fun <K, V> Mut_Map(entries: Array<Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): MutMap<K, V> {
     val m = SalvoMap<K, V>()
     for ((k, v) in entries) m.store(k, v, hash, eq)
     return m

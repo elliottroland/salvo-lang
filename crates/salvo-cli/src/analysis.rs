@@ -727,7 +727,7 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("main.sv"),
-            "fn main() [use] {\n    use StdOutConsole()\n    let xs = list_of(1, 2, 3)\n    \
+            "fn main() [use] {\n    use StdOutConsole()\n    let xs = List(1, 2, 3)\n    \
              let n = size(xs)\n    println(\"${n}\")\n}\n",
         )
         .unwrap();

@@ -16,7 +16,7 @@ const STD_PRELUDE: &str =
 /// surface the feature reads [elem-distinct].
 const STD_LIST: &str = "\
 export intrinsic type List<T> canbe Mut\n\
-export intrinsic fn list_of<T>(first: T, ...rest: T[]) [] -> List<T> => !first\n\
+export intrinsic fn List<T>(first: T, ...rest: T[]) [] -> List<T> => !first\n\
 export intrinsic fn size<T>(list: List<T>) [] -> Int => list\n\
 export intrinsic fn get<T>(list: List<T>, index: Int) [] -> (proj(list) T)? => list, index\n\
 export qualifier Idx<T>(list: List<T>) of Int {\n\

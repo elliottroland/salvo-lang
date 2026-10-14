@@ -13,8 +13,8 @@ const STD_PRELUDE: &str = concat!(
     "export intrinsic type Bool\n",
     "export intrinsic type Str canbe Mut\n",
     "export intrinsic type List<T> canbe Mut\n",
-    "export intrinsic fn list_of<T>(...elems: T[]) [] -> List<T>\n",
-    "export intrinsic fn mut_list_of<T>(...elems: T[]) [] -> Mut List<T>\n",
+    "export intrinsic fn List<T>(...elems: T[]) [] -> List<T>\n",
+    "export intrinsic fn Mut List<T>(...elems: T[]) [] -> Mut List<T>\n",
     "export intrinsic fn add<T>(list: Mut List<T>, elem: T) [] -> None => list: Mut, !elem\n",
     "export intrinsic fn size<T>(list: List<T>) [] -> Int => list\n",
 );
@@ -64,8 +64,8 @@ fn the_field_is_mut_exactly_when_the_struct_is() {
     let ok = format!(
         "{BAG}fn fill(b: Mut Bag) [] -> None => b: Mut {{\n    add(b.items, 1)\n}}\n\n\
          fn count(b: Bag) [] -> Int => b {{\n    return size(b.items)\n}}\n\n\
-         fn make() [] -> Mut Bag {{\n    return Mut Bag {{ n: 0, items: mut_list_of<Int>() }}\n}}\n\n\
-         fn plain() [] -> Bag {{\n    return Bag {{ n: 0, items: list_of(1) }}\n}}\n"
+         fn make() [] -> Mut Bag {{\n    return Mut Bag {{ n: 0, items: Mut List<Int>() }}\n}}\n\n\
+         fn plain() [] -> Bag {{\n    return Bag {{ n: 0, items: List(1) }}\n}}\n"
     );
     let errs = messages(&ok);
     assert!(errs.is_empty(), "{errs:?}");
@@ -79,10 +79,10 @@ fn the_field_is_mut_exactly_when_the_struct_is() {
 #[test]
 fn a_mut_literal_takes_mut_fields_only() {
     let src = format!(
-        "{BAG}struct Def canbe Mut {{\n    items: canbe Mut List<Int> = list_of<Int>()\n}}\n\n\
-         fn bad(p: Bag) [] -> None => p {{\n    let w = Mut Bag {{ n: 1, items: list_of(1) }}\n    \
+        "{BAG}struct Def canbe Mut {{\n    items: canbe Mut List<Int> = List<Int>()\n}}\n\n\
+         fn bad(p: Bag) [] -> None => p {{\n    let w = Mut Bag {{ n: 1, items: List(1) }}\n    \
          let m = Mut Bag {{ n: 1, ...copy_bag(p) }}\n    let d = Mut Def {{}}\n}}\n\n\
-         fn copy_bag(p: Bag) [] -> Bag => p {{\n    return Bag {{ n: p.n, items: list_of<Int>() }}\n}}\n"
+         fn copy_bag(p: Bag) [] -> Bag => p {{\n    return Bag {{ n: p.n, items: List<Int>() }}\n}}\n"
     );
     let errs = messages(&src);
     assert!(errs.iter().any(|e| e.contains("field `items` expects `Mut List<Int>`")), "{errs:?}");

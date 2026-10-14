@@ -5758,7 +5758,7 @@ impl<'s> Parser<'s> {
         let mut named: Vec<NamedArg> = Vec::new();
         // [col-pairs] Whether this call uses the `k: v` pair sugar. Each pair
         // becomes a 2-tuple `(k, v)` filling a `...pairs: (K, V)[]` variadic
-        // (so `Map("a": 1)` is `map_of(("a", 1))`). Pairs are all-or-nothing
+        // (so `Map("a": 1)` is `Map(("a", 1))`). Pairs are all-or-nothing
         // in one call (user decision 2026-10-12, Q6): no mixing with
         // positional or `=`-named arguments.
         let mut saw_pair = false;

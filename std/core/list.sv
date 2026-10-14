@@ -10,34 +10,40 @@
 // spells it.
 // [platform-value-type] A value platform type (ROADMAP 0.7): the host
 // implements it in `std/platform/core/list.{rs,kt}` and names the mutable
-// kind `MutList`. The constructors stay intrinsic for now, since list
-// literals and spreads lower through them.
+// kind `MutList`. The constructors stay intrinsic, since their spread
+// lowering is a template over rendered arguments (`vec![…]`, `listOf<T>(…)`)
+// a Salvo body cannot express for a `canbe linear` element type.
 export iterable platform type List<T canbe linear> canbe Mut : Iter<self, T>
 
 // Constructors, in two shapes [col-of-nonempty] (user decision 2026-09-23).
 // Writing a *first* element establishes `NonEmpty` **by construction**, so no
 // `qualifies` call is emitted [qual-ctor-predicate] and the claim costs nothing:
 //
-//     list_of()             // List<T>, empty
-//     list_of(1, 2, 3)      // NonEmpty List<T> — the claim comes free
-//     list_of(a, ...rest)   // NonEmpty List<T> — one written element is enough
+//     List()             // List<T>, empty
+//     List(1, 2, 3)      // NonEmpty List<T> — the claim comes free
+//     List(a, ...rest)   // NonEmpty List<T> — one written element is enough
 //
 // A **lone** `...spread` reaches neither: a spread cannot supply a required
 // parameter [fn-variadic] (its length is not known here, so `NonEmpty` would be
 // a guess) and the empty shape takes no arguments. Building a list out of an
-// array is `map_to(mut_list_of(), iter(array), x -> x)` or a loop with `add`.
+// array is `map_to(Mut List(), iter(array), x -> x)` or a loop with `add`.
+//
+// [fn-type-named] The constructor **is** the type-named function: `List(...)`
+// resolves to this declaration, whose canonical key is `List` (and `Mut_List`
+// for the mutable pair), carried verbatim to the backend lowering. There is no
+// separate lowercase constructor — the type name is the name.
 //
 // The elements are stored in the new list, so they are moved: a variadic tail is
 // owned, and needs no entry in the clause [deduce-syntax].
-export intrinsic fn list_of<T canbe linear>() [] -> List<T>
-export intrinsic fn list_of<T canbe linear>(first: T, ...rest: T[]) [] -> +NonEmpty List<T>
+export intrinsic fn List<T canbe linear>() [] -> List<T>
+export intrinsic fn List<T canbe linear>(first: T, ...rest: T[]) [] -> +NonEmpty List<T>
 => !first
 
 // The same pair, mutable. A `Mut NonEmpty` list is a claim the next mutation
 // may take away — which is exactly what a state qualifier is [qual-subject] —
 // so `remove_at` strips it and `add` puts it back [qual-refn].
-export intrinsic fn mut_list_of<T canbe linear>() [] -> Mut List<T>
-export intrinsic fn mut_list_of<T canbe linear>(first: T, ...rest: T[]) [] -> +NonEmpty Mut List<T>
+export intrinsic fn Mut List<T canbe linear>() [] -> Mut List<T>
+export intrinsic fn Mut List<T canbe linear>(first: T, ...rest: T[]) [] -> +NonEmpty Mut List<T>
 => !first
 
 // [col-by] Builds a list of [size] elements, each from its index:
@@ -50,7 +56,7 @@ export fn list_by<T>(size: Int, init: (Int) -> T) [] -> List<T> => size, init {
 // Mutable variant
 export fn mut_list_by<T>(size: Int, init: (Int) -> T) [] -> Mut List<T>
 => size, init {
-    let out = mut_list_of<T>()
+    let out = Mut List<T>()
     let i = 0
     while i < size {
         add(out, init(copy(i)))
@@ -362,7 +368,7 @@ export fn remove_back_while<T canbe linear>(list: Mut List<T>, keep: (x: T) -> B
 // is what a view would really be, does not exist.
 export fn sub_list<T>(list: List<T>, from: Int, to: Int, ?copy: (v: T) -> T) [] -> Mut List<T>
 => list, from, to {
-    let out = mut_list_of<T>()
+    let out = Mut List<T>()
     let i = from
     if i < 0 {
         i = 0
@@ -461,8 +467,8 @@ export fn count<T>(list: List<T>, pick: (x: T) -> Bool) [] -> Int => list, pick 
 // tuple cannot hold borrows.
 export fn partition<T>(list: List<T>, pick: (x: T) -> Bool, ?copy: (v: T) -> T) [] -> (Mut List<T>, Mut List<T>)
 => list, pick {
-    let yes = mut_list_of<T>()
-    let no = mut_list_of<T>()
+    let yes = Mut List<T>()
+    let no = Mut List<T>()
     let i = 0
     while i < size(list) {
         let x = get(list, i)!
@@ -680,7 +686,7 @@ export fn sort<T>(list: List<T>, ?Ordered<T>) [] -> +Sorted<T>(?cmp) List<T> => 
 }
 
 // Mutable variant, which is how a `Mut Sorted List<T>` is obtained — and so
-// how `add_sorted` gets something to insert into. `mut_sort(mut_list_of())`
+// how `add_sorted` gets something to insert into. `mut_sort(Mut List())`
 // is the empty sorted list.
 export fn mut_sort<T>(list: List<T>, ?Ordered<T>) [] -> +Sorted<T>(?cmp) Mut List<T>
 => list {

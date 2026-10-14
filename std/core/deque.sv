@@ -153,7 +153,7 @@ export fn to_str<T>(d: Deque<T>, ?to_str: (x: T) -> Str) [] -> Str => d {
 // [col-convert] The elements front to back, as a list, and a list as a deque:
 // copies of them.
 export fn to_list<T>(d: Deque<T>, ?copy: (v: T) -> T) [] -> List<T> => d {
-    let out = mut_list_of<T>()
+    let out = Mut List<T>()
     for x in d {
         add(out, copy(x))
     }

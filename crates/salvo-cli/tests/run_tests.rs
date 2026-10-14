@@ -550,7 +550,7 @@ fn a_target_holding_sources_is_never_deleted() {
 const REDUNDANT_SELECTOR: &str = r#"
 fn main() [use] {
     use StdOutConsole()
-    let xs: Mut List<Int> = mut_list_of()
+    let xs: Mut List<Int> = Mut List()
     // The selector changes nothing here, which is a warning — and a warning
     // must reach the builder without stopping it [fn-overload-at].
     add(xs, 1)
@@ -1528,7 +1528,7 @@ fn use_it<T>(h: H<T>, v: T) [] -> Bool => h, v {
 
 fn main() [use, spawn] {
     use StdOutConsole()
-    let m: Mut Map<Int, Node> = mut_map_of()
+    let m: Mut Map<Int, Node> = Mut Map()
     put(m, 1, Node { id: 1, label: "ab" })
     println("1: ${rebind(m, 1)}")
     let b = spawn Binning()
@@ -1551,7 +1551,7 @@ fn main() [use, spawn] {
     use Circle()
     let shape = Circle { r: 2 }
     println("13: ${size()} ${shape.r}")
-    let xs: Mut List<Mut Rec> = mut_list_of(Mut Rec { dead: false })
+    let xs: Mut List<Mut Rec> = Mut List(Mut Rec { dead: false })
     for a in xs {
         if !a.dead { a.dead = true }
     }
@@ -1581,7 +1581,7 @@ fn an_interpolation_reads_before_a_later_part_mutates() {
     let dir = work_dir("interp_sequence");
     fs::write(
         dir.join("main.sv"),
-        "fn main() [use] {\n    use StdOutConsole()\n    let d = mut_list_of(1, 2, 3)\n    let i = 1\n    \
+        "fn main() [use] {\n    use StdOutConsole()\n    let d = Mut List(1, 2, 3)\n    let i = 1\n    \
          if i is Idx(d) {\n        println(\"${get(d, i)} ${replace(d, i, 0)}\")\n    }\n    println(\"${d}\")\n}\n",
     )
     .unwrap();
@@ -1675,7 +1675,7 @@ fn main() [use] {\n\
 \x20   use StdOutConsole()\n\
 \x20   label(\"here\")\n\
 \x20   label(None)\n\
-\x20   count(list_of(1, 2, 3))\n\
+\x20   count(List(1, 2, 3))\n\
 }\n";
 
 const TERMINAL_SCOPE_STDOUT: &str = "present here\nabsent\nrunning 1\nrunning 3\nrunning 6\n";

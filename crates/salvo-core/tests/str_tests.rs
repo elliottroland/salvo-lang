@@ -121,7 +121,7 @@ fn str_opts_into_mut() {
 }
 
 /// A `Str` literal is not a `Mut Str`: mutability is asked for, which is
-/// what makes `mut_str` mirror `mut_list_of`.
+/// what makes `mut_str` mirror `Mut List`.
 #[test]
 fn a_literal_is_not_a_builder() {
     let msgs = messages(&body("    let b: Mut Str = \"plain\""));

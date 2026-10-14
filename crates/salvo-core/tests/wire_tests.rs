@@ -21,14 +21,14 @@ const STD_PRELUDE: &str = concat!(
     "export intrinsic type Set<T>(?hash: (T) -> Long, ?eq: (T, T) -> Bool) canbe Mut\n",
     "export intrinsic fn hash(value: Int) [] -> Long => value\n",
     "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",
-    "export intrinsic fn set_of<T>(...elems: T[]) [] -> Set<T>\n",
+    "export intrinsic fn Set<T>(...elems: T[]) [] -> Set<T>\n",
     "export noremote intrinsic type Pool\n",
     "export intrinsic fn pool(size: Int) [spawn] -> Pool => size\n",
     "export intrinsic type Addr<E>\n",
     "export linear intrinsic type Reply<T>\n",
     "export intrinsic fn send<T>(reply: Reply<T>, value: T) [] -> None => !reply, !value\n",
     "export struct Mailbox { capacity: Int }\n",
-    "export intrinsic fn mut_list_of<T>(...elems: T[]) [] -> Mut List<T>\n",
+    "export intrinsic fn Mut List<T>(...elems: T[]) [] -> Mut List<T>\n",
     "export intrinsic fn add<T>(list: Mut List<T>, elem: T) [] -> None => list: Mut, !elem\n",
     "export intrinsic fn copy<T>(value: T) [] -> T => value\n",
 );
@@ -61,11 +61,11 @@ fn program(src: &str) -> (Program, Vec<FileDiagnostic>) {
         STD_PRELUDE.to_string(),
         true,
     );
-    // [fn-type-named] `List<T>()` resolves to `core.list`'s `list_of`.
+    // [fn-type-named] `List<T>()` resolves to `core.list`'s `List`.
     sources.add(
         "std/core/list.sv",
         SourceSet::classify(Path::new("core/list.sv")).unwrap(),
-        "export intrinsic fn list_of<T>() [] -> List<T>\n".to_string(),
+        "export intrinsic fn List<T>() [] -> List<T>\n".to_string(),
         true,
     );
     sources.add(
@@ -309,7 +309,7 @@ fn effect_typed_generics_check() {
          send fn peers(out: Reply<List<Addr<E>>>) => !out\n    \
          send fn twin(other: Addr<Reg<E>>) => !other\n}}\n\
          handler Registering<E>() of Reg<E> {{\n    mailbox {{ capacity: 4 }}\n    \
-         all: Mut List<Addr<E>> = mut_list_of()\n    \
+         all: Mut List<Addr<E>> = Mut List()\n    \
          send fn join(member: Addr<E>) => !member {{ add(all, member) }}\n    \
          send fn peers(out: Reply<List<Addr<E>>>) => !out {{ out.send(copy(all)) }}\n    \
          send fn twin(other: Addr<Reg<E>>) => !other {{ }}\n}}\n\

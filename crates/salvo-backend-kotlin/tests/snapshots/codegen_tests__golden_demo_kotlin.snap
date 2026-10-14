@@ -344,7 +344,7 @@ fun<T> drain(list: List<T>, each: (T) -> Unit) {
             val __nn_1: T? = removeLastPlatform(m)
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at core.list:241:14"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at core.list:247:14"))
                 }
                 else -> {
                     val __some_2: T = __nn_1!!
@@ -373,7 +373,7 @@ fun<T> first(list: List<T>): T {
         val __nn_1: T? = getPlatform(list, 0)
         when {
             (__nn_1 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at core.list:298:12"))
+                throw AssertionError(("salvo: " + ("value is absent") + " at core.list:304:12"))
             }
             else -> {
                 val __some_2: T = __nn_1!!
@@ -412,7 +412,7 @@ fun<T> removeFrontWhile(list: salvo.platform.core.list.MutList<T>, keep: (T) -> 
             val __nn_1: T? = getPlatform(list, n)
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at core.list:341:34"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at core.list:347:34"))
                 }
                 else -> {
                     val __some_2: T = __nn_1!!
@@ -434,7 +434,7 @@ fun<T> removeBackWhile(list: salvo.platform.core.list.MutList<T>, keep: (T) -> B
             val __nn_1: T? = getPlatform(list, (at - 1))
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at core.list:353:26"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at core.list:359:26"))
                 }
                 else -> {
                     val __some_2: T = __nn_1!!
@@ -463,7 +463,7 @@ fun<T> subList(list: List<T>, from: Int, to: Int, copy: (T) -> T): salvo.platfor
             val __nn_1: T? = getPlatform(list, i)
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at core.list:371:23"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at core.list:377:23"))
                 }
                 else -> {
                     val __some_2: T = __nn_1!!
@@ -570,7 +570,7 @@ fun<T> contains(list: List<T>, elem: T, eq: (T, T) -> Boolean): Boolean {
             val __nn_1: T? = getPlatform(list, i)
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at core.list:421:15"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at core.list:427:15"))
                 }
                 else -> {
                     val __some_2: T = __nn_1!!
@@ -599,7 +599,7 @@ fun<T> all(list: List<T>, pick: (T) -> Boolean): Boolean {
             val __nn_1: T? = getPlatform(list, i)
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at core.list:438:18"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at core.list:444:18"))
                 }
                 else -> {
                     val __some_2: T = __nn_1!!
@@ -625,7 +625,7 @@ fun<T> count(list: List<T>, pick: (T) -> Boolean): Int {
             val __nn_1: T? = getPlatform(list, i)
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at core.list:451:17"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at core.list:457:17"))
                 }
                 else -> {
                     val __some_2: T = __nn_1!!
@@ -652,7 +652,7 @@ fun<T> partition(list: List<T>, pick: (T) -> Boolean, copy: (T) -> T): Pair<salv
             val __nn_1: T? = getPlatform(list, i)
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at core.list:468:17"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at core.list:474:17"))
                 }
                 else -> {
                     val __some_2: T = __nn_1!!
@@ -822,9 +822,9 @@ package salvo.core.map
 
 import salvo.*
 
-fun<K, V> mapOfPlatform(entries: Array<Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.Map<K, V> = salvo.platform.core.map.mapOf(entries, hash, eq)
+fun<K, V> Map_platform(entries: Array<Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.Map<K, V> = salvo.platform.core.map.Map(entries, hash, eq)
 
-fun<K, V> mutMapOfPlatform(entries: Array<Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.MutMap<K, V> = salvo.platform.core.map.mutMapOf(entries, hash, eq)
+fun<K, V> Mut_Map_platform(entries: Array<Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.MutMap<K, V> = salvo.platform.core.map.Mut_Map(entries, hash, eq)
 
 fun<K, V> mapByPlatform(size: Int, init: (Int) -> Pair<K, V>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.Map<K, V> = salvo.platform.core.map.mapBy(size, init, hash, eq)
 
@@ -833,7 +833,7 @@ fun<K, V> mutMapByPlatform(size: Int, init: (Int) -> Pair<K, V>, hash: (K) -> Lo
 fun<K, V> toMapPlatform(pairs: List<Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.Map<K, V> = salvo.platform.core.map.toMap(pairs, hash, eq)
 
 fun<T, K, V> toMap(items: List<T>, entry: (T) -> Pair<K, V>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.Map<K, V> {
-    val map: salvo.platform.core.map.MutMap<K, V> = mutMapOfPlatform(arrayOf<Pair<K, V>>(), hash, eq)
+    val map: salvo.platform.core.map.MutMap<K, V> = Mut_Map_platform(arrayOf<Pair<K, V>>(), hash, eq)
     for (x in salvo.platform.core.list.each(items)) {
         val __destructured_1: Pair<K, V> = entry(x)
         val k: K = __destructured_1.first
@@ -892,7 +892,7 @@ fun<K, V> toStr(map: salvo.platform.core.map.Map<K, V>, toStr: (K) -> String, to
             val __nn_1: V? = getPlatform(map, k, hash, eq)
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at core.map:181:28"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at core.map:186:28"))
                 }
                 else -> {
                     val __some_2: V = __nn_1!!
@@ -920,7 +920,7 @@ fun<K, V> eq(a: salvo.platform.core.map.Map<K, V>, b: salvo.platform.core.map.Ma
             val __nn_1: V? = getPlatform(a, k, hash, eq__1)
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at core.map:203:16"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at core.map:208:16"))
                 }
                 else -> {
                     val __some_2: V = __nn_1!!
@@ -1034,9 +1034,9 @@ package salvo.core.set
 
 import salvo.*
 
-fun<T> setOfPlatform(elems: Array<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): salvo.platform.core.set.Set<T> = salvo.platform.core.set.setOf(elems, hash, eq)
+fun<T> Set_platform(elems: Array<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): salvo.platform.core.set.Set<T> = salvo.platform.core.set.Set(elems, hash, eq)
 
-fun<T> mutSetOfPlatform(elems: Array<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): salvo.platform.core.set.MutSet<T> = salvo.platform.core.set.mutSetOf(elems, hash, eq)
+fun<T> Mut_Set_platform(elems: Array<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): salvo.platform.core.set.MutSet<T> = salvo.platform.core.set.Mut_Set(elems, hash, eq)
 
 fun<T> setByPlatform(size: Int, init: (Int) -> T, hash: (T) -> Long, eq: (T, T) -> Boolean): salvo.platform.core.set.Set<T> = salvo.platform.core.set.setBy(size, init, hash, eq)
 
@@ -1117,9 +1117,9 @@ package salvo.core.sorted
 
 import salvo.*
 
-fun<T> sortedSetOfPlatform(elems: Array<T>, cmp: (T, T) -> Int): salvo.platform.core.sorted.SortedSet<T> = salvo.platform.core.sorted.sortedSetOf(elems, cmp)
+fun<T> SortedSet_platform(elems: Array<T>, cmp: (T, T) -> Int): salvo.platform.core.sorted.SortedSet<T> = salvo.platform.core.sorted.SortedSet(elems, cmp)
 
-fun<T> mutSortedSetOfPlatform(elems: Array<T>, cmp: (T, T) -> Int): salvo.platform.core.sorted.MutSortedSet<T> = salvo.platform.core.sorted.mutSortedSetOf(elems, cmp)
+fun<T> Mut_SortedSet_platform(elems: Array<T>, cmp: (T, T) -> Int): salvo.platform.core.sorted.MutSortedSet<T> = salvo.platform.core.sorted.Mut_SortedSet(elems, cmp)
 
 fun<T> addPlatform(set: salvo.platform.core.sorted.MutSortedSet<T>, elem: T, cmp: (T, T) -> Int): Boolean = salvo.platform.core.sorted.add(set, elem, cmp)
 
@@ -1165,9 +1165,9 @@ fun<T> iter__SortedSet(set: salvo.platform.core.sorted.SortedSet<T>): salvo.core
     return salvo.core.set.SetYield<T>(items = toListPlatform(set), at = 0)
 }
 
-fun<K, V> sortedMapOfPlatform(entries: Array<Pair<K, V>>, cmp: (K, K) -> Int): salvo.platform.core.sorted.SortedMap<K, V> = salvo.platform.core.sorted.sortedMapOf(entries, cmp)
+fun<K, V> SortedMap_platform(entries: Array<Pair<K, V>>, cmp: (K, K) -> Int): salvo.platform.core.sorted.SortedMap<K, V> = salvo.platform.core.sorted.SortedMap(entries, cmp)
 
-fun<K, V> mutSortedMapOfPlatform(entries: Array<Pair<K, V>>, cmp: (K, K) -> Int): salvo.platform.core.sorted.MutSortedMap<K, V> = salvo.platform.core.sorted.mutSortedMapOf(entries, cmp)
+fun<K, V> Mut_SortedMap_platform(entries: Array<Pair<K, V>>, cmp: (K, K) -> Int): salvo.platform.core.sorted.MutSortedMap<K, V> = salvo.platform.core.sorted.Mut_SortedMap(entries, cmp)
 
 fun<K, V> getPlatform(map: salvo.platform.core.sorted.SortedMap<K, V>, key: K, cmp: (K, K) -> Int): V? = salvo.platform.core.sorted.get(map, key, cmp)
 
@@ -1202,7 +1202,7 @@ fun<K, V> toStr__SortedMap(map: salvo.platform.core.sorted.SortedMap<K, V>, toSt
             val __nn_1: V? = getPlatform(map, k, cmp)
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at core.sorted:148:28"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at core.sorted:158:28"))
                 }
                 else -> {
                     val __some_2: V = __nn_1!!
@@ -1242,7 +1242,7 @@ fun<K, V> eq__SortedMap_SortedMap(a: salvo.platform.core.sorted.SortedMap<K, V>,
             val __nn_1: V? = getPlatform(a, k, cmp)
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at core.sorted:181:16"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at core.sorted:191:16"))
                 }
                 else -> {
                     val __some_2: V = __nn_1!!
@@ -1273,7 +1273,7 @@ fun<T> min(set: salvo.platform.core.sorted.SortedSet<T>): T {
         val __nn_1: T? = minPlatform(set)
         when {
             (__nn_1 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at core.sorted:236:12"))
+                throw AssertionError(("salvo: " + ("value is absent") + " at core.sorted:246:12"))
             }
             else -> {
                 val __some_2: T = __nn_1!!
@@ -1288,7 +1288,7 @@ fun<T> max(set: salvo.platform.core.sorted.SortedSet<T>): T {
         val __nn_1: T? = maxPlatform(set)
         when {
             (__nn_1 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at core.sorted:240:12"))
+                throw AssertionError(("salvo: " + ("value is absent") + " at core.sorted:250:12"))
             }
             else -> {
                 val __some_2: T = __nn_1!!
@@ -1303,7 +1303,7 @@ fun<K, V> firstKey(map: salvo.platform.core.sorted.SortedMap<K, V>): K {
         val __nn_1: K? = firstKeyPlatform(map)
         when {
             (__nn_1 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at core.sorted:244:12"))
+                throw AssertionError(("salvo: " + ("value is absent") + " at core.sorted:254:12"))
             }
             else -> {
                 val __some_2: K = __nn_1!!
@@ -1318,7 +1318,7 @@ fun<K, V> lastKey(map: salvo.platform.core.sorted.SortedMap<K, V>): K {
         val __nn_1: K? = lastKeyPlatform(map)
         when {
             (__nn_1 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at core.sorted:248:12"))
+                throw AssertionError(("salvo: " + ("value is absent") + " at core.sorted:258:12"))
             }
             else -> {
                 val __some_2: K = __nn_1!!
@@ -2429,12 +2429,12 @@ fun <K, V> canonicalMap(entries: Iterable<Pair<K, V>>): SalvoMap<K, V> {
 @Suppress("UNCHECKED_CAST")
 fun <K, V> each(map: Map<K, V>): Iterable<K> = map.liveSlots().map { map.keys[it] as K }.asIterable()
 
-inline fun <K, V> mapOf(entries: Array<Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): Map<K, V> =
-    mutMapOf(entries, hash, eq)
+inline fun <K, V> Map(entries: Array<Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): Map<K, V> =
+    Mut_Map(entries, hash, eq)
 
 // A repeated key keeps the position of its first appearance and takes the
 // value of its last [col-duplicate-keys].
-inline fun <K, V> mutMapOf(entries: Array<Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): MutMap<K, V> {
+inline fun <K, V> Mut_Map(entries: Array<Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): MutMap<K, V> {
     val m = SalvoMap<K, V>()
     for ((k, v) in entries) m.store(k, v, hash, eq)
     return m
@@ -2688,9 +2688,9 @@ fun <T> canonicalSet(elems: Iterable<T>): SalvoSet<T> {
 // [platform-iterable] The host's loop over a set: its elements, in insertion order.
 fun <T> each(set: Set<T>): Iterable<T> = set
 
-inline fun <T> setOf(elems: Array<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): Set<T> = mutSetOf(elems, hash, eq)
+inline fun <T> Set(elems: Array<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): Set<T> = Mut_Set(elems, hash, eq)
 
-inline fun <T> mutSetOf(elems: Array<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): MutSet<T> {
+inline fun <T> Mut_Set(elems: Array<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): MutSet<T> {
     val s = SalvoSet<T>()
     for (e in elems) put(s, e, hash, eq)
     return s
@@ -2832,7 +2832,7 @@ fun canonicalCompare(a: Any?, b: Any?): Int {
 
 /** [platform-value-type] For host code: a sorted set under the canonical ordering. */
 fun <T> canonicalSortedSet(elems: Iterable<T>): SalvoSortedSet<T> =
-    mutSortedSetOf((elems.toList() as List<Any?>).toTypedArray() as Array<T>, ::canonicalCompare)
+    Mut_SortedSet((elems.toList() as List<Any?>).toTypedArray() as Array<T>, ::canonicalCompare)
 
 /** [platform-value-type] For host code: a sorted map under the canonical ordering. */
 fun <K, V> canonicalSortedMap(entries: Iterable<Pair<K, V>>): SalvoSortedMap<K, V> {
@@ -2846,10 +2846,10 @@ fun <T> eachSortedSet(set: SortedSet<T>): Iterable<T> = set
 
 fun <K, V> eachSortedMap(map: SortedMap<K, V>): Iterable<K> = map.keys
 
-inline fun <T> sortedSetOf(elems: Array<T>, cmp: (T, T) -> Int): SortedSet<T> = mutSortedSetOf(elems, cmp)
+inline fun <T> SortedSet(elems: Array<T>, cmp: (T, T) -> Int): SortedSet<T> = Mut_SortedSet(elems, cmp)
 
 // A repeated member: the last wins, in the place they share.
-inline fun <T> mutSortedSetOf(elems: Array<T>, cmp: (T, T) -> Int): MutSortedSet<T> {
+inline fun <T> Mut_SortedSet(elems: Array<T>, cmp: (T, T) -> Int): MutSortedSet<T> {
     val s = SalvoSortedSet(ArrayList<T>(elems.size))
     for (e in elems) {
         val i = bisect(s.items, e, cmp)
@@ -2882,9 +2882,9 @@ fun <T> max(set: SortedSet<T>): T? = set.items.lastOrNull()
 
 fun <T> toList(set: SortedSet<T>): MutableList<T> = ArrayList(set.items)
 
-inline fun <K, V> sortedMapOf(entries: Array<Pair<K, V>>, cmp: (K, K) -> Int): SortedMap<K, V> = mutSortedMapOf(entries, cmp)
+inline fun <K, V> SortedMap(entries: Array<Pair<K, V>>, cmp: (K, K) -> Int): SortedMap<K, V> = Mut_SortedMap(entries, cmp)
 
-inline fun <K, V> mutSortedMapOf(entries: Array<Pair<K, V>>, cmp: (K, K) -> Int): MutSortedMap<K, V> {
+inline fun <K, V> Mut_SortedMap(entries: Array<Pair<K, V>>, cmp: (K, K) -> Int): MutSortedMap<K, V> {
     val m = SalvoSortedMap(ArrayList<K>(entries.size), ArrayList<V>(entries.size))
     for ((k, v) in entries) m.store(k, v, cmp)
     return m

@@ -566,7 +566,7 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
       unreachable("unhandled union arm") at main:300:5
     }
   }
-  bind#148 let failures: Mut List<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = call core.list::mut_list_of()<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>()
+  bind#148 let failures: Mut List<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = call core.list::Mut_List()<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>()
   bind#149 let missing: Str | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = call fs::read_to_str(read fs, read streams, call fs.path::path("nope.txt"))
   obligation gain [missing.arms{1}]
   switch#150 read missing {
@@ -609,7 +609,7 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
   foreach#157 kind: proj (NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming) in read failures {
     call core.console::println(read console, concat("  ", call main::kind_name(FsError)(call core.basic::copy<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(read kind))))
   }
-  foreach#158 name: Str in call core.list::list_of(T, T[])<Str>("notes.txt", array[Str[]]("notes-copy.txt", "raw.bin")) {
+  foreach#158 name: Str in call core.list::List(T, T[])<Str>("notes.txt", array[Str[]]("notes-copy.txt", "raw.bin")) {
     bind#159 let gone: Ok None | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member fs::Fs#8(read fs, call fs.path::path(read name))
     obligation gain [gone.arms{1}]
     branch#160 cond#0 check#161 (read gone is arm 1) {

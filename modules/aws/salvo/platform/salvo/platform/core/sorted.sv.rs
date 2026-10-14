@@ -107,13 +107,13 @@ impl<K: fmt::Display, V: fmt::Display> fmt::Display for SortedMap<K, V> {
 /// ordering of an intrinsic type, which is `Ord` (a `String` compares by
 /// bytes, which is code-point order).
 pub fn canonical_sorted_set<T: Ord>(elems: Vec<T>) -> SortedSet<T> {
-    sorted_set_of(elems, &mut |a: &T, b: &T| a.cmp(b) as i32)
+    SortedSet(elems, &mut |a: &T, b: &T| a.cmp(b) as i32)
 }
 
 /// [platform-value-type] For host code: a sorted map under the canonical
 /// ordering of an intrinsic key type.
 pub fn canonical_sorted_map<K: Ord, V>(entries: Vec<(K, V)>) -> SortedMap<K, V> {
-    sorted_map_of(entries, &mut |a: &K, b: &K| a.cmp(b) as i32)
+    SortedMap(entries, &mut |a: &K, b: &K| a.cmp(b) as i32)
 }
 
 // [platform-iterable] The host's loops: a set's elements and a map's keys,
@@ -143,7 +143,7 @@ pub fn into_each_sorted_map<K, V>(map: SortedMap<K, V>) -> std::vec::IntoIter<K>
 }
 
 // A repeated member: the last wins, in the place they share.
-pub fn sorted_set_of<T>(elems: Vec<T>, cmp: CmpFn<T>) -> SortedSet<T> {
+pub fn SortedSet<T>(elems: Vec<T>, cmp: CmpFn<T>) -> SortedSet<T> {
     let mut s = SortedSet { items: Vec::with_capacity(elems.len()) };
     for e in elems {
         match bisect(&s.items, &e, &mut *cmp) {
@@ -154,8 +154,8 @@ pub fn sorted_set_of<T>(elems: Vec<T>, cmp: CmpFn<T>) -> SortedSet<T> {
     s
 }
 
-pub fn mut_sorted_set_of<T>(elems: Vec<T>, cmp: CmpFn<T>) -> SortedSet<T> {
-    sorted_set_of(elems, cmp)
+pub fn Mut_SortedSet<T>(elems: Vec<T>, cmp: CmpFn<T>) -> SortedSet<T> {
+    SortedSet(elems, cmp)
 }
 
 pub fn add<T>(set: &mut SortedSet<T>, elem: T, cmp: CmpFn<T>) -> bool {
@@ -198,7 +198,7 @@ pub fn to_list<T: Clone>(set: &SortedSet<T>) -> Vec<T> {
     set.items.clone()
 }
 
-pub fn sorted_map_of<K, V>(entries: Vec<(K, V)>, cmp: CmpFn<K>) -> SortedMap<K, V> {
+pub fn SortedMap<K, V>(entries: Vec<(K, V)>, cmp: CmpFn<K>) -> SortedMap<K, V> {
     let mut m = SortedMap { keys: Vec::with_capacity(entries.len()), values: Vec::with_capacity(entries.len()) };
     for (k, v) in entries {
         m.store(k, v, &mut *cmp);
@@ -206,8 +206,8 @@ pub fn sorted_map_of<K, V>(entries: Vec<(K, V)>, cmp: CmpFn<K>) -> SortedMap<K, 
     m
 }
 
-pub fn mut_sorted_map_of<K, V>(entries: Vec<(K, V)>, cmp: CmpFn<K>) -> SortedMap<K, V> {
-    sorted_map_of(entries, cmp)
+pub fn Mut_SortedMap<K, V>(entries: Vec<(K, V)>, cmp: CmpFn<K>) -> SortedMap<K, V> {
+    SortedMap(entries, cmp)
 }
 
 pub fn get<'a, K, V>(map: &'a SortedMap<K, V>, key: &K, cmp: CmpFn<K>) -> Option<&'a V> {

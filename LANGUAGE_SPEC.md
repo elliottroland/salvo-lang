@@ -66,7 +66,7 @@ Conventions:
     surface by **dropping `Mut`** — free on both backends here, unlike
     `Mut Str` [str-drop-mut]. Constructors: `bytes_of(...)` (fixed) and
     `mut_bytes(...)` (a builder, empty or over given parts), mirroring
-    `mut_str`/`mut_list_of` [col-no-literal].
+    `mut_str`/`Mut List` [col-no-literal].
   * `slice` **copies**; nothing in the surface borrows, since a borrow would
     have to be stated in a deduction [proj-field]. Out-of-range reads answer
     `None` and `set` out of range does nothing (growing there would make it
@@ -688,14 +688,14 @@ Conventions:
   construction.
 
   ```
-  export intrinsic fn list_of<T canbe linear>() [] -> List<T>
-  export intrinsic fn list_of<T canbe linear>(first: T, ...rest: T[]) [] -> +NonEmpty List<T>
+  export intrinsic fn List<T canbe linear>() [] -> List<T>
+  export intrinsic fn List<T canbe linear>(first: T, ...rest: T[]) [] -> +NonEmpty List<T>
   ```
 
-  So `list_of()` is empty, `list_of(1, 2, 3)` and `list_of(a, ...rest)` are
+  So `List()` is empty, `List(1, 2, 3)` and `List(a, ...rest)` are
   `NonEmpty`, and nothing is checked at run time [qual-ctor-predicate]. Built
-  for `list_of`/`mut_list_of`, whose `NonEmpty` is declared in the same file
-  [qual-ctor-same-file]. `set_of`/`map_of` and the sorted pair keep the single
+  for `List`/`Mut List`, whose `NonEmpty` is declared in the same file
+  [qual-ctor-same-file]. `Set`/`Map` and the sorted pair keep the single
   variadic shape: their `NonEmpty` now lives beside them (2026-09-26), so the
   two-shape convention is *available* to them and adding it is an std API
   question rather than a blocked one (ROADMAP.md).
@@ -735,7 +735,7 @@ Conventions:
     re-picks this same overload, which recurses forever.
   * The constructor is an `intrinsic` only because mixing a plain argument
     with a `...spread` in one variadic call is unsupported, so
-    `list_of(first, ...rest)` cannot be its body (recorded in ROADMAP.md).
+    `List(first, ...rest)` cannot be its body (recorded in ROADMAP.md).
   * **One name, one subject type.** A qualifier name is unique within a module
     *and* across the implicitly visible `core` modules, so there is no
     `NonEmpty` over `Set`/`Map`/`SortedSet`/`SortedMap`; that needs same-name
@@ -1025,19 +1025,19 @@ Conventions:
   `Set<T>(?hash: (T) -> Long, ?eq: (T, T) -> Bool)`,
   `Map<K, V>(?hash: (K) -> Long, ?eq: (K, K) -> Bool)`.
   * **The constructors ask for the identity as a capability** (user decision
-    2026-09-26): `set_of<T>(...elems: T[], ?Hashed<T>) -> Set<T>(?hash, ?eq)`,
+    2026-09-26): `Set<T>(...elems: T[], ?Hashed<T>) -> Set<T>(?hash, ?eq)`,
     and the same for the other four families' constructors — so what a container
     is keyed by is decided where it is *built*, and a hand-written `hash`/`eq`
     is honoured instead of ignored. Before this nothing filled the slots, and
     the two backends disagreed about the same program: Kotlin keyed by the JVM's
     structural equality (a declared `eq` silently unused) and rustc refused it.
   * **The identity is passed, never inferred from an annotation**: the program
-    writes `mut_set_of(hash = age_hash, eq = same_age)`. An annotation that
+    writes `Mut Set(hash = age_hash, eq = same_age)`. An annotation that
     names a pair must *agree* with what the constructor resolved rather than
     choosing it, because [cmp-binder] says what filled the binder decides what a
     structure carries — and one way to choose an identity beats two. The
     expected type does bind the callee's ordinary type *parameters* before its
-    implicits resolve (`let s: Mut Set<Str> = mut_set_of()` learns `T = Str`,
+    implicits resolve (`let s: Mut Set<Str> = Mut Set()` learns `T = Str`,
     without which every `eq` in scope matches `?eq: (?, ?) -> Bool`), and
     deliberately not its slots.
   * **An unwritten slot is resolved by its name** [cmp-carry] [implicit-resolve],
@@ -1213,28 +1213,33 @@ Conventions:
     keeps generic code over keyed collections writable.
 * [col-no-literal] **Collections have no literal syntax** (user decision
   2026-10-12, retiring the old `[col-literal]` forms). A collection is
-  built by its *type-named constructor* [fn-type-named], which resolves to
-  the same `*_of` std function the old literal desugared to:
-  * `List(1, 2, 3)` / `Mut List(1, 2, 3)` for a list (`list_of` /
-    `mut_list_of`), `Set("a", "b")` / `Mut Set(…)` for a set, `Map("a": 1,
-    "b": 2)` / `Mut Map(…)` for a map (the `k: v` pair-argument sugar
-    [col-pairs] fills the `(K, V)[]` variadic), and the `SortedSet` /
-    `SortedMap` pair for the ordered containers.
+  built by its *type-named constructor* [fn-type-named], which **is** the
+  std constructor function — there is no lowercase `*_of` builder behind it
+  (user decision 2026-10-12, removing the earlier resolution-time alias):
+  * `List(1, 2, 3)` / `Mut List(1, 2, 3)` for a list, `Set("a", "b")` /
+    `Mut Set(…)` for a set, `Map("a": 1, "b": 2)` / `Mut Map(…)` for a map
+    (the `k: v` pair-argument sugar [col-pairs] fills the `(K, V)[]`
+    variadic), and the `SortedSet` / `SortedMap` pair for the ordered
+    containers. Each names a `std` declaration whose canonical key is the
+    type-fn key (`Mut_Map`, `SortedSet`, …), carried verbatim to the
+    backend: the list pair is `intrinsic` [backend-intrinsic], the rest are
+    `platform fn`s whose host wrapper is `<Key>_platform` [platform-fn].
   * **Empty is an overload, not a special form**: `List<Int>()`,
     `Mut Set<Str>()`, `Map<Str, Int>()` — the no-argument constructor at
-    the element type the annotation or position gives it, exactly as the
-    `*_of` empty overloads work. There is no empty-brace `{}` collection.
+    the element type the annotation or position gives it. There is no
+    empty-brace `{}` collection. Explicit type arguments on the call are
+    bare identifiers only (`List<Int>()`); a nullable, nested or `proj`
+    element type is supplied through the `let`/parameter annotation with a
+    bare `List()` / `Mut List()` [fn-type-named].
   * **Identity carries through named implicits**: a custom hash/eq/cmp is
     passed as `Mut Set("x", hash = my_hash, eq = my_eq)` (or `cmp = …` for
     the sorted containers), the implicit group members by name
     [implicit-override], since there is no literal to adopt them from a
     type annotation.
-  * The constructor **is** the `*_of` call: resolution aliases the
-    type-fn key to the existing declaration (its overloads, implicits and
-    `+NonEmpty` establishment intact), so one implementation and one
-    backend lowering serve both spellings and the emitters know nothing of
-    a "literal". Scoped to the `core` collection modules, so a user's own
-    `List`/`Set`/… wins by the ordinary scope ladder [fn-overload-scope].
+  * There is **one implementation and one backend lowering** per
+    constructor — the type-named declaration itself — and the emitters know
+    nothing of a "literal". A user's own `List`/`Set`/… wins by the
+    ordinary scope ladder [fn-overload-scope].
   * A `[...]` in expression position, or a `{...}` that is neither a
     struct literal (`identifier:` / `Name {…}`) nor a brace lambda
     (`{ i -> … }`), is a **parse error** naming the constructor form.
@@ -2656,8 +2661,8 @@ Conventions:
      unrankable, deliberately — ranking them would ask the caller to know
      more than what is in front of them);
   4. with the slots otherwise equal, a **fixed** parameter list beats a
-     variadic one, which is what lets `list_of()` pick a no-argument overload
-     over `list_of(...elems)`.
+     variadic one, which is what lets `List()` pick a no-argument overload
+     over `List(...elems)`.
   * A candidate wins only by being at least as specific in *every* slot and
     strictly more specific in one. A sum of per-slot scores was the previous
     rule and is deliberately gone: it let one argument's gain pay for
@@ -2762,7 +2767,7 @@ Conventions:
   parameter types only flowed in as *expected* types, so `log(true)` on
   `fn log(message: Str)` was accepted.)
 * [call-type-args] A generic call's type arguments must be **determined**.
-  In order: an explicit list (`mut_list_of<Int>()`) pins them; otherwise
+  In order: an explicit list (`Mut List<Int>()`) pins them; otherwise
   the arguments bind them by unification; otherwise the **expected type**
   at the call does — a `let` annotation, the enclosing fn's return type, or
   a parameter type the result flows into. A type argument that appears in
@@ -3076,8 +3081,8 @@ Conventions:
     diagnostic says why — a spread's length is not known statically, so it
     cannot stand in for a parameter that must be there. Before the rule, such a
     call unified the *array* with the parameter's type, which silently bound a
-    type parameter to it: `list_of(...xs)` against
-    `list_of(first: T, ...rest: T[])` built a `List<Int[]>` and claimed
+    type parameter to it: `List(...xs)` against
+    `List(first: T, ...rest: T[])` built a `List<Int[]>` and claimed
     `NonEmpty` for a possibly empty spread [backend-never-wrong]
     [col-of-nonempty].
   * A spread into a **variadic intrinsic** is passed on as the collection,
@@ -3097,7 +3102,7 @@ Conventions:
       made `f(...rest)` followed by any further use of `rest` a raw rustc
       E0382 (fixed on the intrinsic path 2026-09-13 with the sorted
       collections, and on the ordinary path later the same day).
-  * **A tail may mix plain arguments with a spread** — `list_of(first,
+  * **A tail may mix plain arguments with a spread** — `List(first,
     ...rest)` — since 2026-09-13. Kotlin always could, its spread being an
     operator on an argument (`listOf(first, *rest)`); Rust needs the tail as
     one `Vec<T>`, so the emitter assembles it in written order (pushing each
@@ -3349,7 +3354,7 @@ Conventions:
       parameter keeps demanding a `Mut` argument — and then again with the
       *argument's* qualifiers dropped [qual-erasure]. Matching strictly meant a
       **qualified argument taught the call nothing**:
-      `total(list_of(1, 2, 3))`, whose argument is `NonEmpty List<Int>`
+      `total(List(1, 2, 3))`, whose argument is `NonEmpty List<Int>`
       [col-of-nonempty], left `It` unbound, so the `?next` beside it resolved
       by rung [fn-overload-scope] and a sibling iterator's `next` won — a call
       neither backend accepts, while `total([1, 2, 3])` had always worked.
@@ -3403,7 +3408,7 @@ Conventions:
     the member (`eq = all_same`), the enclosing fn **forwarded** its own, or
     **resolution** found a declaration [implicit-resolve]. Mixing them across one
     relation is the error; the remedy is to **write them out**
-    (`mut_set_of(hash = by_x, eq = eq)`), which states the agreement instead of
+    (`Mut Set(hash = by_x, eq = eq)`), which states the agreement instead of
     assembling it. Where a member is *forwarded*, writing it out is impossible —
     a keyed container's identity has to be a name a type can carry — so the
     remedy there is to hold the whole group, and the diagnostic says which
@@ -4052,7 +4057,7 @@ Conventions:
   rest of the current scope; `use Handler` is sugar for `use Handler()`.
   * The checker infers the handler's generics from the constructor
     arguments and registers the *concrete* effect instance
-    (`use CyclicRandom(list_of(1,2,3))` registers `Random<Int>`), recorded
+    (`use CyclicRandom(List(1,2,3))` registers `Random<Int>`), recorded
     in `use_effects`.
   * **Each argument must fit its constructor parameter**, by the same relation
     a call's argument is judged by (`arg_fits_param`, in an owned position —
@@ -7462,8 +7467,8 @@ between endpoints and delivers what arrives into the scheduler.
     projection) and behaves as a kept parameter.
   * A *view of a temporary* — a projecting or lending call whose borrowed
     argument is a call result or literal — may be used within its
-    statement (`map(iter(list_of(1, 2)), f)`, `for x in iter(list_of(1, 2))`)
-    but not bound, returned or stored (`let p = iter(list_of(1, 2))`: "cannot
+    statement (`map(iter(List(1, 2)), f)`, `for x in iter(List(1, 2))`)
+    but not bound, returned or stored (`let p = iter(List(1, 2))`: "cannot
     bind a view of a temporary"). Rust exposed it (E0716); the rule keeps
     the backends in agreement. A possible later automation (hoisting the
     temporary) is recorded in ROADMAP.
@@ -8202,7 +8207,7 @@ between endpoints and delivers what arrives into the scheduler.
     checked under the worst case — including that forwarding an opted
     `T` to an unopted generic is an error (compositional);
   * for bodiless intrinsics the opt-in is a trusted audit claim; std's
-    audit opts in `list_of`, `mut_list_of`, `add`, `size`, `discard`
+    audit opts in `List`, `Mut List`, `add`, `size`, `discard`
     (whose declaration is honestly
     `intrinsic fn discard<T canbe linear>(value: T) -> None`) and — since
     2026-09-16 — the take-by-move and terminal surface (`remove_first`,
@@ -9158,7 +9163,7 @@ replaced the working document TESTING.md).
     values in Salvo needs two `to_str`s, and implicits resolve by name.
     On Rust an argument reading a place another argument lends `&mut` is
     hoisted into a `let` [rs-borrows], since a free fn gets no two-phase
-    borrow (`put(m, k, size(m))`). `list_of`/`mut_list_of` stay intrinsic, since literals and
+    borrow (`put(m, k, size(m))`). `List`/`Mut List` stay intrinsic, since literals and
     spreads lower through them.
     For the collections (user decisions 2026-10-04): **std's own platform
     fns may answer a borrow** of the one parameter the result names
@@ -9212,7 +9217,7 @@ replaced the working document TESTING.md).
     `platform fn add<T>(set: Mut Set<T>(?hash, ?eq), elem: T)` — and the
     wrapper hands them to the host as trailing fn parameters, lent for the
     call [platform-fn-value]; a constructor takes them as implicits
-    (`set_of<T>(...elems: T[], ?Hashed<T>)`). The value stores no fn, so the
+    (`Set<T>(...elems: T[], ?Hashed<T>)`). The value stores no fn, so the
     host keeps one representation for every identity: std's `Set`/`Map` are
     an insertion-ordered slab (entries, tombstones, the digest each was filed
     under, a bucket index), the sorted pair a sorted list searched by

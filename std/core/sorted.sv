@@ -31,10 +31,15 @@ export iterable platform type SortedSet<T>(?cmp: (T, T) -> Int) canbe Mut : Iter
 
 // Constructor. The elements are stored, so they are moved; duplicates
 // collapse, and the result is in order however the arguments were written.
-export platform fn sorted_set_of<T>(...elems: T[], ?Ordered<T>) [] -> SortedSet<T>(?cmp)
+//
+// [fn-type-named] The constructor **is** the type-named function:
+// `SortedSet(...)` resolves to this declaration (canonical key `SortedSet`;
+// `Mut_SortedSet` for the mutable pair), the key carried verbatim to the
+// platform shim's `<Key>_platform` wrapper.
+export platform fn SortedSet<T>(...elems: T[], ?Ordered<T>) [] -> SortedSet<T>(?cmp)
 
 // Mutable constructor
-export platform fn mut_sorted_set_of<T>(...elems: T[], ?Ordered<T>) [] -> Mut SortedSet<T>(?cmp)
+export platform fn Mut SortedSet<T>(...elems: T[], ?Ordered<T>) [] -> Mut SortedSet<T>(?cmp)
 
 // Adds an element, reporting whether it was new.
 export platform fn add<T>(set: Mut SortedSet<T>(?cmp), elem: T) [] -> Bool => set: Mut, !elem
@@ -98,10 +103,15 @@ export iterable platform type SortedMap<K, V>(?cmp: (K, K) -> Int) canbe Mut : I
 // Constructor, from entries written as pairs. A repeated key takes the value
 // of its last appearance [col-duplicate-keys]; position is irrelevant here,
 // since the order is the keys'.
-export platform fn sorted_map_of<K, V>(...entries: (K, V)[], ?Ordered<K>) [] -> SortedMap<K, V>(?cmp)
+//
+// [fn-type-named] The constructor **is** the type-named function:
+// `SortedMap(...)` resolves to this declaration (canonical key `SortedMap`;
+// `Mut_SortedMap` for the mutable pair), the key carried verbatim to the
+// platform shim's `<Key>_platform` wrapper.
+export platform fn SortedMap<K, V>(...entries: (K, V)[], ?Ordered<K>) [] -> SortedMap<K, V>(?cmp)
 
 // Mutable constructor
-export platform fn mut_sorted_map_of<K, V>(...entries: (K, V)[], ?Ordered<K>) [] -> Mut SortedMap<K, V>(?cmp)
+export platform fn Mut SortedMap<K, V>(...entries: (K, V)[], ?Ordered<K>) [] -> Mut SortedMap<K, V>(?cmp)
 
 // Possibly gets the value stored under [key], **borrowed** out of the map
 // [copy-opt-in].

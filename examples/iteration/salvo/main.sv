@@ -207,7 +207,7 @@ fn first(it: iter Int) -> Int => it: Mut {
 fn main() [use] {
     use StdOutConsole()
 
-    let xs = list_of(1, 2, 3, 4)
+    let xs = List(1, 2, 3, 4)
     describe_container(xs)
 
     // 2. a hand-written iterator, driven in two stages, then through a step
@@ -231,7 +231,7 @@ fn main() [use] {
 
     // 2c. a source: `for` over it mints with its `iter`, and so does a
     // combinator over any source.
-    let bag = Bag { items: list_of(7, 8) }
+    let bag = Bag { items: List(7, 8) }
     for n in bag {
         println("2c. bag ${n}")
     }
@@ -262,7 +262,7 @@ fn main() [use] {
     let total = reduce(xs, 0, (acc, n) -> acc + n)
     println("5. list: ${size(doubled)} doubled, ${size(odd)} odd, total ${total}")
 
-    let words = list_of("ann", "bo", "carol")
+    let words = List("ann", "bo", "carol")
     let lengths = map(iter(words), w -> size(w))
     println("5. lengths: ${reduce(iter(lengths), 0, (acc, n) -> acc + n)}")
 
@@ -280,7 +280,7 @@ fn main() [use] {
     // `map_to` maps into a collection you provide and hands it back, reached
     // through an `add` the call site resolves — so the destination need not be
     // a `List`.
-    let collected = map_to(mut_list_of<Int>(), countdown(3), (n: Int) -> n * 10)
+    let collected = map_to(Mut List<Int>(), countdown(3), (n: Int) -> n * 10)
     println("6. collected ${size(collected)}")
 
     // ===== 7. ranges =====

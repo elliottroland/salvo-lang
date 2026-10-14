@@ -588,7 +588,7 @@ final class Generator {
         String deps = streaming.isEmpty() ? "" : " [Streams]";
         out.append("export handler Fake").append(settings.effect()).append("()").append(deps).append(" of ")
                 .append(settings.effect()).append(", ").append(calls).append(" {\n");
-        out.append("    recorded: Mut List<Str> = mut_list_of()\n");
+        out.append("    recorded: Mut List<Str> = Mut List()\n");
         for (OperationShape op : operations) {
             out.append('\n');
             out.append("    ").append(effectSignature(op).replace("\n    =>", " =>")).append(" {\n");

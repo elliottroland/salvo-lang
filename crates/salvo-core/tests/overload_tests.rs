@@ -379,7 +379,7 @@ fn at_module_accepts_an_unambiguous_suffix() {
         ),
         (
             "main.sv",
-            "import shop.list\nfn probe() [] -> None {\n    let xs: List<Int> = list_of(1)\n    let _n = size@list(xs)\n}\n",
+            "import shop.list\nfn probe() [] -> None {\n    let xs: List<Int> = List(1)\n    let _n = size@list(xs)\n}\n",
         ),
     ]);
     assert!(

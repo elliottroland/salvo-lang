@@ -38,11 +38,11 @@ effect DeadlineTable {
 }
 
 handler Deadlines() of DeadlineTable {
-    ats: Mut List<Long> = mut_list_of()
-    dones: Mut List<Reply<Fired>> = mut_list_of()
+    ats: Mut List<Long> = Mut List()
+    dones: Mut List<Reply<Fired>> = Mut List()
     running: Bool = false
     parker: Parker? = None
-    forgotten: Mut List<Reply<Fired>> = mut_list_of()
+    forgotten: Mut List<Reply<Fired>> = Mut List()
 
     fn register(at: Long, done: Reply<Fired>) -> Bool => !at, !done {
         add(ats, at)
@@ -66,7 +66,7 @@ handler Deadlines() of DeadlineTable {
     }
 
     fn take_due(now: Long) -> Mut List<Reply<Fired>> => now {
-        let due: Mut List<Reply<Fired>> = mut_list_of()
+        let due: Mut List<Reply<Fired>> = Mut List()
         let i = 0
         while i < size(ats) {
             if get(ats, i)! <= now {

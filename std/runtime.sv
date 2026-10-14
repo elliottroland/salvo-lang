@@ -464,13 +464,13 @@ effect SchedTable {
 }
 
 handler Scheduler() of SchedTable {
-    actors: Mut List<Mut ActorRec> = mut_list_of()
-    waiters: Mut List<Mut WaiterRec> = mut_list_of()
+    actors: Mut List<Mut ActorRec> = Mut List()
+    waiters: Mut List<Mut WaiterRec> = Mut List()
     // [waitfor-pump] Waiter records whose wait has ended, to be reused: the
     // table stays as large as the most waits ever open at once.
-    free_waiters: Mut List<Int> = mut_list_of()
-    pools: Mut List<Mut PoolRec> = mut_list_of()
-    idle_hooks: Mut List<IdleHook> = mut_list_of()
+    free_waiters: Mut List<Int> = Mut List()
+    pools: Mut List<Mut PoolRec> = Mut List()
+    idle_hooks: Mut List<IdleHook> = Mut List()
     next_slot: Long = 0
     // Frames running — activations and tasks — and, of those, the ones
     // parked in a wait; how deep main's own thread is in a wait; outside
@@ -489,15 +489,15 @@ handler Scheduler() of SchedTable {
     // [random-default] Whether `rng` has been seeded outside the virtual
     // runtime, which seeds it itself.
     rng_seeded: Bool = false
-    clock_hooks: Mut List<Token> = mut_list_of()
+    clock_hooks: Mut List<Token> = Mut List()
 
     // [main-pool] Pool 0 exists from the start and belongs to `main`.
     init {
-        add(pools, Mut PoolRec { idle: mut_list_of(), tasks: mut_deque_of(), ready: mut_deque_of(), sink: -1, owed: 0, dedicated: false, retired: false })
+        add(pools, Mut PoolRec { idle: Mut List(), tasks: mut_deque_of(), ready: mut_deque_of(), sink: -1, owed: 0, dedicated: false, retired: false })
     }
 
     fn new_pool(sink: Int, dedicated: Bool) -> Int => !sink, !dedicated {
-        add(pools, Mut PoolRec { idle: mut_list_of(), tasks: mut_deque_of(), ready: mut_deque_of(), sink: sink, owed: 0, dedicated: dedicated, retired: false })
+        add(pools, Mut PoolRec { idle: Mut List(), tasks: mut_deque_of(), ready: mut_deque_of(), sink: sink, owed: 0, dedicated: dedicated, retired: false })
         return size(pools) - 1
     }
 
@@ -505,7 +505,7 @@ handler Scheduler() of SchedTable {
         add(actors, Mut ActorRec {
             body: slot_of(body), pool: pool, bound: bound, queue: mut_deque_of(), slots: mut_deque_of(),
             user_len: 0, gate: None, running: false, dead: false, exit_reason: "",
-            blocked: mut_list_of(), watchers: mut_list_of(), owed: 0, ready: false, proxy: false
+            blocked: Mut List(), watchers: Mut List(), owed: 0, ready: false, proxy: false
         })
         return size(actors) - 1
     }
@@ -569,7 +569,7 @@ handler Scheduler() of SchedTable {
         while remove_first(a.blocked) is Parker b {
             unpark(b)
         }
-        let watchers: Mut List<Token> = mut_list_of()
+        let watchers: Mut List<Token> = Mut List()
         while remove_first(a.watchers) is Token t {
             add(watchers, t)
         }
@@ -759,7 +759,7 @@ handler Scheduler() of SchedTable {
             unpark(b)
         }
         let pool = copy(a.pool)
-        let watchers: Mut List<Token> = mut_list_of()
+        let watchers: Mut List<Token> = Mut List()
         while remove_first(a.watchers) is Token t {
             add(watchers, t)
         }
@@ -1147,13 +1147,13 @@ fn fire_idle(actors: Mut List<Mut ActorRec>, waiters: Mut List<Mut WaiterRec>, p
 // parked in a wait, and a gated actor.
 fn deadlock_report(actors: Mut List<Mut ActorRec>, waiters: Mut List<Mut WaiterRec>, own: Int) [] -> Str
 => actors, waiters, own {
-    let occupied: Mut List<Str> = mut_list_of()
+    let occupied: Mut List<Str> = Mut List()
     for w in waiters {
         if w.waiting > 0 && w.waiting_actor >= 0 {
             add(occupied, "actor ${w.waiting_actor}")
         }
     }
-    let gated: Mut List<Str> = mut_list_of()
+    let gated: Mut List<Str> = Mut List()
     let i = 0
     for a in actors {
         if !(a.gate is None) && !a.dead {
@@ -1162,7 +1162,7 @@ fn deadlock_report(actors: Mut List<Mut ActorRec>, waiters: Mut List<Mut WaiterR
         i = i + 1
     }
     let who = if own >= 0 { "actor ${own}" } else { "main" }
-    let clauses: Mut List<Str> = mut_list_of()
+    let clauses: Mut List<Str> = Mut List()
     if size(occupied) > 0 {
         add(clauses, "parked in a wait: ${join(occupied, ", ")}")
     }

@@ -57,7 +57,7 @@ fn main() [use] {
     let b = Mut Box { n: 1, tag: "t" }
     println("1. ${b.n} ${bumped(b)}")
     println("2. ${label(b.tag, bumped(b))}")
-    let xs = list_of(3, 2, 1)
+    let xs = List(3, 2, 1)
     let twin = copy(xs)
     println("3. ${consume(xs)} ${size(twin)}")
     for x in countdown(3) {

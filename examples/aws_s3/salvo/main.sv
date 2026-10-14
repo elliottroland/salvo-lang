@@ -110,7 +110,7 @@ fn round_trip(key: Str) [S3, Fs, Console] => key {
 // body it is handed through the `Streams` in scope, as the host glue reads
 // one out of the host's table, and answers a body minted in the same place.
 handler MemS3() [Streams] of S3 {
-    objects: Mut Map<Str, Bytes> = mut_map_of()
+    objects: Mut Map<Str, Bytes> = Mut Map()
 
     fn put_object(input: PutObjectInput, reply: Reply<Ok PutObjectOutput | Err Checked<S3Failure>>) -> None
     => !input, !reply {

@@ -49,7 +49,7 @@ fn main() [use] {
             }
             when got {
                 is Ok {
-                    for m in got.messages ?: list_of<Message>() {
+                    for m in got.messages ?: List<Message>() {
                         println("received: ${m.body ?: ""}")
                     }
                 }

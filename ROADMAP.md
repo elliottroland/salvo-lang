@@ -443,7 +443,7 @@ design.
   [qual-overload] (COMPLETED.md's log). Each `NonEmpty` sits beside its
   container; the four ordered accessors delegate through a `rename fn`, which is
   what let the module go. The recorded "`NonEmpty` constructor convention — the
-  siblings" item is now *unblocked* rather than closed: `set_of(first, ...rest)
+  siblings" item is now *unblocked* rather than closed: `Set(first, ...rest)
   -> +NonEmpty Set<T>` siblings are writable where they were not, and whether
   std should have them is an API question.
 - **(e) ✅ `throw` out of `core`** — built 2026-09-26 [throw]
@@ -606,7 +606,7 @@ in build order:
   `Hash`/`Ord` derives on structs that have the functions for exactly this).
   Landing it deletes those intrinsics and the conditional derives, which is
   what makes §0j's host-equality rule hold.
-- **`by` at a call** (ROADMAP §2c, decided): `mut_set_of(hash by auto, eq
+- **`by` at a call** (ROADMAP §2c, decided): `Mut Set(hash by auto, eq
   by auto)` stamps the implicit at the type the call binds — a third `by` site,
   emitted in the calling module once per (comptime fn, type), paired by
   [implicit-with], printed as the stamped root. The only way a tuple gets an
@@ -1158,7 +1158,7 @@ GROUP_BORROWING.md; [rs-path], [ref-anchor], [ref-notsame],
    ```
    struct Track { plays: Int }
    struct Album { tracks: List<Track> }
-   let albums: List<Album> = list_of(Album { tracks: list_of(Track { plays: 1 }) })
+   let albums: List<Album> = List(Album { tracks: List(Track { plays: 1 }) })
    println("${get(get(albums, 0)!.tracks, 0)!.plays}")   // rustc: `__tmp1` does not live long enough
    ```
 
@@ -1397,8 +1397,9 @@ several are "revisit only if a customer appears".
   `List<Int | Str>` annotation. Build such a collection element-by-element
   (`add`), or type the first binding to the union. If this proves common,
   options: a variadic that unions its argument types under an explicit union
-  element type, or a dedicated multi-type constructor. The `*_of` fns always
-  had this limitation; only the literals papered over it.
+  element type, or a dedicated multi-type constructor. The variadic
+  constructors always had this limitation; only the retired literals papered
+  over it.
 
 - **The whole program in the host project** (user, 2026-10-01; ABI D4).
   The alternative to generating only the declarations the platform surface
@@ -1430,7 +1431,7 @@ several are "revisit only if a customer appears".
 
 - **Implicit comptime fn resolution** (2026-09-28, comptime round 5, punted): an
   implicit that finds no candidate for a tuple could stamp `core.auto`'s comptime fn
-  without being asked, making `mut_set_of()` over a tuple work bare. Deferred
+  without being asked, making `Mut Set()` over a tuple work bare. Deferred
   because it is the one place a comptime fn would apply without a `by`, which round
   1 decided against for everything else; the remedy `hash by auto, eq by auto`
   at the call (section 2c) is one line, and the missing-identity diagnostic
@@ -1439,7 +1440,7 @@ several are "revisit only if a customer appears".
 - **A `for` element of a union-typed list does not fit a parameter of that
   union** (found 2026-09-29 building §4b item 5, not fixed; unrelated to it).
   Repro: `struct A {}` `struct B {}` `type AB = A | B` `fn d(x: AB) [] -> Str
-  => x { return "x" }`, then `for c in list_of<AB>(A {}, B {}) { d(c) }` —
+  => x { return "x" }`, then `for c in List<AB>(A {}, B {}) { d(c) }` —
   "no matching overload for `d(proj (A | B))`". The element is a `proj` view of
   the union, and the overload fit does not see through `proj` on a union the
   way it does on a struct. Workaround: bind the element to a typed local

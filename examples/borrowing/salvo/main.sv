@@ -183,7 +183,7 @@ fn main() [use] {
 
     // ----- 1. read projections -----
 
-    let roster: List<Fighter> = list_of(
+    let roster: List<Fighter> = List(
         Fighter { name: "Ada", hp: 30, energy: 4 },
         Fighter { name: "Bo", hp: 8, energy: 9 })
 
@@ -195,7 +195,7 @@ fn main() [use] {
     // `add` takes ownership of its element, so `add(names, ada.name)` is an
     // error naming the remedy. The copy is written, which is the whole
     // principle: a copy never happens without the program asking for one.
-    let names: Mut List<Str> = mut_list_of()
+    let names: Mut List<Str> = Mut List()
     add(names, copy(ada.name))
     println("1. copied out ${to_str(names)}")
 
@@ -215,11 +215,11 @@ fn main() [use] {
     // Two different permissions, and only the second lends handles:
     //   `Mut List<T>` — a mutable *container* (add, remove, swap)
     //   `List<Mut T>` — mutable *elements*, fixed shape
-    let bench: Mut List<Fighter> = mut_list_of(Fighter { name: "Cy", hp: 12, energy: 2 })
+    let bench: Mut List<Fighter> = Mut List(Fighter { name: "Cy", hp: 12, energy: 2 })
     add(bench, Fighter { name: "Dee", hp: 6, energy: 7 })
     println("2. bench ${size(bench)}, front ${get(bench, 0)!.name} (a reading, not a handle)")
 
-    let squad: List<Mut Fighter> = list_of(
+    let squad: List<Mut Fighter> = List(
         Mut Fighter { name: "Ada", hp: 30, energy: 4 },
         Mut Fighter { name: "Bo", hp: 8, energy: 9 })
 
@@ -287,7 +287,7 @@ fn main() [use] {
 
     // The container travels with its own elements: one `&mut` of the
     // members in the generated Rust, and a position each.
-    let team = Mut Squad { banner: "Red", members: list_of(
+    let team = Mut Squad { banner: "Red", members: List(
         Mut Fighter { name: "Cy", hp: 12, energy: 2 },
         Mut Fighter { name: "Dee", hp: 6, energy: 7 }) }
     rotate(team.members, at(team.members, i)!, at(team.members, j)!)
@@ -295,7 +295,7 @@ fn main() [use] {
 
     // ----- 5. field granularity -----
 
-    let camp = Mut Camp { supplies: 10, banners: mut_list_of("red") }
+    let camp = Mut Camp { supplies: 10, banners: Mut List("red") }
 
     // A handle into one field, held across a call that mutates another.
     //

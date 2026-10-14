@@ -107,6 +107,7 @@ use crate::stream::InStream;
 use crate::stream::InvalidUtf8;
 use crate::fs::IoError;
 use crate::core_map::Map;
+use crate::core_map::Mut_Map_platform;
 use crate::fs::NotADirectory;
 use crate::fs::NotFound;
 use crate::stream::OutStream;
@@ -127,7 +128,6 @@ use crate::stream::fill_from;
 use crate::core_map::get_platform;
 use crate::core_checked::ignore;
 use crate::core_bytes::mut_bytes;
-use crate::core_map::mut_map_of_platform;
 use crate::core_result::ok;
 use crate::fs_path::path;
 use crate::stream::pipe;
@@ -276,7 +276,7 @@ impl MemS3 {
     pub fn new(__dep0: crate::stream::Streams) -> Self {
         Self {
             __dep0,
-            objects: crate::core_map::mut_map_of_platform::<String, crate::core_bytes::Bytes>(vec![], &mut |__a0: &String| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__a0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &String, __a1: &String| (&__a0[..] == &__a1[..]))
+            objects: crate::core_map::Mut_Map_platform::<String, crate::core_bytes::Bytes>(vec![], &mut |__a0: &String| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__a0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &String, __a1: &String| (&__a0[..] == &__a1[..]))
         }
     }
 }

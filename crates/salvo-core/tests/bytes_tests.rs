@@ -36,7 +36,7 @@ const STD_PRELUDE: &str = concat!(
     "export intrinsic fn append(data: Mut Bytes, more: Bytes) [] -> None => data: Mut, more\n",
     "export intrinsic fn clear(data: Mut Bytes) [] -> None => data: Mut\n",
     "export intrinsic fn to_hex(data: Bytes) [] -> Str => data\n",
-    "export intrinsic fn mut_map_of<K, V>() [] -> Mut Map<K, V>\n",
+    "export intrinsic fn Mut Map<K, V>() [] -> Mut Map<K, V>\n",
     "export intrinsic fn put<K, V>(map: Mut Map<K, V>, key: K, value: V) [] -> None => map: Mut, !key, !value\n",
 );
 
@@ -175,7 +175,7 @@ fn bytes_hold_octets_not_numbers() {
 #[test]
 fn a_buffer_is_not_a_map_key() {
     let msgs = messages(&body(
-        "    let m: Mut Map<Bytes, Int> = mut_map_of()\n\
+        "    let m: Mut Map<Bytes, Int> = Mut Map()\n\
          \x20   put(m, bytes_of(to_byte(1)), 1)",
     ));
     assert!(

@@ -33,9 +33,9 @@ object __Codec_MemWrite : salvo.WireCodec<MemWrite> {
 }
 
 class MemFs : salvo.fs.Fs, salvo.stream.Streams {
-    var files: salvo.platform.core.map.MutMap<String, salvo.platform.core.bytes.Bytes> = salvo.core.map.mutMapOfPlatform(arrayOf<Pair<String, salvo.platform.core.bytes.Bytes>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
-    var reads: salvo.platform.core.map.MutMap<Long, MemRead> = salvo.core.map.mutMapOfPlatform(arrayOf<Pair<Long, MemRead>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
-    var writes: salvo.platform.core.map.MutMap<Long, MemWrite> = salvo.core.map.mutMapOfPlatform(arrayOf<Pair<Long, MemWrite>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+    var files: salvo.platform.core.map.MutMap<String, salvo.platform.core.bytes.Bytes> = salvo.core.map.Mut_Map_platform(arrayOf<Pair<String, salvo.platform.core.bytes.Bytes>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+    var reads: salvo.platform.core.map.MutMap<Long, MemRead> = salvo.core.map.Mut_Map_platform(arrayOf<Pair<Long, MemRead>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+    var writes: salvo.platform.core.map.MutMap<Long, MemWrite> = salvo.core.map.Mut_Map_platform(arrayOf<Pair<Long, MemWrite>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     override fun openRead(path: salvo.fs.path.Path): Union2<salvo.stream.InStream, salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>> {
         val pathText: String = salvo.fs.path.toStr(path)
         val content: salvo.platform.core.bytes.Bytes? = salvo.core.map.getPlatform(files, pathText, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
@@ -113,7 +113,7 @@ class MemFs : salvo.fs.Fs, salvo.stream.Streams {
         if (!(fsHasChildren(files, pathText))) {
             return Union2.U2<List<String>, salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>>(salvo.core.result.err(salvo.core.checked.checked(Union7.U1<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>(salvo.fs.NotFound(path = pathText)))))
         }
-        val names: salvo.platform.core.set.MutSet<String> = salvo.core.set.mutSetOfPlatform(arrayOf<String>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+        val names: salvo.platform.core.set.MutSet<String> = salvo.core.set.Mut_Set_platform(arrayOf<String>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
         val prefix: String = "${pathText}/"
         for (key in salvo.platform.core.map.each(files)) {
             if (salvo.core.string.startsWithPlatform(key, prefix)) {

@@ -16,7 +16,7 @@ fn ints(xs: List<Int>) [] -> Str => xs {
 }
 
 test "taking stops an endless source" {
-    let out: Mut List<Int> = mut_list_of()
+    let out: Mut List<Int> = Mut List()
     for x in taking(naturals(1), 3) {
         add(out, x)
     }
@@ -24,7 +24,7 @@ test "taking stops an endless source" {
 }
 
 test "taking_while stops at the first refusal" {
-    let out: Mut List<Int> = mut_list_of()
+    let out: Mut List<Int> = Mut List()
     for x in taking_while(naturals(1), (x: Int) -> x * x < 20) {
         add(out, x)
     }
@@ -32,12 +32,12 @@ test "taking_while stops at the first refusal" {
 }
 
 test "skipping and skipping_while drop a prefix" {
-    let xs = list_of(1, 2, 3, 4, 5)
-    let a: Mut List<Int> = mut_list_of()
+    let xs = List(1, 2, 3, 4, 5)
+    let a: Mut List<Int> = Mut List()
     for x in skipping(iter(xs), 3) {
         add(a, copy(x))
     }
-    let b: Mut List<Int> = mut_list_of()
+    let b: Mut List<Int> = Mut List()
     for x in skipping_while(iter(xs), (x: Int) -> x < 4) {
         add(b, copy(x))
     }
@@ -53,14 +53,14 @@ test "adaptors compose, and to_list and count drive them" {
 }
 
 test "a list's own pass is borrowed, so the list stays usable" {
-    let xs = list_of("a", "b", "c")
+    let xs = List("a", "b", "c")
     let two = taking(iter(xs), 2)
     expect_eq(size(to_list(two)), 2)
     expect_eq(size(xs), 3)
 }
 
 test "mapping and filtering are lazy over an endless source" {
-    let out: Mut List<Int> = mut_list_of()
+    let out: Mut List<Int> = Mut List()
     for x in taking(filtering(mapping(naturals(1), (x: Int) -> x * x), (x: Int) -> x % 2 == 1), 3) {
         add(out, x)
     }
@@ -68,6 +68,6 @@ test "mapping and filtering are lazy over an endless source" {
 }
 
 test "a container's own to_list still wins" {
-    let s = set_of("b", "a")
+    let s = Set("b", "a")
     expect_eq(size(to_list(s)), 2)
 }

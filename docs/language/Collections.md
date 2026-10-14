@@ -27,7 +27,7 @@ let lengths = to_map(names, n -> (n, size(n)))
 
 There are two `to_map` forms — from a list of pairs, and from a list of anything plus a rule saying what key and value each element becomes. Duplicate keys are last-wins everywhere.
 
-Each constructor resolves to the corresponding function — `list_of`, `set_of`, `map_of`, with `mut_list_of`, `mut_set_of`, `mut_map_of` for the mutable forms — so `List(1, 2, 3)` and `list_of(1, 2, 3)` are the same call; the type-named spelling is sugar.
+Each of these constructors **is** a type-named function — `List`, `Set`, `Map`, with `Mut List`, `Mut Set`, `Mut Map` for the mutable forms: `List(1, 2, 3)` resolves directly to the `fn List<T>(...)` declaration in `std`, which is the one and only constructor. There is no separate lowercase builder.
 
 An **empty** collection is the constructor with no arguments. It has nothing to infer its type from, so that type comes from the position it is in — the annotation on a `let`, or the parameter it is passed to — or is written on the constructor itself (`List<Int>()`, `Mut Set<Str>()`). Where nothing supplies one, that is an error naming the remedies.
 
@@ -46,7 +46,7 @@ A list has no positional *write*, on purpose: when the index misses, the value w
 For a collection kept in order rather than in insertion order, there are `SortedSet<T>` and `SortedMap<K, V>`:
 
 ```
-let names: Mut SortedSet<Str> = mut_sorted_set_of("pear", "apple")
+let names: Mut SortedSet<Str> = Mut SortedSet("pear", "apple")
 add(names, "fig")
 println("${to_str(names)}")        // {apple, fig, pear}
 let smallest = min(names)          // and max, first_key, last_key on a map
@@ -95,10 +95,10 @@ std ships three qualifiers over `List<T>`, which is where the qualifier machiner
 `NonEmpty` is the one with a predicate, so it can be tested with `is` — and it is what lets `first` drop its optional:
 
 ```
-let names = list_of("ada", "grace")
+let names = List("ada", "grace")
 let head = first(names)          // a `Str`, not a `Str?`
 
-let xs: Mut List<Int> = mut_list_of()
+let xs: Mut List<Int> = Mut List()
 add(xs, 7)
 let seven = first(xs)            // `add` established the claim
 ```
@@ -108,10 +108,10 @@ That second case is a **refinement**: `add` cannot promise `NonEmpty` back (a fu
 `Sorted` is established by construction only. There is no `is Sorted`, because deciding whether a list happens to be sorted means comparing its elements, which nothing can do over an unconstrained `T` at the Salvo level:
 
 ```
-let ordered = sort(list_of(40, 10, 30))     // a Sorted<Int>(cmp) List<Int>
+let ordered = sort(List(40, 10, 30))     // a Sorted<Int>(cmp) List<Int>
 let at = binary_search(ordered, 30)         // honest only because it is Sorted
 
-let live: Mut Sorted List<Int> = mut_sort(list_of(10, 30))
+let live: Mut Sorted List<Int> = mut_sort(List(10, 30))
 add_sorted(live, 20)                        // inserts in order, claim survives
 ```
 
@@ -122,7 +122,7 @@ The claim **names the ordering it was sorted by**, the way any structure that ho
 ```
 fn by_len(a: Str, b: Str) -> Int { return cmp(size(a), size(b)) }
 
-let words = sort(list_of("pear", "fig", "Apple"), cmp = by_len)   // Sorted<Str>(by_len)
+let words = sort(List("pear", "fig", "Apple"), cmp = by_len)   // Sorted<Str>(by_len)
 let found = binary_search(words, "kiwi")                          // asks by length: 1
 ```
 
@@ -131,11 +131,11 @@ Two lists sorted differently are two types and refuse to mix, and a signature th
 These three are about a *list*. `NonEmpty` also means what it says about the other containers — `Set`, `Map`, `SortedSet`, `SortedMap` — because **a qualifier name may be declared over several subject types**, and the subject decides which one a use means, just as a function overload is decided by its arguments:
 
 ```
-let seen: Mut Set<Str> = mut_set_of()
+let seen: Mut Set<Str> = Mut Set()
 add(seen, "a")                       // establishes NonEmpty of Set
 if seen is NonEmpty { … }
 
-let ranked = sorted_set_of(30, 10)
+let ranked = SortedSet(30, 10)
 if ranked is NonEmpty {
     let lo = min(ranked)             // an element, not an optional
 }

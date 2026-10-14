@@ -142,18 +142,18 @@ fn main() [use] -> None {
     // `NonEmpty` earns its keep on `first`, which drops the optional. The
     // constructor with a *first* element establishes the claim by construction
     // [col-of-nonempty], so nothing is checked at run time:
-    let filled = list_of("ada", "grace")
+    let filled = List("ada", "grace")
     println("6. first is ${first(filled)}, no optional")
 
     // …and `add` establishes the claim, which `add` itself cannot promise —
     // the qualifier says so on its behalf (a *refinement*).
-    let growing: Mut List<Int> = mut_list_of()
+    let growing: Mut List<Int> = Mut List()
     add(growing, 7)
     println("6. after add, first is ${first(growing)}")
 
     // `sort` mints `Sorted`, which is what makes `binary_search` honest: over
     // an unordered list the answer would be meaningless, not merely absent.
-    let ordered = sort(list_of(40, 10, 30, 20))
+    let ordered = sort(List(40, 10, 30, 20))
     println("6. sorted ${to_str(ordered)}")
     if binary_search(ordered, 30) is Int at {
         println("6. found 30 at ${at}")
@@ -161,7 +161,7 @@ fn main() [use] -> None {
 
     // `add_sorted` is the insert that *keeps* the claim: it places the element
     // where the order survives, so the list is still a `Sorted List` after it.
-    let live: Mut Sorted List<Int> = mut_sort(list_of(10, 30))
+    let live: Mut Sorted List<Int> = mut_sort(List(10, 30))
     add_sorted(live, 20)
     add_sorted(live, 5)
     println("6. still sorted ${to_str(live)}")
@@ -170,7 +170,7 @@ fn main() [use] -> None {
     // plural: `sort` publishes what it used, and `binary_search` reads it out
     // of the list's type rather than resolving one of its own — so searching
     // this list asks how long a word is, not where it falls alphabetically.
-    let bylen = sort(list_of("alpha", "be", "z"), cmp = by_len)
+    let bylen = sort(List("alpha", "be", "z"), cmp = by_len)
     println("6. by length ${to_str(bylen)}")
     if binary_search(bylen, "hi") is Int at_len {
         println("6. a two-letter word at ${at_len}")

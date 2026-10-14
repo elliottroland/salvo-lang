@@ -54,7 +54,7 @@ export params Eq<T> {
 // only meaningful as a pair, and a container looks up by the hash first, so a
 // custom equality beside a resolved hash quietly does nothing rather than
 // failing. `=> eq with hash` makes a call state the pair or leave it alone —
-// write both (`mut_set_of(hash = by_x, eq = eq)`) when one of them differs
+// write both (`Mut Set(hash = by_x, eq = eq)`) when one of them differs
 // (user decision 2026-09-26).
 //
 // `Ordered` needs no such clause: one member cannot disagree with itself.

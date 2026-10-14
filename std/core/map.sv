@@ -24,15 +24,20 @@
 // [mod-used-only].
 export iterable platform type Map<K, V canbe linear>(?hash: (K) -> Long, ?eq: (K, K) -> Bool) canbe Mut : Iter<self, K>
 
-// Constructor, from entries written as pairs: `map_of(("a", 1), ("b", 2))`.
+// Constructor, from entries written as pairs: `Map(("a", 1), ("b", 2))`.
 // The keys and values are stored in the new map, so they are moved: a
 // variadic tail is owned and needs no entry in the clause [deduce-syntax].
 // A repeated key keeps the position of its first appearance and takes the
 // value of its last [col-duplicate-keys].
-export platform fn map_of<K, V canbe linear>(...entries: (K, V)[], ?Hashed<K>) [] -> Map<K, V>(?hash, ?eq)
+//
+// [fn-type-named] The constructor **is** the type-named function: `Map(...)`
+// resolves to this declaration (canonical key `Map`; `Mut_Map` for the
+// mutable pair), the key carried verbatim to the platform shim's
+// `<Key>_platform` wrapper.
+export platform fn Map<K, V canbe linear>(...entries: (K, V)[], ?Hashed<K>) [] -> Map<K, V>(?hash, ?eq)
 
 // Mutable constructor
-export platform fn mut_map_of<K, V canbe linear>(...entries: (K, V)[], ?Hashed<K>) [] -> Mut Map<K, V>(?hash, ?eq)
+export platform fn Mut Map<K, V canbe linear>(...entries: (K, V)[], ?Hashed<K>) [] -> Mut Map<K, V>(?hash, ?eq)
 
 // [col-by] Builds a map from [size] generated entries: `map_by(3, i -> (i, i
 // * i))` maps each index to its square. A repeated key takes the value of its
@@ -56,7 +61,7 @@ export platform fn to_map<K, V>(pairs: List<(K, V)>, ?Hashed<K>) [] -> Map<K, V>
 // list plus a rule.
 export fn to_map<T, K, V>(items: List<T>, entry: (T) -> (K, V), ?Hashed<K>) [] -> Map<K, V>(?hash, ?eq)
 => items, entry {
-    let map: Mut Map<K, V>(?hash, ?eq) = mut_map_of()
+    let map: Mut Map<K, V>(?hash, ?eq) = Mut Map()
     for x in items {
         let (k, v) = entry(x)
         put(map, k, v)

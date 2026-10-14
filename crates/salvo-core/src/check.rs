@@ -5991,7 +5991,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 self.out.carried_identities.entry(ckey).or_insert(*fkey);
                             }
                             // [cmp-carry] A slot **written at the call site**
-                            // (`mut_set_of(eq = same_age)`) carries its identity
+                            // (`Mut Set(eq = same_age)`) carries its identity
                             // exactly as a resolved one does: the name published
                             // into the binder is a declaration, and a container
                             // needs the declaration behind it. Without this the
@@ -7902,7 +7902,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // [qual-erasure]: a value carrying more than the
                     // parameter mentions still fits it, and matching
                     // strictly here meant a qualified argument taught the
-                    // call nothing. `total(list_of(1, 2, 3))` — whose
+                    // call nothing. `total(List(1, 2, 3))` — whose
                     // argument is `NonEmpty List<Int>` [col-of-nonempty] —
                     // left `It` unbound, so the `?next` beside it resolved
                     // by *rung* and a sibling pass's `next` won, emitting a
@@ -12814,7 +12814,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// [col-key-eligible] The same rule against an already-lowered type,
-    /// for the **inferred** case: `set_of(1.5)` writes no type at all, so
+    /// for the **inferred** case: `Set(1.5)` writes no type at all, so
     /// the ineligible key only exists in the substitution the call
     /// resolved. Walks nested positions so `List<Map<Double, Int>>` is
     /// caught too.
@@ -12822,7 +12822,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [type-unknown-lenient] One mistake, one diagnostic: an ineligible key
         // a *written* type already reported must not be reported again when a
         // call's substitution arrives at the same type. `fn probe() -> Set<Double>`
-        // with `return set_of()` says it once at the declaration — where the fix
+        // with `return Set()` says it once at the declaration — where the fix
         // goes — and the call inside it learned `T = Double` from that very
         // annotation (2026-09-26, with the expected-type seeding that made the
         // call's instantiation known at all).
@@ -12863,7 +12863,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         // ineligible key a *written* type already reported is not
                         // reported again when a call's substitution arrives at the
                         // same type. `fn probe() -> Set<Double>` with
-                        // `return set_of()` says it at the declaration — where the
+                        // `return Set()` says it at the declaration — where the
                         // fix goes — and the call learned `T = Double` from that
                         // very annotation (2026-09-26, with the expected-type
                         // seeding that made the call's instantiation known).
@@ -13533,7 +13533,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// has left a hole a later activation would read, and no analysis can see
     /// what the actor holds at an arbitrary future point. So the rule is
     /// per activation, exactly as it is for a `Mut` parameter: put something
-    /// back (`waiting = mut_list_of()`), or do not move.
+    /// back (`waiting = Mut List()`), or do not move.
     ///
     /// Called at every exit from a member body, beside the linear-leak checks
     /// it complements: that one asks whether a *value* still owes, this one
@@ -21583,7 +21583,7 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     fn fate_move(&mut self, value: &Expr, action: &str, moved_by: &'static str, span: Span) {
         // [proj-anywhere] Returning or storing a view of a temporary. Driving
-        // one (`for x in iter(list_of(1, 2))`) is allowed — and the Rust
+        // one (`for x in iter(List(1, 2))`) is allowed — and the Rust
         // backend earns it by hoisting the temporary into a local in front of
         // the loop [rs-loop-temp], since the loop *binds* the pass and a Rust
         // temporary would die at the end of the statement (E0716). The claim
@@ -23156,7 +23156,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 };
                 // [proj-type] Elements are projections of what the loop walks
                 // — unless the loop *owns* what it walks: a temporary
-                // (`for s in list_of("x", "y")`) or a pass moved into the loop
+                // (`for s in List("x", "y")`) or a pass moved into the loop
                 // dies with it, so its elements are the loop's to give away.
                 // Nothing to share fate with means nothing to borrow from.
                 let elem = if links.is_empty() {
@@ -26664,7 +26664,7 @@ fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
         return true;
     }
     // [type-literal] A literal argument binds a type variable to its *base*
-    // (`list_of("a", "b")` is a `List<Str>`), and a union of literals meets a
+    // (`List("a", "b")` is a `List<Str>`), and a union of literals meets a
     // non-literal parameter as its base — the widening rule.
     if crate::literal::mentions_lit(arg) && !crate::literal::mentions_lit(param) {
         let w = crate::literal::widen(arg);
@@ -28420,7 +28420,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // [call-type-args] A *concrete* parameter type flows
                 // into a nested call, so that call can infer its own
                 // type arguments from where its result is going
-                // (`takes_ints(mut_list_of())`). A pattern still
+                // (`takes_ints(Mut List())`). A pattern still
                 // mentioning the callee's generics must not: coercion
                 // would be recorded against an unsubstituted `T`.
                 Expr::Call { .. } => {
@@ -28514,7 +28514,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // for a required parameter. Before this rule (2026-09-23) a spread
             // in a fixed position unified the array with that parameter's type,
             // which silently bound a type parameter to the array —
-            // `list_of(...xs)` built a `List<Int[]>` and claimed `NonEmpty` for
+            // `List(...xs)` built a `List<Int[]>` and claimed `NonEmpty` for
             // a possibly empty spread [backend-never-wrong].
             if args
                 .iter()
@@ -28950,7 +28950,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // type parameters before its implicits resolve, not only afterwards in
         // `settle_type_args`: an implicit is resolved against what the call
         // knows, and a *no-argument* constructor knows nothing else.
-        // `let s: Mut Set<Str> = mut_set_of()` has to learn `T = Str` from the
+        // `let s: Mut Set<Str> = Mut Set()` has to learn `T = Str` from the
         // annotation, or `?Hashed<T>`'s members are looked for at
         // `(?, ?) -> Bool` and every `eq` in scope matches — an ambiguity the
         // program cannot fix (found 2026-09-25, giving the keyed containers
@@ -29029,11 +29029,18 @@ impl<'p, 'r> Checker<'p, 'r> {
                 };
                 if let Some(composite) = stores {
                     let linear = format!("{ty}");
+                    // A type-named constructor shows its readable type
+                    // (`Mut List`), not its canonical key (`Mut_List`).
+                    let shown = decl
+                        .type_name
+                        .as_ref()
+                        .map(|t| format!("{t}"))
+                        .unwrap_or_else(|| name.to_string());
                     self.refuse_linear_composite(
                         span,
                         &linear,
                         format!(
-                            "stored in the `{composite}` of `{name}` (type argument \
+                            "stored in the `{composite}` of `{shown}` (type argument \
                              `{var_name}`)"
                         ),
                     );
@@ -29070,7 +29077,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         // [col-key-eligible] The inferred half of the key rule: a call that
         // *builds* a keyed collection without the type being written
-        // anywhere (`set_of(1.5)`) has its key only in the resolved
+        // anywhere (`Set(1.5)`) has its key only in the resolved
         // substitution, so it is checked here rather than in
         // `validate_type`.
         if self.inferred.is_some() {
@@ -29079,7 +29086,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     let lowered = self.lower_type_subst(ret, &subst, 0);
                     // [col-sorted-list] A constructor's `as Q` lives beside the
                     // return type, not in it, so `sort`'s `Sorted` claim would
-                    // be invisible here — and `sort(list_of(unorderable))` is
+                    // be invisible here — and `sort(List(unorderable))` is
                     // exactly the inferred case this block exists for.
                     let lowered = match &decl.constructs {
                         Some(cref) => lowered.qualify(vec![crate::types::Qual {
@@ -29473,7 +29480,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             if !sources.is_empty() {
                 // Whether a borrowed argument is a *temporary* (a call result
                 // or literal, not a place): a view of one dies with the
-                // statement, so it may be *used* there (`map(iter(list_of(1,
+                // statement, so it may be *used* there (`map(iter(List(1,
                 // 2)), f)`) but not bound, returned or stored — those sites
                 // consult this table.
                 for &idx in &sources {

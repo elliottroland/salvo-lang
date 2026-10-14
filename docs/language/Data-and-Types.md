@@ -80,7 +80,7 @@ fn to_str(p: Point) -> Str => p {
 println("at ${point}")     // uses the `to_str` above
 ```
 
-Without one, the compiler says so rather than letting the backend fail. The standard library renders a list this way — `"${list_of(1, 2, 3)}"` gives `[1, 2, 3]` — and a `Mut Str` needs nothing special, since it drops its `Mut` first.
+Without one, the compiler says so rather than letting the backend fail. The standard library renders a list this way — `"${List(1, 2, 3)}"` gives `[1, 2, 3]` — and a `Mut Str` needs nothing special, since it drops its `Mut` first.
 
 **A struct interpolates by opting in.** `: ToStr<self> by auto` stamps a
 `to_str` that renders the struct in the shape its literal has, identical on

@@ -17,7 +17,7 @@ fn max(first: Int, ...rest: Int[]) -> Int {
 }
 
 fn transform<S, T>(list: List<S>, mapper: (S) -> T) -> List<T> {
-    let result: Mut List<T> = mut_list_of()
+    let result: Mut List<T> = Mut List()
     for s in list {
         add(result, mapper(s))
     }
@@ -29,7 +29,7 @@ fn to_string(int: Int) -> Str {
 }
 
 fn do_something() {
-    let list: List<Int> = list_of(1, 2, 3)
+    let list: List<Int> = List(1, 2, 3)
     transform(list, to_string)
     transform(list, i -> "${i}")
     transform(list, i -> { return "${i}" })
@@ -134,6 +134,6 @@ fn ordered<T>(list: List<T>, ?cmp: (T, T) -> Int) -> List<T> => list {
 // [implicit-override] The caller supplies one implicit by name; the rest
 // still resolve.
 fn totals() [Console] -> None {
-    println("${total(list_of(1, 2, 3))}")
-    println("${total(list_of(2, 3, 4), add = times)}")
+    println("${total(List(1, 2, 3))}")
+    println("${total(List(2, 3, 4), add = times)}")
 }

@@ -483,8 +483,8 @@ export handler StaticNodeGroup(name: Str, all: List<NodeEndpoint>) [Transport, s
     of NodeGroup {
     mailbox { capacity: 64 }
 
-    known: Mut Map<NodeId, Node> = mut_map_of()
-    watchers: Mut List<Addr<NodeGroupWatcher>> = mut_list_of()
+    known: Mut Map<NodeId, Node> = Mut Map()
+    watchers: Mut List<Addr<NodeGroupWatcher>> = Mut List()
 
     // The mechanism starts itself: `init` is the first activation, and
     // `self@NodeGroup` is where the control frames of its handshake go.
@@ -554,7 +554,7 @@ export handler StaticNodeGroup(name: Str, all: List<NodeEndpoint>) [Transport, s
 
 // Every node in [known], in the map's order.
 fn known_nodes(known: Map<NodeId, Node>) [] -> List<Node> => known {
-    let all_known: Mut List<Node> = mut_list_of()
+    let all_known: Mut List<Node> = Mut List()
     for id in keys(known) {
         let n = get(known, id)
         if !(n is None) {
@@ -574,9 +574,9 @@ export handler GossipNodeGroup(name: Str, seeds: List<NodeEndpoint>) [Transport,
     of NodeGroup {
     mailbox { capacity: 64 }
 
-    known: Mut Map<NodeId, Node> = mut_map_of()
-    dialed: Mut Set<Str> = mut_set_of()
-    watchers: Mut List<Addr<NodeGroupWatcher>> = mut_list_of()
+    known: Mut Map<NodeId, Node> = Mut Map()
+    dialed: Mut Set<Str> = Mut Set()
+    watchers: Mut List<Addr<NodeGroupWatcher>> = Mut List()
 
     init {
         let me = local_endpoint()
@@ -616,7 +616,7 @@ export handler GossipNodeGroup(name: Str, seeds: List<NodeEndpoint>) [Transport,
                 }
                 // Everyone already known learns of the newcomer, and the
                 // newcomer learns of everyone already known.
-                let others: Mut List<NodeEndpoint> = mut_list_of()
+                let others: Mut List<NodeEndpoint> = Mut List()
                 for id in keys(known) {
                     let n = get(known, id)
                     if !(n is None) {
@@ -801,9 +801,9 @@ export handler ActorGrouping<E>(name: Str, proto: Protocol<E>) [spawn]
     of ActorGroup<E>, NodeGroupWatcher {
     mailbox { capacity: 64 }
 
-    all: Mut List<Addr<E>> = mut_list_of()
-    peers: Mut List<NodeId> = mut_list_of()
-    watchers: Mut List<Addr<ActorGroupWatcher<E>>> = mut_list_of()
+    all: Mut List<Addr<E>> = Mut List()
+    peers: Mut List<NodeId> = Mut List()
+    watchers: Mut List<Addr<ActorGroupWatcher<E>>> = Mut List()
 
     // The replica starts itself: it listens on its group's name, so the
     // replicas other nodes open under the same name reach it.
@@ -844,7 +844,7 @@ export handler ActorGrouping<E>(name: Str, proto: Protocol<E>) [spawn]
     // every addr it hosted, telling the subscribers. The runtime has already
     // killed the proxies, so a send to one is the silent no-op.
     send fn left(n: Node, why: Str) => !n, !why {
-        let gone: Mut List<Addr<E>> = mut_list_of()
+        let gone: Mut List<Addr<E>> = Mut List()
         for m in all {
             if eq(node_of(m), n.id) {
                 add(gone, copy(m))
@@ -965,14 +965,14 @@ export fn node_of<E>(a: Addr<E>) [] -> NodeId => a {
 // and so does `refresh`; a waiting send wakes when it moves.
 fn view_set<E>(group: Addr<ActorGroup<E>>, members: List<Addr<E>>) [] -> None
     => !group, !members {
-    let ixs = mut_list_of<Int>()
+    let ixs = Mut List<Int>()
     for m in members {
         add(ixs, addr_index(m))
     }
     view_set(addr_index(group), ixs)
 }
 fn view_members<E>(group: Addr<ActorGroup<E>>) [] -> List<Addr<E>> => group {
-    let out = mut_list_of<Addr<E>>()
+    let out: Mut List<Addr<E>> = Mut List()
     for ix in view_members(addr_index(group)) {
         add(out, addr_of<E>(ix))
     }
@@ -1093,7 +1093,7 @@ fn route_keyed<E>(group: Addr<ActorGroup<E>>, config: RouteConfig, seen: Long, k
 }
 
 fn route_view<E>(group: Addr<ActorGroup<E>>) [] -> RouteView<E> => group {
-    let members: Mut List<RouteMember<E>> = mut_list_of()
+    let members: Mut List<RouteMember<E>> = Mut List()
     for m in view_members(copy(group)) {
         add(members, RouteMember { addr: copy(m), local: eq(node_of(m), this_node()) })
     }
@@ -1257,9 +1257,9 @@ export actor effect MemNet {
 export handler MemNetwork() of MemNet {
     mailbox { capacity: 64 }
 
-    listeners: Mut Map<NodeEndpoint, Addr<Inbound>> = mut_map_of()
-    cuts: Mut Set<Str> = mut_set_of()
-    dead: Mut Set<NodeEndpoint> = mut_set_of()
+    listeners: Mut Map<NodeEndpoint, Addr<Inbound>> = Mut Map()
+    cuts: Mut Set<Str> = Mut Set()
+    dead: Mut Set<NodeEndpoint> = Mut Set()
     count: Int = 0
 
     send fn attach(at: NodeEndpoint, sink: Addr<Inbound>) => !at, !sink {

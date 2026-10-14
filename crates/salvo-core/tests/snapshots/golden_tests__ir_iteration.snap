@@ -1,5 +1,5 @@
 ---
-source: crates/salvo-ir/tests/golden_tests.rs
+source: crates/salvo-core/tests/golden_tests.rs
 expression: text
 ---
 module main
@@ -211,7 +211,7 @@ fn main::first<__It0>(lent_mut it: Mut __It0; ?lent next: (Mut __It0) -> Int | F
 fn main::main() -> None {
   bind#1 let __use~1: StdOutConsole = construct StdOutConsole { }
   bind#2 let __handle~2: Console = read __use~1
-  bind#3 let xs: List<Int> = call core.list::list_of(T, T[])<Int>(1, array[Int[]](2, 3, 4))
+  bind#3 let xs: List<Int> = call core.list::List(T, T[])<Int>(1, array[Int[]](2, 3, 4))
   call main::describe_container(read __handle~2, read xs)
   bind#4 let p: Mut Countdown = call main::countdown(5)
   call main::take(read __handle~2, read p, 2)
@@ -247,7 +247,7 @@ fn main::main() -> None {
   bind#17 let hp: Mut __Iter_halving_Int = call main::halving(20)
   call core.console::println(read __handle~2, concat("2b. summed from a held iterator: ", call core.basic::to_str(Int)(call main::sum_of<__Iter_halving_Int>(read hp, fn main::next(Mut __Iter_halving_Int)))))
   call core.console::println(read __handle~2, concat("2b. first from a pattern-typed fn: ", call core.basic::to_str(Int)(call main::first<__Iter_halving_Int>(call main::halving_from_ten(), fn main::next(Mut __Iter_halving_Int)))))
-  bind#18 let bag: Bag = construct Bag { items: call core.list::list_of(T, T[])<Int>(7, array[Int[]](8)) }
+  bind#18 let bag: Bag = construct Bag { items: call core.list::List(T, T[])<Int>(7, array[Int[]](8)) }
   bind#20 let __pass~9: Mut __Iter_iter_Bag = call main::iter(read bag)
   loop#19 {
     bind#21 let __step~10: Int | Finished = call main::next(Mut __Iter_iter_Bag)(read __pass~9)
@@ -304,7 +304,7 @@ fn main::main() -> None {
     value (read acc + read n)
   })
   call core.console::println(read __handle~2, concat("5. list: ", call core.basic::to_str(Int)(call core.list::size<Int>(drop_mut(read doubled))), " doubled, ", call core.basic::to_str(Int)(call core.list::size<Int>(drop_mut(read odd))), " odd, total ", call core.basic::to_str(Int)(read total)))
-  bind#41 let words: List<Str> = call core.list::list_of(T, T[])<Str>("ann", array[Str[]]("bo", "carol"))
+  bind#41 let words: List<Str> = call core.list::List(T, T[])<Str>("ann", array[Str[]]("bo", "carol"))
   bind#42 let lengths: Mut List<Int> = call core.seq::map(Mut It, (T) -> U)<ListYield<Str>, proj Str, Int>(call core.list::iter<Str>(read words), lambda(lent w: proj Str) -> Int {
     value call core.string::size(borrow_as[proj Str -> Str](read w))
   }, fn core.list::next(Mut ListYield<T>))
@@ -319,7 +319,7 @@ fn main::main() -> None {
   call core.console::println(read __handle~2, concat("5. halving total ", call core.basic::to_str(Int)(call core.seq::reduce(Mut It, A, (A, T) -> A)<__Iter_halving_Int, Int, Int>(call main::halving(20), 0, lambda(lent acc: Int, lent n: Int) -> Int {
     value (read acc + read n)
   }, fn main::next(Mut __Iter_halving_Int)))))
-  bind#45 let collected: Mut List<Int> = call core.seq::map_to<List<Int>, Countdown, Int, Int>(call core.list::mut_list_of()<Int>(), call main::countdown(3), lambda(lent n: Int) -> Int {
+  bind#45 let collected: Mut List<Int> = call core.seq::map_to<List<Int>, Countdown, Int, Int>(call core.list::Mut_List()<Int>(), call main::countdown(3), lambda(lent n: Int) -> Int {
     value (read n * 10)
   }, fn core.list::add, fn main::next(Mut Countdown))
   call core.console::println(read __handle~2, concat("6. collected ", call core.basic::to_str(Int)(call core.list::size<Int>(drop_mut(read collected)))))

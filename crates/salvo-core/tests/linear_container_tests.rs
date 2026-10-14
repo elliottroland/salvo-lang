@@ -30,7 +30,7 @@ export intrinsic type Str
 export intrinsic type Bool
 export intrinsic fn discard<T canbe linear>(value: T) [] -> None => !value
 export intrinsic type List<T canbe linear> canbe Mut
-export intrinsic fn mut_list_of<T canbe linear>(...elems: T[]) [] -> Mut List<T>
+export intrinsic fn Mut List<T canbe linear>(...elems: T[]) [] -> Mut List<T>
 export intrinsic fn add<T canbe linear>(list: Mut List<T>, elem: T) [] -> None => list: Mut, !elem
 export intrinsic fn size<T canbe linear>(list: List<T>) [] -> Int => list
 export intrinsic fn get<T canbe linear>(list: List<T>, index: Int) [] -> (proj(list) T)? => list, index
@@ -39,7 +39,7 @@ export intrinsic fn remove_first<T canbe linear>(list: Mut List<T>) [] -> T? => 
 export intrinsic fn drain<T canbe linear>(list: List<T>, each: (x: T) -> None) [] -> None
 =>[each] !x => !list, each
 export intrinsic type Map<K, V canbe linear> canbe Mut
-export intrinsic fn mut_map_of<K, V canbe linear>(...entries: (K, V)[]) [] -> Mut Map<K, V>
+export intrinsic fn Mut Map<K, V canbe linear>(...entries: (K, V)[]) [] -> Mut Map<K, V>
 export intrinsic fn put<K, V>(map: Mut Map<K, V>, key: K, value: V) [] -> None
 => map: Mut, !key, !value
 export intrinsic fn replace<K, V canbe linear>(map: Mut Map<K, V>, key: K, value: V) [] -> V?
@@ -48,7 +48,7 @@ export intrinsic fn remove<K, V canbe linear>(map: Mut Map<K, V>, key: K) [] -> 
 export intrinsic fn drain<K, V canbe linear>(map: Map<K, V>, each: (x: V) -> None) [] -> None
 =>[each] !x => !map, each
 export intrinsic type Set<T> canbe Mut
-export intrinsic fn mut_set_of<T>(...elems: T[]) [] -> Mut Set<T>
+export intrinsic fn Mut Set<T>(...elems: T[]) [] -> Mut Set<T>
 ";
 
 /// A linear token with a discharger, and a plain struct for the negative
@@ -123,7 +123,7 @@ fn a_list_of_obligations_owes_and_drain_discharges_it() {
     let errs = diagnostics(
         "\
 fn go() [] -> None {
-    let queue: Mut List<Token> = mut_list_of()
+    let queue: Mut List<Token> = Mut List()
     add(queue, mint(1))
     add(queue, mint(2))
     drain(queue, spend)
@@ -141,7 +141,7 @@ fn an_undrained_container_is_a_leak_naming_drain() {
     let errs = diagnostics(
         "\
 fn go() [] -> None {
-    let queue: Mut List<Token> = mut_list_of()
+    let queue: Mut List<Token> = Mut List()
     add(queue, mint(1))
 }
 ",
@@ -161,7 +161,7 @@ fn a_plain_instantiation_of_the_same_container_owes_nothing() {
     let errs = diagnostics(
         "\
 fn go() [] -> Int {
-    let ns: Mut List<Int> = mut_list_of()
+    let ns: Mut List<Int> = Mut List()
     add(ns, 1)
     return size(ns)
 }
@@ -177,8 +177,8 @@ fn nesting_carries_the_obligation_through() {
     let errs = diagnostics(
         "\
 fn go() [] -> None {
-    let outer: Mut List<Mut List<Token>> = mut_list_of()
-    add(outer, mut_list_of())
+    let outer: Mut List<Mut List<Token>> = Mut List()
+    add(outer, Mut List())
 }
 ",
     );
@@ -198,7 +198,7 @@ fn take_by_move_hands_over_one_obligation() {
     let errs = diagnostics(
         "\
 fn go() [] -> None {
-    let queue: Mut List<Token> = mut_list_of()
+    let queue: Mut List<Token> = Mut List()
     add(queue, mint(1))
     let first = remove_first(queue)
     when first {
@@ -219,7 +219,7 @@ fn a_taken_obligation_still_has_to_be_discharged() {
     let errs = diagnostics(
         "\
 fn go() [] -> None {
-    let queue: Mut List<Token> = mut_list_of()
+    let queue: Mut List<Token> = Mut List()
     add(queue, mint(1))
     let first = remove_first(queue)
     drain(queue, spend)
@@ -240,7 +240,7 @@ fn get_answers_a_projection_of_an_obligation() {
     let errs = diagnostics(
         "\
 fn go() [] -> Int {
-    let queue: Mut List<Token> = mut_list_of()
+    let queue: Mut List<Token> = Mut List()
     add(queue, mint(1))
     let peek = get(queue, 0)
     let id = if peek is None { 0 } else { peek.id }
@@ -260,7 +260,7 @@ fn a_projection_of_an_obligation_cannot_be_consumed_or_copied() {
     let consumed = diagnostics(
         "\
 fn go() [] -> None {
-    let queue: Mut List<Token> = mut_list_of()
+    let queue: Mut List<Token> = Mut List()
     add(queue, mint(1))
     let peek = get(queue, 0)
     if !(peek is None) {
@@ -274,7 +274,7 @@ fn go() [] -> None {
     let copied = diagnostics(
         "\
 fn go() [] -> None {
-    let queue: Mut List<Token> = mut_list_of()
+    let queue: Mut List<Token> = Mut List()
     add(queue, mint(1))
     let peek = get(queue, 0)
     if !(peek is None) {
@@ -288,7 +288,7 @@ fn go() [] -> None {
     let leaked = diagnostics(
         "\
 fn go() [] -> None {
-    let queue: Mut List<Token> = mut_list_of()
+    let queue: Mut List<Token> = Mut List()
     add(queue, mint(1))
     let _peek = get(queue, 0)
 }
@@ -309,7 +309,7 @@ fn a_map_of_obligations_writes_with_replace() {
     let errs = diagnostics(
         "\
 fn go() [] -> None {
-    let table: Mut Map<Int, Token> = mut_map_of()
+    let table: Mut Map<Int, Token> = Mut Map()
     let displaced = replace(table, 1, mint(1))
     when displaced {
         is Token { spend(displaced) }
@@ -334,7 +334,7 @@ fn put_is_refused_for_obligations() {
     let errs = diagnostics(
         "\
 fn go() [] -> None {
-    let table: Mut Map<Int, Token> = mut_map_of()
+    let table: Mut Map<Int, Token> = Mut Map()
     put(table, 1, mint(1))
     drain(table, spend)
 }
@@ -405,7 +405,7 @@ effect Parking {
 }
 
 handler Parked() of Parking {
-    waiting: Mut List<Token> = mut_list_of()
+    waiting: Mut List<Token> = Mut List()
 
     fn park(t: Token) -> None
     => !t {
@@ -422,7 +422,7 @@ handler Parked() of Parking {
 
     fn shutdown() -> None {
         drain(waiting, spend)
-        waiting = mut_list_of()
+        waiting = Mut List()
     }
 }
 ",
@@ -442,7 +442,7 @@ effect Parking {
 }
 
 handler Parked() of Parking {
-    waiting: Mut List<Token> = mut_list_of()
+    waiting: Mut List<Token> = Mut List()
 
     fn shutdown() -> None {
         drain(waiting, spend)
@@ -535,7 +535,7 @@ fn replace<T canbe linear>(list: Mut List<T>, index: Idx(list) Int, value: T) []
 }
 
 fn go() [] -> None {
-    let queue: Mut List<Token> = mut_list_of()
+    let queue: Mut List<Token> = Mut List()
     add(queue, mint(1))
     let i = 0
     if i is Idx(queue) {

@@ -16,7 +16,7 @@ const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Str\
      export intrinsic type List<T canbe linear> canbe Mut\n\
      export intrinsic fn copy<T>(value: T) [] -> T => value\n\
      export intrinsic fn discard<T canbe linear>(value: T) [] -> None => !value\n\
-     export intrinsic fn mut_list_of<T canbe linear>(...elems: T[]) [] -> Mut List<T>\n\
+     export intrinsic fn Mut List<T canbe linear>(...elems: T[]) [] -> Mut List<T>\n\
      export intrinsic fn add<T canbe linear>(list: Mut List<T>, elem: T) [] -> None => list: Mut, !elem\n\
      export intrinsic fn size<T canbe linear>(list: List<T>) [] -> Int => list\n\
      export intrinsic fn remove_first<T canbe linear>(list: Mut List<T>) [] -> T? => list: Mut\n\
@@ -325,9 +325,9 @@ fn handler_state_holds_containers_but_not_bare_obligations() {
     let errs = errors(&format!(
         "{LINES}\n\
          effect Log {{\n    fn note(m: Str) -> None => !m\n}}\n\
-         handler Keeper of Log {{\n    held: Mut List<Lines> = mut_list_of()\n\n    \
+         handler Keeper of Log {{\n    held: Mut List<Lines> = Mut List()\n\n    \
          fn note(m: Str) -> None {{\n        drain(held, close)\n        \
-         held = mut_list_of()\n    }}\n}}\n"
+         held = Mut List()\n    }}\n}}\n"
     ));
     assert!(errs.is_empty(), "a drained-and-restored state field is legal: {errs:?}");
 }
@@ -416,7 +416,7 @@ fn storing_into_a_container_makes_the_container_owe() {
     // is no longer the error — the *container* carries the obligation, and the
     // leak diagnostic names its terminal.
     let errs = errors(&format!(
-        "{LINES}\nfn go() -> None {{\n    let xs: Mut List<Lines> = mut_list_of()\n    \
+        "{LINES}\nfn go() -> None {{\n    let xs: Mut List<Lines> = Mut List()\n    \
          add(xs, open_lines(\"a\"))\n}}\n"
     ));
     assert!(
@@ -427,7 +427,7 @@ fn storing_into_a_container_makes_the_container_owe() {
     );
     // …and draining it discharges every element through the callback.
     let errs = errors(&format!(
-        "{LINES}\nfn go() -> None {{\n    let xs: Mut List<Lines> = mut_list_of()\n    \
+        "{LINES}\nfn go() -> None {{\n    let xs: Mut List<Lines> = Mut List()\n    \
          add(xs, open_lines(\"a\"))\n    drain(xs, close)\n}}\n"
     ));
     assert!(errs.is_empty(), "got {errs:?}");
@@ -451,7 +451,7 @@ fn a_composite_of_plain_values_is_unaffected() {
     let errs = errors(&format!(
         "{LINES}\nstruct Holder {{\n    names: Mut List<Str>\n}}\n\
          fn go() -> None {{\n    let l = open_lines(\"a\")\n    \
-         let h = Holder {{ names: mut_list_of(\"x\") }}\n    close(l)\n}}\n"
+         let h = Holder {{ names: Mut List(\"x\") }}\n    close(l)\n}}\n"
     ));
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
 }

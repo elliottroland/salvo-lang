@@ -79,6 +79,7 @@ use crate::aws_sqs::GetQueueUrlInput;
 use crate::aws_sqs::GetQueueUrlOutput;
 use crate::core_map::Map;
 use crate::aws_sqs::Message;
+use crate::core_map::Mut_Map_platform;
 use crate::aws_sqs::ReceiveMessageInput;
 use crate::aws_sqs::ReceiveMessageOutput;
 use crate::aws_sqs::SendMessageInput;
@@ -91,7 +92,6 @@ use crate::core_map::contains_key_platform;
 use crate::core_checked::detach;
 use crate::core_result::err;
 use crate::core_map::get_platform;
-use crate::core_map::mut_map_of_platform;
 use crate::core_result::ok;
 use crate::core_console::println;
 use crate::core_map::put_platform;
@@ -222,7 +222,7 @@ pub struct MemSqs {
 impl MemSqs {
     pub fn new() -> Self {
         Self {
-            queues: crate::core_map::mut_map_of_platform::<String, Vec<String>>(vec![], &mut |__a0: &String| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__a0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &String, __a1: &String| (&__a0[..] == &__a1[..]))
+            queues: crate::core_map::Mut_Map_platform::<String, Vec<String>>(vec![], &mut |__a0: &String| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__a0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &String, __a1: &String| (&__a0[..] == &__a1[..]))
         }
     }
 }

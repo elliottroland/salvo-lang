@@ -115,7 +115,7 @@ map to a mutator must itself preserve the claim, or the promise is refused.
 Which is what lets this pass with no `!` anywhere:
 
 ```
-let m = mut_map_of(("a", 1))
+let m = Mut Map(("a", 1))
 let k = "a"
 assert!(k is KeyOf(m))
 put(m, "b", 2)              // preserves KeyOf claims

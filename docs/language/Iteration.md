@@ -11,7 +11,7 @@ params Yield<It, T> {
 }
 
 fn map<It, T, U>(it: Mut It, f: (T) -> U, ?Yield<It, T>) -> Mut List<U> => it: Mut, f {
-    let out = mut_list_of<U>()
+    let out = Mut List<U>()
     for x in it {
         add(out, f(x))
     }
@@ -83,8 +83,8 @@ type people map most. One named variant covers the rest:
 
 ```
 let doubled = map(xs, double)                       // Mut List<Int>
-let out = map_to(mut_list_of<Int>(), iter(xs), double)
-let kept = filter_to(map_to(mut_list_of<Int>(), iter(xs), double), iter(ys), is_even)
+let out = map_to(Mut List<Int>(), iter(xs), double)
+let kept = filter_to(map_to(Mut List<Int>(), iter(xs), double), iter(ys), is_even)
 ```
 
 The destination is moved in and returned, which is what makes the nested form

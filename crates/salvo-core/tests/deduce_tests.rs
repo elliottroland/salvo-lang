@@ -985,7 +985,7 @@ fn take_person(p: Person) [] -> None => !p {}
 "#;
 
 fn disjoint_errors(body: &str) -> Vec<String> {
-    // `Str`, `mut_list_of` and `array_of` are not in this file's shared std
+    // `Str`, `Mut List` and `array_of` are not in this file's shared std
     // prelude, so they are declared alongside it here (as std, since
     // `intrinsic` is the compiler's modifier [intrinsic-std-only]).
     let mut sources = SourceSet::default();
@@ -994,7 +994,7 @@ fn disjoint_errors(body: &str) -> Vec<String> {
         SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
         format!(
             "{STD_PRELUDE}export intrinsic type Str\n\
-             export intrinsic fn mut_list_of<T>(...elems: T[]) [] -> Mut List<T>\n\
+             export intrinsic fn Mut List<T>(...elems: T[]) [] -> Mut List<T>\n\
              export intrinsic fn array_of<T>(...elems: T[]) [] -> T[]\n"
         ),
         true,
@@ -1037,7 +1037,7 @@ fn disjoint_errors(body: &str) -> Vec<String> {
 #[test]
 fn a_disjoint_field_survives_a_mutation() {
     let errs = disjoint_errors(
-        "    let p = Person { name: \"a\", tags: mut_list_of() }\n\
+        "    let p = Person { name: \"a\", tags: Mut List() }\n\
          \x20   let n = p.name\n\
          \x20   add_tag(p.tags, \"y\")\n\
          \x20   let k = read(n)",
@@ -1050,7 +1050,7 @@ fn a_disjoint_field_survives_a_mutation() {
 #[test]
 fn two_disjoint_fields_are_independent() {
     let errs = disjoint_errors(
-        "    let o = Outer { inner: Person { name: \"a\", tags: mut_list_of() }, other: \"o\" }\n\
+        "    let o = Outer { inner: Person { name: \"a\", tags: Mut List() }, other: \"o\" }\n\
          \x20   let n = o.inner.name\n\
          \x20   add_tag(o.inner.tags, \"y\")\n\
          \x20   let k = read(n)",
@@ -1063,9 +1063,9 @@ fn two_disjoint_fields_are_independent() {
 #[test]
 fn an_assignment_to_a_disjoint_field_does_not_poison() {
     let errs = disjoint_errors(
-        "    let p = Mut Person { name: \"a\", tags: mut_list_of() }\n\
+        "    let p = Mut Person { name: \"a\", tags: Mut List() }\n\
          \x20   let n = p.name\n\
-         \x20   p.tags = mut_list_of()\n\
+         \x20   p.tags = Mut List()\n\
          \x20   let k = read(n)",
     );
     assert!(errs.is_empty(), "expected a clean check, got: {errs:?}");
@@ -1081,7 +1081,7 @@ fn an_assignment_to_a_disjoint_field_does_not_poison() {
 #[test]
 fn a_contents_mutation_spares_a_handle_to_the_same_field() {
     let errs = disjoint_errors(
-        "    let p = Person { name: \"a\", tags: mut_list_of() }\n\
+        "    let p = Person { name: \"a\", tags: Mut List() }\n\
          \x20   let t = p.tags\n\
          \x20   add_tag(p.tags, \"y\")\n\
          \x20   let k = count(t)",
@@ -1096,9 +1096,9 @@ fn a_contents_mutation_spares_a_handle_to_the_same_field() {
 #[test]
 fn replacing_the_same_field_still_poisons() {
     let errs = disjoint_errors(
-        "    let p = Mut Person { name: \"a\", tags: mut_list_of() }\n\
+        "    let p = Mut Person { name: \"a\", tags: Mut List() }\n\
          \x20   let t = p.tags\n\
-         \x20   p.tags = mut_list_of()\n\
+         \x20   p.tags = Mut List()\n\
          \x20   let k = count(t)",
     );
     assert!(
@@ -1113,7 +1113,7 @@ fn replacing_the_same_field_still_poisons() {
 #[test]
 fn a_whole_variable_mutation_still_poisons_every_field() {
     let errs = disjoint_errors(
-        "    let p = Mut Person { name: \"a\", tags: mut_list_of() }\n\
+        "    let p = Mut Person { name: \"a\", tags: Mut List() }\n\
          \x20   let n = p.name\n\
          \x20   touch_all(p)\n\
          \x20   let k = read(n)",
@@ -1130,7 +1130,7 @@ fn a_whole_variable_mutation_still_poisons_every_field() {
 #[test]
 fn a_prefix_projection_is_poisoned_by_a_deeper_mutation() {
     let errs = disjoint_errors(
-        "    let o = Outer { inner: Person { name: \"a\", tags: mut_list_of() }, other: \"o\" }\n\
+        "    let o = Outer { inner: Person { name: \"a\", tags: Mut List() }, other: \"o\" }\n\
          \x20   let i = o.inner\n\
          \x20   add_tag(o.inner.tags, \"y\")\n\
          \x20   let k = read(i.name)",
@@ -1148,7 +1148,7 @@ fn a_prefix_projection_is_poisoned_by_a_deeper_mutation() {
 #[test]
 fn a_dynamic_index_stays_conservative() {
     let errs = disjoint_errors(
-        "    let arr: Mut List<Str>[] = array_of(mut_list_of(), mut_list_of())\n\
+        "    let arr: Mut List<Str>[] = array_of(Mut List(), Mut List())\n\
          \x20   let one = arr[0]\n\
          \x20   add_tag(arr[1], \"z\")\n\
          \x20   let k = count(one)",
@@ -1176,7 +1176,7 @@ fn a_dynamic_index_stays_conservative() {
 #[test]
 fn a_disjoint_field_survives_a_projection_move() {
     let errs = disjoint_errors(
-        "    let p = Person { name: \"a\", tags: mut_list_of() }\n\
+        "    let p = Person { name: \"a\", tags: Mut List() }\n\
          \x20   eat(p.tags)\n\
          \x20   let k = read(p.name)",
     );
@@ -1188,7 +1188,7 @@ fn a_disjoint_field_survives_a_projection_move() {
 #[test]
 fn a_move_mode_binding_of_a_field_leaves_its_siblings() {
     let errs = disjoint_errors(
-        "    let p = Person { name: \"a\", tags: mut_list_of() }\n\
+        "    let p = Person { name: \"a\", tags: Mut List() }\n\
          \x20   let t = p.tags\n\
          \x20   add_tag(t, \"z\")\n\
          \x20   let k = read(p.name)",
@@ -1201,7 +1201,7 @@ fn a_move_mode_binding_of_a_field_leaves_its_siblings() {
 #[test]
 fn reading_a_moved_field_back_is_an_error() {
     let errs = disjoint_errors(
-        "    let p = Person { name: \"a\", tags: mut_list_of() }\n\
+        "    let p = Person { name: \"a\", tags: Mut List() }\n\
          \x20   eat(p.tags)\n\
          \x20   let k = count(p.tags)",
     );
@@ -1218,7 +1218,7 @@ fn reading_a_moved_field_back_is_an_error() {
 #[test]
 fn the_whole_value_cannot_be_used_after_a_partial_move() {
     let errs = disjoint_errors(
-        "    let p = Person { name: \"a\", tags: mut_list_of() }\n\
+        "    let p = Person { name: \"a\", tags: Mut List() }\n\
          \x20   eat(p.tags)\n\
          \x20   take_person(p)",
     );
@@ -1234,9 +1234,9 @@ fn the_whole_value_cannot_be_used_after_a_partial_move() {
 #[test]
 fn reassigning_a_moved_field_revives_it() {
     let errs = disjoint_errors(
-        "    let p = Mut Person { name: \"a\", tags: mut_list_of() }\n\
+        "    let p = Mut Person { name: \"a\", tags: Mut List() }\n\
          \x20   eat(p.tags)\n\
-         \x20   p.tags = mut_list_of()\n\
+         \x20   p.tags = Mut List()\n\
          \x20   let k = count(p.tags)\n\
          \x20   let j = read(p.name)",
     );
@@ -1248,7 +1248,7 @@ fn reassigning_a_moved_field_revives_it() {
 #[test]
 fn a_move_on_one_branch_is_moved_after_the_join() {
     let errs = disjoint_errors(
-        "    let p = Person { name: \"a\", tags: mut_list_of() }\n\
+        "    let p = Person { name: \"a\", tags: Mut List() }\n\
          \x20   if read(p.name) > 0 {\n\
          \x20       eat(p.tags)\n\
          \x20   }\n\
@@ -1260,7 +1260,7 @@ fn a_move_on_one_branch_is_moved_after_the_join() {
     );
     // ...but a disjoint field is still readable on every path.
     let ok = disjoint_errors(
-        "    let p = Person { name: \"a\", tags: mut_list_of() }\n\
+        "    let p = Person { name: \"a\", tags: Mut List() }\n\
          \x20   if 1 > 0 {\n\
          \x20       eat(p.tags)\n\
          \x20   }\n\
@@ -1284,7 +1284,7 @@ fn a_kept_parameter_still_refuses_a_projection_move() {
         SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
         format!(
             "{STD_PRELUDE}export intrinsic type Str\n\
-             export intrinsic fn mut_list_of<T>(...elems: T[]) [] -> Mut List<T>\n"
+             export intrinsic fn Mut List<T>(...elems: T[]) [] -> Mut List<T>\n"
         ),
         true,
     );
@@ -1682,7 +1682,7 @@ fn shrink(e: Mut Entity) [] -> None => e.rings: Mut {\n\
     add(e.rings, Ring { power: 1 })\n\
 }\n\
 fn wipe(e: Mut Entity) [] -> None => !e.rings {\n\
-    e.rings = mut_list_of()\n\
+    e.rings = Mut List()\n\
 }\n";
 
 fn field_errors(src: &str) -> Vec<String> {
@@ -1692,7 +1692,7 @@ fn field_errors(src: &str) -> Vec<String> {
         SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
         format!(
             "{STD_PRELUDE}export intrinsic type Str\n\
-             export intrinsic fn mut_list_of<T>(...elems: T[]) [] -> Mut List<T>\n\
+             export intrinsic fn Mut List<T>(...elems: T[]) [] -> Mut List<T>\n\
              export intrinsic fn size<T>(list: List<T>) [] -> Int => list\n\
              export intrinsic type Bool\n\
              export intrinsic fn first<T>(list: List<T>) [] -> (proj(list) T)? => list\n\
@@ -1808,7 +1808,7 @@ fn a_field_entry_the_body_exceeds_is_refused() {
     let errs = field_errors(
         "fn liar(e: Mut Entity, n: Int) [] -> None => e.hp: Mut, n {\n    \
          e.hp = e.hp - n\n    \
-         e.rings = mut_list_of()\n}\n",
+         e.rings = Mut List()\n}\n",
     );
     assert!(
         errs.iter().any(|e| e.contains("promises it mutates only")),
@@ -1833,7 +1833,7 @@ fn assigning_a_parameter_is_refused() {
 
     let whole = field_errors(
         "fn f(e: Mut Entity) [] -> None => e: Mut {\n    \
-         e = Mut Entity { hp: 1, rings: mut_list_of() }\n}\n",
+         e = Mut Entity { hp: 1, rings: Mut List() }\n}\n",
     );
     assert!(
         whole.iter().any(|e| e.contains("cannot assign to parameter `e`")),
@@ -1901,7 +1901,7 @@ fn inference_stays_conservative_where_it_must() {
     let replaces = field_errors(
         "fn quiet(e: Mut Entity, n: Int) [] -> None {\n    \
          e.hp = e.hp - n\n    \
-         e.rings = mut_list_of()\n}\n\
+         e.rings = Mut List()\n}\n\
          fn f(e: Mut Entity) [] -> Int {\n    \
          let rings = e.rings\n    \
          quiet(e, 5)\n    \

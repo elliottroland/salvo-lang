@@ -54,7 +54,7 @@ fn round_trip(name: Str) [Sqs, Console] => name {
     }
     when got {
         is Ok {
-            let messages: List<Message> = got.messages ?: list_of<Message>()
+            let messages: List<Message> = got.messages ?: List<Message>()
             println("received ${size(messages)} message(s)")
             for m in messages {
                 println("  ${m.body ?: ""}")
@@ -81,13 +81,13 @@ fn no_queue(url: Str) [] -> SqsError => !url {
 // generated effect is the contract, so any handler of it will do. Queues are
 // keyed by URL; a received message stays until deleted, as in SQS.
 handler MemSqs() of Sqs {
-    queues: Mut Map<Str, List<Str>> = mut_map_of()
+    queues: Mut Map<Str, List<Str>> = Mut Map()
 
     fn create_queue(input: CreateQueueInput, reply: Reply<Ok CreateQueueOutput | Err Checked<SqsFailure>>) -> None
     => !input, !reply {
         let url = "mem://${input.queue_name}"
         if !contains_key(queues, url) {
-            put(queues, copy(url), list_of<Str>())
+            put(queues, copy(url), List<Str>())
         }
         reply.send(ok(CreateQueueOutput { queue_url: url }))
     }
@@ -109,7 +109,7 @@ handler MemSqs() of Sqs {
             reply.send(err(checked<SqsFailure>(no_queue(copy(input.queue_url)))))
             return None
         }
-        let grown = mut_list_of<Str>()
+        let grown = Mut List<Str>()
         for b in held {
             grown.add(copy(b))
         }
@@ -127,7 +127,7 @@ handler MemSqs() of Sqs {
             reply.send(err(checked<SqsFailure>(no_queue(copy(input.queue_url)))))
             return None
         }
-        let out = mut_list_of<Message>()
+        let out = Mut List<Message>()
         let i = 0
         for b in held {
             i = i + 1

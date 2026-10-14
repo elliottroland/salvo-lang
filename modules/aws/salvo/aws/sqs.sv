@@ -370,7 +370,7 @@ export effect SqsCalls {
 // operation's output has no required members, otherwise with `AwsError { code:
 // "NotStubbed" }`. A test that needs real answers implements [Sqs] itself.
 export handler FakeSqs() of Sqs, SqsCalls {
-    recorded: Mut List<Str> = mut_list_of()
+    recorded: Mut List<Str> = Mut List()
 
     fn create_queue(input: CreateQueueInput, reply: Reply<Ok CreateQueueOutput | Err Checked<SqsFailure>>) -> None => !input, !reply {
         recorded.add("create_queue")

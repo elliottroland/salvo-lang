@@ -15,16 +15,16 @@ const _: fn() = || { fn __contract<T: Send + 'static + Clone + std::fmt::Debug +
 const _: fn() = || { fn __each(x: &Set<i32>) -> impl Iterator<Item = i32> + '_ { crate::platform_core_set::each(x).map(|e| e.clone()) } let _ = __each; };
 const _: fn() = || { fn __each_ref(x: &Set<i32>) -> impl Iterator<Item = &i32> + '_ { crate::platform_core_set::each(x) } fn __each_mut(x: &mut Set<i32>) -> impl Iterator<Item = &mut i32> + '_ { crate::platform_core_set::each_mut(x) } fn __into_each(x: Set<i32>) -> impl Iterator<Item = i32> { crate::platform_core_set::into_each(x) } let _ = (__each_ref, __each_mut, __into_each); };
 
-pub fn set_of_platform<T: Clone>(mut elems: Vec<T>, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> crate::core_set::Set<T> {
+pub fn Set_platform<T: Clone>(mut elems: Vec<T>, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> crate::core_set::Set<T> {
     let mut hash = hash;
     let mut eq = eq;
-    crate::platform_core_set::set_of(elems, &mut hash, &mut eq)
+    crate::platform_core_set::Set(elems, &mut hash, &mut eq)
 }
 
-pub fn mut_set_of_platform<T: Clone>(mut elems: Vec<T>, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> crate::core_set::Set<T> {
+pub fn Mut_Set_platform<T: Clone>(mut elems: Vec<T>, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> crate::core_set::Set<T> {
     let mut hash = hash;
     let mut eq = eq;
-    crate::platform_core_set::mut_set_of(elems, &mut hash, &mut eq)
+    crate::platform_core_set::Mut_Set(elems, &mut hash, &mut eq)
 }
 
 pub fn set_by_platform<T: Clone>(mut size: i32, init: &mut dyn FnMut(i32) -> T, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> crate::core_set::Set<T> {

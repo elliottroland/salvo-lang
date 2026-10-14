@@ -168,7 +168,7 @@ export fn read_lines(path: Path) [Fs] -> Ok List<Str> | Err Checked<FsError> => 
         return opened
     }
     let p = lines(opened)
-    let out: Mut List<Str> = mut_list_of()
+    let out: Mut List<Str> = Mut List()
     for line in p {
         out.add(line)
     }

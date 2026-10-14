@@ -96,7 +96,7 @@ fun canonicalCompare(a: Any?, b: Any?): Int {
 
 /** [platform-value-type] For host code: a sorted set under the canonical ordering. */
 fun <T> canonicalSortedSet(elems: Iterable<T>): SalvoSortedSet<T> =
-    mutSortedSetOf((elems.toList() as List<Any?>).toTypedArray() as Array<T>, ::canonicalCompare)
+    Mut_SortedSet((elems.toList() as List<Any?>).toTypedArray() as Array<T>, ::canonicalCompare)
 
 /** [platform-value-type] For host code: a sorted map under the canonical ordering. */
 fun <K, V> canonicalSortedMap(entries: Iterable<Pair<K, V>>): SalvoSortedMap<K, V> {
@@ -110,10 +110,10 @@ fun <T> eachSortedSet(set: SortedSet<T>): Iterable<T> = set
 
 fun <K, V> eachSortedMap(map: SortedMap<K, V>): Iterable<K> = map.keys
 
-inline fun <T> sortedSetOf(elems: Array<T>, cmp: (T, T) -> Int): SortedSet<T> = mutSortedSetOf(elems, cmp)
+inline fun <T> SortedSet(elems: Array<T>, cmp: (T, T) -> Int): SortedSet<T> = Mut_SortedSet(elems, cmp)
 
 // A repeated member: the last wins, in the place they share.
-inline fun <T> mutSortedSetOf(elems: Array<T>, cmp: (T, T) -> Int): MutSortedSet<T> {
+inline fun <T> Mut_SortedSet(elems: Array<T>, cmp: (T, T) -> Int): MutSortedSet<T> {
     val s = SalvoSortedSet(ArrayList<T>(elems.size))
     for (e in elems) {
         val i = bisect(s.items, e, cmp)
@@ -146,9 +146,9 @@ fun <T> max(set: SortedSet<T>): T? = set.items.lastOrNull()
 
 fun <T> toList(set: SortedSet<T>): MutableList<T> = ArrayList(set.items)
 
-inline fun <K, V> sortedMapOf(entries: Array<Pair<K, V>>, cmp: (K, K) -> Int): SortedMap<K, V> = mutSortedMapOf(entries, cmp)
+inline fun <K, V> SortedMap(entries: Array<Pair<K, V>>, cmp: (K, K) -> Int): SortedMap<K, V> = Mut_SortedMap(entries, cmp)
 
-inline fun <K, V> mutSortedMapOf(entries: Array<Pair<K, V>>, cmp: (K, K) -> Int): MutSortedMap<K, V> {
+inline fun <K, V> Mut_SortedMap(entries: Array<Pair<K, V>>, cmp: (K, K) -> Int): MutSortedMap<K, V> {
     val m = SalvoSortedMap(ArrayList<K>(entries.size), ArrayList<V>(entries.size))
     for ((k, v) in entries) m.store(k, v, cmp)
     return m

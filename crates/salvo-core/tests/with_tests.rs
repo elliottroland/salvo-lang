@@ -27,7 +27,7 @@ const STD_PRELUDE: &str = concat!(
     "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",
     "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
     "export intrinsic type Set<T> canbe Mut\n",
-    "export intrinsic fn mut_set_of<T>(...elems: T[], ?Hashed<T>) [] -> Mut Set<T>(?hash, ?eq)\n",
+    "export intrinsic fn Mut Set<T>(...elems: T[], ?Hashed<T>) [] -> Mut Set<T>(?hash, ?eq)\n",
     "export intrinsic fn add<T>(set: Mut Set<T>, elem: T) [] -> None => set: Mut, !elem\n",
     "export intrinsic fn size<T>(set: Set<T>) [] -> Int => set\n",
 );
@@ -84,7 +84,7 @@ fn writing_one_member_of_a_bound_pair_is_refused() {
     let errs = errors(&format!(
         "{OWN_EQ}\n\
          fn main() -> None {{\n    \
-         let s: Mut Set<Int> = mut_set_of(eq = all_same)\n    \
+         let s: Mut Set<Int> = Mut Set(eq = all_same)\n    \
          add(s, 1)\n}}\n"
     ));
     assert!(
@@ -107,7 +107,7 @@ fn writing_both_members_is_accepted() {
     let errs = errors(&format!(
         "{OWN_EQ}\n\
          fn main() -> None {{\n    \
-         let s: Mut Set<Int> = mut_set_of(hash = hash, eq = all_same)\n    \
+         let s: Mut Set<Int> = Mut Set(hash = hash, eq = all_same)\n    \
          add(s, 1)\n}}\n"
     ));
     assert!(errs.is_empty(), "a written pair is one source: {errs:?}");
@@ -119,7 +119,7 @@ fn writing_both_members_is_accepted() {
 fn leaving_the_whole_pair_alone_is_accepted() {
     let errs = errors(
         "fn main() -> None {\n    \
-         let s: Mut Set<Int> = mut_set_of()\n    \
+         let s: Mut Set<Int> = Mut Set()\n    \
          add(s, 1)\n}\n",
     );
     assert!(errs.is_empty(), "an unfilled group still resolves: {errs:?}");
@@ -132,7 +132,7 @@ fn leaving_the_whole_pair_alone_is_accepted() {
 fn holding_half_the_pair_is_refused() {
     let errs = errors(
         "fn collect(a: Int, ?hash: (Int) -> Long) -> Set<Int> => !a {\n    \
-         let s: Mut Set<Int> = mut_set_of()\n    \
+         let s: Mut Set<Int> = Mut Set()\n    \
          add(s, a)\n    \
          return s\n}\n\
          fn main() -> None {\n    \
@@ -160,7 +160,7 @@ fn holding_half_the_pair_is_refused() {
 fn holding_the_whole_pair_is_accepted() {
     let errs = errors(
         "fn collect(a: Int, ?Hashed<Int>) -> Set<Int> => !a {\n    \
-         let s: Mut Set<Int> = mut_set_of()\n    \
+         let s: Mut Set<Int> = Mut Set()\n    \
          add(s, a)\n    \
          return s\n}\n\
          fn main() -> None {\n    \

@@ -19,11 +19,11 @@ export qualifier Heap<T>(?Ordered<T>) of List<T>
 // ordering arrives as an ordinary implicit parameter, and the return type
 // publishes the one resolution chose [cmp-binder].
 export fn heap_of<T>(?Ordered<T>) -> +Heap<T>(?cmp) Mut List<T> {
-    return mut_list_of()
+    return Mut List()
 }
 
 export fn heap_of<T>(first: T, ...elems: T[], ?Ordered<T>) -> Heap<T>(?cmp) NonEmpty Mut List<T> => !first, elems {
-    let list = mut_list_of(first, ...elems)
+    let list = Mut List(first, ...elems)
     heapify(list)
     return list
 }

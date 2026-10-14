@@ -1,6 +1,8 @@
 use crate::core_bytes::Bytes;
 use crate::time::Duration;
 use crate::core_map::Map;
+use crate::core_map::Mut_Map_platform;
+use crate::core_set::Mut_Set_platform;
 use crate::runtime_routing::RemoteRef;
 use crate::core_set::Set;
 use crate::core_map::contains_key_platform;
@@ -12,8 +14,6 @@ use crate::runtime_routing::identity;
 use crate::core_map::keys_platform;
 use crate::runtime_routing::local_protocols;
 use crate::core_compare::mix_hash;
-use crate::core_map::mut_map_of_platform;
-use crate::core_set::mut_set_of_platform;
 use crate::runtime_routing::outbound_bound;
 use crate::core_actor::pool;
 use crate::core_map::put_platform;
@@ -880,7 +880,7 @@ impl StaticNodeGroup {
             name: name.clone(),
             all: all.clone(),
             __dep0,
-            known: crate::core_map::mut_map_of_platform::<crate::net::NodeId, crate::net::Node>(vec![], &mut |__a0: &crate::net::NodeId| crate::net::hash__NodeId(__a0), &mut |__a0: &crate::net::NodeId, __a1: &crate::net::NodeId| crate::net::eq__NodeId_NodeId(__a0, __a1)),
+            known: crate::core_map::Mut_Map_platform::<crate::net::NodeId, crate::net::Node>(vec![], &mut |__a0: &crate::net::NodeId| crate::net::hash__NodeId(__a0), &mut |__a0: &crate::net::NodeId, __a1: &crate::net::NodeId| crate::net::eq__NodeId_NodeId(__a0, __a1)),
             watchers: vec![],
             __mailbox_capacity: 64i32,
             __addr: None,
@@ -1031,8 +1031,8 @@ impl GossipNodeGroup {
             name: name.clone(),
             seeds: seeds.clone(),
             __dep0,
-            known: crate::core_map::mut_map_of_platform::<crate::net::NodeId, crate::net::Node>(vec![], &mut |__a0: &crate::net::NodeId| crate::net::hash__NodeId(__a0), &mut |__a0: &crate::net::NodeId, __a1: &crate::net::NodeId| crate::net::eq__NodeId_NodeId(__a0, __a1)),
-            dialed: crate::core_set::mut_set_of_platform::<String>(vec![], &mut |__a0: &String| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__a0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &String, __a1: &String| (&__a0[..] == &__a1[..])),
+            known: crate::core_map::Mut_Map_platform::<crate::net::NodeId, crate::net::Node>(vec![], &mut |__a0: &crate::net::NodeId| crate::net::hash__NodeId(__a0), &mut |__a0: &crate::net::NodeId, __a1: &crate::net::NodeId| crate::net::eq__NodeId_NodeId(__a0, __a1)),
+            dialed: crate::core_set::Mut_Set_platform::<String>(vec![], &mut |__a0: &String| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__a0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &String, __a1: &String| (&__a0[..] == &__a1[..])),
             watchers: vec![],
             __mailbox_capacity: 64i32,
             __addr: None,
@@ -2114,9 +2114,9 @@ pub struct MemNetwork {
 impl MemNetwork {
     pub fn new() -> Self {
         Self {
-            listeners: crate::core_map::mut_map_of_platform::<crate::net::NodeEndpoint, usize>(vec![], &mut |__a0: &crate::net::NodeEndpoint| crate::net::hash__NodeEndpoint(__a0), &mut |__a0: &crate::net::NodeEndpoint, __a1: &crate::net::NodeEndpoint| crate::net::eq__NodeEndpoint_NodeEndpoint(__a0, __a1)),
-            cuts: crate::core_set::mut_set_of_platform::<String>(vec![], &mut |__a0: &String| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__a0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &String, __a1: &String| (&__a0[..] == &__a1[..])),
-            dead: crate::core_set::mut_set_of_platform::<crate::net::NodeEndpoint>(vec![], &mut |__a0: &crate::net::NodeEndpoint| crate::net::hash__NodeEndpoint(__a0), &mut |__a0: &crate::net::NodeEndpoint, __a1: &crate::net::NodeEndpoint| crate::net::eq__NodeEndpoint_NodeEndpoint(__a0, __a1)),
+            listeners: crate::core_map::Mut_Map_platform::<crate::net::NodeEndpoint, usize>(vec![], &mut |__a0: &crate::net::NodeEndpoint| crate::net::hash__NodeEndpoint(__a0), &mut |__a0: &crate::net::NodeEndpoint, __a1: &crate::net::NodeEndpoint| crate::net::eq__NodeEndpoint_NodeEndpoint(__a0, __a1)),
+            cuts: crate::core_set::Mut_Set_platform::<String>(vec![], &mut |__a0: &String| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__a0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &String, __a1: &String| (&__a0[..] == &__a1[..])),
+            dead: crate::core_set::Mut_Set_platform::<crate::net::NodeEndpoint>(vec![], &mut |__a0: &crate::net::NodeEndpoint| crate::net::hash__NodeEndpoint(__a0), &mut |__a0: &crate::net::NodeEndpoint, __a1: &crate::net::NodeEndpoint| crate::net::eq__NodeEndpoint_NodeEndpoint(__a0, __a1)),
             count: 0i32,
             __mailbox_capacity: 64i32,
             __addr: None,

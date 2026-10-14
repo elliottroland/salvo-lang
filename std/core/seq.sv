@@ -23,7 +23,7 @@
 
 // Applies [f] to every element of [it], in order.
 export fn map<It, T, U>(it: Mut It, f: (T) -> U, ?Yield<It, T>) [] -> Mut List<U> => it: Mut, f {
-    let out = mut_list_of<U>()
+    let out = Mut List<U>()
     for x in it {
         add(out, f(x))
     }
@@ -38,7 +38,7 @@ export fn map<It, T, U>(it: Mut It, f: (T) -> U, ?Yield<It, T>) [] -> Mut List<U
 // of your own to keep, see [filter_to].
 export fn filter<It, T>(it: Mut It, keep: (T) -> Bool, ?Yield<It, T>) [] -> Mut List<proj T> holds proj(it)
 => it: Mut, keep {
-    let out = mut_list_of<proj T>()
+    let out: Mut List<proj T> = Mut List()
     for x in it {
         if keep(x) {
             add(out, x)
@@ -62,7 +62,7 @@ export fn reduce<It, T, A>(it: Mut It, init: A, f: (A, T) -> A, ?Yield<It, T>) [
 // these to its own collection operation, and overload specificity picks them
 // when the subject really is a `List` [fn-overload-rank].
 export fn map<T, U>(list: List<T>, f: (T) -> U) [] -> Mut List<U> => list, f {
-    let out = mut_list_of<U>()
+    let out = Mut List<U>()
     for x in list {
         add(out, f(x))
     }
@@ -309,7 +309,7 @@ export fn skipping_while<It, T>(it: It, skip: (x: T) -> Bool, ?Yield<It, T>) [] 
 // view of a borrowing source's elements, as [filter]'s answer is. A
 // container's own `to_list` is more specific, and wins [fn-overload-rank].
 export fn to_list<It, T>(it: Mut It, ?Yield<It, T>) [] -> Mut List<proj T> holds proj(it) => it: Mut {
-    let out = mut_list_of<proj T>()
+    let out: Mut List<proj T> = Mut List()
     for x in it {
         add(out, x)
     }

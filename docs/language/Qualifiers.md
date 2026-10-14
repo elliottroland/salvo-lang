@@ -100,7 +100,7 @@ struct Inventory canbe Mut {
     items: canbe Mut List<Str>
 }
 
-let shop = Mut Inventory {owner: "Ada", items: mut_list_of<Str>()}
+let shop = Mut Inventory {owner: "Ada", items: Mut List<Str>()}
 add(shop.items, "lamp")             // `shop.items` is a `Mut List<Str>`
 
 let frozen: Inventory = shop
@@ -208,9 +208,9 @@ qualifier NonEmpty<T> of List<T> {
 }
 
 // Requiring a first element guarantees the predicate by construction — which
-// is how std's own list constructor is shaped: `list_of()` for an empty list,
-// `list_of(first, ...rest)` for one that is known non-empty.
-intrinsic fn list_of<T>(first: T, ...rest: T[]) -> +NonEmpty List<T>
+// is how std's own list constructor is shaped: `List()` for an empty list,
+// `List(first, ...rest)` for one that is known non-empty.
+intrinsic fn List<T>(first: T, ...rest: T[]) -> +NonEmpty List<T>
 ```
 
 **This one is real.** `NonEmpty`, and the constructor above, are declared in std's `core.list` — so is `Sorted`, and `Distinct` in `core.set`; see "Collections".
@@ -339,7 +339,7 @@ whereas an established one does not — a call that may not have run cannot have
 At a call site the refinement has the last word. `add`'s own `=> list: Mut` drops everything it does not name, and then `+NonEmpty` puts the claim back:
 
 ```
-let xs: Mut List<Int> = mut_list_of()
+let xs: Mut List<Int> = Mut List()
 add(xs, 1)
 // `xs` is `Mut NonEmpty List<Int>` here, so this resolves:
 let n = count(xs)

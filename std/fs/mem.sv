@@ -33,9 +33,9 @@ struct MemRead { source: Str, data: Bytes, at: Int, failed: Bool }
 struct MemWrite { path: Str, buffer: Bytes }
 
 export handler MemFs of Fs, Streams {
-    files: Mut Map<Str, Bytes> = mut_map_of()
-    reads: Mut Map<Long, MemRead> = mut_map_of()
-    writes: Mut Map<Long, MemWrite> = mut_map_of()
+    files: Mut Map<Str, Bytes> = Mut Map()
+    reads: Mut Map<Long, MemRead> = Mut Map()
+    writes: Mut Map<Long, MemWrite> = Mut Map()
 
     fn open_read(path: Path) -> Ok InStream | Err Checked<FsError> => path {
         let path_text = to_str(path)
@@ -122,7 +122,7 @@ export handler MemFs of Fs, Streams {
         }
         // A `Set` keeps insertion order and does the deduplication, so the
         // sorted list below is the same on both backends [col-insertion-order].
-        let names: Mut Set<Str> = mut_set_of()
+        let names: Mut Set<Str> = Mut Set()
         let prefix = "${path_text}/"
         for key in files {
             if starts_with(key, prefix) {

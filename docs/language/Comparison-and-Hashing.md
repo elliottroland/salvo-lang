@@ -196,13 +196,13 @@ and the function identities that fill them — is
 [Implicit parameters](Implicit-Parameters.md).
 
 A keyed container is the same story, and its **constructor asks for the
-identity**: `set_of` takes `?Hashed<T>`, `sorted_set_of` takes `?Ordered<T>`,
+identity**: `Set` takes `?Hashed<T>`, `SortedSet` takes `?Ordered<T>`,
 and the pair that resolved lands in the type the call answers. So the ordinary
 case needs nothing —
 
 ```
-let names: Mut Set<Str> = mut_set_of()          // the host's own identity
-let people: Mut Set<Person> = mut_set_of()      // `Person`'s declared pair
+let names: Mut Set<Str> = Mut Set()          // the host's own identity
+let people: Mut Set<Person> = Mut Set()      // `Person`'s declared pair
 ```
 
 — and a container keyed by *something else* passes it, which is the one way to
@@ -214,7 +214,7 @@ fn same_age(a: Person, b: Person) -> Bool => a, b { return a.age == b.age }
 
 // two people of an age are one member here, and the type says so
 let byage: Mut Set<Person>(age_hash, same_age) =
-    mut_set_of(hash = age_hash, eq = same_age)
+    Mut Set(hash = age_hash, eq = same_age)
 ```
 
 An annotation that names a pair does not *choose* it — it has to agree with
@@ -239,10 +239,10 @@ the fix:
 
 ```
 // Refused: `eq` is written here, `hash` would be resolved.
-let s: Mut Set<Point> = mut_set_of(eq = same_age)
+let s: Mut Set<Point> = Mut Set(eq = same_age)
 
 // Written out — now the pair is stated rather than assembled.
-let s: Mut Set<Point> = mut_set_of(hash = age_hash, eq = same_age)
+let s: Mut Set<Point> = Mut Set(hash = age_hash, eq = same_age)
 ```
 
 A function that *holds* an identity says the same thing by taking the whole
@@ -256,7 +256,7 @@ letting the constructor's own slots be filled from it:
 
 ```
 fn gather<T>(a: T, b: T, ?Hashed<T>) -> Set<T> => !a, !b {
-    let s: Mut Set<T> = mut_set_of()
+    let s: Mut Set<T> = Mut Set()
     add(s, a)
     add(s, b)
     return s

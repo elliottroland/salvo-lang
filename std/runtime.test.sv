@@ -187,7 +187,7 @@ test "a gated actor serves its awaited answer before older messages" {
         park_nanos(this_parker(), 50000000)
         answer(t, erase(1))
     }))
-    let log: Mut List<Str> = mut_list_of()
+    let log: Mut List<Str> = Mut List()
     let gated = spawn_body(pool, 4, body_of((kind, slot, msg) -> {
         if kind == 1 {
             let _n: Int = unerase(msg)

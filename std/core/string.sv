@@ -17,7 +17,7 @@ export iterable platform type Str canbe Mut : Iter<self, Char>
 
 // Builds a mutable string from [parts] (concatenated in order). A string
 // *literal* is a `Str`, never a `Mut Str`: mutability is asked for here,
-// mirroring [mut_list_of].
+// mirroring [Mut List].
 export fn mut_str(...parts: Str[]) [] -> Mut Str => parts {
     let out = empty_str()
     for part in parts {
@@ -204,7 +204,7 @@ export fn lines(str: Str) [] -> Mut List<Str> => str {
     if size(parts) > 1 && ends_with(str, "\n") {
         let _end = remove_back(parts, 1)
     }
-    let out = mut_list_of<Str>()
+    let out = Mut List<Str>()
     for p in parts {
         add(out, trim_suffix(p, "\r"))
     }

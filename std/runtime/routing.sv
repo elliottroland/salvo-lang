@@ -186,33 +186,33 @@ struct ViewWaiter {
 
 handler Routes() of RouteTable {
     node_id: Long = 0
-    hosted: Mut Set<Long> = mut_set_of()
-    pool_node: Mut Map<Int, Long> = mut_map_of()
-    bits: Mut Map<Int, Long> = mut_map_of()
-    remote: Mut Map<Int, RemoteRef> = mut_map_of()
-    proxies: Mut Map<RemoteRef, Int> = mut_map_of()
-    credits: Mut Map<Int, Int> = mut_map_of()
+    hosted: Mut Set<Long> = Mut Set()
+    pool_node: Mut Map<Int, Long> = Mut Map()
+    bits: Mut Map<Int, Long> = Mut Map()
+    remote: Mut Map<Int, RemoteRef> = Mut Map()
+    proxies: Mut Map<RemoteRef, Int> = Mut Map()
+    credits: Mut Map<Int, Int> = Mut Map()
     // For a hosted actor, the credits remote senders still hold; for a
     // proxy, the messages in flight to it.
-    held_n: Mut Map<Int, Int> = mut_map_of()
-    routes: Mut Map<Long, Bytes> = mut_map_of()
-    outbound: Mut Set<Long> = mut_set_of()
-    parked: Mut List<Parked> = mut_list_of()
-    outbox: Mut List<Staged> = mut_list_of()
+    held_n: Mut Map<Int, Int> = Mut Map()
+    routes: Mut Map<Long, Bytes> = Mut Map()
+    outbound: Mut Set<Long> = Mut Set()
+    parked: Mut List<Parked> = Mut List()
+    outbox: Mut List<Staged> = Mut List()
     // Exported tasks and their keys, index-aligned: a map of linear values
     // does not build on Rust yet (ROADMAP 0c).
-    task_keys: Mut List<Long> = mut_list_of()
-    tasks: Mut List<ExportedTask> = mut_list_of()
-    controls: Mut Map<ControlKey, Int> = mut_map_of()
+    task_keys: Mut List<Long> = Mut List()
+    tasks: Mut List<ExportedTask> = Mut List()
+    controls: Mut Map<ControlKey, Int> = Mut Map()
     local: List<(Str, Str)> = List<(Str, Str)>()
-    peers: Mut Map<Long, List<(Str, Str)>> = mut_map_of()
+    peers: Mut Map<Long, List<(Str, Str)>> = Mut Map()
     dead_entry: Int = -1
-    credit_waiters: Mut List<Parker> = mut_list_of()
+    credit_waiters: Mut List<Parker> = Mut List()
     // [route-stub] Per group: the member list its replica mirrors, and a
     // version moved by every change and every `refresh`.
-    views: Mut Map<Int, List<Int>> = mut_map_of()
-    versions: Mut Map<Int, Long> = mut_map_of()
-    view_waiters: Mut List<ViewWaiter> = mut_list_of()
+    views: Mut Map<Int, List<Int>> = Mut Map()
+    versions: Mut Map<Int, Long> = Mut Map()
+    view_waiters: Mut List<ViewWaiter> = Mut List()
     next_waiter: Long = 0
 
     init {
@@ -322,7 +322,7 @@ handler Routes() of RouteTable {
     }
 
     fn take_outbox() -> Mut List<Staged> {
-        let out: Mut List<Staged> = mut_list_of()
+        let out: Mut List<Staged> = Mut List()
         while size(outbox) > 0 {
             add(out, remove_at(outbox, 0)!)
         }
@@ -447,7 +447,7 @@ handler Routes() of RouteTable {
     fn forget_node(node: Long) -> List<Int> => node {
         let _route = remove(routes, node)
         let _peer = remove(peers, node)
-        let gone: Mut List<Int> = mut_list_of()
+        let gone: Mut List<Int> = Mut List()
         for idx in keys(remote) {
             let r = get(remote, idx)
             if r is RemoteRef found {
@@ -572,7 +572,7 @@ fn stage_in(routes: Map<Long, Bytes>, outbound: Set<Long>, outbox: Mut List<Stag
 // Frames parked for a route or an outbound hook try again.
 fn restage(routes: Map<Long, Bytes>, outbound: Set<Long>, outbox: Mut List<Staged>, parked: Mut List<Parked>) [] -> None
 => routes, outbound, outbox: Mut, parked: Mut {
-    let waiting: Mut List<Parked> = mut_list_of()
+    let waiting: Mut List<Parked> = Mut List()
     while size(parked) > 0 {
         add(waiting, remove_at(parked, 0)!)
     }
@@ -925,11 +925,11 @@ export fn view_set(group: Int, members: List<Int>) [] -> None => !group, !member
 // [route-stub] The mirrored members of [group], by (node, actor id): the same
 // order on every node and both backends.
 export fn view_members(group: Int) [] -> List<Int> => group {
-    let left: Mut List<Int> = mut_list_of()
+    let left: Mut List<Int> = Mut List()
     for m in view_of(group) {
         add(left, copy(m))
     }
-    let out: Mut List<Int> = mut_list_of()
+    let out: Mut List<Int> = Mut List()
     while size(left) > 0 {
         let best = 0
         let i = 1

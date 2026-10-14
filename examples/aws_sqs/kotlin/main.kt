@@ -133,7 +133,7 @@ fun noQueue(url: String): salvo.aws.sqs.SqsError {
 }
 
 class MemSqs : salvo.aws.sqs.Sqs {
-    var queues: salvo.platform.core.map.MutMap<String, List<String>> = salvo.core.map.mutMapOfPlatform(arrayOf<Pair<String, List<String>>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+    var queues: salvo.platform.core.map.MutMap<String, List<String>> = salvo.core.map.Mut_Map_platform(arrayOf<Pair<String, List<String>>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     override fun createQueue(input: salvo.aws.sqs.CreateQueueInput, reply: salvo.SalvoReply) {
         val url: String = "mem://${input.queueName}"
         if (!(salvo.core.map.containsKeyPlatform(queues, url, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) }))) {

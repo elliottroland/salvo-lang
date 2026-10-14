@@ -77,7 +77,7 @@ fn borrow_then_use() [Console] -> None {
 //
 //   let pair = (ticket, 1)      // `Ticket` is linear, so it cannot be a
 //                              // tuple component
-//   let xs = list_of(ticket)    // a linear value cannot be passed in a
+//   let xs = List(ticket)    // a linear value cannot be passed in a
 //                              // variadic position (untracked)
 //
 // A union arm *may* be linear (narrowing settles it), and so may a container

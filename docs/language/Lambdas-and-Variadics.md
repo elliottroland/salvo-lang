@@ -6,7 +6,7 @@ Functions can take lambdas as arguments, as `mapper` in the following example (t
 
 ```
 fn transform<S, T>(list: List<S>, mapper: (S) -> T) -> List<T> {
-    let result: Mut List<T> = mut_list_of()
+    let result: Mut List<T> = Mut List()
     for s in list {
         // Call `mapper` like a normal function
         add(result, mapper(s))
@@ -24,7 +24,7 @@ fn to_string(int: Int) -> Str {
 }
 
 fn do_something() {
-    let list: List<Int> = list_of(1, 2, 3)
+    let list: List<Int> = List(1, 2, 3)
 
     // The following are all equivalent
     transform(list, to_string) // Pass the function by name

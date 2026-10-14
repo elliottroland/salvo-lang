@@ -178,9 +178,9 @@ fn main() [use] -> None {
     greet(anon)
     // [col-of-nonempty] The constructor claims `NonEmpty`, so `first` answers
     // an element and needs no `!`.
-    let names = list_of("a", "b")
+    let names = List("a", "b")
     println("first: ${names.first()}")
-    let mut_names = mut_list_of("x")
+    let mut_names = Mut List("x")
     mut_names.add("y")
     println("size: ${mut_names.size()}")
 }
@@ -220,7 +220,7 @@ export fn consume(list: List<Int>) -> Int => !list {
 
 export fn main() [use] -> None {
     use StdOutConsole
-    let items: Mut List<Int> = mut_list_of(1, 2)
+    let items: Mut List<Int> = Mut List(1, 2)
     fill(items, 3)
     println("${read(items)}")
     println("${consume(items)}")
@@ -542,8 +542,8 @@ fn lucky_number() [Random<Int>] -> Int {
 
 fn main() [use] {
     use StdOutConsole
-    use CyclicRandom(list_of(10, 20, 30))
-    use CyclicRandom(list_of("a", "b"))
+    use CyclicRandom(List(10, 20, 30))
+    use CyclicRandom(List("a", "b"))
     draw()
     draw()
     println("lucky: ${next_random<Int>()}")
@@ -951,7 +951,7 @@ fn main() [use] -> None {
     let s = "hi"
     let t = copy(s)
     println(t)
-    let xs = mut_list_of(1, 2, 3)
+    let xs = Mut List(1, 2, 3)
     let ys = copy(xs)
     ys.add(4)
     println("${xs.size()} ${ys.size()}")
@@ -1032,12 +1032,12 @@ struct Counter canbe Mut { n: Int }
 
 fn main() [use] {
     use StdOutConsole()
-    let xs: List<Mut Counter> = list_of(Mut Counter { n: 1 })
+    let xs: List<Mut Counter> = List(Mut Counter { n: 1 })
     let ys = copy(xs)
     let e = at(xs, 0)!
     e.n = 5
     println("${get(xs, 0)!.n} ${get(ys, 0)!.n}")
-    let ls = mut_list_of(mut_list_of(1))
+    let ls = Mut List(Mut List(1))
     let ms = copy(ls)
     add(at(ls, 0)!, 2)
     println("${size(get(ls, 0)!)} ${size(get(ms, 0)!)}")
@@ -1082,18 +1082,18 @@ fn total(b: Bag) -> Int => b {
 
 fn main() [use] -> None {
     use StdOutConsole()
-    let b = Mut Bag { n: 1, items: mut_list_of<Int>(), fixed: mut_list_of<Int>() }
+    let b = Mut Bag { n: 1, items: Mut List<Int>(), fixed: Mut List<Int>() }
     add(b.items, 3)
     fill(b)
     let c = copy(b)
     add(c.items, 4)
     add(c.fixed, 9)
     println("${size(b.items)} ${size(c.items)} ${size(b.fixed)} ${size(c.fixed)} ${total(b)}")
-    let p = Bag { n: 0, items: list_of(1, 2), fixed: mut_list_of<Int>() }
+    let p = Bag { n: 0, items: List(1, 2), fixed: Mut List<Int>() }
     let q = copy(p)
     add(q.fixed, 1)
     println("${size(p.fixed)} ${size(q.fixed)} ${total(p)}")
-    let o = Mut Outer { bag: Mut Bag { n: 0, items: mut_list_of<Int>(), fixed: mut_list_of<Int>() }, tag: "t" }
+    let o = Mut Outer { bag: Mut Bag { n: 0, items: Mut List<Int>(), fixed: Mut List<Int>() }, tag: "t" }
     add(o.bag.items, 5)
     let o2 = copy(o)
     add(o2.bag.items, 6)
@@ -1162,7 +1162,7 @@ struct Ranked<T>(?cmp: (T, T) -> Int) canbe Mut {
 }
 
 fn ranked<T>(?cmp: (T, T) -> Int) [] -> Mut Ranked<T>(?cmp) {
-    return Mut Ranked<T>(?cmp) { items: mut_list_of<T>() }
+    return Mut Ranked<T>(?cmp) { items: Mut List<T>() }
 }
 
 fn push<T>(r: Mut Ranked<T>(?cmp), x: T) [] -> None => r: Mut, !x {
@@ -1258,7 +1258,7 @@ export opaque struct Bag : Eq<self> by auto, ToStr<self> by auto canbe Mut {
 }
 
 export fn bag() [] -> Mut Bag {
-    return Mut Bag { items: mut_list_of<Int>(), total: 0 }
+    return Mut Bag { items: Mut List<Int>(), total: 0 }
 }
 
 export fn put(b: Mut Bag, x: Int) [] -> None => b: Mut, !x {
@@ -1343,11 +1343,11 @@ fn to_str(p: Point) [] -> Str => p {
 
 fn main() [use] -> None {
     use StdOutConsole()
-    let a = Bag<Int> { items: list_of(1, 2), n: 0 }
-    let b = Bag<Int> { items: list_of(2, 1), n: 5 }
+    let a = Bag<Int> { items: List(1, 2), n: 0 }
+    let b = Bag<Int> { items: List(2, 1), n: 5 }
     println("${a == b} ${a}")
     let p = Point { x: 1, y: 2 }
-    let s = set_of(p, Point { x: 1, y: 2 })
+    let s = Set(p, Point { x: 1, y: 2 })
     println("${p} ${size(s)}")
 }
 "#;
@@ -1448,12 +1448,12 @@ fn consume(text: Str) -> None => !text {
 
 fn main() [use] -> None {
     use StdOutConsole
-    let people = list_of(Person {name: "Ada", age: 36}, Person {name: "Grace", age: 45})
+    let people = List(Person {name: "Ada", age: 36}, Person {name: "Grace", age: 45})
     println(longest_name(people))
-    for s in list_of("x", "y") {
+    for s in List("x", "y") {
         consume(s)
     }
-    let xs = mut_list_of(1, 2)
+    let xs = Mut List(1, 2)
     let ys = xs
     ys.add(3)
     println("${ys.size()}")
@@ -1542,7 +1542,7 @@ fn count_long(persons: List<Person>) -> Int => persons {
 }
 
 fn poison_guards_the_borrow() -> Int {
-    let xs = mut_list_of(1, 2)
+    let xs = Mut List(1, 2)
     let ys = xs
     let n = size(ys)
     add(xs, 9)
@@ -1551,7 +1551,7 @@ fn poison_guards_the_borrow() -> Int {
 
 fn main() [use] -> None {
     use StdOutConsole
-    let people = list_of(Person {name: "Ada", age: 36}, Person {name: "Grace", age: 45})
+    let people = List(Person {name: "Ada", age: 36}, Person {name: "Grace", age: 45})
     println("${count_long(people)}")
     println("${poison_guards_the_borrow()}")
 }
@@ -1749,7 +1749,7 @@ fn consume_list(v: List<Int>) [Console] -> None => !v {
 
 fn main() [use] -> None {
     use StdOutConsole
-    let xs = list_of(1, 2, 3)
+    let xs = List(1, 2, 3)
     let g = () -> { consume_list(xs) }
     run_once(g)
     let n = 7
@@ -1814,7 +1814,7 @@ fn head_of(persons: List<Person>, tag: Str) -> proj(persons) Person? => persons,
 
 fn main() [use] -> None {
     use StdOutConsole
-    let people = list_of(Person {name: "Kid", age: 9}, Person {name: "Grace", age: 45})
+    let people = List(Person {name: "Kid", age: 9}, Person {name: "Grace", age: 45})
     let adult = find_adult(people)
     if adult is Person a {
         println("adult: ${a.name}")
@@ -1900,7 +1900,7 @@ fn count(people: List<Person>) -> Int => people {
 
 fn main() [use] -> None {
     use StdOutConsole
-    let people = list_of(Person {name: "Ada", age: 36}, Person {name: "Grace", age: 45})
+    let people = List(Person {name: "Ada", age: 36}, Person {name: "Grace", age: 45})
     let twice = apply_keeping((v: List<Person>) -> { return size(v) }, people)
     println("twice=${twice}")
     println("still=${size(people)}")
@@ -2926,7 +2926,7 @@ handler PrefixLogger(prefix: Str, level: Int) [Console] of Logger {
 }
 
 handler MemSink of Sink {
-    held: Mut List<Int> = mut_list_of()
+    held: Mut List<Int> = Mut List()
     fn keep(items: Mut List<Int>) -> None => !items { held = items }
     fn kept() -> Int { return size(held) }
 }
@@ -2939,7 +2939,7 @@ handler MemCounter of Counter {
 
 fn tallied(text: Str) [Console, use] -> None => text {
     use MemSink
-    let xs: Mut List<Int> = mut_list_of()
+    let xs: Mut List<Int> = Mut List()
     add(xs, size(text))
     keep(xs)
     println("  tallied ${kept()}")
@@ -2966,7 +2966,7 @@ fn main() [use] -> None {
     let i = 0
     while i < 2 {
         use MemSink
-        let ys: Mut List<Int> = mut_list_of()
+        let ys: Mut List<Int> = Mut List()
         add(ys, copy(i))
         keep(ys)
         report("loop ${kept()}")
@@ -3444,7 +3444,7 @@ fn roll() [Random<Count>] -> Count {
 
 fn main() [use] -> None {
     use StdOutConsole
-    use CyclicRandom(list_of(7, 8))
+    use CyclicRandom(List(7, 8))
     println("${roll()} ${roll()}")
 }
 "#;
@@ -3735,13 +3735,13 @@ fn describe(l: Trusted List<Int>) -> Str {
 
 fn main() [use] -> None {
     use StdOutConsole()
-    let t = trust(mut_list_of(1, 2))
+    let t = trust(Mut List(1, 2))
     t.add(3)
     println(describe(t))
-    let c = check(mut_list_of(1, 2))
+    let c = check(Mut List(1, 2))
     c.add(3)
     println(describe(c))
-    let c2 = check(mut_list_of(4, 5))
+    let c2 = check(Mut List(4, 5))
     println(describe(c2))
 }
 "#;
@@ -4659,10 +4659,10 @@ fn shout(word: Str) -> Str {
 
 fn main() [use] {
     use StdOutConsole()
-    let ns = list_of(1, 2)
+    let ns = List(1, 2)
     for v in map(iter(copy(ns)), n -> n * 2) { println("bare=${v}") }
     for v in map(iter(ns), (n: Int) -> n * 3) { println("ann=${v}") }
-    let ws = list_of("hi")
+    let ws = List("hi")
     for w in map(iter(copy(ws)), (s: Str) -> shout(s)) { println("str=${w}") }
     for w in map(iter(copy(ws)), shout) { println("named=${w}") }
     for n in map(iter(ws), s -> size(s)) { println("size=${n}") }
@@ -4744,7 +4744,7 @@ fn is_even(n: Int) -> Bool {
 
 fn main() [use] -> None {
     use StdOutConsole()
-    let xs = list_of(1, 2, 3, 4)
+    let xs = List(1, 2, 3, 4)
     let doubled = map(xs, double)
     println("eager ${doubled.size()}")
     let generic = map(iter(copy(xs)), double)
@@ -4752,9 +4752,9 @@ fn main() [use] -> None {
     let snapshot = copy(xs)
     let kept = filter(iter(snapshot), is_even)
     println("kept ${kept.size()}")
-    let out = map_to(mut_list_of<Int>(), iter(copy(xs)), double)
+    let out = map_to(Mut List<Int>(), iter(copy(xs)), double)
     println("sink ${out.size()}")
-    let chained = filter_to(map_to(mut_list_of<Int>(), iter(copy(xs)), double), iter(xs), is_even)
+    let chained = filter_to(map_to(Mut List<Int>(), iter(copy(xs)), double), iter(xs), is_even)
     println("chained ${chained.size()}")
 }
 "#;
@@ -5036,7 +5036,7 @@ iter fn iter(r: Rolls) [Random<Int>] -> Emitted Int | Finished {
 fn main() [use] {
     use StdOutConsole()
     use CyclicRandom(array_of(7, 8, 9))
-    let xs = list_of(1, 2, 3, 4)
+    let xs = List(1, 2, 3, 4)
     let p = slice(xs)
     println("first ${take(p, 2)}")
     println("rest ${take(p, 9)}")
@@ -5117,7 +5117,7 @@ fn next<T>(p: Mut Slice<T>) -> Emitted (proj(p) T) | Finished => p: Mut {
 }
 
 fn map2<It, T, U>(it: Mut It, mapper: (T) -> U, ?Yield<It, T>) -> Mut List<U> => it: Mut, mapper {
-    let out = mut_list_of<U>()
+    let out = Mut List<U>()
     let going = true
     while going {
         let step = next(it)
@@ -5139,7 +5139,7 @@ fn double(n: Int) -> Int {
 
 fn main() [use] {
     use StdOutConsole()
-    let xs = list_of(1, 2, 3)
+    let xs = List(1, 2, 3)
     let doubled = map2(slice(xs), double)
     for d in doubled {
         println("d ${d}")
@@ -5214,8 +5214,8 @@ fn sum_pair<T>(a: T, b: T, ?add: (T, T) -> T) -> T {
 
 fn main() [use] {
     use StdOutConsole()
-    println("total=${total(list_of(1, 2, 3))}")
-    println("product=${total(list_of(2, 3, 4), add = times, zero = one)}")
+    println("total=${total(List(1, 2, 3))}")
+    println("product=${total(List(2, 3, 4), add = times, zero = one)}")
     // [col-of-nonempty] Literals rather than constructor calls: the element
     // constructors claim `NonEmpty`, and a `List<NonEmpty List<Int>>` does not
     // fit a `List<List<Int>>` position (type arguments are invariant). A literal
@@ -5668,7 +5668,7 @@ fn main() [use] {
     println("cmp: ${cmp(p, q)} ${cmp(q, p)} ${cmp(p, p)}")
     println("eq: ${p == q} ${p == Point { x: 1, y: 2 }}")
     println("hash agrees: ${hash(p) == hash(Point { x: 1, y: 2 })}")
-    let s: Set<Point> = set_of(p, q, Point { x: 1, y: 2 })
+    let s: Set<Point> = Set(p, q, Point { x: 1, y: 2 })
     println("set size: ${size(s)}")
     let a: Source = Manual { note: "m" }
     let b: Source = Imported { feed: "f", n: 3 }
@@ -5806,7 +5806,7 @@ fn by_name(a: Person, b: Person) [] -> Int => a, b {
 // [cmp-binder] Here the binder is an implicit parameter the fn declares, so
 // resolution fills it and the result type publishes what it chose.
 fn empty_ranked<T>(?cmp: (T, T) -> Int) -> +Ranked<T>(?cmp) Mut List<T> {
-    return mut_list_of()
+    return Mut List()
 }
 
 // [cmp-binder] And here it is captured from the argument's type: nothing is
@@ -5891,14 +5891,14 @@ fn lowest<T>(s: SortedSet<T>) -> T? => s {
 
 fn main() [use] {
     use StdOutConsole()
-    let byname = sorted_set_of(
+    let byname = SortedSet(
         Person {name: "Cyd", age: 31},
         Person {name: "Ada", age: 36},
         Person {name: "Bob", age: 24}
     )
     // [cmp-binder] The ordering is **passed**: what fills the binder decides
     // what the container carries (user decision 2026-09-26).
-    let byage: SortedSet<Person>(by_age) = sorted_set_of(
+    let byage: SortedSet<Person>(by_age) = SortedSet(
         Person {name: "Cyd", age: 31},
         Person {name: "Ada", age: 36},
         Person {name: "Bob", age: 24},
@@ -5910,8 +5910,8 @@ fn main() [use] {
     // `cmp`-distinct membership: a second 24-year-old is the same member under
     // `by_age`, and its own member under the canonical ordering.
     let twin = Person {name: "Eve", age: 24}
-    let grown_age: Mut SortedSet<Person>(by_age) = mut_sorted_set_of(cmp = by_age)
-    let grown_name: Mut SortedSet<Person> = mut_sorted_set_of()
+    let grown_age: Mut SortedSet<Person>(by_age) = Mut SortedSet(cmp = by_age)
+    let grown_name: Mut SortedSet<Person> = Mut SortedSet()
     add(grown_age, Person {name: "Bob", age: 24})
     add(grown_name, Person {name: "Bob", age: 24})
     println("twin ${add(grown_age, copy(twin))} ${add(grown_name, twin)}")
@@ -5946,7 +5946,7 @@ fn tally<K, V>(m: Map<K, V>) -> Int => m {
 
 fn main() [use] {
     use StdOutConsole()
-    let seen = set_of(1, 2, 3)
+    let seen = Set(1, 2, 3)
     let ages: Map<Str, Int> = Map("ada": 36, "bob": 24)
     println("has ${has(seen, 2)} ${has(seen, 9)} of ${tally(ages)}")
     println("map ${to_str(ages)}")
@@ -5986,11 +5986,11 @@ fn tally<T>(s: Set<T>) -> Int => s {
 
 fn main() [use] {
     use StdOutConsole()
-    let all: Mut Set<Person> = mut_set_of()
+    let all: Mut Set<Person> = Mut Set()
     // [cmp-binder] The pair is **passed**, never inferred from the annotation:
     // what fills the binder decides what the container is keyed by (user
     // decision 2026-09-26 — one way to choose an identity).
-    let byage: Mut Set<Person>(age_hash, same_age) = mut_set_of(hash = age_hash, eq = same_age)
+    let byage: Mut Set<Person>(age_hash, same_age) = Mut Set(hash = age_hash, eq = same_age)
     let bob = Person {name: "Bob", age: 24}
     add(all, copy(bob))
     add(byage, bob)
@@ -6180,8 +6180,8 @@ fn main() [use] {
     for n in countdown(3) {
         println("n ${n}")
     }
-    let names = list_of("ada", "grace", "alan")
-    let ages = list_of(36, 45)
+    let names = List("ada", "grace", "alan")
+    let ages = List(36, 45)
     for pair in zip(names, ages) {
         println("${pair.0} is ${pair.1}")
     }
@@ -6268,12 +6268,12 @@ fn read_all(lines: List<Str>) [Throw<Str>, Console] -> Int
 
 fn main() [use] {
     use StdOutConsole()
-    let good = try { read_all(list_of("alpha", "beta")) }
+    let good = try { read_all(List("alpha", "beta")) }
     when good {
         is Ok { println("read ${good}") }
         is Thrown { println("failed: ${good}") }
     }
-    let bad = try { read_all(list_of("alpha", "boom", "gamma")) }
+    let bad = try { read_all(List("alpha", "boom", "gamma")) }
     when bad {
         is Ok { println("read ${bad}") }
         is Thrown { println("failed: ${bad}") }
@@ -6404,20 +6404,20 @@ iter fn iter(f: Flat) -> Emitted Int | Finished {
 
 fn main() [use] {
     use StdOutConsole()
-    let base = list_of(1, 2)
+    let base = List(1, 2)
     let p: Mut ListYield<Int>? = iter(base)
     if p is Mut ListYield<Int> {
         show(next(p))
         show(next(p))
         show(next(p))
     }
-    let qs = list_of(7, 8)
+    let qs = List(7, 8)
     let q: Mut ListYield<Int> | Int = iter(qs)
     if q is Mut ListYield<Int> {
         show(next(q))
         show(next(q))
     }
-    let rs = list_of(1, 2, 3)
+    let rs = List(1, 2, 3)
     let r: Mut ListYield<Int>? = iter(rs)
     if r is Mut ListYield<Int> {
         r.at = 2
@@ -6508,7 +6508,7 @@ effect Bag {
 }
 
 handler Holder of Bag {
-    held: Ok Mut List<Int> | Err Str = ok(mut_list_of(0))
+    held: Ok Mut List<Int> | Err Str = ok(Mut List(0))
 
     fn stash(n: Int) -> None {
         if held is ^Ok {
@@ -6536,27 +6536,27 @@ fn main() [use] {
     use StdOutConsole()
     use Holder()
 
-    let a: Mut List<Int>? = mut_list_of(1)
+    let a: Mut List<Int>? = Mut List(1)
     if a is Mut { add(a, 9) }
     if a is Mut { println("var ${to_str(a)}") }
 
-    let b = Mut Shelf { items: mut_list_of(1) }
+    let b = Mut Shelf { items: Mut List(1) }
     if b.items is Mut { add(b.items, 9) }
     if b.items is Mut { println("field ${to_str(b.items)}") }
 
-    let c: Ok Mut List<Int> | Err Str = ok(mut_list_of(1))
+    let c: Ok Mut List<Int> | Err Str = ok(Mut List(1))
     if c is ^Ok { add(c, 9) }
     if c is ^Ok { println("widen ${to_str(c)}") }
 
-    let d: Ok Mut List<Int> | Err Str = ok(mut_list_of(1))
+    let d: Ok Mut List<Int> | Err Str = ok(Mut List(1))
     when d { is Ok { add(d, 9) } is Err { } }
     if d is ^Ok { println("when ${to_str(d)}") }
 
-    let e: Ok Mut List<Int> | Err Str | None = ok(mut_list_of(1))
+    let e: Ok Mut List<Int> | Err Str | None = ok(Mut List(1))
     if e is ^Ok { add(e, 9) }
     if e is ^Ok { println("nullable ${to_str(e)}") }
 
-    println("moved ${eat(ok(mut_list_of(1)))}")
+    println("moved ${eat(ok(Mut List(1)))}")
     stash(5)
     println("state ${dump()}")
 }
@@ -6632,7 +6632,7 @@ fn bump(o: Ok Mut List<Int> | Err Str) [] -> None {
 
 fn main() [use] {
     use StdOutConsole()
-    let r: Ok Mut List<Int> | Err Str = ok(mut_list_of(1))
+    let r: Ok Mut List<Int> | Err Str = ok(Mut List(1))
     bump(r)
     bump(r)
     if r is ^Ok {
@@ -6735,7 +6735,7 @@ fn main() [use] {
     use StdOutConsole()
     describe(7)
     describe(0)
-    read_only(mut_list_of(1, 2, 3))
+    read_only(Mut List(1, 2, 3))
 }
 "#;
 
@@ -7174,7 +7174,7 @@ fn refill(list: Mut NonEmpty List<Int>, value: Int) -> None => list: Mut NonEmpt
 
 fn main() [use] {
     use StdOutConsole()
-    let xs: Mut List<Int> = mut_list_of()
+    let xs: Mut List<Int> = Mut List()
     add(xs, 1)
     println("after add: ${count(xs)}")
     refill(xs, 2)
@@ -7221,7 +7221,7 @@ fn rustc_compiles_and_runs_a_refined_program() {
 const REDUNDANT_SELECTOR_DEMO: &str = r#"
 fn main() [use] {
     use StdOutConsole()
-    let xs: Mut List<Int> = mut_list_of()
+    let xs: Mut List<Int> = Mut List()
     add(xs, 1)
     add(xs, 2)
     // `@core.list` changes nothing here: there is one `size` that fits and
@@ -7503,7 +7503,7 @@ fn main() [use] {
     println("${n!} ${bad is None}")
     println("${trim_prefix(hay, hay)}${trim_suffix(hay, lo)}|")
 
-    let count = mut_list_of<Int>()
+    let count = Mut List<Int>()
     for c in iter(hay) {
         add(count, 1)
     }
@@ -7591,7 +7591,7 @@ export fn main() [use] {
     use StdOutConsole()
     let parts = array_of("a", "b")
     let sb = mut_str(...parts)
-    let xs = set_of(...parts)
+    let xs = Set(...parts)
     println("${sb} ${size(xs)}")
 }
 "#;
@@ -7601,13 +7601,13 @@ export fn main() [use] {
         .find(|f| f.rel_path.to_string_lossy() == "main.rs")
         .expect("main.rs emitted")
         .content;
-    // [col-of-nonempty] `set_of` rather than `list_of`: the list constructors
+    // [col-of-nonempty] `Set` rather than `List`: the list constructors
     // now have a *first* parameter, which a spread may not supply
     // [fn-variadic], so a lone spread reaches the purely variadic intrinsics —
     // which is where this lowering lives anyway.
     assert!(
         main.contains("let mut sb: String = crate::core_string::mut_str(parts.clone());")
-            && main.contains("set_of_platform::<String>(parts.clone(), "),
+            && main.contains("Set_platform::<String>(parts.clone(), "),
         "unexpected:\n{main}"
     );
     run_rust_files(&files, "strings-spread", "ab 2\n");
@@ -7704,7 +7704,7 @@ iter fn iter(n: Naturals) -> Emitted Int | Finished {
 
 fn main() [use] {
     use StdOutConsole()
-    let xs = list_of(1, 2, 3, 4)
+    let xs = List(1, 2, 3, 4)
     let doubled = map(xs, n -> n * 2)
     let sum = reduce(xs, 0, (a, b) -> a + b)
     let big = filter(xs, n -> n > 2)
@@ -7722,11 +7722,11 @@ fn main() [use] {
     let tripled = map(xs, n -> n * 3)
     let chained = filter(iter(tripled), n -> n > 6)
     println("iter: ${lazy_sum} ${size(chained)}")
-    let names = list_of("ann", "bob", "carol")
+    let names = List("ann", "bob", "carol")
     let lens = map(names, n -> size(n))
     let long = filter(names, n -> size(n) > 3)
     println("names: ${size(lens)} ${size(long)}")
-    let bag = Bag {items: list_of(5, 6)}
+    let bag = Bag {items: List(5, 6)}
     println("bag: ${reduce(iter(bag), 0, (a, b) -> a + b)}")
     // [iter-mint] `for` over a *container of one's own*: the loop calls its
     // `iter` once and drives the pass that answers. Until 2026-09-09 the
@@ -7734,7 +7734,7 @@ fn main() [use] {
     // shape emitted code the target compiler rejected.
     // (a second bag, because this demo's `iter` *moves* its container — the
     // one above was consumed by the `reduce`.)
-    let more = Bag {items: list_of(5, 6)}
+    let more = Bag {items: List(5, 6)}
     for n in more {
         println("bag element ${n}")
     }
@@ -7820,7 +7820,7 @@ rename fn label_small = label(n: Small Int)
 
 fn main() [use] {
     use StdOutConsole()
-    let xs = list_of(1, 2, 3)
+    let xs = List(1, 2, 3)
     // Two `size`s fit and neither is more specific, so each call names its
     // place [fn-overload-ambiguous].
     println(size@main(xs))
@@ -8170,9 +8170,9 @@ fn main() [use] {
     use StdOutConsole()
     let c = Countdown { from: 3 }
     println("generated pass: ${total(c)}")
-    let b = Bag { items: list_of(4, 5) }
+    let b = Bag { items: List(4, 5) }
     println("written iter: ${total(b)}")
-    // A literal, not `list_of(1, 2, 3)`: a *qualified* argument type
+    // A literal, not `List(1, 2, 3)`: a *qualified* argument type
     // (`NonEmpty List<Int>` [col-of-nonempty]) currently stops `It` binding
     // through the `?iter` position, and the sibling `next` at the nearer rung
     // then wins — an open defect, with this line as its repro (ROADMAP.md).
@@ -8216,27 +8216,27 @@ fn touch(list: Mut List<Str>) -> None => list: Mut {
 fn main() [use] {
     use StdOutConsole()
     // read one field, mutate another
-    let p = Person { name: "ann", tags: mut_list_of("x") }
+    let p = Person { name: "ann", tags: Mut List("x") }
     let n = p.name
     add(p.tags, "y")
     println("A ${n} ${size(p.tags)}")
 
     // two disjoint mutable fields
-    let q = Pair { left: mut_list_of("l"), right: mut_list_of("r") }
+    let q = Pair { left: Mut List("l"), right: Mut List("r") }
     let l = q.left
     add(q.right, "r2")
     println("C ${size(l)} ${size(q.right)}")
 
     // read a field, hand a disjoint field to a mutating fn
-    let p2 = Person { name: "dee", tags: mut_list_of("x") }
+    let p2 = Person { name: "dee", tags: Mut List("x") }
     let n2 = p2.name
     touch(p2.tags)
     println("D ${n2} ${size(p2.tags)}")
 
     // assignment to a disjoint field
-    let p3 = Mut Person { name: "eve", tags: mut_list_of("x") }
+    let p3 = Mut Person { name: "eve", tags: Mut List("x") }
     let n3 = p3.name
-    p3.tags = mut_list_of("q", "r")
+    p3.tags = Mut List("q", "r")
     println("E ${n3} ${size(p3.tags)}")
 }
 "#;
@@ -8281,20 +8281,20 @@ fn eat(list: Mut List<Str>) -> None => !list {
 fn main() [use] {
     use StdOutConsole()
     // hand one field away, keep reading the other
-    let p = Person { name: "ann", tags: mut_list_of("x") }
+    let p = Person { name: "ann", tags: Mut List("x") }
     eat(p.tags)
     println("1 ${p.name}")
 
     // the same through a move-mode binding
-    let q = Person { name: "bob", tags: mut_list_of("y") }
+    let q = Person { name: "bob", tags: Mut List("y") }
     let t = q.tags
     add(t, "z")
     println("2 ${q.name} ${size(t)}")
 
     // put the field back, and the whole value works again
-    let u = Mut Person { name: "eve", tags: mut_list_of("t") }
+    let u = Mut Person { name: "eve", tags: Mut List("t") }
     eat(u.tags)
-    u.tags = mut_list_of("new", "pair")
+    u.tags = Mut List("new", "pair")
     println("3 ${u.name} ${size(u.tags)}")
 }
 "#;
@@ -8374,7 +8374,7 @@ fn main() [use] {
     // Annotated to a plain list: the element constructor claims `NonEmpty`
     // [col-of-nonempty], and on a non-empty list `first` answers an element
     // rather than the optional this case is about.
-    let people: List<Person> = list_of(Person { name: "ann" }, Person { name: "bob" })
+    let people: List<Person> = List(Person { name: "ann" }, Person { name: "bob" })
     let head = first(people)
     if head is None {
         return
@@ -8425,11 +8425,11 @@ iter fn iter<T>(b: Box<T>) -> Emitted (proj(b) T) | Finished {
 
 fn main() [use] {
     use StdOutConsole()
-    let b = Box<Str> { items: list_of("a", "b") }
+    let b = Box<Str> { items: List("a", "b") }
     for s in iter(b) {
         println(s)
     }
-    let n = Box<Int> { items: list_of(1, 2, 3) }
+    let n = Box<Int> { items: List(1, 2, 3) }
     println("${reduce(iter(n), 0, (acc, x) -> acc + x)}")
 }
 "#;
@@ -8470,8 +8470,8 @@ fn either(a: List<Int>, b: List<Int>, flag: Bool) -> proj(a, b) List<Int> {
 
 fn main() [use] {
     use StdOutConsole()
-    let a = list_of(1, 2)
-    let b = list_of(3, 4, 5)
+    let a = List(1, 2)
+    let b = List(3, 4, 5)
     println("${size(either(a, b, true))} ${size(either(a, b, false))}")
     let v = view(a)
     repoint(v, b)
@@ -8504,7 +8504,7 @@ fn show(step: Emitted (proj Str) | Finished) [Console] -> None {
 
 fn main() [use] {
     use StdOutConsole()
-    let words = list_of("ann", "bo")
+    let words = List("ann", "bo")
     let p = iter(words)
     show(next(p))
     show(next(p))
@@ -8535,8 +8535,8 @@ fn rustc_compiles_and_runs_a_borrowed_union_arm_into_a_proj_parameter() {
 const PICK_LIST_DEMO: &str = r#"
 fn main() [use] {
     use StdOutConsole()
-    let all = list_of("a", "b", "c", "d")
-    let indices = list_of(1, 3)
+    let all = List("a", "b", "c", "d")
+    let indices = List(1, 3)
     let picked = map(indices, i -> get(all, i)!)
     for w in picked {
         println(w)
@@ -8773,7 +8773,7 @@ const COLLECTIONS_DEMO: &str = r#"
 fn main() [use] -> None {
     use StdOutConsole()
 
-    let s: Mut Set<Str> = mut_set_of("b", "a", "c")
+    let s: Mut Set<Str> = Mut Set("b", "a", "c")
     println("set: ${to_str(s)} size: ${size(s)}")
     let added_new = add(s, "d")
     let added_dup = add(s, "a")
@@ -8782,10 +8782,10 @@ fn main() [use] -> None {
     let gone = remove(s, "a")
     let gone_again = remove(s, "a")
     println("contains: ${has_a} remove: ${gone} again: ${gone_again} left: ${to_str(s)}")
-    let dedup = set_of(1, 2, 1, 3)
+    let dedup = Set(1, 2, 1, 3)
     println("dedup: ${to_str(dedup)} size: ${size(dedup)}")
 
-    let m: Mut Map<Str, Int> = mut_map_of(("one", 1), ("two", 2))
+    let m: Mut Map<Str, Int> = Mut Map(("one", 1), ("two", 2))
     put(m, "three", 3)
     println("map: ${to_str(m)}")
     put(m, "one", 111)
@@ -8802,9 +8802,9 @@ fn main() [use] -> None {
     }
     let has_one = contains_key(m, "one")
     println("contains_key: ${has_one} size: ${size(m)}")
-    let dup_keys = map_of(("x", 1), ("y", 2), ("x", 9))
+    let dup_keys = Map(("x", 1), ("y", 2), ("x", 9))
     println("dup keys: ${to_str(dup_keys)}")
-    let ints: Mut Map<Int, Str> = mut_map_of()
+    let ints: Mut Map<Int, Str> = Mut Map()
     put(ints, 7, "seven")
     put(ints, 3, "three")
     println("int keys: ${to_str(ints)}")
@@ -8864,7 +8864,7 @@ fn the_collections_are_std_host_types() {
 const COLLECTION_ITER_DEMO: &str = r#"
 fn main() [use] -> None {
     use StdOutConsole()
-    let s = set_of("b", "a", "c")
+    let s = Set("b", "a", "c")
     for e in iter(s) {
         println("elem: ${e}")
     }
@@ -8873,7 +8873,7 @@ fn main() [use] -> None {
     let n: Int = reduce(iter(s), 0, (acc, e) -> acc + size(e))
     println("total length: ${n}")
 
-    let m = map_of(("one", 1), ("two", 2), ("three", 3))
+    let m = Map(("one", 1), ("two", 2), ("three", 3))
     for k in iter(m) {
         let v = get(m, k)
         if v is Int {
@@ -8884,7 +8884,7 @@ fn main() [use] -> None {
     let total: Int = reduce(iter(m), 0, (acc, k) -> acc + size(k))
     println("key length total: ${total}")
 
-    let empty: Set<Int> = set_of()
+    let empty: Set<Int> = Set()
     for e in iter(empty) {
         println("unreachable ${e}")
     }
@@ -9055,7 +9055,7 @@ fn rustc_compiles_and_runs_equality_and_ordering() {
 const SORTED_DEMO: &str = r#"
 fn main() [use] -> None {
     use StdOutConsole()
-    let s: Mut SortedSet<Str> = mut_sorted_set_of("pear", "apple", "fig")
+    let s: Mut SortedSet<Str> = Mut SortedSet("pear", "apple", "fig")
     println("set: ${to_str(s)}")
     let added = add(s, "banana")
     let dup = add(s, "apple")
@@ -9068,10 +9068,10 @@ fn main() [use] -> None {
     println("min ${lo} max ${hi}")
     let had = remove(s, "fig")
     println("removed ${had} left ${to_str(s)} size ${size(s)}")
-    let ns = sorted_set_of(10, 2, 33, 4)
+    let ns = SortedSet(10, 2, 33, 4)
     println("ints ${to_str(ns)} list ${to_str(to_list(ns))}")
 
-    let m: Mut SortedMap<Str, Int> = mut_sorted_map_of(("two", 2), ("one", 1))
+    let m: Mut SortedMap<Str, Int> = Mut SortedMap(("two", 2), ("one", 1))
     put(m, "three", 3)
     println("map ${to_str(m)}")
     let v = get(m, "two")
@@ -9133,7 +9133,7 @@ const CODEPOINT_DEMO: &str = r#"
 fn main() [use] -> None {
     use StdOutConsole()
     let bmp = "Ａ"
-    let s = sorted_set_of("😀", "Ａ")
+    let s = SortedSet("😀", "Ａ")
     let first = min(s)
     if first is Str {
         let is_bmp = first == bmp
@@ -9225,23 +9225,23 @@ fn main() [use] {
 
     // NonEmpty by construction: the element constructor requires a first, so
     // `first` answers with an element, not `Int?` [col-of-nonempty].
-    let built = list_of(10, 20)
+    let built = List(10, 20)
     println("built ${first(built)}")
 
     // NonEmpty by refinement: `add` establishes the claim on the qualifier's
     // behalf, so `first` resolves to the same overload.
-    let grown: Mut List<Int> = mut_list_of()
+    let grown: Mut List<Int> = Mut List()
     add(grown, 7)
     println("grown ${first(grown)}")
 
     // NonEmpty by test.
-    let maybe = list_of(1, 2)
+    let maybe = List(1, 2)
     if maybe is NonEmpty {
         println("tested ${first(maybe)}")
     }
 
     // Sorted, minted by `sort`; equal elements answer the lowest index.
-    let ordered = sort(list_of(5, 1, 4, 1, 3))
+    let ordered = sort(List(5, 1, 4, 1, 3))
     println("sorted ${to_str(ordered)}")
     if binary_search(ordered, 1) is Int at {
         println("lowest 1 at ${at}")
@@ -9251,51 +9251,51 @@ fn main() [use] {
     }
 
     // add_sorted keeps the claim across the mutation.
-    let live: Mut Sorted List<Int> = mut_sort(list_of(10, 40))
+    let live: Mut Sorted List<Int> = mut_sort(List(10, 40))
     add_sorted(live, 20)
     add_sorted(live, 5)
     println("still sorted ${to_str(live)}")
 
     // Strings order by code point on both backends.
-    let words = sort(list_of("pear", "Apple", "fig"))
+    let words = sort(List("pear", "Apple", "fig"))
     println("words ${to_str(words)}")
 
     // [cmp-carry] …unless the claim names another ordering, which is what the
     // slot is for: `by_len` sorts, and `binary_search` and `add_sorted` are
     // computed with it because the list's *type* carries it. Under the
     // code-point order none of these three lines would come out this way.
-    let bylen = sort(list_of("pear", "fig", "Apple"), cmp = by_len)
+    let bylen = sort(List("pear", "fig", "Apple"), cmp = by_len)
     println("by length ${to_str(bylen)}")
     if binary_search(bylen, "kiwi") is Int at {
         println("a 4-letter word at ${at}")
     }
-    let growing: Mut Sorted List<Str> = mut_sort(list_of("pear", "fig", "Apple"), cmp = by_len)
+    let growing: Mut Sorted List<Str> = mut_sort(List("pear", "fig", "Apple"), cmp = by_len)
     add_sorted(growing, "durian")
     println("still by length ${to_str(growing)}")
 
     // Distinct, minted by a set.
-    let unique = to_list(set_of(3, 1, 3, 2))
+    let unique = to_list(Set(3, 1, 3, 2))
     println("distinct ${to_str(unique)} of ${count_unique(unique)}")
 
     // [qual-overload] The same claim over four more subjects: `NonEmpty` is
     // one name whose meaning the subject decides.
-    let seen: Mut Set<Str> = mut_set_of()
+    let seen: Mut Set<Str> = Mut Set()
     add(seen, "a")
     if seen is NonEmpty {
         println("set claim ${size(seen)}")
     }
-    let tally: Mut Map<Str, Int> = mut_map_of()
+    let tally: Mut Map<Str, Int> = Mut Map()
     put(tally, "k", 1)
     if tally is NonEmpty {
         println("map claim ${size(tally)}")
     }
-    let ranked = sorted_set_of(30, 10, 20)
+    let ranked = SortedSet(30, 10, 20)
     if ranked is NonEmpty {
         let lo = min(ranked)
         let hi = max(ranked)
         println("sorted claim ${lo}..${hi}")
     }
-    let bykey = sorted_map_of(("b", 2), ("a", 1))
+    let bykey = SortedMap(("b", 2), ("a", 1))
     if bykey is NonEmpty {
         let fk = first_key(bykey)
         println("sorted map claim ${fk}")
@@ -9341,7 +9341,7 @@ fn main() [use] {
 
     // [col-bounds] A total exchange, and the one positional write a list of
     // obligations can have: nothing enters, nothing leaves, nothing is dropped.
-    let xs: Mut List<Str> = mut_list_of("a", "b", "c")
+    let xs: Mut List<Str> = Mut List("a", "b", "c")
     println("swapped ${detach(swap(xs, 0, 2))} ${to_str(xs)}")
     println("in place ${detach(swap(xs, 1, 1))} ${to_str(xs)}")
     println("past the end ${detach(swap(xs, 0, 3))} ${to_str(xs)}")
@@ -9369,7 +9369,7 @@ fn main() [use] {
     println("byte past the end ${set(buf, 2, to_byte(9))} ${to_hex(buf)}")
 
     // The heap's own move, in the spelling it uses [fn-dot].
-    let heap: Mut List<Int> = mut_list_of(5, 9, 7)
+    let heap: Mut List<Int> = Mut List(5, 9, 7)
     ignore(heap.swap(0, 2))
     println("sifted ${to_str(heap)}")
 }
@@ -9414,7 +9414,7 @@ pub const HEAP_DEMO: &str = r#"
 export qualifier Heap<T>(?cmp: (T, T) -> Int) of List<T>
 
 export fn empty_heap<T>(?cmp: (T, T) -> Int) [] -> +Heap<T>(?cmp) Mut List<T> {
-    return mut_list_of()
+    return Mut List()
 }
 
 // [deduce-reapply] **Establishing** the claim rather than keeping one: `list`
@@ -9524,7 +9524,7 @@ fn main() [use] {
     // A list nobody claimed anything about, made a heap by a function that
     // establishes the claim [deduce-reapply] — and then read by the same
     // surface, which only accepts a heap.
-    let raw: Mut List<Int> = mut_list_of(8, 2, 6, 4)
+    let raw: Mut List<Int> = Mut List(8, 2, 6, 4)
     heapify(raw)
     heap_push(raw, 3)
     drain_heap(raw)
@@ -9563,7 +9563,7 @@ fn a_mixed_variadic_tail_is_assembled_once() {
 export fn main() [use] {
     use StdOutConsole()
     let rest = array_of(2, 3)
-    let all = list_of(1, ...rest)
+    let all = List(1, ...rest)
     println("${size(all)}")
 }
 "#;
@@ -9602,21 +9602,21 @@ fn join_all(sep: Str, ...parts: Str[]) [Console] -> None => sep, parts {
 fn main() [use] {
     use StdOutConsole()
     let rest = array_of(2, 3)
-    let all = list_of(1, ...rest)
-    println("list_of ${to_str(all)}")
+    let all = List(1, ...rest)
+    println("List ${to_str(all)}")
 
     // The spread source is still usable: a variadic position is not tracked,
     // so the store clones rather than moves.
     println("reusable ${size(rest)}")
 
-    let s = set_of(9, ...rest)
-    println("set_of ${to_str(s)}")
-    let sorted = sorted_set_of(9, ...rest)
-    println("sorted_set_of ${to_str(sorted)}")
+    let s = Set(9, ...rest)
+    println("Set ${to_str(s)}")
+    let sorted = SortedSet(9, ...rest)
+    println("SortedSet ${to_str(sorted)}")
 
     let pairs = array_of(("b", 2))
-    let m = map_of(("a", 1), ...pairs)
-    println("map_of ${to_str(m)}")
+    let m = Map(("a", 1), ...pairs)
+    println("Map ${to_str(m)}")
 
     let words = array_of("b", "c")
     let joined = mut_str("a", ...words)
@@ -9624,18 +9624,18 @@ fn main() [use] {
     join_all("ordinary", "x", ...words)
 
     // A lone spread still forwards the whole collection — into a purely
-    // variadic constructor. `list_of` is not one any more [col-of-nonempty]:
+    // variadic constructor. `List` is not one any more [col-of-nonempty]:
     // its element shape takes a *first*, which a spread may not supply.
-    let lone = set_of(...rest)
+    let lone = Set(...rest)
     println("lone ${to_str(lone)}")
 }
 "#;
 
-pub const MIXED_SPREAD_OUTPUT: &str = "list_of [1, 2, 3]\n\
+pub const MIXED_SPREAD_OUTPUT: &str = "List [1, 2, 3]\n\
      reusable 2\n\
-     set_of {9, 2, 3}\n\
-     sorted_set_of {2, 3, 9}\n\
-     map_of {a: 1, b: 2}\n\
+     Set {9, 2, 3}\n\
+     SortedSet {2, 3, 9}\n\
+     Map {a: 1, b: 2}\n\
      mut_str abc\n\
      ordinary xbc\n\
      lone {2, 3}\n";
@@ -9655,7 +9655,7 @@ fn rustc_compiles_and_runs_mixed_spread() {
 /// emitted as a plain array instead. Rust is here to hold the parity.
 pub const USER_VARIADIC_DEMO: &str = r#"
 fn count_ints(label: Str, ...ns: Int[]) [Console] -> Int => label, ns {
-    let seen = mut_list_of(0)
+    let seen = Mut List(0)
     for n in iter(ns) {
         add(seen, copy(n))
     }
@@ -10815,7 +10815,7 @@ fn main() [use] {
     println("tally ${read()}")
     // std's own `add`, reached by hand — and std's internals, which call
     // `add(out, x)` inside `map`, reached without the program saying anything.
-    let xs: Mut List<Int> = mut_list_of()
+    let xs: Mut List<Int> = Mut List()
     add@core.list(xs, 7)
     let mapped = map(iter(List(1, 2, 3)), double)
     println("list ${size(xs)} mapped ${size(mapped)}")
@@ -11579,7 +11579,7 @@ handler Echoing() of Echo {
 handler Tracing() [Echo] of Trace {
     mailbox { capacity: 4 }
 
-    steps: Mut List<Str> = mut_list_of()
+    steps: Mut List<Str> = Mut List()
 
     send fn start() {
         ping(replyto! arrived())
@@ -11627,7 +11627,7 @@ actor effect Steps {
 handler Stepping() of Steps {
     mailbox { capacity: 4 }
 
-    steps: Mut List<Str> = mut_list_of()
+    steps: Mut List<Str> = Mut List()
 
     send fn begin(n: Int, out: Reply<Str>) {
         add(steps, "begin ${n}")
@@ -11767,7 +11767,7 @@ actor effect Desk {
 handler Desking() of Desk {
     mailbox { capacity: 8 }
 
-    waiting: Mut List<Reply<Str>> = mut_list_of()
+    waiting: Mut List<Reply<Str>> = Mut List()
 
     send fn ticket(out: Reply<Str>) {
         add(waiting, out)
@@ -11786,7 +11786,7 @@ handler Desking() of Desk {
     // again before the activation ends.
     send fn close_up(reason: Str) {
         drain(waiting, r -> send(r, "closed: ${reason}"))
-        waiting = mut_list_of()
+        waiting = Mut List()
     }
 }
 
@@ -11879,7 +11879,7 @@ actor effect TimerCtl {
 handler ManualTime() of Timer, TimerCtl {
     mailbox { capacity: 8 }
 
-    waiting: Mut List<Reply<Str>> = mut_list_of()
+    waiting: Mut List<Reply<Str>> = Mut List()
     now: Int = 0
 
     send fn after(millis: Int, out: Reply<Str>) {
@@ -11890,7 +11890,7 @@ handler ManualTime() of Timer, TimerCtl {
         now = now + millis
         let at = now
         drain(waiting, r -> send(r, "fired at ${at}"))
-        waiting = mut_list_of()
+        waiting = Mut List()
     }
 
     send fn pending(out: Reply<Int>) {
@@ -12014,7 +12014,7 @@ actor effect Desk {
 handler Desking() of Desk {
     mailbox { capacity: 4 }
 
-    waiting: Mut List<Reply<Str>> = mut_list_of()
+    waiting: Mut List<Reply<Str>> = Mut List()
 
     send fn ask(out: Reply<Str>) {
         add(waiting, out)
@@ -12689,18 +12689,18 @@ fn sum_down(xs: Mut List<Int>) [] -> Int => xs: Mut {
 
 fn main() [use] {
     use StdOutConsole()
-    let a: Mut List<Int> = mut_list_of(1, 2, 3)
+    let a: Mut List<Int> = Mut List(1, 2, 3)
     drain_ints(a)
     println("left ${size(a)}")
 
-    let b: Mut List<Int> = mut_list_of(7, 8)
+    let b: Mut List<Int> = Mut List(7, 8)
     println("first ${first_or(b, 0)} then ${size(b)}")
 
-    let c: Mut List<Int> = mut_list_of(1, 2, 3, 4)
+    let c: Mut List<Int> = Mut List(1, 2, 3, 4)
     println("sum ${sum_down(c)} left ${size(c)}")
 
     // statement `if`: the call happens once, so the list loses exactly one
-    let d: Mut List<Int> = mut_list_of(5, 6)
+    let d: Mut List<Int> = Mut List(5, 6)
     if remove_first(d) is Int n {
         println("one ${n} left ${size(d)}")
     }
@@ -13215,13 +13215,13 @@ actor effect Seen {
 handler Echoing() of Inbound, Seen {
     mailbox { capacity: 16 }
     got: Str = ""
-    waiting: Mut List<Reply<Str>> = mut_list_of()
+    waiting: Mut List<Reply<Str>> = Mut List()
 
     send fn receive_frame(from: NodeEndpoint, frame: Bytes) => !from, !frame {
         got = "${to_str(from)}: ${str_of_bytes(frame) ?: "?"}"
         let text = copy(got)
         drain(waiting, r -> send(r, copy(text)))
-        waiting = mut_list_of()
+        waiting = Mut List()
     }
 
     send fn wait_one(out: Reply<Str>) => !out {
@@ -13627,7 +13627,7 @@ actor effect Reg<E> {
 
 handler Registering<E>() of Reg<E> {
     mailbox { capacity: 8 }
-    all: Mut List<Addr<E>> = mut_list_of()
+    all: Mut List<Addr<E>> = Mut List()
     send fn join(member: Addr<E>) => !member { add(all, member) }
     send fn members(out: Reply<List<Addr<E>>>) => !out { out.send(copy(all)) }
 }
@@ -14318,7 +14318,7 @@ fn main() [use] {
     let maybe: Str? = "hello"
     if contains(maybe!, "ell") { println("found") }
     println("upper ${to_upper(maybe!)}")
-    let xs: Mut List<Int>? = mut_list_of(1)
+    let xs: Mut List<Int>? = Mut List(1)
     add(xs!, 3)
     println("xs ${size(xs!)}")
 }
@@ -14453,7 +14453,7 @@ fn poke(xs: List<Mut Counter>) -> None {
 
 fn main() [use] {
     use StdOutConsole()
-    let xs: List<Mut Counter> = list_of(Mut Counter { n: 1 }, Mut Counter { n: 2 })
+    let xs: List<Mut Counter> = List(Mut Counter { n: 1 }, Mut Counter { n: 2 })
     bump(at(xs, 0)!)
     poke(xs)
     let a = get(xs, 0)!
@@ -14535,7 +14535,7 @@ fn wounded(es: List<Mut Entity>) -> (ref(es) Mut Entity)? {
 
 fn main() [use] {
     use StdOutConsole()
-    let es: List<Mut Entity> = list_of(Mut Entity { hp: 50 }, Mut Entity { hp: 3 })
+    let es: List<Mut Entity> = List(Mut Entity { hp: 50 }, Mut Entity { hp: 3 })
     heal(wounded(es)!)
     println("${get(es, 0)!.hp} ${get(es, 1)!.hp}")
 }
@@ -14605,7 +14605,7 @@ fn heal(e: Mut Entity) -> None => e: Mut {
 
 fn main() [use] {
     use StdOutConsole()
-    let a = Mut A { b: Mut B { c: list_of(Mut Entity { hp: 1 }, Mut Entity { hp: 2 }) } }
+    let a = Mut A { b: Mut B { c: List(Mut Entity { hp: 1 }, Mut Entity { hp: 2 }) } }
     heal(at(a, 1)!)
     let h = at(a, 0)!
     h.hp = h.hp + 100
@@ -14639,7 +14639,7 @@ fn a_mint_into_a_nested_field_paths_through_the_fields() {
 const CMP_DEREF_DEMO: &str = r#"
 fn main() [use] {
     use StdOutConsole()
-    let xs = list_of(10, 20, 30)
+    let xs = List(10, 20, 30)
     let i = 1
     if i is Idx(xs) {
         // A borrowed Copy scalar in a *comparison*: the operand is copied out.
@@ -14700,7 +14700,7 @@ fn damage(e: Mut Entity, n: Int) -> None => e.hp: Mut, n {
 
 fn main() [use] {
     use StdOutConsole()
-    let e = Mut Entity { hp: 20, rings: mut_list_of(Ring { power: 3 }) }
+    let e = Mut Entity { hp: 20, rings: Mut List(Ring { power: 3 }) }
     let rings = e.rings
     damage(e, 5)
     println("${size(rings)} ${e.hp}")
@@ -14752,7 +14752,7 @@ fn add_ring(e: Mut Entity) -> None => e.rings: Mut {
 
 fn main() [use] {
     use StdOutConsole()
-    let e = Mut Entity { hp: 20, rings: mut_list_of(Ring { power: 3 }) }
+    let e = Mut Entity { hp: 20, rings: Mut List(Ring { power: 3 }) }
     let rings = e.rings
     add_ring(e)
     // The handle names the very list that grew: 2 on both backends.
@@ -14786,7 +14786,7 @@ fn attack(c: List<Mut Entity>, a: ref(c) Mut Entity, d: ref(c) Mut Entity) -> No
 
 fn main() [use] {
     use StdOutConsole()
-    let es: List<Mut Entity> = list_of(
+    let es: List<Mut Entity> = List(
         Mut Entity { hp: 10, energy: 5 },
         Mut Entity { hp: 20, energy: 8 })
     let i = 0
@@ -14863,14 +14863,14 @@ fn eq(a: Member, b: Member) -> Bool => a, b {
 
 fn main() [use] -> None {
     use StdOutConsole()
-    let s: Mut Set<Member> = mut_set_of()
+    let s: Mut Set<Member> = Mut Set()
     add(s, Member { id: 1, name: "ann" })
     add(s, Member { id: 1, name: "bob" })
-    let m: Mut Map<Member, Int> = mut_map_of()
+    let m: Mut Map<Member, Int> = Mut Map()
     put(m, Member { id: 2, name: "cyd" }, 1)
     put(m, Member { id: 2, name: "dee" }, 2)
     // …and a container of a primitive still keys by the host's own identity.
-    let words: Mut Set<Str> = mut_set_of()
+    let words: Mut Set<Str> = Mut Set()
     add(words, "a")
     add(words, "a")
     add(words, "b")
@@ -14909,11 +14909,11 @@ export fn by_x(p: Point) -> Long => p {
 
 fn main() [use] -> None {
     use StdOutConsole()
-    let s: Mut Set<Point> = mut_set_of(hash = by_x, eq = eq)
+    let s: Mut Set<Point> = Mut Set(hash = by_x, eq = eq)
     add(s, Point {x: 1, y: 1})
     add(s, Point {x: 1, y: 2})
     add(s, Point {x: 1, y: 1})
-    let m: Mut Map<Point, Int> = mut_map_of(hash = by_x, eq = eq)
+    let m: Mut Map<Point, Int> = Mut Map(hash = by_x, eq = eq)
     put(m, Point {x: 5, y: 0}, 1)
     put(m, Point {x: 5, y: 0}, 2)
     let v = get(m, Point {x: 5, y: 0})
@@ -14952,7 +14952,7 @@ export fn all_same<T>(a: T, b: T) -> Bool => a, b {
 }
 
 fn gather<T>(a: T, b: T, ?Hashed<T>) -> Set<T> => !a, !b {
-    let s: Mut Set<T> = mut_set_of(hash = wide_hash, eq = all_same)
+    let s: Mut Set<T> = Mut Set(hash = wide_hash, eq = all_same)
     add(s, a)
     add(s, b)
     return s
@@ -15004,7 +15004,7 @@ export fn by_x(p: Point) -> Long => p {
 // Holding the *pair* rather than half of it: both members are then forwarded,
 // which is one source.
 fn collect(a: Point, b: Point, ?Hashed<Point>) -> Set<Point> => !a, !b {
-    let s: Mut Set<Point> = mut_set_of()
+    let s: Mut Set<Point> = Mut Set()
     add(s, a)
     add(s, b)
     return s
@@ -15043,7 +15043,7 @@ fn a_written_lambda_at_a_kept_position_moves() {
          x: Int,\n    \
          y: Int\n}\n\
          fn collect(a: Point, ?Hashed<Point>) -> Set<Point> => !a {\n    \
-         let s: Mut Set<Point> = mut_set_of()\n    \
+         let s: Mut Set<Point> = Mut Set()\n    \
          add(s, a)\n    \
          return s\n}\n\
          fn main() [use] -> None {\n    \
@@ -15069,7 +15069,7 @@ fn a_scalar_identitys_marker_derefs_its_arguments() {
          return true\n}\n\
          fn main() [use] -> None {\n    \
          use StdOutConsole()\n    \
-         let s: Mut Set<Int> = mut_set_of(hash = hash, eq = all_same)\n    \
+         let s: Mut Set<Int> = Mut Set(hash = hash, eq = all_same)\n    \
          add(s, 1)\n    \
          println(\"${size(s)}\")\n}\n",
     )]);
@@ -15106,7 +15106,7 @@ fn cmp(a: Member, b: Member) -> Int => a, b {
 // the enclosing fn declares the capability, and the constructor's own
 // `?Hashed<T>`/`?Ordered<T>` is filled from it.
 fn gather<T>(a: T, b: T, ?Hashed<T>) -> Mut Set<T> => !a, !b {
-    let s: Mut Set<T> = mut_set_of()
+    let s: Mut Set<T> = Mut Set()
     add(s, a)
     add(s, b)
     return s
@@ -15121,21 +15121,21 @@ fn gather_three<T>(a: T, b: T, c: T, ?Hashed<T>) -> Set<T> => !a, !b, !c {
 }
 
 fn tally<T>(a: T, b: T, ?Hashed<T>) -> Map<T, Int> => !a, !b {
-    let m: Mut Map<T, Int> = mut_map_of()
+    let m: Mut Map<T, Int> = Mut Map()
     put(m, a, 1)
     put(m, b, 2)
     return m
 }
 
 fn ranked<T>(a: T, b: T, ?Ordered<T>) -> SortedSet<T> => !a, !b {
-    let s: Mut SortedSet<T> = mut_sorted_set_of()
+    let s: Mut SortedSet<T> = Mut SortedSet()
     add(s, a)
     add(s, b)
     return s
 }
 
 fn scored<T>(a: T, b: T, ?Ordered<T>) -> SortedMap<T, Int> => !a, !b {
-    let m: Mut SortedMap<T, Int> = mut_sorted_map_of()
+    let m: Mut SortedMap<T, Int> = Mut SortedMap()
     put(m, a, 1)
     put(m, b, 2)
     return m
@@ -15189,7 +15189,7 @@ fn a_tuple_key_resolves_the_structural_identity() {
         "main.sv",
         "fn main() [use] -> None {\n    \
          use StdOutConsole()\n    \
-         let ns: SortedSet<(Int, Int)> = sorted_set_of((1, 2), (1, 2), (0, 5))\n    \
+         let ns: SortedSet<(Int, Int)> = SortedSet((1, 2), (1, 2), (0, 5))\n    \
          println(\"${size(ns)}\")\n}\n",
     )]);
     assert!(!files.is_empty());
@@ -15207,7 +15207,7 @@ fn a_tuple_key_resolves_the_structural_identity() {
 const REACH_ITERATES_ONLY: &str = r#"
 fn main() [use] -> None {
     use StdOutConsole()
-    let xs: List<Int> = list_of(1, 2, 3)
+    let xs: List<Int> = List(1, 2, 3)
     for x in xs {
         println("${x}")
     }
@@ -15302,8 +15302,8 @@ fn main() [use] -> None {
     let one = 1.0
     println("${zero / zero} ${one / zero} ${0.0 - one / zero}")
     println("${Point { x: 2.0, ratio: 3.0 }}")
-    let xs: List<Double> = list_of(2.0, 0.5)
-    println("${xs} ${to_str(xs)} ${list_of(4.0)}")
+    let xs: List<Double> = List(2.0, 0.5)
+    println("${xs} ${to_str(xs)} ${List(4.0)}")
     let m: Map<Str, Double> = Map("a": 2.0)
     println("${m}")
 }
@@ -15344,13 +15344,13 @@ fn rustc_compiles_and_runs_salvos_float_text() {
 const LOOP_TEMP_DEMO: &str = r#"
 fn main() [use] -> None {
     use StdOutConsole()
-    for x in iter(list_of(1, 2)) {
+    for x in iter(List(1, 2)) {
         println("a ${x}")
     }
-    for x in filter(iter(list_of(3, 4, 5)), (n: Int) -> { return n > 3 }) {
+    for x in filter(iter(List(3, 4, 5)), (n: Int) -> { return n > 3 }) {
         println("b ${x}")
     }
-    let xs: List<Int> = list_of(9)
+    let xs: List<Int> = List(9)
     for x in xs {
         println("c ${x}")
     }
@@ -15495,7 +15495,7 @@ fn rustc_compiles_and_runs_a_to_str_from_another_module() {
 }
 
 /// [implicit-infer] A **qualified argument** through an implicit fn position:
-/// `total(list_of(1, 2, 3))`'s argument is `NonEmpty List<Int>`
+/// `total(List(1, 2, 3))`'s argument is `NonEmpty List<Int>`
 /// [col-of-nonempty], and matching the candidate `iter` strictly against that
 /// claim taught the call nothing — so `It` stayed unbound and the `?next`
 /// beside it resolved by *rung*, picking a sibling pass's `next` and emitting
@@ -15524,7 +15524,7 @@ fn total<C, It>(c: C, ?iter: (c: C) -> Mut It holds proj(c), ?Yield<It, Int>) ->
 
 fn main() [use] -> None {
     use StdOutConsole()
-    println("${total(list_of(1, 2, 3))}")
+    println("${total(List(1, 2, 3))}")
     println("${total(List(1, 2, 3))}")
 }
 "#;
@@ -15598,7 +15598,7 @@ fn trade(members: List<Mut Fighter>, one: ref(members) Mut Fighter, other: ref(m
 
 fn main() [use] {
     use StdOutConsole()
-    let squad = Mut Squad { banner: "red", members: list_of(
+    let squad = Mut Squad { banner: "red", members: List(
         Mut Fighter { name: "Ada", hp: 30, energy: 4 },
         Mut Fighter { name: "Bo", hp: 8, energy: 9 }) }
     let i = 0
@@ -15738,7 +15738,7 @@ fn pair(xs: List<Int>, n: Int) -> Str => xs, n {
 
 fn main() [use] {
     use StdOutConsole()
-    let h = Mut Holder { items: mut_list_of(1, 2), n: 0 }
+    let h = Mut Holder { items: Mut List(1, 2), n: 0 }
     println("${pair(h.items, grow(h))}")
 }
 "#;
@@ -15772,7 +15772,7 @@ fn attack(a: Mut Entity, d: Mut Entity) -> None => a: Mut, d: Mut {
 
 fn main() [use] {
     use StdOutConsole()
-    let es: List<Mut Entity> = list_of(
+    let es: List<Mut Entity> = List(
         Mut Entity { hp: 10, energy: 5 },
         Mut Entity { hp: 20, energy: 8 })
     let i = 0
@@ -15835,7 +15835,7 @@ fn heal(e: Mut Entity) -> None => e: Mut {
 
 fn main() [use] {
     use StdOutConsole()
-    let es: List<Mut Entity> = list_of(Mut Entity { hp: 5 }, Mut Entity { hp: 7 })
+    let es: List<Mut Entity> = List(Mut Entity { hp: 5 }, Mut Entity { hp: 7 })
     heal(front(es)!)
     let hp = front(es)!.hp
     println("${hp} ${get(es, 1)!.hp}")
@@ -15890,7 +15890,7 @@ fn front(es: List<Mut Entity>) -> (ref(es) Mut Entity)? {
 
 fn main() [use] {
     use StdOutConsole()
-    let es: List<Mut Entity> = list_of(Mut Entity { hp: 5 }, Mut Entity { hp: 7 })
+    let es: List<Mut Entity> = List(Mut Entity { hp: 5 }, Mut Entity { hp: 7 })
     let boss = front(es)!
     boss.hp = boss.hp + 100
     let n = size(es)
@@ -15944,7 +15944,7 @@ struct Entity canbe Mut { hp: Int }
 
 fn main() [use] {
     use StdOutConsole()
-    let es: List<Mut Entity> = list_of(Mut Entity { hp: 10 }, Mut Entity { hp: 20 })
+    let es: List<Mut Entity> = List(Mut Entity { hp: 10 }, Mut Entity { hp: 20 })
     let i = 0
     let j = 1
     if i is Idx(es) {
@@ -15992,7 +15992,7 @@ fn bump_at(es: List<Mut Entity>, i: Int,
 
 fn main() [use] {
     use StdOutConsole()
-    let es: List<Mut Entity> = list_of(Mut Entity { hp: 5 }, Mut Entity { hp: 7 })
+    let es: List<Mut Entity> = List(Mut Entity { hp: 5 }, Mut Entity { hp: 7 })
     bump_at(es, 1, (c: List<Mut Entity>, k: Int) -> at(c, k))
     println("${get(es, 0)!.hp} ${get(es, 1)!.hp}")
 }
@@ -16048,7 +16048,7 @@ fn heal_at<L>(c: List<Mut Entity>, l: L, ?Ref<List<Mut Entity>, L, Entity>) -> N
 
 fn main() [use] {
     use StdOutConsole()
-    let es: List<Mut Entity> = list_of(Mut Entity { hp: 5 }, Mut Entity { hp: 7 })
+    let es: List<Mut Entity> = List(Mut Entity { hp: 5 }, Mut Entity { hp: 7 })
     heal_at(es, 1)
     println("${get(es, 0)!.hp} ${get(es, 1)!.hp}")
 }
@@ -16108,7 +16108,7 @@ fn run(es: List<Mut Entity>) [Lender] -> None {
 fn main() [use] {
     use StdOutConsole()
     use FirstLender()
-    let es: List<Mut Entity> = list_of(Mut Entity { hp: 5 }, Mut Entity { hp: 7 })
+    let es: List<Mut Entity> = List(Mut Entity { hp: 5 }, Mut Entity { hp: 7 })
     run(es)
     println("${get(es, 0)!.hp} ${get(es, 1)!.hp}")
 }
@@ -16156,7 +16156,7 @@ fn poke(a: Mut Entity, d: Mut Entity) -> Int => a: Mut, d: Mut {
 
 fn main() [use] {
     use StdOutConsole()
-    let es: List<Mut Entity> = list_of(Mut Entity { hp: 1 }, Mut Entity { hp: 2 })
+    let es: List<Mut Entity> = List(Mut Entity { hp: 1 }, Mut Entity { hp: 2 })
     let i = 0
     let j = 1
     let a = at(es, i)!
@@ -16185,7 +16185,7 @@ fn main() [use] {
 const PLACEHOLDER_LOOP_DEMO: &str = r#"
 fn main() [use] {
     use StdOutConsole()
-    let hits: Mut List<Int> = mut_list_of()
+    let hits: Mut List<Int> = Mut List()
     // [placeholder] Two loops that bind nothing, in one function: neither
     // introduces a name, so neither can collide with the other.
     for _ in range(0, 3) {
@@ -16195,7 +16195,7 @@ fn main() [use] {
         add(hits, 2)
     }
     // A native `for` over a list, and a real binder beside a placeholder.
-    for _ in list_of(7, 8) {
+    for _ in List(7, 8) {
         add(hits, 3)
     }
     for i in range(0, 3) {
@@ -16268,7 +16268,7 @@ fn both(f: (a: Int, b: Int) [Console] -> Int, x: Int) [Console] -> Int {
 
 fn main() [use] {
     use StdOutConsole()
-    println("${first_big(list_of(1, 5)) ?: 0} ${first_big(list_of(1)) ?: 0}")
+    println("${first_big(List(1, 5)) ?: 0} ${first_big(List(1)) ?: 0}")
     println("${both((a, b) -> { println("f ${a} ${b}") return a + b }, 10)}")
 }
 "#;
@@ -16291,7 +16291,7 @@ fn pick(n: Int) -> Int | Str | Bool {
 
 fn main() [use] {
     use StdOutConsole()
-    for k in list_of(0, 1, 2) {
+    for k in List(0, 1, 2) {
         let v = pick(k)
         if v is Int || v is Str { println("int or str") }
         if v is Int n || v is Str s { println("bound") }
@@ -16381,8 +16381,8 @@ fn main() [use] {
     let y = widen(x)
     println("${y}")
     println("${widen("hi")}")
-    for k in list_of(0, 1, 2) { println("e=${either(k)}") }
-    let l: List<Int> | Str = list_of(1, 2)
+    for k in List(0, 1, 2) { println("e=${either(k)}") }
+    let l: List<Int> | Str = List(1, 2)
     println("l=${l}")
 }
 "#;
@@ -16419,7 +16419,7 @@ fn run(es: List<Mut Entity>) [Lender] -> None {
 fn main() [use] {
     use StdOutConsole()
     use FirstLender()
-    let es: List<Mut Entity> = list_of(Mut Entity { hp: 5 }, Mut Entity { hp: 7 })
+    let es: List<Mut Entity> = List(Mut Entity { hp: 5 }, Mut Entity { hp: 7 })
     run(es)
     println("${get(es, 0)!.hp} ${get(es, 1)!.hp}")
 }
@@ -16470,7 +16470,7 @@ fn run(t: Mut Team) [Roster] -> None => t: Mut {
 fn main() [use] {
     use StdOutConsole()
     use Plain()
-    let t = Mut Team { name: "t", members: list_of(Mut Entity { hp: 1 }, Mut Entity { hp: 2 }) }
+    let t = Mut Team { name: "t", members: List(Mut Entity { hp: 1 }, Mut Entity { hp: 2 }) }
     run(t)
     println("${t.name} ${get(t.members, 0)!.hp} ${get(t.members, 1)!.hp}")
 }
@@ -16503,8 +16503,8 @@ struct Item canbe Mut { tag: Str }
 
 export fn main() [use] -> None {
     use StdOutConsole()
-    let m: Mut Map<Str, Mut List<Mut Item>> = mut_map_of()
-    let l: Mut List<Mut Item> = mut_list_of(Mut Item { tag: "x" }, Mut Item { tag: "y" })
+    let m: Mut Map<Str, Mut List<Mut Item>> = Mut Map()
+    let l: Mut List<Mut Item> = Mut List(Mut Item { tag: "x" }, Mut Item { tag: "y" })
     put(m, "a", l)
     let it = at(at(m, "a")!, 1)!
     it.tag = "z"
@@ -16579,10 +16579,10 @@ fn score_both<C>(c: C, a: ref(c) Mut Player, b: ref(c) Mut Player) -> None {
 
 export fn main() [use] -> None {
     use StdOutConsole()
-    let teams: Mut Map<Str, Mut Team> = mut_map_of()
-    put(teams, "red", Mut Team { coach: "Ada", roster: list_of(Mut Player { name: "Bo", goals: 0 }, Mut Player { name: "Cy", goals: 5 }) })
-    let league = Mut League { teams: teams, bench: list_of(Mut Player { name: "Flo", goals: 9 }) }
-    let squad: List<Mut Player> = list_of(Mut Player { name: "Ed", goals: 2 }, Mut Player { name: "Di", goals: 3 })
+    let teams: Mut Map<Str, Mut Team> = Mut Map()
+    put(teams, "red", Mut Team { coach: "Ada", roster: List(Mut Player { name: "Bo", goals: 0 }, Mut Player { name: "Cy", goals: 5 }) })
+    let league = Mut League { teams: teams, bench: List(Mut Player { name: "Flo", goals: 9 }) }
+    let squad: List<Mut Player> = List(Mut Player { name: "Ed", goals: 2 }, Mut Player { name: "Di", goals: 3 })
 
     bump(league, at(league, "red", 1)!)
     bump(squad, at(squad, 0)!)
@@ -16638,7 +16638,7 @@ fn merge(p: Mut E, q: Mut E) -> None => p: Mut, q: Mut {
 
 export fn main() [use] -> None {
     use StdOutConsole()
-    let xs: List<Mut E> = list_of(Mut E { hp: 10 }, Mut E { hp: 20 })
+    let xs: List<Mut E> = List(Mut E { hp: 10 }, Mut E { hp: 20 })
     let i = 0
     let j = 1
     if i is Idx(xs) {
@@ -16723,10 +16723,10 @@ fn score(a: Mut Player, b: Mut Player) -> None => a: Mut, b: Mut {
 }
 
 fn league() [] -> Mut League {
-    let teams: Mut Map<Str, Mut Team> = mut_map_of()
-    put(teams, "red", Mut Team { coach: "Ada", roster: list_of(Mut Player { name: "Bo", goals: 0 }, Mut Player { name: "Cy", goals: 5 }) })
-    put(teams, "blue", Mut Team { coach: "Dee", roster: list_of(Mut Player { name: "Ed", goals: 2 }) })
-    return Mut League { teams: teams, bench: list_of(Mut Player { name: "Flo", goals: 9 }) }
+    let teams: Mut Map<Str, Mut Team> = Mut Map()
+    put(teams, "red", Mut Team { coach: "Ada", roster: List(Mut Player { name: "Bo", goals: 0 }, Mut Player { name: "Cy", goals: 5 }) })
+    put(teams, "blue", Mut Team { coach: "Dee", roster: List(Mut Player { name: "Ed", goals: 2 }) })
+    return Mut League { teams: teams, bench: List(Mut Player { name: "Flo", goals: 9 }) }
 }
 
 // Structs with no accessor of their own, nested: the handle's path is the
@@ -16792,7 +16792,7 @@ fn map_slots() [Console] -> None {
 }
 
 fn nested() [Console] -> None {
-    let a = Mut Outer { tag: "t", b: Inner { c: list_of(Mut Cell { v: 1 }, Mut Cell { v: 2 }) } }
+    let a = Mut Outer { tag: "t", b: Inner { c: List(Mut Cell { v: 1 }, Mut Cell { v: 2 }) } }
     let p = at(a, 0)!
     let q = at(a, 1)!
     if q is NotSame(p) {
@@ -16875,7 +16875,7 @@ fn keep(w: Word) [] -> Word => !w {
 
 export fn main() [use] -> None {
     use StdOutConsole()
-    let a = A { b: B { c: list_of(Mut Word { text: "something" }) }, d: list_of(Mut Word { text: "one" }, Mut Word { text: "two" }) }
+    let a = A { b: B { c: List(Mut Word { text: "something" }) }, d: List(Mut Word { text: "one" }, Mut Word { text: "two" }) }
     let x = at(a, -1)
     let y = at(a, 0)
     let z = at(a, 5)
@@ -16945,19 +16945,19 @@ handler PrintShower [Console] of Shower {
 fn main() [use] {
     use StdOutConsole()
     use PrintShower()
-    let xs: List<Str> = list_of("abc", "de")
+    let xs: List<Str> = List("abc", "de")
     println(outer(get(xs, 0)))
     println(outer(get(xs, 9)))
     let o: Str? = "own"
     println(outer(o))
     println(outer("lit"))
     println(outer(None))
-    let ws: List<Mut Str> = list_of(mut_str("w"))
+    let ws: List<Mut Str> = List(mut_str("w"))
     println(outer(get(ws, 0)))
     println(outer(at(ws, 0)))
     let cw = copy(get(ws, 0))
     println(outer(cw))
-    let es: List<Mut Entity> = list_of(Mut Entity { name: "e", hp: 3 })
+    let es: List<Mut Entity> = List(Mut Entity { name: "e", hp: 3 })
     println("${named(get(es, 0))} ${named(at(es, 0))} ${named(get(es, 4))} ${named(None)}")
     let h = at(es, 0)
     println(named(h))
@@ -17008,7 +17008,7 @@ fn main() [use] {
         bump(at(d, i))
     }
     println("${at(d, 7) is None} ${get(d, 0)!.n} ${get(d, 1)!.n}")
-    let m: Mut Map<Str, Mut Item> = mut_map_of()
+    let m: Mut Map<Str, Mut Item> = Mut Map()
     put(m, "a", Mut Item { n: 5 })
     let k = "a"
     if k is KeyOf(m) {
@@ -17061,13 +17061,13 @@ fn bump(c: Mut Counter) -> None => c: Mut {
 
 fn main() [use] {
     use StdOutConsole()
-    let cs: Mut List<Mut Counter> = mut_list_of(Mut Counter { n: 1 }, Mut Counter { n: 2 })
+    let cs: Mut List<Mut Counter> = Mut List(Mut Counter { n: 1 }, Mut Counter { n: 2 })
     let h = head_of(cs)!
     h.n = h.n + 10
     bump(pick_via(cs, 1)!)
     bump(pick2(cs, 1)!)
     println("${get(cs, 0)!.n} ${get(cs, 1)!.n}")
-    let ss: List<Str> = list_of("a", "b")
+    let ss: List<Str> = List("a", "b")
     println("${head_of(ss)!} ${pick_via(ss, 1)!} ${pick2(ss, 0)!}")
     // a read-only handle held across a write through another handle
     let r = head_of(ss)!
@@ -17138,7 +17138,7 @@ fn pick(flag: Bool, xs: List<Mut A>, b: B) -> Str => xs, b {
 
 fn main() [use] {
     use StdOutConsole()
-    let xs: List<Mut A> = list_of(Mut A { n: 1 })
+    let xs: List<Mut A> = List(Mut A { n: 1 })
     let b = B { s: "x" }
     println("${pick(true, xs, b)} ${pick(false, xs, b)}")
     let own: A | B = A { n: 7 }
@@ -17185,7 +17185,7 @@ fn shout(s: Mut Str?) -> None => s: Mut {
 
 fn main() [use] {
     use StdOutConsole()
-    let es: List<Mut Entity> = list_of(Mut Entity { hp: 3 }, Mut Entity { hp: 10 })
+    let es: List<Mut Entity> = List(Mut Entity { hp: 3 }, Mut Entity { hp: 10 })
     println("${heal(at(es, 0))} ${heal(at(es, 9))}")
     let h = at(es, 1)
     heal(h)
@@ -17194,7 +17194,7 @@ fn main() [use] {
     let own: Mut Entity? = Mut Entity { hp: 100 }
     heal(own)
     heal(None)
-    let ws: List<Mut Str> = list_of(mut_str("hey"))
+    let ws: List<Mut Str> = List(mut_str("hey"))
     shout(at(ws, 0))
     shout(at(ws, 0))
     println("${get(es, 0)!.hp} ${get(es, 1)!.hp} ${own!.hp} ${get(ws, 0)!}")
@@ -17375,9 +17375,9 @@ fn swap_in(lib: Library, al: ref(lib) Mut Album, a: ref(al) Mut Track, b: ref(al
 
 fn main() [use] {
     use StdOutConsole()
-    let lib = Mut Library { albums: list_of(
-        Mut Album { name: "x", tracks: list_of(Mut Track { plays: 1 }, Mut Track { plays: 2 }) },
-        Mut Album { name: "y", tracks: list_of(Mut Track { plays: 3 }) }) }
+    let lib = Mut Library { albums: List(
+        Mut Album { name: "x", tracks: List(Mut Track { plays: 1 }, Mut Track { plays: 2 }) },
+        Mut Album { name: "y", tracks: List(Mut Track { plays: 3 }) }) }
     // Through a mint, inline nested `at`s, and a bound handle.
     swap_plays(lib, track(lib, 0, 1)!, track(lib, 1, 0)!)
     swap_plays(lib, at(at(lib.albums, 0)!.tracks, 0)!, at(at(lib.albums, 1)!.tracks, 0)!)

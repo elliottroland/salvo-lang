@@ -26,7 +26,7 @@ const STD_PRELUDE: &str = concat!(
     "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
     "export intrinsic fn cmp(a: Str, b: Str) [] -> Int => a, b\n",
     "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",
-    "export intrinsic fn mut_list_of<T>(...elems: T[]) [] -> Mut List<T>\n",
+    "export intrinsic fn Mut List<T>(...elems: T[]) [] -> Mut List<T>\n",
     "export intrinsic fn add<T>(list: Mut List<T>, elem: T) [] -> None => list: Mut, !elem\n",
     "export intrinsic fn size<T>(list: List<T>) [] -> Int => list\n",
 );
@@ -54,11 +54,11 @@ export qualifier Heap<T>(?cmp: (T, T) -> Int) of List<T>
 export qualifier Ranked<T>(?Ordered<T>) of List<T>
 
 export fn empty_ranked<T>(?cmp: (T, T) -> Int) [] -> +Ranked<T>(?cmp) Mut List<T> {
-    return mut_list_of()
+    return Mut List()
 }
 
 export fn empty_heap<T>(?cmp: (T, T) -> Int) [] -> +Heap<T>(?cmp) Mut List<T> {
-    return mut_list_of()
+    return Mut List()
 }
 
 export fn heap_push<T>(heap: Heap<T>(?cmp) Mut List<T>, elem: T) [] -> +Heap<T>(?cmp) Mut List<T> => !heap, !elem {
@@ -541,8 +541,8 @@ fn by_len(a: Str, b: Str) [] -> Int => a, b {
 }
 
 fn run() [] -> Int? {
-    let ordered = sort(list_of("pear", "fig"), cmp = by_len)
-    let growing = mut_sort(list_of("pear", "fig"), cmp = by_len)
+    let ordered = sort(List("pear", "fig"), cmp = by_len)
+    let growing = mut_sort(List("pear", "fig"), cmp = by_len)
     add_sorted(growing, "durian")
     return binary_search(ordered, "kiwi")
 }
@@ -569,7 +569,7 @@ fn needs_canonical(xs: Sorted<Str>(cmp) List<Str>) [] -> Int? => xs {
 }
 
 fn run() [] -> Int? {
-    let by = sort(list_of("pear"), cmp = by_len)
+    let by = sort(List("pear"), cmp = by_len)
     return needs_canonical(by)
 }
 "#,
@@ -595,8 +595,8 @@ fn merge<T>(a: Sorted<T>(?cmp) List<T>, b: Sorted<T>(?cmp) List<T>, probe: T) []
 }
 
 fn run() [] -> Int? {
-    let one = sort(list_of("pear"))
-    let other = sort(list_of("fig"), cmp = REPLACE)
+    let one = sort(List("pear"))
+    let other = sort(List("fig"), cmp = REPLACE)
     return merge(one, other, "x")
 }
 "#;
@@ -623,7 +623,7 @@ fn an_annotation_keeps_an_ordering_it_does_not_name() {
     let errs = std_errors(
         r#"
 fn run() [] -> None {
-    let live: Mut Sorted List<Int> = mut_sort(list_of(10, 40))
+    let live: Mut Sorted List<Int> = mut_sort(List(10, 40))
     add_sorted(live, 20)
 }
 "#,
@@ -637,7 +637,7 @@ fn by_size(a: Int, b: Int) [] -> Int => a, b {
 }
 
 fn run() [] -> None {
-    let live: Mut Sorted<Int>(by_size) List<Int> = mut_sort(list_of(10, 40))
+    let live: Mut Sorted<Int>(by_size) List<Int> = mut_sort(List(10, 40))
     add_sorted(live, 20)
 }
 "#,
@@ -684,7 +684,7 @@ import heap.by_name
 
 fn run() [] -> Int {
     let mine = by_name
-    let h: Heap<Person>(mine) Mut List<Person> = mut_list_of()
+    let h: Heap<Person>(mine) Mut List<Person> = Mut List()
     return 0
 }
 "#,
@@ -809,8 +809,8 @@ fn a_written_lend_narrows_which_arguments_the_result_holds() {
     let errs = std_errors(
         "fn main() [use] -> None {\n    \
          use StdOutConsole()\n    \
-         let words: List<Str> = list_of(\"a\", \"bb\")\n    \
-         let limits: Mut List<Int> = mut_list_of(1)\n    \
+         let words: List<Str> = List(\"a\", \"bb\")\n    \
+         let limits: Mut List<Int> = Mut List(1)\n    \
          let p = iter(words)\n    \
          let long = filter(p, (s: Str) -> { return size(s) > first(limits)! })\n    \
          add(limits, 2)\n    \
@@ -831,7 +831,7 @@ fn a_written_lend_still_links_the_source_it_names() {
          return None\n}\n\
          fn main() [use] -> None {\n    \
          use StdOutConsole()\n    \
-         let words: List<Str> = list_of(\"a\", \"bb\")\n    \
+         let words: List<Str> = List(\"a\", \"bb\")\n    \
          let p = iter(words)\n    \
          let long = filter(p, (s: Str) -> { return size(s) > 1 })\n    \
          eat(words)\n    \
@@ -893,7 +893,7 @@ struct Ranked<T>(?cmp: (T, T) -> Int) canbe Mut {
 }
 
 fn ranked<T>(?cmp: (T, T) -> Int) [] -> Mut Ranked<T>(?cmp) {
-    return Mut Ranked<T>(?cmp) { items: mut_list_of<T>() }
+    return Mut Ranked<T>(?cmp) { items: Mut List<T>() }
 }
 
 fn better<T>(r: Ranked<T>(?cmp), a: T, b: T) [] -> Bool => r, a, b {
@@ -957,13 +957,13 @@ fn a_call_through_a_local_checks_its_arguments() {
 fn type_named_fn_return_is_checked() {
     // Correct: returns exactly the named type.
     let ok = errors(
-        "fn Mut List<T>(first: T) -> Mut List<T> => !first {\n    return mut_list_of(first)\n}\n",
+        "fn Mut List<T>(first: T) -> Mut List<T> => !first {\n    return Mut List(first)\n}\n",
     );
     assert!(ok.is_empty(), "a matching return is accepted: {ok:?}");
 
     // Missing the named `Mut` qualifier on the return.
     let miss = errors(
-        "fn Mut List<T>(first: T) -> List<T> => !first {\n    return mut_list_of(first)\n}\n",
+        "fn Mut List<T>(first: T) -> List<T> => !first {\n    return Mut List(first)\n}\n",
     );
     assert!(
         miss.iter().any(|e| e.contains("must carry the `Mut` qualifier")),
@@ -972,7 +972,7 @@ fn type_named_fn_return_is_checked() {
 
     // Extra qualifiers beyond the named ones are allowed (named ⊆ return).
     let extra = errors(
-        "fn List<T>(first: T) -> Mut List<T> => !first {\n    return mut_list_of(first)\n}\n",
+        "fn List<T>(first: T) -> Mut List<T> => !first {\n    return Mut List(first)\n}\n",
     );
     assert!(extra.is_empty(), "extra qualifiers on the return are allowed: {extra:?}");
 }

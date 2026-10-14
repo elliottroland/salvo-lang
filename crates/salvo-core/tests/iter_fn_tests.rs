@@ -34,8 +34,8 @@ const STD_PRELUDE: &str =
     "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\n\
      export intrinsic type List<T> canbe Mut\n\
      export intrinsic fn copy<T>(value: T) [] -> T => value\n\
-     export intrinsic fn mut_list_of<T>(...elems: T[]) [] -> Mut List<T>\n\
-     export intrinsic fn list_of<T>(...elems: T[]) [] -> List<T>\n\
+     export intrinsic fn Mut List<T>(...elems: T[]) [] -> Mut List<T>\n\
+     export intrinsic fn List<T>(...elems: T[]) [] -> List<T>\n\
      export intrinsic fn add<T>(list: Mut List<T>, elem: T) [] -> None => list: Mut, !elem\n\
      export intrinsic fn get<T>(list: List<T>, index: Int) [] -> T? => list, index\n\
      export intrinsic fn size<T>(list: List<T>) [] -> Int => list\n\
@@ -242,7 +242,7 @@ fn an_iter_fn_may_take_several_parameters() {
          if at >= count {\n        return finished()\n    }\n    \
          let e = get(xs, at)\n    if e is None {\n        return finished()\n    }\n    \
          at = at + 1\n    return emitted(copy(e))\n}\n\
-         fn go() -> Int {\n    let xs = list_of(1, 2, 3)\n    let sum = 0\n    \
+         fn go() -> Int {\n    let xs = List(1, 2, 3)\n    let sum = 0\n    \
          for n in take(xs, 2) {\n        sum = sum + n\n    }\n    return sum + size(xs)\n}\n",
     );
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
@@ -311,7 +311,7 @@ fn a_binding_may_not_shadow_the_subject() {
         "struct S { n: Int }\n\
          iter fn iter(s: S) -> Emitted Int | Finished {\n    \
          state {\n        at: Int = 0\n    }\n    \
-         for s in list_of(1, 2) {}\n    return finished()\n}\n",
+         for s in List(1, 2) {}\n    return finished()\n}\n",
     );
     assert!(
         errs.iter().any(|e| e.contains("would shadow it")),
@@ -503,7 +503,7 @@ fn a_generic_fn_infers_the_pass_type_of_a_written_iter() {
          let e = get(p.items, p.at)\n    if e is None {{\n        return finished()\n    }}\n    \
          p.at = p.at + 1\n    return emitted(e)\n}}\n\
          {CONTAINER_COMBINATOR}\n\
-         fn go() -> Int {{\n    let b = Bag {{ items: list_of(4, 5) }}\n    return total(b)\n}}\n"
+         fn go() -> Int {{\n    let b = Bag {{ items: List(4, 5) }}\n    return total(b)\n}}\n"
     ));
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
 }
@@ -585,7 +585,7 @@ fn an_iter_obligation_is_satisfied_by_an_iter_fn() {
          state {\n        at: Int = 0\n    }\n    \
          let e = get(bag.items, at)\n    if e is None {\n        return finished()\n    }\n    \
          at = at + 1\n    return emitted(copy(e))\n}\n\
-         fn go() -> Int {\n    let b = Bag { items: list_of(1, 2) }\n    let sum = 0\n    \
+         fn go() -> Int {\n    let b = Bag { items: List(1, 2) }\n    let sum = 0\n    \
          for n in b {\n        sum = sum + n\n    }\n    return sum\n}\n",
     );
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");

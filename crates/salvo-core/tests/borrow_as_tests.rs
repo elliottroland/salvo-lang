@@ -26,7 +26,7 @@ fn either(x: A | B) -> Int => x {
 }
 
 fn main() [use] -> None {
-    let xs: List<Mut A> = list_of(Mut A { n: 1 })
+    let xs: List<Mut A> = List(Mut A { n: 1 })
     let b = B { s: "b" }
     let n = one(get(xs, 0)!)
     bump(at(xs, 0)!)

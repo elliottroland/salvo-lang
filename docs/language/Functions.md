@@ -30,15 +30,15 @@ Using dot notation allows us to make method-looking functions without actual sup
 
 If a function return type is not specified, it is assumed to be `None`. When a function's return type is exactly `None`, then you can call `return` without a value to return from the function. Also, returning is not required in this case.
 
-**A generic function's type arguments must be determined at every call.** Usually the arguments settle them (`mut_list_of(1, 2)` is a `Mut List<Int>`), but when they cannot, the *context* is consulted: the annotation on a `let`, the enclosing function's return type, or the parameter type the result flows into. If nothing determines a type argument that appears in the result type, the call is an error and you name it yourself:
+**A generic function's type arguments must be determined at every call.** Usually the arguments settle them (`Mut List(1, 2)` is a `Mut List<Int>`), but when they cannot, the *context* is consulted: the annotation on a `let`, the enclosing function's return type, or the parameter type the result flows into. If nothing determines a type argument that appears in the result type, the call is an error and you name it yourself:
 
 ```
-let xs = mut_list_of()                  // ERROR: nothing says what T is
-let xs: Mut List<Int> = mut_list_of()   // fine: the annotation says
-let xs = mut_list_of<Int>()             // fine: written at the call
-takes_ints(mut_list_of())               // fine: the parameter says
+let xs = Mut List()                  // ERROR: nothing says what T is
+let xs: Mut List<Int> = Mut List()   // fine: the annotation says
+let xs = Mut List<Int>()             // fine: written at the call
+takes_ints(Mut List())               // fine: the parameter says
 fn fresh() -> Mut List<Int> {
-    return mut_list_of()                // fine: the return type says
+    return Mut List()                // fine: the return type says
 }
 ```
 
@@ -65,9 +65,9 @@ fn size<T>(list: List<T>) -> Int => list {
     return 99
 }
 
-size(list_of(1, 2, 3))          // error: ambiguous — two `size`s fit
-size@main(list_of(1, 2, 3))     // 99 — yours
-size@core.list(list_of(1, 2))   // 2  — std's
+size(List(1, 2, 3))          // error: ambiguous — two `size`s fit
+size@main(List(1, 2, 3))     // 99 — yours
+size@core.list(List(1, 2))   // 2  — std's
 size("abcd")                    // 4  — core's, the only one that fits
 ```
 
@@ -80,7 +80,7 @@ A local variable is different: it is not an overload but a value, so it hides ev
 - a **type variable** says the least: `describe(Int)` beats `describe<T>(T)`;
 - a **broader union** says less than a narrower one, which says less than a single arm: `Int` beats `Int | Str` beats `Int | Str | Bool`, and `Int` beats `Int?`. `Any` is the broadest type there is, so it is always last;
 - **more qualifiers** say more: `Mut NonEmpty List<T>` beats `Mut List<T>` beats `List<T>`. Which *kind* of qualifier never matters — ranking `Mut` against `NonEmpty` would ask you to know more than what is in front of you;
-- a **fixed** parameter list beats a variadic one, so `list_of()` picks a no-argument overload over `list_of(...elems)`.
+- a **fixed** parameter list beats a variadic one, so `List()` picks a no-argument overload over `List(...elems)`.
 
 Specificity can never exceed what the caller knows: a value whose type is `Int | Str` does not fit `f(Int)` at all, and once narrowed with `is`, it does.
 

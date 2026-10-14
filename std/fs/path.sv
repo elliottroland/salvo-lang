@@ -135,7 +135,7 @@ export fn with_extension(p: Path, ext: Str) [] -> Path => p, ext {
 // [path-type] The path's segments, in order, without empty ones: `/a//b/` is
 // `[a, b]`. A list of your own [str-mut-results].
 export fn segments(p: Path) [] -> Mut List<Str> => p {
-    let out = mut_list_of<Str>()
+    let out = Mut List<Str>()
     for part in split(p.text, "/") {
         if !is_empty(part) {
             add(out, copy(part))

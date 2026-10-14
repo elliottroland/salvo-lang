@@ -215,27 +215,76 @@ QUALIFIERS.md). Three pieces landed this stretch, each its own commit:
 - **Collection literals retired** [col-no-literal], replacing `[col-literal]`
   (user decision: full constructor set incl. sorted, `[...]` goes too, empty
   via no-arg overloads). The constructors `List`/`Set`/`Map`/`SortedSet`/
-  `SortedMap` (+ `Mut` forms) are **resolution-time aliases** of the existing
-  `*_of` std fns — `core_collection_type_fn_key` in resolve.rs registers each
-  `*_of` under its canonical key, scoped to `core`. One implementation, one
-  backend lowering; overloads, implicits and `+NonEmpty` preserved. Chosen
-  over a Salvo wrapper, which can't forward a `canbe linear` variadic
-  (`[linear-container]`). Deleted `Expr::ArrayLit/SetLit/MapLit` and all their
-  check/IR/visitor/walk machinery; a stray `{...}`/`[...]` is now a parse
-  error naming the constructor form. Swept std, examples (regenerated both
-  backends), corpus, and ~165 inline test sites.
+  `SortedMap` (+ `Mut` forms) **are** the std constructor functions — the
+  type-named declaration *is* the primitive, not an alias (see the
+  2026-10-12 correction below). Deleted `Expr::ArrayLit/SetLit/MapLit` and
+  all their check/IR/visitor/walk machinery; a stray `{...}`/`[...]` is now a
+  parse error naming the constructor form. Swept std, examples (regenerated
+  both backends), corpus, and ~165 inline test sites.
 
-- **Option explored and rejected**: Salvo-level wrapper functions over the
-  `*_of` (a `fn List<T>(…) { return list_of(…) }`). Rejected because spreading
-  a `...rest: T[]` of a `canbe linear` T from a fn *body* fails
-  `[linear-container]` — only a bodiless intrinsic may pass a linear variadic
-  through. The alias avoids a body entirely.
+- **Option explored and rejected (superseded)**: the first landing made the
+  constructors **resolution-time aliases** of lowercase `*_of` std fns
+  (`core_collection_type_fn_key` in resolve.rs). Rejected a Salvo-level
+  wrapper because spreading a `...rest: T[]` of a `canbe linear` T from a fn
+  *body* fails `[linear-container]`. The correction below removed the alias
+  entirely by making the type-named decl bodyless itself.
 
 - **Known limitation** (ROADMAP, "Recorded, not scheduled"): the constructor
   does not infer a *union* element the way the literal did — `List(1, "a")`
   fails where `[1, "a"]` inferred `List<Int | Str>`, because the variadic
-  unifies one `T`. The `*_of` always had this; the literals had bespoke
-  `mk_union` logic. Build element-by-element or type the binding.
+  unifies one `T`. The literals had bespoke `mk_union` logic. Build
+  element-by-element or type the binding.
+
+### 2026-10-12 — Collection constructors ARE the std functions; `*_of` removed ([col-no-literal], [fn-type-named])
+
+User correction to the entry above: the type-named constructors must **be**
+the std functions, with no lowercase `*_of` behind them — not resolution-time
+aliases. Landed as one commit.
+
+- **The ten core collection constructors** (`List`/`Mut List`, `Set`/`Mut
+  Set`, `Map`/`Mut Map`, `SortedSet`/`Mut SortedSet`, `SortedMap`/`Mut
+  SortedMap`) are now the real bodyless primitives in `std/core/{list,set,map,
+  sorted}.sv`, named `fn [Mut] <Type><…>(…)`. The lowercase `*_of` names are
+  gone. Signatures, generics, `canbe linear`, implicits (`?Hashed`/`?Ordered`)
+  and `+NonEmpty` establishment are unchanged — only the name moved.
+- **Why it dissolves `[linear-container]`**: the blocker that forced the alias
+  was a *fn body* spreading a `canbe linear` variadic. A bodyless intrinsic /
+  platform fn passes a linear variadic through the ABI, so making the
+  type-named decl itself the primitive (rather than a wrapper) sidesteps it.
+- **The canonical key is the backend identifier** (user decision: "the
+  canonical key is a good identifier"). `list_of`/`mut_list_of` stay
+  **intrinsic**; their backend lowering arms (`intrinsics.rs`, both backends)
+  re-key from `"list_of"`/`"mut_list_of"` to `"List"`/`"Mut_List"` — the
+  `FnDecl.name.name` both emitters dispatch on. The set/map/sorted
+  constructors stay **platform**; their generated `<name>_platform` wrapper
+  (naming.rs) becomes `Map_platform`/`Mut_Map_platform`/… and the hand-written
+  host functions in `std/platform/core/{map,set,sorted}.{rs,kt}` were renamed
+  to match (`map_of`→`Map`, `mut_map_of`→`Mut_Map`, …). The generated
+  `.sv.{rs,kt}` ABI wrappers regenerate on build; the aws module's vendored
+  copies were regenerated with `salvo platform generate --backend '*'`.
+  `Generator.java` (aws Smithy codegen) emits `Mut List()` for the `Fake*`
+  handler's `recorded` field.
+- **Deleted** `core_collection_type_fn_key` and its registration loop in
+  resolve.rs (the alias). A capitalized collection callee now resolves to the
+  renamed decl by the ordinary scope ladder.
+- **Gotcha — a type-fn call cannot pin a rich element type.** `Mut
+  List<Str?>(…)`, `Mut List<Addr<E>>()`, `Mut List<proj T>()` do **not**
+  parse/resolve: a type-fn call's `<…>` goes through the *generic-parameter*
+  parser (`parse_generics_canbe`), which accepts only bare uppercase
+  identifiers — so `List<Int>()` works but a nullable, nested, or `proj`
+  argument does not (it degrades to a bare `Mut` ident → "no variable named
+  `Mut`", or a `proj` parse error). The fix at those sites: supply the element
+  type through the `let`/parameter annotation and call bare `Mut List()`
+  (seq.sv `filter`/`to_list`, net.sv `view_members`), or build empty + `add`
+  (list.test.sv optional-list tests). A richer type-fn-call type-argument
+  grammar is possible future work; it was not needed to land this.
+- **Diagnostic display**: the `[linear-composite]` "stored in the `T[]` of
+  `…`" message shows a type-named ctor by its `type_name` (`Mut List<T>`), not
+  its key (`Mut_List`).
+- **Swept**: all std `.sv` + host `.rs`/`.kt`, 14 examples (regenerated both
+  backends, verified `collections` runs identically on both), aws module
+  sources + Generator.java + vendored platform ABI, corpus, ~165 inline test
+  sites, docs/language + wiki, LANGUAGE_SPEC `[col-no-literal]`.
 
 
 
@@ -2346,7 +2395,7 @@ decisions).**
   platform fns taking `?Hashed<T>`/`?Ordered<T>` (the two-argument `to_map` is
   Salvo); a platform fn's wrapper now forwards captured binders to the host.
 - **Literals desugar in core** [col-literal]: the checker resolves `{…}` as
-  `set_of`/`mut_set_of`/`map_of`/`mut_map_of`, recording the constructor, type
+  `Set`/`Mut Set`/`Map`/`Mut Map`, recording the constructor, type
   arguments and implicits (filled from the literal type's identities) at the
   literal's span and typing each map entry as a tuple at the span from key to
   value; `salvo_backend::emit_util::literal_as_call` rebuilds the call for
@@ -2372,7 +2421,7 @@ decisions).**
   `hash` of a bare `T`. Kotlin cannot build `arrayOf(…)` over a bare type
   variable (reified), so a variadic tail at one is `arrayOf<Any?>(…) as
   Array<T>`, and over `Pair<K, V>` spells the element type [kt-variadic]. A
-  Given intrinsic implicit (`mut_set_of(hash = hash, eq = all_same)`) renders
+  Given intrinsic implicit (`Mut Set(hash = hash, eq = all_same)`) renders
   as its lowering on Rust (it used `use crate::core_compare::hash`). A
   `rename` in a module with a test annex matched its target twice (the annex
   sees the module's fns again) and failed; `match_overload` dedupes by key.
@@ -2939,7 +2988,7 @@ and refused by kotlinc (ROADMAP 0g, open). New tests:
 operations are host code (`std/platform/core/list.*`), and `core.seq`'s
 `filter` over a `List` too (`platform/core/seq.*`); `map`/`reduce` over a
 `List`, `swap`, `drain`, `sort`/`mut_sort` (over a platform `sort_by`),
-`list_by`/`mut_list_by` and `to_str` are Salvo. `list_of`/`mut_list_of` stay
+`list_by`/`mut_list_by` and `to_str` are Salvo. `List`/`Mut List` stay
 intrinsic, since literals and spreads lower through them. 16 Kotlin and 13
 Rust lowerings went, and with them `salvo_map`/`salvo_filter`/`salvo_reduce`
 and the `SalvoTake` trait from Rust's `runtime/seq.rs`. What fell out:
@@ -2964,7 +3013,7 @@ and the `SalvoTake` trait from Rust's `runtime/seq.rs`. What fell out:
   platform fn answers the position (`get`: the index; otherwise found by
   address).
 - The cleanup script's arm scanner stopped at a `}`-terminated arm and took
-  the `set_of` constructors with it the first time; rewritten and re-run.
+  the `Set` constructors with it the first time; rewritten and re-run.
 Thirteen tests that pinned old lowering text were updated.
 
 **`Deque` as a value platform type (2026-10-04, ROADMAP 0.7).** User
@@ -6275,7 +6324,7 @@ nothing rather than failing.
   written against a coarse *declared* `eq` breaks `eq(x,y) ⇒ hash(x)==hash(y)`
   too, and the checker cannot tell those apart without reasoning about what a body
   reads. Symmetry costs nothing because a generated member is nameable, which a
-  probe confirmed: `mut_set_of(hash = by_x, eq = eq)` compiles, so "coarser hash,
+  probe confirmed: `Mut Set(hash = by_x, eq = eq)` compiles, so "coarser hash,
   structural equality" stays expressible and becomes *authored* rather than
   assembled.
 - **Transitive by the check**, so the implementation is union-find over the
@@ -6358,7 +6407,7 @@ declaration-side shorthand, so a caller may fill any subset and the mix is
 lowered as written. Three causes, one per layer:
 
 - **The checker recorded a carried identity for a *resolved* or *forwarded* fill
-  but not a *written* one** — `mut_set_of(eq = f)` is `ImplicitArg::Given`, whose
+  but not a *written* one** — `Mut Set(eq = f)` is `ImplicitArg::Given`, whose
   published name never reached `carried_identities`, so neither backend could
   find the declaration behind the slot. It now resolves the written name the same
   way step 0 does.
@@ -6382,7 +6431,7 @@ lowered as written. Three causes, one per layer:
 mixed fill is either *invisible* or *broken*. A hash coarser than equality is
 legal, so writing `hash = by_x` beside a generated `eq` changes bucketing and no
 answer; and a custom `eq` beside the host's `hash` is an inconsistent pair the
-container never consults, because it buckets by hash first — `mut_set_of(eq =
+container never consults, because it buckets by hash first — `Mut Set(eq =
 all_same)` over `1` and `2` prints `2` on **both** backends, identically and for
 the same reason. That is honoured-as-written and still reads as a bug, which is
 why the user recorded a way to *say* so in ROADMAP with this example as its
@@ -6394,7 +6443,7 @@ earlier `atomic params` sketch (all-or-nothing on the whole group) was replaced
 by it the same day: the relation belongs between *members*, so a group of three
 can bind two and leave the third free, and nothing new sits on the group's
 declaration. Symmetry costs nothing because a generated member is nameable —
-`mut_set_of(hash = by_x, eq = eq)` compiles today (probed), so "coarser hash,
+`Mut Set(hash = by_x, eq = eq)` compiles today (probed), so "coarser hash,
 structural equality" stays expressible and becomes something the author states
 rather than something resolution happened to supply.
 
@@ -6453,7 +6502,7 @@ identity actually has.
   it; the limitation half of the old `the_capabilitys_two_limitations_are_named`
   is gone, the test renamed to `a_tuple_key_is_refused_by_name`.
 - **One defect found underneath and recorded, not fixed** (ROADMAP, with a
-  **DECISION**): a **partially filled identity group** — `mut_set_of(eq = …)`
+  **DECISION**): a **partially filled identity group** — `Mut Set(eq = …)`
   with the hash left to the host — is silently dropped by Kotlin (wrong output)
   and misdiagnosed by Rust. The checker records a carried identity for a
   *resolved* or *forwarded* fill but not for a **written** one, and Kotlin's
@@ -6463,7 +6512,7 @@ identity actually has.
   partial fill is a language call.
 
 **A keyed container's identity is a capability its constructor asks for
-(2026-09-26, user decision — landed).** `set_of<T>(...elems: T[], ?Hashed<T>)
+(2026-09-26, user decision — landed).** `Set<T>(...elems: T[], ?Hashed<T>)
 -> Set<T>(?hash, ?eq)`, and the same across the five families' fifteen
 constructors [col-keyed-slots]. The type declared the slots, `params Hashed<T>`
 existed and both runtimes could already take a pair as values; nothing *filled*
@@ -6475,7 +6524,7 @@ prints `1` on both.
 
 The identity is **passed, never read off an annotation** — the user's call, on
 the reasoning that one way beats two and the explicit form already existed. So
-`mut_set_of(hash = age_hash, eq = same_age)`, and an annotation naming a pair
+`Mut Set(hash = age_hash, eq = same_age)`, and an annotation naming a pair
 must agree with what the constructor resolved rather than choosing it, which
 keeps [cmp-binder]'s rule intact. The expected type does bind the callee's
 ordinary type *parameters* before its implicits resolve — a no-argument
@@ -6500,7 +6549,7 @@ comparison and only worked because the constructor asked nobody.
 **Three latent bugs fell out of landing it**, each hidden by the very thing the
 capability changed:
 
-* Kotlin's `map_of`/`mut_map_of` built a `linkedMapOf` directly instead of going
+* Kotlin's `Map`/`Mut Map` built a `linkedMapOf` directly instead of going
   through the `map_ctor` helper every other keyed constructor uses — so a named
   pair was routed for a `Set` and silently ignored for a `Map`. Found because
   one program now exercised both and the backends disagreed (`1 2 2` against
@@ -6526,7 +6575,7 @@ decision).** The question the keyed-container build surfaced: with the
 constructors taking `?Hashed<T>`, a no-argument call has only the expected type
 to resolve against — and seeding the expectation makes a *named* pair in an
 annotation **decide** the identity rather than merely agree with it. The user
-chose the explicit form: `mut_set_of(hash = age_hash, eq = same_age)`, on the
+chose the explicit form: `Mut Set(hash = age_hash, eq = same_age)`, on the
 reasoning that one way to do a thing beats two and the explicit form is already
 supported. So `[cmp-binder]`'s rule stands — what *filled* the binder decides
 what a structure carries — and `an_annotation_keeps_an_ordering_it_does_not_name`
@@ -6535,13 +6584,13 @@ keeps asserting exactly what its name says.
 Built on that decision: the expected type now seeds a callee's ordinary **type
 parameters** before its implicits resolve, and deliberately not its value slots.
 The seeding is needed for the capability to work at all (`let s: Mut Set<Str> =
-mut_set_of()` must learn `T = Str`, or `?eq` is looked for at `(?, ?) -> Bool`
+Mut Set()` must learn `T = Str`, or `?eq` is looked for at `(?, ?) -> Bool`
 and every `eq` in scope matches — an ambiguity the program cannot fix); leaving
 the slots out is what keeps the one way one.
 
 Two latent gaps fell out of the seeding, both fixed. std's **map constructors
 never declared `<V canbe linear>`** — the type does, and every operation does,
-but `map_of`/`mut_map_of`/`map_by`/`mut_map_by`/`to_map` did not, so a map of
+but `Map`/`Mut Map`/`map_by`/`mut_map_by`/`to_map` did not, so a map of
 obligations type-checked only because `V` was unknown at the constructor call.
 And an **ineligible key was reported twice**: once at a written annotation
 (`fn probe() -> Set<Double>`) and again at the call it typed, now that the call
@@ -6604,7 +6653,7 @@ hidden because a written identity at two element types is rare.
 clean, and the silent-wrongness case (a hand-written `hash`/`eq`, no type
 naming it) prints `1` on both backends where Kotlin used to print `2` and Rust
 did not compile. But a no-argument constructor has nothing but the **expected
-type** to resolve its implicits against, so `let s: Mut Set<Str> = mut_set_of()`
+type** to resolve its implicits against, so `let s: Mut Set<Str> = Mut Set()`
 needs the annotation to seed `T` before they resolve — and seeding it makes a
 *named* pair in the annotation **decide** the resolution rather than merely
 agree with it. That reads better and preserves every existing program
@@ -6726,7 +6775,7 @@ subject's temporaries into locals in front of the loop [rs-loop-temp] — rustc'
 own suggestion — walking the subject's calls innermost-first and hoisting every
 argument that is *borrowed and not a place*, through the same substitution table
 [rs-mut-arg-hoist] introduced earlier the same day. So a **view** of a temporary
-hoists too (`filter(iter(list_of(…)), …)`), while a native container loop needs
+hoists too (`filter(iter(List(…)), …)`), while a native container loop needs
 nothing, since there the temporary lives to the end of the `for` statement. The
 stale comment in check.rs that claimed otherwise now points at the rule.
 
@@ -6738,7 +6787,7 @@ module's `iter` and drive the other's `next`. Both lookups compare
 [iter-resolve]. Fixing only the `next` scan moved the failure rather than
 closing it, which is how the second lookup was found.
 
-**A qualified argument** taught an implicit position nothing. `total(list_of(1,
+**A qualified argument** taught an implicit position nothing. `total(List(1,
 2, 3))`'s argument is `NonEmpty List<Int>` [col-of-nonempty], the candidate
 `iter` was matched against it *strictly*, the match failed on the claim, and so
 `It` stayed unbound and the `?next` beside it resolved by rung — a sibling
@@ -6975,7 +7024,7 @@ mutation. It type-checked and ran the motivating example on both backends
 (`let rings = e.rings` living across `damage(e)`, `1 15`) — and a
 pre-existing test (`a_whole_variable_mutation_still_poisons_every_field`)
 caught what the motivating example hides. The three-line probe: `let tags
-= h.tags; replace(h)` where `replace` assigns `h.tags = mut_list_of(9, 9,
+= h.tags; replace(h)` where `replace` assigns `h.tags = Mut List(9, 9,
 9)`; `size(tags)` prints **3 on Rust** (a virtual place re-reads its path)
 and **1 on Kotlin** (the binding holds the object the field used to
 carry). A [backend-parity] violation — precisely the divergence
@@ -7006,7 +7055,7 @@ mutation. It type-checked and ran the motivating example on both backends
 (`let rings = e.rings` living across `damage(e)`, printing `1 15`) — and a
 pre-existing test (`a_whole_variable_mutation_still_poisons_every_field`)
 caught what the motivating example hides. The three-line probe: `let tags
-= h.tags; replace(h)` where `replace` assigns `h.tags = mut_list_of(9, 9,
+= h.tags; replace(h)` where `replace` assigns `h.tags = Mut List(9, 9,
 9)`; `size(tags)` prints **3 on Rust** (a virtual place re-reads its path)
 and **1 on Kotlin** (the binding holds the object the field used to
 carry). A [backend-parity] violation — precisely the divergence
@@ -7124,7 +7173,7 @@ cross-link from Iteration to the other `params` bundles.
 kept intact:
 
 ```
-let m = mut_map_of(("a", 1))
+let m = Mut Map(("a", 1))
 let k = "a"
 assert!(k is KeyOf(m))
 if get(m, k) == 1 { }      // rustc: can't compare `&{integer}` with `{integer}`
@@ -8001,7 +8050,7 @@ calls (auto-deref), and `&x[..]` indexes through a `&String`.
 parameter position was rendered owned, so it mutated a clone.
 
 ```
-let xs: Mut List<Int>? = mut_list_of(1)
+let xs: Mut List<Int>? = Mut List(1)
 add(xs!, 3)
 println("xs ${size(xs!)}")       // Rust: xs 1.  Kotlin: xs 2.
 ```
@@ -8285,10 +8334,10 @@ and an answer to "how do I extend an existing function with a refinement" —
 which their own `demo/heap.sv` work had run into. The answers, in order of how
 much they turned up:
 
-- **The constructors come in two shapes** [col-of-nonempty]: `list_of()` for an
-  empty list, `list_of(first, ...rest)` for one whose result claims `NonEmpty`
-  **by construction** [qual-ctor-predicate]. Built for `list_of`/`mut_list_of`;
-  `non_empty_list` is deleted (it *was* the second shape). `set_of`/`map_of` and
+- **The constructors come in two shapes** [col-of-nonempty]: `List()` for an
+  empty list, `List(first, ...rest)` for one whose result claims `NonEmpty`
+  **by construction** [qual-ctor-predicate]. Built for `List`/`Mut List`;
+  `non_empty_list` is deleted (it *was* the second shape). `Set`/`Map` and
   the sorted pair keep the single variadic shape for now, because their
   `NonEmpty` is declared in `core.nonempty` and a constructor must live in its
   qualifier's file [qual-ctor-same-file] — which is a decision waiting in
@@ -8309,7 +8358,7 @@ What building the two turned up — and this is the part worth reading, because
 most of it is *cost*:
 
 - **A spread may not fill a required parameter** [fn-variadic]. Before the rule,
-  `list_of(...xs)` against `list_of(first: T, ...rest: T[])` unified the *array*
+  `List(...xs)` against `List(first: T, ...rest: T[])` unified the *array*
   with `T`, so it built a `List<Int[]>` and claimed `NonEmpty` for a spread
   whose length nobody knows. Now it does not match, with a diagnostic that says
   why. The cost: an array no longer becomes a list in one call (`map_to`, or a
@@ -8807,7 +8856,7 @@ canonical path, so every existing program keeps the host's hashing.
   `use crate::collections::*;` — a `collections::` prefix breaks inside a
   submodule (`core/memfs.rs`). And `needs_collections` has to be set when a
   container is *built*, not only when its type is *named*: a construction whose
-  type is never written (`sorted_set_of("😀", "Ａ")` in a `let` with no annotation)
+  type is never written (`SortedSet("😀", "Ａ")` in a `let` with no annotation)
   otherwise emitted a reference to an unimported type.
 
 **Ordering round (second plan), step 4b, fourth slice — the sorted pair on
@@ -8857,9 +8906,9 @@ the runtime, so `SortedSet<Person>(by_age)` now compiles and runs.
   the back door. Verified with a standalone program before rewriting: rustc wants
   `T: 'static` only where the box is *made*.
 - **The identity flows from the position into the construction**, which it had to:
-  `sorted_set_of` cannot publish an ordering (its element may be a tuple, which
+  `SortedSet` cannot publish an ordering (its element may be a tuple, which
   has no `cmp` — the wall from the last slice), so `let byage: SortedSet<Person,
-  by_age> = sorted_set_of(…)` is where the ordering is chosen. `adopt_carried_identity`
+  by_age> = SortedSet(…)` is where the ordering is chosen. `adopt_carried_identity`
   adds the position's identities to a keyed-container result that named none —
   only adding, never overwriting, and only when the element types agree. The same
   shape as [struct-lit-infer] and the empty-literal rule: an ordering is fixed *at
@@ -8905,9 +8954,9 @@ wall worth knowing about (2026-09-22).**
   what keeps std's thirty-odd keyed signatures generic over the ordering without
   a binder in each. `unify` got the matching arm.
 - **The route that does not work, and why**: making the keyed *constructors*
-  demand the capability (`sorted_set_of<T>(...elems: T[], ?Ordered<T>) ->
+  demand the capability (`SortedSet<T>(...elems: T[], ?Ordered<T>) ->
   SortedSet<T>(?cmp)`) is the obvious way to give the emitter an identity to
-  lower. It fails immediately on `sorted_set_of((2, 0), (1, 9))`: a **tuple has no
+  lower. It fails immediately on `SortedSet((2, 0), (1, 9))`: a **tuple has no
   Salvo `cmp`**, and cannot be given one, because `cmp<A, B>(a: (A, B), b: (A,
   B))` would itself need `?Ordered<A>, ?Ordered<B>` — and [implicit-resolve]
   *skips a candidate that needs implicits*. The same holds for `List<T>`. Today
@@ -11120,7 +11169,7 @@ right lifetime for a cut whose cost was two emitter changes.
   destructuring loop minted *two* temporaries and the prologue read the wrong
   one. Now only a native `for` asks — mirroring the Rust path, which always did.
 - **A pre-existing defect fell out** and is recorded in ROADMAP rather than
-  fixed here: `for x in iter(list_of(1, 2))` — iterating a *temporary*
+  fixed here: `for x in iter(List(1, 2))` — iterating a *temporary*
   container — emits Rust that fails to compile (`E0716`, the temporary dropped
   while the pass borrows it). One line to reproduce, and the checker comment that
   claims the temporary "lives for the whole loop statement on both backends" is
@@ -12803,7 +12852,7 @@ is exactly `Str`/`Mut Str` — `Bytes` is read (`size`, `get`, `slice`,
 `index_of`, `to_str`, `to_hex`, `str_of_bytes`, `for b in data`), `Mut Bytes`
 is built (`add`, `append`, `set`, `clear`), and dropping the `Mut` reaches the
 read surface. Constructors `bytes_of(...)`/`mut_bytes(...)` mirror
-`mut_str`/`mut_list_of`. `slice` copies (nothing in the surface borrows without
+`mut_str`/`Mut List`. `slice` copies (nothing in the surface borrows without
 saying so), out-of-range reads answer `None`, `set` out of range does nothing,
 `==` is structural, `copy` really copies, and a buffer is deliberately **not
 hashable** — the Kotlin buffer is one mutable object, and a key that can change
@@ -13598,7 +13647,7 @@ into this log as OBLIGATIONS.md did.
 2026-09-13).** Two follow-ups the user asked for after C-6, each of which
 turned out to be an unimplemented case rather than a target limitation.
 
-**`list_of(first, ...rest)` works.** The user's question was whether something
+**`List(first, ...rest)` works.** The user's question was whether something
 in Rust prevented it; nothing did. Kotlin had always accepted it — its spread
 is an operator on an argument (`listOf(first, *rest)`) — while Rust wants the
 tail as one `Vec<T>`, and that assembly was simply never written: the ordinary
@@ -13611,7 +13660,7 @@ it received — a new `Spread { None, Borrowed, Owned }` replaces the `bool` —
 because an assembled vector is fresh and must not be cloned again while a
 borrowed forward must be; `owned_vec()`/`owned_iter()` helpers keep the seven
 storing lowerings honest, and `mut_str`'s read-only tail keeps borrowing. std's
-`non_empty_list` went back to being ordinary Salvo (`return list_of(first,
+`non_empty_list` went back to being ordinary Salvo (`return List(first,
 ...rest)`), its two intrinsic lowerings deleted.
 
 **A qualifier name may now be declared over several subject types**, and the
@@ -13743,7 +13792,7 @@ invisible there.
 any `core` module could never match: `add_items` ran twice for a core module's
 own files (`Level::Core` *and* `Level::Own`), putting every fn in the overload
 set twice, which ordinary resolution tolerated and the refn matcher — which
-counts matches — did not. (2) `list_of(first, ...rest)` **silently emitted
+counts matches — did not. (2) `List(first, ...rest)` **silently emitted
 wrong Rust**: the ordinary variadic path had always refused a mixed
 plain-plus-spread call, but the intrinsic path had no such guard and its
 lowerings read the spread as the whole variadic, so only `first.clone()` came
@@ -13792,8 +13841,8 @@ the language, on both backends, and COLLECTIONS.md is deleted per its charter
 is summarized in that entry). Three pre-existing bugs fell out on the way and
 were fixed; three more were found and recorded. What it took, by increment:
 
-**(A) The rename sweep.** `list` → `list_of`, `mutable_list` →
-`mut_list_of`, `mutable_str` → `mut_str` across std, every corpus and inline
+**(A) The rename sweep.** `list` → `List`, `mutable_list` →
+`Mut List`, `mutable_str` → `mut_str` across std, every corpus and inline
 test source, the examples and their checked-in output, and the specs; four
 parser snapshots re-accepted. No compatibility shims (AGENTS.md's
 backwards-compatibility invariant), so this is simply what the functions are
@@ -13858,7 +13907,7 @@ the program-wide `symbols.effect_of_fn`, so `std/core/seq.sv` reported "no
 handler for effect `Sink`" for a call to a local. Fixed with
 `Checked::local_calls` plus tightened member visibility in resolve.rs — the
 checker knows which it is, and the emitters now ask. (3) **Variadic arguments
-moved out of their caller's locals**, so `list_of(a); use(a)` failed with a
+moved out of their caller's locals**, so `List(a); use(a)` failed with a
 raw rustc E0382. Fixed by cloning in the emitter rather than by tracking the
 move in the checker: tracking it would have been more precise and would have
 turned working programs into errors.
@@ -13942,8 +13991,8 @@ comparison; float fields bar hashing, revisit later); collection literals
 `[…]`/`{…}`/`{k: v}` as sugar for the `*_of` constructors, array literals
 removed, empty literals typed by expectation or error, `Mut` prefixing like
 struct literals; `Mut T[]` (element-assignable arrays) added; the
-`*_of`/`mut_*`/`*_by`/`to_*` conventions with `list`→`list_of`,
-`mutable_list`→`mut_list_of`, `mutable_str`→`mut_str` renames; duplicate
+`*_of`/`mut_*`/`*_by`/`to_*` conventions with `list`→`List`,
+`mutable_list`→`Mut List`, `mutable_str`→`mut_str` renames; duplicate
 keys last-wins. This settles the `==`/`!=` slice of the operator-typing
 DECISION (recorded in ROADMAP.md); one design item stayed open (C-7, the
 Set/Map pass) and was answered by prototype in the build entry above.
@@ -18142,7 +18191,7 @@ decision-log entry of 2026-09-18.
 had just been built to want:
 
 ```
-let queue: Mut List<Ticket> = mut_list_of()
+let queue: Mut List<Ticket> = Mut List()
 add(queue, Ticket { id: 1 })
 add(queue, Ticket { id: 2 })
 while remove_first(queue) is Ticket next {
@@ -18297,7 +18346,7 @@ the first process test (`sum: Int`) never met it.
 ```
 fn eat(xs: Mut List<Int>) [] -> Int => !xs { add(xs, 99) return size(xs) }
 handler Holding() of Bag {
-    items: Mut List<Int> = mut_list_of(1, 2)
+    items: Mut List<Int> = Mut List(1, 2)
     fn go() -> Int { return eat(items) }
     fn count() -> Int { return size(items) }
 }
@@ -18355,7 +18404,7 @@ backends** — `analyze` is silent, and the generated Rust compiled with **no
 rustc warning at all** (checked by hand on the emitted `main.rs`):
 
 ```
-let xs: Mut List<Int>? = mut_list_of(1, 2)
+let xs: Mut List<Int>? = Mut List(1, 2)
 if xs is Mut {
     add(xs, 3)
     println("value: ${to_str(xs)}")       // Rust: [1, 2]   Kotlin: [1, 2, 3]
@@ -18369,7 +18418,7 @@ The wrapper shape lost it one step later instead, which is nastier, because the
 branch's own read confirms the mutation:
 
 ```
-let r: Ok Mut List<Int> | Err Str = ok(mut_list_of(1, 2))
+let r: Ok Mut List<Int> | Err Str = ok(Mut List(1, 2))
 if r is ^Ok { add(r, 3); println("inside: ${to_str(r)}") }   // both: [1, 2, 3]
 if r is ^Ok { println("after:  ${to_str(r)}") }              // Rust: [1, 2]   Kotlin: [1, 2, 3]
 ```
@@ -24502,7 +24551,7 @@ fn main::main() -> None {
       call core.basic::to_str(Int)(call main::bumped(read b))))
   member Console.println(read console, concat("2. ",
       call core.basic::to_str(Str)(call main::label(read b.tag, call main::bumped(read b)))))
-  bind#3 let xs: List<Int> = call core.list::list_of<Int>([3, 2, 1])
+  bind#3 let xs: List<Int> = call core.list::List<Int>([3, 2, 1])
   bind#4 let twin: List<Int> = call core.basic::copy<List<Int>>[plan: identity](read xs)
   member Console.println(read console, concat("3. ",
       call core.basic::to_str(Int)(call main::consume(!read xs)), " ",

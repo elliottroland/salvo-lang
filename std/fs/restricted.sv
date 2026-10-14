@@ -29,7 +29,7 @@ fn fs_resolve(root: Str, path: Str) [] -> Str? => root, path {
         return None
     }
     let segs = split(path, "/")
-    let kept: Mut List<Str> = mut_list_of()
+    let kept: Mut List<Str> = Mut List()
     let skip = 0
     let i = size(segs) - 1
     while i >= 0 {
@@ -53,7 +53,7 @@ fn fs_resolve(root: Str, path: Str) [] -> Str? => root, path {
     if skip > 0 {
         return None
     }
-    let parts: Mut List<Str> = mut_list_of()
+    let parts: Mut List<Str> = Mut List()
     let j = size(kept) - 1
     while j >= 0 {
         parts.add(copy(get(kept, j)!))
