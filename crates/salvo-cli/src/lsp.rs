@@ -1327,6 +1327,25 @@ impl Server<'_> {
                 Item::Fn(f) if f.name.span == site.span => Some(f),
                 _ => None,
             });
+            // [lsp-hover-overloads] [iter-fn] A generated iterator-struct
+            // `next` is not a user-visible overload: its struct
+            // (`__Iter_<fn>_…`) is compiler-written and unspellable, so listing
+            // its `next(__p: Mut __Iter_…)` beside the real ones only leaks the
+            // backend. Skip any overload whose first parameter's base type is a
+            // compiler-generated name (leading `_`).
+            if let Some(f) = fn_decl {
+                let generated_recv = f
+                    .params
+                    .first()
+                    .and_then(|p| match &p.ty {
+                        salvo_syntax::ast::Type::Named { base, .. } => Some(base.name.name.as_str()),
+                        _ => None,
+                    })
+                    .is_some_and(|n| n.starts_with('_'));
+                if generated_recv {
+                    continue;
+                }
+            }
             // The note is kept out of the code span: an owner renders with
             // backticks of its own (`effect `Store``), and nesting them makes
             // markdown swallow the line.

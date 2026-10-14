@@ -77,6 +77,17 @@ const CONTEXTUAL_PATTERNS: &[(&str, &str, &str)] = &[
         "keyword.declaration.salvo",
         "the iterator-fn modifier",
     ),
+    // [iter-type] `iter T`, `iter (proj T)`: the iterator type former, `iter`
+    // in qualifier position before the element type. A type name (uppercase
+    // [name-casing]) or a parenthesised group follows — which is what tells it
+    // from `iter fn` (a lowercase `fn`) and from a *call* of a function named
+    // `iter` (a `(` with no space, or an argument). The space before `[A-Z(]`
+    // is required so `iter(xs)` stays a call.
+    (
+        "\\\\biter(?=\\\\s+(?:[A-Z]|\\\\())",
+        "keyword.other.salvo",
+        "the iter type former",
+    ),
     // [comptime-bound] [comptime-fields] `comptime fn`, `comptime struct`,
     // `comptime type`: the compile-time facility's modifier.
     (
@@ -127,9 +138,10 @@ const CONTEXTUAL_PATTERNS: &[(&str, &str, &str)] = &[
         "the comptime refusal",
     ),
     // [assert-fn] `assert!(…)` and `unreachable!(…)`: the bang forms that
-    // trap, highlighted as control flow like `refuse!`.
+    // trap, highlighted as control flow like `refuse!`. `todo!(…)` is the
+    // third such form [assert-fn] — an unfinished-path marker that traps.
     (
-        "\\\\b(?:assert|unreachable)(?=!)",
+        "\\\\b(?:assert|unreachable|todo)(?=!)",
         "keyword.control.salvo",
         "the trapping assertions",
     ),
@@ -195,7 +207,7 @@ const CONTEXTUAL_PATTERNS: &[(&str, &str, &str)] = &[
     // immediately after `@`.
     (
         "(?<=@)self\\\\b",
-        "variable.language.salvo",
+        "keyword.other.salvo",
         "the enclosing-handler selector",
     ),
     // `: Yield<self, T>`, `: auto Ordered<self>`: the declaring type in an
@@ -205,7 +217,7 @@ const CONTEXTUAL_PATTERNS: &[(&str, &str, &str)] = &[
     // anyway, but the grammar should not rely on that).
     (
         "(?<=[<,])\\\\s*self\\\\b(?=\\\\s*[,>])",
-        "variable.language.salvo",
+        "keyword.other.salvo",
         "the declaring type in an obligation",
     ),
     // `=> map: preserve KeyOf` [qual-preserve]: the preservation entry of a
@@ -565,6 +577,7 @@ mod tests {
             salvo_syntax::parser::INIT_BLOCK,
             salvo_syntax::parser::ASSERT_FORM,
             salvo_syntax::parser::UNREACHABLE_FORM,
+            salvo_syntax::parser::TODO_FORM,
             salvo_syntax::parser::THREADSAFE_MODIFIER,
             salvo_syntax::parser::ITERABLE_MODIFIER,
             salvo_syntax::parser::NOREMOTE_MODIFIER,

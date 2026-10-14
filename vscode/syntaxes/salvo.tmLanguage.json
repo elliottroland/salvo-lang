@@ -132,6 +132,11 @@
           "match": "\\biter(?=\\s+fn\\b)"
         },
         {
+          "comment": "the iter type former — a keyword by position, not a reserved word",
+          "name": "keyword.other.salvo",
+          "match": "\\biter(?=\\s+(?:[A-Z]|\\())"
+        },
+        {
           "comment": "the compile-time modifier — a keyword by position, not a reserved word",
           "name": "keyword.declaration.salvo",
           "match": "\\bcomptime(?=\\s+(fn|struct|type)\\b)"
@@ -169,7 +174,7 @@
         {
           "comment": "the trapping assertions — a keyword by position, not a reserved word",
           "name": "keyword.control.salvo",
-          "match": "\\b(?:assert|unreachable)(?=!)"
+          "match": "\\b(?:assert|unreachable|todo)(?=!)"
         },
         {
           "comment": "the mailbox slot of a handler — a keyword by position, not a reserved word",
@@ -213,12 +218,12 @@
         },
         {
           "comment": "the enclosing-handler selector — a keyword by position, not a reserved word",
-          "name": "variable.language.salvo",
+          "name": "keyword.other.salvo",
           "match": "(?<=@)self\\b"
         },
         {
           "comment": "the declaring type in an obligation — a keyword by position, not a reserved word",
-          "name": "variable.language.salvo",
+          "name": "keyword.other.salvo",
           "match": "(?<=[<,])\\s*self\\b(?=\\s*[,>])"
         },
         {

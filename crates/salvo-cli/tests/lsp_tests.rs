@@ -2713,3 +2713,47 @@ fn hovering_a_type_named_constructor_shows_the_readable_name() {
     lsp.child.wait().unwrap();
 }
 
+
+/// [lsp-hover-overloads] [iter-fn] Hovering a `next` must not list a
+/// compiler-generated iterator-struct `next` (`next(__p: Mut __Iter_…)`) in
+/// the "Also visible under this name" section — that struct is unspellable
+/// backend detail. Regression for the generated overload leaking into hover.
+#[test]
+fn hover_next_hides_generated_iterator_overloads() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_next_overloads");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("main.sv"), "fn main() [] {\n}\n").unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}/main.sv", root.display());
+    // An `iter fn` generates a `__Iter_counts_…` struct and its `next`; a
+    // user struct with its own `next` gives a second, real overload. Hovering
+    // the user `next` must show only real overloads.
+    let buf = concat!(
+        "struct Pair<T> : Yield<self, T> canbe Mut {\n    items: List<T>,\n    at: Int\n}\n\n",
+        "fn next<T>(p: Mut Pair<T>) [] -> Emitted T | Finished => p: Mut {\n    return finished()\n}\n\n",
+        "iter fn counts(n: Int) -> Emitted Int | Finished {\n    state { at: Int = 0 }\n    if at >= n { return finished() }\n    at = at + 1\n    return emitted(at)\n}\n\n",
+        "fn main() [] {\n}\n",
+    );
+    send(&mut lsp.stdin, json!({
+        "jsonrpc": "2.0", "method": "textDocument/didOpen",
+        "params": {"textDocument": {"uri": uri, "languageId": "salvo", "version": 1, "text": buf}}
+    }));
+    let _ = expect_diagnostics(&lsp.rx);
+    // Hover the user `next` declaration name: line index 5 (`fn next<T>...`),
+    // the `next` begins at column 3.
+    send(&mut lsp.stdin, json!({
+        "jsonrpc": "2.0", "id": 2, "method": "textDocument/hover",
+        "params": {"textDocument": {"uri": uri}, "position": {"line": 5, "character": 4}}
+    }));
+    let r = expect_response(&lsp.rx, 2);
+    let hover = r["result"]["contents"]["value"].as_str().unwrap_or("");
+    assert!(
+        !hover.contains("__Iter_"),
+        "hover must not leak the generated iterator struct: {hover}"
+    );
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "id": 99, "method": "shutdown", "params": null}));
+    expect_response(&lsp.rx, 99);
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
+    lsp.child.wait().unwrap();
+}
