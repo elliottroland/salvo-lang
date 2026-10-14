@@ -194,6 +194,76 @@ pub fn build_std_cache(native_ext: &str) -> salvo_core::StdCache {
     salvo_core::StdCache::new(checked, std_files)
 }
 
+/// [lsp-std-source] A full `Analysis` of the embedded standard library, as its
+/// own program, so the language server can answer hover and go-to-definition
+/// *inside* a std file a user navigated into (the read-only copies
+/// `embedded_std_copy` writes under the temp dir). Checking std standalone
+/// (`check_program`, no cache) records the references within it
+/// (`fn_refs`/`def_refs`/`field_refs`), which the `StdCache` keeps hidden.
+///
+/// `root` is the temp directory the std copies live under, so a copy's path
+/// (`<root>/std/core/basic.sv`) equals `root.join(file.name)` — the pivot
+/// `doc_view` and `site_location` use. Built once and reused (std never
+/// changes within a server run).
+pub fn analyze_std() -> Analysis {
+    let mut sources = SourceSet::default();
+    load_embedded_std(&mut sources, "");
+    let mut modules = Vec::with_capacity(sources.files.len());
+    let mut diagnostics: Vec<FileDiagnostic> = Vec::new();
+    for file in &sources.files {
+        let (module, diags) = salvo_syntax::parse_module_deferred(&file.content);
+        diagnostics.extend(diags.into_iter().map(|d| FileDiagnostic {
+            file: modules.len(),
+            severity: d.severity,
+            message: d.message,
+            span: d.span,
+            suggested_imports: Vec::new(),
+        }));
+        modules.push(module);
+    }
+    let expansion = salvo_core::expand(&sources.files, &mut modules);
+    diagnostics.extend(expansion.diagnostics);
+    let comptime_hovers = expansion.comptime_hovers;
+    let program = Program {
+        files: sources.files,
+        modules,
+        companions: sources.companions,
+    };
+    let symbols = Symbols::collect(&program);
+    let resolution = salvo_core::resolve(&program);
+    let overloads = overload_index(&resolution);
+    let completions = completion_index(&resolution);
+    let type_completions = type_completion_index(&resolution);
+    let mut checked = salvo_core::check_program(&program, &resolution, &symbols);
+    // The std library's own diagnostics are not published (the copies are
+    // read-only); drain them so `checked` matches the shape other analyses have.
+    checked.errors.clear();
+    Analysis {
+        root: std_copy_root(),
+        project: None,
+        program,
+        diagnostics: Vec::new(),
+        checked: Some(checked),
+        io_errors: Vec::new(),
+        overloads,
+        comptime_hovers,
+        completions,
+        type_completions,
+        ir_reliant: std::collections::HashSet::new(),
+    }
+}
+
+/// [lsp-std-source] The temp directory the embedded-std copies live under,
+/// **per server process**: `<temp>/salvo-std-<version>-<pid>`. A std file
+/// named `std/core/basic.sv` is written at `<this>/std/core/basic.sv`, so
+/// this is the `Analysis::root` that makes `root.join(name)` resolve a copy's
+/// path. The pid keeps concurrent servers (several editor windows, or a test
+/// suite's parallel servers) from sharing a directory — so one server's
+/// shutdown cleanup cannot delete another's copies.
+pub fn std_copy_root() -> PathBuf {
+    std::env::temp_dir().join(format!("salvo-std-{}-{}", env!("CARGO_PKG_VERSION"), std::process::id()))
+}
+
 /// [lsp-parse-cache] [manifest-discovery] `analyze_sources` for a document,
 /// reusing a server-held parse cache so unchanged files skip lexing and
 /// parsing. The nearest manifest above `path` decides the source root and

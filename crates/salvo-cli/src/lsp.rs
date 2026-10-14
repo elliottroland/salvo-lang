@@ -150,6 +150,7 @@ fn spawn_parent_death_watchdog() {
                 // The editor is gone (reparented to init, or a new parent):
                 // nothing we do matters now, so stop burning CPU.
                 lsp_trace!("parent {original} is gone (now {now}); exiting");
+                cleanup_std_copies();
                 std::process::exit(0);
             }
         })
@@ -176,6 +177,10 @@ fn serve() -> Result<(), Box<dyn Error + Sync + Send>> {
     // [lsp-watchdog] Backstop against a server outliving its editor and
     // spinning (see the fn docs). Started before anything blocks.
     spawn_parent_death_watchdog();
+    // [lsp-std-source] Sweep std-copy directories left by servers that exited
+    // without cleanup (a hard kill). Each server's copies are per-pid, so a
+    // directory whose pid is no longer a live process is safe to remove.
+    sweep_dead_std_copies();
     let (connection, io_threads) = Connection::stdio();
 
     let capabilities = serde_json::to_value(ServerCapabilities {
@@ -232,7 +237,111 @@ fn serve() -> Result<(), Box<dyn Error + Sync + Send>> {
     // by the connection — is dropped; joining first would deadlock.
     drop(connection);
     io_threads.join()?;
+    // [lsp-std-source] Remove the read-only std copies this server extracted
+    // for navigation, so they do not accumulate in the temp dir across runs.
+    cleanup_std_copies();
     Ok(())
+}
+
+/// [lsp-std-source] Delete the temp directory holding this build's extracted
+/// std copies (`embedded_std_copy`). The copies are read-only, so clear each
+/// file's read-only flag is unnecessary — `remove_dir_all` removes them
+/// regardless on the platforms we target. Best-effort: a failure (another
+/// server still using it, a permission quirk) is ignored, since the OS clears
+/// its temp dir eventually anyway.
+fn cleanup_std_copies() {
+    let dir = crate::analysis::std_copy_root();
+    // The extracted files are read-only; on some platforms `remove_dir_all`
+    // refuses a read-only file, so clear the flag first (best-effort).
+    if let Ok(entries) = walk_files(&dir) {
+        for f in entries {
+            if let Ok(meta) = std::fs::metadata(&f) {
+                let mut perms = meta.permissions();
+                #[allow(clippy::permissions_set_readonly_false)]
+                perms.set_readonly(false);
+                let _ = std::fs::set_permissions(&f, perms);
+            }
+        }
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Every regular file under `dir`, recursively (for clearing read-only flags
+/// before removal). `Err` only when `dir` cannot be read.
+fn walk_files(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
+    let mut out = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&d) else { continue };
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else {
+                out.push(p);
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// [lsp-std-source] Remove std-copy directories (`salvo-std-<version>-<pid>`)
+/// whose process is no longer alive — leftovers from a server that was hard-
+/// killed before its own `cleanup_std_copies` ran. Best-effort; a directory
+/// whose liveness cannot be determined is left alone. Unix checks liveness
+/// with `kill(pid, 0)`; elsewhere it is a no-op (the per-pid dir still gets
+/// cleaned on this server's own clean shutdown).
+fn sweep_dead_std_copies() {
+    let prefix = format!("salvo-std-{}-", env!("CARGO_PKG_VERSION"));
+    let temp = std::env::temp_dir();
+    let Ok(entries) = std::fs::read_dir(&temp) else { return };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        let Some(pid_str) = name.strip_prefix(&prefix) else { continue };
+        let Ok(pid) = pid_str.parse::<i32>() else { continue };
+        if pid == std::process::id() as i32 {
+            continue;
+        }
+        if pid_is_dead(pid) {
+            let dir = entry.path();
+            if let Ok(files) = walk_files(&dir) {
+                for f in files {
+                    if let Ok(meta) = std::fs::metadata(&f) {
+                        let mut perms = meta.permissions();
+                        #[allow(clippy::permissions_set_readonly_false)]
+                        perms.set_readonly(false);
+                        let _ = std::fs::set_permissions(&f, perms);
+                    }
+                }
+            }
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
+}
+
+/// Whether `pid` is definitely not a running process. Conservative: only
+/// `true` when we can confirm the pid is gone, so a live or unknown process's
+/// directory is never swept.
+#[cfg(unix)]
+fn pid_is_dead(pid: i32) -> bool {
+    extern "C" {
+        fn kill(pid: i32, sig: i32) -> i32;
+    }
+    // SAFETY: `kill` with signal 0 performs only the existence/permission
+    // check, sending no signal. errno is not read; the return value suffices.
+    let r = unsafe { kill(pid, 0) };
+    if r == 0 {
+        return false; // alive (and we may signal it)
+    }
+    // r == -1: either ESRCH (no such process -> dead) or EPERM (alive, not
+    // ours). Distinguish via errno; EPERM means alive.
+    std::io::Error::last_os_error().raw_os_error() == Some(/* ESRCH */ 3)
+}
+
+#[cfg(not(unix))]
+fn pid_is_dead(_pid: i32) -> bool {
+    false
 }
 
 struct Server<'c> {
@@ -440,9 +549,13 @@ impl Server<'_> {
     /// project's source root, or the workspace root when no manifest is
     /// above it.
     fn analyze_for(&self, path: &Path) -> Option<Analysis> {
-        // [lsp-std-source] A copy of the embedded std opened for reading.
+        // [lsp-std-source] A copy of the embedded std the user navigated into:
+        // analyse std as its own program so hover and go-to-definition work
+        // *inside* std (its references resolve to other std files, which
+        // `site_location` routes back to their read-only copies). Built on
+        // demand — navigating within std is rare, and the check is sub-second.
         if is_embedded_std_copy(path) {
-            return None;
+            return Some(crate::analysis::analyze_std());
         }
         let std_cache = self.std_cache();
         // [lsp-slow-dump] Time the pass so a runaway (the 100%-CPU report) can
@@ -2180,8 +2293,7 @@ fn receiver_name(ty: &Ty) -> Option<String> {
 /// directory per compiler version, rewritten only when its content differs.
 /// `None` when it cannot be written.
 fn embedded_std_copy(name: &str, content: &str) -> Option<PathBuf> {
-    let dir = std::env::temp_dir().join(format!("salvo-std-{}", env!("CARGO_PKG_VERSION")));
-    let path = dir.join(name);
+    let path = crate::analysis::std_copy_root().join(name);
     if std::fs::read_to_string(&path).ok().as_deref() != Some(content) {
         std::fs::create_dir_all(path.parent()?).ok()?;
         if let Ok(meta) = std::fs::metadata(&path) {
@@ -2201,9 +2313,9 @@ fn embedded_std_copy(name: &str, content: &str) -> Option<PathBuf> {
 /// Whether [path] is one of [`embedded_std_copy`]'s files, which belong to no
 /// project and are not analysed as one.
 fn is_embedded_std_copy(path: &Path) -> bool {
-    let base = std::env::temp_dir();
-    let base = base.canonicalize().unwrap_or(base);
-    let dir = base.join(format!("salvo-std-{}", env!("CARGO_PKG_VERSION")));
+    let dir = crate::analysis::std_copy_root();
+    let dir = dir.canonicalize().unwrap_or(dir);
+    let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
     path.starts_with(&dir)
 }
 
@@ -3220,12 +3332,37 @@ impl DocView<'_> {
     }
 }
 
-/// The document at `path`: a user `.sv` file of the analysis.
+/// The document at `path`: a file of the analysis. Normally a user `.sv`
+/// file; for the std self-analysis [lsp-std-source] the open document *is* a
+/// std file (a read-only copy under the temp root), so std files are matched
+/// too — the `root.join(name) == path` test is exact, and a project
+/// analysis's std files live under the project root, never at an opened path.
+/// The document at `path`: a file of the analysis. Normally a user `.sv`
+/// file; for the std self-analysis [lsp-std-source] the open document *is* a
+/// std file (a read-only copy under the temp root `analysis.root`), so std
+/// files are matched too. A **non-std** file is preferred when both would
+/// match, so a project analysis (whose std files live under the project root
+/// but are never the opened path) is unaffected.
 fn doc_view<'a>(analysis: &'a Analysis, path: &Path) -> Option<DocView<'a>> {
     let files = &analysis.program.files;
+    let exact = |f: &salvo_core::SourceFile| analysis.root.join(&f.name) == path;
+    // Exact match, non-std preferred (a project analysis's std files live
+    // under the project root and are never the opened path).
+    if let Some(file) = files
+        .iter()
+        .position(|f| (!f.is_std || f.is_shadow) && exact(f))
+        .or_else(|| files.iter().position(exact))
+    {
+        return Some(DocView { file, content: &files[file].content });
+    }
+    // [lsp-std-source] Fallback for a std-copy path: the opened URI may be
+    // canonicalized (macOS resolves `/var` to `/private/var`) while
+    // `analysis.root` is not, so an exact compare misses. Compare canonical
+    // forms. Confined to this fallback so normal resolution stays byte-exact.
+    let want = path.canonicalize().ok()?;
     let file = files
         .iter()
-        .position(|f| (!f.is_std || f.is_shadow) && analysis.root.join(&f.name) == path)?;
+        .position(|f| analysis.root.join(&f.name).canonicalize().ok() == Some(want.clone()))?;
     Some(DocView { file, content: &files[file].content })
 }
 

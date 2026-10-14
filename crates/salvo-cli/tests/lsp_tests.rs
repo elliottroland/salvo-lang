@@ -2801,3 +2801,63 @@ fn goto_definition_lands_on_the_local_declaration() {
     send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
     lsp.child.wait().unwrap();
 }
+
+/// [lsp-std-source] Go-to-definition INTO std opens a read-only temp copy,
+/// and go-to-definition FROM there resolves to another std definition (also a
+/// temp copy) — hover/goto work inside std, not just at its boundary.
+#[test]
+fn goto_definition_works_inside_std() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_goto_std");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("main.sv"), "fn main() [] {\n}\n").unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}/main.sv", root.display());
+    // A `List` and a call to a std fn with a clear single definition.
+    let buf = "fn use_it() -> Int {\n    let xs = List(1, 2, 3)\n    return size(xs)\n}\n";
+    send(&mut lsp.stdin, json!({
+        "jsonrpc": "2.0", "method": "textDocument/didOpen",
+        "params": {"textDocument": {"uri": uri, "languageId": "salvo", "version": 1, "text": buf}}
+    }));
+    let _ = expect_diagnostics(&lsp.rx);
+    // Goto on `size` (line index 2, `    return size(xs)` — `size` at col 11)
+    // → into std.
+    send(&mut lsp.stdin, json!({
+        "jsonrpc": "2.0", "id": 2, "method": "textDocument/definition",
+        "params": {"textDocument": {"uri": uri}, "position": {"line": 2, "character": 12}}
+    }));
+    let into_std = expect_response(&lsp.rx, 2);
+    let std_uri = into_std["result"]["uri"].as_str().expect("goto into std should yield a uri").to_string();
+    assert!(std_uri.contains("salvo-std-"), "goto `size` should land in a std temp copy: {into_std}");
+    let std_line = into_std["result"]["range"]["start"]["line"].as_u64().unwrap();
+    let std_char = into_std["result"]["range"]["start"]["character"].as_u64().unwrap();
+
+    // Open that std file and goto-definition on the `size` declaration name
+    // itself — it should resolve (to the same declaration), proving position
+    // features are live inside std. Any non-null result at a std uri is the
+    // proof; a dead `analyze_for` (the old behaviour) returned null.
+    let std_text = {
+        let path = std_uri.strip_prefix("file://").unwrap();
+        std::fs::read_to_string(path).expect("the std temp copy must exist")
+    };
+    send(&mut lsp.stdin, json!({
+        "jsonrpc": "2.0", "method": "textDocument/didOpen",
+        "params": {"textDocument": {"uri": std_uri, "languageId": "salvo", "version": 1, "text": std_text}}
+    }));
+    let _ = expect_diagnostics(&lsp.rx);
+    // Hover the std declaration — a live analysis gives a signature; the dead
+    // path gave nothing.
+    send(&mut lsp.stdin, json!({
+        "jsonrpc": "2.0", "id": 3, "method": "textDocument/hover",
+        "params": {"textDocument": {"uri": std_uri}, "position": {"line": std_line, "character": std_char}}
+    }));
+    let hov = expect_response(&lsp.rx, 3);
+    assert!(
+        hov["result"]["contents"]["value"].as_str().is_some_and(|v| v.contains("size")),
+        "hover inside std should describe `size`, got: {hov}"
+    );
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "id": 99, "method": "shutdown", "params": null}));
+    expect_response(&lsp.rx, 99);
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
+    lsp.child.wait().unwrap();
+}
