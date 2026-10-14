@@ -982,8 +982,8 @@ impl<'s> Parser<'s> {
             // [qual-refn-scope] A refinement lives in the qualifier whose claim
             // it is about — always (user decision 2026-09-26). The top-level
             // form existed to *reconcile* two qualifiers that disagreed, and
-            // disagreement is now refused at the call and settled by naming a
-            // place [qual-refn-ambiguous], so the form has no job left.
+            // disagreement can no longer be expressed [qual-no-with], so the
+            // form has no job left.
             TokenKind::KwRefn => {
                 let sp = self.peek().span;
                 let decl = self.parse_refn()?;
@@ -1981,8 +1981,44 @@ impl<'s> Parser<'s> {
         let docs = self.docs_here();
         let start = self.expect(&TokenKind::KwRefn)?.span;
         let name = self.ident_value("refinement")?;
+        // [qual-refn-match] An optional `@module` selector scopes the match.
+        let at = if self.at(&TokenKind::At) && self.same_line() {
+            self.bump();
+            self.ident_dotted_path()
+        } else {
+            None
+        };
         let generics = self.parse_generics();
-        let (params, _) = self.parse_params()?;
+        // [qual-refn-match] A refn's parameter list may end with `*`, which
+        // matches all remaining parameters of a candidate. Parsed here (not
+        // via `parse_params`) so the wildcard is allowed.
+        self.expect(&TokenKind::LParen)?;
+        self.group_depth += 1;
+        let mut params = Vec::new();
+        let mut wildcard = false;
+        while !self.at(&TokenKind::RParen) && !self.at_eof() {
+            if self.at(&TokenKind::Star) {
+                self.bump();
+                wildcard = true;
+                break;
+            }
+            let pname = self.ident()?;
+            self.expect(&TokenKind::Colon)?;
+            let ty = self.parse_type()?;
+            let pspan = pname.span.to(ty.span());
+            params.push(Param {
+                name: pname,
+                ty,
+                variadic: false,
+                implicit: false,
+                span: pspan,
+            });
+            if self.eat(&TokenKind::Comma).is_none() {
+                break;
+            }
+        }
+        self.group_depth -= 1;
+        self.expect(&TokenKind::RParen)?;
         // An effect list here is the most likely mistake: a refinement
         // states what is *known* after a call, and a function's effects
         // belong to the function.
@@ -1999,21 +2035,64 @@ impl<'s> Parser<'s> {
             );
             return None;
         }
+        // [deduce-conditional] A refn may carry a `-> subject is Q` response
+        // (6c): it applies the conditional claim to each matched Bool fn.
+        // Any *other* `->` (a return type) is still refused.
+        let mut response = None;
         if self.at(&TokenKind::Arrow) {
-            let span = self.peek().span;
-            self.error(
-                format!(
-                    "a refinement cannot declare a return type: `refn {}` \
-                     refines an existing function's deductions, and the \
-                     function decides what it returns; write `=> {}: +Qual`",
-                    name.name,
-                    params.first().map(|p| p.name.name.as_str()).unwrap_or("param")
-                ),
-                span,
-            );
-            return None;
+            let is_cond = self.same_line()
+                && {
+                    // `-> ident (is | !is) …`
+                    matches!(self.peek_at(1).kind, TokenKind::Ident(_))
+                        && (matches!(self.peek_at(2).kind, TokenKind::KwIs)
+                            || (matches!(self.peek_at(2).kind, TokenKind::Bang)
+                                && matches!(self.peek_at(3).kind, TokenKind::KwIs)))
+                };
+            if !is_cond {
+                let span = self.peek().span;
+                self.error(
+                    format!(
+                        "a refinement cannot declare a return type: `refn {}` \
+                         refines an existing function's deductions, and the \
+                         function decides what it returns; write `=> {}: +Qual` \
+                         (or `-> {} is Qual` for a Bool predicate)",
+                        name.name,
+                        params.first().map(|p| p.name.name.as_str()).unwrap_or("param"),
+                        params.first().map(|p| p.name.name.as_str()).unwrap_or("param")
+                    ),
+                    span,
+                );
+                return None;
+            }
+            self.bump();
+            let mut responses = Vec::new();
+            loop {
+                let subject = self.ident()?;
+                let negated = if self.at(&TokenKind::Bang) {
+                    self.bump();
+                    true
+                } else {
+                    false
+                };
+                self.expect(&TokenKind::KwIs)?;
+                let qual = self.parse_type_ref()?;
+                let span = subject.span.to(qual.span);
+                responses.push(ConditionalResponse { subject, negated, qual, span });
+                if !(self.at(&TokenKind::AmpAmp) && self.same_line()) {
+                    break;
+                }
+                self.bump();
+            }
+            response = Some(responses);
         }
-        if !self.at(&TokenKind::FatArrow) {
+        // [qual-refn] The `=>` deduction clause is optional when a response
+        // clause is present; otherwise a refn must state something.
+        let deductions = if self.at(&TokenKind::FatArrow) {
+            self.bump();
+            self.parse_refn_deduction_list()?
+        } else if response.is_some() {
+            Vec::new()
+        } else {
             let span = self.peek().span;
             self.error(
                 format!(
@@ -2028,33 +2107,21 @@ impl<'s> Parser<'s> {
                 span,
             );
             return None;
-        }
-        self.bump();
-        let deductions = self.parse_refn_deduction_list()?;
-        // A return type would claim the refinement changes what the
-        // function produces, which is exactly what it may not do. Only a
-        // token that could *start* a type is reported, so a `}` closing the
-        // qualifier body on the same line is not mistaken for one.
-        if self.same_line() && (self.at_ident() || self.at(&TokenKind::LParen)) {
-            let span = self.peek().span;
-            self.error(
-                format!(
-                    "a refinement cannot declare a return type: `refn {}` \
-                     refines an existing function's deductions, and the \
-                     function decides what it returns",
-                    name.name
-                ),
-                span,
-            );
-            return None;
-        }
-        let end = deductions.last().map(|d| d.span).unwrap_or(start);
+        };
+        let end = deductions
+            .last()
+            .map(|d| d.span)
+            .or_else(|| response.as_ref().and_then(|r| r.last()).map(|r| r.span))
+            .unwrap_or(start);
         Some(RefnDecl {
             docs,
             name,
+            at,
             generics,
             params,
+            wildcard,
             deductions,
+            response,
             span: start.to(end),
         })
     }

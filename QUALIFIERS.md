@@ -274,31 +274,31 @@ see `-> Bool`. Verified both backends: `if non_empty(xs) { first(xs) }` →
 `conditional_response_narrows_and_is_proof_checked` (carry_tests). Spec:
 `[deduce-conditional]` + `[assert-narrow]` updated. REUSED by change 7's 6(c).
 
-### Change 7 (refn redesign) — PLAN (decided)
-New matching model (replaces name+exact-signature one-to-one):
-- A refn still **names** a function (R: Q1) and lives in a **qualifier body**,
-  speaking only about that qualifier (Q2). `@place` may scope the *match*
-  (`refn add@core.list(…)`) to exclude a same-named fn from another module
-  (Q6); no call-site disambiguation.
-- It matches **every in-scope overload of that name** whose params fit
-  positionally (one-to-many, Q1/Q2). Param match is **symmetric base-type
-  super/subtype** — refn param X matches fn param Y if the base (all quals
-  incl. `Mut` stripped) of one is a super/subtype of the other (Q3). A trailing
-  `*` matches all remaining params (R1: trailing-only). Implicit params need no
-  match. **Zero matches is an error** naming the refn (R2).
-- The refn params are the *gate* (does this refn attach at all); the **call
-  site** does the strict work (Q4): a refn applies to a call when every
-  argument is `<:` the relevant refn param, or covered by `*`. So a refn can
-  match a fn yet fire on none of its calls.
-- Effect (rule 6): all matching refns' modifications apply, order-independent.
-  (a) add `+Q`, (b) remove `-Q` (kept path only, R3), (c) a **Bool-conditional
-  response** on a predicate fn via change 5's `-> subject is Q` clause — if any
-  matched fn does **not keep** a parameter named in a qualifier-conditional,
-  that's an **error** (Q5) demanding a narrower refn. A direct `+Q`/`-Q`
-  contradiction for one (param, qualifier) across matching refns is a
-  declaration-time **error** (Q6), not call-site suppression.
-- Keep `preserve` (dependent qualifiers — std `index.sv`/`map.sv` rely on it);
-  it is orthogonal to add/remove/conditional.
+### Change 7 (refn redesign) — DONE (2026-10-12)
+New matching: a refn names a fn, lives in a qualifier body (speaks about its
+own qual), matches EVERY in-scope overload of that name whose params fit
+positionally by symmetric base-type super/subtype (all quals incl Mut
+stripped). Trailing `*` matches the rest; `@module` on the refn scopes the
+match; zero matches = error. `base_super_or_sub`/`base_fits`/`strip_all_quals`
+in refine.rs (loose syntactic gate — same-base, Any-top, T<:T?, type-var-any,
+same-kind structural). Resolved.callees:Vec<FnKey>; entries keyed by refn-param
+POSITION (translated to each callee's param name in the collect loop). Call
+site: all matching refns apply (apply_refinements, requires-gated); strict
+`arg <: refn-param` is overload-resolution's natural filter. `+Q`/`-Q`
+contradiction = declaration error. 6(c): RefnDecl.response + Refinements.responses
+indexed per callee; refn_response_narrows() in check.rs reuses change-5's
+CondInfo path so `if matched_fn(x)` narrows. REMOVED: quals_compatible,
+report_refn_ambiguity, callee_refined_by_several_places, module_refines, the
+@place-call-site refinement fallback, RefnStatement, base_signature,
+unqualified, RefnGroup.conflict/.stated. Spec: [qual-refn-match] rewritten,
+[qual-refn-at]/[qual-refn-ambiguous] rules DELETED (all refs retargeted to
+[qual-refn]/[qual-no-with]/[qual-refn-match]). docs/language/Qualifiers.md
+rewritten + wiki synced. refine_tests rewritten to new model (27 pass, 0
+ignored); parser test refn_at_wildcard_and_response_parse. Verified both
+backends: std add→+NonEmpty, `*` wildcard, declaration contradiction, 6(c)
+narrowing.
+
+ALL SEVEN CHANGES COMPLETE.
 
 
 ---

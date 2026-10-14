@@ -34,7 +34,7 @@
 //!   `NonEmpty` opts into what `NonEmpty` knows. A top-level `refn` is
 //!   module-scoped and not importable.
 //! * Two qualifiers can disagree, and then **neither applies**
-//!   [qual-refn-ambiguous] — no error, just a less useful function, plus a
+//!   [qual-refn] — no error, just a less useful function, plus a
 //!   warning at the call site so the silence is discoverable.
 //!
 //! This module resolves each refinement to the overload it refines
@@ -66,27 +66,15 @@ pub struct RefnSource {
     pub file: usize,
     pub span: Span,
     /// The module that file belongs to — the **place** a call names to pick
-    /// this statement over a disagreeing one [qual-refn-ambiguous].
+    /// this statement over a disagreeing one [qual-refn].
     pub module: String,
 }
 
-/// One refinement's own statement about a parameter, with the **place** that
-/// made it: `f@place` picks by place [qual-refn-at], and an ambiguity names the
-/// places that disagree [qual-refn-ambiguous], so the merged view below cannot
-/// answer either question on its own.
-#[derive(Clone, Debug, PartialEq)]
-pub struct RefnStatement {
-    pub module: String,
-    pub add: Vec<String>,
-    pub remove: Vec<String>,
-    pub preserve: Vec<String>,
-}
-
-/// The refinements that apply to one parameter of one call
-/// [qual-refn-ambiguous]: the merged additions and removals, the
-/// refinements they came from, and — when applicable refinements
-/// disagree — the qualifier names that cannot co-apply. A conflict leaves
-/// `add` and `remove` empty: none of them apply.
+/// The refinements that apply to one parameter of one call: the merged
+/// additions, removals and preservations, plus the refinements they came
+/// from (for merged docs [qual-refn-docs]). All matching refinements apply
+/// (user decision 2026-10-12) — a `+Q`/`-Q` contradiction is refused at the
+/// declaration [qual-refn], so there is no call-site conflict to resolve.
 #[derive(Clone, Debug, PartialEq)]
 pub struct RefnGroup {
     pub param: String,
@@ -97,13 +85,6 @@ pub struct RefnGroup {
     /// opt-back from conservative cross-value stripping.
     pub preserve: Vec<String>,
     pub sources: Vec<RefnSource>,
-    /// Empty unless the applicable refinements conflict.
-    pub conflict: Vec<String>,
-    /// What each contributing refinement said, and where it was written
-    /// [qual-refn-at] [qual-refn-ambiguous]. Kept even when the merged view is
-    /// suppressed by a conflict: a call that names a place still applies that
-    /// place's statement.
-    pub stated: Vec<RefnStatement>,
     /// [qual-refn-narrow] The qualifiers the argument must **already** carry
     /// for this group to apply: the refinement wrote a narrower parameter than
     /// the declaration it refines, so what it states is *conditional*. Empty
@@ -124,6 +105,10 @@ impl RefnGroup {
 #[derive(Clone, Debug, Default)]
 pub struct Refinements {
     groups: HashMap<(usize, FnKey), Vec<RefnGroup>>,
+    /// [deduce-conditional] Refn-attached Bool-conditional responses (6c),
+    /// per (file, callee): each entry is (callee param position, negated,
+    /// qualifier name). A matched Bool fn gains the conditional at call sites.
+    responses: HashMap<(usize, FnKey), Vec<(usize, bool, String)>>,
     /// Validation diagnostics from `collect`, replayed by the checker so
     /// they land in the same output as everything else [diag-structured].
     pub errors: Vec<FileDiagnostic>,
@@ -134,6 +119,15 @@ impl Refinements {
     /// `file` (empty when there are none).
     pub fn for_call(&self, file: usize, callee: FnKey) -> &[RefnGroup] {
         self.groups
+            .get(&(file, callee))
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
+    }
+
+    /// [deduce-conditional] The refn-attached Bool-conditional responses for
+    /// a call to `callee` written in `file`: (param position, negated, qual).
+    pub fn responses_for(&self, file: usize, callee: FnKey) -> &[(usize, bool, String)] {
+        self.responses
             .get(&(file, callee))
             .map(|v| v.as_slice())
             .unwrap_or(&[])
@@ -163,14 +157,6 @@ impl Refinements {
     }
 }
 
-/// Whether two qualifiers may apply to one value. Since `with` was retired
-/// (user decision 2026-10-12, [qual-no-with]) every pair composes freely —
-/// there is no declared compatibility allowlist — so this is always `true`.
-/// Kept as a seam until the refn redesign removes its last callers.
-pub fn quals_compatible(_a: &QualifierDecl, _b: &QualifierDecl) -> bool {
-    true
-}
-
 /// One validated refinement, before visibility is applied.
 struct Resolved<'p> {
     decl: &'p RefnDecl,
@@ -178,12 +164,20 @@ struct Resolved<'p> {
     qualifier: Option<&'p QualifierDecl>,
     /// The file the refinement is *written* in.
     file: usize,
-    /// The overload it refines [qual-refn-match].
-    callee: FnKey,
-    entries: Vec<(String, Vec<String>, Vec<String>, Vec<String>)>,
-    /// [qual-refn-narrow] Per parameter, the qualifiers an argument must
-    /// already carry for this refinement to apply.
-    requires: Vec<(String, Vec<String>)>,
+    /// [qual-refn-match] The overloads it refines — one-to-many (user
+    /// decision 2026-10-12): every in-scope overload of the name whose
+    /// parameters the refn's gate accepts.
+    callees: Vec<FnKey>,
+    /// Entries as (refn-param *position*, add, remove, preserve): the
+    /// position maps to each callee's parameter at that slot
+    /// [qual-refn-match].
+    entries: Vec<(usize, Vec<String>, Vec<String>, Vec<String>)>,
+    /// [deduce-conditional] The refn's Bool-conditional response (6c), as
+    /// (refn-param position, negated, qualifier name).
+    response: Vec<(usize, bool, String)>,
+    /// [qual-refn-narrow] Per refn-param *position*, the qualifiers an
+    /// argument must already carry for this refinement to apply.
+    requires: Vec<(usize, Vec<String>)>,
 }
 
 /// Resolves, validates and indexes every refinement in the program.
@@ -216,34 +210,29 @@ pub fn collect<'p>(program: &'p Program, resolution: &Resolution<'p>) -> Refinem
     }
 
     // Visibility, then merging: for each file, which refinements apply,
-    // grouped per (callee, parameter) [qual-refn-ambiguous].
+    // grouped per (callee, parameter). All matching refinements apply — a
+    // `+Q`/`-Q` contradiction is a declaration error [qual-refn], so there is
+    // no call-site conflict to resolve.
     let mut groups: HashMap<(usize, FnKey), Vec<RefnGroup>> = HashMap::new();
-    // [qual-refn-ambiguous] Same-place disagreements already reported, keyed by
-    // the refinement and the parameter: the visibility loop below runs per
-    // *file*, and the declaration's error belongs to the declaration.
-    let mut same_place_reported: HashSet<(usize, u32, String)> = HashSet::new();
+    let mut response_index: HashMap<(usize, FnKey), Vec<(usize, bool, String)>> = HashMap::new();
     for (file_idx, (file, _)) in program.files.iter().zip(&program.modules).enumerate() {
         let scope = &resolution.scopes[file_idx];
-        // One contribution per (callee, param, refinement), tagged with
-        // whether it came from a top-level `refn`.
-        // [qual-refn-narrow] Keyed by the precondition as well as the
-        // parameter: two refinements that require different things of the
-        // argument are two groups, each applying only where it holds.
+        // One contribution per (callee, param, precondition).
+        // [qual-refn-narrow] Keyed by the precondition too: two refinements
+        // that require different things of the argument are two groups, each
+        // applying only where it holds.
         let mut contributions: HashMap<
             (FnKey, String, Vec<String>),
-            Vec<(bool, RefnSource, Vec<String>, Vec<String>, Vec<String>)>,
+            Vec<(RefnSource, Vec<String>, Vec<String>, Vec<String>)>,
         > = HashMap::new();
         for res in &resolved {
             let visible = match res.qualifier {
                 // A qualifier's refinements are in scope wherever the
-                // qualifier is [qual-refn-scope] — the *same*
-                // declaration, not merely one of that name.
+                // qualifier is [qual-refn-scope] — the *same* declaration.
                 Some(q) => scope
                     .qualifiers
                     .get(q.name.name.as_str())
                     .is_some_and(|ds| ds.iter().any(|d| std::ptr::eq(*d, q))),
-                // A top-level refinement is module-scoped and not
-                // importable.
                 None => program.files[res.file].module == file.module,
             };
             if !visible {
@@ -256,53 +245,54 @@ pub fn collect<'p>(program: &'p Program, resolution: &Resolution<'p>) -> Refinem
                 span: res.decl.name.span,
                 module: program.files[res.file].module.to_string(),
             };
-            for (param, add, remove, preserve) in &res.entries {
-                let mut requires: Vec<String> = res
-                    .requires
-                    .iter()
-                    .find(|(p, _)| p == param)
-                    .map(|(_, qs)| qs.clone())
-                    .unwrap_or_default();
-                requires.sort();
-                contributions
-                    .entry((res.callee, param.clone(), requires))
-                    .or_default()
-                    .push((
-                        res.qualifier.is_none(),
-                        source.clone(),
-                        add.clone(),
-                        remove.clone(),
-                        preserve.clone(),
-                    ));
+            // [qual-refn-match] One refn now refines *many* overloads: index
+            // its statements under each matched callee, translating the
+            // refn-param position to that callee's parameter name.
+            for callee in &res.callees {
+                let Some(cdecl) = fn_decl(program, *callee) else { continue };
+                let cfixed: Vec<&Param> = cdecl.params.iter().filter(|p| !p.implicit).collect();
+                for (pos, add, remove, preserve) in &res.entries {
+                    let Some(cp) = cfixed.get(*pos) else { continue };
+                    let param = cp.name.name.clone();
+                    let mut requires: Vec<String> = res
+                        .requires
+                        .iter()
+                        .find(|(p, _)| p == pos)
+                        .map(|(_, qs)| qs.clone())
+                        .unwrap_or_default();
+                    requires.sort();
+                    contributions
+                        .entry((*callee, param, requires))
+                        .or_default()
+                        .push((
+                            source.clone(),
+                            add.clone(),
+                            remove.clone(),
+                            preserve.clone(),
+                        ));
+                }
+                // [deduce-conditional] A refn-attached Bool response (6c):
+                // index it under the callee, by that callee's param position.
+                for (pos, negated, qual) in &res.response {
+                    if cfixed.get(*pos).is_some() {
+                        response_index
+                            .entry((file_idx, *callee))
+                            .or_default()
+                            .push((*pos, *negated, qual.clone()));
+                    }
+                }
             }
         }
-        for ((callee, param, requires), mut list) in contributions {
-            // Historical: a top-level `refn` used to *replace* the
-            // qualifiers' own refinements for that parameter. That is what
-            // makes reconciling a conflict possible at all: joining them
-            // would keep the disagreement, so the consumer's own module
-            // has the last word — the same precedence own-module
-            // declarations have over imported ones [mod-collision].
-            if list.iter().any(|(top, ..)| *top) {
-                list.retain(|(top, ..)| *top);
-            }
+        for ((callee, param, requires), list) in contributions {
             let mut group = RefnGroup {
                 param,
                 add: Vec::new(),
                 remove: Vec::new(),
                 preserve: Vec::new(),
                 sources: Vec::new(),
-                conflict: Vec::new(),
-                stated: Vec::new(),
                 requires,
             };
-            for (_, source, add, remove, preserve) in list {
-                group.stated.push(RefnStatement {
-                    module: source.module.clone(),
-                    add: add.clone(),
-                    remove: remove.clone(),
-                    preserve: preserve.clone(),
-                });
+            for (source, add, remove, preserve) in list {
                 for q in add {
                     if !group.add.contains(&q) {
                         group.add.push(q);
@@ -313,9 +303,6 @@ pub fn collect<'p>(program: &'p Program, resolution: &Resolution<'p>) -> Refinem
                         group.remove.push(q);
                     }
                 }
-                // [qual-preserve] Preservation cannot conflict: keeping a
-                // claim alive and any other statement about the parameter
-                // are about different values.
                 for q in preserve {
                     if !group.preserve.contains(&q) {
                         group.preserve.push(q);
@@ -325,98 +312,7 @@ pub fn collect<'p>(program: &'p Program, resolution: &Resolution<'p>) -> Refinem
                     group.sources.push(source);
                 }
             }
-            // [qual-refn-ambiguous] Suppress a group whose members
-            // disagree. Two additions conflict when the qualifiers could
-            // not have been written together [qual-with]; an addition and
-            // a removal of the same qualifier conflict outright. Never
-            // is applied then — the caller can still test by hand, or
-            // name the place it means [qual-refn-at]. Judged in *this* file's
-            // scope, since that is where the refinements are visible.
-            let mut conflict: Vec<String> = Vec::new();
-            for (i, a) in group.add.iter().enumerate() {
-                for b in group.add.iter().skip(i + 1) {
-                    // [qual-overload] `with` names a qualifier, so
-                    // same-named declarations share their compatibility list
-                    // and any of them answers this.
-                    let compatible = match (
-                        scope.qualifiers.get(a.as_str()).and_then(|ds| ds.first()),
-                        scope.qualifiers.get(b.as_str()).and_then(|ds| ds.first()),
-                    ) {
-                        (Some(x), Some(y)) => quals_compatible(x, y),
-                        // A qualifier this file cannot see cannot be
-                        // judged; assume compatible rather than
-                        // suppressing on missing information.
-                        _ => true,
-                    };
-                    if !compatible {
-                        conflict.push(a.clone());
-                        conflict.push(b.clone());
-                    }
-                }
-            }
-            for q in &group.add {
-                if group.remove.contains(q) {
-                    conflict.push(q.clone());
-                }
-            }
-            conflict.sort();
-            conflict.dedup();
-            if !conflict.is_empty() {
-                // [qual-refn-ambiguous] A disagreement a selector cannot
-                // separate is the refinements' own error, reported where they
-                // are written: `f@place` picks a *place*, so two incompatible
-                // statements made by **one** place leave the caller no way to
-                // choose. Reported once per pair, not once per file that sees
-                // it — the file loop would otherwise repeat it.
-                // Which places actually stated a conflicting claim: a group's
-                // sources include refinements that agree, and reporting those
-                // would name the wrong declarations.
-                let guilty: Vec<String> = group
-                    .stated
-                    .iter()
-                    .filter(|st| st.add.iter().any(|q| conflict.contains(q)))
-                    .map(|st| st.module.clone())
-                    .collect();
-                let one_place = guilty.len() > 1 && guilty.iter().all(|m| *m == guilty[0]);
-                let mut places: Vec<(String, usize, Span)> = group
-                    .sources
-                    .iter()
-                    .map(|s| (s.module.clone(), s.file, s.span))
-                    .collect();
-                places.sort_by(|a, b| {
-                    (&a.0, a.1, a.2.start, a.2.end).cmp(&(&b.0, b.1, b.2.start, b.2.end))
-                });
-                places.dedup_by(|a, b| a.0 == b.0 && a.1 == b.1 && a.2 == b.2);
-                places.retain(|(m, ..)| guilty.contains(m));
-                if one_place {
-                    for (_, file, span) in &places {
-                        let key = (*file, span.start, group.param.clone());
-                        if !same_place_reported.insert(key) {
-                            continue;
-                        }
-                        errors.push(FileDiagnostic::error(
-                            *file,
-                            *span,
-                            format!(
-                                "this refinement and another in `{}` disagree about \
-                                 `{}`: they establish `{}`, which one value cannot \
-                                 carry (neither qualifier declares `with` the \
-                                 other). A call cannot choose between two \
-                                 statements made by the same place, so one of them \
-                                 has to go — or the qualifiers have to declare \
-                                 `with` each other",
-                                guilty[0],
-                                group.param,
-                                conflict.join("` and `")
-                            ),
-                        ));
-                    }
-                }
-                group.add.clear();
-                group.remove.clear();
-                group.conflict = conflict;
-            }
-            if !group.is_empty() || !group.conflict.is_empty() {
+            if !group.is_empty() {
                 groups.entry((file_idx, callee)).or_default().push(group);
             }
         }
@@ -428,7 +324,7 @@ pub fn collect<'p>(program: &'p Program, resolution: &Resolution<'p>) -> Refinem
     }
     groups.retain(|_, v| !v.is_empty());
 
-    Refinements { groups, errors }
+    Refinements { groups, responses: response_index, errors }
 }
 
 /// Resolves one refinement to the overload it refines and validates it
@@ -510,65 +406,66 @@ fn resolve_refn<'p>(
         ));
         return None;
     }
-    // [qual-refn-narrow] Matching ignores the *qualifiers* a refinement writes
-    // on its parameters and compares the types under them: that is what lets a
-    // refinement narrow a parameter (`list: NonEmpty Mut List<T>` refining
-    // `list: Mut List<T>`) and state a claim it only *keeps*. The declaration's
-    // own qualifiers must still all be written — they are part of the overload
-    // being named — and anything beyond them is the precondition.
-    let want_base = base_signature(&decl.params, &generics);
+    // [qual-refn-match] One-to-many positional base-type matching (user
+    // decision 2026-10-12). The refn's parameters are a *gate*: a candidate
+    // overload of the name matches when, position by position, the refn's
+    // parameter base type is a super- or subtype of the candidate's base
+    // type (all qualifiers, including `Mut`, stripped). A trailing `*`
+    // matches every remaining parameter. Implicit parameters take no
+    // position. An `@module` selector on the refn restricts the candidate
+    // set to that module's overloads.
     let matched: Vec<&crate::resolve::FnEntry<'p>> = candidates
         .iter()
         .filter(|c| {
-            let mut cg: Vec<&str> = c.decl.generics.iter().map(|g| g.name.as_str()).collect();
-            // A `canbe` clause names a type parameter too.
-            for (g, _) in &c.decl.generic_canbe {
-                if !cg.contains(&g.name.as_str()) {
-                    cg.push(g.name.as_str());
+            if let Some(at) = &decl.at {
+                if !crate::source::ModulePath::text_matches_suffix(
+                    &c.module.to_string(),
+                    &at.name,
+                ) {
+                    return false;
                 }
             }
-            if base_signature(&c.decl.params, &cg) != want_base {
+            let cfixed: Vec<&Param> = c.decl.params.iter().filter(|p| !p.implicit).collect();
+            // Without `*`, arity must match the refn's spelled params; with
+            // `*`, the candidate must have at least that many.
+            if decl.wildcard {
+                if cfixed.len() < decl.params.len() {
+                    return false;
+                }
+            } else if cfixed.len() != decl.params.len() {
                 return false;
             }
-            // Every qualifier the declaration writes must appear on the
-            // refinement's parameter too, or the refinement is about a
-            // different position than it looks.
-            c.decl.params.len() == decl.params.len()
-                && c.decl.params.iter().zip(&decl.params).all(|(cp, rp)| {
-                    let written = qual_names(&rp.ty);
-                    qual_names(&cp.ty).iter().all(|q| written.contains(q))
-                })
+            decl.params.iter().zip(&cfixed).all(|(rp, cp)| {
+                base_super_or_sub(&rp.ty, &cp.ty, &generics)
+            })
         })
         .collect();
-    let entry = match matched.as_slice() {
-        [one] => *one,
-        [] => {
-            let shapes: Vec<String> =
-                candidates.iter().map(|c| written_shape(name, c.decl)).collect();
-            errors.push(FileDiagnostic::error(
-                file_idx,
-                decl.name.span,
-                format!(
-                    "this refinement matches no `{name}` in scope: the parameter \
-                     list must repeat one overload's parameters exactly — same \
-                     names, same types (type parameters match by position). In \
-                     scope: {}",
-                    shapes.join(", ")
-                ),
-            ));
-            return None;
-        }
-        _ => {
-            errors.push(FileDiagnostic::error(
-                file_idx,
-                decl.name.span,
-                format!("this refinement matches more than one `{name}` in scope"),
-            ));
-            return None;
-        }
-    };
+    let mut seen = HashSet::new();
+    let callees: Vec<FnKey> = matched
+        .iter()
+        .filter(|c| seen.insert(c.key))
+        .map(|c| c.key)
+        .collect();
+    if callees.is_empty() {
+        let shapes: Vec<String> =
+            candidates.iter().map(|c| written_shape(name, c.decl)).collect();
+        errors.push(FileDiagnostic::error(
+            file_idx,
+            decl.name.span,
+            format!(
+                "this refinement matches no `{name}` in scope: its parameters must \
+                 line up positionally with an overload's (each base type a super- \
+                 or subtype of the other, `*` for the rest). In scope: {}",
+                shapes.join(", ")
+            ),
+        ));
+        return None;
+    }
+    // A representative candidate for per-parameter validation below (every
+    // matched overload shares the refn's parameter *names* via position).
+    let entry = *matched[0];
 
-    let mut entries: Vec<(String, Vec<String>, Vec<String>, Vec<String>)> = Vec::new();
+    let mut entries: Vec<(usize, Vec<String>, Vec<String>, Vec<String>)> = Vec::new();
     let mut seen: HashSet<&str> = HashSet::new();
     for e in &decl.deductions {
         let param = e.param.name.as_str();
@@ -580,12 +477,19 @@ fn resolve_refn<'p>(
             ));
             continue;
         }
-        let Some(p) = entry.decl.params.iter().find(|p| p.name.name == param) else {
+        // The deduction names one of the *refn's* parameters; its position
+        // maps to each matched overload's parameter at that slot.
+        let Some(pos) = decl.params.iter().position(|p| p.name.name == param) else {
             errors.push(FileDiagnostic::error(
                 file_idx,
                 e.span,
-                format!("`{name}` has no parameter `{param}`"),
+                format!("`{param}` is not a parameter of this refinement"),
             ));
+            continue;
+        };
+        // The matched overload's parameter at that position — what the
+        // qualifier's `of` type is checked against. Non-implicit slots only.
+        let Some(p) = entry.decl.params.iter().filter(|p| !p.implicit).nth(pos) else {
             continue;
         };
         if e.add.is_empty() && e.remove.is_empty() && e.preserve.is_empty() {
@@ -605,7 +509,7 @@ fn resolve_refn<'p>(
         // yet at this point, and a moved parameter's group simply never
         // fires (the call-site loop applies refinements on the kept path).
         if let Some(list) = &entry.decl.deductions {
-            if !kept_in(list, param) {
+            if !kept_in(list, &p.name.name) {
                 errors.push(FileDiagnostic::error(
                     file_idx,
                     e.span,
@@ -648,19 +552,58 @@ fn resolve_refn<'p>(
             }
         }
         if !add.is_empty() || !remove.is_empty() || !preserve.is_empty() {
-            entries.push((param.to_string(), add, remove, preserve));
+            entries.push((pos, add, remove, preserve));
         }
     }
-    if entries.is_empty() {
+    if entries.is_empty() && decl.response.is_none() {
         return None;
     }
+    // [qual-refn] A declaration-time contradiction: the refn both `+Q` and
+    // `-Q` for one parameter position and qualifier is refused here (user
+    // decision 2026-10-12), replacing the old call-site conflict suppression.
+    for (pos, add, remove, _) in &entries {
+        for q in add {
+            if remove.contains(q) {
+                errors.push(FileDiagnostic::error(
+                    file_idx,
+                    decl.name.span,
+                    format!(
+                        "this refinement both establishes and invalidates `{q}` for \
+                         parameter {} — it cannot do both [qual-refn]",
+                        pos + 1
+                    ),
+                ));
+            }
+        }
+    }
+    // [qual-refn-narrow] Preconditions, by refn-param position.
+    let requires: Vec<(usize, Vec<String>)> = preconditions(&decl.params, &entry.decl.params)
+        .into_iter()
+        .filter_map(|(pname, qs)| {
+            decl.params.iter().position(|p| p.name.name == pname).map(|pos| (pos, qs))
+        })
+        .collect();
+    // [deduce-conditional] Resolve the refn's response clause (6c) to
+    // (refn-param position, negated, qual-name).
+    let response: Vec<(usize, bool, String)> = decl
+        .response
+        .iter()
+        .flatten()
+        .filter_map(|r| {
+            decl.params
+                .iter()
+                .position(|p| p.name.name == r.subject.name)
+                .map(|pos| (pos, r.negated, r.qual.name.name.clone()))
+        })
+        .collect();
     Some(Resolved {
         decl,
         qualifier,
         file: file_idx,
-        callee: entry.key,
+        callees,
         entries,
-        requires: preconditions(&decl.params, &entry.decl.params),
+        response,
+        requires,
     })
 }
 
@@ -692,7 +635,7 @@ fn check_refined_qual(
                     "a refinement declared by `{}` can only {verb} `{}`, not \
                      `{q}`: a qualifier states what happens to *its own* claim. \
                      A call that needs both statements names the place it means \
-                     (`f@place`) [qual-refn-ambiguous]",
+                     (`f@place`) [qual-refn]",
                     owner.name.name, owner.name.name
                 ),
             ));
@@ -817,6 +760,67 @@ fn kept_in(list: &[Deduction], param: &str) -> bool {
     !list.iter().any(|d| {
         d.param_name().is_some_and(|n| n.name == param) && matches!(d.kind, DeductionKind::Moved | DeductionKind::Deferred)
     })
+}
+
+/// [qual-refn-match] Whether two written parameter types match for the
+/// refinement *gate*: their **base** types (every qualifier stripped,
+/// including `Mut`) are such that one is a super- or subtype of the other.
+/// Approximate and syntactic — the pre-pass has no checker to lower types —
+/// which is all the gate needs: the strict work is the call site's
+/// [qual-refn] (`arg <: refn-param`). Handles base-name equality, `Any` as
+/// the top on either side, optional (`T?`) widening either way, and a type
+/// parameter (which the refn may use to mean "anything of that shape").
+fn base_super_or_sub(a: &Type, b: &Type, generics: &[&str]) -> bool {
+    let a = strip_all_quals(a);
+    let b = strip_all_quals(b);
+    base_fits(a, b, generics) || base_fits(b, a, generics)
+}
+
+/// Whether `sub`'s base fits where `sup`'s is expected (one direction).
+fn base_fits(sub: &Type, sup: &Type, generics: &[&str]) -> bool {
+    // A bare type parameter accepts anything (the refn means "any such").
+    let is_var = |t: &Type| matches!(t, Type::Named { base, qualifiers }
+        if qualifiers.is_empty() && base.args.is_empty() && generics.contains(&base.name.name.as_str()));
+    if is_var(sub) || is_var(sup) {
+        return true;
+    }
+    match (sub, sup) {
+        // `Any` is the top: anything fits `Any`.
+        (_, Type::Named { base, .. }) if base.name.name == "Any" => true,
+        // `T` fits `T?` (optional widening).
+        (_, Type::Nullable { inner, .. }) => base_fits(sub, inner, generics),
+        (Type::Nullable { inner, .. }, _) => base_fits(inner, sup, generics),
+        (
+            Type::Named { base: ba, .. },
+            Type::Named { base: bb, .. },
+        ) => ba.name.name == bb.name.name,
+        // Same-kind structural types match as a gate (the strict check is
+        // the call site): fn ↔ fn, tuple ↔ tuple, array ↔ array, literal
+        // ↔ literal, union ↔ union.
+        (Type::Fn { .. }, Type::Fn { .. }) => true,
+        (Type::Tuple { .. }, Type::Tuple { .. }) => true,
+        (Type::Array { .. }, Type::Array { .. }) => true,
+        (Type::Literal { .. }, Type::Literal { .. }) => true,
+        (Type::Union { .. }, _) | (_, Type::Union { .. }) => true,
+        _ => false,
+    }
+}
+
+/// The `FnDecl` a `FnKey` points at.
+fn fn_decl(program: &Program, key: FnKey) -> Option<&salvo_syntax::ast::FnDecl> {
+    match program.modules.get(key.file)?.items.get(key.item)? {
+        Item::Fn(f) => Some(f),
+        _ => None,
+    }
+}
+
+/// A written type with *every* qualifier stripped at the top level — both
+/// the `Named` qualifier list and a `QualifiedGroup`'s — leaving the base.
+fn strip_all_quals(ty: &Type) -> &Type {
+    match ty {
+        Type::QualifiedGroup { base, .. } => strip_all_quals(base),
+        other => other,
+    }
 }
 
 /// Every *base* type name a written type mentions (qualifier positions
@@ -966,39 +970,6 @@ fn qual_names(ty: &Type) -> Vec<String> {
         }
         _ => Vec::new(),
     }
-}
-
-/// A type with its own qualifiers removed — what [qual-refn-narrow] matches
-/// on, so a refinement may write a *narrower* parameter than the declaration
-/// it refines.
-fn unqualified(ty: &Type) -> Type {
-    match ty {
-        Type::Named { base, .. } => Type::Named {
-            qualifiers: Vec::new(),
-            base: base.clone(),
-        },
-        Type::QualifiedGroup { base, .. } => (**base).clone(),
-        other => other.clone(),
-    }
-}
-
-/// [qual-refn-match] [qual-refn-narrow] The signature a refinement matches on:
-/// parameter names and types with every qualifier stripped. Qualifiers are
-/// compared separately — the declaration's are required to be present (they
-/// are part of what is being refined) and the extras are the precondition.
-fn base_signature(params: &[Param], generics: &[&str]) -> Vec<String> {
-    params
-        .iter()
-        .map(|p| {
-            format!(
-                "{}{}{}: {}",
-                if p.variadic { "..." } else { "" },
-                if p.implicit { "?" } else { "" },
-                p.name.name,
-                normalize(&unqualified(&p.ty), generics)
-            )
-        })
-        .collect()
 }
 
 fn signature(params: &[Param], generics: &[&str]) -> Vec<String> {

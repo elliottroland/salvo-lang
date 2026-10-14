@@ -317,7 +317,7 @@ qualifier NonEmpty<T> of List<T> {
 }
 ```
 
-`refn` is deliberately narrower than `fn`. It has no body, it cannot declare effects, and it cannot declare a return type — a refinement never changes what a function *does*, only what is *known* about the arguments afterwards. Its deduction entries can only add (`+Q`) and remove (`-Q`) state qualifiers; a plain name (which would mean "only this survives") is the function's own deduction to make. The parameter list is there to pick one overload, so it repeats that overload's parameters: same names, same types, with type parameters matched by position.
+`refn` is deliberately narrower than `fn`. It has no body, it cannot declare effects, and it cannot declare a return type — a refinement never changes what a function *does*, only what is *known* about the arguments afterwards. Its deduction entries can only add (`+Q`) and remove (`-Q`) state qualifiers; a plain name (which would mean "only this survives") is the function's own deduction to make. The parameter list is a **gate**: a refinement refines every in-scope overload of the name whose parameters line up positionally — each base type (qualifiers, including `Mut`, ignored) a super- or subtype of the other — with a trailing `*` matching the rest. The gate is loose on purpose; the strict check is at the call site, where a refinement fires only when every argument is a subtype of the corresponding refinement parameter.
 
 **A refinement may ask for more than the function does**, and then what it says is *conditional*:
 
@@ -349,25 +349,16 @@ A refinement is **trusted**, exactly as `-> +Q T` is: nothing proves that `add` 
 
 **Refinements travel with their qualifier.** A refinement declared inside `NonEmpty` applies wherever `NonEmpty` is in scope, and nowhere else — you opt into the refinements by opting into the qualifier. A qualifier may only speak about its *own* claim: `NonEmpty` cannot state what a call does to `Sorted`.
 
-**When refinements disagree, the call is refused.** Two qualifiers can both claim a call establishes them, and their claims can be mutually exclusive:
+**All matching refinements apply.** One refinement refines every in-scope overload of the name it names whose parameters its gate accepts (the gate is positional, by base type — qualifiers, including `Mut`, are ignored — with a trailing `*` for the rest). At a call, every refinement whose parameters the arguments fit applies, and their effects compose:
 
 ```
-qualifier Q1<T> of List<T> { ... refn something(list: List<T>) => list: +Q1 }
-qualifier Q2<T> of List<T> { ... refn something(list: List<T>) => list: +Q2 }
+qualifier Q1<T> of List<T> { ... refn something(list: List<T>, *) => list: +Q1 }
+qualifier Q2<T> of List<T> { ... refn something(list: List<T>, *) => list: +Q2 }
 ```
 
-Merging these would ask for `+Q1 +Q2`, which is impossible when neither declares `with` the other. Rather than pick one — and leave you to work out afterwards which claim your value ended up with — the compiler refuses the call and names the place that made each statement:
+Both `Q1` and `Q2` are established — qualifiers compose freely. The one thing a refinement may not do is contradict itself: establishing and invalidating the same qualifier (`+Q -Q`) for one parameter is an error at the declaration.
 
-```
-something@lib(xs)    // `lib`'s statement: establishes Q1
-something@main(xs)   // this module's: establishes Q2
-```
-
-The place you name is the only one that applies, so what the call establishes is what you asked for. Two refinements made by the *same* place are an error where they are written instead, since no selector could separate them.
-
-The other remedies: test the property yourself with `is` after the call (always possible, since these are state qualifiers), or declare `with` on your qualifier so both claims can co-apply and the disagreement disappears.
-
-**A refinement always lives in the qualifier whose claim it is about.** There is no top-level form — a qualifier is the one party entitled to say what happens to its claim, and having one refinement in two possible places bought nothing once ambiguity became a question a call answers. A *constructive* qualifier can hold refinements too, without a `qualifies`: `Sorted` cannot be tested at runtime and still has something to say about an insert that keeps it.
+**A refinement always lives in the qualifier whose claim it is about.** There is no top-level form — a qualifier is the one party entitled to say what happens to its claim. A `@module` selector on the refinement itself (`refn add@core.list(...)`) scopes *which* functions it matches, when a same-named function in another module should be left alone. A *constructive* qualifier can hold refinements too, without a `qualifies`: `Sorted` cannot be tested at runtime and still has something to say about an insert that keeps it.
 
 Finally, a refinement reaches **inferred** deductions, so the fact does not die at one frame:
 

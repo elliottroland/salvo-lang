@@ -2620,6 +2620,7 @@ Module {
                             name: "add",
                             span: 2471..2474,
                         },
+                        at: None,
                         generics: [],
                         params: [
                             Param {
@@ -2708,6 +2709,7 @@ Module {
                                 span: 2494..2501,
                             },
                         ],
+                        wildcard: false,
                         deductions: [
                             RefnDeduction {
                                 param: Ident {
@@ -2735,6 +2737,7 @@ Module {
                                 span: 2506..2521,
                             },
                         ],
+                        response: None,
                         span: 2466..2521,
                     },
                     RefnDecl {
@@ -2747,6 +2750,7 @@ Module {
                             name: "remove_first",
                             span: 2703..2715,
                         },
+                        at: None,
                         generics: [],
                         params: [
                             Param {
@@ -2823,6 +2827,7 @@ Module {
                                 span: 2716..2742,
                             },
                         ],
+                        wildcard: false,
                         deductions: [
                             RefnDeduction {
                                 param: Ident {
@@ -2850,6 +2855,7 @@ Module {
                                 span: 2747..2762,
                             },
                         ],
+                        response: None,
                         span: 2698..2762,
                     },
                 ],

@@ -545,7 +545,7 @@ fn a_target_holding_sources_is_never_deleted() {
     assert!(target.join("keep.sv").is_file(), "the file must survive");
 }
 
-/// A program whose refinements disagree [qual-refn-ambiguous]: legal, so it
+/// A program whose refinements disagree [qual-refn]: legal, so it
 /// runs, and the checker's *warning* has to reach the builder.
 const REDUNDANT_SELECTOR: &str = r#"
 fn main() [use] {
@@ -558,7 +558,7 @@ fn main() [use] {
 }
 "#;
 
-/// [qual-refn-ambiguous] [diag-structured] Non-fatal diagnostics reach the
+/// [qual-refn] [diag-structured] Non-fatal diagnostics reach the
 /// builder: `Backend::emit` returns them alongside the files, and the driver
 /// prints them without failing. Both halves are asserted, because either one
 /// alone is a bug — an abort would reject a legal program, and silence would

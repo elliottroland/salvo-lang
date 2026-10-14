@@ -138,6 +138,56 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-12 — Qualifier redesign, part 2: arm inference, retiring `with`, conditional deductions, refn redesign
+
+Continues the seven-change qualifier/type-construction redesign (QUALIFIERS.md;
+changes 1–3 + change-2 are in the earlier entry). Four more landed, each its
+own commit, warm nextest green before each:
+
+- **Provenance arm inference** [arm-infer]: at a wrapper-union expected type, a
+  bare value that no arm accepts by subtyping is wrapped into the one
+  provenance-tagged arm whose payload it fits (`return name.size()` for
+  `-> Ok Int | Err Str` is implicitly `Ok(…)`). Checker-only
+  (`infer_provenance_arm` in `coerce_repr`'s 0-arm path + the return-type
+  gate); the qualifier is erased, so it is a plain `WrapUnion`, no ctor call.
+  Fires only for exactly one provenance arm, never for a literal union with an
+  open `Other` arm (that still needs explicit `other(…)`).
+
+- **`with` retired** [qual-no-with]: the qualifier-compatibility clause is
+  gone. Qualifiers compose freely; there is no allowlist and no
+  declaration-site compatibility check. Deleted `QualifierDecl.with`, its parse,
+  the pairwise check, and (in change 7) `refine::quals_compatible`. What a value
+  can be is implicit in which fns mint each qualifier and the qualifier's
+  `qualifies` predicate.
+
+- **Conditional deductions** [deduce-conditional]: `fn non_empty<T>(list:
+  List<T>) -> list is NonEmpty => list` returns `Bool` and proves a qualifier.
+  Spelled with `is`/`!is` (no `+`/`-`), chainable with `&&`. Call-site:
+  `if non_empty(xs)` narrows `xs` to `NonEmpty` in the matching branch via the
+  shared `CondInfo`/`Narrow` path (so `if`/`elif`/guard/`assert!` all pick it
+  up). Proof-only — the `true` path must have narrowed the subject; the subject
+  must be a kept parameter. Erased; IR sees `-> Bool`.
+
+- **Refn redesign** [qual-refn-match]: a refinement now refines *every*
+  in-scope overload of the name it names whose parameters its gate accepts
+  (one-to-many), the gate being positional base-type super/subtype (all quals,
+  incl. `Mut`, stripped) with a trailing `*`. All matching refinements apply;
+  a `+Q`/`-Q` contradiction is a declaration error; `@module` on the `refn`
+  scopes the match (no call-site `@place` for refinements). A refn may carry a
+  `-> subject is Q` response (6c) that attaches the conditional to each matched
+  Bool fn. **Removed** the whole conflict/ambiguity model: `quals_compatible`,
+  `report_refn_ambiguity`, the `@place`-call-site machinery, `RefnStatement`,
+  and the `[qual-refn-at]`/`[qual-refn-ambiguous]` rules.
+
+- **Options explored and rejected**: (collection ctors) a Salvo wrapper over
+  `*_of` — rejected, a body spreading a `canbe linear` variadic fails
+  `[linear-container]`; the resolution-time alias was chosen instead (earlier
+  entry). (arm inference) a ctor-count guard on the provenance qualifier —
+  dropped as redundant given erasure; the one-arm guard is what matters.
+
+- **Known limitation** (ROADMAP, parked): a mixed-element collection
+  constructor does not infer a union element the way the retired literal did.
+
 ### 2026-10-12 — Type-named constructors; collection literals retired ([fn-type-named], [col-pairs], [col-no-literal])
 
 Part of the seven-change qualifier/type-construction redesign (working doc

@@ -15,7 +15,7 @@ use super::{host_package, kt_local, ModuleEmitter, Shared};
 use crate::emit::{kotlin_package, kt_ident};
 
 pub fn platform_skeletons_ir(program: &Program) -> Result<Vec<EmittedFile>, Vec<String>> {
-    // Errors only, never warnings [qual-refn-ambiguous]: the shared front.
+    // Errors only, never warnings [qual-refn]: the shared front.
     let (symbols, resolution, checked) = salvo_backend::driver::check_for_skeletons(program)?;
     let erased = salvo_core::erased_generics(program);
     // [manifest-deps] A dependency's host files are the dependency's to

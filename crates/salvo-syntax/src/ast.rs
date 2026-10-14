@@ -121,12 +121,23 @@ pub struct RefnDecl {
     pub docs: Vec<String>,
     /// The name of the function being refined.
     pub name: Ident,
+    /// [qual-refn-match] An optional `@module` selector on the refn
+    /// (`refn add@core.list(...)`): scopes the *match* to that module's
+    /// overloads of the name, so a same-named fn elsewhere is excluded.
+    pub at: Option<Ident>,
     /// Type parameters written on the refinement itself. A refinement in a
     /// qualifier body also sees the *qualifier's* parameters, which come
     /// first when matching an overload [qual-refn-match].
     pub generics: Vec<Ident>,
     pub params: Vec<Param>,
+    /// [qual-refn-match] A trailing `*` matches all remaining parameters of
+    /// a candidate (`refn add(list: List<T>, *)`): the refn is a *gate*, so
+    /// it need not spell every parameter.
+    pub wildcard: bool,
     pub deductions: Vec<RefnDeduction>,
+    /// [deduce-conditional] A `-> subject is Q` response: the refn applies
+    /// the conditional claim to the Bool result of each matched fn (6c).
+    pub response: Option<Vec<ConditionalResponse>>,
     pub span: Span,
 }
 

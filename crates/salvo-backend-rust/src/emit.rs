@@ -33,7 +33,7 @@ pub fn emit_program(program: &Program) -> Result<Vec<EmittedFile>, Vec<String>> 
 ///
 /// Warnings are **dropped** here, which is the shape the golden tests want;
 /// the driver calls [`emit_program_reporting`] and hands them to the user
-/// [qual-refn-ambiguous].
+/// [qual-refn].
 pub fn emit_program_with_entry(program: &Program, entry: Option<&ModulePath>) -> Result<Vec<EmittedFile>, Vec<String>> {
     emit_program_reporting(program, entry).map(|(files, _warnings)| files)
 }

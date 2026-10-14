@@ -6952,6 +6952,7 @@ Module {
                             name: "add",
                             span: 14263..14266,
                         },
+                        at: None,
                         generics: [],
                         params: [
                             Param {
@@ -7040,6 +7041,7 @@ Module {
                                 span: 14286..14293,
                             },
                         ],
+                        wildcard: false,
                         deductions: [
                             RefnDeduction {
                                 param: Ident {
@@ -7067,6 +7069,7 @@ Module {
                                 span: 14298..14313,
                             },
                         ],
+                        response: None,
                         span: 14258..14313,
                     },
                     RefnDecl {
@@ -7088,6 +7091,7 @@ Module {
                             name: "swap",
                             span: 15094..15098,
                         },
+                        at: None,
                         generics: [],
                         params: [
                             Param {
@@ -7216,6 +7220,7 @@ Module {
                                 span: 15135..15141,
                             },
                         ],
+                        wildcard: false,
                         deductions: [
                             RefnDeduction {
                                 param: Ident {
@@ -7243,6 +7248,7 @@ Module {
                                 span: 15146..15161,
                             },
                         ],
+                        response: None,
                         span: 15089..15161,
                     },
                 ],
@@ -18312,6 +18318,7 @@ Module {
                             name: "insert_sorted_by",
                             span: 28564..28580,
                         },
+                        at: None,
                         generics: [
                             Ident {
                                 name: "T",
@@ -18476,6 +18483,7 @@ Module {
                                 span: 28612..28630,
                             },
                         ],
+                        wildcard: false,
                         deductions: [
                             RefnDeduction {
                                 param: Ident {
@@ -18503,6 +18511,7 @@ Module {
                                 span: 28639..28652,
                             },
                         ],
+                        response: None,
                         span: 28559..28652,
                     },
                 ],

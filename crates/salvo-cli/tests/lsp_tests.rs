@@ -1119,7 +1119,7 @@ fn read(r: Record) -> Int {
 /// refined function is the only place a reader can learn what it
 /// additionally establishes *here*. The section lists the effective
 /// deduction, where it came from, and the refinement's own doc comment; a
-/// suppressed conflict [qual-refn-ambiguous] is shown too, since the type
+/// suppressed conflict [qual-refn] is shown too, since the type
 /// system stays silent about it by design.
 #[test]
 fn hover_merges_refinement_docs() {

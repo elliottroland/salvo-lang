@@ -13,7 +13,7 @@ pub use salvo_backend::emit_util::*;
 /// [mod-used-only]. Returns the files or the accumulated codegen/type
 /// errors, **dropping** any warnings: this is the shape the golden tests
 /// want. The driver calls [`emit_program_reporting`], which hands them back
-/// [qual-refn-ambiguous].
+/// [qual-refn].
 pub fn emit_program(program: &Program) -> Result<Vec<EmittedFile>, Vec<String>> {
     emit_program_reporting(program).map(|(files, _warnings)| files)
 }

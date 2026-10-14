@@ -2949,7 +2949,7 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     /// Reports without rejecting: the program still compiles, but
     /// something the author wrote is not doing what it looks like
-    /// [qual-refn-ambiguous].
+    /// [qual-refn].
     fn warn(&mut self, span: Span, msg: impl Into<String>) {
         self.out
             .errors
@@ -7184,19 +7184,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
             if selected.is_empty() {
-                // [qual-refn-at] The place may be one that **refines** the
-                // callee rather than declaring it: `add@mymodule` names this
-                // module's statement about `core.list`'s `add`, which is the
-                // remedy a refinement ambiguity offers
-                // [qual-refn-ambiguous]. Then every declaration still
-                // competes and the selector narrows the *refinements*.
-                let refines = matches!(sel, Selector::Module(_))
-                    && pool
-                        .iter()
-                        .any(|&i| self.module_refines(viable[i].key, &wanted));
-                if refines {
-                    return self.select_overload(name, viable, arg_tys, None, span);
-                }
                 match sel {
                     Selector::Module(_) => {
                         let mut modules: Vec<String> =
@@ -7315,7 +7302,6 @@ impl<'p, 'r> Checker<'p, 'r> {
             if self
                 .unqualified_winner(viable)
                 .is_some_and(|un| std::ptr::eq(viable[un].decl, viable[winner].decl))
-                && !self.callee_refined_by_several_places(viable[winner].key)
             {
                 self.warn(
                     span,
@@ -7358,22 +7344,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         crate::types::most_specific(&ranks).map(|i| pool[i])
     }
 
-    /// [qual-refn-at] Whether more than one place refines this callee in the
-    /// file being checked — the case where a selector is doing refinement work
-    /// even though the overload was never in doubt (the `add@mymodule` shape).
-    fn callee_refined_by_several_places(&self, key: Option<FnKey>) -> bool {
-        let Some(key) = key else { return false };
-        let mut places: Vec<&str> = Vec::new();
-        for g in self.refinements.for_call(self.file_idx, key) {
-            for st in &g.stated {
-                if !places.contains(&st.module.as_str()) {
-                    places.push(st.module.as_str());
-                }
-            }
-        }
-        places.len() > 1
-    }
-
     /// [fn-attached] The type a function is **declared on**, by either route:
     /// written inside the struct's body (the AST carries it, set when the fn was
     /// hoisted) or the file's fulfilment of one of the struct's obligations
@@ -7383,17 +7353,6 @@ impl<'p, 'r> Checker<'p, 'r> {
             .as_ref()
             .map(|t| t.name.clone())
             .or_else(|| self.resolution.attached.get(&key).cloned())
-    }
-
-    /// [qual-refn-at] Whether `module` writes a refinement of this callee that
-    /// is visible in the file being checked — which is what makes it a legal
-    /// place to name on a call that declares nothing there.
-    fn module_refines(&self, key: Option<FnKey>, module: &str) -> bool {
-        let Some(key) = key else { return false };
-        self.refinements
-            .for_call(self.file_idx, key)
-            .iter()
-            .any(|g| g.sources.iter().any(|s| ModulePath::text_matches_suffix(&s.module, module)))
     }
 
     /// How a candidate reads in a diagnostic: `name(ParamTy, ParamTy)`, from
@@ -19311,9 +19270,9 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// like `-> T as Q` [qual-ctor-fn]: no `qualifies` call is emitted.
     ///
     /// Two cases apply nothing. A group whose refinements *conflict*
-    /// [qual-refn-ambiguous] is suppressed, with one warning per (callee,
+    /// [qual-refn] is suppressed, with one warning per (callee,
     /// parameter) — no error, since the caller can still test by hand or
-    /// name the place it means [qual-refn-at], but not silence either, or an
+    /// name the place it means [qual-refn], but not silence either, or an
     /// imported refinement would appear to do nothing for no visible
     /// reason. And a single addition is skipped when it could not co-apply
     /// with a qualifier the call *preserved* [qual-with]: the value cannot
@@ -19446,144 +19405,26 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn apply_refinements(
         &mut self,
         callee: FnKey,
-        callee_name: &str,
         param: &str,
         arg: &str,
         had: &[String],
-        // [fn-overload-at] The module the call named, when it named one: the
-        // place whose statement about this call is meant.
-        at: Option<&str>,
         span: Span,
     ) {
-        let mut groups: Vec<crate::refine::RefnGroup> = self
+        // [qual-refn] Every matching refinement applies (user decision
+        // 2026-10-12). A `+Q`/`-Q` contradiction is a declaration error, so
+        // there is no call-site conflict to resolve and no `@place` selector.
+        // Requires-gated [qual-refn-narrow]: a conditional refinement applies
+        // only where the argument already carries what it requires.
+        let groups: Vec<crate::refine::RefnGroup> = self
             .refinements
             .for_param_all(self.file_idx, callee, param)
             .into_iter()
             .filter(|g| g.requires.iter().all(|q| had.iter().any(|h| h == q)))
             .cloned()
             .collect();
-        // [qual-refn-at] A written selector picks the place, and a place speaks
-        // with one voice [qual-refn-ambiguous]: only refinements declared in
-        // that module apply. This is what makes the ambiguity below fixable —
-        // `add@core.list` takes the `NonEmpty` statement, `add@mymodule` the
-        // one this module's own qualifier makes. Rebuilt from that place's own
-        // statements, because the merged view is suppressed by the very
-        // disagreement the selector exists to settle.
-        if let Some(module) = at {
-            groups.retain_mut(|g| {
-                let mine: Vec<crate::refine::RefnStatement> = g
-                    .stated
-                    .iter()
-                    .filter(|st| ModulePath::text_matches_suffix(&st.module, module))
-                    .cloned()
-                    .collect();
-                if mine.is_empty() {
-                    return false;
-                }
-                let merge = |lists: Vec<&Vec<String>>| -> Vec<String> {
-                    let mut out: Vec<String> = Vec::new();
-                    for l in lists {
-                        for q in l {
-                            if !out.contains(q) {
-                                out.push(q.clone());
-                            }
-                        }
-                    }
-                    out
-                };
-                g.add = merge(mine.iter().map(|st| &st.add).collect());
-                g.remove = merge(mine.iter().map(|st| &st.remove).collect());
-                g.preserve = merge(mine.iter().map(|st| &st.preserve).collect());
-                g.conflict.clear();
-                true
-            });
-        } else if self.report_refn_ambiguity(callee_name, param, &groups, span) {
-            // Ambiguous: nothing is applied, so no claim is invented from a
-            // pick the program did not make.
-            return;
-        }
         for group in groups {
             self.apply_refinement_group(&group, callee, param, arg, span);
         }
-    }
-
-    /// [qual-refn-ambiguous] Whether the refinements speaking about one
-    /// (callee, parameter) at this call **disagree**, reported as an error
-    /// naming the `f@place` that picks each side.
-    ///
-    /// Two shapes of disagreement, one rule (user decision 2026-09-26 —
-    /// "when faced with an ambiguity, refuse to choose and let the user choose
-    /// instead"): refinements in *one* group that could not have been written
-    /// together [qual-with], and refinements in *different* groups — different
-    /// preconditions [qual-refn-narrow] — whose additions could not. The
-    /// second is the one that bit: two applicable groups were applied in
-    /// order and the second addition was silently dropped for being
-    /// incompatible with the first, so the call quietly established
-    /// `NonEmpty` where the program had just proved `NE`. The claim a caller
-    /// ends up with is exactly the kind of thing a reader cannot re-derive,
-    /// which is why the remedy is written rather than guessed.
-    fn report_refn_ambiguity(
-        &mut self,
-        callee_name: &str,
-        param: &str,
-        groups: &[crate::refine::RefnGroup],
-        span: Span,
-    ) -> bool {
-        // Every claim any applicable group speaks about, with the place that
-        // said so. A group whose own members disagree kept its names in
-        // `conflict` rather than in `add`.
-        let mut claims: Vec<(String, String)> = Vec::new();
-        for g in groups {
-            for st in &g.stated {
-                for q in &st.add {
-                    if !claims.iter().any(|(c, p)| c == q && *p == st.module) {
-                        claims.push((q.clone(), st.module.clone()));
-                    }
-                }
-            }
-        }
-        let mut worst: Option<(&(String, String), &(String, String))> = None;
-        for (i, a) in claims.iter().enumerate() {
-            for b in claims.iter().skip(i + 1) {
-                if a.0 == b.0 {
-                    continue;
-                }
-                let compatible = match (
-                    self.qualifier_named(a.0.as_str()),
-                    self.qualifier_named(b.0.as_str()),
-                ) {
-                    (Some(x), Some(y)) => crate::refine::quals_compatible(x, y),
-                    // An invisible qualifier cannot be judged, and `Mut` and
-                    // the other intrinsics compose with everything.
-                    _ => true,
-                };
-                if !compatible {
-                    worst = Some((a, b));
-                }
-            }
-        }
-        let Some(((qa, pa), (qb, pb))) = worst else {
-            return false;
-        };
-        // Same place on both sides: no selector could separate them, so the
-        // refinements themselves are the error — reported where they are
-        // declared, by `check_refn_places`. Saying it again here would name a
-        // remedy that does not work.
-        if pa == pb {
-            return true;
-        }
-        self.error(
-            span,
-            format!(
-                "`{callee_name}` is ambiguous here: `{pa}` refines it to establish \
-                 `{qa}` on `{param}` and `{pb}` refines it to establish `{qb}`, and \
-                 one value cannot carry both (neither qualifier declares `with` the \
-                 other). Name the statement you mean — `{callee_name}@{pa}(...)` or \
-                 `{callee_name}@{pb}(...)` — or give one a name of its own with \
-                 `rename fn <new> = {callee_name}(...)`"
-            ),
-        );
-        true
     }
 
     /// One group of refinements that agree about a parameter, applied.
@@ -19595,14 +19436,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         arg: &str,
         span: Span,
     ) {
-        if !group.conflict.is_empty() {
-            // [qual-refn-ambiguous] Reported already: by `report_refn_ambiguity`
-            // at this call when the disagreeing refinements come from different
-            // places, and at the refinements themselves when they share one
-            // (where no selector could separate them). Nothing is applied.
-            let _ = (callee, param, span);
-            return;
-        }
+        let _ = (callee, param, span);
         let remove: HashSet<String> = group.remove.iter().cloned().collect();
         let add = group.add.clone();
         if !remove.is_empty() {
@@ -19618,20 +19452,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             if have.contains(&q) {
                 continue;
             }
-            let compatible = have.iter().all(|h| {
-                // [qual-overload] Compatibility is a relation between *names*:
-                // a `with` clause names a qualifier, not a qualifier-over-a-
-                // subject, so same-named declarations share their `with` list.
-                match (self.qualifier_named(h.as_str()), self.qualifier_named(q.as_str())) {
-                    (Some(a), Some(b)) => crate::refine::quals_compatible(a, b),
-                    // `Mut` and the other intrinsics compose with
-                    // everything; an invisible qualifier cannot be judged.
-                    _ => true,
-                }
-            });
-            if !compatible {
-                continue;
-            }
+            // [qual-refn] Every matching refinement applies: a `+Q`/`-Q`
+            // contradiction is refused at the declaration, so there is no
+            // call-site compatibility to re-check.
             if let Some(var) = self.lookup_mut(arg) {
                 var.narrowed = var.narrowed.clone().qualify(vec![Qual {
                     effect: false,
@@ -25031,7 +24854,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             return out;
         };
         let Some(responses) = f.response.clone() else {
-            return out;
+            // [deduce-conditional] 6c: a refn may attach a Bool-conditional
+            // response to this callee even when the fn declares none.
+            return self.refn_response_narrows(cond, callee, args);
         };
         // Positional parameters (implicits take no argument slot).
         let fixed: Vec<&ast::Param> = f.params.iter().filter(|p| !p.implicit).collect();
@@ -25073,6 +24898,47 @@ impl<'p, 'r> Checker<'p, 'r> {
                 declared,
             });
         }
+        out
+    }
+
+    /// [deduce-conditional] 6c: a refinement may attach a Bool-conditional
+    /// response to a matched callee. At a call to such a callee, narrow the
+    /// argument at each response's parameter position, exactly as a fn's own
+    /// response clause does.
+    fn refn_response_narrows(
+        &mut self,
+        cond: &'p Expr,
+        callee: FnKey,
+        args: &'p [Expr],
+    ) -> CondInfo {
+        let mut out = CondInfo::default();
+        let responses = self.refinements.responses_for(self.file_idx, callee).to_vec();
+        for (pos, negated, qual_name) in responses {
+            let Some(arg) = args.get(pos) else { continue };
+            let Some(place) = Place::of_expr(arg) else { continue };
+            let (narrowed_base, declared) = if place.is_root() {
+                match self.lookup(&place.root) {
+                    Some(v) => (v.narrowed.clone(), v.declared.clone()),
+                    None => continue,
+                }
+            } else {
+                let t = self.out.expr_ty.get(&self.key(arg.span())).cloned().unwrap_or(Ty::Unknown);
+                (t.clone(), t)
+            };
+            let qual = Qual { effect: false, name: qual_name.clone(), args: Vec::new() };
+            let mut set = HashSet::new();
+            set.insert(qual_name);
+            let with_qual = narrowed_base.clone().qualify(vec![qual]);
+            let without_qual = narrowed_base.clone().remove_quals(&set);
+            let (then_ty, else_ty) = if negated {
+                (without_qual, with_qual)
+            } else {
+                (with_qual, without_qual)
+            };
+            out.then_narrows.push(Narrow { place: place.clone(), narrowed: then_ty, declared: declared.clone() });
+            out.else_narrows.push(Narrow { place, narrowed: else_ty, declared });
+        }
+        let _ = cond;
         out
     }
 
@@ -28287,9 +28153,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [implicit-resolve-body] A call that fell through an implicit of its
         // name arrives with its arguments typed.
         let mut pre_typed: Option<Vec<Ty>> = self.pending_arg_tys.take();
-        // The callee's own name, kept before the argument loops shadow `name`
-        // with an *argument's* — the refinement diagnostics name the callee.
-        let callee_fn_name = name.to_string();
         // 1. Effect member call: resolve which effect instance in scope
         // provides it (validating availability and disambiguating generic
         // effects). [effect-member-overload] Several effects may declare
@@ -29544,17 +29407,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if let Some(key) = best.key {
                     // [qual-refn-narrow] `have` is the argument's claim *before*
                     // this call, which is what a conditional refinement reads.
-                    let at_module = match at {
-                        Some(sel @ Selector::Module(_)) => Some(sel.render()),
-                        _ => None,
-                    };
                     self.apply_refinements(
                         key,
-                        &callee_fn_name,
                         &param.name.name,
                         &name,
                         &have,
-                        at_module.as_deref(),
                         span,
                     );
                     // [deduce-reapply] …and a claim the callee says it

@@ -1463,6 +1463,35 @@ fn conditional_response_negation_and_chain_parse() {
     assert!(!responses[1].negated && responses[1].subject.name == "b");
 }
 
+/// [qual-refn-match] A refn parses `@place`, a trailing `*`, and a
+/// Bool-conditional `-> subject is Q` response.
+#[test]
+fn refn_at_wildcard_and_response_parse() {
+    let source = "qualifier Q<T> of List<T> {\n    \
+        fn qualifies(l: List<T>) -> Bool { return true }\n    \
+        refn add@core.list(l: Mut List<T>, *) => l: +Q\n    \
+        refn empty@core.list(l: List<T>, *) -> l !is Q\n}\n";
+    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    assert!(
+        !diagnostics.iter().any(|d| d.is_error()),
+        "unexpected errors: {:?}",
+        diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+    let salvo_syntax::ast::Item::Qualifier(q) = &module.items[0] else {
+        panic!("expected a qualifier");
+    };
+    assert_eq!(q.refns.len(), 2);
+    let add = &q.refns[0];
+    assert_eq!(add.at.as_ref().map(|i| i.name.as_str()), Some("core.list"));
+    assert!(add.wildcard, "trailing * sets wildcard");
+    assert_eq!(add.params.len(), 1);
+    let empty = &q.refns[1];
+    assert!(empty.wildcard);
+    let resp = empty.response.as_ref().expect("a response clause");
+    assert_eq!(resp.len(), 1);
+    assert!(resp[0].negated && resp[0].subject.name == "l" && resp[0].qual.name.name == "Q");
+}
+
 /// [col-pairs] Pairs are all-or-nothing: a positional argument cannot be
 /// mixed with `k: v` pairs in one call.
 #[test]

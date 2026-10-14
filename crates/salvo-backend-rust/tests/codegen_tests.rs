@@ -7209,7 +7209,7 @@ fn rustc_compiles_and_runs_a_refined_program() {
     run_rust_files(&files, "refn", REFN_EXPECTED);
 }
 
-/// [qual-refn-ambiguous] [diag-structured] A suppressed refinement conflict is
+/// [qual-refn] [diag-structured] A suppressed refinement conflict is
 /// a *warning*: the program is legal, so it must still emit — *and* the
 /// warning must reach the driver, or the diagnostic exists only in `salvo
 /// analyze`. Tested per backend because both the gate and the channel are

@@ -17,7 +17,7 @@ const STD_PRELUDE: &str = "export intrinsic type Str\nexport intrinsic type Int\
 
 /// Parses + resolves + checks the given files (the first is `main.sv`) and
 /// returns every diagnostic message, warnings included — an unnecessary
-/// selector is a *warning* [qual-refn-at], so the tests have to see both
+/// selector is a *warning* [qual-refn], so the tests have to see both
 /// severities.
 fn diagnostics(files: &[(&str, &str)]) -> Vec<String> {
     let mut sources = SourceSet::default();
@@ -156,44 +156,36 @@ fn a_refinement_can_invalidate_a_qualifier() {
     );
 }
 
-// --- Conflicts [qual-refn-ambiguous] ---
+// --- Conflicts [qual-refn] ---
 
-/// [qual-refn-ambiguous] Two qualifiers that cannot co-apply [qual-with]
+/// [qual-refn] Two qualifiers that cannot co-apply [qual-with]
 /// cannot both be established by one call, and choosing between them is not the
 /// compiler's to make (user decision 2026-09-26). Both refinements are declared
 /// **here**, so no `f@place` could separate them and the error belongs at the
 /// refinements themselves.
+/// [qual-refn] Two refinements establishing *different* qualifiers both apply
+/// now (user decision 2026-10-12): there is no `with` allowlist and no
+/// conflict — only a `+Q`/`-Q` contradiction for one qualifier is an error.
 #[test]
-#[ignore = "refn conflict model being replaced by the refn redesign (change 7): \
-            with `with` retired, two refinements establishing different qualifiers \
-            simply both apply; only a +Q/-Q contradiction is an error"]
-fn conflicting_refinements_in_one_place_are_an_error() {
+fn two_refinements_of_different_qualifiers_both_apply() {
     let src = format!(
         "{PRELUDE}{NONEMPTY}\n\
          qualifier Sorted<T> of Store<T> {{\n    \
          fn qualifies(s: Store<T>) -> Bool {{\n        return true\n    }}\n\n    \
          refn push(s: Mut Store<T>, value: T) => s: +Sorted\n}}\n\n\
+         fn needs_both<T>(s: NonEmpty Sorted Store<T>) -> Int => s {{\n    return 3\n}}\n\n\
          fn f(s: Mut Store<Int>) -> None {{\n    \
          push(s, 1)\n    \
-         let _n = needs_nonempty(s)\n}}\n"
+         let _n = needs_both(s)\n}}\n"
     );
     let diags = errors(&src);
     assert!(
-        diags.iter().any(|d| d.contains("disagree about `s`")
-            && d.contains("`NonEmpty` and `Sorted`")
-            && d.contains("two statements made by the same place")),
-        "expected the declaration-site refusal: {diags:?}"
-    );
-    // Nothing applied, so the caller is back to the unrefined behaviour.
-    assert!(
-        diags
-            .iter()
-            .any(|d| d.contains("no matching overload for `needs_nonempty")),
-        "{diags:?}"
+        diags.is_empty(),
+        "both NonEmpty and Sorted are established, so the call resolves: {diags:?}"
     );
 }
 
-/// [qual-refn-ambiguous] Two *compatible* qualifiers (one declares `with` the
+/// [qual-refn] Two *compatible* qualifiers (one declares `with` the
 /// other) both apply: a conflict is precisely "these could not have been
 /// written together", not "there are two of them".
 #[test]
@@ -216,7 +208,7 @@ fn compatible_refinements_both_apply() {
 /// about, so the **top-level** form is a parse error naming the move (user
 /// decision 2026-09-26). It existed to *reconcile* two qualifiers that
 /// disagreed; disagreement is now refused at the call and settled by naming a
-/// place [qual-refn-ambiguous], so it has no job left.
+/// place [qual-refn], so it has no job left.
 #[test]
 fn a_top_level_refinement_is_refused() {
     let (_m, diags) = salvo_syntax::parse_module(
@@ -292,34 +284,40 @@ fn a_refinement_is_only_in_scope_with_its_qualifier() {
     );
 }
 
-/// [qual-refn-match] The parameter list picks one overload, by names *and*
-/// types: a mismatch is an error at the refinement rather than a refinement
-/// that silently never fires.
+/// [qual-refn-match] Matching is positional by base type (user decision
+/// 2026-10-12), a loose gate — not an exact-signature match. A different
+/// parameter *name* still matches, and a compatible base still matches; only
+/// a genuinely non-matching shape, a missing fn, or a deduction naming a
+/// non-parameter is an error.
 #[test]
-fn a_refinement_must_match_an_overload_exactly() {
-    let cases = [
-        // Wrong parameter name.
-        (
-            "refn push(store: Mut Store<T>, value: T) => store: +NonEmpty ",
-            "matches no `push`",
-        ),
-        // Wrong type.
-        (
-            "refn push(s: Store<T>, value: T) => s: +NonEmpty ",
-            "matches no `push`",
-        ),
-        // No such function.
+fn a_refinement_matches_positionally_by_base_type() {
+    // These all MATCH now (different name, same base; the gate is loose).
+    let ok_cases = [
+        "refn push(store: Mut Store<T>, value: T) => store: +NonEmpty ",
+        "refn push(s: Store<T>, value: T) => s: +NonEmpty ",
+        "refn push(s: Mut Store<T>, *) => s: +NonEmpty ",
+    ];
+    for refn in ok_cases {
+        let src = format!(
+            "{PRELUDE}\nqualifier NonEmpty<T> of Store<T> {{\n    \
+             fn qualifies(s: Store<T>) -> Bool {{\n        return true\n    }}\n\n    \
+             {refn}\n}}\n"
+        );
+        let diags = errors(&src);
+        assert!(diags.is_empty(), "expected a match for {refn:?}, got {diags:?}");
+    }
+    // These error: no such fn, and a deduction naming a non-parameter.
+    let bad_cases = [
         (
             "refn shove(s: Mut Store<T>, value: T) => s: +NonEmpty ",
             "no function `shove` is visible here",
         ),
-        // A parameter the function does not have.
         (
             "refn push(s: Mut Store<T>, value: T) => other: +NonEmpty",
-            "has no parameter `other`",
+            "`other` is not a parameter of this refinement",
         ),
     ];
-    for (refn, expected) in cases {
+    for (refn, expected) in bad_cases {
         let src = format!(
             "{PRELUDE}\nqualifier NonEmpty<T> of Store<T> {{\n    \
              fn qualifies(s: Store<T>) -> Bool {{\n        return true\n    }}\n\n    \
@@ -614,11 +612,12 @@ fn an_established_claim_does_not_survive_a_branch() {
     );
 }
 
-/// [qual-refn-match] The declaration's own qualifiers still have to be
-/// written: a refinement that drops the `Mut` is about a different position
-/// than it looks, and says so rather than silently matching.
+/// [qual-refn-match] Qualifiers (including `Mut`) are *ignored* by the gate
+/// now (user decision 2026-10-12): a refinement that drops the `Mut` still
+/// matches by base type. Extra qualifiers on the refn become a precondition
+/// [qual-refn-narrow], not a mismatch.
 #[test]
-fn a_refinement_must_still_write_the_declarations_qualifiers() {
+fn a_refinement_may_drop_the_declarations_qualifiers() {
     let keeps_without_mut = r#"
 export qualifier NonEmpty<T> of Store<T> {
     fn qualifies(s: Store<T>) -> Bool {
@@ -630,10 +629,8 @@ export qualifier NonEmpty<T> of Store<T> {
 "#;
     let src = format!("{PRELUDE}{TOUCH}{keeps_without_mut}");
     assert!(
-        errors(&src)
-            .iter()
-            .any(|e| e.contains("matches no `touch` in scope")),
-        "{:?}",
+        errors(&src).is_empty(),
+        "the refn matches by base type despite dropping `Mut`: {:?}",
         errors(&src)
     );
 }
@@ -702,7 +699,7 @@ fn a_bodiless_declaration_cannot_report_a_gain() {
     );
 }
 
-// --- Ambiguity across places [qual-refn-ambiguous] ---
+// --- Ambiguity across places [qual-refn] ---
 
 /// The sources the cross-place tests share: `lib` owns a qualifier whose
 /// refinement establishes `LibClaim` on `push`, `main` owns one that
@@ -747,62 +744,21 @@ fn needs_mine<T>(s: MyClaim Store<T>) [] -> Int => s {
 }
 "#;
 
-/// [qual-refn-ambiguous] Two places refine one function incompatibly, so the
-/// call is refused and the diagnostic names the `f@place` that picks each side.
-/// Before this the groups were applied in order and the second addition was
-/// dropped for being incompatible with the first — a claim the caller could not
-/// have predicted.
+/// [qual-refn] Both places' refinements apply (user decision 2026-10-12):
+/// one refn refines many overloads, all matching refns apply, and there is no
+/// call-site `@place` picking or ambiguity. So a `push(s, 1)` in `main`, with
+/// both `lib`'s and `main`'s refinements of `push` in scope, establishes
+/// *both* `LibClaim` and `MyClaim` — `needs_lib(s)` and `needs_mine(s)` both
+/// resolve.
 #[test]
-#[ignore = "refn conflict model being replaced by the refn redesign (change 7): \
-            with `with` retired, conflicts become declaration-time +Q/-Q errors, \
-            not call-site ambiguity"]
-fn refinements_from_two_places_make_the_call_ambiguous() {
-    let main = format!("{MAIN_QUAL}\nfn f(s: Mut Store<Int>) -> None {{\n    push(s, 1)\n}}\n");
-    let diags = diagnostics(&[("main.sv", &main), ("lib.sv", LIB)]);
-    assert!(
-        diags.iter().any(|d| d.contains("`push` is ambiguous here")
-            && d.contains("push@lib(...)")
-            && d.contains("push@main(...)")),
-        "{diags:?}"
-    );
-}
-
-/// [qual-refn-at] Naming the place picks that place's statement — and only it,
-/// so the claim the call establishes is the one the program asked for.
-#[test]
-fn naming_the_place_picks_that_refinement() {
+fn refinements_from_two_places_both_apply() {
     let main = format!(
         "{MAIN_QUAL}\nfn f(s: Mut Store<Int>) -> None {{\n    \
-         push@main(s, 1)\n    let _n = needs_mine(s)\n}}\n"
+         push(s, 1)\n    let _a = needs_lib(s)\n    let _b = needs_mine(s)\n}}\n"
     );
     let diags = diagnostics(&[("main.sv", &main), ("lib.sv", LIB)]);
     assert!(
         !diags.iter().any(|d| d.contains("ambiguous") || d.contains("no matching overload")),
-        "{diags:?}"
-    );
-    // The other place, and the *other* claim follows.
-    let main = format!(
-        "{MAIN_QUAL}\nfn f(s: Mut Store<Int>) -> None {{\n    \
-         push@lib(s, 1)\n    let _n = needs_lib(s)\n}}\n"
-    );
-    let diags = diagnostics(&[("main.sv", &main), ("lib.sv", LIB)]);
-    assert!(
-        !diags.iter().any(|d| d.contains("ambiguous") || d.contains("no matching overload")),
-        "{diags:?}"
-    );
-}
-
-/// [qual-refn-at] And the selector is honest about what it picked: naming `lib`
-/// establishes `LibClaim`, so `MyClaim` is *not* there afterwards.
-#[test]
-fn the_unpicked_refinement_does_not_apply() {
-    let main = format!(
-        "{MAIN_QUAL}\nfn f(s: Mut Store<Int>) -> None {{\n    \
-         push@lib(s, 1)\n    let _n = needs_mine(s)\n}}\n"
-    );
-    let diags = diagnostics(&[("main.sv", &main), ("lib.sv", LIB)]);
-    assert!(
-        diags.iter().any(|d| d.contains("no matching overload for `needs_mine")),
-        "{diags:?}"
+        "both refinements apply, so both claims hold: {diags:?}"
     );
 }

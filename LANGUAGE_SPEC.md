@@ -727,11 +727,9 @@ Conventions:
     of it" is a refinement written by the claim's **owner**, never a wrapper
     overload at the call site.
     Consequence for user code: another qualifier refining `add` over a `List`
-    *disagrees* with std's, so the call is refused until it names the place it
-    means [qual-refn-ambiguous]. Two remedies, both named by the diagnostic:
-    `add@place(...)` per call, or one word — `with NonEmpty` on the user's
-    qualifier — which makes the two claims co-applicable and removes the
-    disagreement altogether.
+    simply *also* applies — both claims are established, since every
+    state-qualifier pair composes [qual-no-with] and all matching refinements
+    apply [qual-refn-match].
   * The overload delegates to `get(list, 0)!`, **not** to `first@core.list`:
     the scope selector names the module, and within it a `NonEmpty` argument
     re-picks this same overload, which recurses forever.
@@ -1554,8 +1552,8 @@ Conventions:
   * A **refinement** picks its qualifier the same way, from the refined
     parameter's own type: `refn add(set: Mut Set<T>, elem: T) => set:
     +NonEmpty` inside the `of Set<T>` declaration refines the `add` that takes
-    a set. Two container claims therefore do *not* conflict with each other
-    [qual-refn-ambiguous] — they are about different subjects.
+    a set. Two container claims therefore do *not* conflict with each other —
+    they are about different subjects.
   * Backends: erasure [qual-erasure] makes two same-named `qualifies`
     functions collide where the target has no overloading, so **Rust mangles
     the emitted name with the subject** (`Filled__List_qualifies`) and only
@@ -1715,8 +1713,7 @@ Conventions:
     index valid; an exchange moves no boundary). Validated against the
     qualifier's **value slots** (the parameter is the value the claims
     depend on, not the claim's subject), and only a dependent qualifier
-    may appear. Preservation cannot conflict [qual-refn-ambiguous] and
-    merges across groups.
+    may appear. Preservation cannot conflict and merges across groups.
   * **In a fn's own clause**, alongside the parameter's ordinary entry
     (exempt from the once-rule — it is about *other* values' claims):
     **checked**, anywhere — every call in the body passing the parameter
@@ -1895,24 +1892,43 @@ Conventions:
     makes the whole feature invisible to the backends.
   * **A qualifier may only refine its own claim.** `NonEmpty` cannot say
     what a call does to `Sorted`. That is what makes [qual-refn-scope]'s
-    opt-in honest, and it is why conflicts reduce to "two qualifiers that
-    cannot co-apply" [qual-refn-ambiguous].
+    opt-in honest.
+  * **A Bool-conditional response** (6c, [deduce-conditional]): a refinement
+    may carry `-> subject is Q` (or `!is`) instead of (or beside) a `=>`
+    clause. It attaches that conditional claim to every matched Bool-returning
+    function, so `if matched_fn(x)` narrows `x` at the call site exactly as a
+    fn's own response clause would.
   * A refinement's qualifier must apply to the parameter's type
     [qual-of], and each entry must name a parameter of the resolved
     overload, once.
   * Effect members are **not** refinable (deferred, user decision
     2026-09-06): a member has no `FnKey` and naming one needs an
     effect-qualified form.
-* [qual-refn-match] A refinement's parameter list picks **one** overload:
-  it must repeat that overload's parameters — same names, same
-  variadic/implicit flags, same types *under* their qualifiers, with type
-  parameters matched by **position** (the refinement's own, preceded by the
-  qualifier's), and every qualifier the declaration writes written too. Zero
-  or several matches is an error at the refinement, so a typo cannot
-  become a refinement that silently never fires. A name in the parameter
-  list that is neither a type parameter nor a visible type is reported as
-  such, naming the type-parameter remedy — a top-level `refn` has no
-  qualifier to borrow `T` from.
+* [qual-refn-match] A refinement **names** a function and refines **every
+  in-scope overload of that name** whose parameters its gate accepts
+  (one-to-many, user decision 2026-10-12). The gate is **positional base
+  type**: position by position, the refinement's parameter base type (every
+  qualifier, including `Mut`, stripped) must be a super- or subtype of the
+  candidate's. A trailing `*` matches all remaining parameters, so a refn
+  need not spell every one; implicit parameters take no position. The gate is
+  deliberately loose — it only checks that *something* exists for the refn to
+  modify; the strict work is at the call site (see below). **Zero matches is
+  an error** at the refinement (a typo cannot silently never fire). A deduction
+  entry names one of the *refinement's own* parameters, mapped to each matched
+  overload by position; a `@module` selector on the refn (`refn add@core.list(…)`)
+  scopes the match to that module's overloads. A name in the parameter list
+  that is neither a type parameter nor a visible type is reported, naming the
+  type-parameter remedy.
+  * **At the call site, all matching refinements apply**, order-independent:
+    a refinement fires on a call when every argument is a subtype of the
+    corresponding refinement parameter (or covered by `*`), so a refn can
+    match a function yet apply to none of its calls. There is no call-site
+    disambiguation — a `@module` on a *call* only selects an overload, never
+    a refinement.
+  * **A `+Q`/`-Q` contradiction** for one parameter and qualifier is refused
+    at the **declaration** (user decision 2026-10-12), replacing the old
+    call-site conflict suppression. Two refinements establishing *different*
+    qualifiers simply both apply.
 * [deduce-gained] A plain (non-`+`) entry may name a qualifier the parameter
   does **not** declare, when the body *establishes* it — through a refinement,
   so the claim's owner said so [qual-refn]. The promise is then **checked**
@@ -1955,10 +1971,9 @@ Conventions:
   T) => list: +NonEmpty`); `swap` keeps.
   * Preconditions are per parameter, and two refinements of one parameter that
     require different things are two independent groups: each applies where its
-    own precondition holds. Disagreement, however, is judged **across** groups
-    as well as within one [qual-refn-ambiguous]: two statements that apply to the
-    same call cannot establish claims that one value could not carry, whatever
-    their preconditions were.
+    own precondition holds. All applicable groups apply [qual-refn-match]; a
+    `+Q`/`-Q` contradiction is caught at the declaration, so there is no
+    cross-group conflict to resolve at the call.
   * A **kept** claim survives a **conditional** call, an established one does
     not: if the call may not have happened, the caller's own claim is still
     whatever it was, but nothing new has been established. (Before this rule the
@@ -1972,41 +1987,15 @@ Conventions:
   qualifier is in scope and nowhere else: the user opts into the refinements by
   opting into the qualifier (user decision 2026-09-06).
   * A **top-level** `refn` is refused, with a diagnostic naming the move. It
-    existed to *reconcile* two qualifiers that disagreed (it replaced their
-    refinements for the parameters it named), and disagreement is now refused at
-    the call and settled by naming a place [qual-refn-ambiguous]
-    [qual-refn-at] — so the form had no job left, and having one refinement in
-    two possible places was the cost.
+    existed to *reconcile* two qualifiers that disagreed, and disagreement is
+    now impossible to express (a `+Q`/`-Q` contradiction is a declaration
+    error, and every other pair simply composes [qual-no-with]) — so the form
+    had no job left.
   * A **constructive** qualifier may therefore have a body: what makes a
     qualifier *predicate* is holding a `qualifies` [qual-predicate], not holding
     braces. A body of refinements alone is the mint-only shape — `Sorted`'s
     insert is the case that forced it: the claim cannot be tested, and still has
     something to say about a function that keeps it.
-* [qual-refn-ambiguous] When the refinements applying to one (callee,
-  parameter) **disagree**, the call is an **error** (user decision 2026-09-26):
-  the compiler refuses to choose, and the diagnostic names the `f@place` that
-  picks each side. Two refinements disagree when their additions could not have
-  been written together [qual-with]; an addition and a removal of the same
-  qualifier disagree outright.
-  * Disagreement is judged across **every** applicable group, not only within
-    one: two refinements with different preconditions [qual-refn-narrow] are
-    separate groups, and before this rule both were applied in order and the
-    second addition was silently dropped for being incompatible with the first.
-    That is the shape that motivated the rule — std says `add` establishes
-    `NonEmpty`, your own qualifier says it keeps `NE`, and the caller ended up
-    with whichever group ran first.
-  * **Two refinements made by the *same* place** are an error at the
-    refinements themselves, not at the call: `f@place` picks a place, so a
-    place that disagrees with itself leaves the caller no way to choose. One of
-    them has to go, or the qualifiers have to declare `with` each other.
-  * Nothing is applied in either case, so no claim is invented from a choice
-    the program did not make.
-* [qual-refn-at] **`f@place(args)` picks the place whose statement is meant**,
-  and only that place's refinements apply — rebuilt from its own statements, so
-  a selector settles a disagreement rather than inheriting it. A place that
-  refines a callee is a legal selector even when it declares no overload of it
-  [fn-overload-at]. The unpicked statement does not apply, which is the point:
-  `add@core.list(xs, 1)` establishes `NonEmpty` and leaves `NE` behind.
 * [qual-refn-infer] Refinements reach **inferred** deductions
   [deduce-infer], so the fact survives one frame outward: a fn whose
   parameter declares the qualifier and whose body makes a refined call
@@ -2713,10 +2702,9 @@ Conventions:
   [effect-at].
   * A module path, not a rung keyword: `@mod`/`@import` would ask the reader
     to know which rung a name came in on (user decision 2026-09-07).
-  * The module may be one that **refines** the callee rather than declaring it
-    [qual-refn-at]: `add@mymodule(xs, 1)` names this module's statement about
-    `core.list`'s `add`. Then every declaration still competes and the selector
-    narrows the refinements instead.
+  * A `@module` on a *call* selects an **overload**; it no longer picks a
+    refinement (refinements all apply, [qual-refn-match]). Scoping a
+    refinement to a module is done with `@module` on the `refn` declaration.
   * **A selector that changes nothing is a warning** (user decision
     2026-09-26): if the call resolves to the same declaration without it, and
     no refinement of that callee disagrees in this file, the `@place` is noise —

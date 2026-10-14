@@ -210,25 +210,13 @@ pub fn field_section(fields: &[FieldDecl], scope: &DocScope) -> Option<String> {
 /// in another package — so a reader of `add` would otherwise have no way to
 /// learn that, in this file, it also establishes `NonEmpty`. Suppressed
 /// groups are shown too: a conflict is silent in the type system by design
-/// [qual-refn-ambiguous], and this is where it stops being invisible.
+/// [qual-refn], and this is where it stops being invisible.
 pub fn refinement_section(groups: &[RefnGroup], scope: &DocScope) -> Option<String> {
     if groups.is_empty() {
         return None;
     }
     let mut out = String::from("**Refinements** — in scope here:\n");
     for group in groups {
-        if !group.conflict.is_empty() {
-            let quals: Vec<String> =
-                group.conflict.iter().map(|q| format!("`{q}`")).collect();
-            out.push_str(&format!(
-                "\n- `{}`: none apply — the refinements of {} cannot be applied to \
-                 one value. Test the property with `is`, or reconcile them in a \
-                 top-level `refn`.",
-                group.param,
-                quals.join(" and ")
-            ));
-            continue;
-        }
         let mut effects: Vec<String> = group.add.iter().map(|q| format!("+{q}")).collect();
         effects.extend(group.remove.iter().map(|q| format!("-{q}")));
         // [qual-preserve] Part of what a reader needs: the call keeps other
