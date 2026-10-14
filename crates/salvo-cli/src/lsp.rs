@@ -57,6 +57,80 @@ use crate::docs;
 /// after the last keystroke.
 const DEBOUNCE: Duration = Duration::from_millis(120);
 
+/// [lsp-trace] Whether `SALVO_LSP_TRACE` is set in the environment: when it
+/// is, the server logs every message it dispatches, every diagnostics
+/// publish, and every debounce wake to stderr with a monotonic timestamp.
+/// Computed once — reading the environment per message would itself be work
+/// on the hot path we are trying to observe. The point is diagnosing a
+/// runaway (100% CPU "while idle"): if the log scrolls with no edits, the
+/// loop is being fed, and the line that repeats names the driver.
+fn trace_enabled() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("SALVO_LSP_TRACE").is_some())
+}
+
+/// [lsp-trace] Milliseconds since the process started, for ordering trace
+/// lines without pulling in a clock dependency.
+fn trace_ms() -> u128 {
+    use std::sync::OnceLock;
+    use std::time::Instant;
+    static START: OnceLock<Instant> = OnceLock::new();
+    START.get_or_init(Instant::now).elapsed().as_millis()
+}
+
+/// [lsp-trace] Emit one trace line to stderr when `SALVO_LSP_TRACE` is set.
+/// A macro so the formatting cost is paid only when tracing is on.
+macro_rules! lsp_trace {
+    ($($arg:tt)*) => {
+        if trace_enabled() {
+            eprintln!("salvo lsp [{:>8}ms] {}", trace_ms(), format_args!($($arg)*));
+        }
+    };
+}
+
+/// [lsp-watchdog] Exit the process when our parent (the editor that spawned
+/// us) dies, independent of stdin. The LSP transport already exits cleanly on
+/// a clean stdin EOF, but a force-killed editor can leave the stdio pipe in a
+/// state that never signals EOF — and then a server that is somehow busy
+/// (the 100%-CPU report) spins forever, reparented to `init`, with nothing
+/// left to tell it to stop. This watchdog is that backstop: a cheap poll of
+/// the parent PID, and `exit(0)` the moment it changes.
+///
+/// Unix only (reparenting to PID 1 is the signal); a no-op elsewhere. Costs
+/// one `getppid()` per second on a sleeping thread — negligible, and only
+/// while the server runs.
+#[cfg(unix)]
+fn spawn_parent_death_watchdog() {
+    extern "C" {
+        fn getppid() -> i32;
+    }
+    // SAFETY: `getppid` is a trivial, always-safe POSIX call.
+    let original = unsafe { getppid() };
+    // A server started not from a parent process (`original <= 1`) has no
+    // parent to watch — don't risk a spurious exit.
+    if original <= 1 {
+        return;
+    }
+    std::thread::Builder::new()
+        .name("salvo-lsp-parent-watchdog".to_owned())
+        .spawn(move || loop {
+            std::thread::sleep(Duration::from_secs(1));
+            // SAFETY: as above.
+            let now = unsafe { getppid() };
+            if now != original {
+                // The editor is gone (reparented to init, or a new parent):
+                // nothing we do matters now, so stop burning CPU.
+                lsp_trace!("parent {original} is gone (now {now}); exiting");
+                std::process::exit(0);
+            }
+        })
+        .ok();
+}
+
+#[cfg(not(unix))]
+fn spawn_parent_death_watchdog() {}
+
 /// Runs the server until the client disconnects or asks for shutdown.
 /// Backend-neutral, like `salvo analyze` [cli-analyze]: nothing a backend
 /// selects participates in checking.
@@ -71,6 +145,9 @@ pub fn run() -> ExitCode {
 }
 
 fn serve() -> Result<(), Box<dyn Error + Sync + Send>> {
+    // [lsp-watchdog] Backstop against a server outliving its editor and
+    // spinning (see the fn docs). Started before anything blocks.
+    spawn_parent_death_watchdog();
     let (connection, io_threads) = Connection::stdio();
 
     let capabilities = serde_json::to_value(ServerCapabilities {
@@ -195,11 +272,15 @@ impl Server<'_> {
                 // but publishing on a disconnect is harmless.
                 match self.connection.receiver.recv_timeout(DEBOUNCE) {
                     Ok(msg) => {
+                        lsp_trace!("debounce wake: message arrived, burst continues");
                         if self.dispatch(msg)? {
                             return Ok(());
                         }
                     }
-                    Err(_) => break,
+                    Err(_) => {
+                        lsp_trace!("debounce quiet: publishing");
+                        break;
+                    }
                 }
             }
             if self.dirty {
@@ -213,6 +294,16 @@ impl Server<'_> {
     /// Handles one message. Returns `true` when it was a shutdown request and
     /// the loop should exit.
     fn dispatch(&mut self, msg: Message) -> Result<bool, Box<dyn Error + Sync + Send>> {
+        // [lsp-trace] Name the message, so a flood of them (the 100%-CPU
+        // "while idle" case) shows exactly what the loop is being fed.
+        if trace_enabled() {
+            let what = match &msg {
+                Message::Request(r) => format!("request {}", r.method),
+                Message::Notification(n) => format!("notification {}", n.method),
+                Message::Response(_) => "response".to_string(),
+            };
+            lsp_trace!("dispatch {what} (dirty={})", self.dirty);
+        }
         match msg {
             Message::Request(req) => {
                 if self.connection.handle_shutdown(&req)? {
@@ -345,6 +436,7 @@ impl Server<'_> {
     /// diagnostics per file URI, clearing files that no longer have any
     /// [cli-lsp] [manifest-discovery].
     fn publish_diagnostics(&mut self) -> Result<(), Box<dyn Error + Sync + Send>> {
+        lsp_trace!("publish_diagnostics: analysing {} open doc(s)", self.doc_uris.len());
         // Every open document gets a publish — an explicit empty list
         // tells the client the file was re-checked and is clean, and
         // clears anything it showed before.
