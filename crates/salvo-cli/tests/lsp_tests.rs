@@ -79,13 +79,20 @@ impl Drop for Lsp {
 }
 
 fn start(root: &PathBuf) -> Lsp {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_salvo"))
+    start_with_env(root, &[])
+}
+
+fn start_with_env(root: &PathBuf, env: &[(&str, &str)]) -> Lsp {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_salvo"));
+    command
         .arg("lsp")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("failed to spawn salvo lsp");
+        .stderr(Stdio::null());
+    for (k, v) in env {
+        command.env(k, v);
+    }
+    let mut child = command.spawn().expect("failed to spawn salvo lsp");
     let mut stdin = child.stdin.take().unwrap();
     let stdout = child.stdout.take().unwrap();
     let (tx, rx) = mpsc::channel();
@@ -2600,6 +2607,65 @@ fn a_burst_of_edits_publishes_only_the_final_state() {
         0,
         "the burst should have coalesced to the final clean state: {params}"
     );
+
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "id": 99, "method": "shutdown", "params": null}));
+    expect_response(&lsp.rx, 99);
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
+    lsp.child.wait().expect("failed to wait for salvo lsp");
+}
+
+/// [lsp-slow-dump] A slow analysis pass dumps the exact buffer it was
+/// analysing to a single fixed path, overwritten each time, so a transient
+/// (often unsaved) editor state that pegs the server can be reproduced. Here
+/// `SALVO_LSP_SLOW_MS=0` makes every pass "slow", and `SALVO_LSP_SLOW_DIR`
+/// pins the dump to a scratch dir; opening one document is enough to force a
+/// publish-diagnostics pass, after which the dump must hold that document's
+/// source verbatim.
+#[test]
+fn a_slow_pass_dumps_the_analysed_buffer() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_slow_dump");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let dump_dir = root.join("dump");
+    std::fs::create_dir_all(&dump_dir).unwrap();
+    // On disk: a trivial file. The overlay below is what must be dumped.
+    std::fs::write(root.join("main.sv"), "fn main() [] {\n}\n").unwrap();
+
+    let mut lsp = start_with_env(
+        &root,
+        &[
+            ("SALVO_LSP_SLOW_MS", "0"),
+            ("SALVO_LSP_SLOW_DIR", dump_dir.to_str().unwrap()),
+        ],
+    );
+    let uri = format!("file://{}/main.sv", root.display());
+    // The unsaved buffer differs from disk — this exact text must be dumped.
+    let buffer = "fn main() [use] {\n    use StdOutConsole()\n    println(\"dump me\")\n}\n";
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {"uri": uri, "languageId": "salvo", "version": 1, "text": buffer}}
+        }),
+    );
+    // Wait for the analysis pass (which, at threshold 0, dumps).
+    let _ = expect_diagnostics(&lsp.rx);
+
+    let sv = dump_dir.join("salvo-lsp-slow.sv");
+    let txt = dump_dir.join("salvo-lsp-slow.txt");
+    // The dump is written during the pass; the publish follows it, but give a
+    // brief grace in case of filesystem lag.
+    for _ in 0..50 {
+        if sv.is_file() && txt.is_file() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let dumped = std::fs::read_to_string(&sv).expect("slow-pass .sv dump missing");
+    assert_eq!(dumped, buffer, "the dump must be the analysed overlay verbatim");
+    let meta = std::fs::read_to_string(&txt).expect("slow-pass .txt header missing");
+    assert!(meta.contains("slow-pass dump"), "meta header: {meta}");
+    assert!(meta.contains("main.sv"), "meta names the document: {meta}");
 
     send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "id": 99, "method": "shutdown", "params": null}));
     expect_response(&lsp.rx, 99);

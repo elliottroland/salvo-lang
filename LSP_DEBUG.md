@@ -7,7 +7,7 @@ investigation found no idle spin in our loop or in the `lsp-server` transport
 messages or stuck *inside* one analysis. The goal of these steps is to catch it
 in the act and name the exact function or message.
 
-Two aids are now built in:
+Three aids are now built in:
 
 - **`SALVO_LSP_TRACE`** — set in the environment, the server logs every message
   it dispatches, every debounce wake, and every diagnostics publish to stderr
@@ -16,6 +16,54 @@ Two aids are now built in:
   that spawned it dies (polls the parent PID once a second). This bounds the
   damage: a zombie server can no longer spin forever. If you still see a
   runaway, it is *not* an orphaned zombie — it is a live spin worth sampling.
+- **Slow-pass buffer dump** — the server times every analysis pass and, when one
+  runs longer than a threshold, writes the **exact buffer it was analysing** to
+  a single fixed file, overwritten each time (never accumulates). This is what
+  catches the transient, *unsaved* editor state behind a runaway — the one no
+  file on disk reproduces. See the next section.
+
+---
+
+## 0. The slow-pass dump (catches the transient buffer automatically)
+
+A runaway is almost always a *specific buffer* the analysis chokes on — often an
+unsaved mid-edit state that is gone by the time you look. The server now catches
+it for you: every `analyze_for` pass is timed, and a pass at or over the
+threshold dumps the source it was analysing.
+
+- Default threshold: **2000ms** (a normal whole-program pass is ~0.5s, so a dump
+  means a genuine runaway, not routine work).
+- Dump location: the OS temp dir, two files, **overwritten every slow pass**:
+  - `salvo-lsp-slow.sv` — the analysed source, verbatim (the overlay buffer if
+    the file is open unsaved, else the on-disk content);
+  - `salvo-lsp-slow.txt` — a header: the document path, elapsed ms, and the
+    other open buffers.
+- A line also goes to stderr: `analysis took Nms for … ; buffer dumped to …`.
+
+Tuning via environment (read once at startup):
+
+```sh
+SALVO_LSP_SLOW_MS=500        # lower the threshold (0 = dump every pass, for testing)
+SALVO_LSP_SLOW_DIR=/tmp      # change where the pair is written (default: OS temp dir)
+```
+
+When CPU spikes, look for the dump:
+
+```sh
+cat "${TMPDIR:-/tmp}/salvo-lsp-slow.txt"      # which file, how slow
+cp  "${TMPDIR:-/tmp}/salvo-lsp-slow.sv" /tmp/repro.sv   # keep it before the next slow pass overwrites it
+```
+
+Then reproduce deterministically off the LSP, against a prebuilt binary:
+
+```sh
+mkdir -p /tmp/repro/salvo && cp /tmp/repro.sv /tmp/repro/salvo/main.sv
+time ./target/debug/salvo analyze --src /tmp/repro
+```
+
+This is the fastest route from "it spiked" to a self-contained repro. The
+sampling steps below remain useful for confirming *where* in the analysis the
+time goes once you have the buffer.
 
 ---
 
@@ -98,7 +146,11 @@ Interpreting it:
 
 ## 3. What to capture for a bug report / fix
 
-- The `sample` output file (`/tmp/salvo-lsp-sample.txt`) — the single most useful artifact.
+- **The slow-pass dump** (`salvo-lsp-slow.sv` + `.txt` in the temp dir) — if the
+  spike crossed the threshold, this is the exact buffer, and the single most
+  useful artifact. Copy it aside before the next slow pass overwrites it.
+- The `sample` output file (`/tmp/salvo-lsp-sample.txt`) — names where in the
+  analysis the time goes.
 - ~20 lines of `SALVO_LSP_TRACE` output around the spin, if reproducible.
 - Which editor/LSP client, and whether it had just been quit/killed/reloaded.
 - The open file(s) at the time — a runaway analysis is usually one specific buffer.

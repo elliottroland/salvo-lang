@@ -79,7 +79,35 @@ fn trace_ms() -> u128 {
     START.get_or_init(Instant::now).elapsed().as_millis()
 }
 
-/// [lsp-trace] Emit one trace line to stderr when `SALVO_LSP_TRACE` is set.
+/// [lsp-slow-dump] The wall-time past which `analyze_for` dumps the buffer it
+/// was analysing (see `Server::dump_slow_pass`). Default 2000ms — well above a
+/// normal whole-program pass (~0.5s at Salvo-project scale), so a dump means a
+/// genuine runaway, not routine work. `SALVO_LSP_SLOW_MS` overrides it (`0`
+/// dumps every pass, for testing). Read once; the env is not re-read per pass.
+fn slow_dump_threshold() -> Duration {
+    use std::sync::OnceLock;
+    static MS: OnceLock<u64> = OnceLock::new();
+    let ms = *MS.get_or_init(|| {
+        std::env::var("SALVO_LSP_SLOW_MS")
+            .ok()
+            .and_then(|v| v.trim().parse::<u64>().ok())
+            .unwrap_or(2000)
+    });
+    Duration::from_millis(ms)
+}
+
+/// [lsp-slow-dump] The single fixed pair of paths the slow-pass dump writes,
+/// in the OS temp dir and **overwritten every time** so nothing accumulates:
+/// the analysed source (`.sv`) and a metadata header (`.txt`).
+/// `SALVO_LSP_SLOW_DIR` overrides the directory.
+fn slow_dump_paths() -> (PathBuf, PathBuf) {
+    let dir = std::env::var_os("SALVO_LSP_SLOW_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir);
+    (dir.join("salvo-lsp-slow.sv"), dir.join("salvo-lsp-slow.txt"))
+}
+
+
 /// A macro so the formatting cost is paid only when tracing is on.
 macro_rules! lsp_trace {
     ($($arg:tt)*) => {
@@ -417,19 +445,81 @@ impl Server<'_> {
             return None;
         }
         let std_cache = self.std_cache();
-        match analyze_for_document_cached(
+        // [lsp-slow-dump] Time the pass so a runaway (the 100%-CPU report) can
+        // be caught in the act: an analysis slower than the threshold dumps the
+        // exact buffer it was given to a single fixed file, overwritten each
+        // time, so the transient editor state that no saved file reproduces is
+        // captured without filling the disk. Timing is one `Instant`; the dump
+        // only runs past the threshold.
+        let started = std::time::Instant::now();
+        let result = analyze_for_document_cached(
             path,
             &self.root,
             &self.overlay,
             &mut self.parse_cache.borrow_mut(),
             &std_cache,
-        ) {
+        );
+        let elapsed = started.elapsed();
+        if elapsed >= slow_dump_threshold() {
+            self.dump_slow_pass(path, elapsed);
+        }
+        match result {
             Ok(analysis) => Some(analysis),
             Err(err) => {
                 eprintln!("salvo lsp: {err}");
                 None
             }
         }
+    }
+
+    /// [lsp-slow-dump] Write the buffer that `analyze_for` was analysing when
+    /// a pass ran long to a **single fixed path, overwritten every time**, so
+    /// a slow pass can be reproduced from the exact (often unsaved) source that
+    /// caused it. One `.sv` plus a `.txt` header (the path, elapsed ms, which
+    /// other buffers were open); never accumulates. Any I/O error is ignored —
+    /// this is a diagnostic, never a reason to disturb the server.
+    fn dump_slow_pass(&self, path: &Path, elapsed: Duration) {
+        let (sv_path, meta_path) = slow_dump_paths();
+        // The source actually analysed: the open-editor overlay if there is
+        // one (the transient state), else the on-disk file.
+        let source = self
+            .overlay
+            .get(path)
+            .cloned()
+            .or_else(|| std::fs::read_to_string(path).ok())
+            .unwrap_or_default();
+        let ms = elapsed.as_millis();
+        lsp_trace!("slow pass: {ms}ms analysing {}; dumping to {}", path.display(), sv_path.display());
+        eprintln!(
+            "salvo lsp: analysis took {ms}ms for {} (threshold {}ms); \
+             buffer dumped to {} [lsp-slow-dump]",
+            path.display(),
+            slow_dump_threshold().as_millis(),
+            sv_path.display()
+        );
+        let mut others: Vec<String> = self
+            .overlay
+            .keys()
+            .filter(|p| p.as_path() != path)
+            .map(|p| p.display().to_string())
+            .collect();
+        others.sort();
+        let meta = format!(
+            "salvo lsp slow-pass dump\n\
+             document: {}\n\
+             elapsed:  {ms}ms (threshold {}ms)\n\
+             overlay:  {} open buffer(s){}\n\
+             source dumped to: {}\n\n\
+             This file is overwritten on every slow pass. To reproduce:\n\
+             copy the .sv into a scratch project and run `salvo analyze`.\n",
+            path.display(),
+            slow_dump_threshold().as_millis(),
+            self.overlay.len(),
+            if others.is_empty() { String::new() } else { format!("\nother open buffers:\n  {}", others.join("\n  ")) },
+            sv_path.display(),
+        );
+        let _ = std::fs::write(&sv_path, source);
+        let _ = std::fs::write(&meta_path, meta);
     }
 
     /// Re-analyzes every project an open document belongs to and publishes
