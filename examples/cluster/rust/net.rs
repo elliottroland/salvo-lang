@@ -923,7 +923,7 @@ impl StaticNodeGroup {
             let mut event_4 = match &event { Some(crate::unions::Union3::U3(__v)) => __v, _ => unreachable!() };
         } else if event.is_none() {
         } else {
-            panic!("salvo: unhandled union arm at net:527:9");
+            panic!("salvo: unhandled union arm at net:529:9");
         };
     }
 }
@@ -1087,7 +1087,7 @@ impl GossipNodeGroup {
             }
         } else if event.is_none() {
         } else {
-            panic!("salvo: unhandled union arm at net:612:9");
+            panic!("salvo: unhandled union arm at net:616:9");
         };
     }
 }
@@ -1775,7 +1775,7 @@ pub fn route_keyed(route_selector: &crate::net::RouteSelector, mut group: usize,
             wait = cap;
         };
     }
-    panic!("salvo: unreachable at net:1074:5");
+    panic!("salvo: unreachable at net:1080:5");
     return crate::net::route_keyed(route_selector, group, config, seen, key);
 }
 

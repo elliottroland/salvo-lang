@@ -395,7 +395,9 @@ effect Sink {{
 }}
 
 handler Bin of Sink {{
-    held: List<Int> = fresh()
+    state {{
+        held: List<Int> = fresh()
+    }}
 
     fn keep(list: A List<Int>) -> None => list: A {{
         held = list
@@ -424,7 +426,9 @@ effect Sink {{
 }}
 
 handler Bin of Sink {{
-    held: List<Int> = fresh()
+    state {{
+        held: List<Int> = fresh()
+    }}
 
     fn keep(list: A List<Int>) -> None => !list {{
         held = list
@@ -457,7 +461,9 @@ effect Sink {{
 }}
 
 handler Bin of Sink {{
-    held: List<Int> = fresh()
+    state {{
+        held: List<Int> = fresh()
+    }}
 
     fn go() -> None {{
         eat(held)
@@ -513,7 +519,9 @@ effect Sink {{
 }}
 
 handler Bin of Sink {{
-    held: List<Int> = fresh()
+    state {{
+        held: List<Int> = fresh()
+    }}
 
     fn read() -> List<Int> {{
         return held
@@ -544,7 +552,9 @@ effect Sink {{
 }}
 
 handler Bin(seed: List<Int>) of Sink {{
-    held: List<Int> = fresh()
+    state {{
+        held: List<Int> = fresh()
+    }}
 
     fn read() -> List<Int> {{
         return copy(held)
@@ -577,7 +587,9 @@ effect Sink {{
 }}
 
 handler Bin of Sink {{
-    count: Int = 0
+    state {{
+        count: Int = 0
+    }}
 
     fn read() -> Int {{
         return count

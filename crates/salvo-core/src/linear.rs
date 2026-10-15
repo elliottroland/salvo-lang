@@ -33,7 +33,7 @@ pub fn linear_opt_in_positions(symbols: &Symbols, name: &str) -> Vec<usize> {
             .generic_canbe
             .iter()
             .filter(|(_, q)| q.name.name == "linear")
-            .filter(|(id, _)| s.fields.iter().any(|f| type_mentions_generic(&f.ty, &id.name)))
+            .filter(|(id, _)| s.fields.iter().any(|f| type_mentions_generic(f.written_ty(), &id.name)))
             .filter_map(|(id, _)| s.generics.iter().position(|g| g.name == id.name))
             .collect();
     }
@@ -134,7 +134,7 @@ pub fn linear_fields(symbols: &Symbols, own: &HashSet<String>, ty: &Ty) -> Vec<S
     let subst: std::collections::HashMap<String, Ty> = s.generics.iter().map(|g| g.name.clone()).zip(args.iter().cloned()).collect();
     s.fields
         .iter()
-        .filter(|f| field_ty_linear(symbols, own, &f.ty, &subst, &generic_names))
+        .filter(|f| field_ty_linear(symbols, own, f.written_ty(), &subst, &generic_names))
         .map(|f| f.name.name.clone())
         .collect()
 }

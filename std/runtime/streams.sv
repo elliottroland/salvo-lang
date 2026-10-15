@@ -124,15 +124,17 @@ effect StreamTable {
 }
 
 handler Streams() of StreamTable {
-    next: Long = 0
-    in_keys: Mut List<Long> = Mut List()
-    ins: Mut List<Mut InEntry> = Mut List()
-    out_keys: Mut List<Long> = Mut List()
-    outs: Mut List<Mut OutEntry> = Mut List()
-    // Handles checked out, and who waits for one to come back.
-    busy: Mut List<Long> = Mut List()
-    waiting: Mut List<Parker> = Mut List()
-    pending: Mut List<Pending> = Mut List()
+    state {
+        next: Long = 0
+        in_keys: Mut List<Long> = Mut List()
+        ins: Mut List<Mut InEntry> = Mut List()
+        out_keys: Mut List<Long> = Mut List()
+        outs: Mut List<Mut OutEntry> = Mut List()
+        // Handles checked out, and who waits for one to come back.
+        busy: Mut List<Long> = Mut List()
+        waiting: Mut List<Parker> = Mut List()
+        pending: Mut List<Pending> = Mut List()
+    }
 
     fn next_handle() -> Long {
         next = next + 1

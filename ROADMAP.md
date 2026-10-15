@@ -54,6 +54,26 @@ targets and the output they print, three of them consuming the first dependency
 
 ## The sequence
 
+### iter-fn state type inference (step 2 of state-struct, pending)
+
+Handler state now supports the inferred form `name = value` ([state-infer],
+user decision 2026-10-14, shipped). The **same form for `iter fn` state is not
+yet done**: an `iter fn`'s `state { … }` block is lowered to a hidden struct by
+`desugar::expand_iter_fns` in `salvo-syntax`, which runs *before* the checker,
+so the field's type is not yet inferred at that point — the inferred form is
+refused there with that explanation (`desugar.rs`, the `iter_state` loop that
+builds the struct's `FieldDecl`s), and a written type is required for now.
+
+The clean fix (the user's suggestion, 2026-10-14): **defer iter-fn state
+lowering to the IR stage**, where handler state and everything else already
+carry checker-inferred types in side tables and lower at IR build time. That
+makes iter-fn state consistent with the rest of the pipeline and makes
+inference fall out for free (the checker types the initializer, records the
+field type by span, the IR reads it back — exactly as handler state does now in
+`ir/build/decls.rs`'s `fields()`). Until then the deferral is a one-line
+diagnostic, not a silent gap.
+
+
 ### 0 — The runtime in Salvo: done (2026-10-03)
 
 Built: see COMPLETED.md's decision log and its "Design record: the runtime in

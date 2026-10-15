@@ -2014,7 +2014,9 @@ actor effect Counter {
 }
 
 handler Counting() of Counter {
-    sum: Int = 0
+    state {
+        sum: Int = 0
+    }
 
     send fn bump(n: Int) {
         sum = sum + n
@@ -2138,7 +2140,9 @@ actor effect Counter {
 }
 
 handler Counting() of Counter {
-    sum: Int = 0
+    state {
+        sum: Int = 0
+    }
 
     send fn bump(n: Int) {
         sum = sum + n
@@ -2499,13 +2503,17 @@ actor effect E {
 
 handler H(room: Int) of E {
     mailbox { capacity: room }
-    seen: Int = 0
+    state {
+        seen: Int = 0
+    }
     send fn ping() {}
 }
 
 handler Odd() of E {
     mailbox { capacity: 1 }
-    mailbox: Int = 3
+    state {
+        mailbox: Int = 3
+    }
     send fn ping() {}
 }
 ";
@@ -3231,7 +3239,9 @@ fn init_block_and_self_addr_parse() {
     use salvo_syntax::ast::{Expr, Item, Stmt};
     let source = "\
 handler H() of Reg<E> {
-    init: Int = 0
+    state {
+        init: Int = 0
+    }
     init {
         let me = self@Reg<E>
     }
@@ -3720,5 +3730,71 @@ fn flattened_replyto_after_a_non_call_is_an_error() {
     assert!(
         errors.iter().any(|e| e.contains("must follow a call")),
         "expected the non-call refusal, got: {errors:?}"
+    );
+}
+
+// --- [state-infer] Handler state blocks and inferred field types ---
+
+/// A handler's state goes in a `state { … }` block; a field may infer its type
+/// (`name = value`) or write it (`name: Type = value`).
+#[test]
+fn handler_state_block_parses_inferred_and_annotated() {
+    let source = "\
+effect E { fn get() -> Int }
+handler H() of E {
+    state {
+        seen = Mut Map<Str, Int>()
+        sum: Int = 0
+    }
+    fn get() -> Int { return sum }
+}
+";
+    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+    assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+    let salvo_syntax::ast::Item::Handler(h) = module.items.iter().find(|i| matches!(i, salvo_syntax::ast::Item::Handler(_))).unwrap() else {
+        panic!("handler");
+    };
+    assert_eq!(h.state.len(), 2);
+    assert!(h.state[0].ty.is_none(), "`seen` has an inferred type");
+    assert!(h.state[1].ty.is_some(), "`sum` has a written type");
+}
+
+/// A bare field in the handler body (not in a `state { }` block) is an error
+/// naming the block.
+#[test]
+fn a_bare_handler_field_is_refused() {
+    let source = "\
+effect E { fn get() -> Int }
+handler H() of E {
+    sum: Int = 0
+    fn get() -> Int { return sum }
+}
+";
+    let errors = errors_of(source);
+    assert!(
+        errors.iter().any(|e| e.contains("state { … }` block")),
+        "expected the state-block refusal, got: {errors:?}"
+    );
+}
+
+/// `iter fn` state accepts the written form (the inferred form is deferred,
+/// refused with an explanation).
+#[test]
+fn iter_fn_state_requires_a_written_type_for_now() {
+    let written = "\
+iter fn upto(n: Int) -> Emitted Int | Finished {
+    state {
+        at: Int = 0
+    }
+    if at >= n { return finished() }
+    at = at + 1
+    return emitted(at)
+}
+";
+    let (_m, diags) = salvo_syntax::parse_module(written);
+    assert!(
+        !diags.iter().any(|d| d.is_error()),
+        "written iter-fn state parses: {diags:?}"
     );
 }

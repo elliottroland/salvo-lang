@@ -1931,7 +1931,7 @@ impl<T: Clone + Send + Sync + 'static> crate::__Stateful_Random<T> for CyclicRan
         let mut value: &T = {
             let mut __nn_1: Option<&T> = crate::core_list::get_platform::<T>(&self.values, i32::wrapping_rem(self.i, crate::core_list::size_platform::<T>(&self.values)));
             if __nn_1.is_none() {
-                panic!("salvo: value is absent at main:10:21");
+                panic!("salvo: value is absent at main:12:21");
             } else {
                 let mut __some_2 = __nn_1.unwrap();
                 __some_2

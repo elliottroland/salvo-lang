@@ -567,7 +567,7 @@ impl crate::time::__Stateful_TimerCtl for ManualTime {
             let mut deadline: i64 = {
                 let mut __nn_2: Option<i64> = crate::core_list::get_platform::<i64>(&self.deadlines, at).copied();
                 if __nn_2.is_none() {
-                    panic!("salvo: value is absent at time:477:33");
+                    panic!("salvo: value is absent at time:481:33");
                 } else {
                     let mut __some_3 = __nn_2.unwrap();
                     __some_3
@@ -651,7 +651,7 @@ pub fn earliest_due(deadlines: &Vec<i64>, mut target: i64) -> Option<i32> {
         let mut at: i64 = {
             let mut __nn_1: Option<i64> = crate::core_list::get_platform::<i64>(deadlines, i).copied();
             if __nn_1.is_none() {
-                panic!("salvo: value is absent at time:501:23");
+                panic!("salvo: value is absent at time:505:23");
             } else {
                 let mut __some_2 = __nn_1.unwrap();
                 __some_2

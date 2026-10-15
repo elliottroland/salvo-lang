@@ -1347,12 +1347,16 @@ impl Server<'_> {
                 // The owner note, then the referenced struct's fields when
                 // there is one — one section, so both reach the hover.
                 let mut extra = format!("Field of {owner}.");
-                if let Some(fields) = struct_field_section(analysis, file_idx, &decl.ty, link) {
-                    extra.push_str("\n\n");
-                    extra.push_str(&fields);
+                // [state-infer] A nested-field section needs the written type
+                // to resolve the referenced struct; an inferred field has none.
+                if let Some(fty) = &decl.ty {
+                    if let Some(fields) = struct_field_section(analysis, file_idx, fty, link) {
+                        extra.push_str("\n\n");
+                        extra.push_str(&fields);
+                    }
                 }
                 (
-                    format!("{}: {}{}", decl.name.name, decl.ty, default),
+                    format!("{}: {}{}", decl.name.name, field_ty_display(&decl.ty), default),
                     docs::render(&decl.docs, &scope),
                     Some(extra),
                 )
@@ -1485,7 +1489,7 @@ impl Server<'_> {
                     }
                     DeclAt::Field { owner, decl, .. } => {
                         note = Some(format!("field of {owner}"));
-                        format!("{}: {}", decl.name.name, decl.ty)
+                        format!("{}: {}", decl.name.name, field_ty_display(&decl.ty))
                     }
                     DeclAt::Struct(s) => struct_signature(s),
                     DeclAt::Qualifier(q) => qualifier_signature(q),
@@ -1958,14 +1962,22 @@ impl Server<'_> {
     }
 }
 
+/// [state-infer] A field type for display: the written type, or `_` for an
+/// inferred state field whose type is whatever its initializer resolves to.
+fn field_ty_display(ty: &Option<salvo_syntax::ast::Type>) -> String {
+    match ty {
+        Some(t) => t.to_string(),
+        None => "_".to_string(),
+    }
+}
+
 /// [lsp-hover-field-struct] When a field's type is (possibly through `Mut`,
 /// `?`, or a module key) a **struct**, the struct's own `docs::field_section`
 /// — so hovering a struct-typed field shows that struct's shape, as hovering
 /// the struct name does. `None` for a non-struct field type, or a struct the
 /// viewer may not see inside [struct-opaque]. The heading names the struct so
 /// a reader can tell these fields apart from the field's own owner note.
-fn struct_field_section(
-    analysis: &Analysis,
+fn struct_field_section(    analysis: &Analysis,
     viewer: usize,
     ty: &salvo_syntax::ast::Type,
     link: &dyn Fn(usize, Span) -> Option<String>,
@@ -2033,7 +2045,7 @@ fn struct_fields(program: &salvo_core::Program, name: &str, viewer: usize) -> Ve
                     if s.opaque && !sees_inside(program, &file.module, viewer) {
                         return Vec::new();
                     }
-                    return s.fields.iter().map(|f| (f.name.name.clone(), f.ty.to_string())).collect();
+                    return s.fields.iter().map(|f| (f.name.name.clone(), field_ty_display(&f.ty))).collect();
                 }
             }
         }

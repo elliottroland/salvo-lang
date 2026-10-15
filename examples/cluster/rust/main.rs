@@ -815,7 +815,7 @@ impl Gathering {
                 crate::scheduler::salvo_reply_wire::<i32>(out_1, self.total);
             } else if out.is_none() {
             } else {
-                panic!("salvo: unhandled union arm at main:135:13");
+                panic!("salvo: unhandled union arm at main:141:13");
             };
         };
     }
@@ -1029,7 +1029,7 @@ impl Racing {
         } else if out.is_none() {
             std::mem::drop(answer);
         } else {
-            panic!("salvo: unhandled union arm at main:169:9");
+            panic!("salvo: unhandled union arm at main:177:9");
         };
     }
 }
@@ -1152,7 +1152,7 @@ pub fn checkout(inventory: &crate::Inventory, console: &crate::core_console::Con
         crate::core_list::add_platform::<String>(&mut shards, ({
             let mut __nn_1: Option<&String> = crate::core_list::get_platform::<String>(&parts, 0i32);
             if __nn_1.is_none() {
-                panic!("salvo: value is absent at main:220:26");
+                panic!("salvo: value is absent at main:228:26");
             } else {
                 let mut __some_2 = __nn_1.unwrap();
                 __some_2
@@ -1161,7 +1161,7 @@ pub fn checkout(inventory: &crate::Inventory, console: &crate::core_console::Con
         crate::core_console::println(console, &format!("  {}: {} reserved on its shard so far", sku, {
             let mut __nn_3: Option<&String> = crate::core_list::get_platform::<String>(&parts, 1i32);
             if __nn_3.is_none() {
-                panic!("salvo: value is absent at main:221:30");
+                panic!("salvo: value is absent at main:229:30");
             } else {
                 let mut __some_4 = __nn_3.unwrap();
                 __some_4
@@ -1171,7 +1171,7 @@ pub fn checkout(inventory: &crate::Inventory, console: &crate::core_console::Con
     crate::core_console::println(console, &format!("  apple and apple on one shard: {}", (&{
         let mut __nn_5: Option<&String> = crate::core_list::get_platform::<String>(&shards, 0i32);
         if __nn_5.is_none() {
-            panic!("salvo: value is absent at main:223:51");
+            panic!("salvo: value is absent at main:231:51");
         } else {
             let mut __some_6 = __nn_5.unwrap();
             __some_6
@@ -1179,7 +1179,7 @@ pub fn checkout(inventory: &crate::Inventory, console: &crate::core_console::Con
     }[..] == &{
         let mut __nn_7: Option<&String> = crate::core_list::get_platform::<String>(&shards, 2i32);
         if __nn_7.is_none() {
-            panic!("salvo: value is absent at main:223:68");
+            panic!("salvo: value is absent at main:231:68");
         } else {
             let mut __some_8 = __nn_7.unwrap();
             __some_8
@@ -1188,7 +1188,7 @@ pub fn checkout(inventory: &crate::Inventory, console: &crate::core_console::Con
     crate::core_console::println(console, &format!("  apple and fig on one shard: {}", (&{
         let mut __nn_9: Option<&String> = crate::core_list::get_platform::<String>(&shards, 0i32);
         if __nn_9.is_none() {
-            panic!("salvo: value is absent at main:224:49");
+            panic!("salvo: value is absent at main:232:49");
         } else {
             let mut __some_10 = __nn_9.unwrap();
             __some_10
@@ -1196,7 +1196,7 @@ pub fn checkout(inventory: &crate::Inventory, console: &crate::core_console::Con
     }[..] == &{
         let mut __nn_11: Option<&String> = crate::core_list::get_platform::<String>(&shards, 3i32);
         if __nn_11.is_none() {
-            panic!("salvo: value is absent at main:224:66");
+            panic!("salvo: value is absent at main:232:66");
         } else {
             let mut __some_12 = __nn_11.unwrap();
             __some_12
@@ -1205,7 +1205,7 @@ pub fn checkout(inventory: &crate::Inventory, console: &crate::core_console::Con
     crate::core_console::println(console, &format!("  apple and pear on one shard: {}", (&{
         let mut __nn_13: Option<&String> = crate::core_list::get_platform::<String>(&shards, 0i32);
         if __nn_13.is_none() {
-            panic!("salvo: value is absent at main:225:50");
+            panic!("salvo: value is absent at main:233:50");
         } else {
             let mut __some_14 = __nn_13.unwrap();
             __some_14
@@ -1213,7 +1213,7 @@ pub fn checkout(inventory: &crate::Inventory, console: &crate::core_console::Con
     }[..] == &{
         let mut __nn_15: Option<&String> = crate::core_list::get_platform::<String>(&shards, 1i32);
         if __nn_15.is_none() {
-            panic!("salvo: value is absent at main:225:67");
+            panic!("salvo: value is absent at main:233:67");
         } else {
             let mut __some_16 = __nn_15.unwrap();
             __some_16

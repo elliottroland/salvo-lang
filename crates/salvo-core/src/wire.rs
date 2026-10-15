@@ -204,7 +204,7 @@ fn struct_blocker(symbols: &Symbols<'_>, decl: &StructDecl, args: &[Ty], depth: 
         .zip(args.iter().cloned())
         .collect();
     for field in &decl.fields {
-        let Some(field_ty) = approx_ty(&field.ty, &subst) else {
+        let Some(field_ty) = approx_ty(field.written_ty(), &subst) else {
             continue;
         };
         // A generic field left unsubstituted (the struct checked at
@@ -407,7 +407,7 @@ fn canonical_ty(symbols: &Symbols<'_>, ty: &Ty, out: &mut String, depth: usize) 
                     if i > 0 {
                         out.push(',');
                     }
-                    match approx_ty(&field.ty, &subst) {
+                    match approx_ty(field.written_ty(), &subst) {
                         Some(t) => canonical_ty(symbols, &t, out, depth + 1),
                         None => out.push('?'),
                     }

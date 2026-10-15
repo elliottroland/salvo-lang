@@ -369,7 +369,7 @@ impl crate::runtime_streams::__Stateful_StreamTable for Streams {
             return crate::unions::Union3::U1({
                 let mut __nn_1: Option<crate::runtime_streams::InEntry> = crate::core_list::remove_at_platform::<crate::runtime_streams::InEntry>(&mut self.ins, at);
                 if __nn_1.is_none() {
-                    panic!("salvo: value is absent at runtime.streams:159:20");
+                    panic!("salvo: value is absent at runtime.streams:161:20");
                 } else {
                     let mut __some_2 = __nn_1.unwrap();
                     __some_2
@@ -390,7 +390,7 @@ impl crate::runtime_streams::__Stateful_StreamTable for Streams {
             return crate::unions::Union3::U1({
                 let mut __nn_1: Option<crate::runtime_streams::OutEntry> = crate::core_list::remove_at_platform::<crate::runtime_streams::OutEntry>(&mut self.outs, at);
                 if __nn_1.is_none() {
-                    panic!("salvo: value is absent at runtime.streams:173:20");
+                    panic!("salvo: value is absent at runtime.streams:175:20");
                 } else {
                     let mut __some_2 = __nn_1.unwrap();
                     __some_2
@@ -419,7 +419,7 @@ impl crate::runtime_streams::__Stateful_StreamTable for Streams {
                 let mut __proj_3: &crate::runtime_streams::Pending = {
                     let mut __nn_1: Option<&crate::runtime_streams::Pending> = crate::core_list::get_platform::<crate::runtime_streams::Pending>(&self.pending, i);
                     if __nn_1.is_none() {
-                        panic!("salvo: value is absent at runtime.streams:193:16");
+                        panic!("salvo: value is absent at runtime.streams:195:16");
                     } else {
                         let mut __some_2 = __nn_1.unwrap();
                         __some_2
@@ -444,7 +444,7 @@ pub fn index_in(keys: &Vec<i64>, mut handle: i64) -> i32 {
         if ({
             let mut __nn_1: Option<i64> = crate::core_list::get_platform::<i64>(keys, i).copied();
             if __nn_1.is_none() {
-                panic!("salvo: value is absent at runtime.streams:207:12");
+                panic!("salvo: value is absent at runtime.streams:209:12");
             } else {
                 let mut __some_2 = __nn_1.unwrap();
                 __some_2
@@ -469,7 +469,7 @@ pub fn unbusy(busy: &mut Vec<i64>, waiting: &mut Vec<crate::runtime::Parker>, mu
         { let __arg1 = {
             let mut __nn_1: Option<crate::runtime::Parker> = crate::core_list::remove_at_platform::<crate::runtime::Parker>(&mut *waiting, 0i32);
             if __nn_1.is_none() {
-                panic!("salvo: value is absent at runtime.streams:224:16");
+                panic!("salvo: value is absent at runtime.streams:226:16");
             } else {
                 let mut __some_2 = __nn_1.unwrap();
                 __some_2
@@ -511,7 +511,7 @@ pub fn checkout_in(mut handle: i64) -> crate::runtime_streams::InEntry {
         };
         crate::runtime::park_platform(&crate::runtime::this_parker_platform());
     }
-    panic!("salvo: unreachable at runtime.streams:261:5");
+    panic!("salvo: unreachable at runtime.streams:263:5");
     return crate::runtime_streams::checkout_in(handle);
 }
 
@@ -528,7 +528,7 @@ pub fn checkout_out(mut handle: i64) -> crate::runtime_streams::OutEntry {
         };
         crate::runtime::park_platform(&crate::runtime::this_parker_platform());
     }
-    panic!("salvo: unreachable at runtime.streams:276:5");
+    panic!("salvo: unreachable at runtime.streams:278:5");
     return crate::runtime_streams::checkout_out(handle);
 }
 
@@ -643,7 +643,7 @@ pub fn read_line(e: &mut crate::runtime_streams::InEntry) -> crate::runtime_stre
             if ((n > 0i32) && ((({
                 let mut __nn_1: Option<u8> = crate::core_bytes::get_platform(&line, i32::wrapping_sub(n, 1i32));
                 if __nn_1.is_none() {
-                    panic!("salvo: value is absent at runtime.streams:362:32");
+                    panic!("salvo: value is absent at runtime.streams:364:32");
                 } else {
                     let mut __some_2 = __nn_1.unwrap();
                     __some_2
@@ -675,7 +675,7 @@ pub fn read_line(e: &mut crate::runtime_streams::InEntry) -> crate::runtime_stre
         };
         crate::core_bytes::append_platform(&mut e.ahead, &got.data);
     }
-    panic!("salvo: unreachable at runtime.streams:357:5");
+    panic!("salvo: unreachable at runtime.streams:359:5");
     return crate::runtime_streams::read_line(&mut *e);
 }
 
@@ -697,7 +697,7 @@ pub fn read_all(e: &mut crate::runtime_streams::InEntry) -> crate::runtime_strea
         e.position = i64::wrapping_add(e.position, ((crate::core_bytes::size_platform(&got.data)) as i64));
         crate::core_bytes::append_platform(&mut out, &got.data);
     }
-    panic!("salvo: unreachable at runtime.streams:389:5");
+    panic!("salvo: unreachable at runtime.streams:391:5");
     return crate::runtime_streams::read_all(&mut *e);
 }
 

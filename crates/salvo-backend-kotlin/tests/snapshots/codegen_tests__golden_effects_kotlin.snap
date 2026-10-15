@@ -1558,7 +1558,7 @@ class CyclicRandom<T>(private val values: List<T>, private val copy: (T) -> T) :
             val __nn_1: T? = salvo.core.list.getPlatform(values, (i % salvo.core.list.sizePlatform(values)))
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at main:10:21"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at main:12:21"))
                 }
                 else -> {
                     val __some_2: T = __nn_1!!

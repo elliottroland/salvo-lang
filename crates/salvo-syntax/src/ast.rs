@@ -667,13 +667,31 @@ pub struct FieldDecl {
     /// per line, `//` and one leading space stripped [doc-comment].
     pub docs: Vec<String>,
     pub name: Ident,
-    pub ty: Type,
+    /// The written type. `None` only for an **inferred state field**
+    /// (`name = value` in a handler's or `iter fn`'s `state { … }` block
+    /// [state-infer]): the field's type is the initializer's, filled in by
+    /// the checker and read back by the IR via the field-name span. A struct
+    /// field, a qualifier override, and an *annotated* state field all carry
+    /// `Some`.
+    pub ty: Option<Type>,
     /// `name: canbe Mut T` [field-canbe-mut]: the field is `Mut T` exactly
     /// when the struct value is `Mut`, and `T` otherwise. `ty` is the plain
     /// `T`.
     pub canbe_mut: bool,
     pub default: Option<Expr>,
     pub span: Span,
+}
+
+impl FieldDecl {
+    /// The written type, for a context where one is always present (a struct
+    /// field, a qualifier override, an annotated or already-lowered state
+    /// field). Panics only on a bare inferred state field, which these
+    /// contexts never hold.
+    pub fn written_ty(&self) -> &Type {
+        self.ty
+            .as_ref()
+            .expect("field type is written in this context")
+    }
 }
 
 /// What a qualifier's claim is *about* [qual-subject]: the value's

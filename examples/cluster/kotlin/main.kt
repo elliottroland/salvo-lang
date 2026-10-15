@@ -383,7 +383,7 @@ class Gathering : Gather {
                 (out == null) -> {
                 }
                 else -> {
-                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:135:13"))
+                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:141:13"))
                 }
             }
         }
@@ -515,7 +515,7 @@ class Racing : Race {
                 run { answer; Unit }
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:169:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:177:9"))
             }
         }
     }
@@ -606,7 +606,7 @@ fun checkout(inventory: Inventory, console: salvo.core.console.Console, skus: Li
             val __nn_1: String? = salvo.core.list.getPlatform(parts, 0)
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at main:220:26"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at main:228:26"))
                 }
                 else -> {
                     val __some_2: String = __nn_1!!
@@ -618,7 +618,7 @@ fun checkout(inventory: Inventory, console: salvo.core.console.Console, skus: Li
             val __nn_3: String? = salvo.core.list.getPlatform(parts, 1)
             when {
                 (__nn_3 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at main:221:30"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at main:229:30"))
                 }
                 else -> {
                     val __some_4: String = __nn_3!!
@@ -631,7 +631,7 @@ fun checkout(inventory: Inventory, console: salvo.core.console.Console, skus: Li
         val __nn_5: String? = salvo.core.list.getPlatform(shards, 0)
         when {
             (__nn_5 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at main:223:51"))
+                throw AssertionError(("salvo: " + ("value is absent") + " at main:231:51"))
             }
             else -> {
                 val __some_6: String = __nn_5!!
@@ -642,7 +642,7 @@ fun checkout(inventory: Inventory, console: salvo.core.console.Console, skus: Li
         val __nn_7: String? = salvo.core.list.getPlatform(shards, 2)
         when {
             (__nn_7 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at main:223:68"))
+                throw AssertionError(("salvo: " + ("value is absent") + " at main:231:68"))
             }
             else -> {
                 val __some_8: String = __nn_7!!
@@ -654,7 +654,7 @@ fun checkout(inventory: Inventory, console: salvo.core.console.Console, skus: Li
         val __nn_9: String? = salvo.core.list.getPlatform(shards, 0)
         when {
             (__nn_9 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at main:224:49"))
+                throw AssertionError(("salvo: " + ("value is absent") + " at main:232:49"))
             }
             else -> {
                 val __some_10: String = __nn_9!!
@@ -665,7 +665,7 @@ fun checkout(inventory: Inventory, console: salvo.core.console.Console, skus: Li
         val __nn_11: String? = salvo.core.list.getPlatform(shards, 3)
         when {
             (__nn_11 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at main:224:66"))
+                throw AssertionError(("salvo: " + ("value is absent") + " at main:232:66"))
             }
             else -> {
                 val __some_12: String = __nn_11!!
@@ -677,7 +677,7 @@ fun checkout(inventory: Inventory, console: salvo.core.console.Console, skus: Li
         val __nn_13: String? = salvo.core.list.getPlatform(shards, 0)
         when {
             (__nn_13 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at main:225:50"))
+                throw AssertionError(("salvo: " + ("value is absent") + " at main:233:50"))
             }
             else -> {
                 val __some_14: String = __nn_13!!
@@ -688,7 +688,7 @@ fun checkout(inventory: Inventory, console: salvo.core.console.Console, skus: Li
         val __nn_15: String? = salvo.core.list.getPlatform(shards, 1)
         when {
             (__nn_15 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at main:225:67"))
+                throw AssertionError(("salvo: " + ("value is absent") + " at main:233:67"))
             }
             else -> {
                 val __some_16: String = __nn_15!!

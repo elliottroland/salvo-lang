@@ -7,7 +7,9 @@ effect Console {
 }
 
 handler CyclicRandom<T>(values: T[]) of Random<T> {
-    i: Int = 0
+    state {
+        i: Int = 0
+    }
 
     fn next_random() -> T {
         i = (i + 1) % values.size()

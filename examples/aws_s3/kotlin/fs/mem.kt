@@ -207,7 +207,7 @@ class MemFs : salvo.fs.Fs, salvo.stream.Streams {
                 return false
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at fs.mem:217:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at fs.mem:219:9"))
             }
         }
     }
@@ -307,7 +307,7 @@ fun memFindNewline(data: salvo.platform.core.bytes.Bytes, from: Int): Int {
             val __nn_1: UByte? = salvo.core.bytes.getPlatform(data, i)
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at fs.mem:323:19"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at fs.mem:325:19"))
                 }
                 else -> {
                     val __some_2: UByte = __nn_1!!
@@ -334,7 +334,7 @@ fun memAppend(writes: salvo.platform.core.map.MutMap<Long, MemWrite>, handle: Lo
 fun memReadState(reads: salvo.platform.core.map.Map<Long, MemRead>, handle: Long): MemRead {
     val open: MemRead? = salvo.core.map.getPlatform(reads, handle, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     if ((open == null)) {
-        throw AssertionError(("salvo: " + ("stream handle ${handle} was not opened by this MemFs: a stream belongs to the provider that minted it [stream-provider]") + " at fs.mem:350:9"))
+        throw AssertionError(("salvo: " + ("stream handle ${handle} was not opened by this MemFs: a stream belongs to the provider that minted it [stream-provider]") + " at fs.mem:352:9"))
     }
     val open_1: MemRead = open!!
     return MemRead(source = open_1.source, data = open_1.data, at = open_1.at, failed = open_1.failed)
@@ -343,7 +343,7 @@ fun memReadState(reads: salvo.platform.core.map.Map<Long, MemRead>, handle: Long
 fun memWriteState(writes: salvo.platform.core.map.Map<Long, MemWrite>, handle: Long): MemWrite {
     val open: MemWrite? = salvo.core.map.getPlatform(writes, handle, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     if ((open == null)) {
-        throw AssertionError(("salvo: " + ("stream handle ${handle} was not opened by this MemFs: a stream belongs to the provider that minted it [stream-provider]") + " at fs.mem:358:9"))
+        throw AssertionError(("salvo: " + ("stream handle ${handle} was not opened by this MemFs: a stream belongs to the provider that minted it [stream-provider]") + " at fs.mem:360:9"))
     }
     val open_1: MemWrite = open!!
     return MemWrite(path = open_1.path, buffer = open_1.buffer)
@@ -365,7 +365,7 @@ fun memReadLine(reads: salvo.platform.core.map.MutMap<Long, MemRead>, handle: Lo
         val __nn_1: salvo.platform.core.bytes.Bytes? = salvo.core.bytes.slicePlatform(bytes, at, stop)
         when {
             (__nn_1 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at fs.mem:382:16"))
+                throw AssertionError(("salvo: " + ("value is absent") + " at fs.mem:384:16"))
             }
             else -> {
                 val __some_2: salvo.platform.core.bytes.Bytes = __nn_1!!
@@ -399,7 +399,7 @@ fun memReadAll(reads: salvo.platform.core.map.MutMap<Long, MemRead>, handle: Lon
         val __nn_1: salvo.platform.core.bytes.Bytes? = salvo.core.bytes.slicePlatform(bytes, open.at, end)
         when {
             (__nn_1 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at fs.mem:406:16"))
+                throw AssertionError(("salvo: " + ("value is absent") + " at fs.mem:408:16"))
             }
             else -> {
                 val __some_2: salvo.platform.core.bytes.Bytes = __nn_1!!
@@ -436,7 +436,7 @@ fun memReadBytes(reads: salvo.platform.core.map.MutMap<Long, MemRead>, handle: L
         val __nn_1: salvo.platform.core.bytes.Bytes? = salvo.core.bytes.slicePlatform(bytes, open.at, stop)
         when {
             (__nn_1 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at fs.mem:432:17"))
+                throw AssertionError(("salvo: " + ("value is absent") + " at fs.mem:434:17"))
             }
             else -> {
                 val __some_2: salvo.platform.core.bytes.Bytes = __nn_1!!

@@ -662,7 +662,7 @@ class Routes : RouteTable {
                 val __nn_1: Staged? = salvo.core.list.removeAtPlatform(outbox, 0)
                 when {
                     (__nn_1 == null) -> {
-                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime.routing:327:22"))
+                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime.routing:329:22"))
                     }
                     else -> {
                         val __some_2: Staged = __nn_1!!
@@ -749,7 +749,7 @@ class Routes : RouteTable {
                 val __nn_1: Long? = salvo.core.list.getPlatform(taskKeys, i)
                 when {
                     (__nn_1 == null) -> {
-                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime.routing:401:16"))
+                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime.routing:403:16"))
                     }
                     else -> {
                         val __some_2: Long = __nn_1!!
@@ -852,7 +852,7 @@ class Routes : RouteTable {
                     val __nn_1: ViewWaiter? = salvo.core.list.getPlatform(viewWaiters, i)
                     when {
                         (__nn_1 == null) -> {
-                            throw AssertionError(("salvo: " + ("value is absent") + " at runtime.routing:496:16"))
+                            throw AssertionError(("salvo: " + ("value is absent") + " at runtime.routing:498:16"))
                         }
                         else -> {
                             val __some_2: ViewWaiter = __nn_1!!
@@ -922,7 +922,7 @@ fun wakeSenders(waiters: salvo.platform.core.list.MutList<salvo.platform.runtime
             val __nn_1: salvo.platform.runtime.Parker? = salvo.core.list.removeAtPlatform(waiters, 0)
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime.routing:554:16"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime.routing:556:16"))
                 }
                 else -> {
                     val __some_2: salvo.platform.runtime.Parker = __nn_1!!
@@ -955,7 +955,7 @@ fun restage(routes: salvo.platform.core.map.Map<Long, salvo.platform.core.bytes.
             val __nn_1: Parked? = salvo.core.list.removeAtPlatform(parked, 0)
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime.routing:577:22"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime.routing:579:22"))
                 }
                 else -> {
                     val __some_2: Parked = __nn_1!!
@@ -1059,7 +1059,7 @@ fun sendRemote(addr: Int, proto: String, payload: salvo.platform.core.bytes.Byte
             return
         }
     }
-    throw AssertionError("salvo: unreachable at runtime.routing:674:5")
+    throw AssertionError("salvo: unreachable at runtime.routing:676:5")
 }
 
 fun answerRemote(t: ReplyParts, payload: salvo.platform.core.bytes.Bytes) {
@@ -1292,7 +1292,7 @@ fun viewMembers(group: Int): List<Int> {
                 val __nn_1: Int? = salvo.core.list.getPlatform(left, i)
                 when {
                     (__nn_1 == null) -> {
-                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime.routing:937:37"))
+                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime.routing:939:37"))
                     }
                     else -> {
                         val __some_2: Int = __nn_1!!
@@ -1303,7 +1303,7 @@ fun viewMembers(group: Int): List<Int> {
                 val __nn_3: Int? = salvo.core.list.getPlatform(left, best)
                 when {
                     (__nn_3 == null) -> {
-                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime.routing:937:68"))
+                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime.routing:939:68"))
                     }
                     else -> {
                         val __some_4: Int = __nn_3!!
@@ -1319,7 +1319,7 @@ fun viewMembers(group: Int): List<Int> {
             val __nn_5: Int? = salvo.core.list.removeAtPlatform(left, best)
             when {
                 (__nn_5 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime.routing:942:18"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime.routing:944:18"))
                 }
                 else -> {
                     val __some_6: Int = __nn_5!!

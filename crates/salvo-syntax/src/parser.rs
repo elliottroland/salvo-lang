@@ -1590,7 +1590,7 @@ impl<'s> Parser<'s> {
                 fns.push(self.parse_fn(false)?);
                 continue;
             }
-            fields.push(self.parse_field_decl()?);
+            fields.push(self.parse_field_decl(false)?);
             self.eat(&TokenKind::Comma);
         }
         let end = self.expect(&TokenKind::RBrace)?.span;
@@ -1801,8 +1801,11 @@ impl<'s> Parser<'s> {
         None
     }
 
-    /// `name: Type (= default)?`
-    fn parse_field_decl(&mut self) -> Option<FieldDecl> {
+    /// `name: Type (= default)?`, or — when `allow_inferred` — `name = value`
+    /// with the type inferred from the initializer [state-infer]. The inferred
+    /// form is for `state { … }` blocks only (handlers and `iter fn`s); a
+    /// struct field or qualifier override always writes its type.
+    fn parse_field_decl(&mut self, allow_inferred: bool) -> Option<FieldDecl> {
         let docs = self.docs_here();
         // [comptime-fields] `type` is a keyword, and `Field.type` is the one
         // field spelled with it — the projection a comptime body reads as
@@ -1817,6 +1820,22 @@ impl<'s> Parser<'s> {
         } else {
             self.ident_value("field")?
         };
+        // [state-infer] `name = value` in a state block: no annotation, the
+        // type is the initializer's. Recognised by an `=` where a `:` would
+        // otherwise be.
+        if allow_inferred && self.at(&TokenKind::Eq) {
+            self.bump(); // `=`
+            let value = self.parse_expr()?;
+            let span = name.span.to(value.span());
+            return Some(FieldDecl {
+                docs,
+                name,
+                ty: None,
+                canbe_mut: false,
+                default: Some(value),
+                span,
+            });
+        }
         self.expect(&TokenKind::Colon)?;
         // [field-canbe-mut] `name: canbe Mut T`: only `Mut` may follow, since
         // it is the one auto-qualifier a struct value carries.
@@ -1846,7 +1865,7 @@ impl<'s> Parser<'s> {
         Some(FieldDecl {
             docs,
             name,
-            ty,
+            ty: Some(ty),
             canbe_mut,
             default,
             span,
@@ -1890,7 +1909,7 @@ impl<'s> Parser<'s> {
                     // qualifier does not own.
                     refns.push(self.parse_refn()?);
                 } else {
-                    field_overrides.push(self.parse_field_decl()?);
+                    field_overrides.push(self.parse_field_decl(false)?);
                     self.eat(&TokenKind::Comma);
                 }
             }
@@ -2524,8 +2543,63 @@ impl<'s> Parser<'s> {
                         self.error("a handler declares one `mailbox` slot", start);
                     }
                     mailbox = Some(lit);
+                } else if self.at(&TokenKind::KwState) {
+                    // [effect-handler] [state-infer] A handler's state lives in
+                    // a `state { … }` block, the same shape an `iter fn` uses
+                    // (user decision 2026-10-14, replacing the free field decls
+                    // that used to sit in the handler body). Each field is
+                    // `name: Type = value` or the inferred `name = value`; the
+                    // type, when inferred, is the initializer's.
+                    let state_kw = self.bump().span;
+                    if !state.is_empty() {
+                        self.error("a handler declares one `state` block", state_kw);
+                    }
+                    if self.expect(&TokenKind::LBrace).is_some() {
+                        while !self.at(&TokenKind::RBrace) && !self.at_eof() {
+                            let before = self.pos;
+                            match self.parse_field_decl(true) {
+                                Some(field) => {
+                                    if field.default.is_none() {
+                                        self.error(
+                                            format!(
+                                                "state field `{}` needs an initializer: a \
+                                                 handler's state is built once, at \
+                                                 construction",
+                                                field.name.name
+                                            ),
+                                            field.span,
+                                        );
+                                    }
+                                    state.push(field);
+                                }
+                                None => self.recover_in_block(),
+                            }
+                            if self.pos == before {
+                                self.bump();
+                            }
+                            self.eat(&TokenKind::Comma);
+                        }
+                        self.expect(&TokenKind::RBrace)?;
+                    }
                 } else {
-                    state.push(self.parse_field_decl()?);
+                    // [effect-handler] A bare field declaration in the handler
+                    // body is no longer state — state moved into the `state {
+                    // … }` block (user decision 2026-10-14). Name the block so
+                    // the fix is obvious.
+                    let fspan = self.peek().span;
+                    self.error(
+                        "a handler's state goes in a `state { … }` block now, not \
+                         as a bare field in the body: wrap it (`state { count: \
+                         Int = 0 }`, or `state { count = 0 }` to infer the type)",
+                        fspan,
+                    );
+                    // Recover by parsing it as a field anyway, so one stray
+                    // field is one diagnostic rather than a cascade.
+                    if let Some(field) = self.parse_field_decl(true) {
+                        state.push(field);
+                    } else {
+                        self.recover_in_block();
+                    }
                     self.eat(&TokenKind::Comma);
                 }
             }
@@ -4081,7 +4155,8 @@ impl<'s> Parser<'s> {
     /// then ordinary statements. The block is *declarations only* (user
     /// decision 2026-09-09) — it is the pass's shape, not code that runs — so
     /// it is parsed with the same `parse_field_decl` a struct body uses, and
-    /// every field needs an annotation and an initializer.
+    /// every field needs an initializer. The type may be written
+    /// (`i: Int = 0`) or inferred from the initializer (`i = 0`) [state-infer].
     fn parse_iter_body(&mut self, state: &mut Vec<FieldDecl>) -> Option<Block> {
         let start = self.expect(&TokenKind::LBrace)?.span;
         let saved_depth = std::mem::replace(&mut self.group_depth, 0);
@@ -4092,7 +4167,7 @@ impl<'s> Parser<'s> {
             if self.expect(&TokenKind::LBrace).is_some() {
                 while !self.at(&TokenKind::RBrace) && !self.at_eof() {
                     let before = self.pos;
-                    match self.parse_field_decl() {
+                    match self.parse_field_decl(true) {
                         Some(field) => {
                             if field.default.is_none() {
                                 self.error(

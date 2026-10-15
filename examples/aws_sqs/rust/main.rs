@@ -327,7 +327,7 @@ pub fn main() {
             let mut missing_12 = match missing { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
             crate::core_console::println(&__handle_2, &format!("get_queue_url: {}", crate::describe((&(crate::core_checked::detach::<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>(missing_12))).as_ref())));
         } else {
-            panic!("salvo: unhandled union arm at main:177:9");
+            panic!("salvo: unhandled union arm at main:179:9");
         };
     };
 }

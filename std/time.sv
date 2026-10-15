@@ -315,8 +315,10 @@ export handler DefaultTicker() of Ticker {
 // backend to decide, and the drift model above is readable where it is
 // implemented.
 export handler DefaultClock() of Clock {
-    base_tick: Long = monotonic_nanos()
-    base_epoch: Long = epoch_nanos()
+    state {
+        base_tick: Long = monotonic_nanos()
+        base_epoch: Long = epoch_nanos()
+    }
 
     fn now() -> Instant {
         return Instant {nanos: epoch_nanos()}
@@ -444,18 +446,20 @@ export handler ManualTime() of Timer, TimerCtl {
 
     // Virtual monotonic nanoseconds. A real [Tick]'s origin is arbitrary, so
     // zero is as honest a start as any.
-    now: Long = 0L
+    state {
+        now: Long = 0L
 
-    // The pending deadlines and the tokens that answer them, index-aligned:
-    // entry `i` of [deadlines] is when entry `i` of [pending] comes due.
-    //
-    // Two lists rather than one list of pairs, because a list holding
-    // obligations cannot be *read* positionally — `get` would alias a linear
-    // element, so only `remove_at` reaches one [linear-container]. Keeping the
-    // deadlines in a plain list beside it is what makes "which is earliest" a
-    // question this handler can ask at all.
-    deadlines: Mut List<Long> = Mut List()
-    pending: Mut List<Reply<Fired>> = Mut List()
+        // The pending deadlines and the tokens that answer them, index-aligned:
+        // entry `i` of [deadlines] is when entry `i` of [pending] comes due.
+        //
+        // Two lists rather than one list of pairs, because a list holding
+        // obligations cannot be *read* positionally — `get` would alias a linear
+        // element, so only `remove_at` reaches one [linear-container]. Keeping the
+        // deadlines in a plain list beside it is what makes "which is earliest" a
+        // question this handler can ask at all.
+        deadlines: Mut List<Long> = Mut List()
+        pending: Mut List<Reply<Fired>> = Mut List()
+    }
 
     send fn after(wait: Duration, done: Reply<Fired>) => !wait, !done {
         // [time-coupling] A deadline that is *already* due fires here rather

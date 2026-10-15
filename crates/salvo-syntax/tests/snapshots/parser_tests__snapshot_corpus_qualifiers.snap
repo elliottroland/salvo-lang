@@ -825,23 +825,25 @@ Module {
                             name: "surname",
                             span: 479..486,
                         },
-                        ty: Named {
-                            qualifiers: [],
-                            base: TypeRef {
-                                name: Ident {
-                                    name: "Str",
+                        ty: Some(
+                            Named {
+                                qualifiers: [],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "Str",
+                                        span: 488..491,
+                                    },
+                                    args: [],
+                                    value_args: [],
+                                    from: [],
+                                    at: None,
+                                    binder: false,
+                                    established: false,
+                                    alias: None,
                                     span: 488..491,
                                 },
-                                args: [],
-                                value_args: [],
-                                from: [],
-                                at: None,
-                                binder: false,
-                                established: false,
-                                alias: None,
-                                span: 488..491,
                             },
-                        },
+                        ),
                         canbe_mut: false,
                         default: None,
                         span: 479..491,

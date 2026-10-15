@@ -166,7 +166,9 @@ fn handler_types(h: &HandlerDecl) -> Vec<&Type> {
         out.push(&p.ty);
     }
     for f in &h.state {
-        out.push(&f.ty);
+        if let Some(t) = &f.ty {
+            out.push(t);
+        }
     }
     for f in &h.fns {
         for p in &f.params {
@@ -180,7 +182,7 @@ fn handler_types(h: &HandlerDecl) -> Vec<&Type> {
 }
 
 fn struct_types(s: &StructDecl) -> Vec<&Type> {
-    s.fields.iter().map(|f| &f.ty).collect()
+    s.fields.iter().filter_map(|f| f.ty.as_ref()).collect()
 }
 
 fn fn_types(f: &salvo_syntax::ast::FnDecl) -> Vec<&Type> {

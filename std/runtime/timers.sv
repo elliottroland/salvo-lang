@@ -38,11 +38,13 @@ effect DeadlineTable {
 }
 
 handler Deadlines() of DeadlineTable {
-    ats: Mut List<Long> = Mut List()
-    dones: Mut List<Reply<Fired>> = Mut List()
-    running: Bool = false
-    parker: Parker? = None
-    forgotten: Mut List<Reply<Fired>> = Mut List()
+    state {
+        ats: Mut List<Long> = Mut List()
+        dones: Mut List<Reply<Fired>> = Mut List()
+        running: Bool = false
+        parker: Parker? = None
+        forgotten: Mut List<Reply<Fired>> = Mut List()
+    }
 
     fn register(at: Long, done: Reply<Fired>) -> Bool => !at, !done {
         add(ats, at)

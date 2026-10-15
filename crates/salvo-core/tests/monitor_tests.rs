@@ -33,7 +33,9 @@ effect Random {
 }
 
 handler CyclicRandom(seed: Int) of Random {
-    cursor: Int = 0
+    state {
+        cursor: Int = 0
+    }
 
     fn next() -> Int {
         cursor = (cursor * 31 + seed) % 100000
@@ -168,7 +170,9 @@ fn a_monitor_spawn_resolves_dependencies_from_the_enclosing_scope() {
     let errs = errors(
         "\
 handler Noisy(seed: Int) [Console] of Random {
-    cursor: Int = 0
+    state {
+        cursor: Int = 0
+    }
 
     fn next() -> Int {
         println(\"drawing\")
@@ -197,7 +201,9 @@ handler Quiet() of Console {
 }
 
 handler Noisy(seed: Int) [Console] of Random {
-    cursor: Int = 0
+    state {
+        cursor: Int = 0
+    }
 
     fn next() -> Int {
         println(\"drawing\")
@@ -229,7 +235,9 @@ effect Peek {
 }
 
 handler Wide(seed: Int) of Random, Peek {
-    cursor: Int = 0
+    state {
+        cursor: Int = 0
+    }
 
     fn next() -> Int {
         cursor = cursor + seed
@@ -264,7 +272,9 @@ fn a_monitor_spawn_shares_a_stored_function_value() {
     let errs = errors(
         "\
 handler Derived(step: (n: Int) -> Int) of Random {
-    cursor: Int = 0
+    state {
+        cursor: Int = 0
+    }
 
     fn next() -> Int {
         cursor = step(cursor)
@@ -365,7 +375,9 @@ effect Store<T> {
 }
 
 handler Keeping of Store<Int> {
-    total: Int = 0
+    state {
+        total: Int = 0
+    }
 
     fn keep(value: Int) -> Int => value {
         total = total + value
@@ -446,7 +458,9 @@ handler BasePong of Pong {
 }
 
 handler Pinger [Pong] of Ping {
-    a: Int = 0
+    state {
+        a: Int = 0
+    }
     fn ping() -> Int {
         a = pong()
         return a
@@ -454,7 +468,9 @@ handler Pinger [Pong] of Ping {
 }
 
 handler Ponger [Ping] of Pong {
-    b: Int = 0
+    state {
+        b: Int = 0
+    }
     fn pong() -> Int {
         b = ping()
         return b

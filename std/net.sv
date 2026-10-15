@@ -483,8 +483,10 @@ export handler StaticNodeGroup(name: Str, all: List<NodeEndpoint>) [Transport, s
     of NodeGroup {
     mailbox { capacity: 64 }
 
-    known: Mut Map<NodeId, Node> = Mut Map()
-    watchers: Mut List<Addr<NodeGroupWatcher>> = Mut List()
+    state {
+        known: Mut Map<NodeId, Node> = Mut Map()
+        watchers: Mut List<Addr<NodeGroupWatcher>> = Mut List()
+    }
 
     // The mechanism starts itself: `init` is the first activation, and
     // `self@NodeGroup` is where the control frames of its handshake go.
@@ -574,9 +576,11 @@ export handler GossipNodeGroup(name: Str, seeds: List<NodeEndpoint>) [Transport,
     of NodeGroup {
     mailbox { capacity: 64 }
 
-    known: Mut Map<NodeId, Node> = Mut Map()
-    dialed: Mut Set<Str> = Mut Set()
-    watchers: Mut List<Addr<NodeGroupWatcher>> = Mut List()
+    state {
+        known: Mut Map<NodeId, Node> = Mut Map()
+        dialed: Mut Set<Str> = Mut Set()
+        watchers: Mut List<Addr<NodeGroupWatcher>> = Mut List()
+    }
 
     init {
         let me = local_endpoint()
@@ -801,9 +805,11 @@ export handler ActorGrouping<E>(name: Str, proto: Protocol<E>) [spawn]
     of ActorGroup<E>, NodeGroupWatcher {
     mailbox { capacity: 64 }
 
-    all: Mut List<Addr<E>> = Mut List()
-    peers: Mut List<NodeId> = Mut List()
-    watchers: Mut List<Addr<ActorGroupWatcher<E>>> = Mut List()
+    state {
+        all: Mut List<Addr<E>> = Mut List()
+        peers: Mut List<NodeId> = Mut List()
+        watchers: Mut List<Addr<ActorGroupWatcher<E>>> = Mut List()
+    }
 
     // The replica starts itself: it listens on its group's name, so the
     // replicas other nodes open under the same name reach it.
@@ -1177,7 +1183,9 @@ export handler StaticLeader(node: NodeId) of Leader {
 // changes, and kept. `None` — so the send waits — while there is no leader or
 // the leader hosts no member yet.
 export handler Elected<E>() [Leader] of RouteSelector<E> {
-    chosen: Addr<E>? = None
+    state {
+        chosen: Addr<E>? = None
+    }
 
     fn changed(view: RouteView<E>) -> None => view {
         chosen = None
@@ -1257,10 +1265,12 @@ export actor effect MemNet {
 export handler MemNetwork() of MemNet {
     mailbox { capacity: 64 }
 
-    listeners: Mut Map<NodeEndpoint, Addr<Inbound>> = Mut Map()
-    cuts: Mut Set<Str> = Mut Set()
-    dead: Mut Set<NodeEndpoint> = Mut Set()
-    count: Int = 0
+    state {
+        listeners: Mut Map<NodeEndpoint, Addr<Inbound>> = Mut Map()
+        cuts: Mut Set<Str> = Mut Set()
+        dead: Mut Set<NodeEndpoint> = Mut Set()
+        count: Int = 0
+    }
 
     send fn attach(at: NodeEndpoint, sink: Addr<Inbound>) => !at, !sink {
         remove(dead, at)

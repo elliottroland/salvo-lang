@@ -1004,12 +1004,28 @@ Module {
                             name: "text",
                             span: 2630..2634,
                         },
-                        ty: Named {
-                            qualifiers: [
-                                TypeRef {
-                                    name: Ident {
-                                        name: "proj",
+                        ty: Some(
+                            Named {
+                                qualifiers: [
+                                    TypeRef {
+                                        name: Ident {
+                                            name: "proj",
+                                            span: 2636..2640,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
                                         span: 2636..2640,
+                                    },
+                                ],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "Str",
+                                        span: 2641..2644,
                                     },
                                     args: [],
                                     value_args: [],
@@ -1018,24 +1034,10 @@ Module {
                                     binder: false,
                                     established: false,
                                     alias: None,
-                                    span: 2636..2640,
-                                },
-                            ],
-                            base: TypeRef {
-                                name: Ident {
-                                    name: "Str",
                                     span: 2641..2644,
                                 },
-                                args: [],
-                                value_args: [],
-                                from: [],
-                                at: None,
-                                binder: false,
-                                established: false,
-                                alias: None,
-                                span: 2641..2644,
                             },
-                        },
+                        ),
                         canbe_mut: false,
                         default: None,
                         span: 2630..2644,
@@ -1048,23 +1050,25 @@ Module {
                             name: "at",
                             span: 2698..2700,
                         },
-                        ty: Named {
-                            qualifiers: [],
-                            base: TypeRef {
-                                name: Ident {
-                                    name: "Int",
+                        ty: Some(
+                            Named {
+                                qualifiers: [],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "Int",
+                                        span: 2702..2705,
+                                    },
+                                    args: [],
+                                    value_args: [],
+                                    from: [],
+                                    at: None,
+                                    binder: false,
+                                    established: false,
+                                    alias: None,
                                     span: 2702..2705,
                                 },
-                                args: [],
-                                value_args: [],
-                                from: [],
-                                at: None,
-                                binder: false,
-                                established: false,
-                                alias: None,
-                                span: 2702..2705,
                             },
-                        },
+                        ),
                         canbe_mut: false,
                         default: None,
                         span: 2698..2705,
@@ -3562,23 +3566,25 @@ Module {
                             name: "start",
                             span: 5719..5724,
                         },
-                        ty: Named {
-                            qualifiers: [],
-                            base: TypeRef {
-                                name: Ident {
-                                    name: "Int",
+                        ty: Some(
+                            Named {
+                                qualifiers: [],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "Int",
+                                        span: 5726..5729,
+                                    },
+                                    args: [],
+                                    value_args: [],
+                                    from: [],
+                                    at: None,
+                                    binder: false,
+                                    established: false,
+                                    alias: None,
                                     span: 5726..5729,
                                 },
-                                args: [],
-                                value_args: [],
-                                from: [],
-                                at: None,
-                                binder: false,
-                                established: false,
-                                alias: None,
-                                span: 5726..5729,
                             },
-                        },
+                        ),
                         canbe_mut: false,
                         default: None,
                         span: 5719..5729,
@@ -3589,23 +3595,25 @@ Module {
                             name: "end",
                             span: 5735..5738,
                         },
-                        ty: Named {
-                            qualifiers: [],
-                            base: TypeRef {
-                                name: Ident {
-                                    name: "Int",
+                        ty: Some(
+                            Named {
+                                qualifiers: [],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "Int",
+                                        span: 5740..5743,
+                                    },
+                                    args: [],
+                                    value_args: [],
+                                    from: [],
+                                    at: None,
+                                    binder: false,
+                                    established: false,
+                                    alias: None,
                                     span: 5740..5743,
                                 },
-                                args: [],
-                                value_args: [],
-                                from: [],
-                                at: None,
-                                binder: false,
-                                established: false,
-                                alias: None,
-                                span: 5740..5743,
                             },
-                        },
+                        ),
                         canbe_mut: false,
                         default: None,
                         span: 5735..5743,

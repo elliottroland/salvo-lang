@@ -100,7 +100,7 @@ fn struct_plan(
         s.generics.iter().map(|g| g.name.clone()).zip(targs.iter().cloned()).collect();
     let mut fields = Vec::new();
     for field in &s.fields {
-        let fty = crate::wire::approx_ty(&field.ty, &subst)?;
+        let fty = crate::wire::approx_ty(field.written_ty(), &subst)?;
         // A field is typed as the value has it: a `canbe Mut` field is `Mut`
         // in a `Mut` struct [field-canbe-mut].
         let fty = if field.canbe_mut && has_mut { fty.qualify(vec![Qual::plain("Mut", Vec::new())]) } else { fty };
@@ -159,7 +159,7 @@ pub fn immutable(symbols: &Symbols<'_>, ty: &Ty, visiting: &mut Vec<String>) -> 
                 visiting.push(name.clone());
                 let subst: HashMap<String, Ty> =
                     s.generics.iter().map(|g| g.name.clone()).zip(args.iter().cloned()).collect();
-                let ok = s.fields.iter().all(|field| match crate::wire::approx_ty(&field.ty, &subst) {
+                let ok = s.fields.iter().all(|field| match crate::wire::approx_ty(field.written_ty(), &subst) {
                     Some(t) => immutable(symbols, &t, visiting),
                     None => false,
                 });

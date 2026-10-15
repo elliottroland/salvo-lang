@@ -59,7 +59,9 @@ export effect Streams {
 }
 
 export handler Counter() of Streams {
-    n: Int = 0
+    state {
+        n: Int = 0
+    }
     fn next_id() -> Int {
         n = n + 1
         return n

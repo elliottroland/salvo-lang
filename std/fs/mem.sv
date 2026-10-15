@@ -33,9 +33,11 @@ struct MemRead { source: Str, data: Bytes, at: Int, failed: Bool }
 struct MemWrite { path: Str, buffer: Bytes }
 
 export handler MemFs of Fs, Streams {
-    files: Mut Map<Str, Bytes> = Mut Map()
-    reads: Mut Map<Long, MemRead> = Mut Map()
-    writes: Mut Map<Long, MemWrite> = Mut Map()
+    state {
+        files: Mut Map<Str, Bytes> = Mut Map()
+        reads: Mut Map<Long, MemRead> = Mut Map()
+        writes: Mut Map<Long, MemWrite> = Mut Map()
+    }
 
     fn open_read(path: Path) -> Ok InStream | Err Checked<FsError> => path {
         let path_text = to_str(path)

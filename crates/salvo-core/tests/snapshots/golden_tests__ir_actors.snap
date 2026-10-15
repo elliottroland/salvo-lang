@@ -66,7 +66,7 @@ impl Desking(lent room: Int) of Desk stateful {
         call core.basic::discard<Str>(!read name)
       }
       arm#2 (else) {
-        unreachable("unhandled union arm") at main:114:9
+        unreachable("unhandled union arm") at main:118:9
       }
     }
   }
@@ -91,7 +91,7 @@ impl Breaking() of Fragile {
       bind#3 let __nn~1: Int? = call core.list::get(List<T>, Int)<Int>(read empty, 7)
       value switch#2 read __nn~1 {
         arm#0 (none) {
-          unreachable("value is absent") at main:145:20
+          unreachable("value is absent") at main:149:20
         }
         arm#1 (else) {
           narrow#4[switch#2.arm#1] __some~2: Int = __nn~1

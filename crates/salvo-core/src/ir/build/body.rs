@@ -420,7 +420,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 for f in fields {
                     let fty = decl
                         .and_then(|d| d.fields.iter().find(|x| x.name.name == f.field.name))
-                        .map(|x| self.ctx.written_ty(self.file_idx, &x.ty))
+                        .map(|x| self.ctx.written_ty(self.file_idx, x.written_ty()))
                         .unwrap_or(Ty::Unknown);
                     let local = self.bind(&f.binding.name, fty.clone());
                     let nid = self.id();

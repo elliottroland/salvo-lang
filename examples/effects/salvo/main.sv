@@ -33,7 +33,9 @@ effect Clock {
 // each reading is five ticks after the last, so the program's output does not
 // depend on when it ran.
 handler TickingClock of Clock {
-    tick: Int = 0
+    state {
+        tick: Int = 0
+    }
 
     fn now() -> Int {
         tick = tick + 5
@@ -116,7 +118,9 @@ handler Stamped [Logger, Clock] of Logger {
 // A second one, with state of its own. Interceptors stack: registering this
 // over `Stamped` numbers the line the stamping logger will then print.
 handler Numbered [Logger] of Logger {
-    seen: Int = 0
+    state {
+        seen: Int = 0
+    }
 
     fn log(message: Str) -> None => message {
         seen = seen + 1

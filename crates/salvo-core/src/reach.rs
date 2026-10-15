@@ -342,7 +342,7 @@ pub fn used_names(module: &Module) -> HashSet<&str> {
                     type_ref_names(q, &mut used);
                 }
                 for field in &s.fields {
-                    type_names(&field.ty, &mut used);
+                    type_names(field.written_ty(), &mut used);
                     if let Some(d) = &field.default {
                         expr_names(d, &mut used);
                     }
@@ -368,7 +368,11 @@ pub fn used_names(module: &Module) -> HashSet<&str> {
                     type_names(&p.ty, &mut used);
                 }
                 for field in &h.state {
-                    type_names(&field.ty, &mut used);
+                    // [state-infer] An inferred field has no written type; its
+                    // reachable names come from the initializer below.
+                    if let Some(t) = &field.ty {
+                        type_names(t, &mut used);
+                    }
                     if let Some(d) = &field.default {
                         expr_names(d, &mut used);
                     }
@@ -380,7 +384,7 @@ pub fn used_names(module: &Module) -> HashSet<&str> {
             Item::Qualifier(q) => {
                 type_names(&q.of, &mut used);
                 for field in &q.field_overrides {
-                    type_names(&field.ty, &mut used);
+                    type_names(field.written_ty(), &mut used);
                 }
                 for f in &q.fns {
                     fn_names(f, &mut used);

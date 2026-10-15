@@ -55,7 +55,9 @@ actor effect Counter {
 handler Counting() of Counter {
     mailbox { capacity: 128 }
 
-    sum: Int = 0
+    state {
+        sum: Int = 0
+    }
 
     send fn bump(n: Int) {
         sum = sum + n
@@ -86,8 +88,10 @@ actor effect Alarms {
 handler Alarming() [Timer] of Alarms {
     mailbox { capacity: 16 }
 
-    left: Int = 0
-    waiting: Mut List<Reply<Int>> = Mut List()
+    state {
+        left: Int = 0
+        waiting: Mut List<Reply<Int>> = Mut List()
+    }
 
     send fn arm(n: Int, done: Reply<Int>) {
         left = n

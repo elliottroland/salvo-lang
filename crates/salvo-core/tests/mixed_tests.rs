@@ -35,7 +35,9 @@ effect Random {
 
 handler CyclicRandom(seed: Int) of Random {
     mailbox { capacity: 8 }
-    cursor: Int = 0
+    state {
+        cursor: Int = 0
+    }
 
     send fn advance(out: Reply<Int>) => !out {
         cursor = (cursor * 31 + seed) % 100000
@@ -172,7 +174,9 @@ effect Peek {
 
 handler Peeking() of Peek {
     mailbox { capacity: 2 }
-    hidden: Int = 0
+    state {
+        hidden: Int = 0
+    }
 
     send fn poke() {
         hidden = hidden + 1
@@ -223,7 +227,9 @@ effect Peek {
 }
 
 handler NoBox() of Peek {
-    tally: Int = 0
+    state {
+        tally: Int = 0
+    }
 
     send fn poke() {
         tally = tally + 1
@@ -261,7 +267,9 @@ effect Peek {
 
 handler Sloppy() of Peek {
     mailbox { capacity: 2 }
-    tally: Int = 0
+    state {
+        tally: Int = 0
+    }
 
     send fn poke(n: Int) {
         tally = tally + n
@@ -292,7 +300,9 @@ effect Peek {
 
 handler Twice() of Peek {
     mailbox { capacity: 2 }
-    tally: Int = 0
+    state {
+        tally: Int = 0
+    }
 
     send fn poke(n: Int) => !n {
         tally = tally + n
@@ -328,7 +338,9 @@ effect Peek {
 
 handler Noisy() [Console] of Peek {
     mailbox { capacity: 2 }
-    tally: Int = 0
+    state {
+        tally: Int = 0
+    }
 
     send fn poke() {
         tally = tally + 1
@@ -365,7 +377,9 @@ effect Peek {
 
 handler Wide(seed: Int) of Random, Peek {
     mailbox { capacity: 2 }
-    cursor: Int = 0
+    state {
+        cursor: Int = 0
+    }
 
     send fn advance(out: Reply<Int>) => !out {
         cursor = cursor + seed
@@ -413,7 +427,9 @@ actor effect Drawer {
 
 handler Feedback(drawer: Addr<Drawer>) of Random {
     mailbox { capacity: 4 }
-    tally: Int = 0
+    state {
+        tally: Int = 0
+    }
 
     send fn advance(out: Reply<Int>) => !out {
         tally = tally + 1
@@ -494,7 +510,9 @@ actor effect Oracle {
 
 handler Forwarding(oracle: Addr<Oracle>) of Random {
     mailbox { capacity: 4 }
-    tally: Int = 0
+    state {
+        tally: Int = 0
+    }
 
     send fn advance(out: Reply<Int>) => !out {
         tally = tally + 1
@@ -523,7 +541,9 @@ fn stash(keep: Reply<Int>) [] -> None => !keep {
 
 handler Latch() of Random {
     mailbox { capacity: 4 }
-    tally: Int = 0
+    state {
+        tally: Int = 0
+    }
 
     send fn advance(out: Reply<Int>) => !out {
         tally = tally + 1
@@ -557,7 +577,9 @@ actor effect Oracle {
 
 handler Forwarding(oracle: Addr<Oracle>) of Random {
     mailbox { capacity: 4 }
-    tally: Int = 0
+    state {
+        tally: Int = 0
+    }
 
     send fn advance(out: Reply<Int>) => defer out {
         tally = tally + 1
@@ -578,7 +600,9 @@ handler Forwarding(oracle: Addr<Oracle>) of Random {
         "\
 handler Prompt() of Random {
     mailbox { capacity: 4 }
-    tally: Int = 0
+    state {
+        tally: Int = 0
+    }
 
     send fn advance(out: Reply<Int>) => defer out {
         tally = tally + 1
@@ -609,7 +633,9 @@ fn a_servant_member_reaches_a_sibling_by_bare_call() {
         "\
 handler Chain() of Random {
     mailbox { capacity: 4 }
-    tally: Int = 0
+    state {
+        tally: Int = 0
+    }
 
     send fn step(out: Reply<Int>) => defer out {
         tally = tally + 1
@@ -647,7 +673,9 @@ fn a_reply_sent_onward_by_a_bare_sibling_call_requires_defer() {
         "\
 handler Chain() of Random {
     mailbox { capacity: 4 }
-    tally: Int = 0
+    state {
+        tally: Int = 0
+    }
 
     send fn step(out: Reply<Int>) => !out {
         tally = tally + 1
@@ -682,7 +710,9 @@ fn a_sync_sibling_stays_unresolved_from_a_send_member() {
         "\
 handler Chain() of Random {
     mailbox { capacity: 4 }
-    tally: Int = 0
+    state {
+        tally: Int = 0
+    }
 
     send fn step(out: Reply<Int>) => !out {
         tally = tally + peek()
@@ -721,7 +751,9 @@ actor effect Oracle {
 
 handler Delphi() of Oracle {
     mailbox { capacity: 4 }
-    n: Int = 0
+    state {
+        n: Int = 0
+    }
 
     send fn divine(out: Reply<Int>) {
         n = n + 7
@@ -731,7 +763,9 @@ handler Delphi() of Oracle {
 
 handler Parking(oracle: Addr<Oracle>) of Random {
     mailbox { capacity: 4 }
-    tally: Int = 0
+    state {
+        tally: Int = 0
+    }
 
     send fn advance(out: Reply<Int>) => defer out {
         tally = tally + 1
@@ -769,7 +803,9 @@ actor effect Oracle {
 
 handler Delphi() of Oracle {
     mailbox { capacity: 4 }
-    n: Int = 0
+    state {
+        n: Int = 0
+    }
 
     send fn divine(out: Reply<Int>) {
         n = n + 7
@@ -779,7 +815,9 @@ handler Delphi() of Oracle {
 
 handler Parking(oracle: Addr<Oracle>) of Random {
     mailbox { capacity: 4 }
-    tally: Int = 0
+    state {
+        tally: Int = 0
+    }
 
     send fn advance(out: Reply<Int>) => !out {
         tally = tally + 1
@@ -819,7 +857,9 @@ actor effect Drawer {
 
 handler Feedback(drawer: Addr<Drawer>) of Random {
     mailbox { capacity: 4 }
-    tally: Int = 0
+    state {
+        tally: Int = 0
+    }
 
     send fn advance(out: Reply<Int>) => defer out {
         tally = tally + 1

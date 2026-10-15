@@ -304,7 +304,9 @@ effect Counter {
 }
 
 handler MemCounter of Counter {
-    n: Int = 0
+    state {
+        n: Int = 0
+    }
 
     fn bump() -> Int {
         n = n + 1
@@ -334,7 +336,7 @@ fn handler_state_initializers_are_checked() {
     let errs = messages(
         "\n\
          effect Sink {\n    fn kept() -> Int\n}\n\n\
-         handler Bin of Sink {\n    held: Int = \"not an int\"\n\n    \
+         handler Bin of Sink {\n    state {\n        held: Int = \"not an int\"\n    }\n\n    \
          fn kept() -> Int {\n        return held\n    }\n}\n",
     );
     let diag = errs
@@ -884,7 +886,9 @@ actor effect Counter {
 handler Counting() of Counter {
     mailbox { capacity: 8 }
 
-    sum: Int = 0
+    state {
+        sum: Int = 0
+    }
 
     send fn bump(n: Int) {
         sum = sum + n

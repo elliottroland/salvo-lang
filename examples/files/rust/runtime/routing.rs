@@ -953,7 +953,7 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
             { let __arg1 = {
                 let mut __nn_1: Option<crate::runtime_routing::Staged> = crate::core_list::remove_at_platform::<crate::runtime_routing::Staged>(&mut self.outbox, 0i32);
                 if __nn_1.is_none() {
-                    panic!("salvo: value is absent at runtime.routing:327:22");
+                    panic!("salvo: value is absent at runtime.routing:329:22");
                 } else {
                     let mut __some_2 = __nn_1.unwrap();
                     __some_2
@@ -1037,7 +1037,7 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
             if ({
                 let mut __nn_1: Option<i64> = crate::core_list::get_platform::<i64>(&self.task_keys, i).copied();
                 if __nn_1.is_none() {
-                    panic!("salvo: value is absent at runtime.routing:401:16");
+                    panic!("salvo: value is absent at runtime.routing:403:16");
                 } else {
                     let mut __some_2 = __nn_1.unwrap();
                     __some_2
@@ -1145,7 +1145,7 @@ impl crate::runtime_routing::__Stateful_RouteTable for Routes {
                 let mut __proj_3: &crate::runtime_routing::ViewWaiter = {
                     let mut __nn_1: Option<&crate::runtime_routing::ViewWaiter> = crate::core_list::get_platform::<crate::runtime_routing::ViewWaiter>(&self.view_waiters, i);
                     if __nn_1.is_none() {
-                        panic!("salvo: value is absent at runtime.routing:496:16");
+                        panic!("salvo: value is absent at runtime.routing:498:16");
                     } else {
                         let mut __some_2 = __nn_1.unwrap();
                         __some_2
@@ -1204,7 +1204,7 @@ pub fn wake_senders(waiters: &mut Vec<crate::runtime::Parker>) {
         { let __arg1 = {
             let mut __nn_1: Option<crate::runtime::Parker> = crate::core_list::remove_at_platform::<crate::runtime::Parker>(&mut *waiters, 0i32);
             if __nn_1.is_none() {
-                panic!("salvo: value is absent at runtime.routing:554:16");
+                panic!("salvo: value is absent at runtime.routing:556:16");
             } else {
                 let mut __some_2 = __nn_1.unwrap();
                 __some_2
@@ -1234,7 +1234,7 @@ pub fn restage(routes: &crate::core_map::Map<i64, crate::core_bytes::Bytes>, out
         { let __arg1 = {
             let mut __nn_1: Option<crate::runtime_routing::Parked> = crate::core_list::remove_at_platform::<crate::runtime_routing::Parked>(&mut *parked, 0i32);
             if __nn_1.is_none() {
-                panic!("salvo: value is absent at runtime.routing:577:22");
+                panic!("salvo: value is absent at runtime.routing:579:22");
             } else {
                 let mut __some_2 = __nn_1.unwrap();
                 __some_2
@@ -1335,7 +1335,7 @@ pub fn send_remote(mut addr: i32, mut proto: String, mut payload: crate::core_by
             return;
         };
     }
-    panic!("salvo: unreachable at runtime.routing:674:5");
+    panic!("salvo: unreachable at runtime.routing:676:5");
 }
 
 pub fn answer_remote(mut t: crate::runtime_routing::ReplyParts, mut payload: crate::core_bytes::Bytes) {
@@ -1566,7 +1566,7 @@ pub fn view_members(mut group: i32) -> Vec<i32> {
             if crate::runtime_routing::before(&crate::runtime_routing::identity({
                 let mut __nn_1: Option<i32> = crate::core_list::get_platform::<i32>(&left, i).copied();
                 if __nn_1.is_none() {
-                    panic!("salvo: value is absent at runtime.routing:937:37");
+                    panic!("salvo: value is absent at runtime.routing:939:37");
                 } else {
                     let mut __some_2 = __nn_1.unwrap();
                     __some_2
@@ -1574,7 +1574,7 @@ pub fn view_members(mut group: i32) -> Vec<i32> {
             }), &crate::runtime_routing::identity({
                 let mut __nn_3: Option<i32> = crate::core_list::get_platform::<i32>(&left, best).copied();
                 if __nn_3.is_none() {
-                    panic!("salvo: value is absent at runtime.routing:937:68");
+                    panic!("salvo: value is absent at runtime.routing:939:68");
                 } else {
                     let mut __some_4 = __nn_3.unwrap();
                     __some_4
@@ -1587,7 +1587,7 @@ pub fn view_members(mut group: i32) -> Vec<i32> {
         { let __arg1 = {
             let mut __nn_5: Option<i32> = crate::core_list::remove_at_platform::<i32>(&mut left, best);
             if __nn_5.is_none() {
-                panic!("salvo: value is absent at runtime.routing:942:18");
+                panic!("salvo: value is absent at runtime.routing:944:18");
             } else {
                 let mut __some_6 = __nn_5.unwrap();
                 __some_6

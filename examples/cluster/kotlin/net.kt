@@ -604,7 +604,7 @@ class StaticNodeGroup(private val name: String, private val all: List<NodeEndpoi
             (event == null) -> {
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at net:527:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at net:529:9"))
             }
         }
     }
@@ -740,7 +740,7 @@ class GossipNodeGroup(private val name: String, private val seeds: List<NodeEndp
             (event == null) -> {
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at net:612:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at net:616:9"))
             }
         }
     }
@@ -1220,7 +1220,7 @@ fun routeKeyed(routeSelector: RouteSelector, group: Int, config: RouteConfig, se
             wait = cap
         }
     }
-    throw AssertionError("salvo: unreachable at net:1074:5")
+    throw AssertionError("salvo: unreachable at net:1080:5")
     return routeKeyed(routeSelector, group, config, seen, key)
 }
 

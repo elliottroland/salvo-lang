@@ -37,7 +37,9 @@ actor effect Counter {
 handler Counting() of Counter {
     mailbox { capacity: 8 }
 
-    sum: Int = 0
+    state {
+        sum: Int = 0
+    }
 
     send fn bump(n: Int) {
         sum = sum + n
@@ -100,7 +102,9 @@ actor effect Desk {
 handler Desking(room: Int) of Desk {
     mailbox { capacity: room }
 
-    waiting: Mut Deque<Reply<Str>> = mut_deque_of()
+    state {
+        waiting: Mut Deque<Reply<Str>> = mut_deque_of()
+    }
 
     send fn ticket(out: Reply<Str>) {
         add_last(waiting, out)

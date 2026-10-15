@@ -817,7 +817,7 @@ fn effect_prerequisites_run_on_both_backends() {
     let dir = work_dir("prereq");
     fs::write(
         dir.join("streams.sv"),
-        "export effect Streams {\n    fn next_id() -> Int\n}\n\nexport handler Counter() of Streams {\n    n: Int = 0\n    fn next_id() -> Int {\n        n = n + 1\n        return n\n    }\n}\n",
+        "export effect Streams {\n    fn next_id() -> Int\n}\n\nexport handler Counter() of Streams {\n    state {\n        n: Int = 0\n    }\n    fn next_id() -> Int {\n        n = n + 1\n        return n\n    }\n}\n",
     )
     .unwrap();
     fs::write(
@@ -1381,7 +1381,9 @@ actor effect Counter {
 
 handler Counting() of Counter {
     mailbox { capacity: 4 }
-    seen: Str = ""
+    state {
+        seen: Str = ""
+    }
     send fn bump(t: Token) => !t { seen = "${seen}${t.label}" }
     send fn total(out: Reply<Str>) => !out { out.send(copy(seen)) }
 }

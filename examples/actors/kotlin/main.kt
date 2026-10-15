@@ -185,7 +185,7 @@ class Desking(private val room: Int) : Desk {
                 run { name; Unit }
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:114:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:118:9"))
             }
         }
     }
@@ -259,7 +259,7 @@ class Breaking : Fragile {
             val __nn_1: Int? = salvo.core.list.getPlatform(empty, 7)
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at main:145:20"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at main:149:20"))
                 }
                 else -> {
                     val __some_2: Int = __nn_1!!

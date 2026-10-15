@@ -113,7 +113,9 @@ fn a_handler_may_implement_several_actor_effects() {
 handler ManualTime() of Timer, TimerCtl {
     mailbox { capacity: 8 }
 
-    now: Int = 0
+    state {
+        now: Int = 0
+    }
 
     send fn after(millis: Int, out: Reply<Str>) {
         out.send("fired at ${now}")
@@ -152,7 +154,9 @@ fn an_addr_of_one_face_cannot_name_the_others_members() {
 handler ManualTime() of Timer, TimerCtl {
     mailbox { capacity: 8 }
 
-    now: Int = 0
+    state {
+        now: Int = 0
+    }
 
     send fn after(millis: Int, out: Reply<Str>) {
         out.send("fired")
@@ -217,7 +221,9 @@ fn several_faces_answer_a_tuple_rather_than_an_addr() {
 handler ManualTime() of Timer, TimerCtl {
     mailbox { capacity: 4 }
 
-    now: Int = 0
+    state {
+        now: Int = 0
+    }
 
     send fn after(millis: Int, out: Reply<Str>) {
         out.send("fired")
@@ -409,7 +415,9 @@ fn a_use_binds_every_face() {
     let errs = errors(
         r#"
 handler Counting() of Tally, Stats {
-    sum: Int = 0
+    state {
+        sum: Int = 0
+    }
 
     fn bump(n: Int) {
         sum = sum + n
@@ -442,7 +450,9 @@ fn a_multi_face_construction_in_a_spawn_clause_is_refused() {
     let errs = errors(
         r#"
 handler Counting() of Tally, Stats {
-    sum: Int = 0
+    state {
+        sum: Int = 0
+    }
 
     fn bump(n: Int) {
         sum = sum + n

@@ -172,7 +172,7 @@ impl crate::runtime_timers::__Stateful_DeadlineTable for Deadlines {
             if ({
                 let mut __nn_1: Option<i64> = crate::core_list::get_platform::<i64>(&self.ats, i).copied();
                 if __nn_1.is_none() {
-                    panic!("salvo: value is absent at runtime.timers:72:16");
+                    panic!("salvo: value is absent at runtime.timers:74:16");
                 } else {
                     let mut __some_2 = __nn_1.unwrap();
                     __some_2
@@ -309,7 +309,7 @@ impl crate::runtime_timers::__Stateless_Wheel for Wheeling {
                 crate::runtime::park_nanos_platform(&crate::runtime::this_parker_platform(), wait);
             };
         }
-        panic!("salvo: unreachable at runtime.timers:121:9");
+        panic!("salvo: unreachable at runtime.timers:123:9");
     }
 }
 

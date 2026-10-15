@@ -3773,10 +3773,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // computed *before* any state exists.
                     self.check_mailbox_slot(h, &of_tys);
                     for field in &h.state {
-                        self.validate_type(&field.ty);
+                        if let Some(t) = &field.ty {
+                            self.validate_type(t);
+                        }
                         if field.canbe_mut {
                             self.error(
-                                field.ty.span(),
+                                field.span,
                                 "`canbe Mut` is for a struct's fields [field-canbe-mut]; a \
                                  handler's state is mutable already, so write `Mut` or nothing"
                                     .to_string(),
@@ -3792,20 +3794,40 @@ impl<'p, 'r> Checker<'p, 'r> {
                         // checked at all, so `held: Mut List<Int> = "no"`
                         // was accepted and the emitters never saw the
                         // expression's types.)
+                        //
+                        // [state-infer] With no annotation (`name = value`)
+                        // the field's type *is* the initializer's, inferred
+                        // exactly as a `let x = value` is — and recorded at
+                        // the field-name span for the IR to read back (the
+                        // channel `waitfor` uses). An annotation may be wider
+                        // than the value, so the written type is checked as a
+                        // supertype, as a `let x: T = value` is.
                         if let Some(default) = &field.default {
-                            let expected = self.lower_type(&field.ty);
                             // [handler-state] An initialiser may read the constructor's
                             // parameters: the state is built from them, once, at construction.
                             let frame = self.read_only_frame(&h.params);
                             self.locals.push(frame);
-                            let got = self.check_expr(default, Some(&expected));
-                            self.locals.pop();
-                            if !is_subtype(&got, &expected) {
-                                self.error(
-                                    default.span(),
-                                    format!("expected `{expected}`, found `{got}`"),
-                                );
+                            match &field.ty {
+                                Some(t) => {
+                                    let expected = self.lower_type(t);
+                                    let got = self.check_expr(default, Some(&expected));
+                                    if !is_subtype(&got, &expected) {
+                                        self.error(
+                                            default.span(),
+                                            format!("expected `{expected}`, found `{got}`"),
+                                        );
+                                    }
+                                }
+                                None => {
+                                    let got = self.check_expr(default, None);
+                                    // Record the inferred field type where the
+                                    // member-body frame and the IR read it.
+                                    self.out
+                                        .expr_ty
+                                        .insert(self.key(field.name.span), got);
+                                }
                             }
+                            self.locals.pop();
                         }
                     }
                     // [handler-init] The `init` block is checked as one more
@@ -4019,7 +4041,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.check_obligations(s);
                     self.check_struct_cycle(s);
                     for field in &s.fields {
-                        self.validate_type(&field.ty);
+                        self.validate_type(field.written_ty());
                         self.check_canbe_mut_field(s, field);
                         self.reject_iter_field(&s.name.name, field);
                         // [proj-field] Any struct may hold a borrow through a
@@ -4028,7 +4050,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         self.check_proj_field(&s.name.name, field);
                         self.check_linear_field(&s.name.name, field);
                         if let Some(default) = &field.default {
-                            let expected = self.lower_type(&field.ty);
+                            let expected = self.lower_type(field.written_ty());
                             self.locals.push(HashMap::new());
                             self.check_expr(default, Some(&expected));
                             self.locals.pop();
@@ -4085,7 +4107,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // two, so inferred contracts count.
         let conditional = s.generic_canbe.iter().any(|(id, q)| {
             q.name.name == "linear"
-                && s.fields.iter().any(|f| type_mentions_generic(&f.ty, &id.name))
+                && s.fields.iter().any(|f| type_mentions_generic(f.written_ty(), &id.name))
         });
         if (s.linear || conditional) && self.inferred.is_some() {
             let set = self.discharge_set(self.symbols.key_or(s, &s.name.name));
@@ -4814,7 +4836,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // A field's *written* type is enough: a fn type is syntactic
                 // (`(T) -> U`), so no lowering is needed to recognise one, and
                 // a named field type recurses through the same map.
-                let fields: Vec<&ast::Type> = decl.fields.iter().map(|f| &f.ty).collect();
+                let fields: Vec<&ast::Type> = decl.fields.iter().map(|f| f.written_ty()).collect();
                 fields.iter().any(|t| self.ast_type_holds_fn(t, depth + 1))
             }
             _ => false,
@@ -4846,7 +4868,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     Some(decl) => decl
                         .fields
                         .iter()
-                        .any(|f| self.ast_type_holds_fn(&f.ty, depth + 1)),
+                        .any(|f| self.ast_type_holds_fn(f.written_ty(), depth + 1)),
                     None => false,
                 }
             }
@@ -8611,7 +8633,18 @@ impl<'p, 'r> Checker<'p, 'r> {
             );
         }
         for field in state {
-            let ty = self.lower_type(&field.ty);
+            // [state-infer] The field's type: the written annotation, or the
+            // type the checker inferred from the initializer (recorded at the
+            // field-name span by the handler-state check).
+            let ty = match &field.ty {
+                Some(t) => self.lower_type(t),
+                None => self
+                    .out
+                    .expr_ty
+                    .get(&self.key(field.name.span))
+                    .cloned()
+                    .unwrap_or(Ty::Unknown),
+            };
             self.out
                 .expr_ty
                 .entry(self.key(field.name.span))
@@ -11442,7 +11475,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         };
         decl.fields
             .iter()
-            .filter(|f| first_proj_span(&f.ty).is_some())
+            .filter(|f| first_proj_span(f.written_ty()).is_some())
             .map(|f| f.name.name.clone())
             .collect()
     }
@@ -11465,8 +11498,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         ns.into_iter().any(|n| {
             self.symbols.structs.get(n.as_str()).is_some_and(|d| {
                 d.fields.iter().any(|f| {
-                    crate::lends::type_has_proj(&f.ty)
-                        || crate::lends::holds_proj(&f.ty, &self.scope.structs)
+                    crate::lends::type_has_proj(f.written_ty())
+                        || crate::lends::holds_proj(f.written_ty(), &self.scope.structs)
                 })
             })
         })
@@ -12079,7 +12112,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 decl.fields
                     .iter()
-                    .any(|f| self.ast_type_mut(&f.ty, visited))
+                    .any(|f| self.ast_type_mut(f.written_ty(), visited))
             }
             Ty::Array(elem) => self.ty_transitively_mut(elem, visited),
             Ty::Tuple(elems) => elems.iter().any(|e| self.ty_transitively_mut(e, visited)),
@@ -12952,7 +12985,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             s.linear
                 || s.generic_canbe.iter().any(|(id, q)| {
                     q.name.name == "linear"
-                        && s.fields.iter().any(|f| type_mentions_generic(&f.ty, &id.name))
+                        && s.fields.iter().any(|f| type_mentions_generic(f.written_ty(), &id.name))
                 })
         })
     }
@@ -12979,7 +13012,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             .filter(|f| {
                 // The field's type under the instantiation: a generic
                 // field substitutes; a concrete one stands as declared.
-                let field_linear = match &f.ty {
+                let field_linear = match f.written_ty() {
                     ast::Type::Named { base, .. }
                         if base.args.is_empty() && subst.contains_key(&base.name.name) =>
                     {
@@ -14714,7 +14747,15 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         }
         for field in &decl.state {
-            let ty = self.lower_type(&field.ty);
+            let ty = match &field.ty {
+                Some(t) => self.lower_type(t),
+                None => self
+                    .out
+                    .expr_ty
+                    .get(&self.key(field.name.span))
+                    .cloned()
+                    .unwrap_or(Ty::Unknown),
+            };
             if let Some(why) = self.unshareable_reason(&ty) {
                 self.error(
                     span,
@@ -16111,7 +16152,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 decl.fields
                     .iter()
-                    .any(|f| self.ast_type_mut(&f.ty, visited))
+                    .any(|f| self.ast_type_mut(f.written_ty(), visited))
             }
             ast::Type::QualifiedGroup {
                 qualifiers, base, ..
@@ -18597,7 +18638,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 break;
             }
             let mut seen: Vec<String> = vec![start.to_string()];
-            if self.type_reaches(&field.ty, start, &mut seen, 0) {
+            if self.type_reaches(field.written_ty(), start, &mut seen, 0) {
                 culprit = Some((field, seen));
             }
         }
@@ -18706,7 +18747,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let Some(next) = decl else { return false };
         seen.push(name.to_string());
         for field in &next.fields {
-            if self.type_reaches(&field.ty, target, seen, depth + 1) {
+            if self.type_reaches(field.written_ty(), target, seen, depth + 1) {
                 return true;
             }
         }
@@ -18727,7 +18768,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         };
         decl.fields
             .iter()
-            .any(|f| self.type_stores_inline(&f.ty, &param.name, depth))
+            .any(|f| self.type_stores_inline(f.written_ty(), &param.name, depth))
     }
 
     fn type_stores_inline(&self, ty: &ast::Type, param: &str, depth: usize) -> bool {
@@ -18761,7 +18802,10 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     fn check_proj_field(&mut self, owner: &str, field: &ast::FieldDecl) {
-        for r in proj_refs(&field.ty) {
+        // [state-infer] An inferred field has no written type to inspect for
+        // `proj`; the form takes no qualifiers, so there is nothing to check.
+        let Some(field_ty) = &field.ty else { return };
+        for r in proj_refs(field_ty) {
             if let Some(from) = r.from.first() {
                 self.error(
                     from.span,
@@ -18777,6 +18821,9 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     fn check_linear_field(&mut self, owner: &str, field: &ast::FieldDecl) {
+        // [state-infer] No written type → no `linear struct` marker to check;
+        // an inferred type's own linearity is enforced by the IR linear check.
+        let Some(field_ty) = &field.ty else { return };
         // [linear-composite] [linear-group] A concrete linear field is
         // legal exactly on a `linear struct` (user decision 2026-09-12):
         // the marker is what gives the composite its own obligation and
@@ -18784,7 +18831,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // Unmarked, the store stays refused — with the marker as the
         // remedy. (A `canbe linear` generic field is the *conditional*
         // case and is not a concrete store.)
-        if let Some(linear) = self.ast_type_own_linear(&field.ty) {
+        if let Some(linear) = self.ast_type_own_linear(field_ty) {
             let owner_is_linear = self
                 .scope
                 .structs
@@ -18795,7 +18842,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             if self.scope.structs.contains_key(owner) {
                 self.error(
-                    field.ty.span(),
+                    field_ty.span(),
                     format!(
                         "`{linear}` is linear, so field `{owner}.{}` makes the \
                          container a resource too: declare `linear struct {owner}` \
@@ -18823,9 +18870,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             // back — so the obligation would have no reachable discharge at
             // all. Hold it in a container, whose take-by-move operations
             // leave the storage itself intact.
-            if self.has_auto_linear(&self.type_key(&linear)) && self.container_of_linear(&field.ty).is_none() {
+            if self.has_auto_linear(&self.type_key(&linear)) && self.container_of_linear(field_ty).is_none() {
                 self.error(
-                    field.ty.span(),
+                    field_ty.span(),
                     format!(
                         "`{linear}` is linear, so field `{owner}.{}` would hold an \
                          obligation this handler can never discharge: taking it back \
@@ -19491,7 +19538,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         if !field.canbe_mut {
             return;
         }
-        let span = field.ty.span();
+        let span = field.written_ty().span();
         if !s.auto_qualifiers.iter().any(|q| q.name.name == "Mut") {
             self.error(
                 span,
@@ -19504,7 +19551,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             );
             return;
         }
-        let ty = self.lower_type(&field.ty);
+        let ty = self.lower_type(field.written_ty());
         if ty.is_unknown() {
             return;
         }
@@ -19663,8 +19710,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             );
         }
         for fo in &q.field_overrides {
-            self.validate_type(&fo.ty);
-            let override_ty = self.lower_type(&fo.ty);
+            self.validate_type(fo.written_ty());
+            let override_ty = self.lower_type(fo.written_ty());
             match self.declared_field_ty(&of_ty, &fo.name.name) {
                 Some(orig) => {
                     if !is_subtype(&override_ty, &orig) {
@@ -23456,7 +23503,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     qual.args.get(i).cloned().unwrap_or(Ty::Unknown),
                 );
             }
-            let field_ty = field.ty.clone();
+            let field_ty = field.written_ty().clone();
             return Some(self.lower_type_subst(&field_ty, &subst, 0));
         }
         None
@@ -23483,7 +23530,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// literals, destructuring) goes through here, so a plain struct is
     /// immutable all the way down.
     fn struct_field_ty(&mut self, field: &ast::FieldDecl, subst: &HashMap<String, Ty>, mutable: bool) -> Ty {
-        let ty = self.lower_type_subst(&field.ty, subst, 0);
+        let ty = self.lower_type_subst(field.written_ty(), subst, 0);
         if field.canbe_mut && mutable && !ty.quals().iter().any(|q| q.name == "Mut") && self.has_auto_mut(&ty) {
             let mut quals = ty.quals().to_vec();
             quals.push(Qual::plain("Mut", Vec::new()));
@@ -24008,11 +24055,14 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// `?Yield<It, T>` where it is driven). A generated `iter fn` struct's
     /// `state` field is the same position, so the refusal covers it too.
     fn reject_iter_field(&mut self, owner: &str, field: &ast::FieldDecl) {
-        if !salvo_syntax::desugar::type_mentions_iter(&field.ty) {
+        // [state-infer] No written type → it cannot be `iter T` (that is a
+        // written qualifier), so nothing to reject.
+        let Some(field_ty) = &field.ty else { return };
+        if !salvo_syntax::desugar::type_mentions_iter(field_ty) {
             return;
         }
         self.error(
-            field.ty.span(),
+            field_ty.span(),
             format!(
                 "field `{}` of `{owner}` cannot be typed `iter T`: a field holds one \
                  concrete type, and \"some iterator struct\" here would have to be boxed \
@@ -24732,7 +24782,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             // (user decision 2026-09-12).
                             let opted_field = decl.generic_canbe.iter().any(|(id, q)| {
                                 q.name.name == "linear"
-                                    && type_mentions_generic(&df.ty, &id.name)
+                                    && type_mentions_generic(df.written_ty(), &id.name)
                             });
                             if self.ty_own_linear(&vty) && !self.ty_own_linear(&fty) && !opted_field
                             {

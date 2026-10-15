@@ -443,7 +443,9 @@ actor effect Hoard {
 // Keeps every reply, answering none.
 handler Hoarding() of Hoard {
     mailbox { capacity: 2 }
-    kept: Mut List<Reply<Int>> = Mut List()
+    state {
+        kept: Mut List<Reply<Int>> = Mut List()
+    }
 
     send fn ask(out: Reply<Int>) {
         add(kept, out)

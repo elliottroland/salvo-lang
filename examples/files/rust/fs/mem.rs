@@ -274,7 +274,7 @@ impl crate::stream::__Stateful_Streams for MemFs {
         } else if line.is_none() {
             return false;
         } else {
-            panic!("salvo: unhandled union arm at fs.mem:217:9");
+            panic!("salvo: unhandled union arm at fs.mem:219:9");
         };
     }
     fn position__InStream(&mut self, s: &crate::stream::InStream) -> i64 {
@@ -369,7 +369,7 @@ pub fn mem_find_newline(data: &crate::core_bytes::Bytes, mut from: i32) -> i32 {
         if ((({
             let mut __nn_1: Option<u8> = crate::core_bytes::get_platform(data, i);
             if __nn_1.is_none() {
-                panic!("salvo: value is absent at fs.mem:323:19");
+                panic!("salvo: value is absent at fs.mem:325:19");
             } else {
                 let mut __some_2 = __nn_1.unwrap();
                 __some_2
@@ -394,7 +394,7 @@ pub fn mem_append(writes: &mut crate::core_map::Map<i64, crate::fs_mem::MemWrite
 pub fn mem_read_state(reads: &crate::core_map::Map<i64, crate::fs_mem::MemRead>, mut handle: i64) -> crate::fs_mem::MemRead {
     let mut open: Option<&crate::fs_mem::MemRead> = crate::core_map::get_platform::<i64, crate::fs_mem::MemRead>(reads, &handle, &mut |__a0: &i64| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i64, __a1: &i64| ((*__a0) == (*__a1)));
     if open.is_none() {
-        panic!("salvo: {} at fs.mem:350:9", format!("stream handle {} was not opened by this MemFs: a stream belongs to the provider that minted it [stream-provider]", handle));
+        panic!("salvo: {} at fs.mem:352:9", format!("stream handle {} was not opened by this MemFs: a stream belongs to the provider that minted it [stream-provider]", handle));
     };
     let mut open_1 = open.unwrap();
     return crate::fs_mem::MemRead { source: (open_1.source).clone(), data: (open_1.data).clone(), at: open_1.at, failed: open_1.failed };
@@ -403,7 +403,7 @@ pub fn mem_read_state(reads: &crate::core_map::Map<i64, crate::fs_mem::MemRead>,
 pub fn mem_write_state(writes: &crate::core_map::Map<i64, crate::fs_mem::MemWrite>, mut handle: i64) -> crate::fs_mem::MemWrite {
     let mut open: Option<&crate::fs_mem::MemWrite> = crate::core_map::get_platform::<i64, crate::fs_mem::MemWrite>(writes, &handle, &mut |__a0: &i64| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i64, __a1: &i64| ((*__a0) == (*__a1)));
     if open.is_none() {
-        panic!("salvo: {} at fs.mem:358:9", format!("stream handle {} was not opened by this MemFs: a stream belongs to the provider that minted it [stream-provider]", handle));
+        panic!("salvo: {} at fs.mem:360:9", format!("stream handle {} was not opened by this MemFs: a stream belongs to the provider that minted it [stream-provider]", handle));
     };
     let mut open_1 = open.unwrap();
     return crate::fs_mem::MemWrite { path: (open_1.path).clone(), buffer: (open_1.buffer).clone() };
@@ -424,7 +424,7 @@ pub fn mem_read_line(reads: &mut crate::core_map::Map<i64, crate::fs_mem::MemRea
     let mut line: crate::core_bytes::Bytes = {
         let mut __nn_1: Option<crate::core_bytes::Bytes> = crate::core_bytes::slice_platform(&bytes, at, stop);
         if __nn_1.is_none() {
-            panic!("salvo: value is absent at fs.mem:382:16");
+            panic!("salvo: value is absent at fs.mem:384:16");
         } else {
             let mut __some_2 = __nn_1.unwrap();
             __some_2
@@ -455,7 +455,7 @@ pub fn mem_read_all(reads: &mut crate::core_map::Map<i64, crate::fs_mem::MemRead
     let mut rest: crate::core_bytes::Bytes = {
         let mut __nn_1: Option<crate::core_bytes::Bytes> = crate::core_bytes::slice_platform(&bytes, open.at, end);
         if __nn_1.is_none() {
-            panic!("salvo: value is absent at fs.mem:406:16");
+            panic!("salvo: value is absent at fs.mem:408:16");
         } else {
             let mut __some_2 = __nn_1.unwrap();
             __some_2
@@ -489,7 +489,7 @@ pub fn mem_read_bytes(reads: &mut crate::core_map::Map<i64, crate::fs_mem::MemRe
     let mut taken: crate::core_bytes::Bytes = {
         let mut __nn_1: Option<crate::core_bytes::Bytes> = crate::core_bytes::slice_platform(&bytes, open.at, stop);
         if __nn_1.is_none() {
-            panic!("salvo: value is absent at fs.mem:432:17");
+            panic!("salvo: value is absent at fs.mem:434:17");
         } else {
             let mut __some_2 = __nn_1.unwrap();
             __some_2

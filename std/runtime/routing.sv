@@ -185,35 +185,37 @@ struct ViewWaiter {
 }
 
 handler Routes() of RouteTable {
-    node_id: Long = 0
-    hosted: Mut Set<Long> = Mut Set()
-    pool_node: Mut Map<Int, Long> = Mut Map()
-    bits: Mut Map<Int, Long> = Mut Map()
-    remote: Mut Map<Int, RemoteRef> = Mut Map()
-    proxies: Mut Map<RemoteRef, Int> = Mut Map()
-    credits: Mut Map<Int, Int> = Mut Map()
-    // For a hosted actor, the credits remote senders still hold; for a
-    // proxy, the messages in flight to it.
-    held_n: Mut Map<Int, Int> = Mut Map()
-    routes: Mut Map<Long, Bytes> = Mut Map()
-    outbound: Mut Set<Long> = Mut Set()
-    parked: Mut List<Parked> = Mut List()
-    outbox: Mut List<Staged> = Mut List()
-    // Exported tasks and their keys, index-aligned: a map of linear values
-    // does not build on Rust yet (ROADMAP 0c).
-    task_keys: Mut List<Long> = Mut List()
-    tasks: Mut List<ExportedTask> = Mut List()
-    controls: Mut Map<ControlKey, Int> = Mut Map()
-    local: List<(Str, Str)> = List<(Str, Str)>()
-    peers: Mut Map<Long, List<(Str, Str)>> = Mut Map()
-    dead_entry: Int = -1
-    credit_waiters: Mut List<Parker> = Mut List()
-    // [route-stub] Per group: the member list its replica mirrors, and a
-    // version moved by every change and every `refresh`.
-    views: Mut Map<Int, List<Int>> = Mut Map()
-    versions: Mut Map<Int, Long> = Mut Map()
-    view_waiters: Mut List<ViewWaiter> = Mut List()
-    next_waiter: Long = 0
+    state {
+        node_id: Long = 0
+        hosted: Mut Set<Long> = Mut Set()
+        pool_node: Mut Map<Int, Long> = Mut Map()
+        bits: Mut Map<Int, Long> = Mut Map()
+        remote: Mut Map<Int, RemoteRef> = Mut Map()
+        proxies: Mut Map<RemoteRef, Int> = Mut Map()
+        credits: Mut Map<Int, Int> = Mut Map()
+        // For a hosted actor, the credits remote senders still hold; for a
+        // proxy, the messages in flight to it.
+        held_n: Mut Map<Int, Int> = Mut Map()
+        routes: Mut Map<Long, Bytes> = Mut Map()
+        outbound: Mut Set<Long> = Mut Set()
+        parked: Mut List<Parked> = Mut List()
+        outbox: Mut List<Staged> = Mut List()
+        // Exported tasks and their keys, index-aligned: a map of linear values
+        // does not build on Rust yet (ROADMAP 0c).
+        task_keys: Mut List<Long> = Mut List()
+        tasks: Mut List<ExportedTask> = Mut List()
+        controls: Mut Map<ControlKey, Int> = Mut Map()
+        local: List<(Str, Str)> = List<(Str, Str)>()
+        peers: Mut Map<Long, List<(Str, Str)>> = Mut Map()
+        dead_entry: Int = -1
+        credit_waiters: Mut List<Parker> = Mut List()
+        // [route-stub] Per group: the member list its replica mirrors, and a
+        // version moved by every change and every `refresh`.
+        views: Mut Map<Int, List<Int>> = Mut Map()
+        versions: Mut Map<Int, Long> = Mut Map()
+        view_waiters: Mut List<ViewWaiter> = Mut List()
+        next_waiter: Long = 0
+    }
 
     init {
         node_id = fresh_node()

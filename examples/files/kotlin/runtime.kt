@@ -729,7 +729,7 @@ class Scheduler : SchedTable {
             val __nn_1: ActorRec? = salvo.core.list.atPlatform(actors, addr)
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:518:17"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:520:17"))
                 }
                 else -> {
                     val __some_2: ActorRec = __nn_1!!
@@ -768,7 +768,7 @@ class Scheduler : SchedTable {
             val __nn_1: ActorRec? = salvo.core.list.atPlatform(actors, addr)
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:546:17"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:548:17"))
                 }
                 else -> {
                     val __some_2: ActorRec = __nn_1!!
@@ -796,7 +796,7 @@ class Scheduler : SchedTable {
             val __nn_1: ActorRec? = salvo.core.list.atPlatform(actors, addr)
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:563:17"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:565:17"))
                 }
                 else -> {
                     val __some_2: ActorRec = __nn_1!!
@@ -845,7 +845,7 @@ class Scheduler : SchedTable {
             val __nn_1: ActorRec? = salvo.core.list.atPlatform(actors, addr)
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:585:17"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:587:17"))
                 }
                 else -> {
                     val __some_2: ActorRec = __nn_1!!
@@ -865,7 +865,7 @@ class Scheduler : SchedTable {
             val __nn_1: PoolRec? = salvo.core.list.atPlatform(pools, pool)
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:595:17"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:597:17"))
                 }
                 else -> {
                     val __some_2: PoolRec = __nn_1!!
@@ -881,7 +881,7 @@ class Scheduler : SchedTable {
             val __nn_1: PoolRec? = salvo.core.list.atPlatform(pools, pool)
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:601:17"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:603:17"))
                 }
                 else -> {
                     val __some_2: PoolRec = __nn_1!!
@@ -905,7 +905,7 @@ class Scheduler : SchedTable {
             val __nn_1: ActorRec? = salvo.core.list.atPlatform(actors, addr)
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:615:17"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:617:17"))
                 }
                 else -> {
                     val __some_2: ActorRec = __nn_1!!
@@ -935,7 +935,7 @@ class Scheduler : SchedTable {
                 val __nn_1: PoolRec? = salvo.core.list.getPlatform(pools, pool)
                 when {
                     (__nn_1 == null) -> {
-                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime:635:12"))
+                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime:637:12"))
                     }
                     else -> {
                         val __some_2: PoolRec = __nn_1!!
@@ -963,7 +963,7 @@ class Scheduler : SchedTable {
             val __nn_4: PoolRec? = salvo.core.list.atPlatform(pools, pool)
             when {
                 (__nn_4 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:648:17"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:650:17"))
                 }
                 else -> {
                     val __some_5: PoolRec = __nn_4!!
@@ -989,7 +989,7 @@ class Scheduler : SchedTable {
             val __nn_1: WaiterRec? = salvo.core.list.atPlatform(waiters, wid)
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:669:17"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:671:17"))
                 }
                 else -> {
                     val __some_2: WaiterRec = __nn_1!!
@@ -1049,7 +1049,7 @@ class Scheduler : SchedTable {
             val __nn_3: WaiterRec? = salvo.core.list.atPlatform(waiters, wid)
             when {
                 (__nn_3 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:728:22"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:730:22"))
                 }
                 else -> {
                     val __some_4: WaiterRec = __nn_3!!
@@ -1062,7 +1062,7 @@ class Scheduler : SchedTable {
             val __nn_5: PoolRec? = salvo.core.list.atPlatform(pools, pool)
             when {
                 (__nn_5 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:730:17"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:732:17"))
                 }
                 else -> {
                     val __some_6: PoolRec = __nn_5!!
@@ -1080,7 +1080,7 @@ class Scheduler : SchedTable {
             val __nn_1: ActorRec? = salvo.core.list.atPlatform(actors, addr)
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:737:17"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:739:17"))
                 }
                 else -> {
                     val __some_2: ActorRec = __nn_1!!
@@ -1109,7 +1109,7 @@ class Scheduler : SchedTable {
                 val __nn_4: Union3<Delivered, Answered, Reported>? = salvo.core.deque.removeFirstPlatform((a.queue as salvo.platform.core.deque.MutDeque<Union3<Delivered, Answered, Reported>>))
                 when {
                     (__nn_4 == null) -> {
-                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime:753:24"))
+                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime:755:24"))
                     }
                     else -> {
                         val __some_5: Union3<Delivered, Answered, Reported> = __nn_4!!
@@ -1173,7 +1173,7 @@ class Scheduler : SchedTable {
                 val __nn_1: ActorRec? = salvo.core.list.getPlatform(actors, addr)
                 when {
                     (__nn_1 == null) -> {
-                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime:788:21"))
+                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime:790:21"))
                     }
                     else -> {
                         val __some_2: ActorRec = __nn_1!!
@@ -1189,7 +1189,7 @@ class Scheduler : SchedTable {
             val __nn_1: ActorRec? = salvo.core.list.atPlatform(actors, addr)
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:792:17"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:794:17"))
                 }
                 else -> {
                     val __some_2: ActorRec = __nn_1!!
@@ -1205,7 +1205,7 @@ class Scheduler : SchedTable {
                 val __nn_1: WaiterRec? = salvo.core.list.getPlatform(waiters, wid)
                 when {
                     (__nn_1 == null) -> {
-                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime:797:21"))
+                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime:799:21"))
                     }
                     else -> {
                         val __some_2: WaiterRec = __nn_1!!
@@ -1221,7 +1221,7 @@ class Scheduler : SchedTable {
             val __nn_1: ActorRec? = salvo.core.list.getPlatform(actors, addr)
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:801:17"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:803:17"))
                 }
                 else -> {
                     val __some_2: ActorRec = __nn_1!!
@@ -1237,7 +1237,7 @@ class Scheduler : SchedTable {
                 val __nn_1: ActorRec? = salvo.core.list.getPlatform(actors, addr)
                 when {
                     (__nn_1 == null) -> {
-                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime:806:21"))
+                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime:808:21"))
                     }
                     else -> {
                         val __some_2: ActorRec = __nn_1!!
@@ -1254,7 +1254,7 @@ class Scheduler : SchedTable {
                 val __nn_1: ActorRec? = salvo.core.list.getPlatform(actors, addr)
                 when {
                     (__nn_1 == null) -> {
-                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime:810:21"))
+                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime:812:21"))
                     }
                     else -> {
                         val __some_2: ActorRec = __nn_1!!
@@ -1354,7 +1354,7 @@ fun resetAll(actors: salvo.platform.core.list.MutList<ActorRec>, pools: salvo.pl
             val __nn_1: ActorRec? = salvo.core.list.atPlatform(actors, k)
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:909:17"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:911:17"))
                 }
                 else -> {
                     val __some_2: ActorRec = __nn_1!!
@@ -1377,7 +1377,7 @@ fun resetAll(actors: salvo.platform.core.list.MutList<ActorRec>, pools: salvo.pl
                 val __nn_3: Union3<Delivered, Answered, Reported>? = salvo.core.deque.removeFirstPlatform((a.queue as salvo.platform.core.deque.MutDeque<Union3<Delivered, Answered, Reported>>))
                 when {
                     (__nn_3 == null) -> {
-                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime:918:24"))
+                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime:920:24"))
                     }
                     else -> {
                         val __some_4: Union3<Delivered, Answered, Reported> = __nn_3!!
@@ -1419,7 +1419,7 @@ fun resetAll(actors: salvo.platform.core.list.MutList<ActorRec>, pools: salvo.pl
             val __nn_7: PoolRec? = salvo.core.list.atPlatform(pools, i)
             when {
                 (__nn_7 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:933:17"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:935:17"))
                 }
                 else -> {
                     val __some_8: PoolRec = __nn_7!!
@@ -1515,7 +1515,7 @@ fun release(actors: salvo.platform.core.list.MutList<ActorRec>, waiters: salvo.p
             val __nn_1: ActorRec? = salvo.core.list.atPlatform(actors, to.addr)
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:997:17"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:999:17"))
                 }
                 else -> {
                     val __some_2: ActorRec = __nn_1!!
@@ -1533,7 +1533,7 @@ fun release(actors: salvo.platform.core.list.MutList<ActorRec>, waiters: salvo.p
                 val __nn_3: WaiterRec? = salvo.core.list.getPlatform(waiters, tw.wid)
                 when {
                     (__nn_3 == null) -> {
-                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1002:25"))
+                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1004:25"))
                     }
                     else -> {
                         val __some_4: WaiterRec = __nn_3!!
@@ -1547,7 +1547,7 @@ fun release(actors: salvo.platform.core.list.MutList<ActorRec>, waiters: salvo.p
             val __nn_6: PoolRec? = salvo.core.list.atPlatform(pools, pool)
             when {
                 (__nn_6 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1003:17"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1005:17"))
                 }
                 else -> {
                     val __some_7: PoolRec = __nn_6!!
@@ -1564,7 +1564,7 @@ fun release(actors: salvo.platform.core.list.MutList<ActorRec>, waiters: salvo.p
             val __nn_9: PoolRec? = salvo.core.list.atPlatform(pools, target_8.pool)
             when {
                 (__nn_9 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1008:17"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1010:17"))
                 }
                 else -> {
                     val __some_10: PoolRec = __nn_9!!
@@ -1586,7 +1586,7 @@ fun reuseWaiter(waiters: salvo.platform.core.list.MutList<WaiterRec>, free: salv
             val __nn_2: WaiterRec? = salvo.core.list.atPlatform(waiters, wid)
             when {
                 (__nn_2 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1021:17"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1023:17"))
                 }
                 else -> {
                     val __some_3: WaiterRec = __nn_2!!
@@ -1621,7 +1621,7 @@ fun deliverTo(actors: salvo.platform.core.list.MutList<ActorRec>, waiters: salvo
             val __nn_2: ActorRec? = salvo.core.list.atPlatform(actors, to.addr)
             when {
                 (__nn_2 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1044:17"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1046:17"))
                 }
                 else -> {
                     val __some_3: ActorRec = __nn_2!!
@@ -1646,7 +1646,7 @@ fun deliverTo(actors: salvo.platform.core.list.MutList<ActorRec>, waiters: salvo
             val __nn_4: WaiterRec? = salvo.core.list.atPlatform(waiters, tw.wid)
             when {
                 (__nn_4 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1057:17"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1059:17"))
                 }
                 else -> {
                     val __some_5: WaiterRec = __nn_4!!
@@ -1673,7 +1673,7 @@ fun deliverTo(actors: salvo.platform.core.list.MutList<ActorRec>, waiters: salvo
             val __nn_8: PoolRec? = salvo.core.list.atPlatform(pools, pool)
             when {
                 (__nn_8 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1069:17"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1071:17"))
                 }
                 else -> {
                     val __some_9: PoolRec = __nn_8!!
@@ -1693,7 +1693,7 @@ fun reportFault(actors: salvo.platform.core.list.MutList<ActorRec>, pools: salvo
             val __nn_1: PoolRec? = salvo.core.list.getPlatform(pools, pool)
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1080:21"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1082:21"))
                 }
                 else -> {
                     val __some_2: PoolRec = __nn_1!!
@@ -1708,7 +1708,7 @@ fun reportFault(actors: salvo.platform.core.list.MutList<ActorRec>, pools: salvo
             val __nn_4: ActorRec? = salvo.core.list.atPlatform(actors, sink)
             when {
                 (__nn_4 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1082:17"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1084:17"))
                 }
                 else -> {
                     val __some_5: ActorRec = __nn_4!!
@@ -1769,7 +1769,7 @@ fun fireIdle(actors: salvo.platform.core.list.MutList<ActorRec>, waiters: salvo.
                 val __nn_3: PoolRec? = salvo.core.list.getPlatform(pools, pool)
                 when {
                     (__nn_3 == null) -> {
-                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1132:27"))
+                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1134:27"))
                     }
                     else -> {
                         val __some_4: PoolRec = __nn_3!!
@@ -1832,7 +1832,7 @@ fun takeWork(actors: salvo.platform.core.list.MutList<ActorRec>, pools: salvo.pl
         val __nn_1: PoolRec? = salvo.core.list.atPlatform(pools, pool)
         when {
             (__nn_1 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1181:13"))
+                throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1183:13"))
             }
             else -> {
                 val __some_2: PoolRec = __nn_1!!
@@ -1858,7 +1858,7 @@ fun takeWork(actors: salvo.platform.core.list.MutList<ActorRec>, pools: salvo.pl
             val __nn_5: ActorRec? = salvo.core.list.atPlatform(actors, i)
             when {
                 (__nn_5 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1188:17"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1190:17"))
                 }
                 else -> {
                     val __some_6: ActorRec = __nn_5!!
@@ -1876,7 +1876,7 @@ fun takeWork(actors: salvo.platform.core.list.MutList<ActorRec>, pools: salvo.pl
                     val __nn_7: Union3<Delivered, Answered, Reported>? = salvo.core.deque.removeAtPlatform((a.queue as salvo.platform.core.deque.MutDeque<Union3<Delivered, Answered, Reported>>), k)
                     when {
                         (__nn_7 == null) -> {
-                            throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1194:25"))
+                            throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1196:25"))
                         }
                         else -> {
                             val __some_8: Union3<Delivered, Answered, Reported> = __nn_7!!
@@ -1889,7 +1889,7 @@ fun takeWork(actors: salvo.platform.core.list.MutList<ActorRec>, pools: salvo.pl
                     val __nn_9: salvo.platform.runtime.Body? = slotTakePlatform(a.body)
                     when {
                         (__nn_9 == null) -> {
-                            throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1196:28"))
+                            throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1198:28"))
                         }
                         else -> {
                             val __some_10: salvo.platform.runtime.Body = __nn_9!!
@@ -1917,7 +1917,7 @@ fun markReady(a: ActorRec, pools: salvo.platform.core.list.MutList<PoolRec>, add
         val __nn_1: PoolRec? = salvo.core.list.atPlatform(pools, a.pool)
         when {
             (__nn_1 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1215:13"))
+                throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1217:13"))
             }
             else -> {
                 val __some_2: PoolRec = __nn_1!!
@@ -1983,7 +1983,7 @@ fun deliverable(slots: kotlin.collections.ArrayDeque<Long>, gate: Long?): Int? {
             val __nn_1: Long? = salvo.core.deque.getPlatform(slots, i)
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1263:12"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1265:12"))
                 }
                 else -> {
                     val __some_2: Long = __nn_1!!
@@ -2004,7 +2004,7 @@ fun wakePool(pools: salvo.platform.core.list.MutList<PoolRec>, pool: Int) {
         val __nn_1: PoolRec? = salvo.core.list.atPlatform(pools, pool)
         when {
             (__nn_1 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1278:13"))
+                throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1280:13"))
             }
             else -> {
                 val __some_2: PoolRec = __nn_1!!
@@ -2025,7 +2025,7 @@ fun wakeEvery(pools: salvo.platform.core.list.MutList<PoolRec>, pool: Int) {
         val __nn_1: PoolRec? = salvo.core.list.atPlatform(pools, pool)
         when {
             (__nn_1 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1286:13"))
+                throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1288:13"))
             }
             else -> {
                 val __some_2: PoolRec = __nn_1!!
@@ -2058,7 +2058,7 @@ fun retireIfDone(actors: salvo.platform.core.list.MutList<ActorRec>, pools: salv
         val __nn_1: PoolRec? = salvo.core.list.atPlatform(pools, pool)
         when {
             (__nn_1 == null) -> {
-                throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1308:13"))
+                throw AssertionError(("salvo: " + ("value is absent") + " at runtime:1310:13"))
             }
             else -> {
                 val __some_2: PoolRec = __nn_1!!
@@ -2282,7 +2282,7 @@ fun awaitAnswer(wid: Int): salvo.platform.runtime.Dyn {
             parkPlatform(thisParkerPlatform())
         }
     }
-    throw AssertionError("salvo: unreachable at runtime:1543:5")
+    throw AssertionError("salvo: unreachable at runtime:1545:5")
     return unerasePlatform(erasePlatform(0))
 }
 
@@ -2341,7 +2341,7 @@ fun servePool(pool: Int) {
             parkPlatform(thisParkerPlatform())
         }
     }
-    throw AssertionError("salvo: unreachable at runtime:1591:5")
+    throw AssertionError("salvo: unreachable at runtime:1593:5")
 }
 
 fun tokenToActor(addr: Int, slot: Long): Token {

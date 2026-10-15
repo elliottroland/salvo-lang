@@ -258,7 +258,7 @@ fn a_platform_handler_with_a_body_is_rejected() {
 fn a_platform_handler_with_state_is_refused() {
     let errs = messages(&src(
         "effect Clock {\n    fn now() [] -> Int\n}\n\n\
-         platform handler HostClock of Clock {\n    ticks: Int = 0\n}\n",
+         platform handler HostClock of Clock {\n    state {\n        ticks: Int = 0\n    }\n}\n",
     ));
     assert!(errs.iter().any(|m| m.contains("declares Salvo state, but its implementation class owns")), "got {errs:?}");
 }

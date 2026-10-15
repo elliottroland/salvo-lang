@@ -487,7 +487,14 @@ fn expand(
                 } else {
                     used.clone()
                 };
-                fields.push((used.clone(), hidden, field.ty.clone(), field.docs.clone()));
+                // A struct field always has a written type; if somehow not,
+                // keep the parameter whole rather than snapshot a typeless
+                // field.
+                let Some(fty) = field.ty.clone() else {
+                    ok = false;
+                    break;
+                };
+                fields.push((used.clone(), hidden, fty, field.docs.clone()));
             }
         }
         holds.push(if ok { Hold::Fields(fields) } else { Hold::Whole });
@@ -541,7 +548,7 @@ fn expand(
                         name: p.name.name.clone(),
                         span: field_span,
                     },
-                    ty,
+                    ty: Some(ty),
                     canbe_mut: false,
                     default: None,
                     span: field_span,
@@ -574,7 +581,7 @@ fn expand(
                         // A per-field snapshot borrows the field too — except a
                         // Copy scalar, whose copy is free and whose borrow would
                         // only cost a deref [copy-scalar-free].
-                        ty: if is_copy_scalar(ty) { ty.clone() } else { proj_of(ty, field_span) },
+                        ty: Some(if is_copy_scalar(ty) { ty.clone() } else { proj_of(ty, field_span) }),
                         canbe_mut: false,
                         default: None,
                         span: field_span,
@@ -613,10 +620,36 @@ fn expand(
         }
     }
     for field in &f.iter_state {
+        // [state-infer] Step 1: an `iter fn`'s state is lowered to a struct
+        // field *here*, pre-checker, so its type must be written for now.
+        // Inferring it needs this lowering deferred to the IR (ROADMAP); until
+        // then a bare `name = value` in an `iter fn` state block is refused
+        // with that explanation. Handler state, checked directly, already
+        // infers.
+        let ty = match &field.ty {
+            Some(t) => t.clone(),
+            None => {
+                diags.push(Diagnostic::error(
+                    format!(
+                        "iter-fn state field `{}` needs a written type for now \
+                         (`{}: T = …`): an `iter fn`'s state is lowered to a struct \
+                         before the checker runs, so its type is not yet inferred \
+                         here. Handler state infers; iter-fn inference is pending.",
+                        field.name.name, field.name.name
+                    ),
+                    field.span,
+                ));
+                // Recover with a placeholder so the rest of the pass proceeds.
+                Type::Named {
+                    qualifiers: Vec::new(),
+                    base: type_ref("Int", field.span),
+                }
+            }
+        };
         fields.push(FieldDecl {
             docs: field.docs.clone(),
             name: field.name.clone(),
-            ty: field.ty.clone(),
+            ty: Some(ty),
             canbe_mut: field.canbe_mut,
             // The initializer moves to the minter, where it can read the
             // parameters.

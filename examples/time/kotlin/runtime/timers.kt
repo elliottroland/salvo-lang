@@ -98,7 +98,7 @@ class Deadlines : DeadlineTable {
                 val __nn_1: Long? = salvo.core.list.getPlatform(ats, i)
                 when {
                     (__nn_1 == null) -> {
-                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime.timers:72:16"))
+                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime.timers:74:16"))
                     }
                     else -> {
                         val __some_2: Long = __nn_1!!
@@ -194,7 +194,7 @@ class Wheeling : Wheel {
                 salvo.runtime.parkNanosPlatform(salvo.runtime.thisParkerPlatform(), wait)
             }
         }
-        throw AssertionError("salvo: unreachable at runtime.timers:121:9")
+        throw AssertionError("salvo: unreachable at runtime.timers:123:9")
     }
 }
 

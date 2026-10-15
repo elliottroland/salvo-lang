@@ -929,8 +929,10 @@ effect Log {
 }
 
 handler StdLog of Log {
-    // How many lines we have written.
-    count: Int = 0
+    state {
+        // How many lines we have written.
+        count: Int = 0
+    }
 
     // Writes [line] and bumps [count].
     fn write(line: Str) -> None {
@@ -973,7 +975,7 @@ fn f(p: Person) [Log] {
         "unexpected field hover: {at_decl}"
     );
     // The same docs at a field *access* — `Checked::field_refs`.
-    let at_use = hover(&mut lsp, 31, &uri, 26, 12);
+    let at_use = hover(&mut lsp, 31, &uri, 28, 12);
     assert_eq!(at_use, at_decl, "field access hover differs: {at_use}");
     // A field's default renders as written.
     let defaulted = hover(&mut lsp, 32, &uri, 5, 5);
@@ -996,19 +998,19 @@ fn f(p: Person) [Log] {
         "unexpected member hover: {at_decl}"
     );
     // ...and at a call site, which resolves through `def_refs`.
-    let at_call = hover(&mut lsp, 34, &uri, 26, 4);
+    let at_call = hover(&mut lsp, 34, &uri, 28, 4);
     assert_eq!(at_call, at_decl, "member call hover differs: {at_call}");
 
     // Handler state and handler members, with `[symbol]` reaching the
     // handler's own names.
-    let state = hover(&mut lsp, 35, &uri, 18, 4);
+    let state = hover(&mut lsp, 35, &uri, 19, 8);
     assert!(
         state.starts_with("```salvo\ncount: Int = 0\n```")
             && state.contains("How many lines we have written.")
             && state.contains("Field of handler `StdLog` (state)."),
         "unexpected state hover: {state}"
     );
-    let member = hover(&mut lsp, 36, &uri, 21, 8);
+    let member = hover(&mut lsp, 36, &uri, 23, 8);
     assert!(
         member.starts_with("```salvo\nfn write(line: Str) -> None\n```")
             && member.contains("[`line`](file://")
@@ -1018,7 +1020,7 @@ fn f(p: Person) [Log] {
     );
 
     // [lsp-definition] A field access also navigates to its declaration.
-    let location = definition(&mut lsp, 37, &uri, 26, 12);
+    let location = definition(&mut lsp, 37, &uri, 28, 12);
     assert_eq!(location["range"]["start"]["line"], json!(4));
     assert_eq!(location["range"]["start"]["character"], json!(4));
 

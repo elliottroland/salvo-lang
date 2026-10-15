@@ -419,7 +419,7 @@ impl crate::__Stateful_Desk for Desking {
         } else if next.is_none() {
             std::mem::drop(name);
         } else {
-            panic!("salvo: unhandled union arm at main:114:9");
+            panic!("salvo: unhandled union arm at main:118:9");
         };
     }
     fn close_up(&mut self, reason: String) {
@@ -543,7 +543,7 @@ impl crate::__Stateless_Fragile for Breaking {
         let mut boom: i32 = {
             let mut __nn_1: Option<i32> = crate::core_list::get_platform::<i32>(&empty, 7i32).copied();
             if __nn_1.is_none() {
-                panic!("salvo: value is absent at main:145:20");
+                panic!("salvo: value is absent at main:149:20");
             } else {
                 let mut __some_2 = __nn_1.unwrap();
                 __some_2

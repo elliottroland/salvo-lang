@@ -44,7 +44,9 @@ fn overdue(started: Tick, budget: Duration) [Ticker] -> Bool {
 // constructor. No timer, no actors, no virtual time — the cheapest determinism
 // there is, and enough for code that only measures locally.
 handler SteppingTicker(step: Duration) of Ticker {
-    at: Long = 0
+    state {
+        at: Long = 0
+    }
 
     fn tick() -> Tick {
         at = at + step.nanos

@@ -521,7 +521,9 @@ effect Random<T> {
 }
 
 handler CyclicRandom<T>(values: List<T>, ?copy: (v: T) -> T) of Random<T> {
-    i: Int = 0
+    state {
+        i: Int = 0
+    }
 
     fn next_random() -> T {
         let value = get(values, i % values.size())!
@@ -2312,7 +2314,9 @@ handler Loud [Greeter] of Greeter {
 }
 
 handler Counting [Greeter] of Greeter {
-    count: Int = 0
+    state {
+        count: Int = 0
+    }
     fn greet(name: Str) -> Str => name {
         count = count + 1
         return "${greet(name)} (${count})"
@@ -2388,7 +2392,9 @@ effect Counter {
 }
 
 handler MemCounter of Counter {
-    n: Int = 0
+    state {
+        n: Int = 0
+    }
     fn bump() { n = n + 1 }
     fn total() -> Int { return n }
 }
@@ -2461,7 +2467,9 @@ effect Clock {
 }
 
 handler TickingClock of Clock {
-    t: Int = 0
+    state {
+        t: Int = 0
+    }
     fn now() -> Int { t = t + 1 return t }
 }
 
@@ -2538,7 +2546,9 @@ actor effect Counter {
 
 handler Counting() of Counter {
     mailbox { capacity: 4 }
-    sum: Int = 0
+    state {
+        sum: Int = 0
+    }
     send fn bump(by: Int) {
         sum = sum + by
     }
@@ -2754,7 +2764,9 @@ effect Audit {
 }
 
 handler CyclicRandom<T>(values: T[]) of Random<T> {
-    i: Int = 0
+    state {
+        i: Int = 0
+    }
 
     fn next_random() -> T {
         i = (i + 1) % values.size()
@@ -2763,13 +2775,17 @@ handler CyclicRandom<T>(values: T[]) of Random<T> {
 }
 
 handler MemCounter of Counter {
-    n: Int = 0
+    state {
+        n: Int = 0
+    }
     fn bump() -> None { n = n + 1 }
     fn total() -> Int { return n }
 }
 
 handler ConsoleLogger [Console] of Logger {
-    seen: Int = 0
+    state {
+        seen: Int = 0
+    }
     fn log(message: Str) -> None => message {
         seen = seen + 1
         println("LOG ${seen}: ${message}")
@@ -2850,7 +2866,9 @@ effect Tally {
 }
 
 handler MemTally of Tally {
-    sum: Int = 0
+    state {
+        sum: Int = 0
+    }
     fn add_up(n: Int) -> None => n { sum = sum + n }
     fn tally() -> Int { return sum }
 }
@@ -2862,7 +2880,9 @@ handler ConsoleLogger [Console] of Logger {
 }
 
 handler LoggingAudit [Logger] of Audit {
-    count: Int = 0
+    state {
+        count: Int = 0
+    }
     fn note(message: Str) -> None => message {
         count = count + 1
         log("note ${count}: ${message}")
@@ -2923,7 +2943,9 @@ export effect Logger {
 }
 
 export handler ConsoleLogger [Console] of Logger {
-    tag: Str = "M"
+    state {
+        tag: Str = "M"
+    }
     fn log(message: Str) -> None => message {
         println("${tag}: ${message}")
     }
@@ -2990,13 +3012,17 @@ handler PrefixLogger(prefix: Str, level: Int) [Console] of Logger {
 }
 
 handler MemSink of Sink {
-    held: Mut List<Int> = Mut List()
+    state {
+        held: Mut List<Int> = Mut List()
+    }
     fn keep(items: Mut List<Int>) -> None => !items { held = items }
     fn kept() -> Int { return size(held) }
 }
 
 handler MemCounter of Counter {
-    n: Int = 0
+    state {
+        n: Int = 0
+    }
     fn bump() -> None { n = n + 1 }
     fn total() -> Int { return n }
 }
@@ -3493,7 +3519,9 @@ effect Random<T> {
 }
 
 handler CyclicRandom<T>(values: List<T>, ?copy: (v: T) -> T) of Random<T> {
-    i: Int = 0
+    state {
+        i: Int = 0
+    }
 
     fn next_random() -> T {
         let value = get(values, i % values.size())!
@@ -3549,7 +3577,9 @@ effect Random<T> {
 }
 
 handler CyclicRandom<T>(values: T[]) of Random<T> {
-    i: Int = 0
+    state {
+        i: Int = 0
+    }
 
     fn next_random() -> T {
         i = (i + 1) % values.size()
@@ -5070,7 +5100,9 @@ effect Random<T> {
 }
 
 handler CyclicRandom<T>(values: T[]) of Random<T> {
-    i: Int = 0
+    state {
+        i: Int = 0
+    }
 
     fn next_random() -> T {
         i = (i + 1) % size(values)
@@ -6572,7 +6604,9 @@ effect Bag {
 }
 
 handler Holder of Bag {
-    held: Ok Mut List<Int> | Err Str = ok(Mut List(0))
+    state {
+        held: Ok Mut List<Int> | Err Str = ok(Mut List(0))
+    }
 
     fn stash(n: Int) -> None {
         if held is ^Ok {
@@ -10881,7 +10915,9 @@ effect Tally {
 }
 
 handler Summing() of Tally {
-    sum: Int = 0
+    state {
+        sum: Int = 0
+    }
 
     fn add(n: Int) -> None {
         sum = sum + n
@@ -10955,7 +10991,9 @@ actor effect Counter {
 handler Counting() of Counter {
     mailbox { capacity: 8 }
 
-    sum: Int = 0
+    state {
+        sum: Int = 0
+    }
 
     send fn bump(n: Int) {
         sum = sum + n
@@ -11037,7 +11075,9 @@ effect Random {
 }
 
 handler CyclicRandom(seed: Int) of Random {
-    cursor: Int = 0
+    state {
+        cursor: Int = 0
+    }
 
     fn next() -> Int {
         cursor = (cursor * 31 + seed) % 100000
@@ -11142,7 +11182,9 @@ effect Random {
 
 handler CyclicRandom(seed: Int) of Random {
     mailbox { capacity: 8 }
-    cursor: Int = 0
+    state {
+        cursor: Int = 0
+    }
 
     send fn advance(out: Reply<Int>) => !out {
         cursor = (cursor * 31 + seed) % 100000
@@ -11197,7 +11239,9 @@ actor effect Oracle {
 
 handler Delphi() of Oracle {
     mailbox { capacity: 4 }
-    n: Int = 0
+    state {
+        n: Int = 0
+    }
 
     send fn divine(out: Reply<Int>) {
         n = n + 7
@@ -11207,7 +11251,9 @@ handler Delphi() of Oracle {
 
 handler Forwarding(oracle: Addr<Oracle>) of Random {
     mailbox { capacity: 4 }
-    tally: Int = 0
+    state {
+        tally: Int = 0
+    }
 
     send fn advance(out: Reply<Int>) => defer out {
         tally = tally + 1
@@ -11256,7 +11302,9 @@ actor effect Oracle {
 
 handler Delphi() of Oracle {
     mailbox { capacity: 4 }
-    n: Int = 0
+    state {
+        n: Int = 0
+    }
 
     send fn divine(out: Reply<Int>) {
         n = n + 7
@@ -11266,7 +11314,9 @@ handler Delphi() of Oracle {
 
 handler Parking(oracle: Addr<Oracle>) of Random {
     mailbox { capacity: 4 }
-    tally: Int = 0
+    state {
+        tally: Int = 0
+    }
 
     send fn advance(out: Reply<Int>) => defer out {
         tally = tally + 1
@@ -11315,7 +11365,9 @@ effect Random {
 
 handler Chain() of Random {
     mailbox { capacity: 4 }
-    tally: Int = 0
+    state {
+        tally: Int = 0
+    }
 
     send fn advance(out: Reply<Int>) => defer out {
         tally = tally + 1
@@ -11452,7 +11504,9 @@ actor effect Counter {
 handler Recording() of Log {
     mailbox { capacity: 1 }
 
-    last: Str = "none"
+    state {
+        last: Str = "none"
+    }
 
     send fn note(what: Str) {
         last = what
@@ -11466,7 +11520,9 @@ handler Recording() of Log {
 handler Summing() of Tally {
     mailbox { capacity: 8 }
 
-    sum: Int = 0
+    state {
+        sum: Int = 0
+    }
 
     send fn tick(n: Int) {
         sum = sum + n
@@ -11680,7 +11736,9 @@ handler Echoing() of Echo {
 handler Tracing() [Echo] of Trace {
     mailbox { capacity: 4 }
 
-    steps: Mut List<Str> = Mut List()
+    state {
+        steps: Mut List<Str> = Mut List()
+    }
 
     send fn start() {
         ping(replyto! arrived())
@@ -11728,7 +11786,9 @@ actor effect Steps {
 handler Stepping() of Steps {
     mailbox { capacity: 4 }
 
-    steps: Mut List<Str> = Mut List()
+    state {
+        steps: Mut List<Str> = Mut List()
+    }
 
     send fn begin(n: Int, out: Reply<Str>) {
         add(steps, "begin ${n}")
@@ -11813,7 +11873,9 @@ actor effect Counter {
 handler Counting() of Counter {
     mailbox { capacity: 8 }
 
-    sum: Int = 0
+    state {
+        sum: Int = 0
+    }
 
     send fn bump(n: Int) {
         sum = sum + n
@@ -11868,7 +11930,9 @@ actor effect Desk {
 handler Desking() of Desk {
     mailbox { capacity: 8 }
 
-    waiting: Mut List<Reply<Str>> = Mut List()
+    state {
+        waiting: Mut List<Reply<Str>> = Mut List()
+    }
 
     send fn ticket(out: Reply<Str>) {
         add(waiting, out)
@@ -11980,8 +12044,10 @@ actor effect TimerCtl {
 handler ManualTime() of Timer, TimerCtl {
     mailbox { capacity: 8 }
 
-    waiting: Mut List<Reply<Str>> = Mut List()
-    now: Int = 0
+    state {
+        waiting: Mut List<Reply<Str>> = Mut List()
+        now: Int = 0
+    }
 
     send fn after(millis: Int, out: Reply<Str>) {
         add(waiting, out)
@@ -12010,7 +12076,9 @@ effect Stats {
 }
 
 handler Counting() of Tally, Stats {
-    sum: Int = 0
+    state {
+        sum: Int = 0
+    }
 
     fn bump(n: Int) {
         sum = sum + n
@@ -12115,7 +12183,9 @@ actor effect Desk {
 handler Desking() of Desk {
     mailbox { capacity: 4 }
 
-    waiting: Mut List<Reply<Str>> = Mut List()
+    state {
+        waiting: Mut List<Reply<Str>> = Mut List()
+    }
 
     send fn ask(out: Reply<Str>) {
         add(waiting, out)
@@ -12312,7 +12382,9 @@ actor effect Log {
 handler Counting() of Log {
     mailbox { capacity: 8 }
 
-    seen: Int = 0
+    state {
+        seen: Int = 0
+    }
 
     send fn note(what: Str) {
         seen = seen + 1
@@ -12391,7 +12463,9 @@ handler Clocking() [TimerApi] of ClockApi {
 handler Counting() of Counter {
     mailbox { capacity: 4 }
 
-    sum: Int = 0
+    state {
+        sum: Int = 0
+    }
 
     send fn bump(n: Int) {
         sum = sum + n
@@ -13114,7 +13188,9 @@ fn verdict(started: Tick, at: Tick, budget: Duration) [] -> Str {
 
 // A scripted clock: readings from the constructor, half a second apart.
 handler SteppingTicker(step: Duration) of Ticker {
-    at: Long = 0
+    state {
+        at: Long = 0
+    }
 
     fn tick() -> Tick {
         at = at + step.nanos
@@ -13219,7 +13295,9 @@ actor effect Counting {
 // the frame is handed over, so a print here would race main's own.
 handler Tallying(label: Str) of Inbound, Counting {
     mailbox { capacity: 16 }
-    seen: Mut List<Str> = Mut List<Str>()
+    state {
+        seen: Mut List<Str> = Mut List<Str>()
+    }
 
     send fn receive_frame(from: NodeEndpoint, frame: Bytes) => !from, !frame {
         seen.add("${label} <- ${to_str(from)}: ${str_of_bytes(frame) ?: "?"}")
@@ -13315,8 +13393,10 @@ actor effect Seen {
 // ordering by data dependency, since the frame arrives on a socket thread.
 handler Echoing() of Inbound, Seen {
     mailbox { capacity: 16 }
-    got: Str = ""
-    waiting: Mut List<Reply<Str>> = Mut List()
+    state {
+        got: Str = ""
+        waiting: Mut List<Reply<Str>> = Mut List()
+    }
 
     send fn receive_frame(from: NodeEndpoint, frame: Bytes) => !from, !frame {
         got = "${to_str(from)}: ${str_of_bytes(frame) ?: "?"}"
@@ -13491,7 +13571,9 @@ actor effect Counter {
 
 handler Counting() of Counter {
     mailbox { capacity: 2 }
-    sum: Int = 0
+    state {
+        sum: Int = 0
+    }
     send fn bump(n: Int) => !n { sum = sum + n }
     send fn total(out: Reply<Int>) => !out { out.send(sum) }
 }
@@ -13713,7 +13795,9 @@ const EFFECT_GENERIC_DEMO: &str = r#"actor effect Ping { send fn ping(n: Int) =>
     send fn count(out: Reply<Int>) => !out }
 handler Pinging() [Console] of Ping {
     mailbox { capacity: 4 }
-    seen: Int = 0
+    state {
+        seen: Int = 0
+    }
     send fn ping(n: Int) => !n {
         seen = seen + 1
         println("ping ${n}")
@@ -13728,7 +13812,9 @@ actor effect Reg<E> {
 
 handler Registering<E>() of Reg<E> {
     mailbox { capacity: 8 }
-    all: Mut List<Addr<E>> = Mut List()
+    state {
+        all: Mut List<Addr<E>> = Mut List()
+    }
     send fn join(member: Addr<E>) => !member { add(all, member) }
     send fn members(out: Reply<List<Addr<E>>>) => !out { out.send(copy(all)) }
 }
@@ -13824,7 +13910,9 @@ const PRIVATE_SENDS_DEMO: &str = r#"actor effect Counter {
 
 handler Counting() of Counter {
     mailbox { capacity: 8 }
-    sum: Int = 0
+    state {
+        sum: Int = 0
+    }
     send fn bump(n: Int) { sum = sum + n }
     send fn total(out: Reply<Int>) { out.send(sum) }
 }
@@ -13837,7 +13925,9 @@ actor effect Report {
 // continuation target with two captures.
 handler Reporting(counter: Addr<Counter>) of Report {
     mailbox { capacity: 8 }
-    asked: Int = 0
+    state {
+        asked: Int = 0
+    }
     send fn report(label: Str, out: Reply<Str>) {
         twice@self(1)
         counter.total(replyto reported(label, out))
@@ -13957,7 +14047,9 @@ actor effect Worker {
 
 handler Registering() of Registry {
     mailbox { capacity: 8 }
-    n: Int = 0
+    state {
+        n: Int = 0
+    }
     send fn register(who: Addr<Worker>) => !who { n = n + 1 }
     send fn count(out: Reply<Int>) => !out { out.send(n) }
 }
@@ -13966,7 +14058,9 @@ handler Registering() of Registry {
 // this actor's own address as its Worker face.
 handler Working(registry: Addr<Registry>, who: Str) of Worker {
     mailbox { capacity: 8 }
-    started: Int = 0
+    state {
+        started: Int = 0
+    }
     init {
         started = 1
         registry.register(self@Worker)
@@ -13976,7 +14070,9 @@ handler Working(registry: Addr<Registry>, who: Str) of Worker {
 
 effect Greeter { fn greet() -> Str }
 handler Greeting(name: Str) of Greeter {
-    prefix: Str = ""
+    state {
+        prefix: Str = ""
+    }
     init { prefix = "hello, " }          // a constructor body for a plain handler
     fn greet() -> Str { return "${prefix}${name}" }
 }
@@ -13985,7 +14081,9 @@ effect Clock { fn now() -> Int }
 handler FixedClock(t: Int) of Clock { fn now() -> Int { return copy(t) } }
 // A dependent handler's `init` under a `use`: the dependency is readable.
 handler Stamped(who: Str) [Clock] of Greeter {
-    started_at: Int = 0
+    state {
+        started_at: Int = 0
+    }
     init { started_at = now() }
     fn greet() -> Str { return "hello ${who} since ${started_at}" }
 }
@@ -14039,7 +14137,9 @@ handler Resizing(who: Str) of Resizer {
 // member, so it promises no order between two sends — and says so.
 handler RoundRobin(members: List<Addr<Resizer>>) of any Resizer {
     mailbox { capacity: 16 }
-    next: Int = 0
+    state {
+        next: Int = 0
+    }
     send fn resize(name: Str, w: Int, out: Reply<Str>) => !out {
         let i = next % size(members)
         next = next + 1
@@ -14088,7 +14188,9 @@ actor effect Inventory {
 
 handler Stocking(shard: Str) of Inventory {
     mailbox { capacity: 32 }
-    served: Int = 0
+    state {
+        served: Int = 0
+    }
     send fn reserve(sku: Key Str, qty: Int, out: Reply<Str>) => !sku, !qty, !out {
         served = served + qty
         out.send("${shard} took ${sku} (${served} so far)")
@@ -14144,7 +14246,9 @@ actor effect Sequencer {
 
 handler Sequencing(who: Str) of Sequencer {
     mailbox { capacity: 8 }
-    n: Int = 0
+    state {
+        n: Int = 0
+    }
     send fn next(out: Reply<Str>) => !out {
         n = n + 1
         out.send("${who}#${n}")

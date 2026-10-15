@@ -122,7 +122,7 @@ impl Gathering() of Gather stateful {
         arm#1 (none) {
         }
         arm#2 (else) {
-          unreachable("unhandled union arm") at main:135:13
+          unreachable("unhandled union arm") at main:141:13
         }
       }
     }
@@ -171,7 +171,7 @@ impl Racing() of Race stateful {
         call core.basic::discard<Str>(!read answer)
       }
       arm#2 (else) {
-        unreachable("unhandled union arm") at main:169:9
+        unreachable("unhandled union arm") at main:177:9
       }
     }
   }
@@ -217,7 +217,7 @@ fn main::checkout(lent inventory: Inventory, lent console: Console; lent skus: L
       bind#6 let __nn~1: proj Str? = call core.list::get(List<T>, Int)<Str>(drop_mut(read parts), 0)
       value switch#5 read __nn~1 {
         arm#0 (none) {
-          unreachable("value is absent") at main:220:26
+          unreachable("value is absent") at main:228:26
         }
         arm#1 (else) {
           narrow#7[switch#5.arm#1] __some~2: proj Str = __nn~1
@@ -229,7 +229,7 @@ fn main::checkout(lent inventory: Inventory, lent console: Console; lent skus: L
       bind#10 let __nn~3: proj Str? = call core.list::get(List<T>, Int)<Str>(drop_mut(read parts), 1)
       value switch#9 read __nn~3 {
         arm#0 (none) {
-          unreachable("value is absent") at main:221:30
+          unreachable("value is absent") at main:229:30
         }
         arm#1 (else) {
           narrow#11[switch#9.arm#1] __some~4: proj Str = __nn~3
@@ -242,7 +242,7 @@ fn main::checkout(lent inventory: Inventory, lent console: Console; lent skus: L
     bind#14 let __nn~5: proj Str? = call core.list::get(List<T>, Int)<Str>(drop_mut(read shards), 0)
     value switch#13 read __nn~5 {
       arm#0 (none) {
-        unreachable("value is absent") at main:223:51
+        unreachable("value is absent") at main:231:51
       }
       arm#1 (else) {
         narrow#15[switch#13.arm#1] __some~6: proj Str = __nn~5
@@ -253,7 +253,7 @@ fn main::checkout(lent inventory: Inventory, lent console: Console; lent skus: L
     bind#18 let __nn~7: proj Str? = call core.list::get(List<T>, Int)<Str>(drop_mut(read shards), 2)
     value switch#17 read __nn~7 {
       arm#0 (none) {
-        unreachable("value is absent") at main:223:68
+        unreachable("value is absent") at main:231:68
       }
       arm#1 (else) {
         narrow#19[switch#17.arm#1] __some~8: proj Str = __nn~7
@@ -265,7 +265,7 @@ fn main::checkout(lent inventory: Inventory, lent console: Console; lent skus: L
     bind#22 let __nn~9: proj Str? = call core.list::get(List<T>, Int)<Str>(drop_mut(read shards), 0)
     value switch#21 read __nn~9 {
       arm#0 (none) {
-        unreachable("value is absent") at main:224:49
+        unreachable("value is absent") at main:232:49
       }
       arm#1 (else) {
         narrow#23[switch#21.arm#1] __some~10: proj Str = __nn~9
@@ -276,7 +276,7 @@ fn main::checkout(lent inventory: Inventory, lent console: Console; lent skus: L
     bind#26 let __nn~11: proj Str? = call core.list::get(List<T>, Int)<Str>(drop_mut(read shards), 3)
     value switch#25 read __nn~11 {
       arm#0 (none) {
-        unreachable("value is absent") at main:224:66
+        unreachable("value is absent") at main:232:66
       }
       arm#1 (else) {
         narrow#27[switch#25.arm#1] __some~12: proj Str = __nn~11
@@ -288,7 +288,7 @@ fn main::checkout(lent inventory: Inventory, lent console: Console; lent skus: L
     bind#30 let __nn~13: proj Str? = call core.list::get(List<T>, Int)<Str>(drop_mut(read shards), 0)
     value switch#29 read __nn~13 {
       arm#0 (none) {
-        unreachable("value is absent") at main:225:50
+        unreachable("value is absent") at main:233:50
       }
       arm#1 (else) {
         narrow#31[switch#29.arm#1] __some~14: proj Str = __nn~13
@@ -299,7 +299,7 @@ fn main::checkout(lent inventory: Inventory, lent console: Console; lent skus: L
     bind#34 let __nn~15: proj Str? = call core.list::get(List<T>, Int)<Str>(drop_mut(read shards), 1)
     value switch#33 read __nn~15 {
       arm#0 (none) {
-        unreachable("value is absent") at main:225:67
+        unreachable("value is absent") at main:233:67
       }
       arm#1 (else) {
         narrow#35[switch#33.arm#1] __some~16: proj Str = __nn~15

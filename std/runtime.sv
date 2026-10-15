@@ -464,32 +464,34 @@ effect SchedTable {
 }
 
 handler Scheduler() of SchedTable {
-    actors: Mut List<Mut ActorRec> = Mut List()
-    waiters: Mut List<Mut WaiterRec> = Mut List()
-    // [waitfor-pump] Waiter records whose wait has ended, to be reused: the
-    // table stays as large as the most waits ever open at once.
-    free_waiters: Mut List<Int> = Mut List()
-    pools: Mut List<Mut PoolRec> = Mut List()
-    idle_hooks: Mut List<IdleHook> = Mut List()
-    next_slot: Long = 0
-    // Frames running — activations and tasks — and, of those, the ones
-    // parked in a wait; how deep main's own thread is in a wait; outside
-    // sources of work [threadsafe-platform].
-    active: Int = 0
-    parked_frames: Int = 0
-    main_waits: Int = 0
-    externals: Int = 0
-    // [pool-retire] Worker threads that have returned.
-    retired: Int = 0
-    // [test-actor] The virtual runtime: no worker threads, a clock moved by
-    // the scheduler, randomness from a seed, and the hooks that move time.
-    virtual_mode: Bool = false
-    vnow: Long = 0
-    rng: Long = 1
-    // [random-default] Whether `rng` has been seeded outside the virtual
-    // runtime, which seeds it itself.
-    rng_seeded: Bool = false
-    clock_hooks: Mut List<Token> = Mut List()
+    state {
+        actors: Mut List<Mut ActorRec> = Mut List()
+        waiters: Mut List<Mut WaiterRec> = Mut List()
+        // [waitfor-pump] Waiter records whose wait has ended, to be reused: the
+        // table stays as large as the most waits ever open at once.
+        free_waiters: Mut List<Int> = Mut List()
+        pools: Mut List<Mut PoolRec> = Mut List()
+        idle_hooks: Mut List<IdleHook> = Mut List()
+        next_slot: Long = 0
+        // Frames running — activations and tasks — and, of those, the ones
+        // parked in a wait; how deep main's own thread is in a wait; outside
+        // sources of work [threadsafe-platform].
+        active: Int = 0
+        parked_frames: Int = 0
+        main_waits: Int = 0
+        externals: Int = 0
+        // [pool-retire] Worker threads that have returned.
+        retired: Int = 0
+        // [test-actor] The virtual runtime: no worker threads, a clock moved by
+        // the scheduler, randomness from a seed, and the hooks that move time.
+        virtual_mode: Bool = false
+        vnow: Long = 0
+        rng: Long = 1
+        // [random-default] Whether `rng` has been seeded outside the virtual
+        // runtime, which seeds it itself.
+        rng_seeded: Bool = false
+        clock_hooks: Mut List<Token> = Mut List()
+    }
 
     // [main-pool] Pool 0 exists from the start and belongs to `main`.
     init {

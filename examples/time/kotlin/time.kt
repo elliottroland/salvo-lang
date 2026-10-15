@@ -344,7 +344,7 @@ class ManualTime : Timer, TimerCtl {
                 val __nn_2: Long? = salvo.core.list.getPlatform(deadlines, at)
                 when {
                     (__nn_2 == null) -> {
-                        throw AssertionError(("salvo: " + ("value is absent") + " at time:477:33"))
+                        throw AssertionError(("salvo: " + ("value is absent") + " at time:481:33"))
                     }
                     else -> {
                         val __some_3: Long = __nn_2!!
@@ -416,7 +416,7 @@ fun earliestDue(deadlines: List<Long>, target: Long): Int? {
             val __nn_1: Long? = salvo.core.list.getPlatform(deadlines, i)
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at time:501:23"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at time:505:23"))
                 }
                 else -> {
                     val __some_2: Long = __nn_1!!

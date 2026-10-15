@@ -405,7 +405,9 @@ effect Parking {
 }
 
 handler Parked() of Parking {
-    waiting: Mut List<Token> = Mut List()
+    state {
+        waiting: Mut List<Token> = Mut List()
+    }
 
     fn park(t: Token) -> None
     => !t {
@@ -442,7 +444,9 @@ effect Parking {
 }
 
 handler Parked() of Parking {
-    waiting: Mut List<Token> = Mut List()
+    state {
+        waiting: Mut List<Token> = Mut List()
+    }
 
     fn shutdown() -> None {
         drain(waiting, spend)
@@ -470,7 +474,9 @@ effect Parking {
 }
 
 handler Parked() of Parking {
-    held: Token = mint(0)
+    state {
+        held: Token = mint(0)
+    }
 
     fn park(t: Token) -> None {
         spend(t)
@@ -499,7 +505,9 @@ effect Counting {
 }
 
 handler Counter() of Counting {
-    sum: Int = 0
+    state {
+        sum: Int = 0
+    }
 
     fn bump(n: Int) -> None {
         sum = sum + n

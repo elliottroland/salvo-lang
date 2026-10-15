@@ -81,7 +81,9 @@ fn no_queue(url: Str) [] -> SqsError => !url {
 // generated effect is the contract, so any handler of it will do. Queues are
 // keyed by URL; a received message stays until deleted, as in SQS.
 handler MemSqs() of Sqs {
-    queues: Mut Map<Str, List<Str>> = Mut Map()
+    state {
+        queues: Mut Map<Str, List<Str>> = Mut Map()
+    }
 
     fn create_queue(input: CreateQueueInput, reply: Reply<Ok CreateQueueOutput | Err Checked<SqsFailure>>) -> None
     => !input, !reply {

@@ -217,7 +217,7 @@ class Streams : StreamTable {
                 val __nn_1: InEntry? = salvo.core.list.removeAtPlatform(ins, at)
                 when {
                     (__nn_1 == null) -> {
-                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime.streams:159:20"))
+                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime.streams:161:20"))
                     }
                     else -> {
                         val __some_2: InEntry = __nn_1!!
@@ -241,7 +241,7 @@ class Streams : StreamTable {
                 val __nn_1: OutEntry? = salvo.core.list.removeAtPlatform(outs, at)
                 when {
                     (__nn_1 == null) -> {
-                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime.streams:173:20"))
+                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime.streams:175:20"))
                     }
                     else -> {
                         val __some_2: OutEntry = __nn_1!!
@@ -273,7 +273,7 @@ class Streams : StreamTable {
                     val __nn_1: Pending? = salvo.core.list.getPlatform(pending, i)
                     when {
                         (__nn_1 == null) -> {
-                            throw AssertionError(("salvo: " + ("value is absent") + " at runtime.streams:193:16"))
+                            throw AssertionError(("salvo: " + ("value is absent") + " at runtime.streams:195:16"))
                         }
                         else -> {
                             val __some_2: Pending = __nn_1!!
@@ -301,7 +301,7 @@ fun indexIn(keys: List<Long>, handle: Long): Int {
             val __nn_1: Long? = salvo.core.list.getPlatform(keys, i)
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime.streams:207:12"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime.streams:209:12"))
                 }
                 else -> {
                     val __some_2: Long = __nn_1!!
@@ -329,7 +329,7 @@ fun unbusy(busy: salvo.platform.core.list.MutList<Long>, waiting: salvo.platform
             val __nn_1: salvo.platform.runtime.Parker? = salvo.core.list.removeAtPlatform(waiting, 0)
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime.streams:224:16"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at runtime.streams:226:16"))
                 }
                 else -> {
                     val __some_2: salvo.platform.runtime.Parker = __nn_1!!
@@ -374,7 +374,7 @@ fun checkoutIn(handle: Long): InEntry {
         }
         salvo.runtime.parkPlatform(salvo.runtime.thisParkerPlatform())
     }
-    throw AssertionError("salvo: unreachable at runtime.streams:261:5")
+    throw AssertionError("salvo: unreachable at runtime.streams:263:5")
     return checkoutIn(handle)
 }
 
@@ -392,7 +392,7 @@ fun checkoutOut(handle: Long): OutEntry {
         }
         salvo.runtime.parkPlatform(salvo.runtime.thisParkerPlatform())
     }
-    throw AssertionError("salvo: unreachable at runtime.streams:276:5")
+    throw AssertionError("salvo: unreachable at runtime.streams:278:5")
     return checkoutOut(handle)
 }
 
@@ -504,7 +504,7 @@ fun readLine(e: InEntry): Read {
                 val __nn_1: UByte? = salvo.core.bytes.getPlatform(line, (n - 1))
                 when {
                     (__nn_1 == null) -> {
-                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime.streams:362:32"))
+                        throw AssertionError(("salvo: " + ("value is absent") + " at runtime.streams:364:32"))
                     }
                     else -> {
                         val __some_2: UByte = __nn_1!!
@@ -538,7 +538,7 @@ fun readLine(e: InEntry): Read {
         }
         salvo.core.bytes.appendPlatform((e.ahead as salvo.platform.core.bytes.MutBytes), got.data)
     }
-    throw AssertionError("salvo: unreachable at runtime.streams:357:5")
+    throw AssertionError("salvo: unreachable at runtime.streams:359:5")
     return readLine(e)
 }
 
@@ -561,7 +561,7 @@ fun readAll(e: InEntry): Read {
         e.position = (e.position + (salvo.core.bytes.sizePlatform(got.data)).toLong())
         salvo.core.bytes.appendPlatform(out, got.data)
     }
-    throw AssertionError("salvo: unreachable at runtime.streams:389:5")
+    throw AssertionError("salvo: unreachable at runtime.streams:391:5")
     return readAll(e)
 }
 

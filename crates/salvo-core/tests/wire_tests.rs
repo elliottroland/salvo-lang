@@ -309,7 +309,7 @@ fn effect_typed_generics_check() {
          send fn peers(out: Reply<List<Addr<E>>>) => !out\n    \
          send fn twin(other: Addr<Reg<E>>) => !other\n}}\n\
          handler Registering<E>() of Reg<E> {{\n    mailbox {{ capacity: 4 }}\n    \
-         all: Mut List<Addr<E>> = Mut List()\n    \
+         state {{\n    all: Mut List<Addr<E>> = Mut List()\n    }}\n    \
          send fn join(member: Addr<E>) => !member {{ add(all, member) }}\n    \
          send fn peers(out: Reply<List<Addr<E>>>) => !out {{ out.send(copy(all)) }}\n    \
          send fn twin(other: Addr<Reg<E>>) => !other {{ }}\n}}\n\

@@ -157,7 +157,14 @@ fn fields(ctx: &Ctx<'_>, file_idx: usize, decls: &[ast::FieldDecl], errors: &mut
         .iter()
         .map(|f| Field {
             name: f.name.name.clone(),
-            ty: ctx.written_ty(file_idx, &f.ty),
+            // [state-infer] An inferred state field (`name = value`, `ty` is
+            // `None`) has no written type to lower; the checker recorded the
+            // inferred type keyed by the field-name span, so read it back —
+            // the same channel `waitfor` uses for its inferred token type.
+            ty: match &f.ty {
+                Some(t) => ctx.written_ty(file_idx, t),
+                None => ctx.ty_of(file_idx, f.name.span).unwrap_or(Ty::Unknown),
+            },
             canbe_mut: f.canbe_mut,
             default: f.default.as_ref().map(|d| {
                 let mut lower = Lower::new(ctx, file_idx, None);

@@ -310,7 +310,7 @@ fn handler_state_holds_containers_but_not_bare_obligations() {
     let errs = errors(&format!(
         "{LINES}\n\
          effect Log {{\n    fn note(m: Str) -> None => !m\n}}\n\
-         handler Keeper of Log {{\n    held: Lines = open_lines(\"a\")\n\n    \
+         handler Keeper of Log {{\n    state {{\n        held: Lines = open_lines(\"a\")\n    }}\n\n    \
          fn note(m: Str) -> None {{}}\n}}\n"
     ));
     assert!(
@@ -325,7 +325,7 @@ fn handler_state_holds_containers_but_not_bare_obligations() {
     let errs = errors(&format!(
         "{LINES}\n\
          effect Log {{\n    fn note(m: Str) -> None => !m\n}}\n\
-         handler Keeper of Log {{\n    held: Mut List<Lines> = Mut List()\n\n    \
+         handler Keeper of Log {{\n    state {{\n        held: Mut List<Lines> = Mut List()\n    }}\n\n    \
          fn note(m: Str) -> None {{\n        drain(held, close)\n        \
          held = Mut List()\n    }}\n}}\n"
     ));

@@ -138,6 +138,48 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-14 — Handler state in a `state { }` block, with inferred field types (step 1 of the state-struct work)
+
+Handler state is now declared in a `state { … }` block — the same shape an
+`iter fn` already uses — and a bare field in the handler body is an error
+naming the block (user decision 2026-10-14). Within the block (and an
+`iter fn`'s), a field may write its type (`i: Int = 0`, which may be *wider*
+than the value) or omit it (`i = 0`), inferring the field's type from the
+initializer exactly as `let x = value` does ([state-infer]). Resolves the
+noticeboard `disk.sv` TODO: `notice_by_id = Mut Map<Str, Notice>()` no longer
+repeats the type. References stay bare — ctor params and state both read bare,
+no `state.` receiver; state stays implicitly `Mut`.
+
+Mechanism:
+- `ast::FieldDecl.ty` became `Option<Type>` (`None` = inferred). `parse_field_decl`
+  gained an `allow_inferred` flag, true only for `state { }` blocks (handler
+  and iter-fn); struct fields and qualifier overrides still require `: Type`.
+  The handler body parser now takes a `state { }` block and rejects bare
+  fields.
+- The checker infers an un-annotated field's type from its initializer
+  (`check_pipe`-style: `check_expr(default, None)`), records it in `expr_ty`
+  keyed by the field-name span, and reads it back there for the member-body
+  frame; the IR's `fields()` reads it for lowering — the `waitfor`
+  inferred-type pattern. An annotated field is checked as a `let x: T = value`
+  (subtype). `check_proj_field`/`check_linear_field`/`reject_iter_field` and
+  the display paths (docs, LSP) guard the `None` case. Backends unchanged
+  (they read the lowered IR `Ty`).
+- **iter-fn inference is deferred (step 2, ROADMAP)**: iter-fn state is lowered
+  to a struct in a pre-checker desugar, so an un-typed iter-fn field is refused
+  for now with that explanation. The planned fix is to move iter-fn state
+  lowering to the IR stage, where it becomes consistent with everything else.
+
+Breaking sweep (no-compat invariant): every handler with inline state rewritten
+into a `state { }` block — std (`fs/mem`, `net`, `runtime`, `runtime/routing`,
+`runtime/timers`, `runtime/streams`, `time`), `modules/aws`, examples
+(regenerated both trees), the inline `.sv` snippets across the backend/CLI/core
+test files (a `tmp/wrap_state.py` for the clean cases, by hand for `format!`
+doubled-brace and single-line snippets), and the std/aws platform host projects
+(`salvo platform generate`). Snapshots re-accepted were all the
+`ty: Named{…}` → `ty: Some(Named{…})` representation change and `main:line:col`
+trap-location line shifts. Full warm suite incl. kotlinc/rustc e2e green.
+
+
 ### 2026-10-14 — Flattened `replyto` operator
 
 A `replyto` may now be written as a **trailing operator** on the call it

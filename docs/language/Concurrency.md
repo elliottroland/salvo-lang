@@ -16,7 +16,9 @@ actor effect Counter {
 handler Counting() of Counter {
     mailbox { capacity: 8 }
 
-    sum: Int = 0
+    state {
+        sum: Int = 0
+    }
 
     send fn bump(n: Int) {
         sum = sum + n          // no lock: activations run one at a time
@@ -64,7 +66,9 @@ Inside an actor, `replyto` more often targets one of the actor's **own** members
 ```
 handler Gathering() of Gather {
     mailbox { capacity: 16 }
-    total: Int = 0
+    state {
+        total: Int = 0
+    }
     send fn scatter(word: Str, members: List<Addr<Search>>, out: Reply<Int>) => !word, !members, !out {
         for m in members { m.query(copy(word), replyto partial()) }   // one continuation per member
         …

@@ -60,7 +60,9 @@ handler Printing() of Log {
 handler Counting() [Log] of Counter {
     mailbox { capacity: 16 }
 
-    sum: Int = 0
+    state {
+        sum: Int = 0
+    }
 
     send fn bump(n: Int) {
         sum = sum + n
@@ -986,7 +988,9 @@ actor effect Work {
 handler Working() of Work {
     mailbox { capacity: 1 }
 
-    done: Int = 0
+    state {
+        done: Int = 0
+    }
 
     send fn start(n: Int) {
         step@self(n)
@@ -1154,7 +1158,9 @@ fn the_self_dispatch_error_names_the_self_send() {
     let errs = errors(
         "\
 handler Counting2() of Counter {
-    sum: Int = 0
+    state {
+        sum: Int = 0
+    }
 
     send fn bump(n: Int) {
         bump(n)
@@ -2236,7 +2242,9 @@ fn a_mailbox_sees_constructor_parameters_only() {
     let errs = errors(
         "\
 handler Loud() of Log {
-    room: Int = 8
+    state {
+        room: Int = 8
+    }
     mailbox { capacity: room }
     send fn note(what: Str) {}
 }
@@ -2350,7 +2358,9 @@ fn main() [use, spawn] {
 const ROUTER: &str = r#"
 handler Spraying(a: Addr<Counter>, b: Addr<Counter>) of any Counter {
     mailbox { capacity: 16 }
-    flip: Bool = false
+    state {
+        flip: Bool = false
+    }
     send fn bump(n: Int) {
         flip = !flip
         if flip { a.bump(n) } else { b.bump(n) }
@@ -2472,7 +2482,9 @@ fn a_private_send_member_is_reachable_by_self_send_and_replyto() {
         "\
 handler Sneaky(inner: Addr<Counter>) of Counter {
     mailbox { capacity: 4 }
-    sum: Int = 0
+    state {
+        sum: Int = 0
+    }
     send fn bump(n: Int) { helper@self(n) }
     send fn total(out: Reply<Int>) { inner.total(replyto answered(out)) }
     send fn helper(n: Int) => !n { sum = sum + n }
@@ -2485,7 +2497,9 @@ handler Sneaky(inner: Addr<Counter>) of Counter {
         "\
 handler Sneaky() of Counter {
     mailbox { capacity: 4 }
-    sum: Int = 0
+    state {
+        sum: Int = 0
+    }
     send fn bump(n: Int) { helper(n) }
     send fn total(out: Reply<Int>) { out.send(sum) }
     send fn helper(n: Int) { sum = sum + n }
@@ -2515,7 +2529,9 @@ effect Random {
 
 handler CyclicRandom(seed: Int) of Random {
     mailbox { capacity: 8 }
-    cursor: Int = 0
+    state {
+        cursor: Int = 0
+    }
     send fn advance(out: Reply<Int>) => !out {
         cursor = cursor + seed
         out.send(cursor)
@@ -2544,7 +2560,9 @@ handler Registering() of Registry {
 }
 handler Announcing(reg: Addr<Registry>) of Counter {
     mailbox { capacity: 4 }
-    sum: Int = 0
+    state {
+        sum: Int = 0
+    }
     init {
         sum = 1
         reg.register(self@Counter)

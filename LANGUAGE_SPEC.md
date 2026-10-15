@@ -3765,6 +3765,32 @@ Conventions:
     `held: Mut List<Int> = "no"` was accepted and the emitters never saw
     the expression's types, which the backends' intrinsic lowerings rely
     on [backend-intrinsic].)
+* [state-infer] **A handler's state lives in a `state { … }` block**, the
+  same shape an `iter fn` uses (user decision 2026-10-14, replacing the free
+  field declarations that used to sit directly in the handler body — a bare
+  field in the body is now an error naming the block). Each field is written
+  one of two ways:
+  * `name: Type = value` — the written type, which **may be wider than the
+    value** (`label: Str? = "none"`, `values: Map<K,V> = Mut Map<K,V>(…)`),
+    checked as a `let x: T = value` is.
+  * `name = value` — **the type is inferred from the initializer**, exactly
+    as `let x = value` infers [let-infer]: `seen = Mut Map<Str, Int>()` makes
+    the field `Mut Map<Str, Int>`, `sum = 0` makes it `Int`. The inferred
+    type is whatever the value resolves to, qualifiers (`Mut`, `Heap`, …) and
+    all.
+  * Either way an **initializer is required** (the state is built once, at
+    construction), the field is referenced **bare** in member bodies (ctor
+    params and state both read bare — there is no `state.` receiver), and
+    state is implicitly `Mut`. The inferred type is carried in a checker
+    side table keyed by the field-name span and read back at IR lowering, the
+    way `waitfor`'s inferred token type is [waitfor-infer] — the AST's
+    `FieldDecl.ty` is `None` for an inferred field. A struct field and a
+    qualifier override always write their type. An `iter fn`'s `state { … }`
+    block takes the same two forms syntactically, but the inferred form is
+    not yet supported there — an `iter fn`'s state is lowered to a struct
+    before the checker runs, so its type is not yet inferred at that point;
+    writing the type is required for now, and a bare `name = value` is
+    refused with that explanation (the deferral is tracked in ROADMAP.md).
 * [effect-handler-multi] **A handler may implement several effects**, one face
   per effect: `handler ManualTime() of Timer, TimerCtl` (T-4(a), user decision
   2026-09-17; built 2026-09-18). One handler, one piece of state, one mailbox

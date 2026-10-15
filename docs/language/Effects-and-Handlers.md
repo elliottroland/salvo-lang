@@ -15,9 +15,14 @@ Effects have _handlers_, which define their concrete implementations:
 
 ```
 // A handler which returns successive values in an array, and loops back when done.
-// Handlers have their own state, which can be used through their lifetime. Here `numbers` are passed in and `i` is defined at construction time with a default value.
+// Handlers have their own state, declared in a `state { … }` block. Here
+// `values` is a constructor parameter and `i` is a state field, initialised at
+// construction. A field may write its type (`i: Int = 0`) or let it be inferred
+// from the initialiser (`i = 0`) — the same choice a `let` binding has.
 handler CyclicRandom<T>(values: T[]) of Random<T> {
-    i: Int = 0
+    state {
+        i = 0
+    }
 
     // Every function must be defined. In this case just `next_random`
     fn next_random() -> T {
@@ -184,7 +189,9 @@ A handler's state fields have initialisers, but an initialiser is an expression 
 ```
 handler Working(registry: Addr<Registry>, who: Str) of Worker {
     mailbox { capacity: 8 }
-    started: Int = 0
+    state {
+        started: Int = 0
+    }
     init {
         started = 1
         registry.register(self@Worker)      // this actor's own address, as its Worker face
@@ -206,7 +213,9 @@ effect Tally { fn bump(n: Int) -> None => !n }
 effect Stats { fn total() -> Int }
 
 handler Counting() of Tally, Stats {
-    sum: Int = 0
+    state {
+        sum: Int = 0
+    }
 
     fn bump(n: Int) { sum = sum + n }
     fn total() -> Int { return sum }
@@ -238,7 +247,9 @@ effect Random {
 }
 
 handler CyclicRandom(seed: Int) of Random {
-    cursor: Int = 0
+    state {
+        cursor: Int = 0
+    }
     fn next() -> Int {
         cursor = (cursor * 31 + seed) % 100000
         return cursor

@@ -100,7 +100,9 @@ pub fn walk_fn<V: MutVisitor>(v: &mut V, f: &mut FnDecl) {
 pub fn walk_field_decl<V: MutVisitor>(v: &mut V, f: &mut FieldDecl) {
     v.visit_span(&mut f.span);
     v.visit_ident(&mut f.name);
-    walk_type(v, &mut f.ty);
+    if let Some(t) = &mut f.ty {
+        walk_type(v, t);
+    }
     if let Some(d) = &mut f.default {
         walk_expr(v, d);
     }

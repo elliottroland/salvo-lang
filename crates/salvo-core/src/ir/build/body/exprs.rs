@@ -407,7 +407,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         if let (AExpr::Field { base, field, .. }, Some(over)) = (e, self.ctx.checked.field_casts.get(&key).map(erase)) {
             let base_ty = self.ty_of(base.span());
             let declared = match base_ty.strip_quals() {
-                Ty::Named { name, .. } => self.ctx.symbols.structs.get(name.as_str()).and_then(|sd| sd.fields.iter().find(|f| f.name.name == field.name).map(|f| self.ctx.written_ty(self.file_idx, &f.ty))),
+                Ty::Named { name, .. } => self.ctx.symbols.structs.get(name.as_str()).and_then(|sd| sd.fields.iter().find(|f| f.name.name == field.name).map(|f| self.ctx.written_ty(self.file_idx, f.written_ty()))),
                 _ => None,
             };
             if let Some(declared) = declared.filter(|d| *d != over) {
@@ -1168,7 +1168,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             if let Some(pos) = written.iter().position(|(n, _)| n == name) {
                 all.push(written.remove(pos));
             } else if let Some(src) = spread_locals.last() {
-                let fty = self.ctx.written_ty(self.file_idx, &fd.ty);
+                let fty = self.ctx.written_ty(self.file_idx, fd.written_ty());
                 all.push((name.clone(), Expr { ty: fty, span, kind: ExprKind::Read { place: Place { root: src.clone(), steps: vec![Step::Field(name.clone())] }, consume: true } }));
             } else if let Some(d) = &fd.default {
                 all.push((name.clone(), self.expr(d)));
@@ -1532,7 +1532,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                         .structs
                         .get(name.as_str())
                         .and_then(|sd| sd.fields.iter().find(|f| f.name.name == field.name))
-                        .map(|f| self.ctx.written_ty(self.file_idx, &f.ty)),
+                        .map(|f| self.ctx.written_ty(self.file_idx, f.written_ty())),
                     _ => None,
                 }
                 .unwrap_or_else(|| self.ty_of(span));

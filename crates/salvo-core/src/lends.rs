@@ -119,7 +119,7 @@ pub fn holds_proj(ty: &Type, structs: &HashMap<&str, &StructDecl>) -> bool {
             structs.get(n.as_str()).is_some_and(|d| {
                 d.fields
                     .iter()
-                    .any(|f| type_has_proj(&f.ty) || go(&f.ty, structs, seen))
+                    .any(|f| type_has_proj(f.written_ty()) || go(f.written_ty(), structs, seen))
             })
         })
     }
@@ -135,9 +135,9 @@ fn borrowing_fields<'p>(
     decl.fields
         .iter()
         .filter_map(|f| {
-            if type_has_proj(&f.ty) {
+            if type_has_proj(f.written_ty()) {
                 Some((f, true))
-            } else if holds_proj(&f.ty, structs) {
+            } else if holds_proj(f.written_ty(), structs) {
                 Some((f, false))
             } else {
                 None

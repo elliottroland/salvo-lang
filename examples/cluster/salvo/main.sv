@@ -36,7 +36,9 @@ actor effect Lookup {
 
 handler Sequencing(who: Str) of Sequencer {
     mailbox { capacity: 16 }
-    n: Int = 0
+    state {
+        n: Int = 0
+    }
     send fn next(out: Reply<Str>) => !out {
         n = n + 1
         out.send("${who}#${n}")
@@ -45,7 +47,9 @@ handler Sequencing(who: Str) of Sequencer {
 
 handler Stocking(shard: Str) of Inventory {
     mailbox { capacity: 32 }
-    served: Int = 0
+    state {
+        served: Int = 0
+    }
     send fn reserve(sku: Key Str, qty: Int, out: Reply<Str>) => !sku, !qty, !out {
         served = served + qty
         out.send("${shard}:${served}")
@@ -115,9 +119,11 @@ actor effect Gather {
 // `examples/actors/` explains.
 handler Gathering() of Gather {
     mailbox { capacity: 16 }
-    pending: Mut Deque<Reply<Int>> = mut_deque_of()
-    left: Int = 0
-    total: Int = 0
+    state {
+        pending: Mut Deque<Reply<Int>> = mut_deque_of()
+        left: Int = 0
+        total: Int = 0
+    }
     send fn scatter(word: Str, members: List<Addr<Search>>, out: Reply<Int>) => !word, !members, !out {
         add_last(pending, out)
         left = size(members)
@@ -157,7 +163,9 @@ actor effect Race {
 
 handler Racing() of Race {
     mailbox { capacity: 16 }
-    pending: Mut Deque<Reply<Str>> = mut_deque_of()
+    state {
+        pending: Mut Deque<Reply<Str>> = mut_deque_of()
+    }
     send fn race(key: Str, members: List<Addr<Lookup>>, out: Reply<Str>) => !key, !members, !out {
         add_last(pending, out)
         for m in members {
@@ -262,7 +270,9 @@ actor effect Boot {
 
 handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: Addr<MemNet>) [Transport, spawn] of Boot {
     mailbox { capacity: 2 }
-    nodes: Addr<NodeGroup>? = None
+    state {
+        nodes: Addr<NodeGroup>? = None
+    }
     send fn boot(done: Reply<Addr<Sequencer>>) => !done {
         let p = pool(1)
         // A real second node is a second process; this in-process double runs

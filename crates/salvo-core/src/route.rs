@@ -135,7 +135,7 @@ pub fn expand_route_stubs(files: &[SourceFile], modules: &mut [Module]) -> Vec<(
                         group_args(&p.ty, &mut named);
                     }
                     for s in &h.state {
-                        group_args(&s.ty, &mut named);
+                        group_args(s.written_ty(), &mut named);
                     }
                     for f in &h.fns {
                         fn_types(f, &mut named);
@@ -143,7 +143,7 @@ pub fn expand_route_stubs(files: &[SourceFile], modules: &mut [Module]) -> Vec<(
                 }
                 Item::Struct(s) => {
                     for f in &s.fields {
-                        group_args(&f.ty, &mut named);
+                        group_args(f.written_ty(), &mut named);
                     }
                 }
                 _ => {}
@@ -530,7 +530,7 @@ fn build_stub(effect: &EffectDecl, spans: &mut Spans) -> (HandlerDecl, Vec<Diagn
         state: vec![salvo_syntax::ast::FieldDecl {
             docs: Vec::new(),
             name: ident("seen", spans),
-            ty: named("Long", Vec::new(), spans),
+            ty: Some(named("Long", Vec::new(), spans)),
             canbe_mut: false,
             default: Some(Expr::Int { value: -1, long: true, span: spans.take() }),
             span: spans.take(),
