@@ -83,6 +83,9 @@ enum InfixKind {
     Elvis,
     /// [expr-pipe] `|>` — the pipe, handled by `parse_pipe_tail`.
     Pipe,
+    /// [expr-safe-pipe] `?>` — the null-safe pipe, handled by
+    /// `parse_safe_pipe_tail`.
+    SafePipe,
 }
 
 /// [actor-self-send] The contextual selector that names the enclosing handler:
@@ -5086,6 +5089,11 @@ impl<'s> Parser<'s> {
                 lhs = self.parse_pipe_tail(lhs)?;
                 continue;
             }
+            // [expr-safe-pipe] The null-safe pipe `?>`.
+            if matches!(kind, InfixKind::SafePipe) {
+                lhs = self.parse_safe_pipe_tail(lhs)?;
+                continue;
+            }
             // A plain binary operator. `rbp = lbp + 1` makes it left-associative.
             let InfixKind::Binary(op) = kind else { break };
             self.bump();
@@ -5129,6 +5137,15 @@ impl<'s> Parser<'s> {
             // so far on its left. (`|>` is unambiguous line-leading — nothing
             // in Salvo starts a statement with it.)
             TokenKind::PipeGt => (2, InfixKind::Pipe),
+            // [expr-safe-pipe] `?>` — a `Question` glued to a `Gt` (not a
+            // lexer token, like `?.`): the null-safe pipe, at the pipe tier,
+            // detected before the elvis `?`-run so a `?>` is never read as an
+            // elvis operator.
+            TokenKind::Question
+                if matches!(self.peek_at(1).kind, TokenKind::Gt) =>
+            {
+                (2, InfixKind::SafePipe)
+            }
             // Elvis may start a continuation line [elvis-wrap]; the detailed
             // `?`-run / wrap decision is in `parse_elvis_tail`. A lone `:`/`?`
             // that is not a pick is left unconsumed there.
@@ -5414,6 +5431,24 @@ impl<'s> Parser<'s> {
     /// left-associative. The `_` it must contain is checked later
     /// ([placeholder]); here it is an ordinary expression, so `_` parses as a
     /// placeholder exactly as it does in an elvis right side.
+    /// [expr-safe-pipe] A null-safe pipe `?>` tail, folded onto `lhs`. `v ?>
+    /// f(_)` runs `f(_)` only when `v` is present (`T` of a `T?`), binding the
+    /// narrowed value to `_`, and rewraps the result `X` as `X?`; when `v` is
+    /// absent the result is `None` and the right side never runs — the pipe
+    /// analogue of `?.`. Same tier and newline behaviour as `|>`: the right
+    /// side is parsed at bp 3 (every tighter operator).
+    fn parse_safe_pipe_tail(&mut self, lhs: Expr) -> Option<Expr> {
+        self.bump(); // `?`
+        self.bump(); // `>`
+        let rhs = self.sub_expr(|p| p.parse_binary(3))?;
+        let span = lhs.span().to(rhs.span());
+        Some(Expr::SafePipe {
+            lhs: Box::new(lhs),
+            rhs: Box::new(rhs),
+            span,
+        })
+    }
+
     fn parse_pipe_tail(&mut self, lhs: Expr) -> Option<Expr> {
         self.bump(); // `|>`
         // The right side is parsed at bp 3 — every operator tighter than the

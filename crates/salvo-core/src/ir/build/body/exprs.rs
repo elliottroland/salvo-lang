@@ -228,6 +228,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             }
             AExpr::Elvis { subject, rhs, .. } => self.elvis(subject, rhs, span),
             AExpr::Pipe { lhs, rhs, .. } => self.pipe(lhs, rhs, span),
+            AExpr::SafePipe { lhs, rhs, .. } => self.safe_pipe(lhs, rhs, span),
             AExpr::Placeholder { .. } => match self.placeholder.clone() {
                 Some(local) => {
                     let ty = self.ty_of(span);
@@ -1632,6 +1633,65 @@ impl<'a, 'p> Lower<'a, 'p> {
         let r = self.expr(rhs);
         self.placeholder = saved;
         self.block_expr(vec![bind], r, span)
+    }
+
+    /// [expr-safe-pipe] `lhs ?> rhs` (user decision 2026-10-14): the null-safe
+    /// pipe, the pipe analogue of `?.`. Bind the left side once into a
+    /// temporary and switch on it: a `None` arm yields `MakeNone`; the `Else`
+    /// arm narrows the temporary to its non-`None` arm, makes that narrowed
+    /// local the placeholder `_`, lowers the right side, and lifts its value
+    /// into the result optional — unless the right side is itself optional
+    /// ([safe-nav]'s `Option<Option<T>>` guard), the same rule `?.` follows.
+    fn safe_pipe(&mut self, lhs: &AExpr, rhs: &AExpr, span: Span) -> Expr {
+        let ty = self.ty_of(span);
+        let l = self.expr(lhs);
+        let subj_ty = l.ty.clone();
+        let inner = subj_ty.without_none();
+        let id = self.id();
+        let tmp = self.fresh("__safepiped");
+        let lid = self.id();
+        let bind = Stmt::Let { id: lid, local: tmp.clone(), ty: subj_ty.clone(), value: l };
+        // Present arm: narrow to the non-`None` arm, bind `_` to it, lower the
+        // right side (which reads `_` non-consuming, like a plain pipe).
+        let nav = self.fresh("__safenav");
+        let nid = self.id();
+        let narrow = Stmt::Narrow {
+            id: nid,
+            local: nav.clone(),
+            ty: inner.clone(),
+            from: Place { root: tmp.clone(), steps: Vec::new() },
+            from_ty: subj_ty.clone(),
+            because: Justification::Arm { switch: id, arm: 1 },
+        };
+        let saved = self.placeholder.replace(nav);
+        let r = self.expr(rhs);
+        self.placeholder = saved;
+        // Lift the right side's value into the result optional, unless it is
+        // already one ([safe-nav], the `Option<Option<T>>` guard).
+        let present_value = if r.ty.has_none_arm() {
+            r
+        } else {
+            Expr { ty: ty.clone(), span, kind: ExprKind::Present { value: Box::new(r) } }
+        };
+        let present = Block { stmts: vec![narrow], value: Some(Box::new(present_value)), span };
+        let absent = Block {
+            stmts: Vec::new(),
+            value: Some(Box::new(Expr { ty: ty.clone(), span, kind: ExprKind::MakeNone })),
+            span,
+        };
+        let sw = Expr {
+            ty: ty.clone(),
+            span,
+            kind: ExprKind::Switch {
+                id,
+                subject: Box::new(Expr { ty: subj_ty, span, kind: ExprKind::Read { place: Place { root: tmp, steps: Vec::new() }, consume: false } }),
+                arms: vec![
+                    SwitchArm { test: ArmTest::None, body: absent },
+                    SwitchArm { test: ArmTest::Else, body: present },
+                ],
+            },
+        };
+        self.block_expr(vec![bind], sw, span)
     }
 
     fn elvis(&mut self, subject: &AExpr, rhs: &AExpr, span: Span) -> Expr {

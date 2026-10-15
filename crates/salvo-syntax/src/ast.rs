@@ -1922,6 +1922,18 @@ pub enum Expr {
         rhs: Box<Expr>,
         span: Span,
     },
+    /// [expr-safe-pipe] `value ?> f(_)` — the null-safe pipe (user decision
+    /// 2026-10-14), the pipe analogue of `?.`. `value` is a `T?`: when it is
+    /// present (`T`), the narrowed value binds to `_`, the right side runs,
+    /// and its result `X` is rewrapped as `X?`; when absent, the result is
+    /// `None` and the right side does not run. Loosest infix precedence and
+    /// left-associative, like `|>`, and a flattening operator (may begin a
+    /// continuation line, bracketing left).
+    SafePipe {
+        lhs: Box<Expr>,
+        rhs: Box<Expr>,
+        span: Span,
+    },
     /// [placeholder] `_` — the value the enclosing construct left unnamed.
     /// Legal only inside an `?:` right-hand side today, where it is the arms
     /// the pick did **not** claim.
@@ -2187,6 +2199,7 @@ impl Expr {
             | Expr::Continue { span, .. }
             | Expr::Elvis { span, .. }
             | Expr::Pipe { span, .. }
+            | Expr::SafePipe { span, .. }
             | Expr::Placeholder { span }
             | Expr::SelfScoped { span, .. }
             | Expr::SelfAddr { span, .. }

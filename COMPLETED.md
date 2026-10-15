@@ -138,6 +138,52 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-14 — The `?>` null-safe pipe operator
+
+The pipe analogue of safe navigation `?.` (user decision 2026-10-14).
+`value ?> expr` takes an optional left side: when present, `_` binds to the
+non-`None` arm, the right side runs, and its value is lifted back to optional;
+when `None`, the right side never runs and the whole pipe is `None`
+(`let s: Str? = n ?> to_str(_)`). Decisions: the left side **must** be able to
+be absent (a `?>` on a never-`None` value is an error directing to a plain
+`|>`); the result is `X?`, never `X??` (the same `Option<Option<T>>` guard
+`?.` follows); `_` is mandatory, as in `|>`; it shares the pipe's loosest tier,
+is left-associative, and is a flattening operator (mixes and chains with `|>`
+across continuation lines, bracketing left).
+
+- **Syntax**: not a lexer token — `?` then `>`, two glued tokens like `?.`
+  (`Expr::SafePipe { lhs, rhs }`, `InfixKind::SafePipe` at bp 2, the pipe
+  tier). Detected in `infix_bp` on a `Question` whose next token is `Gt`,
+  **before** the elvis `?`-run arm so a `?>` is never read as elvis;
+  `parse_safe_pipe_tail` parses the right side at bp 3 (same as `|>`). Placed
+  ahead of the same-line guard so it may begin a continuation line.
+- **Checker**: `check_safe_pipe` types the left side, requires
+  `has_none_arm()` (else the "write a plain `|>`" error), binds `_` to
+  `without_none()`, checks the right side (reusing `placeholder_ty` /
+  `placeholder_read`, so an unused `_` is refused as for `|>`), and returns the
+  right side's type made optional — not double-wrapped when it is already
+  optional.
+- **IR**: `safe_pipe` lowers by reconstruction to the same `block_expr` →
+  two-arm `Switch` shape `?.` uses — bind the left side once, a `None` arm
+  yielding `MakeNone`, an `Else` arm that `Narrow`s to the non-`None` arm,
+  binds `_`, evaluates the right side, and wraps `Present` unless the right
+  side is already optional. No new IR node; pure reconstruction.
+- **Backends**: no new rule. Because the present arm wraps an arbitrary pipe
+  expression (not a `SafeNav`-justified field read), the `?.` native-chain
+  matchers never fire, so `?>` always renders as the generic short-circuiting
+  `Switch`/block on both backends — correct, carrying no backend behavior of
+  its own.
+- **Tests**: 5 parser tests (`safe_pipe_parses`, left-assoc, mixes with `|>`,
+  wraps across lines, `?`-then-`>` token shape) and twin e2e cases
+  (`rustc_compiles_and_runs_the_safe_pipe_operator`,
+  `kotlinc_compiles_and_runs_the_safe_pipe_operator`) covering present, absent
+  short-circuit, no-double-wrap when the right side is optional, and a `?>`
+  chain — both backends print identical lines.
+- **Spec/docs**: `[expr-safe-pipe]` in LANGUAGE_SPEC.md (after `[expr-pipe]`),
+  the backend specs' safe-nav bullets, docs/language/Control-Flow.md
+  ("Operators and the pipe") and Data-and-Types.md (cross-reference near `?.`),
+  wiki synced.
+
 ### 2026-10-14 — Inferred `iter fn` state fields (step 2 of the state-struct work)
 
 An `iter fn`'s `state { … }` block now takes the inferred form (`at = 0`) as

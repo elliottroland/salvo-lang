@@ -734,7 +734,7 @@ pub fn walk_expr<V: MutVisitor>(v: &mut V, e: &mut Expr) {
             walk_expr(v, subject);
             walk_expr(v, rhs);
         }
-        Expr::Pipe { lhs, rhs, span } => {
+        Expr::Pipe { lhs, rhs, span } | Expr::SafePipe { lhs, rhs, span } => {
             v.visit_span(span);
             walk_expr(v, lhs);
             walk_expr(v, rhs);

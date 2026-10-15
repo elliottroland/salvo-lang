@@ -238,3 +238,21 @@ more than once only where an ordinary local could. Because the pipe is the
 loosest operator, `2 + 3 |> double(_)` pipes the whole sum, and
 `x |> f(_) ?: g(_)` pipes `f(_) ?: g(_)` (the tighter pick is part of the right
 side).
+
+The **null-safe pipe** `?>` is the pipe analogue of safe navigation `?.`. It
+takes an optional left side: when the value is present, `_` binds to it, the
+right side runs, and its result is lifted back to optional; when the value is
+`None`, the right side never runs and the whole pipe is `None`.
+
+```
+let number: Int? = parse(text)
+let doubled: Int? = number ?> double(_)
+```
+
+`doubled` is `double(number)` wrapped as `Int?` when `number` is present, else
+`None`. The left side must be able to be absent — a `?>` on a value that is
+never `None` guards nothing and is an error pointing to a plain `|>`. When the
+right side is itself optional the result is not double-wrapped (`Int?`, not
+`Int??`), the same rule `?.` follows. It shares the pipe's loosest tier and
+left-associativity, so `?>` and `|>` mix and chain freely across continuation
+lines.

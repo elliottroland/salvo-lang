@@ -219,7 +219,7 @@ pub fn collect_returned_exprs<'a>(block: &'a Block, out: &mut Vec<&'a Expr>) {
                 expr(subject, out);
                 expr(rhs, out);
             }
-            Expr::Pipe { lhs, rhs, .. } => {
+            Expr::Pipe { lhs, rhs, .. } | Expr::SafePipe { lhs, rhs, .. } => {
                 expr(lhs, out);
                 expr(rhs, out);
             }

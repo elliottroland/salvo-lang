@@ -6966,6 +6966,60 @@ fn rustc_compiles_and_runs_the_pipe_operator() {
     run_rust_files(&files, "pipe", PIPE_OUTPUT);
 }
 
+/// [expr-safe-pipe] The null-safe pipe `?>` (user decision 2026-10-14): the
+/// pipe analogue of `?.`. Present lifts, absent short-circuits, the right
+/// side's own optional is not double-wrapped, and `?>` chains. The twin of
+/// `kotlinc_compiles_and_runs_the_safe_pipe_operator`; both backends print the
+/// same lines.
+const SAFE_PIPE_DEMO: &str = r#"
+fn maybe(present: Bool) -> Int? {
+    if present {
+        return 42
+    }
+    return None
+}
+
+fn double(x: Int) -> Int {
+    return x * 2
+}
+
+fn half_if_even(x: Int) -> Int? {
+    if x % 2 == 0 {
+        return x / 2
+    }
+    return None
+}
+
+fn show(label: Str, v: Int?) [Console] -> None {
+    when v {
+        is Int { println("${label} present ${v}") }
+        is None { println("${label} absent") }
+    }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    show("present", maybe(true) ?> double(_))
+    show("absent", maybe(false) ?> double(_))
+    show("flat", maybe(true) ?> half_if_even(_))
+    show("flat-none", maybe(true) ?> half_if_even(_ + 1))
+    show("chain", maybe(true) ?> double(_) ?> double(_))
+}
+"#;
+
+const SAFE_PIPE_OUTPUT: &str =
+    "present present 84\nabsent absent\nflat present 21\nflat-none absent\nchain present 168\n";
+
+#[test]
+fn rustc_compiles_and_runs_the_safe_pipe_operator() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", SAFE_PIPE_DEMO)]);
+    run_rust_files(&files, "safe_pipe", SAFE_PIPE_OUTPUT);
+}
+
 /// [elvis] The positional pick. `?:` keeps the first arm (`Forward(1)`), `:?`
 /// the last (`Backward(1)`); `_` on the right is the arms left behind, tags and
 /// all — the one place the placeholder earns its keep, since `Err Str` has no

@@ -15966,7 +15966,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             Expr::Elvis { .. } | Expr::Placeholder { .. } => false,
             // [expr-pipe] A pipe's value is its right side; it does not escape
             // by itself.
-            Expr::Pipe { .. } => false,
+            Expr::Pipe { .. } | Expr::SafePipe { .. } => false,
             // [safe-nav] A `?.` yields an optional; it exits nothing by itself.
             Expr::SafeNav { .. } => false,
             // [expr-escape] All three leave the enclosing block. `diverges`
@@ -16067,7 +16067,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // [fn-must-return], which `expr_exits` above answers.
             Expr::Unreachable { .. } | Expr::Todo { .. } | Expr::Assert { .. } => false,
             Expr::Elvis { .. } | Expr::Placeholder { .. } => false,
-            Expr::Pipe { .. } => false,
+            Expr::Pipe { .. } | Expr::SafePipe { .. } => false,
             Expr::SafeNav { .. } => false,
             // [expr-escape] Only `return` leaves the *function*; the guard
             // above has already answered `false` for the other two.
@@ -20289,7 +20289,7 @@ fn collect_binder_arg_sites<'p>(
                 expr(subject, name, out);
                 expr(rhs, name, out);
             }
-            Expr::Pipe { lhs, rhs, .. } => {
+            Expr::Pipe { lhs, rhs, .. } | Expr::SafePipe { lhs, rhs, .. } => {
                 expr(lhs, name, out);
                 expr(rhs, name, out);
             }
@@ -20404,7 +20404,7 @@ fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
             collect_assigned_expr(rhs, out);
         }
         // [expr-pipe] Both sides may hold assignments.
-        Expr::Pipe { lhs, rhs, .. } => {
+        Expr::Pipe { lhs, rhs, .. } | Expr::SafePipe { lhs, rhs, .. } => {
             collect_assigned_expr(lhs, out);
             collect_assigned_expr(rhs, out);
         }
@@ -20645,7 +20645,7 @@ fn expr_mentions(expr: &Expr, name: &str) -> bool {
         Expr::Elvis { subject, rhs, .. } => {
             expr_mentions(subject, name) || expr_mentions(rhs, name)
         }
-        Expr::Pipe { lhs, rhs, .. } => {
+        Expr::Pipe { lhs, rhs, .. } | Expr::SafePipe { lhs, rhs, .. } => {
             expr_mentions(lhs, name) || expr_mentions(rhs, name)
         }
         // [safe-nav] Mentions whatever its receiver or call arguments mention.
@@ -21000,6 +21000,62 @@ impl<'p, 'r> Checker<'p, 'r> {
             );
         }
         rhs_ty
+    }
+
+    /// [expr-safe-pipe] `lhs ?> rhs` (user decision 2026-10-14): the null-safe
+    /// pipe, `?.`'s analogue. `lhs` must be a `T?`; when present, `_` binds to
+    /// the non-`None` arm, `rhs` runs, and its type `X` is wrapped back as
+    /// `X?`; when absent, the value is `None` and `rhs` never runs. So the
+    /// result type is the right side's, made optional (and not double-wrapped
+    /// when the right side is itself optional).
+    fn check_safe_pipe(&mut self, lhs: &'p Expr, rhs: &'p Expr, span: Span) -> Ty {
+        let lhs_ty = self.check_expr(lhs, None);
+        if lhs_ty.is_unknown() {
+            // [type-unknown-lenient] One mistake, one diagnostic.
+            let saved = self.placeholder_ty.replace(Ty::Unknown);
+            let _ = self.check_expr(rhs, None);
+            self.placeholder_ty = saved;
+            return Ty::Unknown;
+        }
+        // The piped value must be able to be absent — otherwise `?>` guards
+        // nothing, exactly as `?.` requires an optional receiver.
+        if !lhs_ty.has_none_arm() {
+            self.error(
+                span,
+                format!(
+                    "`?>` pipes a value that can be absent, but this value is \
+                     `{lhs_ty}` — it is never `None`, so write a plain `|>`"
+                ),
+            );
+        }
+        // Inside the right side, `_` is the value **present** (its non-`None`
+        // arm), the same narrowing `?.` performs on its receiver.
+        let inner = lhs_ty.without_none();
+        let saw_before = self.placeholder_read;
+        self.placeholder_read = false;
+        let saved = self.placeholder_ty.replace(inner);
+        let rhs_ty = self.check_expr(rhs, None);
+        let read = std::mem::replace(&mut self.placeholder_read, saw_before);
+        self.placeholder_ty = saved;
+        if !read && !rhs_ty.is_unknown() {
+            self.error(
+                rhs.span(),
+                "the right side of `?>` must use the piped value `_` \
+                 (`x ?> f(_)`); it reads nothing here, so write a plain \
+                 statement instead"
+                    .to_string(),
+            );
+        }
+        // The result is the right side's type, made optional — not
+        // double-wrapped when the right side is already optional ([safe-nav]'s
+        // `Option<Option<T>>` rule).
+        if rhs_ty.is_unknown() {
+            Ty::Unknown
+        } else if rhs_ty.has_none_arm() {
+            rhs_ty
+        } else {
+            self.mk_union(vec![rhs_ty, Ty::none()])
+        }
     }
     /// one `is` of the same qualifiers performs — same arm, same lowering —
     /// but the matched type is *generalized* (the qualifiers removed) rather
@@ -22726,6 +22782,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // [expr-pipe] `lhs |> rhs` — the left side evaluated once, bound to
             // `_`, read in the right side. The result is the right side's type.
             Expr::Pipe { lhs, rhs, span } => self.check_pipe(lhs, rhs, *span),
+            Expr::SafePipe { lhs, rhs, span } => self.check_safe_pipe(lhs, rhs, *span),
             // [placeholder] Outside an `?:` right-hand side there is no value
             // for `_` to mean.
             Expr::Placeholder { span } => match self.placeholder_ty.clone() {

@@ -1067,7 +1067,7 @@ impl<'p> Walk<'_, 'p> {
                 self.expr(subject);
                 self.expr(rhs);
             }
-            Expr::Pipe { lhs, rhs, .. } => {
+            Expr::Pipe { lhs, rhs, .. } | Expr::SafePipe { lhs, rhs, .. } => {
                 self.expr(lhs);
                 self.expr(rhs);
             }

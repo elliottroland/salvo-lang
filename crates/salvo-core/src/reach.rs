@@ -542,7 +542,7 @@ fn expr_names<'p>(expr: &'p Expr, used: &mut HashSet<&'p str>) {
             expr_names(rhs, used);
         }
         // [expr-pipe] Names used on either side keep their modules reachable.
-        Expr::Pipe { lhs, rhs, .. } => {
+        Expr::Pipe { lhs, rhs, .. } | Expr::SafePipe { lhs, rhs, .. } => {
             expr_names(lhs, used);
             expr_names(rhs, used);
         }

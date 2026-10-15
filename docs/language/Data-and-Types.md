@@ -446,6 +446,12 @@ default — `last_updated?.nanos ?: -1L` — the two staying separate operators.
 A method-call link needs a variable or field as its receiver (it is read
 twice); bind a longer chain to a local first.
 
+To feed an optional value through an arbitrary expression the same way, the
+null-safe pipe `?>` is the pipe analogue of `?.`: `number ?> to_str(_)` runs
+`to_str` with `_` bound to the present value and lifts the result to optional,
+or short-circuits to `None` — see "Operators and the pipe" in
+[Control Flow](Control-Flow.md).
+
 To get a non-null value out when the compiler cannot prove it (equivalent to
 Rust's `unwrap`):
 

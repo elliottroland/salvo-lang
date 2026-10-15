@@ -3655,6 +3655,82 @@ fn pipe_token_is_distinct() {
     );
 }
 
+// --- [expr-safe-pipe] The null-safe pipe operator `?>` ---
+
+/// `a ?> f(_)` parses as a `SafePipe` with the call as its right side.
+#[test]
+fn safe_pipe_parses() {
+    let e = parse_expr_stmt("a ?> f(_)");
+    let Expr::SafePipe { lhs, rhs, .. } = &e else {
+        panic!("expected a SafePipe, got {e:?}");
+    };
+    assert!(matches!(**lhs, Expr::Ident(_)));
+    assert!(matches!(**rhs, Expr::Call { .. }));
+}
+
+/// `?>` is left-associative, like `|>`: `a ?> f(_) ?> g(_)` nests left.
+#[test]
+fn safe_pipe_is_left_associative() {
+    let e = parse_expr_stmt("a ?> f(_) ?> g(_)");
+    let Expr::SafePipe { lhs, .. } = &e else {
+        panic!("expected a SafePipe, got {e:?}");
+    };
+    assert!(
+        matches!(**lhs, Expr::SafePipe { .. }),
+        "the left side of the outer safe-pipe is the inner safe-pipe"
+    );
+}
+
+/// `?>` shares the loosest pipe tier with `|>` and mixes with it,
+/// left-associatively: `a |> f(_) ?> g(_)` is `(a |> f(_)) ?> g(_)`.
+#[test]
+fn safe_pipe_mixes_with_pipe() {
+    let e = parse_expr_stmt("a |> f(_) ?> g(_)");
+    let Expr::SafePipe { lhs, .. } = &e else {
+        panic!("expected a SafePipe, got {e:?}");
+    };
+    assert!(
+        matches!(**lhs, Expr::Pipe { .. }),
+        "the whole pipe is the safe-pipe's left side"
+    );
+}
+
+/// `?>` wraps across a continuation line, bracketing left — like `|>`.
+#[test]
+fn safe_pipe_wraps_across_lines() {
+    let e = parse_multiline_expr("a\n        ?> f(_)\n        ?> g(_)");
+    let Expr::SafePipe { lhs, .. } = &e else {
+        panic!("expected a SafePipe, got {e:?}");
+    };
+    assert!(
+        matches!(**lhs, Expr::SafePipe { .. }),
+        "each next-line `?>` brackets the whole chain so far on its left"
+    );
+}
+
+/// `?>` is spelled `?` then `>` (two glued tokens, like `?.`), not one lexer
+/// token: `a ? b > c` is unaffected.
+#[test]
+fn safe_pipe_is_question_then_gt() {
+    use salvo_syntax::token::TokenKind;
+    let result = salvo_syntax::lexer::lex("a ?> b");
+    let kinds: Vec<_> = result
+        .tokens
+        .into_iter()
+        .map(|t| t.kind)
+        .filter(|k| *k != TokenKind::Eof)
+        .collect();
+    assert_eq!(
+        kinds,
+        vec![
+            TokenKind::Ident("a".into()),
+            TokenKind::Question,
+            TokenKind::Gt,
+            TokenKind::Ident("b".into()),
+        ]
+    );
+}
+
 // --- [expr-replyto-flat] Flattened `replyto` ---
 
 /// A trailing `replyto k(c)` after a call appends the minted continuation as

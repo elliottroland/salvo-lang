@@ -1574,7 +1574,7 @@ impl Rewrite {
                 self.expr(subject);
                 self.expr(rhs);
             }
-            Expr::Pipe { lhs, rhs, .. } => {
+            Expr::Pipe { lhs, rhs, .. } | Expr::SafePipe { lhs, rhs, .. } => {
                 self.expr(lhs);
                 self.expr(rhs);
             }
@@ -1762,7 +1762,7 @@ fn collect_shadowing(body: &Block, reserved: &[&Ident], out: &mut Vec<(String, S
                 walk_expr(subject, reserved, out);
                 walk_expr(rhs, reserved, out);
             }
-            Expr::Pipe { lhs, rhs, .. } => {
+            Expr::Pipe { lhs, rhs, .. } | Expr::SafePipe { lhs, rhs, .. } => {
                 walk_expr(lhs, reserved, out);
                 walk_expr(rhs, reserved, out);
             }
@@ -2220,7 +2220,7 @@ fn walk_expr_with(expr: &Expr, on_stmt: &mut dyn FnMut(&Stmt), on_expr: &mut dyn
             e(subject);
             e(rhs);
         }
-        Expr::Pipe { lhs, rhs, .. } => {
+        Expr::Pipe { lhs, rhs, .. } | Expr::SafePipe { lhs, rhs, .. } => {
             e(lhs);
             e(rhs);
         }

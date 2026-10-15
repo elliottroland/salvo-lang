@@ -192,6 +192,12 @@ Conventions:
   narrowed receiver in the `else`, lifted with `Some(..)`. Both forms are
   correct on every shape ([backend-never-wrong]); the chain is the idiomatic
   rendering of the common case.
+* [expr-safe-pipe] The null-safe pipe `?>` lowers to the same reconstruction
+  block as `?.`, but its present arm wraps an arbitrary pipe expression, not a
+  `SafeNav`-justified field read, so the combinator-chain matcher never fires:
+  `?>` always renders as the generic short-circuiting block (`let`, an
+  `if is_none() { None }`, the right side on the narrowed value lifted with
+  `Some(..)`) — correct output, carrying no backend rule of its own.
 * [type-basic] Internal types map natively: `Str`→`String`, `Int`→`i32`,
   `Long`→`i64`, `Float`→`f32`, `Double`→`f64`, `Bool`→`bool`,
   `Char`→`char`, `Byte`→`u8`, `None`→`()`, `Never`→`()` (a platform

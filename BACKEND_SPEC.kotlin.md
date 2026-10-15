@@ -88,6 +88,12 @@ Conventions:
   native chain (a Salvo dot call is a free function, which `receiver?.m()`
   cannot spell), so it falls back to the generic `Switch` rendering — correct,
   if less idiomatic.
+* [expr-safe-pipe] The null-safe pipe `?>` lowers to the same reconstruction
+  `Switch` shape as `?.`, but its present arm wraps an arbitrary pipe
+  expression (`Present{…}`), not a `SafeNav`-justified field read, so the
+  native-chain matcher never fires: `?>` always renders as the generic
+  `Switch` (bind, `when`/`is`, `null` else) — correct output, carrying no
+  backend rule of its own.
 * [type-basic] Internal types map natively: `Str`→`String`,
   `Bool`→`Boolean`, `Int`/`Long`/`Float`/`Double`/`Char` keep
   their names, `Any`→`Any`, `Never`→**`Nothing`** — the JVM's bottom type keeps

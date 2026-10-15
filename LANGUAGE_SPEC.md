@@ -2118,6 +2118,33 @@ Conventions:
     block-expression emitters evaluate the tail even when the pipe's type is
     `None` (the one place that previously dropped a side-effecting tail on
     Kotlin — fixed 2026-10-14).
+* [expr-safe-pipe] **`value ?> expr` is the null-safe pipe** (user decision
+  2026-10-14): the pipe analogue of `?.` ([safe-nav]). The left side must be
+  an optional `T?`; it is evaluated **once**, and if it holds a value, `_`
+  binds to that value (the non-`None` arm, as `?.` narrows its receiver), the
+  right side runs, and its value is lifted back to optional; if the left side
+  is `None`, the right side never runs and the whole pipe is `None`. So
+  `let s: Str? = n ?> to_str(_)` reads "`to_str(n)` wrapped as `Str?` when `n`
+  is present, else `None`".
+  * **The left side must be able to be absent.** A left side that is never
+    `None` guards nothing, so `?>` on it is an error directing to a plain
+    `|>` — the mirror of `?.` requiring an optional receiver.
+  * **The result is `X?`, not `X??`.** When the right side is itself optional
+    (type `X?`), the pipe's type is `X?` unchanged, not double-wrapped — the
+    same `Option<Option<T>>` guard [safe-nav] applies.
+  * **`_` is mandatory** and reads as the present value, the same `_` a plain
+    pipe binds [expr-pipe]; a right side that never reads it is refused.
+  * **Loosest precedence, left-associative, flattening**: it shares the pipe
+    tier with `|>`, so `a |> f(_) ?> g(_)` is `(a |> f(_)) ?> g(_)` and
+    `a ?> f(_) ?> g(_)` chains left; it may begin a continuation line,
+    bracketing the chain so far on its left [expr-infix].
+  * **Pure reconstruction, no new node**: it lowers to the same
+    `block_expr` → two-arm `Switch` shape `?.` uses — bind the left side once,
+    a `None` arm yielding `MakeNone`, an `Else` arm that narrows to the
+    non-`None` arm, binds `_`, evaluates the right side, and wraps the result
+    `Present` unless it is already optional. No checker or backend rule past
+    the lowering knows it exists. Spelled `?` then `>` (two glued tokens, like
+    `?.`), detected before the elvis `?`-run so a `?>` is never read as elvis.
 * [expr-escape] **`return`, `break` and `continue` are expressions of type
   `Never`** (user decision 2026-09-21), not statements — step 2 of the `?`
   family sequence, and the reason `maybe_t() ?: return _` needs no grammar

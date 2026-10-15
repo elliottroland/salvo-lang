@@ -1169,6 +1169,54 @@ fn main() [use] {
 
 const PIPE_OUTPUT: &str = "single 42\nchained 110\nprec 10\n";
 
+/// [expr-safe-pipe] The null-safe pipe `?>` (user decision 2026-10-14): the
+/// pipe analogue of `?.`. The left side must be optional; when present `_`
+/// binds to the non-`None` arm, the right side runs and its value is lifted
+/// back to optional; when absent the right side never runs and the whole
+/// pipe is `None`. Covers present and absent short-circuit, the
+/// no-double-wrap rule when the right side is itself optional, and a chain
+/// of `?>`. Both backends must print the same lines.
+const SAFE_PIPE_DEMO: &str = r#"
+fn maybe(present: Bool) -> Int? {
+    if present {
+        return 42
+    }
+    return None
+}
+
+fn double(x: Int) -> Int {
+    return x * 2
+}
+
+fn half_if_even(x: Int) -> Int? {
+    if x % 2 == 0 {
+        return x / 2
+    }
+    return None
+}
+
+fn show(label: Str, v: Int?) [Console] -> None {
+    when v {
+        is Int { println("${label} present ${v}") }
+        is None { println("${label} absent") }
+    }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    show("present", maybe(true) ?> double(_))
+    show("absent", maybe(false) ?> double(_))
+    // right side already optional: result is Int?, not Int??
+    show("flat", maybe(true) ?> half_if_even(_))
+    show("flat-none", maybe(true) ?> half_if_even(_ + 1))
+    // chained: 42 -> 84 -> 168
+    show("chain", maybe(true) ?> double(_) ?> double(_))
+}
+"#;
+
+const SAFE_PIPE_OUTPUT: &str =
+    "present present 84\nabsent absent\nflat present 21\nflat-none absent\nchain present 168\n";
+
 /// [elvis] [placeholder] The positional pick. `?:` keeps the first arm
 /// (`Forward(1)`), `:?` the last (`Backward(1)`); `_` on the right is the arms
 /// left behind, tags and all — the one place the placeholder earns its keep,
@@ -1440,6 +1488,14 @@ fn kotlinc_compiles_and_runs_the_pipe_operator() -> KotlinCase {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "pipe", PIPE_OUTPUT)
+}
+
+fn kotlinc_compiles_and_runs_the_safe_pipe_operator() -> KotlinCase {
+    let program = build_program(&[("main.sv", SAFE_PIPE_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "safe_pipe", SAFE_PIPE_OUTPUT)
 }
 
 fn kotlinc_compiles_and_runs_a_lift_binding() -> KotlinCase {
@@ -5639,6 +5695,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_a_lift_binding,
     kotlinc_compiles_and_runs_the_elvis_operator,
     kotlinc_compiles_and_runs_the_pipe_operator,
+    kotlinc_compiles_and_runs_the_safe_pipe_operator,
     kotlinc_compiles_and_runs_a_positional_pick,
     kotlinc_compiles_and_runs_a_sub_union_rewrap,
     kotlinc_compiles_and_runs_a_union_spanning_generic,
