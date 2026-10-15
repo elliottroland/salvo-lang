@@ -3778,23 +3778,18 @@ handler H() of E {
     );
 }
 
-/// `iter fn` state accepts the written form (the inferred form is deferred,
-/// refused with an explanation).
+/// `iter fn` state accepts both the written and the inferred form (the
+/// inferred form's type is checked later, from the minter's initializer).
 #[test]
-fn iter_fn_state_requires_a_written_type_for_now() {
-    let written = "\
-iter fn upto(n: Int) -> Emitted Int | Finished {
-    state {
-        at: Int = 0
+fn iter_fn_state_accepts_written_and_inferred() {
+    for src in [
+        "iter fn upto(n: Int) -> Emitted Int | Finished {\n    state {\n        at: Int = 0\n    }\n    if at >= n { return finished() }\n    at = at + 1\n    return emitted(at)\n}\n",
+        "iter fn upto(n: Int) -> Emitted Int | Finished {\n    state {\n        at = 0\n    }\n    if at >= n { return finished() }\n    at = at + 1\n    return emitted(at)\n}\n",
+    ] {
+        let (_m, diags) = salvo_syntax::parse_module(src);
+        assert!(
+            !diags.iter().any(|d| d.is_error()),
+            "iter-fn state parses (written and inferred): {diags:?}"
+        );
     }
-    if at >= n { return finished() }
-    at = at + 1
-    return emitted(at)
-}
-";
-    let (_m, diags) = salvo_syntax::parse_module(written);
-    assert!(
-        !diags.iter().any(|d| d.is_error()),
-        "written iter-fn state parses: {diags:?}"
-    );
 }

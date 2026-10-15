@@ -342,7 +342,9 @@ pub fn used_names(module: &Module) -> HashSet<&str> {
                     type_ref_names(q, &mut used);
                 }
                 for field in &s.fields {
-                    type_names(field.written_ty(), &mut used);
+                    if let Some(t) = &field.ty {
+                        type_names(t, &mut used);
+                    }
                     if let Some(d) = &field.default {
                         expr_names(d, &mut used);
                     }

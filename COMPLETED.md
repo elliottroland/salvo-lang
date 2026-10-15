@@ -138,6 +138,52 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-14 — Inferred `iter fn` state fields (step 2 of the state-struct work)
+
+An `iter fn`'s `state { … }` block now takes the inferred form (`at = 0`) as
+well as the written one, completing the state-struct work started in step 1.
+The user's suggested approach was to defer iter-fn lowering to the IR stage;
+scoping it (context-gatherer) showed that is a milestone-sized change that
+forfeits the entire "nothing downstream knows the form exists" design the
+desugar rests on (resolution, the `iter_returns` subsystem, and both emitters
+all consume the hidden struct as an ordinary named type *during* checking).
+**Deviation, flagged:** I took the sound bounded approach instead — reuse the
+step-1 handler-state inference mechanism — which achieves the same goal
+(inferred iter-fn state) without the rework. Recorded here as the user call to
+confirm.
+
+Mechanism: the desugar (`expand_iter_fns_with`) now carries `ty: None` through
+for an inferred `iter fn` state field (instead of erroring), keeping the
+field's original name span. The field's initializer already moves to the
+minter's returned struct literal (`__Iter { at: 0 }`), so when the checker
+types that literal and finds a struct field whose declared `ty` is `None`, it
+infers from the literal entry (no expectation) and records the type at the
+field-name span (`check_struct_lit`). The generated struct field, the `next`
+body's `__p.at` reads (`declared_field_ty`'s `None` fallback), and the IR's
+`fields()` all read it back from that span — the same channel handler state and
+`waitfor` use. Crucially the inferred field type is returned *without* adding
+`Mut`: state mutability flows from the `Mut __Iter` base as it does for a
+written `at: Int`, so `at = at + 1` assigns an `Int` into an `Int` field.
+
+Because a *struct* (the generated iterator struct) can now carry a `None` field,
+every pre-IR pass that walks a struct's fields by written type had to tolerate
+it — the struct-cycle check, proj/lends analysis, linear-field and
+linear-generic checks, `ast_type_mut`/`type_stores_inline`/`ast_type_holds_fn`,
+reach, param-mode, wire-form, copyplan, abi, comptime, and the IR
+field-type/destructure/spread reads — each now skips or span-reads the inferred
+field (an iterator struct is never serialized, a platform type, linear, or
+`proj`, so skipping is sound). `declared_field_ty` and `check_struct_lit` are
+the two that actually resolve the inferred type; the rest just must not panic
+on `written_ty()`.
+
+Verified end to end: an `iter fn upto(n) { state { at = 0 } … }` runs
+`i=0 i=1 i=2` identically on both backends, and `examples`/std iter-fns are
+unaffected (the written form still works). Converted the `naturals` iter-fn in
+both backends' codegen tests to the inferred form so an e2e case exercises it.
+ROADMAP step-2 entry removed (done); [state-infer] updated to say iter-fn
+inference now works. Full warm suite incl. kotlinc/rustc e2e green.
+
+
 ### 2026-10-14 — Handler state in a `state { }` block, with inferred field types (step 1 of the state-struct work)
 
 Handler state is now declared in a `state { … }` block — the same shape an

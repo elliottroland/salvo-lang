@@ -620,36 +620,19 @@ fn expand(
         }
     }
     for field in &f.iter_state {
-        // [state-infer] Step 1: an `iter fn`'s state is lowered to a struct
-        // field *here*, pre-checker, so its type must be written for now.
-        // Inferring it needs this lowering deferred to the IR (ROADMAP); until
-        // then a bare `name = value` in an `iter fn` state block is refused
-        // with that explanation. Handler state, checked directly, already
-        // infers.
-        let ty = match &field.ty {
-            Some(t) => t.clone(),
-            None => {
-                diags.push(Diagnostic::error(
-                    format!(
-                        "iter-fn state field `{}` needs a written type for now \
-                         (`{}: T = …`): an `iter fn`'s state is lowered to a struct \
-                         before the checker runs, so its type is not yet inferred \
-                         here. Handler state infers; iter-fn inference is pending.",
-                        field.name.name, field.name.name
-                    ),
-                    field.span,
-                ));
-                // Recover with a placeholder so the rest of the pass proceeds.
-                Type::Named {
-                    qualifiers: Vec::new(),
-                    base: type_ref("Int", field.span),
-                }
-            }
-        };
+        // [state-infer] An `iter fn`'s state field keeps its written type, or
+        // carries `None` for the inferred form (`at = 0`). The initializer
+        // moves to the minter's returned struct literal (below), where it is
+        // typed with the parameters in scope; the checker infers an untyped
+        // field's type from that literal entry and records it at the field's
+        // name span — the same channel handler state uses — and the generated
+        // struct field, the `next` body's `__p.<field>` reads, and the IR all
+        // read it back there. The generated struct field therefore keeps the
+        // **original** `state` field-name span, which nothing else may reuse.
         fields.push(FieldDecl {
             docs: field.docs.clone(),
             name: field.name.clone(),
-            ty: Some(ty),
+            ty: field.ty.clone(),
             canbe_mut: field.canbe_mut,
             // The initializer moves to the minter, where it can read the
             // parameters.

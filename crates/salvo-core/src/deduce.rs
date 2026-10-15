@@ -176,7 +176,7 @@ pub(crate) fn infer(
                 let names: HashSet<String> = sd
                     .fields
                     .iter()
-                    .filter(|f| type_has_proj(f.written_ty()))
+                    .filter(|f| f.ty.as_ref().is_some_and(type_has_proj))
                     .map(|f| f.name.name.clone())
                     .collect();
                 (!names.is_empty()).then(|| (sd.name.name.clone(), names))

@@ -11735,7 +11735,7 @@ fn naturals() -> Naturals {
 
 iter fn iter(n: Naturals) -> Emitted Int | Finished {
     state {
-        at: Int = n.from
+        at = n.from
     }
     let v = copy(at)
     at = at + 1
@@ -12365,7 +12365,7 @@ fn naturals(from: Int) -> Naturals {
 
 iter fn iter(n: Naturals) -> Emitted Int | Finished {
     state {
-        at: Int = n.from
+        at = n.from
     }
     if at >= n.from + 4 {
         return finished()

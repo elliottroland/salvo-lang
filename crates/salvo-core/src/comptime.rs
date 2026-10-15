@@ -1267,7 +1267,7 @@ impl<'w> Stamper<'w> {
         };
         let (generics, canbe, parts): (Vec<Ident>, Vec<(Ident, TypeRef)>, Vec<Type>) =
             if let Some(s) = self.world.struct_named(&self.target.name) {
-                (s.generics.clone(), s.generic_canbe.clone(), s.fields.iter().map(|f| f.written_ty().clone()).collect())
+                (s.generics.clone(), s.generic_canbe.clone(), s.fields.iter().filter_map(|f| f.ty.clone()).collect())
             } else if let Some(t) = self.world.type_named(&self.target.name) {
                 let arms = t.alias.as_ref().map(|a| self.world.arms_of(a)).unwrap_or_default();
                 (t.generics.clone(), t.generic_canbe.clone(), arms)
@@ -1757,13 +1757,24 @@ impl<'w> Expander<'w> {
                 .iter()
                 .enumerate()
                 .map(|(i, f)| Binding {
-                    ty: f.written_ty().clone(),
+                    // [state-infer] An inferred field has no written type; a
+                    // comptime walk never targets a generated iterator struct,
+                    // so this fallback is unreachable in practice.
+                    ty: f.ty.clone().unwrap_or_else(|| Type::Named {
+                        qualifiers: Vec::new(),
+                        base: salvo_syntax::ast::TypeRef {
+                            alias: None, at: None, binder: false, established: false,
+                            value_args: Vec::new(), from: Vec::new(),
+                            name: Ident { name: "Int".to_string(), span: f.span },
+                            args: Vec::new(), span: f.span,
+                        },
+                    }),
                     name: f.name.name.clone(),
                     index: i,
                     first: i == 0,
                     last: i + 1 == n,
                     decl_span: f.span,
-                    label: format!("{type_name}.{}: {}", f.name.name, f.written_ty()),
+                    label: format!("{type_name}.{}: {}", f.name.name, f.ty.as_ref().map(|t| t.to_string()).unwrap_or_else(|| "_".into())),
                     is_arm: false,
                     owner: Some(type_name.clone()),
                 })

@@ -204,7 +204,12 @@ fn struct_blocker(symbols: &Symbols<'_>, decl: &StructDecl, args: &[Ty], depth: 
         .zip(args.iter().cloned())
         .collect();
     for field in &decl.fields {
-        let Some(field_ty) = approx_ty(field.written_ty(), &subst) else {
+        // [state-infer] A generated iterator struct's inferred field has no
+        // written type here; such a struct is never serialized, so it never
+        // needs a wire form. Treating the field as determinable-elsewhere
+        // (skip) keeps that true without a type to inspect.
+        let Some(written) = &field.ty else { continue };
+        let Some(field_ty) = approx_ty(written, &subst) else {
             continue;
         };
         // A generic field left unsubstituted (the struct checked at
@@ -407,7 +412,7 @@ fn canonical_ty(symbols: &Symbols<'_>, ty: &Ty, out: &mut String, depth: usize) 
                     if i > 0 {
                         out.push(',');
                     }
-                    match approx_ty(field.written_ty(), &subst) {
+                    match field.ty.as_ref().and_then(|t| approx_ty(t, &subst)) {
                         Some(t) => canonical_ty(symbols, &t, out, depth + 1),
                         None => out.push('?'),
                     }

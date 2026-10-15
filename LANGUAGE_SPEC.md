@@ -3786,11 +3786,12 @@ Conventions:
     way `waitfor`'s inferred token type is [waitfor-infer] — the AST's
     `FieldDecl.ty` is `None` for an inferred field. A struct field and a
     qualifier override always write their type. An `iter fn`'s `state { … }`
-    block takes the same two forms syntactically, but the inferred form is
-    not yet supported there — an `iter fn`'s state is lowered to a struct
-    before the checker runs, so its type is not yet inferred at that point;
-    writing the type is required for now, and a bare `name = value` is
-    refused with that explanation (the deferral is tracked in ROADMAP.md).
+    block takes the same two forms, including the inferred one: although an
+    `iter fn`'s state is lowered to a hidden struct before the checker runs,
+    the field's initializer moves to the minter's returned struct literal, so
+    the checker infers an untyped field's type *there* and records it at the
+    field-name span — the generated struct field, the `next` body's
+    `__p.<field>` reads, and the IR all read it back from that span.
 * [effect-handler-multi] **A handler may implement several effects**, one face
   per effect: `handler ManualTime() of Timer, TimerCtl` (T-4(a), user decision
   2026-09-17; built 2026-09-18). One handler, one piece of state, one mailbox

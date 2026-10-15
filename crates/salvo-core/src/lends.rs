@@ -119,7 +119,11 @@ pub fn holds_proj(ty: &Type, structs: &HashMap<&str, &StructDecl>) -> bool {
             structs.get(n.as_str()).is_some_and(|d| {
                 d.fields
                     .iter()
-                    .any(|f| type_has_proj(f.written_ty()) || go(f.written_ty(), structs, seen))
+                    // [state-infer] An inferred field (iterator-struct state)
+                    // holds no written type; its concrete type never carries a
+                    // `proj` borrow.
+                    .filter_map(|f| f.ty.as_ref())
+                    .any(|t| type_has_proj(t) || go(t, structs, seen))
             })
         })
     }
@@ -135,9 +139,12 @@ fn borrowing_fields<'p>(
     decl.fields
         .iter()
         .filter_map(|f| {
-            if type_has_proj(f.written_ty()) {
+            // [state-infer] An inferred iterator-state field holds no written
+            // type and never borrows.
+            let t = f.ty.as_ref()?;
+            if type_has_proj(t) {
                 Some((f, true))
-            } else if holds_proj(f.written_ty(), structs) {
+            } else if holds_proj(t, structs) {
                 Some((f, false))
             } else {
                 None

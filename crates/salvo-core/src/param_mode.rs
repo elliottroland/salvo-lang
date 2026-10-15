@@ -152,7 +152,7 @@ impl<'a, 'p> Modes<'a, 'p> {
             return false;
         }
         let Some(ret) = decl.return_type.as_ref().and_then(type_base_name) else { return false };
-        self.symbols.structs.get(ret).is_some_and(|s| s.fields.iter().any(|f| matches!(f.written_ty(), Type::Fn { .. })))
+        self.symbols.structs.get(ret).is_some_and(|s| s.fields.iter().any(|f| matches!(f.ty.as_ref(), Some(Type::Fn { .. }))))
     }
 
     /// [rs-fn-param-convention] How the *declaration* of a fn type takes its

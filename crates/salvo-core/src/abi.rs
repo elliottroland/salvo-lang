@@ -74,7 +74,7 @@ fn closure_where(
     while let Some(name) = walk.queue.pop() {
         if let Some(s) = symbols.structs.get(name.as_str()) {
             for field in &s.fields {
-                walk.ty(field.written_ty());
+                if let Some(t) = &field.ty { walk.ty(t); }
             }
             // [name-dot] A namespacing struct carries its dot-named members.
             let prefix = format!("{name}.");
@@ -339,7 +339,7 @@ pub fn abi_stamp(program: &Program, symbols: &Symbols<'_>, owner: Option<&str>) 
     let reached = closure_where(program, symbols, &|u| owned_by(u, owner));
     for name in &reached {
         if let Some(st) = symbols.structs.get(name.as_str()) {
-            let fields: Vec<String> = st.fields.iter().map(|f| format!("{}: {}", f.name.name, f.written_ty())).collect();
+            let fields: Vec<String> = st.fields.iter().map(|f| format!("{}: {}", f.name.name, f.ty.as_ref().map(|t| t.to_string()).unwrap_or_else(|| "_".into()))).collect();
             let generics: Vec<&str> = st.generics.iter().map(|g| g.name.as_str()).collect();
             parts.push(format!("struct {name}<{}> {{ {} }}", generics.join(", "), fields.join(", ")));
         } else if let Some(t) = symbols.type_aliases.get(name.as_str()) {

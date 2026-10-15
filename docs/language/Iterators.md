@@ -132,7 +132,9 @@ the `next` over it; both are ordinary declarations, which is why everything
 that works on a hand-written iterator works here.
 
 - **The `state { ... }` block is the iterator's own data**, declared exactly as
-  a struct's fields are, and each initializer is evaluated **once, when the
+  a handler's state is: each field writes its type (`at: Int = 0`) or lets it be
+  inferred from the initializer (`at = 0`), and each initializer is evaluated
+  **once, when the
   iterator is minted**. It may read the parameters and call ordinary functions;
   it may not perform effects, because minting is not where a producer's work
   belongs. The block is declarations only — it is the iterator's shape, not
