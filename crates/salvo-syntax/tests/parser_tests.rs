@@ -3644,3 +3644,81 @@ fn pipe_token_is_distinct() {
         ]
     );
 }
+
+// --- [expr-replyto-flat] Flattened `replyto` ---
+
+/// A trailing `replyto k(c)` after a call appends the minted continuation as
+/// the call's final argument — the same AST as the nested
+/// `send(a, replyto k(c))`.
+#[test]
+fn flattened_replyto_equals_nested() {
+    let flat = parse_expr_stmt("send(a) replyto k(c)");
+    let nested = parse_expr_stmt("send(a, replyto k(c))");
+    // Compare the call's argument shapes: both are a Call whose last arg is a
+    // ReplyTo targeting `k`.
+    let args_of = |e: &Expr| -> Vec<Expr> {
+        match e {
+            Expr::Call { args, .. } => args.clone(),
+            other => panic!("expected a Call, got {other:?}"),
+        }
+    };
+    let fa = args_of(&flat);
+    let na = args_of(&nested);
+    assert_eq!(fa.len(), 2, "flat call has both args");
+    assert_eq!(na.len(), 2, "nested call has both args");
+    assert!(
+        matches!(fa.last(), Some(Expr::ReplyTo { .. })),
+        "the flattened reply is the last argument"
+    );
+    assert!(matches!(na.last(), Some(Expr::ReplyTo { .. })));
+    // The captured member name matches.
+    let member = |e: &Expr| match e {
+        Expr::ReplyTo { member, .. } => member.name.clone(),
+        other => panic!("expected ReplyTo, got {other:?}"),
+    };
+    assert_eq!(member(fa.last().unwrap()), member(na.last().unwrap()));
+}
+
+/// A newline-leading `replyto` brackets the call before it (the flattening
+/// cross-line rule), and a chain nests: `a(1)\n replyto b(2)\n replyto c(3)`
+/// fills `a`'s slot with `replyto b(…)` whose own slot the next line fills.
+#[test]
+fn flattened_replyto_wraps_and_chains() {
+    let e = parse_multiline_expr("outer(1)\n        replyto mid(2)\n        replyto inner(3)");
+    let Expr::Call { args, .. } = &e else {
+        panic!("expected a Call, got {e:?}");
+    };
+    // `outer`'s last arg is `replyto mid(2, replyto inner(3))` — a ReplyTo
+    // whose captures end in another ReplyTo.
+    let Some(Expr::ReplyTo { member, captures, .. }) = args.last() else {
+        panic!("expected a trailing ReplyTo, got {args:?}");
+    };
+    assert_eq!(member.name, "mid");
+    assert!(
+        matches!(captures.last(), Some(Expr::ReplyTo { .. })),
+        "the inner replyto fills mid's own reply slot"
+    );
+}
+
+/// `replyto!` (the gated mint) works in the flattened position too.
+#[test]
+fn flattened_replyto_keeps_the_gate() {
+    let e = parse_expr_stmt("send(a) replyto! k(c)");
+    let Expr::Call { args, .. } = &e else {
+        panic!("expected a Call, got {e:?}");
+    };
+    let Some(Expr::ReplyTo { gated, .. }) = args.last() else {
+        panic!("expected a trailing ReplyTo");
+    };
+    assert!(*gated, "replyto! is gated");
+}
+
+/// A trailing `replyto` after a non-call is an error (no argument slot).
+#[test]
+fn flattened_replyto_after_a_non_call_is_an_error() {
+    let errors = errors_of("fn f() {\n    let x = y replyto k()\n}\n");
+    assert!(
+        errors.iter().any(|e| e.contains("must follow a call")),
+        "expected the non-call refusal, got: {errors:?}"
+    );
+}

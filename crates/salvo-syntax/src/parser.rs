@@ -5710,6 +5710,19 @@ impl<'s> Parser<'s> {
                         span,
                     };
                 }
+                // [actor-replyto] [expr-replyto-flat] A trailing `replyto k(…)`
+                // (or `replyto!`) after a call fills that call's final
+                // `Reply<T>` argument — the flattened form of
+                // `send(…, replyto k(…))` (user decision 2026-10-14). Same
+                // line here; a newline-leading one is taken by
+                // `newline_postfix`, bracketing left like `.`.
+                TokenKind::Ident(name)
+                    if self.same_line()
+                        && name == "replyto"
+                        && self.replyto_follows() =>
+                {
+                    expr = self.append_replyto(expr)?;
+                }
                 _ => break,
             }
         }
@@ -5725,11 +5738,21 @@ impl<'s> Parser<'s> {
     /// statement with `.`, so a leading dot is unambiguous. Applied once the
     /// full expression is parsed.
     fn newline_postfix(&mut self, mut expr: Expr) -> Option<Expr> {
-        // Each pass takes one continuation line: a newline-leading `.`
-        // outside any brackets. Its own same-line trailers (`.a().b[0]`)
-        // attach normally; the next newline-dot is a fresh pass, so every
-        // newline brackets what precedes it on the left.
-        while self.group_depth == 0 && !self.elvis_no_wrap && !self.same_line() && self.at(&TokenKind::Dot) {
+        // Each pass takes one continuation line: a newline-leading `.` or a
+        // newline-leading `replyto` outside any brackets. Its own same-line
+        // trailers (`.a().b[0]`) attach normally; the next newline trailer is
+        // a fresh pass, so every newline brackets what precedes it on the left.
+        while self.group_depth == 0 && !self.elvis_no_wrap && !self.same_line() {
+            // [actor-replyto] [expr-replyto-flat] A newline-leading `replyto`
+            // fills the preceding call's final `Reply<T>` argument, bracketing
+            // the whole call chain so far on its left.
+            if self.at_word("replyto") && self.replyto_follows() {
+                expr = self.append_replyto(expr)?;
+                continue;
+            }
+            if !self.at(&TokenKind::Dot) {
+                break;
+            }
             // Consume the leading `.member` (and any same-line trailers after
             // it) with the whole expression as the base. The newline barrier
             // is lifted only for this first dot by stepping over it here and
@@ -6634,6 +6657,76 @@ impl<'s> Parser<'s> {
             }
         }
         Some(items)
+    }
+
+    /// [expr-replyto-flat] Whether a `replyto` word at the current position is
+    /// the flattened reply operator: `replyto k(…)` or `replyto! k(…)` — a
+    /// member name (or `!` then a name) follows. The same lookahead the
+    /// primary-position mint uses, so a variable or call named `replyto` is
+    /// untouched.
+    fn replyto_follows(&self) -> bool {
+        matches!(self.peek_at(1).kind, TokenKind::Ident(_))
+            || (matches!(self.peek_at(1).kind, TokenKind::Bang)
+                && matches!(self.peek_at(2).kind, TokenKind::Ident(_)))
+    }
+
+    /// [expr-replyto-flat] Append a flattened `replyto k(…)` to the preceding
+    /// call, filling its final `Reply<T>` argument (user decision 2026-10-14).
+    /// `send(a, b) replyto k(c)` is exactly `send(a, b, replyto k(c))`: the
+    /// minted continuation becomes the call's last positional argument, so no
+    /// checker or backend rule knows the flattened spelling exists. The base
+    /// must be a call — a `replyto` after anything else has no argument slot
+    /// to fill, which is an error naming the shape.
+    ///
+    /// A **chain** nests rightward: `a() replyto b() replyto c()` is
+    /// `a(replyto b(replyto c()))` — each further `replyto` fills the previous
+    /// mint's own reply slot, not the outer call's (user decision 2026-10-14).
+    /// `parse_replyto_chain` builds that nested mint; this only appends it.
+    fn append_replyto(&mut self, base: Expr) -> Option<Expr> {
+        let reply = self.parse_replyto_chain()?;
+        match base {
+            Expr::Call { callee, type_args, mut args, named, span } => {
+                let span = span.to(reply.span());
+                args.push(reply);
+                Some(Expr::Call { callee, type_args, args, named, span })
+            }
+            // Nesting a chain: the previous mint's own `Reply<T>` slot is
+            // filled by this one. The mint carries its continuation's args as
+            // `captures`, so the fill is appended there.
+            Expr::ReplyTo { member, mut captures, gated, pool, span } => {
+                let span = span.to(reply.span());
+                captures.push(reply);
+                Some(Expr::ReplyTo { member, captures, gated, pool, span })
+            }
+            other => {
+                self.error(
+                    "a trailing `replyto` fills the final `Reply<T>` argument of \
+                     the call before it (`send(x) replyto k(…)`), so it must \
+                     follow a call",
+                    other.span().to(reply.span()),
+                );
+                // Recover with the base unchanged; the reply is dropped.
+                Some(other)
+            }
+        }
+    }
+
+    /// [expr-replyto-flat] One mint, with any further trailing `replyto`
+    /// nested into *its* captures (right-associative). A trailing `replyto`
+    /// may be same-line or begin a continuation line (bracketing left like the
+    /// other flattening operators); either way it fills the mint it follows.
+    fn parse_replyto_chain(&mut self) -> Option<Expr> {
+        let reply = self.parse_replyto()?;
+        // Another `replyto` after this mint — same line, or a newline-leading
+        // one outside brackets — fills this mint's own `Reply<T>` slot.
+        let follows = (self.same_line()
+            || (self.group_depth == 0 && !self.elvis_no_wrap))
+            && self.at_word("replyto")
+            && self.replyto_follows();
+        if follows {
+            return self.append_replyto(reply);
+        }
+        Some(reply)
     }
 
     /// [actor-replyto] `replyto k(captures)` — mint a parked one-shot

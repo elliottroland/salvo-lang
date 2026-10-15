@@ -2524,6 +2524,70 @@ fn main() [use, spawn] -> None {
 const SPAWN_INHERIT_OUTPUT: &str =
     "log: plain\nlog: [t=1] stamped\nlog: reported inherited\nlog: [t=99] overridden\n";
 
+/// [expr-replyto-flat] The flattened `replyto` operator: a trailing `replyto`
+/// fills the preceding send's final `Reply<T>` argument, so
+/// `total() replyto reported(out)` is `total(replyto reported(out))`. The
+/// ledger cannot answer `report` itself — the number lives in the counter —
+/// so it asks and parks a continuation written in the flattened form. Same
+/// IR, and byte-identical stdout, as the nested spelling.
+const REPLYTO_FLAT_DEMO: &str = r#"
+actor effect Counter {
+    send fn bump(by: Int) => !by
+    send fn total(out: Reply<Int>) => !out
+}
+
+handler Counting() of Counter {
+    mailbox { capacity: 4 }
+    sum: Int = 0
+    send fn bump(by: Int) {
+        sum = sum + by
+    }
+    send fn total(out: Reply<Int>) {
+        out.send(sum)
+    }
+}
+
+actor effect Ledger {
+    send fn report(out: Reply<Int>) => !out
+    send fn reported(out: Reply<Int>, total: Int) => !out, !total
+}
+
+handler Bookkeeping() [Counter] of Ledger {
+    mailbox { capacity: 4 }
+    send fn report(out: Reply<Int>) {
+        total()
+            replyto reported(out)
+    }
+    send fn reported(out: Reply<Int>, total: Int) {
+        out.send(total)
+    }
+}
+
+fn main() [use, spawn] -> None {
+    use StdOutConsole()
+    let counter = spawn Counting() on pool(2)
+    counter.bump(2)
+    counter.bump(3)
+    let ledger = spawn Bookkeeping() with counter on pool(2)
+    let line = waitfor out: Reply<Int> {
+        ledger.report(out)
+    }
+    println("ledger total ${line}")
+}
+"#;
+
+const REPLYTO_FLAT_OUTPUT: &str = "ledger total 5\n";
+
+#[test]
+fn rustc_compiles_and_runs_flattened_replyto() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", REPLYTO_FLAT_DEMO)]);
+    run_rust_files(&files, "replyto-flat", REPLYTO_FLAT_OUTPUT);
+}
+
 /// [spawn-inherit] [with-clause] [rs-handle] The arc end to end:
 /// a signature-supplied effect captured into a handler (the hidden `__Hs_N`
 /// bundle), a spawn inheriting its dependency from the scope, and a `with`

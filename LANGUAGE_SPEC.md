@@ -5894,6 +5894,25 @@ docs/language/ remains the source of truth for everything that does.
     lexical with everything above.
   * A token is one-shot *statically*, which is what linearity buys over the
     dynamic enforcement the effects literature settles for.
+  * **[expr-replyto-flat] A `replyto` may be written as a trailing operator**
+    on the call it answers, rather than as that call's last argument (user
+    decision 2026-10-14): `send(a, b) replyto k(c)` is exactly
+    `send(a, b, replyto k(c))`, filling the call's final `Reply<T>` parameter.
+    It is a flattening operator — same line, or a continuation line that
+    brackets the call so far on its left [expr-infix]. A **chain** nests
+    rightward: each further `replyto` fills the *previous* mint's own reply
+    slot, so
+    ```
+    action_1(5, 1)
+        replyto action_2("x")
+        replyto action_3(true)
+    ```
+    is `action_1(5, 1, replyto action_2("x", replyto action_3(true)))`. Pure
+    syntax: it produces the same AST the nested spelling does (the mint pushed
+    onto the call's arguments / the outer mint's captures), so every rule above
+    reaches it unchanged. A trailing `replyto` after anything that is not a
+    call is an error — there is no argument slot to fill. `replyto!` keeps its
+    gate in this position.
 * [actor-types] The three types the forms produce and consume live in
   **`core.actor`**, all `intrinsic` because each is a handle into the
   scheduler its backend ships:

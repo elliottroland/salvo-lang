@@ -138,6 +138,38 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-14 — Flattened `replyto` operator
+
+A `replyto` may now be written as a **trailing operator** on the call it
+answers, instead of as that call's last argument (user decision 2026-10-14).
+`send(a, b) replyto k(c)` is exactly `send(a, b, replyto k(c))` — the minted
+`Reply<T>` continuation becomes the call's final positional argument. A chain
+nests **rightward**: `a() replyto b() replyto c()` is
+`a(replyto b(replyto c()))` — each further `replyto` fills the *previous*
+mint's own reply slot, matching the user's `action_1 … replyto action_2 …
+replyto action_3` example. It is a flattening operator — same line, or a
+continuation line that brackets the call so far on its left.
+
+Parser-only, **pure sugar**: it produces the same AST the nested spelling
+does, so the checker, IR and both backends are untouched. Hooks:
+`append_replyto` (appends the mint to a `Call`'s args or, when nesting, to a
+`ReplyTo`'s captures) and `parse_replyto_chain` (one mint plus any trailing
+`replyto` nested into it), wired into both the same-line postfix trailer loop
+(`parse_postfix_from`) and the newline-leading continuation
+(`newline_postfix`), guarded by `replyto_follows` (the same member-name
+lookahead the primary-position mint uses, so a variable/call named `replyto`
+is untouched). A trailing `replyto` after a non-call is an error (no slot to
+fill); `replyto!` keeps its gate.
+
+Verified end to end by rewriting both nested `replyto` sites in
+`examples/actors` to the flattened form in a scratch copy — byte-identical
+output on both backends. New `replyto-flat` e2e cases on both backends
+(Ledger asks a Counter and parks the flattened continuation) lock it. Spec:
+`[expr-replyto-flat]` under [actor-replyto]; narrative in
+`docs/language/Concurrency.md` (wiki synced). Full warm suite (incl.
+kotlinc/rustc e2e) green.
+
+
 ### 2026-10-14 — The `|>` pipe operator
 
 The pipe (user decision 2026-10-14), the first new operator on the unified

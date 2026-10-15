@@ -75,6 +75,15 @@ handler Gathering() of Gather {
 
 **A mint schedules nothing.** `replyto finish(…)` allocates a token and decides *where* the continuation will run; the body runs only when someone sends to that token. Sending to it queues the task on that pool, and a worker of that pool runs it.
 
+**A `replyto` can be written outside the call it answers.** The `Reply<T>` a send takes is its last argument, so `db.query(id, replyto finish("row", out))` nests the mint inside the call. The same thing reads flatter as a trailing operator — `replyto` after the call fills that final argument:
+
+```
+db.query(id)
+    replyto finish("row", out)
+```
+
+is exactly `db.query(id, replyto finish("row", out))`. A chain nests rightward — each further `replyto` fills the previous mint's own answer slot — so `a(x) replyto b(y) replyto c(z)` is `a(x, replyto b(y, replyto c(z)))`, the shape where one send's answer is itself computed by another. It is a flattening operator, so a `replyto` on its own line brackets the call before it; written on one line it reads left to right. The spelling is pure sugar: it is the same mint, filling the same parameter.
+
 **Placement is inherited unless you write it.** `on POOL` is optional at a mint, and omitted means the pool current where the mint was written — inside an actor's member, the actor's own pool; in `main`, main's own pool. Whoever creates work pays for it, so a client cannot spend a shared service's threads by accident, and an actor's continuations stay on the threads its author budgeted. Write `on p` when the work belongs somewhere else.
 
 **One serving rule, and one ordering.** A worker serves its own pool. It takes a queued task **before** a pending activation, and each queue is served in arrival order. Both backends do exactly this, so an interleaving does not depend on which one you compiled for.
