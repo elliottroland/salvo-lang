@@ -147,9 +147,20 @@ impl<'a, 'p> Lower<'a, 'p> {
     /// Marks a read as consuming when it is the whole of an owned local
     /// [deduce-consume]; a projection or a lent parameter is read, not moved.
     pub(crate) fn consume_if_owned(&self, e: &mut Expr) {
-        // Dropping `Mut` from what is moved moves it.
-        if let ExprKind::DropMut { value } = &mut e.kind {
-            return self.consume_if_owned(value);
+        // A coercion that reshapes a *moved* value forwards the move to the
+        // value underneath, so the read inside it is the one that consumes:
+        // dropping `Mut`, or moving the value between two union
+        // representations (`Rewrap`). Both only re-tag what is already owned;
+        // neither can turn a borrow into a move, so descending is safe.
+        // (`Present`/`MakeUnion` are deliberately *not* here: an optional or
+        // union-arm wrapper also sits over a *borrow* being returned as a
+        // borrow — e.g. `return present(read f)` for a `ref(..)` element — and
+        // marking that read consuming would move a reference.)
+        match &mut e.kind {
+            ExprKind::DropMut { value } | ExprKind::Rewrap { value, .. } => {
+                return self.consume_if_owned(value);
+            }
+            _ => {}
         }
         if let ExprKind::Read { place, consume } = &mut e.kind {
             if place.steps.is_empty() {

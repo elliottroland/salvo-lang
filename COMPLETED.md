@@ -138,6 +138,31 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-14 — Move-marking reaches through a `Rewrap` coercion (false linear leak fixed)
+
+A disk-backed noticeboard reported a bogus `!!! noticeboard.disk:1:1: this
+value still owns a linear value (the `Checked<InvalidUtf8 | StreamFailed>`
+arm)` on an expression that *did* discharge the arm. Root cause: the IR
+builder's `consume_if_owned` ([deduce-consume], `ir/build/body.rs`) only saw
+through a `DropMut` coercion when deciding a moved-parameter argument's read
+is consuming. For `read_long() ?: return ignore(_)`, the `?:` else-side
+coerces the `_`-bound `Checked`-arm value to the callee's
+`End | Checked<T>` with a union-representation `Rewrap`; the un-pierced
+`Rewrap` left the inner `read __rest` non-consuming, so the obligation on the
+linear arm was never released and the fall-through path reported it leaked.
+(The empty span surfaced it at the file-level `1:1` fallback because the
+synthetic `__rest` temp's `Let` carried the aliased subject's default span.)
+
+Fix: `consume_if_owned` now descends through `Rewrap` as it already did
+`DropMut` — both only re-tag an already-owned value and cannot turn a borrow
+into a move. **`Present`/`MakeUnion` are deliberately *not* pierced**: a first
+attempt that descended through them regressed `examples/borrowing`'s
+`wounded`, whose `return present(read f)` returns a `ref(..)` element as a
+borrow — piercing `Present` moved the reference. The narrow `Rewrap`-only fix
+is the actual bug and is borrow-safe. Spec sub-bullet added under
+[deduce-consume]; full suite (incl. kotlinc/rustc e2e) green.
+
+
 ### 2026-10-12 — Qualifier redesign, part 2: arm inference, retiring `with`, conditional deductions, refn redesign
 
 Continues the seven-change qualifier/type-construction redesign (QUALIFIERS.md;
@@ -26114,6 +26139,23 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **Move-marking must see through a `Rewrap`, but not `Present`/`MakeUnion`**
+  (2026-10-14, [deduce-consume]): the IR builder's `consume_if_owned`
+  (`ir/build/body.rs`) decides whether a moved-parameter argument's read is
+  consuming, and it is handed the argument *after* its slot coercion has
+  already been applied — so a value coerced into the callee's union
+  representation arrives as `Rewrap { value: Read { consume: false } }`. If
+  the match only pierces `DropMut`, the inner read stays non-consuming and the
+  linear obligation is never released → a false "still owns a linear value"
+  leak (the noticeboard `read_long() ?: return ignore(_)` case). Pierce
+  `Rewrap` too — it only re-tags an owned union. But do **not** pierce
+  `Present`/`MakeUnion`: one of those also wraps a *borrow* returned as a
+  borrow (`return present(read f)` for a `ref(..)` element), and marking that
+  read consuming moves a reference (regresses `examples/borrowing`'s
+  `wounded`). Symptom to recognise: a leak whose span is the file-level `1:1`
+  — the synthetic `__pick`/`__rest` temp's obligation span comes from its
+  `Let` value, and an alias-resolved subject carries `Span::default()`.
 
 - **A borrow bound ahead of its call must not borrow a temporary**
   (2026-10-10, [rs-opt-borrow]): [rs-mut-arg-hoist] binds an argument as

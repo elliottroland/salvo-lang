@@ -6992,6 +6992,19 @@ between endpoints and delivers what arrives into the scheduler.
     handler registration / an earlier call"). Reads never consume —
     in particular string interpolation `"${n}"` is a read [type-str]
     (user decision 2026-09-02, L2a).
+  * A move event reaches through a *representation-only* coercion the
+    checker inserts around the argument: when a moved argument is a bare
+    identifier wrapped in a union-representation `Rewrap` (or a `Mut`
+    drop), the move applies to the identifier underneath, so the obligation
+    on a linear value handed to a moved parameter is released. (The
+    optional/union-arm wrappers `Present`/`MakeUnion` are *not* reached
+    through: one of those can also sit over a *borrow* returned as a borrow
+    — `return present(ref_element)` — and moving that would move a
+    reference.) Without this, `read_long() ?: return ignore(_)` leaked a
+    false "still owns a linear value" obligation on the `_`-bound
+    `Checked` arm, because the `?:` else-side coerces `_` to the callee's
+    `End | Checked<T>` and the un-pierced `Rewrap` left the inner read
+    non-consuming.
   * The code after a loop is reached from the fall-through exit *and*
     from every `break`: the loop exit merges the flow state captured at
     each `break` statement, so a value consumed on a break path stays
