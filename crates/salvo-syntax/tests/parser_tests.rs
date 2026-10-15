@@ -3406,3 +3406,156 @@ fn a_terminal_if_refuses_elif_and_else_dots() {
         "expected the else-dots refusal, got: {else_dots:?}"
     );
 }
+
+// --- [expr-infix] Unified infix precedence, associativity, and cross-line ---
+//
+// These lock the single precedence-climbing loop (`parse_binary`) that
+// replaced the former tier-per-operator cascade (user decision 2026-10-14).
+
+use salvo_syntax::ast::{BinaryOp, Expr, UnaryOp};
+
+/// The `BinaryOp` of an `Expr::Binary`, or panic.
+fn bin(e: &Expr) -> (BinaryOp, &Expr, &Expr) {
+    match e {
+        Expr::Binary { op, lhs, rhs, .. } => (*op, lhs, rhs),
+        other => panic!("expected a Binary, got {other:?}"),
+    }
+}
+
+/// Parse one expression statement from a function body whose source may span
+/// several lines (the lines after the first are indented continuation lines).
+fn parse_multiline_expr(src: &str) -> Expr {
+    parse_expr_stmt(src)
+}
+
+/// `a + b * c` is `a + (b * c)` — multiplicative binds tighter than additive.
+#[test]
+fn additive_looser_than_multiplicative() {
+    let e = parse_expr_stmt("a + b * c");
+    let (op, _lhs, rhs) = bin(&e);
+    assert_eq!(op, BinaryOp::Add);
+    assert_eq!(bin(rhs).0, BinaryOp::Mul);
+}
+
+/// `a == b && c == d` is `(a == b) && (c == d)` — `&&` looser than `==`.
+#[test]
+fn and_looser_than_equality() {
+    let e = parse_expr_stmt("a == b && c == d");
+    let (op, lhs, rhs) = bin(&e);
+    assert_eq!(op, BinaryOp::And);
+    assert_eq!(bin(lhs).0, BinaryOp::Eq);
+    assert_eq!(bin(rhs).0, BinaryOp::Eq);
+}
+
+/// `a || b && c` is `a || (b && c)` — `&&` binds tighter than `||`.
+#[test]
+fn or_looser_than_and() {
+    let e = parse_expr_stmt("a || b && c");
+    let (op, _lhs, rhs) = bin(&e);
+    assert_eq!(op, BinaryOp::Or);
+    assert_eq!(bin(rhs).0, BinaryOp::And);
+}
+
+/// Left-associativity of a plain binary: `a - b - c` is `(a - b) - c`.
+#[test]
+fn subtraction_is_left_associative() {
+    let e = parse_expr_stmt("a - b - c");
+    let (op, lhs, _rhs) = bin(&e);
+    assert_eq!(op, BinaryOp::Sub);
+    assert_eq!(bin(lhs).0, BinaryOp::Sub);
+}
+
+/// Elvis sits tighter than comparison, looser than additive:
+/// `m ?: 0 > 3` is `(m ?: 0) > 3`, and `a ?: b + 1` is `a ?: (b + 1)`.
+#[test]
+fn elvis_precedence_matches_kotlin() {
+    let gt = parse_expr_stmt("m ?: 0 > 3");
+    let (op, lhs, _rhs) = bin(&gt);
+    assert_eq!(op, BinaryOp::Gt);
+    assert!(matches!(lhs, Expr::Elvis { .. }), "lhs of `>` is the elvis");
+
+    let add = parse_expr_stmt("a ?: b + 1");
+    let Expr::Elvis { rhs, .. } = &add else {
+        panic!("expected an elvis, got {add:?}");
+    };
+    assert_eq!(bin(rhs).0, BinaryOp::Add, "elvis right side is `b + 1`");
+}
+
+/// Elvis is left-associative: `a ?: b ?: c` is `(a ?: b) ?: c`.
+#[test]
+fn elvis_is_left_associative() {
+    let e = parse_expr_stmt("a ?: b ?: c");
+    let Expr::Elvis { subject, .. } = &e else {
+        panic!("expected an elvis, got {e:?}");
+    };
+    assert!(
+        matches!(**subject, Expr::Elvis { .. }),
+        "the subject of the outer elvis is the inner elvis"
+    );
+}
+
+/// `x !is Str` is `!(x is Str)` — one `Is` under a `Not`.
+#[test]
+fn is_not_is_sugar_for_not_is() {
+    let e = parse_expr_stmt("x !is Str");
+    let Expr::Unary { op, operand, .. } = &e else {
+        panic!("expected a Not, got {e:?}");
+    };
+    assert_eq!(*op, UnaryOp::Not);
+    assert!(matches!(**operand, Expr::Is { .. }));
+}
+
+/// A same-line comparison chain still parses; a newline before a comparison
+/// ends the statement (comparison is NOT a cross-line operator). Here the
+/// continuation line `> 3` would be a fresh statement, so the `let` value is
+/// just `a` and the `> 3` line is a parse error — confirming comparison does
+/// not wrap.
+#[test]
+fn comparison_does_not_wrap_across_lines() {
+    // `a` on its own line, then `> 3`: the second line cannot start a
+    // statement with `>`, so this is a parse error — comparison is same-line.
+    let errors = errors_of("fn f(a: Int) {\n    let x = a\n    > 3\n}\n");
+    assert!(
+        !errors.is_empty(),
+        "a newline-leading `>` must not continue the expression"
+    );
+}
+
+/// The forward elvis wraps across lines, bracketing left: `a ?: b\n ?: c` is
+/// `(a ?: b) ?: c`.
+#[test]
+fn forward_elvis_wraps_across_lines() {
+    let e = parse_multiline_expr("a ?: b\n        ?: c");
+    let Expr::Elvis { subject, .. } = &e else {
+        panic!("expected an elvis, got {e:?}");
+    };
+    assert!(
+        matches!(**subject, Expr::Elvis { .. }),
+        "the next-line `?:` brackets the whole chain so far on its left"
+    );
+}
+
+/// The backward elvis `:?` also wraps across lines now (user decision
+/// 2026-10-14, unifying the two forms): `a :? b\n :? c` is `(a :? b) :? c`.
+#[test]
+fn backward_elvis_wraps_across_lines() {
+    let e = parse_multiline_expr("a :? b\n        :? c");
+    let Expr::Elvis { subject, .. } = &e else {
+        panic!("expected a backward elvis, got {e:?}");
+    };
+    assert!(
+        matches!(**subject, Expr::Elvis { .. }),
+        "the next-line `:?` brackets the whole chain so far on its left"
+    );
+}
+
+/// Explicit parentheses group across lines (newlines are ignored inside a
+/// group): `(a\n + b\n + c)` is one additive chain even though `+` is
+/// otherwise same-line only.
+#[test]
+fn parentheses_group_across_lines() {
+    let e = parse_multiline_expr("(a\n        + b\n        + c)");
+    let (op, lhs, _rhs) = bin(&e);
+    assert_eq!(op, BinaryOp::Add);
+    assert_eq!(bin(lhs).0, BinaryOp::Add, "the whole chain is inside the group");
+}

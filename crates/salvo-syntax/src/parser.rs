@@ -67,6 +67,22 @@ struct Snapshot {
     diag_len: usize,
 }
 
+/// [expr-infix] What the current token is, as an infix operator, for the
+/// precedence-climbing loop (`parse_binary`). Paired with a left binding power
+/// by `infix_bp`.
+#[derive(Clone, Copy)]
+enum InfixKind {
+    /// A plain `lhs OP rhs` binary that builds `Expr::Binary`.
+    Binary(BinaryOp),
+    /// `is` — a type/qualifier check (`Expr::Is`/`Expr::Widen`).
+    Is,
+    /// `!is` — the negated check, sugar for `!(x is Q)`.
+    IsNot,
+    /// The positional-pick elvis (`?…?:` / `:?…?`), handled by
+    /// `parse_elvis_tail`.
+    Elvis,
+}
+
 /// [actor-self-send] The contextual selector that names the enclosing handler:
 /// `k@self(args)`. Contextual, not reserved — `self` stays an ordinary name
 /// everywhere else, and it is only special immediately after `@`.
@@ -4851,7 +4867,7 @@ impl<'s> Parser<'s> {
                 return Some(lambda);
             }
         }
-        self.parse_or().and_then(|e| self.newline_postfix(e))
+        self.parse_binary(0).and_then(|e| self.newline_postfix(e))
     }
 
     fn parse_lambda_from_ident(&mut self) -> Option<Expr> {
@@ -4941,51 +4957,56 @@ impl<'s> Parser<'s> {
         }
     }
 
-    fn parse_or(&mut self) -> Option<Expr> {
-        let mut lhs = self.parse_and()?;
-        while self.at(&TokenKind::PipePipe) && self.same_line() {
-            self.bump();
-            let rhs = self.sub_expr(|p| p.parse_and())?;
-            let span = lhs.span().to(rhs.span());
-            lhs = Expr::Binary {
-                op: BinaryOp::Or,
-                lhs: Box::new(lhs),
-                rhs: Box::new(rhs),
-                span,
-            };
-        }
-        Some(lhs)
-    }
-
-    fn parse_and(&mut self) -> Option<Expr> {
-        let mut lhs = self.parse_equality()?;
-        while self.at(&TokenKind::AmpAmp) && self.same_line() {
-            self.bump();
-            let rhs = self.sub_expr(|p| p.parse_equality())?;
-            let span = lhs.span().to(rhs.span());
-            lhs = Expr::Binary {
-                op: BinaryOp::And,
-                lhs: Box::new(lhs),
-                rhs: Box::new(rhs),
-                span,
-            };
-        }
-        Some(lhs)
-    }
-
-    fn parse_equality(&mut self) -> Option<Expr> {
-        let mut lhs = self.parse_comparison()?;
+    /// [expr-infix] Every infix operator, parsed by one **precedence-climbing**
+    /// loop over a single binding-power table (`infix_bp`), replacing the
+    /// former tier-per-operator cascade (`parse_or`/`parse_and`/… — user
+    /// decision 2026-10-14). `min_bp` is the lowest left binding power this
+    /// call will consume: the top-level entry passes 0, and each operator
+    /// recurses for its right side at its own *right* binding power, so a
+    /// left-associative operator (every one Salvo has) folds left.
+    ///
+    /// The table is the one source of truth for precedence; see `infix_bp` for
+    /// the levels. Three operators are not plain `lhs OP rhs` binaries and are
+    /// dispatched specially from the loop at their tier: `is`/`!is` (a
+    /// type-ref check, no expression right side), the positional-pick elvis
+    /// (`?…?:` / `:?…?`, a `?`-run with its own wrap rule), and the pipe
+    /// `|>` (binds `_` in its right side). The rest build `Expr::Binary`.
+    ///
+    /// [expr-wrap] Most operators require their line (`same_line`); the
+    /// *flattening* operators (`|>`, both elvis forms, and — in the postfix
+    /// tier — `.`/`replyto`) may instead begin a continuation line, where the
+    /// newline brackets the whole expression so far on its left (the loop's
+    /// left fold *is* that bracketing, since a flattening operator sits at a
+    /// loose tier and `lhs` already holds everything to its left).
+    fn parse_binary(&mut self, min_bp: u8) -> Option<Expr> {
+        let mut lhs = self.parse_unary()?;
         loop {
-            let op = match self.kind() {
-                TokenKind::EqEq => BinaryOp::Eq,
-                TokenKind::BangEq => BinaryOp::NotEq,
-                _ => break,
-            };
-            if !self.same_line() {
+            let Some((lbp, kind)) = self.infix_bp() else { break };
+            if lbp <= min_bp {
                 break;
             }
+            // `is`/`!is`: a check, not a binary. Same tier as comparison.
+            if matches!(kind, InfixKind::Is | InfixKind::IsNot) {
+                lhs = self.parse_is_tail(lhs, matches!(kind, InfixKind::IsNot))?;
+                continue;
+            }
+            // Elvis: the positional pick, with its own `?`-run scan and
+            // [elvis-wrap] continuation rule.
+            if matches!(kind, InfixKind::Elvis) {
+                match self.parse_elvis_tail(lhs.clone())? {
+                    Some(e) => {
+                        lhs = e;
+                        continue;
+                    }
+                    // Not actually an elvis operator here (a lone `?`/`:`, or
+                    // a wrap left for an enclosing chain): stop.
+                    None => break,
+                }
+            }
+            // A plain binary operator. `rbp = lbp + 1` makes it left-associative.
+            let InfixKind::Binary(op) = kind else { break };
             self.bump();
-            let rhs = self.sub_expr(|p| p.parse_comparison())?;
+            let rhs = self.sub_expr(|p| p.parse_binary(lbp + 1))?;
             let span = lhs.span().to(rhs.span());
             lhs = Expr::Binary {
                 op,
@@ -4997,89 +5018,104 @@ impl<'s> Parser<'s> {
         Some(lhs)
     }
 
-    /// Comparisons plus the `is` checks (same precedence tier).
-    fn parse_comparison(&mut self) -> Option<Expr> {
-        let mut lhs = self.parse_elvis()?;
-        loop {
-            match self.kind() {
-                TokenKind::KwIs if self.same_line() => {
-                    self.bump();
-                    let (check, binding, lifted) = self.parse_is_check()?;
-                    let end = binding
-                        .as_ref()
-                        .map(|b| b.span)
-                        .or_else(|| check.last().map(|r| r.span))
-                        .unwrap_or_else(|| lhs.span());
-                    let span = lhs.span().to(end);
-                    lhs = self.is_or_widen(lhs, check, binding, lifted, span)?;
-                }
-                // [is-not] `x !is Q` is sugar for `!(x is Q)` (user decision
-                // 2026-09-22): one `Expr::Is` under a `Not`, so narrowing,
-                // `when` heads and the guard rule all reach it unchanged — the
-                // `Not` arm of `analyze_cond` already swaps the two narrow sets
-                // [is-narrow-guard]. The postfix tier leaves this `!` alone.
-                TokenKind::Bang
-                    if self.same_line() && matches!(self.peek_at(1).kind, TokenKind::KwIs) =>
-                {
-                    let start = self.bump().span;
-                    self.bump();
-                    let (check, binding, lifted) = self.parse_is_check()?;
-                    let end = binding
-                        .as_ref()
-                        .map(|b| b.span)
-                        .or_else(|| check.last().map(|r| r.span))
-                        .unwrap_or_else(|| lhs.span());
-                    // A negated test narrows nothing in its *then* branch, so
-                    // there is no value for a binding to name.
-                    if let Some(b) = &binding {
-                        self.error(
-                            "`!is` binds nothing: the value is only known on the \
-                             branch the test *fails*, so there is nothing to \
-                             name — drop the binding, or write the positive test \
-                             with an `else`",
-                            b.span,
-                        );
-                    }
-                    if lifted > 0 {
-                        self.error(
-                            "`!is ^Q` is not a check: `^` widens the value it \
-                             tested [qual-lift], and a negated test produces no \
-                             value to widen — write `!(x is ^Q)` if the boolean \
-                             is all you want",
-                            start.to(end),
-                        );
-                    }
-                    let span = lhs.span().to(end);
-                    let inner = self.is_or_widen(lhs, check, binding, lifted, span)?;
-                    lhs = Expr::Unary {
-                        op: UnaryOp::Not,
-                        operand: Box::new(inner),
-                        span: start.to(end),
-                    };
-                }
-                TokenKind::Lt | TokenKind::Gt | TokenKind::LtEq | TokenKind::GtEq
-                    if self.same_line() =>
-                {
-                    let op = match self.kind() {
-                        TokenKind::Lt => BinaryOp::Lt,
-                        TokenKind::Gt => BinaryOp::Gt,
-                        TokenKind::LtEq => BinaryOp::LtEq,
-                        _ => BinaryOp::GtEq,
-                    };
-                    self.bump();
-                    let rhs = self.sub_expr(|p| p.parse_additive())?;
-                    let span = lhs.span().to(rhs.span());
-                    lhs = Expr::Binary {
-                        op,
-                        lhs: Box::new(lhs),
-                        rhs: Box::new(rhs),
-                        span,
-                    };
-                }
-                _ => break,
+    /// [expr-infix] The binding-power table: the current token's **left**
+    /// binding power and what kind of infix operator it is, or `None` when it
+    /// is not an infix operator here. The single definition of operator
+    /// precedence — loosest (lowest) first:
+    ///
+    /// | bp | operators |
+    /// |----|-----------|
+    /// |  2 | `\|>` (pipe) |
+    /// |  4 | `\|\|` |
+    /// |  6 | `&&` |
+    /// |  8 | `==` `!=` |
+    /// | 10 | `<` `>` `<=` `>=`, `is`, `!is` |
+    /// | 12 | elvis `?…?:` / `:?…?` |
+    /// | 14 | `+` `-` |
+    /// | 16 | `*` `/` `%` |
+    ///
+    /// Only the flattening operators (`|>` and elvis) may begin a continuation
+    /// line; the rest return `None` across a newline so the statement ends
+    /// (the `same_line` gate). Even-numbered levels leave the odd `lbp + 1`
+    /// for each left-associative operator's right side.
+    fn infix_bp(&self) -> Option<(u8, InfixKind)> {
+        let same = self.same_line();
+        Some(match self.kind() {
+            // Both elvis forms may start a continuation line [elvis-wrap]
+            // (user decision 2026-10-14, unifying the two forms): a line
+            // beginning with `?` or `:` is unambiguous outside brackets —
+            // nothing in Salvo starts a statement with either, and a lone
+            // `:`/`?` that is not a pick is left unconsumed by
+            // `parse_elvis_tail`. The detailed `?`-run / wrap decision is
+            // there.
+            TokenKind::Question | TokenKind::Colon => (12, InfixKind::Elvis),
+            // Same-line-only operators below.
+            _ if !same => return None,
+            TokenKind::PipePipe => (4, InfixKind::Binary(BinaryOp::Or)),
+            TokenKind::AmpAmp => (6, InfixKind::Binary(BinaryOp::And)),
+            TokenKind::EqEq => (8, InfixKind::Binary(BinaryOp::Eq)),
+            TokenKind::BangEq => (8, InfixKind::Binary(BinaryOp::NotEq)),
+            TokenKind::Lt => (10, InfixKind::Binary(BinaryOp::Lt)),
+            TokenKind::Gt => (10, InfixKind::Binary(BinaryOp::Gt)),
+            TokenKind::LtEq => (10, InfixKind::Binary(BinaryOp::LtEq)),
+            TokenKind::GtEq => (10, InfixKind::Binary(BinaryOp::GtEq)),
+            TokenKind::KwIs => (10, InfixKind::Is),
+            TokenKind::Bang if matches!(self.peek_at(1).kind, TokenKind::KwIs) => {
+                (10, InfixKind::IsNot)
             }
+            TokenKind::Plus => (14, InfixKind::Binary(BinaryOp::Add)),
+            TokenKind::Minus => (14, InfixKind::Binary(BinaryOp::Sub)),
+            TokenKind::Star => (16, InfixKind::Binary(BinaryOp::Mul)),
+            TokenKind::Slash => (16, InfixKind::Binary(BinaryOp::Div)),
+            TokenKind::Percent => (16, InfixKind::Binary(BinaryOp::Rem)),
+            _ => return None,
+        })
+    }
+
+    /// [is-check] An `is`/`!is` tail, folded onto `lhs` as the subject. `not`
+    /// is the `!is` form, sugar for `!(x is Q)` (user decision 2026-09-22):
+    /// one `Expr::Is` under a `Not`, so narrowing, `when` heads and the guard
+    /// rule all reach it unchanged.
+    fn parse_is_tail(&mut self, lhs: Expr, not: bool) -> Option<Expr> {
+        let start = if not { self.bump().span } else { lhs.span() };
+        self.bump(); // `is`
+        let (check, binding, lifted) = self.parse_is_check()?;
+        let end = binding
+            .as_ref()
+            .map(|b| b.span)
+            .or_else(|| check.last().map(|r| r.span))
+            .unwrap_or_else(|| lhs.span());
+        if not {
+            // A negated test narrows nothing in its *then* branch, so there is
+            // no value for a binding to name.
+            if let Some(b) = &binding {
+                self.error(
+                    "`!is` binds nothing: the value is only known on the \
+                     branch the test *fails*, so there is nothing to \
+                     name — drop the binding, or write the positive test \
+                     with an `else`",
+                    b.span,
+                );
+            }
+            if lifted > 0 {
+                self.error(
+                    "`!is ^Q` is not a check: `^` widens the value it \
+                     tested [qual-lift], and a negated test produces no \
+                     value to widen — write `!(x is ^Q)` if the boolean \
+                     is all you want",
+                    start.to(end),
+                );
+            }
+            let span = lhs.span().to(end);
+            let inner = self.is_or_widen(lhs, check, binding, lifted, span)?;
+            return Some(Expr::Unary {
+                op: UnaryOp::Not,
+                operand: Box::new(inner),
+                span: start.to(end),
+            });
         }
-        Some(lhs)
+        let span = lhs.span().to(end);
+        self.is_or_widen(lhs, check, binding, lifted, span)
     }
 
     /// [qual-lift] Classifies a parsed `is` check: every term `^`-marked is a
@@ -5183,158 +5219,103 @@ impl<'s> Parser<'s> {
         Some((refs, binding, lifted))
     }
 
-    /// [elvis] The **positional pick** operator, **right-associative**, sitting
-    /// where Kotlin's elvis sits: tighter than `is`/comparison/equality, looser
-    /// than additive. So `m[k] ?: 0 > 3` is `(m[k] ?: 0) > 3` and `a ?: b + 1`
-    /// is `a ?: (b + 1)`, and a reader who knows Kotlin's `?:` does not have to
-    /// learn a different binding.
+    /// [elvis] The **positional pick** operator tail, folded onto an
+    /// already-parsed `subject`. Dispatched from `parse_binary` at the elvis
+    /// tier (bp 12). Returns `Some(expr)` when an elvis operator was consumed,
+    /// `None` when the current token is not an elvis operator here (a lone
+    /// `?`/`:`, or a next-line `?:` left for an enclosing chain) — the loop
+    /// then stops at this tier.
     ///
     /// A run of `n` `?`s names how many arms of the subject's union — counted
     /// from the declared **front** (`?:`, `??:`, …) or **back** (`:?`, `:??`,
     /// …) — the operator picks: those arms become the value when the subject
     /// holds one of them, and `rhs` runs otherwise, with `_` bound to the arms
-    /// the pick did *not* claim. `?:` is `Forward(1)`.
+    /// the pick did *not* claim. `?:` is `Forward(1)`. Precedence is Kotlin's
+    /// (tighter than comparison, looser than additive), and the chain is
+    /// **left-associative** — the loop folds it, and the right side is parsed
+    /// one tier up (additive, bp 13+), not recursively, which is what makes
+    /// `a ?: b ?: c` read `(a ?: b) ?: c`.
     ///
     /// The right side is an ordinary expression — which since [expr-escape]
     /// includes `return`/`break`/`continue`, so `x ?: return _` needs no
     /// exception.
-    fn parse_elvis(&mut self) -> Option<Expr> {
-        let mut lhs = self.parse_additive()?;
-        // [elvis] [elvis-assoc] Elvis is **left-associative**: `a ?: b ?: c` is
-        // `(a ?: b) ?: c` (user decision 2026-10-12). Each operator folds the
-        // chain so far as its subject, so a chain of picks each handling the
-        // arms the last left behind reads left to right. A loop, like the other
-        // binary tiers, rather than a right recursion.
-        //
-        // [elvis-wrap] The **forward** operator (`?…?:`) may start on a
-        // continuation line, so a long chain can wrap (`a ?: b\n    ?: c`): a
-        // line beginning with `?` is unambiguous, since nothing in Salvo starts
-        // a statement or expression with `?`, and the newline brackets
-        // everything before it as this operator's subject (a `return`/escape
-        // right side stops at the newline, so it does not swallow the next
-        // operator). The **backward** form (`:?…?`) keeps the same-line
-        // requirement — a leading `:` could read as a type ascription.
-        loop {
-            // The operator is a run of `?`s with a `:` at one end: `?…?:`
-            // counts from the front, `:?…?` from the back. `?` and `:` are
-            // separate tokens [elvis], so this scans a run.
-            let (dir, count) = match self.kind() {
-                TokenKind::Question => {
-                    // Forward: `?…?:`. Require the run to end in a `:`,
-                    // otherwise this is some other `?` (none exists today).
-                    // Inside a nested right side (`elvis_no_wrap`) the operator
-                    // must be on the same line, so a next-line `?:` is left for
-                    // the enclosing chain [elvis-wrap].
-                    // Inside a nested right side (`elvis_no_wrap`) the
-                    // operator belongs to the enclosing chain, never to the
-                    // escape's value: a `return`/escape value parses a full
-                    // expression, and left-associativity means a following
-                    // `?:` brackets the whole chain so far, not the escape
-                    // value — whether it is on the same line (`a ??: return
-                    // b ?: c`) or the next ([elvis-wrap]). So break and leave
-                    // the operator for the outer loop. A *parenthesised*
-                    // sub-expression (`group_depth > 0`) is self-contained,
-                    // so the flag does not reach into it (`return (x ?: y)`).
-                    if self.elvis_no_wrap && self.group_depth == 0 {
-                        break;
-                    }
-                    let mut n = 0u32;
-                    while matches!(self.peek_at(n as usize).kind, TokenKind::Question) {
-                        n += 1;
-                    }
-                    if !matches!(self.peek_at(n as usize).kind, TokenKind::Colon) {
-                        break;
-                    }
-                    for _ in 0..n {
-                        self.bump();
-                    }
-                    self.expect(&TokenKind::Colon)?;
-                    (ElvisDir::Forward, n)
+    fn parse_elvis_tail(&mut self, subject: Expr) -> Option<Option<Expr>> {
+        // The operator is a run of `?`s with a `:` at one end: `?…?:` counts
+        // from the front, `:?…?` from the back. `?` and `:` are separate
+        // tokens [elvis], so this scans a run.
+        let (dir, count) = match self.kind() {
+            TokenKind::Question => {
+                // Forward: `?…?:`. Require the run to end in a `:`, otherwise
+                // this is some other `?` (none exists today).
+                //
+                // [elvis-wrap] The forward operator may start a continuation
+                // line, so a chain can wrap (`a ?: b\n    ?: c`); a line
+                // beginning with `?` is unambiguous (nothing in Salvo starts a
+                // statement with `?`), and the newline brackets everything
+                // before it as this operator's subject. But inside a nested
+                // right side (`elvis_no_wrap`) the operator belongs to the
+                // *enclosing* chain, never to an escape's value: a
+                // `return`/escape value parses a full expression, and
+                // left-associativity means a following `?:` brackets the whole
+                // chain so far, not the escape value — same line (`a ??:
+                // return b ?: c`) or next. So return `None` and leave the
+                // operator for the outer context. A *parenthesised*
+                // sub-expression (`group_depth > 0`) is self-contained, so the
+                // flag does not reach into it (`return (x ?: y)`).
+                if self.elvis_no_wrap && self.group_depth == 0 {
+                    return Some(None);
                 }
-                TokenKind::Colon if self.same_line() => {
-                    // Backward: `:?…?`. A `:` not followed by a `?` is not a
-                    // pick (it may be a type ascription elsewhere).
-                    if !matches!(self.peek_at(1).kind, TokenKind::Question) {
-                        break;
-                    }
+                let mut n = 0u32;
+                while matches!(self.peek_at(n as usize).kind, TokenKind::Question) {
+                    n += 1;
+                }
+                if !matches!(self.peek_at(n as usize).kind, TokenKind::Colon) {
+                    return Some(None);
+                }
+                for _ in 0..n {
                     self.bump();
-                    let mut n = 0u32;
-                    while matches!(self.kind(), TokenKind::Question) {
-                        self.bump();
-                        n += 1;
-                    }
-                    (ElvisDir::Backward, n)
                 }
-                _ => break,
-            };
-            // The right side is an operand one tier up (additive), *not* a
-            // recursive elvis: that is what makes the chain left-associative.
-            // It may still be a `return`/escape, whose value must not wrap a
-            // next-line `?:` — that operator brackets the whole chain so far on
-            // its left (`elvis_no_wrap`), not the escape's value.
-            let saved = std::mem::replace(&mut self.elvis_no_wrap, true);
-            let rhs = self.sub_expr(|p| p.parse_additive());
-            self.elvis_no_wrap = saved;
-            let rhs = rhs?;
-            let span = lhs.span().to(rhs.span());
-            lhs = Expr::Elvis {
-                subject: Box::new(lhs),
-                dir,
-                count,
-                rhs: Box::new(rhs),
-                span,
-            };
-        }
-        Some(lhs)
-    }
-
-    fn parse_additive(&mut self) -> Option<Expr> {
-        let mut lhs = self.parse_multiplicative()?;
-        loop {
-            let op = match self.kind() {
-                TokenKind::Plus => BinaryOp::Add,
-                TokenKind::Minus => BinaryOp::Sub,
-                _ => break,
-            };
-            if !self.same_line() {
-                break;
+                self.expect(&TokenKind::Colon)?;
+                (ElvisDir::Forward, n)
             }
-            self.bump();
-            let rhs = self.sub_expr(|p| p.parse_multiplicative())?;
-            let span = lhs.span().to(rhs.span());
-            lhs = Expr::Binary {
-                op,
-                lhs: Box::new(lhs),
-                rhs: Box::new(rhs),
-                span,
-            };
-        }
-        Some(lhs)
-    }
-
-    fn parse_multiplicative(&mut self) -> Option<Expr> {
-        let mut lhs = self.parse_unary()?;
-        loop {
-            let op = match self.kind() {
-                TokenKind::Star => BinaryOp::Mul,
-                TokenKind::Slash => BinaryOp::Div,
-                TokenKind::Percent => BinaryOp::Rem,
-                _ => break,
-            };
-            if !self.same_line() {
-                break;
+            TokenKind::Colon => {
+                // Backward: `:?…?`. A `:` not followed by a `?` is not a pick.
+                // Like the forward form, a backward pick inside a nested
+                // escape right side belongs to the enclosing chain
+                // [elvis-wrap].
+                if self.elvis_no_wrap && self.group_depth == 0 {
+                    return Some(None);
+                }
+                if !matches!(self.peek_at(1).kind, TokenKind::Question) {
+                    return Some(None);
+                }
+                self.bump();
+                let mut n = 0u32;
+                while matches!(self.kind(), TokenKind::Question) {
+                    self.bump();
+                    n += 1;
+                }
+                (ElvisDir::Backward, n)
             }
-            self.bump();
-            let rhs = self.sub_expr(|p| p.parse_unary())?;
-            let span = lhs.span().to(rhs.span());
-            lhs = Expr::Binary {
-                op,
-                lhs: Box::new(lhs),
-                rhs: Box::new(rhs),
-                span,
-            };
-        }
-        Some(lhs)
+            _ => return Some(None),
+        };
+        // The right side is an operand one tier up (additive, bp 13+), *not* a
+        // recursive elvis: that is what makes the chain left-associative. It
+        // may still be a `return`/escape, whose value must not wrap a next-line
+        // `?:` — that operator brackets the whole chain so far on its left
+        // (`elvis_no_wrap`), not the escape's value.
+        let saved = std::mem::replace(&mut self.elvis_no_wrap, true);
+        let rhs = self.sub_expr(|p| p.parse_binary(13));
+        self.elvis_no_wrap = saved;
+        let rhs = rhs?;
+        let span = subject.span().to(rhs.span());
+        Some(Some(Expr::Elvis {
+            subject: Box::new(subject),
+            dir,
+            count,
+            rhs: Box::new(rhs),
+            span,
+        }))
     }
 
     fn parse_unary(&mut self) -> Option<Expr> {

@@ -138,6 +138,41 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-14 — Infix operators unified into one precedence table; both elvis forms wrap across lines
+
+Groundwork for the `|>` pipe and flattened `replyto` (user decisions
+2026-10-14): "unify and standardize the parsing of operations and syntax
+across lines". Two changes landed together, parser-only, with the AST
+byte-for-byte unchanged (every existing snapshot passed untouched):
+
+- **One precedence-climbing loop** (`parse_binary` + the `infix_bp` table,
+  [expr-infix]) replaces the former tier-per-operator cascade
+  (`parse_or`/`parse_and`/`parse_equality`/`parse_comparison`/`parse_additive`/
+  `parse_multiplicative`). The binding-power table is now the single
+  definition of precedence; `is`/`!is` and the positional-pick elvis are
+  dispatched as special cases from the loop at their own tier (`parse_is_tail`,
+  `parse_elvis_tail`). This is the home the pipe operator (a new table row) and
+  future operators plug into.
+- **Both elvis forms now wrap across a continuation line** (unifying the two).
+  The backward `:?…?` previously kept a same-line requirement justified by "a
+  leading `:` could read as a type ascription"; checked and ruled out — every
+  `:` in an expression position sits inside a group (`k: v` pair args, struct
+  fields, lambda param types, `waitfor out: T`) where newlines are ignored
+  anyway, and nothing starts a statement with a bare `:` outside brackets. A
+  lone `:`/`?` that is not a pick is left unconsumed by `parse_elvis_tail`, so
+  a stray leading `:` is not swallowed. [elvis-wrap] rewritten accordingly.
+
+Per the C-decisions: arithmetic, comparison (`==`/`!=`/`<`/…), logical
+(`||`/`&&`), and `is`/`!is` stay **same-line only** (a newline before them
+ends the statement); only the flattening operators (the elvis forms, and the
+postfix `.`/`replyto`) continue across a newline, bracketing left — which the
+loop's left fold gives for free. Explicit `(…)` across lines was verified to
+group regardless of operator (newlines ignored inside a group). Added
+hand-written precedence/associativity/cross-line unit tests to
+`parser_tests.rs` (previously only corpus snapshots covered this). Full warm
+suite (incl. kotlinc/rustc e2e) green.
+
+
 ### 2026-10-14 — Move-marking reaches through a `Rewrap` coercion (false linear leak fixed)
 
 A disk-backed noticeboard reported a bogus `!!! noticeboard.disk:1:1: this

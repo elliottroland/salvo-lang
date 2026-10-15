@@ -457,15 +457,17 @@ Conventions:
     right-associative, but there both sides are the same type; Salvo's pick
     changes the type arm by arm, and left folding is what lets
     `x ??: handle_err(_) ?: default` mean "peel the error, then default".)
-  * **[elvis-wrap] The forward operator (`?…?:`) may start on a continuation
-    line**, so a pick chain can wrap (`a ?: b\n    ?: c`): a line beginning
-    with `?` is unambiguous, since nothing in Salvo starts a statement or
-    expression with `?`. A **newline brackets everything before it on the
-    left** (user decision 2026-10-12): a `return`/escape right side stops at
-    the newline, so the next-line `?:` applies to the whole chain so far, not
-    to the escape's value — `x ??: return e\n    ?: d` is `(x ??: return e)
-    ?: d`. The backward form (`:?…?`) keeps the same-line requirement — a
-    leading `:` could read as a type ascription.
+  * **[elvis-wrap] Either elvis form may start on a continuation line**, so a
+    pick chain can wrap (`a ?: b\n    ?: c`, `a :? b\n    :? c`): a line
+    beginning with `?` or `:` is unambiguous, since nothing in Salvo starts a
+    statement or expression with either (user decision 2026-10-14, unifying
+    the two forms — the backward form previously kept a same-line
+    requirement). A **newline brackets everything before it on the left**
+    (user decision 2026-10-12): a `return`/escape right side stops at the
+    newline, so the next-line pick applies to the whole chain so far, not to
+    the escape's value — `x ??: return e\n    ?: d` is `(x ??: return e)
+    ?: d`. A lone `?` or `:` that is not actually a pick operator is left
+    unconsumed, so a stray leading `:` is not swallowed.
   * **[expr-wrap] A postfix `.member`/`.method(…)` on a continuation line
     brackets the whole expression so far on its left** (user decision
     2026-10-12), the same bracket-left rule as [elvis-wrap] and unambiguous
@@ -2055,6 +2057,40 @@ Conventions:
 * [expr-everything] Every control-flow construct is an expression; a
   branch's value/type is its last expression, and the construct's type is
   the union of branch types.
+* [expr-infix] **Every infix operator is parsed by one precedence-climbing
+  loop over a single binding-power table** (`parse_binary` in the parser; user
+  decision 2026-10-14, replacing the former tier-per-operator cascade). The
+  table is the one definition of operator precedence — loosest first:
+
+  | level | operators |
+  |---|---|
+  | or | `\|\|` |
+  | and | `&&` |
+  | equality | `==` `!=` |
+  | comparison | `<` `>` `<=` `>=`, `is`, `!is` |
+  | elvis | `?…?:` / `:?…?` |
+  | additive | `+` `-` |
+  | multiplicative | `*` `/` `%` |
+
+  Every binary operator is **left-associative** (the loop recurses for its
+  right side at one level tighter). Two operators are not plain
+  `lhs OP rhs` binaries and are dispatched specially at their level: `is`/`!is`
+  (a type-ref check, `Expr::Is`/`Expr::Widen`, no expression right side) and
+  the positional-pick elvis (a `?`-run with the [elvis-wrap] rule). The
+  others build `Expr::Binary` over a `BinaryOp`.
+  * **Statement termination is by newline** [expr-escape]: a token carries
+    `newline_before`, and `same_line` is "no newline before, or inside a
+    bracket group". Most operators require their line — a newline before `+`,
+    `==`, `&&`, `is`, … ends the statement. Only the **flattening** operators
+    continue across a newline (the elvis forms here, and the postfix
+    `.`/`replyto` in [expr-wrap]); a newline-leading one brackets the whole
+    expression so far on its left, which the loop's left fold produces for
+    free, since a flattening operator sits at a loose level and its left side
+    is already complete.
+  * **Explicit parentheses override precedence across lines too**: inside
+    `(…)`/`[…]` newlines are ignored (`group_depth > 0`), so a chain wrapped
+    inside parentheses is one expression regardless of which operators it
+    uses — the way to force a grouping the default precedence would not give.
 * [expr-escape] **`return`, `break` and `continue` are expressions of type
   `Never`** (user decision 2026-09-21), not statements — step 2 of the `?`
   family sequence, and the reason `maybe_t() ?: return _` needs no grammar
