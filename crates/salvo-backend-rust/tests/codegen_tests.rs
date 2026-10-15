@@ -6831,6 +6831,43 @@ fn rustc_compiles_and_runs_the_elvis_operator() {
     run_rust_files(&files, "elvis", ELVIS_OUTPUT);
 }
 
+/// [expr-pipe] The pipe operator `|>`: the left side is bound to `_` and read
+/// in the right side. A pipe used as a **statement** (right side returns
+/// `None`), a left-associative chain, and the loosest-precedence binding
+/// (`2 + 3 |> …` pipes the sum).
+const PIPE_DEMO: &str = r#"
+fn double(n: Int) -> Int {
+    return n * 2
+}
+
+fn add(a: Int, b: Int) -> Int {
+    return a + b
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    double(21) |> println("single ${_}")
+    let chained = 5
+        |> double(_)
+        |> add(_, 100)
+    println("chained ${chained}")
+    let prec = 2 + 3 |> double(_)
+    println("prec ${prec}")
+}
+"#;
+
+const PIPE_OUTPUT: &str = "single 42\nchained 110\nprec 10\n";
+
+#[test]
+fn rustc_compiles_and_runs_the_pipe_operator() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", PIPE_DEMO)]);
+    run_rust_files(&files, "pipe", PIPE_OUTPUT);
+}
+
 /// [elvis] The positional pick. `?:` keeps the first arm (`Forward(1)`), `:?`
 /// the last (`Backward(1)`); `_` on the right is the arms left behind, tags and
 /// all — the one place the placeholder earns its keep, since `Err Str` has no

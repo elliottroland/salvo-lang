@@ -703,6 +703,10 @@ impl HoverRecorder<'_> {
                 self.expr(subject);
                 self.expr(rhs);
             }
+            Expr::Pipe { lhs, rhs, .. } => {
+                self.expr(lhs);
+                self.expr(rhs);
+            }
             Expr::Try { body, .. } => self.block(body),
             Expr::Lambda { body, .. } => match body {
                 LambdaBody::Expr(e) => self.expr(e),

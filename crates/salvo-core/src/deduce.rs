@@ -1067,6 +1067,10 @@ impl<'p> Walk<'_, 'p> {
                 self.expr(subject);
                 self.expr(rhs);
             }
+            Expr::Pipe { lhs, rhs, .. } => {
+                self.expr(lhs);
+                self.expr(rhs);
+            }
             Expr::Placeholder { .. } => {}
             // [safe-nav] The receiver is read (navigated), and any call
             // arguments are evaluated; mirror a dot read/call's effects.

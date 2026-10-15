@@ -2064,6 +2064,7 @@ Conventions:
 
   | level | operators |
   |---|---|
+  | pipe | `\|>` |
   | or | `\|\|` |
   | and | `&&` |
   | equality | `==` `!=` |
@@ -2073,16 +2074,17 @@ Conventions:
   | multiplicative | `*` `/` `%` |
 
   Every binary operator is **left-associative** (the loop recurses for its
-  right side at one level tighter). Two operators are not plain
+  right side at one level tighter). Three operators are not plain
   `lhs OP rhs` binaries and are dispatched specially at their level: `is`/`!is`
-  (a type-ref check, `Expr::Is`/`Expr::Widen`, no expression right side) and
-  the positional-pick elvis (a `?`-run with the [elvis-wrap] rule). The
-  others build `Expr::Binary` over a `BinaryOp`.
+  (a type-ref check, `Expr::Is`/`Expr::Widen`, no expression right side), the
+  positional-pick elvis (a `?`-run with the [elvis-wrap] rule), and the pipe
+  `|>` ([expr-pipe], which binds `_` in its right side). The others build
+  `Expr::Binary` over a `BinaryOp`.
   * **Statement termination is by newline** [expr-escape]: a token carries
     `newline_before`, and `same_line` is "no newline before, or inside a
     bracket group". Most operators require their line — a newline before `+`,
     `==`, `&&`, `is`, … ends the statement. Only the **flattening** operators
-    continue across a newline (the elvis forms here, and the postfix
+    continue across a newline (`|>` and the elvis forms here, and the postfix
     `.`/`replyto` in [expr-wrap]); a newline-leading one brackets the whole
     expression so far on its left, which the loop's left fold produces for
     free, since a flattening operator sits at a loose level and its left side
@@ -2091,6 +2093,31 @@ Conventions:
     `(…)`/`[…]` newlines are ignored (`group_depth > 0`), so a chain wrapped
     inside parentheses is one expression regardless of which operators it
     uses — the way to force a grouping the default precedence would not give.
+* [expr-pipe] **`value |> expr` is the pipe operator** (user decision
+  2026-10-14): the left side is evaluated **once** and bound to the
+  placeholder `_`, which the right side reads, and the pipe's value and type
+  are the right side's. `calculate_age(person) |> list.add(_)` reads
+  `list.add(the age)`; it exists to flatten a nest of calls into a left-to-
+  right pipeline.
+  * **`_` is mandatory** in the right side and reads as the piped value —
+    the same `_` an elvis right side binds [placeholder], extended to the
+    pipe. A right side that never reads `_` is refused (dead scaffolding, as
+    a pick keeping every arm is). It may read `_` **more than once** exactly
+    when an ordinary local could — a copyable value, a `ref`/`proj` borrow —
+    since the lowering binds `_` to a plain local and the ownership rules
+    then apply unchanged.
+  * **Loosest precedence, left-associative**: `a + b |> f(_)` is
+    `(a + b) |> f(_)`, `a |> f(_) ?: g(_)` is `a |> (f(_) ?: g(_))` (the
+    tighter elvis is part of the right side), and `x |> f(_) |> g(_)` is
+    `g(f(x))`. It is a flattening operator, so it may begin a continuation
+    line, bracketing the chain so far on its left [expr-infix].
+  * **Pure sugar**: it lowers to the same temp-and-`_` shape an elvis right
+    side uses — a block binding the left side to a fresh local, then the right
+    side reading it — so no checker or backend rule past the lowering knows it
+    exists. A pipe used as a **statement** keeps its right side's effect: the
+    block-expression emitters evaluate the tail even when the pipe's type is
+    `None` (the one place that previously dropped a side-effecting tail on
+    Kotlin — fixed 2026-10-14).
 * [expr-escape] **`return`, `break` and `continue` are expressions of type
   `Never`** (user decision 2026-09-21), not statements — step 2 of the `?`
   family sequence, and the reason `maybe_t() ?: return _` needs no grammar

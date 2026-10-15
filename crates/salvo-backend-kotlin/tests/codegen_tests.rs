@@ -1139,6 +1139,34 @@ fn main() [use] {
 
 const ELVIS_OUTPUT: &str = "shout Addy!\nshout none\nhello Addy\nhello friend\nint 2\nbigger\nsum 5\nchain 7\n";
 
+/// [expr-pipe] The pipe operator `|>`: the left side is bound to `_` and read
+/// in the right side. Covers a pipe as a **statement** (whose right side
+/// returns `None` — the case where the Kotlin block-expression emitter used to
+/// drop the side-effecting tail value), a left-associative chain, and the
+/// loosest-precedence binding (`2 + 3 |> …` pipes the sum).
+const PIPE_DEMO: &str = r#"
+fn double(n: Int) -> Int {
+    return n * 2
+}
+
+fn add(a: Int, b: Int) -> Int {
+    return a + b
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    double(21) |> println("single ${_}")
+    let chained = 5
+        |> double(_)
+        |> add(_, 100)
+    println("chained ${chained}")
+    let prec = 2 + 3 |> double(_)
+    println("prec ${prec}")
+}
+"#;
+
+const PIPE_OUTPUT: &str = "single 42\nchained 110\nprec 10\n";
+
 /// [elvis] [placeholder] The positional pick. `?:` keeps the first arm
 /// (`Forward(1)`), `:?` the last (`Backward(1)`); `_` on the right is the arms
 /// left behind, tags and all — the one place the placeholder earns its keep,
@@ -1402,6 +1430,14 @@ fn kotlinc_compiles_and_runs_the_elvis_operator() -> KotlinCase {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "elvis", ELVIS_OUTPUT)
+}
+
+fn kotlinc_compiles_and_runs_the_pipe_operator() -> KotlinCase {
+    let program = build_program(&[("main.sv", PIPE_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "pipe", PIPE_OUTPUT)
 }
 
 fn kotlinc_compiles_and_runs_a_lift_binding() -> KotlinCase {
@@ -5596,6 +5632,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_escapes_in_expression_position,
     kotlinc_compiles_and_runs_a_lift_binding,
     kotlinc_compiles_and_runs_the_elvis_operator,
+    kotlinc_compiles_and_runs_the_pipe_operator,
     kotlinc_compiles_and_runs_a_positional_pick,
     kotlinc_compiles_and_runs_a_sub_union_rewrap,
     kotlinc_compiles_and_runs_a_union_spanning_generic,

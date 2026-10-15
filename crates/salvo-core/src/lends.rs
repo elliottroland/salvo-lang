@@ -295,6 +295,9 @@ impl<'p> Walk<'_, '_, 'p> {
             Expr::Elvis { .. } | Expr::Placeholder { .. } => {
                 Some(HashSet::new())
             }
+            // [expr-pipe] A pipe's value is its right side's value, handed out
+            // by value; it lends nothing of the pipe itself.
+            Expr::Pipe { .. } => Some(HashSet::new()),
             // [safe-nav] The result is an optional value handed out by value;
             // it lends nothing.
             Expr::SafeNav { .. } => Some(HashSet::new()),

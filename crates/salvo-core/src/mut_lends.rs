@@ -219,6 +219,10 @@ pub fn collect_returned_exprs<'a>(block: &'a Block, out: &mut Vec<&'a Expr>) {
                 expr(subject, out);
                 expr(rhs, out);
             }
+            Expr::Pipe { lhs, rhs, .. } => {
+                expr(lhs, out);
+                expr(rhs, out);
+            }
             Expr::NonNull { operand, .. } => expr(operand, out),
             Expr::Try { body, .. } | Expr::WaitFor { body, .. } => {
                 collect_returned_exprs(body, out)

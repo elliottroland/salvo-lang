@@ -1558,6 +1558,10 @@ impl Rewrite {
                 self.expr(subject);
                 self.expr(rhs);
             }
+            Expr::Pipe { lhs, rhs, .. } => {
+                self.expr(lhs);
+                self.expr(rhs);
+            }
             Expr::Placeholder { .. } => {}
             // [actor-spawn-expr] Every clause is an ordinary expression, so
             // an `iter fn` subject read inside one rewrites like any other.
@@ -1740,6 +1744,10 @@ fn collect_shadowing(body: &Block, reserved: &[&Ident], out: &mut Vec<(String, S
             Expr::Continue { .. } => {}
             Expr::Elvis { subject, rhs, .. } => {
                 walk_expr(subject, reserved, out);
+                walk_expr(rhs, reserved, out);
+            }
+            Expr::Pipe { lhs, rhs, .. } => {
+                walk_expr(lhs, reserved, out);
                 walk_expr(rhs, reserved, out);
             }
             Expr::Placeholder { .. } => {}
@@ -2194,6 +2202,10 @@ fn walk_expr_with(expr: &Expr, on_stmt: &mut dyn FnMut(&Stmt), on_expr: &mut dyn
         }
         Expr::Elvis { subject, rhs, .. } => {
             e(subject);
+            e(rhs);
+        }
+        Expr::Pipe { lhs, rhs, .. } => {
+            e(lhs);
             e(rhs);
         }
         Expr::Spawn { handler, with_items, pool, .. } => {

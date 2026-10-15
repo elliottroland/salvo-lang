@@ -544,6 +544,14 @@ impl<'s> Lexer<'s> {
             // followed by a `Dot`. (The safe-call operator was removed on
             // 2026-10-11 and re-added 2026-10-12 as reconstruction-lowered
             // optional chaining, when a real use arose — see COMPLETED.md.)
+            //
+            // [expr-pipe] `|>` is one glued token, before the bare `|` below
+            // and after `||` above, so `|`, `||`, `|>` are three distinct
+            // operators.
+            ('|', Some('>')) => {
+                self.bump();
+                TokenKind::PipeGt
+            }
             ('(', _) => TokenKind::LParen,
             (')', _) => TokenKind::RParen,
             ('{', _) => TokenKind::LBrace,

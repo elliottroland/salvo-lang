@@ -2468,6 +2468,10 @@ struct Checker<'p, 'r> {
     /// qualifier pick's unpicked arm [pick]. `None` elsewhere, which is what
     /// keeps a stray `_` an error.
     placeholder_ty: Option<Ty>,
+    /// [expr-pipe] Set when a `_` placeholder is read while checking a pipe's
+    /// right side, so `check_pipe` can refuse a right side that ignores the
+    /// piped value. Reset around each pipe right side.
+    placeholder_read: bool,
     /// [actor-spawn-effect] Whether the current fn (or the handler whose
     /// member it is) declared the `spawn` capability — the gate a `spawn`
     /// expression checks.
@@ -2856,6 +2860,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             own_task: None,
             can_use: false,
             placeholder_ty: None,
+            placeholder_read: false,
             can_spawn: false,
             loop_stack: Vec::new(),
             driven_origins: Vec::new(),
@@ -15906,6 +15911,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             // [elvis] Neither side escapes by itself: a diverging right side
             // is recognized by its recorded type, like any diverging call.
             Expr::Elvis { .. } | Expr::Placeholder { .. } => false,
+            // [expr-pipe] A pipe's value is its right side; it does not escape
+            // by itself.
+            Expr::Pipe { .. } => false,
             // [safe-nav] A `?.` yields an optional; it exits nothing by itself.
             Expr::SafeNav { .. } => false,
             // [expr-escape] All three leave the enclosing block. `diverges`
@@ -16006,6 +16014,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // [fn-must-return], which `expr_exits` above answers.
             Expr::Unreachable { .. } | Expr::Todo { .. } | Expr::Assert { .. } => false,
             Expr::Elvis { .. } | Expr::Placeholder { .. } => false,
+            Expr::Pipe { .. } => false,
             Expr::SafeNav { .. } => false,
             // [expr-escape] Only `return` leaves the *function*; the guard
             // above has already answered `false` for the other two.
@@ -20216,6 +20225,10 @@ fn collect_binder_arg_sites<'p>(
                 expr(subject, name, out);
                 expr(rhs, name, out);
             }
+            Expr::Pipe { lhs, rhs, .. } => {
+                expr(lhs, name, out);
+                expr(rhs, name, out);
+            }
             Expr::Index { base, index, .. } => {
                 expr(base, name, out);
                 expr(index, name, out);
@@ -20324,6 +20337,11 @@ fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
         // [elvis] Both sides may hold assignments (a block-valued branch).
         Expr::Elvis { subject, rhs, .. } => {
             collect_assigned_expr(subject, out);
+            collect_assigned_expr(rhs, out);
+        }
+        // [expr-pipe] Both sides may hold assignments.
+        Expr::Pipe { lhs, rhs, .. } => {
+            collect_assigned_expr(lhs, out);
             collect_assigned_expr(rhs, out);
         }
         // [safe-nav] The receiver and any call arguments may hold assignments.
@@ -20562,6 +20580,9 @@ fn expr_mentions(expr: &Expr, name: &str) -> bool {
         }
         Expr::Elvis { subject, rhs, .. } => {
             expr_mentions(subject, name) || expr_mentions(rhs, name)
+        }
+        Expr::Pipe { lhs, rhs, .. } => {
+            expr_mentions(lhs, name) || expr_mentions(rhs, name)
         }
         // [safe-nav] Mentions whatever its receiver or call arguments mention.
         Expr::SafeNav { base, access, .. } => {
@@ -20880,7 +20901,42 @@ impl<'p, 'r> Checker<'p, 'r> {
         join
     }
 
-    /// Analyzes a `^` check: the **dual of `is`**. The runtime test is the
+    /// [expr-pipe] `lhs |> rhs` (user decision 2026-10-14). The left side is
+    /// evaluated once and bound to `_`; the right side reads it. The pipe's
+    /// type is the right side's. Pure sugar — it reuses the placeholder
+    /// machinery the elvis right side uses, so `_` means "the piped value"
+    /// here exactly as it means "the arms left behind" there.
+    fn check_pipe(&mut self, lhs: &'p Expr, rhs: &'p Expr, _span: Span) -> Ty {
+        let lhs_ty = self.check_expr(lhs, None);
+        if lhs_ty.is_unknown() {
+            // [type-unknown-lenient] One mistake, one diagnostic.
+            let saved = self.placeholder_ty.replace(Ty::Unknown);
+            let _ = self.check_expr(rhs, None);
+            self.placeholder_ty = saved;
+            return Ty::Unknown;
+        }
+        // [placeholder] `_` reads as the whole piped value inside the right
+        // side. Record whether the right side actually read it: a pipe whose
+        // right side ignores the piped value is dead scaffolding (the same
+        // reasoning that refuses a pick keeping every arm) — write a plain
+        // statement instead.
+        let saw_before = self.placeholder_read;
+        self.placeholder_read = false;
+        let saved = self.placeholder_ty.replace(lhs_ty.clone());
+        let rhs_ty = self.check_expr(rhs, None);
+        let read = std::mem::replace(&mut self.placeholder_read, saw_before);
+        self.placeholder_ty = saved;
+        if !read && !rhs_ty.is_unknown() {
+            self.error(
+                rhs.span(),
+                "the right side of `|>` must use the piped value `_` \
+                 (`x |> f(_)`); it reads nothing here, so write a plain \
+                 statement instead"
+                    .to_string(),
+            );
+        }
+        rhs_ty
+    }
     /// one `is` of the same qualifiers performs — same arm, same lowering —
     /// but the matched type is *generalized* (the qualifiers removed) rather
     /// than refined, so the subject reads without them inside the branch.
@@ -22603,15 +22659,25 @@ impl<'p, 'r> Checker<'p, 'r> {
                 rhs,
                 span,
             } => self.check_elvis(subject, *dir, *count, rhs, *span),
+            // [expr-pipe] `lhs |> rhs` — the left side evaluated once, bound to
+            // `_`, read in the right side. The result is the right side's type.
+            Expr::Pipe { lhs, rhs, span } => self.check_pipe(lhs, rhs, *span),
             // [placeholder] Outside an `?:` right-hand side there is no value
             // for `_` to mean.
             Expr::Placeholder { span } => match self.placeholder_ty.clone() {
-                Some(ty) => ty,
+                Some(ty) => {
+                    // [expr-pipe] Record the read so `check_pipe` can refuse a
+                    // right side that ignores the piped value. Harmless for an
+                    // elvis right side, which does not consult the flag.
+                    self.placeholder_read = true;
+                    ty
+                }
                 None => {
                     self.error(
                         *span,
                         "`_` is the arms a pick left behind, so it reads only in \
-                         the right-hand side of a pick (`r ?: f(_)`)"
+                         the right-hand side of a pick (`r ?: f(_)`) or a pipe \
+                         (`x |> f(_)`)"
                             .to_string(),
                     );
                     Ty::Unknown

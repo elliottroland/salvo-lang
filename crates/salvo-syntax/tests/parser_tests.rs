@@ -3559,3 +3559,88 @@ fn parentheses_group_across_lines() {
     assert_eq!(op, BinaryOp::Add);
     assert_eq!(bin(lhs).0, BinaryOp::Add, "the whole chain is inside the group");
 }
+
+// --- [expr-pipe] The pipe operator `|>` ---
+
+/// `a |> f(_)` parses as a `Pipe` with the call as its right side.
+#[test]
+fn pipe_parses() {
+    let e = parse_expr_stmt("a |> f(_)");
+    let Expr::Pipe { lhs, rhs, .. } = &e else {
+        panic!("expected a Pipe, got {e:?}");
+    };
+    assert!(matches!(**lhs, Expr::Ident(_)));
+    assert!(matches!(**rhs, Expr::Call { .. }));
+}
+
+/// `|>` is left-associative: `a |> f(_) |> g(_)` is `(a |> f(_)) |> g(_)`.
+#[test]
+fn pipe_is_left_associative() {
+    let e = parse_expr_stmt("a |> f(_) |> g(_)");
+    let Expr::Pipe { lhs, .. } = &e else {
+        panic!("expected a Pipe, got {e:?}");
+    };
+    assert!(
+        matches!(**lhs, Expr::Pipe { .. }),
+        "the left side of the outer pipe is the inner pipe"
+    );
+}
+
+/// `|>` is the loosest infix operator: `a + b |> f(_)` is `(a + b) |> f(_)`,
+/// and `a |> f(_) ?: g(_)` is `a |> (f(_) ?: g(_))` (elvis binds tighter).
+#[test]
+fn pipe_is_loosest() {
+    let sum = parse_expr_stmt("a + b |> f(_)");
+    let Expr::Pipe { lhs, .. } = &sum else {
+        panic!("expected a Pipe, got {sum:?}");
+    };
+    assert!(
+        matches!(**lhs, Expr::Binary { op: BinaryOp::Add, .. }),
+        "the whole sum is piped"
+    );
+
+    let elv = parse_expr_stmt("a |> f(_) ?: g(_)");
+    let Expr::Pipe { rhs, .. } = &elv else {
+        panic!("expected a Pipe, got {elv:?}");
+    };
+    assert!(
+        matches!(**rhs, Expr::Elvis { .. }),
+        "the tighter elvis is part of the pipe's right side"
+    );
+}
+
+/// `|>` wraps across a continuation line, bracketing left.
+#[test]
+fn pipe_wraps_across_lines() {
+    let e = parse_multiline_expr("a\n        |> f(_)\n        |> g(_)");
+    let Expr::Pipe { lhs, .. } = &e else {
+        panic!("expected a Pipe, got {e:?}");
+    };
+    assert!(
+        matches!(**lhs, Expr::Pipe { .. }),
+        "each next-line `|>` brackets the whole chain so far on its left"
+    );
+}
+
+/// `|>` is one token distinct from `|` and `||`.
+#[test]
+fn pipe_token_is_distinct() {
+    use salvo_syntax::token::TokenKind;
+    let result = salvo_syntax::lexer::lex("a |> b || c");
+    let kinds: Vec<_> = result
+        .tokens
+        .into_iter()
+        .map(|t| t.kind)
+        .filter(|k| *k != TokenKind::Eof)
+        .collect();
+    assert_eq!(
+        kinds,
+        vec![
+            TokenKind::Ident("a".into()),
+            TokenKind::PipeGt,
+            TokenKind::Ident("b".into()),
+            TokenKind::PipePipe,
+            TokenKind::Ident("c".into()),
+        ]
+    );
+}

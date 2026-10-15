@@ -81,6 +81,8 @@ enum InfixKind {
     /// The positional-pick elvis (`?…?:` / `:?…?`), handled by
     /// `parse_elvis_tail`.
     Elvis,
+    /// [expr-pipe] `|>` — the pipe, handled by `parse_pipe_tail`.
+    Pipe,
 }
 
 /// [actor-self-send] The contextual selector that names the enclosing handler:
@@ -5003,6 +5005,12 @@ impl<'s> Parser<'s> {
                     None => break,
                 }
             }
+            // [expr-pipe] The pipe `|>`: evaluate the left side once, bind it
+            // to `_`, read it in the right side.
+            if matches!(kind, InfixKind::Pipe) {
+                lhs = self.parse_pipe_tail(lhs)?;
+                continue;
+            }
             // A plain binary operator. `rbp = lbp + 1` makes it left-associative.
             let InfixKind::Binary(op) = kind else { break };
             self.bump();
@@ -5041,13 +5049,14 @@ impl<'s> Parser<'s> {
     fn infix_bp(&self) -> Option<(u8, InfixKind)> {
         let same = self.same_line();
         Some(match self.kind() {
-            // Both elvis forms may start a continuation line [elvis-wrap]
-            // (user decision 2026-10-14, unifying the two forms): a line
-            // beginning with `?` or `:` is unambiguous outside brackets —
-            // nothing in Salvo starts a statement with either, and a lone
-            // `:`/`?` that is not a pick is left unconsumed by
-            // `parse_elvis_tail`. The detailed `?`-run / wrap decision is
-            // there.
+            // The flattening operators may start a continuation line
+            // [expr-wrap]; a newline before them brackets the whole expression
+            // so far on its left. (`|>` is unambiguous line-leading — nothing
+            // in Salvo starts a statement with it.)
+            TokenKind::PipeGt => (2, InfixKind::Pipe),
+            // Elvis may start a continuation line [elvis-wrap]; the detailed
+            // `?`-run / wrap decision is in `parse_elvis_tail`. A lone `:`/`?`
+            // that is not a pick is left unconsumed there.
             TokenKind::Question | TokenKind::Colon => (12, InfixKind::Elvis),
             // Same-line-only operators below.
             _ if !same => return None,
@@ -5316,6 +5325,36 @@ impl<'s> Parser<'s> {
             rhs: Box::new(rhs),
             span,
         }))
+    }
+
+    /// [expr-pipe] A pipe `|>` tail, folded onto an already-parsed `lhs`. The
+    /// left side is evaluated once and bound to `_`, read in the right side.
+    /// Dispatched from `parse_binary` at the pipe tier (bp 2, the loosest), so
+    /// `a + b |> f(_)` pipes the whole sum and `x |> f(_) |> g(_)` folds left
+    /// into `g(f(x))`.
+    ///
+    /// The right side is parsed one tier up (bp 3), which — since the pipe is
+    /// the loosest operator — is every tighter operator, i.e. a full
+    /// expression stopping only at the next `|>`. That is what makes the chain
+    /// left-associative. The `_` it must contain is checked later
+    /// ([placeholder]); here it is an ordinary expression, so `_` parses as a
+    /// placeholder exactly as it does in an elvis right side.
+    fn parse_pipe_tail(&mut self, lhs: Expr) -> Option<Expr> {
+        self.bump(); // `|>`
+        // The right side is parsed at bp 3 — every operator tighter than the
+        // pipe, i.e. a full expression stopping only at the next `|>`. It is
+        // *not* under `elvis_no_wrap`: unlike an elvis right side (parsed at
+        // additive level, so a following elvis must be left for the chain),
+        // the pipe is the loosest operator, so a tighter operator in its right
+        // side (`x |> f(_) ?: g(_)` is `x |> (f(_) ?: g(_))`) belongs to the
+        // right side and the bp-3 recursion absorbs it correctly.
+        let rhs = self.sub_expr(|p| p.parse_binary(3))?;
+        let span = lhs.span().to(rhs.span());
+        Some(Expr::Pipe {
+            lhs: Box::new(lhs),
+            rhs: Box::new(rhs),
+            span,
+        })
     }
 
     fn parse_unary(&mut self) -> Option<Expr> {

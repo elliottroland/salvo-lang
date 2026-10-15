@@ -227,6 +227,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 Expr { ty: self.ty_of(span), span, kind: ExprKind::Try { body: b } }
             }
             AExpr::Elvis { subject, rhs, .. } => self.elvis(subject, rhs, span),
+            AExpr::Pipe { lhs, rhs, .. } => self.pipe(lhs, rhs, span),
             AExpr::Placeholder { .. } => match self.placeholder.clone() {
                 Some(local) => {
                     let ty = self.ty_of(span);
@@ -1607,6 +1608,24 @@ impl<'a, 'p> Lower<'a, 'p> {
             },
         };
         self.block_expr(vec![bind], sw, span)
+    }
+
+    /// [expr-pipe] `lhs |> rhs`: bind the left side to a temporary, make it the
+    /// placeholder `_`, lower the right side (which reads `_`), and return the
+    /// right side's value with the binding in front — a block, like the elvis.
+    /// The temp owns the piped value; `_` reads it non-consuming, so the
+    /// ownership rules treat it exactly as a reused local (the right side may
+    /// read it more than once only when a plain local could).
+    fn pipe(&mut self, lhs: &AExpr, rhs: &AExpr, span: Span) -> Expr {
+        let l = self.expr(lhs);
+        let piped_ty = l.ty.clone();
+        let tmp = self.fresh("__piped");
+        let lid = self.id();
+        let bind = Stmt::Let { id: lid, local: tmp.clone(), ty: piped_ty, value: l };
+        let saved = self.placeholder.replace(tmp);
+        let r = self.expr(rhs);
+        self.placeholder = saved;
+        self.block_expr(vec![bind], r, span)
     }
 
     fn elvis(&mut self, subject: &AExpr, rhs: &AExpr, span: Span) -> Expr {

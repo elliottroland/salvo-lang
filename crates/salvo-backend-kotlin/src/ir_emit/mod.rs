@@ -2113,8 +2113,17 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             return if value {
                 self.block_value(&arms[0].1, indent)
             } else {
+                // A `None`-typed block expression (e.g. a pipe used as a
+                // statement whose right side returns `None`): the tail value
+                // is not a result to bind, but it may still be a
+                // side-effecting call that must run — emit it as a trailing
+                // statement rather than dropping it.
                 let saved = std::mem::take(&mut self.out);
                 self.block_stmts(&arms[0].1, indent + 1);
+                if let Some(v) = &arms[0].1.value {
+                    let code = self.expr(v, indent + 1);
+                    self.out.push_str(&format!("{}{code}\n", "    ".repeat(indent + 1)));
+                }
                 let b = std::mem::replace(&mut self.out, saved);
                 format!("run {{\n{b}{pad}}}")
             };

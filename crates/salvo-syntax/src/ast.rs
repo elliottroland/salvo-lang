@@ -1891,6 +1891,19 @@ pub enum Expr {
         rhs: Box<Expr>,
         span: Span,
     },
+    /// [expr-pipe] `value |> f(_)` — the pipe operator (user decision
+    /// 2026-10-14). The left side is evaluated once and bound to the
+    /// placeholder `_`, which the right side reads (mandatorily, at least
+    /// once): `calculate_age(person) |> list.add(_)` is `list.add(the age)`.
+    /// Loosest infix precedence and left-associative, so `x |> f(_) |> g(_)`
+    /// is `g(f(x))`, and it may begin a continuation line (bracketing left,
+    /// like the elvis forms). Pure sugar: it lowers to the same temp-and-`_`
+    /// shape the elvis right side uses.
+    Pipe {
+        lhs: Box<Expr>,
+        rhs: Box<Expr>,
+        span: Span,
+    },
     /// [placeholder] `_` — the value the enclosing construct left unnamed.
     /// Legal only inside an `?:` right-hand side today, where it is the arms
     /// the pick did **not** claim.
@@ -2155,6 +2168,7 @@ impl Expr {
             | Expr::Break { span, .. }
             | Expr::Continue { span, .. }
             | Expr::Elvis { span, .. }
+            | Expr::Pipe { span, .. }
             | Expr::Placeholder { span }
             | Expr::SelfScoped { span, .. }
             | Expr::SelfAddr { span, .. }

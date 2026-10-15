@@ -733,6 +733,11 @@ pub fn walk_expr<V: Visitor>(v: &mut V, e: &Expr) {
             walk_expr(v, subject);
             walk_expr(v, rhs);
         }
+        Expr::Pipe { lhs, rhs, span } => {
+            v.visit_span(span);
+            walk_expr(v, lhs);
+            walk_expr(v, rhs);
+        }
         Expr::Return { value, span } | Expr::Break { value, span } => {
             v.visit_span(span);
             if let Some(val) = value {

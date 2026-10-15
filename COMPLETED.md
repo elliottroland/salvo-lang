@@ -138,6 +138,47 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-14 — The `|>` pipe operator
+
+The pipe (user decision 2026-10-14), the first new operator on the unified
+infix table. `value |> expr` evaluates the left side once, binds it to the
+placeholder `_`, and runs the right side with `_` standing for the value —
+flattening a nest of calls into a left-to-right pipeline
+(`a() |> f(_) |> g(_)` is `g(f(a()))`). Decisions: `_` is **mandatory** (a
+right side that ignores it is refused as dead scaffolding), may repeat only
+where an ordinary local could, loosest precedence, left-associative, and a
+flattening operator (may begin a continuation line, bracketing left).
+
+- **Syntax**: `|>` is one glued lexer token (`TokenKind::PipeGt`, between `||`
+  and bare `|`); `Expr::Pipe { lhs, rhs }`; `InfixKind::Pipe` at bp 2 in the
+  `infix_bp` table, recognised even line-leading; `parse_pipe_tail` parses the
+  right side at bp 3 (every tighter operator), *not* under `elvis_no_wrap` —
+  the pipe is loosest, so a tighter operator in its right side belongs to the
+  right side (`x |> f(_) ?: g(_)` is `x |> (f(_) ?: g(_))`).
+- **Checker**: `check_pipe` types the left side, records it as `_`'s type via
+  the existing `placeholder_ty`, checks the right side, and refuses a right
+  side that never read `_` (new `placeholder_read` flag, set in the
+  `Placeholder` arm). Result type is the right side's.
+- **IR**: `pipe` lowers to a block binding the left side to a fresh `__piped`
+  local and reading it as `_` in the right side — the same temp-and-`_` shape
+  the elvis right side uses. Pure sugar; no backend rule past the lowering.
+- **Kotlin emitter bug found and fixed**: a `None`-typed **block expression in
+  statement position** (`branch` fast path for a single `true` arm) emitted
+  the block's statements but **dropped its tail value**. For most `None`-typed
+  blocks the tail is already a statement, but a pipe used as a statement
+  (`double(21) |> println(…)`) has a side-effecting tail *value* that must run.
+  It silently vanished on Kotlin while Rust printed it — a [backend-never-wrong]
+  divergence. Fixed to emit the tail value as a trailing statement. Covered by
+  new `pipe` e2e cases on both backends (the Kotlin case is the regression
+  guard).
+- Hand-written parser tests (precedence, left-assoc, loosest, cross-line,
+  distinct token) + `[expr-pipe]` in LANGUAGE_SPEC.md + a narrative
+  "Operators and the pipe" section in `docs/language/Control-Flow.md` (wiki
+  synced). Also corrected a stale "right-associative" in the pick narrative
+  (left since the 2026-10-12 [elvis-assoc] decision). Full warm suite (incl.
+  kotlinc/rustc e2e) green.
+
+
 ### 2026-10-14 — Infix operators unified into one precedence table; both elvis forms wrap across lines
 
 Groundwork for the `|>` pipe and flattened `replyto` (user decisions

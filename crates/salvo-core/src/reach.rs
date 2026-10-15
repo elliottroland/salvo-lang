@@ -535,6 +535,11 @@ fn expr_names<'p>(expr: &'p Expr, used: &mut HashSet<&'p str>) {
             expr_names(subject, used);
             expr_names(rhs, used);
         }
+        // [expr-pipe] Names used on either side keep their modules reachable.
+        Expr::Pipe { lhs, rhs, .. } => {
+            expr_names(lhs, used);
+            expr_names(rhs, used);
+        }
         // [safe-nav] A `?.m(args)` call-link names `m` just like a dot call;
         // a field link names nothing a module provides.
         Expr::SafeNav { base, access, .. } => {
