@@ -6932,10 +6932,10 @@ fn rustc_compiles_and_runs_the_elvis_operator() {
     run_rust_files(&files, "elvis", ELVIS_OUTPUT);
 }
 
-/// [expr-pipe] The pipe operator `:>`: the left side is bound to `_` and read
+/// [expr-pipe] The pipe operator `|>`: the left side is bound to `_` and read
 /// in the right side. A pipe used as a **statement** (right side returns
 /// `None`), a left-associative chain, and the loosest-precedence binding
-/// (`2 + 3 :> …` pipes the sum).
+/// (`2 + 3 |> …` pipes the sum).
 const PIPE_DEMO: &str = r#"
 fn double(n: Int) -> Int {
     return n * 2
@@ -6947,12 +6947,12 @@ fn add(a: Int, b: Int) -> Int {
 
 fn main() [use] {
     use StdOutConsole()
-    double(21) :> println("single ${_}")
+    double(21) |> println("single ${_}")
     let chained = 5
-        :> double(_)
-        :> add(_, 100)
+        |> double(_)
+        |> add(_, 100)
     println("chained ${chained}")
-    let prec = 2 + 3 :> double(_)
+    let prec = 2 + 3 |> double(_)
     println("prec ${prec}")
 }
 "#;

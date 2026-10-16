@@ -1143,11 +1143,11 @@ fn main() [use] {
 
 const ELVIS_OUTPUT: &str = "shout Addy!\nshout none\nhello Addy\nhello friend\nstr none\nbigger\nsum 5\nchain 7\n";
 
-/// [expr-pipe] The pipe operator `:>`: the left side is bound to `_` and read
+/// [expr-pipe] The pipe operator `|>`: the left side is bound to `_` and read
 /// in the right side. Covers a pipe as a **statement** (whose right side
 /// returns `None` — the case where the Kotlin block-expression emitter used to
 /// drop the side-effecting tail value), a left-associative chain, and the
-/// loosest-precedence binding (`2 + 3 :> …` pipes the sum).
+/// loosest-precedence binding (`2 + 3 |> …` pipes the sum).
 const PIPE_DEMO: &str = r#"
 fn double(n: Int) -> Int {
     return n * 2
@@ -1159,12 +1159,12 @@ fn add(a: Int, b: Int) -> Int {
 
 fn main() [use] {
     use StdOutConsole()
-    double(21) :> println("single ${_}")
+    double(21) |> println("single ${_}")
     let chained = 5
-        :> double(_)
-        :> add(_, 100)
+        |> double(_)
+        |> add(_, 100)
     println("chained ${chained}")
-    let prec = 2 + 3 :> double(_)
+    let prec = 2 + 3 |> double(_)
     println("prec ${prec}")
 }
 "#;

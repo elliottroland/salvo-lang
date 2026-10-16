@@ -5150,7 +5150,7 @@ impl<'s> Parser<'s> {
         Some(match self.kind() {
             // The flattening operators may start a continuation line
             // [expr-wrap]; a newline before them brackets the whole expression
-            // so far on its left. (`:>` is unambiguous line-leading — nothing
+            // so far on its left. (`|>` is unambiguous line-leading — nothing
             // in Salvo starts a statement with it.)
             TokenKind::PipeGt => (2, InfixKind::Pipe),
             // [expr-safe-pipe] `?>` — a `Question` glued to a `Gt` (not a
@@ -5422,7 +5422,7 @@ impl<'s> Parser<'s> {
     }
 
     fn parse_pipe_tail(&mut self, lhs: Expr) -> Option<Expr> {
-        self.bump(); // `:>`
+        self.bump(); // `|>`
         // The right side is parsed at bp 3 — every operator tighter than the
         // pipe, i.e. a full expression stopping only at the next `|>`. It is
         // *not* under `elvis_no_wrap`: unlike an elvis right side (parsed at

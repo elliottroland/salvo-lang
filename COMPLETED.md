@@ -138,6 +138,30 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-14 — Pipe spelling reverted to `|>`; doc-ref completion offers locals
+
+Two follow-ups to the same day's operator work:
+
+- **Pipe respelling `:>` reverted to `|>`** (user decision 2026-10-14, after
+  trying `:>`). The lexer glued-token match is `('|', Some('>'))` again and the
+  display is `|>`; the token stays named `PipeGt`. All test demos, specs
+  (`[expr-pipe]`, `[expr-infix]`, `[expr-safe-pipe]`), and docs went back to
+  `|>`. `pipe_token_is_distinct` tests `|>` vs `|`/`||` again. (The earlier
+  entry "Simplify the `?`-operators; respell the pipe" recorded the `|>`→`:>`
+  change; it is now undone — the net pipe change on the day is nothing, but
+  the `?`-operator simplification in that entry stands.)
+- **`[…]` doc-reference completion now offers in-scope locals** (fixes the
+  real `[notice_by_id]` gap). `doc_ref_completions` took only program-level
+  symbols (types/fns/effects/handlers/qualifiers); a doc-ref actually resolves
+  against the documented declaration's *locals* first (`DocScope.locals` —
+  parameters, state fields), so a comment inside a handler member could link
+  `[notice_by_id]` but completion never suggested it. Fixed by passing the
+  cursor offset to `doc_ref_completions` and prepending the in-scope locals
+  from `checked.local_decls` (the same set code completion offers, honoring
+  `always_in_scope` for params/state fields). Verified by extending
+  `completion_offers_handler_state_fields` with a `[` doc-ref case in a member
+  body.
+
 ### 2026-10-14 — `[` triggers doc-reference completion in comments
 
 The server already offered code symbols inside a `//` comment's `[…]`

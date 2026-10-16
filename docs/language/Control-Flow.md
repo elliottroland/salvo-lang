@@ -209,7 +209,7 @@ The rules:
 ## Operators and the pipe
 
 Every infix operator binds by one precedence table, loosest first: the pipe
-`:>`, then `||`, `&&`, equality (`==` `!=`), comparison (`<` `>` `<=` `>=`,
+`|>`, then `||`, `&&`, equality (`==` `!=`), comparison (`<` `>` `<=` `>=`,
 and the `is`/`!is` checks), the pick (`?:`), additive (`+` `-`),
 multiplicative (`*` `/` `%`). All of them are left-associative. Statements end
 at a newline, so most operators must stay on their line — a line that *begins*
@@ -223,20 +223,20 @@ on the left. These are the pick (`?:`), the postfix `.`/method chain, the
 `replyto` of a send, and the **pipe**:
 
 ```
-calculate_age(person) :> list.add(_)
+calculate_age(person) |> list.add(_)
 
 calculate_age(person)
-    :> list.add(_)
+    |> list.add(_)
 ```
 
-`value :> expr` evaluates `value` once, binds it to the placeholder `_`, and
+`value |> expr` evaluates `value` once, binds it to the placeholder `_`, and
 runs `expr` with `_` standing for the value — the same `_` a pick's right side
 binds. It flattens a nest of calls into a left-to-right pipeline:
-`a() :> f(_) :> g(_)` is `g(f(a()))`, read top to bottom. The `_` is required
+`a() |> f(_) |> g(_)` is `g(f(a()))`, read top to bottom. The `_` is required
 (a right side that ignores the piped value is dead scaffolding) and may appear
 more than once only where an ordinary local could. Because the pipe is the
-loosest operator, `2 + 3 :> double(_)` pipes the whole sum, and
-`x :> f(_) ?: g(_)` pipes `f(_) ?: g(_)` (the tighter pick is part of the right
+loosest operator, `2 + 3 |> double(_)` pipes the whole sum, and
+`x |> f(_) ?: g(_)` pipes `f(_) ?: g(_)` (the tighter pick is part of the right
 side).
 
 The pick `?:` keeps the subject union's **first arm** as the value when the
@@ -258,6 +258,6 @@ let doubled: Int? = number ?> double(_)
 `doubled` is `double(number)` as `Int?` when `number` is present, else `None`.
 On a general union `(A | B | C) ?> f(_)` with `f: A -> X` is `X | B | C`. A
 diverging right side (`x ?> return _`) leaves only the pass-through arms. It
-shares the pipe's loosest tier and left-associativity, so `?>` and `:>` mix and
+shares the pipe's loosest tier and left-associativity, so `?>` and `|>` mix and
 chain freely across continuation lines.
 

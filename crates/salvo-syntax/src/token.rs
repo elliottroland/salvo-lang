@@ -105,8 +105,7 @@ pub enum TokenKind {
     FatArrow, // =>
     Pipe,     // |
     PipePipe, // ||
-    PipeGt,   // :> — the [expr-pipe] pipe operator (spelled `:>`; the token
-              // name predates the 2026-10-14 `|>`→`:>` respelling)
+    PipeGt,   // |> — the [expr-pipe] pipe operator
     AmpAmp,   // &&
     Question, // ? — the first token of an [elvis] run (`?`, `??`, …)
     Bang,     // !
@@ -245,7 +244,7 @@ impl TokenKind {
             TokenKind::FatArrow => "=>",
             TokenKind::Pipe => "|",
             TokenKind::PipePipe => "||",
-            TokenKind::PipeGt => ":>",
+            TokenKind::PipeGt => "|>",
             TokenKind::AmpAmp => "&&",
             TokenKind::Question => "?",
             TokenKind::Bang => "!",

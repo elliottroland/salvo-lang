@@ -2083,7 +2083,7 @@ Conventions:
 
   | level | operators |
   |---|---|
-  | pipe | `\:>` |
+  | pipe | `\|>` |
   | or | `\|\|` |
   | and | `&&` |
   | equality | `==` `!=` |
@@ -2097,13 +2097,13 @@ Conventions:
   `lhs OP rhs` binaries and are dispatched specially at their level: `is`/`!is`
   (a type-ref check, `Expr::Is`/`Expr::Widen`, no expression right side), the
   first-arm elvis (`?:` with the [elvis-wrap] rule), and the pipe
-  `:>` ([expr-pipe], which binds `_` in its right side). The others build
+  `|>` ([expr-pipe], which binds `_` in its right side). The others build
   `Expr::Binary` over a `BinaryOp`.
   * **Statement termination is by newline** [expr-escape]: a token carries
     `newline_before`, and `same_line` is "no newline before, or inside a
     bracket group". Most operators require their line — a newline before `+`,
     `==`, `&&`, `is`, … ends the statement. Only the **flattening** operators
-    continue across a newline (`:>` and the elvis forms here, and the postfix
+    continue across a newline (`|>` and the elvis forms here, and the postfix
     `.`/`replyto` in [expr-wrap]); a newline-leading one brackets the whole
     expression so far on its left, which the loop's left fold produces for
     free, since a flattening operator sits at a loose level and its left side
@@ -2112,10 +2112,10 @@ Conventions:
     `(…)`/`[…]` newlines are ignored (`group_depth > 0`), so a chain wrapped
     inside parentheses is one expression regardless of which operators it
     uses — the way to force a grouping the default precedence would not give.
-* [expr-pipe] **`value :> expr` is the pipe operator** (user decision
+* [expr-pipe] **`value |> expr` is the pipe operator** (user decision
   2026-10-14): the left side is evaluated **once** and bound to the
   placeholder `_`, which the right side reads, and the pipe's value and type
-  are the right side's. `calculate_age(person) :> list.add(_)` reads
+  are the right side's. `calculate_age(person) |> list.add(_)` reads
   `list.add(the age)`; it exists to flatten a nest of calls into a left-to-
   right pipeline.
   * **`_` is mandatory** in the right side and reads as the piped value —
@@ -2125,9 +2125,9 @@ Conventions:
     when an ordinary local could — a copyable value, a `ref`/`proj` borrow —
     since the lowering binds `_` to a plain local and the ownership rules
     then apply unchanged.
-  * **Loosest precedence, left-associative**: `a + b :> f(_)` is
-    `(a + b) :> f(_)`, `a :> f(_) ?: g(_)` is `a :> (f(_) ?: g(_))` (the
-    tighter elvis is part of the right side), and `x :> f(_) :> g(_)` is
+  * **Loosest precedence, left-associative**: `a + b |> f(_)` is
+    `(a + b) |> f(_)`, `a |> f(_) ?: g(_)` is `a |> (f(_) ?: g(_))` (the
+    tighter elvis is part of the right side), and `x |> f(_) |> g(_)` is
     `g(f(x))`. It is a flattening operator, so it may begin a continuation
     line, bracketing the chain so far on its left [expr-infix].
   * **Pure sugar**: it lowers to the same temp-and-`_` shape an elvis right
@@ -2148,7 +2148,7 @@ Conventions:
   path left.
   * **The left side must have more than one arm.** A one-arm (non-union)
     left side guards nothing, so `?>` on it is an error directing to a plain
-    `:>` — the mirror of `?.`.
+    `|>` — the mirror of `?.`.
   * **Arms collapse, no double-wrap.** When the right side's result equals a
     pass-through arm (or is itself optional against a `None` arm) it is not
     added twice — the generalized `Option<Option<T>>` guard [safe-nav].
@@ -2156,7 +2156,7 @@ Conventions:
     `_` a plain pipe binds [expr-pipe]; a non-diverging right side that never
     reads it is refused.
   * **Loosest precedence, left-associative, flattening**: it shares the pipe
-    tier with `:>`, so `a :> f(_) ?> g(_)` is `(a :> f(_)) ?> g(_)` and
+    tier with `|>`, so `a |> f(_) ?> g(_)` is `(a |> f(_)) ?> g(_)` and
     `a ?> f(_) ?> g(_)` chains left; it may begin a continuation line,
     bracketing the chain so far on its left [expr-infix].
   * **Pure reconstruction, no new node**: it lowers like `?.` — bind the left

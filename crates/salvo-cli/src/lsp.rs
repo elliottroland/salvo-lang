@@ -1638,7 +1638,7 @@ impl Server<'_> {
             )
             .ok()?;
             let view = doc_view(&analysis, &path)?;
-            return Some(CompletionResponse::Array(doc_ref_completions(&analysis, view.file)));
+            return Some(CompletionResponse::Array(doc_ref_completions(&analysis, view.file, cursor as u32)));
         }
         let import_path = trimmed
             .strip_prefix("export import ")
@@ -2260,11 +2260,35 @@ fn comment_start(line: &str) -> Option<usize> {
 /// [lsp-completion] [doc-symbol-ref] The symbols a `[symbol]` reference in a
 /// comment may point to: the program's declared types, qualifiers, effects,
 /// handlers, and functions — the same set [`docs::DocScope::resolve`]
-/// accepts. One entry per name.
-fn doc_ref_completions(analysis: &Analysis, view_file: usize) -> Vec<CompletionItem> {
+/// accepts — **plus** the names in scope where the comment sits (a fn's or
+/// handler member's parameters, a handler's or `iter fn`'s state fields, and
+/// the body's bindings). A doc-ref resolves against those locals first
+/// ([`docs::DocScope`] carries them), so a comment in a handler member can
+/// link its state field (`[notice_by_id]`) and completion offers it. One
+/// entry per name.
+fn doc_ref_completions(analysis: &Analysis, view_file: usize, cursor: u32) -> Vec<CompletionItem> {
     use crate::analysis::TypeKind;
     let mut out: Vec<CompletionItem> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
+    // In-scope locals at the comment's position, offered first — the same
+    // bindings code completion offers (parameters, state fields, body
+    // `let`s), so a `[…]` ref auto-suggests "things there, as in normal code".
+    if let Some(checked) = analysis.checked.as_ref() {
+        for local in checked.local_decls.get(&view_file).into_iter().flatten() {
+            let in_scope = local.fn_body.start <= cursor
+                && cursor <= local.fn_body.end
+                && (local.always_in_scope || local.span.start < cursor);
+            if in_scope && seen.insert(local.name.clone()) {
+                out.push(CompletionItem {
+                    label: local.name.clone(),
+                    kind: Some(CompletionItemKind::VARIABLE),
+                    detail: Some(local.ty.to_string()),
+                    sort_text: Some(format!("0{}", local.name)),
+                    ..Default::default()
+                });
+            }
+        }
+    }
     for (name, kind) in analysis.type_completions.get(view_file).into_iter().flatten() {
         if seen.insert(name.clone()) {
             let k = match kind {

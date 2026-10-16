@@ -3574,12 +3574,12 @@ fn parentheses_group_across_lines() {
     assert_eq!(bin(lhs).0, BinaryOp::Add, "the whole chain is inside the group");
 }
 
-// --- [expr-pipe] The pipe operator `:>` ---
+// --- [expr-pipe] The pipe operator `|>` ---
 
-/// `a :> f(_)` parses as a `Pipe` with the call as its right side.
+/// `a |> f(_)` parses as a `Pipe` with the call as its right side.
 #[test]
 fn pipe_parses() {
-    let e = parse_expr_stmt("a :> f(_)");
+    let e = parse_expr_stmt("a |> f(_)");
     let Expr::Pipe { lhs, rhs, .. } = &e else {
         panic!("expected a Pipe, got {e:?}");
     };
@@ -3587,10 +3587,10 @@ fn pipe_parses() {
     assert!(matches!(**rhs, Expr::Call { .. }));
 }
 
-/// `:>` is left-associative: `a :> f(_) :> g(_)` is `(a :> f(_)) :> g(_)`.
+/// `|>` is left-associative: `a |> f(_) |> g(_)` is `(a |> f(_)) |> g(_)`.
 #[test]
 fn pipe_is_left_associative() {
-    let e = parse_expr_stmt("a :> f(_) :> g(_)");
+    let e = parse_expr_stmt("a |> f(_) |> g(_)");
     let Expr::Pipe { lhs, .. } = &e else {
         panic!("expected a Pipe, got {e:?}");
     };
@@ -3600,11 +3600,11 @@ fn pipe_is_left_associative() {
     );
 }
 
-/// `:>` is the loosest infix operator: `a + b :> f(_)` is `(a + b) :> f(_)`,
-/// and `a :> f(_) ?: g(_)` is `a :> (f(_) ?: g(_))` (elvis binds tighter).
+/// `|>` is the loosest infix operator: `a + b |> f(_)` is `(a + b) |> f(_)`,
+/// and `a |> f(_) ?: g(_)` is `a |> (f(_) ?: g(_))` (elvis binds tighter).
 #[test]
 fn pipe_is_loosest() {
-    let sum = parse_expr_stmt("a + b :> f(_)");
+    let sum = parse_expr_stmt("a + b |> f(_)");
     let Expr::Pipe { lhs, .. } = &sum else {
         panic!("expected a Pipe, got {sum:?}");
     };
@@ -3613,7 +3613,7 @@ fn pipe_is_loosest() {
         "the whole sum is piped"
     );
 
-    let elv = parse_expr_stmt("a :> f(_) ?: g(_)");
+    let elv = parse_expr_stmt("a |> f(_) ?: g(_)");
     let Expr::Pipe { rhs, .. } = &elv else {
         panic!("expected a Pipe, got {elv:?}");
     };
@@ -3623,24 +3623,24 @@ fn pipe_is_loosest() {
     );
 }
 
-/// `:>` wraps across a continuation line, bracketing left.
+/// `|>` wraps across a continuation line, bracketing left.
 #[test]
 fn pipe_wraps_across_lines() {
-    let e = parse_multiline_expr("a\n        :> f(_)\n        :> g(_)");
+    let e = parse_multiline_expr("a\n        |> f(_)\n        |> g(_)");
     let Expr::Pipe { lhs, .. } = &e else {
         panic!("expected a Pipe, got {e:?}");
     };
     assert!(
         matches!(**lhs, Expr::Pipe { .. }),
-        "each next-line `:>` brackets the whole chain so far on its left"
+        "each next-line `|>` brackets the whole chain so far on its left"
     );
 }
 
-/// `:>` is one glued token, distinct from a bare `:`.
+/// `|>` is one token distinct from `|` and `||`.
 #[test]
 fn pipe_token_is_distinct() {
     use salvo_syntax::token::TokenKind;
-    let result = salvo_syntax::lexer::lex("a :> b : c");
+    let result = salvo_syntax::lexer::lex("a |> b || c");
     let kinds: Vec<_> = result
         .tokens
         .into_iter()
@@ -3653,7 +3653,7 @@ fn pipe_token_is_distinct() {
             TokenKind::Ident("a".into()),
             TokenKind::PipeGt,
             TokenKind::Ident("b".into()),
-            TokenKind::Colon,
+            TokenKind::PipePipe,
             TokenKind::Ident("c".into()),
         ]
     );
@@ -3672,7 +3672,7 @@ fn safe_pipe_parses() {
     assert!(matches!(**rhs, Expr::Call { .. }));
 }
 
-/// `?>` is left-associative, like `:>`: `a ?> f(_) ?> g(_)` nests left.
+/// `?>` is left-associative, like `|>`: `a ?> f(_) ?> g(_)` nests left.
 #[test]
 fn safe_pipe_is_left_associative() {
     let e = parse_expr_stmt("a ?> f(_) ?> g(_)");
@@ -3685,11 +3685,11 @@ fn safe_pipe_is_left_associative() {
     );
 }
 
-/// `?>` shares the loosest pipe tier with `:>` and mixes with it,
-/// left-associatively: `a :> f(_) ?> g(_)` is `(a :> f(_)) ?> g(_)`.
+/// `?>` shares the loosest pipe tier with `|>` and mixes with it,
+/// left-associatively: `a |> f(_) ?> g(_)` is `(a |> f(_)) ?> g(_)`.
 #[test]
 fn safe_pipe_mixes_with_pipe() {
-    let e = parse_expr_stmt("a :> f(_) ?> g(_)");
+    let e = parse_expr_stmt("a |> f(_) ?> g(_)");
     let Expr::SafePipe { lhs, .. } = &e else {
         panic!("expected a SafePipe, got {e:?}");
     };
@@ -3699,7 +3699,7 @@ fn safe_pipe_mixes_with_pipe() {
     );
 }
 
-/// `?>` wraps across a continuation line, bracketing left — like `:>`.
+/// `?>` wraps across a continuation line, bracketing left — like `|>`.
 #[test]
 fn safe_pipe_wraps_across_lines() {
     let e = parse_multiline_expr("a\n        ?> f(_)\n        ?> g(_)");

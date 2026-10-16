@@ -2102,7 +2102,9 @@ fn completion_offers_handler_state_fields() {
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).unwrap();
     // `before` is written above the `state {}` block, `after` below it; both
-    // reference `notice_count`, so completion must offer it in each.
+    // reference `notice_count`, so completion must offer it in each. The
+    // comment in `before` exercises a `[…]` doc-reference inside a member
+    // body — the `[notice_by_id]` case from disk.sv.
     let source = "\
 effect Board {
     fn before() -> None
@@ -2111,6 +2113,7 @@ effect Board {
 
 handler DiskBoard of Board {
     fn before() -> None {
+        // load [
         notice
     }
 
@@ -2155,17 +2158,24 @@ handler DiskBoard of Board {
             .map(|i| (i["label"].as_str().unwrap().to_string(), i["detail"].as_str().unwrap_or("").to_string()))
             .collect()
     };
-    // In `before` (line 7, `    notice` → cursor after `notice`), written
-    // above the `state {}` block.
-    let items = complete(&mut lsp, 2, 7, 14);
+    // In `before`'s body (line 8), above the `state {}` block.
+    let items = complete(&mut lsp, 2, 8, 14);
     let before = items.iter().find(|(l, _)| l == "notice_count");
     assert!(before.is_some(), "state field offered in a member above `state {{}}`: {items:?}");
     assert_eq!(before.unwrap().1, "Int", "state field's detail is its type");
-    // In `after` (line 15), written below the `state {}` block.
-    let items = complete(&mut lsp, 3, 15, 14);
+    // In `after`'s body (line 16), below the `state {}` block.
+    let items = complete(&mut lsp, 3, 16, 14);
     assert!(
         items.iter().any(|(l, _)| l == "notice_count"),
         "state field offered in a member below `state {{}}`: {items:?}"
+    );
+    // [doc-symbol-ref] Inside a `[…]` doc reference in a member-body comment
+    // (line 7, right after `[`): the state field is offered too, so a comment
+    // can link `[notice_count]` with auto-complete (the disk.sv case).
+    let items = complete(&mut lsp, 4, 7, 17);
+    assert!(
+        items.iter().any(|(l, _)| l == "notice_count"),
+        "state field offered in a comment's `[` ref: {items:?}"
     );
     send(
         &mut lsp.stdin,
