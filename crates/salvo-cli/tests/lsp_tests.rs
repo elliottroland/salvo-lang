@@ -125,6 +125,13 @@ fn start_with_env(root: &PathBuf, env: &[(&str, &str)]) -> Lsp {
         response["result"]["capabilities"]["definitionProvider"] == json!(true),
         "unexpected capabilities: {response}"
     );
+    // [lsp-completion] `.` opens dot completion and `[` opens the
+    // doc-reference list inside a comment, so both auto-trigger as typed.
+    let triggers = &response["result"]["capabilities"]["completionProvider"]["triggerCharacters"];
+    assert!(
+        triggers == &json!([".", "["]),
+        "completion trigger characters: {response}"
+    );
     send(
         &mut stdin,
         json!({"jsonrpc": "2.0", "method": "initialized", "params": {}}),
@@ -2418,6 +2425,12 @@ fn main() [Console] {
     let items = complete(&mut lsp, 4, 10, 20);
     let labels: Vec<&str> = items.iter().map(|(l, _)| l.as_str()).collect();
     assert!(labels.contains(&"Widget") && labels.contains(&"pick"), "refs in `[`: {labels:?}");
+    // [lsp-completion] Right after the `[` (empty prefix) the full list is
+    // offered too — the scenario the `[` trigger character creates, so a
+    // reference auto-suggests as it is opened (user request 2026-10-14).
+    let items = complete(&mut lsp, 6, 10, 19);
+    let labels: Vec<&str> = items.iter().map(|(l, _)| l.as_str()).collect();
+    assert!(labels.contains(&"Widget") && labels.contains(&"pick"), "refs right after `[`: {labels:?}");
     // Plain prose in a comment (no `[`): nothing is offered.
     let items = complete(&mut lsp, 5, 11, 25);
     assert!(items.is_empty(), "no completion in comment prose: {items:?}");

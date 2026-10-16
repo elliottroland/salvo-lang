@@ -196,7 +196,11 @@ fn serve() -> Result<(), Box<dyn Error + Sync + Send>> {
         // [lsp-completion] Functions in scope, and after a `.` the ones the
         // receiver can be the first argument of.
         completion_provider: Some(CompletionOptions {
-            trigger_characters: Some(vec![".".to_string()]),
+            // `.` opens dot-field/dot-call completion; `[` opens the
+            // doc-reference list inside a `//` comment's `[…]`, so a reference
+            // auto-suggests as it is typed, the way code completion does
+            // (user request 2026-10-14).
+            trigger_characters: Some(vec![".".to_string(), "[".to_string()]),
             ..Default::default()
         }),
         // [lsp-signature-help] The parameter list of the call being written,

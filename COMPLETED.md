@@ -138,6 +138,18 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-14 — `[` triggers doc-reference completion in comments
+
+The server already offered code symbols inside a `//` comment's `[…]`
+reference, but only on an explicit completion request — opening the bracket did
+not auto-suggest, unlike code completion after `.`. Fixed by adding `[` to the
+`completionProvider.triggerCharacters` (alongside `.`), so the doc-reference
+list pops open as the bracket is typed. No handler-logic change — the
+`in_ref` doc-ref path already returns the full list for an empty prefix. Tests:
+the capabilities assertion in the LSP `start()` helper now checks the trigger
+set is `[".", "["]`, and `completion_overloads_comments_and_builtins` gained an
+empty-prefix check right after the `[`.
+
 ### 2026-10-14 — Handler/`iter fn` state fields offered as LSP completions
 
 Two TODOs in salvo-noticeboard's `disk.sv` asked that auto-complete suggest a
