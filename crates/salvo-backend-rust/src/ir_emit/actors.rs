@@ -642,12 +642,23 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 let decl = self.s.impl_decl(&h)?;
                 let control = decl.members.iter().find(|m| m.name == "control")?;
                 let from = control.params.get(control.effect_params).map(|p| p.ty.clone()).unwrap_or(Ty::Unknown);
-                let nid = match from.strip_quals() {
-                    Ty::Named { name, .. } => self.type_path(name),
-                    _ => "()".to_string(),
+                let (nid, field) = match from.strip_quals() {
+                    Ty::Named { name, .. } => {
+                        // The node-id struct's sole field, read from its
+                        // declaration rather than hardcoded, so a rename of
+                        // the field (`id` → `value`) needs no change here.
+                        let field = self
+                            .s
+                            .struct_decl(name)
+                            .and_then(|s| s.fields.first())
+                            .map(|f| rs_ident(&f.name))
+                            .unwrap_or_else(|| "value".to_string());
+                        (self.type_path(name), field)
+                    }
+                    _ => ("()".to_string(), "value".to_string()),
                 };
                 let priv_enum = self.path_in(&decl.id.module, &format!("__Priv_{}", rs_ident(&decl.name)));
-                Some(format!("crate::scheduler::salvo_watch_control(({channel}).clone(), ({sink}).clone(), |__n, __d| std::boxed::Box::new({priv_enum}::Control({nid} {{ id: __n as i64 }}, __d)))"))
+                Some(format!("crate::scheduler::salvo_watch_control(({channel}).clone(), ({sink}).clone(), |__n, __d| std::boxed::Box::new({priv_enum}::Control({nid} {{ {field}: __n as i64 }}, __d)))"))
             }
             _ => {
                 let _ = is_copy_ty(&e.ty);

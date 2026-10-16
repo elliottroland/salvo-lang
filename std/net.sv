@@ -149,13 +149,13 @@ export effect Transport {
 // a `Node` in a group, the leader an election answers — so it has a wire
 // form: an `Addr` that crosses the wire is `(node, actor, bits)`.
 export struct NodeId : Hashed<self> by auto {
-    id: Long
+    value: Long
 }
 
 // [addr-routable] The identity of the node this code runs on: every actor
 // carries the node it was spawned on.
 export fn this_node() [] -> NodeId {
-    return NodeId { id: here_node() }
+    return NodeId { value: here_node() }
 }
 
 // [addr-routable] Hosts a fresh **virtual node** in this process: the
@@ -164,12 +164,12 @@ export fn this_node() [] -> NodeId {
 // another node — virtual or not — is reached through a proxy, so every remote
 // path runs without a socket.
 export fn new_node() [spawn] -> NodeId {
-    return NodeId { id: new_node@runtime.routing() }
+    return NodeId { value: new_node@runtime.routing() }
 }
 
 // [addr-routable] A pool of [size] workers belonging to [node].
 export fn pool_at(node: NodeId, size: Int) [spawn] -> Pool => node, size {
-    return pool_of(pool_at(node.id, size))
+    return pool_of(pool_at(node.value, size))
 }
 
 // ---- the runtime's side of the wire (private: `connect` is the program's call)
@@ -186,7 +186,7 @@ export fn pool_at(node: NodeId, size: Int) [spawn] -> Pool => node, size {
 // written by `connect`; routes to peers are learnt in the node group's
 // handshake. A frame for a node with no route yet waits until one arrives.
 fn add_route(node: NodeId, at: NodeEndpoint) [] -> None => node, at {
-    route(node.id, encode(copy(at)))
+    route(node.value, encode(copy(at)))
 }
 
 // [addr-routable] Binds the current node's outbound side: every frame the
@@ -376,7 +376,7 @@ intrinsic fn watch_control<E>(channel: Str, sink: Addr<E>) [] -> None => channel
 // [node-group] [actor-group] Routes [payload] to the actor listening on
 // [channel] at node [to]: a control frame, parked until [to] has a route.
 fn send_control(to: NodeId, channel: Str, payload: Bytes) [] -> None => to, channel, !payload {
-    send_control(to.id, copy(channel), payload)
+    send_control(to.value, copy(channel), payload)
 }
 
 // [node-group] A control frame on [channel] for **whichever node receives
@@ -388,7 +388,7 @@ fn send_control(to: NodeId, channel: Str, payload: Bytes) [] -> None => to, chan
 // and protocol table, and every proxy of an actor on it dies — a send to one
 // is the silent no-op, and a `watch` on one fires.
 fn node_left(node: NodeId) [] -> None => node {
-    node_left(node.id)
+    node_left(node.value)
 }
 
 // [protocol-hash] This program's protocol table, which every [Hello] and
@@ -398,14 +398,14 @@ fn node_left(node: NodeId) [] -> None => node {
 // [protocol-hash] Records peer [node]'s protocol table, as its handshake
 // carried it: what [peer_protocol] answers from.
 fn set_peer_protocols(node: NodeId, table: List<(Str, Str)>) [] -> None => node, table {
-    set_peer_protocols(node.id, copy(table))
+    set_peer_protocols(node.value, copy(table))
 }
 
 // [protocol-hash] A peer's hash for the protocol named [protocol], as its
 // handshake carried it; `None` for an unknown peer or one without the
 // protocol.
 export fn peer_protocol(node: NodeId, protocol: Str) [] -> Str? => node, protocol {
-    return peer_protocol(node.id, protocol)
+    return peer_protocol(node.value, protocol)
 }
 
 // [node-group] The HELLO for group [group], to be handed to the transport
@@ -955,7 +955,7 @@ fn withdraw<E>(list: Mut List<Addr<E>>, a: Addr<E>) [] -> Bool => list: Mut, !a 
 // [addr-routable] The node an addr lives on — for a log line, and for the
 // group's peer check.
 export fn node_of<E>(a: Addr<E>) [] -> NodeId => a {
-    return NodeId { id: identity(addr_index(a)).node }
+    return NodeId { value: identity(addr_index(a)).node }
 }
 
 // ---------------------------------------------------------- the pick kit ----

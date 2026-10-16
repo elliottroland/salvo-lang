@@ -142,30 +142,30 @@ object Deliver {
 }
 
 data class NodeId(
-    val id: Long,
+    val value: Long,
 )
 
 object __Codec_NodeId : salvo.WireCodec<NodeId> {
     override fun enc(v: NodeId, out: salvo.WireOut) {
-        salvo.LongCodec.enc(v.id, out)
+        salvo.LongCodec.enc(v.value, out)
     }
     override fun dec(inp: salvo.WireIn): NodeId = NodeId(salvo.LongCodec.dec(inp))
 }
 
 fun thisNode(): NodeId {
-    return NodeId(id = salvo.runtime.routing.hereNode())
+    return NodeId(value = salvo.runtime.routing.hereNode())
 }
 
 fun newNode(): NodeId {
-    return NodeId(id = salvo.runtime.routing.newNode())
+    return NodeId(value = salvo.runtime.routing.newNode())
 }
 
 fun poolAt(node: NodeId, size: Int): Int {
-    return (salvo.runtime.routing.poolAt(node.id, size))
+    return (salvo.runtime.routing.poolAt(node.value, size))
 }
 
 fun addRoute(node: NodeId, at: NodeEndpoint) {
-    salvo.runtime.routing.route(node.id, salvo.salvoEncode(at, __Codec_NodeEndpoint))
+    salvo.runtime.routing.route(node.value, salvo.salvoEncode(at, __Codec_NodeEndpoint))
 }
 
 fun routeFrames(out: Int) {
@@ -431,19 +431,19 @@ object __Codec_Intro : salvo.WireCodec<Intro> {
 }
 
 fun sendControl(to: NodeId, channel: String, payload: salvo.platform.core.bytes.Bytes) {
-    salvo.runtime.routing.sendControl(to.id, channel, payload)
+    salvo.runtime.routing.sendControl(to.value, channel, payload)
 }
 
 fun nodeLeft(node: NodeId) {
-    salvo.runtime.routing.nodeLeft(node.id)
+    salvo.runtime.routing.nodeLeft(node.value)
 }
 
 fun setPeerProtocols(node: NodeId, table: List<Pair<String, String>>) {
-    salvo.runtime.routing.setPeerProtocols(node.id, table)
+    salvo.runtime.routing.setPeerProtocols(node.value, table)
 }
 
 fun peerProtocol(node: NodeId, protocol: String): String? {
-    return salvo.runtime.routing.peerProtocol(node.id, protocol)
+    return salvo.runtime.routing.peerProtocol(node.value, protocol)
 }
 
 fun helloFrame(transport: Transport, group: String): salvo.platform.core.bytes.Bytes {
@@ -1081,7 +1081,7 @@ fun withdraw(list: salvo.platform.core.list.MutList<Int>, a: Int): Boolean {
 }
 
 fun nodeOf(a: Int): NodeId {
-    return NodeId(id = run {
+    return NodeId(value = run {
         val __proj_1: salvo.runtime.routing.RemoteRef = salvo.runtime.routing.identity((a))
         __proj_1.node
     })
@@ -1568,12 +1568,12 @@ fun eq__NodeEndpoint_NodeEndpoint(a: NodeEndpoint, b: NodeEndpoint): Boolean {
 
 fun hash__NodeId(value: NodeId): Long {
     var h: Long = 17L
-    h = salvo.core.compare.mixHash(h, (value.id).hashCode().toLong())
+    h = salvo.core.compare.mixHash(h, (value.value).hashCode().toLong())
     return h
 }
 
 fun eq__NodeId_NodeId(a: NodeId, b: NodeId): Boolean {
-    if (!(((a.id) == (b.id)))) {
+    if (!(((a.value) == (b.value)))) {
         return false
     }
     return true

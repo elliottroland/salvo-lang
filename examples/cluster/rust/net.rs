@@ -273,34 +273,34 @@ impl Deliver {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct NodeId {
-    pub id: i64,
+    pub value: i64,
 }
 
 impl crate::wire::__Wire for NodeId {
     fn __enc(&self, out: &mut Vec<u8>) {
-        crate::wire::__Wire::__enc(&self.id, out);
+        crate::wire::__Wire::__enc(&self.value, out);
     }
     fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
         Some(Self {
-            id: crate::wire::__Wire::__dec(r)?,
+            value: crate::wire::__Wire::__dec(r)?,
         })
     }
 }
 
 pub fn this_node() -> crate::net::NodeId {
-    return crate::net::NodeId { id: crate::runtime_routing::here_node() };
+    return crate::net::NodeId { value: crate::runtime_routing::here_node() };
 }
 
 pub fn new_node() -> crate::net::NodeId {
-    return crate::net::NodeId { id: crate::runtime_routing::new_node() };
+    return crate::net::NodeId { value: crate::runtime_routing::new_node() };
 }
 
 pub fn pool_at(node: &crate::net::NodeId, mut size: i32) -> usize {
-    return ((crate::runtime_routing::pool_at(node.id, size)) as usize);
+    return ((crate::runtime_routing::pool_at(node.value, size)) as usize);
 }
 
 pub fn add_route(node: &crate::net::NodeId, at: &crate::net::NodeEndpoint) {
-    crate::runtime_routing::route(node.id, { let __enc: crate::net::NodeEndpoint = (at).clone(); crate::wire::salvo_encode(&__enc) });
+    crate::runtime_routing::route(node.value, { let __enc: crate::net::NodeEndpoint = (at).clone(); crate::wire::salvo_encode(&__enc) });
 }
 
 pub fn route_frames(mut out: usize) {
@@ -746,19 +746,19 @@ impl crate::wire::__Wire for Intro {
 }
 
 pub fn send_control(to: &crate::net::NodeId, channel: &String, mut payload: crate::core_bytes::Bytes) {
-    crate::runtime_routing::send_control(to.id, (channel).clone(), payload);
+    crate::runtime_routing::send_control(to.value, (channel).clone(), payload);
 }
 
 pub fn node_left(node: &crate::net::NodeId) {
-    crate::runtime_routing::node_left(node.id);
+    crate::runtime_routing::node_left(node.value);
 }
 
 pub fn set_peer_protocols(node: &crate::net::NodeId, table: &Vec<(String, String)>) {
-    crate::runtime_routing::set_peer_protocols(node.id, (table).clone());
+    crate::runtime_routing::set_peer_protocols(node.value, (table).clone());
 }
 
 pub fn peer_protocol(node: &crate::net::NodeId, protocol: &String) -> Option<String> {
-    return crate::runtime_routing::peer_protocol(node.id, protocol);
+    return crate::runtime_routing::peer_protocol(node.value, protocol);
 }
 
 pub fn hello_frame(transport: &crate::net::Transport, group: &String) -> crate::core_bytes::Bytes {
@@ -890,7 +890,7 @@ impl StaticNodeGroup {
     fn init(&mut self) {
         let mut me: crate::net::NodeEndpoint = self.__dep0.local_endpoint();
         let mut _connected: bool = crate::net::connect__NodeEndpoint(&self.__dep0, (me).clone());
-        crate::scheduler::salvo_watch_control((String::from("")).clone(), (self.__addr.expect("an actor's own addr")).clone(), |__n, __d| std::boxed::Box::new(crate::net::__Priv_StaticNodeGroup::Control(crate::net::NodeId { id: __n as i64 }, __d)));
+        crate::scheduler::salvo_watch_control((String::from("")).clone(), (self.__addr.expect("an actor's own addr")).clone(), |__n, __d| std::boxed::Box::new(crate::net::__Priv_StaticNodeGroup::Control(crate::net::NodeId { value: __n as i64 }, __d)));
         for mut e in self.all.iter() {
             if !(crate::net::eq__NodeEndpoint_NodeEndpoint(e, &me)) {
                 let mut _sent: crate::unions::Union2<(), crate::unions::Union2<crate::net::Unreachable, crate::net::WireFailed>> = self.__dep0.deliver(&(e).clone(), crate::net::hello_frame(&self.__dep0, &self.name));
@@ -1042,7 +1042,7 @@ impl GossipNodeGroup {
     fn init(&mut self) {
         let mut me: crate::net::NodeEndpoint = self.__dep0.local_endpoint();
         let mut _connected: bool = crate::net::connect__NodeEndpoint(&self.__dep0, (me).clone());
-        crate::scheduler::salvo_watch_control((String::from("")).clone(), (self.__addr.expect("an actor's own addr")).clone(), |__n, __d| std::boxed::Box::new(crate::net::__Priv_GossipNodeGroup::Control(crate::net::NodeId { id: __n as i64 }, __d)));
+        crate::scheduler::salvo_watch_control((String::from("")).clone(), (self.__addr.expect("an actor's own addr")).clone(), |__n, __d| std::boxed::Box::new(crate::net::__Priv_GossipNodeGroup::Control(crate::net::NodeId { value: __n as i64 }, __d)));
         for mut e in self.seeds.iter() {
             crate::net::dial(&self.__dep0, &mut self.dialed, &self.name, (e).clone());
         }
@@ -1381,7 +1381,7 @@ impl ActorGrouping {
         }
     }
     fn init(&mut self) {
-        crate::scheduler::salvo_watch_control(((self.name).clone()).clone(), (self.__addr.expect("an actor's own addr")).clone(), |__n, __d| std::boxed::Box::new(crate::net::__Priv_ActorGrouping::Control(crate::net::NodeId { id: __n as i64 }, __d)));
+        crate::scheduler::salvo_watch_control(((self.name).clone()).clone(), (self.__addr.expect("an actor's own addr")).clone(), |__n, __d| std::boxed::Box::new(crate::net::__Priv_ActorGrouping::Control(crate::net::NodeId { value: __n as i64 }, __d)));
     }
     fn control(&mut self, from: crate::net::NodeId, data: crate::core_bytes::Bytes) {
         let mut got: Option<(String, Vec<usize>)> = crate::wire::salvo_decode::<(String, Vec<usize>)>(&data);
@@ -1579,7 +1579,7 @@ pub fn withdraw(list: &mut Vec<usize>, mut a: usize) -> bool {
 }
 
 pub fn node_of(mut a: usize) -> crate::net::NodeId {
-    return crate::net::NodeId { id: {
+    return crate::net::NodeId { value: {
         let mut __proj_1: crate::runtime_routing::RemoteRef = crate::runtime_routing::identity((((a).clone()) as i32));
         __proj_1.node
     } };
@@ -2295,12 +2295,12 @@ pub fn eq__NodeEndpoint_NodeEndpoint(a: &crate::net::NodeEndpoint, b: &crate::ne
 
 pub fn hash__NodeId(value: &crate::net::NodeId) -> i64 {
     let mut h: i64 = 17i64;
-    h = crate::core_compare::mix_hash(h, { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.id), &mut __h); (std::hash::Hasher::finish(&__h) as i64) });
+    h = crate::core_compare::mix_hash(h, { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(value.value), &mut __h); (std::hash::Hasher::finish(&__h) as i64) });
     return h;
 }
 
 pub fn eq__NodeId_NodeId(a: &crate::net::NodeId, b: &crate::net::NodeId) -> bool {
-    if !(((a.id) == (b.id))) {
+    if !(((a.value) == (b.value))) {
         return false;
     };
     return true;
