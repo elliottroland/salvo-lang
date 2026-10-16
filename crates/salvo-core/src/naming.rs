@@ -276,6 +276,7 @@ fn render(ty: &Type, args: bool, quals: bool) -> String {
         }
         Type::Array { elem, .. } => format!("{}Array", r(elem)),
         Type::Nullable { inner, .. } => format!("{}Opt", r(inner)),
+        Type::Spread { inner, .. } => r(inner),
         Type::Fn { params, ret, .. } => {
             let mut out = "Fn".to_string();
             if args {

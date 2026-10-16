@@ -60,6 +60,46 @@ if result is Err {
 }
 ```
 
+### Generic union arms and spreads
+
+A union type written in a signature may have **generic arms**. Each ordinary
+arm — concrete or a bare generic — captures exactly one arm of the union it
+meets:
+
+```
+// Reorders the two arms of any two-arm union.
+fn swap<T, S>(v: T | S) -> S | T => !v {
+    when v {
+        is T { return v }
+        is S { return v }
+    }
+}
+```
+
+To let one generic arm capture **more than one** arm, write it as a spread
+`...T`:
+
+```
+struct Box<C> { value: C }
+
+// `...T` absorbs every arm that is not a `Box<C>`.
+fn detach<T, C>(value: ...T | Box<C>) -> T | C => !value {
+    when value {
+        is Box<C> { return value.value }
+        is T { return value }
+    }
+}
+
+// `T = Str | Int`, `C = Bool`; the result is the flat `Str | Int | Bool`.
+let r = detach(some_str_int_or_box())
+```
+
+The arms the spread does not capture are matched first; whatever is left over
+is bound to `...T`. A union may have **at most one** spread, its type must be a
+bare generic in scope, and a `...` is only ever a union arm. A bare generic
+arm that would have to absorb several arms (`T | Box<C>` meeting a three-arm
+union) no longer matches — reach for `...T` instead.
+
 ## Type aliases
 
 Type aliases can be convenient for making union and tuple types more readable. You can use generics when declaring a type alias:

@@ -474,6 +474,7 @@ pub(crate) fn type_names<'p>(ty: &'p Type, used: &mut HashSet<&'p str>) {
         }
         Type::Array { elem, .. } => type_names(elem, used),
         Type::Nullable { inner, .. } => type_names(inner, used),
+        Type::Spread { inner, .. } => type_names(inner, used),
         Type::Fn { params, ret, .. } => {
             for p in params {
                 type_names(p, used);

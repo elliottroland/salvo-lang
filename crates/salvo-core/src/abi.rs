@@ -154,7 +154,7 @@ impl Walk<'_, '_> {
                     self.ty(a);
                 }
             }
-            Type::Array { elem, .. } | Type::Nullable { inner: elem, .. } => self.ty(elem),
+            Type::Array { elem, .. } | Type::Nullable { inner: elem, .. } | Type::Spread { inner: elem, .. } => self.ty(elem),
             Type::Fn { params, ret, .. } => {
                 for p in params {
                     self.ty(p);

@@ -3486,16 +3486,32 @@ impl<'s> Parser<'s> {
     // --- Types ---
 
     pub fn parse_type(&mut self) -> Option<Type> {
-        let first = self.parse_type_postfix()?;
+        // [union-spread] A leading `...` makes the first arm a spread; it is
+        // only meaningful in a union, so a lone `...T` with no `|` is still
+        // built as a `Spread` and refused by the checker outside a union.
+        let first = self.parse_union_arm()?;
         if !self.at(&TokenKind::Pipe) {
             return Some(first);
         }
         let mut arms = vec![first];
         while self.eat(&TokenKind::Pipe).is_some() {
-            arms.push(self.parse_type_postfix()?);
+            arms.push(self.parse_union_arm()?);
         }
         let span = arms.first().unwrap().span().to(arms.last().unwrap().span());
         Some(Type::Union { arms, span })
+    }
+
+    /// [union-spread] One arm of a union: a `...T` spread, or an ordinary
+    /// postfix type. The spread's inner type is a full postfix type, but the
+    /// checker requires it to be a bare generic name.
+    fn parse_union_arm(&mut self) -> Option<Type> {
+        if self.at(&TokenKind::Ellipsis) {
+            let start = self.bump().span;
+            let inner = self.parse_type_postfix()?;
+            let span = start.to(inner.span());
+            return Some(Type::Spread { inner: Box::new(inner), span });
+        }
+        self.parse_type_postfix()
     }
 
     /// [type-literal] A literal in type position: a plain string (no

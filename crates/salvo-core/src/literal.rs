@@ -265,6 +265,9 @@ pub fn collapse_ast_with<'a>(ty: &ast::Type, alias: &dyn Fn(&str) -> Option<&'a 
             ast::Type::Nullable { inner, span } => {
                 ast::Type::Nullable { inner: Box::new(expand(inner, alias, depth + 1)), span: *span }
             }
+            ast::Type::Spread { inner, span } => {
+                ast::Type::Spread { inner: Box::new(expand(inner, alias, depth + 1)), span: *span }
+            }
             other => other.clone(),
         }
     }
@@ -286,6 +289,7 @@ pub fn collapse_ast(ty: &ast::Type) -> ast::Type {
             ast::Type::Literal { .. } => true,
             ast::Type::Union { arms, .. } | ast::Type::Tuple { elems: arms, .. } => arms.iter().any(mentions),
             ast::Type::Nullable { inner, .. } | ast::Type::Array { elem: inner, .. } => mentions(inner),
+            ast::Type::Spread { inner, .. } => mentions(inner),
             ast::Type::QualifiedGroup { base, .. } => mentions(base),
             ast::Type::Named { base, .. } => base.args.iter().any(mentions),
             ast::Type::Fn { params, ret, .. } => params.iter().any(mentions) || mentions(ret),

@@ -898,7 +898,8 @@ the blanket rule:
   (`Str | Bool` → `Bool | Str`), a widen or narrow of arms, dropping or
   keeping `None`, owning a borrowed arm (`own = true` clones a `proj` payload
   into an owned slot — the former `own_borrowed_union`), and the flat↔nested
-  spread of a union-spanning generic [generic-union-span]. `rewrap` is
+  spread of a union-spanning generic [generic-union-span] (the `...T` surface
+  is [union-spread]). `rewrap` is
   `convert_union` with `own = false`. Three arm shapes beyond a plain
   one-to-one map: a source arm that is itself a bare union the target
   *spreads* (recurse), a target arm that is a bare union the source

@@ -3297,6 +3297,26 @@ fn literal_types_parse() {
     assert!(errs.iter().any(|e| e.contains("a float cannot be a literal type")), "{errs:?}");
 }
 
+// [union-spread] A `...T` union arm parses to `Type::Spread` wrapping its
+// inner bare generic; ordinary arms beside it are unchanged.
+#[test]
+fn union_arm_spread_parses() {
+    use salvo_syntax::ast::{Item, Type};
+    let (module, diagnostics) =
+        salvo_syntax::parse_module("fn f<T, C>(v: ...T | Box<C>) -> None { return None }\n");
+    assert!(diagnostics.iter().all(|d| !d.is_error()), "{diagnostics:?}");
+    let Item::Fn(decl) = &module.items[0] else { panic!("a fn") };
+    let Type::Union { arms, .. } = &decl.params[0].ty else {
+        panic!("a union param: {:?}", decl.params[0].ty)
+    };
+    assert_eq!(arms.len(), 2);
+    let Type::Spread { inner, .. } = &arms[0] else {
+        panic!("the first arm is a spread: {:?}", arms[0])
+    };
+    assert!(matches!(**inner, Type::Named { .. }), "the spread wraps a bare name");
+    assert!(matches!(arms[1], Type::Named { .. }), "the second arm is ordinary");
+}
+
 /// [platform-type] The three kinds parse into one declaration with flags: a
 /// plain, a `threadsafe` and a `linear` platform type, each `noremote`, and
 /// an alias is refused.

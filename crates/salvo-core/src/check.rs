@@ -4868,6 +4868,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             ast::Type::Array { elem, .. } => self.ast_type_holds_fn(elem, depth + 1),
             ast::Type::Nullable { inner, .. } => self.ast_type_holds_fn(inner, depth + 1),
+            ast::Type::Spread { inner, .. } => self.ast_type_holds_fn(inner, depth + 1),
             ast::Type::QualifiedGroup { base, .. } => self.ast_type_holds_fn(base, depth + 1),
             ast::Type::Named { base, .. } => {
                 if base.args.iter().any(|a| self.ast_type_holds_fn(a, depth + 1)) {
@@ -7677,7 +7678,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             let contract = self.effective_contract(Some(entry.key), decl);
             let mut fits = true;
             for (slot, pattern) in patterns.iter().enumerate() {
-                let sp = substitute_vars(pattern, &subst, &callee_generics);
+                // [union-spread] The marker's job ends at unification; the
+                // assignability check sees the ordinary union it stands for.
+                let sp = substitute_vars(pattern, &subst, &callee_generics).strip_spread();
                 let kept = contract
                     .as_ref()
                     .and_then(|c| {
@@ -8562,7 +8565,9 @@ impl<'p, 'r> Checker<'p, 'r> {
 
         let mut top = HashMap::new();
         for p in extra_params.iter().chain(&f.params) {
-            let ty = self.lower_type(&p.ty);
+            // [union-spread] The body sees a `...T` arm as plain `T`: the
+            // spread marker is a call-site matching fact only.
+            let ty = self.lower_type(&p.ty).strip_spread();
             // Parameter names hover like the variables they are
             // [doc-hover-narrowed].
             self.out
@@ -13505,6 +13510,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // rules live in `owes_linear`; nothing to refuse here.
             ast::Type::Union { .. } | ast::Type::Nullable { .. } => {}
             ast::Type::QualifiedGroup { .. } | ast::Type::Fn { .. } => {}
+            ast::Type::Spread { .. } => {}
         }
         for (span, linear, position) in found {
             self.refuse_linear_composite(span, &linear, position);
@@ -16175,6 +16181,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             ast::Type::Tuple { elems, .. } => elems.iter().any(|e| self.ast_type_mut(e, visited)),
             ast::Type::Array { elem, .. } => self.ast_type_mut(elem, visited),
             ast::Type::Nullable { inner, .. } => self.ast_type_mut(inner, visited),
+            ast::Type::Spread { inner, .. } => self.ast_type_mut(inner, visited),
             ast::Type::Fn { .. } => false,
         }
     }
@@ -17153,6 +17160,14 @@ impl<'p, 'r> Checker<'p, 'r> {
             ast::Type::Nullable { inner, .. } => {
                 let inner = self.lower_type_subst(inner, subst, depth);
                 self.mk_union(vec![inner, Ty::none()])
+            }
+            ast::Type::Spread { inner, .. } => {
+                // [union-spread] `...T` lowers to the spread marker over its
+                // lowered inner type; `unify_union_arms` reads it. Everywhere
+                // else the marker is stripped to its inner (an arm's concrete
+                // reading), so no position outside unification sees it.
+                let inner = self.lower_type_subst(inner, subst, depth);
+                Ty::spread_marker(inner)
             }
             ast::Type::Tuple { elems, .. } => Ty::Tuple(
                 elems
@@ -18585,6 +18600,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             ast::Type::Union { .. } | ast::Type::Nullable { .. } => false,
             // A fn type neither owns nor stores what it is handed.
             ast::Type::Fn { .. } => false,
+            // [union-spread] A `...T` arm is a top-level union-arm position,
+            // not a composite that stores the variable.
+            ast::Type::Spread { .. } => false,
         }
     }
 
@@ -18611,6 +18629,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             ast::Type::Tuple { elems, .. } => elems.iter().any(|e| Self::type_mentions_var(e, var)),
             ast::Type::Union { arms, .. } => arms.iter().any(|a| Self::type_mentions_var(a, var)),
             ast::Type::Nullable { inner, .. } => Self::type_mentions_var(inner, var),
+            ast::Type::Spread { inner, .. } => Self::type_mentions_var(inner, var),
             ast::Type::Fn { params, ret, .. } => {
                 params.iter().any(|p| Self::type_mentions_var(p, var))
                     || Self::type_mentions_var(ret, var)
@@ -18696,6 +18715,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             ast::Type::Array { .. } => false,
             ast::Type::Fn { .. } => false,
             ast::Type::Nullable { inner, .. } => {
+                self.type_reaches(inner, target, seen, depth + 1)
+            }
+            ast::Type::Spread { inner, .. } => {
                 self.type_reaches(inner, target, seen, depth + 1)
             }
             ast::Type::Union { arms, .. } | ast::Type::Tuple { elems: arms, .. } => arms
@@ -18793,6 +18815,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             ast::Type::Literal { .. } => false,
             ast::Type::Array { .. } | ast::Type::Fn { .. } => false,
             ast::Type::Nullable { inner, .. } => self.type_stores_inline(inner, param, depth),
+            ast::Type::Spread { inner, .. } => self.type_stores_inline(inner, param, depth),
             ast::Type::Union { arms, .. } | ast::Type::Tuple { elems: arms, .. } => {
                 arms.iter().any(|a| self.type_stores_inline(a, param, depth))
             }
@@ -19015,7 +19038,47 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             ast::Type::Union { arms, .. } => {
                 for a in arms {
-                    self.validate_type(a);
+                    // [union-spread] A spread arm is validated through its
+                    // inner here; `validate_type(Spread)` on its own is the
+                    // error for a spread outside a union.
+                    match a {
+                        ast::Type::Spread { inner, .. } => self.validate_type(inner),
+                        other => self.validate_type(other),
+                    }
+                }
+                // [union-spread] At most one `...T` spread arm, and each
+                // spread's inner must be a bare generic type parameter in
+                // scope — the spread captures a span of arms, which only a
+                // generic can stand for.
+                let spreads: Vec<&ast::Type> =
+                    arms.iter().filter(|a| matches!(a, ast::Type::Spread { .. })).collect();
+                if spreads.len() > 1 {
+                    if let ast::Type::Spread { span, .. } = spreads[1] {
+                        self.error(
+                            *span,
+                            "a union may have at most one `...` spread arm: a second \
+                             spread would make the split of the arms it captures \
+                             ambiguous [union-spread]"
+                                .to_string(),
+                        );
+                    }
+                }
+                for s in &spreads {
+                    if let ast::Type::Spread { inner, span } = s {
+                        let bare_generic = matches!(inner.as_ref(), ast::Type::Named { qualifiers, base }
+                            if qualifiers.is_empty() && base.args.is_empty()
+                                && self.generics.contains(base.name.name.as_str()));
+                        if !bare_generic {
+                            self.error(
+                                *span,
+                                format!(
+                                    "`...{inner}` is not a valid spread arm: a `...` spread \
+                                     captures one or more arms, so its type must be a bare \
+                                     generic parameter in scope [union-spread]"
+                                ),
+                            );
+                        }
+                    }
                 }
                 // [type-literal] A literal beside its own bare base adds
                 // nothing: every value of the base is already an arm. The
@@ -19047,6 +19110,17 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             ast::Type::Array { elem, .. } => self.validate_type(elem),
             ast::Type::Nullable { inner, .. } => self.validate_type(inner),
+            ast::Type::Spread { inner, span } => {
+                // [union-spread] A `...T` is only meaningful as a union arm;
+                // elsewhere it captures nothing.
+                self.validate_type(inner);
+                self.error(
+                    *span,
+                    "a `...` spread is only a union arm (`...T | Bool`): it has no \
+                     meaning on its own [union-spread]"
+                        .to_string(),
+                );
+            }
             ast::Type::Fn { params, ret, .. } => {
                 // [iter-type] A fn *type* is a value someone else wrote: its
                 // return is that value's to choose, so `iter T` there would be
@@ -26826,47 +26900,52 @@ fn fn_value_fits(candidate: &Ty, want: &Ty) -> bool {
 
 // ================= unification =================
 
-/// [generic-union-span] Unify a union *parameter* against a union *argument*,
-/// allowing a bare type-variable parameter arm to bind to a **span** of ≥1
-/// argument arms rather than one — so `detach<T, C>(T | Checked<C>)` meeting
-/// `Str | Int | Checked<Bool>` binds `T = Str | Int`, `C = Bool`.
+/// [union-spread] Unify a union *parameter* against a union *argument*. A
+/// parameter arm written `...T` (an explicit spread, [`Ty::as_spread_marker`])
+/// binds its variable to a **span** of ≥1 argument arms; every other
+/// parameter arm — concrete, or a bare type variable — captures exactly one
+/// argument arm. So `detach<T, C>(...T | Box2<C>)` meeting
+/// `Str | Int | Box2<Bool>` binds `T = Str | Int`, `C = Bool`; a bare `T | S`
+/// (no spread) captures one arm each.
 ///
-/// The split is: match each argument arm against the parameter's *concrete*
-/// (non-bare-variable) arms first; the argument arms none of them claims are
-/// the residual, which goes to the lone bare-variable parameter arm. Only one
-/// parameter arm may be an unbound bare variable for the span bind to apply;
-/// with more than one the partition is not unique by inference, so it falls
-/// back to the plain one-to-one rule — which an explicit turbofish satisfies
-/// (it has already bound the variables), and which otherwise leaves the
-/// variable for the "cannot infer type argument" check to report. With no
-/// variable arm this is the former behaviour: every argument arm must match
-/// some concrete parameter arm.
+/// The split is: match each argument arm against the parameter's *non-spread*
+/// arms first; the argument arms none of them claims are the residual, which
+/// goes to the lone `...T` spread arm. At most one spread per union (enforced
+/// where the type is written), so there is never an ambiguous partition. With
+/// no spread arm every argument arm must match some non-spread parameter arm
+/// one-to-one.
 fn unify_union_arms(parms: &[Ty], aarms: &[Ty], subst: &mut HashMap<String, Ty>) -> bool {
-    // A parameter arm is a *span slot* when it is a bare type variable the
-    // callee has not already bound to a concrete type.
-    let is_span_slot = |p: &Ty| matches!(p, Ty::Var(g) if subst.get(g).map(|b| matches!(b, Ty::Var(_))).unwrap_or(true));
-    let span_slots: Vec<&Ty> = parms.iter().filter(|p| is_span_slot(p)).collect();
-    // No span slot (or the classic all-concrete union): keep the one-to-one
-    // rule — every argument arm must match some parameter arm.
-    if span_slots.is_empty() {
-        return aarms
-            .iter()
-            .all(|a| parms.iter().any(|p| unify(p, a, &mut subst.clone()) && unify(p, a, subst)));
-    }
-    // The residual: argument arms no concrete parameter arm claims. A `None`
-    // argument arm is never part of a span (optionality is positional, not an
-    // arm a variable absorbs), so it must be matched by a concrete arm.
-    let concrete: Vec<&Ty> = parms.iter().filter(|p| !is_span_slot(p)).collect();
-    let one_to_one = |subst: &mut HashMap<String, Ty>| {
-        aarms
-            .iter()
-            .all(|a| parms.iter().any(|p| unify(p, a, &mut subst.clone()) && unify(p, a, subst)))
+    // A parameter arm is a *span slot* when it is an explicit `...T` spread
+    // whose variable the callee has not already bound to a concrete type.
+    let is_span_slot = |p: &Ty| {
+        matches!(p.as_spread_marker(), Some(Ty::Var(g))
+            if subst.get(g).map(|b| matches!(b, Ty::Var(_))).unwrap_or(true))
     };
-    // More than one unbound span variable: the split is not unique by
-    // inference, so fall back to the plain one-to-one rule (which an
-    // explicit turbofish, having bound the variables, satisfies) rather than
-    // guessing a partition. A genuinely un-inferable variable is then
-    // reported by the "cannot infer type argument" check.
+    // A non-spread parameter arm matched against one argument arm: the spread
+    // marker (if any) is stripped to its inner variable, so `...T` as a plain
+    // match still binds `T` to a single arm when it is the only candidate.
+    let strip_spread = |p: &Ty| p.as_spread_marker().cloned().unwrap_or_else(|| p.clone());
+    let one_to_one = |subst: &mut HashMap<String, Ty>| {
+        aarms.iter().all(|a| {
+            parms.iter().any(|p| {
+                let p = strip_spread(p);
+                unify(&p, a, &mut subst.clone()) && unify(&p, a, subst)
+            })
+        })
+    };
+    let span_slots: Vec<&Ty> = parms.iter().filter(|p| is_span_slot(p)).collect();
+    // No span slot: the classic all-concrete union — every argument arm must
+    // match some parameter arm.
+    if span_slots.is_empty() {
+        return one_to_one(subst);
+    }
+    // The residual: argument arms no non-spread parameter arm claims. A `None`
+    // argument arm is never part of a span (optionality is positional, not an
+    // arm a variable absorbs), so it must be matched by a non-spread arm.
+    let concrete: Vec<Ty> = parms.iter().filter(|p| !is_span_slot(p)).map(strip_spread).collect();
+    // More than one spread is refused where the type is written; defensively,
+    // if two reach here the partition is ambiguous, so fall back to one-to-one
+    // (a turbofish, having bound the variables, still satisfies it).
     if span_slots.len() != 1 {
         return one_to_one(subst);
     }
@@ -26877,7 +26956,7 @@ fn unify_union_arms(parms: &[Ty], aarms: &[Ty], subst: &mut HashMap<String, Ty>)
             residual.push(a.clone());
         }
     }
-    let Ty::Var(g) = span_slots[0] else { return false };
+    let Some(Ty::Var(g)) = span_slots[0].as_spread_marker() else { return false };
     // Nothing left over: every argument arm was a concrete match, so the
     // span variable has no arms to bind. Leave it unbound (a later argument
     // or the return context may still determine it) rather than binding the
@@ -28836,7 +28915,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             // type (a union arm, a type argument) must match exactly.
             let contract = self.effective_contract(Some(key), decl);
             for (i, p) in patterns.iter().enumerate() {
-                let sp = substitute_vars(p, &subst, &callee_generics);
+                // [union-spread] The `...T` marker guides call-site union
+                // matching (above); the assignability check sees the plain
+                // union it stands for.
+                let sp = substitute_vars(p, &subst, &callee_generics).strip_spread();
                 let kept = contract
                     .as_ref()
                     .and_then(|c| {
@@ -31074,7 +31156,7 @@ fn proj_refs_in_type_args(ty: &ast::Type) -> Vec<&TypeRef> {
                     walk(a, inside_arg, out);
                 }
             }
-            ast::Type::Nullable { inner, .. } | ast::Type::Array { elem: inner, .. } => {
+            ast::Type::Nullable { inner, .. } | ast::Type::Array { elem: inner, .. } | ast::Type::Spread { inner, .. } => {
                 walk(inner, inside_arg, out)
             }
             ast::Type::Fn { .. } => {}

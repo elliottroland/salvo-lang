@@ -1366,7 +1366,7 @@ fn kotlinc_compiles_and_runs_a_sub_union_rewrap() -> KotlinCase {
 const UNION_SPAN_DEMO: &str = r#"
 struct Box2<C> { value: C }
 
-fn detach<T, C>(value: T | Box2<C>) -> T | C => !value {
+fn detach<T, C>(value: ...T | Box2<C>) -> T | C => !value {
     when value {
         is Box2<C> { return value.value }
         is T { return value }

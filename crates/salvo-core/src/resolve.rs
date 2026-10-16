@@ -1755,6 +1755,7 @@ fn mentions_type(ty: &salvo_syntax::ast::Type, name: &str) -> bool {
         T::QualifiedGroup { base, .. } => mentions_type(base, name),
         T::Union { arms, .. } => arms.iter().any(|a| mentions_type(a, name)),
         T::Nullable { inner, .. } => mentions_type(inner, name),
+        T::Spread { inner, .. } => mentions_type(inner, name),
         T::Tuple { elems, .. } => elems.iter().any(|e| mentions_type(e, name)),
         T::Array { elem, .. } => mentions_type(elem, name),
         T::Fn { params, ret, .. } => {

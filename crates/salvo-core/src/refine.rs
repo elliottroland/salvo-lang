@@ -839,6 +839,7 @@ fn base_names<'t>(ty: &'t Type, out: &mut Vec<&'t Ident>) {
         Type::Tuple { elems, .. } => elems.iter().for_each(|e| base_names(e, out)),
         Type::Array { elem, .. } => base_names(elem, out),
         Type::Nullable { inner, .. } => base_names(inner, out),
+        Type::Spread { inner, .. } => base_names(inner, out),
         Type::Fn { params, ret, .. } => {
             params.iter().for_each(|p| base_names(p, out));
             base_names(ret, out);
@@ -1040,6 +1041,7 @@ fn normalize(ty: &Type, generics: &[&str]) -> String {
         ),
         Type::Array { elem, .. } => format!("{}[]", normalize(elem, generics)),
         Type::Nullable { inner, .. } => format!("{}?", normalize(inner, generics)),
+        Type::Spread { inner, .. } => format!("...{}", normalize(inner, generics)),
         Type::Fn {
             params,
             effects,

@@ -293,12 +293,69 @@ pub enum Ty {
 /// [name-casing].
 pub const ITER_MARKER: &str = "iter";
 
+/// [union-spread] The name a `...T` union-arm spread lowers under:
+/// `Ty::Named { name: SPREAD_MARKER, args: [T] }`, where `T` is the spread's
+/// generic variable. Like [`ITER_MARKER`] it is never the type of a value a
+/// backend sees: it marks, inside a union *parameter* or *return* type, the
+/// one arm that captures **one or more** argument arms rather than exactly
+/// one. `unify_union_arms` reads it to bind the span; everywhere a concrete
+/// type is needed the marker is stripped back to its inner variable. A
+/// lowercase name, so no program type can collide [name-casing].
+pub const SPREAD_MARKER: &str = "...";
+
 impl Ty {
     /// [iter-type] `iter T`, as lowered.
     pub fn iter_marker(elem: Ty) -> Ty {
         Ty::Named {
             name: ITER_MARKER.to_string(),
             args: vec![elem],
+        }
+    }
+
+    /// [union-spread] `...T`, as lowered: the spread marker over its variable.
+    pub fn spread_marker(inner: Ty) -> Ty {
+        Ty::Named {
+            name: SPREAD_MARKER.to_string(),
+            args: vec![inner],
+        }
+    }
+
+    /// [union-spread] The inner type if this is a spread marker (`...T`).
+    pub fn as_spread_marker(&self) -> Option<&Ty> {
+        match self {
+            Ty::Named { name, args } if name == SPREAD_MARKER && args.len() == 1 => Some(&args[0]),
+            _ => None,
+        }
+    }
+
+    /// [union-spread] Every spread marker replaced by its inner type — the
+    /// reading every position *except* call-site union unification needs: a
+    /// `...T` arm is just `T` to the body, the backends, and the IR. Applied
+    /// at the body-binding and `erase` boundaries so the marker survives only
+    /// to `unify_union_arms`.
+    pub fn strip_spread(&self) -> Ty {
+        if let Some(inner) = self.as_spread_marker() {
+            return inner.strip_spread();
+        }
+        match self {
+            Ty::Named { name, args } => Ty::Named {
+                name: name.clone(),
+                args: args.iter().map(|a| a.strip_spread()).collect(),
+            },
+            Ty::Qualified { quals, base } => Ty::Qualified {
+                quals: quals.clone(),
+                base: Box::new(base.strip_spread()),
+            },
+            Ty::Union(arms) => Ty::union_of(arms.iter().map(|a| a.strip_spread()).collect()),
+            Ty::Tuple(elems) => Ty::Tuple(elems.iter().map(|e| e.strip_spread()).collect()),
+            Ty::Array(e) => Ty::Array(Box::new(e.strip_spread())),
+            Ty::Fn { params, ret, contract, effects } => Ty::Fn {
+                params: params.iter().map(|p| p.strip_spread()).collect(),
+                ret: Box::new(ret.strip_spread()),
+                contract: contract.clone(),
+                effects: effects.iter().map(|e| e.strip_spread()).collect(),
+            },
+            other => other.clone(),
         }
     }
 

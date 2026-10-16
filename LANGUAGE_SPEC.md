@@ -282,7 +282,7 @@ Conventions:
   * **A union never nests observably** (user decision 2026-10-12): a *bare*
     union written inside a union flattens — `(A | B) | C` ≡ `A | B | C`, and
     a type parameter bound to a union flattens the same way
-    [generic-union-span] — so there is one canonical flat shape. A union
+    [union-spread] — so there is one canonical flat shape. A union
     that is the **payload of a type constructor or tag** does *not* flatten:
     `List<A | B>`, `Ok (A | B)`, and `Err Str` are each one arm, since the
     constructor is what the arm's identity is. So `List<A|B> | B` has two
@@ -1083,25 +1083,41 @@ Conventions:
   `Box<Str> { value: 7 }` is still reported. Each field's declared type is
   unified against its value's type, in field order, so a later field may widen
   an earlier binding exactly as a later argument does.
-* [generic-union-span] **A type parameter may bind to a *span* of union
-  arms** (user decision 2026-10-12): where a parameter type is a union with a
-  bare type-variable arm, that variable may absorb more than one of the
-  argument union's arms. `detach<T, C>(value: T | Checked<C>) -> T | C` called
-  with `Str | Int | Checked<Bool>` binds `T = Str | Int`, `C = Bool`, and
-  answers the flat `Str | Int | Bool` ([type-union] flattens the result, so
-  the span is never observably nested).
-  * **The split**: the argument's arms are matched against the parameter's
-    *concrete* (non-variable) arms first; whatever is left is the span, and it
-    goes to the lone bare-variable arm. **At most one** parameter arm may be an
-    unbound bare variable — with two (`f<A, B>(A | B)`) the split is not unique
-    by inference, so it is refused (no overload matches). An explicit type
-    argument (`detach<Str | Int, Bool>(…)`) names the split and always applies.
+* [union-spread] **A `...T` spread arm binds a type parameter to a *span* of
+  union arms** (user decision 2026-10-14, superseding the implicit
+  2026-10-12 grouping). In a union parameter or return type, an arm written
+  `...T` (`T` a generic in scope) captures **one or more** of the argument
+  union's arms; every other arm — concrete, or a *bare* generic — captures
+  **exactly one**. `detach<T, C>(value: ...T | Box2<C>) -> T | C` called with
+  `Str | Int | Box2<Bool>` binds `T = Str | Int`, `C = Bool`, and answers the
+  flat `Str | Int | Bool` ([type-union] flattens the result, so the span is
+  never observably nested).
+  * **Why explicit.** A bare `T` arm used to absorb the residual implicitly,
+    which worked for one variable arm but made `T | S` (two) unresolvable —
+    the split is not unique by inference. Spelling the absorbing arm `...T`
+    removes the guess: `T | S` is now two single-arm captures, and `...T | S`
+    is "`...T` takes everything `S` does not". Spelled `...` for consistency
+    with the expression/argument spread.
+  * **The split**: the argument's arms are matched against the union's
+    non-spread arms first; whatever is left is the span, bound to the one
+    `...` arm. **At most one spread per union** — a second would make the
+    partition ambiguous — and the spread's inner must be a bare generic
+    parameter in scope (nothing else can stand for a span). A `...` outside a
+    union is an error (it captures nothing on its own). Anonymous spreads
+    (`... | Bool`) are not a form: name the generic.
+  * **A bare generic arm captures exactly one arm.** `f<T, S>(T | S)` meeting
+    a two-arm union binds one each; meeting a three-arm union has no match
+    (two parameter arms, three argument arms), the error directing to a `...`.
+    An explicit type argument (`detach<Str | Int, Bool>(…)`) names the split
+    and always applies.
   * **Lowering** is representation-only (`[core-layers]`: a backend's spelling
     of a flat fact). The callee is one generic body over the *nested* slot
-    (`Union2<T, Checked<C>>`, `T` one arm); the caller rewraps the flat
-    argument to that nested shape and the nested result back to flat, through
-    the one union-conversion primitive [rs-union-convert] [kt-union-convert].
-    No per-arity monomorphisation of the body.
+    (`Union2<T, Box2<C>>`, `T` one arm); the caller rewraps the flat argument
+    to that nested shape and the nested result back to flat, through the one
+    union-conversion primitive [rs-union-convert] [kt-union-convert]. No
+    per-arity monomorphisation of the body. The `...` marker is a
+    signature-only fact the checker reads at call-site union matching; the
+    body, the IR and the backends see the plain union it stands for.
 * [col-to-str] `to_str` of a collection is **the language's format, not the
   target's**, and both backends emit the same string: `[1, 2, 3]` for a
   list, `{1, 2, 3}` for a set, `{a: 1, b: 2}` for a map — a fixed display

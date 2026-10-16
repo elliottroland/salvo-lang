@@ -17545,15 +17545,15 @@ fn rustc_compiles_and_runs_an_infinite_loop_as_never() {
 }
 
 
-/// `detach<T, C>(T | Checked<C>)` meets `Str | Int | Checked<Bool>` with
-/// `T = Str | Int`, `C = Bool`, and answers the flat `Str | Int | Bool`. The
-/// callee is one generic body over the nested `Union2<T, Checked<C>>`; the
-/// call site rewraps the flat argument to nested and the nested result back
-/// to flat.
+/// `detach<T, C>(...T | Box2<C>)` meets `Str | Int | Box2<Bool>` with
+/// `T = Str | Int` (the `...T` spread captures both), `C = Bool`, and answers
+/// the flat `Str | Int | Bool`. The callee is one generic body over the
+/// nested `Union2<T, Box2<C>>`; the call site rewraps the flat argument to
+/// nested and the nested result back to flat. [union-spread]
 pub const UNION_SPAN_DEMO: &str = r#"
 struct Box2<C> { value: C }
 
-fn detach<T, C>(value: T | Box2<C>) -> T | C => !value {
+fn detach<T, C>(value: ...T | Box2<C>) -> T | C => !value {
     when value {
         is Box2<C> { return value.value }
         is T { return value }
@@ -17594,6 +17594,42 @@ fn rustc_compiles_and_runs_union_spanning_generic() {
         main.content
     );
     run_rust_files(&files, "union-span", UNION_SPAN_OUTPUT);
+}
+
+/// [union-spread] Two bare generic arms `T | S` — each captures **exactly
+/// one** arm (no spread needed), the capability the spread change enables:
+/// before, two unbound generic arms could not be partitioned. `swap` reorders
+/// the two arms of a two-arm union.
+pub const UNION_TWO_GENERIC_DEMO: &str = r#"
+fn swap<T, S>(v: T | S) -> S | T => !v {
+    when v {
+        is T { return v }
+        is S { return v }
+    }
+}
+
+fn show(v: Int | Str) [Console] -> None {
+    when v {
+        is Int { println("int ${v}") }
+        is Str { println("str ${v}") }
+    }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let a: Str | Int = "hi"
+    let b: Int | Str = 7
+    show(swap(a))
+    show(swap(b))
+}
+"#;
+
+pub const UNION_TWO_GENERIC_OUTPUT: &str = "str hi\nint 7\n";
+
+#[test]
+fn rustc_compiles_and_runs_two_generic_union_arms() {
+    let files = generate(&[("main.sv", UNION_TWO_GENERIC_DEMO)]);
+    run_rust_files(&files, "union-two-generic", UNION_TWO_GENERIC_OUTPUT);
 }
 
 /// [ref-anchor] Element containers (user decisions 2026-10-10): a `ref(lib)`

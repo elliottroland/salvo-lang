@@ -1114,6 +1114,7 @@ impl World {
         match ty {
             Type::Literal { .. } => TypeKindWord::Basic,
             Type::Union { .. } | Type::Nullable { .. } => TypeKindWord::Union,
+            Type::Spread { .. } => TypeKindWord::Union,
             Type::Tuple { .. } => TypeKindWord::Tuple,
             Type::Fn { .. } => TypeKindWord::FnType,
             Type::Array { .. } => TypeKindWord::Basic,
@@ -1193,6 +1194,7 @@ impl World {
                 arms.join(" | ")
             }
             Type::Nullable { inner, .. } => format!("{} | None", self.normalized(inner)),
+            Type::Spread { inner, .. } => format!("...{}", self.normalized(inner)),
             Type::Tuple { elems, .. } => {
                 let elems: Vec<String> = elems.iter().map(|e| self.normalized(e)).collect();
                 format!("({})", elems.join(", "))

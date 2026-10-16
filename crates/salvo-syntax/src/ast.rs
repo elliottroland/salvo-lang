@@ -1285,6 +1285,13 @@ pub enum Type {
     },
     /// `A | B | C`
     Union { arms: Vec<Type>, span: Span },
+    /// [union-spread] `...T` as a **union arm**: a generic type parameter that
+    /// captures one *or more* arms of the union it meets, rather than exactly
+    /// one. A bare `T` arm captures exactly one arm; `...T` is the explicit
+    /// spread that absorbs the rest. Only ever appears as an arm of a `Union`,
+    /// and `inner` is always a bare generic name. At most one spread per
+    /// union, and anonymous spreads are not a form (the name is required).
+    Spread { inner: Box<Type>, span: Span },
     /// [type-literal] A literal as a type — `"STANDARD"`, `3`, `-1`, `3L`,
     /// `true` — the type whose one value is that literal. Meant for unions
     /// (`"A" | "B" | Other Str`), which collapse a base type's literals into
@@ -1325,6 +1332,7 @@ impl Type {
             | Type::Array { span, .. }
             | Type::Nullable { span, .. }
             | Type::Fn { span, .. }
+            | Type::Spread { span, .. }
             | Type::QualifiedGroup { span, .. } => *span,
         }
     }
@@ -1509,6 +1517,7 @@ impl fmt::Display for Type {
             }
             Type::Array { elem, .. } => write!(f, "{elem}[]"),
             Type::Nullable { inner, .. } => write!(f, "{inner}?"),
+            Type::Spread { inner, .. } => write!(f, "...{inner}"),
             Type::Fn {
                 params,
                 effects,

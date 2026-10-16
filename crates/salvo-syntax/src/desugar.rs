@@ -982,7 +982,7 @@ pub fn type_mentions_iter(ty: &Type) -> bool {
         Type::Union { arms, .. } | Type::Tuple { elems: arms, .. } => {
             arms.iter().any(type_mentions_iter)
         }
-        Type::Array { elem, .. } | Type::Nullable { inner: elem, .. } => type_mentions_iter(elem),
+        Type::Array { elem, .. } | Type::Nullable { inner: elem, .. } | Type::Spread { inner: elem, .. } => type_mentions_iter(elem),
         Type::Fn { params, ret, .. } => {
             params.iter().any(type_mentions_iter) || type_mentions_iter(ret)
         }
@@ -1946,6 +1946,7 @@ fn rename_proj_source(ty: &mut Type, old: &str, new: &str) {
         Type::Array { elem, .. } | Type::Nullable { inner: elem, .. } => {
             rename_proj_source(elem, old, new)
         }
+        Type::Spread { inner, .. } => rename_proj_source(inner, old, new),
         Type::Fn { .. } => {}
     }
 }
@@ -1988,6 +1989,7 @@ fn value_arg_roots(ty: &Type, out: &mut Vec<String>) {
             }
         }
         Type::Array { elem, .. } | Type::Nullable { inner: elem, .. } => value_arg_roots(elem, out),
+        Type::Spread { inner, .. } => value_arg_roots(inner, out),
         Type::Fn { .. } => {}
     }
 }
@@ -2037,6 +2039,7 @@ fn rename_value_arg_root(ty: &mut Type, old: &str, new: &str) {
         Type::Array { elem, .. } | Type::Nullable { inner: elem, .. } => {
             rename_value_arg_root(elem, old, new)
         }
+        Type::Spread { inner, .. } => rename_value_arg_root(inner, old, new),
         Type::Fn { .. } => {}
     }
 }

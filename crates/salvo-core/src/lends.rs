@@ -59,7 +59,7 @@ pub fn type_has_proj(ty: &Type) -> bool {
         Type::Union { arms, .. } | Type::Tuple { elems: arms, .. } => {
             arms.iter().any(type_has_proj)
         }
-        Type::Array { elem, .. } | Type::Nullable { inner: elem, .. } => type_has_proj(elem),
+        Type::Array { elem, .. } | Type::Nullable { inner: elem, .. } | Type::Spread { inner: elem, .. } => type_has_proj(elem),
         Type::Fn { .. } => false,
     }
 }
@@ -79,7 +79,7 @@ pub fn type_arg_has_proj(ty: &Type) -> bool {
         Type::Union { arms, .. } | Type::Tuple { elems: arms, .. } => {
             arms.iter().any(type_arg_has_proj)
         }
-        Type::Array { elem, .. } | Type::Nullable { inner: elem, .. } => type_arg_has_proj(elem),
+        Type::Array { elem, .. } | Type::Nullable { inner: elem, .. } | Type::Spread { inner: elem, .. } => type_arg_has_proj(elem),
         Type::Fn { .. } => false,
     }
 }
@@ -95,7 +95,7 @@ fn struct_names(ty: &Type, out: &mut Vec<String>) {
         Type::Union { arms, .. } | Type::Tuple { elems: arms, .. } => {
             arms.iter().for_each(|a| struct_names(a, out))
         }
-        Type::Array { elem, .. } | Type::Nullable { inner: elem, .. } => struct_names(elem, out),
+        Type::Array { elem, .. } | Type::Nullable { inner: elem, .. } | Type::Spread { inner: elem, .. } => struct_names(elem, out),
         Type::Fn { .. } => {}
     }
 }

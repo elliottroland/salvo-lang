@@ -303,6 +303,7 @@ pub fn approx_ty(t: &Type, subst: &HashMap<String, Ty>) -> Option<Ty> {
         Type::Nullable { inner, .. } => {
             Some(Ty::Union(vec![approx_ty(inner, subst)?, Ty::none()]))
         }
+        Type::Spread { inner, .. } => Some(Ty::spread_marker(approx_ty(inner, subst)?)),
         Type::Fn { .. } => Some(Ty::Fn {
             contract: None,
             effects: Vec::new(),

@@ -362,7 +362,7 @@ Conventions:
   [union-arm-identity] — exact type, then `erase_eq` — as a `let { when (it)
   { is UnionN.Ui<*…> -> … } }` chain. Besides the plain one-to-one map it
   handles the flat↔nested spread of a union-spanning generic
-  [generic-union-span]: a source arm that is itself a bare union the target
+  [generic-union-span] (the `...T` surface is [union-spread]): a source arm that is itself a bare union the target
   *spreads* (recurse into the inner value), and a target arm that is a bare
   union the source *collapses into* (re-wrap into the inner union, then the
   outer arm). An identity reshape — both sides render to the same Kotlin type

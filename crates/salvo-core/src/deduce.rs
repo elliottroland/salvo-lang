@@ -302,6 +302,7 @@ pub fn declared_quals(ty: &Type) -> Vec<String> {
             qualifiers.iter().map(|q| q.name.name.clone()).collect()
         }
         Type::Nullable { inner, .. } => declared_quals(inner),
+        Type::Spread { inner, .. } => declared_quals(inner),
         _ => Vec::new(),
     }
 }
@@ -625,6 +626,7 @@ fn is_copy_scalar_param(ty: &Type) -> bool {
     let base = match ty {
         Type::Named { qualifiers, base } if qualifiers.is_empty() && base.args.is_empty() => base,
         Type::Nullable { inner, .. } => return is_copy_scalar_param(inner),
+        Type::Spread { inner, .. } => return is_copy_scalar_param(inner),
         _ => return false,
     };
     matches!(
@@ -1493,7 +1495,7 @@ fn proj_sources_of(ty: &Type) -> Vec<String> {
                     walk(a, out);
                 }
             }
-            Type::Array { elem, .. } | Type::Nullable { inner: elem, .. } => walk(elem, out),
+            Type::Array { elem, .. } | Type::Nullable { inner: elem, .. } | Type::Spread { inner: elem, .. } => walk(elem, out),
             Type::Fn { .. } => {}
         }
     }
@@ -1511,7 +1513,7 @@ fn type_has_proj(ty: &Type) -> bool {
         Type::QualifiedGroup {
             qualifiers, base, ..
         } => qualifiers.iter().any(in_ref) || type_has_proj(base),
-        Type::Nullable { inner, .. } | Type::Array { elem: inner, .. } => type_has_proj(inner),
+        Type::Nullable { inner, .. } | Type::Array { elem: inner, .. } | Type::Spread { inner, .. } => type_has_proj(inner),
         Type::Union { arms, .. } | Type::Tuple { elems: arms, .. } => arms.iter().any(type_has_proj),
         _ => false,
     }

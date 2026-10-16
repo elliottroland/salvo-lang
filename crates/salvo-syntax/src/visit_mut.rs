@@ -197,6 +197,10 @@ pub fn walk_type<V: MutVisitor>(v: &mut V, t: &mut Type) {
             v.visit_span(span);
             walk_type(v, inner);
         }
+        Type::Spread { inner, span } => {
+            v.visit_span(span);
+            walk_type(v, inner);
+        }
         Type::Fn {
             params,
             param_names,

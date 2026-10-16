@@ -138,6 +138,96 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-14 — Union arm spreads (`...T`), replacing implicit grouping
+
+A union parameter/return arm written `...T` (user decision 2026-10-14) binds
+the generic `T` to a **span** of ≥1 argument-union arms; every other arm —
+concrete or a bare generic — captures exactly one. This replaces the implicit
+2026-10-12 grouping, where a lone bare-variable arm absorbed the residual: that
+worked for one variable arm but left `T | S` (two) unresolvable, since the
+split is not unique by inference. Making the absorbing arm explicit removes the
+guess.
+
+- **Surface/rules**: at most one spread per union; the spread's inner must be a
+  bare generic in scope; `...` spelled like the expression/argument spread; no
+  anonymous spreads (name the generic); a `...` outside a union is an error.
+  `T | S` is now two single-arm captures (newly works); a bare `T` that would
+  have to absorb several arms no longer matches, the error pointing to `...T`.
+- **AST**: new `Type::Spread { inner, span }`, only ever a union arm. Parser
+  `parse_union_arm` reads a leading `...`. Transparent in every type walker
+  (recurse into `inner`).
+- **Checker**: `...T` lowers to a marker `Ty::Named { name: "...", args: [T] }`
+  (`Ty::spread_marker`/`as_spread_marker`/`strip_spread`, mirroring the
+  `iter` marker). `unify_union_arms` reads the marker as the span slot — a
+  bare `Ty::Var` arm is now an ordinary single-arm match. The marker is a
+  **signature-only** fact: stripped (`strip_spread`) for the body view
+  (`check_fn` param binding), at the two overload-assignability loops (after
+  `substitute_vars`), and at the IR `erase` boundary — so the body, IR and
+  backends see the plain union. `validate_type` enforces the one-spread /
+  bare-generic / not-outside-a-union rules.
+- **Lowering unchanged**: the flat↔nested union conversion
+  ([generic-union-span] in the backends) is the representation; `...T` only
+  changes *which* arm is the span and makes it explicit.
+- **Migration**: the only repo site using implicit multi-arm grouping was the
+  `union_spanning_generic` e2e demo (`detach<T,C>(T | Box2<C>)`), rewritten to
+  `...T` in both backends. std's `detach` takes `Checked<T>` (not a union), so
+  it was unaffected. New tests: `union_arm_spread_parses` (parser),
+  `rustc_compiles_and_runs_two_generic_union_arms` (the `T | S` capability).
+- **Spec/docs**: `[union-spread]` in LANGUAGE_SPEC.md (superseding the
+  `[generic-union-span]` surface description, which stays as the backend
+  lowering label), docs/language/Generics-and-Aliases.md ("Generic union arms
+  and spreads"), backend specs cross-referenced, wiki synced.
+
+### 2026-10-14 — `iter fn` generation stays pre-check (investigated, not moved)
+
+Investigated moving the generated iterator **struct**, **minter**, and **`next`**
+from the pre-checker desugar (`salvo_syntax::desugar::expand`) to IR lowering, to
+mirror the actor `__Msg_`/`__Cont_`/`__Stub_` generation in
+`ir/build/actors.rs`. **Decision (user, 2026-10-14): do not move it — keep the
+desugar as is.** The actor analogy does not transfer, and the move's cost is
+high for a modest benefit. Recorded so the question is not re-opened.
+
+Why the analogy fails and the move is not worth it (three findings, each
+verified against the code):
+
+- **The struct must stay a real pre-check type.** The `-> iter T` pattern
+  machinery dereferences the actual `StructDecl` in `symbols.structs`:
+  `yield_obligation` (check.rs) does `symbols.structs.get(name)` to read the
+  `: Yield<self, T>` clause, and `pass_declared_elem_ty` / `fills_iter_pattern`
+  / `fn_return_ty` all rest on that. A synthetic `Ty::Named { "__Iter_…" }`
+  with no backing declaration makes every `for` over the iterator and every
+  caller substitution fail. So the struct cannot move to IR without teaching
+  the checker to resolve `__Iter_…` with no declaration — a large, risky change
+  to the type system's core for no user-visible gain.
+- **The minter and `next` are resolved *by name*, unlike actor dispatchers.**
+  `range(0, 10)` resolves to the minter's `FnKey` by name, and `iter_returns`
+  is seeded off the minter body's `return <struct literal>`. `for x in range(…)`
+  drives by `find_next_driver` → `scope.fns.get("next")`, matched to the subject
+  struct by declaration identity (`same_pass_decl`). Actor send-fns have no
+  author body and nothing resolves *to* a dispatcher by name — which is exactly
+  why `actors::generate` can synthesize them post-build. The iter fns cannot be
+  synthesized that late: resolution and `for`-driving need them to exist as
+  name-resolvable fns during check.
+- **IR fn address is the AST item index** (`DeclId.item == FnKey.item`, ir/build.rs).
+  Synthesizing minter/`next` at IR time means minting `DeclId`s off the `sub`
+  channel and teaching the checker to record `call_fn`/`PassDriver.next` keys
+  that map onto them — in addition to replacing name-based minter resolution,
+  seeding `iter_returns` by struct-name lookup (alongside the existing
+  return-based path that delegating `-> iter T` fns still need), and replacing
+  `find_next_driver`'s `"next"` lookup with direct `__Iter_…` recognition. Four
+  coordinated changes to driving/resolution, where a half-done one *silently*
+  targets the wrong fn (there is precedent: the 2026-09-25 bug driving the wrong
+  module's `next`).
+
+The reasons the desugar exists, from its own module doc, still hold and are the
+positive case for leaving it: nothing downstream knows the form exists; `state`
+fields get every type/mutation/`Mut`/narrowing/deduction rule for free because
+they *are* struct fields; and "no effects in an initializer" needs no check
+because the initializers become a minter body declared `[]`. The borrow story
+was also confirmed sound either way — an `iter fn` param is a read-only kept
+borrow, `Hold::Whole`/`Fields`/`Owned`/`Nothing` is a representation choice the
+checker cannot observe — so there is no correctness bug motivating a change.
+
 ### 2026-10-14 — The `?>` null-safe pipe operator
 
 The pipe analogue of safe navigation `?.` (user decision 2026-10-14).

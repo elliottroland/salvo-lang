@@ -116,6 +116,7 @@ impl<'p> Ctx<'p> {
             ast::Type::Tuple { elems, .. } => Some(Ty::Tuple(elems.iter().map(|e| self.approx_keyed(e, subst, depth + 1)).collect::<Option<_>>()?)),
             ast::Type::Array { elem, .. } => Some(Ty::Array(Box::new(self.approx_keyed(elem, subst, depth + 1)?))),
             ast::Type::Nullable { inner, .. } => Some(Ty::union_of(vec![self.approx_keyed(inner, subst, depth + 1)?, Ty::none()])),
+            ast::Type::Spread { inner, .. } => Some(Ty::spread_marker(self.approx_keyed(inner, subst, depth + 1)?)),
             ast::Type::Fn { params, effects, ret, .. } => {
                 // [fn-effects] the effects a fn value performs lead its type.
                 let effects: Vec<Ty> = effects
@@ -198,6 +199,11 @@ impl Program {
 /// [ir-types] Qualifiers are erased from every type the IR carries, except
 /// `Mut`, the one a backend may represent as a different type.
 pub fn erase(ty: &Ty) -> Ty {
+    // [union-spread] The `...T` marker is a signature-only fact for call-site
+    // union matching; the IR and backends never see it.
+    if ty.as_spread_marker().is_some() {
+        return erase(&ty.strip_spread());
+    }
     // [type-literal] literals collapse into their base first, so a union of
     // literals of one base is that base.
     if crate::literal::mentions_lit(ty) {

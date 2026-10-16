@@ -270,7 +270,7 @@ fn group_args(ty: &Type, out: &mut BTreeSet<String>) {
                 in_ref(q, out);
             }
         }
-        Type::QualifiedGroup { base, .. } | Type::Array { elem: base, .. } | Type::Nullable { inner: base, .. } => {
+        Type::QualifiedGroup { base, .. } | Type::Array { elem: base, .. } | Type::Nullable { inner: base, .. } | Type::Spread { inner: base, .. } => {
             group_args(base, out)
         }
         Type::Union { arms, .. } | Type::Tuple { elems: arms, .. } => {
@@ -309,7 +309,7 @@ fn type_names(ty: &Type, out: &mut BTreeSet<String>) {
             }
             type_names(base, out);
         }
-        Type::Array { elem: base, .. } | Type::Nullable { inner: base, .. } => type_names(base, out),
+        Type::Array { elem: base, .. } | Type::Nullable { inner: base, .. } | Type::Spread { inner: base, .. } => type_names(base, out),
         Type::Union { arms, .. } | Type::Tuple { elems: arms, .. } => {
             for a in arms {
                 type_names(a, out);
@@ -563,7 +563,7 @@ fn respan_type(ty: &mut Type, spans: &mut Spans) {
             }
             *span = spans.take();
         }
-        Type::Array { elem: inner, span } | Type::Nullable { inner, span } => {
+        Type::Array { elem: inner, span } | Type::Nullable { inner, span } | Type::Spread { inner, span } => {
             respan_type(inner, spans);
             *span = spans.take();
         }

@@ -93,6 +93,7 @@ fn occurrences_effect_only(
                 .for_each(|e| walk(e, param, erased, decls, found, ok, false)),
             Type::Array { elem, .. } => walk(elem, param, erased, decls, found, ok, false),
             Type::Nullable { inner, .. } => walk(inner, param, erased, decls, found, ok, false),
+            Type::Spread { inner, .. } => walk(inner, param, erased, decls, found, ok, false),
             Type::Fn { params, ret, .. } => {
                 for p in params {
                     walk(p, param, erased, decls, found, ok, false);
