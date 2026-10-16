@@ -138,6 +138,40 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-14 — Effect members offered as LSP completions in scope
+
+Completed the salvo-noticeboard `disk.sv` TODOs ("this should auto-complete
+from the effects in scope"). Where a value is written, completion now offers
+the **members of every effect available at the cursor** as callable functions
+— a `[Fs]` fn offers `open_read`, and since `effect Fs [Streams]` pulls the
+prerequisite in, `Streams`' members too. [effect-member-completion].
+
+- **"Available" = the body's fully expanded effect set.** The checker already
+  assembles this in `check_fn` — declared effects, their transitive
+  prerequisites (`prereq::expand_prerequisites` rewrote the AST effect list
+  before resolution, so a `[Fs]` fn literally carries `[Fs, Streams]`), plus a
+  handler member's inherited `handler_deps`. Rather than re-derive it in the
+  LSP, `check_fn` records it per body in a new `Checked::fn_body_effects:
+  Vec<(file, body span, Vec<Ty>)>` (one entry per body with a non-empty set).
+  Completion picks the innermost body span containing the cursor and offers a
+  member only when its owning effect's name is in that set (module key `§…`
+  stripped, as `receiver_name` does).
+- **The index widened.** `completion_index` now also iterates the resolver's
+  `ModuleScope::effect_members` (the same table `overload_index` reads). An
+  effect member has no `FnKey`, so `CompletionFn` grew `key: Option<FnKey>`, an
+  `effect: Option<String>` (owning effect name, the gate), and a precomputed
+  `detail: Option<String>` (its signature, rendered via
+  `crate::lsp::fn_decl_signature`, now `pub(crate)`). Free fns keep their key;
+  the completion handler renders detail from the key when present, from
+  `detail` otherwise. `signature_help` falls back the same way.
+- **Known gap:** a mid-body `use H()` binding is not reflected — it lives only
+  in the checker's transient `effect_env`, not the persisted per-body set — so
+  members made available that way are under-offered. Acceptable first cut
+  (under-offer, never wrong-offer); the common declared-effect case is exact.
+- Test: `completion_offers_effect_members_in_scope` in `lsp_tests.rs` — a
+  `[Reader]` fn (`effect Reader [Bytes]`) offers both `read_line` and the
+  prerequisite's `read_byte`, and withholds an unrelated effect's member.
+
 ### 2026-10-14 — `Path`'s field `text` renamed to `value`; `NodeId.id` → `value`
 
 User decision: a single-value **wrapper** struct's field should be `value`.

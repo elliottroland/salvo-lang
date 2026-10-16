@@ -1680,6 +1680,28 @@ impl Server<'_> {
         let checked = analysis.checked.as_ref()?;
         let view = doc_view(&analysis, &path)?;
         let fns = analysis.completions.get(view.file)?;
+        // [effect-member-completion] The effects available at the cursor: the
+        // expanded effect set of the innermost fn/handler-member body that
+        // contains the cursor (smallest such span wins). Names are the bare
+        // effect names, module key stripped, to match an owning effect. Empty
+        // when the cursor is in no effectful body — then no member is offered.
+        let available_effects: HashSet<String> = {
+            let cursor_off = word as u32;
+            checked
+                .fn_body_effects
+                .iter()
+                .filter(|(file, span, _)| *file == view.file && span.start <= cursor_off && cursor_off <= span.end)
+                .min_by_key(|(_, span, _)| span.len())
+                .map(|(_, _, tys)| {
+                    tys.iter()
+                        .filter_map(|ty| match ty {
+                            Ty::Named { name, .. } => Some(name.split('§').next().unwrap_or(name).to_string()),
+                            _ => None,
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
         // The receiver: the smallest typed expression ending at the dot.
         let receiver: Option<String> = if dot {
             let end = (word - 1) as u32;
@@ -1793,6 +1815,13 @@ impl Server<'_> {
         let mut seen: HashSet<(String, String)> = HashSet::new();
         let mut seen_name: HashSet<String> = HashSet::new();
         for f in fns {
+            // [effect-member-completion] An effect member is offered only
+            // where its owning effect is available at the cursor.
+            if let Some(eff) = &f.effect {
+                if !available_effects.contains(eff) {
+                    continue;
+                }
+            }
             let rank = if dot {
                 match (&receiver, &f.receiver) {
                     (Some(r), Some(p)) if r == p => "1",
@@ -1804,7 +1833,11 @@ impl Server<'_> {
             } else {
                 "0"
             };
-            let detail = fn_signature(&analysis.program, checked, f.key).unwrap_or_default();
+            let detail = match (f.key, &f.detail) {
+                (Some(key), _) => fn_signature(&analysis.program, checked, key).unwrap_or_default(),
+                (None, Some(d)) => d.clone(),
+                (None, None) => String::new(),
+            };
             if !dot {
                 // Collapse overloads of one name to a single entry; note the
                 // count so a reader knows to expand it.
@@ -1874,7 +1907,14 @@ impl Server<'_> {
         let mut signatures: Vec<SignatureInformation> = Vec::new();
         let mut seen: HashSet<String> = HashSet::new();
         for f in fns.iter().filter(|f| f.name == name) {
-            let Some(label) = fn_signature(&analysis.program, checked, f.key) else { continue };
+            let label = match (f.key, &f.detail) {
+                (Some(key), _) => match fn_signature(&analysis.program, checked, key) {
+                    Some(l) => l,
+                    None => continue,
+                },
+                (None, Some(d)) => d.clone(),
+                (None, None) => continue,
+            };
             if !seen.insert(label.clone()) {
                 continue;
             }
@@ -3095,7 +3135,7 @@ fn type_fn_name_head(ty: &salvo_syntax::ast::Type) -> String {
 /// A fn's source-like signature. `inferred` is the whole-program deduction
 /// list when there is one — effect and handler members have no `FnKey`, so
 /// they render their declared list only [doc-comment].
-fn fn_decl_signature(decl: &FnDecl, inferred: Option<&[ParamDeduction]>) -> String {
+pub(crate) fn fn_decl_signature(decl: &FnDecl, inferred: Option<&[ParamDeduction]>) -> String {
     let mut sig = String::from("fn ");
     // [fn-type-named] A type-named constructor reads as its written type
     // (`Mut Map`), not its canonical key (`Mut_Map`, which is `decl.name.name`).

@@ -10224,7 +10224,25 @@ replaced the working document TESTING.md).
   a `//` **comment** ordinary code completion is suppressed — except within a
   `[…]` reference, where the symbols a `[symbol]` doc reference resolves to
   (program types, qualifiers, effects, handlers, fns) are offered
-  [doc-symbol-ref]. Not yet: effect members.
+  [doc-symbol-ref]. Since 2026-10-14: the **members of effects available at
+  the cursor** are offered [effect-member-completion].
+* [effect-member-completion] **Completion offers effect members in scope**
+  (2026-10-14, the salvo-noticeboard disk.sv TODOs): where a value is written,
+  the members of every effect *available* in the enclosing fn/handler-member
+  body are offered as callable functions — so a `[Fs]` fn offers `open_read`,
+  and because `effect Fs [Streams]` pulls its prerequisite in, `Streams`'
+  members too. "Available" is the body's fully expanded effect set — declared
+  effects, their transitive prerequisites [effect-prereq], and a handler
+  member's inherited handler dependencies [effect-handler-deps] — which the
+  checker records per body as `Checked::fn_body_effects` (file + body span ->
+  effect types); completion picks the innermost body span containing the
+  cursor and offers a member only when its owning effect is in that set. The
+  index (`completion_index`) reads effect members from the resolver's
+  `ModuleScope::effect_members` (members have no `FnKey`, so their signature is
+  rendered at index time and their owning-effect name carried for the gate).
+  A mid-body `use H()` binding is not yet reflected — it lives only in the
+  checker's transient effect environment, not the persisted per-body set — so
+  members made available that way are under-offered.
 * [lsp-signature-help] **`textDocument/signatureHelp` offers a call's
   parameter list** (2026-10-12): inside a call's argument list, one signature
   per overload of the callee, with the **active parameter** marked — the

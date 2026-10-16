@@ -812,6 +812,14 @@ pub struct Checked {
     /// the primary source for the emitters' effect-parameter
     /// environments, keyed by checker types rather than type renderings.
     pub fn_effects: HashMap<FnKey, Vec<Ty>>,
+    /// [lsp-completion] The effects available inside each fn/handler-member
+    /// body — the fully expanded set (declared effects, their transitive
+    /// prerequisites, and a handler member's inherited handler dependencies)
+    /// keyed by the file and the span of the body. The language server reads
+    /// this to decide which effect *members* to offer at a cursor: a member
+    /// is callable only when its owning effect is available here. One entry
+    /// per body with a non-empty effect set.
+    pub fn_body_effects: Vec<(usize, Span, Vec<Ty>)>,
     /// [call-type-args] The type arguments a generic call resolved to, in
     /// the callee's declaration order (keyed by the call span). Inferred
     /// from the arguments, an explicit type-argument list, or the expected
@@ -8514,6 +8522,17 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [lsp-completion] Record locals of this body (params below, `let`/
         // binding locals in `declare_var`) against the body span.
         self.cur_fn_body = Some(body.span);
+        // [lsp-completion] Record the effects available in this body — the
+        // expanded set just assembled (declared + prerequisites + any
+        // inherited handler dependencies) — so completion can offer the
+        // members of effects in scope. File comes from the body span's owner,
+        // which is the fn being checked.
+        if let Some(key) = self.own_fn {
+            let tys: Vec<Ty> = fn_effects.iter().map(|a| a.ty.clone()).collect();
+            if !tys.is_empty() {
+                self.out.fn_body_effects.push((key.file, body.span, tys));
+            }
+        }
         // [mod-use] The module's bindings sit outermost, so a function's own
         // declaration of the same effect shadows them.
         let mut env = self.module_avails.clone();

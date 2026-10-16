@@ -2186,6 +2186,92 @@ handler DiskBoard of Board {
     lsp.child.wait().expect("failed to wait for salvo lsp");
 }
 
+/// [lsp-completion] [effect-member-completion] Completion offers the members
+/// of effects available at the cursor — the fn's declared effects and their
+/// transitive prerequisites — and withholds members of effects not in scope.
+/// A `[Fs]` fn can call `Streams`' members because `effect Fs [Streams]` pulls
+/// the prerequisite in (the TODOs in salvo-noticeboard's disk.sv).
+#[test]
+fn completion_offers_effect_members_in_scope() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_completion_effect_members");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    // `Reader` requires `Bytes` ([effect-prereq]), so a `[Reader]` fn has both
+    // effects in scope and may call members of each. `Other` is unrelated and
+    // its member `unrelated` must never be offered here.
+    let source = "\
+effect Bytes {
+    fn read_byte() -> Int
+}
+
+effect Reader [Bytes] {
+    fn read_line() -> Str
+}
+
+effect Other {
+    fn unrelated() -> None
+}
+
+fn load() [Reader] -> Str {
+    read
+}
+";
+    std::fs::write(root.join("main.sv"), source).unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {
+                "uri": uri, "languageId": "salvo", "version": 1, "text": source
+            }}
+        }),
+    );
+    let _ = expect_diagnostics(&lsp.rx);
+    let complete = |lsp: &mut Lsp, id: i64, line: u32, character: u32| -> Vec<(String, String)> {
+        send(
+            &mut lsp.stdin,
+            json!({
+                "jsonrpc": "2.0", "id": id, "method": "textDocument/completion",
+                "params": {
+                    "textDocument": {"uri": uri},
+                    "position": {"line": line, "character": character}
+                }
+            }),
+        );
+        let response = expect_response(&lsp.rx, id);
+        response["result"]
+            .as_array()
+            .unwrap_or_else(|| panic!("no completion list: {response}"))
+            .iter()
+            .map(|i| (i["label"].as_str().unwrap().to_string(), i["detail"].as_str().unwrap_or("").to_string()))
+            .collect()
+    };
+    // In `load`'s body (line 13, at `read`): the declared effect's member and
+    // its prerequisite's member are both offered; `Other`'s is not.
+    let items = complete(&mut lsp, 2, 13, 8);
+    assert!(
+        items.iter().any(|(l, _)| l == "read_line"),
+        "declared effect's member offered: {items:?}"
+    );
+    assert!(
+        items.iter().any(|(l, _)| l == "read_byte"),
+        "prerequisite effect's member offered: {items:?}"
+    );
+    assert!(
+        !items.iter().any(|(l, _)| l == "unrelated"),
+        "member of an effect not in scope is withheld: {items:?}"
+    );
+    send(
+        &mut lsp.stdin,
+        json!({"jsonrpc": "2.0", "id": 99, "method": "shutdown", "params": null}),
+    );
+    expect_response(&lsp.rx, 99);
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
+    lsp.child.wait().expect("failed to wait for salvo lsp");
+}
+
 /// [lsp-completion] Completion offers the functions in scope; after
 /// `receiver.`, the ones whose first parameter the receiver fills, before
 /// those taking any type, and none taking something else.

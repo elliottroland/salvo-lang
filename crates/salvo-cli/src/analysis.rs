@@ -140,13 +140,23 @@ pub enum TypeKind {
 #[derive(Clone, Debug)]
 pub struct CompletionFn {
     pub name: String,
-    pub key: salvo_core::FnKey,
+    /// The key of a free fn, for rendering its signature with deductions.
+    /// `None` for an effect member, which has no `FnKey`: its signature is
+    /// precomputed in `detail` and its availability gated by `effect`.
+    pub key: Option<salvo_core::FnKey>,
     /// The base type name of the first parameter, which dot-notation's
     /// receiver fills [fn-dot]; `None` when it has none or it is one of the
     /// fn's own type parameters.
     pub receiver: Option<String>,
     /// The first parameter is a type parameter: any receiver fits.
     pub generic_receiver: bool,
+    /// [effect-member-completion] The name of the owning effect when this is
+    /// an effect member — completion offers it only where that effect is
+    /// available. `None` for a free fn.
+    pub effect: Option<String>,
+    /// A precomputed signature detail, used when there is no `key` (effect
+    /// members). `None` for a free fn, whose detail is rendered from `key`.
+    pub detail: Option<String>,
 }
 
 /// Parses, resolves, and type-checks `src` (plus the embedded std).
@@ -511,9 +521,25 @@ fn type_completion_index(resolution: &salvo_core::Resolution<'_>) -> Vec<Vec<(St
 }
 
 /// [lsp-completion] The per-file index of callable fns, read off the
-/// resolver's scopes; generated names (`__…`) are left out.
+/// resolver's scopes; generated names (`__…`) are left out. Free fns carry
+/// their `FnKey`; effect members carry their owning effect's name (so
+/// completion offers them only where that effect is available) and a
+/// precomputed signature.
 fn completion_index(resolution: &salvo_core::Resolution<'_>) -> Vec<Vec<CompletionFn>> {
     use salvo_syntax::ast::Type;
+    // The receiver a first parameter implies: its base type name, or `None`
+    // when it is one of the fn's own type parameters (any receiver fits).
+    fn receiver_of(decl: &salvo_syntax::ast::FnDecl) -> (Option<String>, bool) {
+        let generics: Vec<&str> = decl.generics.iter().map(|g| g.name.as_str()).collect();
+        match decl.params.iter().find(|p| !p.implicit) {
+            Some(p) => match &p.ty {
+                Type::Named { base, .. } if generics.contains(&base.name.name.as_str()) => (None, true),
+                Type::Named { base, .. } => (Some(base.name.name.clone()), false),
+                _ => (None, false),
+            },
+            None => (None, false),
+        }
+    }
     resolution
         .scopes
         .iter()
@@ -524,16 +550,35 @@ fn completion_index(resolution: &salvo_core::Resolution<'_>) -> Vec<Vec<Completi
                     continue;
                 }
                 for e in entries {
-                    let generics: Vec<&str> = e.decl.generics.iter().map(|g| g.name.as_str()).collect();
-                    let (receiver, generic_receiver) = match e.decl.params.iter().find(|p| !p.implicit) {
-                        Some(p) => match &p.ty {
-                            Type::Named { base, .. } if generics.contains(&base.name.name.as_str()) => (None, true),
-                            Type::Named { base, .. } => (Some(base.name.name.clone()), false),
-                            _ => (None, false),
-                        },
-                        None => (None, false),
-                    };
-                    out.push(CompletionFn { name: name.to_string(), key: e.key, receiver, generic_receiver });
+                    let (receiver, generic_receiver) = receiver_of(e.decl);
+                    out.push(CompletionFn {
+                        name: name.to_string(),
+                        key: Some(e.key),
+                        receiver,
+                        generic_receiver,
+                        effect: None,
+                        detail: None,
+                    });
+                }
+            }
+            // [effect-member-completion] Effect members a call could resolve
+            // to — offered only where the owning effect is available, which
+            // the completion handler gates on. Their signature is rendered
+            // here since a member has no `FnKey`.
+            for (name, members) in &scope.effect_members {
+                if name.starts_with("__") {
+                    continue;
+                }
+                for (owner, decl) in members {
+                    let (receiver, generic_receiver) = receiver_of(decl);
+                    out.push(CompletionFn {
+                        name: name.to_string(),
+                        key: None,
+                        receiver,
+                        generic_receiver,
+                        effect: Some(owner.name.name.clone()),
+                        detail: Some(crate::lsp::fn_decl_signature(decl, None)),
+                    });
                 }
             }
             out.sort_by(|a, b| a.name.cmp(&b.name));
