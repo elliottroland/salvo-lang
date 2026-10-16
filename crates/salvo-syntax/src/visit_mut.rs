@@ -729,8 +729,6 @@ pub fn walk_expr<V: MutVisitor>(v: &mut V, e: &mut Expr) {
         }
         Expr::Elvis {
             subject,
-            dir: _,
-            count: _,
             rhs,
             span,
         } => {

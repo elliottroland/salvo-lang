@@ -6901,10 +6901,13 @@ fn main() [use] {
     println(greet(named))
     println(greet(plain))
 
-    let v: Str | Int = pick(2) ??: "none"
+    // [elvis] `?:` picks the first arm (`Str`); the rest (`Int | None`) go
+    // to `_`, which the default here ignores.
+    let v: Str | Int | None = pick(2) ?: "none"
     when v {
         is Str { println("str ${v}") }
         is Int { println("int ${v}") }
+        is None { println("none") }
     }
     let n: Int? = 5
     if n ?: 0 > 3 {
@@ -6917,7 +6920,7 @@ fn main() [use] {
 }
 "#;
 
-const ELVIS_OUTPUT: &str = "shout Addy!\nshout none\nhello Addy\nhello friend\nint 2\nbigger\nsum 5\nchain 7\n";
+const ELVIS_OUTPUT: &str = "shout Addy!\nshout none\nhello Addy\nhello friend\nstr none\nbigger\nsum 5\nchain 7\n";
 
 #[test]
 fn rustc_compiles_and_runs_the_elvis_operator() {
@@ -6929,10 +6932,10 @@ fn rustc_compiles_and_runs_the_elvis_operator() {
     run_rust_files(&files, "elvis", ELVIS_OUTPUT);
 }
 
-/// [expr-pipe] The pipe operator `|>`: the left side is bound to `_` and read
+/// [expr-pipe] The pipe operator `:>`: the left side is bound to `_` and read
 /// in the right side. A pipe used as a **statement** (right side returns
 /// `None`), a left-associative chain, and the loosest-precedence binding
-/// (`2 + 3 |> …` pipes the sum).
+/// (`2 + 3 :> …` pipes the sum).
 const PIPE_DEMO: &str = r#"
 fn double(n: Int) -> Int {
     return n * 2
@@ -6944,12 +6947,12 @@ fn add(a: Int, b: Int) -> Int {
 
 fn main() [use] {
     use StdOutConsole()
-    double(21) |> println("single ${_}")
+    double(21) :> println("single ${_}")
     let chained = 5
-        |> double(_)
-        |> add(_, 100)
+        :> double(_)
+        :> add(_, 100)
     println("chained ${chained}")
-    let prec = 2 + 3 |> double(_)
+    let prec = 2 + 3 :> double(_)
     println("prec ${prec}")
 }
 "#;
@@ -7020,10 +7023,9 @@ fn rustc_compiles_and_runs_the_safe_pipe_operator() {
     run_rust_files(&files, "safe_pipe", SAFE_PIPE_OUTPUT);
 }
 
-/// [elvis] The positional pick. `?:` keeps the first arm (`Forward(1)`), `:?`
-/// the last (`Backward(1)`); `_` on the right is the arms left behind, tags and
-/// all — the one place the placeholder earns its keep, since `Err Str` has no
-/// other spelling there.
+/// [elvis] The first-arm pick. `?:` keeps the first arm; `_` on the right is
+/// the arms left behind, tags and all — the one place the placeholder earns
+/// its keep, since `Err Str` has no other spelling there.
 ///
 /// The subject is a **call**, so it is evaluated once into a temporary: the
 /// test, the picked read and `_` all reach the same value.
@@ -7041,12 +7043,6 @@ fn doubled(text: Str) -> Ok Int | Err Str {
         return ok(n * 2)
     }
     return got
-}
-
-fn tail(text: Str) -> Ok Int | Err Str {
-    // Backward(1) keeps the last arm, `Err Str`; `_` is the `Ok Int`.
-    let e: Err Str = parse(text) :? return _
-    return e
 }
 
 fn show(label: Str, r: Ok Int | Err Str) [Console] -> None {
@@ -7069,15 +7065,13 @@ fn main() [use] {
     use StdOutConsole()
     show("doubled", doubled("abc"))
     show("doubled", doubled(""))
-    show("tail", tail("abcd"))
-    show("tail", tail(""))
     guarded("hello")
     guarded("")
 }
 "#;
 
 const PICK_OUTPUT: &str =
-    "doubled ok 6\ndoubled err empty\ntail ok 4\ntail err empty\nguarded 5 5\n";
+    "doubled ok 6\ndoubled err empty\nguarded 5 5\n";
 
 #[test]
 fn rustc_compiles_and_runs_a_positional_pick() {

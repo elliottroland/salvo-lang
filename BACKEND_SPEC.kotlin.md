@@ -74,9 +74,9 @@ Conventions:
 
 ## Type mappings
 
-* [elvis] [kt-elvis] `subject ?…?: rhs` / `subject :?…? rhs` lowers to a Kotlin
-  `if` testing whether the subject holds one of the **picked** arms — the picked
-  value in the then branch, `rhs` in the else. For a `Forward(1)` pick on a `T?`
+* [elvis] [kt-elvis] `subject ?: rhs` lowers to a Kotlin
+  `if` testing whether the subject holds its **first** arm — the picked
+  value in the then branch, `rhs` in the else. For a `?:` on a `T?`
   the `T?` representation is a Kotlin nullable, so the test is a plain null
   check. A `return` on the right is legal there for the same reason it is in
   Salvo [expr-escape].

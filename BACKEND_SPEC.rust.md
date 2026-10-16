@@ -154,7 +154,7 @@ Conventions:
 
 ## Type mappings
 
-* [elvis] [rs-elvis] `subject ?…?: rhs` / `subject :?…? rhs` is a block that
+* [elvis] [rs-elvis] `subject ?: rhs` is a block that
   evaluates the subject once into a temporary and tests whether it holds one of
   the **picked** arms — the picked value when it does, `rhs` when it does not:
 

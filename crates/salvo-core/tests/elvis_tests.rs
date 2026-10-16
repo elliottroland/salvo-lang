@@ -1,13 +1,12 @@
 //! The optional-or-else operator `?:` and the placeholder `_` [elvis]
 //! [placeholder].
 //!
-//! `?…?:` / `:?…?` is the **positional pick**: a run of `n` `?`s names how many
-//! arms of the subject's union — counted from the declared front (`Forward`) or
-//! back (`Backward`) — the operator keeps. Those become the value; the right
-//! side runs otherwise, with `_` bound to the arms left behind. `?:` is
-//! `Forward(1)`. The right side is an ordinary expression, which since
-//! [expr-escape] includes `return`/`break`/`continue` — so `maybe_t() ?: return
-//! None` is the form the whole sequence was for.
+//! `?:` is the **first-arm pick** (user decision 2026-10-14, simplifying the
+//! earlier positional-pick form that also had `??:`/`:?`): it keeps the
+//! subject union's first arm as the value; the right side runs otherwise, with
+//! `_` bound to the arms left behind. The right side is an ordinary
+//! expression, which since [expr-escape] includes `return`/`break`/`continue`
+//! — so `maybe_t() ?: return None` is the form the whole sequence was for.
 
 use std::path::Path;
 
@@ -82,21 +81,14 @@ fn an_elvis_picks_the_first_arm() {
     assert!(errs.is_empty(), "expected a clean `?:`, got: {errs:?}");
 }
 
-/// [elvis] A pick that keeps every arm leaves nothing for the right side — the
-/// same "dead scaffolding" refusal a throw-free `try` gets. A non-union subject
-/// has one arm, so `?:` on it is refused the same way.
+/// [elvis] A pick on a one-arm subject leaves nothing for the right side — the
+/// same "dead scaffolding" refusal a throw-free `try` gets.
 #[test]
 fn a_pick_must_leave_something() {
     let one = errors("fn f(s: Str) [] -> Str {\n    return s ?: \"other\"\n}\n");
     assert!(
-        one.iter().any(|e| e.contains("leave nothing for the right-hand side")),
+        one.iter().any(|e| e.contains("keeps its only arm")),
         "expected the nothing-left refusal on a one-arm subject, got: {one:?}"
-    );
-    // `??:` on a `Str?` keeps both arms.
-    let all = errors("fn f(s: Str?) [] -> Str? {\n    return s ??: None\n}\n");
-    assert!(
-        all.iter().any(|e| e.contains("leave nothing for the right-hand side")),
-        "expected the nothing-left refusal when the pick keeps every arm, got: {all:?}"
     );
 }
 
@@ -135,32 +127,18 @@ fn the_placeholder_carries_the_left_arms() {
     assert!(errs.is_empty(), "expected a clean `_` on the left arm, got: {errs:?}");
 }
 
-/// [elvis] A **backward** pick (`:?`) keeps the last arm. On `Ok Int | Err Str`
-/// it picks `Err Str` and leaves `Ok Int` to `_`.
+/// [elvis] A pick on a multi-arm subject keeps the **first** arm and leaves
+/// the rest to `_`. On `Ok Int | Ok Str | Err Str` it picks `Ok Int` and `_`
+/// is `Ok Str | Err Str`.
 #[test]
-fn a_backward_pick_keeps_the_last_arm() {
-    let errs = errors(
-        "fn parse(t: Str) [] -> Ok Int | Err Str\n=> !t {\n    return err(t)\n}\n\
-         fn tail(t: Str) [] -> Ok Int | Err Str\n=> !t {\n\
-         \x20   let e: Err Str = parse(t) :? return _\n\
-         \x20   return e\n\
-         }\n",
-    );
-    assert!(errs.is_empty(), "expected a clean backward pick, got: {errs:?}");
-}
-
-/// [elvis] A pick may span several arms on either side (`??:` keeps two). On
-/// `Ok Int | Ok Str | Err Str` the two-arm forward pick keeps `Ok Int | Ok Str`
-/// and leaves `Err Str`.
-#[test]
-fn a_pick_may_span_several_arms() {
+fn a_pick_keeps_the_first_arm_of_a_multi_arm_union() {
     let errs = errors(
         "fn f(r: Ok Int | Ok Str | Err Str) [] -> Ok Int | Ok Str | Err Str {\n\
-         \x20   let kept: Ok Int | Ok Str = r ??: return _\n\
+         \x20   let kept: Ok Int = r ?: return _\n\
          \x20   return kept\n\
          }\n",
     );
-    assert!(errs.is_empty(), "expected a clean multi-arm pick, got: {errs:?}");
+    assert!(errs.is_empty(), "expected a clean first-arm pick, got: {errs:?}");
 }
 
 /// [elvis-guard] A `?:` whose right side **leaves** has proved its subject was

@@ -210,12 +210,23 @@ struct LeadCandidate {
 /// [safe-nav] What the IR builder needs to lower `base?.link`.
 #[derive(Clone, Debug)]
 pub struct SafeNavInfo {
-    /// The receiver type with its `None` arm removed — the type the link
-    /// was checked against, and the type the narrowed receiver reads at.
+    /// The subject's **first arm** — the type the link is checked against and
+    /// the narrowed receiver reads at. (For a `T?` this is `T`.)
     pub inner: Ty,
-    /// The link's own result is already optional, so the whole `?.` result
-    /// is that type unchanged; the builder must not wrap it again.
+    /// The arms the pick leaves behind (every arm but the first), which pass
+    /// through into the result unchanged. Empty only when the subject is a
+    /// bare... it never is: `?.` requires ≥2 arms. For a `T?` this is `None`.
+    pub rest: Ty,
+    /// The link's own result already appears among the result arms (it is
+    /// optional, or its type equals a pass-through arm), so the builder must
+    /// not wrap/duplicate it — the `Option<Option<T>>` guard, generalized to
+    /// arm collapse [union-arm-identity].
     pub already_opt: bool,
+    /// The subject is exactly `T | None` (first arm the value, rest just
+    /// `None`): the builder keeps the canonical `None`/`Else` + `Present`
+    /// shape so a backend reconstructs a native optional chain
+    /// [kt-safe-nav] [rs-safe-nav]. A general union takes the rewrap shape.
+    pub optional: bool,
 }
 
 /// How an `is` check (or `when` branch check) lowers at runtime against the
@@ -20908,69 +20919,49 @@ struct IsInfo {
 impl<'p, 'r> Checker<'p, 'r> {
     // ================= widening checks [qual-lift] =================
 
-    /// [elvis] `subject ?…?: rhs` / `subject :?…? rhs` — the positional pick.
-    /// `dir`/`count` name a run of arms of the subject's union, counted from
-    /// the declared front (`Forward`) or back (`Backward`): those become the
-    /// value (a sub-union by `[rewrap]`), and `rhs` runs otherwise with `_`
-    /// bound to the arms left behind. Widening is allowed — a `rhs` outside
-    /// the subject's arms joins into the result (user decision 2026-10-11).
+    /// [elvis] `subject ?: rhs` — the first-arm pick (user decision
+    /// 2026-10-14). The subject's **first** declared arm becomes the value (a
+    /// one-arm sub-union by `[rewrap]`) when the subject holds it; `rhs` runs
+    /// otherwise with `_` bound to the arms left behind. Widening is allowed —
+    /// a `rhs` outside the subject's arms joins into the result — and a
+    /// diverging `rhs` narrows the subject to the first arm below
+    /// [elvis-guard].
     fn check_elvis(
         &mut self,
         subject: &'p Expr,
-        dir: salvo_syntax::ast::ElvisDir,
-        count: u32,
         rhs: &'p Expr,
         span: Span,
     ) -> Ty {
-        use salvo_syntax::ast::ElvisDir;
         let subj_ty = self.check_expr(subject, None);
         if subj_ty.is_unknown() {
             // [type-unknown-lenient] One mistake, one diagnostic.
             let _ = self.check_expr(rhs, None);
             return Ty::Unknown;
         }
-        // The pick selects over the subject's **declared arms**, in order
-        // [union-arm-identity]. A non-union subject has one arm, which leaves
-        // nothing for the other side — refused like a non-optional `?:` used
-        // to be, and the same "dead scaffolding" a throw-free `try` gets.
+        // [elvis] The pick keeps the subject's **first arm**, in declared
+        // order [union-arm-identity]; the rest go to `_`. A non-union subject
+        // has one arm, which leaves nothing for the other side — refused like
+        // a pointless pick, the same "dead scaffolding" a throw-free `try`
+        // gets.
         let declared: Vec<Ty> = match &subj_ty {
             Ty::Union(arms) => arms.clone(),
             _ => vec![subj_ty.clone()],
         };
-        let n = count as usize;
-        if n == 0 {
-            // The parser only builds a pick with at least one `?`, so this is
-            // defensive.
-            self.error(span, "a pick needs at least one `?`".to_string());
-            let _ = self.check_expr(rhs, None);
-            return Ty::Unknown;
-        }
-        if n >= declared.len() {
+        if declared.len() < 2 {
             self.error(
                 span,
                 format!(
-                    "the pick keeps {n} arm{} of `{subj_ty}`, which has {}: it \
-                     would leave nothing for the right-hand side (the same dead \
-                     scaffolding a throw-free `try` is refused for)",
-                    if n == 1 { "" } else { "s" },
-                    declared.len()
+                    "`?:` on `{subj_ty}` keeps its only arm and leaves nothing for \
+                     the right-hand side: `?:` picks the first arm of a union with \
+                     more than one (the same dead scaffolding a throw-free `try` is \
+                     refused for)"
                 ),
             );
             let _ = self.check_expr(rhs, None);
             return Ty::Unknown;
         }
-        // Picked arms: the first `n` for `Forward`, the last `n` for
-        // `Backward`. The rest go to `_`.
-        let (picked_arms, left_arms): (Vec<Ty>, Vec<Ty>) = match dir {
-            ElvisDir::Forward => (
-                declared[..n].to_vec(),
-                declared[n..].to_vec(),
-            ),
-            ElvisDir::Backward => (
-                declared[declared.len() - n..].to_vec(),
-                declared[..declared.len() - n].to_vec(),
-            ),
-        };
+        let picked_arms = vec![declared[0].clone()];
+        let left_arms = declared[1..].to_vec();
         let picked = self.mk_union(picked_arms.clone());
         let left = self.mk_union(left_arms.clone());
         // The runtime test the emitters need: which of the subject's value
@@ -21005,7 +20996,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let rhs_ty = self.check_expr(rhs, None);
         self.placeholder_ty = saved;
         // A diverging right side contributes nothing to the type [type-any-never]
-        // and *proves* the subject was one of the picked arms, so the place
+        // and *proves* the subject was the picked arm, so the place
         // narrows [elvis-guard].
         if matches!(rhs_ty, Ty::Never) {
             self.restore_narrows(&entry);
@@ -21014,7 +21005,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             return picked;
         }
         // Both sides join. The right side is coerced into the join exactly as
-        // an `if`'s branches are — and widening past the subject's arms is now
+        // an `if`'s branches are — and widening past the subject's arms is
         // allowed (`Int? ?: "none"` is `Int | Str`): the picked value is also
         // coerced into the join at the operator's span.
         let join = self.mk_union(vec![picked.clone(), rhs_ty.clone()]);
@@ -21077,11 +21068,12 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// [expr-safe-pipe] `lhs ?> rhs` (user decision 2026-10-14): the null-safe
-    /// pipe, `?.`'s analogue. `lhs` must be a `T?`; when present, `_` binds to
-    /// the non-`None` arm, `rhs` runs, and its type `X` is wrapped back as
-    /// `X?`; when absent, the value is `None` and `rhs` never runs. So the
-    /// result type is the right side's, made optional (and not double-wrapped
-    /// when the right side is itself optional).
+    /// pipe, `?.`'s analogue, over **any** union. It picks `lhs`'s first arm,
+    /// binds `_` to it, runs `rhs`, and replaces that arm with `rhs`'s result
+    /// in the union — the other arms pass through unchanged. `(A | B | C) ?>
+    /// f(_)` where `f: A -> X` is `X | B | C` (arms collapse). A `T?` recovers
+    /// the old behaviour (`X | None`). A **diverging** `rhs` (`x ?> return _`)
+    /// leaves only the pass-through arms, since the first-arm path left.
     fn check_safe_pipe(&mut self, lhs: &'p Expr, rhs: &'p Expr, span: Span) -> Ty {
         let lhs_ty = self.check_expr(lhs, None);
         if lhs_ty.is_unknown() {
@@ -21091,27 +21083,34 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.placeholder_ty = saved;
             return Ty::Unknown;
         }
-        // The piped value must be able to be absent — otherwise `?>` guards
-        // nothing, exactly as `?.` requires an optional receiver.
-        if !lhs_ty.has_none_arm() {
+        let declared: Vec<Ty> = match &lhs_ty {
+            Ty::Union(arms) => arms.clone(),
+            _ => vec![lhs_ty.clone()],
+        };
+        if declared.len() < 2 {
             self.error(
                 span,
                 format!(
-                    "`?>` pipes a value that can be absent, but this value is \
-                     `{lhs_ty}` — it is never `None`, so write a plain `|>`"
+                    "`?>` pipes the first arm of a union, but this value is \
+                     `{lhs_ty}` — it has only one arm, so write a plain `|>`"
                 ),
             );
+            let saved = self.placeholder_ty.replace(Ty::Unknown);
+            let _ = self.check_expr(rhs, None);
+            self.placeholder_ty = saved;
+            return Ty::Unknown;
         }
-        // Inside the right side, `_` is the value **present** (its non-`None`
-        // arm), the same narrowing `?.` performs on its receiver.
-        let inner = lhs_ty.without_none();
+        // `_` is the **first arm**, narrowed, the same pick `?.`'s receiver
+        // gets and `?:` keeps.
+        let inner = declared[0].clone();
+        let rest = self.mk_union(declared[1..].to_vec());
         let saw_before = self.placeholder_read;
         self.placeholder_read = false;
         let saved = self.placeholder_ty.replace(inner);
         let rhs_ty = self.check_expr(rhs, None);
         let read = std::mem::replace(&mut self.placeholder_read, saw_before);
         self.placeholder_ty = saved;
-        if !read && !rhs_ty.is_unknown() {
+        if !read && !rhs_ty.is_unknown() && !matches!(rhs_ty, Ty::Never) {
             self.error(
                 rhs.span(),
                 "the right side of `?>` must use the piped value `_` \
@@ -21120,16 +21119,19 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .to_string(),
             );
         }
-        // The result is the right side's type, made optional — not
-        // double-wrapped when the right side is already optional ([safe-nav]'s
-        // `Option<Option<T>>` rule).
-        if rhs_ty.is_unknown() {
-            Ty::Unknown
-        } else if rhs_ty.has_none_arm() {
-            rhs_ty
-        } else {
-            self.mk_union(vec![rhs_ty, Ty::none()])
+        // A diverging right side: the first-arm path left, so the result is
+        // the pass-through arms only ([expr-escape], mirroring `?:`'s
+        // elvis-guard).
+        if matches!(rhs_ty, Ty::Never) {
+            return rest;
         }
+        if rhs_ty.is_unknown() {
+            return Ty::Unknown;
+        }
+        // Replace the first arm with `rhs`'s result; `union_of` collapses it
+        // into a pass-through arm of the same type ([safe-nav]'s arm-collapse,
+        // the generalized `Option<Option<T>>` guard).
+        self.mk_union(vec![rhs_ty, rest])
     }
     /// one `is` of the same qualifiers performs — same arm, same lowering —
     /// but the matched type is *generalized* (the qualifiers removed) rather
@@ -22848,11 +22850,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             // runs otherwise with `_` bound to the arms left behind.
             Expr::Elvis {
                 subject,
-                dir,
-                count,
                 rhs,
                 span,
-            } => self.check_elvis(subject, *dir, *count, rhs, *span),
+            } => self.check_elvis(subject, rhs, *span),
             // [expr-pipe] `lhs |> rhs` — the left side evaluated once, bound to
             // `_`, read in the right side. The result is the right side's type.
             Expr::Pipe { lhs, rhs, span } => self.check_pipe(lhs, rhs, *span),
@@ -26309,11 +26309,14 @@ impl<'p, 'r> Checker<'p, 'r> {
         join
     }
 
-    /// [safe-nav] `base?.field` / `base?.method(args)`. Types the link on the
-    /// receiver's **non-`None`** arm and makes the whole expression optional:
-    /// `None` when the receiver is, otherwise the link's result lifted into an
-    /// optional. One `?.` guards one link, so this never looks past the single
-    /// access — a chain `a?.b?.c` is nested `SafeNav` nodes, each checked here.
+    /// [safe-nav] `base?.field` / `base?.method(args)`. Picks the receiver's
+    /// **first arm** [union-arm-identity], performs the link on it, and
+    /// replaces that arm with the link's result in the union — the other arms
+    /// pass through unchanged. `(A | B | C)?.field` where `A.field: F` is
+    /// `F | B | C` (arms collapse when `F` equals a pass-through arm). A `T?`
+    /// (`T | None`) recovers the old behaviour: pick `T`, link to `F`, result
+    /// `F | None`. One `?.` guards one link, so a chain `a?.b?.c` is nested
+    /// `SafeNav` nodes, each checked here.
     fn check_safe_nav(
         &mut self,
         base: &'p Expr,
@@ -26322,32 +26325,44 @@ impl<'p, 'r> Checker<'p, 'r> {
         expected: Option<&Ty>,
     ) -> Ty {
         let base_ty = self.check_expr(base, None);
-        // The receiver must be able to be absent — otherwise `?.` guards
-        // nothing. `Unknown` passes through (do not cascade,
-        // [type-unknown-lenient]).
-        if !base_ty.has_none_arm() && !matches!(base_ty, Ty::Unknown) {
+        if matches!(base_ty, Ty::Unknown) {
+            // [type-unknown-lenient] One mistake, one diagnostic.
+            return Ty::Unknown;
+        }
+        // The pick is over the subject's declared arms, in order. A non-union
+        // subject has one arm, leaving nothing to guard — refused, like a
+        // pointless `!`.
+        let declared: Vec<Ty> = match &base_ty {
+            Ty::Union(arms) => arms.clone(),
+            _ => vec![base_ty.clone()],
+        };
+        if declared.len() < 2 {
             self.error(
                 span,
                 format!(
-                    "`?.` guards a value that can be absent, but this receiver is \
-                     `{base_ty}` — it is never `None`, so write a plain `.`"
+                    "`?.` guards the first arm of a union, but this receiver is \
+                     `{base_ty}` — it has only one arm, so write a plain `.`"
                 ),
             );
+            return Ty::Unknown;
         }
-        let inner = base_ty.without_none();
+        let inner = declared[0].clone();
+        let rest = self.mk_union(declared[1..].to_vec());
+        let optional = base_ty.has_none_arm() && declared.len() == 2 && rest.is_none_ty();
         let link_ty = self.safe_access_ty(base, &base_ty, access, &inner, expected, span);
-        // Do not double-wrap a link that is already optional ([safe-nav], the
-        // old `Option<Option<T>>` bug).
-        let already_opt = link_ty.has_none_arm();
+        // [safe-nav] The result is the link's type joined with the arms left
+        // behind; `union_of` collapses the link's result into a pass-through
+        // arm of the same type (`(A | B | C)?.field` with `A.field: B` is
+        // `B | C`). `already_opt` records that the link's value needs no
+        // wrap/duplication — it is optional, or it lands on an existing arm.
+        let result = self.mk_union(vec![link_ty.clone(), rest.clone()]);
+        let already_opt = link_ty.has_none_arm()
+            || declared[1..].iter().any(|a| *a == link_ty || a.strip_quals() == link_ty.strip_quals());
         self.out.safe_navs.insert(
             self.key(span),
-            SafeNavInfo { inner: inner.clone(), already_opt },
+            SafeNavInfo { inner: inner.clone(), rest, already_opt, optional },
         );
-        if already_opt {
-            link_ty
-        } else {
-            self.mk_union(vec![link_ty, Ty::none()])
-        }
+        result
     }
 
     /// [safe-nav] The type of the single link, given the receiver's non-`None`

@@ -138,6 +138,50 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-14 — Simplify the `?`-operators; respell the pipe `|>` → `:>`
+
+Two user decisions (2026-10-14), one commit. (a) Retire the positional-pick
+forms `??:` (keep n>1 from the front) and `:?` (keep from the back), leaving
+only `?:` = keep the **first arm**. (b) Generalize `?.` and `?>` from
+`T | None`-only to **any union**: pick the first arm, perform the link/pipe on
+it, and replace that arm with the result — the other arms pass through, with
+`union_of` collapsing the result into a matching pass-through arm. `?:` and
+`?>` allow a diverging right side (`x ?> return _` yields the pass-through
+arms). (c) Respell the pipe operator `|>` as `:>` (the backward elvis `:?` was
+retired, so a leading `:` is free).
+
+- **AST**: `Expr::Elvis` loses `dir`/`count` (now `{ subject, rhs, span }`);
+  `ElvisDir` deleted. `SafeNavInfo` gains `rest`/`optional` (the pass-through
+  arms and the `T | None` special-case flag).
+- **Parser**: `parse_elvis_tail` reduced to a single `?` `:`; `infix_bp`'s
+  elvis arm triggers only on `Question` (a lone `:` is no longer a pick). The
+  pipe token stays `PipeGt` (name kept at user request, 2026-10-14) but its
+  lexer match and display are `:>` not `|>`.
+- **Checker**: `check_elvis` picks `declared[0]`, rest to `_`, errors on a
+  <2-arm subject; the diverging-rhs narrow (`install_elvis_guard`) and widening
+  are unchanged. `check_safe_nav`/`check_safe_pipe` generalized to first-arm +
+  rest, result `union_of([link_ty, rest])` with `already_opt` = the link lands
+  on an existing arm; `?>` returns `rest` for a diverging rhs.
+- **IR**: `fn safe_nav`/`fn safe_pipe` keep the `None`/`Else` + `Present`
+  switch for the `T | None` (`optional`) case — so the Kotlin native `a?.b`
+  and Rust `.and_then` reconstruction still fire — and take a new first-arm
+  `Branch` + `rewrap_into` shape for a general union. `rewrap_into` emits
+  `MakeNone` for a `None`-typed value into an optional, else `Rewrap`. `fn
+  elvis` unchanged (reads the same `PickTest`/`elvis_picks`/`pick_left`/
+  `elvis_widen`, now always value-arm 0).
+- **Nothing in std/examples used `??:`/`:?`/`|>`** (the pipe was new and std's
+  `?:` are all first-arm `T?` already), so the rewrite surface was tests +
+  docs: `elvis_tests.rs` (dropped the backward/multi-arm tests, kept/adjusted
+  the first-arm ones), `parser_tests.rs` (elvis wrap tests to `?:`, pipe tests
+  to `:>`, dropped `backward_elvis_wraps_across_lines`), e2e PICK_DEMO (dropped
+  the `:?` `tail`), ELVIS_DEMO (`??:` → `?:`, output updated), all `|>` → `:>`.
+  New e2e coverage of general-union `?.`/`?>` verified by hand on both
+  backends (tmp scratch). Re-accepted the two std AST snapshots (only the
+  `dir`/`count` field removal).
+- **Spec/docs**: `[elvis]`, `[safe-nav]`, `[expr-safe-pipe]`, `[expr-pipe]`,
+  `[expr-infix]`, `[placeholder]` in LANGUAGE_SPEC.md; `[kt-elvis]`/`[rs-elvis]`
+  backend specs; docs/language/{Control-Flow,Data-and-Types}.md; wiki synced.
+
 ### 2026-10-14 — Union arm spreads (`...T`), replacing implicit grouping
 
 A union parameter/return arm written `...T` (user decision 2026-10-14) binds

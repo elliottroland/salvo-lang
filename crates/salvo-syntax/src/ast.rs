@@ -1621,15 +1621,6 @@ impl Stmt {
     }
 }
 
-/// [elvis] Which end of the subject's declared arm order a positional pick
-/// counts from. `Forward` picks the first `count` arms (`?:`, `??:`, …);
-/// `Backward` picks the last `count` arms (`:?`, `:??`, …).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ElvisDir {
-    Forward,
-    Backward,
-}
-
 /// Destructuring patterns for `let`.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Pattern {
@@ -1896,25 +1887,14 @@ pub enum Expr {
     /// the outcome `Ok T | Aborted M`, and an `abort` performed inside it
     /// becomes the `Aborted M` arm.
     Try { body: Block, span: Span },
-    /// [elvis] `subject ?…?: rhs` / `subject :?…? rhs` — the **positional
-    /// pick** operator (user decision, redesign superseding the 2026-09-21
-    /// named-qualifier form). A run of `n` `?`s names how many arms of the
-    /// subject's union, counted from the declared **front** (`dir: Forward`)
-    /// or **back** (`dir: Backward`), the operator picks: those `n` arms
-    /// become the expression's value when the subject holds one of them, and
-    /// `rhs` runs otherwise. `rhs` sees `_` bound to the arms the pick did
-    /// *not* claim — on the opposite side from `dir` — so `x ?: return _` on
-    /// an `Emitted Str | Finished | Err Int` subject is `Forward(1)`, picking
-    /// `Emitted Str` and leaving `_` as `Finished | Err Int`.
-    ///
-    /// `n` must be at least 1 and less than the subject's arm count: `n = 0`
-    /// is a parse error (nothing named), and `n >=` the arm count leaves
-    /// nothing for `rhs` (checker error, [elvis]).
+    /// [elvis] `subject ?: rhs` — the **first-arm pick** (user decision
+    /// 2026-10-14, simplifying the earlier positional-pick form that also
+    /// had `??:`/`:?`). The expression's value is the subject's **first arm**
+    /// when the subject holds it; otherwise `rhs` runs, with `_` bound to the
+    /// arms the pick left behind (every arm but the first). A diverging `rhs`
+    /// (`x ?: return _`) narrows the subject to the first arm below.
     Elvis {
         subject: Box<Expr>,
-        dir: ElvisDir,
-        /// How many arms, in declared order from `dir`'s end, the pick keeps.
-        count: u32,
         rhs: Box<Expr>,
         span: Span,
     },

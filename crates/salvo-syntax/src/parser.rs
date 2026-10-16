@@ -5150,7 +5150,7 @@ impl<'s> Parser<'s> {
         Some(match self.kind() {
             // The flattening operators may start a continuation line
             // [expr-wrap]; a newline before them brackets the whole expression
-            // so far on its left. (`|>` is unambiguous line-leading — nothing
+            // so far on its left. (`:>` is unambiguous line-leading — nothing
             // in Salvo starts a statement with it.)
             TokenKind::PipeGt => (2, InfixKind::Pipe),
             // [expr-safe-pipe] `?>` — a `Question` glued to a `Gt` (not a
@@ -5162,10 +5162,11 @@ impl<'s> Parser<'s> {
             {
                 (2, InfixKind::SafePipe)
             }
-            // Elvis may start a continuation line [elvis-wrap]; the detailed
-            // `?`-run / wrap decision is in `parse_elvis_tail`. A lone `:`/`?`
-            // that is not a pick is left unconsumed there.
-            TokenKind::Question | TokenKind::Colon => (12, InfixKind::Elvis),
+            // [elvis] `?:` may start a continuation line [elvis-wrap]; the
+            // wrap decision is in `parse_elvis_tail`. Only `?` begins a pick
+            // now (the backward `:?` form was retired), so a lone `:` is left
+            // unconsumed.
+            TokenKind::Question => (12, InfixKind::Elvis),
             // Same-line-only operators below.
             _ if !same => return None,
             TokenKind::PipePipe => (4, InfixKind::Binary(BinaryOp::Or)),
@@ -5338,84 +5339,41 @@ impl<'s> Parser<'s> {
 
     /// [elvis] The **positional pick** operator tail, folded onto an
     /// already-parsed `subject`. Dispatched from `parse_binary` at the elvis
-    /// tier (bp 12). Returns `Some(expr)` when an elvis operator was consumed,
-    /// `None` when the current token is not an elvis operator here (a lone
-    /// `?`/`:`, or a next-line `?:` left for an enclosing chain) — the loop
-    /// then stops at this tier.
+    /// [elvis] A `?:` tail. The subject's first arm is the value when it holds
+    /// it; otherwise `rhs` runs with `_` bound to the arms left behind.
+    /// Returns `Some(expr)` when a `?:` was consumed, `Some(None)` when the
+    /// current token is not a `?:` here (a lone `?`/`:`, or a next-line `?:`
+    /// left for an enclosing chain) — the loop then stops at this tier.
     ///
-    /// A run of `n` `?`s names how many arms of the subject's union — counted
-    /// from the declared **front** (`?:`, `??:`, …) or **back** (`:?`, `:??`,
-    /// …) — the operator picks: those arms become the value when the subject
-    /// holds one of them, and `rhs` runs otherwise, with `_` bound to the arms
-    /// the pick did *not* claim. `?:` is `Forward(1)`. Precedence is Kotlin's
-    /// (tighter than comparison, looser than additive), and the chain is
-    /// **left-associative** — the loop folds it, and the right side is parsed
-    /// one tier up (additive, bp 13+), not recursively, which is what makes
-    /// `a ?: b ?: c` read `(a ?: b) ?: c`.
+    /// Precedence is Kotlin's (tighter than comparison, looser than
+    /// additive), and the chain is **left-associative** — the loop folds it,
+    /// and the right side is parsed one tier up (additive, bp 13+), not
+    /// recursively, which is what makes `a ?: b ?: c` read `(a ?: b) ?: c`.
     ///
     /// The right side is an ordinary expression — which since [expr-escape]
     /// includes `return`/`break`/`continue`, so `x ?: return _` needs no
     /// exception.
     fn parse_elvis_tail(&mut self, subject: Expr) -> Option<Option<Expr>> {
-        // The operator is a run of `?`s with a `:` at one end: `?…?:` counts
-        // from the front, `:?…?` from the back. `?` and `:` are separate
-        // tokens [elvis], so this scans a run.
-        let (dir, count) = match self.kind() {
-            TokenKind::Question => {
-                // Forward: `?…?:`. Require the run to end in a `:`, otherwise
-                // this is some other `?` (none exists today).
-                //
-                // [elvis-wrap] The forward operator may start a continuation
-                // line, so a chain can wrap (`a ?: b\n    ?: c`); a line
-                // beginning with `?` is unambiguous (nothing in Salvo starts a
-                // statement with `?`), and the newline brackets everything
-                // before it as this operator's subject. But inside a nested
-                // right side (`elvis_no_wrap`) the operator belongs to the
-                // *enclosing* chain, never to an escape's value: a
-                // `return`/escape value parses a full expression, and
-                // left-associativity means a following `?:` brackets the whole
-                // chain so far, not the escape value — same line (`a ??:
-                // return b ?: c`) or next. So return `None` and leave the
-                // operator for the outer context. A *parenthesised*
-                // sub-expression (`group_depth > 0`) is self-contained, so the
-                // flag does not reach into it (`return (x ?: y)`).
-                if self.elvis_no_wrap && self.group_depth == 0 {
-                    return Some(None);
-                }
-                let mut n = 0u32;
-                while matches!(self.peek_at(n as usize).kind, TokenKind::Question) {
-                    n += 1;
-                }
-                if !matches!(self.peek_at(n as usize).kind, TokenKind::Colon) {
-                    return Some(None);
-                }
-                for _ in 0..n {
-                    self.bump();
-                }
-                self.expect(&TokenKind::Colon)?;
-                (ElvisDir::Forward, n)
-            }
-            TokenKind::Colon => {
-                // Backward: `:?…?`. A `:` not followed by a `?` is not a pick.
-                // Like the forward form, a backward pick inside a nested
-                // escape right side belongs to the enclosing chain
-                // [elvis-wrap].
-                if self.elvis_no_wrap && self.group_depth == 0 {
-                    return Some(None);
-                }
-                if !matches!(self.peek_at(1).kind, TokenKind::Question) {
-                    return Some(None);
-                }
-                self.bump();
-                let mut n = 0u32;
-                while matches!(self.kind(), TokenKind::Question) {
-                    self.bump();
-                    n += 1;
-                }
-                (ElvisDir::Backward, n)
-            }
-            _ => return Some(None),
-        };
+        // `?:` is a `?` immediately followed by a `:` (two separate tokens
+        // [elvis]). Anything else at this tier is not a pick.
+        if !matches!(self.kind(), TokenKind::Question)
+            || !matches!(self.peek_at(1).kind, TokenKind::Colon)
+        {
+            return Some(None);
+        }
+        // [elvis-wrap] `?:` may start a continuation line, so a chain can wrap
+        // (`a ?: b\n    ?: c`); a line beginning with `?` is unambiguous
+        // (nothing in Salvo starts a statement with `?`). But inside a nested
+        // escape right side (`elvis_no_wrap`) the operator belongs to the
+        // *enclosing* chain: a `return`/escape value parses a full expression,
+        // and left-associativity means a following `?:` brackets the whole
+        // chain so far. A parenthesised sub-expression (`group_depth > 0`) is
+        // self-contained, so the flag does not reach into it.
+        if self.elvis_no_wrap && self.group_depth == 0 {
+            return Some(None);
+        }
+        self.bump(); // `?`
+        self.expect(&TokenKind::Colon)?;
         // The right side is an operand one tier up (additive, bp 13+), *not* a
         // recursive elvis: that is what makes the chain left-associative. It
         // may still be a `return`/escape, whose value must not wrap a next-line
@@ -5428,8 +5386,6 @@ impl<'s> Parser<'s> {
         let span = subject.span().to(rhs.span());
         Some(Some(Expr::Elvis {
             subject: Box::new(subject),
-            dir,
-            count,
             rhs: Box::new(rhs),
             span,
         }))
@@ -5466,7 +5422,7 @@ impl<'s> Parser<'s> {
     }
 
     fn parse_pipe_tail(&mut self, lhs: Expr) -> Option<Expr> {
-        self.bump(); // `|>`
+        self.bump(); // `:>`
         // The right side is parsed at bp 3 — every operator tighter than the
         // pipe, i.e. a full expression stopping only at the next `|>`. It is
         // *not* under `elvis_no_wrap`: unlike an elvis right side (parsed at

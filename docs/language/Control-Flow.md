@@ -209,8 +209,8 @@ The rules:
 ## Operators and the pipe
 
 Every infix operator binds by one precedence table, loosest first: the pipe
-`|>`, then `||`, `&&`, equality (`==` `!=`), comparison (`<` `>` `<=` `>=`,
-and the `is`/`!is` checks), the pick (`?:` and its kin), additive (`+` `-`),
+`:>`, then `||`, `&&`, equality (`==` `!=`), comparison (`<` `>` `<=` `>=`,
+and the `is`/`!is` checks), the pick (`?:`), additive (`+` `-`),
 multiplicative (`*` `/` `%`). All of them are left-associative. Statements end
 at a newline, so most operators must stay on their line — a line that *begins*
 with `+` or `==` is a new statement, not a continuation. Explicit parentheses
@@ -219,40 +219,45 @@ written.
 
 A handful of **flattening** operators are the exception: they may begin a
 continuation line, and when they do, the newline brackets everything before it
-on the left. These are the pick (`?:`/`:?`), the postfix `.`/method chain, the
+on the left. These are the pick (`?:`), the postfix `.`/method chain, the
 `replyto` of a send, and the **pipe**:
 
 ```
-calculate_age(person) |> list.add(_)
+calculate_age(person) :> list.add(_)
 
 calculate_age(person)
-    |> list.add(_)
+    :> list.add(_)
 ```
 
-`value |> expr` evaluates `value` once, binds it to the placeholder `_`, and
+`value :> expr` evaluates `value` once, binds it to the placeholder `_`, and
 runs `expr` with `_` standing for the value — the same `_` a pick's right side
 binds. It flattens a nest of calls into a left-to-right pipeline:
-`a() |> f(_) |> g(_)` is `g(f(a()))`, read top to bottom. The `_` is required
+`a() :> f(_) :> g(_)` is `g(f(a()))`, read top to bottom. The `_` is required
 (a right side that ignores the piped value is dead scaffolding) and may appear
 more than once only where an ordinary local could. Because the pipe is the
-loosest operator, `2 + 3 |> double(_)` pipes the whole sum, and
-`x |> f(_) ?: g(_)` pipes `f(_) ?: g(_)` (the tighter pick is part of the right
+loosest operator, `2 + 3 :> double(_)` pipes the whole sum, and
+`x :> f(_) ?: g(_)` pipes `f(_) ?: g(_)` (the tighter pick is part of the right
 side).
 
+The pick `?:` keeps the subject union's **first arm** as the value when the
+subject holds it; otherwise the right side runs, with `_` bound to the arms
+left behind. `maybe_int() ?: 0` keeps the `Int` and defaults to `0` for the
+`None`; `(Ok Int | Err Str) ?: return _` keeps the `Ok Int` and hands the
+`Err Str` to the escape. A diverging right side narrows the subject to the
+first arm for the code below.
+
 The **null-safe pipe** `?>` is the pipe analogue of safe navigation `?.`. It
-takes an optional left side: when the value is present, `_` binds to it, the
-right side runs, and its result is lifted back to optional; when the value is
-`None`, the right side never runs and the whole pipe is `None`.
+picks the left side's first arm, binds `_` to it, runs the right side, and
+replaces that arm with the result — the other arms pass through unchanged.
 
 ```
 let number: Int? = parse(text)
 let doubled: Int? = number ?> double(_)
 ```
 
-`doubled` is `double(number)` wrapped as `Int?` when `number` is present, else
-`None`. The left side must be able to be absent — a `?>` on a value that is
-never `None` guards nothing and is an error pointing to a plain `|>`. When the
-right side is itself optional the result is not double-wrapped (`Int?`, not
-`Int??`), the same rule `?.` follows. It shares the pipe's loosest tier and
-left-associativity, so `?>` and `|>` mix and chain freely across continuation
-lines.
+`doubled` is `double(number)` as `Int?` when `number` is present, else `None`.
+On a general union `(A | B | C) ?> f(_)` with `f: A -> X` is `X | B | C`. A
+diverging right side (`x ?> return _`) leaves only the pass-through arms. It
+shares the pipe's loosest tier and left-associativity, so `?>` and `:>` mix and
+chain freely across continuation lines.
+

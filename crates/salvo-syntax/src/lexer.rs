@@ -545,10 +545,12 @@ impl<'s> Lexer<'s> {
             // 2026-10-11 and re-added 2026-10-12 as reconstruction-lowered
             // optional chaining, when a real use arose — see COMPLETED.md.)
             //
-            // [expr-pipe] `|>` is one glued token, before the bare `|` below
-            // and after `||` above, so `|`, `||`, `|>` are three distinct
-            // operators.
-            ('|', Some('>')) => {
+            // [expr-pipe] `:>` is one glued token (the pipe operator; the
+            // `PipeGt` name predates the 2026-10-14 `|>`→`:>` respelling). The
+            // elvis no longer uses a leading `:` (the backward `:?` form was
+            // retired), so `:>` is unambiguous; a bare `:` and `:>` are two
+            // distinct tokens.
+            (':', Some('>')) => {
                 self.bump();
                 TokenKind::PipeGt
             }

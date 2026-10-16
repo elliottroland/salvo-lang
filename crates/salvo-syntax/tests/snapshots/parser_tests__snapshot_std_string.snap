@@ -6162,8 +6162,6 @@ Module {
                                                                 named: [],
                                                                 span: 9005..9028,
                                                             },
-                                                            dir: Forward,
-                                                            count: 1,
                                                             rhs: Str {
                                                                 parts: [
                                                                     Text(
@@ -6252,8 +6250,6 @@ Module {
                                                                 named: [],
                                                                 span: 9055..9092,
                                                             },
-                                                            dir: Forward,
-                                                            count: 1,
                                                             rhs: Str {
                                                                 parts: [
                                                                     Text(
@@ -6600,8 +6596,6 @@ Module {
                                                                 named: [],
                                                                 span: 9449..9472,
                                                             },
-                                                            dir: Forward,
-                                                            count: 1,
                                                             rhs: Str {
                                                                 parts: [
                                                                     Text(
@@ -6690,8 +6684,6 @@ Module {
                                                                 named: [],
                                                                 span: 9499..9536,
                                                             },
-                                                            dir: Forward,
-                                                            count: 1,
                                                             rhs: Str {
                                                                 parts: [
                                                                     Text(

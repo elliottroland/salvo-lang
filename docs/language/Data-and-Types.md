@@ -436,20 +436,23 @@ let value = read_value()
 ```
 
 
-The safe-navigation operator `?.` reaches through a value that may be absent:
-`a?.b` is `None` when `a` is, otherwise `a.b` lifted back into an optional, and
-`a?.m(args)` calls `m` the same way (dot-notation, so `m` takes the receiver as
-its first argument). It guards **one** link, so a chain spells every hop:
-`notice.metadata.last_updated?.nanos` is a plain read of a non-optional
+The safe-navigation operator `?.` reaches through the **first arm** of a
+union: `a?.b` performs `.b` on that arm and replaces it with the result,
+passing the other arms through. For a `T?` that is the familiar reading —
+`a?.b` is `None` when `a` is, otherwise `a.b` lifted back into an optional —
+and `a?.m(args)` calls `m` the same way (dot-notation, so `m` takes the
+receiver as its first argument). On a general union `(A | B | C)?.field` where
+`A.field: F` is `F | B | C`. It guards **one** link, so a chain spells every
+hop: `notice.metadata.last_updated?.nanos` is a plain read of a non-optional
 `last_updated`, while `o?.inner?.nanos` guards both. It pairs with `?:` for a
 default — `last_updated?.nanos ?: -1L` — the two staying separate operators.
 A method-call link needs a variable or field as its receiver (it is read
 twice); bind a longer chain to a local first.
 
-To feed an optional value through an arbitrary expression the same way, the
+To feed the first arm through an arbitrary expression the same way, the
 null-safe pipe `?>` is the pipe analogue of `?.`: `number ?> to_str(_)` runs
-`to_str` with `_` bound to the present value and lifts the result to optional,
-or short-circuits to `None` — see "Operators and the pipe" in
+`to_str` with `_` bound to the first-arm value and replaces that arm with the
+result, passing the rest through — see "Operators and the pipe" in
 [Control Flow](Control-Flow.md).
 
 To get a non-null value out when the compiler cannot prove it (equivalent to

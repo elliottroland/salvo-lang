@@ -1071,18 +1071,17 @@ fn main() [use] {
 
 const LIFT_BINDING_OUTPUT: &str = "ok 7\nerr zero\nsize 3\n";
 
-/// [elvis] [placeholder] The positional pick: `?:` keeps the first arm
-/// (`Forward(1)`); a run of `?`s keeps that many (`??:` keeps two). The shapes
-/// here are the ones that emit differently:
+/// [elvis] [placeholder] The first-arm pick: `?:` keeps the subject union's
+/// first arm; the rest go to `_`. The shapes here are the ones that emit
+/// differently:
 ///
 /// - an escaping right side (`?: return None`), which is why step 2 came first;
 /// - a value right side, where the two sides must agree on a representation —
-///   a bare `Str` **wraps** into the subject's `Str | Int` union, exactly as an
-///   `if`'s branches converge, and `??:` on a `Str | Int | None` keeps both
-///   value arms;
+///   a bare `Str` **wraps** into the subject's `Str | Int | None` union,
+///   exactly as an `if`'s branches converge;
 /// - precedence: `n ?: 0 > 3` is `(n ?: 0) > 3` and `n ?: 1 + 1` is
 ///   `n ?: (1 + 1)`, Kotlin's tier;
-/// - right-associative chaining.
+/// - left-associative chaining.
 const ELVIS_DEMO: &str = r#"
 struct Person {
     name: Str,
@@ -1123,10 +1122,13 @@ fn main() [use] {
     println(greet(named))
     println(greet(plain))
 
-    let v: Str | Int = pick(2) ??: "none"
+    // [elvis] `?:` picks the first arm (`Str`); the rest (`Int | None`) go
+    // to `_`, which the default here ignores.
+    let v: Str | Int | None = pick(2) ?: "none"
     when v {
         is Str { println("str ${v}") }
         is Int { println("int ${v}") }
+        is None { println("none") }
     }
     let n: Int? = 5
     if n ?: 0 > 3 {
@@ -1139,13 +1141,13 @@ fn main() [use] {
 }
 "#;
 
-const ELVIS_OUTPUT: &str = "shout Addy!\nshout none\nhello Addy\nhello friend\nint 2\nbigger\nsum 5\nchain 7\n";
+const ELVIS_OUTPUT: &str = "shout Addy!\nshout none\nhello Addy\nhello friend\nstr none\nbigger\nsum 5\nchain 7\n";
 
-/// [expr-pipe] The pipe operator `|>`: the left side is bound to `_` and read
+/// [expr-pipe] The pipe operator `:>`: the left side is bound to `_` and read
 /// in the right side. Covers a pipe as a **statement** (whose right side
 /// returns `None` — the case where the Kotlin block-expression emitter used to
 /// drop the side-effecting tail value), a left-associative chain, and the
-/// loosest-precedence binding (`2 + 3 |> …` pipes the sum).
+/// loosest-precedence binding (`2 + 3 :> …` pipes the sum).
 const PIPE_DEMO: &str = r#"
 fn double(n: Int) -> Int {
     return n * 2
@@ -1157,12 +1159,12 @@ fn add(a: Int, b: Int) -> Int {
 
 fn main() [use] {
     use StdOutConsole()
-    double(21) |> println("single ${_}")
+    double(21) :> println("single ${_}")
     let chained = 5
-        |> double(_)
-        |> add(_, 100)
+        :> double(_)
+        :> add(_, 100)
     println("chained ${chained}")
-    let prec = 2 + 3 |> double(_)
+    let prec = 2 + 3 :> double(_)
     println("prec ${prec}")
 }
 "#;
@@ -1217,10 +1219,9 @@ fn main() [use] {
 const SAFE_PIPE_OUTPUT: &str =
     "present present 84\nabsent absent\nflat present 21\nflat-none absent\nchain present 168\n";
 
-/// [elvis] [placeholder] The positional pick. `?:` keeps the first arm
-/// (`Forward(1)`), `:?` the last (`Backward(1)`); `_` on the right is the arms
-/// left behind, tags and all — the one place the placeholder earns its keep,
-/// since `Err Str` has no other spelling there.
+/// [elvis] [placeholder] The first-arm pick. `?:` keeps the first arm; `_` on
+/// the right is the arms left behind, tags and all — the one place the
+/// placeholder earns its keep, since `Err Str` has no other spelling there.
 ///
 /// The subject is a **call**, so it is evaluated once into a temporary: the
 /// test, the picked read and `_` all reach the same value.
@@ -1238,12 +1239,6 @@ fn doubled(text: Str) -> Ok Int | Err Str {
         return ok(n * 2)
     }
     return got
-}
-
-fn tail(text: Str) -> Ok Int | Err Str {
-    // Backward(1) keeps the last arm, `Err Str`; `_` is the `Ok Int`.
-    let e: Err Str = parse(text) :? return _
-    return e
 }
 
 fn show(label: Str, r: Ok Int | Err Str) [Console] -> None {
@@ -1266,15 +1261,13 @@ fn main() [use] {
     use StdOutConsole()
     show("doubled", doubled("abc"))
     show("doubled", doubled(""))
-    show("tail", tail("abcd"))
-    show("tail", tail(""))
     guarded("hello")
     guarded("")
 }
 "#;
 
 const PICK_OUTPUT: &str =
-    "doubled ok 6\ndoubled err empty\ntail ok 4\ntail err empty\nguarded 5 5\n";
+    "doubled ok 6\ndoubled err empty\nguarded 5 5\n";
 
 /// [rewrap] A value spanning **fewer arms than its storage** is produced by
 /// mapping arm to arm, which is what the three shapes deferred out of the `?`

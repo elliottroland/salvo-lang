@@ -428,26 +428,25 @@ Conventions:
     build modes, and every language surveyed that made assertions optional
     (Java's `-ea`, Kotlin's inherited `assert`) ended up with a vocabulary nobody
     trusts.
-* [elvis] `subject ?…?: rhs` / `subject :?…? rhs` is the **positional pick**
-  (user decision 2026-10-11, superseding the 2026-09-21 named-qualifier form):
-  a run of `n` `?`s names how many arms of the subject's union it keeps,
-  counted from the declared **front** (`Forward`: `?:`, `??:`, …) or **back**
-  (`Backward`: `:?`, `:??`, …). Those arms become the expression's value when
-  the subject holds one of them; otherwise `rhs` runs, with `_` bound to the
-  arms the pick did *not* claim. `?:` is `Forward(1)`.
-  * **Positional, not named.** The pick selects by *position* over the
-    subject's declared arm order [union-arm-identity], not by qualifier name.
-    `?:` on a `Str?` (arms `Str, None`) keeps `Str` and leaves `None`; `:?` on
-    `Ok Int | Err Str` keeps `Err Str` and leaves `Ok Int`; `??:` on
-    `Ok Int | Ok Str | Err Str` keeps the first two.
+* [elvis] `subject ?: rhs` is the **first-arm pick** (user decision
+  2026-10-14, simplifying the earlier positional-pick form that also had
+  `??:`/`:?`). The expression's value is the subject union's **first arm**
+  when the subject holds it; otherwise `rhs` runs, with `_` bound to the arms
+  the pick left behind (every arm but the first). `Str? ?: "x"` keeps `Str`
+  and leaves `None`; `(Ok Int | Err Str) ?: f(_)` keeps `Ok Int` and `_` is
+  `Err Str`.
+  * **First arm, by position.** The pick keeps `declared[0]` over the
+    subject's declared arm order [union-arm-identity]. There is no multi-arm
+    or back-to-front form — the `??:` (keep two) and `:?` (keep the last)
+    spellings were retired because the code they produced did not read well;
+    chain `?:` left-associatively to peel arms one at a time instead.
   * **`_` carries the arms left behind, tags and all** — a sub-union of the
-    storage, by `[rewrap]`, on the opposite side from `dir`. `err(_)` on a
-    `Thrown Str` honestly gives `Err Thrown Str`.
-  * **Widening is allowed** (the one semantic the old form refused): a `rhs`
-    whose type is outside the subject's arms joins into the result, so
-    `Int? ?: "none"` is `Int | Str`. Both sides are coerced into the join —
-    the right side at its own span, the picked value at the operator's span
-    [rewrap].
+    storage, by `[rewrap]`. `err(_)` on a `Thrown Str` honestly gives
+    `Err Thrown Str`.
+  * **Widening is allowed**: a `rhs` whose type is outside the subject's arms
+    joins into the result, so `Int? ?: "none"` is `Int | Str`. Both sides are
+    coerced into the join — the right side at its own span, the picked value
+    at the operator's span [rewrap].
   * **Precedence is Kotlin's** for binding tightness: tighter than
     `is`/comparison/equality, looser than additive. `m[k] ?: 0 > 3` is
     `(m[k] ?: 0) > 3`; `a ?: b + 1` is `a ?: (b + 1)`. It is
@@ -456,18 +455,16 @@ Conventions:
     arms the previous one left behind — reads left to right. (Kotlin's `?:` is
     right-associative, but there both sides are the same type; Salvo's pick
     changes the type arm by arm, and left folding is what lets
-    `x ??: handle_err(_) ?: default` mean "peel the error, then default".)
-  * **[elvis-wrap] Either elvis form may start on a continuation line**, so a
-    pick chain can wrap (`a ?: b\n    ?: c`, `a :? b\n    :? c`): a line
-    beginning with `?` or `:` is unambiguous, since nothing in Salvo starts a
-    statement or expression with either (user decision 2026-10-14, unifying
-    the two forms — the backward form previously kept a same-line
-    requirement). A **newline brackets everything before it on the left**
-    (user decision 2026-10-12): a `return`/escape right side stops at the
-    newline, so the next-line pick applies to the whole chain so far, not to
-    the escape's value — `x ??: return e\n    ?: d` is `(x ??: return e)
-    ?: d`. A lone `?` or `:` that is not actually a pick operator is left
-    unconsumed, so a stray leading `:` is not swallowed.
+    `x ?: handle_err(_) ?: default` mean "peel the first arm, then default".)
+  * **[elvis-wrap] `?:` may start on a continuation line**, so a pick chain
+    can wrap (`a ?: b\n    ?: c`): a line beginning with `?` is unambiguous,
+    since nothing in Salvo starts a statement or expression with it. A
+    **newline brackets everything before it on the left** (user decision
+    2026-10-12): a `return`/escape right side stops at the newline, so the
+    next-line pick applies to the whole chain so far, not to the escape's
+    value — `x ?: return e\n    ?: d` is `(x ?: return e) ?: d`. A lone `?` or
+    `:` that is not a `?:` is left unconsumed, so a stray leading `:` is not
+    swallowed.
   * **[expr-wrap] A postfix `.member`/`.method(…)` on a continuation line
     brackets the whole expression so far on its left** (user decision
     2026-10-12), the same bracket-left rule as [elvis-wrap] and unambiguous
@@ -485,16 +482,15 @@ Conventions:
     includes `return`/`break`/`continue` — that is what step 2 was for. A
     diverging right side contributes nothing to the type, so
     `maybe_t() ?: return None` has the picked type exactly.
-  * A pick that keeps **every** arm (`n` ≥ the arm count) leaves nothing for
-    the right side — an error, the same "dead scaffolding" a throw-free `try`
-    gets [try]; a non-union subject has one arm, so `?:` on it is refused the
-    same way. `n = 0` is a parse error (no pick without a `?`).
+  * A `?:` on a subject with **only one arm** (a non-union, or a union after
+    narrowing) leaves nothing for the right side — an error, the same "dead
+    scaffolding" a throw-free `try` gets [try].
   * **The placeholder `_`** reads only in a pick's right-hand side, where it is
     the arms left behind; reading it anywhere else is an error [placeholder].
   * Backends: the pick lowers to a conditional (`if`/`when`) testing whether
     the subject holds one of the picked arms — the picked value in the then
     branch, `rhs` in the else — on both backends [kt-elvis] [rs-elvis]. The
-    `T?` representation *is* a Kotlin nullable, so a `Forward(1)` on a `T?`
+    `T?` representation *is* a Kotlin nullable, so a `?:` on a `T?`
     is a plain null test there.
 * [elvis-guard] **A leaving right side takes its flow effects with it**: a
   `return elem` there moves `elem` on a path the fall-through never shares,
@@ -531,7 +527,7 @@ Conventions:
     reads). Kotlin needs no copy, its values being references.
 
 * [placeholder] `_` reads as **the arms a pick left behind** — the sub-union of
-  the subject the pick did not claim, on the opposite side from its direction
+  the subject after its first arm (the arm `?:`/`?>` did not pick)
   [elvis]. It reads only inside a pick's right-hand side; reading it anywhere
   else is an error, not a silent `Unknown`.
   * It is not a name: it cannot be declared, shadowed or captured. The word is
@@ -546,31 +542,38 @@ Conventions:
     independent, since neither introduces a name to collide.
   * Reading it outside a pick's right-hand side is an **error**, not a silent
     `Unknown`.
-* [safe-nav] `base?.field` / `base?.m(args)` is **safe navigation**: the whole
-  expression is `None` when `base` is, otherwise the link performed on `base`
-  narrowed to its non-`None` arm, lifted back into an optional. It guards
+* [safe-nav] `base?.field` / `base?.m(args)` is **safe navigation** (user
+  decision 2026-10-14, generalized from `T?`-only to any union): it picks the
+  receiver's **first arm**, performs the link on it, and **replaces that arm
+  with the link's result** in the union — the other arms pass through
+  unchanged. `(A | B | C)?.field` where `A.field: F` is `F | B | C` (arms
+  collapse when `F` equals a pass-through arm, so `A.field: B` gives `B | C`).
+  A `T?` recovers the familiar shape: pick `T`, link to `F`, result `F | None`.
+  It guards
   **one** link — `a?.b.c` is a parse error (the `.c` would read a field of an
-  optional); write `a?.b?.c` — so a chain is nested safe-navs. The receiver
-  must be able to be absent (a `?.` on a non-optional is refused, like a
-  pointless `!`). It is a separate operator from `?:`, which supplies a default
-  (`last_updated?.nanos ?: -1L`).
-  * **Checked through the ordinary path.** A field link types as
-    `field_ty` on the non-`None` receiver; a call link resolves exactly as the
-    dot call `base.m(args)` would ([fn-dot], receiver as argument zero), under a
-    narrowing of the receiver to its non-`None` type. A link that is *already*
-    optional is not wrapped again (no `Option<Option<T>>`).
+  optional union); write `a?.b?.c` — so a chain is nested safe-navs. A
+  non-union receiver has one arm and nothing to guard, so `?.` on it is refused
+  like a pointless `!`. It is a separate operator from `?:`, which supplies a
+  default (`last_updated?.nanos ?: -1L`).
+  * **Checked through the ordinary path.** A field link types as `field_ty`
+    on the first arm; a call link resolves exactly as the dot call `base.m(args)`
+    would ([fn-dot], receiver as argument zero), under a narrowing of the
+    receiver to its first arm. A link whose result already appears among the
+    other arms (it is optional, or its type equals a pass-through arm) is not
+    added again (no `Option<Option<T>>`, no duplicate arm).
   * **A call link needs a place receiver** (a variable or field), because the
-    receiver is read twice (the `None` test, then the call) and the call reads
+    receiver is read twice (the arm test, then the call) and the call reads
     it narrowed — the same twice-read rule a `when`/`!` subject obeys. A field
     link needs no place, so a field chain `a?.b?.c` composes freely.
   * **Lowered by reconstruction** ([ir-switch]): no dedicated IR node. The
-    receiver is bound once, then a two-arm `Switch` yields `None` for the absent
-    arm and, for the present arm, the link on the narrowed receiver — whose
-    `Narrow` carries `Justification::SafeNav`, the hint a backend reads to
-    reconstruct a native chain. The whole short-circuit is therefore the same
-    machinery `!`/`?:` use; the linear check, narrowing and effects all apply
-    unchanged. (Was built then removed 2026-10-11, re-added 2026-10-12 as this
-    reconstruction form when a real use arose — see COMPLETED.md.)
+    receiver is bound once; the first arm is narrowed and the link performed on
+    it, the rest rewrapped through. For the `T | None` shape a two-arm `Switch`
+    yields `None` for the absent arm and the `Present`-lifted link for the
+    value arm — the present arm's `Narrow` carries `Justification::SafeNav`, the
+    hint a backend reads to reconstruct a native chain (`a?.b` on Kotlin,
+    `.and_then`/`.map` on Rust). A general union takes the rewrap shape (no
+    native reconstruction). The whole short-circuit is the same machinery
+    `!`/`?:` use; the linear check, narrowing and effects all apply unchanged.
 * [type-none-unit] `None` is **one spelling for two things** — the absent
   arm of a `T?` and the sole value of the `None` type — and the targets
   spell them differently (Rust `None` vs `()`, Kotlin `null` vs `Unit`),
@@ -588,7 +591,7 @@ Conventions:
     statement renders no value at all.
   * **A `None`-*typed* expression returned where the fn's own type is an
     optional** (`return log_it()` / `return ignore(_)` in a `-> Str?` fn,
-    the shape `x ??: return ignore(_)` produces) is the mirror case: the
+    the shape `x ?: return ignore(_)` produces) is the mirror case: the
     value is absent, but the expression may have an effect, so the emitters
     evaluate it and then yield the absent optional — Rust `{ log_it(); None }`,
     Kotlin `log_it(); return null` — never a bare `return log_it()` (which is
@@ -2080,7 +2083,7 @@ Conventions:
 
   | level | operators |
   |---|---|
-  | pipe | `\|>` |
+  | pipe | `\:>` |
   | or | `\|\|` |
   | and | `&&` |
   | equality | `==` `!=` |
@@ -2093,14 +2096,14 @@ Conventions:
   right side at one level tighter). Three operators are not plain
   `lhs OP rhs` binaries and are dispatched specially at their level: `is`/`!is`
   (a type-ref check, `Expr::Is`/`Expr::Widen`, no expression right side), the
-  positional-pick elvis (a `?`-run with the [elvis-wrap] rule), and the pipe
-  `|>` ([expr-pipe], which binds `_` in its right side). The others build
+  first-arm elvis (`?:` with the [elvis-wrap] rule), and the pipe
+  `:>` ([expr-pipe], which binds `_` in its right side). The others build
   `Expr::Binary` over a `BinaryOp`.
   * **Statement termination is by newline** [expr-escape]: a token carries
     `newline_before`, and `same_line` is "no newline before, or inside a
     bracket group". Most operators require their line — a newline before `+`,
     `==`, `&&`, `is`, … ends the statement. Only the **flattening** operators
-    continue across a newline (`|>` and the elvis forms here, and the postfix
+    continue across a newline (`:>` and the elvis forms here, and the postfix
     `.`/`replyto` in [expr-wrap]); a newline-leading one brackets the whole
     expression so far on its left, which the loop's left fold produces for
     free, since a flattening operator sits at a loose level and its left side
@@ -2109,22 +2112,22 @@ Conventions:
     `(…)`/`[…]` newlines are ignored (`group_depth > 0`), so a chain wrapped
     inside parentheses is one expression regardless of which operators it
     uses — the way to force a grouping the default precedence would not give.
-* [expr-pipe] **`value |> expr` is the pipe operator** (user decision
+* [expr-pipe] **`value :> expr` is the pipe operator** (user decision
   2026-10-14): the left side is evaluated **once** and bound to the
   placeholder `_`, which the right side reads, and the pipe's value and type
-  are the right side's. `calculate_age(person) |> list.add(_)` reads
+  are the right side's. `calculate_age(person) :> list.add(_)` reads
   `list.add(the age)`; it exists to flatten a nest of calls into a left-to-
   right pipeline.
   * **`_` is mandatory** in the right side and reads as the piped value —
     the same `_` an elvis right side binds [placeholder], extended to the
     pipe. A right side that never reads `_` is refused (dead scaffolding, as
-    a pick keeping every arm is). It may read `_` **more than once** exactly
+    a `?:` on a one-arm subject is). It may read `_` **more than once** exactly
     when an ordinary local could — a copyable value, a `ref`/`proj` borrow —
     since the lowering binds `_` to a plain local and the ownership rules
     then apply unchanged.
-  * **Loosest precedence, left-associative**: `a + b |> f(_)` is
-    `(a + b) |> f(_)`, `a |> f(_) ?: g(_)` is `a |> (f(_) ?: g(_))` (the
-    tighter elvis is part of the right side), and `x |> f(_) |> g(_)` is
+  * **Loosest precedence, left-associative**: `a + b :> f(_)` is
+    `(a + b) :> f(_)`, `a :> f(_) ?: g(_)` is `a :> (f(_) ?: g(_))` (the
+    tighter elvis is part of the right side), and `x :> f(_) :> g(_)` is
     `g(f(x))`. It is a flattening operator, so it may begin a continuation
     line, bracketing the chain so far on its left [expr-infix].
   * **Pure sugar**: it lowers to the same temp-and-`_` shape an elvis right
@@ -2135,32 +2138,35 @@ Conventions:
     `None` (the one place that previously dropped a side-effecting tail on
     Kotlin — fixed 2026-10-14).
 * [expr-safe-pipe] **`value ?> expr` is the null-safe pipe** (user decision
-  2026-10-14): the pipe analogue of `?.` ([safe-nav]). The left side must be
-  an optional `T?`; it is evaluated **once**, and if it holds a value, `_`
-  binds to that value (the non-`None` arm, as `?.` narrows its receiver), the
-  right side runs, and its value is lifted back to optional; if the left side
-  is `None`, the right side never runs and the whole pipe is `None`. So
-  `let s: Str? = n ?> to_str(_)` reads "`to_str(n)` wrapped as `Str?` when `n`
-  is present, else `None`".
-  * **The left side must be able to be absent.** A left side that is never
-    `None` guards nothing, so `?>` on it is an error directing to a plain
-    `|>` — the mirror of `?.` requiring an optional receiver.
-  * **The result is `X?`, not `X??`.** When the right side is itself optional
-    (type `X?`), the pipe's type is `X?` unchanged, not double-wrapped — the
-    same `Option<Option<T>>` guard [safe-nav] applies.
-  * **`_` is mandatory** and reads as the present value, the same `_` a plain
-    pipe binds [expr-pipe]; a right side that never reads it is refused.
+  2026-10-14, generalized to any union alongside `?.`): the pipe analogue of
+  `?.` ([safe-nav]). It picks the left side's **first arm**, binds `_` to it,
+  runs the right side, and **replaces that arm with the result** in the union;
+  the other arms pass through unchanged. `(A | B | C) ?> f(_)` where `f: A ->
+  X` is `X | B | C` (arms collapse). A `T?` recovers the familiar shape: `_`
+  is the present value, `n ?> to_str(_)` is `Str?`. A **diverging** right side
+  (`x ?> return _`) leaves only the pass-through arms, since the first-arm
+  path left.
+  * **The left side must have more than one arm.** A one-arm (non-union)
+    left side guards nothing, so `?>` on it is an error directing to a plain
+    `:>` — the mirror of `?.`.
+  * **Arms collapse, no double-wrap.** When the right side's result equals a
+    pass-through arm (or is itself optional against a `None` arm) it is not
+    added twice — the generalized `Option<Option<T>>` guard [safe-nav].
+  * **`_` is mandatory** and reads as the present (first-arm) value, the same
+    `_` a plain pipe binds [expr-pipe]; a non-diverging right side that never
+    reads it is refused.
   * **Loosest precedence, left-associative, flattening**: it shares the pipe
-    tier with `|>`, so `a |> f(_) ?> g(_)` is `(a |> f(_)) ?> g(_)` and
+    tier with `:>`, so `a :> f(_) ?> g(_)` is `(a :> f(_)) ?> g(_)` and
     `a ?> f(_) ?> g(_)` chains left; it may begin a continuation line,
     bracketing the chain so far on its left [expr-infix].
-  * **Pure reconstruction, no new node**: it lowers to the same
-    `block_expr` → two-arm `Switch` shape `?.` uses — bind the left side once,
-    a `None` arm yielding `MakeNone`, an `Else` arm that narrows to the
-    non-`None` arm, binds `_`, evaluates the right side, and wraps the result
-    `Present` unless it is already optional. No checker or backend rule past
-    the lowering knows it exists. Spelled `?` then `>` (two glued tokens, like
-    `?.`), detected before the elvis `?`-run so a `?>` is never read as elvis.
+  * **Pure reconstruction, no new node**: it lowers like `?.` — bind the left
+    side once, branch on its first arm; the present arm narrows, binds `_`,
+    runs the right side and rewraps the result into the union, the else arm
+    passes the remaining arms through. The `T | None` shape keeps the
+    `None`/`Else` + `Present` switch so the result is a plain optional. No
+    checker or backend rule past the lowering knows it exists. Spelled `?`
+    then `>` (two glued tokens, like `?.`), detected before the elvis `?` so a
+    `?>` is never read as elvis.
 * [expr-escape] **`return`, `break` and `continue` are expressions of type
   `Never`** (user decision 2026-09-21), not statements — step 2 of the `?`
   family sequence, and the reason `maybe_t() ?: return _` needs no grammar
