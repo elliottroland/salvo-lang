@@ -1220,6 +1220,13 @@ pub struct LocalDecl {
     pub ty: Ty,
     pub span: Span,
     pub fn_body: Span,
+    /// [lsp-completion] A binding in scope for the **whole** body regardless
+    /// of where it is written — a parameter, or a handler/`iter fn` state
+    /// field (a `state {}` block may sit after the member that uses it). An
+    /// ordinary `let`/`is`/`for` binding is `false`: it is only in scope
+    /// after its declaration, so the completion filter requires the cursor to
+    /// be past it.
+    pub always_in_scope: bool,
 }
 /// One fate link of a derived variable, exposed for tooling [fate-link]:
 /// the root variable's name and the span of the binding
@@ -8589,7 +8596,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // body. Implicits (`?cmp`) are the fn's own machinery, not names a
             // caller writes, so they are left out.
             if !p.implicit {
-                self.record_local_decl(&p.name, ty.clone());
+                self.record_local_decl_scoped(&p.name, ty.clone(), true);
             }
             let id = self.next_var_id;
             self.next_var_id += 1;
@@ -8674,6 +8681,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .expr_ty
                 .entry(self.key(field.name.span))
                 .or_insert_with(|| ty.clone());
+            // [lsp-completion] A handler's (or `iter fn`'s) state field is a
+            // local offered throughout the member body — the same as a
+            // parameter — so a member referencing `notice_by_id` gets it
+            // suggested (the two TODOs in salvo-noticeboard's disk.sv). It is
+            // `always_in_scope` because a `state {}` block may be written
+            // *after* the member that uses it.
+            self.record_local_decl_scoped(&field.name, ty.clone(), true);
             let id = self.next_var_id;
             self.next_var_id += 1;
             top.insert(
@@ -10113,6 +10127,13 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// checked (`cur_fn_body` set); `_`-prefixed names and compiler temporaries
     /// (`__…`) are not names a programmer would complete, so they are left out.
     fn record_local_decl(&mut self, name: &Ident, ty: Ty) {
+        self.record_local_decl_scoped(name, ty, false);
+    }
+
+    /// [lsp-completion] As `record_local_decl`, but `always_in_scope` marks a
+    /// binding offered throughout the body regardless of where it is written
+    /// (a parameter or a handler/`iter fn` state field).
+    fn record_local_decl_scoped(&mut self, name: &Ident, ty: Ty, always_in_scope: bool) {
         let Some(fn_body) = self.cur_fn_body else { return };
         if name.name.starts_with('_') {
             return;
@@ -10126,6 +10147,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ty,
                 span: name.span,
                 fn_body,
+                always_in_scope,
             });
     }
 

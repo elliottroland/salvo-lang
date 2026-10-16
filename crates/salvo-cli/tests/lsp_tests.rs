@@ -2084,6 +2084,91 @@ fn definitions_resolve_against_the_projects_source_root() {
     lsp.child.wait().expect("failed to wait for salvo lsp");
 }
 
+/// [lsp-completion] A handler's state field is offered as a completion
+/// throughout a member body — the same as a parameter — even in a member
+/// written *before* the `state {}` block (the TODOs in salvo-noticeboard's
+/// disk.sv). It is `always_in_scope`, so the "declared before the cursor"
+/// rule a `let` binding obeys does not hide it.
+#[test]
+fn completion_offers_handler_state_fields() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_completion_state");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    // `before` is written above the `state {}` block, `after` below it; both
+    // reference `notice_count`, so completion must offer it in each.
+    let source = "\
+effect Board {
+    fn before() -> None
+    fn after() -> None
+}
+
+handler DiskBoard of Board {
+    fn before() -> None {
+        notice
+    }
+
+    state {
+        notice_count: Int = 0
+    }
+
+    fn after() -> None {
+        notice
+    }
+}
+";
+    std::fs::write(root.join("main.sv"), source).unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {
+                "uri": uri, "languageId": "salvo", "version": 1, "text": source
+            }}
+        }),
+    );
+    let _ = expect_diagnostics(&lsp.rx);
+    let complete = |lsp: &mut Lsp, id: i64, line: u32, character: u32| -> Vec<(String, String)> {
+        send(
+            &mut lsp.stdin,
+            json!({
+                "jsonrpc": "2.0", "id": id, "method": "textDocument/completion",
+                "params": {
+                    "textDocument": {"uri": uri},
+                    "position": {"line": line, "character": character}
+                }
+            }),
+        );
+        let response = expect_response(&lsp.rx, id);
+        response["result"]
+            .as_array()
+            .unwrap_or_else(|| panic!("no completion list: {response}"))
+            .iter()
+            .map(|i| (i["label"].as_str().unwrap().to_string(), i["detail"].as_str().unwrap_or("").to_string()))
+            .collect()
+    };
+    // In `before` (line 7, `    notice` → cursor after `notice`), written
+    // above the `state {}` block.
+    let items = complete(&mut lsp, 2, 7, 14);
+    let before = items.iter().find(|(l, _)| l == "notice_count");
+    assert!(before.is_some(), "state field offered in a member above `state {{}}`: {items:?}");
+    assert_eq!(before.unwrap().1, "Int", "state field's detail is its type");
+    // In `after` (line 15), written below the `state {}` block.
+    let items = complete(&mut lsp, 3, 15, 14);
+    assert!(
+        items.iter().any(|(l, _)| l == "notice_count"),
+        "state field offered in a member below `state {{}}`: {items:?}"
+    );
+    send(
+        &mut lsp.stdin,
+        json!({"jsonrpc": "2.0", "id": 99, "method": "shutdown", "params": null}),
+    );
+    expect_response(&lsp.rx, 99);
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
+    lsp.child.wait().expect("failed to wait for salvo lsp");
+}
+
 /// [lsp-completion] Completion offers the functions in scope; after
 /// `receiver.`, the ones whose first parameter the receiver fills, before
 /// those taking any type, and none taking something else.

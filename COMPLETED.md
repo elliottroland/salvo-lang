@@ -138,6 +138,31 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-14 — Handler/`iter fn` state fields offered as LSP completions
+
+Two TODOs in salvo-noticeboard's `disk.sv` asked that auto-complete suggest a
+handler's state field (`notice_by_id`) inside its member bodies. A state field
+type-checks and resolves fine (it is bound as an in-scope local in `check_fn`'s
+`state` loop), but it was never recorded for completion — only parameters and
+ordinary `let`/binding locals called `record_local_decl`. Fixed by recording
+state fields too.
+
+- **`check_fn`'s state loop** now calls `record_local_decl_scoped(&field.name,
+  ty, true)` — the same recording a parameter gets, run inside the member body
+  (`cur_fn_body` is already set before the loop).
+- **`LocalDecl` gained `always_in_scope: bool`** (true for parameters and
+  state fields). The LSP's in-scope filter skips the "declared before the
+  cursor" check for such a binding — necessary because a `state {}` block may
+  sit *after* the member that uses it (disk.sv's `init` precedes `state {}`),
+  so a state field must be offered throughout the handler regardless of
+  textual order. Ordinary `let`/`is`/`for` bindings stay `false` and keep the
+  before-cursor rule.
+- Verified against the real `disk.sv`: the bare `notice_by_id` references now
+  resolve with no error, and a new LSP test
+  (`completion_offers_handler_state_fields`) checks the field is offered in a
+  member both above and below the `state {}` block. (The file's one remaining
+  error, `last_updated_nanos` in `write_notice`, is an unrelated author typo.)
+
 ### 2026-10-14 — Simplify the `?`-operators; respell the pipe `|>` → `:>`
 
 Two user decisions (2026-10-14), one commit. (a) Retire the positional-pick

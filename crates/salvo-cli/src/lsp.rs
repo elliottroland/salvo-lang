@@ -1735,7 +1735,9 @@ impl Server<'_> {
             for local in checked.local_decls.get(&view.file).into_iter().flatten() {
                 let in_scope = local.fn_body.start <= cursor_off
                     && cursor_off <= local.fn_body.end
-                    && local.span.start < cursor_off;
+                    // A parameter or state field is in scope for the whole
+                    // body; an ordinary binding only after its declaration.
+                    && (local.always_in_scope || local.span.start < cursor_off);
                 if !in_scope || !seen_locals.insert(local.name.clone()) {
                     continue;
                 }
