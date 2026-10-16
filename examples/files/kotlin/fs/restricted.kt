@@ -82,7 +82,7 @@ class RestrictedFs(private val root: salvo.fs.path.Path, private val __dep0: sal
             return Union2.U2<salvo.stream.InStream, salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>>(salvo.core.result.err(fsEscaped(pathText)))
         }
         val real_1: String = real!!
-        return __dep0.openRead(salvo.fs.path.Path(text = real_1))
+        return __dep0.openRead(salvo.fs.path.Path(value = real_1))
     }
     override fun openReadAt(path: salvo.fs.path.Path, offset: Long): Union2<salvo.stream.InStream, salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>> {
         val pathText: String = salvo.fs.path.toStr(path)
@@ -91,7 +91,7 @@ class RestrictedFs(private val root: salvo.fs.path.Path, private val __dep0: sal
             return Union2.U2<salvo.stream.InStream, salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>>(salvo.core.result.err(fsEscaped(pathText)))
         }
         val real_1: String = real!!
-        return __dep0.openReadAt(salvo.fs.path.Path(text = real_1), offset)
+        return __dep0.openReadAt(salvo.fs.path.Path(value = real_1), offset)
     }
     override fun openWrite(path: salvo.fs.path.Path): Union2<salvo.stream.OutStream, salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>> {
         val pathText: String = salvo.fs.path.toStr(path)
@@ -100,7 +100,7 @@ class RestrictedFs(private val root: salvo.fs.path.Path, private val __dep0: sal
             return Union2.U2<salvo.stream.OutStream, salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>>(salvo.core.result.err(fsEscaped(pathText)))
         }
         val real_1: String = real!!
-        return __dep0.openWrite(salvo.fs.path.Path(text = real_1))
+        return __dep0.openWrite(salvo.fs.path.Path(value = real_1))
     }
     override fun openAppend(path: salvo.fs.path.Path): Union2<salvo.stream.OutStream, salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>> {
         val pathText: String = salvo.fs.path.toStr(path)
@@ -109,7 +109,7 @@ class RestrictedFs(private val root: salvo.fs.path.Path, private val __dep0: sal
             return Union2.U2<salvo.stream.OutStream, salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>>(salvo.core.result.err(fsEscaped(pathText)))
         }
         val real_1: String = real!!
-        return __dep0.openAppend(salvo.fs.path.Path(text = real_1))
+        return __dep0.openAppend(salvo.fs.path.Path(value = real_1))
     }
     override fun exists(path: salvo.fs.path.Path): Boolean {
         val pathText: String = salvo.fs.path.toStr(path)
@@ -118,7 +118,7 @@ class RestrictedFs(private val root: salvo.fs.path.Path, private val __dep0: sal
             return false
         }
         val real_1: String = real!!
-        return __dep0.exists(salvo.fs.path.Path(text = real_1))
+        return __dep0.exists(salvo.fs.path.Path(value = real_1))
     }
     override fun metadata(path: salvo.fs.path.Path): Union2<salvo.fs.FileInfo, salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>> {
         val pathText: String = salvo.fs.path.toStr(path)
@@ -127,7 +127,7 @@ class RestrictedFs(private val root: salvo.fs.path.Path, private val __dep0: sal
             return Union2.U2<salvo.fs.FileInfo, salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>>(salvo.core.result.err(fsEscaped(pathText)))
         }
         val real_1: String = real!!
-        return __dep0.metadata(salvo.fs.path.Path(text = real_1))
+        return __dep0.metadata(salvo.fs.path.Path(value = real_1))
     }
     override fun listDir(path: salvo.fs.path.Path): Union2<List<String>, salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>> {
         val pathText: String = salvo.fs.path.toStr(path)
@@ -136,7 +136,7 @@ class RestrictedFs(private val root: salvo.fs.path.Path, private val __dep0: sal
             return Union2.U2<List<String>, salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>>(salvo.core.result.err(fsEscaped(pathText)))
         }
         val real_1: String = real!!
-        return __dep0.listDir(salvo.fs.path.Path(text = real_1))
+        return __dep0.listDir(salvo.fs.path.Path(value = real_1))
     }
     override fun createDirs(path: salvo.fs.path.Path): Union2<Unit, salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>> {
         val pathText: String = salvo.fs.path.toStr(path)
@@ -145,7 +145,7 @@ class RestrictedFs(private val root: salvo.fs.path.Path, private val __dep0: sal
             return Union2.U2<Unit, salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>>(salvo.core.result.err(fsEscaped(pathText)))
         }
         val real_1: String = real!!
-        return __dep0.createDirs(salvo.fs.path.Path(text = real_1))
+        return __dep0.createDirs(salvo.fs.path.Path(value = real_1))
     }
     override fun delete(path: salvo.fs.path.Path): Union2<Unit, salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>> {
         val pathText: String = salvo.fs.path.toStr(path)
@@ -154,7 +154,7 @@ class RestrictedFs(private val root: salvo.fs.path.Path, private val __dep0: sal
             return Union2.U2<Unit, salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>>(salvo.core.result.err(fsEscaped(pathText)))
         }
         val real_1: String = real!!
-        return __dep0.delete(salvo.fs.path.Path(text = real_1))
+        return __dep0.delete(salvo.fs.path.Path(value = real_1))
     }
     override fun renamePath(from: salvo.fs.path.Path, to: salvo.fs.path.Path): Union2<Unit, salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>> {
         val fromText: String = salvo.fs.path.toStr(from)
@@ -169,7 +169,7 @@ class RestrictedFs(private val root: salvo.fs.path.Path, private val __dep0: sal
         }
         val realFrom_1: String = realFrom!!
         val realTo_2: String = realTo!!
-        return __dep0.renamePath(salvo.fs.path.Path(text = realFrom_1), salvo.fs.path.Path(text = realTo_2))
+        return __dep0.renamePath(salvo.fs.path.Path(value = realFrom_1), salvo.fs.path.Path(value = realTo_2))
     }
 }
 

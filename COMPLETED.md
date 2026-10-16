@@ -138,6 +138,27 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-14 — `Path`'s field `text` renamed to `value`
+
+User decision: a single-value wrapper struct's field should be `value`.
+Renamed `std/fs/path.sv`'s `Path { text: Str }` to `value` and swept every use:
+path.sv's own members (`p.value`, the `path(...)` literal), `std/fs/restricted.sv`'s
+11 `Path { value: real }` literals, and the `FS_PROGRAM`/fs-surface test demos
+in both backend codegen test files. Regenerated the two checked-in examples
+that ship `fs` (`examples/files`, `examples/aws_s3`) via `salvo compile
+--backend '*'` — only `fs/path.*` and `fs/restricted.*` changed, purely the
+field rename. The string cursor `StrYield`/`Buf` structs (also with a `text`
+field) are unrelated and untouched. salvo-noticeboard's `disk.sv` used
+`Path { text: … }`; updated there too (separate repo).
+
+Also surveyed the other single-field structs (answer to "are there others?"):
+most are **domain types whose field name is meaningful** and were left as is —
+`Duration`/`Instant`.nanos, `NodeId`.id, the `fs` error structs' `.path`, actor
+messages (`.msg`/`.addr`/`.pool`), union-arm tags. Only a true opaque wrapper
+like `Path` (and `Checked`/`Got`, which already use `value`) wants the generic
+`value`; renaming the meaningful ones would lose information, so none were
+changed without a further decision.
+
 ### 2026-10-14 — Pipe spelling reverted to `|>`; doc-ref completion offers locals
 
 Two follow-ups to the same day's operator work:

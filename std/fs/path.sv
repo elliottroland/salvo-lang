@@ -11,45 +11,45 @@
 // two paths are equal when their text is (`a/b` and `a/b/` are different
 // paths, as on the host).
 export struct Path : Hashed<self> by auto {
-    text: Str
+    value: Str
 }
 
-// [path-type] The path [text] spells.
+// [path-type] The path [value] spells.
 export fn path(text: Str) [] -> Path => text {
-    return Path { text: copy(text) }
+    return Path { value: copy(text) }
 }
 
 // [path-type] The path's text.
 export fn to_str(p: Path) [] -> Str => p {
-    return copy(p.text)
+    return copy(p.value)
 }
 
 // [path-type] Whether the path starts at the root.
 export fn is_absolute(p: Path) [] -> Bool => p {
-    return starts_with(p.text, "/")
+    return starts_with(p.value, "/")
 }
 
 // [path-type] [p] with [child] beneath it. An absolute [child] replaces [p],
 // as the hosts' own joins do; a trailing `/` on [p] is not doubled.
 export fn join(p: Path, child: Str) [] -> Path => p, child {
-    if starts_with(child, "/") || is_empty(p.text) {
+    if starts_with(child, "/") || is_empty(p.value) {
         return path(child)
     }
-    if ends_with(p.text, "/") {
-        return path("${p.text}${child}")
+    if ends_with(p.value, "/") {
+        return path("${p.value}${child}")
     }
-    return path("${p.text}/${child}")
+    return path("${p.value}/${child}")
 }
 
 // [path-type] [p] with [child]'s segments beneath it.
 export fn join(p: Path, child: Path) [] -> Path => p, child {
-    return join(p, child.text)
+    return join(p, child.value)
 }
 
 // [path-type] The path without its last segment, or `None` when there is
 // nothing above it (`a`, `/`, the empty path). `parent(/a)` is `/`.
 export fn parent(p: Path) [] -> Path? => p {
-    let text = trim_trailing_slashes(p.text)
+    let text = trim_trailing_slashes(p.value)
     let cut = split_last(text, "/")
     if cut is None {
         return None
@@ -66,7 +66,7 @@ export fn parent(p: Path) [] -> Path? => p {
 
 // [path-type] The last segment, or `None` for the root and the empty path.
 export fn file_name(p: Path) [] -> Str? => p {
-    let text = trim_trailing_slashes(p.text)
+    let text = trim_trailing_slashes(p.value)
     let cut = split_last(text, "/")
     if cut is None {
         if is_empty(text) {
@@ -129,14 +129,14 @@ export fn with_extension(p: Path, ext: Str) [] -> Path => p, ext {
         }
         return path(name)
     }
-    return path(copy(p.text))
+    return path(copy(p.value))
 }
 
 // [path-type] The path's segments, in order, without empty ones: `/a//b/` is
 // `[a, b]`. A list of your own [str-mut-results].
 export fn segments(p: Path) [] -> Mut List<Str> => p {
     let out = Mut List<Str>()
-    for part in split(p.text, "/") {
+    for part in split(p.value, "/") {
         if !is_empty(part) {
             add(out, copy(part))
         }

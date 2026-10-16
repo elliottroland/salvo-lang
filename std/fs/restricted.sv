@@ -78,7 +78,7 @@ export handler RestrictedFs(root: Path) [Fs] of Fs {
         if real is None {
             return err(fs_escaped(path_text))
         }
-        return open_read(Path { text: real })
+        return open_read(Path { value: real })
     }
 
     fn open_read_at(path: Path, offset: Long) -> Ok InStream | Err Checked<FsError> => path {
@@ -87,7 +87,7 @@ export handler RestrictedFs(root: Path) [Fs] of Fs {
         if real is None {
             return err(fs_escaped(path_text))
         }
-        return open_read_at(Path { text: real }, offset)
+        return open_read_at(Path { value: real }, offset)
     }
 
     fn open_write(path: Path) -> Ok OutStream | Err Checked<FsError> => path {
@@ -96,7 +96,7 @@ export handler RestrictedFs(root: Path) [Fs] of Fs {
         if real is None {
             return err(fs_escaped(path_text))
         }
-        return open_write(Path { text: real })
+        return open_write(Path { value: real })
     }
 
     fn open_append(path: Path) -> Ok OutStream | Err Checked<FsError> => path {
@@ -105,7 +105,7 @@ export handler RestrictedFs(root: Path) [Fs] of Fs {
         if real is None {
             return err(fs_escaped(path_text))
         }
-        return open_append(Path { text: real })
+        return open_append(Path { value: real })
     }
 
     // A refused path simply does not exist, since the answer is a `Bool` with
@@ -116,7 +116,7 @@ export handler RestrictedFs(root: Path) [Fs] of Fs {
         if real is None {
             return false
         }
-        return exists(Path { text: real })
+        return exists(Path { value: real })
     }
 
     fn metadata(path: Path) -> Ok FileInfo | Err Checked<FsError> => path {
@@ -125,7 +125,7 @@ export handler RestrictedFs(root: Path) [Fs] of Fs {
         if real is None {
             return err(fs_escaped(path_text))
         }
-        return metadata(Path { text: real })
+        return metadata(Path { value: real })
     }
 
     fn list_dir(path: Path) -> Ok List<Str> | Err Checked<FsError> => path {
@@ -134,7 +134,7 @@ export handler RestrictedFs(root: Path) [Fs] of Fs {
         if real is None {
             return err(fs_escaped(path_text))
         }
-        return list_dir(Path { text: real })
+        return list_dir(Path { value: real })
     }
 
     fn create_dirs(path: Path) -> Ok None | Err Checked<FsError> => path {
@@ -143,7 +143,7 @@ export handler RestrictedFs(root: Path) [Fs] of Fs {
         if real is None {
             return err(fs_escaped(path_text))
         }
-        return create_dirs(Path { text: real })
+        return create_dirs(Path { value: real })
     }
 
     fn delete(path: Path) -> Ok None | Err Checked<FsError> => path {
@@ -152,7 +152,7 @@ export handler RestrictedFs(root: Path) [Fs] of Fs {
         if real is None {
             return err(fs_escaped(path_text))
         }
-        return delete(Path { text: real })
+        return delete(Path { value: real })
     }
 
     // Both ends are checked: a rename is two paths, and either may escape.
@@ -167,6 +167,6 @@ export handler RestrictedFs(root: Path) [Fs] of Fs {
         if real_to is None {
             return err(fs_escaped(to_text))
         }
-        return rename_path(Path { text: real_from }, Path { text: real_to })
+        return rename_path(Path { value: real_from }, Path { value: real_to })
     }
 }

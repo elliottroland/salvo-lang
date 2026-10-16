@@ -3,44 +3,44 @@ package salvo.fs.path
 import salvo.*
 
 data class Path(
-    val text: String,
+    val value: String,
 )
 
 object __Codec_Path : salvo.WireCodec<Path> {
     override fun enc(v: Path, out: salvo.WireOut) {
-        salvo.StrCodec.enc(v.text, out)
+        salvo.StrCodec.enc(v.value, out)
     }
     override fun dec(inp: salvo.WireIn): Path = Path(salvo.StrCodec.dec(inp))
 }
 
 fun path(text: String): Path {
-    return Path(text = text)
+    return Path(value = text)
 }
 
 fun toStr(p: Path): String {
-    return p.text
+    return p.value
 }
 
 fun isAbsolute(p: Path): Boolean {
-    return salvo.core.string.startsWithPlatform(p.text, "/")
+    return salvo.core.string.startsWithPlatform(p.value, "/")
 }
 
 fun join__Path_Str(p: Path, child: String): Path {
-    if ((salvo.core.string.startsWithPlatform(child, "/") || salvo.core.string.isEmpty(p.text))) {
+    if ((salvo.core.string.startsWithPlatform(child, "/") || salvo.core.string.isEmpty(p.value))) {
         return path(child)
     }
-    if (salvo.core.string.endsWithPlatform(p.text, "/")) {
-        return path("${p.text}${child}")
+    if (salvo.core.string.endsWithPlatform(p.value, "/")) {
+        return path("${p.value}${child}")
     }
-    return path("${p.text}/${child}")
+    return path("${p.value}/${child}")
 }
 
 fun join__Path_Path(p: Path, child: Path): Path {
-    return join__Path_Str(p, child.text)
+    return join__Path_Str(p, child.value)
 }
 
 fun parent(p: Path): Path? {
-    val text: String = trimTrailingSlashes(p.text)
+    val text: String = trimTrailingSlashes(p.value)
     val cut: Pair<String, String>? = salvo.core.string.splitLast(text, "/")
     if ((cut == null)) {
         return null
@@ -59,7 +59,7 @@ fun parent(p: Path): Path? {
 }
 
 fun fileName(p: Path): String? {
-    val text: String = trimTrailingSlashes(p.text)
+    val text: String = trimTrailingSlashes(p.value)
     val cut: Pair<String, String>? = salvo.core.string.splitLast(text, "/")
     if ((cut == null)) {
         if (salvo.core.string.isEmpty(text)) {
@@ -133,12 +133,12 @@ fun withExtension(p: Path, ext: String): Path {
         }
         return path(name)
     }
-    return path(p.text)
+    return path(p.value)
 }
 
 fun segments(p: Path): salvo.platform.core.list.MutList<String> {
     val out: salvo.platform.core.list.MutList<String> = mutableListOf<String>()
-    for (part in salvo.platform.core.list.each(salvo.core.string.splitPlatform(p.text, "/"))) {
+    for (part in salvo.platform.core.list.each(salvo.core.string.splitPlatform(p.value, "/"))) {
         if (!(salvo.core.string.isEmpty(part))) {
             salvo.core.list.addPlatform(out, part)
         }
@@ -159,12 +159,12 @@ fun trimTrailingSlashes(text: String): String {
 
 fun hash(value: Path): Long {
     var h: Long = 17L
-    h = salvo.core.compare.mixHash(h, (value.text).hashCode().toLong())
+    h = salvo.core.compare.mixHash(h, (value.value).hashCode().toLong())
     return h
 }
 
 fun eq(a: Path, b: Path): Boolean {
-    if (!(((a.text) == (b.text)))) {
+    if (!(((a.value) == (b.value)))) {
         return false
     }
     return true

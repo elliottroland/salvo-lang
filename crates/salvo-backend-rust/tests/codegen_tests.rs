@@ -10302,14 +10302,14 @@ fn main() [use] -> None {
     use HostRawFs()
     use DefaultFs()
 
-    let dir = Path { text: "__DIR__" }
+    let dir = Path { value: "__DIR__" }
     let made = create_dirs(dir)
     when made {
         is Ok { println("made") }
         is Err { println("made: ${describe(detach(made))}") }
     }
 
-    let path = Path { text: "__DIR__/notes.txt" }
+    let path = Path { value: "__DIR__/notes.txt" }
     let written = write_str(path, "alpha\nbeta\ngamma\n")
     when written {
         is Ok { println("wrote ${written}") }
@@ -10358,7 +10358,7 @@ fn main() [use] -> None {
         is Err { println("tail: ${describe(detach(tail))}") }
     }
 
-    let missing = read_to_str(Path { text: "__DIR__/nope.txt" })
+    let missing = read_to_str(Path { value: "__DIR__/nope.txt" })
     when missing {
         is Ok { println("unexpected") }
         is Err { println("missing: ${describe(detach(missing))}") }
@@ -10375,7 +10375,7 @@ fn main() [use] -> None {
     // back exactly. `to_byte` keeps the low 8 bits and a `Byte` is unsigned on
     // both backends, so 255 prints as 255 on both — a signed byte would print
     // -1 on one of them [backend-parity].
-    let out = open_write(Path { text: "__DIR__/raw.bin" })
+    let out = open_write(Path { value: "__DIR__/raw.bin" })
     when out {
         is Ok {
             let w: OutStream = out
@@ -10391,7 +10391,7 @@ fn main() [use] -> None {
         }
         is Err { println("raw open: ${describe(detach(out))}") }
     }
-    let raw = open_read(Path { text: "__DIR__/raw.bin" })
+    let raw = open_read(Path { value: "__DIR__/raw.bin" })
     when raw {
         is Ok {
             let s: InStream = raw
@@ -10418,7 +10418,7 @@ fn main() [use] -> None {
     // Opening between the bytes of a character is a *seek*, not a decode: it
     // succeeds, and the strict decode afterwards is what fails — recorded, so
     // `close` reports it too [fs-errors-at-close].
-    let split = open_read_at(Path { text: "__DIR__/raw.bin" }, 5)
+    let split = open_read_at(Path { value: "__DIR__/raw.bin" }, 5)
     when split {
         is Ok {
             let s: InStream = split
@@ -10438,7 +10438,7 @@ fn main() [use] -> None {
 
     // [fs-read-to] The fill-a-buffer read: one buffer, cleared and refilled,
     // instead of a payload per step.
-    let held = open_read(Path { text: "__DIR__/raw.bin" })
+    let held = open_read(Path { value: "__DIR__/raw.bin" })
     when held {
         is Ok {
             let s: InStream = held
@@ -10472,7 +10472,7 @@ fn main() [use] -> None {
         is Err { println("filled open: ${describe(detach(held))}") }
     }
     // The chunk pass: `for` over a stream's bytes, a fresh buffer per step.
-    let ch = open_chunks(Path { text: "__DIR__/raw.bin" }, 4)
+    let ch = open_chunks(Path { value: "__DIR__/raw.bin" }, 4)
     when ch {
         is Ok {
             let p = ch
@@ -10516,22 +10516,22 @@ fn main() [use] -> None {
     }
     // The one-shots that own the buffer: a whole-file copy and a whole-file
     // byte read, with no stream and no buffer in sight.
-    let copied = copy_file(path, Path { text: "__DIR__/copy.txt" })
+    let copied = copy_file(path, Path { value: "__DIR__/copy.txt" })
     when copied {
         is Ok { println("copied ${copied}") }
         is Err { println("copied: ${describe(detach(copied))}") }
     }
-    let all_bytes = read_to_bytes(Path { text: "__DIR__/copy.txt" })
+    let all_bytes = read_to_bytes(Path { value: "__DIR__/copy.txt" })
     when all_bytes {
         is Ok { println("copy holds ${size(all_bytes)} bytes") }
         is Err { println("copy read: ${describe(detach(all_bytes))}") }
     }
-    let gone_copy = delete(Path { text: "__DIR__/copy.txt" })
+    let gone_copy = delete(Path { value: "__DIR__/copy.txt" })
     when gone_copy {
         is Ok { println("copy deleted") }
         is Err { println("copy deleted: ${describe(detach(gone_copy))}") }
     }
-    let gone_bin = delete(Path { text: "__DIR__/raw.bin" })
+    let gone_bin = delete(Path { value: "__DIR__/raw.bin" })
     when gone_bin {
         is Ok { println("raw deleted") }
         is Err { println("raw deleted: ${describe(detach(gone_bin))}") }
