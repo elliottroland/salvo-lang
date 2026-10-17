@@ -4045,7 +4045,37 @@ Conventions:
     variable `files`, hoisting a closure into a `let` where rustc cannot infer
     its reference parameters as higher-ranked — `mentions_ident` now skips
     path segments.
-* [effect-fn-deps] A fn's `[E1, E2<T>]` list declares its effect
+* [effect-alias] **An effect-group alias: `effects IO = [Console, Fs, Streams]`**
+  is shorthand for its member list anywhere an effect list appears — a fn's
+  effects, a fn *type*'s, a handler's dependency list, an effect's
+  prerequisites (user decision 2026-10-14). `fn f() [IO, Throw<Str>]` means
+  `[Console, Fs, Streams, Throw<Str>]`. The spelling is the plural keyword
+  `effects` (contextual, like `namespace` — recognised only at item position
+  before a capitalised name) and a bracketed effect list.
+  * **An alias is a set of effects, nothing more.** Its members are plain named
+    effects or other aliases; `use`, `spawn` and `any` are refused in the
+    declaration — they are per-function capabilities and per-instance
+    qualifiers, not effects a group can stand for. An alias may reference
+    another alias; the expansion closes them transitively and **refuses a
+    cycle**, named as a chain.
+  * **Usable wherever a named effect is**, including as or within a
+    prerequisite. `any Alias` at a *site* is refused for the same reason `any`
+    is refused in the declaration: `any` is about one instance of one effect.
+  * **An expansion before resolution** (`alias::expand_effect_aliases`, run
+    *before* `prereq::expand_prerequisites` so a prerequisite written with an
+    alias is expanded first). Each alias entry in every effect list is replaced
+    in place by the effects it stands for, deduped by name and preserving the
+    order of non-alias entries; the `effects …` declarations are then dropped,
+    and any `import mod.Alias` with them. The checker and both emitters see an
+    ordinary program with no aliases and agree by construction
+    [backend-never-wrong]. Modelled on [effect-prereq]: name resolution inside
+    the pass is the reduced effect-name ladder (own module, the tested module
+    for an annex, a named import by last segment or alias, a whole-module
+    import, `core.*`), and an expanded member the consuming file cannot already
+    name gets a synthetic `import` of it (empty span at offset 0) — a `core.*`
+    effect needs none (implicit everywhere), a local effect of the alias's
+    module does. A member whose name resolves to a *different* effect in the
+    consuming file is reported (rename one).
   dependencies. Calling a fn requires each of its effects to be available
   in the caller (declared or `use`d) — validated by the checker at every
   call site, recorded per-call (`call_effects`) in declaration order.

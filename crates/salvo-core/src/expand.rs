@@ -148,6 +148,19 @@ pub fn expand(files: &[SourceFile], modules: &mut [Module]) -> Expansion {
             suggested_imports: Vec::new(),
         });
     }
+    // [effect-alias] Before prerequisites: expand every `effects IO = […]`
+    // group into its members, in every effect list, so a prerequisite written
+    // with an alias is expanded first and the prereq pass then adds what the
+    // resulting effects imply.
+    for (file_idx, d) in crate::alias::expand_effect_aliases(files, modules) {
+        out.diagnostics.push(FileDiagnostic {
+            file: file_idx,
+            severity: d.severity,
+            message: d.message,
+            span: d.span,
+            suggested_imports: Vec::new(),
+        });
+    }
     // [effect-prereq] Last: every fn, handler and fn type in the program —
     // test bodies, stamped compfns and route stubs included — gets the
     // effects its effects imply.

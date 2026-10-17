@@ -235,6 +235,8 @@ impl<'p> Symbols<'p> {
                     // it can only be one resolution is about to refuse
                     // [test-file].
                     Item::Test(_) => {}
+                    // [effect-alias] Expanded away before symbol collection.
+                    Item::EffectAlias(_) => {}
                 }
             }
         }

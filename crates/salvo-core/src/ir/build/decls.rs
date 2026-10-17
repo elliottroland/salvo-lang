@@ -144,6 +144,8 @@ pub fn build_module(ctx: &Ctx<'_>, file_idx: usize, file: &SourceFile, module: &
             Item::Import(_) | Item::Params(_) | Item::Refn(_) | Item::Rename(_) | Item::Test(_) => {}
             // [namespace] Flattened away before the IR is built.
             Item::Namespace(_) => {}
+            // [effect-alias] Expanded away before the IR is built.
+            Item::EffectAlias(_) => {}
         }
     }
     (out, errors)

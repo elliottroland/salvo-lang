@@ -2,6 +2,7 @@
 //! checking, and (later) IR lowering.
 
 pub mod route;
+pub mod alias;
 pub mod features;
 pub mod copyplan;
 pub mod param_mode;

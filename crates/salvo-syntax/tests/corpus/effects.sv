@@ -6,6 +6,9 @@ effect Console {
     fn println(message: Str) -> None => message
 }
 
+// [effect-alias] An effect-group alias: shorthand for its member list.
+effects Chatty = [Random<Int>, Console]
+
 handler CyclicRandom<T>(values: T[]) of Random<T> {
     state {
         i: Int = 0

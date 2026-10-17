@@ -417,6 +417,9 @@ pub fn used_names(module: &Module) -> HashSet<&str> {
             // [namespace] Flattened away in `parse_module_deferred`; never
             // reaches here.
             Item::Namespace(_) => {}
+            // [effect-alias] Expanded away by `alias::expand_effect_aliases`
+            // before resolution; never reaches here.
+            Item::EffectAlias(_) => {}
         }
     }
     used

@@ -161,6 +161,11 @@ pub const COMPTIME_WORD: &str = "comptime";
 /// field, a call) everywhere else — talking *about* namespaces is common.
 pub const NAMESPACE_WORD: &str = "namespace";
 
+/// [effect-alias] The contextual word opening an `effects IO = [...]` group.
+/// Contextual like `namespace`: read as a keyword only at item position before
+/// a capitalized name, so `effects` stays an ordinary identifier.
+pub const EFFECTS_WORD: &str = "effects";
+
 /// [obligation-by] [fn-by] The contextual word naming where a body is stamped
 /// from: `: Ordered<self> by auto`, `fn cmp(a: P, b: P) -> Int by auto`.
 /// Contextual — `by` is an ordinary value name elsewhere, and both positions
@@ -593,6 +598,10 @@ impl<'s> Parser<'s> {
                 d.exported = true;
                 Some(Item::Namespace(d))
             }
+            Item::EffectAlias(mut d) => {
+                d.exported = true;
+                Some(Item::EffectAlias(d))
+            }
             Item::Import(_) => {
                 self.error(
                     "`export` cannot precede an `import`: a module states what *it* \
@@ -748,6 +757,16 @@ impl<'s> Parser<'s> {
                     );
                 }
                 Some(Item::Type(t))
+            }
+            // [effect-alias] `effects IO = [Console, Fs, Streams]` — a named
+            // effect group. A **contextual** keyword, recognised only before a
+            // capitalized name (and an `=` follows), so `effects` stays an
+            // ordinary identifier.
+            TokenKind::Ident(name)
+                if name == EFFECTS_WORD
+                    && matches!(&self.peek_at(1).kind, TokenKind::Ident(n) if n.starts_with(|c: char| c.is_uppercase())) =>
+            {
+                self.parse_effect_alias().map(Item::EffectAlias)
             }
             // [namespace] `namespace X { … }` or `namespace X ...` — a
             // grouping of declarations, flattened to dotted names before
@@ -2346,6 +2365,27 @@ impl<'s> Parser<'s> {
             }
         }
         Some(entries)
+    }
+
+    /// [effect-alias] `effects IO = [Console, Fs, Streams]` — the caller is
+    /// positioned on the `effects` identifier.
+    fn parse_effect_alias(&mut self) -> Option<EffectAliasDecl> {
+        let docs = self.docs_here();
+        let start = self.bump().span; // `effects`
+        let name = self.ident_type("effect alias")?;
+        self.expect(&TokenKind::Eq)?;
+        let effects = self.parse_effect_list()?;
+        let end = effects.last().map(|e| match e {
+            EffectRef::Use(s) | EffectRef::Spawn(s) => *s,
+            EffectRef::Effect(r) | EffectRef::AnyEffect(r) => r.span,
+        }).unwrap_or(name.span);
+        Some(EffectAliasDecl {
+            exported: false,
+            docs,
+            name,
+            effects,
+            span: start.to(end),
+        })
     }
 
     fn parse_effect(&mut self) -> Option<EffectDecl> {

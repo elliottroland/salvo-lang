@@ -138,6 +138,62 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-18 — Effect-group aliases (`effects IO = [Console, Fs, Streams]`)
+
+Built effect aliases: a named shorthand for a group of effects, usable anywhere
+an effect list appears. Prompted by the user's two-part request to let signatures
+name a recurring set of effects and (separately, still open — see ROADMAP) to let
+functions register/return handlers. The alias half landed; the handler-returning
+half became a design question the user reframed as "make effects first-class
+values," recorded as a ROADMAP **DECISION**.
+
+- **Syntax** (user decision 2026-10-14): `effects IO = [Console, Fs, Streams]`,
+  and `fn f() [IO, Throw<Str>]` means `[Console, Fs, Streams, Throw<Str>]`. The
+  keyword is the plural `effects`, **contextual** like `namespace` — recognised
+  only at item position before a capitalised name, so `effects` stays an
+  ordinary identifier everywhere else (no `KwEffects` token). An alias is
+  usable wherever a named effect is: a fn's list, a fn *type*'s, a handler's
+  dependency list, an effect's prerequisites, and within/as another alias.
+- **An alias is a set of effects, nothing more.** Members are plain named
+  effects or other aliases (closed transitively, cycles refused). `use`,
+  `spawn`, `any` are refused in the declaration, and `any Alias` is refused at
+  a site — `any` is one instance of one effect, not a group. Both agreed with
+  the agent's two recommendations (no `use`/`spawn` in an alias; usable anywhere
+  a named effect goes).
+- **An expansion before resolution** (`crate::alias::expand_effect_aliases`),
+  modelled on `prereq.rs` and run *before* `prereq::expand_prerequisites` so a
+  prerequisite written with an alias is expanded first. Each alias entry in
+  every effect list is replaced in place by its members, deduped by name,
+  order of non-alias entries preserved; the `effects …` declarations are
+  dropped, and so is any `import mod.Alias` naming one. The checker and both
+  emitters see an ordinary program with no aliases and agree by construction
+  [backend-never-wrong] — verified: a probe (`effects App = [Console, Clock]`,
+  a transitive `Big`, cross-module export/import, alias in a handler dep and an
+  effect prereq) produces byte-identical output on Rust and Kotlin.
+- **Synthetic imports for expanded members** (empty span at offset 0, as
+  prereq does): a member the consuming file cannot already name gets one. The
+  decision reuses a reduced effect-name resolution ladder (own module, the
+  tested module for an annex, named import, whole-module import, `core.*`); a
+  `core.*` effect is implicit everywhere and needs no import, a local effect of
+  the alias's own module does. **Gotcha found while building:** the first cut
+  keyed the import only on explicit imports of the alias's file, so an implicit
+  `core.*` member (`Console`) rode with the alias's file and produced a wrong
+  `import caps.Console`. Fixed by indexing *effect* declarations too
+  (`Index::effect_file`) and making `ensure_visible` skip when the member
+  already resolves to the same file from the consuming file (core.* / own
+  module / an existing import) — the prereq pass's exact shape. A second gotcha:
+  a leftover `import mod.Alias` resolved to nothing once the alias was dropped,
+  so the pass now also drops any import that names an alias.
+- **Files**: `EffectAliasDecl` + `Item::EffectAlias` (ast.rs); `EFFECTS_WORD`
+  const + contextual dispatch + `parse_effect_alias` (parser.rs); desugar reject
+  + walk arms; new `crate::alias` pass (`lib.rs`, called in `expand.rs`);
+  no-op arms in `program.rs`/`reach.rs`/`ir/build/decls.rs` (aliases never reach
+  them). `[effect-alias]` rule in LANGUAGE_SPEC.md; a subsection in
+  `docs/language/Effects-and-Handlers.md` (+ wiki); the `effects` contextual
+  pattern + export lookahead in `lang.rs` (+ regenerated vscode grammar);
+  `alias_tests.rs` (6 tests) and an alias in the `effects.sv` parser corpus.
+
+
 ### 2026-10-17 — DynamoDB (`aws.ddb`), the namespaced `AttributeValue` union
 
 Added `aws.ddb` to the `modules/aws` generator — the service D7 declined in

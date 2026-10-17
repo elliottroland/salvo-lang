@@ -2198,6 +2198,10 @@ fn prefix_item_name(
             reject!(d.span, "test");
             Some(Item::Test(d))
         }
+        Item::EffectAlias(d) => {
+            reject!(d.span, "effects alias");
+            Some(Item::EffectAlias(d))
+        }
     }
 }
 
@@ -2273,6 +2277,7 @@ pub fn walk_module(
             | Item::Type(_)
             | Item::Qualifier(_)
             | Item::Effect(_)
+            | Item::EffectAlias(_)
             | Item::Params(_)
             | Item::Refn(_)
             | Item::Rename(_) => {}

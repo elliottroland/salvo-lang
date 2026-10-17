@@ -182,6 +182,24 @@ A prerequisite is not inheritance. A handler of `Fs` does not implement `Streams
 
 The rules at the declaration: a prerequisite names a plain effect (not `use`, `spawn`, or `any E`); an exported effect's prerequisites are exported too, since every module naming the effect needs them; the prerequisites may not form a cycle; and actor effects neither have nor are prerequisites, for now.
 
+## Naming a group: effect aliases
+
+A signature that keeps repeating the same handful of effects can name them once:
+
+```
+effects IO = [Console, Fs, Streams]
+
+fn serve(request: Str) [IO, Throw<Str>] -> Str => request {
+    // may use Console, Fs, Streams, and throw — and nothing else
+}
+```
+
+`effects IO = [...]` declares an **alias**: shorthand for its member list anywhere an effect list appears — a function's effects, a function type's, a handler's dependency list, an effect's prerequisites. `[IO, Throw<Str>]` means `[Console, Fs, Streams, Throw<Str>]`; the alias adds nothing a signature could not have written out by hand, and a function with `[IO]` can perform exactly the effects `IO` lists and no others.
+
+An alias is a *set of effects*, so its members are plain named effects — or other aliases, which expand in turn (`effects All = [IO, Clock]`), with cycles refused. What an alias cannot contain is `use`, `spawn`, or `any`: those are a function's capability to register handlers and a qualifier on one instance of one effect, not effects a group stands for. For the same reason `any IO` is not a thing you can write at a call site — write `any` on the individual effect.
+
+An alias is exported like anything else (`export effects IO = [...]`) and imported by name (`import caps.IO`); using it pulls in whatever its members need, so a consumer writes `[IO]` without importing each effect separately.
+
 ## Starting up: `init` and `self@Face`
 
 A handler's state fields have initialisers, but an initialiser is an expression that sees only the constructor parameters. Anything a handler must *do* as it starts — register itself somewhere, compute state from a dependency — goes in its **`init` block**, which runs once, first:

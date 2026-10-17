@@ -57,6 +57,9 @@ pub enum Item {
     Handler(HandlerDecl),
     Params(ParamsDecl),
     Fn(FnDecl),
+    /// [effect-alias] `effects IO = [Console, Fs, Streams]` — a named effect
+    /// group, expanded to its members before resolution.
+    EffectAlias(EffectAliasDecl),
     /// [namespace] `namespace X { … }` — a nestable grouping of top-level
     /// declarations. Its body is itself a list of items (any declaration, and
     /// nested namespaces). Flattened to dotted names [name-dot] before
@@ -232,6 +235,27 @@ pub struct ParamsDecl {
     /// its functions (user decision 2026-09-26). Only `with` entries are
     /// meaningful here; a group has no body and no parameters of its own.
     pub deductions: Vec<Deduction>,
+    pub span: Span,
+}
+
+/// [effect-alias] `effects IO = [Console, Fs, Streams]` — a named group of
+/// effects, shorthand for its member list anywhere an effect list appears. An
+/// alias may name other aliases; the expansion closes them transitively before
+/// resolution (`alias::expand_effect_aliases`), so nothing downstream sees the
+/// alias — only the effects it stands for, exactly as a prerequisite is
+/// expanded [effect-prereq]. `use`/`spawn`/`any` are refused (an alias is a set
+/// of effects, not a per-fn capability).
+#[derive(Clone, Debug, PartialEq)]
+pub struct EffectAliasDecl {
+    /// The `//` comment block directly above the declaration [doc-comment].
+    pub docs: Vec<String>,
+    /// [mod-export] `export`: visible to other modules.
+    pub exported: bool,
+    /// The alias name — capitalized, like an effect [name-casing].
+    pub name: Ident,
+    /// The effects it stands for, as an effect list (named effects and other
+    /// aliases; `use`/`spawn`/`any` rejected by the expansion).
+    pub effects: Vec<EffectRef>,
     pub span: Span,
 }
 

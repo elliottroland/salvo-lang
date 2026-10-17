@@ -65,6 +65,42 @@ the import splitter's `trailing_upper > 2` cap in `resolve_import` — only
 exercised. Relax the cap if a case needs importing a nested namespace as a
 unit.
 
+### Effect aliases: done (2026-10-18)
+
+`effects IO = [Console, Fs, Streams]` — a named shorthand for a group of
+effects, usable anywhere an effect list appears — is built on both backends
+(COMPLETED.md's decision log, "Effect-group aliases"). It was the first half of
+a two-part user request; the second half is the DECISION below.
+
+### First-class effects (user direction 2026-10-14, DECISION, not designed)
+
+The user asked for functions that **register or return handlers** — a
+"`effect fn`" that `use`s handlers and hands an effect's capability back to its
+caller. The original sketch was `effect fn std_io() [use] -> [IO] Double`. The
+agent surfaced a fundamental tension: effects today are strictly lexically
+scoped (a `use` pushes an `EffectAvail` onto `effect_env`, truncated at block
+end), a handler is **not** a first-class value ([handler-not-value]), and the
+only value→bound-effect path is `Addr<E>` → `use addr`. Returning a handler is
+not expressible as the language stands.
+
+The user reframed the goal (superseding the `effect fn` sketch): **make effects
+first-class values**, standardising on how `Addr` already works, and then let an
+effect **alias** be referred to as a single effect value. This is the chosen
+direction. It is a **DECISION**: it reshapes the effect surface and must be
+designed with the user before any code. Open questions to settle first:
+
+- What *is* an effect value — a handle like `Addr<E>` (a bound instance), or a
+  capability token independent of any handler? How does it reconcile with the
+  lexical `effect_env` and [handler-not-value]?
+- Can a fn **accept** and **return** effect values, and what does `use value`
+  mean for one? How does an alias collapse to a single value when it stands for
+  several effects?
+- What does the type look like (`Effect<IO>`? a tuple of `Addr`s?), and how does
+  it emit identically on both backends [backend-never-wrong]?
+
+Present options + a recommendation as a design round; do not implement before
+the user decides.
+
 ### 0 — The runtime in Salvo: done (2026-10-03)
 
 Built: see COMPLETED.md's decision log and its "Design record: the runtime in

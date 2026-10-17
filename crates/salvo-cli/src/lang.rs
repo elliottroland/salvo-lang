@@ -56,7 +56,7 @@ const CONTEXTUAL_PATTERNS: &[(&str, &str, &str)] = &[
     // first of all the modifiers, so the lookahead is every word that can
     // start a declaration (including the other contextual ones).
     (
-        "\\\\bexport(?=\\\\s+(fn|struct|effect|handler|qualifier|type|params|intrinsic|linear|platform|provenance|actor|iter|send|comptime|noremote|threadsafe|iterable|namespace)\\\\b)",
+        "\\\\bexport(?=\\\\s+(fn|struct|effect|effects|handler|qualifier|type|params|intrinsic|linear|platform|provenance|actor|iter|send|comptime|noremote|threadsafe|iterable|namespace)\\\\b)",
         "keyword.declaration.salvo",
         "the export modifier",
     ),
@@ -103,6 +103,14 @@ const CONTEXTUAL_PATTERNS: &[(&str, &str, &str)] = &[
         "\\\\bnamespace(?=\\\\s+[A-Z])",
         "keyword.declaration.salvo",
         "the namespace grouping",
+    ),
+    // [effect-alias] `effects IO = [ … ]`: a contextual keyword, recognised
+    // only before a capitalized name — so `effects` stays an ordinary
+    // identifier everywhere else, mirroring the parser's own lookahead.
+    (
+        "\\\\beffects(?=\\\\s+[A-Z])",
+        "keyword.declaration.salvo",
+        "the effect-alias grouping",
     ),
     // [threadsafe-platform] `threadsafe platform handler H of E`: only
     // `platform` may follow it, mirroring the parser's own lookahead.
@@ -620,7 +628,7 @@ mod tests {
         // are in `DECLARATION_KEYWORDS` but are not among them ([mod-export]
         // refuses the middle three outright, and the other two are not items).
         for word in [
-            "fn", "struct", "effect", "handler", "qualifier", "type", "params", "intrinsic",
+            "fn", "struct", "effect", "effects", "handler", "qualifier", "type", "params", "intrinsic",
             "linear", "platform", "provenance", "actor", "iter", "send", "comptime",
             "noremote", "threadsafe", "iterable",
         ] {
