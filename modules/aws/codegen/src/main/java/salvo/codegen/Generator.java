@@ -34,6 +34,7 @@ import software.amazon.smithy.model.shapes.ShortShape;
 import software.amazon.smithy.model.shapes.StringShape;
 import software.amazon.smithy.model.shapes.StructureShape;
 import software.amazon.smithy.model.shapes.TimestampShape;
+import software.amazon.smithy.model.shapes.UnionShape;
 import software.amazon.smithy.model.traits.DefaultTrait;
 import software.amazon.smithy.model.traits.DocumentationTrait;
 import software.amazon.smithy.model.traits.HttpHeaderTrait;
@@ -73,6 +74,8 @@ final class Generator {
     private final Map<ShapeId, String> structs = new LinkedHashMap<>();
     /** Enums (as value types) in first-reached order. */
     private final Map<ShapeId, String> enums = new LinkedHashMap<>();
+    /** Unions reached, with their Salvo name; only DynamoDB's `AttributeValue` is mapped. */
+    private final Map<ShapeId, String> unions = new LinkedHashMap<>();
     /** Every modeled error of the selected operations, by Salvo name. */
     private final TreeSet<String> errorNames = new TreeSet<>();
     private final Map<String, StructureShape> errorShapes = new TreeMap<>();
@@ -193,11 +196,19 @@ final class Generator {
                 throw fail(mp.getId().toString(), "has a key that is not a string");
             }
             walkType(model.expectShape(mp.getValue().getTarget()), mp.getValue());
+        } else if (isAttributeValue(t)) {
+            // Its arms hold only scalars, bytes, and itself, so nothing further to reach.
+            unions.putIfAbsent(t.getId(), "AttributeValue");
         } else if (!(t instanceof StringShape || t instanceof IntegerShape || t instanceof ShortShape
                 || t instanceof ByteShape || t instanceof LongShape || t instanceof BooleanShape
                 || t instanceof FloatShape || t instanceof DoubleShape || t instanceof BlobShape)) {
             throw fail(via.getId().toString(), "targets a " + t.getType() + ", which this generator does not map yet");
         }
+    }
+
+    /** DynamoDB's `AttributeValue`, the one union this generator maps (by hand, arm by arm). */
+    private boolean isAttributeValue(Shape t) {
+        return t instanceof UnionShape && t.getId().toString().equals("com.amazonaws.dynamodb#AttributeValue");
     }
 
     private static IllegalStateException fail(String what, String why) {
@@ -457,6 +468,7 @@ final class Generator {
         if (t instanceof FloatShape) return "Float";
         if (t instanceof DoubleShape) return "Double";
         if (t instanceof BlobShape) return "Bytes";
+        if (isAttributeValue(t)) return "AttributeValue";
         throw fail(t.getId().toString(), "has no Salvo type");
     }
 
@@ -552,6 +564,7 @@ final class Generator {
         for (Map.Entry<ShapeId, String> s : structs.entrySet()) {
             out.append('\n').append(salvoStruct(model.expectShape(s.getKey(), StructureShape.class), s.getValue()));
         }
+        if (!unions.isEmpty()) out.append('\n').append(salvoAttributeValue());
         out.append(salvoErrors());
 
         // The effect.
@@ -588,7 +601,9 @@ final class Generator {
         String deps = streaming.isEmpty() ? "" : " [Streams]";
         out.append("export handler Fake").append(settings.effect()).append("()").append(deps).append(" of ")
                 .append(settings.effect()).append(", ").append(calls).append(" {\n");
-        out.append("    recorded: Mut List<Str> = Mut List()\n");
+        out.append("    state {\n");
+        out.append("        recorded: Mut List<Str> = Mut List()\n");
+        out.append("    }\n");
         for (OperationShape op : operations) {
             out.append('\n');
             out.append("    ").append(effectSignature(op).replace("\n    =>", " =>")).append(" {\n");
@@ -665,6 +680,59 @@ final class Generator {
      * code this model predates) — the one error struct, and the failure union
      * with [AwsError] for a call that got no response.
      */
+    /**
+     * DynamoDB's `AttributeValue` union, written out by hand: a namespace of one
+     * struct per wire type and the union of them [namespace]. The ten arms are
+     * fixed by the protocol, so they are not derived from the model.
+     */
+    private static String salvoAttributeValue() {
+        return """
+                // A DynamoDB attribute value: one of the ten wire types. Recursive through
+                // `M` (a map of attributes) and `L` (a list of them). A number arrives as its
+                // decimal string, as DynamoDB sends it on the wire.
+                export namespace AttributeValue {
+                    // A string value (`S`).
+                    export struct S { value: Str }
+                    // A number, as its decimal string (`N`).
+                    export struct N { value: Str }
+                    // Binary data (`B`).
+                    export struct B { value: Bytes }
+                    // A string set (`SS`).
+                    export struct Ss { value: List<Str> }
+                    // A number set, each as its decimal string (`NS`).
+                    export struct Ns { value: List<Str> }
+                    // A binary set (`BS`).
+                    export struct Bs { value: List<Bytes> }
+                    // A map of attribute values (`M`).
+                    export struct M { value: Map<Str, AttributeValue> }
+                    // A list of attribute values (`L`).
+                    export struct L { value: List<AttributeValue> }
+                    // A boolean (`BOOL`).
+                    export struct Bool { value: Bool }
+                    // The null value (`NULL`); its `value` is always `true`.
+                    export struct Null { value: Bool }
+                }
+
+                export type AttributeValue = AttributeValue.S
+                    | AttributeValue.N
+                    | AttributeValue.B
+                    | AttributeValue.Ss
+                    | AttributeValue.Ns
+                    | AttributeValue.Bs
+                    | AttributeValue.M
+                    | AttributeValue.L
+                    | AttributeValue.Bool
+                    | AttributeValue.Null
+                """;
+    }
+
+    /**
+     * The arms of `AttributeValue` in declaration order — which is union arm
+     * order [union-arm-identity] — named as the Salvo struct and, in both SDKs,
+     * the variant.
+     */
+    private static final List<String> AV_ARMS = List.of("S", "N", "B", "Ss", "Ns", "Bs", "M", "L", "Bool", "Null");
+
     private String salvoErrors() {
         StringBuilder out = new StringBuilder("\n");
         List<String> arms = new ArrayList<>();
@@ -835,6 +903,7 @@ final class Generator {
             return rsCrate() + "::types::" + rsSdkName(e.getId().getName()) + "::from(" + ref + ".as_str())";
         }
         if (t instanceof StructureShape s) return "to_sdk_" + snake(structs.get(s.getId())) + "(" + ref + ")";
+        if (isAttributeValue(t)) return "to_sdk_attribute_value(" + ref + ")";
         if (t instanceof ListShape l) {
             return ref + ".iter().map(|e| " + rsToSdk(target(l.getMember()), "e") + ").collect::<Vec<_>>()";
         }
@@ -856,6 +925,7 @@ final class Generator {
     private String rsFromSdk(Shape t, String ref) {
         if (t instanceof EnumShape) return ref + ".as_str().to_string()";
         if (t instanceof StructureShape s) return "from_sdk_" + snake(salvoType(s)) + "(" + ref + ")";
+        if (isAttributeValue(t)) return "from_sdk_attribute_value(" + ref + ")";
         if (t instanceof ListShape l) {
             return ref + ".iter().map(|e| " + rsFromSdk(target(l.getMember()), "e") + ").collect::<Vec<_>>()";
         }
@@ -954,6 +1024,7 @@ final class Generator {
                 out.append('\n').append(rustToSdk(shape, s.getValue()));
             }
         }
+        if (!unions.isEmpty()) out.append(rustAttributeValue());
         out.append(rustFailure());
         out.append(rustExpandHome());
         if (usesTime) out.append(rustTimeHelpers());
@@ -1110,6 +1181,60 @@ final class Generator {
         out.append(";\n    b.build()");
         if (fallible) out.append(".expect(\"every required member of ").append(name).append(" is set\")");
         out.append("\n}\n");
+        return out.toString();
+    }
+
+    /**
+     * The `AttributeValue` conversions. A Salvo union lowers to `UnionN` over
+     * its arms in declaration order [union-arm-identity], so arm `i` of
+     * [AV_ARMS] is `U{i+1}`; the type alias itself is not emitted.
+     */
+    private String rustAttributeValue() {
+        String crate = rsCrate();
+        String sdk = crate + "::types::AttributeValue";
+        String blob = crate + "::primitives::Blob";
+        String n = "Union" + AV_ARMS.size();
+        String av = n + "<" + String.join(", ", AV_ARMS.stream().map(a -> "AttributeValue" + a).toList()) + ">";
+        Map<String, String> to = new LinkedHashMap<>();
+        to.put("S", "x.value.clone()");
+        to.put("N", "x.value.clone()");
+        to.put("B", blob + "::new(x.value.clone())");
+        to.put("Ss", "x.value.clone()");
+        to.put("Ns", "x.value.clone()");
+        to.put("Bs", "x.value.iter().map(|b| " + blob + "::new(b.clone())).collect()");
+        to.put("M", "x.value.iter().map(|(k, e)| (k.clone(), to_sdk_attribute_value(e))).collect()");
+        to.put("L", "x.value.iter().map(|e| to_sdk_attribute_value(e)).collect()");
+        to.put("Bool", "x.value");
+        to.put("Null", "x.value");
+        Map<String, String> from = new LinkedHashMap<>();
+        from.put("S", "x.to_string()");
+        from.put("N", "x.to_string()");
+        from.put("B", "x.as_ref().to_vec()");
+        from.put("Ss", "x.iter().map(|s| s.to_string()).collect()");
+        from.put("Ns", "x.iter().map(|s| s.to_string()).collect()");
+        from.put("Bs", "x.iter().map(|b| b.as_ref().to_vec()).collect()");
+        from.put("M", "{ let mut __es: Vec<_> = x.iter().map(|(k, e)| (k.clone(), from_sdk_attribute_value(e))).collect(); "
+                + "__es.sort_by(|a, b| a.0.cmp(&b.0)); crate::platform_core_map::canonical_map(__es) }");
+        from.put("L", "x.iter().map(|e| from_sdk_attribute_value(e)).collect()");
+        from.put("Bool", "*x");
+        from.put("Null", "*x");
+        StringBuilder out = new StringBuilder();
+        out.append("\nfn to_sdk_attribute_value(v: &").append(av).append(") -> ").append(sdk).append(" {\n    match v {\n");
+        for (int i = 0; i < AV_ARMS.size(); i++) {
+            String a = AV_ARMS.get(i);
+            out.append("        ").append(n).append("::U").append(i + 1).append("(x) => ").append(sdk).append("::").append(a)
+                    .append('(').append(to.get(a)).append("),\n");
+        }
+        out.append("    }\n}\n");
+        // A variant newer than this client (the SDK's `Unknown`) has no Salvo arm.
+        out.append("\nfn from_sdk_attribute_value(v: &").append(sdk).append(") -> ").append(av).append(" {\n    match v {\n");
+        for (int i = 0; i < AV_ARMS.size(); i++) {
+            String a = AV_ARMS.get(i);
+            out.append("        ").append(sdk).append("::").append(a).append("(x) => ").append(n).append("::U").append(i + 1)
+                    .append("(AttributeValue").append(a).append(" { value: ").append(from.get(a)).append(" }),\n");
+        }
+        out.append("        other => panic!(\"DynamoDB sent an attribute value this client does not map: {:?}\", other),\n");
+        out.append("    }\n}\n");
         return out.toString();
     }
 
@@ -1393,6 +1518,7 @@ final class Generator {
         // [type-literal] An enum is its wire string in Salvo, on both sides.
         if (t instanceof EnumShape e) return ktModel() + "." + ktSdkName(e.getId()) + ".fromValue(" + v + ")";
         if (t instanceof StructureShape s) return "toSdk" + structs.get(s.getId()) + "(" + v + ")";
+        if (isAttributeValue(t)) return "toSdkAttributeValue(" + v + ")";
         if (t instanceof ListShape l) {
             return v + ".map { e" + d + " -> " + ktToSdk(target(l.getMember()), "e" + d, d + 1) + " }";
         }
@@ -1411,6 +1537,7 @@ final class Generator {
     private String ktFromSdk(Shape t, String v, int d) {
         if (t instanceof EnumShape) return v + ".value";
         if (t instanceof StructureShape s) return "fromSdk" + salvoType(s) + "(" + v + ")";
+        if (isAttributeValue(t)) return "fromSdkAttributeValue(" + v + ")";
         if (t instanceof ListShape l) {
             return v + ".map { e" + d + " -> " + ktFromSdk(target(l.getMember()), "e" + d, d + 1) + " }";
         }
@@ -1486,6 +1613,7 @@ final class Generator {
             if (!inputs.contains(s.getKey())) out.append('\n').append(kotlinFromSdk(shape, s.getValue()));
             if (!outputs.contains(s.getKey())) out.append('\n').append(kotlinToSdk(shape, s.getValue()));
         }
+        if (!unions.isEmpty()) out.append(kotlinAttributeValue());
         out.append(kotlinFailure());
         if (usesTime) out.append(kotlinTimeHelpers());
         if (!streaming.isEmpty()) out.append(kotlinStreamHelpers());
@@ -1761,6 +1889,49 @@ final class Generator {
                     }
                 }
                 """;
+    }
+
+    /**
+     * The `AttributeValue` conversions. The Salvo union is a `UnionN` over its
+     * arms in declaration order [union-arm-identity], each arm a nested class
+     * of the `AttributeValue` namespace object; the SDK's is a sealed class
+     * with a variant of each name.
+     */
+    private String kotlinAttributeValue() {
+        String sdk = ktModel() + ".AttributeValue";
+        String n = "Union" + AV_ARMS.size();
+        String av = n + "<" + String.join(", ", AV_ARMS.stream().map(a -> "AttributeValue." + a).toList()) + ">";
+        Map<String, String> to = new LinkedHashMap<>();
+        to.put("B", "x.value.toByteArray()");
+        to.put("Bs", "x.value.map { it.toByteArray() }");
+        to.put("M", "x.value.associate { (k, e) -> k to toSdkAttributeValue(e) }");
+        to.put("L", "x.value.map { toSdkAttributeValue(it) }");
+        Map<String, String> from = new LinkedHashMap<>();
+        from.put("B", "salvo.SalvoBytes(v.value)");
+        from.put("Bs", "v.value.map { salvo.SalvoBytes(it) }");
+        from.put("M", "salvo.platform.core.map.canonicalMap(v.value.entries.sortedBy { it.key }"
+                + ".map { (k, e) -> k to fromSdkAttributeValue(e) })");
+        from.put("L", "v.value.map { fromSdkAttributeValue(it) }");
+        StringBuilder out = new StringBuilder();
+        out.append("\nprivate fun toSdkAttributeValue(v: ").append(av).append("): ").append(sdk).append(" = when (v) {\n");
+        for (int i = 0; i < AV_ARMS.size(); i++) {
+            String a = AV_ARMS.get(i);
+            out.append("    is ").append(n).append(".U").append(i + 1).append(stars(AV_ARMS.size())).append(" -> { val x = v.value as AttributeValue.")
+                    .append(a).append("; ").append(sdk).append('.').append(a).append('(').append(to.getOrDefault(a, "x.value"))
+                    .append(") }\n");
+        }
+        out.append("}\n");
+        // A variant newer than this client (the SDK's `SdkUnknown`) has no Salvo arm.
+        out.append("\nprivate fun fromSdkAttributeValue(v: ").append(sdk).append("): ").append(av).append(" = when (v) {\n");
+        for (int i = 0; i < AV_ARMS.size(); i++) {
+            String a = AV_ARMS.get(i);
+            out.append("    is ").append(sdk).append('.').append(a).append(" -> ").append(n).append(".U").append(i + 1)
+                    .append("(AttributeValue.").append(a).append("(value = ").append(from.getOrDefault(a, "v.value"))
+                    .append("))\n");
+        }
+        out.append("    else -> error(\"DynamoDB sent an attribute value this client does not map: $v\")\n");
+        out.append("}\n");
+        return out.toString();
     }
 
     private String kotlinCredentials() {

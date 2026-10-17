@@ -187,6 +187,48 @@ the decisions — worth a second look:
   `<important>`/`<note>` blocks (S3's `PutObject` opens with an
   end-of-support notice). One SQS field comment changed with it.
 
+### Built: DynamoDB and the namespaced `AttributeValue` union (2026-10-17)
+
+`aws.ddb` for six operations — `GetItem`, `PutItem`, `DeleteItem`, `Query`,
+`CreateTable`, `DeleteTable` — with `examples/aws_ddb` in the suite (the
+generated fake and a hand-written `MemDdb`, identical output on both backends).
+This is the service D7 deferred ("DynamoDB first" was declined in favour of SQS
+then S3), picked up once namespaces made its central type expressible.
+
+- **`AttributeValue` is a Smithy *union***, which the generator refused until
+  now. It is special-cased (not a general union mapping — see §9) to a
+  **namespaced union** using the language's new `namespace` feature: `namespace
+  AttributeValue { export struct S { value: Str } … }` with `type
+  AttributeValue = AttributeValue.S | … | AttributeValue.Null` over the ten arm
+  structs (`S N B SS NS BS M L BOOL NULL`, the arm names `S N B Ss Ns Bs M L
+  Bool Null`). An item is a `Map<Str, AttributeValue>`. A number is a `Str` (the
+  decimal string, as the wire carries it — DynamoDB numbers are
+  arbitrary-precision, so a `Str` is the only lossless choice). `NULL` and
+  `BOOL` are both `Bool` arms, faithful to the model.
+- **Why a namespace, not bare qualifiers:** bare top-level `S`/`N`/`M`/`L`
+  would pollute the module scope (user objection, 2026-10-16). The general
+  namespace feature was built first — see the compiler's decision log — and the
+  generator emits the union into it. The `.Thing` suffix shorthand (`when attr
+  { is .S { … } }`) is what makes the surface read well.
+- **The glue converts the union recursively.** `to_sdk_attribute_value` /
+  `from_sdk_attribute_value` (Rust) and `toSdkAttributeValue` /
+  `fromSdkAttributeValue` (Kotlin) `match`/`when` over the arms and build the
+  SDK's `AttributeValue`; the `M` and `L` arms recurse. A Salvo `type` over a
+  union lowers to the anonymous positional `Union10<…>` on both backends (not a
+  named type), so the glue matches `Union10::U1`/`is Union10.U1<…>` — found
+  while building, and the reason the converters are hand-written against that
+  shape. `rsToSdk`/`rsFromSdk`/`ktToSdk`/`ktFromSdk` route any `AttributeValue`
+  (a map or list member, say `GetItemOutput.item`) through them.
+- **A generator bug the DDB work exposed and fixed:** the recording-fake
+  emitter wrote the `recorded` list as a bare field, but SQS/S3 were
+  hand-patched to the `state { … }` form (commit f0a2a6d6) and the generator
+  never was — so regenerating drifted SQS/S3. The emitter now writes `state {
+  … }`, and a fresh `./gradlew generate` reproduces the checked-in SQS/S3
+  byte-for-byte.
+- **A Kotlin backend gap, left for the compiler:** `copy` of a whole `Map` is
+  unsupported on Kotlin (§9). The example copies an item attribute by attribute
+  (`rebuild`), which works on both backends.
+
 ### Rebuilt: the glue as plain implementation files again (2026-10-01)
 
 Platform templates were removed (the ABI decisions), so the generator is back at its
@@ -455,7 +497,10 @@ types without them.
 
 ## 9. Deferred, recorded
 
-`Document`; event streams; Smithy unions; paginators and waiters (ordinary
+`Document`; event streams; **general** Smithy unions (DynamoDB's
+`AttributeValue` is mapped as a special case — see "Built: DynamoDB" — but an
+arbitrary union is still refused; the general mapping would reuse the
+namespaced-union shape `AttributeValue` uses); paginators and waiters (ordinary
 Salvo over the operations, later); **uploads of unknown length** — multipart
 upload (`CreateMultipartUpload`/`UploadPart`/`CompleteMultipartUpload`), for a
 body relayed from a stream whose length nobody knows; the writer pair for Salvo-produced bodies and host-minted
@@ -463,6 +508,11 @@ replies (6); asynchronous `Lines`; a consumer-only `ByteSource` face;
 implementing the protocols in Salvo (D1's alternative); Maven resolution in the
 compiler (3b); transitive dependencies for `modules/aws` itself ([manifest-deps]
 leftovers).
+
+**`copy` of a `Map` on the Kotlin backend** (found 2026-10-17 building the DDB
+example): copying a whole `Map<K, V>` is unsupported on Kotlin (`copy_plan` has
+no map case), so the DDB example copies an item attribute by attribute instead.
+A compiler gap, not an `aws`-module one — recorded in the compiler's ROADMAP.
 
 **Provider-checked handles** (from 10, on the compiler's roadmap as §4b item 4):
 a way for the checker to refuse a `MemFs` stream reaching `HostByteSource`. The

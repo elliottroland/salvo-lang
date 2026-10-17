@@ -50,6 +50,29 @@
                     ]
                 }
             }
+        },
+        "ddb": {
+            "imports": [
+                "models/dynamodb-2012-08-10.json"
+            ],
+            "plugins": {
+                "salvo-client-codegen": {
+                    "service": "com.amazonaws.dynamodb#DynamoDB_20120810",
+                    "module": "aws.ddb",
+                    "effect": "Ddb",
+                    "rustCrate": "aws_sdk_dynamodb",
+                    "kotlinPackage": "aws.sdk.kotlin.services.dynamodb",
+                    "modelFile": "models/dynamodb-2012-08-10.json",
+                    "operations": [
+                        "GetItem",
+                        "PutItem",
+                        "DeleteItem",
+                        "Query",
+                        "CreateTable",
+                        "DeleteTable"
+                    ]
+                }
+            }
         }
     }
 }

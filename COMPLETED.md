@@ -138,6 +138,47 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-17 — DynamoDB (`aws.ddb`), the namespaced `AttributeValue` union
+
+Added `aws.ddb` to the `modules/aws` generator — the service D7 declined in
+favour of SQS then S3, picked up once namespaces made its central type
+expressible. Six operations: `GetItem`, `PutItem`, `DeleteItem`, `Query`,
+`CreateTable`, `DeleteTable`. `examples/aws_ddb` is in the suite (the generated
+`FakeDdb` and a hand-written `MemDdb`), identical output on both backends; the
+module's DESIGN.md "Built: DynamoDB" has the detail.
+
+- **`AttributeValue` — a Smithy union the generator refused — is special-cased
+  to a namespaced union** (option B, user's choice 2026-10-16; not a general
+  union mapping, which §9 still defers). It emits as `namespace AttributeValue
+  { export struct S { value: Str } … }` (ten arms `S N B Ss Ns Bs M L Bool
+  Null`) with `type AttributeValue = AttributeValue.S | …`. An item is
+  `Map<Str, AttributeValue>`; a number is a `Str` (lossless for DynamoDB's
+  arbitrary-precision numbers). This is the first consumer of the `namespace`
+  feature built the same week.
+- **Generator change** (`modules/aws/codegen/.../Generator.java`, one file): an
+  `isAttributeValue` special case in `walkType`/`salvoType`; a `salvoAttributeValue()`
+  surface block; hand-written recursive `to_sdk_attribute_value`/`from_sdk_attribute_value`
+  (Rust) and `toSdkAttributeValue`/`fromSdkAttributeValue` (Kotlin), with
+  `rsToSdk`/`ktToSdk` (and the from-side) routing any `AttributeValue` through
+  them. A Salvo `type` over a union lowers to the anonymous `Union10<…>` on
+  both backends, so the converters match `Union10::U1` / `is Union10.U1<…>` —
+  discovered while building.
+- **Fixed a latent generator bug the DDB work exposed:** the recording-fake
+  emitter wrote `recorded: …` as a bare field, but SQS/S3 were hand-patched to
+  `state { … }` (f0a2a6d6) and the generator never was, so regenerating drifted
+  SQS/S3. The emitter now writes `state { … }`; a fresh `./gradlew generate`
+  reproduces the checked-in SQS/S3 byte-for-byte (verified: no drift).
+- **Found a Kotlin backend gap, recorded as ROADMAP 0m:** `copy` of a whole
+  `Map` is unsupported on Kotlin (`copy_plan` has no map case) while Rust does
+  it fine. The example works around it (`rebuild`, attribute by attribute). A
+  backend-parity bug, left for the compiler — not an `aws`-module issue.
+- Config: `ddb` projection in `smithy-build.json`, `aws-sdk-dynamodb` /
+  `aws.sdk.kotlin:dynamodb` in `salvo.toml`, the model vendored under
+  `models/dynamodb-2012-08-10.json` with its `COMMIT` line. The host-project
+  drift test (`salvo platform generate`) regenerated the `platform/` ABI files
+  (a global ABI-hash bump touches every file's header, as adding any module
+  does); all current.
+
 ### 2026-10-16 — Namespaces (`namespace X { … }`)
 
 Built the namespace feature (ROADMAP's "N — Namespaces", user decisions D1–D8

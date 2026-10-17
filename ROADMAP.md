@@ -396,6 +396,25 @@ infer the return type from the body's `return`s (as a fn's is, through
 the two is a language decision (**DECISION**: infer, or reject an
 un-annotated braced lambda whose result is used).
 
+### 0m — Open defect: `copy` of a `Map` is unsupported on the Kotlin backend (found 2026-10-17)
+
+`copy(m)` for `m: Map<K, V>` fails the Kotlin emitter with "cannot `copy` a
+value of type `Map<…>`", while Rust copies it fine (a plain immutable map is an
+Identity copy). Found building `examples/aws_ddb`, which copies a
+`Map<Str, AttributeValue>` item; the example works around it with a `rebuild`
+helper that copies attribute by attribute. Nothing in std or the other examples
+copies a whole map, which is why it was latent.
+
+The Kotlin `copy` path in `ir_emit/mod.rs` (`intrinsic_call`) bottoms out in
+`salvo_core::copyplan::copy_plan`, which has `List`/`Deque`/struct/array cases
+but **no `Map` case**, and the `immutable`→Identity shortcut does not fire here
+(the inferred map type carries its `(?hash, ?eq)` slots, which the
+immutable/plan walk likely trips on). Fix: give `copy_plan` a `Map` case
+(copy keys and values element-wise, like `Elements` does for a list, honouring
+`Mut`), or make `immutable` recognise a plain map of immutable entries so the
+copy is Identity. A backend-parity bug — Rust already does the right thing —
+not a language decision.
+
 ### 0e — Deferred wakes (recorded 2026-10-03, DECISION, needs a design session)
 
 **What it is.** When a message makes an actor runnable, the scheduler unparks

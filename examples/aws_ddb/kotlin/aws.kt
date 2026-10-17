@@ -1,0 +1,90 @@
+package salvo.aws
+
+import salvo.*
+
+data class ProfileCredentials(
+    val profile: String = "default",
+    val path: String = "~/.aws/credentials",
+)
+
+object __Codec_ProfileCredentials : salvo.WireCodec<ProfileCredentials> {
+    override fun enc(v: ProfileCredentials, out: salvo.WireOut) {
+        salvo.StrCodec.enc(v.profile, out)
+        salvo.StrCodec.enc(v.path, out)
+    }
+    override fun dec(inp: salvo.WireIn): ProfileCredentials = ProfileCredentials(salvo.StrCodec.dec(inp), salvo.StrCodec.dec(inp))
+}
+
+class EnvironmentCredentials
+
+object __Codec_EnvironmentCredentials : salvo.WireCodec<EnvironmentCredentials> {
+    override fun enc(v: EnvironmentCredentials, out: salvo.WireOut) {
+    }
+    override fun dec(inp: salvo.WireIn): EnvironmentCredentials = EnvironmentCredentials()
+}
+
+class DefaultChain
+
+object __Codec_DefaultChain : salvo.WireCodec<DefaultChain> {
+    override fun enc(v: DefaultChain, out: salvo.WireOut) {
+    }
+    override fun dec(inp: salvo.WireIn): DefaultChain = DefaultChain()
+}
+
+
+// Factories for the host: one per arm of the union [platform-factory].
+object Credentialss {
+    fun profileCredentials(value: ProfileCredentials): Union3<ProfileCredentials, EnvironmentCredentials, DefaultChain> = salvo.Union3.U1(value)
+    fun environmentCredentials(value: EnvironmentCredentials): Union3<ProfileCredentials, EnvironmentCredentials, DefaultChain> = salvo.Union3.U2(value)
+    fun defaultChain(value: DefaultChain): Union3<ProfileCredentials, EnvironmentCredentials, DefaultChain> = salvo.Union3.U3(value)
+}
+
+data class Region(
+    val code: String,
+)
+
+object __Codec_Region : salvo.WireCodec<Region> {
+    override fun enc(v: Region, out: salvo.WireOut) {
+        salvo.StrCodec.enc(v.code, out)
+    }
+    override fun dec(inp: salvo.WireIn): Region = Region(salvo.StrCodec.dec(inp))
+}
+
+data class AwsConfig(
+    val credentials: Union3<ProfileCredentials, EnvironmentCredentials, DefaultChain> = Union3.U3<ProfileCredentials, EnvironmentCredentials, DefaultChain>(DefaultChain()),
+    val region: Region,
+    val endpoint: String? = null,
+)
+
+object __Codec_AwsConfig : salvo.WireCodec<AwsConfig> {
+    override fun enc(v: AwsConfig, out: salvo.WireOut) {
+        salvo.Union3Codec(__Codec_ProfileCredentials, __Codec_EnvironmentCredentials, __Codec_DefaultChain).enc(v.credentials, out)
+        __Codec_Region.enc(v.region, out)
+        salvo.OptCodec(salvo.StrCodec).enc(v.endpoint, out)
+    }
+    override fun dec(inp: salvo.WireIn): AwsConfig = AwsConfig(salvo.Union3Codec(__Codec_ProfileCredentials, __Codec_EnvironmentCredentials, __Codec_DefaultChain).dec(inp), __Codec_Region.dec(inp), salvo.OptCodec(salvo.StrCodec).dec(inp))
+}
+
+data class AwsError(
+    val code: String,
+    val message: String,
+)
+
+object __Codec_AwsError : salvo.WireCodec<AwsError> {
+    override fun enc(v: AwsError, out: salvo.WireOut) {
+        salvo.StrCodec.enc(v.code, out)
+        salvo.StrCodec.enc(v.message, out)
+    }
+    override fun dec(inp: salvo.WireIn): AwsError = AwsError(salvo.StrCodec.dec(inp), salvo.StrCodec.dec(inp))
+}
+
+fun toStr(value: ProfileCredentials): String {
+    val out: salvo.platform.core.string.MutStr = salvo.core.string.mutStr(arrayOf<String>("ProfileCredentials {"))
+    salvo.core.string.appendPlatform(out, " ")
+    salvo.core.string.appendPlatform(out, "profile: ${value.profile}")
+    salvo.core.string.appendPlatform(out, ", ")
+    salvo.core.string.appendPlatform(out, "path: ${value.path}")
+    salvo.core.string.appendPlatform(out, " }")
+    return out.toString()
+}
+

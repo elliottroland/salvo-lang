@@ -266,7 +266,12 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let kept = |d: &Decl| -> bool {
             let Some(keep) = keep else { return true };
             match d {
-                Decl::Struct(x) => keep.contains(&x.name) && !x.name.contains('.'),
+                // [namespace] A dotted-name struct (a namespace arm) is kept
+                // when the closure reaches it: the namespace it belongs to has
+                // to be emitted as a whole for `Ns.Arm` to resolve, even in an
+                // ABI file. The `emit_struct_namespace` path below emits the
+                // tree once per root.
+                Decl::Struct(x) => keep.contains(&x.name),
                 Decl::Union(x) => keep.contains(&x.name),
                 Decl::Interface(x) => keep.contains(&x.name),
                 Decl::Impl(h) => h.platform,

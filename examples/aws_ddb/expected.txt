@@ -1,0 +1,12 @@
+-- FakeDdb --
+created table users
+put {active=true, age=37, id="user-42", name="Ada"}
+got nothing
+deleted user-42
+calls: [create_table, put_item, get_item, delete_item]
+-- MemDdb --
+created table users
+put {active=true, age=37, id="user-42", name="Ada"}
+got {active=true, age=37, id="user-42", name="Ada"}
+deleted user-42
+get_item: no such table

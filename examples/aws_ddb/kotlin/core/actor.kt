@@ -1,0 +1,116 @@
+package salvo.core.actor
+
+import salvo.*
+
+fun eq(a: Int, b: Int): Boolean {
+    return salvo.runtime.routing.sameActor((a), (b))
+}
+
+data class Mailbox(
+    val capacity: Int,
+)
+
+object __Codec_Mailbox : salvo.WireCodec<Mailbox> {
+    override fun enc(v: Mailbox, out: salvo.WireOut) {
+        salvo.IntCodec.enc(v.capacity, out)
+    }
+    override fun dec(inp: salvo.WireIn): Mailbox = Mailbox(salvo.IntCodec.dec(inp))
+}
+
+fun pool(size: Int): Int {
+    val p: Int = salvo.runtime.newPoolOf(size, (-1))
+    salvo.runtime.routing.adopt(p)
+    return (p)
+}
+
+data class Fault(
+    val reason: String,
+)
+
+object __Codec_Fault : salvo.WireCodec<Fault> {
+    override fun enc(v: Fault, out: salvo.WireOut) {
+        salvo.StrCodec.enc(v.reason, out)
+    }
+    override fun dec(inp: salvo.WireIn): Fault = Fault(salvo.StrCodec.dec(inp))
+}
+
+interface Faults {
+    fun faulted(fault: Fault)
+}
+
+class __Mon_Faults(
+    private val inner: Faults,
+    private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
+) : Faults {
+    override fun faulted(fault: Fault) {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.faulted(fault) } finally { lock.unlock() }
+    }
+}
+
+data class Exit(
+    val reason: String,
+)
+
+object __Codec_Exit : salvo.WireCodec<Exit> {
+    override fun enc(v: Exit, out: salvo.WireOut) {
+        salvo.StrCodec.enc(v.reason, out)
+    }
+    override fun dec(inp: salvo.WireIn): Exit = Exit(salvo.StrCodec.dec(inp))
+}
+
+fun watch(target: Int, onExit: salvo.SalvoReply) {
+    val __subject_1: salvo.runtime.Token? = (onExit).takeLocal()
+    if ((__subject_1 != null)) {
+        val t: salvo.runtime.Token = __subject_1!!
+        salvo.runtime.watch((target), t)
+    }
+}
+
+data class Idle(
+    val parkedGates: Int,
+    val parkedTokens: Int,
+)
+
+object __Codec_Idle : salvo.WireCodec<Idle> {
+    override fun enc(v: Idle, out: salvo.WireOut) {
+        salvo.IntCodec.enc(v.parkedGates, out)
+        salvo.IntCodec.enc(v.parkedTokens, out)
+    }
+    override fun dec(inp: salvo.WireIn): Idle = Idle(salvo.IntCodec.dec(inp), salvo.IntCodec.dec(inp))
+}
+
+fun onIdle(p: Int, notify: salvo.SalvoReply) {
+    val __subject_1: salvo.runtime.Token? = (notify).takeLocal()
+    if ((__subject_1 != null)) {
+        val t: salvo.runtime.Token = __subject_1!!
+        salvo.runtime.onIdle((p), t)
+    }
+}
+
+
+sealed class __Msg_Faults {
+    class Faulted(val fault: Fault) : __Msg_Faults()
+}
+
+object __Codec___Msg_Faults : salvo.WireCodec<__Msg_Faults> {
+    override fun enc(v: __Msg_Faults, out: salvo.WireOut) {
+        when (v) {
+            is __Msg_Faults.Faulted -> { out.u8(0); __Codec_Fault.enc(v.fault, out) }
+        }
+    }
+    override fun dec(inp: salvo.WireIn): __Msg_Faults = when (inp.u8()) {
+            0 -> __Msg_Faults.Faulted(__Codec_Fault.dec(inp))
+        else -> throw salvo.WireError()
+    }
+}
+
+const val __PROTO_Faults: String = "b2ab28f759af3855"
+
+class __Stub_Faults(private val addr: Int) : Faults {
+    override fun faulted(fault: Fault) {
+        salvo.SalvoSched.sendWire(addr, __Msg_Faults.Faulted(fault), __PROTO_Faults, __Codec___Msg_Faults)
+    }
+}
+

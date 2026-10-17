@@ -1,7 +1,7 @@
 # aws
 
 AWS services for Salvo programs. Each service is a **generated** Salvo module —
-`aws.sqs` and `aws.s3` today — whose effect has one member per operation. Every member takes
+`aws.sqs`, `aws.s3` and `aws.ddb` today — whose effect has one member per operation. Every member takes
 a `Reply` and returns at once; the host implementation answers from the
 platform SDK's own asynchronous machinery (aws-sdk-kotlin on the JVM,
 aws-sdk-rust on Rust), so no Salvo worker waits on the network. An S3 object's body is a
@@ -249,7 +249,11 @@ out/rust` and then `cargo build --manifest-path out/rust/Cargo.toml`, as the
 ## What the generator does not map yet
 
 It stops with an error naming the shape rather than emitting something
-approximate: documents, event streams, Smithy unions, big numbers, and
-non-scalar `@default`s. Enum-keyed maps are `Map<Str, V>` keyed by the enum's
-wire value; timestamps are `time.Instant`; a `@streaming` blob is a
+approximate: documents, event streams, big numbers, and
+non-scalar `@default`s. A general Smithy **union** is still refused, but
+DynamoDB's `AttributeValue` is mapped as a special case — a `namespace` of its
+ten arms with a `type AttributeValue = AttributeValue.S | …` over them (an item
+is a `Map<Str, AttributeValue>`, and `when attr { is .S { … } }` reads an arm
+by the leading-dot shorthand). Enum-keyed maps are `Map<Str, V>` keyed by the
+enum's wire value; timestamps are `time.Instant`; a `@streaming` blob is a
 `stream.InStream`, streamed both ways. Paginators and waiters are not generated.

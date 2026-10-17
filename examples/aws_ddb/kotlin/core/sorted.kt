@@ -1,0 +1,215 @@
+package salvo.core.sorted
+
+import salvo.*
+
+fun<T> SortedSet_platform(elems: Array<T>, cmp: (T, T) -> Int): salvo.platform.core.sorted.SortedSet<T> = salvo.platform.core.sorted.SortedSet(elems, cmp)
+
+fun<T> Mut_SortedSet_platform(elems: Array<T>, cmp: (T, T) -> Int): salvo.platform.core.sorted.MutSortedSet<T> = salvo.platform.core.sorted.Mut_SortedSet(elems, cmp)
+
+fun<T> addPlatform(set: salvo.platform.core.sorted.MutSortedSet<T>, elem: T, cmp: (T, T) -> Int): Boolean = salvo.platform.core.sorted.add(set, elem, cmp)
+
+fun<T> remove__SortedSet_T(set: salvo.platform.core.sorted.MutSortedSet<T>, elem: T, cmp: (T, T) -> Int): Boolean {
+    return removeElemPlatform(set, elem, cmp)
+}
+
+fun<T> removeElemPlatform(set: salvo.platform.core.sorted.MutSortedSet<T>, elem: T, cmp: (T, T) -> Int): Boolean = salvo.platform.core.sorted.removeElem(set, elem, cmp)
+
+fun<T> setSizePlatform(set: salvo.platform.core.sorted.SortedSet<T>): Int = salvo.platform.core.sorted.setSize(set)
+
+fun<K, V> removeKeyPlatform(map: salvo.platform.core.sorted.MutSortedMap<K, V>, key: K, cmp: (K, K) -> Int): V? = salvo.platform.core.sorted.removeKey(map, key, cmp)
+
+fun<K, V> mapSizePlatform(map: salvo.platform.core.sorted.SortedMap<K, V>): Int = salvo.platform.core.sorted.mapSize(map)
+
+fun<T> containsPlatform(set: salvo.platform.core.sorted.SortedSet<T>, elem: T, cmp: (T, T) -> Int): Boolean = salvo.platform.core.sorted.contains(set, elem, cmp)
+
+fun<T> size__SortedSet(set: salvo.platform.core.sorted.SortedSet<T>): Int {
+    return setSizePlatform(set)
+}
+
+fun<T> minPlatform(set: salvo.platform.core.sorted.SortedSet<T>): T? = salvo.platform.core.sorted.min(set)
+
+fun<T> maxPlatform(set: salvo.platform.core.sorted.SortedSet<T>): T? = salvo.platform.core.sorted.max(set)
+
+fun<T> toListPlatform(set: salvo.platform.core.sorted.SortedSet<T>): List<T> = salvo.platform.core.sorted.toList(set)
+
+fun<T> toStr__SortedSet(set: salvo.platform.core.sorted.SortedSet<T>, toStr: (T) -> String): String {
+    val out: salvo.platform.core.string.MutStr = salvo.core.string.mutStr(arrayOf<String>("{"))
+    var i: Int = 0
+    for (x in salvo.platform.core.sorted.eachSortedSet(set)) {
+        if ((i > 0)) {
+            salvo.core.string.appendPlatform(out, ", ")
+        }
+        salvo.core.string.appendPlatform(out, toStr(x))
+        i = (i + 1)
+    }
+    salvo.core.string.appendPlatform(out, "}")
+    return out.toString()
+}
+
+fun<T> iter__SortedSet(set: salvo.platform.core.sorted.SortedSet<T>): salvo.core.set.SetYield<T> {
+    return salvo.core.set.SetYield<T>(items = toListPlatform(set), at = 0)
+}
+
+fun<K, V> SortedMap_platform(entries: Array<Pair<K, V>>, cmp: (K, K) -> Int): salvo.platform.core.sorted.SortedMap<K, V> = salvo.platform.core.sorted.SortedMap(entries, cmp)
+
+fun<K, V> Mut_SortedMap_platform(entries: Array<Pair<K, V>>, cmp: (K, K) -> Int): salvo.platform.core.sorted.MutSortedMap<K, V> = salvo.platform.core.sorted.Mut_SortedMap(entries, cmp)
+
+fun<K, V> getPlatform(map: salvo.platform.core.sorted.SortedMap<K, V>, key: K, cmp: (K, K) -> Int): V? = salvo.platform.core.sorted.get(map, key, cmp)
+
+fun<K, V> putPlatform(map: salvo.platform.core.sorted.MutSortedMap<K, V>, key: K, value: V, cmp: (K, K) -> Int) = salvo.platform.core.sorted.put(map, key, value, cmp)
+
+fun<K, V> remove__SortedMap_K(map: salvo.platform.core.sorted.MutSortedMap<K, V>, key: K, cmp: (K, K) -> Int): V? {
+    return removeKeyPlatform(map, key, cmp)
+}
+
+fun<K, V> containsKeyPlatform(map: salvo.platform.core.sorted.SortedMap<K, V>, key: K, cmp: (K, K) -> Int): Boolean = salvo.platform.core.sorted.containsKey(map, key, cmp)
+
+fun<K, V> size__SortedMap(map: salvo.platform.core.sorted.SortedMap<K, V>): Int {
+    return mapSizePlatform(map)
+}
+
+fun<K, V> firstKeyPlatform(map: salvo.platform.core.sorted.SortedMap<K, V>): K? = salvo.platform.core.sorted.firstKey(map)
+
+fun<K, V> lastKeyPlatform(map: salvo.platform.core.sorted.SortedMap<K, V>): K? = salvo.platform.core.sorted.lastKey(map)
+
+fun<K, V> keysPlatform(map: salvo.platform.core.sorted.SortedMap<K, V>): List<K> = salvo.platform.core.sorted.keys(map)
+
+fun<K, V> toStr__SortedMap(map: salvo.platform.core.sorted.SortedMap<K, V>, toStr: (K) -> String, toStr__1: (V) -> String, cmp: (K, K) -> Int): String {
+    val out: salvo.platform.core.string.MutStr = salvo.core.string.mutStr(arrayOf<String>("{"))
+    var i: Int = 0
+    for (k in salvo.platform.core.sorted.eachSortedMap(map)) {
+        if ((i > 0)) {
+            salvo.core.string.appendPlatform(out, ", ")
+        }
+        salvo.core.string.appendPlatform(out, toStr(k))
+        salvo.core.string.appendPlatform(out, ": ")
+        salvo.core.string.appendPlatform(out, toStr__1(run {
+            val __nn_1: V? = getPlatform(map, k, cmp)
+            when {
+                (__nn_1 == null) -> {
+                    throw AssertionError(("salvo: " + ("value is absent") + " at core.sorted:158:28"))
+                }
+                else -> {
+                    val __some_2: V = __nn_1!!
+                    __some_2
+                }
+            }
+        }))
+        i = (i + 1)
+    }
+    salvo.core.string.appendPlatform(out, "}")
+    return out.toString()
+}
+
+fun<T> eq__SortedSet_SortedSet(a: salvo.platform.core.sorted.SortedSet<T>, b: salvo.platform.core.sorted.SortedSet<T>, cmp: (T, T) -> Int): Boolean {
+    if ((size__SortedSet(a) != size__SortedSet(b))) {
+        return false
+    }
+    for (x in salvo.platform.core.sorted.eachSortedSet(a)) {
+        if (!(containsPlatform(b, x, cmp))) {
+            return false
+        }
+    }
+    return true
+}
+
+fun<K, V> eq__SortedMap_SortedMap(a: salvo.platform.core.sorted.SortedMap<K, V>, b: salvo.platform.core.sorted.SortedMap<K, V>, eq: (V, V) -> Boolean, cmp: (K, K) -> Int): Boolean {
+    if ((size__SortedMap(a) != size__SortedMap(b))) {
+        return false
+    }
+    for (k in salvo.platform.core.sorted.eachSortedMap(a)) {
+        val theirs: V? = getPlatform(b, k, cmp)
+        if ((theirs == null)) {
+            return false
+        }
+        val theirs_3: V = theirs!!
+        if (!(eq(run {
+            val __nn_1: V? = getPlatform(a, k, cmp)
+            when {
+                (__nn_1 == null) -> {
+                    throw AssertionError(("salvo: " + ("value is absent") + " at core.sorted:191:16"))
+                }
+                else -> {
+                    val __some_2: V = __nn_1!!
+                    __some_2
+                }
+            }
+        }, theirs_3))) {
+            return false
+        }
+    }
+    return true
+}
+
+fun<K, V> iter__SortedMap(map: salvo.platform.core.sorted.SortedMap<K, V>): salvo.core.map.MapKeyYield<K> {
+    return salvo.core.map.MapKeyYield<K>(items = keysPlatform(map), at = 0)
+}
+
+fun<T> NonEmpty_qualifies(set: salvo.platform.core.sorted.SortedSet<T>): Boolean {
+    return (size__SortedSet(set) > 0)
+}
+
+fun<K, V> NonEmpty_qualifies(map: salvo.platform.core.sorted.SortedMap<K, V>): Boolean {
+    return (size__SortedMap(map) > 0)
+}
+
+fun<T> min(set: salvo.platform.core.sorted.SortedSet<T>): T {
+    return run {
+        val __nn_1: T? = minPlatform(set)
+        when {
+            (__nn_1 == null) -> {
+                throw AssertionError(("salvo: " + ("value is absent") + " at core.sorted:246:12"))
+            }
+            else -> {
+                val __some_2: T = __nn_1!!
+                __some_2
+            }
+        }
+    }
+}
+
+fun<T> max(set: salvo.platform.core.sorted.SortedSet<T>): T {
+    return run {
+        val __nn_1: T? = maxPlatform(set)
+        when {
+            (__nn_1 == null) -> {
+                throw AssertionError(("salvo: " + ("value is absent") + " at core.sorted:250:12"))
+            }
+            else -> {
+                val __some_2: T = __nn_1!!
+                __some_2
+            }
+        }
+    }
+}
+
+fun<K, V> firstKey(map: salvo.platform.core.sorted.SortedMap<K, V>): K {
+    return run {
+        val __nn_1: K? = firstKeyPlatform(map)
+        when {
+            (__nn_1 == null) -> {
+                throw AssertionError(("salvo: " + ("value is absent") + " at core.sorted:254:12"))
+            }
+            else -> {
+                val __some_2: K = __nn_1!!
+                __some_2
+            }
+        }
+    }
+}
+
+fun<K, V> lastKey(map: salvo.platform.core.sorted.SortedMap<K, V>): K {
+    return run {
+        val __nn_1: K? = lastKeyPlatform(map)
+        when {
+            (__nn_1 == null) -> {
+                throw AssertionError(("salvo: " + ("value is absent") + " at core.sorted:258:12"))
+            }
+            else -> {
+                val __some_2: K = __nn_1!!
+                __some_2
+            }
+        }
+    }
+}
+
