@@ -56,7 +56,7 @@ const CONTEXTUAL_PATTERNS: &[(&str, &str, &str)] = &[
     // first of all the modifiers, so the lookahead is every word that can
     // start a declaration (including the other contextual ones).
     (
-        "\\\\bexport(?=\\\\s+(fn|struct|effect|handler|qualifier|type|params|intrinsic|linear|platform|provenance|actor|iter|send|comptime|noremote|threadsafe|iterable)\\\\b)",
+        "\\\\bexport(?=\\\\s+(fn|struct|effect|handler|qualifier|type|params|intrinsic|linear|platform|provenance|actor|iter|send|comptime|noremote|threadsafe|iterable|namespace)\\\\b)",
         "keyword.declaration.salvo",
         "the export modifier",
     ),
