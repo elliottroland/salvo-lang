@@ -147,17 +147,20 @@ the handle as a storable value, so emission is identical by construction
 
 **The build plan — five commits, in order:**
 
-1. **Rename `Addr<E>` → `eff[E]`** — but first as a plain rename of the *type*
-   `Addr` to the new spelling across std, examples, docs, tests, the compiler
-   constant, `addr_effect`, `is_addr_effect_arg`, the `AddrInstance` IR node and
-   both emitters; plus the actor-prose sweep (it no longer means "address").
-   (May land as `Addr`→`Eff<E>` type first then the `eff[...]` syntax, or go
-   straight to `eff[...]`; mechanical, no behaviour change.)
-2. **`spawn` must be `on` a pool** — the new rule, rewrite every bare `spawn` in
-   std/examples/tests/docs, migrate monitor-spawn sites to `use`.
+1. **Rename `Addr<E>` → `eff[E]`** — ✅ DONE (commit `eba7f4b4`). Surface is
+   now `eff[A, B, …]` (parser former + a parse error on the old `Addr<…>`);
+   internal `Ty` name stays `"Addr"`, rendered as `eff[…]` by both `Ty` and AST
+   Display; the std intrinsic `type Addr<E>` declaration is the only remaining
+   `Addr` spelling. std/examples/docs/tests/spec all swept.
+2. **`spawn` must be `on` a pool** — ✅ DONE (this commit). An *actor* spawn
+   requires `on POOL`; the implicit main-pool default is retired. A **monitor**
+   spawn (plain-effect faces) still omits a pool — it runs on no thread — and is
+   retired in favour of `use H()` in stage 3. `[main-pool]` kept for task-mint
+   inheritance (`replyto` with no `on`) and for `main`'s own execution context.
 3. **`use` as an expression** returning `eff[...]`; relax [handler-not-value] so
    a bound handle escapes; a fn may return/accept `eff[...]`. Set-subsumption in
    the type relation. Single vs. multi-face result (mirror `check_spawn`).
+   Migrate the remaining monitor spawns (`spawn PlainHandler()`) to `use`.
 4. **Projection `e[S]`** (non-consuming narrow) and **`use e`** of a handle set
    (the recursive/flat bind), with `eff[IO]` alias flattening in type position.
 5. **Merge `eff[a, b]`** (value position, bound handles) and **`eff[*]`**

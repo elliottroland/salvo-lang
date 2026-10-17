@@ -652,7 +652,8 @@ pub fn main() {
         *crate::scheduler::salvo_wait(__wid).downcast::<i32>().expect("the awaited answer")
     };
     crate::core_console::println(&__handle_2, &format!("6. inline total is {}", inline));
-    let mut mine: usize = ({ let __h = crate::Counting::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(crate::scheduler::salvo_current_pool(), __cap as usize, std::boxed::Box::new(crate::__Actor_Counting::new(__h)), crate::__DECODE_Counting); __a });
+    let mut solo: usize = crate::core_actor::pool(1i32);
+    let mut mine: usize = ({ let __h = crate::Counting::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(solo, __cap as usize, std::boxed::Box::new(crate::__Actor_Counting::new(__h)), crate::__DECODE_Counting); __a });
     crate::scheduler::salvo_send_wire(mine, crate::__Msg_Counter::Bump(6i32), crate::__PROTO_Counter);
     let mut local: i32 = {
         let (mut out, __wid) = crate::scheduler::salvo_waiter();
@@ -660,7 +661,7 @@ pub fn main() {
         crate::scheduler::salvo_send_wire(mine, crate::__Msg_Counter::Total(out), crate::__PROTO_Counter);
         *crate::scheduler::salvo_wait(__wid).downcast::<i32>().expect("the awaited answer")
     };
-    crate::core_console::println(&__handle_2, &format!("7. the main pool's own actor totalled {}", local));
+    crate::core_console::println(&__handle_2, &format!("7. the solo pool's own actor totalled {}", local));
     let mut line8: String = {
         let (mut out, __wid) = crate::scheduler::salvo_waiter();
         crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<String>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg)));

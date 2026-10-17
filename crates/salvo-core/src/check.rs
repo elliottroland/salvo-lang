@@ -14409,11 +14409,11 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// run, what it depends on and where — and the queue depth is stated once,
     /// by the author who knows the protocol.
     ///
-    /// [main-pool] The `on` clause is optional: omitted, the child runs on
-    /// the pool current where the spawn was written, which is how a spawn
-    /// names the main pool without new vocabulary. [waitfor-dedicated] A
-    /// `Dedicated Pool` placement is **consumed** here — one thread, one
-    /// occupant, enforced by the move.
+    /// [actor-spawn-expr] The `on` clause is **required** (user decision
+    /// 2026-10-18): a `spawn` always names the pool it runs on, since `use`
+    /// now covers the this-scope binding. The old optional-`on` main-pool
+    /// default is retired. [waitfor-dedicated] A `Dedicated Pool` placement is
+    /// **consumed** here — one thread, one occupant, enforced by the move.
     /// [actor-group] The `in GROUP` clause of a spawn: `group` must be an
     /// `eff[ActorGroup<E>]` for one of the faces the spawn answers, and that
     /// face's addr is what joins. A place, not a placement: the actor still
@@ -14579,6 +14579,23 @@ impl<'p, 'r> Checker<'p, 'r> {
         } else {
             for effect in &effects {
                 self.require_actor_effect(effect, span, "spawn");
+            }
+            // [actor-spawn-expr] An actor spawn names the pool it runs on
+            // (user decision 2026-10-18): `use H()` now covers the this-scope
+            // binding, so `spawn` is reserved for "on a thread" and the `on`
+            // clause is required. The old implicit main-pool default is
+            // retired with it. (A monitor spawn runs on no thread, so this
+            // does not apply to it.)
+            if pool.is_none() {
+                self.error(
+                    span,
+                    format!(
+                        "`spawn` must name the pool it runs on: write `on pool(n)` \
+                         (or `on POOL` for a pool already built) [actor-spawn-expr]. \
+                         To register `{}` in this scope instead, write `use {}(...)`",
+                        id.name, id.name
+                    ),
+                );
             }
         }
         // The clause item's own index travels with the effect it supplies:

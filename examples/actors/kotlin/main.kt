@@ -375,7 +375,8 @@ fun main() {
         salvo.SalvoSched.awaitReply(__wid) as Int
     }
     salvo.core.console.println(__handle_2, "6. inline total is ${inline}")
-    val mine: Int = run { val __h = Counting(); val __a = salvo.SalvoSched.spawn(salvo.SalvoSched.currentPool(), __h.__mailboxCapacity, __Actor_Counting(__h), __Actor_Counting.__DECODE); __a }
+    val solo: Int = salvo.core.actor.pool(1)
+    val mine: Int = run { val __h = Counting(); val __a = salvo.SalvoSched.spawn(solo, __h.__mailboxCapacity, __Actor_Counting(__h), __Actor_Counting.__DECODE); __a }
     salvo.SalvoSched.sendWire(mine, __Msg_Counter.Bump(6), __PROTO_Counter, __Codec___Msg_Counter)
     val local: Int = run {
         val (out, __wid) = salvo.SalvoSched.waiter()
@@ -383,7 +384,7 @@ fun main() {
         salvo.SalvoSched.sendWire(mine, __Msg_Counter.Total(out), __PROTO_Counter, __Codec___Msg_Counter)
         salvo.SalvoSched.awaitReply(__wid) as Int
     }
-    salvo.core.console.println(__handle_2, "7. the main pool's own actor totalled ${local}")
+    salvo.core.console.println(__handle_2, "7. the solo pool's own actor totalled ${local}")
     val line8: String = run {
         val (out, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.StrCodec) })

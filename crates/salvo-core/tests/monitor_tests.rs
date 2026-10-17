@@ -104,6 +104,7 @@ fn errors(src: &str) -> Vec<String> {
 /// with no `on` clause, its handle `use`-bound in `main` (calls resolve
 /// through the effect), and the same handle supplied to a spawned actor's
 /// dependency clause. An addr is freely reusable, so one handle serves both.
+/// (The actor spawn names its pool; only the monitor spawn omits one.)
 #[test]
 fn a_monitor_spawn_shares_a_plain_effect_handler() {
     let errs = errors(
@@ -112,7 +113,7 @@ fn main() [use, spawn] {
     let rng = spawn CyclicRandom(12345)
     use rng
     let first = next()
-    let drawer = spawn Drawing() with rng
+    let drawer = spawn Drawing() with rng on pool(1)
     let drawn = waitfor got: Reply<Int> {
         drawer.draw(got)
     }

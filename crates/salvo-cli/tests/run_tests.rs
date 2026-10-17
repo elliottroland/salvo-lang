@@ -1533,7 +1533,7 @@ fn main() [use, spawn] {
     let m: Mut Map<Int, Node> = Mut Map()
     put(m, 1, Node { id: 1, label: "ab" })
     println("1: ${rebind(m, 1)}")
-    let b = spawn Binning()
+    let b = spawn Binning() on pool(1)
     let got = waitfor out: Reply<Int> { b.go(A { x: 9 }, out) }
     println("2: ${got}")
     use Boxing()

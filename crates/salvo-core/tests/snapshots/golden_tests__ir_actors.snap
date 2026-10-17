@@ -169,15 +169,16 @@ fn main::main() -> None {
     member main::Counter#1(read __handle~4, !read out)
   }
   call core.console::println(read __handle~2, concat("6. inline total is ", call core.basic::to_str(Int)(read inline)))
-  bind#16 let mine: eff[Counter] = spawn[eff[Counter]](construct Counting { }) serves [Counter]
+  bind#16 let solo: Pool = call core.actor::pool(Int)(1)
+  bind#17 let mine: eff[Counter] = spawn[eff[Counter]](construct Counting { }, on: read solo) serves [Counter]
   send main::Counter#0(read mine, 6)
-  bind#17 let local: Int = waitfor out: Reply<Int> {
+  bind#18 let local: Int = waitfor out: Reply<Int> {
     obligation gain [out]
     obligation release [out]
     send main::Counter#1(read mine, !read out)
   }
-  call core.console::println(read __handle~2, concat("7. the main pool's own actor totalled ", call core.basic::to_str(Int)(read local)))
-  bind#18 let line8: Str = waitfor out: Reply<Str> {
+  call core.console::println(read __handle~2, concat("7. the solo pool's own actor totalled ", call core.basic::to_str(Int)(read local)))
+  bind#19 let line8: Str = waitfor out: Reply<Str> {
     obligation gain [out]
     obligation release [out]
     call main::report_line(!read mine, "the counter", !read out)

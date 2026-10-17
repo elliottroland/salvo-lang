@@ -86,18 +86,14 @@ same members inline on `main`'s thread: no mailbox, no scheduler, no addr, and
 token is answered *before* `total(out)` returns. The inline total is 9 and the
 spawned one is 5 — two bindings, two states, one handler.
 
-**7 — `main`'s own pool.** The last spawn writes no `on` clause, and an omitted
-one means *the pool current where the spawn was written*. In `main` that is a
-pool whose single worker is `main` itself — so this actor's activations run on
-main's own thread, during the `waitfor`, because a wait **serves** its own pool
-while it waits rather than merely blocking on it. The result is a genuinely
-single-threaded cooperatively-scheduled program with no `pool(n)` in it, and
-the same actor code as everywhere above. Two consequences worth knowing: work
-placed there runs only while `main` waits, and it dies when `main` returns —
-which is not a new rule, only the existing one seen from a new angle. Where a
-wait needs a thread it can occupy without stalling anyone, `thread()` answers a
-`Dedicated Pool`, which the `on` clause **consumes**: one thread, one occupant,
-by linearity rather than by convention.
+**7 — a single-thread pool.** A `spawn` always names the pool it runs on, and
+`pool(1)` is one worker — so this actor's activations run on that one thread,
+during the `waitfor`, because a wait **serves** its own pool while it waits
+rather than merely blocking on it. The result is a genuinely single-threaded
+cooperatively-scheduled actor, with the same actor code as everywhere above.
+Where a wait needs a thread it can occupy without stalling anyone, `thread()`
+answers a `Dedicated Pool`, which the `on` clause **consumes**: one thread, one
+occupant, by linearity rather than by convention.
 
 **8 — a free `send fn`.** Not every unit of concurrent work needs an actor.
 `formatted` is a **free `send fn`**: it runs by being *scheduled* rather than
@@ -110,8 +106,8 @@ What that buys is the line above it: `report_line` is an ordinary synchronous
 function with every feature intact, and it *wires future work and returns*. It
 never parks and never blocks, and it reads the same whether it is called from
 `main`, from an actor, or from another task. The `on` clause is optional at a
-mint, so the task runs on the pool current where the mint was written — which in
-`main` is main's own pool, hence during the `waitfor`.
+mint, so the task runs on the pool current where the mint was written — the
+same pool the minting code itself runs on.
 
 ## What the generated code looks like
 

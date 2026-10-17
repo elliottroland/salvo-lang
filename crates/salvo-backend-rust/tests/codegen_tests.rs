@@ -11201,7 +11201,7 @@ fn main() [use, spawn] -> None {
     let rng = spawn CyclicRandom(12345)
     use rng
     println("main drew ${next()}")
-    let drawer = spawn Drawing() with rng
+    let drawer = spawn Drawing() with rng on pool(1)
     let drawn = waitfor got: Reply<Int> {
         drawer.draw(got)
     }
@@ -11314,7 +11314,7 @@ fn main() [use, spawn] -> None {
     let rng = spawn CyclicRandom(12345)
     use rng
     println("main drew ${next()}")
-    let drawer = spawn Drawing() with rng
+    let drawer = spawn Drawing() with rng on pool(1)
     let drawn = waitfor got: Reply<Int> {
         drawer.draw(got)
     }
@@ -12586,19 +12586,19 @@ fn main() [use, spawn] {
     }
     println("the clock says ${now}")
 
-    // No `on`: the pool current here, of which `main` is the single worker.
-    // These activations run during the `waitfor` below, on main's own thread.
-    let counter = spawn Counting()
+    // A single-thread pool: these activations run during the `waitfor`
+    // below, on that one worker thread.
+    let counter = spawn Counting() on pool(1)
     counter.bump(2)
     counter.bump(3)
     let sum = waitfor out: Reply<Int> {
         counter.total(out)
     }
-    println("the main pool's actor says ${sum}")
+    println("the solo pool's actor says ${sum}")
 }
 "#;
 
-const WAITFOR_PACKAGE_OUTPUT: &str = "the clock says 1000\nthe main pool's actor says 5\n";
+const WAITFOR_PACKAGE_OUTPUT: &str = "the clock says 1000\nthe solo pool's actor says 5\n";
 
 #[test]
 fn rustc_compiles_and_runs_the_waitfor_package() {

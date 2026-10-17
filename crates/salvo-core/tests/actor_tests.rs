@@ -641,7 +641,7 @@ handler Slow() [Counter] of Log {
     }
 }
 ";
-    for placement in ["on pool(2)", "", "on thread()"] {
+    for placement in ["on pool(2)", "on thread()"] {
         let errs = errors(&format!(
             "{WAITING}
 fn main() [use, spawn] {{
@@ -746,11 +746,12 @@ fn main() [use] {
     );
 }
 
-/// [main-pool] An omitted `on` clause means the pool current at the spawn —
-/// `main`'s own pool in `main` (FC-4(a)), the actor's own in a member. It is
-/// how a spawn site names the main pool without new vocabulary.
+/// [actor-spawn-expr] An actor `spawn` must name its pool (user decision
+/// 2026-10-18): `use` covers the this-scope binding, so `spawn` is reserved
+/// for "on a thread". An omitted `on` is refused, naming both remedies. (The
+/// old implicit main-pool default was retired with the rule.)
 #[test]
-fn a_spawn_may_omit_its_pool() {
+fn a_spawn_must_name_its_pool() {
     let errs = errors(
         "\
 fn main() [use, spawn] {
@@ -762,7 +763,11 @@ fn main() [use, spawn] {
 }
 ",
     );
-    assert!(errs.is_empty(), "`on` is optional: {errs:?}");
+    assert!(
+        errs.iter().any(|m| m.contains("must name the pool it runs on")
+            && m.contains("[actor-spawn-expr]")),
+        "a pool-less actor spawn must be refused: {errs:?}"
+    );
 }
 
 /// Its binding is a reply token; anything else is a mistake about what the

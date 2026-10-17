@@ -250,17 +250,17 @@ fn main() [use, spawn] {
     }
     println("6. inline total is ${inline}")
 
-    // 7 — `main`'s own pool. `on` is optional: omitted, an actor runs on the
-    // pool current where the spawn was written, and in `main` that is a pool
-    // whose single worker is `main` itself. So this actor's activations run on
-    // main's thread — during the `waitfor`, which serves that pool while it
-    // waits. One thread, cooperatively scheduled, no `pool(n)` anywhere.
-    let mine = spawn Counting()
+    // 7 — a single-thread pool. A `spawn` always names its pool, and a
+    // `pool(1)` is one worker: this actor's activations run on that one
+    // thread — during the `waitfor`, which serves the pool while it waits.
+    // One thread, cooperatively scheduled.
+    let solo = pool(1)
+    let mine = spawn Counting() on solo
     mine.bump(6)
     let local = waitfor out: Reply<Int> {
         mine.total(out)
     }
-    println("7. the main pool's own actor totalled ${local}")
+    println("7. the solo pool's own actor totalled ${local}")
 
     // 8 — a task. `report_line` is an ordinary function called from `main`; the
     // continuation it mints runs as scheduled work rather than as anyone's

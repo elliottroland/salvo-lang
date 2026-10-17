@@ -5530,16 +5530,14 @@ docs/language/ remains the source of truth for everything that does.
     of per spawn, and a per-instance bound stays expressible by taking it as a
     constructor parameter. What the old rationale got right survives as the
     plain-effect refusal [actor-mailbox].
-  * **`on POOL` is optional**, and takes an ordinary expression: `pool(n)` is
-    a function declared `[spawn]`, not syntax. Omitted, the child runs on the
-    pool **current where the spawn was written** [main-pool] (user decision
-    2026-09-17, FC-3's inheritance rule extended to `spawn`) — which is how a
-    spawn site names `main`'s own pool without new vocabulary, and what makes
-    "run where the work that created you runs" true of a member's spawns too.
-    It was required until then (user decision 2026-09-15), on the argument
-    that every spawn should say where it runs; what changed is that there is
-    now an ambient pool *everywhere* the language owns a thread, so the
-    default has a meaning instead of a hole.
+  * **`on POOL` is required**, and takes an ordinary expression: `pool(n)` is
+    a function declared `[spawn]`, not syntax. A `spawn` always names the pool
+    it runs on (user decision 2026-10-18): `use H()` now covers the this-scope
+    binding, so `spawn` is reserved for "on a thread" and omitting `on` is an
+    error naming both remedies (`on pool(n)`, or `use H(...)` to register in
+    this scope). The old optional-`on` main-pool default (2026-09-17) is
+    retired with the rule. A **monitor** spawn (every face a plain effect)
+    runs on no thread, so the requirement does not apply to it.
   * `spawn` and its clause words are **contextual**; the form is
     recognised from `spawn` followed by a name, so a function named `spawn`
     is still callable. A handler construction is **not a value** — only
@@ -5659,20 +5657,22 @@ docs/language/ remains the source of truth for everything that does.
   2026-09-17, FC-4(a); the argument trail is in COMPLETED.md's log). The pool
   exists from the start
   and is never given a thread of its own: `main`'s thread is its worker.
-  * So **an ambient placement exists on every thread the language owns**, and
-    a spawn or (from the task kernel on) a mint with no `on` clause has
-    somewhere to land wherever it is written. That is the uniformity the rule
-    is for: a function called from `main` and the same function called from an
-    actor behave identically.
-  * **Actors may be spawned onto it**, which yields genuinely single-threaded
-    cooperatively-scheduled programs.
+  * So **an ambient placement exists on every thread the language owns** for
+    the forms that still inherit it — a task **mint** with no `on` runs on the
+    pool current where it was written [task-pool-inherit]. (A `spawn` no longer
+    inherits it: it names its pool explicitly since 2026-10-18 — see
+    [actor-spawn-expr].) That inheritance is the uniformity the rule is for: a
+    function called from `main` and the same function called from an actor
+    behave identically.
+  * **Actors may be spawned onto it** by naming it — a `pool(1)` is one worker
+    — which yields genuinely single-threaded cooperatively-scheduled programs.
   * Two consequences, each the existing rule seen from a new angle: work
     placed there runs **only while `main` waits** [waitfor-pump], and it dies
     when `main` returns [actor-waitfor].
-  * One hazard the statics do not cover: `main` filling a main-pool actor's
-    mailbox past its bound blocks the only thread that could drain it. Both
-    runtimes report that by name and exit non-zero rather than hanging — the
-    sibling of the idle-with-parked-gates report.
+  * One hazard the statics do not cover: `main` filling an actor's mailbox
+    past its bound, on a one-worker pool it also drives, blocks the only thread
+    that could drain it. Both runtimes report that by name and exit non-zero
+    rather than hanging — the sibling of the idle-with-parked-gates report.
 * [waitfor-pump] **A wait serves its own pool.** One semantics everywhere
   (user requirement 2026-09-17: no blocking/pumping fork): *a `waitfor` serves
   the work of the pool it is running on, except activations of the actor doing

@@ -353,7 +353,7 @@ handler Noisy() [Console] of Peek {
 }
 
 fn main() [use, spawn] {
-    let p = spawn Noisy()
+    let p = spawn Noisy() on pool(1)
 }
 ",
     );
@@ -398,7 +398,7 @@ handler Wide(seed: Int) of Random, Peek {
 }
 
 fn main() [use, spawn] {
-    let both = spawn Wide(1)
+    let both = spawn Wide(1) on pool(1)
 }
 ",
     );
@@ -483,7 +483,7 @@ handler Drawing() [Random] of Drawer {
 
 fn main() [use, spawn] {
     let rng = spawn CyclicRandom(1)
-    let drawer = spawn Drawing() with rng
+    let drawer = spawn Drawing() with rng on pool(1)
     let _drawn = waitfor got: Reply<Int> {
         drawer.draw(got)
     }

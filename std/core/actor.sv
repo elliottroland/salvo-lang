@@ -84,11 +84,6 @@ export struct Mailbox { capacity: Int }
 // spawn's `on POOL` clause. A pool is an ordinary value, so one can be built
 // once and handed to many spawns — which is how a program says "these
 // actors share these threads".
-//
-// [main-pool] `main` has a pool of its own, of which it is the single
-// worker: a spawn that writes no `on` clause runs on the pool current where
-// it was written, which in `main` is that one. Work placed there runs while
-// `main` waits in a `waitfor` and dies when `main` returns.
 // [noremote] A pool is a set of *this* node's threads: no wire form.
 export noremote intrinsic type Pool
 
