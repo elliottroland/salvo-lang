@@ -138,6 +138,78 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-16 — Namespaces (`namespace X { … }`)
+
+Built the namespace feature (ROADMAP's "N — Namespaces", user decisions D1–D8
+plus the 2026-10-16 suffix-shorthand refinement). Prompted by the `aws`
+module's DynamoDB work: `AttributeValue` is a ten-arm union whose arms should
+be namespaced rather than pollute the module scope. Rather than a DDB-specific
+hack, the user chose to build general namespaces first and put DDB on top.
+
+**What it is.** `namespace X { … }` groups any top-level declarations — fns,
+types, structs, qualifiers, effects, handlers, nested namespaces — under a
+capitalized name; nestable to any depth. It is the general form of the
+`[name-dot]` mechanism Salvo already had (two-segment `Environment.Id`): a
+member flattens to a dotted top-level name (`X.Thing`, `X.Y.Thing`) in
+`parse_module_deferred`, so the whole pipeline — resolve, check, both emitters —
+handles it through the dotted-name representation it already threaded end to
+end. That insight is why a large-surface feature landed without disturbing the
+checker's core: most of the work was new *syntax* plus relaxing the old
+two-segment/same-file-struct restrictions, plus two genuinely new pieces (the
+`.Thing` sugar and whole-namespace imports).
+
+**The decisions, as built:**
+- **D1** arbitrary nesting; lifted the two-segment cap in the type-ref parser
+  and `check_dot_names`. **D2** a namespace is a separate facet that may share
+  its name with a type (`namespace AttributeValue` beside `type
+  AttributeValue`), recorded on `Module.namespaces` / `ir::Module.namespaces`
+  since a flattened name can't say whether a prefix was a namespace or a
+  dot-named struct. **D6/D7** `export namespace` exports every member and
+  distributes into the body. **D8** the terminal form `namespace X ...` (literal
+  `...`) puts the rest of the file in `X`, extending `[terminal-scope]` to item
+  level.
+- **The `.Thing` suffix sugar** (D3/D4, with the 2026-10-16 refinement): a
+  leading-dot reference names a namespaced type by any *suffix* of its path —
+  `A.B.C.Thing` as `.Thing`, `.C.Thing`, `.B.C.Thing` or in full — resolved
+  **structurally** against the expected type's shape, never the alias's name. A
+  union exposes its arm type names and matches by suffix (robust to local
+  aliasing because the arm's own `Ty` becomes the check base directly); a single
+  namespaced type resolves a suffix in its ancestor namespaces by sibling.
+  Type-like members only; no expected type / no match / two matches is an error.
+- **Namespaced free-fn calls**: `Outer.Inner.make(x)` — a `Field` chain of
+  uppercase segments ending in a lowercase leaf resolves to the flat key, a
+  direct call with no receiver (`namespace_path_of` in check.rs).
+- **D5 imports**: `import mod.X.Thing` already worked; added `import mod.X`
+  (whole namespace, members kept under the `X.` prefix — not a flat dump) and
+  `import mod.X as Y` (prefix-rewrite alias; the rewritten names are interned
+  with `Box::leak`, one compile's lifetime).
+
+**Backends.** Kotlin nests *types* as `object`/`class` trees to any depth
+(rewrote the one-level `[kt-nested-dot-name]` emitter into a recursive
+`emit_struct_namespace`, reading the authoritative namespace set from
+`ir::Module.namespaces`) and **flattens** namespaced *functions* to underscores
+(`Outer_Inner_make`), since a fn has no dotted-path requirement. Rust flattens
+every dotted name as it always has (`OuterInnerThing`) — nothing
+namespace-specific needed.
+
+**Tests.** 5 syntax smoke tests (`namespace_smoke.rs`), 5 resolver tests in
+`name_tests.rs`, and a both-backends compile-and-run golden
+(`namespaces_nest_flatten_and_resolve`, Rust `codegen_tests` + Kotlin
+`KOTLIN_CASES`) asserting identical output. Suite: 1841 green (was 1831). The
+parser-AST insta snapshots gained one `namespaces: []` line each (16 files),
+reviewed to be nothing but that.
+
+**Spec/docs.** `[namespace]` rule added to LANGUAGE_SPEC.md and `[name-dot]`
+generalized; `docs/language/Modules.md` rewritten to lead with `namespace`
+(wiki synced); `[kt-nested-dot-name]` (N-level + fn-flatten) and the Rust
+`[name-dot]` note updated. `namespace` added to the TextMate grammar's
+declaration keywords and the VSCode grammar regenerated.
+
+**Still open** (ROADMAP): a nested-namespace *import* `import mod.Outer.Inner`
+may hit the import splitter's `trailing_upper > 2` cap — only `import mod.X`
+and `import mod.X.Thing` are exercised; relax if a case needs it. Then the DDB
+work the feature was for.
+
 ### 2026-10-14 — Effect members offered as LSP completions in scope
 
 Completed the salvo-noticeboard `disk.sv` TODOs ("this should auto-complete

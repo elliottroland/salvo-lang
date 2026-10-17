@@ -671,4 +671,5 @@ Module {
         ),
     ],
     uses: [],
+    namespaces: [],
 }

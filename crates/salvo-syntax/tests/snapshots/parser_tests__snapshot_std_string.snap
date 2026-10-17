@@ -6751,4 +6751,5 @@ Module {
         ),
     ],
     uses: [],
+    namespaces: [],
 }

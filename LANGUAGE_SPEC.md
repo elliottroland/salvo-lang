@@ -8818,12 +8818,14 @@ between endpoints and delivers what arrives into the scheduler.
   Dot-names are legal in every type position: annotations, `of` types,
   `is` checks, `+Q` constructors, `canbe` clauses, deduction clauses,
   struct literals.
-  * `Ns` must be a struct declared in the **same file**, and must not be
-    generic — Kotlin emits the member as a *nested* class, which cannot
-    reference the outer class's type parameters
-    [kt-nested-dot-name].
-  * Exactly two segments: `A.B.C` is an error, and a dot-name cannot
-    itself be a namespace.
+  * `Ns` must be a **namespace** — a `namespace X { … }` block [namespace],
+    or (the legacy spelling) a struct or defined `type` declared in the
+    **same file**. A struct/`type` used as a namespace must not be generic —
+    Kotlin emits the member as a *nested* class, which cannot reference the
+    outer class's type parameters [kt-nested-dot-name].
+  * Any nesting depth: `A.B.C.Thing` is a member of nested namespaces
+    [namespace] (the old exactly-two-segment cap is lifted — it survives only
+    as the shape of a *hand-written* legacy dot-name, `Ns.Name`).
   * **Collision ban:** nothing visible in the file may carry the
     *concatenated* spelling (`EnvironmentId` beside `Environment.Id`).
     The Rust backend flattens dot-names, and overload mangling embeds the
@@ -8835,18 +8837,56 @@ between endpoints and delivers what arrives into the scheduler.
   * The name is carried as *one dotted string*, so scope keys, checker
     types, and `ty_base_name` / `type_base_name` agree by construction.
     Backends translate at the point
-    a Salvo name becomes target syntax: Kotlin renders it verbatim (a
-    valid nested reference), Rust flattens it in `rs_ident`.
+    a Salvo name becomes target syntax: Kotlin renders a *type* verbatim (a
+    valid nested reference) and flattens a *fn* name to underscores
+    (`Outer_Inner_make`); Rust flattens every dotted name.
   * **A `type` may be the namespace** (user decision 2026-09-29, the aws
-    design's 16; ROADMAP §4b item 5): `type StorageClass =
+    design's 16): `type StorageClass =
     StorageClass.Standard | …` with `struct StorageClass.Standard {}` beside
     it — how a generated enum keeps its cases apart from another enum's
-    `Standard`. Same rules: same file, not generic, two segments, the
+    `Standard`. Same rules: same file, not generic, the
     concatenation free; an `intrinsic type` has no body and cannot be one.
     Importing the type brings its members, by the same name-prefix rule
     [name-dot-import]. Kotlin nests the members in an `object StorageClass`
     [kt-nested-dot-name] (the type itself is expanded structurally, so the
     name is free); Rust concatenates as for a struct.
+* [namespace] A **`namespace X { … }`** groups any top-level declarations —
+  functions, types, structs, qualifiers, effects, handlers, and nested
+  namespaces — under a capitalized name (user decision 2026-10-16). It is the
+  general form of the dot-name mechanism: a member `Thing` of `namespace X`
+  is a top-level declaration named `X.Thing`, flattened to that dotted name
+  before anything else sees it (in `parse_module_deferred`), so the rest of
+  the compiler handles it exactly as a `[name-dot]` name. Namespaces nest to
+  any depth (`Outer.Inner.Thing`).
+  * A namespace is a **separate facet**: it may share its name with a type at
+    the same level — `namespace AttributeValue { … }` beside
+    `type AttributeValue = AttributeValue.S | …`. Two namespaces of one name
+    at one level, or any other kind-vs-namespace clash, is a collision
+    [mod-collision].
+  * **`export namespace X`** exports every member (a shorthand); a member may
+    also carry its own `export`, and an outer `export namespace` distributes
+    to the whole body. A namespace is not itself an exportable entity — its
+    members are.
+  * **Terminal form `namespace X ...`** (literal `...` where the `{` would go)
+    puts the rest of the file's items in `X`, extending the body-less
+    `[terminal-scope]` form to item level; nothing may follow it at that level.
+  * Only *named declarations* live in a namespace: an `import`, `refn`,
+    `rename` or `test` inside one is an error (they are file- or module-scoped).
+  * **The leading-dot shorthand `.Thing`** names a namespaced type by a
+    **suffix** of its path, resolved against the expected type's shape rather
+    than any alias's name: `A.B.C.Thing` may be written `.Thing`, `.C.Thing`,
+    `.B.C.Thing` or in full, and resolves to the unique namespaced name the
+    expected type exposes that *ends with* the written suffix (user refinement
+    2026-10-16). A **union** exposes its arm type names (`is .S` picks the arm
+    whose type ends in `S`); a single namespaced expected type resolves a
+    suffix in its own namespace by sibling. Type-like members only (never a
+    bare fn); no expected type, no match, or two matches is an error. Valid
+    anywhere an expected type is in view — an `is`/`when` arm, a typed value,
+    a call argument, a return.
+  * A **namespaced free fn** is called by its dotted path
+    (`Outer.Inner.make(x)`): a `Field` chain of uppercase namespace segments
+    ending in a lowercase fn name resolves to the flat key `Outer.Inner.make`,
+    a direct call with no receiver (not dot-notation).
 * [name-dot-import] `import path.Ns.Name` imports a dot-named item; the
   path splits by casing — trailing uppercase segments are the item name
   (two of them for a dot-name), everything before is the module prefix,
@@ -8857,6 +8897,10 @@ between endpoints and delivers what arrives into the scheduler.
     the precedent that importing an effect brings its members. Members
     ride along only on an *unaliased* import: an alias renames exactly
     one name, and a partial rename would have no sensible spelling.
+  * **A whole namespace is importable** [namespace]: `import mod.X` brings
+    every exported member under the `X.` prefix (kept written `X.member` — not
+    a flat dump like a whole-module import), and `import mod.X as Y` rewrites
+    the `X.` prefix to `Y.` for references in this file.
 * [mod-collision] Non-fn name collisions are errors, not last-win —
   same-name fns form overload sets and are exempt. Reported: a same-kind
   same-name duplicate within one module; the same name declared in two

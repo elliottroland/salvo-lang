@@ -274,6 +274,12 @@ struct ModuleItems<'p> {
     renames: Vec<&'p RenameDecl>,
     type_aliases: Vec<(usize, &'p TypeDecl)>,
     opaque_types: Vec<(usize, &'p TypeDecl)>,
+    /// [namespace] The dotted namespace paths declared anywhere in this
+    /// module's files (`AttributeValue`, `Outer`, `Outer.Inner`). A whole-
+    /// namespace import (`import mod.X`) brings every member under one of
+    /// these prefixes; a pure namespace has no declaration of its own, so
+    /// this is how the import resolver knows the name is a namespace.
+    namespaces: Vec<&'p str>,
 }
 
 impl<'p> ModuleItems<'p> {
@@ -465,6 +471,11 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
     let mut unexpanded_iter_fns: Vec<FileDiagnostic> = Vec::new();
     for (file_idx, (file, ast)) in program.files.iter().zip(&program.modules).enumerate() {
         let items = by_module.entry(&file.module).or_default();
+        for ns in &ast.namespaces {
+            if !items.namespaces.contains(&ns.as_str()) {
+                items.namespaces.push(ns.as_str());
+            }
+        }
         for (item_idx, item) in ast.items.iter().enumerate() {
             match item {
                 // [test-file] A `test` block reaching resolution was neither
@@ -1133,19 +1144,32 @@ fn check_dot_names(
             || scope.type_aliases.contains_key(name)
             || scope.opaque_types.contains_key(name)
     };
-    // Namespaces declared in this file, with their generic arity: every
-    // struct, and every `type` declaration with a definition — an enum's arms
-    // live under the enum's name (`StorageClass.Standard`), user decision
-    // 2026-09-29 (the aws design's 16). An opaque `intrinsic type` has no body
-    // to be the namespace of.
-    let mut local_structs: HashMap<&str, usize> = HashMap::new();
+    // Namespaces: an explicit `namespace X { … }` (recorded on the module
+    // when its body was flattened), plus the legacy rule that a struct or a
+    // defined `type` in this file namespaces its dot-named members — an enum's
+    // arms live under the enum (`StorageClass.Standard`), user decision
+    // 2026-09-29. A struct/type namespace must not be generic (Kotlin nests
+    // the member as a plain nested class, which cannot reference the outer
+    // type parameters); an explicit `namespace` has no generics to worry
+    // about. Keyed by the full dotted prefix so nesting works [name-dot] [namespace].
+    let mut ns_decls: std::collections::HashSet<&str> =
+        ast.namespaces.iter().map(|s| s.as_str()).collect();
+    let mut generic_ns: HashMap<&str, usize> = HashMap::new();
     for item in &ast.items {
         match item {
-            Item::Struct(s) => {
-                local_structs.insert(s.name.name.as_str(), s.generics.len());
+            Item::Struct(s) if !s.name.name.contains('.') => {
+                if s.generics.is_empty() {
+                    ns_decls.insert(s.name.name.as_str());
+                } else {
+                    generic_ns.insert(s.name.name.as_str(), s.generics.len());
+                }
             }
             Item::Type(t) if t.alias.is_some() && !t.name.name.contains('.') => {
-                local_structs.insert(t.name.name.as_str(), t.generics.len());
+                if t.generics.is_empty() {
+                    ns_decls.insert(t.name.name.as_str());
+                } else {
+                    generic_ns.insert(t.name.name.as_str(), t.generics.len());
+                }
             }
             _ => {}
         }
@@ -1155,24 +1179,24 @@ fn check_dot_names(
         match item {
             Item::Struct(s) => dotted.push((s.name.name.as_str(), s.name.span)),
             Item::Qualifier(q) => dotted.push((q.name.name.as_str(), q.name.span)),
+            Item::Type(t) if t.name.name.contains('.') => dotted.push((t.name.name.as_str(), t.name.span)),
+            Item::Effect(e) if e.name.name.contains('.') => dotted.push((e.name.name.as_str(), e.name.span)),
+            Item::Handler(h) if h.name.name.contains('.') => dotted.push((h.name.name.as_str(), h.name.span)),
+            Item::Fn(f) if f.name.name.contains('.') => dotted.push((f.name.name.as_str(), f.name.span)),
             _ => continue,
         }
     }
     for (name, span) in dotted {
-        let Some((ns, _member)) = name.split_once('.') else {
+        // The namespace prefix is everything before the final segment, so
+        // `A.B.C`'s namespace is `A.B` — which must itself be a known
+        // namespace (explicit, or a same-file struct/type for a two-segment
+        // legacy name).
+        let Some((ns, _member)) = name.rsplit_once('.') else {
             continue;
         };
-        match local_structs.get(ns) {
-            None => errors.push(FileDiagnostic::error(
-                file_idx,
-                span,
-                format!(
-                    "`{ns}` in the dot-name `{name}` must be a struct or a `type` declared \
-                     in this file [name-dot]"
-                ),
-            )),
-            Some(0) => {}
-            Some(_) => errors.push(FileDiagnostic::error(
+        if let Some(arity) = generic_ns.get(ns) {
+            let _ = arity;
+            errors.push(FileDiagnostic::error(
                 file_idx,
                 span,
                 format!(
@@ -1180,7 +1204,17 @@ fn check_dot_names(
                      member as a nested class, which cannot use the outer type parameters \
                      [name-dot]"
                 ),
-            )),
+            ));
+        } else if !ns_decls.contains(ns) {
+            errors.push(FileDiagnostic::error(
+                file_idx,
+                span,
+                format!(
+                    "`{ns}` in the dot-name `{name}` is not a namespace here: declare \
+                     `namespace {ns} {{ … }}`, or a struct or defined `type {ns}` in this \
+                     file [name-dot] [namespace]"
+                ),
+            ));
         }
         let concatenated = name.replace('.', "");
         if visible(&concatenated) {
@@ -1638,6 +1672,56 @@ fn resolve_import<'p>(
         .map(|i| i.name.as_str())
         .collect();
 
+    // [namespace] A whole-namespace import: `import mod.X` where `X` is a
+    // namespace of the target module (not a declared name of its own). It
+    // brings every exported member under the `X.` prefix, keeping them
+    // written `X.member` — not a flat dump like a whole-module import. An
+    // alias rewrites the `X.` prefix to `Y.` (D5).
+    {
+        let ns_modules: Vec<&&'p ModulePath> = by_module
+            .iter()
+            .filter(|(path, items)| {
+                let exact = path.0.len() == prefix.len()
+                    && path.0.iter().zip(&prefix).all(|(a, b)| a == b);
+                let prefixed = path.0.len() > prefix.len()
+                    && path.0.iter().zip(&prefix).all(|(a, b)| a == b);
+                (exact || prefixed) && items.namespaces.contains(&item_name)
+            })
+            .map(|(path, _)| by_module.get_key_value(path).unwrap().0)
+            .collect();
+        if !ns_modules.is_empty() {
+            // Only one module should own a namespace path under a fully
+            // qualified import; if several match, it is the same ambiguity a
+            // name import would report.
+            if ns_modules.len() > 1 {
+                let mut names: Vec<String> = ns_modules.iter().map(|m| m.to_string()).collect();
+                names.sort();
+                ctx.errors.push(FileDiagnostic::error(
+                    file_idx,
+                    import.span,
+                    format!(
+                        "ambiguous namespace import `{item_name}`: found in modules {} \
+                         [namespace]",
+                        names.join(", ")
+                    ),
+                ));
+                return;
+            }
+            let module = *ns_modules[0];
+            let items = &by_module[module];
+            add_namespace_items(
+                scope,
+                items,
+                module,
+                item_name,
+                import.alias.as_ref().map(|a| a.name.as_str()),
+                import.span,
+                ctx,
+            );
+            return;
+        }
+    }
+
     // Candidate modules: path equals the prefix, or the prefix is a leading
     // path of the module (`import core.Str` finds `core.string`). Never a
     // suffix: an import is fully qualified [mod-suffix].
@@ -1738,6 +1822,92 @@ fn resolve_import<'p>(
                 ),
             ));
         }
+    }
+}
+
+/// [namespace] Brings a whole namespace's exported members into `scope`:
+/// every exported declaration of `module` whose name is `ns` itself or starts
+/// with `ns.` (`AttributeValue.S`, `Outer.Inner.Thing`). Without an alias the
+/// members keep their names; with one, the `ns.` prefix is rewritten to
+/// `alias.` (D5). A rewritten name is interned for the program's life (a
+/// single compile), since it has no AST home.
+fn add_namespace_items<'p>(
+    scope: &mut ModuleScope<'p>,
+    items: &ModuleItems<'p>,
+    module: &'p ModulePath,
+    ns: &str,
+    alias: Option<&str>,
+    import_span: Span,
+    ctx: &mut AddCtx<'_, 'p>,
+) {
+    let dot_prefix = format!("{ns}.");
+    // Every exported member name under the namespace, de-duplicated.
+    let mut members: Vec<&'p str> = Vec::new();
+    let consider = |name: &'p str, members: &mut Vec<&'p str>| {
+        if (name == ns || name.starts_with(&dot_prefix))
+            && items.exports_name(name)
+            && !members.contains(&name)
+        {
+            members.push(name);
+        }
+    };
+    for (_, s) in &items.structs {
+        consider(s.name.name.as_str(), &mut members);
+    }
+    for (_, t) in &items.type_aliases {
+        consider(t.name.name.as_str(), &mut members);
+    }
+    for (_, t) in &items.opaque_types {
+        consider(t.name.name.as_str(), &mut members);
+    }
+    for (_, e) in &items.effects {
+        consider(e.name.name.as_str(), &mut members);
+    }
+    for (_, h) in &items.handlers {
+        consider(h.name.name.as_str(), &mut members);
+    }
+    for (_, q) in &items.qualifiers {
+        consider(q.name.name.as_str(), &mut members);
+    }
+    for (_, f) in &items.fns {
+        consider(f.name.name.as_str(), &mut members);
+    }
+    if members.is_empty() {
+        ctx.errors.push(FileDiagnostic::warning(
+            ctx.file_idx,
+            import_span,
+            format!(
+                "namespace `{ns}` of `{module}` exports nothing, so this import brings \
+                 no names [namespace]"
+            ),
+        ));
+        return;
+    }
+    for name in members {
+        // The name this member is visible as here: itself, or with the `ns.`
+        // prefix rewritten to the alias.
+        let visible: &'p str = match alias {
+            Some(a) => {
+                let rewritten = if name == ns {
+                    a.to_string()
+                } else {
+                    format!("{a}.{}", &name[dot_prefix.len()..])
+                };
+                // Interned for the program's life (one compile) — a rewritten
+                // name has no AST home to borrow from.
+                &*Box::leak(rewritten.into_boxed_str())
+            }
+            None => name,
+        };
+        add_items(
+            scope,
+            items,
+            module,
+            Some((name, visible)),
+            Level::Import,
+            Some(import_span),
+            ctx,
+        );
     }
 }
 

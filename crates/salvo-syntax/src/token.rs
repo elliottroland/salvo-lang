@@ -34,6 +34,11 @@ pub enum TokenKind {
     KwHandler,
     KwParams,
     KwType,
+    /// [namespace] `namespace X { … }` or the terminal form `namespace X ...`:
+    /// a nestable grouping any top-level declaration may live in. Lowers to
+    /// the flat dotted key representation (`X.Thing`) [name-dot] shared with
+    /// the rest of the pipeline.
+    KwNamespace,
     KwIntrinsic,
     KwPlatform,
     KwImport,
@@ -158,6 +163,7 @@ pub const KEYWORDS: &[(&str, TokenKind)] = &[
     ("handler", TokenKind::KwHandler),
     ("params", TokenKind::KwParams),
     ("type", TokenKind::KwType),
+    ("namespace", TokenKind::KwNamespace),
     ("intrinsic", TokenKind::KwIntrinsic),
     ("platform", TokenKind::KwPlatform),
     ("import", TokenKind::KwImport),

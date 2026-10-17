@@ -7435,4 +7435,5 @@ Module {
         ),
     ],
     uses: [],
+    namespaces: [],
 }

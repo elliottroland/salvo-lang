@@ -458,4 +458,5 @@ Module {
         ),
     ],
     uses: [],
+    namespaces: [],
 }

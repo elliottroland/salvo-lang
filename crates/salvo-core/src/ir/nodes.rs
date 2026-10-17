@@ -39,6 +39,12 @@ pub struct Module {
     /// The file this module came from (diagnostics, trap locations).
     pub file_name: String,
     pub decls: Vec<Decl>,
+    /// [namespace] The dotted paths of every `namespace` declared in this
+    /// file (`AttributeValue`, `Outer`, `Outer.Inner`), carried from the AST.
+    /// A backend that nests namespaces (Kotlin) reads this to build the
+    /// nesting tree, since a flattened dotted name alone cannot say whether a
+    /// prefix was a `namespace` or a dot-named struct (they may share a name).
+    pub namespaces: Vec<String>,
 }
 
 pub enum Decl {

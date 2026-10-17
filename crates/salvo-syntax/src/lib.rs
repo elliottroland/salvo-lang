@@ -37,7 +37,12 @@ pub fn parse_module_deferred(source: &str) -> (ast::Module, Vec<Diagnostic>) {
     let lexed = lexer::lex(source);
     let mut diagnostics = lexed.diagnostics;
     let mut parser = parser::Parser::new(source, lexed.tokens, lexed.comments);
-    let module = parser.parse_module();
+    let mut module = parser.parse_module();
     diagnostics.extend(parser.into_diagnostics());
+    // [namespace] Flatten `namespace X { … }` into dotted top-level
+    // declarations before any other pass (iter-fn expansion in `parse_module`,
+    // the struct-fn hoist, resolve, check, the emitters) sees the module.
+    diagnostics.extend(desugar::flatten_namespaces(&mut module));
     (module, diagnostics)
 }
+

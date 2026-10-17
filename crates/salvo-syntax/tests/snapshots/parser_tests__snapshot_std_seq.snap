@@ -11333,4 +11333,5 @@ Module {
         ),
     ],
     uses: [],
+    namespaces: [],
 }

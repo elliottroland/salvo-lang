@@ -13,7 +13,12 @@ use super::{body::Lower, erase, AModule, Ctx};
 use crate::ir::*;
 
 pub fn build_module(ctx: &Ctx<'_>, file_idx: usize, file: &SourceFile, module: &AModule) -> (Module, Vec<String>) {
-    let mut out = Module { path: file.module.clone(), file_name: file.name.clone(), decls: Vec::new() };
+    let mut out = Module {
+        path: file.module.clone(),
+        file_name: file.name.clone(),
+        decls: Vec::new(),
+        namespaces: module.namespaces.clone(),
+    };
     let mut errors = Vec::new();
     // [mod-use] Module-level instances, in scope for every fn below.
     let mut statics: Vec<(Ty, Local)> = Vec::new();
@@ -137,6 +142,8 @@ pub fn build_module(ctx: &Ctx<'_>, file_idx: usize, file: &SourceFile, module: &
                 }
             }
             Item::Import(_) | Item::Params(_) | Item::Refn(_) | Item::Rename(_) | Item::Test(_) => {}
+            // [namespace] Flattened away before the IR is built.
+            Item::Namespace(_) => {}
         }
     }
     (out, errors)

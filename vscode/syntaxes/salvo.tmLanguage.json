@@ -105,7 +105,7 @@
         {
           "comment": "[comptime-fields] `type:` is a field name (`Field.type` in core.comptime), not the keyword",
           "name": "keyword.declaration.salvo",
-          "match": "\\b(fn|let|struct|qualifier|effect|handler|params|type|intrinsic|platform|import|provenance|refn|rename|state)\\b(?!\\s*:)"
+          "match": "\\b(fn|let|struct|qualifier|effect|handler|params|type|intrinsic|platform|import|provenance|refn|rename|state|namespace)\\b(?!\\s*:)"
         },
         {
           "name": "keyword.other.salvo",

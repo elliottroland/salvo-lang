@@ -54,6 +54,17 @@ targets and the output they print, three of them consuming the first dependency
 
 ## The sequence
 
+### N — Namespaces: done (2026-10-16)
+
+`namespace X { … }` is built on both backends — see COMPLETED.md's decision
+log ("Namespaces"). DDB (the `aws` module task that prompted it) builds on it.
+
+Open follow-up: a **nested-namespace import** `import mod.Outer.Inner` may hit
+the import splitter's `trailing_upper > 2` cap in `resolve_import` — only
+`import mod.X` (whole namespace) and `import mod.X.Thing` (one member) are
+exercised. Relax the cap if a case needs importing a nested namespace as a
+unit.
+
 ### 0 — The runtime in Salvo: done (2026-10-03)
 
 Built: see COMPLETED.md's decision log and its "Design record: the runtime in

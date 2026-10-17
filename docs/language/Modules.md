@@ -240,61 +240,123 @@ let _ignored = compute() // no warning
 
 Parameters are exempt: a signature often dictates them, and a handler member implementing an effect cannot drop one.
 
-## Namespaced names
+## Namespaces and namespaced names
 
-Structs and qualifiers can be declared with a *dot-name* `Ns.Name`, where `Ns` is a struct in the same file. This gives you the wrapper-type pattern — distinct types for the strings and ids hanging off a struct, so that an incomplete refactor is a type error instead of a silently mis-wired value — without nesting declarations:
+A **`namespace X { … }`** groups declarations under a capitalized name. Any
+top-level declaration can live in one — functions, types, structs, qualifiers,
+effects, handlers, and further namespaces — and they nest to any depth. A
+member `Thing` of `namespace X` is referred to as `X.Thing`:
 
 ```
-struct Environment {
-    id: Environment.Id,
-    name: Environment.Name
+namespace Environment {
+    struct Id { value: Str }
+    struct Name { value: Str }
+    qualifier Tag of Str
+
+    fn tag(v: Str) -> +Tag Str => !v {
+        return v
+    }
 }
 
-struct Environment.Id {
-    value: Str
+let id = Environment.Id { value: "prod" }
+let t = Environment.tag("x")   // a namespaced function, called by its path
+```
+
+This gives you the wrapper-type pattern — distinct types for the strings and
+ids hanging off a value, so an incomplete refactor is a type error instead of a
+silently mis-wired value — and keeps a family of related names out of the
+module's top level.
+
+A namespace may **share its name with a type**, which is how a tagged union
+keeps its arms under its own name:
+
+```
+namespace AttributeValue {
+    struct S { value: Str }
+    struct N { value: Str }
+    struct Null { value: Bool }
 }
 
-struct Environment.Name {
-    value: Str
+type AttributeValue = AttributeValue.S | AttributeValue.N | AttributeValue.Null
+```
+
+Inside a `when` (or any place the expected type is known) you don't have to
+write the namespace — the **leading-dot shorthand** names an arm by a *suffix*
+of its path, `.Thing` being the shortest:
+
+```
+fn describe(v: AttributeValue) -> Str {
+    when v {
+        is .S { return "string ${v.value}" }
+        is .N { return "number ${v.value}" }
+        is .Null { return "null" }
+    }
 }
-
-// Qualifiers can be namespaced too
-qualifier Environment.Tag of Str
 ```
 
-Dot-names work in every type position (annotations, `of` types, `is` checks, `as` constructors, deduction clauses) and in struct literals:
+`.S` resolves because exactly one arm's type ends in `S`. A type `A.B.C.Thing`
+can be written `.Thing`, `.C.Thing`, `.B.C.Thing` or in full; you write just
+enough of the tail to be unambiguous. The shorthand works wherever an expected
+type is in view — an `is` arm, a typed value, a call argument, a return.
+
+**Exporting.** `export namespace X { … }` exports every member at once; or put
+`export` on individual members. A namespace is not itself a value you export —
+its members are.
+
+**The terminal form** `namespace X ...` (with a literal `...` where the `{`
+would go) puts the rest of the file in `X`, the same shorthand body-less
+constructs like `if` and `for` use:
 
 ```
-let env = Environment {
-    id: Environment.Id {value: "prod"},
-    name: Environment.Name {value: "Production"}
-}
+namespace Wire ...
+
+struct Header { len: Int }   // Wire.Header
+struct Body { bytes: Bytes } // Wire.Body
 ```
 
-A `type` declaration can be a namespace too, which is how an enumeration keeps its cases under its own name:
+### Dot-names: the inline form
+
+A struct, qualifier or `type` can also be written with a *dot-name* `Ns.Name`
+directly, without a `namespace` block, where `Ns` is a struct or defined
+`type` in the same file. This is the older spelling of the same idea, handy for
+a one-off wrapper or an enum's cases:
 
 ```
-type StorageClass = StorageClass.Standard | StorageClass.Glacier | StorageClass.Unknown
+struct Environment { id: Environment.Id }
+struct Environment.Id { value: Str }
 
+type StorageClass = StorageClass.Standard | StorageClass.Glacier
 struct StorageClass.Standard {}
 struct StorageClass.Glacier {}
-struct StorageClass.Unknown { value: Str }
 ```
 
-Three rules apply:
+A few rules apply to both forms:
 
-* `Ns` must be a struct or a `type` with a definition **in the same file**, and it must not be generic. (An `intrinsic type` has no body, so it cannot be one.)
-* A dot-name has exactly two segments: `A.B.C` is an error, and a dot-named struct cannot itself be a namespace.
-* Nothing else visible in the file may be called `NsName` — the concatenation. The Rust backend renders `Environment.Id` as `EnvironmentId`, so that spelling has to stay free.
+* The namespace must be a `namespace` block, or (for the inline form) a struct
+  or defined `type` **in the same file** that is not generic. (An `intrinsic
+  type` has no body, so it cannot be one.)
+* Nothing else visible in the file may be called `NsName` — the concatenation.
+  The Rust backend renders `Environment.Id` as `EnvironmentId`, so that
+  spelling has to stay free.
 
-Importing works either way: import the member directly, or import the namespace struct and get its members with it.
+**Importing.** Import a single member, the whole namespace, or alias it:
 
 ```
-import env.types.Environment.Id     // just the member
-import env.types.Environment        // the struct *and* Environment.Id
+import env.types.Environment.Id   // just the member
+import env.types.Environment      // the whole namespace: Environment.Id, .Name, .tag …
+import env.types.Environment as Env   // aliased: Env.Id, Env.Name …
 ```
 
-Backends differ, deliberately. Kotlin emits a nested class, so `Environment.Id` is the same name in the generated code; a `type`'s members nest in an `object` named for the type, since Kotlin expands the type itself structurally and leaves the name free. Rust concatenates, because Rust modules and structs share one namespace and a `mod Environment` next to a `struct Environment` would not compile.
+A whole-namespace import brings the members under the namespace's prefix (or
+the alias's) — it does *not* flood your scope with their bare names the way a
+whole-*module* import does.
+
+Backends differ, deliberately. Kotlin nests *types* as `object`/`class` trees,
+so `Outer.Inner.Thing` is the same path in the generated code, and flattens a
+namespaced *function* to `Outer_Inner_make`. Rust flattens every dotted name
+(`EnvironmentId`, `OuterInnerThing`), because Rust modules and structs share
+one namespace and a `mod Environment` next to a `struct Environment` would not
+compile.
 
 ## Documentation comments
 

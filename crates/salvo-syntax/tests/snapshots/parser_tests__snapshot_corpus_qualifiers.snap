@@ -2867,4 +2867,5 @@ Module {
         ),
     ],
     uses: [],
+    namespaces: [],
 }

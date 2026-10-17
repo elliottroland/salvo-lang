@@ -277,40 +277,49 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             }
         };
         let mut body = String::new();
-        // [kt-nested-dot-name] Dot-named structs nest in their namespace:
-        // the namespace struct's body, or an `object` for a `type` namespace.
-        let nested: Vec<&StructDecl> = self.module.decls.iter().filter_map(|d| match d {
-            Decl::Struct(s) if s.name.contains('.') => Some(s),
+        // [kt-nested-dot-name] [namespace] Dot-named structs nest in their
+        // namespace, to any depth (`Outer.Inner.Thing`). A namespace segment
+        // is either a struct of that exact path (its `data class` reopens with
+        // a body) or a pure `namespace`/`type` namespace (an `object`). The
+        // set of namespaces is authoritative from the AST [namespace]; a
+        // dotted struct whose prefix is not a declared namespace still nests
+        // under that prefix as an `object` (the legacy enum-arm `type`
+        // namespace, whose `type` left no struct).
+        let all_structs: Vec<&StructDecl> = self.module.decls.iter().filter_map(|d| match d {
+            Decl::Struct(s) => Some(s),
             _ => None,
         }).collect();
-        let mut namespaces_done: HashSet<String> = HashSet::new();
+        // Every namespace prefix that holds at least one struct, plus the
+        // declared namespaces — so an empty namespace still would not emit,
+        // but a struct's ancestor prefixes all count as namespace nodes.
+        let struct_exists = |path: &str| all_structs.iter().any(|s| s.name == path);
+        let mut roots_done: HashSet<String> = HashSet::new();
         for d in &self.module.decls {
             if !kept(d) {
                 continue;
             }
             self.out.clear();
             match d {
+                // A namespaced struct: emit the whole top-level namespace root
+                // it belongs to, once. `Outer.Inner.Thing` → root `Outer`.
                 Decl::Struct(s) if s.name.contains('.') => {
-                    let ns = s.name.split('.').next().unwrap().to_string();
-                    let has_struct = self.module.decls.iter().any(|d| matches!(d, Decl::Struct(x) if x.name == ns));
-                    if !has_struct && !namespaces_done.contains(&ns) {
-                        namespaces_done.insert(ns.clone());
-                        self.out.push_str(&format!("object {ns} {{\n"));
-                        let members: Vec<&StructDecl> = nested.iter().copied().filter(|x| x.name.split('.').next() == Some(ns.as_str())).collect();
-                        for m in &members {
-                            self.struct_class(m, 1);
-                        }
-                        self.out.push_str("}\n");
-                        for m in &members {
-                            if m.has_wire_form {
-                                self.struct_codec(m);
-                            }
-                        }
+                    let root = s.name.split('.').next().unwrap().to_string();
+                    // When the root is itself a plain struct, that struct's
+                    // own decl drives the emission (the arm below); skip here
+                    // so the class is not emitted twice.
+                    if !struct_exists(&root) && roots_done.insert(root.clone()) {
+                        self.emit_struct_namespace(&root, &all_structs, 0, &mut body);
                     }
                 }
-                Decl::Struct(s) if nested.iter().any(|x| x.name.split('.').next() == Some(s.name.as_str())) => {
-                    let members: Vec<&StructDecl> = nested.iter().copied().filter(|x| x.name.split('.').next() == Some(s.name.as_str())).collect();
-                    self.struct_decl_with(s, &members);
+                // A plain struct that is also a namespace root (has dotted
+                // children): reopen its class with the nested tree.
+                Decl::Struct(s)
+                    if !s.name.contains('.')
+                        && all_structs.iter().any(|x| x.name.split('.').next() == Some(s.name.as_str()) && x.name.contains('.')) =>
+                {
+                    roots_done.insert(s.name.clone());
+                    self.emit_struct_namespace(&s.name, &all_structs, 0, &mut body);
+                    continue;
                 }
                 _ => self.decl(d),
             }
@@ -348,6 +357,13 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
 
     /// A Kotlin name for a fn reference: the emitted (overload-mangled) name,
     /// fully qualified when the declaration is in another module.
+    ///
+    /// [namespace] A namespaced free fn has a dotted key (`Outer.Inner.make`).
+    /// Kotlin nests *types* in objects so their dotted path is valid, but a
+    /// function is flattened to an underscore-joined identifier
+    /// (`Outer_Inner_make`) at both its declaration and every call — the
+    /// namespace still keeps the name unique, and no `object` has to hold the
+    /// fn. Mirrors the Rust backend, which flattens every dotted name.
     fn fn_name(&mut self, id: &DeclId) -> String {
         let file_idx = self.s.program.files.iter().position(|f| f.module == id.module);
         let decl = file_idx.and_then(|fi| self.s.program.modules[fi].items.get(id.item));
@@ -359,7 +375,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             }
             _ => self.s.ir.ref_name(id),
         };
-        let local = kt_ident(&name);
+        let local = kt_ident(&name.replace('.', "_"));
         if id.module == self.module.path {
             local
         } else {
@@ -591,6 +607,149 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 self.struct_codec(m);
             }
         }
+    }
+
+    /// [kt-nested-dot-name] [namespace] Emits the namespace rooted at `path`
+    /// (a dotted prefix) recursively into `body`: the class or object for
+    /// `path`, with its direct child structs and child namespaces nested
+    /// inside, to any depth. Codecs cannot nest, so every nested struct's
+    /// codec is appended at top level after the tree.
+    ///
+    /// `path` names a struct → its `data class` is reopened with a body;
+    /// otherwise an `object` of the last segment is emitted. The class/object
+    /// line sits at `indent`.
+    fn emit_struct_namespace<'b>(&mut self, path: &str, all: &[&'b StructDecl], indent: usize, body: &mut String) {
+        // The direct children of `path`: a name is a child when it has exactly
+        // one more segment under `path`. Grandchildren are reached by
+        // recursing into the child that is itself a namespace prefix.
+        let prefix = format!("{path}.");
+        let is_child = |name: &str| -> bool {
+            name.strip_prefix(&prefix).is_some_and(|rest| !rest.contains('.'))
+        };
+        // A path that is a namespace (has descendants) but not this exact one.
+        let child_namespaces: Vec<String> = {
+            let mut seen: Vec<String> = Vec::new();
+            for s in all {
+                if let Some(rest) = s.name.strip_prefix(&prefix) {
+                    if let Some((head, _)) = rest.split_once('.') {
+                        let np = format!("{path}.{head}");
+                        if !seen.contains(&np) {
+                            seen.push(np);
+                        }
+                    }
+                }
+            }
+            seen
+        };
+        let own_struct = all.iter().copied().find(|s| s.name == path);
+        let last = path.rsplit('.').next().unwrap_or(path);
+        let pad = "    ".repeat(indent);
+        // Header: reopen a struct class, or open a namespace object.
+        let mut codecs: Vec<&'b StructDecl> = Vec::new();
+        self.out.clear();
+        match own_struct {
+            Some(s) => {
+                // `struct_class` emits the class line at this indent; reopen
+                // it with a body.
+                self.struct_class(s, indent);
+                let trimmed = self.out.trim_end_matches('\n').to_string();
+                self.out = format!("{trimmed} {{\n");
+                if s.has_wire_form {
+                    codecs.push(s);
+                }
+            }
+            None => {
+                self.out.push_str(&format!("{pad}object {last} {{\n"));
+            }
+        }
+        // Direct child structs that are leaves (no further nesting).
+        for s in all.iter().copied() {
+            if is_child(&s.name) && !child_namespaces.contains(&s.name) {
+                self.struct_class(s, indent + 1);
+                if s.has_wire_form {
+                    codecs.push(s);
+                }
+            }
+        }
+        // Flush the header + leaf children, then recurse into child
+        // namespaces (which append their own nested text), then close.
+        let header = std::mem::take(&mut self.out);
+        body.push_str(&header);
+        for np in &child_namespaces {
+            // Recurse: the child's class/object nests at indent + 1.
+            let before = body.len();
+            let mut nested_body = String::new();
+            self.emit_struct_namespace_into(np, all, indent + 1, &mut nested_body, &mut codecs);
+            body.push_str(&nested_body);
+            let _ = before;
+        }
+        body.push_str(&format!("{pad}}}\n"));
+        // Codecs at top level, after the whole tree.
+        for s in codecs {
+            self.out.clear();
+            self.struct_codec(s);
+            body.push_str(&self.out);
+        }
+        self.out.clear();
+    }
+
+    /// Helper for [emit_struct_namespace] recursion: emits the class/object
+    /// for `path` nested at `indent` into `nested_body`, collecting codecs
+    /// into `codecs` for the caller to emit at top level.
+    fn emit_struct_namespace_into<'b>(
+        &mut self,
+        path: &str,
+        all: &[&'b StructDecl],
+        indent: usize,
+        nested_body: &mut String,
+        codecs: &mut Vec<&'b StructDecl>,
+    ) {
+        let prefix = format!("{path}.");
+        let is_child = |name: &str| -> bool {
+            name.strip_prefix(&prefix).is_some_and(|rest| !rest.contains('.'))
+        };
+        let child_namespaces: Vec<String> = {
+            let mut seen: Vec<String> = Vec::new();
+            for s in all {
+                if let Some(rest) = s.name.strip_prefix(&prefix) {
+                    if let Some((head, _)) = rest.split_once('.') {
+                        let np = format!("{path}.{head}");
+                        if !seen.contains(&np) {
+                            seen.push(np);
+                        }
+                    }
+                }
+            }
+            seen
+        };
+        let own_struct = all.iter().copied().find(|s| s.name == path);
+        let last = path.rsplit('.').next().unwrap_or(path);
+        let pad = "    ".repeat(indent);
+        self.out.clear();
+        match own_struct {
+            Some(s) => {
+                self.struct_class(s, indent);
+                let trimmed = self.out.trim_end_matches('\n').to_string();
+                self.out = format!("{trimmed} {{\n");
+                if s.has_wire_form {
+                    codecs.push(s);
+                }
+            }
+            None => self.out.push_str(&format!("{pad}object {last} {{\n")),
+        }
+        for s in all.iter().copied() {
+            if is_child(&s.name) && !child_namespaces.contains(&s.name) {
+                self.struct_class(s, indent + 1);
+                if s.has_wire_form {
+                    codecs.push(s);
+                }
+            }
+        }
+        nested_body.push_str(&std::mem::take(&mut self.out));
+        for np in &child_namespaces {
+            self.emit_struct_namespace_into(np, all, indent + 1, nested_body, codecs);
+        }
+        nested_body.push_str(&format!("{pad}}}\n"));
     }
 
     /// The class line(s) of a struct, by its last name segment.

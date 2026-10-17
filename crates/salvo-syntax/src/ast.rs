@@ -30,6 +30,14 @@ pub struct Module {
     /// module without being declared. Allowed in std's runtime module only
     /// (user decision 2026-10-02, runtime E4); empty everywhere else.
     pub uses: Vec<ModuleUse>,
+    /// [namespace] The dotted paths of every `namespace` declared in this
+    /// file (`AttributeValue`, `Outer`, `Outer.Inner`), recorded when the
+    /// namespace bodies were flattened into dotted names. A namespace leaves
+    /// no other trace after flattening, so this is how `check_dot_names`, the
+    /// `.Thing` sugar and LSP know a dotted prefix was a namespace — a
+    /// namespace may share its name with a type, so it is not enough to look
+    /// for a declaration [namespace].
+    pub namespaces: Vec<String>,
 }
 
 /// [mod-use] One module-level `use`.
@@ -49,6 +57,11 @@ pub enum Item {
     Handler(HandlerDecl),
     Params(ParamsDecl),
     Fn(FnDecl),
+    /// [namespace] `namespace X { … }` — a nestable grouping of top-level
+    /// declarations. Its body is itself a list of items (any declaration, and
+    /// nested namespaces). Flattened to dotted names [name-dot] before
+    /// resolution, so nothing downstream sees the block form.
+    Namespace(NamespaceDecl),
     /// A top-level `refn` [qual-refn]: a refinement written by the
     /// *consumer* rather than by a qualifier, which is how two
     /// conflicting refinements are reconciled in one's own module.
@@ -227,6 +240,31 @@ pub struct ParamsDecl {
 pub struct ImportDecl {
     pub path: Vec<Ident>,
     pub alias: Option<Ident>,
+    pub span: Span,
+}
+
+/// [namespace] `namespace X { items }`, or the terminal form `namespace X ...`
+/// whose body is the rest of the enclosing file [terminal-scope].
+///
+/// A nestable grouping: `items` may hold any top-level declaration, including
+/// further `Namespace`s. Before resolution the body is flattened — each inner
+/// declaration's name is prefixed with `X.` (recursively, `X.Y.Thing`) and the
+/// declaration hoisted to module level — so the rest of the compiler sees only
+/// the dotted names it already understands [name-dot].
+#[derive(Clone, Debug, PartialEq)]
+pub struct NamespaceDecl {
+    /// The `//` comment block directly above the declaration [doc-comment].
+    pub docs: Vec<String>,
+    /// [namespace] `export namespace X`: exports *every* member (D6). An inner
+    /// `export` still works and is redundant under this (D7).
+    pub exported: bool,
+    /// The namespace name — a single capitalized segment [name-casing].
+    pub name: Ident,
+    /// The declarations inside the namespace, in source order.
+    pub items: Vec<Item>,
+    /// True for the terminal form `namespace X ...` (body is the rest of the
+    /// file) rather than a braced `{ … }` block [terminal-scope].
+    pub terminal: bool,
     pub span: Span,
 }
 

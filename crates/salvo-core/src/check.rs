@@ -18329,6 +18329,110 @@ impl<'p, 'r> Checker<'p, 'r> {
             || self.scope.effects.contains_key(name)
     }
 
+    /// [namespace] Resolve a leading-dot sugar reference (`.S`, whose written
+    /// name is `.S` — see the parser) against the namespaces the `expected`
+    /// type exposes (D3/D4). Returns the full namespaced name (`AttributeValue.S`)
+    /// when exactly one exposed namespace has a type-like member of that name,
+    /// `Err(reason)` otherwise. The alias's own name is irrelevant: resolution
+    /// is driven by the expected type's *shape*.
+    ///
+    /// Namespaces exposed by `expected`:
+    /// * a **union** exposes the namespace of each arm whose type is dotted
+    ///   (`NS1.T | NS2.K` exposes `{NS1, NS2}`);
+    /// * a **single namespaced type** `Foo.Bar` exposes `Foo` — a sibling
+    ///   lookup, `.Baz` → `Foo.Baz`, last segment replaced (D4a).
+    fn resolve_dot_ref(&self, written: &str, expected: Option<&Ty>) -> Result<(String, Option<Ty>), String> {
+        // `written` is a leading-dot *suffix* of a namespaced name: `.Thing`,
+        // `.C.Thing`, `.B.C.Thing` … The suffix is everything after the
+        // leading dot. A candidate full name matches when it equals the suffix
+        // or ends with `.suffix` — i.e. the suffix lines up on a segment
+        // boundary (user refinement 2026-10-16).
+        let suffix = written.trim_start_matches('.');
+        let matches_suffix = |full: &str| full == suffix || full.ends_with(&format!(".{suffix}"));
+        let Some(expected) = expected else {
+            return Err(format!(
+                "`{written}` needs a known type to resolve against: there is no \
+                 expected type here, so write the namespace (`Ns{written}`) [namespace]"
+            ));
+        };
+        match expected.strip_quals() {
+            // A union resolves against its **arms** directly: the arm whose
+            // dotted type ends with the suffix. The arm's own `Ty` is returned
+            // so the check matches the arm regardless of how (or whether) its
+            // type is nameable here — the sugar's point is that the namespace
+            // is left unwritten (D4).
+            Ty::Union(arms) => {
+                let mut hits: Vec<(String, Ty)> = Vec::new();
+                for arm in arms {
+                    if let Ty::Named { name, .. } = arm.strip_quals() {
+                        let base = self.base_name(name);
+                        if matches_suffix(&base) && !hits.iter().any(|(n, _)| n == &base) {
+                            hits.push((base, arm.clone()));
+                        }
+                    }
+                }
+                match hits.as_slice() {
+                    [(name, ty)] => Ok((name.clone(), Some(ty.clone()))),
+                    [] => Err(format!(
+                        "`{written}` matches no arm of `{expected}` — its arms are {} [namespace]",
+                        arm_names(arms)
+                    )),
+                    many => Err(format!(
+                        "`{written}` is ambiguous across the arms of `{expected}`: {} — \
+                         write more of the path [namespace]",
+                        many.iter().map(|(m, _)| format!("`{m}`")).collect::<Vec<_>>().join(" or ")
+                    )),
+                }
+            }
+            // A single namespaced type `A.B.Bar` resolves a suffix against the
+            // names reachable in its ancestor namespaces: for each ancestor
+            // prefix `P` of the expected type's path (`A.B`, `A`), a candidate
+            // `P.suffix` — so `.Bar` is a sibling (`A.B.Bar`), `.B.X` reaches
+            // `A.B.X`, and the full `A.B.C.Thing` is accepted. The unique
+            // declared one wins (D4a, generalized to suffixes).
+            Ty::Named { name, .. } => {
+                let base = self.base_name(name);
+                if matches_suffix(&base)
+                    && (self.type_name_exists(&base) || self.qual_name_exists(&base))
+                {
+                    return Ok((base.clone(), None));
+                }
+                let mut hits: Vec<String> = Vec::new();
+                let mut rest = base.as_str();
+                while let Some((prefix, _)) = rest.rsplit_once('.') {
+                    let cand = format!("{prefix}.{suffix}");
+                    if (self.type_name_exists(&cand) || self.qual_name_exists(&cand))
+                        && !hits.contains(&cand)
+                    {
+                        hits.push(cand);
+                    }
+                    rest = prefix;
+                }
+                match hits.as_slice() {
+                    [one] => Ok((one.clone(), None)),
+                    [] => Err(format!(
+                        "`{written}` names no member in the namespace of `{expected}` \
+                         [namespace]"
+                    )),
+                    many => Err(format!(
+                        "`{written}` is ambiguous: {} — write more of the path [namespace]",
+                        many.iter().map(|m| format!("`{m}`")).collect::<Vec<_>>().join(" or ")
+                    )),
+                }
+            }
+            _ => Err(format!(
+                "`{written}` resolves against a namespaced type, but `{expected}` exposes \
+                 none here — write the namespace explicitly [namespace]"
+            )),
+        }
+    }
+
+    /// The base name of a type key, module key (`§…`) stripped, for namespace
+    /// comparison.
+    fn base_name(&self, name: &str) -> String {
+        name.split('§').next().unwrap_or(name).to_string()
+    }
+
     /// Reports a written name in a type position that resolves to nothing
     /// visible [name-resolve]. `expect_qual` picks the wording and the
     /// namespace searched.
@@ -21186,7 +21290,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     ) -> IsInfo {
         let subj_ty = self.check_expr(subject, None);
         let repr = self.repr_of(subject, &subj_ty);
-        let pat = self.parse_check(quals);
+        let pat = self.parse_check(quals, Some(&subj_ty));
         // Same places `is` narrows [flow-place]: a variable or a field chain
         // out of a tracked local (user decision 2026-09-05: consistent with
         // `is`).
@@ -25638,7 +25742,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         };
         let subj_ty = self.check_expr(subject, None);
         let repr = self.repr_of(subject, &subj_ty);
-        let pat = self.parse_check(check);
+        let pat = self.parse_check(check, Some(&subj_ty));
 
         // A qualifier check on a non-union subject is a predicate test
         // [is-qualifies]: it calls each qualifier's `qualifies` function at
@@ -25804,7 +25908,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// mark the pattern `unresolved`, which suppresses the match-arm
     /// diagnostics downstream (an unresolved name matches nothing, and
     /// "this check can never succeed" would only mislead).
-    fn parse_check(&mut self, check: &[TypeRef]) -> CheckPat {
+    fn parse_check(&mut self, check: &[TypeRef], expected: Option<&Ty>) -> CheckPat {
         if check.len() == 1 && check[0].name.name == "None" && check[0].args.is_empty() {
             return CheckPat {
                 quals: Vec::new(),
@@ -25820,6 +25924,32 @@ impl<'p, 'r> Checker<'p, 'r> {
         let mut unresolved = false;
         for (i, r) in check.iter().enumerate() {
             let last = i + 1 == check.len();
+            // [namespace] A leading-dot sugar name (`.S`) resolves against the
+            // expected type here; on failure, report and mark unresolved so
+            // nothing cascades. A union arm resolves to the arm's own type,
+            // used as the check base directly — so it matches the arm whatever
+            // the member's type is spelled (or aliased) as locally.
+            if r.name.name.starts_with('.') {
+                match self.resolve_dot_ref(&r.name.name, expected) {
+                    Ok((full, arm_ty)) => {
+                        self.record_def_ref(r.name.span, &full);
+                        match arm_ty {
+                            Some(ty) => base = Some(ty),
+                            None => {
+                                let mut c = r.clone();
+                                c.name.name = full.clone();
+                                let empty = HashMap::new();
+                                base = Some(self.lower_base_ref(&c, &empty, 0));
+                            }
+                        }
+                    }
+                    Err(msg) => {
+                        self.error(r.name.span, msg);
+                        unresolved = true;
+                    }
+                }
+                continue;
+            }
             let name = r.name.name.as_str();
             // [type-literal] `is "A"`: the check's one ref is the literal.
             if let Some(lit) = salvo_syntax::ast::TypeLit::from_ref_name(name) {
@@ -26201,7 +26331,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // — are suppressed [name-resolve].
         let mut unresolved_check = false;
         for branch in branches {
-            let pat = self.parse_check(&branch.check);
+            let pat = self.parse_check(&branch.check, Some(&subj_ty));
             let matched: Vec<Ty> = remaining
                 .iter()
                 .filter(|arm| self.arm_matches(arm, &pat))
@@ -27719,6 +27849,22 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         if let Expr::Field { base, field, .. } = callee {
             let name = field.name.as_str();
+            // [namespace] A namespaced free-fn call `Outer.Inner.make(x)`: a
+            // `Field` chain of uppercase namespace segments ending in a
+            // lowercase fn name. It resolves to the flat key `Outer.Inner.make`
+            // in scope — a direct call, *not* dot-notation, so the base
+            // segments are a path and contribute no receiver argument.
+            if field.name.chars().next().is_some_and(|c| c.is_lowercase()) {
+                if let Some(ns) = namespace_path_of(base) {
+                    let flat = format!("{ns}.{name}");
+                    if self.has_callable(&flat) {
+                        let arg_refs: Vec<&'p Expr> = args.iter().collect();
+                        return self.resolve_named_call(
+                            &flat, field.span, type_args, &arg_refs, named, expected, None, span,
+                        );
+                    }
+                }
+            }
             // [actor-use-addr] `p.total(out)` where `p` is an `Addr<E>`: the
             // inline form of `use p` — the member is E's, and the receiver is
             // the actor it goes to rather than a first argument. Checked
@@ -31438,6 +31584,44 @@ pub fn written_type_key(ty: &ast::Type) -> usize {
 
 fn spans_overlap(a: Span, b: Span) -> bool {
     a.start <= b.end && b.start <= a.end
+}
+
+/// [namespace] A readable list of a union's arm type names, for the
+/// leading-dot resolution diagnostics.
+fn arm_names(arms: &[Ty]) -> String {
+    let mut out: Vec<String> = Vec::new();
+    for arm in arms {
+        if let Ty::Named { name, .. } = arm.strip_quals() {
+            let base = name.split('§').next().unwrap_or(name).to_string();
+            out.push(format!("`{base}`"));
+        }
+    }
+    if out.is_empty() {
+        "none".to_string()
+    } else {
+        out.join(", ")
+    }
+}
+
+/// [namespace] The dotted namespace path of a `Field`/`Ident` expression
+/// whose every segment is an uppercase name — `Outer.Inner` from the base of
+/// `Outer.Inner.make`. `None` when any segment is lowercase (a value
+/// receiver, not a namespace) or the shape is anything but a straight
+/// field/ident chain. The caller joins it with the lowercase leaf to form the
+/// flat fn key the flattener produced.
+fn namespace_path_of(expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::Ident(id) if id.name.chars().next().is_some_and(|c| c.is_uppercase()) => {
+            Some(id.name.clone())
+        }
+        Expr::Field { base, field, .. }
+            if field.name.chars().next().is_some_and(|c| c.is_uppercase()) =>
+        {
+            let head = namespace_path_of(base)?;
+            Some(format!("{head}.{}", field.name))
+        }
+        _ => None,
+    }
 }
 
 /// [is-narrowing] A union under `proj` alone — a borrowed element of a

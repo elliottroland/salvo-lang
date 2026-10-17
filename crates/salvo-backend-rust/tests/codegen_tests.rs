@@ -3795,6 +3795,53 @@ fn dot_names_in_unions_and_narrowing() {
     );
 }
 
+/// [namespace] A `namespace` groups declarations; its members carry dotted
+/// names (`Attr.S`, `Outer.Inner.Thing`), a namespaced free fn is called by
+/// its dotted path, and the `.Thing` suffix sugar resolves a `when` arm
+/// against the union's arms. Rust flattens every dotted name.
+const NAMESPACES: &str = r#"
+namespace Attr {
+    struct S { value: Str }
+    struct N { value: Str }
+    fn tag(v: Str) -> Str => !v {
+        return "tag:${v}"
+    }
+}
+
+namespace Outer {
+    namespace Inner {
+        struct Thing { value: Str }
+    }
+}
+
+type AttrValue = Attr.S | Attr.N
+
+fn describe(v: AttrValue) -> Str {
+    when v {
+        is .S { return "S ${v.value}" }
+        is .N { return "N ${v.value}" }
+    }
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    println(describe(Attr.S { value: "x" }))
+    println(describe(Attr.N { value: "y" }))
+    println(Attr.tag("z"))
+    let t = Outer.Inner.Thing { value: "deep" }
+    println(t.value)
+}
+"#;
+
+#[test]
+fn namespaces_nest_flatten_and_resolve() {
+    let program = build_program(&[("main.sv", NAMESPACES)]);
+    let files = salvo_backend_rust::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_rust_files(&files, "namespaces", "S x\nN y\ntag:z\ndeep\n");
+}
+
 // ===== D5: qualifier subjects [qual-subject] =====
 
 /// The state/provenance contrast, observable in the output: `add` is a

@@ -413,6 +413,12 @@ Conventions:
     once in the type namespace of this module"), and the namespace struct
     is required to exist. Flattening is what makes the language-level
     collision ban load-bearing [name-dot].
+  * **Any depth, every kind** [namespace]: the same flattening carries a
+    `namespace X { … }` to any depth (`Outer.Inner.Thing` → `OuterInnerThing`)
+    and a namespaced free fn (`Outer.Inner.make` → `OuterInnermake`,
+    declaration and call) — no nesting, no Rust `mod`, just the flat name. So
+    the Rust backend needs nothing namespace-specific; the IR's dotted names
+    flatten as they always have.
 * [type-alias] Aliases are expanded before rendering: the emitter renders the
   IR's types through the alias table (`unalias`), so an alias never reaches
   the output by name.

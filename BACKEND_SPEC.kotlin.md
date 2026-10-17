@@ -586,11 +586,24 @@ Conventions:
   * Because the member is a plain nested class, the namespace struct must
     not be generic (enforced in `resolve`): a nested class cannot use the
     outer class's type parameters.
+  * **Any depth** [namespace]: `Outer.Inner.Thing` nests an `object`/class
+    tree (`object Outer { object Inner { data class Thing … } }`), and the
+    reference keeps the full dotted spelling. A `namespace X { … }` block is
+    an `object X`; a struct that is itself a namespace reopens its `data
+    class` with the nested members. The recursive emitter (`emit_struct_namespace`)
+    reads the authoritative namespace set from `ir::Module.namespaces` — a
+    flattened dotted name alone cannot say whether a prefix was a `namespace`
+    or a dot-named struct (they may share a name [namespace]).
   * A **`type` namespace** [name-dot] has no class of its own — Kotlin expands
     a Salvo `type` structurally — so its members nest in an `object` of the
     type's name (`object StorageClass { class Standard … }`), and references
     keep the dotted spelling unchanged. Codecs for the members follow the
     object at top level, as for a struct namespace.
+  * A **namespaced free fn** does *not* nest: unlike a type, a function has no
+    dotted-path requirement, so its name is **flattened** to underscores
+    (`Outer.Inner.make` → `fun Outer_Inner_make`, and every call the same) —
+    mirroring the Rust backend. The namespace still keeps the name unique, and
+    no `object` has to hold the fn [namespace].
   * Dot-named *qualifiers* emit nothing (qualifiers erase
     [qual-erasure]); they only reach output through mangling, where the
     dot canonicalizes to the flat spelling

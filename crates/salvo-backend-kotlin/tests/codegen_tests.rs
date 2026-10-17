@@ -5762,6 +5762,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_array_std,
     dot_names_emit_nested_classes,
     dot_names_in_unions_and_narrowing,
+    namespaces_nest_flatten_and_resolve,
     provenance_survives_mutation_where_state_does_not,
     kotlin_compiles_and_runs_throw,
     kotlinc_compiles_and_runs_fn_type_effects,
@@ -9775,7 +9776,51 @@ fn dot_names_in_unions_and_narrowing() -> KotlinCase {
     )
 }
 
-// ===== D5: qualifier subjects [qual-subject] =====
+/// [namespace] A `namespace` groups declarations into dotted names; a
+/// namespaced free fn is called by its dotted path (Kotlin flattens it to
+/// `Attr_tag`), types nest as objects, and the `.Thing` suffix sugar resolves
+/// a `when` arm against the union's arms.
+const NAMESPACES: &str = r#"
+namespace Attr {
+    struct S { value: Str }
+    struct N { value: Str }
+    fn tag(v: Str) -> Str => !v {
+        return "tag:${v}"
+    }
+}
+
+namespace Outer {
+    namespace Inner {
+        struct Thing { value: Str }
+    }
+}
+
+type AttrValue = Attr.S | Attr.N
+
+fn describe(v: AttrValue) -> Str {
+    when v {
+        is .S { return "S ${v.value}" }
+        is .N { return "N ${v.value}" }
+    }
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    println(describe(Attr.S { value: "x" }))
+    println(describe(Attr.N { value: "y" }))
+    println(Attr.tag("z"))
+    let t = Outer.Inner.Thing { value: "deep" }
+    println(t.value)
+}
+"#;
+
+fn namespaces_nest_flatten_and_resolve() -> KotlinCase {
+    let program = build_program(&[("main.sv", NAMESPACES)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "namespaces", "S x\nN y\ntag:z\ndeep\n")
+}
 
 /// The state/provenance contrast, observable in the output: `add` is a
 /// mutating call, so it strips the *state* claim (`Checked`) and the plain

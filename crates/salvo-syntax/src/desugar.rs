@@ -2051,6 +2051,156 @@ fn rename_value_arg_root(ty: &mut Type, old: &str, new: &str) {
 /// nested because it *is* an ordinary top-level function in every other
 /// respect — it overloads, it is called bare or with dot notation, and it
 /// takes part in ranking. A `by` declaration [fn-by] and a concrete `compfn`
+/// [namespace] Flattens every `namespace X { … }` into dotted top-level
+/// declarations before anything else sees the module. A member `Thing` inside
+/// `namespace X` becomes a top-level declaration named `X.Thing`; nested
+/// namespaces compose (`X.Y.Thing`) [name-dot]. `export namespace X`
+/// distributes `export` to every member (D6/D7).
+///
+/// Runs in `parse_module_deferred`, the chokepoint every parse goes through,
+/// so the inline `iter fn`/test/struct-hoist passes and all of resolve, check
+/// and the emitters only ever see the dotted names they already understand.
+pub fn flatten_namespaces(module: &mut Module) -> Vec<Diagnostic> {
+    let mut diags = Vec::new();
+    let mut out = Vec::with_capacity(module.items.len());
+    let mut namespaces = Vec::new();
+    for item in std::mem::take(&mut module.items) {
+        flatten_item(item, "", false, &mut out, &mut namespaces, &mut diags);
+    }
+    module.items = out;
+    module.namespaces = namespaces;
+    diags
+}
+
+/// Flattens one item under `prefix` (a dotted namespace path, or `""` at top
+/// level). `force_export` is set by an enclosing `export namespace`.
+fn flatten_item(
+    item: Item,
+    prefix: &str,
+    force_export: bool,
+    out: &mut Vec<Item>,
+    namespaces: &mut Vec<String>,
+    diags: &mut Vec<Diagnostic>,
+) {
+    // A name under the current prefix: `X.` + the declaration's own name.
+    let under = |name: &str| {
+        if prefix.is_empty() {
+            name.to_string()
+        } else {
+            format!("{prefix}.{name}")
+        }
+    };
+    match item {
+        Item::Namespace(ns) => {
+            // [name-casing] A namespace name is a single capitalized segment;
+            // the parser already enforced the capital. A dotted namespace name
+            // would come from a malformed parse — guard anyway.
+            let inner_prefix = under(&ns.name.name);
+            let inner_export = force_export || ns.exported;
+            namespaces.push(inner_prefix.clone());
+            for inner in ns.items {
+                flatten_item(inner, &inner_prefix, inner_export, out, namespaces, diags);
+            }
+        }
+        other => {
+            let prefixed = prefix_item_name(other, prefix, force_export, diags);
+            if let Some(prefixed) = prefixed {
+                out.push(prefixed);
+            }
+        }
+    }
+}
+
+/// Rewrites a non-namespace item's name to `prefix.Name` (when `prefix` is
+/// non-empty) and applies `force_export`. Items that cannot live in a
+/// namespace (imports, renames, refns, tests) are reported when they appear
+/// under a prefix, and kept unprefixed so the rest of the file still parses.
+fn prefix_item_name(
+    item: Item,
+    prefix: &str,
+    force_export: bool,
+    diags: &mut Vec<Diagnostic>,
+) -> Option<Item> {
+    let under = |name: &str| {
+        if prefix.is_empty() {
+            name.to_string()
+        } else {
+            format!("{prefix}.{name}")
+        }
+    };
+    let in_namespace = !prefix.is_empty();
+    macro_rules! reject {
+        ($span:expr, $what:literal) => {{
+            if in_namespace {
+                diags.push(Diagnostic::error(
+                    concat!(
+                        "a `",
+                        $what,
+                        "` cannot appear inside a `namespace`: it is file- or \
+                         module-scoped, not a named declaration [namespace]"
+                    )
+                    .to_string(),
+                    $span,
+                ));
+            }
+        }};
+    }
+    match item {
+        Item::Struct(mut s) => {
+            s.name.name = under(&s.name.name);
+            s.exported = s.exported || force_export;
+            Some(Item::Struct(s))
+        }
+        Item::Type(mut t) => {
+            t.name.name = under(&t.name.name);
+            t.exported = t.exported || force_export;
+            Some(Item::Type(t))
+        }
+        Item::Qualifier(mut q) => {
+            q.name.name = under(&q.name.name);
+            q.exported = q.exported || force_export;
+            Some(Item::Qualifier(q))
+        }
+        Item::Effect(mut e) => {
+            e.name.name = under(&e.name.name);
+            e.exported = e.exported || force_export;
+            Some(Item::Effect(e))
+        }
+        Item::Handler(mut h) => {
+            h.name.name = under(&h.name.name);
+            h.exported = h.exported || force_export;
+            Some(Item::Handler(h))
+        }
+        Item::Params(mut g) => {
+            g.name.name = under(&g.name.name);
+            g.exported = g.exported || force_export;
+            Some(Item::Params(g))
+        }
+        Item::Fn(mut f) => {
+            f.name.name = under(&f.name.name);
+            f.exported = f.exported || force_export;
+            Some(Item::Fn(f))
+        }
+        Item::Namespace(_) => unreachable!("namespaces are handled by flatten_item"),
+        Item::Import(d) => {
+            reject!(d.span, "import");
+            Some(Item::Import(d))
+        }
+        Item::Refn(d) => {
+            reject!(d.span, "refn");
+            Some(Item::Refn(d))
+        }
+        Item::Rename(d) => {
+            reject!(d.span, "rename");
+            Some(Item::Rename(d))
+        }
+        Item::Test(d) => {
+            reject!(d.span, "test");
+            Some(Item::Test(d))
+        }
+    }
+}
+
 /// [comptime-bound] in the body travel the same way; the comptime expansion
 /// finds them at module level afterwards.
 pub fn hoist_struct_fns(module: &mut Module) {
@@ -2115,7 +2265,11 @@ pub fn walk_module(
                 }
             }
             Item::Test(t) => walk_block_with(&t.body, on_stmt, on_expr),
-            Item::Import(_)
+            // [namespace] Flattened in `parse_module_deferred`, so one should
+            // not reach here; tolerate it by doing nothing (its members, once
+            // flattened, are walked as ordinary items).
+            Item::Namespace(_)
+            | Item::Import(_)
             | Item::Type(_)
             | Item::Qualifier(_)
             | Item::Effect(_)

@@ -488,7 +488,7 @@ impl<'s> Parser<'s> {
                 self.bump();
             }
         }
-        Module { docs, items, uses }
+        Module { docs, items, uses, namespaces: Vec::new() }
     }
 
     /// Skips tokens until something that can plausibly start a top-level item.
@@ -510,6 +510,7 @@ impl<'s> Parser<'s> {
                 | TokenKind::KwEffect
                 | TokenKind::KwHandler
                 | TokenKind::KwType
+                | TokenKind::KwNamespace
                 | TokenKind::KwIntrinsic
                 | TokenKind::KwPlatform
                 | TokenKind::KwProvenance
@@ -579,6 +580,13 @@ impl<'s> Parser<'s> {
                 d.exported = true;
                 Some(Item::Fn(d))
             }
+            Item::Namespace(mut d) => {
+                // [namespace] [name-dot] `export namespace X` exports every
+                // member (D6); the flag is distributed when the body is
+                // flattened.
+                d.exported = true;
+                Some(Item::Namespace(d))
+            }
             Item::Import(_) => {
                 self.error(
                     "`export` cannot precede an `import`: a module states what *it* \
@@ -615,6 +623,75 @@ impl<'s> Parser<'s> {
                 Some(item)
             }
         }
+    }
+
+    /// [namespace] `namespace X { items }`, or the terminal form
+    /// `namespace X ...` whose body runs to the end of the enclosing item list
+    /// [terminal-scope]. The caller is positioned on `namespace`.
+    ///
+    /// Namespaces nest, so the body is parsed with the same `parse_item` loop
+    /// the module uses. A braced body ends at its `}`; a terminal body ends at
+    /// EOF or the `}` of an enclosing braced namespace — nothing may follow a
+    /// terminal scope at the same level.
+    fn parse_namespace(&mut self) -> Option<NamespaceDecl> {
+        let docs = self.docs_here();
+        let start = self.bump().span; // `namespace`
+        let name = self.ident_type("namespace")?;
+        let terminal = self.at(&TokenKind::Ellipsis);
+        if terminal {
+            self.bump();
+        } else if !self.at(&TokenKind::LBrace) {
+            let found = self.kind().describe();
+            let span = self.peek().span;
+            self.error(
+                format!(
+                    "expected `{{` or `...` after the namespace name `{}`, found {found} \
+                     [namespace]",
+                    name.name
+                ),
+                span,
+            );
+            return None;
+        } else {
+            self.bump(); // `{`
+        }
+        let mut items = Vec::new();
+        loop {
+            if terminal {
+                // Runs to the end of the enclosing item list: EOF at the top
+                // level, or the `}` that closes an enclosing braced namespace.
+                if self.at_eof() || self.at(&TokenKind::RBrace) {
+                    break;
+                }
+            } else if self.at(&TokenKind::RBrace) {
+                self.bump();
+                break;
+            } else if self.at_eof() {
+                self.error(
+                    format!("unterminated `namespace {}`: expected `}}` [namespace]", name.name),
+                    start,
+                );
+                break;
+            }
+            let before = self.pos;
+            match self.parse_item() {
+                Some(item) => items.push(item),
+                None => self.recover_to_item_start(),
+            }
+            if self.pos == before {
+                self.bump();
+            }
+        }
+        let end = self.tokens[self.pos.saturating_sub(1)].span;
+        let span = start.to(end);
+        Some(NamespaceDecl {
+            docs,
+            exported: false,
+            name,
+            items,
+            terminal,
+            span,
+        })
     }
 
     fn parse_declaration(&mut self) -> Option<Item> {
@@ -666,6 +743,10 @@ impl<'s> Parser<'s> {
                 }
                 Some(Item::Type(t))
             }
+            // [namespace] `namespace X { … }` or `namespace X ...` — a
+            // grouping of declarations, flattened to dotted names before
+            // resolution [name-dot].
+            TokenKind::KwNamespace => self.parse_namespace().map(Item::Namespace),
             // [iter-fn] `iter fn range(start: Int, end: Int) -> Emitted T |
             // Finished` — a hand-written `next` whose iterator struct is
             // generated; the declaration is the minter.
@@ -3918,12 +3999,22 @@ impl<'s> Parser<'s> {
         {
             return Some(head);
         }
-        self.bump();
-        let tail = self.ident()?;
-        Some(Ident {
-            name: format!("{}.{}", head.name, tail.name),
-            span: head.span.to(tail.span),
-        })
+        // [namespace] A dotted type reference may have any number of
+        // uppercase segments (`Outer.Inner.Thing`), since namespaces nest
+        // [name-dot] [name-casing]. Each `.Uppercase` extends the name; the
+        // whole dotted path is one key, as the two-segment form always was.
+        let mut name = head.name;
+        let mut span = head.span;
+        while self.at(&TokenKind::Dot)
+            && self.same_line()
+            && matches!(&self.peek_at(1).kind, TokenKind::Ident(n) if n.starts_with(|c: char| c.is_uppercase()))
+        {
+            self.bump();
+            let seg = self.ident()?;
+            name = format!("{name}.{}", seg.name);
+            span = span.to(seg.span);
+        }
+        Some(Ident { name, span })
     }
 
     fn parse_type_ref(&mut self) -> Option<TypeRef> {
@@ -3935,6 +4026,40 @@ impl<'s> Parser<'s> {
     /// never carries value args — a following `(` there is the function's
     /// parameter / argument list, not part of the type.
     fn parse_type_ref_opts(&mut self, allow_value_args: bool) -> Option<TypeRef> {
+        // [namespace] `.S` / `.S.T` — the leading-dot sugar: a reference whose
+        // namespace is left to the expected type (D3/D4). Parsed as a name
+        // that keeps its leading dot (`.S`), which no ordinary type can spell,
+        // so the checker recognises and resolves it against the expected
+        // type's exposed namespaces. Only uppercase segments follow the dot
+        // (a type-like member); a lowercase one would be a field access.
+        if self.at(&TokenKind::Dot)
+            && matches!(&self.peek_at(1).kind, TokenKind::Ident(n) if n.starts_with(|c: char| c.is_uppercase()))
+        {
+            let dot = self.bump().span;
+            let first = self.ident()?;
+            let mut name_str = format!(".{}", first.name);
+            let mut span = dot.to(first.span);
+            while self.at(&TokenKind::Dot)
+                && self.same_line()
+                && matches!(&self.peek_at(1).kind, TokenKind::Ident(n) if n.starts_with(|c: char| c.is_uppercase()))
+            {
+                self.bump();
+                let seg = self.ident()?;
+                name_str = format!("{name_str}.{}", seg.name);
+                span = span.to(seg.span);
+            }
+            return Some(TypeRef {
+                name: Ident { name: name_str, span },
+                args: Vec::new(),
+                value_args: Vec::new(),
+                from: Vec::new(),
+                at: None,
+                binder: false,
+                established: false,
+                alias: None,
+                span,
+            });
+        }
         let name = self.type_ref_name()?;
         let mut args = Vec::new();
         let mut end = name.span;
@@ -5311,6 +5436,15 @@ impl<'s> Parser<'s> {
                     refs.push(value.as_type_ref(span));
                     break;
                 }
+            }
+            // [namespace] `is .S` — the leading-dot sugar: the namespace is
+            // left to the subject type [namespace]. A `.` then an uppercase
+            // name opens a dot-ref, which `parse_type_ref` reads.
+            if self.at(&TokenKind::Dot)
+                && matches!(&self.peek_at(1).kind, TokenKind::Ident(n) if n.starts_with(|c: char| c.is_uppercase()))
+            {
+                refs.push(self.parse_type_ref()?);
+                continue;
             }
             let TokenKind::Ident(name) = self.kind() else {
                 break;

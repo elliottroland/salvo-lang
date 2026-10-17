@@ -6090,4 +6090,5 @@ Module {
         ),
     ],
     uses: [],
+    namespaces: [],
 }

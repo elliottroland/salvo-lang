@@ -25,7 +25,7 @@ const CONTROL_KEYWORDS: &[&str] = &[
 ];
 const DECLARATION_KEYWORDS: &[&str] = &[
     "fn", "let", "struct", "qualifier", "effect", "handler", "params", "type", "intrinsic",
-    "platform", "import", "provenance", "refn", "rename", "state",
+    "platform", "import", "provenance", "refn", "rename", "state", "namespace",
 ];
 const OTHER_KEYWORDS: &[&str] = &[
     "as", "of", "with", "canbe", "is", "use",

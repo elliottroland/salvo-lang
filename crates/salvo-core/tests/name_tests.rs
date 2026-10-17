@@ -107,7 +107,7 @@ fn namespace_must_be_a_struct_in_the_same_file() {
     assert!(
         errors
             .iter()
-            .any(|m| m.contains("must be a struct or a `type` declared in this file")),
+            .any(|m| m.contains("is not a namespace here")),
         "got {errors:?}"
     );
 }
@@ -370,5 +370,75 @@ fn canbe_only_accepts_the_intrinsic_qualifiers() {
             .any(|m| m
                 .contains("only `Mut`, `once`, `hashed` and `ordered` can be opted into with `canbe`")),
         "got {messages:?}"
+    );
+}
+
+// [namespace] A `namespace X { … }` flattens to dotted names, and a member
+// referenced as `X.Thing` resolves — the namespace need not also be a struct.
+#[test]
+fn namespace_members_resolve() {
+    let src = "namespace Attr {\n    \
+                   struct S { value: Str }\n    \
+                   qualifier Tag of Str\n\
+               }\n\n\
+               fn pick() [] -> Attr.S {\n    return Attr.S { value: \"x\" }\n}\n";
+    assert!(resolve_errors(&[("main.sv", src)]).is_empty());
+}
+
+// [namespace] Namespaces nest to any depth; a member of a nested namespace
+// resolves by its full dotted path.
+#[test]
+fn nested_namespace_members_resolve() {
+    let src = "namespace Outer {\n    \
+                   namespace Inner {\n        \
+                       struct Thing { value: Str }\n    \
+                   }\n\
+               }\n\n\
+               fn make() [] -> Outer.Inner.Thing {\n    \
+                   return Outer.Inner.Thing { value: \"x\" }\n}\n";
+    assert!(resolve_errors(&[("main.sv", src)]).is_empty());
+}
+
+// [namespace] A namespace may share its name with a type at the same level
+// (the `AttributeValue` case): the union alias and the namespace coexist.
+#[test]
+fn namespace_and_type_may_share_a_name() {
+    let src = "namespace Attr {\n    \
+                   struct S { value: Str }\n    \
+                   struct N { value: Str }\n\
+               }\n\n\
+               type Attr = Attr.S | Attr.N\n\n\
+               fn pick() [] -> Attr {\n    return Attr.S { value: \"x\" }\n}\n";
+    assert!(resolve_errors(&[("main.sv", src)]).is_empty());
+}
+
+// [namespace] `export namespace` exports every member; a plain `namespace`
+// keeps them private, so importing one across modules is refused.
+#[test]
+fn export_namespace_distributes_visibility() {
+    let exported = resolve_errors(&[
+        ("lib.sv", "export namespace Attr {\n    struct S { value: Str }\n}\n"),
+        ("main.sv", "import lib.Attr\n\nfn pick() [] -> Attr.S {\n    return Attr.S { value: \"x\" }\n}\n"),
+    ]);
+    assert!(exported.is_empty(), "exported namespace member should import: {exported:?}");
+
+    let private = resolve_errors(&[
+        ("lib.sv", "namespace Attr {\n    struct S { value: Str }\n}\n"),
+        ("main.sv", "import lib.Attr\n\nfn pick() [] -> Attr.S {\n    return Attr.S { value: \"x\" }\n}\n"),
+    ]);
+    assert!(!private.is_empty(), "a private namespace's members must not import");
+}
+
+// [namespace] A declaration that is not a named declaration — an import —
+// cannot appear inside a namespace (reported when the namespace is flattened,
+// at parse time).
+#[test]
+fn import_inside_namespace_is_rejected() {
+    let src = "namespace X {\n    import core.Str\n}\n";
+    let (_module, diags) = salvo_syntax::parse_module(src);
+    assert!(
+        diags.iter().any(|d| d.message.contains("cannot appear inside a `namespace`")),
+        "got {:?}",
+        diags.iter().map(|d| &d.message).collect::<Vec<_>>()
     );
 }
