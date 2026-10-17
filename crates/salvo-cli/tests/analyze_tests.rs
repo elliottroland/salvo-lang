@@ -2404,7 +2404,7 @@ fn route_binds_any_and_needs_a_selector() {
              actor effect Ping {{\n    send fn ping(k: Key Str, out: Reply<Str>) => !k, !out\n}}\n\n\
              fn one() [any Ping] -> Str {{\n    return waitfor out: Reply<Str> {{ ping(\"a\", out) }}\n}}\n\n\
              fn strong() [Ping] -> Str {{\n    return waitfor out: Reply<Str> {{ ping(\"a\", out) }}\n}}\n\n\
-             fn main(g: Addr<ActorGroup<Ping>>) [use]\n=> !g {{\n{tail}}}\n"
+             fn main(g: eff[ActorGroup<Ping>]) [use]\n=> !g {{\n{tail}}}\n"
         )
     };
     fs::write(
@@ -2460,7 +2460,7 @@ fn route_refusals_name_the_fix() {
     fs::write(
         dir.join("main.sv"),
         "import net\n\nactor effect Two {\n    send fn go(a: Key Str, b: Key Int) => !a, !b\n}\n\n\
-         fn main(g: Addr<ActorGroup<Two>>) [use]\n=> !g {\n    use Sharded<Two>()\n    use route_any(g)\n}\n",
+         fn main(g: eff[ActorGroup<Two>]) [use]\n=> !g {\n    use Sharded<Two>()\n    use route_any(g)\n}\n",
     )
     .unwrap();
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
@@ -2474,13 +2474,13 @@ fn route_refusals_name_the_fix() {
     fs::write(
         dir.join("lib.sv"),
         "import net\n\nexport actor effect Ping {\n    send fn ping(out: Reply<Str>) => !out\n}\n\n\
-         export fn group_of(g: Addr<ActorGroup<Ping>>) -> Addr<ActorGroup<Ping>> => !g {\n    return g\n}\n",
+         export fn group_of(g: eff[ActorGroup<Ping>]) -> eff[ActorGroup<Ping>] => !g {\n    return g\n}\n",
     )
     .unwrap();
     fs::write(
         dir.join("main.sv"),
         "import net\nimport lib.group_of\nimport lib.Ping\n\n\
-         fn main(g: Addr<ActorGroup<Ping>>) [use]\n=> !g {\n    use LeastLoaded<Ping>(true)\n    let h = group_of(g)\n    use route_any(h)\n}\n",
+         fn main(g: eff[ActorGroup<Ping>]) [use]\n=> !g {\n    use LeastLoaded<Ping>(true)\n    let h = group_of(g)\n    use route_any(h)\n}\n",
     )
     .unwrap();
     // …unless it spells it, which this file does in `main`'s signature — so
@@ -2497,8 +2497,8 @@ fn route_refusals_name_the_fix() {
     fs::write(
         dir.join("lib.sv"),
         "import net\n\nexport actor effect Ping {\n    send fn ping(out: Reply<Str>) => !out\n}\n\n\
-         export fn group_of(g: Addr<ActorGroup<Ping>>) -> Addr<ActorGroup<Ping>> => !g {\n    return g\n}\n\n\
-         export fn some_group() [spawn] -> Addr<ActorGroup<Ping>> {\n    \
+         export fn group_of(g: eff[ActorGroup<Ping>]) -> eff[ActorGroup<Ping>] => !g {\n    return g\n}\n\n\
+         export fn some_group() [spawn] -> eff[ActorGroup<Ping>] {\n    \
          return actor_group<Ping>(spawn StaticNodeGroup(\"x\", List(NodeEndpoint { host: \"a\", port: 1 })) with MemTransport(NodeEndpoint { host: \"a\", port: 1 }, spawn MemNetwork() on pool(1) on pool(1)))\n}\n",
     )
     .unwrap();

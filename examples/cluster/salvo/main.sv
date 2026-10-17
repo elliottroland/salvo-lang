@@ -82,7 +82,7 @@ handler Looking(who: Str) of Lookup {
 // when it fires. `replyto` mints the continuation onto its own `answer`, a
 // **private** send member — no face declares it, so nothing outside this
 // handler can send to it, and its clause is written out like a free send fn's.
-handler SlowLooking(who: Str, timer: Addr<Timer>) of Lookup {
+handler SlowLooking(who: Str, timer: eff[Timer]) of Lookup {
     mailbox { capacity: 16 }
     send fn lookup(key: Str, out: Reply<Str>) => !key, !out {
         timer.after(millis(150), replyto answer(key, out))
@@ -101,16 +101,16 @@ handler SlowLooking(who: Str, timer: Addr<Timer>) of Lookup {
 // Scatter: ask every member, sum the answers, reply once. The router itself
 // is stateless and `use`-bound; the collecting is an actor's, since something
 // has to receive the partial answers.
-handler Scattering(group: Addr<ActorGroup<Search>>, gather: Addr<Gather>) of any Search {
+handler Scattering(group: eff[ActorGroup<Search>], gather: eff[Gather]) of any Search {
     mailbox { capacity: 16 }
     send fn query(word: Str, out: Reply<Int>) => !word, !out {
-        let members = waitfor ms: Reply<List<Addr<Search>>> { group.members(ms) }
+        let members = waitfor ms: Reply<List<eff[Search]>> { group.members(ms) }
         gather.scatter(word, members, out)
     }
 }
 
 actor effect Gather {
-    send fn scatter(word: Str, members: List<Addr<Search>>, out: Reply<Int>) => !word, !members, !out
+    send fn scatter(word: Str, members: List<eff[Search]>, out: Reply<Int>) => !word, !members, !out
 }
 
 // One query at a time: the reply token waits in the actor's state until every
@@ -124,7 +124,7 @@ handler Gathering() of Gather {
         left: Int = 0
         total: Int = 0
     }
-    send fn scatter(word: Str, members: List<Addr<Search>>, out: Reply<Int>) => !word, !members, !out {
+    send fn scatter(word: Str, members: List<eff[Search]>, out: Reply<Int>) => !word, !members, !out {
         add_last(pending, out)
         left = size(members)
         total = 0
@@ -149,16 +149,16 @@ handler Gathering() of Gather {
 // Hedge: two members race, the first answer is the answer, the second is
 // dropped — a `Reply` is discharged exactly once, so the second arrival has
 // nothing to send to.
-handler Hedging(group: Addr<ActorGroup<Lookup>>, racer: Addr<Race>) of any Lookup {
+handler Hedging(group: eff[ActorGroup<Lookup>], racer: eff[Race]) of any Lookup {
     mailbox { capacity: 16 }
     send fn lookup(key: Str, out: Reply<Str>) => !key, !out {
-        let members = waitfor ms: Reply<List<Addr<Lookup>>> { group.members(ms) }
+        let members = waitfor ms: Reply<List<eff[Lookup]>> { group.members(ms) }
         racer.race(key, members, out)
     }
 }
 
 actor effect Race {
-    send fn race(key: Str, members: List<Addr<Lookup>>, out: Reply<Str>) => !key, !members, !out
+    send fn race(key: Str, members: List<eff[Lookup]>, out: Reply<Str>) => !key, !members, !out
 }
 
 handler Racing() of Race {
@@ -166,7 +166,7 @@ handler Racing() of Race {
     state {
         pending: Mut Deque<Reply<Str>> = mut_deque_of()
     }
-    send fn race(key: Str, members: List<Addr<Lookup>>, out: Reply<Str>) => !key, !members, !out {
+    send fn race(key: Str, members: List<eff[Lookup]>, out: Reply<Str>) => !key, !members, !out {
         add_last(pending, out)
         for m in members {
             m.lookup(copy(key), replyto first())
@@ -191,7 +191,7 @@ handler Racing() of Race {
 // anyway; an election whose answer moves on its own calls `refresh()` on the
 // group. A Raft would serve the same effect, and nothing that routes through
 // `Elected` would change.
-handler LastHost(nodes: Addr<NodeGroup>, me: NodeEndpoint) of Leader {
+handler LastHost(nodes: eff[NodeGroup], me: NodeEndpoint) of Leader {
     fn leader() -> NodeId? {
         let peers = waitfor out: Reply<List<Node>> { nodes.members(out) }
         let best_host = copy(me.host)
@@ -246,13 +246,13 @@ fn find(key: Str) [any Lookup] -> Str => !key {
 // `RouteSelector<Inventory>` — are
 // one type in the generated code, so they take turns rather than share one.
 // `Leader` arrives through the signature; `Elected` captures it from there.
-fn two_ids(seq: Addr<ActorGroup<Sequencer>>) [use, Leader, Console] -> None => !seq {
+fn two_ids(seq: eff[ActorGroup<Sequencer>]) [use, Leader, Console] -> None => !seq {
     use Elected<Sequencer>()
     use route_any(seq)
     println("  ${fresh_id()} ${fresh_id()}")
 }
 
-fn shop(stock: Addr<ActorGroup<Inventory>>) [use, Console] -> None => !stock {
+fn shop(stock: eff[ActorGroup<Inventory>]) [use, Console] -> None => !stock {
     use Sharded<Inventory>()
     use route_any(stock)
     checkout(List("apple", "pear", "apple", "fig", "pear"))
@@ -264,16 +264,16 @@ fn shop(stock: Addr<ActorGroup<Inventory>>) [use, Console] -> None => !stock {
 // node group, and its own replicas of every actor group — found by name
 // through the node group, so the two nodes see one group each.
 actor effect Boot {
-    send fn boot(done: Reply<Addr<Sequencer>>) => !done
+    send fn boot(done: Reply<eff[Sequencer]>) => !done
     send fn stop(done: Reply<Bool>) => !done
 }
 
-handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: Addr<MemNet>) [Transport, spawn] of Boot {
+handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: eff[MemNet]) [Transport, spawn] of Boot {
     mailbox { capacity: 2 }
     state {
-        nodes: Addr<NodeGroup>? = None
+        nodes: eff[NodeGroup]? = None
     }
-    send fn boot(done: Reply<Addr<Sequencer>>) => !done {
+    send fn boot(done: Reply<eff[Sequencer]>) => !done {
         let p = pool(1)
         // A real second node is a second process; this in-process double runs
         // on another pool of the same process. The node group inherits this
@@ -308,7 +308,7 @@ handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: Addr<MemNet>) [T
 
 // ----------------------------------------------------------- node `a` ----
 
-fn settle(timer: Addr<Timer>) [] -> None => timer {
+fn settle(timer: eff[Timer]) [] -> None => timer {
     let _f = waitfor f: Reply<Fired> { timer.after(millis(400), f) }
 }
 
@@ -337,11 +337,11 @@ fn main() [use, spawn] {
     // Node b, and a moment for the two node groups to meet.
     let pb = pool_at(new_node(), 1)
     let booter = spawn Booting(copy(b), copy(all), copy(network)) with MemTransport(copy(b), copy(network)) on pb
-    let remote_seq = waitfor done: Reply<Addr<Sequencer>> { booter.boot(done) }
+    let remote_seq = waitfor done: Reply<eff[Sequencer]> { booter.boot(done) }
     let timer = spawn DefaultTimer() on pool(1)
     settle(copy(timer))
     let members = waitfor out: Reply<List<Node>> { nodes.members(out) }
-    println("nodes: ${size(members) + 1}, sequencers: ${size(waitfor out: Reply<List<Addr<Sequencer>>> { seq.members(out) })}")
+    println("nodes: ${size(members) + 1}, sequencers: ${size(waitfor out: Reply<List<eff[Sequencer]>> { seq.members(out) })}")
 
     // 1. Singleton — ids come from the leader's sequencer. The leader is the
     //    node whose host sorts last: b.
@@ -368,6 +368,6 @@ fn main() [use, spawn] {
     let _stopped = waitfor done: Reply<Bool> { booter.stop(done) }
     settle(copy(timer))
     println("after b left:")
-    println("  sequencers: ${size(waitfor out: Reply<List<Addr<Sequencer>>> { seq.members(out) })}")
+    println("  sequencers: ${size(waitfor out: Reply<List<eff[Sequencer]>> { seq.members(out) })}")
     two_ids(seq)
 }

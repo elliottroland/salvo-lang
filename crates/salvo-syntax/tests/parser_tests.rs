@@ -3181,7 +3181,7 @@ fn noremote_on_a_fn_is_an_error() {
 fn any_parses_in_effect_lists_and_of_clauses() {
     use salvo_syntax::ast::{EffectRef, Item};
     let source = "\
-handler Router(members: List<Addr<Resizer>>) of any Resizer, Stats {
+handler Router(members: List<eff[Resizer]>) of any Resizer, Stats {
     send fn resize(name: Str) {}
 }
 

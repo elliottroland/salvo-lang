@@ -85,21 +85,85 @@ not expressible as the language stands.
 
 The user reframed the goal (superseding the `effect fn` sketch): **make effects
 first-class values**, standardising on how `Addr` already works, and then let an
-effect **alias** be referred to as a single effect value. This is the chosen
-direction. It is a **DECISION**: it reshapes the effect surface and must be
-designed with the user before any code. Open questions to settle first:
+effect **alias** be referred to as a single effect value.
 
-- What *is* an effect value — a handle like `Addr<E>` (a bound instance), or a
-  capability token independent of any handler? How does it reconcile with the
-  lexical `effect_env` and [handler-not-value]?
-- Can a fn **accept** and **return** effect values, and what does `use value`
-  mean for one? How does an alias collapse to a single value when it stands for
-  several effects?
-- What does the type look like (`Effect<IO>`? a tuple of `Addr`s?), and how does
-  it emit identically on both backends [backend-never-wrong]?
+**DESIGN SETTLED (user decisions 2026-10-18).** The design round is done; the
+model below is the user's call and is ready to build. No implementation had
+started when it was recorded.
 
-Present options + a recommendation as a design round; do not implement before
-the user decides.
+The key realisation from the design round: a bound effect is *already* a
+first-class value under the hood — every `use H()` wraps the instance in the
+shareable monitor handle (`__Mon_E` on Kotlin, `__Handle_E`/`Arc` on Rust),
+the same handle an `Addr<E>` carries — and a **direct `use H()` and a `use` of
+a handed-in handle already dispatch identically**. Only the language refused to
+let that handle be a value ([handler-not-value], [effect-not-data]). `Addr<E>`
+is that handle given a nameable type. So the feature is: surface the handle, no
+new handler kind, no new representation. The shareability property (a handle is
+a thread-shareable monitor; a stateful one carries a lock) is kept — that is
+what makes handing a handle to another thread safe.
+
+**The model — `eff[...]`, a handle over a flat effect set:**
+
+- **`eff[A, B, C]`** is the type of a handle to the effects `A, B, C`. A
+  lowercase type former with square brackets (like `proj`/`iter`/`ref`, and
+  reusing the effect-list bracket), *not* a generic — `eff` is contextual in
+  type position. The set is **flat and alias-expanding**: `eff[IO]` ⟺
+  `eff[Console, Fs, Streams]`, `eff[IO, Random]` ⟺
+  `eff[Console, Fs, Streams, Random]`, order-normalised like an effect list.
+  `eff[E]` (one effect) is the degenerate case.
+- **Set-subsumption** (user decision): `eff[A, B]` is a subtype of `eff[A]` — a
+  wider handle satisfies a narrower requirement, mirroring how a scope with more
+  effects calls a fn needing fewer. A real addition to `is_subtype`/`unify`.
+- **`use` becomes an expression.** `let x = use H()` both registers `H` into
+  the current scope **and** yields the handle `x`. The statement `use H()` is
+  the discarded-value case (`let _ = use H()`). A single-face handler yields
+  `eff[E]`; a multi-face `H of Public, Admin` yields one flat `eff[Public,
+  Admin]` (not a tuple). `use e` where `e: eff[...]` pushes every effect in the
+  set into scope — the consumer side needs no new syntax (it is the existing
+  `use addr` path generalised).
+- **`spawn` must always be `on` a pool** (user decision). Now that `use H()`
+  covers the synchronous/monitor case, `spawn` is reserved for "on a thread":
+  bare `spawn H()` (the SH-3 monitor spawn) is retired and those sites migrate
+  to `use H()`, whose handle is already the shareable monitor.
+- **Projection `e[A, B]` / `e[IO]`** narrows a handle to a sub-handle: legal iff
+  the named set `S ⊆ effects(e)`, type `eff[S]` (flattened), **non-consuming**
+  (a copy — handles are freely cloned). The `[...]` after a value carries effect
+  **names**, disambiguated from array indexing by capitalised contents. This is
+  how you get an actor's address back out of a bundle: `e[SomeActor]` where the
+  named effect is an actor effect.
+- **Merge `eff[a, b]`** in *value* position combines **already-bound** handle
+  values into their union `eff[union]` — a factory assembles a unified handle to
+  return. (Bare `H()` without `use` stays [handler-not-value]; only bound
+  handles merge — user decision.) **`eff[*]`** is "every effect handle in scope"
+  (stage 5).
+- **Actor address** is no longer a separate type: it is an `eff[X]` whose `X` is
+  an actor effect. `send`/`replyto`/`self@Face`/group routing require that.
+
+`eff[...]` is thus a small closed algebra: **type** `eff[A,B]`; **construct**
+`eff[x,y]` (merge bound handles) with atoms from `use H()`; **project** `e[S]`
+(narrow, copy); **bind** `use e` (push the set). Both backends already render
+the handle as a storable value, so emission is identical by construction
+[backend-never-wrong].
+
+**The build plan — five commits, in order:**
+
+1. **Rename `Addr<E>` → `eff[E]`** — but first as a plain rename of the *type*
+   `Addr` to the new spelling across std, examples, docs, tests, the compiler
+   constant, `addr_effect`, `is_addr_effect_arg`, the `AddrInstance` IR node and
+   both emitters; plus the actor-prose sweep (it no longer means "address").
+   (May land as `Addr`→`Eff<E>` type first then the `eff[...]` syntax, or go
+   straight to `eff[...]`; mechanical, no behaviour change.)
+2. **`spawn` must be `on` a pool** — the new rule, rewrite every bare `spawn` in
+   std/examples/tests/docs, migrate monitor-spawn sites to `use`.
+3. **`use` as an expression** returning `eff[...]`; relax [handler-not-value] so
+   a bound handle escapes; a fn may return/accept `eff[...]`. Set-subsumption in
+   the type relation. Single vs. multi-face result (mirror `check_spawn`).
+4. **Projection `e[S]`** (non-consuming narrow) and **`use e`** of a handle set
+   (the recursive/flat bind), with `eff[IO]` alias flattening in type position.
+5. **Merge `eff[a, b]`** (value position, bound handles) and **`eff[*]`**
+   (all in-scope handles).
+
+Tests must all pass at the end; the tree need not be clean between commits.
 
 ### 0 — The runtime in Salvo: done (2026-10-03)
 

@@ -62,7 +62,7 @@ impl Looking(lent who: Str) of Lookup {
   }
 }
 
-impl SlowLooking(lent who: Str, lent timer: Addr<Timer>) of Lookup stateful {
+impl SlowLooking(lent who: Str, lent timer: eff[Timer]) of Lookup stateful {
   mailbox construct Mailbox { capacity: 16 }
   fn lookup(lent key: Str, lent out: Reply<Str>) -> None {
     obligation release [out]
@@ -74,10 +74,10 @@ impl SlowLooking(lent who: Str, lent timer: Addr<Timer>) of Lookup stateful {
   }
 }
 
-impl Scattering(lent group: Addr<ActorGroup<Search>>, lent gather: Addr<Gather>) of any Search {
+impl Scattering(lent group: eff[ActorGroup<Search>], lent gather: eff[Gather]) of any Search {
   mailbox construct Mailbox { capacity: 16 }
   fn query(lent word: Str, lent out: Reply<Int>) -> None {
-    bind#1 let members: List<Addr<Search>> = waitfor ms: Reply<List<Addr<Search>>> {
+    bind#1 let members: List<eff[Search]> = waitfor ms: Reply<List<eff[Search]>> {
       obligation gain [ms]
       obligation release [ms]
       send net::ActorGroup#2(read group, !read ms)
@@ -88,7 +88,7 @@ impl Scattering(lent group: Addr<ActorGroup<Search>>, lent gather: Addr<Gather>)
 }
 
 actor interface Gather {
-  send fn scatter(moved word: Str, moved members: List<Addr<Search>>, moved out: Reply<Int>) -> None
+  send fn scatter(moved word: Str, moved members: List<eff[Search]>, moved out: Reply<Int>) -> None
 }
 
 impl Gathering() of Gather stateful {
@@ -96,12 +96,12 @@ impl Gathering() of Gather stateful {
   state pending: Mut Deque<Reply<Int>> = call core.deque::mut_deque_of()<Reply<Int>>()
   state left: Int = 0
   state total: Int = 0
-  fn scatter(lent word: Str, lent members: List<Addr<Search>>, lent out: Reply<Int>) -> None {
+  fn scatter(lent word: Str, lent members: List<eff[Search]>, lent out: Reply<Int>) -> None {
     obligation release [out]
     call core.deque::add_last<Reply<Int>>(read pending, !read out)
-    assign left = call core.list::size<Addr<Search>>(read members)
+    assign left = call core.list::size<eff[Search]>(read members)
     assign total = 0
-    foreach#1 m: proj Addr<Search> in read members {
+    foreach#1 m: proj eff[Search] in read members {
       send main::Search#0(read m, call core.basic::copy<Str>(read word), replyto partial())
     }
   }
@@ -129,10 +129,10 @@ impl Gathering() of Gather stateful {
   }
 }
 
-impl Hedging(lent group: Addr<ActorGroup<Lookup>>, lent racer: Addr<Race>) of any Lookup {
+impl Hedging(lent group: eff[ActorGroup<Lookup>], lent racer: eff[Race]) of any Lookup {
   mailbox construct Mailbox { capacity: 16 }
   fn lookup(lent key: Str, lent out: Reply<Str>) -> None {
-    bind#1 let members: List<Addr<Lookup>> = waitfor ms: Reply<List<Addr<Lookup>>> {
+    bind#1 let members: List<eff[Lookup]> = waitfor ms: Reply<List<eff[Lookup]>> {
       obligation gain [ms]
       obligation release [ms]
       send net::ActorGroup#2(read group, !read ms)
@@ -143,16 +143,16 @@ impl Hedging(lent group: Addr<ActorGroup<Lookup>>, lent racer: Addr<Race>) of an
 }
 
 actor interface Race {
-  send fn race(moved key: Str, moved members: List<Addr<Lookup>>, moved out: Reply<Str>) -> None
+  send fn race(moved key: Str, moved members: List<eff[Lookup]>, moved out: Reply<Str>) -> None
 }
 
 impl Racing() of Race stateful {
   mailbox construct Mailbox { capacity: 16 }
   state pending: Mut Deque<Reply<Str>> = call core.deque::mut_deque_of()<Reply<Str>>()
-  fn race(lent key: Str, lent members: List<Addr<Lookup>>, lent out: Reply<Str>) -> None {
+  fn race(lent key: Str, lent members: List<eff[Lookup]>, lent out: Reply<Str>) -> None {
     obligation release [out]
     call core.deque::add_last<Reply<Str>>(read pending, !read out)
-    foreach#1 m: proj Addr<Lookup> in read members {
+    foreach#1 m: proj eff[Lookup] in read members {
       send main::Lookup#0(read m, call core.basic::copy<Str>(read key), replyto first())
     }
   }
@@ -177,7 +177,7 @@ impl Racing() of Race stateful {
   }
 }
 
-impl LastHost(lent nodes: Addr<NodeGroup>, lent me: NodeEndpoint) of Leader {
+impl LastHost(lent nodes: eff[NodeGroup], lent me: NodeEndpoint) of Leader {
   fn leader() -> NodeId? {
     bind#1 let peers: List<Node> = waitfor out: Reply<List<Node>> {
       obligation gain [out]
@@ -325,7 +325,7 @@ fn main::find(lent lookup: Lookup; moved key: Str) -> Str {
   }
 }
 
-fn main::two_ids(lent leader: Leader, lent console: Console; moved seq: Addr<ActorGroup<Sequencer>>) -> None {
+fn main::two_ids(lent leader: Leader, lent console: Console; moved seq: eff[ActorGroup<Sequencer>]) -> None {
   bind#1 let __use~1: Elected<Sequencer> = construct Elected<Sequencer> { __dep0: read leader }
   bind#2 let __handle~2: RouteSelector<Sequencer> = handle[RouteSelector<Sequencer>](read __use~1)
   bind#3 let __use~3: __Route_Sequencer = construct __Route_Sequencer { group: read seq, config: call net::default_route_config(), __dep0: read __handle~2 }
@@ -333,7 +333,7 @@ fn main::two_ids(lent leader: Leader, lent console: Console; moved seq: Addr<Act
   call core.console::println(read console, concat("  ", call main::fresh_id(read __handle~4), " ", call main::fresh_id(read __handle~4)))
 }
 
-fn main::shop(lent console: Console; moved stock: Addr<ActorGroup<Inventory>>) -> None {
+fn main::shop(lent console: Console; moved stock: eff[ActorGroup<Inventory>]) -> None {
   bind#1 let __use~1: Sharded<Inventory> = construct Sharded<Inventory> { }
   bind#2 let __handle~2: RouteSelector<Inventory> = handle[RouteSelector<Inventory>](read __use~1)
   bind#3 let __use~3: __Route_Inventory = construct __Route_Inventory { group: read stock, config: call net::default_route_config(), __dep0: read __handle~2 }
@@ -342,33 +342,33 @@ fn main::shop(lent console: Console; moved stock: Addr<ActorGroup<Inventory>>) -
 }
 
 actor interface Boot {
-  send fn boot(moved done: Reply<Addr<Sequencer>>) -> None
+  send fn boot(moved done: Reply<eff[Sequencer]>) -> None
   send fn stop(moved done: Reply<Bool>) -> None
 }
 
-impl Booting(lent at: NodeEndpoint, lent all: List<NodeEndpoint>, lent net: Addr<MemNet>) of Boot deps [Transport] stateful {
+impl Booting(lent at: NodeEndpoint, lent all: List<NodeEndpoint>, lent net: eff[MemNet]) of Boot deps [Transport] stateful {
   mailbox construct Mailbox { capacity: 2 }
-  state nodes: Addr<NodeGroup>? = none[None]
-  fn boot(lent done: Reply<Addr<Sequencer>>) -> None {
+  state nodes: eff[NodeGroup]? = none[None]
+  fn boot(lent done: Reply<eff[Sequencer]>) -> None {
     bind#1 let p: Pool = call core.actor::pool(Int)(1)
-    bind#2 let group: Addr<NodeGroup> = spawn[Addr<NodeGroup>](construct StaticNodeGroup { name: "cluster", all: call core.basic::copy<List<NodeEndpoint>>(read all), __dep0: read __dep0 }, on: read p) serves [NodeGroup]
-    assign nodes = present(call core.basic::copy<Addr<NodeGroup>>(read group))
-    bind#3 let seq: Addr<ActorGroup<Sequencer>> = call net::actor_group(Addr<NodeGroup>)<Sequencer>(call core.basic::copy<Addr<NodeGroup>>(read group), fn net::protocol)
-    bind#4 let mine: Addr<Sequencer> = spawn[Addr<Sequencer>](construct Sequencing { who: "b" }, on: read p, in: read seq) serves [Sequencer]
-    bind#5 let stock: Addr<ActorGroup<Inventory>> = call net::actor_group(Addr<NodeGroup>)<Inventory>(call core.basic::copy<Addr<NodeGroup>>(read group), fn net::protocol)
-    spawn[Addr<Inventory>](construct Stocking { shard: "shard-b" }, on: read p, in: read stock) serves [Inventory]
-    bind#6 let index: Addr<ActorGroup<Search>> = call net::actor_group(Addr<NodeGroup>)<Search>(call core.basic::copy<Addr<NodeGroup>>(read group), fn net::protocol)
-    spawn[Addr<Search>](construct Indexing { words: call core.list::List(T, T[])<Str>("salvo", array[Str[]]("actors", "salvo", "nodes")) }, on: read p, in: read index) serves [Search]
-    bind#7 let looks: Addr<ActorGroup<Lookup>> = call net::actor_group(Addr<NodeGroup>)<Lookup>(!read group, fn net::protocol)
-    bind#8 let timer: Addr<Timer> = spawn[Addr<Timer>](construct DefaultTimer { }, on: read p) serves [Timer]
-    spawn[Addr<Lookup>](construct SlowLooking { who: "b (slow)", timer: read timer }, on: read p, in: read looks) serves [Lookup]
+    bind#2 let group: eff[NodeGroup] = spawn[eff[NodeGroup]](construct StaticNodeGroup { name: "cluster", all: call core.basic::copy<List<NodeEndpoint>>(read all), __dep0: read __dep0 }, on: read p) serves [NodeGroup]
+    assign nodes = present(call core.basic::copy<eff[NodeGroup]>(read group))
+    bind#3 let seq: eff[ActorGroup<Sequencer>] = call net::actor_group(eff[NodeGroup])<Sequencer>(call core.basic::copy<eff[NodeGroup]>(read group), fn net::protocol)
+    bind#4 let mine: eff[Sequencer] = spawn[eff[Sequencer]](construct Sequencing { who: "b" }, on: read p, in: read seq) serves [Sequencer]
+    bind#5 let stock: eff[ActorGroup<Inventory>] = call net::actor_group(eff[NodeGroup])<Inventory>(call core.basic::copy<eff[NodeGroup]>(read group), fn net::protocol)
+    spawn[eff[Inventory]](construct Stocking { shard: "shard-b" }, on: read p, in: read stock) serves [Inventory]
+    bind#6 let index: eff[ActorGroup<Search>] = call net::actor_group(eff[NodeGroup])<Search>(call core.basic::copy<eff[NodeGroup]>(read group), fn net::protocol)
+    spawn[eff[Search]](construct Indexing { words: call core.list::List(T, T[])<Str>("salvo", array[Str[]]("actors", "salvo", "nodes")) }, on: read p, in: read index) serves [Search]
+    bind#7 let looks: eff[ActorGroup<Lookup>] = call net::actor_group(eff[NodeGroup])<Lookup>(!read group, fn net::protocol)
+    bind#8 let timer: eff[Timer] = spawn[eff[Timer]](construct DefaultTimer { }, on: read p) serves [Timer]
+    spawn[eff[Lookup]](construct SlowLooking { who: "b (slow)", timer: read timer }, on: read p, in: read looks) serves [Lookup]
     obligation release [done]
-    call core.actor::send<Addr<Sequencer>>(!read done, !read mine)
+    call core.actor::send<eff[Sequencer]>(!read done, !read mine)
   }
   fn stop(lent done: Reply<Bool>) -> None {
-    bind#1 let group: Addr<NodeGroup>? = read nodes
+    bind#1 let group: eff[NodeGroup]? = read nodes
     branch#2 cond#0 !(check#3 (read group is none)) {
-      narrow#4[branch#2.cond#0] group~1: Addr<NodeGroup> = group
+      narrow#4[branch#2.cond#0] group~1: eff[NodeGroup] = group
       send net::NodeGroup#2(read group~1)
     }
     obligation release [done]
@@ -376,7 +376,7 @@ impl Booting(lent at: NodeEndpoint, lent all: List<NodeEndpoint>, lent net: Addr
   }
 }
 
-fn main::settle(lent timer: Addr<Timer>) -> None {
+fn main::settle(lent timer: eff[Timer]) -> None {
   bind#1 let _f: Fired = waitfor f: Reply<Fired> {
     obligation gain [f]
     obligation release [f]
@@ -390,48 +390,48 @@ fn main::main() -> None {
   bind#3 let a: NodeEndpoint = construct NodeEndpoint { host: "a", port: 1 }
   bind#4 let b: NodeEndpoint = construct NodeEndpoint { host: "b", port: 1 }
   bind#5 let all: List<NodeEndpoint> = call core.list::List(T, T[])<NodeEndpoint>(call core.basic::copy<NodeEndpoint>(read a), array[NodeEndpoint[]](call core.basic::copy<NodeEndpoint>(read b)))
-  bind#6 let network: Addr<MemNet> = spawn[Addr<MemNet>](construct MemNetwork { }, on: call core.actor::pool(Int)(1)) serves [MemNet]
-  bind#7 let __use~3: MemTransport = construct MemTransport { me: call core.basic::copy<NodeEndpoint>(read a), net: call core.basic::copy<Addr<MemNet>>(read network) }
+  bind#6 let network: eff[MemNet] = spawn[eff[MemNet]](construct MemNetwork { }, on: call core.actor::pool(Int)(1)) serves [MemNet]
+  bind#7 let __use~3: MemTransport = construct MemTransport { me: call core.basic::copy<NodeEndpoint>(read a), net: call core.basic::copy<eff[MemNet]>(read network) }
   bind#8 let __handle~4: Transport = handle[Transport](read __use~3)
   bind#9 let p: Pool = call core.actor::pool(Int)(2)
-  bind#10 let nodes: Addr<NodeGroup> = spawn[Addr<NodeGroup>](construct StaticNodeGroup { name: "cluster", all: call core.basic::copy<List<NodeEndpoint>>(read all), __dep0: read __handle~4 }, on: read p) serves [NodeGroup]
-  bind#11 let seq: Addr<ActorGroup<Sequencer>> = call net::actor_group(Addr<NodeGroup>)<Sequencer>(call core.basic::copy<Addr<NodeGroup>>(read nodes), fn net::protocol)
-  spawn[Addr<Sequencer>](construct Sequencing { who: "a" }, on: read p, in: read seq) serves [Sequencer]
-  bind#12 let stock: Addr<ActorGroup<Inventory>> = call net::actor_group(Addr<NodeGroup>)<Inventory>(call core.basic::copy<Addr<NodeGroup>>(read nodes), fn net::protocol)
-  spawn[Addr<Inventory>](construct Stocking { shard: "shard-a" }, on: read p, in: read stock) serves [Inventory]
-  bind#13 let index: Addr<ActorGroup<Search>> = call net::actor_group(Addr<NodeGroup>)<Search>(call core.basic::copy<Addr<NodeGroup>>(read nodes), fn net::protocol)
-  spawn[Addr<Search>](construct Indexing { words: call core.list::List(T, T[])<Str>("salvo", array[Str[]]("is", "salvo")) }, on: read p, in: read index) serves [Search]
-  bind#14 let looks: Addr<ActorGroup<Lookup>> = call net::actor_group(Addr<NodeGroup>)<Lookup>(call core.basic::copy<Addr<NodeGroup>>(read nodes), fn net::protocol)
-  spawn[Addr<Lookup>](construct Looking { who: "a" }, on: read p, in: read looks) serves [Lookup]
+  bind#10 let nodes: eff[NodeGroup] = spawn[eff[NodeGroup]](construct StaticNodeGroup { name: "cluster", all: call core.basic::copy<List<NodeEndpoint>>(read all), __dep0: read __handle~4 }, on: read p) serves [NodeGroup]
+  bind#11 let seq: eff[ActorGroup<Sequencer>] = call net::actor_group(eff[NodeGroup])<Sequencer>(call core.basic::copy<eff[NodeGroup]>(read nodes), fn net::protocol)
+  spawn[eff[Sequencer]](construct Sequencing { who: "a" }, on: read p, in: read seq) serves [Sequencer]
+  bind#12 let stock: eff[ActorGroup<Inventory>] = call net::actor_group(eff[NodeGroup])<Inventory>(call core.basic::copy<eff[NodeGroup]>(read nodes), fn net::protocol)
+  spawn[eff[Inventory]](construct Stocking { shard: "shard-a" }, on: read p, in: read stock) serves [Inventory]
+  bind#13 let index: eff[ActorGroup<Search>] = call net::actor_group(eff[NodeGroup])<Search>(call core.basic::copy<eff[NodeGroup]>(read nodes), fn net::protocol)
+  spawn[eff[Search]](construct Indexing { words: call core.list::List(T, T[])<Str>("salvo", array[Str[]]("is", "salvo")) }, on: read p, in: read index) serves [Search]
+  bind#14 let looks: eff[ActorGroup<Lookup>] = call net::actor_group(eff[NodeGroup])<Lookup>(call core.basic::copy<eff[NodeGroup]>(read nodes), fn net::protocol)
+  spawn[eff[Lookup]](construct Looking { who: "a" }, on: read p, in: read looks) serves [Lookup]
   bind#15 let pb: Pool = call net::pool_at(call net::new_node(), 1)
-  bind#16 let booter: Addr<Boot> = spawn[Addr<Boot>](construct Booting { at: call core.basic::copy<NodeEndpoint>(read b), all: call core.basic::copy<List<NodeEndpoint>>(read all), net: call core.basic::copy<Addr<MemNet>>(read network), __dep0: handle[Transport](construct MemTransport { me: call core.basic::copy<NodeEndpoint>(read b), net: call core.basic::copy<Addr<MemNet>>(read network) }) }, on: read pb) serves [Boot]
-  bind#17 let remote_seq: Addr<Sequencer> = waitfor done: Reply<Addr<Sequencer>> {
+  bind#16 let booter: eff[Boot] = spawn[eff[Boot]](construct Booting { at: call core.basic::copy<NodeEndpoint>(read b), all: call core.basic::copy<List<NodeEndpoint>>(read all), net: call core.basic::copy<eff[MemNet]>(read network), __dep0: handle[Transport](construct MemTransport { me: call core.basic::copy<NodeEndpoint>(read b), net: call core.basic::copy<eff[MemNet]>(read network) }) }, on: read pb) serves [Boot]
+  bind#17 let remote_seq: eff[Sequencer] = waitfor done: Reply<eff[Sequencer]> {
     obligation gain [done]
     obligation release [done]
     send main::Boot#0(read booter, !read done)
   }
-  bind#18 let timer: Addr<Timer> = spawn[Addr<Timer>](construct DefaultTimer { }, on: call core.actor::pool(Int)(1)) serves [Timer]
-  call main::settle(call core.basic::copy<Addr<Timer>>(read timer))
+  bind#18 let timer: eff[Timer] = spawn[eff[Timer]](construct DefaultTimer { }, on: call core.actor::pool(Int)(1)) serves [Timer]
+  call main::settle(call core.basic::copy<eff[Timer]>(read timer))
   bind#19 let members: List<Node> = waitfor out: Reply<List<Node>> {
     obligation gain [out]
     obligation release [out]
     send net::NodeGroup#0(read nodes, !read out)
   }
-  call core.console::println(read __handle~2, concat("nodes: ", call core.basic::to_str(Int)((call core.list::size<Node>(read members) + 1)), ", sequencers: ", call core.basic::to_str(Int)(call core.list::size<Addr<Sequencer>>(waitfor out: Reply<List<Addr<Sequencer>>> {
+  call core.console::println(read __handle~2, concat("nodes: ", call core.basic::to_str(Int)((call core.list::size<Node>(read members) + 1)), ", sequencers: ", call core.basic::to_str(Int)(call core.list::size<eff[Sequencer]>(waitfor out: Reply<List<eff[Sequencer]>> {
     send net::ActorGroup#2(read seq, !read out)
   }))))
   call core.console::println(read __handle~2, concat("singleton (b's sequencer is remote: ", call core.basic::to_str(Bool)(!(call net::eq(NodeId, NodeId)(call net::node_of<Sequencer>(read remote_seq), call net::this_node()))), "):"))
-  bind#20 let __use~5: LastHost = construct LastHost { nodes: call core.basic::copy<Addr<NodeGroup>>(read nodes), me: call core.basic::copy<NodeEndpoint>(read a) }
+  bind#20 let __use~5: LastHost = construct LastHost { nodes: call core.basic::copy<eff[NodeGroup]>(read nodes), me: call core.basic::copy<NodeEndpoint>(read a) }
   bind#21 let __handle~6: Leader = handle[Leader](read __use~5)
-  call main::two_ids(read __handle~6, read __handle~2, call core.basic::copy<Addr<ActorGroup<Sequencer>>>(read seq))
+  call main::two_ids(read __handle~6, read __handle~2, call core.basic::copy<eff[ActorGroup<Sequencer>]>(read seq))
   call core.console::println(read __handle~2, "sharded:")
   call main::shop(read __handle~2, !read stock)
   call core.console::println(read __handle~2, "scatter:")
-  bind#22 let __use~7: Scattering = construct Scattering { group: call core.basic::copy<Addr<ActorGroup<Search>>>(read index), gather: spawn[Addr<Gather>](construct Gathering { }, on: read p) serves [Gather] }
+  bind#22 let __use~7: Scattering = construct Scattering { group: call core.basic::copy<eff[ActorGroup<Search>]>(read index), gather: spawn[eff[Gather]](construct Gathering { }, on: read p) serves [Gather] }
   bind#23 let __handle~8: Search = handle[Search](read __use~7)
   call core.console::println(read __handle~2, concat("  salvo: ", call core.basic::to_str(Int)(call main::count(read __handle~8, "salvo")), ", actors: ", call core.basic::to_str(Int)(call main::count(read __handle~8, "actors")), ", none: ", call core.basic::to_str(Int)(call main::count(read __handle~8, "none"))))
   call core.console::println(read __handle~2, "hedge:")
-  bind#24 let __use~9: Hedging = construct Hedging { group: call core.basic::copy<Addr<ActorGroup<Lookup>>>(read looks), racer: spawn[Addr<Race>](construct Racing { }, on: read p) serves [Race] }
+  bind#24 let __use~9: Hedging = construct Hedging { group: call core.basic::copy<eff[ActorGroup<Lookup>]>(read looks), racer: spawn[eff[Race]](construct Racing { }, on: read p) serves [Race] }
   bind#25 let __handle~10: Lookup = handle[Lookup](read __use~9)
   call core.console::println(read __handle~2, concat("  ", call main::find(read __handle~10, "k1")))
   bind#26 let _stopped: Bool = waitfor done: Reply<Bool> {
@@ -439,52 +439,52 @@ fn main::main() -> None {
     obligation release [done]
     send main::Boot#1(read booter, !read done)
   }
-  call main::settle(call core.basic::copy<Addr<Timer>>(read timer))
+  call main::settle(call core.basic::copy<eff[Timer]>(read timer))
   call core.console::println(read __handle~2, "after b left:")
-  call core.console::println(read __handle~2, concat("  sequencers: ", call core.basic::to_str(Int)(call core.list::size<Addr<Sequencer>>(waitfor out: Reply<List<Addr<Sequencer>>> {
+  call core.console::println(read __handle~2, concat("  sequencers: ", call core.basic::to_str(Int)(call core.list::size<eff[Sequencer]>(waitfor out: Reply<List<eff[Sequencer]>> {
     send net::ActorGroup#2(read seq, !read out)
   }))))
   call main::two_ids(read __handle~6, read __handle~2, !read seq)
 }
 
-impl __Route_Inventory(lent group: Addr<ActorGroup<Inventory>>, lent config: RouteConfig) of any Inventory deps [RouteSelector<Inventory>] stateful {
+impl __Route_Inventory(lent group: eff[ActorGroup<Inventory>], lent config: RouteConfig) of any Inventory deps [RouteSelector<Inventory>] stateful {
   mailbox construct Mailbox { capacity: 1 }
   state seen: Long = -1L
   fn reserve(lent sku: Str, lent qty: Int, lent out: Reply<Str>) -> None {
-    bind#1 let __pick: RoutePick<Inventory> = call net::route_pick(Addr<ActorGroup<E>>, RouteConfig, Long, Long)<Inventory>(read __dep0, read group, read config, call core.basic::copy<Long>(read seen), call net::key_hash<Str>(read sku))
+    bind#1 let __pick: RoutePick<Inventory> = call net::route_pick(eff[ActorGroup<E>], RouteConfig, Long, Long)<Inventory>(read __dep0, read group, read config, call core.basic::copy<Long>(read seen), call net::key_hash<Str>(read sku))
     assign seen = call core.basic::copy<Long>(read __pick.version)
     obligation release [out]
     send main::Inventory#0(read __pick.to, read sku, read qty, !read out)
   }
 }
 
-impl __Route_Lookup(lent group: Addr<ActorGroup<Lookup>>, lent config: RouteConfig) of any Lookup deps [RouteSelector<Lookup>] stateful {
+impl __Route_Lookup(lent group: eff[ActorGroup<Lookup>], lent config: RouteConfig) of any Lookup deps [RouteSelector<Lookup>] stateful {
   mailbox construct Mailbox { capacity: 1 }
   state seen: Long = -1L
   fn lookup(lent key: Str, lent out: Reply<Str>) -> None {
-    bind#1 let __pick: RoutePick<Lookup> = call net::route_pick(Addr<ActorGroup<E>>, RouteConfig, Long)<Lookup>(read __dep0, read group, read config, call core.basic::copy<Long>(read seen))
+    bind#1 let __pick: RoutePick<Lookup> = call net::route_pick(eff[ActorGroup<E>], RouteConfig, Long)<Lookup>(read __dep0, read group, read config, call core.basic::copy<Long>(read seen))
     assign seen = call core.basic::copy<Long>(read __pick.version)
     obligation release [out]
     send main::Lookup#0(read __pick.to, read key, !read out)
   }
 }
 
-impl __Route_Search(lent group: Addr<ActorGroup<Search>>, lent config: RouteConfig) of any Search deps [RouteSelector<Search>] stateful {
+impl __Route_Search(lent group: eff[ActorGroup<Search>], lent config: RouteConfig) of any Search deps [RouteSelector<Search>] stateful {
   mailbox construct Mailbox { capacity: 1 }
   state seen: Long = -1L
   fn query(lent word: Str, lent out: Reply<Int>) -> None {
-    bind#1 let __pick: RoutePick<Search> = call net::route_pick(Addr<ActorGroup<E>>, RouteConfig, Long)<Search>(read __dep0, read group, read config, call core.basic::copy<Long>(read seen))
+    bind#1 let __pick: RoutePick<Search> = call net::route_pick(eff[ActorGroup<E>], RouteConfig, Long)<Search>(read __dep0, read group, read config, call core.basic::copy<Long>(read seen))
     assign seen = call core.basic::copy<Long>(read __pick.version)
     obligation release [out]
     send main::Search#0(read __pick.to, read word, !read out)
   }
 }
 
-impl __Route_Sequencer(lent group: Addr<ActorGroup<Sequencer>>, lent config: RouteConfig) of any Sequencer deps [RouteSelector<Sequencer>] stateful {
+impl __Route_Sequencer(lent group: eff[ActorGroup<Sequencer>], lent config: RouteConfig) of any Sequencer deps [RouteSelector<Sequencer>] stateful {
   mailbox construct Mailbox { capacity: 1 }
   state seen: Long = -1L
   fn next(lent out: Reply<Str>) -> None {
-    bind#1 let __pick: RoutePick<Sequencer> = call net::route_pick(Addr<ActorGroup<E>>, RouteConfig, Long)<Sequencer>(read __dep0, read group, read config, call core.basic::copy<Long>(read seen))
+    bind#1 let __pick: RoutePick<Sequencer> = call net::route_pick(eff[ActorGroup<E>], RouteConfig, Long)<Sequencer>(read __dep0, read group, read config, call core.basic::copy<Long>(read seen))
     assign seen = call core.basic::copy<Long>(read __pick.version)
     obligation release [out]
     send main::Sequencer#0(read __pick.to, !read out)
@@ -508,15 +508,15 @@ enum __Msg_Lookup [proto 7c0f441570dc9a6f] {
 }
 
 enum __Msg_Gather [proto 98712ca205da344c] {
-  Scatter(word: Str, members: List<Addr<Search>>, out: Reply<Int>)
+  Scatter(word: Str, members: List<eff[Search]>, out: Reply<Int>)
 }
 
 enum __Msg_Race [proto 5e0ec4d63d5f53dd] {
-  Race(key: Str, members: List<Addr<Lookup>>, out: Reply<Str>)
+  Race(key: Str, members: List<eff[Lookup]>, out: Reply<Str>)
 }
 
 enum __Msg_Boot [proto 4b15e647d0ca92a7] {
-  Boot(done: Reply<Addr<Sequencer>>)
+  Boot(done: Reply<eff[Sequencer]>)
   Stop(done: Reply<Bool>)
 }
 
@@ -550,7 +550,7 @@ enum __Cont_Scattering {
 }
 
 enum __Cont_Gathering {
-  Scatter(word: Str, members: List<Addr<Search>>)
+  Scatter(word: Str, members: List<eff[Search]>)
   Partial()
 }
 
@@ -563,7 +563,7 @@ enum __Cont_Hedging {
 }
 
 enum __Cont_Racing {
-  Race(key: Str, members: List<Addr<Lookup>>)
+  Race(key: Str, members: List<eff[Lookup]>)
   First()
 }
 
@@ -592,7 +592,7 @@ enum __Cont___Route_Sequencer {
   Next()
 }
 
-impl __Stub_Sequencer(moved addr: Addr<Sequencer>) of Sequencer {
+impl __Stub_Sequencer(moved addr: eff[Sequencer]) of Sequencer {
   fn next(moved out: Reply<Str>) -> None {
     obligation gain-params [out]
     obligation release [out]
@@ -600,7 +600,7 @@ impl __Stub_Sequencer(moved addr: Addr<Sequencer>) of Sequencer {
   }
 }
 
-impl __Stub_Inventory(moved addr: Addr<Inventory>) of Inventory {
+impl __Stub_Inventory(moved addr: eff[Inventory]) of Inventory {
   fn reserve(moved sku: Str, moved qty: Int, moved out: Reply<Str>) -> None {
     obligation gain-params [out]
     obligation release [out]
@@ -608,7 +608,7 @@ impl __Stub_Inventory(moved addr: Addr<Inventory>) of Inventory {
   }
 }
 
-impl __Stub_Search(moved addr: Addr<Search>) of Search {
+impl __Stub_Search(moved addr: eff[Search]) of Search {
   fn query(moved word: Str, moved out: Reply<Int>) -> None {
     obligation gain-params [out]
     obligation release [out]
@@ -616,7 +616,7 @@ impl __Stub_Search(moved addr: Addr<Search>) of Search {
   }
 }
 
-impl __Stub_Lookup(moved addr: Addr<Lookup>) of Lookup {
+impl __Stub_Lookup(moved addr: eff[Lookup]) of Lookup {
   fn lookup(moved key: Str, moved out: Reply<Str>) -> None {
     obligation gain-params [out]
     obligation release [out]
@@ -624,24 +624,24 @@ impl __Stub_Lookup(moved addr: Addr<Lookup>) of Lookup {
   }
 }
 
-impl __Stub_Gather(moved addr: Addr<Gather>) of Gather {
-  fn scatter(moved word: Str, moved members: List<Addr<Search>>, moved out: Reply<Int>) -> None {
+impl __Stub_Gather(moved addr: eff[Gather]) of Gather {
+  fn scatter(moved word: Str, moved members: List<eff[Search]>, moved out: Reply<Int>) -> None {
     obligation gain-params [out]
     obligation release [out]
     send main::Gather#0(read addr, !read word, !read members, !read out)
   }
 }
 
-impl __Stub_Race(moved addr: Addr<Race>) of Race {
-  fn race(moved key: Str, moved members: List<Addr<Lookup>>, moved out: Reply<Str>) -> None {
+impl __Stub_Race(moved addr: eff[Race]) of Race {
+  fn race(moved key: Str, moved members: List<eff[Lookup]>, moved out: Reply<Str>) -> None {
     obligation gain-params [out]
     obligation release [out]
     send main::Race#0(read addr, !read key, !read members, !read out)
   }
 }
 
-impl __Stub_Boot(moved addr: Addr<Boot>) of Boot {
-  fn boot(moved done: Reply<Addr<Sequencer>>) -> None {
+impl __Stub_Boot(moved addr: eff[Boot]) of Boot {
+  fn boot(moved done: Reply<eff[Sequencer]>) -> None {
     obligation gain-params [done]
     obligation release [done]
     send main::Boot#0(read addr, !read done)
@@ -733,7 +733,7 @@ fn __dispatch_Scattering_Search(lent_mut __handler: Scattering, moved __msg: __M
 fn __dispatch_Gathering_Gather(lent_mut __handler: Gathering, moved __msg: __Msg_Gather) -> None {
   switch#1 read __msg {
     arm#0 (arm 0) {
-      unpack#2 (word: Str, members: List<Addr<Search>>, out: Reply<Int>) = __msg as variant 0
+      unpack#2 (word: Str, members: List<eff[Search]>, out: Reply<Int>) = __msg as variant 0
       obligation gain [out]
       obligation release [out]
       handler_call main::Gather#0(read __handler, !read word, !read members, !read out)
@@ -764,7 +764,7 @@ fn __dispatch_Hedging_Lookup(lent_mut __handler: Hedging, moved __msg: __Msg_Loo
 fn __dispatch_Racing_Race(lent_mut __handler: Racing, moved __msg: __Msg_Race) -> None {
   switch#1 read __msg {
     arm#0 (arm 0) {
-      unpack#2 (key: Str, members: List<Addr<Lookup>>, out: Reply<Str>) = __msg as variant 0
+      unpack#2 (key: Str, members: List<eff[Lookup]>, out: Reply<Str>) = __msg as variant 0
       obligation gain [out]
       obligation release [out]
       handler_call main::Race#0(read __handler, !read key, !read members, !read out)
@@ -784,7 +784,7 @@ fn __dispatch_priv_Racing(lent_mut __handler: Racing, moved __msg: __Priv_Racing
 fn __dispatch_Booting_Boot(lent_mut __handler: Booting, moved __msg: __Msg_Boot) -> None {
   switch#1 read __msg {
     arm#0 (arm 0) {
-      unpack#2 (done: Reply<Addr<Sequencer>>) = __msg as variant 0
+      unpack#2 (done: Reply<eff[Sequencer]>) = __msg as variant 0
       obligation gain [done]
       obligation release [done]
       handler_call main::Boot#0(read __handler, !read done)

@@ -176,7 +176,7 @@ send fn formatted(label: Str, out: Reply<Str>, total: Int) => !label, !out, !tot
 // `replyto formatted(label, out)` mints a token aimed at the task, carrying the
 // label and the caller's own token as captures. No `on` clause, so the task
 // runs on the pool current here — which in `main` is main's own [main-pool].
-fn report_line(counter: Addr<Counter>, label: Str, out: Reply<Str>) [] -> None
+fn report_line(counter: eff[Counter], label: Str, out: Reply<Str>) [] -> None
 => !counter, !label, !out {
     counter.total(replyto formatted(label, out))
 }

@@ -184,7 +184,7 @@ fn main() [spawn] -> None {
     );
 }
 
-/// A single face still answers a bare `Addr<E>`: the tuple is what *several*
+/// A single face still answers a bare `eff[E]`: the tuple is what *several*
 /// faces produce, so nothing about the one-face spawn changes. Asserted by
 /// *using* the value as an addr, since a tuple has no members to send to.
 #[test]

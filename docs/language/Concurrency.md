@@ -69,7 +69,7 @@ handler Gathering() of Gather {
     state {
         total: Int = 0
     }
-    send fn scatter(word: Str, members: List<Addr<Search>>, out: Reply<Int>) => !word, !members, !out {
+    send fn scatter(word: Str, members: List<eff[Search]>, out: Reply<Int>) => !word, !members, !out {
         for m in members { m.query(copy(word), replyto partial()) }   // one continuation per member
         …
     }
@@ -123,7 +123,7 @@ println("gates ${settled.parked_gates}, tokens ${settled.parked_tokens}")
 
 The token is minted like any other and **consumed** by the registration, so a hook you forget to register is the ordinary linearity error rather than a request that quietly never answers. The answer is edge-triggered and one-shot, because delivering it is itself work and ends the idleness that produced it: hearing about the next one means registering again. And it says what it says only while nothing outside the scheduler injects work — a platform handler with a thread of its own can make "idle" stale.
 
-Finally, what a task body may *do*. It is ordinary Salvo, with one restriction: it declares no effects. A task runs detached from the frame that minted it — that frame may have returned by the time it runs — so there is no scope left to supply its handlers from. Reaching an actor needs no effect declaration, so the way to give a task a capability is to hand it an `Addr` as a capture and send to it; anything else belongs in the function that mints. A task may wait (`waitfor` needs no declaration anywhere), and a wait serves the pool it runs on.
+Finally, what a task body may *do*. It is ordinary Salvo, with one restriction: it declares no effects. A task runs detached from the frame that minted it — that frame may have returned by the time it runs — so there is no scope left to supply its handlers from. Reaching an actor needs no effect declaration, so the way to give a task a capability is to hand it an `eff[E]` handle as a capture and send to it; anything else belongs in the function that mints. A task may wait (`waitfor` needs no declaration anywhere), and a wait serves the pool it runs on.
 
 ## Across machines
 
@@ -175,7 +175,7 @@ Every actor protocol whose payloads all have a wire form also has a **canonical 
 
 ### Addresses across machines
 
-An `Addr<E>` that crosses the wire arrives as a **proxy**: the same type, the same `send`, and a mailbox on another node behind it. Nothing in the code that holds it changes — locality is a fact the runtime reads at the send. A `Reply<T>` crosses the same way, and the answer comes back over the wire into whatever was waiting: `main`'s `waitfor`, an actor's parked continuation, a task.
+An `eff[E]` that crosses the wire arrives as a **proxy**: the same type, the same `send`, and a mailbox on another node behind it. Nothing in the code that holds it changes — locality is a fact the runtime reads at the send. A `Reply<T>` crosses the same way, and the answer comes back over the wire into whatever was waiting: `main`'s `waitfor`, an actor's parked continuation, a task.
 
 What keeps it honest across a machine is what keeps it honest across a thread. The mailbox's `capacity` is enforced by **credits**: a proxy sends only when the far mailbox has granted room, blocks at zero exactly as a local send blocks on a full queue, and is granted a credit back as each message is dequeued. And an address carries **unguessable bits** minted at the spawn and checked on delivery, so an addr is a capability on the wire as it is in memory — the administrative face of a two-face handler cannot be reached by whoever holds only the public one.
 
@@ -196,7 +196,7 @@ let peers = waitfor out: Reply<List<Node>> { group.members(out) }
 
 ### Actor groups
 
-Nodes are where actors live; the set of actors a program spreads across them is an **actor group**, `ActorGroup<E>` — an actor effect over the protocol `E`. `actor_group<Ping>(nodes)` starts one on the current node and publishes it by name, so a node that opens the same protocol to the same node group gets a replica of the same group: replicas exchange their members as nodes meet, admit each remote member once, and withdraw every member hosted on a node that leaves. `join(group, addr)` adds a member, `members(out)` answers the union as seen from here, and `subscribe(w)` delivers `ActorGroupWatcher<Ping>.joined` and `left` as ordinary messages, each carrying an `Addr<Ping>` that works wherever it arrives.
+Nodes are where actors live; the set of actors a program spreads across them is an **actor group**, `ActorGroup<E>` — an actor effect over the protocol `E`. `actor_group<Ping>(nodes)` starts one on the current node and publishes it by name, so a node that opens the same protocol to the same node group gets a replica of the same group: replicas exchange their members as nodes meet, admit each remote member once, and withdraw every member hosted on a node that leaves. `join(group, addr)` adds a member, `members(out)` answers the union as seen from here, and `subscribe(w)` delivers `ActorGroupWatcher<Ping>.joined` and `left` as ordinary messages, each carrying an `eff[Ping]` that works wherever it arrives.
 
 ```
 let pings = actor_group<Ping>(nodes)             // one replica per node
@@ -206,11 +206,11 @@ pings.subscribe(spawn Noticing("a") on p)               // "a: + a Ping (local: 
 
 `spawn Pinging("a") on p in pings` is a local spawn with one more message: `join(pings, addr)`. The actor runs here, on `p` — there is no remote spawn — and `in` says where it can be found; with a handler of several faces, the face the group is of is the one that joins. `join(group, addr)` is the same thing written after the fact.
 
-`actor_group<E>(…)` is where a protocol that cannot cross a node boundary is refused: if any `send fn` of `E` carries a `noremote` payload, a group of `E` cannot span nodes, and the compiler says so at that call rather than at the first remote send. The type parameter of `ActorGroup<E>` is only ever an effect, so it costs nothing at runtime — `Addr<E>` is one handle whatever `E` is, and a generic that is only ever an effect is erased from the generated code.
+`actor_group<E>(…)` is where a protocol that cannot cross a node boundary is refused: if any `send fn` of `E` carries a `noremote` payload, a group of `E` cannot span nodes, and the compiler says so at that call rather than at the first remote send. The type parameter of `ActorGroup<E>` is only ever an effect, so it costs nothing at runtime — `eff[E]` is one handle whatever `E` is, and a generic that is only ever an effect is erased from the generated code.
 
-That erasure is also why `actor_group` is an ordinary function and not a special one. Its body spawns the replica and hands it the protocol's name and hash, but a body generic over `E` cannot know either; so the signature asks for them as an **implicit** — `fn actor_group<E>(nodes: Addr<NodeGroup>, ?protocol: () -> Protocol<E>)` — and the call fills it, exactly as `sort(xs)` fills its `?cmp` (see [Functions](Functions.md#implicit-parameters)). The function that fills it is std's `protocol<E>()`, the one intrinsic whose meaning depends on the type argument it is written with, and a program never writes it: `actor_group<Ping>(nodes)` is the whole spelling. A function of your own that is generic over a protocol takes the same `?protocol` and forwards it, and a builder that opens groups in some other way is a plain function over a `Protocol<E>` value.
+That erasure is also why `actor_group` is an ordinary function and not a special one. Its body spawns the replica and hands it the protocol's name and hash, but a body generic over `E` cannot know either; so the signature asks for them as an **implicit** — `fn actor_group<E>(nodes: eff[NodeGroup], ?protocol: () -> Protocol<E>)` — and the call fills it, exactly as `sort(xs)` fills its `?cmp` (see [Functions](Functions.md#implicit-parameters)). The function that fills it is std's `protocol<E>()`, the one intrinsic whose meaning depends on the type argument it is written with, and a program never writes it: `actor_group<Ping>(nodes)` is the whole spelling. A function of your own that is generic over a protocol takes the same `?protocol` and forwards it, and a builder that opens groups in some other way is a plain function over a `Protocol<E>` value.
 
-Three small readers go with a group: `pending(addr)` answers how much a member has in front of it — its mailbox depth if it is local, the in-flight count if it is a proxy; `node_of(addr)` names the host; and two `Addr<E>` compare with `eq`.
+Three small readers go with a group: `pending(addr)` answers how much a member has in front of it — its mailbox depth if it is local, the in-flight count if it is a proxy; `node_of(addr)` names the host; and two `eff[E]` compare with `eq`.
 
 ### One member of many: `any`
 
@@ -220,7 +220,7 @@ A function written against one actor — `bump(2); bump(3); total(out)` — reli
 fn thumbnail(img: Image) [any Resizer] -> Image { … }    // any Resizer will do: one send, one reply
 fn tally(items: List<Int>) [Resizer] -> Int { … }         // needs ONE Resizer, in order
 
-handler RoundRobin(members: List<Addr<Resizer>>) of any Resizer { … }   // forwards; promises no order
+handler RoundRobin(members: List<eff[Resizer]>) of any Resizer { … }   // forwards; promises no order
 ```
 
 Bare `[E]` keeps the strong meaning, so binding a group where `[Resizer]` is required is an error at the call, and a program written before groups existed cannot be broken by binding one under it. `[any E]` accepts every binding — a single instance is a group of one — and is viral downward. The full rule is in [Effects and handlers](Effects-and-Handlers.md#many-instances-any-e-and-of-any-e).
@@ -248,7 +248,7 @@ The route is a handler the compiler writes for you: one `of any Inventory` whose
 ```
 effect RouteSelector<E> {
     fn changed(view: RouteView<E>) -> None          // the view moved: derive what you choose by
-    fn select(view: RouteView<E>, key: Long?) -> Addr<E>?   // per send
+    fn select(view: RouteView<E>, key: Long?) -> eff[E]?   // per send
 }
 ```
 

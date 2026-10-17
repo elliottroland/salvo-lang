@@ -166,6 +166,19 @@ pub const NAMESPACE_WORD: &str = "namespace";
 /// a capitalized name, so `effects` stays an ordinary identifier.
 pub const EFFECTS_WORD: &str = "effects";
 
+/// [eff-handle] The internal nominal type an `eff[…]` handle lowers to — the
+/// name `Addr<E>` used before the surface rename. Kept as the internal
+/// spelling so the compiler's actor/handle machinery (keyed on this name) is
+/// untouched by the surface change; only the written syntax moved to `eff[…]`.
+pub const ADDR_TYPE_NAME: &str = "Addr";
+
+/// [eff-handle] The contextual type former `eff[A, B, …]`: the type of a
+/// first-class handle over a flat set of effects (what `Addr<E>` was spelled
+/// before — the mailbox analogy no longer fit once a handle covers any effect,
+/// actor or not). Lowercase and compiler-owned like `proj`/`iter`/`ref`, read
+/// as the former only before `[`, so `eff` stays an ordinary identifier.
+pub const EFF_WORD: &str = "eff";
+
 /// [obligation-by] [fn-by] The contextual word naming where a body is stamped
 /// from: `: Ordered<self> by auto`, `fn cmp(a: P, b: P) -> Int by auto`.
 /// Contextual — `by` is an ordinary value name elsewhere, and both positions
@@ -3787,9 +3800,75 @@ impl<'s> Parser<'s> {
         Some((ty, generics, canbe))
     }
 
+    /// [eff-handle] `eff[A, B, …]` → the internal `Addr` type carrying the
+    /// effect set as its arguments. One effect reproduces the old `Addr<E>`
+    /// exactly (`args: [E]`); several is a multi-effect handle (`args: [A,
+    /// B]`). Members are plain effect refs — `use`/`spawn`/`any` are
+    /// capabilities, not handle contents, so they are not accepted here.
+    fn parse_eff_handle(&mut self) -> Option<Type> {
+        let start = self.bump().span; // `eff`
+        self.expect(&TokenKind::LBracket)?;
+        self.group_depth += 1;
+        let mut args: Vec<Type> = Vec::new();
+        while !self.at(&TokenKind::RBracket) && !self.at_eof() {
+            let r = match self.parse_type_ref() {
+                Some(r) => r,
+                None => {
+                    self.group_depth -= 1;
+                    return None;
+                }
+            };
+            let span = r.span;
+            args.push(Type::Named { qualifiers: Vec::new(), base: r });
+            let _ = span;
+            if self.eat(&TokenKind::Comma).is_none() {
+                break;
+            }
+        }
+        self.group_depth -= 1;
+        let end = self.expect(&TokenKind::RBracket)?.span;
+        if args.is_empty() {
+            self.error("`eff[…]` names at least one effect", start.to(end));
+            return None;
+        }
+        let base = TypeRef {
+            name: Ident { name: ADDR_TYPE_NAME.to_string(), span: start },
+            args,
+            value_args: Vec::new(),
+            from: Vec::new(),
+            at: None,
+            binder: false,
+            established: false,
+            alias: None,
+            span: start.to(end),
+        };
+        Some(Type::Named { qualifiers: Vec::new(), base })
+    }
+
     fn parse_type_atom(&mut self) -> Option<Type> {
         if self.at(&TokenKind::LParen) {
             return self.parse_paren_type();
+        }
+        // [eff-handle] `eff[A, B, …]`: a first-class handle over a flat set of
+        // effects. Contextual — only before `[` — so `eff` stays a name. It
+        // lowers to the internal `Addr` type (unchanged machinery): a single
+        // effect is `Addr<E>` as before, several is a multi-effect handle.
+        if self.at_word(EFF_WORD) && matches!(self.peek_at(1).kind, TokenKind::LBracket) {
+            return self.parse_eff_handle();
+        }
+        // [eff-handle] The old handle spelling `Addr<…>` is no longer the
+        // language: a plain parse error naming the replacement. (`Addr` is the
+        // compiler's internal name for the handle; the surface is `eff[…]`.)
+        if matches!(&self.kind(), TokenKind::Ident(n) if n == ADDR_TYPE_NAME)
+            && matches!(self.peek_at(1).kind, TokenKind::Lt)
+        {
+            let span = self.peek().span;
+            self.error(
+                "`Addr<…>` is not a type you write: a first-class effect handle is \
+                 spelled `eff[E]` (several effects: `eff[A, B]`) [eff-handle]",
+                span,
+            );
+            return None;
         }
         if let Some(lit) = self.parse_type_literal() {
             return Some(lit);

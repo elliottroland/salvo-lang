@@ -682,7 +682,7 @@ nothing but the monitor.
   (`val random: Random<Int> = __Mon_Random(CyclicRandom(…))`, [kt-monitor]).
   The `__Mon_E` class is emitted for **every** effect, actor effects included
   (a router `of any E` with a cursor is a stateful handler of it). A `use
-  addr` binds the value: a plain effect's `Addr<E>` is already the handle,
+  addr` binds the value: a plain effect's `eff[E]` is already the handle,
   and an actor's send stub is stateless and binds raw — so a send through
   the binding blocks only on the mailbox, never on a lock. `init` runs on the
   instance (`H(…).also { it.init() }`) before any wrapping. This is the
@@ -1278,7 +1278,7 @@ nothing but the monitor.
     `salvo.SalvoSched.send(__addr!!, __Msg_H.Variant(args))`, unconditional:
     a mixed handler is spawn-only, so `__addr` is always written. A façade
     `k@self(…)` lowers exactly as the bare façade send does.
-  * **`Addr<E>` for a plain `E` lowers to the interface `E` itself** —
+  * **`eff[E]` for a plain `E` lowers to the interface `E` itself** —
     Kotlin needs no clone-box machinery: `__Mon_E` and `__Fac_H` both
     implement the interface, and JVM references make the handle freely
     shareable. (This is also why the ctor-param `Mut` refusal matters:
@@ -1303,12 +1303,12 @@ nothing but the monitor.
   }
   ```
 
-  * **`Addr<E>` lowers to the effect's own interface** when `E` is plain
+  * **`eff[E]` lowers to the effect's own interface** when `E` is plain
     (both type paths branch on the effect's declared kind); an actor
     effect's addr stays `Int`. The handle *is* the interface — a monitor's
     `__Mon_E` and a mixed handler's `__Fac_H` both implement it, and JVM
     references make the value freely shareable. A **generic** instance
-    carries its instantiation (`Addr<Random<Int>>` is `Random<Int>`,
+    carries its instantiation (`eff[Random<Int>]` is `Random<Int>`,
     2026-09-20); an uninstantiated mention is refused by arity, a leniency
     path rather than a rule.
   * **A monitor spawn** is `__Mon_E(H(args))` — no scheduler, no mailbox, no
@@ -1404,7 +1404,7 @@ nothing but the monitor.
     construction is `D(args)`, an addr is `__Stub_D(addr)`), the checker's
     clause-to-dependency matching resolving the order ([actor-spawn-expr]).
     A generic handler is refused as an actor.
-  * **The three types erase to scheduler handles**: `Addr<E>` and `Pool` are
+  * **The three types erase to scheduler handles**: `eff[E]` and `Pool` are
     `Int` ids, `Reply<T>` is `salvo.SalvoReply` — and the runtime speaks the same
     word (`SalvoSched.send(addr, …)`, `SalvoCtx.addr`), as the Rust mirror does; the Salvo type arguments have
     no rendering, since the runtime is untyped (`Any?`) and the message classes

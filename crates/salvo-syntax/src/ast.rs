@@ -1528,6 +1528,13 @@ impl fmt::Display for TypeRef {
         if self.binder {
             write!(f, "?")?;
         }
+        // [eff-handle] The internal handle name `Addr` reads as its surface
+        // spelling `eff[A, B, …]` — never the old `Addr<…>`. (No binder, `@`,
+        // or value-args ever attach to a handle type.)
+        if self.name.name == "Addr" && !self.args.is_empty() && !self.binder && self.at.is_none() {
+            let args: Vec<String> = self.args.iter().map(|a| a.to_string()).collect();
+            return write!(f, "eff[{}]", args.join(", "));
+        }
         write!(f, "{}", self.name.name)?;
         if let Some(alias) = &self.alias {
             write!(f, ": {}", alias.name)?;

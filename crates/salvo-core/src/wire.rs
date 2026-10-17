@@ -136,7 +136,7 @@ fn wire_blocker_at(symbols: &Symbols<'_>, ty: &Ty, depth: usize) -> Option<WireB
                                 if let Some(b) = wire_blocker_at(symbols, &t, depth + 1) {
                                     return Some(match b {
                                         WireBlock::NoRemote(inner) => WireBlock::NoRemote(format!(
-                                            "Addr<{effect}> ({effect}.{} takes {inner})",
+                                            "eff[{effect}] ({effect}.{} takes {inner})",
                                             f.name.name
                                         )),
                                         other => other,

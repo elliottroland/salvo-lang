@@ -34,9 +34,9 @@ export struct Fault { reason: Str }
 export actor effect Faults {
     send fn faulted(fault: Fault) => !fault
 }
-export intrinsic fn pool(size: Int, sink: Addr<Faults>) [spawn] -> Pool => size, sink
+export intrinsic fn pool(size: Int, sink: eff[Faults]) [spawn] -> Pool => size, sink
 export struct Exit { reason: Str }
-export intrinsic fn watch<E>(target: Addr<E>, on_exit: Reply<Exit>) [spawn] -> None => target, !on_exit
+export intrinsic fn watch<E>(target: eff[E], on_exit: Reply<Exit>) [spawn] -> None => target, !on_exit
 ";
 
 /// The effects and handlers the cases share: a `Counter` protocol with a
@@ -295,7 +295,7 @@ fn main() [use, spawn] {
     );
 }
 
-/// A spawn's value is the child's `Addr<E>` for the effect its handler
+/// A spawn's value is the child's `eff[E]` for the effect its handler
 /// implements — which is what makes it usable as another spawn's dependency
 /// and as a receiver. Checked through a *wrong* annotation, so the message
 /// states the type.
@@ -309,8 +309,8 @@ fn main() [use, spawn] {
 ",
     );
     assert!(
-        errs.iter().any(|m| m.contains("Addr<Counter>")),
-        "the spawn's type must be `Addr<Counter>`: {errs:?}"
+        errs.iter().any(|m| m.contains("eff[Counter]")),
+        "the spawn's type must be `eff[Counter]`: {errs:?}"
     );
 }
 
@@ -385,7 +385,7 @@ fn main() [use, spawn] {
     );
     assert!(
         errs.iter()
-            .any(|m| m.contains("registers a handler or binds an `Addr`")),
+            .any(|m| m.contains("registers a handler or binds an `eff[…]`")),
         "expected the use-a-value refusal: {errs:?}"
     );
 }
@@ -837,14 +837,14 @@ fn a_addr_place_of_any_shape_is_a_receiver() {
     let errs = errors(
         "\
 struct Registry {
-    counter: Addr<Counter>
+    counter: eff[Counter]
 }
 
 fn main() [use, spawn] {
     let counter = spawn Counting() with Printing() on pool(1)
     let r = Registry { counter: counter }
     r.counter.bump(1)
-    let many: Addr<Counter>[] = array_of(r.counter)
+    let many: eff[Counter][] = array_of(r.counter)
     many[0].bump(2)
 }
 ",
@@ -870,7 +870,7 @@ fn main() [use, spawn] {
         spawned
             .iter()
             .any(|m| m.contains("cannot be written inside a lambda")
-                && m.contains("pass the `Addr`")),
+                && m.contains("pass the `eff[…]` handle")),
         "expected the lambda-spawn refusal: {spawned:?}"
     );
 
@@ -1262,7 +1262,7 @@ actor effect Peek {
 
 /// [actor-effect-kind] [monitor-handler] The binding gate, amended by SH-3
 /// (user decision 2026-09-19): a plain effect is still never actor-backed —
-/// no mailbox, no messages — but `spawn`, `use addr` and naming `Addr<E>` now
+/// no mailbox, no messages — but `spawn`, `use addr` and naming `eff[E]` now
 /// accept it as the **monitor** kind: one shared instance behind a lock, its
 /// members on the callers' threads. What remains refused is what has no
 /// meaning for a monitor: a mailbox on the handler, and a pool to place it on.
@@ -1280,7 +1280,7 @@ handler Pinging() of Plain {
     }
 }
 
-fn hold(a: Addr<Plain>) -> Int => a {
+fn hold(a: eff[Plain]) -> Int => a {
     return 1
 }
 
@@ -1508,7 +1508,7 @@ fn main() [use, spawn] {
 fn watch_needs_the_spawn_capability() {
     let errs = errors(
         "\
-fn observe(c: Addr<Counter>, out: Reply<Exit>) [] -> None => c, !out {
+fn observe(c: eff[Counter], out: Reply<Exit>) [] -> None => c, !out {
     watch(c, out)
 }
 ",
@@ -1874,22 +1874,22 @@ fn fetch(out: Reply<Int>) [Counter, spawn] -> None => !out {{
 fn a_task_body_contributes_the_deadlock_graphs_edges() {
     const SRC: &str = "\
 actor effect Peer {
-    send fn ping(back: Addr<Counter>) => !back
+    send fn ping(back: eff[Counter]) => !back
 }
 
 actor effect Ask {
     send fn ask(out: Reply<Int>) => !out
 }
 
-send fn answer(peer: Addr<Peer>, back: Addr<Counter>, n: Int) => !peer, !back, !n {
+send fn answer(peer: eff[Peer], back: eff[Counter], n: Int) => !peer, !back, !n {
     peer.ping(back)
     discard(n)
 }
 
-handler Peering(counter: Addr<Counter>) of Peer {
+handler Peering(counter: eff[Counter]) of Peer {
     mailbox { capacity: 1 }
 
-    send fn ping(back: Addr<Counter>) {
+    send fn ping(back: eff[Counter]) {
         counter.bump(1)
         discard(back)
     }
@@ -1897,7 +1897,7 @@ handler Peering(counter: Addr<Counter>) of Peer {
 ";
     let traced = warnings(&format!(
         "{SRC}
-handler Working(peer: Addr<Peer>, back: Addr<Counter>) [Ask] of Counter {{
+handler Working(peer: eff[Peer], back: eff[Counter]) [Ask] of Counter {{
     mailbox {{ capacity: 1 }}
 
     send fn bump(n: Int) {{
@@ -1921,7 +1921,7 @@ handler Working(peer: Addr<Peer>, back: Addr<Counter>) [Ask] of Counter {{
     // attributed to the actors that mint it, and nothing else.
     let untraced = warnings(&format!(
         "{SRC}
-handler Working(peer: Addr<Peer>, back: Addr<Counter>) [Ask] of Counter {{
+handler Working(peer: eff[Peer], back: eff[Counter]) [Ask] of Counter {{
     mailbox {{ capacity: 1 }}
 
     send fn bump(n: Int) {{
@@ -1961,7 +1961,7 @@ actor effect CreditApi {
     send fn credit(id: Int, out: Reply<Bool>) => !out
 }
 
-handler Orders(credit: Addr<CreditApi>) of OrderApi {
+handler Orders(credit: eff[CreditApi]) of OrderApi {
     mailbox { capacity: 1 }
 
     send fn place(id: Int, out: Reply<Str>) {
@@ -1975,7 +1975,7 @@ handler Orders(credit: Addr<CreditApi>) of OrderApi {
     }
 }
 
-handler Credit(orders: Addr<OrderApi>) of CreditApi {
+handler Credit(orders: eff[OrderApi]) of CreditApi {
     mailbox { capacity: 1 }
 
     send fn credit(id: Int, out: Reply<Bool>) {
@@ -2012,7 +2012,7 @@ actor effect ClockApi {
     send fn now(out: Reply<Int>) => !out
 }
 
-handler Timing(clock: Addr<ClockApi>) of TimerApi {
+handler Timing(clock: eff[ClockApi]) of TimerApi {
     mailbox { capacity: 1 }
 
     send fn after(ms: Int, out: Reply<Int>) {
@@ -2060,7 +2060,7 @@ actor effect CreditApi {
     send fn credit(id: Int, out: Reply<Bool>) => !out
 }
 
-handler Orders(credit: Addr<CreditApi>) of OrderApi {
+handler Orders(credit: eff[CreditApi]) of OrderApi {
     mailbox { capacity: 1 }
 
     send fn place(id: Int, out: Reply<Str>) {
@@ -2074,7 +2074,7 @@ handler Orders(credit: Addr<CreditApi>) of OrderApi {
     }
 }
 
-handler Credit(orders: Addr<OrderApi>) of CreditApi {
+handler Credit(orders: eff[OrderApi]) of CreditApi {
     mailbox { capacity: 1 }
 
     send fn credit(id: Int, out: Reply<Bool>) {
@@ -2144,7 +2144,7 @@ actor effect Waiting {
     send fn got(n: Int) => !n
 }
 
-handler Asking(c: Addr<Counter>) of Waiting {
+handler Asking(c: eff[Counter]) of Waiting {
     mailbox { capacity: 1 }
 
     send fn ask() {
@@ -2356,7 +2356,7 @@ fn main() [use, spawn] {
 /// self-dispatch (the receiver is an addr), and the deadlock graph gives the
 /// router a node of its own, so `Counter → Counter` is not reported.
 const ROUTER: &str = r#"
-handler Spraying(a: Addr<Counter>, b: Addr<Counter>) of any Counter {
+handler Spraying(a: eff[Counter], b: eff[Counter]) of any Counter {
     mailbox { capacity: 16 }
     state {
         flip: Bool = false
@@ -2480,7 +2480,7 @@ fn each(f: () [any Counter] -> None) [any Counter] -> None {{
 fn a_private_send_member_is_reachable_by_self_send_and_replyto() {
     let errs = errors(
         "\
-handler Sneaky(inner: Addr<Counter>) of Counter {
+handler Sneaky(inner: eff[Counter]) of Counter {
     mailbox { capacity: 4 }
     state {
         sum: Int = 0
@@ -2553,12 +2553,12 @@ handler CyclicRandom(seed: Int) of Random {
 fn init_and_self_addr_are_checked_as_members() {
     let errs = errors(
         "\
-actor effect Registry { send fn register(who: Addr<Counter>) => !who }
+actor effect Registry { send fn register(who: eff[Counter]) => !who }
 handler Registering() of Registry {
     mailbox { capacity: 4 }
-    send fn register(who: Addr<Counter>) => !who {}
+    send fn register(who: eff[Counter]) => !who {}
 }
-handler Announcing(reg: Addr<Registry>) of Counter {
+handler Announcing(reg: eff[Registry]) of Counter {
     mailbox { capacity: 4 }
     state {
         sum: Int = 0

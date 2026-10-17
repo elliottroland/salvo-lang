@@ -401,7 +401,7 @@ impl TickingClock() of Clock stateful {
 ([Concurrency](Concurrency.md)):
 
 ```
-bind#3 let c: Addr<Counter> = spawn[Addr<Counter>](construct Tally { }) serves [Counter]
+bind#3 let c: eff[Counter] = spawn[eff[Counter]](construct Tally { }) serves [Counter]
 send main::Counter#0(read c, 2)
 bind#4 let t: Int = waitfor r: Reply<Int> {
   send main::Counter#1(read c, !read r)
@@ -433,7 +433,7 @@ wrote:
   }
   ```
 
-* **`impl __Stub_E(moved addr: Addr<E>) of E`**: the effect implemented by
+* **`impl __Stub_E(moved addr: eff[E]) of E`**: the effect implemented by
   sending each member to an address. This is what `use addr` binds.
 
 The wire codecs, the scheduler's parking of a member that waits, and the

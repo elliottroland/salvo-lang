@@ -190,7 +190,7 @@ fn reachable_from<'p>(
         reachable.contains(&u.file.module)
             && u.file.content.lines().any(|line| {
                 let code = line.split("//").next().unwrap_or("");
-                ["spawn", "waitfor", "replyto", "actor effect", "send fn", "Reply<", "Addr<", "pool("]
+                ["spawn", "waitfor", "replyto", "actor effect", "send fn", "Reply<", "eff[", "pool("]
                     .iter()
                     .any(|w| code.contains(w))
             })

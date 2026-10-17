@@ -205,7 +205,7 @@ An alias is exported like anything else (`export effects IO = [...]`) and import
 A handler's state fields have initialisers, but an initialiser is an expression that sees only the constructor parameters. Anything a handler must *do* as it starts — register itself somewhere, compute state from a dependency — goes in its **`init` block**, which runs once, first:
 
 ```
-handler Working(registry: Addr<Registry>, who: Str) of Worker {
+handler Working(registry: eff[Registry], who: Str) of Worker {
     mailbox { capacity: 8 }
     state {
         started: Int = 0
@@ -220,7 +220,7 @@ handler Working(registry: Addr<Registry>, who: Str) of Worker {
 
 For a spawned handler, `init` is the actor's **first activation**: the spawn enqueues it before it hands the address back, so nothing anyone sends can overtake it, and it runs on the actor's pool like every member. For a `use`-bound handler it runs inline, right after construction — a constructor body. It sees constructor parameters, state and the handler's dependencies, declares no effects, and is checked as a member; it is in fact a private send member named `init` that only the runtime sends.
 
-`self@Face` is the handler's own address as one of its actor faces, an `Addr<Face>`, legal in `init` and in send members. It is how an actor hands itself to something else — a registry, a group, the runtime's peer events — without the spawner having to pass the address back in a first message. A handler that names its own address is spawn-only, because a `use`-bound instance has none; the `use` says so, as it does for a handler that parks with `replyto`.
+`self@Face` is the handler's own address as one of its actor faces, an `eff[Face]`, legal in `init` and in send members. It is how an actor hands itself to something else — a registry, a group, the runtime's peer events — without the spawner having to pass the address back in a first message. A handler that names its own address is spawn-only, because a `use`-bound instance has none; the `use` says so, as it does for a handler that parks with `replyto`.
 
 ## One handler, several effects
 
@@ -250,14 +250,14 @@ One `use` binds every face, so a function declaring `[Tally]` and one declaring 
 
 ```
 let (timer, ctl) = spawn ManualTime() on pool(1)
-//   ^Addr<Timer>  ^Addr<TimerCtl> — code holding `timer` cannot name `advance`
+//   ^eff[Timer]  ^eff[TimerCtl] — code holding `timer` cannot name `advance`
 ```
 
-A single face answers a bare `Addr<E>` as it always did; several answer a tuple. The rules the list brings with it are the ones you would guess: every member of every effect must be implemented, each effect may be named once, and the effects must be of one kind — all `actor effect`s or none, because a handler is bound one way or the other. Where two of the effects declare the same member *name*, one handler method may implement both when their signatures are identical, or two methods may implement them when the parameters differ (ordinary overloading); what is refused is the case overloading cannot see — same parameters, a different return type — since no single method could answer for both. Callers still pick the face with `@` where two effects in scope declare the name, exactly as below.
+A single face answers a bare `eff[E]` as it always did; several answer a tuple. The rules the list brings with it are the ones you would guess: every member of every effect must be implemented, each effect may be named once, and the effects must be of one kind — all `actor effect`s or none, because a handler is bound one way or the other. Where two of the effects declare the same member *name*, one handler method may implement both when their signatures are identical, or two methods may implement them when the parameters differ (ordinary overloading); what is refused is the case overloading cannot see — same parameters, a different return type — since no single method could answer for both. Callers still pick the face with `@` where two effects in scope declare the name, exactly as below.
 
 ## Monitors — sharing a plain-effect handler
 
-A handler of a *plain* effect can also be spawned. That does not make it an actor — there is no mailbox and no messages — it makes it a **monitor**: one shared instance behind a lock, whose members run on the callers' threads under mutual exclusion. The spawn answers the same `Addr<E>` an actor spawn answers, the handle is freely copyable and sendable, and `use` binds it like any handle — so a caller of `next()` never learns whether the `Random` in scope is a scope-local handler or a monitor three threads share.
+A handler of a *plain* effect can also be spawned. That does not make it an actor — there is no mailbox and no messages — it makes it a **monitor**: one shared instance behind a lock, whose members run on the callers' threads under mutual exclusion. The spawn answers the same `eff[E]` an actor spawn answers, the handle is freely copyable and sendable, and `use` binds it like any handle — so a caller of `next()` never learns whether the `Random` in scope is a scope-local handler or a monitor three threads share.
 
 ```
 effect Random {
@@ -298,7 +298,7 @@ fn tally(n: Int) [Tally] -> None {
 
 A `use` makes one value — the **handle** of the instance — and everything downstream is that value or a copy of it: a function's `[E]` parameter, a dependent handler's captured dependency, a spawn's or task's inherited effect, a fn value's effect (user decision 2026-09-28: *one shape*, after a round that had distinguished shareable from scope-local bindings). A `use` of an addr or of a spawn expression is already a handle.
 
-The one thing a handle asks of a handler is whether it is **stateful**. A stateless handler — no `state` fields, no `replyto` mint, no stored function value — runs its members on the shared instance with nothing held: `StdOutConsole`, a pure forwarder, the send stub behind a bound `Addr<E>`, a mixed handler's façade. A stateful one runs them under a lock through its handle — a **monitor**, `let h = spawn H(args); use h` in effect — so two spawns capturing the same stateful binding share its state, exactly as they would through an addr. The distinction is read off the declaration and is the same on both backends; a `platform handler` states it with `threadsafe` ([Backends](Backends.md)), since the compiler cannot see a host's fields.
+The one thing a handle asks of a handler is whether it is **stateful**. A stateless handler — no `state` fields, no `replyto` mint, no stored function value — runs its members on the shared instance with nothing held: `StdOutConsole`, a pure forwarder, the send stub behind a bound `eff[E]`, a mixed handler's façade. A stateful one runs them under a lock through its handle — a **monitor**, `let h = spawn H(args); use h` in effect — so two spawns capturing the same stateful binding share its state, exactly as they would through an addr. The distinction is read off the declaration and is the same on both backends; a `platform handler` states it with `threadsafe` ([Backends](Backends.md)), since the compiler cannot see a host's fields.
 
 The motivating goal is *spawn-inheritance*: for `spawn H on pool(2)` to pick up the scope's effects without re-declaration, a bare `[E]` in a signature has to be something that may cross a seam — and a handle is. Since every binding is one, nothing has to be annotated to be inherited, captured, or handed to a scheduled body, and a function called from inside a lambda declares `[E]` like any other.
 
@@ -311,7 +311,7 @@ In the generated code the handle carries the effect's name: `fn work(console: &C
 A bare `[E]` claims **identity**: that `E` is *one* instance, so two sends to it arrive in order and see the same state. A function written `bump(2); bump(3); total(out)` relies on that, and nothing in its body says so. A binding spread over many instances — a router in front of a fleet — cannot give it, so the weakening is spelled where the requirement is:
 
 ```
-handler RoundRobin(members: List<Addr<Resizer>>) of any Resizer {   // forwards; promises no order
+handler RoundRobin(members: List<eff[Resizer]>) of any Resizer {   // forwards; promises no order
     mailbox { capacity: 16 }
     next: Int = 0
     send fn resize(name: Str, w: Int, out: Reply<Str>) => !name, !out {
@@ -337,7 +337,7 @@ tally(["dog.png"])       // error: `tally` declares `[Resizer]` — one instance
 - **`[any E]`** in an effect list says "each send may go to a different instance; I assume no order and no shared state between them." It accepts every binding, a single instance being a group of one, and it is viral downward: a body holding `[any E]` may call `E` directly and callees declaring `[any E]`, never a callee that assumes one instance. Bare `[E]` keeps the strong meaning, so a program written before groups existed cannot be broken by binding one under it.
 - A fn type carries no strength (no `any`): the function that takes the value writes `[any E]` itself if any instance will do, which weakens the requirement it inherits.
 
-`any` is a claim about the guarantee the effect gives, not about where the instances are: a local group of a hundred on `pool(4)` is `any`; a single actor on another machine, reached through its `Addr`, is not.
+`any` is a claim about the guarantee the effect gives, not about where the instances are: a local group of a hundred on `pool(4)` is `any`; a single actor on another machine, reached through its `eff[E]` handle, is not.
 
 ## Inheriting the scope, and overriding it with `with`
 

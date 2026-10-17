@@ -1339,8 +1339,8 @@ use Scheduler()
 // alone (a program cannot import `runtime`), so a program still cannot forge
 // a handle. What lets `core.actor` and `net` be Salvo over this module
 // (ROADMAP 0.2).
-export intrinsic fn addr_index<E>(a: Addr<E>) [] -> Int => a
-export intrinsic fn addr_of<E>(index: Int) [] -> Addr<E> => index
+export intrinsic fn addr_index<E>(a: eff[E]) [] -> Int => a
+export intrinsic fn addr_of<E>(index: Int) [] -> eff[E] => index
 export intrinsic fn pool_index(p: Pool) [] -> Int => p
 export intrinsic fn pool_of(index: Int) [] -> Pool => index
 // [runtime-handles] The core's token inside a reply token, taken out of it:

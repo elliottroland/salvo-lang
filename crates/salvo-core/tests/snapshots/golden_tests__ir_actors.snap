@@ -109,7 +109,7 @@ fn main::formatted(moved label: Str, moved out: Reply<Str>, moved total: Int) ->
   call core.actor::send<Str>(!read out, concat(read label, " totalled ", call core.basic::to_str(Int)(read total)))
 }
 
-fn main::report_line(moved counter: Addr<Counter>, moved label: Str, moved out: Reply<Str>) -> None {
+fn main::report_line(moved counter: eff[Counter], moved label: Str, moved out: Reply<Str>) -> None {
   obligation gain-params [out]
   obligation release [out]
   send main::Counter#1(read counter, replyto task main::formatted(read label, !read out))
@@ -119,7 +119,7 @@ fn main::main() -> None {
   bind#1 let __use~1: StdOutConsole = construct StdOutConsole { }
   bind#2 let __handle~2: Console = read __use~1
   bind#3 let workers: Pool = call core.actor::pool(Int)(2)
-  bind#4 let counter: Addr<Counter> = spawn[Addr<Counter>](construct Counting { }, on: read workers) serves [Counter]
+  bind#4 let counter: eff[Counter] = spawn[eff[Counter]](construct Counting { }, on: read workers) serves [Counter]
   send main::Counter#0(read counter, 2)
   send main::Counter#0(read counter, 3)
   bind#5 let sum: Int = waitfor out: Reply<Int> {
@@ -128,14 +128,14 @@ fn main::main() -> None {
     send main::Counter#1(read counter, !read out)
   }
   call core.console::println(read __handle~2, concat("1. counter total is ", call core.basic::to_str(Int)(read sum)))
-  bind#6 let ledger: Addr<Ledger> = spawn[Addr<Ledger>](construct Bookkeeping { __dep0: instance_at(read counter) }, on: read workers) serves [Ledger]
+  bind#6 let ledger: eff[Ledger] = spawn[eff[Ledger]](construct Bookkeeping { __dep0: instance_at(read counter) }, on: read workers) serves [Ledger]
   bind#7 let line: Str = waitfor out: Reply<Str> {
     obligation gain [out]
     obligation release [out]
     send main::Ledger#0(read ledger, "counter", !read out)
   }
   call core.console::println(read __handle~2, concat("3. ledger says ", read line))
-  bind#8 let desk: Addr<Desk> = spawn[Addr<Desk>](construct Desking { room: 8 }, on: read workers) serves [Desk]
+  bind#8 let desk: eff[Desk] = spawn[eff[Desk]](construct Desking { room: 8 }, on: read workers) serves [Desk]
   bind#10 let first: Str = waitfor a: Reply<Str> {
     obligation gain [a]
     obligation release [a]
@@ -150,7 +150,7 @@ fn main::main() -> None {
     call core.console::println(read __handle~2, concat("4. second waiter got: ", read second))
   }
   call core.console::println(read __handle~2, concat("4. first waiter got: ", read first))
-  bind#11 let fragile: Addr<Fragile> = spawn[Addr<Fragile>](construct Breaking { }, on: read workers) serves [Fragile]
+  bind#11 let fragile: eff[Fragile] = spawn[eff[Fragile]](construct Breaking { }, on: read workers) serves [Fragile]
   bind#12 let exit: Exit = waitfor gone: Reply<Exit> {
     obligation gain [gone]
     obligation release [gone]
@@ -169,7 +169,7 @@ fn main::main() -> None {
     member main::Counter#1(read __handle~4, !read out)
   }
   call core.console::println(read __handle~2, concat("6. inline total is ", call core.basic::to_str(Int)(read inline)))
-  bind#16 let mine: Addr<Counter> = spawn[Addr<Counter>](construct Counting { }) serves [Counter]
+  bind#16 let mine: eff[Counter] = spawn[eff[Counter]](construct Counting { }) serves [Counter]
   send main::Counter#0(read mine, 6)
   bind#17 let local: Int = waitfor out: Reply<Int> {
     obligation gain [out]
@@ -225,7 +225,7 @@ enum __Cont_Desking {
 enum __Cont_Breaking {
 }
 
-impl __Stub_Counter(moved addr: Addr<Counter>) of Counter {
+impl __Stub_Counter(moved addr: eff[Counter]) of Counter {
   fn bump(moved n: Int) -> None {
     send main::Counter#0(read addr, !read n)
   }
@@ -236,7 +236,7 @@ impl __Stub_Counter(moved addr: Addr<Counter>) of Counter {
   }
 }
 
-impl __Stub_Ledger(moved addr: Addr<Ledger>) of Ledger {
+impl __Stub_Ledger(moved addr: eff[Ledger]) of Ledger {
   fn report(moved label: Str, moved out: Reply<Str>) -> None {
     obligation gain-params [out]
     obligation release [out]
@@ -249,7 +249,7 @@ impl __Stub_Ledger(moved addr: Addr<Ledger>) of Ledger {
   }
 }
 
-impl __Stub_Desk(moved addr: Addr<Desk>) of Desk {
+impl __Stub_Desk(moved addr: eff[Desk]) of Desk {
   fn ticket(moved out: Reply<Str>) -> None {
     obligation gain-params [out]
     obligation release [out]
@@ -263,7 +263,7 @@ impl __Stub_Desk(moved addr: Addr<Desk>) of Desk {
   }
 }
 
-impl __Stub_Fragile(moved addr: Addr<Fragile>) of Fragile {
+impl __Stub_Fragile(moved addr: eff[Fragile]) of Fragile {
   fn crash() -> None {
     send main::Fragile#0(read addr)
   }

@@ -88,6 +88,15 @@ const CONTEXTUAL_PATTERNS: &[(&str, &str, &str)] = &[
         "keyword.other.salvo",
         "the iter type former",
     ),
+    // [eff-handle] `eff[A, B, …]`: the first-class effect-handle type former,
+    // recognised only before `[` so `eff` stays an ordinary name elsewhere
+    // (it is not a declared type). The bracket contents highlight as the
+    // effect names they are.
+    (
+        "\\\\beff(?=\\\\[)",
+        "keyword.other.salvo",
+        "the effect-handle type former",
+    ),
     // [comptime-bound] [comptime-fields] `comptime fn`, `comptime struct`,
     // `comptime type`: the compile-time facility's modifier.
     (

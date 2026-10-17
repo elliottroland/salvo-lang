@@ -1421,6 +1421,19 @@ impl fmt::Display for Ty {
                     write!(f, "iter {}", args[0])
                 }
             }
+            // [eff-handle] The internal handle type `Addr` reads as its
+            // surface spelling `eff[A, B, …]` — a flat effect set in square
+            // brackets, never the old `Addr<…>`.
+            Ty::Named { name, args } if name == "Addr" && !args.is_empty() => {
+                write!(f, "eff[")?;
+                for (i, a) in args.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{a}")?;
+                }
+                write!(f, "]")
+            }
             Ty::Named { name, args } => {
                 // [type-identity] A key is shown as the name it was written as.
                 write!(f, "{}", crate::typekey::plain(name))?;

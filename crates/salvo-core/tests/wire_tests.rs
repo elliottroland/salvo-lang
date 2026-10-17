@@ -39,18 +39,18 @@ const STD_NET: &str = concat!(
     "export struct Protocol<E> { name: Str, hash: Str }\n",
     "export intrinsic fn protocol<E>() [] -> Protocol<E>\n",
     "export actor effect NodeGroup { send fn leave() }\n",
-    "export actor effect ActorGroup<E> { send fn join(member: Addr<E>) => !member }\n",
+    "export actor effect ActorGroup<E> { send fn join(member: eff[E]) => !member }\n",
     // [actor-group] An ordinary fn over an implicit `?protocol`, as std's is:
     // the intrinsic that fills it is where a noremote `E` is refused.
-    "export fn actor_group<E>(nodes: Addr<NodeGroup>, ?protocol: () -> Protocol<E>) [spawn] -> Int => !nodes {\n",
+    "export fn actor_group<E>(nodes: eff[NodeGroup], ?protocol: () -> Protocol<E>) [spawn] -> Int => !nodes {\n",
     "    let _p = protocol()\n    return 0\n}\n",
     // The pick kit's shape, enough for the erased-sibling rule [route-stub].
     "export struct RouteView<E> { size: Int = 0 }\n",
-    "export effect RouteSelector<E> { fn changed(view: RouteView<E>) -> None => view\n    fn select(view: RouteView<E>, key: Long?) -> Addr<E>? => view, key }\n",
+    "export effect RouteSelector<E> { fn changed(view: RouteView<E>) -> None => view\n    fn select(view: RouteView<E>, key: Long?) -> eff[E]? => view, key }\n",
     "export handler LeastLoaded<E>(prefer_local: Bool) of RouteSelector<E> {\n",
-    "    fn changed(view: RouteView<E>) -> None => view {}\n    fn select(view: RouteView<E>, key: Long?) -> Addr<E>? => view, key { return None }\n}\n",
+    "    fn changed(view: RouteView<E>) -> None => view {}\n    fn select(view: RouteView<E>, key: Long?) -> eff[E]? => view, key { return None }\n}\n",
     "export handler Sharded<E>() of RouteSelector<E> {\n",
-    "    fn changed(view: RouteView<E>) -> None => view {}\n    fn select(view: RouteView<E>, key: Long?) -> Addr<E>? => view, key { return None }\n}\n",
+    "    fn changed(view: RouteView<E>) -> None => view {}\n    fn select(view: RouteView<E>, key: Long?) -> eff[E]? => view, key { return None }\n}\n",
 );
 
 fn program(src: &str) -> (Program, Vec<FileDiagnostic>) {
@@ -270,7 +270,7 @@ fn a_protocol_with_a_noremote_payload_cannot_be_named_for_a_group() {
     let errs = messages(&format!(
         "{IMPORT}noremote struct Canvas {{ n: Int }}\n\
          actor effect Painter {{ send fn paint(c: Canvas) => !c }}\n\
-         fn main(nodes: Addr<NodeGroup>) [spawn] -> None\n=> !nodes {{\n    let _bad = actor_group<Painter>(nodes)\n}}\n"
+         fn main(nodes: eff[NodeGroup]) [spawn] -> None\n=> !nodes {{\n    let _bad = actor_group<Painter>(nodes)\n}}\n"
     ));
     assert_eq!(errs.len(), 1, "{errs:?}");
     assert!(
@@ -285,9 +285,9 @@ fn a_protocol_with_a_noremote_payload_cannot_be_named_for_a_group() {
         "{IMPORT}noremote struct Canvas {{ n: Int }}\n\
          actor effect Painter {{ send fn paint(c: Canvas) => !c }}\n\
          actor effect Counter {{ send fn bump(n: Int) => !n }}\n\
-         fn open<E>(nodes: Addr<NodeGroup>, ?protocol: () -> Protocol<E>) [spawn] -> Int => !nodes {{\n\
+         fn open<E>(nodes: eff[NodeGroup], ?protocol: () -> Protocol<E>) [spawn] -> Int => !nodes {{\n\
              return actor_group<E>(nodes)\n}}\n\
-         fn main(a: Addr<NodeGroup>, b: Addr<NodeGroup>) [spawn] -> None\n=> !a, !b {{\n\
+         fn main(a: eff[NodeGroup], b: eff[NodeGroup]) [spawn] -> None\n=> !a, !b {{\n\
              let _ok = open<Counter>(a)\n    let _bad = open<Painter>(b)\n}}\n"
     ));
     assert_eq!(errs.len(), 1, "one refusal, at the concrete `open<Painter>` call: {errs:?}");
@@ -297,22 +297,22 @@ fn a_protocol_with_a_noremote_payload_cannot_be_named_for_a_group() {
     );
 }
 
-/// [effect-generic-decl] An effect generic over an *effect*: `Addr<E>` is the
+/// [effect-generic-decl] An effect generic over an *effect*: `eff[E]` is the
 /// one position `E` may take, a generic instance is itself an effect inside
-/// `Addr` (`Addr<Reg<Ping>>`), and a phantom struct parameter (`Protocol<E>`)
+/// `Addr` (`eff[Reg<Ping>]`), and a phantom struct parameter (`Protocol<E>`)
 /// types a value without occurring in it.
 #[test]
 fn effect_typed_generics_check() {
     let errs = messages(&format!(
         "{IMPORT}actor effect Ping {{ send fn ping(n: Int) => !n }}\n\
-         actor effect Reg<E> {{\n    send fn join(member: Addr<E>) => !member\n    \
-         send fn peers(out: Reply<List<Addr<E>>>) => !out\n    \
-         send fn twin(other: Addr<Reg<E>>) => !other\n}}\n\
+         actor effect Reg<E> {{\n    send fn join(member: eff[E]) => !member\n    \
+         send fn peers(out: Reply<List<eff[E]>>) => !out\n    \
+         send fn twin(other: eff[Reg<E>]) => !other\n}}\n\
          handler Registering<E>() of Reg<E> {{\n    mailbox {{ capacity: 4 }}\n    \
-         state {{\n    all: Mut List<Addr<E>> = Mut List()\n    }}\n    \
-         send fn join(member: Addr<E>) => !member {{ add(all, member) }}\n    \
-         send fn peers(out: Reply<List<Addr<E>>>) => !out {{ out.send(copy(all)) }}\n    \
-         send fn twin(other: Addr<Reg<E>>) => !other {{ }}\n}}\n\
+         state {{\n    all: Mut List<eff[E]> = Mut List()\n    }}\n    \
+         send fn join(member: eff[E]) => !member {{ add(all, member) }}\n    \
+         send fn peers(out: Reply<List<eff[E]>>) => !out {{ out.send(copy(all)) }}\n    \
+         send fn twin(other: eff[Reg<E>]) => !other {{ }}\n}}\n\
          fn main() [spawn] -> None {{\n    let _r = spawn Registering<Ping>() on pool(1)\n    \
          let _p = protocol<Ping>()\n}}\n"
     ));
@@ -371,7 +371,7 @@ actor effect Pong { send fn pong() }
 handler Pinging() of Ping { mailbox { capacity: 1 } send fn ping() {} }
 handler Both() of Ping, Pong { mailbox { capacity: 1 } send fn ping() {} send fn pong() {} }
 
-fn main(pings: Addr<ActorGroup<Ping>>, pongs: Addr<ActorGroup<Pong>>, n: Int) [spawn] -> None
+fn main(pings: eff[ActorGroup<Ping>], pongs: eff[ActorGroup<Pong>], n: Int) [spawn] -> None
     => !pings, !pongs, !n {
     let _ok = spawn Pinging() on pool(1) in pings
     let (_p, _q) = spawn Both() on pool(1) in pongs
@@ -386,6 +386,6 @@ fn main(pings: Addr<ActorGroup<Ping>>, pongs: Addr<ActorGroup<Pong>>, n: Int) [s
         .map(|d| d.message.clone())
         .collect();
     assert_eq!(errs.len(), 2, "{errs:?}");
-    assert!(errs[0].contains("answers no `Addr<Pong>`") && errs[0].contains("serves `Ping`"), "{errs:?}");
+    assert!(errs[0].contains("answers no `eff[Pong]`") && errs[0].contains("serves `Ping`"), "{errs:?}");
     assert!(errs[1].contains("`in` takes a group handle") && errs[1].contains("this is `Int`"), "{errs:?}");
 }

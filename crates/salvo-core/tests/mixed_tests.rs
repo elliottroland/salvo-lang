@@ -425,7 +425,7 @@ actor effect Drawer {
     send fn draw(out: Reply<Int>) => !out
 }
 
-handler Feedback(drawer: Addr<Drawer>) of Random {
+handler Feedback(drawer: eff[Drawer]) of Random {
     mailbox { capacity: 4 }
     state {
         tally: Int = 0
@@ -508,7 +508,7 @@ actor effect Oracle {
     send fn divine(out: Reply<Int>) => !out
 }
 
-handler Forwarding(oracle: Addr<Oracle>) of Random {
+handler Forwarding(oracle: eff[Oracle]) of Random {
     mailbox { capacity: 4 }
     state {
         tally: Int = 0
@@ -575,7 +575,7 @@ actor effect Oracle {
     send fn divine(out: Reply<Int>) => !out
 }
 
-handler Forwarding(oracle: Addr<Oracle>) of Random {
+handler Forwarding(oracle: eff[Oracle]) of Random {
     mailbox { capacity: 4 }
     state {
         tally: Int = 0
@@ -761,7 +761,7 @@ handler Delphi() of Oracle {
     }
 }
 
-handler Parking(oracle: Addr<Oracle>) of Random {
+handler Parking(oracle: eff[Oracle]) of Random {
     mailbox { capacity: 4 }
     state {
         tally: Int = 0
@@ -813,7 +813,7 @@ handler Delphi() of Oracle {
     }
 }
 
-handler Parking(oracle: Addr<Oracle>) of Random {
+handler Parking(oracle: eff[Oracle]) of Random {
     mailbox { capacity: 4 }
     state {
         tally: Int = 0
@@ -855,7 +855,7 @@ actor effect Drawer {
     send fn draw(out: Reply<Int>) => !out
 }
 
-handler Feedback(drawer: Addr<Drawer>) of Random {
+handler Feedback(drawer: eff[Drawer]) of Random {
     mailbox { capacity: 4 }
     state {
         tally: Int = 0

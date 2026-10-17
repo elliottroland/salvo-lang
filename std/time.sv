@@ -429,7 +429,7 @@ export actor effect TimerCtl {
 // deadlines, the two must agree, and the way to make them agree is a handler of
 // your own whose reading is a deadline of zero on this very timer:
 //
-//     handler TestTicker(timer: Addr<Timer>) of Ticker {
+//     handler TestTicker(timer: eff[Timer]) of Ticker {
 //         fn tick() -> Tick {
 //             let fired = waitfor answer: Reply<Fired> {
 //                 timer.after(nanos(0), answer)

@@ -1,6 +1,6 @@
 //! [monitor-handler] The monitor spawn (SH-3, user decision 2026-09-19):
 //! `spawn H(args)` where every face of `H` is a **plain** effect shares one
-//! instance behind a lock, answers the same `Addr<E>` type an actor spawn
+//! instance behind a lock, answers the same `eff[E]` type an actor spawn
 //! answers, and is bound with `use addr` like any handle. The restriction is
 //! the design: a monitor handler declares **no dependencies**, so its members
 //! are pure state transformation — no effects, no waits — and the lock is
@@ -123,14 +123,14 @@ fn main() [use, spawn] {
     assert!(errs.is_empty(), "got {errs:?}");
 }
 
-/// [monitor-handler] Naming `Addr<E>` of a plain effect is legal since SH-3:
+/// [monitor-handler] Naming `eff[E]` of a plain effect is legal since SH-3:
 /// it is the shared monitor's handle — in a parameter, a return, a `let`.
 /// (Until 2026-09-19 this was [actor-effect-kind]'s refusal.)
 #[test]
 fn a_plain_effect_addr_is_a_legal_type() {
     let errs = errors(
         "\
-fn hold(handle: Addr<Random>) -> Int => handle {
+fn hold(handle: eff[Random]) -> Int => handle {
     return 1
 }
 

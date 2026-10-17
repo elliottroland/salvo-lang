@@ -99,11 +99,11 @@ handler Sessions() [Timer] of Session {
 // the fire arrives — no declaration anywhere: occupancy is inferred, the wait
 // serves its pool while it waits, and the deadlock graph prices the cycles.
 //
-// The timer arrives as a plain `Addr<Timer>` constructor parameter rather than
+// The timer arrives as a plain `eff[Timer]` constructor parameter rather than
 // as a handler dependency, because a handler with dependencies of its own cannot
 // be *constructed* in a spawn's `with` clause: there is no scope on the child to
 // resolve them from, so an addr is what crosses.
-handler TestTicker(timer: Addr<Timer>) of Ticker {
+handler TestTicker(timer: eff[Timer]) of Ticker {
     fn tick() -> Tick {
         let fired = waitfor answer: Reply<Fired> {
             timer.after(nanos(0), answer)

@@ -1463,7 +1463,7 @@ effects" keeps the history).
   types**. A handler's `init` runs inside its `new`
   (`let mut __s = Self { … }; __s.init(); __s`), before the handle wraps it;
   an actor's is its first message instead [rs-actor]. A `use addr` of a
-  plain effect binds the value (an `Addr<E>` *is* `E`); of an actor effect,
+  plain effect binds the value (an `eff[E]` *is* `E`); of an actor effect,
   `crate::E::shared(crate::__Stub_E::new(addr))`.
 * **A fn declaring `[A, B]`** is `fn f(a: &A, b: &B, …)`, one parameter per
   effect in the order the IR lists the fn's effects — inherited effects
@@ -1544,9 +1544,9 @@ effects" keeps the history).
   inside a handler are direct self calls under the one acquisition. A
   poisoned lock (`unwrap`) surfaces as a panic only after another member
   already panicked, which is the fault boundary's business.
-* **`Addr<E>` for a plain effect lowers to `E`** [monitor-handler] (the type
+* **`eff[E]` for a plain effect lowers to `E`** [monitor-handler] (the type
   renderer branches on the effect's declared kind); an actor effect's addr stays `usize`. A
-  generic plain effect's addr carries the instantiation (`Addr<Random<Int>>`
+  generic plain effect's addr carries the instantiation (`eff[Random<Int>]`
   is `crate::Random<i32>`).
 
 ## Functions and calls
@@ -2210,7 +2210,7 @@ effects" keeps the history).
     itself, an actor addr over its send stub — so a dependency can be a local
     handler in one program and an actor in the next with no change to the
     child.
-  * **The three types erase to scheduler handles**: `Addr<E>` and `Pool` are
+  * **The three types erase to scheduler handles**: `eff[E]` and `Pool` are
     `usize` indices, `Reply<T>` is `crate::scheduler::SalvoReply`. Their Salvo
     type arguments have no rendering — the effect an addr serves and the payload
     a token carries are the checker's business, and the message enum is what

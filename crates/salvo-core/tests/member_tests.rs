@@ -380,35 +380,47 @@ fn effect_types_are_rejected_in_data_positions() {
     }
 }
 
-/// [effect-not-data] [actor-spawn-expr] The one exception (user decision
-/// 2026-09-15): `Addr<E>`'s type argument. An addr is a handle to a process, and
-/// the effect the process serves is what a holder may *do* with it — which is
-/// also what lets a process and a locally `use`d handler stand behind one
-/// name. Accepted in every ordinary data position, since an addr is an ordinary
-/// value.
+/// [effect-not-data] [eff-handle] A first-class effect handle, `eff[E]`,
+/// carries the effect `E` as a holder's capability over it — and is an
+/// ordinary value, accepted in every data position. This is what lets a
+/// process and a locally `use`d handler stand behind one name.
 #[test]
-fn an_effect_is_legal_as_an_addr_type_argument() {
+fn an_effect_handle_is_legal_in_data_positions() {
     let cases = [
-        ("struct S {\n    c: Addr<Chatter>\n}\n", "struct field"),
+        ("struct S {\n    c: eff[Chatter]\n}\n", "struct field"),
         (
-            "fn f(c: Addr<Chatter>) -> Int => c {\n    return 1\n}\n",
+            "fn f(c: eff[Chatter]) -> Int => c {\n    return 1\n}\n",
             "parameter",
         ),
         (
-            "fn f(c: Addr<Chatter>) -> Addr<Chatter> => !c {\n    return c\n}\n",
+            "fn f(c: eff[Chatter]) -> eff[Chatter] => !c {\n    return c\n}\n",
             "return type",
         ),
     ];
     for (src, what) in cases {
         let errs = effect_messages(src);
-        assert!(errs.is_empty(), "`Addr<Chatter>` refused as a {what}: {errs:?}");
+        assert!(errs.is_empty(), "`eff[Chatter]` refused as a {what}: {errs:?}");
     }
 }
 
-/// And the exception is *only* that: the effect is still refused as any other
-/// type argument, so nothing else was widened by granting it.
+/// [eff-handle] The old spelling `Addr<E>` is no longer a type a user writes:
+/// `Addr` is the compiler's internal name for the handle, and the surface is
+/// `eff[E]`. It is a plain parse error naming the replacement.
 #[test]
-fn the_addr_exception_does_not_extend_to_other_type_arguments() {
+fn the_addr_type_name_is_not_user_spellable() {
+    let (_, diags) = salvo_syntax::parse_module("fn f(c: Addr<Chatter>) -> Int => c {\n    return 1\n}\n");
+    assert!(
+        diags.iter().any(|d| d.is_error()
+            && d.message.contains("`Addr<…>` is not a type you write")
+            && d.message.contains("eff[E]")),
+        "writing `Addr<...>` should be a parse error with the `eff[...]` remedy: {diags:?}"
+    );
+}
+
+/// And the handle is *only* a handle: a bare effect is still refused as any
+/// other type argument, so nothing was widened by the handle form.
+#[test]
+fn an_effect_is_still_refused_as_an_ordinary_type_argument() {
     let errs = effect_messages("fn f(xs: List<Counter>) -> Int => xs {\n    return 1\n}\n");
     assert!(
         errs.iter()

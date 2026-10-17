@@ -39,7 +39,7 @@ export intrinsic type Addr<E>
 // [actor-types] Two addrs are equal when they name the same actor — the same
 // identity, whether both are the local index or one is a proxy of the other's
 // actor. What a group's membership check reads [actor-group].
-export fn eq<E>(a: Addr<E>, b: Addr<E>) [] -> Bool => a, b {
+export fn eq<E>(a: eff[E], b: eff[E]) [] -> Bool => a, b {
     return same_actor(addr_index(a), addr_index(b))
 }
 
@@ -135,7 +135,7 @@ export actor effect Faults {
 // [sink] (user decision 2026-09-17, FC-5(a)). The overload exists so the plain
 // `pool(n)` stays the simple thing it was: a sink is a choice, and where it is
 // absent the runtime's named report is the default.
-export intrinsic fn pool(size: Int, sink: Addr<Faults>) [spawn] -> Pool => size, sink
+export intrinsic fn pool(size: Int, sink: eff[Faults]) [spawn] -> Pool => size, sink
 
 // [waitfor-dedicated] One fresh thread, owned by whatever is placed on it.
 // Placement one may *want* for work that occupies its thread: a wait may
@@ -167,7 +167,7 @@ export struct Exit { reason: Str }
 //
 // [target] is kept, since an addr is freely copyable: watching does not spend
 // the handle, and the same actor may be watched by many.
-export fn watch<E>(target: Addr<E>, on_exit: Reply<Exit>) [spawn] -> None => target, !on_exit {
+export fn watch<E>(target: eff[E], on_exit: Reply<Exit>) [spawn] -> None => target, !on_exit {
     // A token minted on another node has no local half to register: the
     // watch is dropped, as it always was.
     if reply_token(on_exit) is Token t {

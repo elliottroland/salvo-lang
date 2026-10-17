@@ -11348,7 +11348,7 @@ handler Delphi() of Oracle {
     }
 }
 
-handler Forwarding(oracle: Addr<Oracle>) of Random {
+handler Forwarding(oracle: eff[Oracle]) of Random {
     mailbox { capacity: 4 }
     state {
         tally: Int = 0
@@ -11411,7 +11411,7 @@ handler Delphi() of Oracle {
     }
 }
 
-handler Parking(oracle: Addr<Oracle>) of Random {
+handler Parking(oracle: eff[Oracle]) of Random {
     mailbox { capacity: 4 }
     state {
         tally: Int = 0
@@ -11681,7 +11681,7 @@ fn rustc_compiles_and_runs_a_dependent_spawn() {
 /// [rs-actor] [rs-handle] The shape a dependent spawn lowers to: the same
 /// handler struct a `use` builds, its dependencies handle fields filled from
 /// the clause — a construction behind its handle for `Log`, the send stub
-/// behind its handle for the `Addr<Tally>` — and an actor body that owns the
+/// behind its handle for the `eff[Tally]` — and an actor body that owns the
 /// instance and dispatches onto its members; no provider, no view.
 #[test]
 fn a_dependent_spawn_hands_the_actor_its_handles() {
@@ -12292,7 +12292,7 @@ handler Desking() of Desk {
 }
 
 actor effect Client {
-    send fn go(desk: Addr<Desk>) => !desk
+    send fn go(desk: eff[Desk]) => !desk
     send fn answered(word: Str) => !word
 }
 
@@ -12301,7 +12301,7 @@ actor effect Client {
 handler Clienting() of Client {
     mailbox { capacity: 4 }
 
-    send fn go(desk: Addr<Desk>) {
+    send fn go(desk: eff[Desk]) {
         desk.ask(replyto! answered())
     }
 
@@ -13300,7 +13300,7 @@ handler SteppingTicker(step: Duration) of Ticker {
 // The unified test clock: a reading is a deadline of zero, so the answer is the
 // timer's own virtual now. The timer arrives as a value, not a dependency — a
 // handler with dependencies of its own cannot be built in a spawn `with` clause.
-handler TestTicker(timer: Addr<Timer>) of Ticker {
+handler TestTicker(timer: eff[Timer]) of Ticker {
     fn tick() -> Tick {
         let fired = waitfor answer: Reply<Fired> {
             timer.after(nanos(0), answer)
@@ -13681,18 +13681,18 @@ handler Counting() of Counter {
 // transport, its outbound and inbound actors, and its route. Placement decides
 // the node: called from `main` it sets up `main`'s node; run inside an actor
 // spawned on another node's pool, it sets up that node.
-fn bring_up(at: NodeEndpoint, net: Addr<MemNet>) [Transport, spawn] -> None => at, net {
+fn bring_up(at: NodeEndpoint, net: eff[MemNet]) [Transport, spawn] -> None => at, net {
     let p = pool(1)                         // inherits this node
     let _connected = connect(copy(at), copy(p))
 }
 
 actor effect Boot {
-    send fn boot(at: NodeEndpoint, net: Addr<MemNet>, done: Reply<Bool>) => !at, !net, !done
+    send fn boot(at: NodeEndpoint, net: eff[MemNet], done: Reply<Bool>) => !at, !net, !done
 }
 
 handler Booting() [Transport, spawn] of Boot {
     mailbox { capacity: 1 }
-    send fn boot(at: NodeEndpoint, net: Addr<MemNet>, done: Reply<Bool>) => !at, !net, !done {
+    send fn boot(at: NodeEndpoint, net: eff[MemNet], done: Reply<Bool>) => !at, !net, !done {
         bring_up(at, net)
         done.send(true)
     }
@@ -13715,7 +13715,7 @@ fn main() [use, spawn] {
     // A counter living on node B, reached from node A through the wire: the
     // addr crosses as bytes and comes back as a proxy.
     let there = spawn Counting() on pb
-    let far = decode<Addr<Counter>>(encode(copy(there)))
+    let far = decode<eff[Counter]>(encode(copy(there)))
     if far is None {
         println("addr did not decode")
         return
@@ -13764,14 +13764,14 @@ handler Announcing(label: Str) [Console] of NodeGroupWatcher {
 }
 
 actor effect Boot {
-    send fn boot(done: Reply<Addr<NodeGroup>>) => !done
+    send fn boot(done: Reply<eff[NodeGroup]>) => !done
 }
 
 // Brings up node B from a pool of its own: transport, wire, listener, and its
 // group over the same endpoint list.
-handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: Addr<MemNet>, gossip: Bool) [Transport, spawn] of Boot {
+handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: eff[MemNet], gossip: Bool) [Transport, spawn] of Boot {
     mailbox { capacity: 1 }
-    send fn boot(done: Reply<Addr<NodeGroup>>) => !done {
+    send fn boot(done: Reply<eff[NodeGroup]>) => !done {
         let p = pool(1)
         if gossip {
             let group = spawn GossipNodeGroup("mesh", copy(all)) on p
@@ -13800,7 +13800,7 @@ fn main() [use, spawn] {
     // Node B: hosted beside it.
     let pb = pool_at(new_node(), 1)
     let booter = spawn Booting(copy(b), copy(all), copy(net), false) with MemTransport(copy(b), copy(net)) on pb
-    let group_b = waitfor done: Reply<Addr<NodeGroup>> { booter.boot(done) }
+    let group_b = waitfor done: Reply<eff[NodeGroup]> { booter.boot(done) }
 
     // Give the handshake a moment, then read both views.
     let timer = spawn DefaultTimer() on pool(1)
@@ -13847,10 +13847,10 @@ fn main() [use, spawn] {
     println("mesh: x sees ${size(sx)}, y sees ${size(sy)}, z sees ${size(sz)}")
 }
 
-fn boot_node(at: NodeEndpoint, seeds: List<NodeEndpoint>, net: Addr<MemNet>) [spawn] -> Addr<NodeGroup> => !at, !seeds, !net {
+fn boot_node(at: NodeEndpoint, seeds: List<NodeEndpoint>, net: eff[MemNet]) [spawn] -> eff[NodeGroup] => !at, !seeds, !net {
     let p = pool_at(new_node(), 1)
     let booter = spawn Booting(copy(at), seeds, copy(net), true) with MemTransport(at, net) on p
-    let group = waitfor done: Reply<Addr<NodeGroup>> { booter.boot(done) }
+    let group = waitfor done: Reply<eff[NodeGroup]> { booter.boot(done) }
     // A group's `init` connects its node; `members` is answered after it, so
     // the next node's seeds are on the wire before it dials them.
     let _started = waitfor out: Reply<List<Node>> { group.members(out) }
@@ -13888,7 +13888,7 @@ fn rustc_compiles_and_runs_node_groups_over_mem_transport() {
 // ===== the network sequence, step ⑤: actor groups =====
 
 /// [effect-generic-decl] An effect generic over an *effect*, erased for the
-/// output: `Reg<E>` with `Addr<E>` payloads and `Registering<E>` are emitted as
+/// output: `Reg<E>` with `eff[E]` payloads and `Registering<E>` are emitted as
 /// monomorphic items, and `spawn Registering<Ping>()` needs no turbofish.
 const EFFECT_GENERIC_DEMO: &str = r#"actor effect Ping { send fn ping(n: Int) => !n
     send fn count(out: Reply<Int>) => !out }
@@ -13905,17 +13905,17 @@ handler Pinging() [Console] of Ping {
 }
 
 actor effect Reg<E> {
-    send fn join(member: Addr<E>) => !member
-    send fn members(out: Reply<List<Addr<E>>>) => !out
+    send fn join(member: eff[E]) => !member
+    send fn members(out: Reply<List<eff[E]>>) => !out
 }
 
 handler Registering<E>() of Reg<E> {
     mailbox { capacity: 8 }
     state {
-        all: Mut List<Addr<E>> = Mut List()
+        all: Mut List<eff[E]> = Mut List()
     }
-    send fn join(member: Addr<E>) => !member { add(all, member) }
-    send fn members(out: Reply<List<Addr<E>>>) => !out { out.send(copy(all)) }
+    send fn join(member: eff[E]) => !member { add(all, member) }
+    send fn members(out: Reply<List<eff[E]>>) => !out { out.send(copy(all)) }
 }
 
 fn main() [use, spawn] {
@@ -13924,7 +13924,7 @@ fn main() [use, spawn] {
     let reg = spawn Registering<Ping>() on p
     let a = spawn Pinging() on p
     reg.join(copy(a))
-    let ms = waitfor out: Reply<List<Addr<Ping>>> { reg.members(out) }
+    let ms = waitfor out: Reply<List<eff[Ping]>> { reg.members(out) }
     println("members: ${size(ms)}")
     for m in ms { m.ping(7) }
     let _seen = waitfor out: Reply<Int> { a.count(out) }
@@ -14022,7 +14022,7 @@ actor effect Report {
 
 // Two private members: `twice` is reached by a self-send, `reported` is a
 // continuation target with two captures.
-handler Reporting(counter: Addr<Counter>) of Report {
+handler Reporting(counter: eff[Counter]) of Report {
     mailbox { capacity: 8 }
     state {
         asked: Int = 0
@@ -14041,7 +14041,7 @@ handler Reporting(counter: Addr<Counter>) of Report {
 
 // The same shape on a dependent handler (`[Console]`), which dispatches
 // through the fused form.
-handler LoudReporting(counter: Addr<Counter>) [Console] of Report {
+handler LoudReporting(counter: eff[Counter]) [Console] of Report {
     mailbox { capacity: 8 }
     send fn report(label: Str, out: Reply<Str>) {
         note@self(copy(label))
@@ -14114,7 +14114,7 @@ fn main() [use, spawn] {
     let (two, _admin) = spawn TwoFaced("two") on p in pings
     let timer = spawn DefaultTimer() on pool(1)
     let _t = waitfor f: Reply<Fired> { timer.after(millis(100), f) }
-    let members = waitfor out: Reply<List<Addr<Ping>>> { pings.members(out) }
+    let members = waitfor out: Reply<List<eff[Ping]>> { pings.members(out) }
     println("members: ${size(members)}")
     println(waitfor out: Reply<Str> { one.ping(out) })
     println(waitfor out: Reply<Str> { two.ping(out) })
@@ -14137,7 +14137,7 @@ fn rustc_compiles_and_runs_spawn_in_group() {
 /// runs first and registers its own address; a `use`-bound plain handler's
 /// `init` runs inline as a constructor body.
 const HANDLER_INIT_DEMO: &str = r#"actor effect Registry {
-    send fn register(who: Addr<Worker>) => !who
+    send fn register(who: eff[Worker]) => !who
     send fn count(out: Reply<Int>) => !out
 }
 actor effect Worker {
@@ -14149,13 +14149,13 @@ handler Registering() of Registry {
     state {
         n: Int = 0
     }
-    send fn register(who: Addr<Worker>) => !who { n = n + 1 }
+    send fn register(who: eff[Worker]) => !who { n = n + 1 }
     send fn count(out: Reply<Int>) => !out { out.send(n) }
 }
 
 // Registers itself as it starts: `init` runs first, and `self@Worker` is
 // this actor's own address as its Worker face.
-handler Working(registry: Addr<Registry>, who: Str) of Worker {
+handler Working(registry: eff[Registry], who: Str) of Worker {
     mailbox { capacity: 8 }
     state {
         started: Int = 0
@@ -14234,7 +14234,7 @@ handler Resizing(who: Str) of Resizer {
 
 // [effect-any] A hand-written router: forwards each request to the next
 // member, so it promises no order between two sends — and says so.
-handler RoundRobin(members: List<Addr<Resizer>>) of any Resizer {
+handler RoundRobin(members: List<eff[Resizer]>) of any Resizer {
     mailbox { capacity: 16 }
     state {
         next: Int = 0
@@ -14355,12 +14355,12 @@ handler Sequencing(who: Str) of Sequencer {
 }
 
 actor effect Boot {
-    send fn boot(done: Reply<Addr<Sequencer>>) => !done
+    send fn boot(done: Reply<eff[Sequencer]>) => !done
 }
 
-handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: Addr<MemNet>) [Transport, spawn] of Boot {
+handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: eff[MemNet]) [Transport, spawn] of Boot {
     mailbox { capacity: 1 }
-    send fn boot(done: Reply<Addr<Sequencer>>) => !done {
+    send fn boot(done: Reply<eff[Sequencer]>) => !done {
         let p = pool(1)
         let nodes = spawn StaticNodeGroup("ids", copy(all)) on p
         let seq = actor_group<Sequencer>(nodes)
@@ -14388,10 +14388,10 @@ fn main() [use, spawn] {
 
     let pb = pool_at(new_node(), 1)
     let booter = spawn Booting(copy(b), copy(all), copy(net)) with MemTransport(copy(b), copy(net)) on pb
-    let remote = waitfor done: Reply<Addr<Sequencer>> { booter.boot(done) }
+    let remote = waitfor done: Reply<eff[Sequencer]> { booter.boot(done) }
     let timer = spawn DefaultTimer() on pool(1)
     let _t = waitfor f: Reply<Fired> { timer.after(millis(300), f) }
-    let seen = waitfor out: Reply<List<Addr<Sequencer>>> { seq.members(out) }
+    let seen = waitfor out: Reply<List<eff[Sequencer]>> { seq.members(out) }
     println("members: ${size(seen)}")
 
     // Least loaded, local first: every id comes from a's member.
@@ -14438,17 +14438,17 @@ handler Pinging(who: Str) of Ping {
 
 handler Noticing(label: Str) [Console] of ActorGroupWatcher<Ping> {
     mailbox { capacity: 16 }
-    send fn joined(member: Addr<Ping>) => !member { println("${label}: + a Ping (local: ${eq(node_of(member), this_node())})") }
-    send fn left(member: Addr<Ping>) => !member { println("${label}: - a Ping") }
+    send fn joined(member: eff[Ping]) => !member { println("${label}: + a Ping (local: ${eq(node_of(member), this_node())})") }
+    send fn left(member: eff[Ping]) => !member { println("${label}: - a Ping") }
 }
 
 actor effect Boot {
-    send fn boot(done: Reply<Addr<ActorGroup<Ping>>>) => !done
+    send fn boot(done: Reply<eff[ActorGroup<Ping>]>) => !done
 }
 
-handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: Addr<MemNet>) [Transport, spawn] of Boot {
+handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: eff[MemNet]) [Transport, spawn] of Boot {
     mailbox { capacity: 1 }
-    send fn boot(done: Reply<Addr<ActorGroup<Ping>>>) => !done {
+    send fn boot(done: Reply<eff[ActorGroup<Ping>]>) => !done {
         let p = pool(1)
         let nodes = spawn StaticNodeGroup("demo", copy(all)) on p
         let pings = actor_group<Ping>(nodes)
@@ -14474,12 +14474,12 @@ fn main() [use, spawn] {
 
     let pb = pool_at(new_node(), 1)
     let booter = spawn Booting(copy(b), copy(all), copy(net)) with MemTransport(copy(b), copy(net)) on pb
-    let pings_b = waitfor done: Reply<Addr<ActorGroup<Ping>>> { booter.boot(done) }
+    let pings_b = waitfor done: Reply<eff[ActorGroup<Ping>]> { booter.boot(done) }
 
     let timer = spawn DefaultTimer() on pool(1)
     let _t = waitfor f: Reply<Fired> { timer.after(millis(500), f) }
-    let seen_a = waitfor out: Reply<List<Addr<Ping>>> { pings_a.members(out) }
-    let seen_b = waitfor out: Reply<List<Addr<Ping>>> { pings_b.members(out) }
+    let seen_a = waitfor out: Reply<List<eff[Ping]>> { pings_a.members(out) }
+    let seen_b = waitfor out: Reply<List<eff[Ping]>> { pings_b.members(out) }
     println("a's group sees ${size(seen_a)}, b's sees ${size(seen_b)}")
     for m in seen_a {
         let answer = waitfor r: Reply<Str> { m.ping(r) }

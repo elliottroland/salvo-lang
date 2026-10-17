@@ -3851,11 +3851,11 @@ Conventions:
     the test-control case it was found in: a **public face and an admin face**
     (health, draining, stats) is the everyday form.
   * **A `spawn` answers one addr per face**, in declaration order: a bare
-    `Addr<E>` for one face (unchanged), a **tuple** for several —
+    `eff[E]` for one face (unchanged), a **tuple** for several —
     `let (timer, ctl) = spawn ManualTime() on pool(1)`. Least authority falls
     out of the types with no new type machinery: production code holding
-    `timer` cannot name `advance`, because `Addr<Timer>` is typed by `Timer`.
-    Intersection-typed addrs (`Addr<Timer & TimerCtl>`) were the alternative
+    `timer` cannot name `advance`, because `eff[Timer]` is typed by `Timer`.
+    Intersection-typed addrs (`eff[Timer & TimerCtl]`) were the alternative
     and are recorded in ROADMAP.md as an unscheduled future consideration —
     the tuple gets the value without importing intersection types.
   * **A `use` binds every face**, so the synchronous form of the pattern is
@@ -3937,10 +3937,29 @@ Conventions:
   return type, `let` annotation, type alias, union or tuple component — is an
   error (user decision 2026-09-03). The value would have to be a handler
   instance, and those are reached through `use`.
-  * **No exceptions.** A handler dependency used to be one — a constructor
-    parameter of effect type — and since 2026-09-14 it is an effect list on
-    the declaration ([effect-handler-deps]), so an effect in a data position
-    is always this error.
+  * **The one exception is a handle.** An effect names a capability, but a
+    *handle to* that capability — `eff[E]` — is an ordinary value (a struct
+    field, parameter, return, `let`, a list element: `List<eff[E]>`). The old
+    exception, a handler-dependency constructor parameter of effect type,
+    became an effect list on the declaration ([effect-handler-deps]) in
+    2026-09-14; a bare effect name in a data position is always this error, and
+    `eff[E]` is how you name its handle instead.
+* [eff-handle] **A first-class effect handle is `eff[A, B, …]`** (user decision
+  2026-10-18): the type of a value that carries handles to a flat set of
+  effects. A lowercase bracketed type former, like `proj`/`iter`/`ref` and
+  reusing the effect-list bracket; `eff` is contextual (a type former only
+  before `[`, an ordinary name elsewhere). The set is **flat and
+  alias-expanding** — `eff[IO]` ⟺ `eff[Console, Fs, Streams]`, order-normalised
+  like an effect list — and `eff[E]` (one effect) is the degenerate case. It is
+  the surface spelling of what the compiler holds internally as the type named
+  `Addr` (the mailbox-address name from before handles covered any effect,
+  actor or not); the **old spelling `Addr<E>` is no longer the language** — a
+  plain parse error names `eff[E]`. Diagnostics and the IR dump render the
+  internal `Addr` as `eff[…]`. An `eff[X]` whose `X` is an actor effect is what
+  `send`/`replyto`/`self@Face`/group routing require — the old "`Addr` of an
+  actor effect" distinction, now read off the set.
+  (The value-producing surface — `use` as an expression, projection `e[S]`,
+  merge `eff[a, b]` — lands in the stages that follow this rename.)
 * [handler-not-value] A handler instance is produced by `use` and lives in
   the effect environment; a handler constructor call in any other position
   is an error naming the `use` remedy. (Rust could not render one anyway:
@@ -4215,7 +4234,7 @@ Conventions:
   * **A fn type carries no strength** (it cannot say `any`): an inherited
     requirement [fn-effects] is the strong one unless
     the function taking the value writes `[any E]` itself, which weakens it
-    — the written entry wins the dedupe. Recorded gaps: an `Addr<E>`
+    — the written entry wins the dedupe. Recorded gaps: an `eff[E]`
     answered by *spawning* a router binds as an ordinary `E` under `use
     addr` (the addr type has no room for the claim), and a lambda's body is
     checked under strong availabilities.
@@ -5158,7 +5177,7 @@ docs/language/ remains the source of truth for everything that does.
   * A **plain effect is never actor-backed** — which is how the design's
     carried named question ("may an ordinary member be actor-backed?")
     closes: *forbid*, with the actor kind as the sanctioned spelling. Since
-    SH-3 (user decision 2026-09-19) `spawn`, `use addr` and naming `Addr<E>`
+    SH-3 (user decision 2026-09-19) `spawn`, `use addr` and naming `eff[E]`
     *accept* a plain effect — as the **monitor** kind [monitor-handler], one
     shared instance behind a lock — which does not reopen the question: a
     monitor has no mailbox and no messages, its members run synchronously on
@@ -5191,7 +5210,7 @@ docs/language/ remains the source of truth for everything that does.
   lock** (SH-3, user decision 2026-09-19 — the first piece of the
   shareable-handler design; the decision round is in COMPLETED.md's log).
   `spawn H(args)` where every face of `H` is a **plain** effect answers the
-  same `Addr<E>` an actor spawn answers; the handle is freely copyable and
+  same `eff[E]` an actor spawn answers; the handle is freely copyable and
   sendable, `use addr` binds the effect to it, and every member call locks,
   runs the member on the caller's thread, and unlocks. Since 2026-09-20
   ([effect-handle]) **a `use H(args)` of a stateful plain handler is also a
@@ -5217,7 +5236,7 @@ docs/language/ remains the source of truth for everything that does.
     cycle through a held lock is reported before it runs, naming the locks.
   * **Refused with it, each by name**: an `on` clause (members run on the
     callers' threads — there is nothing to place); more than one plain
-    face on a *spawn* (the spawn answers one `Addr<E>`; a `use` of the same
+    face on a *spawn* (the spawn answers one `eff[E]`; a `use` of the same
     handler binds every face over one lock, [effect-handle]); a `proj`-holding
     constructor parameter or state field [actor-sendable] (the instance
     crosses to every thread that binds the handle — a stored *function
@@ -5234,7 +5253,7 @@ docs/language/ remains the source of truth for everything that does.
   * Lowering: [rs-handle] and [kt-monitor] — a per-effect lock wrapper
     (`__Handle_E` / `__Mon_E`) implementing the effect's trait/interface by
     lock-and-delegate, so every downstream binding and dispatch path is
-    unchanged; the checker and both emitters key the `Addr<E>` representation
+    unchanged; the checker and both emitters key the `eff[E]` representation
     on the effect's declared kind. The wrapper is **generic exactly as the
     effect is** (`__Mon_Random<T>` for `Random<T>`, 2026-09-20), so a
     stateful handler of a generic effect instance shares like any other.
@@ -5245,7 +5264,7 @@ docs/language/ remains the source of truth for everything that does.
   form the **servant** — an ordinary actor over a handler-local protocol,
   with a `mailbox` (required, [actor-mailbox] keys on "has send members" as
   much as the faces' kind) — and the sync members form the **façade**,
-  running on the caller's thread. `spawn H(args)` answers the same `Addr<E>`
+  running on the caller's thread. `spawn H(args)` answers the same `eff[E]`
   a monitor spawn answers: the façade value — the servant's addr plus the
   constructor parameters plus dispatch to the sync bodies — copyable and
   sendable by construction, which is [actor-use-addr]'s addr *generalized*.
@@ -5480,7 +5499,7 @@ docs/language/ remains the source of truth for everything that does.
     caller's thread — a dependent handler's after the fused value that
     carries its dependencies exists [rs-actor].
   * **`self@Face`** is the enclosing handler's own address as one of its
-    actor faces, an `Addr<Face>` — legal in `init` and in send members,
+    actor faces, an `eff[Face]` — legal in `init` and in send members,
     refused outside a handler, for a face the handler lacks, and for a plain
     face (a monitor has no address). A handler that names its address is
     **spawn-only**, reported at a `use` of it exactly as a `replyto` handler
@@ -5491,7 +5510,7 @@ docs/language/ remains the source of truth for everything that does.
     start(me)`, and the opener subscribing the replica to the node group —
     each a member whose only job was to receive the address a spawn
     answered. A mechanism now starts itself; `PeerEvents` stopped being a
-    face; a spawn of a node group answers one `Addr<NodeGroup>`.
+    face; a spawn of a node group answers one `eff[NodeGroup]`.
 * [actor-spawn-expr] `spawn H(args) with D1(...), addr on POOL` is the
   asynchronous binding, and its value is the child's `Addr`. Read left to
   right: what to run, what it depends on, where it runs — the queue depth is
@@ -5830,7 +5849,7 @@ docs/language/ remains the source of truth for everything that does.
     lists, so this stays a binding-site check rather than an ambient one.
 * [pool-fault-sink] **A pool may name an actor to report its faults to**
   (user decision 2026-09-17, FC-5(a)): `pool(n, sink)` where `sink` is an
-  `Addr<Faults>`, and every uncaught fault on that pool arrives as an ordinary
+  `eff[Faults]`, and every uncaught fault on that pool arrives as an ordinary
   message.
   * **Why an addr and not a `watch`**: the two shapes differ. A death watch is
     a one-shot linear token for the death of an *identity*; a pool has no
@@ -6022,13 +6041,13 @@ docs/language/ remains the source of truth for everything that does.
 * [actor-types] The three types the forms produce and consume live in
   **`core.actor`**, all `intrinsic` because each is a handle into the
   scheduler its backend ships:
-  * **`Addr<E>`** — what a `spawn` hands back, and the whole of what one
+  * **`eff[E]`** — what a `spawn` hands back, and the whole of what one
     actor knows about another. Named for what the design's own prose calls
     it: a **many-shot address typed by a protocol**, with `Reply<T>` the
     one-shot address typed by a single value. (It was `Pid<E>` for a few hours;
     renamed by user decision 2026-09-15, because `Pid` is the operating
     system's word and a platform handler wrapping process management will want
-    it. `Addr` also keeps signature-heavy code short — `List<Addr<ShardApi>>` —
+    it. `Addr` also keeps signature-heavy code short — `List<eff[ShardApi]>` —
     and rarely collides with a domain noun the way `Address` would.) Its argument is the **effect** the actor
     serves, the one sanctioned effect-in-a-type-position [effect-not-data]
     (user decision 2026-09-15): what a holder may *do* with an addr is exactly
@@ -6061,7 +6080,7 @@ docs/language/ remains the source of truth for everything that does.
   * An addr is **never linear and freely copied**: a send to a dead actor is
     a silent no-op, so a stale addr is safe to hold and death is *observed*
     with `watch` rather than tripped over.
-  * **`Exit`**, with `intrinsic fn watch<E>(target: Addr<E>, on_exit:
+  * **`Exit`**, with `intrinsic fn watch<E>(target: eff[E], on_exit:
     Reply<Exit>) [spawn]` — the monitor surface [actor-watch]. The only
     `<E>` in std that stands for an *effect*, which is what makes one
     function serve every protocol.
@@ -6395,7 +6414,7 @@ the same day. **Not part of `core`**: the surface is imported, and one
     is behind both.
 
     ```
-    handler TestTicker(timer: Addr<Timer>) [waitfor] of Ticker {
+    handler TestTicker(timer: eff[Timer]) [waitfor] of Ticker {
         fn tick() -> Tick {
             let fired = waitfor answer: Reply<Fired> { timer.after(nanos(0), answer) }
             return fired.at
@@ -6404,7 +6423,7 @@ the same day. **Not part of `core`**: the surface is imported, and one
     ```
 
     Two rules already in force shape it, and neither is negotiable here. The
-    timer arrives as an **`Addr<Timer>` constructor parameter**, not as a
+    timer arrives as an **`eff[Timer]` constructor parameter**, not as a
     handler dependency, because a handler that itself depends on an effect
     cannot be *constructed* in a spawn's `with` clause — there is no scope on the
     child to resolve that dependency from, so an addr is what crosses
@@ -6436,7 +6455,7 @@ between endpoints and delivers what arrives into the scheduler.
 
 * [net-transport] `effect Transport` is the wire, a **plain** effect whose
   members are calls on the caller's thread: `listen(at: NodeEndpoint, sink:
-  Addr<Inbound>)`, `unlisten(at)`, `deliver(to: NodeEndpoint, frame: Bytes) ->
+  eff[Inbound])`, `unlisten(at)`, `deliver(to: NodeEndpoint, frame: Bytes) ->
   Ok None | Err NetError`, `local_endpoint()`. Frames are opaque `Bytes` — the
   codecs (step ②) sit one level up. `NetError = Unreachable | WireFailed`.
   * **Delivery is at most once and in order per (sender, receiver) pair**, and
@@ -6479,9 +6498,9 @@ between endpoints and delivers what arrives into the scheduler.
   effect MemNet` (handler `MemNetwork`) holds the listener table and the
   faults a test scripts — `partition(a, b)` / `heal(a, b)` sever and restore a
   pair, `kill(node)` takes a node off until something `attach`es there again,
-  `delivered(out)` counts routed frames; `route(from, to, out: Reply<Addr<
-  Inbound>?>)` answers the listener or `None`. `handler MemTransport(me:
-  NodeEndpoint, net: Addr<MemNet>) of Transport` is **stateless** — the
+  `delivered(out)` counts routed frames; `route(from, to, out: Reply<eff[
+  Inbound]?>)` answers the listener or `None`. `handler MemTransport(me:
+  NodeEndpoint, net: eff[MemNet]) of Transport` is **stateless** — the
   network holds everything — so a `use` binds it bare and shareable; its
   `deliver` waits on the network for the route (a `waitfor` on the caller's
   thread, serving the caller's pool meanwhile [waitfor-pump]) and sends to
@@ -6525,7 +6544,7 @@ between endpoints and delivers what arrives into the scheduler.
   * **Keyed containers** (`Set`, `Map`, `SortedSet`, `SortedMap`) have no
     wire form yet — their identity capabilities (`hash`/`eq`, `cmp`) are
     resolved by the checker per type and would have to travel into the
-    decoder; send a `List` of the entries. Recorded cut. `Addr<E>` and
+    decoder; send a `List` of the entries. Recorded cut. `eff[E]` and
     `Reply<T>` wait for step ③'s routable identity.
 * [noremote] **Serializable by default, `noremote` the opt-out** (user
   decision 2026-09-26, refusing the opt-in marker as the Akka experience —
@@ -6569,7 +6588,7 @@ between endpoints and delivers what arrives into the scheduler.
     constants as a value it was handed [actor-group]. The name and the hash
     are the struct's fields; there are no separate accessors (the private
     `protocol_name`/`protocol_hash` were deleted 2026-09-28, unused).
-* [addr-routable] **An `Addr<E>` is a routable identity** (step ③, user
+* [addr-routable] **An `eff[E]` is a routable identity** (step ③, user
   decisions 2026-09-26): in generated code still a scheduler index, but every
   entry carries the **node** it lives on and its **bits**, so its wire form is
   `(node, actor, bits)` — 24 bytes — and a `Reply<T>` crosses as `(node,
@@ -6578,7 +6597,7 @@ between endpoints and delivers what arrives into the scheduler.
   **proxy** — an entry with no body — and a send to it is a MSG frame; a
   reply token that crossed answers with a REPLY frame; a function holding the
   addr never learns which. The same `send`/`waitfor`/`replyto` code runs
-  unchanged. `Addr<E>` has a wire form exactly when `E` has one (a proxy is
+  unchanged. `eff[E]` has a wire form exactly when `E` has one (a proxy is
   only good for sends that can be framed), `Reply<T>` when `T` has one.
   * **The routing is the service `runtime.routing`** [runtime-layers]
     (2026-10-03, runtime step 11): identities, proxies, credits,
@@ -6610,7 +6629,7 @@ between endpoints and delivers what arrives into the scheduler.
     remote path (proxies, credits, frames, remote replies) runs without a
     socket. An addr of a hosted node other than the current one is a proxy in
     every respect but the socket; `this_node()` answers the current pool's.
-  * **The runtime's outbound is an actor**: `route_frames(out: Addr<Outbound>)`
+  * **The runtime's outbound is an actor**: `route_frames(out: eff[Outbound])`
     (Salvo since 2026-10-06: it hands the host the named fn `forward_frame`
     through `bind_outbound` [platform-fn-value], which decodes the endpoint
     and sends `send_frame` to the actor) binds the current node's wire (`Sending [Transport] of Outbound` in std
@@ -6744,17 +6763,17 @@ between endpoints and delivers what arrives into the scheduler.
     `left(n, "unreachable")`), and `HeartbeatNodeGroup` over a `Ddb` platform
     effect as the interop example.
 * [effect-generic-decl] **A generic that is only ever an effect is erased.**
-  A type parameter that occurs solely inside `Addr<…>` (or as the argument
+  A type parameter that occurs solely inside `eff[…]` (or as the argument
   of another erased declaration, or nowhere at all on a struct whose every
-  instantiation names an effect) carries no representation: `Addr<E>` lowers
+  instantiation names an effect) carries no representation: `eff[E]` lowers
   to the same handle for every `E`. The checker sees `Reg<E>`, `actor_group<E>`,
-  `ActorGroup<E>` as ordinary generics — `Addr<ActorGroup<Ping>>` is checked
+  `ActorGroup<E>` as ordinary generics — `eff[ActorGroup<Ping>]` is checked
   as such — and both emitters emit them **monomorphic**: `salvo_core::erase`
   computes the erased set as a fixpoint over the program (self-reference
-  allowed, so `actor effect ActorGroup<E> { peer(other: Addr<ActorGroup<E>>) }`
+  allowed, so `actor effect ActorGroup<E> { peer(other: eff[ActorGroup<E>]) }`
   erases), then emits a copy with those generic lists cleared and drops the
   type arguments at every use — no turbofish, no `<T>` on the Kotlin fn.
-  Erasure is per declaration, not per name: `eq<E>(a: Addr<E>, b: Addr<E>)`
+  Erasure is per declaration, not per name: `eq<E>(a: eff[E], b: eff[E])`
   erases beside `eq(a: Box<T>, b: Box<T>)`, which keeps its `T`. A generic
   that *also* occurs outside `Addr` stays a generic.
   * Because the emitters match declarations by address between the resolver's
@@ -6768,16 +6787,16 @@ between endpoints and delivers what arrives into the scheduler.
     `shop`). Shadowing the *same* instance stays legal [effect-intercept].
     Lifting the rule means a phantom parameter on the erased trait and a
     marker type per effect on the Rust side; recorded in ROADMAP.md.
-* [actor-group] **`ActorGroup<E>` is the routable set of `Addr<E>` a program
+* [actor-group] **`ActorGroup<E>` is the routable set of `eff[E]` a program
   spreads over its nodes**, a std actor effect: `join(member)`, `leave(member)`,
-  `members(reply)`, `subscribe(who: Addr<ActorGroupWatcher<E>>)`. The replica
+  `members(reply)`, `subscribe(who: eff[ActorGroupWatcher<E>])`. The replica
   listens on its group's name with its private `control(from, data)` member,
   registered in its `init` (`watch_control(name, self@ActorGroup<E>)`)
   [handler-init]; until 2026-10-02 the runtime delivered private
   `peer(node)`/`merged(from, found)` messages instead, and until 2026-09-27
   those were members of the effect and a `start(me)` handed the replica its
   address.
-  `actor_group<E>(nodes) -> Addr<ActorGroup<E>>` (and `actor_group<E>(name,
+  `actor_group<E>(nodes) -> eff[ActorGroup<E>]` (and `actor_group<E>(name,
   nodes)` for several groups of one protocol; renamed from `attach` 2026-09-27)
   spawns the std `ActorGrouping<E>` handler on the current node and
   **listens by name**, so a replica opened under the same name on another
@@ -6792,7 +6811,7 @@ between endpoints and delivers what arrives into the scheduler.
   hosted on a node that leaves. `join<E>(group, member)` is the ordinary
   send; `members` answers the union as seen locally.
   * **`actor_group` is an ordinary fn over an implicit** (user decision
-    2026-09-28): `fn actor_group<E>(nodes: Addr<NodeGroup>, ?protocol: () ->
+    2026-09-28): `fn actor_group<E>(nodes: eff[NodeGroup], ?protocol: () ->
     Protocol<E>) [spawn]`, its body `spawn ActorGrouping<E>(name,
     protocol())` and the node-group subscription. The body cannot know `E`'s
     name or hash — an effect-only generic is erased [effect-generic-decl] —
@@ -6813,7 +6832,7 @@ between endpoints and delivers what arrives into the scheduler.
     actor to `group` — the spawn stays local, on its pool, and the clause adds
     the one `join` send. `in`, not `on`: a group is a *place the actor can be
     found*, not a placement, and a spawn never runs anywhere but here (no
-    remote spawn). `group` must be an `Addr<ActorGroup<E>>` for one of the
+    remote spawn). `group` must be an `eff[ActorGroup<E>]` for one of the
     handler's faces; with several faces the addr of that face joins and the
     spawn still answers its tuple. Refused, naming the faces, when the group
     is of none of them, and when the clause is not a group handle at all.
@@ -6831,22 +6850,22 @@ between endpoints and delivers what arrives into the scheduler.
     at a call such as `actor_group<Ping>(nodes)` (or a program's own generic
     fn that declares the implicit). It refuses when any `send fn` of `E`
     carries a payload with no wire form — "a group of `E` cannot span nodes",
-    naming the call the program wrote — so an `Addr<E>` that could not be
+    naming the call the program wrote — so an `eff[E]` that could not be
     routed is never published. Inside a generic body the implicit is
     forwarded, not resolved, so the refusal lands at the outermost concrete
     call, which is where the program named the protocol.
   * `pending(addr) -> Int` answers the mailbox depth of a local actor and the
     in-flight (granted, unacknowledged) count on a proxy
     [remote-backpressure] — what a load-aware picker reads (step ⑦).
-  * `eq(a: Addr<E>, b: Addr<E>)` is identity on both backends, so members can
+  * `eq(a: eff[E], b: eff[E])` is identity on both backends, so members can
     be compared and deduplicated; `node_of(addr) -> NodeId` answers the host.
   * **Naming**: node groups and actor groups stay visibly distinct —
     `NodeGroup`/`Node`/`NodeGroupWatcher`/`NodeEndpoint` for the machines,
     `ActorGroup<E>`/`ActorGroupWatcher<E>` (and `RouteView<E>`/`RouteMember<E>`
-    for routes) for the actors; `Addr<E>` keeps its name.
+    for routes) for the actors; `eff[E]` keeps its name.
 * [route-stub] **`use route_any(group)` binds `any E` to whichever member a
   selector chooses, per send** (names user decision 2026-10-03: the route,
-  `route_any`, `RouteSelector`). `group` is an `Addr<ActorGroup<E>>` for a
+  `route_any`, `RouteSelector`). `group` is an `eff[ActorGroup<E>]` for a
   non-generic actor effect `E`; the binding is a handler `of any E` the
   compiler writes — `__Route_E(group, config: RouteConfig)
   [RouteSelector<E>] of any E`, one per protocol a module routes, with the
@@ -6865,7 +6884,7 @@ between endpoints and delivers what arrives into the scheduler.
   * **`RouteSelector<E>`** is the policy, in two phases (user decision
     2026-10-03, option B): `changed(view: RouteView<E>)` runs when the view
     has moved since the selector last saw it, and the selector keeps what it
-    derives in its own state; `select(view, key: Long?) -> Addr<E>?` runs
+    derives in its own state; `select(view, key: Long?) -> eff[E]?` runs
     per send, `key` being the hash of the `Key` argument. The view carries
     nothing about selection: `RouteView<E> { members: List<RouteMember<E>>
     }`, `RouteMember<E> { addr, local }`, members in a stable order (by
@@ -8576,7 +8595,7 @@ between endpoints and delivers what arrives into the scheduler.
   `use` [mod-use] is allowed in both layers.
 * [runtime-handles] **An addr and a pool are indices into the runtime's
   tables, and only std converts** (2026-10-05): `runtime` declares
-  `addr_index<E>(Addr<E>) -> Int`, `addr_of<E>(Int) -> Addr<E>`,
+  `addr_index<E>(eff[E]) -> Int`, `addr_of<E>(Int) -> eff[E]`,
   `pool_index(Pool) -> Int` and `pool_of(Int) -> Pool` as intrinsics (an `as`
   cast on Rust, nothing on Kotlin), and `reply_token<T>(Reply<T>) -> Token?`
   (2026-10-06), the core's token taken out of a reply token (`None` for one

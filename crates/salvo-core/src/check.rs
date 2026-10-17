@@ -5040,7 +5040,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.error(
                 span,
                 format!(
-                    "`send fn {}` cannot declare `{eff}`: {why}. Take an `{ADDR_TYPE}` as a \
+                    "`send fn {}` cannot declare `{eff}`: {why}. Take an `eff[…]` as a \
                      capture and send to it — reaching an actor needs no effect declaration \
                      — or do that work in the function that mints",
                     f.name.name
@@ -9311,7 +9311,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.error(
                         group.span(),
                         format!(
-                            "`route_any` takes a group handle — an `Addr<ActorGroup<E>>` for a \
+                            "`route_any` takes a group handle — an `eff[ActorGroup<E>]` for a \
                              non-generic actor effect `E` — and this is `{ty}` [route-stub]"
                         ),
                     );
@@ -9437,7 +9437,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         item.span(),
                         format!(
                             "a `with` clause supplies handlers: write a handler \
-                             construction (`SomeHandler(...)`) or an `{ADDR_TYPE}` of \
+                             construction (`SomeHandler(...)`) or an `eff[…]` of \
                              the effect a shared handler already serves, not a `{ty}`"
                         ),
                     );
@@ -9461,7 +9461,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     "handler `{}` implements several effects ({}), so it cannot be \
                      constructed in a `with` clause: the clause builds one private \
                      instance per item — bind it with its own `use` (or spawn it) and \
-                     supply an `{ADDR_TYPE}` per face",
+                     supply an `eff[…]` per face",
                     id.name,
                     faces.join(", ")
                 ),
@@ -9561,7 +9561,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.error(
                     span,
                     format!(
-                        "`use` registers a handler or binds an `{ADDR_TYPE}`, and `{ty}` is \
+                        "`use` registers a handler or binds an `eff[…]`, and `{ty}` is \
                          neither: write a handler construction (`use SomeHandler(...)`), \
                          or bind the addr a `spawn` answered"
                     ),
@@ -14271,7 +14271,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             format!(
                                 "effect `{effect_name}` overloads `{}`, and {} of its \
                                  overloads take {} argument(s): a send through a \
-                                 `{ADDR_TYPE}` picks by argument count, so this call \
+                                 `eff[…]` picks by argument count, so this call \
                                  cannot say which one it means",
                                 member.name,
                                 fits.len(),
@@ -14315,7 +14315,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 span,
                 format!(
                     "`{}` is not a `send fn`, so it cannot be called through a \
-                     `{ADDR_TYPE}`: an actor serves messages, and a member that \
+                     `eff[…]`: an actor serves messages, and a member that \
                      answers would have to park its caller",
                     member.name
                 ),
@@ -14415,7 +14415,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// `Dedicated Pool` placement is **consumed** here — one thread, one
     /// occupant, enforced by the move.
     /// [actor-group] The `in GROUP` clause of a spawn: `group` must be an
-    /// `Addr<ActorGroup<E>>` for one of the faces the spawn answers, and that
+    /// `eff[ActorGroup<E>]` for one of the faces the spawn answers, and that
     /// face's addr is what joins. A place, not a placement: the actor still
     /// runs on its pool, and the clause adds the one `join` send.
     fn check_spawn_join(&mut self, group: &'p Expr, spawned: &Ty) {
@@ -14429,7 +14429,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.error(
                     group.span(),
                     format!(
-                        "`in` takes a group handle — an `Addr<ActorGroup<E>>` — and this is `{gty}` \
+                        "`in` takes a group handle — an `eff[ActorGroup<E>]` — and this is `{gty}` \
                          [actor-group]"
                     ),
                 );
@@ -14447,7 +14447,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.error(
                     group.span(),
                     format!(
-                        "this spawn answers no `Addr<{of}>` to join the group with: it serves \
+                        "this spawn answers no `eff[{of}]` to join the group with: it serves \
                          {} — `in` needs a group of one of the handler's faces [actor-group]",
                         if names.is_empty() { "no actor effect".to_string() } else { format!("`{}`", names.join("`, `")) }
                     ),
@@ -14492,7 +14492,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 "`spawn` cannot be written inside a lambda: a function value's \
                  body runs wherever it is called, and a fn type cannot declare \
                  `spawn` — spawn in the function that holds the capability and \
-                 pass the `Addr`"
+                 pass the `eff[…]` handle"
             } else {
                 "`spawn` requires the `spawn` capability in the function's effect \
                  list (`[use, spawn]`)"
@@ -15137,7 +15137,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 format!(
                     "`{}` declares dependencies, which a mixed handler does not \
                      support yet: the servant's members would carry them, and that \
-                     wiring is not built — take an `{ADDR_TYPE}` constructor parameter \
+                     wiring is not built — take an `eff[…]` constructor parameter \
                      and send to it instead",
                     id.name
                 ),
@@ -15217,7 +15217,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         "handler `{}` implements several effects ({}), so it cannot be \
                          constructed in a spawn's `with` clause: the child would own it, \
                          and one instance cannot be two of its dependencies — spawn it \
-                         separately and pass an `{ADDR_TYPE}` per face",
+                         separately and pass an `eff[…]` per face",
                         id.name,
                         faces.join(", ")
                     ),
@@ -15230,7 +15230,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     format!(
                         "handler `{}` depends on effect `{dep}`, so it cannot be \
                          constructed in a spawn's `with` clause: give the child a \
-                         `{ADDR_TYPE}` of an actor serving `{effect}` instead, or \
+                         `eff[…]` of an actor serving `{effect}` instead, or \
                          construct it inside the child with `use`",
                         id.name
                     ),
@@ -15247,7 +15247,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     item.span(),
                     format!(
                         "a spawn's `with` clause supplies handlers: write a handler \
-                         construction (`SomeHandler(...)`) or a `{ADDR_TYPE}` of the \
+                         construction (`SomeHandler(...)`) or a `eff[…]` of the \
                          effect an actor already serves, not a `{ty}`"
                     ),
                 );

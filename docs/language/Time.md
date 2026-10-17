@@ -59,7 +59,7 @@ That is a stance rather than a mechanism, and the reason for it is not only test
 Where a reading genuinely cannot be passed in — how long a handler's *own* work took is not something its caller could have stamped — the reading and the deadlines must agree, and they are made to agree by writing a clock over the timer the test advances. A reading is a deadline of zero:
 
 ```
-handler TestTicker(timer: Addr<Timer>) of Ticker {
+handler TestTicker(timer: eff[Timer]) of Ticker {
     fn tick() -> Tick {
         let fired = waitfor answer: Reply<Fired> { timer.after(nanos(0), answer) }
         return fired.at
@@ -67,4 +67,4 @@ handler TestTicker(timer: Addr<Timer>) of Ticker {
 }
 ```
 
-One virtual clock is then behind both, so a measurement taken across a two-second virtual nap is exactly two seconds. Two existing rules shape this handler and are worth reading off it. The timer arrives as a **value** — an `Addr<Timer>` constructor parameter — because a handler with dependencies of its own cannot be *constructed* in a spawn's `with` clause: there is no scope on the child to resolve them from. And the wait is declared nowhere: occupancy is inferred, the wait serves its pool while it waits, and the deadlock graph prices any cycle it could close. The round trip per reading is why this is the posture of last resort rather than the default.
+One virtual clock is then behind both, so a measurement taken across a two-second virtual nap is exactly two seconds. Two existing rules shape this handler and are worth reading off it. The timer arrives as a **value** — an `eff[Timer]` constructor parameter — because a handler with dependencies of its own cannot be *constructed* in a spawn's `with` clause: there is no scope on the child to resolve them from. And the wait is declared nowhere: occupancy is inferred, the wait serves its pool while it waits, and the deadlock graph prices any cycle it could close. The round trip per reading is why this is the posture of last resort rather than the default.

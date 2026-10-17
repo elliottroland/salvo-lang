@@ -83,7 +83,7 @@ a *scripted* ticker it would be comparing an unrelated clock against the timer's
 virtual time. `TestTicker` makes them one clock, in six lines:
 
 ```
-handler TestTicker(timer: Addr<Timer>) [waitfor] of Ticker {
+handler TestTicker(timer: eff[Timer]) [waitfor] of Ticker {
     fn tick() -> Tick {
         let fired = waitfor answer: Reply<Fired> {
             timer.after(nanos(0), answer)
@@ -101,7 +101,7 @@ the fire arrives, which is a capability — `[waitfor]` — that propagates: bec
 requires the actor to run on a thread of its own. `thread()` answers a
 `Dedicated Pool` and the `on` clause **consumes** it, so a thread cannot be
 handed to two occupants; a wait can therefore only ever occupy its own. And the
-timer reaches `TestTicker` as a plain `Addr<Timer>` *constructor parameter*
+timer reaches `TestTicker` as a plain `eff[Timer]` *constructor parameter*
 rather than as a handler dependency, because a handler with dependencies of its
 own cannot be **constructed** in a spawn's `with` clause — there is no scope on
 the child to resolve them from, so an addr is what crosses.
