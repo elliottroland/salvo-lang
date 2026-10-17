@@ -25,7 +25,7 @@ const CONTROL_KEYWORDS: &[&str] = &[
 ];
 const DECLARATION_KEYWORDS: &[&str] = &[
     "fn", "let", "struct", "qualifier", "effect", "handler", "params", "type", "intrinsic",
-    "platform", "import", "provenance", "refn", "rename", "state", "namespace",
+    "platform", "import", "provenance", "refn", "rename", "state",
 ];
 const OTHER_KEYWORDS: &[&str] = &[
     "as", "of", "with", "canbe", "is", "use",
@@ -94,6 +94,15 @@ const CONTEXTUAL_PATTERNS: &[(&str, &str, &str)] = &[
         "\\\\bcomptime(?=\\\\s+(fn|struct|type)\\\\b)",
         "keyword.declaration.salvo",
         "the compile-time modifier",
+    ),
+    // [namespace] `namespace X { … }` / `namespace X ...`: a contextual
+    // keyword, recognised only before a capitalized name — so `namespace`
+    // stays an ordinary identifier (a variable, a call) everywhere else,
+    // mirroring the parser's own lookahead.
+    (
+        "\\\\bnamespace(?=\\\\s+[A-Z])",
+        "keyword.declaration.salvo",
+        "the namespace grouping",
     ),
     // [threadsafe-platform] `threadsafe platform handler H of E`: only
     // `platform` may follow it, mirroring the parser's own lookahead.

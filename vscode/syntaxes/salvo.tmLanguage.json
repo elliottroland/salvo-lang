@@ -105,7 +105,7 @@
         {
           "comment": "[comptime-fields] `type:` is a field name (`Field.type` in core.comptime), not the keyword",
           "name": "keyword.declaration.salvo",
-          "match": "\\b(fn|let|struct|qualifier|effect|handler|params|type|intrinsic|platform|import|provenance|refn|rename|state|namespace)\\b(?!\\s*:)"
+          "match": "\\b(fn|let|struct|qualifier|effect|handler|params|type|intrinsic|platform|import|provenance|refn|rename|state)\\b(?!\\s*:)"
         },
         {
           "name": "keyword.other.salvo",
@@ -140,6 +140,11 @@
           "comment": "the compile-time modifier — a keyword by position, not a reserved word",
           "name": "keyword.declaration.salvo",
           "match": "\\bcomptime(?=\\s+(fn|struct|type)\\b)"
+        },
+        {
+          "comment": "the namespace grouping — a keyword by position, not a reserved word",
+          "name": "keyword.declaration.salvo",
+          "match": "\\bnamespace(?=\\s+[A-Z])"
         },
         {
           "comment": "the threadsafe-platform modifier — a keyword by position, not a reserved word",

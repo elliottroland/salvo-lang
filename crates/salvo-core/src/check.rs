@@ -24966,6 +24966,26 @@ impl<'p, 'r> Checker<'p, 'r> {
         // other: `Mut Cell { … }` for a struct without `canbe Mut` is refused
         // here, where it used to be accepted and only kotlinc noticed
         // (ROADMAP §0g, fixed 2026-10-05).
+        // [namespace] A leading-dot literal type (`.S { … }`) resolves its
+        // namespace against the expected type first (D3/D4), so the rest of
+        // the check sees the full `AttributeValue.S`.
+        let ty_resolved: Option<ast::Type> = match ty {
+            Some(ast::Type::Named { qualifiers, base }) if base.name.name.starts_with('.') => {
+                match self.resolve_dot_ref(&base.name.name, expected) {
+                    Ok((full, _)) => {
+                        let mut b = base.clone();
+                        b.name.name = full;
+                        Some(ast::Type::Named { qualifiers: qualifiers.clone(), base: b })
+                    }
+                    Err(msg) => {
+                        self.error(base.name.span, msg);
+                        return Ty::Unknown;
+                    }
+                }
+            }
+            _ => None,
+        };
+        let ty: Option<&ast::Type> = ty_resolved.as_ref().or(ty);
         if let Some(t) = ty {
             self.validate_type(t);
         }

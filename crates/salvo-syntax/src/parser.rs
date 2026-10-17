@@ -154,6 +154,13 @@ pub const OPAQUE_MODIFIER: &str = "opaque";
 /// parse error.
 pub const COMPTIME_WORD: &str = "comptime";
 
+/// [namespace] The contextual word opening a `namespace X { … }` grouping. A
+/// **contextual** keyword, not reserved: it is read as a keyword only at item
+/// position when a capitalized name follows (`namespace AttributeValue`),
+/// which is what lets `namespace` stay an ordinary identifier (a variable, a
+/// field, a call) everywhere else — talking *about* namespaces is common.
+pub const NAMESPACE_WORD: &str = "namespace";
+
 /// [obligation-by] [fn-by] The contextual word naming where a body is stamped
 /// from: `: Ordered<self> by auto`, `fn cmp(a: P, b: P) -> Int by auto`.
 /// Contextual — `by` is an ordinary value name elsewhere, and both positions
@@ -510,7 +517,6 @@ impl<'s> Parser<'s> {
                 | TokenKind::KwEffect
                 | TokenKind::KwHandler
                 | TokenKind::KwType
-                | TokenKind::KwNamespace
                 | TokenKind::KwIntrinsic
                 | TokenKind::KwPlatform
                 | TokenKind::KwProvenance
@@ -745,8 +751,17 @@ impl<'s> Parser<'s> {
             }
             // [namespace] `namespace X { … }` or `namespace X ...` — a
             // grouping of declarations, flattened to dotted names before
-            // resolution [name-dot].
-            TokenKind::KwNamespace => self.parse_namespace().map(Item::Namespace),
+            // resolution [name-dot]. A **contextual** keyword: recognised only
+            // when a capitalized name follows, so `namespace` stays an
+            // ordinary identifier (a variable, a call) everywhere else. At item
+            // level a bare identifier is otherwise a parse error, which is what
+            // makes this unambiguous with one token of lookahead.
+            TokenKind::Ident(name)
+                if name == NAMESPACE_WORD
+                    && matches!(&self.peek_at(1).kind, TokenKind::Ident(n) if n.starts_with(|c: char| c.is_uppercase())) =>
+            {
+                self.parse_namespace().map(Item::Namespace)
+            }
             // [iter-fn] `iter fn range(start: Int, end: Int) -> Emitted T |
             // Finished` — a hand-written `next` whose iterator struct is
             // generated; the declaration is the minter.
@@ -6148,6 +6163,51 @@ impl<'s> Parser<'s> {
 
     fn parse_primary(&mut self) -> Option<Expr> {
         match self.kind().clone() {
+            // [namespace] `.S { … }` / `.S(…)` / `.S` — the leading-dot
+            // shorthand in expression position: a namespaced type whose
+            // namespace is left to the expected type (D3/D4). A `.` followed
+            // by an uppercase name opens a dot-type atom (`parse_type_atom`
+            // reads the `.S`/`.S.T` name); a `{` after it is a struct literal,
+            // a `(` a type-fn call, otherwise the bare type value. The checker
+            // resolves the `.`-prefixed name against the expected type.
+            TokenKind::Dot
+                if matches!(&self.peek_at(1).kind, TokenKind::Ident(n) if n.starts_with(|c: char| c.is_uppercase())) =>
+            {
+                let snap = self.snapshot();
+                if let Some(ty) = self.parse_type_atom() {
+                    // Struct literal: `.S { … }`.
+                    if self.at(&TokenKind::LBrace) && self.same_line() && self.brace_is_struct_lit() {
+                        return self.parse_struct_lit_body(Some(ty));
+                    }
+                    // Type-fn call: `.S(…)`.
+                    if self.at(&TokenKind::LParen) && self.same_line() {
+                        if let Some((args, named, end)) = self.parse_call_args() {
+                            let (key, _) = type_fn_key(&ty);
+                            let type_args = match &ty {
+                                Type::Named { base, .. } => base.args.clone(),
+                                _ => Vec::new(),
+                            };
+                            let callee = Expr::Ident(Ident { name: key, span: ty.span() });
+                            return Some(Expr::Call {
+                                callee: Box::new(callee),
+                                type_args,
+                                args,
+                                named,
+                                span: ty.span().to(end),
+                            });
+                        }
+                    }
+                    // A bare dot-type value (`.S` as a fieldless literal, or
+                    // where the expected type makes it a value): a fieldless
+                    // struct literal carries the type only.
+                    return Some(Expr::StructLit { ty: Some(ty.clone()), fields: Vec::new(), span: ty.span() });
+                }
+                self.rollback(snap);
+                let found = self.kind().describe();
+                let span = self.peek().span;
+                self.error(format!("expected expression, found {found}"), span);
+                None
+            }
             // [placeholder] `_` is the value the enclosing construct left
             // unnamed — today, the `None` side inside an `?:` right-hand side.
             // A contextual keyword rather than a lexer token: `_` lexes as an

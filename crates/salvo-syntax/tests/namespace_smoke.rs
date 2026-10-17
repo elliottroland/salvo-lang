@@ -88,3 +88,24 @@ fn tail() -> None {}
     assert!(names.iter().any(|n| n == "struct Rest.After"), "{names:?}");
     assert!(names.iter().any(|n| n == "fn Rest.tail"), "{names:?}");
 }
+
+#[test]
+fn namespace_is_contextual_not_reserved() {
+    // `namespace` opens a grouping before a capitalized name, but stays an
+    // ordinary identifier (a variable) everywhere else.
+    let src = "\
+namespace Foo {
+    struct Bar {}
+}
+
+fn main() -> None {
+    let namespace = 3
+    let other = namespace
+}
+";
+    let (module, diags) = parse_module(src);
+    let errs: Vec<_> = diags.iter().filter(|d| d.is_error()).collect();
+    assert!(errs.is_empty(), "parse errors: {errs:?}");
+    // The namespace flattened; the variable `namespace` is untouched.
+    assert!(module.items.iter().any(|i| matches!(i, Item::Struct(s) if s.name.name == "Foo.Bar")));
+}

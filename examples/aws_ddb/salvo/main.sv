@@ -68,19 +68,20 @@ fn rebuild(item: Map<Str, AttributeValue>) [] -> Map<Str, AttributeValue> => ite
     return result
 }
 
-// A string attribute.
+// A string attribute. The `.S` shorthand names the arm by its namespace
+// suffix — the full type is `AttributeValue.S`, left to the return type.
 fn s(value: Str) [] -> AttributeValue => !value {
-    return AttributeValue.S { value: value }
+    return .S { value: value }
 }
 
 // A number attribute (DynamoDB numbers travel as decimal strings).
 fn n(value: Str) [] -> AttributeValue => !value {
-    return AttributeValue.N { value: value }
+    return .N { value: value }
 }
 
 // A boolean attribute.
 fn boolean(value: Bool) [] -> AttributeValue => value {
-    return AttributeValue.Bool { value: value }
+    return .Bool { value: value }
 }
 
 // The error the service answers for a table it does not have.

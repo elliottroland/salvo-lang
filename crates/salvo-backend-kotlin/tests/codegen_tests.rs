@@ -9797,6 +9797,10 @@ namespace Outer {
 
 type AttrValue = Attr.S | Attr.N
 
+fn make_s(v: Str) -> AttrValue => !v {
+    return .S { value: v }
+}
+
 fn describe(v: AttrValue) -> Str {
     when v {
         is .S { return "S ${v.value}" }
@@ -9806,7 +9810,7 @@ fn describe(v: AttrValue) -> Str {
 
 fn main() [use] -> None {
     use StdOutConsole()
-    println(describe(Attr.S { value: "x" }))
+    println(describe(make_s("x")))
     println(describe(Attr.N { value: "y" }))
     println(Attr.tag("z"))
     let t = Outer.Inner.Thing { value: "deep" }

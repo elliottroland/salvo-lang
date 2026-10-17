@@ -8852,8 +8852,12 @@ between endpoints and delivers what arrives into the scheduler.
     name is free); Rust concatenates as for a struct.
 * [namespace] A **`namespace X { … }`** groups any top-level declarations —
   functions, types, structs, qualifiers, effects, handlers, and nested
-  namespaces — under a capitalized name (user decision 2026-10-16). It is the
-  general form of the dot-name mechanism: a member `Thing` of `namespace X`
+  namespaces — under a capitalized name (user decision 2026-10-16). `namespace`
+  is a **contextual** keyword, recognised only at item position when a
+  capitalized name follows (`namespace AttributeValue`), so it stays an
+  ordinary identifier — a variable, a field, a call — everywhere else (user
+  refinement 2026-10-17). It is the general form of the dot-name mechanism: a
+  member `Thing` of `namespace X`
   is a top-level declaration named `X.Thing`, flattened to that dotted name
   before anything else sees it (in `parse_module_deferred`), so the rest of
   the compiler handles it exactly as a `[name-dot]` name. Namespaces nest to
@@ -8882,7 +8886,9 @@ between endpoints and delivers what arrives into the scheduler.
     suffix in its own namespace by sibling. Type-like members only (never a
     bare fn); no expected type, no match, or two matches is an error. Valid
     anywhere an expected type is in view — an `is`/`when` arm, a typed value,
-    a call argument, a return.
+    a call argument, and a **value or struct-literal in return position**
+    (`fn s(v: Str) -> AttributeValue { return .S { value: v } }`, user
+    refinement 2026-10-17).
   * A **namespaced free fn** is called by its dotted path
     (`Outer.Inner.make(x)`): a `Field` chain of uppercase namespace segments
     ending in a lowercase fn name resolves to the flat key `Outer.Inner.make`,

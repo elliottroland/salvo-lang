@@ -262,6 +262,10 @@ let id = Environment.Id { value: "prod" }
 let t = Environment.tag("x")   // a namespaced function, called by its path
 ```
 
+`namespace` is a *contextual* keyword: it opens a grouping only before a
+capitalized name, so you can still name a variable `namespace` or call a
+function by that name everywhere else.
+
 This gives you the wrapper-type pattern — distinct types for the strings and
 ids hanging off a value, so an incomplete refactor is a type error instead of a
 silently mis-wired value — and keeps a family of related names out of the
@@ -297,7 +301,9 @@ fn describe(v: AttributeValue) -> Str {
 `.S` resolves because exactly one arm's type ends in `S`. A type `A.B.C.Thing`
 can be written `.Thing`, `.C.Thing`, `.B.C.Thing` or in full; you write just
 enough of the tail to be unambiguous. The shorthand works wherever an expected
-type is in view — an `is` arm, a typed value, a call argument, a return.
+type is in view — an `is` arm, a typed value, a call argument, and a value
+returned from a function whose return type names the namespace (`fn s(v: Str)
+-> AttributeValue { return .S { value: v } }`).
 
 **Exporting.** `export namespace X { … }` exports every member at once; or put
 `export` on individual members. A namespace is not itself a value you export —
