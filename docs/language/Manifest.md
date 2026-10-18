@@ -5,6 +5,13 @@ are, where the program starts, what to build for, where artifacts go, what
 other projects it depends on, and what host libraries its platform code needs —
 so the command line and the editor agree on what a project is.
 
+**Starting a project.** `salvo init [PATH]` scaffolds one: it writes a
+`salvo.toml`, a `src/main.sv` that prints, and the `target/` and `build/`
+output directories, named after the directory and set up to build with Rust.
+The generated manifest shows the Kotlin section and the other settings
+commented out, so the examples below are already in front of you. `salvo init`
+then `salvo run` works with no further setup.
+
 ```toml
 [project]
 name = "collections"

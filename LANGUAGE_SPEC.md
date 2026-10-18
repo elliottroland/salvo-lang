@@ -10251,6 +10251,17 @@ replaced the working document TESTING.md).
     non-empty); the LSP carries them on `Diagnostic.data` and serves
     `textDocument/codeAction` quickfixes ("Add `import …`") that insert
     the import line after the file's last import (or at the top).
+* [cli-init] `salvo init [PATH]` scaffolds a new project in `PATH` (default
+  `.`, created if absent): a `salvo.toml`, a `src/` holding a starter
+  `main.sv` that prints, and the `target/` and `build/` output directories.
+  The manifest is named after the directory and builds with **Rust** out of
+  `src/`, with the Kotlin section, dual-backend layout, host-library and
+  dependency settings present but **commented**, so a reader sees the options
+  without leaving the file. It **refuses to overwrite an existing
+  `salvo.toml`** (a mistaken run in a real project is an error, not a clobber)
+  and never overwrites an existing `src/main.sv`. The scaffold runs as-is:
+  `salvo init` then `salvo run` with no flags prints the starter output,
+  reading the generated manifest.
 * [cli-analyze] `salvo analyze [--src DIR] [--format text|json]` (`--src` from the manifest when omitted [manifest])
   runs the front half of the pipeline — parse,
   resolve, type-check — and reports every diagnostic without generating

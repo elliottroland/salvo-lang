@@ -138,6 +138,27 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-18 — `salvo init`: scaffolding a project
+
+`salvo init [PATH]` (default `.`) lays down a new project — a `salvo.toml`, a
+`src/main.sv` that prints, and the `target/`/`build/` output directories —
+named after the directory and set up to build with Rust (user request). The
+generated manifest keeps the Kotlin section, the dual-backend layout, the
+host-library settings and the `[dependencies]` block **commented**, so a
+reader sees every option in place without opening the docs. It refuses to
+overwrite an existing `salvo.toml` (a mistaken run is an error, not a clobber)
+and never overwrites an existing `src/main.sv`; the scaffold runs as-is, so
+`salvo init` then a flagless `salvo run` prints the starter output.
+
+Small and self-contained: an `Init { path }` clap variant and an `init()`
+handler in `crates/salvo-cli/src/main.rs` (with `init_manifest(name)` and the
+`INIT_MAIN_SV` template), the project name taken from the resolved directory
+name. No new trait methods or core changes. Rule [cli-init] in LANGUAGE_SPEC;
+mentioned at the top of `docs/language/Manifest.md`. Tests in
+`crates/salvo-cli/tests/run_tests.rs` (`init_scaffolds_a_project`,
+`init_refuses_to_overwrite_an_existing_manifest`,
+`init_then_run_works_with_no_flags`).
+
 ### 2026-10-18 — `salvo build`: persisted artifacts, tests first
 
 `salvo build` compiles to a **persisted, runnable artifact** and runs the

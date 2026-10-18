@@ -1,6 +1,7 @@
 //! The `salvo` CLI.
 //!
 //! ```text
+//! salvo init [PATH]
 //! salvo compile --backend kotlin --src ./some_dir --target ./some_dir_kotlin
 //! salvo run [--backend rust] --main ./some_dir/main.sv
 //! salvo run --backend rust --src ./some_dir --main ./some_dir/bin/tool.sv
@@ -60,6 +61,16 @@ enum CleanTarget {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Create a new Salvo project in a directory [cli-init]: a `salvo.toml`,
+    /// a `src/` with a starter `main.sv`, and the `target/` and `build/`
+    /// output directories. The manifest builds with Rust, with commented
+    /// examples for Kotlin and the other settings.
+    Init {
+        /// The project root (default: the current directory). Created if it
+        /// does not exist.
+        #[arg(default_value = ".")]
+        path: PathBuf,
+    },
     /// Compile Salvo sources to a target language.
     Compile {
         /// Target backend: `rust`, `kotlin`, or `*` for every backend
@@ -247,6 +258,7 @@ enum LangCommand {
 fn main() -> ExitCode {
     let cli = Cli::parse();
     match cli.command {
+        Command::Init { path } => init(path),
         Command::Compile {
             backend,
             src,
@@ -297,6 +309,131 @@ fn registry() -> BackendRegistry {
     registry.register(Box::new(KotlinBackend));
     registry.register(Box::new(RustBackend));
     registry
+}
+
+/// The starter `main.sv` a new project is seeded with: the smallest program
+/// that prints, so a fresh `salvo run` works immediately.
+const INIT_MAIN_SV: &str = "\
+// The entry point. `salvo run` compiles and runs this; `salvo build` writes a
+// standalone executable to `build/`.
+//
+// `main` takes `[use]` so it can register handlers — here the console, which
+// `println` needs. See `salvo init`'s manifest and the language docs to grow
+// from here.
+fn main() [use] -> None {
+    use StdOutConsole()
+    println(\"Hello from Salvo!\")
+}
+";
+
+/// [cli-init] The template for a new project's `salvo.toml`. `{name}` is the
+/// project name. Active settings build with Rust out of `src/`; Kotlin and
+/// the other options are shown commented so a reader sees what is available
+/// without having to find the docs.
+fn init_manifest(name: &str) -> String {
+    format!(
+        "\
+[project]
+name = \"{name}\"
+version = \"0.1.0\"
+
+[build]
+src = \"src\"             # the source root (relative to this file)
+backend = \"rust\"        # `rust`, `kotlin`, or `*` for every backend
+target = \"target\"       # where `salvo compile` writes generated source
+out = \"build\"           # where `salvo build` writes the executable
+# main = \"src/main.sv\"  # the entry file, when several declare `main`
+# platform = \"platform\" # host implementation files, if the project has any
+# modules = \"modules\"   # where `[dependencies]` projects live
+
+# Build for both backends by setting `backend = \"*\"` above, then give each
+# its own output directories so they do not collide:
+#
+# [rust]
+# target = \"target/rust\"
+# out = \"build/rust\"
+#
+# [kotlin]
+# target = \"target/kotlin\"
+# out = \"build/kotlin\"
+
+# Host libraries a `platform` companion needs (see the Manifest docs):
+#
+# [rust]
+# crates = {{ serde = \"1\" }}            # Cargo dependencies, written verbatim
+#
+# [kotlin]
+# artifacts = [\"com.example:lib:1.0\"]  # Maven coordinates, resolved by Gradle
+# libs = \"lib\"                          # a directory of jars for the classpath
+
+# Other Salvo projects this one uses (needs `[build] modules` above):
+#
+# [dependencies]
+# mylib = \"0.1.0\"
+"
+    )
+}
+
+/// `salvo init [PATH]`: scaffold a new project [cli-init] — a `salvo.toml`, a
+/// `src/` with a starter `main.sv`, and the `target/`/`build/` output
+/// directories. Refuses to overwrite an existing manifest, so it is safe to
+/// run in a directory by mistake.
+fn init(path: PathBuf) -> ExitCode {
+    // The project name is the directory's own name; `.` resolves to the
+    // working directory's. A name that is not a tidy identifier still works —
+    // it is only a label — so it is used as-is.
+    let abs = std::fs::canonicalize(&path).unwrap_or_else(|_| {
+        std::env::current_dir().map(|cwd| cwd.join(&path)).unwrap_or_else(|_| path.clone())
+    });
+    let name = abs
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| "salvo-project".to_string());
+
+    let manifest_path = path.join(salvo_core::MANIFEST_FILE);
+    if manifest_path.exists() {
+        eprintln!(
+            "error: `{}` already exists: `salvo init` will not overwrite an existing \
+             project [cli-init]",
+            manifest_path.display()
+        );
+        return ExitCode::FAILURE;
+    }
+
+    // Create the project root and the three directories. `build/` and
+    // `target/` start empty — the commands that write them create them too,
+    // so this is just so a fresh checkout shows the intended layout.
+    let src_dir = path.join("src");
+    for dir in [&path, &src_dir, &path.join("target"), &path.join("build")] {
+        if let Err(err) = std::fs::create_dir_all(dir) {
+            eprintln!("error: failed to create `{}`: {err}", dir.display());
+            return ExitCode::FAILURE;
+        }
+    }
+
+    // The manifest and the starter program.
+    if let Err(err) = std::fs::write(&manifest_path, init_manifest(&name)) {
+        eprintln!("error: failed to write `{}`: {err}", manifest_path.display());
+        return ExitCode::FAILURE;
+    }
+    let main_path = src_dir.join("main.sv");
+    if !main_path.exists() {
+        if let Err(err) = std::fs::write(&main_path, INIT_MAIN_SV) {
+            eprintln!("error: failed to write `{}`: {err}", main_path.display());
+            return ExitCode::FAILURE;
+        }
+    }
+
+    eprintln!("created a Salvo project in `{}`", abs.display());
+    eprintln!("  {}", manifest_path.display());
+    eprintln!("  {}", main_path.display());
+    if path == Path::new(".") {
+        eprintln!("next: salvo run");
+    } else {
+        eprintln!("next: cd {} && salvo run", path.display());
+    }
+    ExitCode::SUCCESS
 }
 
 /// `salvo analyze`: the front half of `compile` — parse, resolve, and

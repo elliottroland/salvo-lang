@@ -251,6 +251,69 @@ fn build_under_star_requires_an_explicit_out_per_backend() {
     assert!(stderr.contains("each needs its own artifact directory"), "stderr: {stderr}");
 }
 
+// ===== salvo init: scaffolding a project =====
+
+/// [cli-init] `salvo init PATH` lays down a `salvo.toml`, a `src/main.sv`,
+/// and the `target/`/`build/` directories, with the project named after the
+/// directory. No toolchain needed — this is filesystem scaffolding.
+#[test]
+fn init_scaffolds_a_project() {
+    let dir = work_dir("init_scaffold");
+    let project = dir.join("proj");
+    let out = salvo_in(&dir, &["init", "proj"]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "init failed: {stderr}");
+
+    assert!(project.join("salvo.toml").is_file(), "no manifest");
+    assert!(project.join("src").join("main.sv").is_file(), "no starter main.sv");
+    assert!(project.join("target").is_dir(), "no target/");
+    assert!(project.join("build").is_dir(), "no build/");
+
+    let manifest = fs::read_to_string(project.join("salvo.toml")).unwrap();
+    // Named after the directory, builds with Rust out of `src`, and the
+    // Kotlin / extra options are present but commented.
+    assert!(manifest.contains("name = \"proj\""), "manifest:\n{manifest}");
+    assert!(manifest.contains("backend = \"rust\""), "manifest:\n{manifest}");
+    assert!(manifest.contains("src = \"src\""), "manifest:\n{manifest}");
+    assert!(manifest.contains("# [kotlin]"), "kotlin example should be commented:\n{manifest}");
+    assert!(manifest.contains("# [dependencies]"), "deps example should be commented:\n{manifest}");
+}
+
+/// [cli-init] `init` refuses to overwrite an existing project rather than
+/// clobbering a manifest.
+#[test]
+fn init_refuses_to_overwrite_an_existing_manifest() {
+    let dir = work_dir("init_overwrite");
+    fs::write(dir.join("salvo.toml"), "[project]\nname = \"mine\"\nversion = \"9.9.9\"\n").unwrap();
+    let out = salvo_in(&dir, &["init", "."]);
+    assert!(!out.status.success(), "init should refuse an existing manifest");
+    // The original is untouched.
+    assert!(fs::read_to_string(dir.join("salvo.toml")).unwrap().contains("9.9.9"));
+}
+
+/// [cli-init] The scaffolded project runs as-is: `init` then `run` prints the
+/// starter program's output, reading the generated manifest with no flags.
+#[test]
+fn init_then_run_works_with_no_flags() {
+    let Some(__stamp) = e2e_stamp("init_then_run_works_with_no_flags", &["rustc"]) else {
+        return;
+    };
+    if !have("rustc") {
+        eprintln!("skipping: rustc not found on PATH");
+        __stamp.verified();
+        return;
+    }
+    let dir = work_dir("init_run");
+    let out = salvo_in(&dir, &["init", "."]);
+    assert!(out.status.success(), "init failed: {}", String::from_utf8_lossy(&out.stderr));
+    // No flags: the manifest supplies the backend (rust) and src.
+    let out = salvo_in(&dir, &["run"]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "run failed: {stderr}");
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "Hello from Salvo!\n");
+    __stamp.verified();
+}
+
 #[test]
 fn main_flag_implies_the_source_directory() {
     if !have("rustc") {
