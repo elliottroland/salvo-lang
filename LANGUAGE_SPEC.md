@@ -6498,6 +6498,44 @@ the same day. **Not part of `core`**: the surface is imported, and one
     already supplies the sequencing. Revisit if the dedicated thread the unified
     clock costs, or the advance ergonomics, start to bite.
 
+## Command-line arguments (std, `core.args`)
+
+Built 2026-10-18, on the user's decision of the same day (effect over global
+state). Part of `core`, so `args()` and `HostArgs` need no import.
+
+* [cli-args] **`effect Args { fn args() -> List<Str> }`** is the process's
+  command-line arguments, and reading it is a *capability* for the same
+  reason a clock is [time-ticker]: a function whose answer depends on how the
+  process was launched has a dependency, and Salvo's dependencies live in
+  signatures. There is **no global accessor** — the alternative (a hidden
+  process-wide `args()`) was rejected as antithetical to Salvo's locality. The
+  effect is bound once in `main` with `use HostArgs()` and threaded to whoever
+  needs it, like `Console` [addr-capability].
+  * **`args()` answers the arguments after the program name**, in order — the
+    one form both backends produce identically. The reconciliation of the two
+    hosts' argv conventions lives inside the `HostArgs` handler, not in the
+    language: on the JVM the entry point's array already excludes argv[0]; on
+    Rust `std::env::args()` includes it and the handler drops it with
+    `skip(1)`. A program name is *not* an argument and is read from neither
+    here [backend-parity].
+  * **`threadsafe platform handler HostArgs() of Args`** is the host's argv,
+    read the one way each backend offers. Stateless, so sharing it across
+    threads needs no synchronization [threadsafe-platform]. Std ships both
+    host implementations (`std/platform/core/args.{rs,kt}`).
+  * **The Salvo `main` signature is unchanged** by this effect (user decision:
+    a `main(args)` entry form was considered and rejected). On the JVM, argv
+    arrives only through `fun main(args: Array<String>)`, so when a program
+    uses `Args` the **emitted** Kotlin entry takes the array and captures it
+    into `salvo.SalvoArgs` beside the protocol prelude, where `HostArgs` reads
+    it back; a program that does not use `Args` emits `fun main()` as before,
+    so nothing else changes. Rust needs no entry change —
+    `std::env::args()` is reachable from anywhere. The capture is gated on a
+    `RuntimeFeatures::args` flag (set by a `use` of `HostArgs` or any mention
+    of `Args`), which also decides whether the `args.kt` runtime holder ships.
+  * **`salvo run -- <args>`** forwards everything after `--` to the program as
+    its argv [cli-run], so a program's command line can be exercised without
+    building a persisted artifact.
+
 ## Network (std, module `net`) — step ① of the network sequence
 
 The wire under actors across machines (user decisions 2026-09-26; ROADMAP.md

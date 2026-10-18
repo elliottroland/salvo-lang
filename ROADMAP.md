@@ -72,6 +72,32 @@ effects, usable anywhere an effect list appears — is built on both backends
 (COMPLETED.md's decision log, "Effect-group aliases"). It was the first half of
 a two-part user request; the second half is the DECISION below.
 
+### `salvo build` + command-line arguments (user decisions 2026-10-18, building)
+
+Produce a runnable executable and give Salvo a way to read process arguments.
+Decisions settled; built in two stages. **Stage 1 (Args) SHIPPED
+2026-10-18** — see COMPLETED.md's decision log; only `salvo build` remains.
+
+- **Args surface — an `Args` platform effect (user decision 1B). SHIPPED.**
+  `core.args` ships `effect Args { fn args() -> List<Str> }` and
+  `threadsafe platform handler HostArgs() of Args`; `args()` returns the
+  arguments without the program name, byte-identical on both backends, and
+  `salvo run -- <args>` forwards a program's argv. Details in COMPLETED.md.
+- **`salvo build`.** Persisted artifacts into `build/` by default
+  (overridable by `--out` and a new manifest `out` field — `[build] out` and
+  per-backend `[rust]/[kotlin] out`). Rust: a real binary. Kotlin: a jar + an
+  `sh` launcher (`java -jar <name>.jar "$@"`, forwarding args). Under
+  `backend = "*"` **each backend must specify its own out** — an error if one
+  does not (decision 2.2). The artifacts run on the `Backend::run`
+  `prog_args` passthrough that Stage 1 added.
+- **Tests first (decision 3).** `build` runs the backend's tests, and a
+  failure fails the build (no artifact); no tests is fine (proceed). Per
+  backend under `*`: test-then-build each. `--skip-tests` skips.
+- **Manifest documentation (user request 2026-10-18).** Pull the manifest
+  reference out of the Modules page into its own `docs/language/` page, and in
+  its last section list every valid option and how they interact — do this
+  with the `salvo build` work, where the new `out` fields are added.
+
 ### First-class effects (user direction 2026-10-14, DECISION, not designed)
 
 The user asked for functions that **register or return handlers** — a

@@ -148,6 +148,11 @@ Conventions:
     [rs-mailbox]): only its own impls read them.
 * [rs-entry] `fn main() [use]` emits as Rust `pub fn main()` with no effect
   parameters. The CLI reports the crate-root file as the entry point.
+  * [cli-args] The entry is **unchanged** by the `Args` effect: `HostArgs`
+    reads `std::env::args().skip(1)` directly (argv is reachable from
+    anywhere on Rust), so there is no entry-signature change and no runtime
+    holder, unlike the JVM. Std ships the host impl at
+    `std/platform/core/args.rs`.
 * [backend-companion] Companion `.rs` files are copied verbatim and
   mounted like generated modules. A companion must not collide with a
   generated file.

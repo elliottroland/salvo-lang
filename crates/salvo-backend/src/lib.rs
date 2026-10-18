@@ -198,7 +198,9 @@ pub trait Backend {
 
     /// Builds the emitted sources with the target toolchain and runs the
     /// program, returning its exit code [cli-run]. The program's stdio is
-    /// inherited: its output is the command's output.
+    /// inherited: its output is the command's output. `prog_args` are the
+    /// program's own command-line arguments [cli-args], appended to the
+    /// launch command so the running program reads them as its argv.
     ///
     /// Defined in terms of [`Backend::program_command`], which is where a
     /// backend does the work.
@@ -208,8 +210,10 @@ pub trait Backend {
         main_module: &ModulePath,
         emitted: &[PathBuf],
         host: &HostDeps,
+        prog_args: &[String],
     ) -> Result<i32, BackendError> {
         let mut command = self.program_command(target_dir, main_module, emitted, host)?;
+        command.args(prog_args);
         let program = command.get_program().to_string_lossy().to_string();
         match command.status() {
             Ok(status) => Ok(status.code().unwrap_or(1)),

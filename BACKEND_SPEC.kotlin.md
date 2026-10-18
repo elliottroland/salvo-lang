@@ -57,6 +57,15 @@ Conventions:
 * [kt-entry] `fn main() [use]` emits as `fun main()` with *no* effect
   parameters; the entry point is `salvo.<module>.MainKt` (`main.sv` →
   `salvo.main.MainKt`; the CLI prints it after compiling).
+  * [cli-args] **When the program uses the `Args` effect**, the emitted entry
+    is instead `fun main(args: Array<String>)`, and the body opens by
+    capturing it — `salvo.SalvoArgs.set(args)` — beside the protocol prelude,
+    before any user code runs. The JVM delivers argv only through this array
+    (already program-name-excluded), and `core.args`'s `HostArgs` reads it
+    back from the `salvo.SalvoArgs` holder (`runtime/args.kt`, shipped only
+    when the `RuntimeFeatures::args` flag is set). The Salvo `main` signature
+    is unchanged — this is purely the shape of the emitted entry. A program
+    that does not use `Args` is byte-for-byte as before.
 * [backend-companion] Companion `.kt` files next to a module's sources
   are copied verbatim into the output when the module is reachable. Because
   the file is emitted untouched, it must not collide with a module Salvo

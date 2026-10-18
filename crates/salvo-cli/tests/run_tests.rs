@@ -113,9 +113,50 @@ fn run_compiles_and_runs_with_each_backend() {
     __stamp.verified();
 }
 
-/// `--main` names the entry file and, on its own, implies its directory as
-/// the source directory (user decision 2026-09-05), so the command works
-/// from anywhere.
+/// [cli-args] A program that reads the command line through the `Args`
+/// effect: the arguments after `--` reach `args()`, program name excluded,
+/// and the *same* list prints on both backends — the parity the two hosts'
+/// different argv conventions are reconciled to.
+const ARGS_PROGRAM: &str = r#"
+fn main() [use] -> None {
+    use StdOutConsole()
+    use HostArgs()
+    let a = args()
+    println("count: ${size(a)}")
+    for arg in a {
+        println(arg)
+    }
+}
+"#;
+
+#[test]
+fn run_forwards_command_line_arguments_to_both_backends() {
+    let Some(__stamp) = e2e_stamp("run_forwards_command_line_arguments_to_both_backends", &["kotlinc", "rustc"]) else {
+        return;
+    };
+    // program name excluded, order kept, a value with a space preserved.
+    let expected = "count: 3\nalpha\nbeta gamma\ndelta\n";
+    for (backend, tool) in [("kotlin", "kotlinc"), ("rust", "rustc")] {
+        if !have(tool) {
+            eprintln!("skipping {backend}: {tool} not found on PATH");
+            continue;
+        }
+        let dir = work_dir(&format!("args_{backend}"));
+        fs::write(dir.join("main.sv"), ARGS_PROGRAM).unwrap();
+        let out = salvo_in(
+            &dir,
+            &["run", "--backend", backend, "--src", ".", "--", "alpha", "beta gamma", "delta"],
+        );
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "{backend} failed, stderr: {stderr}");
+        assert_eq!(
+            String::from_utf8_lossy(&out.stdout),
+            expected,
+            "{backend} stdout (stderr: {stderr})"
+        );
+    }
+    __stamp.verified();
+}
 #[test]
 fn main_flag_implies_the_source_directory() {
     if !have("rustc") {

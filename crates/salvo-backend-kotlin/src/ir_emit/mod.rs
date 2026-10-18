@@ -37,6 +37,18 @@ pub fn emit_program_ir(program: &Program, abi: bool) -> Result<(Vec<EmittedFile>
     // [proj-opt-slot] A borrow of one value is that value here.
     salvo_core::ir::walk::unwrap_single_borrows(&mut ir);
     let fn_names = salvo_core::naming::FnNames::compute(program);
+    // [cli-args] Whether the program uses the `Args` effect, decided
+    // program-wide before emission so the `main` emitter can capture argv.
+    let emit_args = {
+        let mut f = salvo_core::features::RuntimeFeatures::default();
+        for (file_idx, unit) in program.units().enumerate() {
+            if wanted.contains(&unit.file.module) {
+                let keep = if abi && !reach.abi_full.contains(&unit.file.module) { reach.closure.as_ref() } else { None };
+                f.or(salvo_core::features::module_features(&symbols, &checked, file_idx, unit.ast, keep.is_some(), |i| salvo_backend::emit_util::abi_emits(i, keep)));
+            }
+        }
+        f.args && !abi
+    };
     let mut shared = Shared {
         program,
         symbols: &symbols,
@@ -53,6 +65,7 @@ pub fn emit_program_ir(program: &Program, abi: bool) -> Result<(Vec<EmittedFile>
         decl_modules: HashMap::new(),
         platform_impls: HashMap::new(),
         recursive_copies: BTreeSet::new(),
+        emit_args,
     };
     for m in &ir.modules {
         for d in &m.decls {
@@ -145,6 +158,11 @@ pub fn emit_program_ir(program: &Program, abi: bool) -> Result<(Vec<EmittedFile>
     if features.scheduler {
         files.push(EmittedFile { rel_path: "scheduler.kt".into(), content: crate::emit::generate_scheduler_file() });
     }
+    // [cli-args] The argv holder, shipped when the program reads the
+    // command line and captured by the emitted `main`.
+    if features.args {
+        files.push(EmittedFile { rel_path: "args.kt".into(), content: include_str!("../../runtime/args.kt").to_string() });
+    }
     if features.time() {
         files.push(EmittedFile { rel_path: "hosttime.kt".into(), content: crate::emit::generate_time_file() });
     }
@@ -214,6 +232,9 @@ struct Shared<'p> {
     platform_impls: HashMap<String, Vec<DeclId>>,
     /// [kt-copy] structs that hold themselves, needing a generated copy fn.
     recursive_copies: BTreeSet<(String, bool)>,
+    /// [cli-args] The program uses the `Args` effect, so the emitted `main`
+    /// captures its argument array into `salvo.SalvoArgs`.
+    emit_args: bool,
 }
 
 struct ModuleEmitter<'a, 'p> {
@@ -1013,9 +1034,15 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             _ => false,
         });
         let tps = if erased_fn { String::new() } else { self.type_params(&f.type_params) };
-        let ps = self.params(&f.params);
+        let mut ps = self.params(&f.params);
         let ret = self.ret_ty(&f.ret);
         let is_member = member.is_some();
+        // [cli-args] The emitted entry takes the JVM argument array when the
+        // program reads argv; the Salvo `main` signature is unchanged.
+        let is_main_entry = !is_member && f.name == "main" && indent == 0;
+        if is_main_entry && self.s.emit_args {
+            ps = "args: Array<String>".to_string();
+        }
         let kw = if is_member && overrides { "override fun" } else { "fun" };
         let name = match member {
             Some(n) => n,
@@ -1060,7 +1087,12 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             return;
         };
         let saved = std::mem::take(&mut self.out);
-        if !is_member && f.name == "main" && indent == 0 {
+        if is_main_entry {
+            // [cli-args] Capture argv before anything can read it, beside the
+            // protocol registration.
+            if self.s.emit_args {
+                self.out.push_str("    salvo.SalvoArgs.set(args)\n");
+            }
             let prelude = self.protocol_prelude();
             self.out.push_str(&prelude);
         }

@@ -108,6 +108,10 @@ enum Command {
         /// Whether and when the target may be deleted.
         #[arg(long, value_enum, default_value_t = CleanTarget::Both)]
         clean_target: CleanTarget,
+        /// Arguments passed to the program itself, read through the `Args`
+        /// effect [cli-args]. Everything after `--` is the program's argv.
+        #[arg(last = true)]
+        args: Vec<String>,
     },
     /// Run the tests a source tree declares [test-run]: every
     /// `test "name" { … }` block in a `<module>.test.sv` annex.
@@ -229,7 +233,8 @@ fn main() -> ExitCode {
             main_file,
             target,
             clean_target,
-        } => run(backend, src, main_file, target, clean_target),
+            args,
+        } => run(backend, src, main_file, target, clean_target, args),
         Command::Analyze { src, format } => analyze(src, format),
         Command::Ir { src, all, module } => ir_command(src, all, module),
         Command::Test {
@@ -848,6 +853,7 @@ fn run(
     main_file: Option<PathBuf>,
     target: Option<PathBuf>,
     clean: CleanTarget,
+    prog_args: Vec<String>,
 ) -> ExitCode {
     let registry = registry();
     // `--src` and `--main` each supply a default for the other (user
@@ -872,7 +878,7 @@ fn run(
                 return ExitCode::FAILURE;
             }
         };
-        let code = run_one(backend, &inputs, &target, clean);
+        let code = run_one(backend, &inputs, &target, clean, &prog_args);
         if code != ExitCode::SUCCESS {
             worst = code;
         }
@@ -885,6 +891,7 @@ fn run_one(
     inputs: &Inputs,
     target: &PathBuf,
     clean: CleanTarget,
+    prog_args: &[String],
 ) -> ExitCode {
     let layout = &inputs.layout;
     if let Err(msg) = check_target_overlap(&layout.src, target) {
@@ -911,7 +918,7 @@ fn run_one(
         return ExitCode::FAILURE;
     };
 
-    let outcome = backend.run(target, &main_module, &built.written, &built.host);
+    let outcome = backend.run(target, &main_module, &built.written, &built.host, prog_args);
 
     // The target is deleted after the run only with `--clean-target both`,
     // and never before the program's output has been produced.

@@ -22,6 +22,10 @@ pub struct RuntimeFeatures {
     pub scheduler: bool,
     /// The wire codecs: a message protocol or a struct with a wire form.
     pub wire: bool,
+    /// [cli-args] The process's command-line arguments: a `use` of the
+    /// `HostArgs` handler, or a reference to the `Args` effect. On the JVM
+    /// this decides whether the emitted `main` captures its argument array.
+    pub args: bool,
 }
 
 impl RuntimeFeatures {
@@ -34,6 +38,7 @@ impl RuntimeFeatures {
     pub fn or(&mut self, other: RuntimeFeatures) {
         self.scheduler |= other.scheduler;
         self.wire |= other.wire;
+        self.args |= other.args;
     }
 }
 
@@ -104,6 +109,12 @@ pub fn module_features(
     }
     if named("Reply") {
         f.wire = true;
+    }
+    // [cli-args] argv travels with a `use` of the host handler or any mention
+    // of the effect — an over-approximation, so a program that names `Args`
+    // without calling `args()` still captures the arguments on the JVM.
+    if named("HostArgs") || named("Args") {
+        f.args = true;
     }
     let mine = |k: &&(usize, salvo_syntax::Span)| k.0 == file_idx;
     if checked.spawn_effects.keys().any(|k| mine(&k))

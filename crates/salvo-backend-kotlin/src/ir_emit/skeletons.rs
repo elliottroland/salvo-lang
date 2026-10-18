@@ -50,6 +50,7 @@ pub fn platform_skeletons_ir(program: &Program) -> Result<Vec<EmittedFile>, Vec<
         decl_modules: HashMap::new(),
         platform_impls: HashMap::new(),
         recursive_copies: BTreeSet::new(),
+        emit_args: false,
     };
     for m in &ir.modules {
         for d in &m.decls {

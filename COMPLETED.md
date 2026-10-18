@@ -138,6 +138,44 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-18 — Command-line arguments: the `Args` effect
+
+Reading the process's command line is a std capability, not a global (user
+decision: "globally accessible state is antithetical to the locality value of
+salvo; the effect version, option B"). `core.args` declares
+`effect Args { fn args() -> List<Str> }` and
+`threadsafe platform handler HostArgs() of Args`; both are in `core`, so a CLI
+tool writes `use HostArgs()` and calls `args()` without an import. `args()`
+answers the arguments **after the program name** — the one form both backends
+produce identically — and the two hosts' argv conventions are reconciled inside
+the handler, not in the language.
+
+What it cost, and where the backends diverge. Rust was free: `std::env::args()`
+is reachable from anywhere, so `HostArgs` reads `.skip(1)` and no entry changes
+(`std/platform/core/args.rs`). The JVM delivers argv **only** through
+`fun main(args: Array<String>)`, so a program that uses `Args` now emits that
+entry shape and captures the array into a `salvo.SalvoArgs` holder
+(`runtime/args.kt`) beside the protocol prelude, where `HostArgs`
+(`std/platform/core/args.kt`) reads it back. The Salvo `main` signature is
+unchanged (a `main(args)` entry form was considered and rejected, decision 4) —
+only the *emitted* Kotlin entry changes, and only when the effect is used, so a
+non-CLI program is byte-for-byte as before. Gated on a new
+`RuntimeFeatures::args` flag (set by a `use` of `HostArgs` or any mention of
+`Args`), which also decides whether `args.kt` ships — the over-approximation
+the feature system is built for.
+
+`salvo run` grew a `-- <args>` passthrough (`Backend::run` now takes
+`prog_args` and appends them to the launch command) so a program's command line
+can be exercised without a persisted artifact; this is also the foundation the
+upcoming `salvo build` artifacts will run on. Verified with a both-backends
+run test asserting byte-identical stdout for three arguments including one with
+a space (`run_forwards_command_line_arguments_to_both_backends`,
+`crates/salvo-cli/tests/run_tests.rs`). Rules: [cli-args] in LANGUAGE_SPEC,
+backend interpretations under [kt-entry]/[rs-entry]; narrative in
+`docs/language/Effects-and-Handlers.md`. The std platform ABI hash bumped
+(`salvo platform generate --backend '*'`), so every `std/platform/**.sv.{rs,kt}`
+header changed — expected when the platform surface grows.
+
 ### 2026-10-18 — Terminal lambda arguments (`map(xs, (e) -> ...)`)
 
 A call's last argument may be a lambda whose body is a trailing `...`, and then
