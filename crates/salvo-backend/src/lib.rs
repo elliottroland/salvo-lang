@@ -226,6 +226,31 @@ pub trait Backend {
             Err(err) => Err(BackendError::Io(err)),
         }
     }
+
+    /// [cli-build] Builds the emitted sources into a **persisted, runnable
+    /// artifact** under `out_dir`, and returns the files written (absolute).
+    /// The first entry is the thing the user runs — a binary on Rust, a
+    /// launcher script on Kotlin. Unlike [`Backend::program_command`], which
+    /// builds into the scratch target, this writes somewhere lasting and
+    /// self-contained. A backend that cannot persist programs returns
+    /// [`BackendError::Unsupported`], which is the default.
+    ///
+    /// `name` is the artifact's base name (the entry module's last segment).
+    fn build_artifact(
+        &self,
+        target_dir: &Path,
+        main_module: &ModulePath,
+        emitted: &[PathBuf],
+        host: &HostDeps,
+        out_dir: &Path,
+        name: &str,
+    ) -> Result<Vec<PathBuf>, BackendError> {
+        let _ = (target_dir, main_module, emitted, host, out_dir, name);
+        Err(BackendError::Unsupported(format!(
+            "backend `{}` cannot build persisted artifacts",
+            self.name()
+        )))
+    }
 }
 
 /// Runs a toolchain command with inherited stdio, mapping a missing

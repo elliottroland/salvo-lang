@@ -58,6 +58,45 @@ fn facade_class(module: &ModulePath) -> String {
     format!("{capitalized}Kt")
 }
 
+/// [kt-build] Locates `kotlin-stdlib.jar` from the `kotlinc` on PATH, so a
+/// persisted artifact launched with plain `java` finds `kotlin.*` (which the
+/// `kotlin` launcher would add for a `salvo run`). Resolves the `kotlinc`
+/// symlink and looks in the `lib/` directories a Kotlin install keeps it in
+/// (`../lib`, `../libexec/lib` for Homebrew). `None` if it cannot be found —
+/// the caller then reports it rather than writing a launcher that will fail
+/// at runtime [backend-never-wrong].
+fn kotlin_stdlib_jar() -> Option<PathBuf> {
+    let kotlinc = which_kotlinc()?;
+    let real = std::fs::canonicalize(&kotlinc).unwrap_or(kotlinc);
+    // <install>/bin/kotlinc → <install>
+    let install = real.parent()?.parent()?;
+    for lib in ["lib", "libexec/lib"] {
+        let jar = install.join(lib).join("kotlin-stdlib.jar");
+        if jar.is_file() {
+            return Some(jar);
+        }
+    }
+    None
+}
+
+/// The `kotlinc` on PATH (or `$KOTLIN_HOME/bin/kotlinc`), as an absolute path.
+fn which_kotlinc() -> Option<PathBuf> {
+    if let Ok(home) = std::env::var("KOTLIN_HOME") {
+        let c = Path::new(&home).join("bin").join("kotlinc");
+        if c.is_file() {
+            return Some(c);
+        }
+    }
+    let path = std::env::var_os("PATH")?;
+    for dir in std::env::split_paths(&path) {
+        let c = dir.join("kotlinc");
+        if c.is_file() {
+            return Some(c);
+        }
+    }
+    None
+}
+
 pub struct KotlinBackend;
 
 impl Backend for KotlinBackend {
@@ -228,6 +267,101 @@ impl Backend for KotlinBackend {
         emitted: &[PathBuf],
         host: &HostDeps,
     ) -> Result<std::process::Command, BackendError> {
+        let compiled = self.compile(target_dir, emitted, host)?;
+        let entry = self.entry_hint(target_dir, main_module, emitted);
+        let mut command = std::process::Command::new("kotlin");
+        command.arg("-cp").arg(compiled.run_classpath()?).arg(&entry);
+        Ok(command)
+    }
+
+    /// [cli-build] [kt-build] A persisted Kotlin artifact: the program's
+    /// classes packed into `out_dir/<name>.jar` with a `Main-Class`
+    /// manifest, plus a POSIX `sh` launcher `out_dir/<name>` that runs it
+    /// (`java -jar … "$@"`, forwarding argv). The launcher is the first
+    /// entry returned — the thing the user runs. A `.bat` was considered and
+    /// dropped (user decision 2026-10-18): the `sh` script is enough.
+    fn build_artifact(
+        &self,
+        target_dir: &Path,
+        main_module: &ModulePath,
+        emitted: &[PathBuf],
+        host: &HostDeps,
+        out_dir: &Path,
+        name: &str,
+    ) -> Result<Vec<PathBuf>, BackendError> {
+        use std::ffi::OsStr;
+
+        let compiled = self.compile(target_dir, emitted, host)?;
+        let entry = self.entry_hint(target_dir, main_module, emitted);
+        std::fs::create_dir_all(out_dir)?;
+        let jar = out_dir.join(format!("{name}.jar"));
+
+        // `jar --create --file <jar> --main-class <entry> -C <classes> .`
+        // packs the program's classes; the library classes and any host
+        // jars stay on the launcher's classpath rather than being unpacked
+        // in, so one library build is shared across programs.
+        let classes = compiled.classes.clone();
+        let code = run_tool(
+            "jar",
+            &[
+                OsStr::new("--create"),
+                OsStr::new("--file"),
+                jar.as_os_str(),
+                OsStr::new("--main-class"),
+                OsStr::new(&entry),
+                OsStr::new("-C"),
+                classes.as_os_str(),
+                OsStr::new("."),
+            ],
+        )?;
+        if code != 0 {
+            return Err(BackendError::Other(format!("jar failed with exit code {code}")));
+        }
+
+        // The launcher's classpath: the jar itself, then whatever the run
+        // classpath carried besides the program's own classes (the std
+        // library classes and host jars), then the Kotlin standard library
+        // (which the `kotlin` launcher adds for a `salvo run`, but plain
+        // `java` does not). Absolute, so the launcher works from any
+        // directory.
+        let jar_abs = std::fs::canonicalize(&jar).unwrap_or_else(|_| jar.clone());
+        let mut cp = vec![jar_abs];
+        cp.extend(compiled.extra_classpath());
+        let stdlib_jar = kotlin_stdlib_jar().ok_or_else(|| {
+            BackendError::Other(
+                "could not find `kotlin-stdlib.jar` beside the `kotlinc` on PATH; it is \
+                 needed on a persisted artifact's classpath [kt-build]"
+                    .to_string(),
+            )
+        })?;
+        cp.push(stdlib_jar);
+        let cp_joined = std::env::join_paths(&cp)
+            .map_err(|e| BackendError::Other(format!("cannot build a classpath: {e}")))?;
+        let cp_str = cp_joined.to_string_lossy().replace('\\', "\\\\").replace('"', "\\\"");
+        let launcher = out_dir.join(name);
+        let script = format!(
+            "#!/bin/sh\n\
+             # Generated by `salvo build` [cli-build]: runs the program's jar.\n\
+             exec java -cp \"{cp_str}\" {entry} \"$@\"\n"
+        );
+        std::fs::write(&launcher, script)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&launcher)?.permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&launcher, perms)?;
+        }
+        Ok(vec![launcher, jar])
+    }
+}
+
+impl KotlinBackend {
+    /// [kt-build] Compiles the emitted `.kt` sources into the target's
+    /// classes directory, shared by `program_command` and `build_artifact`.
+    /// Returns the classes directory and the library classes / host jars the
+    /// run or launcher classpath also needs.
+    fn compile(&self, target_dir: &Path, emitted: &[PathBuf], host: &HostDeps) -> Result<Compiled, BackendError> {
         use std::ffi::OsStr;
 
         let classes = target_dir.join(CLASSES_DIR);
@@ -260,7 +394,7 @@ impl Backend for KotlinBackend {
         let lib_classes: Option<PathBuf> = library.map(|(c, _)| c);
         if sources.is_empty() {
             return Err(BackendError::Other(
-                "nothing to run: no Kotlin sources were emitted".to_string(),
+                "nothing to build: no Kotlin sources were emitted".to_string(),
             ));
         }
         // [kt-gradle] Gradle resolves the declared artifacts first; their
@@ -299,12 +433,6 @@ impl Backend for KotlinBackend {
             jars.extend(listed.lines().filter(|l| !l.trim().is_empty()).map(PathBuf::from));
         }
         jars.extend(host.kotlin_jars());
-        let classpath = |leading: &Path| {
-            std::env::join_paths(
-                std::iter::once(leading.to_path_buf()).chain(lib_classes.iter().cloned()).chain(jars.iter().cloned()),
-            )
-                .map_err(|e| BackendError::Other(format!("cannot build a classpath: {e}")))
-        };
 
         let mut args: Vec<&OsStr> = sources.iter().map(|p| p.as_os_str()).collect();
         args.push(OsStr::new("-d"));
@@ -326,10 +454,38 @@ impl Backend for KotlinBackend {
                 "kotlinc failed with exit code {code}"
             )));
         }
+        Ok(Compiled { classes, lib_classes, jars })
+    }
+}
 
-        let entry = self.entry_hint(target_dir, main_module, emitted);
-        let mut command = std::process::Command::new("kotlin");
-        command.arg("-cp").arg(classpath(&classes)?).arg(&entry);
-        Ok(command)
+/// [kt-build] What [`KotlinBackend::compile`] produced: the program's own
+/// classes directory, and the library classes and host jars a run or a
+/// launcher needs on the classpath besides it.
+struct Compiled {
+    classes: PathBuf,
+    lib_classes: Option<PathBuf>,
+    jars: Vec<PathBuf>,
+}
+
+impl Compiled {
+    /// The classpath to *run* the program: its classes, then the library
+    /// classes and host jars.
+    fn run_classpath(&self) -> Result<std::ffi::OsString, BackendError> {
+        std::env::join_paths(
+            std::iter::once(self.classes.clone()).chain(self.lib_classes.iter().cloned()).chain(self.jars.iter().cloned()),
+        )
+        .map_err(|e| BackendError::Other(format!("cannot build a classpath: {e}")))
+    }
+
+    /// The classpath entries *besides* the program's own classes (which a
+    /// persisted jar replaces): the library classes and host jars, made
+    /// absolute so a persisted launcher works from any directory.
+    fn extra_classpath(&self) -> Vec<PathBuf> {
+        self.lib_classes
+            .iter()
+            .cloned()
+            .chain(self.jars.iter().cloned())
+            .map(|p| std::fs::canonicalize(&p).unwrap_or(p))
+            .collect()
     }
 }

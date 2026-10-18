@@ -140,6 +140,32 @@ enum Command {
         #[arg(long, value_enum, default_value_t = CleanTarget::Before)]
         clean_target: CleanTarget,
     },
+    /// Build Salvo sources into a persisted, runnable artifact [cli-build]:
+    /// a native binary for Rust, a jar plus an `sh` launcher for Kotlin.
+    /// Runs the project's tests first by default; a test failure fails the
+    /// build.
+    Build {
+        /// Target backend: `rust`, `kotlin`, or `*` for every backend
+        /// (default: the manifest's `[build] backend`, else `rust`).
+        #[arg(long)]
+        backend: Option<String>,
+        /// Directory containing `.sv` source files (default: the manifest's
+        /// `[build] src`).
+        #[arg(long)]
+        src: Option<PathBuf>,
+        /// The `.sv` file declaring `main`, when there are several entry
+        /// points (default: the manifest's `[build] main`).
+        #[arg(long = "main")]
+        main_file: Option<PathBuf>,
+        /// Where the artifact is written (default: the manifest's `out`,
+        /// else `build`). Under `--backend '*'` each backend must name its
+        /// own `out` in the manifest instead.
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// Build without running the tests first.
+        #[arg(long)]
+        skip_tests: bool,
+    },
     /// Parse, resolve, and type-check sources without generating code
     /// [cli-analyze].
     Analyze {
@@ -235,6 +261,13 @@ fn main() -> ExitCode {
             clean_target,
             args,
         } => run(backend, src, main_file, target, clean_target, args),
+        Command::Build {
+            backend,
+            src,
+            main_file,
+            out,
+            skip_tests,
+        } => build_command(backend, src, main_file, out, skip_tests),
         Command::Analyze { src, format } => analyze(src, format),
         Command::Ir { src, all, module } => ir_command(src, all, module),
         Command::Test {
@@ -932,6 +965,168 @@ fn run_one(
         Ok(0) => ExitCode::SUCCESS,
         // The program's own exit code, so `salvo run` can stand in for it.
         Ok(code) => ExitCode::from(code.clamp(1, 255) as u8),
+        Err(err) => {
+            eprintln!("error: {err}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// The default artifact directory for `salvo build` when the manifest names
+/// none and a single backend is built [cli-build].
+const DEFAULT_BUILD_OUT: &str = "build";
+
+/// The scratch directory `salvo build` compiles into before persisting the
+/// artifact — dot-prefixed like `run`'s, so source discovery skips it
+/// [mod-ignore]. Per backend under `*`.
+const DEFAULT_BUILD_TARGET: &str = ".salvo_tmp_build";
+
+/// `salvo build`: compile to a persisted, runnable artifact, after running
+/// the tests [cli-build]. Per backend under `backend = "*"`: test-then-build
+/// each (user decision 2026-10-18).
+fn build_command(
+    backend_name: Option<String>,
+    src: Option<PathBuf>,
+    main_file: Option<PathBuf>,
+    out: Option<PathBuf>,
+    skip_tests: bool,
+) -> ExitCode {
+    let registry = registry();
+    // Tests may run as part of the build, so annexes are assembled; the
+    // artifact build itself resolves inputs again without them.
+    let inputs = match resolve_inputs(src.clone(), main_file.clone(), backend_name, "rust", true) {
+        Ok(i) => i,
+        Err(msg) => {
+            eprintln!("error: {msg}");
+            return ExitCode::FAILURE;
+        }
+    };
+    // Under `*`, each backend must name its own `out`: one `--out` or one
+    // `[build] out` cannot be two artifact directories (decision 2.2).
+    if inputs.backends.len() > 1 && out.is_none() {
+        for name in &inputs.backends {
+            if !inputs.project.as_ref().is_some_and(|p| p.out_is_explicit(name)) {
+                eprintln!(
+                    "error: `--backend '*'` builds every backend, so each needs its own \
+                     artifact directory: give `[{name}] out` in the manifest (or pass \
+                     `--out` and build one backend at a time) [cli-build]"
+                );
+                return ExitCode::FAILURE;
+            }
+        }
+    }
+    let mut worst = ExitCode::SUCCESS;
+    for name in &inputs.backends {
+        let Some(backend) = registry.get(name) else {
+            eprintln!("{}", unknown_backend(&registry, name));
+            return ExitCode::FAILURE;
+        };
+        // The artifact directory: `--out` (per backend under `*`), else the
+        // manifest's `out`, else the `build` default for a single backend.
+        let out_dir = match &out {
+            Some(o) if inputs.backends.len() > 1 => {
+                let mut per = o.clone().into_os_string();
+                per.push(format!("_{name}"));
+                PathBuf::from(per)
+            }
+            Some(o) => o.clone(),
+            None => match inputs.project.as_ref().and_then(|p| p.out(name)) {
+                Some(o) => o,
+                None => PathBuf::from(DEFAULT_BUILD_OUT),
+            },
+        };
+        if inputs.backends.len() > 1 {
+            if name != &inputs.backends[0] {
+                eprintln!();
+            }
+            eprintln!("{name}:");
+        }
+        let code = build_one(
+            backend,
+            src.clone(),
+            main_file.clone(),
+            &out_dir,
+            skip_tests,
+        );
+        if code != ExitCode::SUCCESS {
+            worst = code;
+        }
+    }
+    worst
+}
+
+/// One backend's test-then-build (decision 3.2). A test failure fails the
+/// build and writes no artifact; no tests is fine. `src`/`main_file` are
+/// re-resolved here so the artifact build loads *no* test annexes.
+fn build_one(
+    backend: &dyn salvo_backend::Backend,
+    src: Option<PathBuf>,
+    main_file: Option<PathBuf>,
+    out_dir: &Path,
+    skip_tests: bool,
+) -> ExitCode {
+    // Tests first, unless skipped: a failure (not an empty suite) fails the
+    // build. `test_one` returns SUCCESS for "no tests", which is the
+    // proceed-anyway case (decision 3.1).
+    if !skip_tests {
+        let test_inputs = match resolve_inputs(src.clone(), main_file.clone(), Some(backend.name().to_string()), backend.name(), true) {
+            Ok(i) => i,
+            Err(msg) => {
+                eprintln!("error: {msg}");
+                return ExitCode::FAILURE;
+            }
+        };
+        let test_target = PathBuf::from(format!("{DEFAULT_BUILD_TARGET}_test_{}", backend.name()));
+        let code = test_one(backend, &test_inputs, None, false, test_target, CleanTarget::Both);
+        if code != ExitCode::SUCCESS {
+            eprintln!("error: tests failed; no artifact was built [cli-build]");
+            return code;
+        }
+    }
+
+    // The artifact build: a non-test layout, compiled into a scratch target,
+    // then persisted into `out_dir`.
+    let inputs = match resolve_inputs(src, main_file, Some(backend.name().to_string()), backend.name(), false) {
+        Ok(i) => i,
+        Err(msg) => {
+            eprintln!("error: {msg}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let layout = &inputs.layout;
+    let target = PathBuf::from(format!("{DEFAULT_BUILD_TARGET}_{}", backend.name()));
+    if let Err(msg) = check_target_overlap(&layout.src, &target) {
+        eprintln!("error: {msg}");
+        return ExitCode::FAILURE;
+    }
+    if let Err(msg) = clear_target(&target) {
+        eprintln!("error: {msg}");
+        return ExitCode::FAILURE;
+    }
+    let built = match build(backend, layout, &target, None, false, inputs.project.as_ref(), &inputs.host, true) {
+        Ok(Some(built)) => built,
+        Ok(None) => return ExitCode::SUCCESS,
+        Err(code) => return code,
+    };
+    let Some(main_module) = built.main_module else {
+        eprintln!(
+            "error: no `main` function found in `{}`: there is nothing to build",
+            layout.src.display()
+        );
+        return ExitCode::FAILURE;
+    };
+    let name = main_module.0.last().cloned().unwrap_or_else(|| "program".to_string());
+    match backend.build_artifact(&target, &main_module, &built.written, &built.host, out_dir, &name) {
+        Ok(written) => {
+            // The scratch compile directory is not the deliverable; the
+            // artifact is. Leave the scratch for incremental rebuilds.
+            let run = written.first().cloned().unwrap_or_else(|| out_dir.join(&name));
+            eprintln!("built {}", run.display());
+            for extra in written.iter().skip(1) {
+                eprintln!("  with {}", extra.display());
+            }
+            ExitCode::SUCCESS
+        }
         Err(err) => {
             eprintln!("error: {err}");
             ExitCode::FAILURE

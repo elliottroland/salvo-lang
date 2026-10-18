@@ -9305,10 +9305,12 @@ replaced the working document TESTING.md).
   standard library's own tree; `[build] src` (the source root, relative to the
   manifest, default `.`), `main` (the entry file, when there are several),
   `backend` (`rust`, `kotlin`, or `*` for every backend), `target` (one
-  output directory for all backends), `modules` (where dependencies live
-  [manifest-deps]) and `platform` (where platform files live, required when
-  there are any [platform-root]); `[rust]`/`[kotlin]` sections each with a
-  `target` and a `platform` that override them; `[dependencies]` [manifest-deps]. Every command reads it — `run`, `compile`,
+  output directory for all backends), `out` (one artifact directory for
+  `salvo build`, default `build` [cli-build]), `modules` (where dependencies
+  live [manifest-deps]) and `platform` (where platform files live, required
+  when there are any [platform-root]); `[rust]`/`[kotlin]` sections each with
+  a `target`, an `out` and a `platform` that override them; `[dependencies]`
+  [manifest-deps]. Every command reads it — `run`, `compile`, `build`,
   `test`, `analyze`, `platform generate`, the language server — with one
   precedence: a CLI flag, then the manifest, then the built-in default. Under
   `backend = "*"` a command runs for each backend in turn (a `compile` into
@@ -10320,6 +10322,43 @@ replaced the working document TESTING.md).
     in for running the binary. Program stdio is inherited rather than
     captured. A toolchain that is not installed, or that fails, is an
     error from the command itself.
+  * [cli-args] **`salvo run -- <args>`** forwards everything after `--` to
+    the program as its argv, read through the `Args` effect. The passthrough
+    is a `prog_args` slice appended to the launch command (`Backend::run`);
+    the same mechanism carries argv to a `salvo build` artifact.
+* [cli-build] `salvo build [--backend NAME|*] [--src DIR] [--main FILE]
+  [--out DIR] [--skip-tests]` compiles to a **persisted, runnable artifact**
+  and, by default, runs the project's tests first (user decisions
+  2026-10-18). Where `salvo run` builds into a scratch directory and launches
+  the program, `build` writes something lasting and self-contained that the
+  user runs directly.
+  * **The artifact, per backend.** Rust: a native binary at `<out>/<name>`,
+    built by the same `rustc`/`cargo` path as `run` but placed in `out`
+    rather than the scratch target (`Backend::build_artifact`). Kotlin: a
+    jar at `<out>/<name>.jar` with a `Main-Class` manifest, plus a POSIX
+    `sh` launcher `<out>/<name>` that runs it (`java -cp … "$@"`, argv
+    forwarded). `<name>` is the entry module's last segment. A `.bat`
+    companion was considered and dropped (decision 2.3): the `sh` script is
+    enough. The launcher's classpath is absolute — the jar, the cached std
+    library classes, any host jars, and the Kotlin standard library (which
+    the `kotlin` launcher adds for a `run`, but plain `java` does not; the
+    backend finds `kotlin-stdlib.jar` beside the `kotlinc` on PATH and
+    errors if it cannot [backend-never-wrong]) — so the launcher works from
+    any directory.
+  * **The output directory** is `--out`, else the manifest's `out`
+    (`[<backend>] out` over `[build] out`), else the default `build`
+    [manifest]. Under `backend = "*"` **each backend must name its own
+    out** (decision 2.2): one `--out`/`[build] out` cannot be two artifact
+    directories, so with none explicit the command refuses before building.
+    (`--out` under `*` is suffixed per backend, like `run`'s scratch
+    `--target`.)
+  * **Tests first** (decision 3). For each backend: run the tests exactly
+    as `salvo test` would, and a *failure* fails the build — no artifact is
+    written. An empty suite (no `*.test.sv`) is not a failure and the build
+    proceeds (decision 3.1). `--skip-tests` skips the step. Under `*` the
+    cycle is test-then-build per backend (decision 3.2). The artifact build
+    re-resolves its inputs with test annexes *off*, so no test code reaches
+    a shipped program [test-file].
 * [cli-lsp] `salvo lsp` starts a language server speaking LSP over stdio.
   The workspace root comes from the client's
   `initialize` request. Like [cli-analyze] the server is unconditionally

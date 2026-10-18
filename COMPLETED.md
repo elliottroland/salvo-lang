@@ -138,6 +138,44 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-18 — `salvo build`: persisted artifacts, tests first
+
+`salvo build` compiles to a **persisted, runnable artifact** and runs the
+project's tests first (user decisions 2026-10-18). Where `salvo run` builds
+into a scratch directory and launches the program, `build` writes something
+lasting: a native binary for Rust (`<out>/<name>`, the same `rustc`/`cargo`
+build as `run` but copied to a lasting directory), and for Kotlin a jar with a
+`Main-Class` manifest plus a POSIX `sh` launcher (`<out>/<name>` →
+`java -cp … "$@"`). A `.bat` was considered and dropped (decision 2.3).
+
+What it took. A new `Backend::build_artifact` trait method (default
+`Unsupported`), implemented by both backends; the Kotlin `program_command`'s
+compile half was factored into a shared `compile(...)` → `Compiled` helper so
+`build_artifact` reuses it. The launcher classpath is **absolute** — the jar,
+the cached std library classes, host jars, and `kotlin-stdlib.jar` — so it runs
+from any directory; the stdlib jar is the one wrinkle (the `kotlin` launcher
+adds it for a `run`, but plain `java` does not, so the backend locates it
+beside the `kotlinc` on PATH and errors if it cannot, rather than writing a
+launcher that fails at runtime [backend-never-wrong]). Output goes to `--out`,
+else the manifest's `out` (new field: `[build] out` + per-backend
+`[rust]/[kotlin] out`, with `Project::out`/`out_is_explicit` accessors
+mirroring `target`), else the default `build`. Under `backend = "*"` each
+backend must name its own out (decision 2.2) — the command refuses before
+building if one does not. Tests run first per backend (decision 3.2), a
+failure fails the build (no artifact), an empty suite proceeds (decision 3.1),
+and `--skip-tests` skips; the artifact build re-resolves inputs with test
+annexes off so no test code ships. `.gitignore` gained `.salvo_tmp_build*`.
+
+Verified with CLI e2e tests: a both-backends build whose artifact runs to
+byte-identical stdout with argv forwarded (from an unrelated directory), a
+failing test blocking the artifact (and `--skip-tests` overriding), and the
+`*`-needs-out refusal (`crates/salvo-cli/tests/run_tests.rs`); manifest `out`
+resolution is unit-tested in `manifest.rs`. Rule [cli-build] in LANGUAGE_SPEC;
+the Kotlin artifact shape under [kt-build], the Rust one under [rs-build]. **The manifest
+reference was pulled into its own page** `docs/language/Manifest.md` (user
+request 2026-10-18) with a final "Every valid option" section listing every
+section and key and how they interact; `Modules.md` now points to it.
+
 ### 2026-10-18 — Command-line arguments: the `Args` effect
 
 Reading the process's command line is a std capability, not a global (user

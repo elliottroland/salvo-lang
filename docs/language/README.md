@@ -66,6 +66,7 @@ Start at the top; each page stands on its own, so jumping in is fine too.
 | Page | What it covers |
 |---|---|
 | [Modules](Modules.md) | files as modules, `export`, `import`, naming and documentation comments |
+| [The Manifest](Manifest.md) | `salvo.toml`: projects, build settings, dependencies, host libraries, and every valid option |
 | [Testing](Testing.md) | `test` declarations, where they live, and assertions |
 | [Files](Files.md) | the filesystem surface and its streams |
 | [Time](Time.md) | durations, instants, ticks, and time in a test |

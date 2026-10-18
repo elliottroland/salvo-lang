@@ -153,6 +153,12 @@ Conventions:
     anywhere on Rust), so there is no entry-signature change and no runtime
     holder, unlike the JVM. Std ships the host impl at
     `std/platform/core/args.rs`.
+* [rs-build] **`salvo build` persists a native binary** at `<out>/<name>`
+  [cli-build]. The same `rustc` (or `cargo`, with crates declared) build as
+  `program_command`, but the finished binary lands in the lasting `out`
+  directory rather than the scratch target's `.salvo_bin` — a `cargo` build
+  compiles into the scratch bin dir and the binary is then copied out. No
+  launcher is needed: a Rust binary is self-contained.
 * [backend-companion] Companion `.rs` files are copied verbatim and
   mounted like generated modules. A companion must not collide with a
   generated file.

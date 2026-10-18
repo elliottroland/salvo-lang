@@ -126,6 +126,10 @@ pub struct BuildSection {
     /// One output directory for every backend, relative to the manifest's
     /// directory; a `[backend]` section's `target` overrides it.
     pub target: Option<String>,
+    /// [cli-build] The directory `salvo build` writes persisted artifacts
+    /// into, relative to the manifest's directory; a `[backend]` section's
+    /// `out` overrides it, and `--out` overrides both. Default `build`.
+    pub out: Option<String>,
     /// [manifest-deps] The directory holding the dependencies, relative to
     /// the manifest's directory. Required when `[dependencies]` is not empty.
     pub modules: Option<String>,
@@ -140,6 +144,8 @@ pub struct BuildSection {
 #[serde(deny_unknown_fields)]
 pub struct RustSection {
     pub target: Option<String>,
+    /// [cli-build] This backend's artifact directory, over `[build] out`.
+    pub out: Option<String>,
     /// [platform-root] This backend's platform root, over `[build] platform`.
     pub platform: Option<String>,
     /// [platform-host-deps] Crates the platform companions need, as Cargo
@@ -155,6 +161,8 @@ pub struct RustSection {
 #[serde(deny_unknown_fields)]
 pub struct KotlinSection {
     pub target: Option<String>,
+    /// [cli-build] This backend's artifact directory, over `[build] out`.
+    pub out: Option<String>,
     /// [platform-root] This backend's platform root, over `[build] platform`.
     pub platform: Option<String>,
     /// [platform-host-deps] Maven coordinates (`group:artifact:version`) the
@@ -522,6 +530,32 @@ impl Project {
             .map(|t| self.dir.join(t))
     }
 
+    /// [cli-build] The artifact directory for `backend`: its own section's
+    /// `out`, else `[build] out`, else `None`. The `salvo build` command
+    /// turns `None` into the `build` default for a single backend, and into
+    /// an error under `*` (each backend must name its own, decision 2.2).
+    pub fn out(&self, backend: &str) -> Option<PathBuf> {
+        let own = match backend {
+            "rust" => self.manifest.rust.out.as_ref(),
+            "kotlin" => self.manifest.kotlin.out.as_ref(),
+            _ => None,
+        };
+        own.or(self.manifest.build.out.as_ref())
+            .map(|o| self.dir.join(o))
+    }
+
+    /// [cli-build] Whether this backend's artifact directory was named
+    /// explicitly (a per-backend `out` or `[build] out`) — the test
+    /// `salvo build` makes under `backend = "*"`.
+    pub fn out_is_explicit(&self, backend: &str) -> bool {
+        let own = match backend {
+            "rust" => self.manifest.rust.out.as_ref(),
+            "kotlin" => self.manifest.kotlin.out.as_ref(),
+            _ => None,
+        };
+        own.or(self.manifest.build.out.as_ref()).is_some()
+    }
+
     /// [platform-root] Where `backend`'s platform files live: its own
     /// section's `platform`, else `[build] platform`, else `None` — there is
     /// no default.
@@ -621,6 +655,30 @@ mod tests {
         assert_eq!(p.target("rust"), Some(PathBuf::from("/x/rust")));
         assert_eq!(p.target("kotlin"), None);
         assert!(!p.is_std());
+    }
+
+    // [cli-build] `out` resolves per backend over `[build] out`, and
+    // `out_is_explicit` reports whether either named it — the switch
+    // `salvo build` makes under `backend = "*"`.
+    #[test]
+    fn the_build_out_resolves_per_backend_and_reports_explicitness() {
+        // `[build] out` serves both backends; a `[kotlin] out` overrides it.
+        let text = "[project]\nname = \"d\"\nversion = \"0.1.0\"\n\n[build]\nout = \"build\"\n\n[kotlin]\nout = \"build/kt\"\n";
+        let p = Project { dir: PathBuf::from("/x"), manifest: toml::from_str(text).unwrap() };
+        assert_eq!(p.out("rust"), Some(PathBuf::from("/x/build")));
+        assert_eq!(p.out("kotlin"), Some(PathBuf::from("/x/build/kt")));
+        assert!(p.out_is_explicit("rust"));
+        assert!(p.out_is_explicit("kotlin"));
+
+        // With no `out` anywhere, neither backend has one and neither is
+        // explicit — the case `salvo build --backend '*'` refuses.
+        let bare = Project {
+            dir: PathBuf::from("/x"),
+            manifest: toml::from_str("[project]\nname = \"d\"\nversion = \"0.1.0\"\n").unwrap(),
+        };
+        assert_eq!(bare.out("rust"), None);
+        assert!(!bare.out_is_explicit("rust"));
+        assert!(!bare.out_is_explicit("kotlin"));
     }
 
     #[test]

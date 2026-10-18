@@ -157,6 +157,100 @@ fn run_forwards_command_line_arguments_to_both_backends() {
     }
     __stamp.verified();
 }
+
+// ===== salvo build: persisted artifacts =====
+
+/// [cli-build] `salvo build` produces a persisted, runnable artifact — a
+/// native binary for Rust, a jar + `sh` launcher for Kotlin — that runs to
+/// the *same* stdout on both backends, with argv forwarded. The artifact
+/// outlives the command (unlike `run`'s scratch build), and the launcher
+/// works from any directory.
+#[test]
+fn build_produces_a_runnable_artifact_on_both_backends() {
+    let Some(__stamp) = e2e_stamp("build_produces_a_runnable_artifact_on_both_backends", &["kotlinc", "rustc"]) else {
+        return;
+    };
+    for (backend, tool) in [("kotlin", "kotlinc"), ("rust", "rustc")] {
+        if !have(tool) {
+            eprintln!("skipping {backend}: {tool} not found on PATH");
+            continue;
+        }
+        let dir = work_dir(&format!("build_{backend}"));
+        fs::write(dir.join("main.sv"), ARGS_PROGRAM).unwrap();
+        let out = salvo_in(&dir, &["build", "--backend", backend, "--src", ".", "--out", "out"]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "{backend} build failed, stderr: {stderr}");
+        // The artifact is `out/main` (a binary or a launcher) and persists.
+        let artifact = dir.join("out").join("main");
+        assert!(artifact.is_file(), "{backend}: no artifact at {}", artifact.display());
+        // Run it directly, from an unrelated working directory, with args.
+        let ran = Command::new(&artifact)
+            .current_dir(env!("CARGO_TARGET_TMPDIR"))
+            .args(["alpha", "beta gamma", "delta"])
+            .output()
+            .expect("failed to run the artifact");
+        assert!(ran.status.success(), "{backend} artifact failed: {}", String::from_utf8_lossy(&ran.stderr));
+        assert_eq!(
+            String::from_utf8_lossy(&ran.stdout),
+            "count: 3\nalpha\nbeta gamma\ndelta\n",
+            "{backend} artifact stdout"
+        );
+    }
+    __stamp.verified();
+}
+
+/// [cli-build] A failing test fails the build and writes no artifact
+/// (decision 3). `--skip-tests` builds anyway.
+#[test]
+fn build_runs_tests_first_and_a_failure_blocks_the_artifact() {
+    let Some(__stamp) = e2e_stamp("build_runs_tests_first_and_a_failure_blocks_the_artifact", &["rustc"]) else {
+        return;
+    };
+    if !have("rustc") {
+        eprintln!("skipping: rustc not found on PATH");
+        __stamp.verified();
+        return;
+    }
+    let dir = work_dir("build_failing_test");
+    fs::write(
+        dir.join("main.sv"),
+        "fn two() -> Int { return 2 }\nfn main() [use] -> None { use StdOutConsole()\n println(\"${two()}\") }\n",
+    )
+    .unwrap();
+    fs::write(dir.join("main.test.sv"), "test \"wrong\" { assert!(two() == 3) }\n").unwrap();
+
+    // Tests run, fail, and block the build.
+    let out = salvo_in(&dir, &["build", "--backend", "rust", "--src", ".", "--out", "out"]);
+    assert!(!out.status.success(), "a failing test should fail the build");
+    assert!(!dir.join("out").join("main").exists(), "no artifact on a failed build");
+
+    // `--skip-tests` builds the artifact despite the failing test.
+    let out = salvo_in(&dir, &["build", "--backend", "rust", "--src", ".", "--out", "out", "--skip-tests"]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "--skip-tests build failed: {stderr}");
+    assert!(dir.join("out").join("main").is_file(), "--skip-tests should build the artifact");
+    __stamp.verified();
+}
+
+/// [cli-build] Under `backend = "*"` each backend must name its own `out`;
+/// with none, the command refuses before building anything. No toolchain
+/// needed — the check is argument validation.
+#[test]
+fn build_under_star_requires_an_explicit_out_per_backend() {
+    let dir = work_dir("build_star_no_out");
+    fs::create_dir_all(dir.join("salvo")).unwrap();
+    fs::write(dir.join("salvo").join("main.sv"), "fn main() [use] -> None { use StdOutConsole()\n println(\"x\") }\n").unwrap();
+    fs::write(
+        dir.join("salvo.toml"),
+        "[project]\nname = \"s\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"salvo\"\nbackend = \"*\"\n",
+    )
+    .unwrap();
+    let out = salvo_in(&dir, &["build"]);
+    assert!(!out.status.success(), "`*` without out should be refused");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("each needs its own artifact directory"), "stderr: {stderr}");
+}
+
 #[test]
 fn main_flag_implies_the_source_directory() {
     if !have("rustc") {

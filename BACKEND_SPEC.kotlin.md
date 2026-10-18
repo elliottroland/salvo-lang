@@ -66,6 +66,19 @@ Conventions:
     when the `RuntimeFeatures::args` flag is set). The Salvo `main` signature
     is unchanged — this is purely the shape of the emitted entry. A program
     that does not use `Args` is byte-for-byte as before.
+* [kt-build] **`salvo build` persists a jar + `sh` launcher** [cli-build].
+  `compile(...)` (shared with `program_command`) runs `kotlinc` into the
+  classes dir; `build_artifact` then packs those classes into
+  `<out>/<name>.jar` with `jar --main-class <entry>`, and writes an executable
+  `sh` launcher `<out>/<name>` running `java -cp "<abs classpath>" <entry>
+  "$@"`. The classpath is **absolute** (the jar, the cached std library
+  classes, host jars, and `kotlin-stdlib.jar`) so the launcher runs from any
+  directory. `kotlin-stdlib.jar` is found beside the `kotlinc` on PATH
+  (`../lib`, `../libexec/lib`, or `$KOTLIN_HOME/bin/..`); if it cannot be
+  found the build errors rather than writing a launcher that fails at runtime
+  [backend-never-wrong]. Only the program's own classes go *into* the jar —
+  the std library classes stay shared on the classpath, so one std build
+  serves many programs.
 * [backend-companion] Companion `.kt` files next to a module's sources
   are copied verbatim into the output when the module is reachable. Because
   the file is emitted untouched, it must not collide with a module Salvo

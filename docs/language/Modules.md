@@ -95,122 +95,22 @@ complaints.
 
 ## Projects and the manifest
 
-A **project** is a directory holding a `salvo.toml`. It says what the sources
-are, where the program starts, and what to build for, so the command line and
-the editor agree on what a project is:
-
-```toml
-[project]
-name = "collections"
-version = "0.1.0"
-
-[build]
-src = "salvo"          # the source root, relative to this file (default: here)
-main = "salvo/main.sv" # the entry point, when several files declare one (optional)
-backend = "*"          # rust, kotlin, or * for every backend
-platform = "salvo/platform"  # host implementation files (required if there are any)
-
-[rust]
-target = "rust"        # where `salvo compile` writes each backend's output
-
-[kotlin]
-target = "kotlin"
-```
-
-Every command reads it — `salvo run`, `compile`, `test`, `analyze`, `platform
-generate`, the language server — and a flag on the command line wins over what
-the manifest states. Under `backend = "*"` a command runs once per backend:
-`salvo compile` in an example directory regenerates both checked-in trees.
+A **project** is a directory holding a `salvo.toml` — the manifest that says
+what the sources are, where the program starts, what to build for, what other
+projects it depends on, and what host libraries its platform code needs. Every
+command (`salvo run`, `compile`, `build`, `test`, `analyze`, `platform
+generate`) and the language server read it, so the command line and the editor
+agree on what a project is.
 
 A file **belongs to the nearest manifest above it**, and a nested manifest is
 a boundary: a directory holding several projects (this repository, with `std/`
 and every `examples/*/`) is several programs, and the editor analyses each
-document under its own. A file with no manifest above it is analysed under the
-editor's workspace root, and told so when that workspace does hold projects.
+document under its own.
 
-`[project] std = true` marks the standard library's own tree, so its files are
-std to the checker and replace the copy built into the compiler.
-
-### Dependencies
-
-A project can use the modules of **other projects**. It names them under
-`[dependencies]`, and says where they are found with `[build] modules`:
-
-```toml
-[build]
-modules = "salvo_modules"   # the directory dependencies live under, relative to this file
-
-[dependencies]
-aws = "0.1.0"               # `salvo_modules/aws/salvo.toml`, at that version
-```
-
-Each entry is a directory `<modules>/<name>/` holding a `salvo.toml` of its
-own — a dependency is a project, and its own manifest says where its sources
-are. The version is checked against the one that manifest states, so the line
-is a claim about what is on disk; a mismatch, a directory that is not there, or
-a `[dependencies]` table with no `modules` setting is an error naming the file.
-A directory under `modules` that no entry names is not loaded.
-
-A dependency's modules are ordinary modules. Their paths come from the
-dependency's own layout with no prefix — `salvo_modules/aws/salvo/aws.sv` is
-module `aws`, and `salvo/aws/s3.sv` would be `aws.s3` — so the dependency's
-author owns its namespace by how the tree is laid out, and two projects
-declaring one path collide as two files of your own would. What a dependency
-does not export stays private to it. Its `main` is not your program's entry
-point; its actor protocols are locked in its own `salvo.lock`, not yours; its
-test annexes are never loaded; and its platform files — under the platform root
-its own manifest names — are loaded with it, since its platform declarations
-need them as much as yours do.
-
-A dependency **may not declare a standard-library module** — a library must
-not be able to redefine `core.list` on the programs that use it — unless its
-own manifest says `[project] std = true`, in which case it *is* a standard
-library and replaces the embedded modules it declares, exactly as a source
-tree may. Nothing is transitive yet: a dependency's own `[dependencies]` are
-not followed.
-
-In the editor a file inside a dependency belongs to the dependency's own
-manifest and is analysed as its own project; from the using project's side,
-hovering a name that came from a dependency says which one.
-
-### Host libraries
-
-A `platform` companion may need a library of its target language — an AWS SDK,
-a JSON parser. The manifest says which, per backend:
-
-```toml
-[rust]
-crates = { aws-sdk-s3 = "1.0", mylib = { path = "vendor/mylib" } }   # as Cargo writes them
-
-[kotlin]
-artifacts = ["aws.sdk.kotlin:s3:1.0.0"]   # Maven coordinates, resolved by Gradle
-libs = "lib/kotlin"                        # a directory of jars, put on the classpath
-```
-
-With crates declared the Rust backend writes a `Cargo.toml` beside the emitted
-sources and builds with `cargo`; with none, it calls `rustc` on the crate root
-as it always has, so a program that needs no host library pays nothing. The
-Kotlin backend does the same with Gradle: with artifacts declared it writes a
-`build.gradle.kts` beside the sources and has Gradle resolve them, then compiles
-with `kotlinc` against the jars — Gradle's rules, so a Kotlin Multiplatform
-coordinate like `aws.sdk.kotlin:s3` finds its JVM jar. Every jar under `libs`
-joins the classpath too, for libraries no repository has. A dependency's
-declarations join the build with it.
-
-Both tools are the ones on PATH unless the manifest names another —
-`[rust] cargo = "…"`, `[kotlin] gradle = "…"`, a path relative to the manifest
-or a command name. A project's `gradlew` wrapper works as `gradle`, since the
-two take the same command line. Only the project being built chooses; a
-dependency's setting is ignored. The same crate, or
-the same artifact, declared at two versions anywhere in the build is an error
-naming both — one version per library, and the build will not choose.
-
-Beside the manifest the compiler keeps **`salvo.lock`**: the protocol hash of
-every `actor effect` the project declares, at the project's version. A build
-whose protocol changed without a version bump is refused naming the effect —
-so two versions of one protocol never meet in a rolling fleet under one name —
-and bumping `version` relocks. See [Concurrency](Concurrency.md) for what a
-protocol hash is.
+The manifest has its own page: see [The Manifest](Manifest.md) for every
+section and option — `[project]`, `[build]`, the per-backend `[rust]`/`[kotlin]`
+sections, `[dependencies]`, host libraries, the `salvo.lock` file, and how the
+settings interact.
 
 ## Naming rules
 

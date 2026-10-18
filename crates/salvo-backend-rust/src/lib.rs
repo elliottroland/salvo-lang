@@ -229,6 +229,78 @@ impl Backend for RustBackend {
         }
         Ok(std::process::Command::new(bin))
     }
+
+    /// [cli-build] Builds a persisted binary into `out_dir/<name>`. The same
+    /// `rustc` / `cargo` build as [`program_command`], but the binary lands
+    /// in a lasting directory rather than the scratch target, and is the
+    /// artifact the user runs directly.
+    fn build_artifact(
+        &self,
+        target_dir: &Path,
+        main_module: &ModulePath,
+        _emitted: &[PathBuf],
+        host: &HostDeps,
+        out_dir: &Path,
+        name: &str,
+    ) -> Result<Vec<PathBuf>, BackendError> {
+        use std::ffi::OsStr;
+
+        let root = target_dir.join(crate_root(main_module));
+        if !root.is_file() {
+            return Err(BackendError::Other(format!(
+                "nothing to build: expected the crate root `{}` to have been emitted",
+                root.display()
+            )));
+        }
+        std::fs::create_dir_all(out_dir)?;
+        let bin = out_dir.join(name);
+
+        if host.has_rust() {
+            let manifest = target_dir.join(CARGO_MANIFEST);
+            if !manifest.is_file() {
+                return Err(BackendError::Other(format!(
+                    "crates are declared but `{}` was not written [rs-cargo]",
+                    manifest.display()
+                )));
+            }
+            // Cargo builds into the scratch target's bin dir; the finished
+            // binary is then copied to the lasting output.
+            let bin_dir = target_dir.join(BIN_DIR);
+            std::fs::create_dir_all(&bin_dir)?;
+            let code = salvo_backend::run_host_tool(
+                &host.cargo_program(),
+                "[rust] cargo",
+                &[
+                    OsStr::new("build"),
+                    OsStr::new("--quiet"),
+                    OsStr::new("--manifest-path"),
+                    manifest.as_os_str(),
+                    OsStr::new("--target-dir"),
+                    bin_dir.as_os_str(),
+                ],
+            )?;
+            if code != 0 {
+                return Err(BackendError::Other(format!("cargo build failed with exit code {code}")));
+            }
+            std::fs::copy(bin_dir.join("debug").join(name), &bin)?;
+            return Ok(vec![bin]);
+        }
+
+        let code = run_tool(
+            "rustc",
+            &[
+                OsStr::new("--edition"),
+                OsStr::new("2021"),
+                root.as_os_str(),
+                OsStr::new("-o"),
+                bin.as_os_str(),
+            ],
+        )?;
+        if code != 0 {
+            return Err(BackendError::Other(format!("rustc failed with exit code {code}")));
+        }
+        Ok(vec![bin])
+    }
 }
 
 /// The binary's name: the entry module's last segment.
