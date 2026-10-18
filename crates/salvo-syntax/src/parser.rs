@@ -5956,6 +5956,38 @@ impl<'s> Parser<'s> {
                     }
                 }
                 TokenKind::LBracket if self.same_line() => {
+                    // [eff-handle] `e[A, B]` / `e[IO]` — projection of an
+                    // effect handle: the bracket holds capitalised effect/alias
+                    // **names**, each followed by `,` or `]`. Anything else is
+                    // array indexing (a value expression). The first token
+                    // being a capitalised ident that `,`/`]` follows is the
+                    // tell — a value expression would continue (`.`, `(`, `[`,
+                    // an operator) or be lowercase/a literal.
+                    let is_projection = matches!(&self.peek_at(1).kind, TokenKind::Ident(n) if n.starts_with(|c: char| c.is_uppercase()))
+                        && matches!(self.peek_at(2).kind, TokenKind::Comma | TokenKind::RBracket);
+                    if is_projection {
+                        let start = self.bump().span; // `[`
+                        self.group_depth += 1;
+                        let mut effects: Vec<TypeRef> = Vec::new();
+                        while !self.at(&TokenKind::RBracket) && !self.at_eof() {
+                            match self.parse_type_ref() {
+                                Some(r) => effects.push(r),
+                                None => {
+                                    self.group_depth -= 1;
+                                    return None;
+                                }
+                            }
+                            if self.eat(&TokenKind::Comma).is_none() {
+                                break;
+                            }
+                        }
+                        self.group_depth -= 1;
+                        let end = self.expect(&TokenKind::RBracket)?.span;
+                        let _ = start;
+                        let pspan = expr.span().to(end);
+                        expr = Expr::Project { base: Box::new(expr), effects, span: pspan };
+                        continue;
+                    }
                     let start = self.bump().span;
                     self.group_depth += 1;
                     let index = self.parse_expr();

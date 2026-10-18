@@ -789,6 +789,13 @@ pub fn walk_expr<V: MutVisitor>(v: &mut V, e: &mut Expr) {
                 walk_expr(v, w);
             }
         }
+        Expr::Project { base, effects, span } => {
+            v.visit_span(span);
+            walk_expr(v, base);
+            for e in effects {
+                walk_type_ref(v, e);
+            }
+        }
         Expr::ReplyTo {
             member,
             captures,

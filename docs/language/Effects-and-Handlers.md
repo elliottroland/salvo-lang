@@ -201,7 +201,7 @@ fn report(c: eff[Clock]) [use] -> Int => c {
 
 A wider handle satisfies a narrower requirement: pass an `eff[Clock, Beep]` where `eff[Clock]` is wanted and it fits, carrying more than the callee asked for — the same direction the rest of the effect system runs, where a scope with more effects calls a function needing fewer.
 
-The one thing a handle cannot bridge is an effect it does not carry: `use c` makes exactly `E`'s members callable, and nothing else. (Pulling an actor's address back out of a multi-effect handle, and merging handles into one, are `eff[…]`'s projection and construction forms.)
+The one thing a handle cannot bridge is an effect it does not carry: `use c` makes exactly `E`'s members callable, and nothing else. A multi-effect handle `eff[A, B]` is a tuple of single handles — `use H()` of a multi-face handler yields `(eff[A], eff[B])`, which you destructure or bind whole (`use e` binds every effect in it). To pull one handle back out of a multi-effect one — an actor's address, say — **project** it by name: `e[A]` copies the `A` handle, `e[IO]` the handles an alias names.
 
 ## Naming a group: effect aliases
 

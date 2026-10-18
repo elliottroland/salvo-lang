@@ -2066,6 +2066,16 @@ pub enum Expr {
         join: Option<Box<Expr>>,
         span: Span,
     },
+    /// [eff-handle] `e[A, B]` — **projection** of an effect handle: a
+    /// non-consuming copy of the sub-handle carrying the named effects (a
+    /// subset of what `e` carries), `eff[A, B]`. An alias among the names
+    /// expands. The `[…]` holds effect/alias **names** (capitalised), which
+    /// is what tells it from array indexing `e[i]` (a value expression).
+    Project {
+        base: Box<Expr>,
+        effects: Vec<TypeRef>,
+        span: Span,
+    },
     /// [eff-handle] `use H(args)` as an **expression**: registers the handler
     /// in the current scope and *yields its handle* — one `eff[E]` for a
     /// single-face handler, one flat `eff[F1, F2]` for several. `let x = use
@@ -2280,6 +2290,7 @@ impl Expr {
             | Expr::SelfAddr { span, .. }
             | Expr::Spawn { span, .. }
             | Expr::Use { span, .. }
+            | Expr::Project { span, .. }
             | Expr::ReplyTo { span, .. }
             | Expr::WaitFor { span, .. }
             | Expr::Spread { span, .. }

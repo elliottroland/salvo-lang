@@ -790,6 +790,13 @@ pub fn walk_expr<V: Visitor>(v: &mut V, e: &Expr) {
                 walk_expr(v, w);
             }
         }
+        Expr::Project { base, effects, span } => {
+            v.visit_span(span);
+            walk_expr(v, base);
+            for e in effects {
+                walk_type_ref(v, e);
+            }
+        }
         Expr::ReplyTo {
             member,
             captures,

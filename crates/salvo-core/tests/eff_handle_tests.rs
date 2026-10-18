@@ -98,56 +98,122 @@ fn main() [use] {{
     assert!(errs.is_empty(), "{errs:?}");
 }
 
-// [eff-handle] Set-subsumption: a wider handle satisfies a narrower parameter.
-// `eff[Clock, Beep]` passes where `eff[Clock]` is wanted (checked at the type
-// level — multi-face *binding* to a value is a separate, deferred case).
+// [eff-handle] A tuple handle's elements are ordinary single handles: you
+// project one out by destructuring and pass it where that single handle is
+// wanted (the narrow-from-wide direction, done by projection rather than
+// subsumption).
 #[test]
-fn a_wider_handle_satisfies_a_narrower_parameter() {
+fn a_single_handle_projects_out_of_a_multi_effect_handle() {
     let src = &format!(
         "{CLOCK}\
+effect Beep {{ fn beep() -> Int }}
+handler Both() of Clock, Beep {{
+    state {{ n: Int = 0 }}
+    fn now() -> Int {{
+        n = n + 1
+        return n
+    }}
+    fn beep() -> Int {{ return 2 }}
+}}
+
 fn read(clock: eff[Clock]) [use] -> Int => clock {{
     use clock
     return now()
 }}
 
-fn forward(wide: eff[Clock, Clock]) [use] -> Int => wide {{
-    return read(wide)
-}}
-
 fn main() [use] {{
-    let c = use Ticking()
+    let (c, _b) = use Both()
     let _n = read(c)
 }}
 "
     );
-    // `eff[Clock, Clock]` normalises to `eff[Clock]`, and `read(wide)` must
-    // type-check under subsumption without an overload error.
     let errs = errors(src);
     assert!(
         !errs.iter().any(|m| m.contains("no matching overload")),
-        "subsumption should let a wider handle fit a narrower parameter: {errs:?}"
+        "the projected single handle should fit the narrower parameter: {errs:?}"
     );
 }
 
-// [eff-handle] A multi-face handler's handle as a single value is refused for
-// now (its flat representation lands with projection), named clearly rather
-// than emitted wrong [backend-never-wrong].
+// [eff-handle] A multi-effect handle is a *tuple* of single handles. A
+// multi-face `use H()` as a value yields `(eff[A], eff[B])`, which destructures
+// into the individual handles; `use e` over the whole tuple binds every effect.
 #[test]
-fn a_multi_face_handle_value_is_refused_for_now() {
+fn a_multi_face_handle_is_a_tuple_of_single_handles() {
     let src = "\
 effect A { fn a() -> Int }
 effect B { fn b() -> Int }
 handler Both() of A, B {
-    fn a() -> Int { return 1 }
+    state { n: Int = 0 }
+    fn a() -> Int {
+        n = n + 1
+        return n
+    }
     fn b() -> Int { return 2 }
 }
+fn make() [use] -> eff[A, B] {
+    return use Both()
+}
 fn main() [use] {
-    let _both = use Both()
+    let both = make()
+    use both
+    let _x = a()
+    let _y = b()
+}
+";
+    let errs = errors(src);
+    assert!(errs.is_empty(), "a multi-effect handle should be a usable tuple: {errs:?}");
+}
+
+// [eff-handle] Projection `e[A]` / `e[A, B]` / `e[alias]`: a non-consuming copy
+// of the sub-handle carrying the named effects, a subset of what `e` carries.
+// Yields a single handle for one effect, a tuple for several; an alias expands.
+#[test]
+fn a_handle_projects_a_subset() {
+    let src = "\
+effect A { fn a() -> Int }
+effect B { fn b() -> Int }
+effect C { fn c() -> Int }
+handler All() of A, B, C {
+    fn a() -> Int { return 1 }
+    fn b() -> Int { return 2 }
+    fn c() -> Int { return 3 }
+}
+effects AB = [A, B]
+fn use_a(h: eff[A]) [use] -> Int => h {
+    use h
+    return a()
+}
+fn main() [use] {
+    let all = use All()
+    let _n = use_a(all[A])     // project one, pass it on
+    let ab = all[AB]           // project via alias -> (eff[A], eff[B])
+    use ab
+    let _x = a()
+    let _y = b()
+    let (_hc, _hb) = all[C, B] // reordered subset
+}
+";
+    let errs = errors(src);
+    assert!(errs.is_empty(), "projection should type-check: {errs:?}");
+}
+
+// [eff-handle] Projecting an effect the handle does not carry is refused.
+#[test]
+fn projecting_an_absent_effect_is_refused() {
+    let src = "\
+effect A { fn a() -> Int }
+effect B { fn b() -> Int }
+handler OnlyA() of A {
+    fn a() -> Int { return 1 }
+}
+fn main() [use] {
+    let h = use OnlyA()
+    let _bad = h[B]
 }
 ";
     let errs = errors(src);
     assert!(
-        errs.iter().any(|m| m.contains("multi-face") && m.contains("[eff-handle]")),
-        "a multi-face handle value should be refused by name: {errs:?}"
+        errs.iter().any(|m| m.contains("does not carry effect `B`") && m.contains("[eff-handle]")),
+        "projecting an absent effect should be refused: {errs:?}"
     );
 }

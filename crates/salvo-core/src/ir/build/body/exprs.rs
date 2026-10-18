@@ -257,6 +257,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             }
             AExpr::SelfAddr { .. } => Expr { ty: self.ty_of(span), span, kind: ExprKind::SelfAddr },
             AExpr::Use { handler, with_items, span } => self.use_expr(handler, with_items, *span),
+            AExpr::Project { base, span, .. } => self.project_expr(base, *span),
             AExpr::Spawn { handler, with_items, pool, join, .. } => {
                 let key = self.key(span);
                 let info = self.ctx.checked.spawn_info(key);
@@ -2277,6 +2278,51 @@ impl<'a, 'p> Lower<'a, 'p> {
 
     // --------------------------------------------------------------- use --
 
+    /// [eff-handle] `e[A, B]` projection: a non-consuming copy of the handles
+    /// carrying the requested effects, picked out of the base (a single handle
+    /// or a tuple of handles). Yields the one handle (single) or a tuple of
+    /// them (several), reading the base's elements by position — the base is
+    /// bound once so a computed base is not re-evaluated.
+    pub(crate) fn project_expr(&mut self, base: &AExpr, span: Span) -> Expr {
+        let ty = self.ty_of(span);
+        let want: Vec<Ty> = self
+            .ctx
+            .checked
+            .project_effects
+            .get(&self.key(span))
+            .map(|v| v.iter().map(erase).collect())
+            .unwrap_or_default();
+        let b = self.expr(base);
+        let base_ty = b.ty.clone();
+        let single = !matches!(base_ty.strip_quals(), Ty::Tuple(_));
+        // The base's carried handles, by position.
+        let have: Vec<Ty> = match base_ty.strip_quals() {
+            Ty::Tuple(elems) => elems.to_vec(),
+            other => vec![other.clone()],
+        };
+        let tmp = self.fresh("__proj");
+        let id = self.id();
+        let bind = Stmt::Let { id, local: tmp.clone(), ty: base_ty.clone(), value: b };
+        // The handle carrying effect `w`: the whole base when it is a single
+        // handle, else the matching tuple element (read non-consuming — a
+        // projection is a copy).
+        let pick = |w: &Ty| -> Expr {
+            if single {
+                return Expr { ty: base_ty.clone(), span, kind: ExprKind::Read { place: Place { root: tmp.clone(), steps: Vec::new() }, consume: false } };
+            }
+            let idx = have.iter().position(|h| handle_carries(h, w)).unwrap_or(0);
+            let et = have.get(idx).cloned().unwrap_or_else(|| Ty::Named { name: "Addr".into(), args: vec![w.clone()] });
+            Expr { ty: et, span, kind: ExprKind::Read { place: Place { root: tmp.clone(), steps: vec![Step::Tuple(idx)] }, consume: false } }
+        };
+        let reads: Vec<Expr> = want.iter().map(&pick).collect();
+        let value = match reads.len() {
+            0 => unsupported(ty.clone(), span, "projection with no effect"),
+            1 => reads.into_iter().next().unwrap(),
+            _ => Expr { ty, span, kind: ExprKind::Tuple(reads) },
+        };
+        self.block_expr(vec![bind], value, span)
+    }
+
     /// Lowers a `use` to the handle bindings it introduces. Returns the
     /// statements **and** the `(face, handle-local)` pairs it bound and pushed
     /// onto `effect_env` — the statement form discards the pairs; the
@@ -2285,6 +2331,30 @@ impl<'a, 'p> Lower<'a, 'p> {
         let key = self.key(span);
         let info = self.ctx.checked.use_info(key);
         let faces: Vec<Ty> = info.use_effects.map(|v| v.iter().map(erase).collect()).unwrap_or_default();
+        // [eff-handle] `use <tuple>`: bind one effect per tuple element, in
+        // order, each `instance_at(tuple.i)` — `use e.0; use e.1`.
+        if let Some(effects) = info.use_addr_tuple.map(|v| v.iter().map(erase).collect::<Vec<_>>()) {
+            let tup = self.expr(handler);
+            let tup_ty = tup.ty.clone();
+            let base = self.fresh("__use");
+            let bid = self.id();
+            let mut out = vec![Stmt::Let { id: bid, local: base.clone(), ty: tup_ty.clone(), value: tup }];
+            let mut bound: Vec<(Ty, Local)> = Vec::new();
+            for (i, effect) in effects.into_iter().enumerate() {
+                let elem = Expr {
+                    ty: effect.clone(),
+                    span,
+                    kind: ExprKind::Read { place: Place { root: base.clone(), steps: vec![Step::Tuple(i)] }, consume: false },
+                };
+                let inst = Expr { ty: effect.clone(), span, kind: ExprKind::AddrInstance { addr: Box::new(elem) } };
+                let local = self.fresh("__use");
+                let id = self.id();
+                out.push(Stmt::Let { id, local: local.clone(), ty: effect.clone(), value: inst });
+                self.effect_env.push((effect.clone(), local.clone()));
+                bound.push((effect, local));
+            }
+            return (out, bound);
+        }
         // `use addr`: the addr is the instance.
         if let Some(effect) = info.use_addr.map(erase) {
             let a = self.expr(handler);
@@ -2557,6 +2627,12 @@ pub(crate) fn subst_map(t: &Ty, map: &std::collections::HashMap<String, Ty>) -> 
 
 /// Whether `e` reads any local the statements `binds` bind (a narrowing
 /// binding a condition's later operand depends on).
+/// [eff-handle] Whether a single-effect handle type `eff[E]` (`Named{Addr,[E]}`)
+/// carries effect `w` — its one arg equals `w`.
+fn handle_carries(handle: &Ty, w: &Ty) -> bool {
+    matches!(handle.strip_quals(), Ty::Named { name, args } if name == "Addr" && args.len() == 1 && &args[0] == w)
+}
+
 fn reads_any(e: &Expr, binds: &[Stmt]) -> bool {
     let locals: Vec<&Local> = binds
         .iter()

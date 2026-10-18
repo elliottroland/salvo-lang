@@ -1605,6 +1605,7 @@ impl Rewrite {
                     self.expr(handler);
                 }
             }
+            Expr::Project { base, .. } => self.expr(base),
             // [actor-self-send] A leaf: the selector names the enclosing
             // handler, so there is no sub-expression to rewrite.
             Expr::SelfScoped { .. } | Expr::SelfAddr { .. } => {}
@@ -1803,6 +1804,7 @@ fn collect_shadowing(body: &Block, reserved: &[&Ident], out: &mut Vec<(String, S
                     walk_expr(handler, reserved, out);
                 }
             }
+            Expr::Project { base, .. } => walk_expr(base, reserved, out),
             Expr::ReplyTo { captures, .. } => {
                 for capture in captures {
                     walk_expr(capture, reserved, out);
@@ -2421,6 +2423,7 @@ fn walk_expr_with(expr: &Expr, on_stmt: &mut dyn FnMut(&Stmt), on_expr: &mut dyn
                 e(h);
             }
         }
+        Expr::Project { base, .. } => e(base),
         Expr::ReplyTo { captures, .. } => {
             for c in captures {
                 e(c);

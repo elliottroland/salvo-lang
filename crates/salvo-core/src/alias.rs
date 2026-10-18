@@ -408,6 +408,52 @@ impl Rewrite<'_> {
         *args = out;
     }
 
+    /// [eff-handle] Expand alias entries among a projection's effect names
+    /// (`Vec<TypeRef>`), flattened and deduped — the `e[A, IO]` twin of
+    /// `expand_handle_args`.
+    fn expand_handle_refs(&mut self, refs: &mut Vec<TypeRef>) {
+        let names_alias = refs.iter().any(|r| {
+            self.index
+                .resolve(self.file, &r.name.name)
+                .is_some_and(|f| self.index.aliases.contains_key(&(f, r.name.name.clone())))
+        });
+        if !names_alias {
+            return;
+        }
+        let mut out: Vec<TypeRef> = Vec::new();
+        let mut present: HashSet<String> = HashSet::new();
+        for r in std::mem::take(refs) {
+            let name = r.name.name.clone();
+            let alias_file = self
+                .index
+                .resolve(self.file, &name)
+                .filter(|f| self.index.aliases.contains_key(&(*f, name.clone())));
+            let Some(af) = alias_file else {
+                if present.insert(name) {
+                    out.push(r);
+                }
+                continue;
+            };
+            match self.index.closure(af, &name) {
+                Ok(members) => {
+                    for (target, m) in members {
+                        if !present.insert(m.name.name.clone()) {
+                            continue;
+                        }
+                        if self.ensure_visible(target, &m.name.name, m.span, &name) {
+                            out.push(implied_ref(&m));
+                        }
+                    }
+                }
+                Err(chain) => self.diags.push(Diagnostic::error(
+                    format!("the effect alias `{name}` is cyclic: {} [effect-alias]", chain.join(" -> ")),
+                    r.span,
+                )),
+            }
+        }
+        *refs = out;
+    }
+
     fn expand_fn(&mut self, f: &mut FnDecl) {
         if let Some(list) = &mut f.effects {
             self.expand_list(list);
@@ -443,6 +489,14 @@ impl MutVisitor for FnTypes<'_, '_> {
             if qualifiers.is_empty() && base.name.name == "Addr" {
                 self.0.expand_handle_args(&mut base.args);
             }
+        }
+    }
+
+    fn visit_expr(&mut self, expr: &mut salvo_syntax::ast::Expr) {
+        // [eff-handle] A projection `e[A, IO]` names effects; an alias among
+        // them expands just as it does in a handle type or an effect list.
+        if let salvo_syntax::ast::Expr::Project { effects, .. } = expr {
+            self.0.expand_handle_refs(effects);
         }
     }
 }

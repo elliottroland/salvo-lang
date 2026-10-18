@@ -606,6 +606,12 @@ fn expr_names<'p>(expr: &'p Expr, used: &mut HashSet<&'p str>) {
                 expr_names(handler, used);
             }
         }
+        Expr::Project { base, effects, .. } => {
+            expr_names(base, used);
+            for e in effects {
+                type_ref_names(e, used);
+            }
+        }
         // [actor-self-send] The member is the enclosing handler's, so the
         // selector names nothing a module could provide.
         Expr::SelfScoped { .. } | Expr::SelfAddr { .. } => {}

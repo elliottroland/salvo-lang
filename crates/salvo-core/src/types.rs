@@ -947,14 +947,6 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
                 && is_subtype(base, b)
         }
         (Ty::Named { name: na, args: aa }, Ty::Named { name: nb, args: ab }) => {
-            // [eff-handle] Handle set-subsumption: `eff[A, B]` is a subtype of
-            // `eff[A]` — a wider handle satisfies a narrower requirement, as a
-            // scope with more effects calls a fn needing fewer. The internal
-            // name is `Addr`; the value's set (`aa`) must contain every effect
-            // the requirement names (`ab`), matched structurally.
-            if na == "Addr" && nb == "Addr" && !aa.is_empty() && !ab.is_empty() {
-                return ab.iter().all(|want| aa.iter().any(|have| is_subtype(have, want)));
-            }
             na == nb && named_args_fit(aa, ab)
         }
         (Ty::Array(x), Ty::Array(y)) => compatible(x, y),

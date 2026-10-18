@@ -1265,6 +1265,7 @@ impl<'p> Walk<'_, 'p> {
                     self.expr(handler);
                 }
             }
+            Expr::Project { base, .. } => self.expr(base),
             // [actor-self-send] A leaf: nothing to walk into.
             Expr::SelfScoped { .. } | Expr::SelfAddr { .. } => {}
             // [actor-replyto] The captures are reads.

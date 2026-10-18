@@ -426,6 +426,7 @@ impl<'p> Walk<'_, '_, 'p> {
             // crossing an actor boundary can be a borrow of a local.
             Expr::Spawn { .. }
             | Expr::Use { .. }
+            | Expr::Project { .. }
             | Expr::ReplyTo { .. }
             | Expr::WaitFor { .. }
             | Expr::SelfScoped { .. }

@@ -3973,15 +3973,23 @@ Conventions:
   * **Alias flattening in type position**: an alias inside an `eff[…]` type
     expands like it does in an effect list, so `eff[IO]` is
     `eff[Console, Fs, Streams]` (built: `alias.rs`'s `expand_handle_args`).
-  * **Deferred:** binding a *multi-face* handler's handle to a single value
-    (`let x = use Both()` where `Both of A, B`), projection `e[S]`, merge
-    `eff[a, b]`, and `eff[*]` all need the flat multi-effect handle's backend
-    representation — an abstract handle carrying several faces that a function
-    can hold without naming the concrete handler. Today a multi-face `use`
-    lowers to a *tuple* of per-face monitor wrappers, which is not one value;
-    until the representation lands, a multi-face `use` as a value is refused by
-    name rather than emitted wrong [backend-never-wrong], and a multi-face
-    `use` as a *statement* binds every face as before.
+  * **A multi-effect handle is a tuple of single handles.** `eff[A, B]` lowers
+    to `(eff[A], eff[B])` in the type system and the IR alike — each element an
+    ordinary single handle with a real backend representation, so there is no
+    flat multi-face handle to represent. A multi-face `use H()` as a value
+    yields that tuple (one shared instance, wrapped per face); it destructures,
+    and `use e` over a (possibly nested) tuple binds every effect in it —
+    `use e.0; use e.1`. A single-effect handle stays the `Addr`-named marker
+    (it carries the plain-vs-actor distinction the emitters read).
+  * **Projection `e[A, B]` / `e[alias]`** is a non-consuming copy of the
+    sub-handle carrying the named effects — a subset of what `e` carries,
+    refused otherwise. One effect yields a single handle, several a tuple; an
+    alias expands; the names may reorder. The `[…]` holds effect/alias names
+    (capitalised), which is what tells a projection from array indexing `e[i]`
+    (a value expression). This is how an actor's address comes back out of a
+    multi-effect handle: `e[SomeActor]`.
+  * **Remaining (stage 5):** merge `eff[a, b]` (combine already-bound handles
+    into one) and `eff[*]` (all in-scope handles).
 * [handler-not-value] A handler instance is produced by `use` and lives in
   the effect environment; a handler constructor call in any other position
   is an error naming the `use` remedy. (Rust could not render one anyway:

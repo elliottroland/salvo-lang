@@ -704,6 +704,15 @@ pub struct Checked {
     /// the statement's span: the emitters generate a forwarding stub over
     /// the addr rather than constructing a handler.
     pub use_addrs: HashMap<Key, Ty>,
+    /// [eff-handle] `use <tuple-handle>`: the per-element effects when a
+    /// `use` binds a *tuple* of single handles (`use e` where `e:
+    /// (eff[A], eff[B])`). The IR binds one effect per tuple element, in
+    /// order — `use e.0; use e.1` — so this carries the whole flat set.
+    pub use_addr_tuples: HashMap<Key, Vec<Ty>>,
+    /// [eff-handle] `e[A, B]` projection: the effects projected out, in order,
+    /// at the projection's span. The IR picks the matching handles out of the
+    /// base (a single handle or a tuple of them) into the result.
+    pub project_effects: HashMap<Key, Vec<Ty>>,
     /// [actor-use-addr] Dot-calls that are **sends to an actor** rather than
     /// dispatches through a handler in scope, keyed by the call span and
     /// mapped to the effect instance the addr serves. The emitters need the
@@ -1341,6 +1350,7 @@ impl Checked {
         UseInfo {
             use_effects: self.use_effects.get(&key),
             use_addr: self.use_addrs.get(&key),
+            use_addr_tuple: self.use_addr_tuples.get(&key),
             use_deps: self.use_deps.get(&key),
             use_with_items: self.use_with_items.get(&key),
         }
@@ -1403,6 +1413,7 @@ pub struct InterpInfo<'c> {
 pub struct UseInfo<'c> {
     pub use_effects: Option<&'c Vec<Ty>>,
     pub use_addr: Option<&'c Ty>,
+    pub use_addr_tuple: Option<&'c Vec<Ty>>,
     pub use_deps: Option<&'c Vec<Ty>>,
     pub use_with_items: Option<&'c Vec<Option<usize>>>,
 }
@@ -9556,6 +9567,29 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// no-op, so binding one takes nothing away from the holder.
     fn check_use_addr(&mut self, addr: &'p Expr, span: Span) {
         let ty = self.check_expr(addr, None);
+        // [eff-handle] `use <tuple>`: a value of tuple type whose elements are
+        // all single handles (`e: (eff[A], eff[B])`) binds every effect in it,
+        // in order — `use e.0; use e.1`. A nested tuple flattens the same way.
+        if let Ty::Tuple(_) = ty.strip_quals() {
+            let mut effects: Vec<Ty> = Vec::new();
+            if self.collect_handle_tuple(&ty, &mut effects) && !effects.is_empty() {
+                for effect in &effects {
+                    self.effect_env.push(EffectAvail { ty: effect.clone(), declared: false, any: false });
+                }
+                self.out.use_addr_tuples.insert(self.key(span), effects.clone());
+                self.out.use_effects.insert(self.key(span), effects);
+                return;
+            }
+            // A tuple that is not all handles is not a thing `use` can bind.
+            self.error(
+                span,
+                format!(
+                    "`use` binds a handler or an effect handle, and `{ty}` is a tuple that \
+                     is not all handles"
+                ),
+            );
+            return;
+        }
         let Some(effect) = addr_effect(&ty) else {
             if !ty.is_unknown() {
                 self.error(
@@ -9582,6 +9616,22 @@ impl<'p, 'r> Checker<'p, 'r> {
             declared: false,
             any: false,
         });
+    }
+
+    /// [eff-handle] Flatten a tuple of single handles into its effect set,
+    /// recursing through nested tuples. Returns false if any leaf is not a
+    /// single-effect handle (then `use` of it is not meaningful).
+    fn collect_handle_tuple(&self, ty: &Ty, out: &mut Vec<Ty>) -> bool {
+        match ty.strip_quals() {
+            Ty::Tuple(elems) => elems.iter().all(|e| self.collect_handle_tuple(e, out)),
+            other => match addr_effect(other) {
+                Some(effect) => {
+                    out.push(effect);
+                    true
+                }
+                None => false,
+            },
+        }
     }
 
     /// The written shape of a handler construction — a name, or a name with
@@ -16086,6 +16136,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             | Expr::SelfAddr { .. }
             | Expr::Spawn { .. }
             | Expr::Use { .. }
+            | Expr::Project { .. }
             | Expr::ReplyTo { .. }
             | Expr::WaitFor { .. }
             | Expr::Int { .. }
@@ -16185,6 +16236,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             | Expr::SelfAddr { .. }
             | Expr::Spawn { .. }
             | Expr::Use { .. }
+            | Expr::Project { .. }
             | Expr::ReplyTo { .. }
             | Expr::WaitFor { .. }
             | Expr::Int { .. }
@@ -18280,6 +18332,19 @@ impl<'p, 'r> Checker<'p, 'r> {
                 return self.lower_type_subst(target, &alias_subst, depth + 1);
             }
         }
+        // [eff-handle] A multi-effect handle `eff[A, B, …]` *is* a tuple of
+        // single-effect handles — `(eff[A], eff[B], …)` — in the type system
+        // and the IR alike: each element is an ordinary single handle with a
+        // real backend representation, so there is no flat multi-face handle
+        // to represent. A single-effect handle stays the `Addr`-named marker
+        // (it carries the plain-vs-actor distinction the emitters read).
+        if name == ADDR_TYPE && args.len() > 1 {
+            return Ty::Tuple(
+                args.into_iter()
+                    .map(|a| Ty::Named { name: ADDR_TYPE.to_string(), args: vec![a] })
+                    .collect(),
+            );
+        }
         Ty::Named {
             name: Self::key_in(self.symbols, written_in, name),
             args,
@@ -18644,9 +18709,14 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// handle. The former per-kind refusal lived here; the walk above now
     /// documents the acceptance at the one call site it had.
     fn is_addr_effect_arg(&self, base: &TypeRef, index: usize, arg: &ast::Type) -> bool {
-        if base.name.name != ADDR_TYPE || index != 0 || base.args.len() != 1 {
+        // [eff-handle] Any argument of an `eff[…]` handle is an effect, not
+        // just the first: `eff[A, B]` names several (it lowers to a tuple of
+        // single handles). The former single-arg `Addr<E>` restriction is
+        // widened to every arg.
+        if base.name.name != ADDR_TYPE || base.args.is_empty() {
             return false;
         }
+        let _ = index;
         // Std's `Addr`, not a program's own type of that name.
         if !self.scope.opaque_types.contains_key(ADDR_TYPE) {
             return false;
@@ -20765,6 +20835,7 @@ fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
                 collect_assigned_expr(handler, out);
             }
         }
+        Expr::Project { base, .. } => collect_assigned_expr(base, out),
         // [actor-replyto] The captures are ordinary expressions.
         Expr::ReplyTo { captures, .. } => {
             for capture in captures {
@@ -21012,6 +21083,7 @@ fn expr_mentions(expr: &Expr, name: &str) -> bool {
         Expr::Use { handler, with_items, .. } => {
             expr_mentions(handler, name) || with_items.iter().any(|h| expr_mentions(h, name))
         }
+        Expr::Project { base, .. } => expr_mentions(base, name),
         // [actor-replyto] A capture is a value the continuation takes.
         Expr::ReplyTo { captures, .. } => captures.iter().any(|c| expr_mentions(c, name)),
         // [actor-self-send] A leaf: it mentions no value of its own.
@@ -23334,10 +23406,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ty
             }
             // [eff-handle] `use H()` as a value: register the handler (all the
-            // side-effects of the statement form) and yield its handle —
-            // `eff[faces]`, read back from the faces the registration
-            // recorded. `let x = use H()` binds it; the statement form
-            // discards it.
+            // side-effects of the statement form) and yield its handle. One
+            // face is `eff[E]`; several is a *tuple* of single handles
+            // `(eff[A], eff[B])` — the IR already binds one handle per face,
+            // so the value is a tuple of them, mirroring a multi-face `spawn`.
             Expr::Use { handler, with_items, span } => {
                 self.check_use(handler, with_items, *span);
                 let faces = self
@@ -23349,39 +23421,64 @@ impl<'p, 'r> Checker<'p, 'r> {
                 match faces.len() {
                     0 => Ty::Unknown,
                     1 => Ty::Named { name: ADDR_TYPE.to_string(), args: faces },
-                    // [eff-handle] A multi-face handler's handle as a single
-                    // flat `eff[F1, F2]` value needs a backend representation
-                    // that does not exist until projection (stage 4): the IR
-                    // models the faces as a tuple of per-face wrappers, which
-                    // is not one handle. Until then a multi-face `use` as a
-                    // *value* is refused rather than emitted wrong
-                    // [backend-never-wrong]; as a statement it binds every
-                    // face as before.
-                    _ => {
+                    _ => Ty::Tuple(
+                        faces
+                            .into_iter()
+                            .map(|f| Ty::Named { name: ADDR_TYPE.to_string(), args: vec![f] })
+                            .collect(),
+                    ),
+                }
+            }
+            // [eff-handle] `e[A, B]` / `e[IO]` — projection: a non-consuming
+            // copy of the sub-handle carrying the named effects, which must be
+            // a subset of what `e` carries. Yields `eff[S]` (single) or a tuple
+            // of single handles (several). An alias among the names expands.
+            Expr::Project { base, effects, span } => {
+                let base_ty = self.check_expr(base, None);
+                // The effects `base` carries: a single handle's one, or a
+                // tuple of handles' flat set.
+                let mut have: Vec<Ty> = Vec::new();
+                let ok = self.collect_handle_tuple(&base_ty, &mut have);
+                if !ok && !base_ty.is_unknown() {
+                    self.error(
+                        *span,
+                        format!(
+                            "`{base_ty}` is not an effect handle, so it has no effects to \
+                             project — projection `e[A]` narrows an `eff[…]` handle [eff-handle]"
+                        ),
+                    );
+                    return Ty::Unknown;
+                }
+                // The requested effects (an alias expands to its members).
+                let mut want: Vec<Ty> = Vec::new();
+                for r in effects {
+                    if let Some(ty) = self.lower_effect_ref(r) {
+                        if !want.contains(&ty) {
+                            want.push(ty);
+                        }
+                    }
+                }
+                // Each requested effect must be one `base` carries.
+                for w in &want {
+                    if !have.iter().any(|h| h == w) {
                         self.error(
                             *span,
                             format!(
-                                "binding a multi-face handler's handle to a value is not \
-                                 supported yet (it implements {}): `use {}` as a statement \
-                                 to bind every face, and project individual handles once \
-                                 that lands [eff-handle]",
-                                faces
-                                    .iter()
-                                    .map(|f| format!("`{f}`"))
-                                    .collect::<Vec<_>>()
-                                    .join(", "),
-                                match handler.as_ref() {
-                                    Expr::Ident(id) => id.name.clone(),
-                                    Expr::Call { callee, .. } => match callee.as_ref() {
-                                        Expr::Ident(id) => id.name.clone(),
-                                        _ => "H".to_string(),
-                                    },
-                                    _ => "H".to_string(),
-                                }
+                                "`{base_ty}` does not carry effect `{w}`, so it cannot be \
+                                 projected out — projection narrows to a subset [eff-handle]"
                             ),
                         );
-                        Ty::Unknown
                     }
+                }
+                self.out.project_effects.insert(self.key(*span), want.clone());
+                match want.len() {
+                    0 => Ty::Unknown,
+                    1 => Ty::Named { name: ADDR_TYPE.to_string(), args: want },
+                    _ => Ty::Tuple(
+                        want.into_iter()
+                            .map(|f| Ty::Named { name: ADDR_TYPE.to_string(), args: vec![f] })
+                            .collect(),
+                    ),
                 }
             }
             // [actor-self-send] A selector is a *callee*, never a value: a
@@ -27447,14 +27544,6 @@ fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
             !once_blocked && !quals.iter().any(|q| q.effect) && unify(param, base, subst)
         }
         (Ty::Named { name: pn, args: pa }, Ty::Named { name: an, args: aa }) => {
-            // [eff-handle] Handle set-subsumption in unification: a parameter
-            // `eff[A]` (`pn == "Addr"`) is satisfied by an argument `eff[A,
-            // B]` whose set contains every effect the parameter names. The
-            // internal name is `Addr`; match each required effect against
-            // some effect the argument carries.
-            if pn == "Addr" && an == "Addr" && !pa.is_empty() && !aa.is_empty() {
-                return pa.iter().all(|want| aa.iter().any(|have| unify(want, have, subst)));
-            }
             // [cmp-carry] A pattern may omit a keyed container's trailing
             // identity arguments — unstated is unconstrained — so the common
             // prefix is what unifies, and a dropped tail must be identities.
