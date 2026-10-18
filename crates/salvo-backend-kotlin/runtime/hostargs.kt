@@ -2,7 +2,7 @@
 // arguments, captured from the JVM entry point.
 //
 // The JVM delivers argv only through `main`'s `Array<String>`, which the
-// emitted entry stores here as the program starts. `core.args`'s `HostArgs`
+// emitted entry stores here as the program starts. `args`'s `HostArgs`
 // handler reads it back. The array already excludes the program name, which
 // is the one form both backends answer identically.
 package salvo

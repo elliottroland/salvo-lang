@@ -64,10 +64,10 @@ impl<T: ArgsPlatformSync> __Stateless_Args for __Platform_Args<T> {
     }
 }
 
-pub type __Platform_HostArgs = crate::core_args::__Platform_Args<crate::platform_core_args::HostArgs>;
+pub type __Platform_HostArgs = crate::args::__Platform_Args<crate::platform_args::HostArgs>;
 
 impl __Platform_HostArgs {
     pub fn new() -> Self {
-        crate::core_args::__Platform_Args(crate::platform_core_args::HostArgs::new())
+        crate::args::__Platform_Args(crate::platform_args::HostArgs::new())
     }
 }

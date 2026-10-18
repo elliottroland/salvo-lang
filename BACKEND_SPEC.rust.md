@@ -152,7 +152,7 @@ Conventions:
     reads `std::env::args().skip(1)` directly (argv is reachable from
     anywhere on Rust), so there is no entry-signature change and no runtime
     holder, unlike the JVM. Std ships the host impl at
-    `std/platform/core/args.rs`.
+    `std/platform/args.rs`.
 * [rs-build] **`salvo build` persists a native binary** at `<out>/<name>`
   [cli-build]. The same `rustc` (or `cargo`, with crates declared) build as
   `program_command`, but the finished binary lands in the lasting `out`

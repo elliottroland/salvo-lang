@@ -138,6 +138,34 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-18 — `args` moved out of `core` into its own module
+
+The command-line-arguments surface was placed in `core` (so `args()`/`HostArgs`
+needed no import); the user moved it out the same day. It is now the top-level
+std module `args`, brought in with `import args` — like `time`, which is also
+imported rather than implicit. A program that uses `HostArgs` without the
+import now gets a resolution error with the quick-fix "add `import
+args.HostArgs`".
+
+The move: `std/core/args.sv` → `std/args.sv`, host impls
+`std/platform/core/args.{rs,kt}` → `std/platform/args.{rs,kt}` with their ABI
+module/package names following the path (`crate::args` /
+`crate::platform_args` on Rust, `salvo.args` / `salvo.platform.args` on
+Kotlin), and the generated `std/platform/args.sv.{rs,kt}` regenerated via
+`salvo platform generate --backend '*'` (which re-bumped the std platform ABI
+hash across all `std/platform/**.sv.{rs,kt}`). The name-based
+`RuntimeFeatures::args` detector was unaffected (it keys on the names `Args` /
+`HostArgs`, not the module path).
+
+One real collision surfaced and was fixed: the Kotlin argv **runtime holder**
+file was emitted as `args.kt`, which at top level clashed with the `args`
+module's own emitted `args.kt` (under `core.args` it had been `core/args.kt`,
+no clash). Renamed the holder to `runtime/hostargs.kt` (and its emitted
+`hostargs.kt`), matching the `hosttime.kt`/`hoststreams.kt` runtime-file
+convention. Verified byte-identical argv output on both backends with `import
+args`; docs/spec updated (`[cli-args]`, the Effects-and-Handlers narrative, both
+backend specs).
+
 ### 2026-10-18 — `salvo init`: scaffolding a project
 
 `salvo init [PATH]` (default `.`) lays down a new project — a `salvo.toml`, a
@@ -198,6 +226,10 @@ request 2026-10-18) with a final "Every valid option" section listing every
 section and key and how they interact; `Modules.md` now points to it.
 
 ### 2026-10-18 — Command-line arguments: the `Args` effect
+
+*(Superseded the same day — `args` was moved out of `core` into its own
+imported module; see the top entry. The paths and "no import" below describe
+the original landing.)*
 
 Reading the process's command line is a std capability, not a global (user
 decision: "globally accessible state is antithetical to the locality value of

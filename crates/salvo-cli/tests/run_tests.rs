@@ -118,6 +118,8 @@ fn run_compiles_and_runs_with_each_backend() {
 /// and the *same* list prints on both backends — the parity the two hosts'
 /// different argv conventions are reconciled to.
 const ARGS_PROGRAM: &str = r#"
+import args
+
 fn main() [use] -> None {
     use StdOutConsole()
     use HostArgs()

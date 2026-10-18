@@ -61,9 +61,10 @@ Conventions:
     is instead `fun main(args: Array<String>)`, and the body opens by
     capturing it — `salvo.SalvoArgs.set(args)` — beside the protocol prelude,
     before any user code runs. The JVM delivers argv only through this array
-    (already program-name-excluded), and `core.args`'s `HostArgs` reads it
-    back from the `salvo.SalvoArgs` holder (`runtime/args.kt`, shipped only
-    when the `RuntimeFeatures::args` flag is set). The Salvo `main` signature
+    (already program-name-excluded), and `args`'s `HostArgs` reads it
+    back from the `salvo.SalvoArgs` holder (`runtime/hostargs.kt`, shipped
+    only when the `RuntimeFeatures::args` flag is set; named to avoid
+    colliding with the top-level `args` module's own emitted `args.kt`). The Salvo `main` signature
     is unchanged — this is purely the shape of the emitted entry. A program
     that does not use `Args` is byte-for-byte as before.
 * [kt-build] **`salvo build` persists a jar + `sh` launcher** [cli-build].

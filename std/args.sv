@@ -1,12 +1,19 @@
 // [cli-args] The program's command-line arguments, as a capability.
 //
+// Not part of `core`, so it is imported — one line brings it in
+// [mod-import-module]:
+//
+//     import args
+//
 // A function that reads argv is a function whose answer depends on how the
 // process was launched, so — like reading a clock or the console — it is an
 // effect, not a global. `Args` is bound once in `main` and threaded to
 // whoever needs it [addr-capability]; nothing reads argv behind the back of
 // the signature.
 //
-//     fn main() [use, Args] -> None {
+//     import args
+//
+//     fn main() [use] -> None {
 //         use HostArgs()
 //         for a in args() {
 //             println(a)

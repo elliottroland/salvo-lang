@@ -6498,10 +6498,12 @@ the same day. **Not part of `core`**: the surface is imported, and one
     already supplies the sequencing. Revisit if the dedicated thread the unified
     clock costs, or the advance ergonomics, start to bite.
 
-## Command-line arguments (std, `core.args`)
+## Command-line arguments (std, `args`)
 
 Built 2026-10-18, on the user's decision of the same day (effect over global
-state). Part of `core`, so `args()` and `HostArgs` need no import.
+state). **Not part of `core`** (user decision, moved out the same day): the
+surface is imported — `import args` brings `Args`, `args()` and `HostArgs`
+[mod-import-module].
 
 * [cli-args] **`effect Args { fn args() -> List<Str> }`** is the process's
   command-line arguments, and reading it is a *capability* for the same
@@ -6521,7 +6523,7 @@ state). Part of `core`, so `args()` and `HostArgs` need no import.
   * **`threadsafe platform handler HostArgs() of Args`** is the host's argv,
     read the one way each backend offers. Stateless, so sharing it across
     threads needs no synchronization [threadsafe-platform]. Std ships both
-    host implementations (`std/platform/core/args.{rs,kt}`).
+    host implementations (`std/platform/args.{rs,kt}`).
   * **The Salvo `main` signature is unchanged** by this effect (user decision:
     a `main(args)` entry form was considered and rejected). On the JVM, argv
     arrives only through `fun main(args: Array<String>)`, so when a program
@@ -6531,7 +6533,9 @@ state). Part of `core`, so `args()` and `HostArgs` need no import.
     so nothing else changes. Rust needs no entry change —
     `std::env::args()` is reachable from anywhere. The capture is gated on a
     `RuntimeFeatures::args` flag (set by a `use` of `HostArgs` or any mention
-    of `Args`), which also decides whether the `args.kt` runtime holder ships.
+    of `Args`), which also decides whether the `hostargs.kt` runtime holder
+    ships (named to avoid colliding with the top-level `args` module's own
+    emitted `args.kt`).
   * **`salvo run -- <args>`** forwards everything after `--` to the program as
     its argv [cli-run], so a program's command line can be exercised without
     building a persisted artifact.

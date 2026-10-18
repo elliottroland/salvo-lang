@@ -117,9 +117,11 @@ fn random_numbers() [Random<Int>, Random<Double>] -> None {
 
 ## Reading the command line: the `Args` effect
 
-A standard capability for writing command-line tools. Reading the process's arguments is a dependency like reading a clock — the answer depends on how the program was launched — so it is an effect, not a global:
+A standard capability for writing command-line tools. Reading the process's arguments is a dependency like reading a clock — the answer depends on how the program was launched — so it is an effect, not a global. It lives in its own module, brought in with `import args`:
 
 ```
+import args
+
 fn main() [use] -> None {
     use StdOutConsole()
     use HostArgs()                      // the host's argv
@@ -129,7 +131,7 @@ fn main() [use] -> None {
 }
 ```
 
-`args()` answers the arguments *after* the program name, as a `List<Str>`, in order. Both `args()` and its host handler `HostArgs` live in `core`, so no import is needed. The program name is not an argument; a tool that wants it does not read it here.
+`args()` answers the arguments *after* the program name, as a `List<Str>`, in order. `import args` brings the effect `Args`, the function `args()`, and its host handler `HostArgs`. The program name is not an argument; a tool that wants it does not read it here.
 
 `args()` gives the same list on every backend, which is the point of routing it through an effect: the Rust and JVM argv conventions differ (Rust's includes the program name, the JVM's array does not), and the `HostArgs` handler reconciles them so your program does not have to. During development, `salvo run -- alpha "beta gamma"` forwards everything after `--` to the program as its arguments.
 

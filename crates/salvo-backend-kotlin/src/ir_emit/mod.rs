@@ -161,7 +161,7 @@ pub fn emit_program_ir(program: &Program, abi: bool) -> Result<(Vec<EmittedFile>
     // [cli-args] The argv holder, shipped when the program reads the
     // command line and captured by the emitted `main`.
     if features.args {
-        files.push(EmittedFile { rel_path: "args.kt".into(), content: include_str!("../../runtime/args.kt").to_string() });
+        files.push(EmittedFile { rel_path: "hostargs.kt".into(), content: include_str!("../../runtime/hostargs.kt").to_string() });
     }
     if features.time() {
         files.push(EmittedFile { rel_path: "hosttime.kt".into(), content: crate::emit::generate_time_file() });

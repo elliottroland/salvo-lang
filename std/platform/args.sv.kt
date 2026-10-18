@@ -2,7 +2,7 @@
 // the declarations the platform code uses, as the build emits them. Rewritten
 // by every build — do not edit; the build never reads this file.
 // salvo-abi 1 9f0cb30f416e2b9d
-package salvo.core.args
+package salvo.args
 
 import salvo.*
 
@@ -30,5 +30,5 @@ open class __Platform_Args(private val impl: ArgsPlatform) : Args {
 }
 
 
-class __Platform_HostArgs() : __Platform_Args(salvo.platform.core.args.HostArgs())
+class __Platform_HostArgs() : __Platform_Args(salvo.platform.args.HostArgs())
 

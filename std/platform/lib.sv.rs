@@ -13,10 +13,10 @@ pub mod hoststreams;
 pub mod hosttime;
 #[path = "salvo/wire.sv.rs"]
 pub mod wire;
+#[path = "args.sv.rs"]
+pub mod args;
 #[path = "core/actor.sv.rs"]
 pub mod core_actor;
-#[path = "core/args.sv.rs"]
-pub mod core_args;
 #[path = "core/basic.sv.rs"]
 pub mod core_basic;
 #[path = "core/buffer.sv.rs"]
@@ -83,8 +83,8 @@ pub mod platform_runtime_routing;
 pub mod platform_runtime_streams;
 #[path = "salvo/platform/runtime.sv.rs"]
 pub mod platform_runtime;
-#[path = "core/args.rs"]
-pub mod platform_core_args;
+#[path = "args.rs"]
+pub mod platform_args;
 #[path = "core/buffer.rs"]
 pub mod platform_core_buffer;
 #[path = "core/bytes.rs"]
