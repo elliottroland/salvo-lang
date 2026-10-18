@@ -250,3 +250,33 @@ fn any_on_an_alias_is_refused() {
         "{errs:?}"
     );
 }
+
+// [eff-handle] An alias flattens inside an `eff[…]` handle type too, not only
+// in an effect list: `eff[App]` is `eff[Console, Clock]`, so a fn taking
+// `eff[App]` accepts a handle carrying those effects.
+#[test]
+fn an_alias_flattens_inside_a_handle_type() {
+    let src = &format!(
+        "{CLOCK}\
+effects App = [Console, Clock]
+
+fn read(h: eff[App]) [use] -> None => h {{
+    use h
+    print(\"x\")
+    let _ = now()
+}}
+
+fn main() [use] {{
+    let c = use Out()
+    let _ = c
+}}
+"
+    );
+    let errs = errors(&[("main.sv", src)]);
+    // `eff[App]` must resolve its members (`Console`, `Clock`) — no unknown
+    // effect from an unexpanded `App` inside the handle type.
+    assert!(
+        !errs.iter().any(|e| e.contains("App")),
+        "`eff[App]` must flatten to its members: {errs:?}"
+    );
+}

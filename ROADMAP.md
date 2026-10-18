@@ -165,12 +165,21 @@ the handle as a storable value, so emission is identical by construction
    projection introduces) — refused by name for now; a multi-face `use`
    statement still binds every face. The monitor-spawn→`use` migration also
    rides with stage 4/5.
-4. **Projection `e[S]`** (non-consuming narrow) and **`use e`** of a handle set
-   (the recursive/flat bind), with `eff[IO]` alias flattening in type position.
-   Introduce the flat multi-effect handle representation (unblocks the
-   stage-3 deferral), and migrate the remaining monitor spawns to `use`.
+4. **Projection `e[S]`** and **`use e`** of a handle set — PARTIAL.
+   ✅ Done: **alias flattening in `eff[…]` type position** — `eff[IO]` is
+   `eff[Console, Fs, Streams]`, expanded by `alias.rs`'s type visitor
+   (`expand_handle_args`) the same way effect lists flatten; `use e` and
+   subsumption over a single-effect handle (stage 3). 
+   ⬜ Remaining — all hinge on a **flat multi-effect handle representation**
+   both backends can store, dispatch on, and project from (today a multi-face
+   `use` lowers to a *tuple* of per-face monitor wrappers, which is not one
+   value): the multi-face `use`-as-value deferral from stage 3; projection
+   `e[A, B]` / `e[IO]` (non-consuming narrow); `use e` binding every effect in
+   a multi-effect set; and migrating the monitor spawns to `use`. This is the
+   one genuinely new backend design left — an abstract handle a function can
+   hold without naming the concrete handler, carrying several faces.
 5. **Merge `eff[a, b]`** (value position, bound handles) and **`eff[*]`**
-   (all in-scope handles).
+   (all in-scope handles) — depends on stage 4's multi-effect representation.
 
 Tests must all pass at the end; the tree need not be clean between commits.
 

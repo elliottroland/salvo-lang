@@ -3970,13 +3970,18 @@ Conventions:
     wider handle fits a narrower requirement (the same rule `unify`/`is_subtype`
     apply so a scope with more effects calls a fn needing fewer). A parameter
     `eff[A]` is satisfied by any argument whose set contains `A`.
+  * **Alias flattening in type position**: an alias inside an `eff[…]` type
+    expands like it does in an effect list, so `eff[IO]` is
+    `eff[Console, Fs, Streams]` (built: `alias.rs`'s `expand_handle_args`).
   * **Deferred:** binding a *multi-face* handler's handle to a single value
-    (`let x = use Both()` where `Both of A, B`) needs the flat multi-effect
-    handle's backend representation, which lands with projection; until then it
-    is refused by name rather than emitted wrong [backend-never-wrong]. A
-    multi-face `use` as a *statement* binds every face as before. The remaining
-    surface — projection `e[S]`, merge `eff[a, b]`, `eff[*]` — lands in the
-    stages that follow.
+    (`let x = use Both()` where `Both of A, B`), projection `e[S]`, merge
+    `eff[a, b]`, and `eff[*]` all need the flat multi-effect handle's backend
+    representation — an abstract handle carrying several faces that a function
+    can hold without naming the concrete handler. Today a multi-face `use`
+    lowers to a *tuple* of per-face monitor wrappers, which is not one value;
+    until the representation lands, a multi-face `use` as a value is refused by
+    name rather than emitted wrong [backend-never-wrong], and a multi-face
+    `use` as a *statement* binds every face as before.
 * [handler-not-value] A handler instance is produced by `use` and lives in
   the effect environment; a handler constructor call in any other position
   is an error naming the `use` remedy. (Rust could not render one anyway:

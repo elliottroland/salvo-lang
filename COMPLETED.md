@@ -138,6 +138,62 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-18 — First-class effect handles: `eff[E]` (stages 1–3 + alias flattening)
+
+Reworked the effect-handle surface and made bound handlers first-class values,
+per the settled design in ROADMAP's "First-class effects" (user decisions
+2026-10-18). Landed as four commits:
+
+- **`Addr<E>` → `eff[E]` (commit `eba7f4b4`).** The handle type's surface
+  spelling is now the lowercase bracketed former `eff[A, B, …]` (a flat effect
+  set), not `Addr<…>`. The internal `Ty` name stays `"Addr"` — rendered as
+  `eff[…]` by both the `Ty` Display and the AST `TypeRef` Display, so
+  diagnostics and the IR dump show the surface — which kept the change
+  byte-identical in generated code (the many internal `"Addr"` literals,
+  codecs, `AddrCodec`, erase/wire/copyplan are untouched). The old `Addr<…>`
+  spelling is a plain parse error naming `eff[E]` [eff-handle]. The std
+  intrinsic `type Addr<E>` declaration is the one remaining `Addr` spelling.
+  A balanced-bracket script did the `.sv`/doc/test sweep; the actor prose no
+  longer calls a handle an "address".
+- **`spawn` must name its pool (commit `84e742a6`).** An *actor* spawn requires
+  `on POOL` — `use H()` now covers the this-scope binding, so `spawn` is "on a
+  thread". The implicit main-pool default is retired; `examples/actors` §7
+  became an explicit `pool(1)`. A **monitor** spawn (plain-effect faces) runs
+  on no thread and still omits a pool, pending its migration to `use`.
+  `[main-pool]` kept for task-mint (`replyto`) pool inheritance and `main`'s
+  own execution context.
+- **`use` as an expression (commit `28d842e9`).** `Expr::Use` added; `let x =
+  use H()` registers the handler **and** yields its handle. A fn returns/accepts
+  `eff[E]`; `use handle` binds a handed-in one (the `use addr` path
+  generalised, needing `[use]`). Set-subsumption in `unify`/`is_subtype`:
+  `eff[A, B]` <: `eff[A]` (a wider handle fits a narrower requirement). The
+  statement form `use H()` stays `Stmt::Use`, sharing one parser with the
+  expression; the IR's `use_stmt` was split into `use_stmt_bound` (returns the
+  bound `(face, local)` pairs) feeding both the statement lowering and a new
+  `use_expr` that yields the handle (single face → the handle, several → a
+  tuple). **Single-face verified byte-identical on both backends** (a factory
+  returning `eff[Clock]`, passed and re-bound).
+- **Alias flattening in `eff[…]` type position (this commit).** An alias inside
+  a handle type expands like it does in an effect list — `eff[IO]` is
+  `eff[Console, Fs, Streams]` — via `alias.rs`'s type visitor
+  (`expand_handle_args`). Verified end-to-end.
+
+**Gotcha / lesson:** the flat `eff[A, B]` type is one value, but the IR still
+lowers a multi-face `use` to a *tuple* of per-face monitor wrappers (Rust
+`__Handle_E`, Kotlin `__Mon_E`). So binding a multi-face handler's handle to a
+*single value* needs a flat multi-effect handle representation both backends can
+store, dispatch on, and project from — an abstract handle a function holds
+without naming the concrete handler. That representation is the one genuinely
+new backend design left; until it lands, a multi-face `use` as a value is
+refused by name ([backend-never-wrong]) while the statement form binds every
+face as before. Projection `e[S]`, merge `eff[a, b]`, and `eff[*]` all wait on
+it (ROADMAP stages 4–5). A second lesson: `visit_mut::walk_type` *starts* by
+calling `visit_type` on the node, so a `visit_type` override must not call
+`walk_type` on the same node — the framework already descends (an infinite
+recursion found and fixed while building the type-position flattening).
+
+
+
 ### 2026-10-18 — Effect-group aliases (`effects IO = [Console, Fs, Streams]`)
 
 Built effect aliases: a named shorthand for a group of effects, usable anywhere

@@ -350,6 +350,64 @@ impl Rewrite<'_> {
         *list = out;
     }
 
+    /// [eff-handle] Expand alias entries among an `eff[…]` handle type's
+    /// effect args (`Type::Named` wrapping a `TypeRef`), flattened and deduped
+    /// by name, order of non-alias entries preserved — the type-position twin
+    /// of `expand_list`.
+    fn expand_handle_args(&mut self, args: &mut Vec<salvo_syntax::ast::Type>) {
+        use salvo_syntax::ast::Type;
+        let names_alias = args.iter().any(|a| match a {
+            Type::Named { qualifiers, base } => {
+                qualifiers.is_empty()
+                    && self
+                        .index
+                        .resolve(self.file, &base.name.name)
+                        .is_some_and(|f| self.index.aliases.contains_key(&(f, base.name.name.clone())))
+            }
+            _ => false,
+        });
+        if !names_alias {
+            return;
+        }
+        let mut out: Vec<Type> = Vec::new();
+        let mut present: HashSet<String> = HashSet::new();
+        for arg in std::mem::take(args) {
+            let Type::Named { qualifiers, base } = &arg else {
+                out.push(arg);
+                continue;
+            };
+            let name = base.name.name.clone();
+            let alias_file = self
+                .index
+                .resolve(self.file, &name)
+                .filter(|f| self.index.aliases.contains_key(&(*f, name.clone())));
+            let Some(af) = alias_file else {
+                let _ = qualifiers;
+                if present.insert(name) {
+                    out.push(arg);
+                }
+                continue;
+            };
+            match self.index.closure(af, &name) {
+                Ok(members) => {
+                    for (target, r) in members {
+                        if !present.insert(r.name.name.clone()) {
+                            continue;
+                        }
+                        if self.ensure_visible(target, &r.name.name, r.span, &name) {
+                            out.push(Type::Named { qualifiers: Vec::new(), base: implied_ref(&r) });
+                        }
+                    }
+                }
+                Err(chain) => self.diags.push(Diagnostic::error(
+                    format!("the effect alias `{name}` is cyclic: {} [effect-alias]", chain.join(" -> ")),
+                    base.span,
+                )),
+            }
+        }
+        *args = out;
+    }
+
     fn expand_fn(&mut self, f: &mut FnDecl) {
         if let Some(list) = &mut f.effects {
             self.expand_list(list);
@@ -376,6 +434,15 @@ impl MutVisitor for FnTypes<'_, '_> {
     fn visit_type(&mut self, ty: &mut salvo_syntax::ast::Type) {
         if let salvo_syntax::ast::Type::Fn { effects: Some(list), .. } = ty {
             self.0.expand_list(list);
+        }
+        // [eff-handle] An `eff[A, B, …]` handle type is the internal `Addr`
+        // type carrying its effect set as args; an alias among them expands
+        // the same way it does in an effect list — flattened, deduped,
+        // order preserved — so `eff[IO]` is `eff[Console, Fs, Streams]`.
+        if let salvo_syntax::ast::Type::Named { qualifiers, base } = ty {
+            if qualifiers.is_empty() && base.name.name == "Addr" {
+                self.0.expand_handle_args(&mut base.args);
+            }
         }
     }
 }
