@@ -1217,6 +1217,7 @@ impl<'p> Walk<'_, 'p> {
             Expr::Lambda { body, .. } => match body {
                 LambdaBody::Expr(e) => self.cond_expr(e),
                 LambdaBody::Block(b) => self.cond_block(b),
+                LambdaBody::Terminal => {}
             },
             // [qual-lift] The check reads its subject.
             Expr::Widen { subject, .. } => self.expr(subject),

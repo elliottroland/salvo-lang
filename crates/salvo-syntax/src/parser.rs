@@ -55,6 +55,17 @@ pub struct Parser<'s> {
     /// `let` value, a call argument, a parenthesised group), so `...` is a body
     /// only for the construct that *is* the statement.
     allow_terminal: bool,
+    /// [terminal-lambda] True while parsing a statement's own expression tree —
+    /// including through a `return`/`let`/assignment value and call arguments,
+    /// where `allow_terminal` is cleared — but false inside a nested block or a
+    /// lambda body. The gate for a **trailing-lambda terminal scope**
+    /// (`map(xs, (e) -> ...)`): the last argument's lambda body may be written
+    /// `...` and becomes the rest of the enclosing block.
+    in_stmt_expr: bool,
+    /// [terminal-lambda] Set when a trailing `(params) -> ...` lambda has been
+    /// parsed in the current statement; its body is filled with the rest of the
+    /// block once the statement closes. At most one per statement.
+    pending_terminal_lambda: bool,
     /// [elvis-wrap] Suppresses the forward `?:`'s line-wrap: set while parsing
     /// a nested right side (a `return`/escape value) so a next-line `?:` is
     /// left for the *enclosing* elvis chain to pick up, bracketing everything
@@ -231,6 +242,8 @@ impl<'s> Parser<'s> {
             no_struct: false,
             in_compfn: false,
             allow_terminal: false,
+            in_stmt_expr: false,
+            pending_terminal_lambda: false,
             elvis_no_wrap: false,
         }
     }
@@ -4517,12 +4530,10 @@ impl<'s> Parser<'s> {
         let mut stmts = Vec::new();
         while !self.at(&TokenKind::RBrace) && !self.at_eof() {
             let before = self.pos;
-            self.allow_terminal = true;
-            match self.parse_stmt() {
+            match self.parse_block_stmt() {
                 Some(stmt) => stmts.push(stmt),
                 None => self.recover_in_block(),
             }
-            self.allow_terminal = false;
             if self.pos == before {
                 self.bump();
             }
@@ -4565,28 +4576,56 @@ impl<'s> Parser<'s> {
         // even when the block itself appears inside parentheses.
         let saved_depth = std::mem::replace(&mut self.group_depth, 0);
         let saved_no_struct = std::mem::replace(&mut self.no_struct, false);
+        // [terminal-lambda] A nested block is not the enclosing statement's
+        // expression tree; `parse_block_stmt` re-arms the flag per statement.
+        let saved_in_stmt = std::mem::replace(&mut self.in_stmt_expr, false);
         let mut stmts = Vec::new();
         while !self.at(&TokenKind::RBrace) && !self.at_eof() {
             let before = self.pos;
-            // [terminal-scope] A statement's own expression may end in a
-            // terminal `...` body; a sub-expression may not.
-            self.allow_terminal = true;
-            match self.parse_stmt() {
+            match self.parse_block_stmt() {
                 Some(stmt) => stmts.push(stmt),
                 None => self.recover_in_block(),
             }
-            self.allow_terminal = false;
             if self.pos == before {
                 self.bump();
             }
         }
         self.group_depth = saved_depth;
         self.no_struct = saved_no_struct;
+        self.in_stmt_expr = saved_in_stmt;
         let end = self.expect(&TokenKind::RBrace)?.span;
         Some(Block {
             stmts,
             span: start.to(end),
         })
+    }
+
+    /// [terminal-scope] [terminal-lambda] One statement of a block, with the
+    /// terminal-scope flags set for its own expression and the trailing-lambda
+    /// capture run afterwards. Shared by `parse_block` and
+    /// `parse_terminal_rest`.
+    fn parse_block_stmt(&mut self) -> Option<Stmt> {
+        // [terminal-scope] A statement's own expression may end in a terminal
+        // `...` body; a sub-expression may not. [terminal-lambda] And its last
+        // call argument may be a `(…) -> ...` lambda, allowed through the whole
+        // statement expression tree (`in_stmt_expr`).
+        self.allow_terminal = true;
+        self.in_stmt_expr = true;
+        let stmt = self.parse_stmt();
+        self.allow_terminal = false;
+        self.in_stmt_expr = false;
+        // [terminal-lambda] If a trailing `(…) -> ...` lambda was parsed, the
+        // rest of the enclosing block is now its body.
+        if self.pending_terminal_lambda {
+            self.pending_terminal_lambda = false;
+            let rest = self.parse_terminal_rest();
+            if let Some(mut s) = stmt {
+                fill_terminal_lambda(&mut s, rest);
+                return Some(s);
+            }
+            return stmt;
+        }
+        stmt
     }
 
     /// Skips to the start of the next statement (a token on a new line) or
@@ -5205,6 +5244,9 @@ impl<'s> Parser<'s> {
         let end = match &body {
             LambdaBody::Expr(e) => e.span(),
             LambdaBody::Block(b) => b.span,
+            // [terminal-lambda] The body is captured after the statement; use
+            // the span so far.
+            LambdaBody::Terminal => start,
         };
         Some(Expr::Lambda {
             params: vec![param],
@@ -5263,6 +5305,9 @@ impl<'s> Parser<'s> {
         let end = match &body {
             LambdaBody::Expr(e) => e.span(),
             LambdaBody::Block(b) => b.span,
+            // [terminal-lambda] The body is captured after the statement; use
+            // the span so far.
+            LambdaBody::Terminal => start,
         };
         Some(Expr::Lambda {
             params,
@@ -5272,11 +5317,43 @@ impl<'s> Parser<'s> {
     }
 
     fn parse_lambda_body(&mut self) -> Option<LambdaBody> {
-        if self.at(&TokenKind::LBrace) {
+        // [terminal-lambda] `(params) -> ...` — the lambda's body is the rest
+        // of the enclosing block, captured after the statement closes. Allowed
+        // only as the trailing argument of a statement's expression tree
+        // (`in_stmt_expr`), and only one per statement.
+        if self.at(&TokenKind::Ellipsis) {
+            if !self.in_stmt_expr {
+                let span = self.peek().span;
+                self.error(
+                    "a `(…) -> ...` lambda body is a terminal scope — the rest of the \
+                     enclosing block becomes it — so it is only the last argument of a \
+                     statement's call, never a nested or stored expression: write a \
+                     `{ … }` body here",
+                    span,
+                );
+                return None;
+            }
+            if self.pending_terminal_lambda {
+                let span = self.peek().span;
+                self.error(
+                    "only one `(…) -> ...` terminal lambda per statement: the rest of \
+                     the block cannot be two bodies — write `{ … }` on all but one",
+                    span,
+                );
+                return None;
+            }
+            self.bump(); // `...`
+            self.pending_terminal_lambda = true;
+            return Some(LambdaBody::Terminal);
+        }
+        let saved_in_stmt = std::mem::replace(&mut self.in_stmt_expr, false);
+        let body = if self.at(&TokenKind::LBrace) {
             Some(LambdaBody::Block(self.parse_block()?))
         } else {
             Some(LambdaBody::Expr(Box::new(self.parse_expr()?)))
-        }
+        };
+        self.in_stmt_expr = saved_in_stmt;
+        body
     }
 
     /// [expr-infix] Every infix operator, parsed by one **precedence-climbing**
@@ -7613,4 +7690,30 @@ fn compound_op(kind: &TokenKind) -> Option<BinaryOp> {
         TokenKind::SlashEq => Some(BinaryOp::Div),
         _ => None,
     }
+}
+
+/// [terminal-lambda] Fills the single `LambdaBody::Terminal` placeholder in a
+/// just-parsed statement with the captured rest-of-block, in place. There is at
+/// most one per statement (the parser refuses a second).
+fn fill_terminal_lambda(stmt: &mut Stmt, body: Block) {
+    use crate::visit_mut::{self, MutVisitor};
+    struct Fill {
+        body: Option<Block>,
+    }
+    impl MutVisitor for Fill {
+        fn visit_expr(&mut self, e: &mut Expr) {
+            // The framework's `walk_expr` descends into children after this
+            // returns, so we only act on the placeholder and never recurse
+            // (calling `walk_expr` here would re-enter `visit_expr` on `e`).
+            if let Expr::Lambda { body: lb, .. } = e {
+                if matches!(lb, LambdaBody::Terminal) {
+                    if let Some(b) = self.body.take() {
+                        *lb = LambdaBody::Block(b);
+                    }
+                }
+            }
+        }
+    }
+    let mut fill = Fill { body: Some(body) };
+    visit_mut::walk_stmt(&mut fill, stmt);
 }

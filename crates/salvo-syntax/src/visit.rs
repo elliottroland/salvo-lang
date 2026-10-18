@@ -722,6 +722,8 @@ pub fn walk_expr<V: Visitor>(v: &mut V, e: &Expr) {
             match body {
                 LambdaBody::Expr(e) => walk_expr(v, e),
                 LambdaBody::Block(b) => walk_block(v, b),
+                // [terminal-lambda] Filled before any walk; nothing to visit.
+                LambdaBody::Terminal => {}
             }
         }
         Expr::Try { body, span } => {

@@ -20863,6 +20863,7 @@ fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
         Expr::Lambda { body, .. } => match body {
             LambdaBody::Expr(e) => collect_assigned_expr(e, out),
             LambdaBody::Block(b) => collect_assigned(b, out),
+            LambdaBody::Terminal => {}
         },
         Expr::Call { callee, args, .. } => {
             collect_assigned_expr(callee, out);
@@ -21074,6 +21075,7 @@ fn expr_mentions(expr: &Expr, name: &str) -> bool {
         Expr::Lambda { body, .. } => match body {
             LambdaBody::Expr(e) => expr_mentions(e, name),
             LambdaBody::Block(b) => block_mentions(b),
+            LambdaBody::Terminal => false,
         },
         // [try] The delimiter's body is ordinary code — a value mentioned
         // only inside it is still mentioned.
@@ -25024,6 +25026,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 exp_ret.unwrap_or(Ty::Unknown)
             }
+            // [terminal-lambda] The parser fills a `...` body before checking.
+            LambdaBody::Terminal => Ty::Unknown,
         };
         self.loop_stack = saved_loops;
         self.can_spawn = saved_can_spawn;

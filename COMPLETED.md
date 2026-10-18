@@ -138,6 +138,43 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-18 — Terminal lambda arguments (`map(xs, (e) -> ...)`)
+
+A call's last argument may be a lambda whose body is a trailing `...`, and then
+the rest of the enclosing block becomes that lambda's body (user request) — the
+trailing-lambda companion to `[terminal-scope]`, so `return map(xs, (e) -> ...)`
+followed by `return e * 2` makes the mapper the rest of the block. Rule
+`[terminal-lambda]`.
+
+- **Two-phase parse.** The call's `)` sits between the lambda and the
+  rest-of-block, so the body cannot be parsed inline. `parse_lambda_body` on
+  `...` records a transient `LambdaBody::Terminal` placeholder and sets a
+  parser flag; the call and statement finish; then `parse_block_stmt` (a new
+  shared helper for `parse_block` and `parse_terminal_rest`) captures the
+  rest-of-block with the existing `parse_terminal_rest` and `fill_terminal_lambda`
+  rewrites the placeholder to an ordinary `LambdaBody::Block`. The placeholder
+  never reaches the checker, IR or emitters — it is pure syntax, like the
+  `[terminal-scope]` `...` body.
+- **Gating.** A new `in_stmt_expr` flag is true through a statement's whole
+  expression tree — including a `return`/`let`/assignment value and call
+  arguments, where `allow_terminal` is cleared — but false inside a nested
+  block or lambda body. That is what lets the asked-for `return map(...)` work
+  (the `...` body-taking constructs cannot appear there). One terminal lambda
+  per statement (a second `...` body is refused).
+- **Gotcha (again):** `fill_terminal_lambda`'s `MutVisitor::visit_expr` must
+  NOT call `walk_expr(self, e)` — `walk_expr` opens by calling `visit_expr(e)`,
+  so self-walking re-enters infinitely (a stack overflow on the first probe).
+  The framework's `walk_expr` already descends into children after `visit_expr`
+  returns, so the override only acts and returns. Same trap as the earlier
+  `walk_type`/`visit_type` one.
+
+Verified byte-identical Rust/Kotlin (`return map(xs, (e) -> ...)` → `2 4 6`).
+Tests: `terminal_lambda_smoke.rs` (2). `LambdaBody::Terminal` added no-op/false
+arms across every `LambdaBody` match (visitors, desugar, check, IR, reach,
+comptime, deduce).
+
+
+
 ### 2026-10-18 — First-class effect handles: the `eff[…]` algebra complete (stages 4–5)
 
 Finished the `eff[…]` surface on top of the stages 1–3 base (previous entry):

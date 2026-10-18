@@ -802,6 +802,7 @@ fn expr_names<'p>(expr: &'p Expr, used: &mut HashSet<&'p str>) {
             match body {
                 LambdaBody::Expr(e) => expr_names(e, used),
                 LambdaBody::Block(b) => block_names(b, used),
+                LambdaBody::Terminal => {}
             }
         }
         Expr::Int { .. }

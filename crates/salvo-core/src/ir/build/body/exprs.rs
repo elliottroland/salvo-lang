@@ -1227,6 +1227,8 @@ impl<'a, 'p> Lower<'a, 'p> {
                 Block { stmts: Vec::new(), value: Some(Box::new(v)), span: e.span() }
             }
             LambdaBody::Block(b) => self.block(b, !ret.is_none_ty() && !ret.is_unknown()),
+            // [terminal-lambda] Filled by the parser before lowering.
+            LambdaBody::Terminal => Block { stmts: Vec::new(), value: None, span },
         };
         self.effect_env.truncate(saved_env_len);
         self.loop_results = saved_loops;

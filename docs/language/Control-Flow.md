@@ -54,6 +54,19 @@ There is no `elif` and no `else ...` on a terminal `if`: only the `if` branch is
 
 Loops take `...` the same way — `for n in xs ...` and `while cond ...` make the rest of the block the loop body (and take no `else`) — as do `try ...` and `waitfor out ...`.
 
+## Terminal lambda arguments
+
+A call's **last argument** may be a lambda whose body is written as a trailing `...`, and then the rest of the enclosing block becomes that lambda's body — the trailing-lambda form, so a call that takes a function reads as a block without nesting it in braces:
+
+```
+fn doubled(xs: List<Int>) -> Mut List<Int> => xs {
+    return map(xs, (e) -> ...)
+    return e * 2                 // the lambda body: `e` is in scope here
+}
+```
+
+This is the same terminal-scope idea applied to a lambda argument: `(e) -> ...` is `(e) -> { <the rest of the block> }`. The lambda's parameters (`e`) are in scope for the rest of the block, and the rest runs as the lambda's body — so the `return e * 2` above is the mapper, while the outer `return map(...)` returns the mapped list. Only one `...` lambda is allowed per statement (the rest of the block cannot be two bodies), and like every terminal scope nothing may follow it at the same level.
+
 ## When expressions
 
 A `when` expression is always exhaustive. That is its purpose, and it happens in one of two ways depending on whether a subject is given.

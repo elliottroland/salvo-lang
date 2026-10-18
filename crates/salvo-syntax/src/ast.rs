@@ -2230,6 +2230,12 @@ pub enum LambdaBody {
     Expr(Box<Expr>),
     /// `i -> { return "${i}" }` — a full block; requires `return`.
     Block(Block),
+    /// [terminal-lambda] `map(xs, (e) -> ...)` — the lambda's body is the
+    /// **rest of the enclosing block**, captured after the call and statement
+    /// close. A transient placeholder: the parser rewrites it to `Block` once
+    /// it has read the rest of the block, so it never reaches the checker or
+    /// a backend.
+    Terminal,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -2350,6 +2350,24 @@ Conventions:
     throw-delimited body / the async continuation.
   * It is purely syntactic: a terminal body is the same `Block` a braced body
     is, so the checker, narrowing and both emitters treat it identically.
+* [terminal-lambda] **A call's last argument may be a lambda with a terminal
+  `...` body** — `map(xs, (e) -> ...)` is `map(xs, (e) -> { <rest of block> })`
+  (user decision 2026-10-18): the rest of the enclosing block becomes the
+  lambda body, so a call taking a function reads as a block without a nested
+  brace. The trailing-lambda companion to `[terminal-scope]`.
+  * The lambda's parameters are in scope for the rest of the block, which runs
+    as the body; the call's own value is unaffected (`return map(xs, (e) ->
+    ...)` returns the mapped list, while the rest is the mapper).
+  * Allowed anywhere in a **statement's own expression tree** — including
+    through a `return`/`let`/assignment value and call arguments (the parser's
+    `in_stmt_expr`), where a body-taking `...` is not — but not inside a nested
+    block or another lambda's body. **One per statement** (the rest of the
+    block cannot be two bodies), and nothing follows at the same level.
+  * Purely syntactic, in two phases: the parser records the `(params) -> ...`
+    as a transient `LambdaBody::Terminal`, lets the call and statement close,
+    then captures the rest of the block (`parse_terminal_rest`, reused from
+    `[terminal-scope]`) and rewrites the placeholder to an ordinary
+    `LambdaBody::Block` — so the checker, IR and both emitters never see it.
 
 * [is-narrowing] `is` checks flow-narrow their subject *place*
   [flow-place]: matched type in the then-branch, remaining arms in the

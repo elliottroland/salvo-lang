@@ -711,6 +711,7 @@ impl HoverRecorder<'_> {
             Expr::Lambda { body, .. } => match body {
                 LambdaBody::Expr(e) => self.expr(e),
                 LambdaBody::Block(b) => self.block(b),
+                LambdaBody::Terminal => {}
             },
             Expr::Tuple { elems, .. } => {
                 for e in elems {

@@ -1560,6 +1560,7 @@ impl Rewrite {
             Expr::Lambda { body, .. } => match body {
                 LambdaBody::Expr(inner) => self.expr(inner),
                 LambdaBody::Block(block) => self.block(block),
+                LambdaBody::Terminal => {}
             },
             Expr::Try { body, .. } => self.block(body),
             // [expr-escape] The escapes carry an optional value expression.
@@ -1731,6 +1732,7 @@ fn collect_shadowing(body: &Block, reserved: &[&Ident], out: &mut Vec<(String, S
                 match body {
                     LambdaBody::Expr(inner) => walk_expr(inner, reserved, out),
                     LambdaBody::Block(block) => walk_block(block, reserved, out),
+                    LambdaBody::Terminal => {}
                 }
             }
             Expr::If { branches, else_block, .. } => {
@@ -2374,6 +2376,7 @@ fn walk_expr_with(expr: &Expr, on_stmt: &mut dyn FnMut(&Stmt), on_expr: &mut dyn
         Expr::Lambda { body, .. } => match body {
             LambdaBody::Expr(inner) => walk_expr_with(inner, on_stmt, on_expr),
             LambdaBody::Block(block) => walk_block_with(block, on_stmt, on_expr),
+            LambdaBody::Terminal => {}
         },
         Expr::If { branches, else_block, .. } => {
             for (cond, block) in branches {
