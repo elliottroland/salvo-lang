@@ -713,6 +713,10 @@ pub struct Checked {
     /// at the projection's span. The IR picks the matching handles out of the
     /// base (a single handle or a tuple of them) into the result.
     pub project_effects: HashMap<Key, Vec<Ty>>,
+    /// [eff-handle] `eff[a, b]` / `eff[*]` merge: the effects of the result
+    /// handle, in order. The IR picks the carrying handle for each — from the
+    /// merged items (`eff[a, b]`) or from the scope (`eff[*]`).
+    pub merge_effects: HashMap<Key, Vec<Ty>>,
     /// [actor-use-addr] Dot-calls that are **sends to an actor** rather than
     /// dispatches through a handler in scope, keyed by the call span and
     /// mapped to the effect instance the addr serves. The emitters need the
@@ -16137,6 +16141,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             | Expr::Spawn { .. }
             | Expr::Use { .. }
             | Expr::Project { .. }
+            | Expr::Merge { .. }
             | Expr::ReplyTo { .. }
             | Expr::WaitFor { .. }
             | Expr::Int { .. }
@@ -16237,6 +16242,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             | Expr::Spawn { .. }
             | Expr::Use { .. }
             | Expr::Project { .. }
+            | Expr::Merge { .. }
             | Expr::ReplyTo { .. }
             | Expr::WaitFor { .. }
             | Expr::Int { .. }
@@ -20836,6 +20842,11 @@ fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
             }
         }
         Expr::Project { base, .. } => collect_assigned_expr(base, out),
+        Expr::Merge { items, .. } => {
+            for i in items {
+                collect_assigned_expr(i, out);
+            }
+        }
         // [actor-replyto] The captures are ordinary expressions.
         Expr::ReplyTo { captures, .. } => {
             for capture in captures {
@@ -21084,6 +21095,7 @@ fn expr_mentions(expr: &Expr, name: &str) -> bool {
             expr_mentions(handler, name) || with_items.iter().any(|h| expr_mentions(h, name))
         }
         Expr::Project { base, .. } => expr_mentions(base, name),
+        Expr::Merge { items, .. } => items.iter().any(|i| expr_mentions(i, name)),
         // [actor-replyto] A capture is a value the continuation takes.
         Expr::ReplyTo { captures, .. } => captures.iter().any(|c| expr_mentions(c, name)),
         // [actor-self-send] A leaf: it mentions no value of its own.
@@ -23476,6 +23488,75 @@ impl<'p, 'r> Checker<'p, 'r> {
                     1 => Ty::Named { name: ADDR_TYPE.to_string(), args: want },
                     _ => Ty::Tuple(
                         want.into_iter()
+                            .map(|f| Ty::Named { name: ADDR_TYPE.to_string(), args: vec![f] })
+                            .collect(),
+                    ),
+                }
+            }
+            // [eff-handle] `eff[a, b]` / `eff[*]` — merge already-bound handles
+            // into one. Each item is a handle value (single or tuple); their
+            // effects union (deduped, order preserved) into the result handle.
+            // `eff[*]` gathers every handle currently in scope.
+            Expr::Merge { items, all, span } => {
+                let mut effects: Vec<Ty> = Vec::new();
+                if *all {
+                    // Every effect handle in scope, innermost-first, deduped.
+                    for avail in self.visible_avail() {
+                        if !effects.contains(&avail.ty) {
+                            effects.push(avail.ty);
+                        }
+                    }
+                } else {
+                    for item in items {
+                        let ty = self.check_expr(item, None);
+                        let mut have: Vec<Ty> = Vec::new();
+                        if self.collect_handle_tuple(&ty, &mut have) {
+                            for e in have {
+                                if !effects.contains(&e) {
+                                    effects.push(e);
+                                }
+                            }
+                        } else if !ty.is_unknown() {
+                            self.error(
+                                item.span(),
+                                format!(
+                                    "`eff[…]` merges effect handles, and `{ty}` is not one: \
+                                     each item is a bound handle [eff-handle]"
+                                ),
+                            );
+                        }
+                    }
+                }
+                // [eff-handle] A handle set has no inherent order; when an
+                // expected handle(-tuple) type is known, produce the effects
+                // in *its* order so the positional tuple matches (a merge or
+                // `eff[*]` returned where `eff[A, B]` is wanted). Extra effects
+                // the expectation does not name keep their place at the end.
+                if let Some(exp) = expected {
+                    let mut wanted: Vec<Ty> = Vec::new();
+                    let _ = self.collect_handle_tuple(exp, &mut wanted);
+                    if !wanted.is_empty() {
+                        let mut ordered: Vec<Ty> = Vec::new();
+                        for w in &wanted {
+                            if let Some(e) = effects.iter().find(|e| *e == w) {
+                                ordered.push(e.clone());
+                            }
+                        }
+                        for e in &effects {
+                            if !ordered.contains(e) {
+                                ordered.push(e.clone());
+                            }
+                        }
+                        effects = ordered;
+                    }
+                }
+                self.out.merge_effects.insert(self.key(*span), effects.clone());
+                match effects.len() {
+                    0 => Ty::Unknown,
+                    1 => Ty::Named { name: ADDR_TYPE.to_string(), args: effects },
+                    _ => Ty::Tuple(
+                        effects
+                            .into_iter()
                             .map(|f| Ty::Named { name: ADDR_TYPE.to_string(), args: vec![f] })
                             .collect(),
                     ),

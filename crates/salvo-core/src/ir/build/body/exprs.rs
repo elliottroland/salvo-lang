@@ -258,6 +258,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             AExpr::SelfAddr { .. } => Expr { ty: self.ty_of(span), span, kind: ExprKind::SelfAddr },
             AExpr::Use { handler, with_items, span } => self.use_expr(handler, with_items, *span),
             AExpr::Project { base, span, .. } => self.project_expr(base, *span),
+            AExpr::Merge { items, all, span } => self.merge_expr(items, *all, *span),
             AExpr::Spawn { handler, with_items, pool, join, .. } => {
                 let key = self.key(span);
                 let info = self.ctx.checked.spawn_info(key);
@@ -2278,6 +2279,74 @@ impl<'a, 'p> Lower<'a, 'p> {
 
     // --------------------------------------------------------------- use --
 
+    /// [eff-handle] `eff[a, b]` / `eff[*]` merge: a handle (single or tuple)
+    /// carrying the result effects, one handle each. For `eff[*]` each comes
+    /// from the scope's bound handle (`effect_instance`); for explicit items,
+    /// from the merged handle values, matched by effect.
+    pub(crate) fn merge_expr(&mut self, items: &[AExpr], all: bool, span: Span) -> Expr {
+        let ty = self.ty_of(span);
+        let effects: Vec<Ty> = self
+            .ctx
+            .checked
+            .merge_effects
+            .get(&self.key(span))
+            .map(|v| v.iter().map(erase).collect())
+            .unwrap_or_default();
+        if all {
+            // Each result effect is read from its handle bound in scope.
+            let reads: Vec<Expr> = effects.iter().map(|e| self.effect_instance(e, span)).collect();
+            let value = match reads.len() {
+                0 => unsupported(ty.clone(), span, "eff[*] with no handle in scope"),
+                1 => reads.into_iter().next().unwrap(),
+                _ => Expr { ty, span, kind: ExprKind::Tuple(reads) },
+            };
+            return value;
+        }
+        // Explicit items: bind each once, gather its per-effect handles, then
+        // assemble the result in `effects` order.
+        let mut stmts: Vec<Stmt> = Vec::new();
+        let mut carried: Vec<(Ty, Expr)> = Vec::new();
+        for item in items {
+            let v = self.expr(item);
+            let vty = v.ty.clone();
+            let tmp = self.fresh("__merge");
+            let id = self.id();
+            stmts.push(Stmt::Let { id, local: tmp.clone(), ty: vty.clone(), value: v });
+            match vty.strip_quals() {
+                Ty::Tuple(elems) => {
+                    for (i, et) in elems.iter().enumerate() {
+                        if let Some(eff) = handle_effect(et) {
+                            let read = Expr { ty: et.clone(), span, kind: ExprKind::Read { place: Place { root: tmp.clone(), steps: vec![Step::Tuple(i)] }, consume: false } };
+                            carried.push((eff, read));
+                        }
+                    }
+                }
+                other => {
+                    if let Some(eff) = handle_effect(other) {
+                        let read = Expr { ty: vty.clone(), span, kind: ExprKind::Read { place: Place { root: tmp.clone(), steps: Vec::new() }, consume: false } };
+                        carried.push((eff, read));
+                    }
+                }
+            }
+        }
+        let reads: Vec<Expr> = effects
+            .iter()
+            .map(|e| {
+                carried
+                    .iter()
+                    .find(|(ce, _)| ce == e)
+                    .map(|(_, ex)| ex.clone())
+                    .unwrap_or_else(|| unsupported(Ty::Named { name: "Addr".into(), args: vec![e.clone()] }, span, "merge: effect not among items"))
+            })
+            .collect();
+        let value = match reads.len() {
+            0 => unsupported(ty.clone(), span, "merge with no effect"),
+            1 => reads.into_iter().next().unwrap(),
+            _ => Expr { ty, span, kind: ExprKind::Tuple(reads) },
+        };
+        self.block_expr(stmts, value, span)
+    }
+
     /// [eff-handle] `e[A, B]` projection: a non-consuming copy of the handles
     /// carrying the requested effects, picked out of the base (a single handle
     /// or a tuple of handles). Yields the one handle (single) or a tuple of
@@ -2408,16 +2477,21 @@ impl<'a, 'p> Lower<'a, 'p> {
     pub(crate) fn use_expr(&mut self, handler: &AExpr, with_items: &[AExpr], span: Span) -> Expr {
         let ty = self.ty_of(span);
         let (stmts, bound) = self.use_stmt_bound(handler, with_items, span);
+        // [eff-handle] Hoist the handle bindings to the enclosing statement
+        // level (via `pending`) rather than nesting them in a block-expr: the
+        // handle locals must stay in scope for the rest of the body (a later
+        // `now()` or `eff[*]` reads them), and the IR `effect_env` entries this
+        // pushed point at them.
+        self.pending.extend(stmts);
         let reads: Vec<Expr> = bound
             .iter()
             .map(|(f, l)| Expr { ty: f.clone(), span, kind: ExprKind::Read { place: Place { root: l.clone(), steps: Vec::new() }, consume: false } })
             .collect();
-        let value = match reads.len() {
-            0 => unsupported(ty.clone(), span, "use expression with no handle"),
+        match reads.len() {
+            0 => unsupported(ty, span, "use expression with no handle"),
             1 => reads.into_iter().next().unwrap(),
             _ => Expr { ty, span, kind: ExprKind::Tuple(reads) },
-        };
-        self.block_expr(stmts, value, span)
+        }
     }
 
     /// `H(args) [with …]` as a `Construct` of the handler: written arguments,
@@ -2627,6 +2701,14 @@ pub(crate) fn subst_map(t: &Ty, map: &std::collections::HashMap<String, Ty>) -> 
 
 /// Whether `e` reads any local the statements `binds` bind (a narrowing
 /// binding a condition's later operand depends on).
+/// [eff-handle] The effect a single-effect handle type carries, if it is one.
+fn handle_effect(handle: &Ty) -> Option<Ty> {
+    match handle.strip_quals() {
+        Ty::Named { name, args } if name == "Addr" && args.len() == 1 => Some(args[0].clone()),
+        _ => None,
+    }
+}
+
 /// [eff-handle] Whether a single-effect handle type `eff[E]` (`Named{Addr,[E]}`)
 /// carries effect `w` — its one arg equals `w`.
 fn handle_carries(handle: &Ty, w: &Ty) -> bool {

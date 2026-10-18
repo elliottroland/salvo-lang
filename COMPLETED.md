@@ -138,6 +138,60 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-18 — First-class effect handles: the `eff[…]` algebra complete (stages 4–5)
+
+Finished the `eff[…]` surface on top of the stages 1–3 base (previous entry):
+multi-effect handles, projection, merge, and `eff[*]`. The whole first-class
+effects feature is now built. Prompted by the user's observation while reading
+the IR that a multi-effect handle should just be a tuple, not a new flat
+representation — which dissolved the one piece previously flagged as hard
+backend work.
+
+- **A multi-effect handle is a tuple of single handles.** `eff[A, B]` lowers to
+  `(eff[A], eff[B])` in the type system (`lower_base_ref`) and the IR alike —
+  each element an ordinary single handle with a real backend representation, so
+  there is *no* flat multi-face handle to invent. A multi-face `use H()` as a
+  value yields that tuple (one shared instance, wrapped per face); `use e` over
+  a (nested) tuple binds every effect (`use e.0; use e.1`, via `use_addr_tuples`
+  + `collect_handle_tuple`). The single-effect handle stays the `Addr`-named
+  marker (it carries the plain-vs-actor distinction the emitters read). The
+  stage-3 multi-face-value *deferral* is gone — it just works now.
+- **Projection `e[A, B]` / `e[IO]`** (`Expr::Project`, `project_effects`): a
+  non-consuming copy of the sub-handle carrying the named effects — a subset of
+  what `e` carries, refused otherwise; one effect → single handle, several → a
+  tuple; alias-expanding (`alias.rs`'s new `expand_handle_refs` + a `visit_expr`
+  hook) and reorderable. The `[…]` holds capitalised names, which tells a
+  projection from array indexing `e[i]` in the parser postfix loop.
+- **Merge `eff[a, b]` / `eff[*]`** (`Expr::Merge`, `merge_effects`): combine
+  already-bound handles into one, union of effects, ordered to the expected
+  handle type when known (so a positional tuple fits a declared return).
+  `eff[*]` bundles every handle in scope (from `visible_avail` /
+  `effect_instance`). Only bound handles merge; bare `H()` stays
+  [handler-not-value].
+
+**Two fixes found and made while building:**
+- **`use`-as-expression scoping.** `let c = use H()` had been lowering the
+  handle bindings into a *nested* block-expr, so the handle locals escaped
+  their scope — a later `now()` or `eff[*]` read an out-of-scope local and the
+  generated code failed to compile. Fixed by hoisting the handle `let`s into
+  `self.pending` (the enclosing statement level) and returning just the handle
+  read; the IR `effect_env` entries then point at body-scoped locals. This had
+  been a latent bug since stage 3, only hit once something read the pushed
+  entry.
+- **Plain handles no longer force the scheduler.** `features.rs` triggered the
+  actor scheduler on *any* `Addr` named in a module — but a plain-effect handle
+  `eff[Clock]` is `Named{Addr,[Clock]}`, a monitor (`Arc<Mutex>`), needing no
+  runtime. A program that only passes plain handles got a spurious
+  `[runtime-sched]` error. Fixed: the scheduler triggers on an `Addr` wrapping
+  an *actor* effect only (`ty_has_actor_addr`), not a plain one.
+
+Tests: `eff_handle_tests.rs` (9). Verified byte-identical Rust/Kotlin across
+the corpus e2e. The single-face `use`-expression double-binding (`__use` then
+`__handle`) is left un-optimised by user decision — harmless, collapsed by the
+target compiler.
+
+
+
 ### 2026-10-18 — First-class effect handles: `eff[E]` (stages 1–3 + alias flattening)
 
 Reworked the effect-handle surface and made bound handlers first-class values,

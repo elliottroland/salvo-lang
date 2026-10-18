@@ -1606,6 +1606,11 @@ impl Rewrite {
                 }
             }
             Expr::Project { base, .. } => self.expr(base),
+            Expr::Merge { items, .. } => {
+                for i in items {
+                    self.expr(i);
+                }
+            }
             // [actor-self-send] A leaf: the selector names the enclosing
             // handler, so there is no sub-expression to rewrite.
             Expr::SelfScoped { .. } | Expr::SelfAddr { .. } => {}
@@ -1805,6 +1810,11 @@ fn collect_shadowing(body: &Block, reserved: &[&Ident], out: &mut Vec<(String, S
                 }
             }
             Expr::Project { base, .. } => walk_expr(base, reserved, out),
+            Expr::Merge { items, .. } => {
+                for i in items {
+                    walk_expr(i, reserved, out);
+                }
+            }
             Expr::ReplyTo { captures, .. } => {
                 for capture in captures {
                     walk_expr(capture, reserved, out);
@@ -2424,6 +2434,11 @@ fn walk_expr_with(expr: &Expr, on_stmt: &mut dyn FnMut(&Stmt), on_expr: &mut dyn
             }
         }
         Expr::Project { base, .. } => e(base),
+        Expr::Merge { items, .. } => {
+            for i in items {
+                e(i);
+            }
+        }
         Expr::ReplyTo { captures, .. } => {
             for c in captures {
                 e(c);

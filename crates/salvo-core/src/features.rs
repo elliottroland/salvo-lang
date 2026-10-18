@@ -87,7 +87,19 @@ pub fn module_features(
         }
     }
     let named = |n: &str| refs.contains(n) || tys.contains(n);
-    if named("Addr") || named("Pool") || named("Reply") || refs.contains("pool") || refs.contains("thread") {
+    // [eff-handle] An `Addr` (the internal handle type) needs the scheduler
+    // only when it wraps an **actor** effect — an actor address is a scheduler
+    // index. A plain-effect handle (`eff[Clock]`, a monitor) is just an
+    // `Arc<Mutex>` and needs no scheduler, so a program that only hands plain
+    // handles around is not forced onto the runtime.
+    let mut addr_of_actor = false;
+    for ((fi, _), t) in checked.expr_ty.iter() {
+        if *fi == file_idx && ty_has_actor_addr(t, symbols) {
+            addr_of_actor = true;
+            break;
+        }
+    }
+    if addr_of_actor || named("Pool") || named("Reply") || refs.contains("pool") || refs.contains("thread") {
         f.scheduler = true;
     }
     if named("Reply") {
@@ -110,6 +122,34 @@ pub fn module_features(
         f.scheduler = true;
     }
     f
+}
+
+/// [eff-handle] Whether a type contains an `Addr<E>` handle whose effect `E`
+/// is an **actor** effect — the handle that is a scheduler index and needs the
+/// runtime. A plain-effect handle (a monitor) does not.
+fn ty_has_actor_addr(t: &crate::types::Ty, symbols: &crate::Symbols) -> bool {
+    use crate::types::Ty;
+    match t {
+        Ty::Named { name, args } => {
+            if crate::typekey::plain(name) == "Addr" {
+                if let Some(arg) = args.first() {
+                    if let Ty::Named { name: e, .. } = arg.strip_quals() {
+                        if symbols.effects.get(crate::typekey::plain(e)).is_some_and(|d| d.is_actor) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            args.iter().any(|a| ty_has_actor_addr(a, symbols))
+        }
+        Ty::Qualified { base, .. } => ty_has_actor_addr(base, symbols),
+        Ty::Union(v) | Ty::Tuple(v) => v.iter().any(|a| ty_has_actor_addr(a, symbols)),
+        Ty::Array(b) => ty_has_actor_addr(b, symbols),
+        Ty::Fn { params, ret, .. } => {
+            params.iter().any(|a| ty_has_actor_addr(a, symbols)) || ty_has_actor_addr(ret, symbols)
+        }
+        _ => false,
+    }
 }
 
 fn ty_root_names(t: &crate::types::Ty, out: &mut HashSet<String>) {

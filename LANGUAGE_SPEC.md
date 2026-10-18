@@ -3988,8 +3988,14 @@ Conventions:
     (capitalised), which is what tells a projection from array indexing `e[i]`
     (a value expression). This is how an actor's address comes back out of a
     multi-effect handle: `e[SomeActor]`.
-  * **Remaining (stage 5):** merge `eff[a, b]` (combine already-bound handles
-    into one) and `eff[*]` (all in-scope handles).
+  * **Merge `eff[a, b]` / `eff[*]`** (value position): combine already-bound
+    handle values into one handle carrying the union of their effects (deduped,
+    and ordered to the expected handle type when one is known, so the positional
+    tuple fits a declared return). `eff[*]` bundles every effect handle in
+    scope. Only bound handles merge — a bare `H()` without `use` stays
+    [handler-not-value]. This is the last of the `eff[…]` algebra: **type**
+    `eff[A, B]`; **construct** `eff[x, y]` / `eff[*]`; **project** `e[S]`;
+    **bind** `use e`.
 * [handler-not-value] A handler instance is produced by `use` and lives in
   the effect environment; a handler constructor call in any other position
   is an error naming the `use` remedy. (Rust could not render one anyway:

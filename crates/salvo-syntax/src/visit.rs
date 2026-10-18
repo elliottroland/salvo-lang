@@ -797,6 +797,12 @@ pub fn walk_expr<V: Visitor>(v: &mut V, e: &Expr) {
                 walk_type_ref(v, e);
             }
         }
+        Expr::Merge { items, span, .. } => {
+            v.visit_span(span);
+            for i in items {
+                walk_expr(v, i);
+            }
+        }
         Expr::ReplyTo {
             member,
             captures,

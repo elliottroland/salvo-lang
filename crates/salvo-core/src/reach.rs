@@ -612,6 +612,11 @@ fn expr_names<'p>(expr: &'p Expr, used: &mut HashSet<&'p str>) {
                 type_ref_names(e, used);
             }
         }
+        Expr::Merge { items, .. } => {
+            for i in items {
+                expr_names(i, used);
+            }
+        }
         // [actor-self-send] The member is the enclosing handler's, so the
         // selector names nothing a module could provide.
         Expr::SelfScoped { .. } | Expr::SelfAddr { .. } => {}

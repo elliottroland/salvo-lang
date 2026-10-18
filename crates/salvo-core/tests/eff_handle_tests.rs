@@ -217,3 +217,67 @@ fn main() [use] {
         "projecting an absent effect should be refused: {errs:?}"
     );
 }
+
+// [eff-handle] Merge `eff[a, b]`: combine already-bound handles into one
+// handle carrying the union of their effects, which `use` then binds whole.
+#[test]
+fn merge_combines_bound_handles() {
+    let src = "\
+effect A { fn a() -> Int }
+effect B { fn b() -> Int }
+handler HA() of A { fn a() -> Int { return 1 } }
+handler HB() of B { fn b() -> Int { return 2 } }
+fn run(caps: eff[A, B]) [use] -> Int => caps {
+    use caps
+    return a() + b()
+}
+fn main() [use] {
+    let ha = use HA()
+    let hb = use HB()
+    let _n = run(eff[ha, hb])
+}
+";
+    let errs = errors(src);
+    assert!(errs.is_empty(), "merge should combine handles: {errs:?}");
+}
+
+// [eff-handle] `eff[*]` bundles every effect handle in scope, ordered to the
+// expected type so it fits a declared return.
+#[test]
+fn star_merge_bundles_every_handle_in_scope() {
+    let src = "\
+effect A { fn a() -> Int }
+effect B { fn b() -> Int }
+handler HA() of A { fn a() -> Int { return 1 } }
+handler HB() of B { fn b() -> Int { return 2 } }
+fn boot() [use] -> eff[A, B] {
+    let _ha = use HA()
+    let _hb = use HB()
+    return eff[*]
+}
+fn main() [use] {
+    let _caps = boot()
+}
+";
+    let errs = errors(src);
+    assert!(errs.is_empty(), "eff[*] should bundle in-scope handles: {errs:?}");
+}
+
+// [eff-handle] Merging a non-handle is refused.
+#[test]
+fn merging_a_non_handle_is_refused() {
+    let src = "\
+effect A { fn a() -> Int }
+handler HA() of A { fn a() -> Int { return 1 } }
+fn main() [use] {
+    let ha = use HA()
+    let n = 3
+    let _bad = eff[ha, n]
+}
+";
+    let errs = errors(src);
+    assert!(
+        errs.iter().any(|m| m.contains("merges effect handles") && m.contains("[eff-handle]")),
+        "merging a non-handle should be refused: {errs:?}"
+    );
+}

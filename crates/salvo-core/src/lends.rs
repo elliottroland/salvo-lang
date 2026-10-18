@@ -427,6 +427,7 @@ impl<'p> Walk<'_, '_, 'p> {
             Expr::Spawn { .. }
             | Expr::Use { .. }
             | Expr::Project { .. }
+            | Expr::Merge { .. }
             | Expr::ReplyTo { .. }
             | Expr::WaitFor { .. }
             | Expr::SelfScoped { .. }

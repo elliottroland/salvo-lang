@@ -1266,6 +1266,11 @@ impl<'p> Walk<'_, 'p> {
                 }
             }
             Expr::Project { base, .. } => self.expr(base),
+            Expr::Merge { items, .. } => {
+                for i in items {
+                    self.expr(i);
+                }
+            }
             // [actor-self-send] A leaf: nothing to walk into.
             Expr::SelfScoped { .. } | Expr::SelfAddr { .. } => {}
             // [actor-replyto] The captures are reads.

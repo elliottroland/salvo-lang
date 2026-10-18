@@ -6483,6 +6483,13 @@ impl<'s> Parser<'s> {
                 // The asynchronous forms are **contextual**: each is
                 // recognised from its word plus what follows, so `spawn`,
                 // `replyto` and `waitfor` all stay usable as ordinary names.
+                // [eff-handle] `eff[a, b]` — **merge**: combine already-bound
+                // handle values into one. Contextual (`eff` before `[`), like
+                // the type former; the operands are value expressions, and
+                // `eff[*]` is every handle in scope.
+                if self.at_word(EFF_WORD) && matches!(self.peek_at(1).kind, TokenKind::LBracket) {
+                    return self.parse_eff_merge();
+                }
                 // [actor-spawn-expr] `spawn H(...)` — a *name* follows.
                 if self.at_word("spawn") && matches!(self.peek_at(1).kind, TokenKind::Ident(_)) {
                     return self.parse_spawn();
@@ -7018,6 +7025,39 @@ impl<'s> Parser<'s> {
     /// the handler and yields its handle. The `on POOL` form keeps its old
     /// sugar — a `spawn` bound as an addr — so the `pool` field is passed
     /// through and the checker/IR handle it as they did for the statement.
+    /// [eff-handle] `eff[a, b]` / `eff[*]` — the merge constructor in value
+    /// position: `eff` then `[`, with value operands (or a lone `*` for every
+    /// in-scope handle). Distinct from the type former by context (this is
+    /// `parse_primary`).
+    fn parse_eff_merge(&mut self) -> Option<Expr> {
+        let start = self.bump().span; // `eff`
+        self.expect(&TokenKind::LBracket)?;
+        self.group_depth += 1;
+        // `eff[*]`: every handle in scope.
+        if self.at(&TokenKind::Star) {
+            self.bump();
+            self.group_depth -= 1;
+            let end = self.expect(&TokenKind::RBracket)?.span;
+            return Some(Expr::Merge { items: Vec::new(), all: true, span: start.to(end) });
+        }
+        let mut items: Vec<Expr> = Vec::new();
+        while !self.at(&TokenKind::RBracket) && !self.at_eof() {
+            match self.parse_expr() {
+                Some(e) => items.push(e),
+                None => {
+                    self.group_depth -= 1;
+                    return None;
+                }
+            }
+            if self.eat(&TokenKind::Comma).is_none() {
+                break;
+            }
+        }
+        self.group_depth -= 1;
+        let end = self.expect(&TokenKind::RBracket)?.span;
+        Some(Expr::Merge { items, all: false, span: start.to(end) })
+    }
+
     fn parse_use_expr(&mut self, start: Span) -> Option<Expr> {
         let handler = self.parse_expr()?;
         let with_items = self.parse_with_clause()?;

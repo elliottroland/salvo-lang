@@ -175,8 +175,20 @@ the handle as a storable value, so emission is identical by construction
    is a non-consuming copy of the named sub-handles (`Expr::Project`,
    `project_effects`), with alias flattening in type **and** projection
    position. Both backends byte-identical.
-5. **Merge `eff[a, b]`** (value position, combine already-bound handles into
-   one) and **`eff[*]`** (all in-scope handles). The one remaining surface.
+5. **Merge `eff[a, b]` and `eff[*]`** — ✅ DONE. A value-position `eff[…]`
+   constructor (`Expr::Merge`, `merge_effects`): `eff[clock, logger]` combines
+   already-bound handles into one `eff[Clock, Log]` (union of effects, ordered
+   to the expected type so a positional tuple fits a declared return); `eff[*]`
+   bundles every handle in scope. Only bound handles merge (bare `H()` stays
+   [handler-not-value]). Both backends byte-identical.
+
+**All five stages are complete** — the first-class-effects feature is built.
+One related fix landed with stage 5: a plain-effect handle (`eff[Clock]`, a
+monitor) no longer forces the actor scheduler (`features.rs` now triggers the
+scheduler only on an `Addr` wrapping an *actor* effect, via `ty_has_actor_addr`),
+so a program that only passes plain handles around is not pulled onto the
+runtime. The single-face `use`-expression double-binding is a recorded,
+accepted non-issue (left un-optimised, user decision).
 
 Tests must all pass at the end; the tree need not be clean between commits.
 

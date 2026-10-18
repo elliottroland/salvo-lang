@@ -2076,6 +2076,15 @@ pub enum Expr {
         effects: Vec<TypeRef>,
         span: Span,
     },
+    /// [eff-handle] `eff[a, b]` — **merge**: combine already-bound handle
+    /// values into one handle carrying the union of their effects (a tuple of
+    /// the single handles). `eff[*]` (`all`) is every effect handle in scope.
+    /// The value-position twin of the `eff[…]` type former.
+    Merge {
+        items: Vec<Expr>,
+        all: bool,
+        span: Span,
+    },
     /// [eff-handle] `use H(args)` as an **expression**: registers the handler
     /// in the current scope and *yields its handle* — one `eff[E]` for a
     /// single-face handler, one flat `eff[F1, F2]` for several. `let x = use
@@ -2291,6 +2300,7 @@ impl Expr {
             | Expr::Spawn { span, .. }
             | Expr::Use { span, .. }
             | Expr::Project { span, .. }
+            | Expr::Merge { span, .. }
             | Expr::ReplyTo { span, .. }
             | Expr::WaitFor { span, .. }
             | Expr::Spread { span, .. }
