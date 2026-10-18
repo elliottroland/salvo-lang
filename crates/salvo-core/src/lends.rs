@@ -425,6 +425,7 @@ impl<'p> Walk<'_, '_, 'p> {
             // and a `waitfor` yields a value another actor sent — nothing
             // crossing an actor boundary can be a borrow of a local.
             Expr::Spawn { .. }
+            | Expr::Use { .. }
             | Expr::ReplyTo { .. }
             | Expr::WaitFor { .. }
             | Expr::SelfScoped { .. }

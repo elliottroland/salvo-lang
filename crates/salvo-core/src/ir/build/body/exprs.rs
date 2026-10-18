@@ -256,6 +256,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 unsupported(self.ty_of(span), span, "self-scoped value")
             }
             AExpr::SelfAddr { .. } => Expr { ty: self.ty_of(span), span, kind: ExprKind::SelfAddr },
+            AExpr::Use { handler, with_items, span } => self.use_expr(handler, with_items, *span),
             AExpr::Spawn { handler, with_items, pool, join, .. } => {
                 let key = self.key(span);
                 let info = self.ctx.checked.spawn_info(key);
@@ -2276,7 +2277,11 @@ impl<'a, 'p> Lower<'a, 'p> {
 
     // --------------------------------------------------------------- use --
 
-    pub(crate) fn use_stmt(&mut self, handler: &AExpr, with_items: &[AExpr], span: Span) -> Vec<Stmt> {
+    /// Lowers a `use` to the handle bindings it introduces. Returns the
+    /// statements **and** the `(face, handle-local)` pairs it bound and pushed
+    /// onto `effect_env` — the statement form discards the pairs; the
+    /// expression form ([eff-handle]) reads them back as its value.
+    pub(crate) fn use_stmt_bound(&mut self, handler: &AExpr, with_items: &[AExpr], span: Span) -> (Vec<Stmt>, Vec<(Ty, Local)>) {
         let key = self.key(span);
         let info = self.ctx.checked.use_info(key);
         let faces: Vec<Ty> = info.use_effects.map(|v| v.iter().map(erase).collect()).unwrap_or_default();
@@ -2287,14 +2292,17 @@ impl<'a, 'p> Lower<'a, 'p> {
             let id = self.id();
             self.effect_env.push((effect.clone(), local.clone()));
             let inst = Expr { ty: effect.clone(), span, kind: ExprKind::AddrInstance { addr: Box::new(a) } };
-            return vec![Stmt::Let { id, local, ty: effect, value: inst }];
+            return (
+                vec![Stmt::Let { id, local: local.clone(), ty: effect.clone(), value: inst }],
+                vec![(effect, local)],
+            );
         }
         // `use H(args)`: a construct, then one instance per face.
         let deps: Vec<Ty> = info.use_deps.map(|v| v.iter().map(erase).collect()).unwrap_or_default();
         let items: Vec<Option<usize>> = info.use_with_items.cloned().unwrap_or_else(|| vec![None; deps.len()]);
         let Some(construct) = self.construct_handler(handler, &deps, &items, with_items, span) else {
             self.error(span, "`use` of something that is not a handler construction");
-            return vec![Stmt::Expr(unsupported(Ty::Unknown, span, "use"))];
+            return (vec![Stmt::Expr(unsupported(Ty::Unknown, span, "use"))], Vec::new());
         };
         let handler_ty = construct.ty.clone();
         let inst = self.fresh("__use");
@@ -2307,15 +2315,39 @@ impl<'a, 'p> Lower<'a, 'p> {
             Ty::Named { name, .. } => self.ctx.symbols.handlers.get(name.as_str()).is_some_and(|h| h.threadsafe),
             _ => false,
         };
+        let mut bound: Vec<(Ty, Local)> = Vec::new();
         for f in faces {
             let h = self.fresh("__handle");
             let hid = self.id();
             let read = Expr { ty: handler_ty.clone(), span, kind: ExprKind::Read { place: Place { root: inst.clone(), steps: Vec::new() }, consume: false } };
             let value = if threadsafe { Expr { ty: f.clone(), ..read } } else { Expr { ty: f.clone(), span, kind: ExprKind::Handle { instance: Box::new(read) } } };
             out.push(Stmt::Let { id: hid, local: h.clone(), ty: f.clone(), value });
-            self.effect_env.push((f, h));
+            self.effect_env.push((f.clone(), h.clone()));
+            bound.push((f, h));
         }
-        out
+        (out, bound)
+    }
+
+    pub(crate) fn use_stmt(&mut self, handler: &AExpr, with_items: &[AExpr], span: Span) -> Vec<Stmt> {
+        self.use_stmt_bound(handler, with_items, span).0
+    }
+
+    /// [eff-handle] `use H()` as a value: the bindings, then the handle it
+    /// yields — the one bound handle for a single face, a tuple of them for
+    /// several (mirroring how a multi-face `spawn` yields a tuple of addrs).
+    pub(crate) fn use_expr(&mut self, handler: &AExpr, with_items: &[AExpr], span: Span) -> Expr {
+        let ty = self.ty_of(span);
+        let (stmts, bound) = self.use_stmt_bound(handler, with_items, span);
+        let reads: Vec<Expr> = bound
+            .iter()
+            .map(|(f, l)| Expr { ty: f.clone(), span, kind: ExprKind::Read { place: Place { root: l.clone(), steps: Vec::new() }, consume: false } })
+            .collect();
+        let value = match reads.len() {
+            0 => unsupported(ty.clone(), span, "use expression with no handle"),
+            1 => reads.into_iter().next().unwrap(),
+            _ => Expr { ty, span, kind: ExprKind::Tuple(reads) },
+        };
+        self.block_expr(stmts, value, span)
     }
 
     /// `H(args) [with …]` as a `Construct` of the handler: written arguments,

@@ -3958,8 +3958,25 @@ Conventions:
   internal `Addr` as `eff[…]`. An `eff[X]` whose `X` is an actor effect is what
   `send`/`replyto`/`self@Face`/group routing require — the old "`Addr` of an
   actor effect" distinction, now read off the set.
-  (The value-producing surface — `use` as an expression, projection `e[S]`,
-  merge `eff[a, b]` — lands in the stages that follow this rename.)
+  * **`use` is an expression** (user decision 2026-10-18): `let x = use H()`
+    registers `H` in the current scope *and* yields its handle. A single-face
+    handler yields `eff[E]`; a bare statement `use H()` is the discarded-value
+    case. A fn may **return** and **accept** a handle (`-> eff[Clock]`,
+    `clock: eff[Clock]`), and `use clock` over a handed-in handle binds it (the
+    existing `use addr` path generalised; it needs the `[use]` capability, as
+    binding any handle does). Both backends already render a bound handle as a
+    storable monitor value, so this emits by construction.
+  * **Set-subsumption** on handles: `eff[A, B]` is a subtype of `eff[A]` — a
+    wider handle fits a narrower requirement (the same rule `unify`/`is_subtype`
+    apply so a scope with more effects calls a fn needing fewer). A parameter
+    `eff[A]` is satisfied by any argument whose set contains `A`.
+  * **Deferred:** binding a *multi-face* handler's handle to a single value
+    (`let x = use Both()` where `Both of A, B`) needs the flat multi-effect
+    handle's backend representation, which lands with projection; until then it
+    is refused by name rather than emitted wrong [backend-never-wrong]. A
+    multi-face `use` as a *statement* binds every face as before. The remaining
+    surface — projection `e[S]`, merge `eff[a, b]`, `eff[*]` — lands in the
+    stages that follow.
 * [handler-not-value] A handler instance is produced by `use` and lives in
   the effect environment; a handler constructor call in any other position
   is an error naming the `use` remedy. (Rust could not render one anyway:

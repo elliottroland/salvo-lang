@@ -4646,46 +4646,13 @@ impl<'s> Parser<'s> {
             TokenKind::KwRename => self.parse_rename().map(Stmt::Rename),
             TokenKind::KwUse => {
                 let start = self.bump().span;
-                let handler = self.parse_expr()?;
-                // [with-clause] The dependency clause, on the statement as
-                // on the spawn (user decision 2026-09-20): the instances to
-                // supply instead of the scope's resolution.
-                let with_items = self.parse_with_clause()?;
-                // [actor-use-addr] `use H(args) on POOL` — the sugar for
-                // `let __a = spawn H(args) on POOL` then `use __a` (SH-7,
-                // user decision 2026-09-19): the dominant case, one shared
-                // instance serving an effect in a scope, in one line. Parsed
-                // as a `use` whose handler is a spawn expression, so the
-                // spawn machinery and the addr-binding machinery each do
-                // their own half. Same-line, like every trailing clause.
-                if self.at_word("on") && self.same_line() {
-                    self.bump();
-                    let pool = self.parse_expr()?;
-                    let span = start.to(pool.span());
-                    let spawn_span = handler.span().to(pool.span());
-                    // The clause belongs to the *spawn* here: the sugar's
-                    // instance is the child's, so its dependencies are
-                    // supplied where the child is built.
-                    let handler = Expr::Spawn {
-                        handler: Box::new(handler),
-                        with_items,
-                        pool: Some(Box::new(pool)),
-                        join: None,
-                        span: spawn_span,
-                    };
-                    return Some(Stmt::Use {
-                        handler,
-                        with_items: Vec::new(),
-                        span,
-                    });
-                }
-                let end = with_items
-                    .last()
-                    .map(|i| i.span())
-                    .unwrap_or_else(|| handler.span());
-                let span = start.to(end);
+                // [eff-handle] Share one parser with the expression form; the
+                // statement is the discarded-value case.
+                let Expr::Use { handler, with_items, span } = self.parse_use_expr(start)? else {
+                    return None;
+                };
                 Some(Stmt::Use {
-                    handler,
+                    handler: *handler,
                     with_items,
                     span,
                 })
@@ -6282,6 +6249,13 @@ impl<'s> Parser<'s> {
 
     fn parse_primary(&mut self) -> Option<Expr> {
         match self.kind().clone() {
+            // [eff-handle] `use H(...)` as an expression — the value-producing
+            // form, yielding the registered handle. `use` is a real keyword,
+            // so no contextual guard.
+            TokenKind::KwUse => {
+                let start = self.bump().span;
+                self.parse_use_expr(start)
+            }
             // [namespace] `.S { … }` / `.S(…)` / `.S` — the leading-dot
             // shorthand in expression position: a namespaced type whose
             // namespace is left to the expected type (D3/D4). A `.` followed
@@ -7003,6 +6977,44 @@ impl<'s> Parser<'s> {
             with_items,
             pool,
             join,
+            span: start.to(end),
+        })
+    }
+
+    /// [eff-handle] `use H(args) [with …] [on POOL]` as an **expression**:
+    /// the `use` keyword is already consumed; `start` is its span. Registers
+    /// the handler and yields its handle. The `on POOL` form keeps its old
+    /// sugar — a `spawn` bound as an addr — so the `pool` field is passed
+    /// through and the checker/IR handle it as they did for the statement.
+    fn parse_use_expr(&mut self, start: Span) -> Option<Expr> {
+        let handler = self.parse_expr()?;
+        let with_items = self.parse_with_clause()?;
+        // [actor-use-addr] `use H(args) on POOL` — the sugar: lower to a
+        // `spawn` handler bound as an addr, exactly as the statement form
+        // does, so one code path serves both. The clause belongs to the
+        // spawn (the instance is the child's).
+        if self.at_word("on") && self.same_line() {
+            self.bump();
+            let pool = self.parse_expr()?;
+            let span = start.to(pool.span());
+            let spawn_span = handler.span().to(pool.span());
+            let handler = Expr::Spawn {
+                handler: Box::new(handler),
+                with_items,
+                pool: Some(Box::new(pool)),
+                join: None,
+                span: spawn_span,
+            };
+            return Some(Expr::Use {
+                handler: Box::new(handler),
+                with_items: Vec::new(),
+                span,
+            });
+        }
+        let end = with_items.last().map(|i| i.span()).unwrap_or_else(|| handler.span());
+        Some(Expr::Use {
+            handler: Box::new(handler),
+            with_items,
             span: start.to(end),
         })
     }

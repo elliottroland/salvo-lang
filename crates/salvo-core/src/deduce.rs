@@ -1259,6 +1259,12 @@ impl<'p> Walk<'_, 'p> {
                     self.expr(pool);
                 }
             }
+            Expr::Use { handler, with_items, .. } => {
+                self.expr(handler);
+                for handler in with_items {
+                    self.expr(handler);
+                }
+            }
             // [actor-self-send] A leaf: nothing to walk into.
             Expr::SelfScoped { .. } | Expr::SelfAddr { .. } => {}
             // [actor-replyto] The captures are reads.

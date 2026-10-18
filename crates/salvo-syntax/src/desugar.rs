@@ -1595,6 +1595,16 @@ impl Rewrite {
                     self.expr(pool);
                 }
             }
+            Expr::Use {
+                handler,
+                with_items,
+                ..
+            } => {
+                self.expr(handler);
+                for handler in with_items {
+                    self.expr(handler);
+                }
+            }
             // [actor-self-send] A leaf: the selector names the enclosing
             // handler, so there is no sub-expression to rewrite.
             Expr::SelfScoped { .. } | Expr::SelfAddr { .. } => {}
@@ -1781,6 +1791,16 @@ fn collect_shadowing(body: &Block, reserved: &[&Ident], out: &mut Vec<(String, S
                 }
                 if let Some(pool) = pool {
                     walk_expr(pool, reserved, out);
+                }
+            }
+            Expr::Use {
+                handler,
+                with_items,
+                ..
+            } => {
+                walk_expr(handler, reserved, out);
+                for handler in with_items {
+                    walk_expr(handler, reserved, out);
                 }
             }
             Expr::ReplyTo { captures, .. } => {
@@ -2393,6 +2413,12 @@ fn walk_expr_with(expr: &Expr, on_stmt: &mut dyn FnMut(&Stmt), on_expr: &mut dyn
             }
             if let Some(p) = pool {
                 e(p);
+            }
+        }
+        Expr::Use { handler, with_items, .. } => {
+            e(handler);
+            for h in with_items {
+                e(h);
             }
         }
         Expr::ReplyTo { captures, .. } => {

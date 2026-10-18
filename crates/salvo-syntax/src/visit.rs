@@ -779,6 +779,17 @@ pub fn walk_expr<V: Visitor>(v: &mut V, e: &Expr) {
                 walk_expr(v, j);
             }
         }
+        Expr::Use {
+            handler,
+            with_items,
+            span,
+        } => {
+            v.visit_span(span);
+            walk_expr(v, handler);
+            for w in with_items {
+                walk_expr(v, w);
+            }
+        }
         Expr::ReplyTo {
             member,
             captures,

@@ -16085,6 +16085,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             | Expr::SelfScoped { .. }
             | Expr::SelfAddr { .. }
             | Expr::Spawn { .. }
+            | Expr::Use { .. }
             | Expr::ReplyTo { .. }
             | Expr::WaitFor { .. }
             | Expr::Int { .. }
@@ -16183,6 +16184,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             | Expr::SelfScoped { .. }
             | Expr::SelfAddr { .. }
             | Expr::Spawn { .. }
+            | Expr::Use { .. }
             | Expr::ReplyTo { .. }
             | Expr::WaitFor { .. }
             | Expr::Int { .. }
@@ -20757,6 +20759,12 @@ fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
                 collect_assigned_expr(pool, out);
             }
         }
+        Expr::Use { handler, with_items, .. } => {
+            collect_assigned_expr(handler, out);
+            for handler in with_items {
+                collect_assigned_expr(handler, out);
+            }
+        }
         // [actor-replyto] The captures are ordinary expressions.
         Expr::ReplyTo { captures, .. } => {
             for capture in captures {
@@ -21000,6 +21008,9 @@ fn expr_mentions(expr: &Expr, name: &str) -> bool {
             expr_mentions(handler, name)
                 || with_items.iter().any(|h| expr_mentions(h, name))
                 || pool.as_ref().is_some_and(|p| expr_mentions(p, name))
+        }
+        Expr::Use { handler, with_items, .. } => {
+            expr_mentions(handler, name) || with_items.iter().any(|h| expr_mentions(h, name))
         }
         // [actor-replyto] A capture is a value the continuation takes.
         Expr::ReplyTo { captures, .. } => captures.iter().any(|c| expr_mentions(c, name)),
@@ -23321,6 +23332,57 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.check_spawn_join(group, &ty);
                 }
                 ty
+            }
+            // [eff-handle] `use H()` as a value: register the handler (all the
+            // side-effects of the statement form) and yield its handle —
+            // `eff[faces]`, read back from the faces the registration
+            // recorded. `let x = use H()` binds it; the statement form
+            // discards it.
+            Expr::Use { handler, with_items, span } => {
+                self.check_use(handler, with_items, *span);
+                let faces = self
+                    .out
+                    .use_effects
+                    .get(&self.key(*span))
+                    .cloned()
+                    .unwrap_or_default();
+                match faces.len() {
+                    0 => Ty::Unknown,
+                    1 => Ty::Named { name: ADDR_TYPE.to_string(), args: faces },
+                    // [eff-handle] A multi-face handler's handle as a single
+                    // flat `eff[F1, F2]` value needs a backend representation
+                    // that does not exist until projection (stage 4): the IR
+                    // models the faces as a tuple of per-face wrappers, which
+                    // is not one handle. Until then a multi-face `use` as a
+                    // *value* is refused rather than emitted wrong
+                    // [backend-never-wrong]; as a statement it binds every
+                    // face as before.
+                    _ => {
+                        self.error(
+                            *span,
+                            format!(
+                                "binding a multi-face handler's handle to a value is not \
+                                 supported yet (it implements {}): `use {}` as a statement \
+                                 to bind every face, and project individual handles once \
+                                 that lands [eff-handle]",
+                                faces
+                                    .iter()
+                                    .map(|f| format!("`{f}`"))
+                                    .collect::<Vec<_>>()
+                                    .join(", "),
+                                match handler.as_ref() {
+                                    Expr::Ident(id) => id.name.clone(),
+                                    Expr::Call { callee, .. } => match callee.as_ref() {
+                                        Expr::Ident(id) => id.name.clone(),
+                                        _ => "H".to_string(),
+                                    },
+                                    _ => "H".to_string(),
+                                }
+                            ),
+                        );
+                        Ty::Unknown
+                    }
+                }
             }
             // [actor-self-send] A selector is a *callee*, never a value: a
             // handler member is not a function value any more than an effect
@@ -27385,6 +27447,14 @@ fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
             !once_blocked && !quals.iter().any(|q| q.effect) && unify(param, base, subst)
         }
         (Ty::Named { name: pn, args: pa }, Ty::Named { name: an, args: aa }) => {
+            // [eff-handle] Handle set-subsumption in unification: a parameter
+            // `eff[A]` (`pn == "Addr"`) is satisfied by an argument `eff[A,
+            // B]` whose set contains every effect the parameter names. The
+            // internal name is `Addr`; match each required effect against
+            // some effect the argument carries.
+            if pn == "Addr" && an == "Addr" && !pa.is_empty() && !aa.is_empty() {
+                return pa.iter().all(|want| aa.iter().any(|have| unify(want, have, subst)));
+            }
             // [cmp-carry] A pattern may omit a keyed container's trailing
             // identity arguments — unstated is unconstrained — so the common
             // prefix is what unifies, and a dropped tail must be identities.

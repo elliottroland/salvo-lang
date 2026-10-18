@@ -157,12 +157,18 @@ the handle as a storable value, so emission is identical by construction
    spawn (plain-effect faces) still omits a pool — it runs on no thread — and is
    retired in favour of `use H()` in stage 3. `[main-pool]` kept for task-mint
    inheritance (`replyto` with no `on`) and for `main`'s own execution context.
-3. **`use` as an expression** returning `eff[...]`; relax [handler-not-value] so
-   a bound handle escapes; a fn may return/accept `eff[...]`. Set-subsumption in
-   the type relation. Single vs. multi-face result (mirror `check_spawn`).
-   Migrate the remaining monitor spawns (`spawn PlainHandler()`) to `use`.
+3. **`use` as an expression** — ✅ DONE (this commit). `Expr::Use` added;
+   `let x = use H()` registers and yields `eff[E]`; fns return/accept handles;
+   `use handle` binds a handed-in one. Set-subsumption in `unify`/`is_subtype`
+   (`eff[A,B]` <: `eff[A]`). **Deferred to stage 4:** a *multi-face* handler's
+   handle as a single value (needs the flat multi-effect representation that
+   projection introduces) — refused by name for now; a multi-face `use`
+   statement still binds every face. The monitor-spawn→`use` migration also
+   rides with stage 4/5.
 4. **Projection `e[S]`** (non-consuming narrow) and **`use e`** of a handle set
    (the recursive/flat bind), with `eff[IO]` alias flattening in type position.
+   Introduce the flat multi-effect handle representation (unblocks the
+   stage-3 deferral), and migrate the remaining monitor spawns to `use`.
 5. **Merge `eff[a, b]`** (value position, bound handles) and **`eff[*]`**
    (all in-scope handles).
 

@@ -778,6 +778,17 @@ pub fn walk_expr<V: MutVisitor>(v: &mut V, e: &mut Expr) {
                 walk_expr(v, j);
             }
         }
+        Expr::Use {
+            handler,
+            with_items,
+            span,
+        } => {
+            v.visit_span(span);
+            walk_expr(v, handler);
+            for w in with_items {
+                walk_expr(v, w);
+            }
+        }
         Expr::ReplyTo {
             member,
             captures,

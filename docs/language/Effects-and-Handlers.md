@@ -182,6 +182,27 @@ A prerequisite is not inheritance. A handler of `Fs` does not implement `Streams
 
 The rules at the declaration: a prerequisite names a plain effect (not `use`, `spawn`, or `any E`); an exported effect's prerequisites are exported too, since every module naming the effect needs them; the prerequisites may not form a cycle; and actor effects neither have nor are prerequisites, for now.
 
+## Handing a handler on: `eff[E]`
+
+A bound handler is a value. `use H()` is an expression: it registers the handler for the rest of the scope **and** yields a handle to it, typed `eff[E]` — a first-class value you can bind, return, and pass.
+
+```
+fn clock() [use] -> eff[Clock] {
+    return use TickingClock()   // registered here, and handed back
+}
+
+fn report(c: eff[Clock]) [use] -> Int => c {
+    use c                        // bind the handed-in handle
+    return now()
+}
+```
+
+`eff[E]` is the type of a handle to the effect `E`; `eff[A, B]` is a handle carrying several (the set is flat, so `eff[A, B]` and `eff[B, A]` are one type, and an alias expands into it — `eff[IO]` is `eff[Console, Fs, Streams]`). A handle is freely shareable, which is what makes handing one to another thread safe: a stateful handler's handle carries a lock, exactly as a `use` of it does — binding a handle and constructing one register the *same* monitor, so `use c` over a handed-in handle behaves identically to `use TickingClock()` in place.
+
+A wider handle satisfies a narrower requirement: pass an `eff[Clock, Beep]` where `eff[Clock]` is wanted and it fits, carrying more than the callee asked for — the same direction the rest of the effect system runs, where a scope with more effects calls a function needing fewer.
+
+The one thing a handle cannot bridge is an effect it does not carry: `use c` makes exactly `E`'s members callable, and nothing else. (Pulling an actor's address back out of a multi-effect handle, and merging handles into one, are `eff[…]`'s projection and construction forms.)
+
 ## Naming a group: effect aliases
 
 A signature that keeps repeating the same handful of effects can name them once:

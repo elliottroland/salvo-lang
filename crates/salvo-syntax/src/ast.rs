@@ -2066,6 +2066,23 @@ pub enum Expr {
         join: Option<Box<Expr>>,
         span: Span,
     },
+    /// [eff-handle] `use H(args)` as an **expression**: registers the handler
+    /// in the current scope and *yields its handle* — one `eff[E]` for a
+    /// single-face handler, one flat `eff[F1, F2]` for several. `let x = use
+    /// H()` binds the handle to `x`; a bare statement `use H()` is the
+    /// discarded-value case (`Stmt::Expr` of this). The value-producing half
+    /// of first-class effects (user decision 2026-10-18); the consumer side
+    /// `use e` over a handle value is the existing `use addr` path.
+    Use {
+        /// The handler construction (or an `eff[…]`/addr value to re-bind),
+        /// the same shape `spawn` takes. The `use H() on POOL` sugar is
+        /// lowered here to a `spawn` handler exactly as the statement form
+        /// does, so `handler` already carries the placement.
+        handler: Box<Expr>,
+        /// [with-clause] The `with` clause, as on a `spawn`.
+        with_items: Vec<Expr>,
+        span: Span,
+    },
     /// [actor-replyto] `replyto batch_arrived(id)` — allocate a parked
     /// one-shot continuation targeting a member of the *enclosing handler*,
     /// yielding its linear `Reply<T>` [linear-obligation]. The arguments are
@@ -2262,6 +2279,7 @@ impl Expr {
             | Expr::SelfScoped { span, .. }
             | Expr::SelfAddr { span, .. }
             | Expr::Spawn { span, .. }
+            | Expr::Use { span, .. }
             | Expr::ReplyTo { span, .. }
             | Expr::WaitFor { span, .. }
             | Expr::Spread { span, .. }
