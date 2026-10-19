@@ -162,3 +162,47 @@ sort(names, cmp = descending)  // or supplied by name
 They are how a type's capabilities travel without a trait system, and they
 reach into type declarations and qualifiers too:
 [Implicit parameters](Implicit-Parameters.md) is the whole story.
+
+## Default parameter values
+
+An ordinary parameter can give a default — the same `= expr` struct fields
+already use:
+
+```
+fn greet(name: Str, greeting: Str = "Hello", punct: Str = "!") -> Str {
+    return "${greeting}, ${name}${punct}"
+}
+
+greet("Ada")                    // "Hello, Ada!"
+greet("Ada", "Hi")               // "Hi, Ada!"      — trailing default omitted
+greet("Ada", punct = "?")        // "Hello, Ada?"   — the middle one reached by name
+```
+
+A call may omit a **trailing run** of defaulted parameters positionally; to
+reach a defaulted parameter that is not last, name it with `name = value` —
+the same form that overrides an implicit parameter. Naming a parameter that
+has no default is an error: a name is for reaching past a default, not a
+second way to write an ordinary call.
+
+A default is checked once, where it is written, against the parameter's
+type — with only the *earlier* parameters in scope (so order matters, same
+as the parameter list reads) and no effects available, so a default cannot
+quietly make every caller that omits the argument perform one:
+
+```
+fn span(lo: Int, hi: Int = lo + 10) -> Int {
+    return hi - lo
+}
+
+span(5)        // 10 — hi defaults to lo + 10
+span(5, 20)    // 15
+```
+
+A default may read an earlier parameter only when it is a Copy scalar
+(`Int`, `Long`, `Float`, `Double`, `Bool`, `Char`, `Byte`) — reading one
+twice costs nothing exactly because nothing about it is owned. A `List`, a
+struct, or anything else with an identity is refused. A variadic parameter
+(`...xs`) and an implicit parameter (`?cmp`) each already have their own way
+of filling themselves when the caller says nothing, so neither takes a
+default.
+

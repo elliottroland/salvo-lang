@@ -5819,6 +5819,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_drop_as_a_consuming_callback,
     kotlinc_compiles_and_runs_the_fs_surface,
     kotlinc_compiles_and_runs_the_memory_filesystem,
+    kotlinc_compiles_and_runs_parameter_defaults,
 ];
 
 /// The package prefix isolating one case inside the shared compilation.
@@ -16573,6 +16574,38 @@ fn main() [use] {
 }
 "#;
     kotlin_case(generate_files(&[("main.sv", SRC)]), "effect-fn-params", "18 4 57\n")
+}
+
+/// [fn-param-default] A default value a caller may omit — positionally
+/// (a trailing run), by naming a later parameter (skipping a defaulted one
+/// in the middle), and referencing an earlier Copy-scalar parameter. The
+/// same program and expected output as the Rust backend's
+/// `rustc_compiles_and_runs_parameter_defaults`.
+fn kotlinc_compiles_and_runs_parameter_defaults() -> KotlinCase {
+    const SRC: &str = r#"
+fn greet(name: Str, greeting: Str = "Hello", punct: Str = "!") -> Str {
+    return "${greeting}, ${name}${punct}"
+}
+
+fn span(lo: Int, hi: Int = lo + 10) -> Int {
+    return hi - lo
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    println(greet("Ada", "Hi", "."))
+    println(greet("Ada", "Hi"))
+    println(greet("Ada"))
+    println(greet("Ada", punct = "?"))
+    println("${span(5)}")
+    println("${span(5, 20)}")
+}
+"#;
+    kotlin_case(
+        generate_files(&[("main.sv", SRC)]),
+        "param-default",
+        "Hi, Ada.\nHi, Ada!\nHello, Ada!\nHello, Ada?\n10\n15\n",
+    )
 }
 
 /// The concatenated text of several emitted files, read like one.

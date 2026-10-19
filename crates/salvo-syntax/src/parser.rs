@@ -2192,6 +2192,7 @@ impl<'s> Parser<'s> {
                 ty,
                 variadic: false,
                 implicit: false,
+                default: None,
                 span: pspan,
             });
             if self.eat(&TokenKind::Comma).is_none() {
@@ -3130,12 +3131,39 @@ impl<'s> Parser<'s> {
                 self.group_depth -= 1;
                 return None;
             };
-            let span = name.span.to(ty.span());
+            // [fn-param-default] `name: T = expr`. A variadic tail and an
+            // implicit parameter each already fill themselves, so neither
+            // takes a default.
+            let default = if let Some(eq) = self.eat(&TokenKind::Eq) {
+                if variadic {
+                    self.error("a variadic parameter cannot have a default value", eq.span);
+                    self.group_depth -= 1;
+                    return None;
+                }
+                if implicit_at.is_some() {
+                    self.error(
+                        "an implicit parameter cannot have a default value: it is \
+                         resolved automatically, or overridden with `name = value`",
+                        eq.span,
+                    );
+                    self.group_depth -= 1;
+                    return None;
+                }
+                let Some(expr) = self.parse_expr() else {
+                    self.group_depth -= 1;
+                    return None;
+                };
+                Some(expr)
+            } else {
+                None
+            };
+            let span = name.span.to(default.as_ref().map(|e| e.span()).unwrap_or_else(|| ty.span()));
             params.push(Param {
                 name,
                 ty,
                 variadic,
                 implicit: implicit_at.is_some(),
+                default,
                 span,
             });
             if self.eat(&TokenKind::Comma).is_none() {

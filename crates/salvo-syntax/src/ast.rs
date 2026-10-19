@@ -1095,6 +1095,12 @@ pub struct Param {
     /// type instead of an argument list — or by forwarding an implicit of
     /// the same name and type from the enclosing fn [implicit-forward].
     pub implicit: bool,
+    /// `name: T = expr` [fn-param-default]: the default value a caller may
+    /// omit. Checked once at the declaration — against `ty`, with only the
+    /// *earlier* parameters in scope and no effects — and substituted fresh
+    /// at each call site that leaves the argument out. Mutually exclusive
+    /// with `variadic` and `implicit`.
+    pub default: Option<Expr>,
     pub span: Span,
 }
 

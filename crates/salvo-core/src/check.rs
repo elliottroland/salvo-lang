@@ -2450,6 +2450,11 @@ struct Checker<'p, 'r> {
     /// fn's declared effect dependencies plus `use`d handlers. Entries
     /// added by `use` are truncated at block boundaries.
     effect_env: Vec<EffectAvail>,
+    /// [fn-param-default] The fixed-parameter names of the call currently
+    /// resolving its implicits, so a named argument that fills an ordinary
+    /// defaulted parameter is not mistaken for an unknown implicit. Set
+    /// around `resolve_implicits`, empty elsewhere.
+    call_fixed_params: HashSet<String>,
     /// [effect-handler-deps] The effects declared by the handler whose
     /// members are being checked (`handler H [E1, E2] of E`), empty
     /// elsewhere. A member may use them exactly as if it had declared them,
@@ -2889,6 +2894,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             own_iter_ret: None,
             own_qualifiers: HashSet::new(),
             effect_env: Vec::new(),
+            call_fixed_params: HashSet::new(),
             handler_deps: Vec::new(),
             module_avails: Vec::new(),
             runtime_files: Vec::new(),
@@ -2946,6 +2952,28 @@ impl<'p, 'r> Checker<'p, 'r> {
             warned_spare_lends: HashSet::new(),
             try_stack: Vec::new(),
             effect_uses: Vec::new(),
+        }
+    }
+}
+
+/// [fn-param-default] Collects every reference, inside a default
+/// expression, to a name in `watch` — the earlier parameters it may read.
+/// Used to require that a parameter a default reads is a Copy scalar
+/// (`Int`, `Bool`, …): reading one twice (once for its own argument slot,
+/// once substituted into the default) is always safe exactly because
+/// nothing about a Copy scalar is owned or aliased. A non-scalar earlier
+/// parameter is refused instead of risked.
+struct ParamRefCollector<'a> {
+    watch: &'a HashSet<String>,
+    found: Vec<Ident>,
+}
+
+impl salvo_syntax::visit::Visitor for ParamRefCollector<'_> {
+    fn visit_expr(&mut self, expr: &Expr) {
+        if let Expr::Ident(id) = expr {
+            if self.watch.contains(&id.name) {
+                self.found.push(id.clone());
+            }
         }
     }
 }
@@ -5988,6 +6016,12 @@ impl<'p, 'r> Checker<'p, 'r> {
     ) -> Option<Vec<ImplicitArg>> {
         if implicits.is_empty() {
             for arg in named {
+                // [fn-param-default] A name that fills an ordinary defaulted
+                // parameter is this call's, handled on the fn path — not an
+                // unknown implicit.
+                if self.call_fixed_params.contains(&arg.name.name) {
+                    continue;
+                }
                 self.error(
                     arg.span,
                     format!(
@@ -6094,9 +6128,12 @@ impl<'p, 'r> Checker<'p, 'r> {
             filled.push(arg);
         }
         // A named argument matching no implicit parameter is a mistake, not
-        // a silent no-op.
+        // a silent no-op — unless it fills an ordinary defaulted parameter
+        // of this call [fn-param-default].
         for arg in named {
-            if !implicits.iter().any(|p| p.name == arg.name.name) {
+            if !implicits.iter().any(|p| p.name == arg.name.name)
+                && !self.call_fixed_params.contains(&arg.name.name)
+            {
                 self.error(
                     arg.span,
                     format!(
@@ -7659,6 +7696,35 @@ impl<'p, 'r> Checker<'p, 'r> {
         tys
     }
 
+    /// [fn-param-default] Whether a call's shape can fill a candidate's fixed
+    /// parameters: `n_pos` positional arguments fill the leading params,
+    /// `named` names fill params by name, and any parameter left over must
+    /// have a default. A variadic candidate has no ceiling. Returns `false`
+    /// when there are too many positional args, a parameter is left unfilled
+    /// with no default, a named argument names no fixed parameter, or a
+    /// positional and a named argument collide on one parameter.
+    ///
+    /// Named arguments that match no fixed parameter are *not* rejected here
+    /// (they may be implicit-parameter overrides, resolved separately): this
+    /// only rules a candidate out when a name collides with a positionally
+    /// filled parameter, which is unambiguously wrong.
+    fn call_shape_fits(fixed: &[&Param], has_variadic: bool, n_pos: usize, named: &[ast::NamedArg]) -> bool {
+        if !has_variadic && n_pos > fixed.len() {
+            return false;
+        }
+        for (i, p) in fixed.iter().enumerate() {
+            let by_pos = i < n_pos;
+            let by_name = named.iter().any(|a| a.name.name == p.name.name);
+            if by_pos && by_name {
+                return false; // filled twice
+            }
+            if !by_pos && !by_name && p.default.is_none() {
+                return false; // left unfilled, no default
+            }
+        }
+        true
+    }
+
     /// [effect-available] [fn-overload-rank] Which fn overloads of a name
     /// accept `arg_tys`, with the patterns compared — the fn side of the
     /// member-versus-fn comparison, and deliberately the *same* test the fn
@@ -7684,10 +7750,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .filter(|p| !p.variadic && !p.implicit)
                 .collect();
             let variadic = decl.params.iter().find(|p| p.variadic);
+            // [fn-param-default] Positionally, the parameters left after the
+            // arguments must all have defaults. (This member-vs-fn comparison
+            // sees only positional types; named defaults are handled on the
+            // fn path.)
             let arity_ok = if variadic.is_some() {
                 arg_tys.len() >= fixed.len()
             } else {
-                arg_tys.len() == fixed.len()
+                arg_tys.len() <= fixed.len()
+                    && fixed.iter().skip(arg_tys.len()).all(|p| p.default.is_some())
             };
             if !arity_ok {
                 continue;
@@ -7773,7 +7844,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .filter(|p| !p.variadic && !p.implicit)
                 .collect();
             if candidates.len() > 1
-                && (decl.params.iter().any(|p| p.variadic) || fixed.len() != arity)
+                && (decl.params.iter().any(|p| p.variadic)
+                    || arity > fixed.len()
+                    || !fixed.iter().skip(arity).all(|p| p.default.is_some()))
             {
                 continue;
             }
@@ -8745,6 +8818,57 @@ impl<'p, 'r> Checker<'p, 'r> {
                     used: false,
                 },
             );
+        }
+        // [fn-param-default] Check each default value against its parameter's
+        // type, with only the *earlier* parameters in scope (an argument is
+        // computed left to right, so a default may read a parameter before
+        // it but not after) and no effects available — so an effectful
+        // default is rejected here, since it would silently colour every
+        // caller that omits the argument. Checked once at the declaration;
+        // the value is substituted fresh at each omitting call site.
+        if f.params.iter().any(|p| p.default.is_some()) {
+            let saved_env = std::mem::take(&mut self.effect_env);
+            let mut scope: HashMap<String, LocalVar> = HashMap::new();
+            let mut copy_scalar: HashSet<String> = HashSet::new();
+            self.locals.push(HashMap::new());
+            for p in &f.params {
+                if let Some(default) = &p.default {
+                    *self.locals.last_mut().unwrap() = scope.clone();
+                    let expected = self.lower_type(&p.ty).strip_spread();
+                    self.check_expr(default, Some(&expected));
+                    // [fn-param-default] A default may read an earlier
+                    // parameter only if it is a Copy scalar: reading it
+                    // twice (its own slot, and here) is then always safe,
+                    // since nothing about a Copy scalar is owned or aliased.
+                    let non_scalar: HashSet<String> = scope.keys().filter(|n| !copy_scalar.contains(*n)).cloned().collect();
+                    if !non_scalar.is_empty() {
+                        let mut collector = ParamRefCollector { watch: &non_scalar, found: Vec::new() };
+                        salvo_syntax::visit::walk_expr(&mut collector, default);
+                        for id in collector.found {
+                            self.error(
+                                id.span,
+                                format!(
+                                    "a default value cannot read `{}`: only a Copy scalar \
+                                     parameter (`Int`, `Long`, `Float`, `Double`, `Bool`, \
+                                     `Char`, `Byte`) may be read by a later parameter's \
+                                     default [fn-param-default]",
+                                    id.name
+                                ),
+                            );
+                        }
+                    }
+                }
+                // The parameter joins the scope its own default could not see,
+                // so a later parameter's default may read it.
+                if let Some(lv) = top.get(&p.name.name) {
+                    scope.insert(p.name.name.clone(), lv.clone());
+                    if crate::types::is_copy_scalar(&lv.declared) {
+                        copy_scalar.insert(p.name.name.clone());
+                    }
+                }
+            }
+            self.locals.pop();
+            self.effect_env = saved_env;
         }
         self.locals.push(top);
         // [qual-depend] A parameter's declared dependent claim names
@@ -29296,10 +29420,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .filter(|p| !p.variadic && !p.implicit)
                 .collect();
             let variadic = decl.params.iter().find(|p| p.variadic);
+            // [fn-param-default] Positional args fill the leading parameters,
+            // named args fill parameters by name, and any left over must have
+            // a default. (Named args that match no fixed parameter may be
+            // implicit overrides, resolved later; they are not rejected here.)
             let arity_ok = if variadic.is_some() {
                 args.len() >= fixed.len()
             } else {
-                args.len() == fixed.len()
+                Self::call_shape_fits(&fixed, false, args.len(), named)
             };
             if !arity_ok {
                 continue;
@@ -29779,7 +29907,44 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.learn_yield_elems(decl, &callee_generics, &mut subst);
         // [implicit-resolve] Fill the callee's implicit parameters, now that
         // its type arguments are known.
+        // [fn-param-default] A named argument may fill an ordinary defaulted
+        // parameter by name (`f(a, c = 3)`), not only an implicit. Type-check
+        // each such value against its parameter here — so `expr_ty` is
+        // populated for the IR builder, which reads the AST `named` the way
+        // `struct_lit` reads a field's written value. The implicit filler is
+        // told these names (`call_fixed_params`) so it does not reject them
+        // as unknown implicits.
+        let fixed_names: HashSet<String> = decl
+            .params
+            .iter()
+            .filter(|p| !p.variadic && !p.implicit)
+            .map(|p| p.name.name.clone())
+            .collect();
+        for a in named {
+            if let Some(p) = decl
+                .params
+                .iter()
+                .find(|p| !p.variadic && !p.implicit && p.name.name == a.name.name)
+            {
+                if p.default.is_none() {
+                    self.error(
+                        a.span,
+                        format!(
+                            "`{}` has no default, so it cannot be given by name here: \
+                             only a defaulted parameter may be named [fn-param-default]",
+                            a.name.name
+                        ),
+                    );
+                }
+                let saved = self.enter_generics(&decl.generics);
+                let expected = substitute_vars(&self.lower_type(&p.ty), &subst, &callee_generics).strip_spread();
+                self.generics = saved;
+                self.check_expr(&a.value, Some(&expected));
+            }
+        }
+        self.call_fixed_params = fixed_names;
         self.resolve_implicits(decl, best_key, &mut subst, &callee_generics, named, span);
+        self.call_fixed_params = HashSet::new();
         // [linear-generics] An unconstrained generic parameter cannot be
         // instantiated with a linear type: generic code neither knows
         // nor honors the obligation. `discard` is the one blessed

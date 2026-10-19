@@ -3245,6 +3245,62 @@ Conventions:
       `Spread::Owned`), because an assembled vector is fresh and must not be
       cloned again while a borrowed forward must be. Ownership is the
       caller's fact, not something a lowering can infer from the text.
+* [fn-param-default] `name: T = expr` gives an ordinary parameter a default
+  value a caller may omit (user decisions 2026-10-18, following
+  [struct-defaults]'s shape). A default is checked once, at the declaration,
+  against the parameter's type — and lowered **fresh at each call that
+  omits the argument**, exactly as a struct field default is lowered fresh
+  at each construction that omits the field: no IR or backend representation
+  of "this parameter has a default" exists past the call-argument builder,
+  which fills every omitted slot before anything else sees the call.
+  * **Allowed anywhere in the list, not only trailing** (decision 2, option
+    b): a required parameter may follow a defaulted one. What a positional
+    call may *omit* is still constrained — only a **trailing run** of
+    parameters, and every one of them must have a default — but a call may
+    reach a defaulted parameter that is not trailing by **naming it**
+    (decision 1): `f(a, c = 3)` fills `a` positionally and `c` by name,
+    leaving a defaulted `b` in between to its default. The named-argument
+    grammar is the same `name = value` form [implicit-override] already
+    used to override an implicit parameter; the checker now also matches a
+    name against the callee's own defaulted parameters (`call_fixed_params`,
+    checked before falling through to implicit resolution) before reporting
+    an unknown name. Naming a parameter that has **no** default is refused
+    (`` `x` has no default, so it cannot be given by name here ``): a named
+    argument is for reaching past a default, not a second way to write an
+    ordinary positional call.
+  * **Checked like a struct field default, not like the body**: the default
+    expression is checked with **no effects available** (an effectful
+    default is refused — it would silently colour every caller that omits
+    the argument, which [implicit-param] forbids for a resolved implicit by
+    the same reasoning) and with only the *earlier* declared parameters in
+    scope, added one at a time as the loop reaches each later default — so
+    `fn f(a: Int, b: Int = a)` sees `a` but `fn f(a: Int = b, b: Int)` does
+    not see `b` (an ordinary unresolved-name error).
+  * **A default may read an earlier parameter only if it is a Copy scalar**
+    (`Int`, `Long`, `Float`, `Double`, `Bool`, `Char`, `Byte`): reading one
+    twice — once for its own argument slot, once substituted into a later
+    default — duplicates no ownership and performs no effect only because
+    nothing about a Copy scalar is owned or aliased. A non-scalar reference
+    (a `List`, a struct, anything linear) is refused outright rather than
+    risked. The substitution is a plain AST clone of whatever filled the
+    earlier parameter at this call — its own argument, its named override,
+    or its own (already-substituted) default — spliced in for the `Ident`
+    and lowered once with the rest of the default.
+  * **Variadic and implicit parameters refuse a default outright** (a parse
+    error): a variadic tail already fills itself from however many arguments
+    remain, and an implicit parameter already has its own fill order
+    (resolution, or a named override) — a `= expr` on either would be a
+    second, conflicting answer to "what if the caller does not say".
+  * **Arity checking is relaxed to a range, not loosened to "anything
+    goes"**: a non-variadic candidate is viable for `n` positional arguments
+    when `n` is at most its fixed-parameter count and every parameter past
+    `n` has a default (`fitting_fns`, `lead_pool`, and the main overload
+    loop's shared shape test, `call_shape_fits`); a named argument may additionally
+    cover a gap a positional count alone would leave required. Two overloads
+    that both become viable for one call — an exact-arity one and a
+    defaulted one reaching the same arity — are an ordinary
+    [fn-overload-rank] ambiguity, reported the same way a union-versus-plain
+    tie is: narrow an argument, or give one overload its own name.
 * [implicit-param] `?cmp: (T, T) -> Int` declares an **implicit parameter**:
   one the caller need not pass (user decisions 2026-09-05). Its type must be
   a fn type — what fills it is a function — and implicit parameters trail the

@@ -11,6 +11,33 @@ use super::Lower;
 use crate::ir::build::{apply_coercion, erase, unsupported};
 use crate::ir::*;
 
+/// [fn-param-default] A clone of `expr` with every `Ident` naming a key of
+/// `subst` replaced by that key's expression — how a default value that
+/// reads an earlier parameter (`fn f(a: Int, b: Int = a + 1)`) is lowered:
+/// the reference is spliced to the AST expression that filled that earlier
+/// parameter at this call, then the whole thing is lowered once. Sound only
+/// because the checker admits this for a Copy scalar parameter alone
+/// [fn-param-default]: reading one twice — once for its own argument slot,
+/// once substituted here — duplicates no ownership or effect.
+fn substitute_param_refs(expr: &AExpr, subst: &std::collections::HashMap<String, AExpr>) -> AExpr {
+    struct Subst<'a> {
+        map: &'a std::collections::HashMap<String, AExpr>,
+    }
+    impl salvo_syntax::visit_mut::MutVisitor for Subst<'_> {
+        fn visit_expr(&mut self, expr: &mut AExpr) {
+            if let AExpr::Ident(id) = expr {
+                if let Some(replacement) = self.map.get(&id.name) {
+                    *expr = replacement.clone();
+                }
+            }
+        }
+    }
+    let mut out = expr.clone();
+    let mut v = Subst { map: subst };
+    salvo_syntax::visit_mut::walk_expr(&mut v, &mut out);
+    out
+}
+
 impl<'a, 'p> Lower<'a, 'p> {
     /// An expression, with the slot's coercion applied [ir-coerce].
     pub fn expr(&mut self, e: &AExpr) -> Expr {
@@ -965,7 +992,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             let instance = self.effect_instance(&instance_ty, span);
             let decl = self.ctx.symbols.effects.get(mc.effect.as_str()).copied();
             let member_decl = decl.and_then(|d| d.fns.get(mc.index));
-            let mut lowered = self.args_for(member_decl.map(Callee::Member), &all_args, span);
+            let mut lowered = self.args_for(member_decl.map(Callee::Member), &all_args, named, span);
             lowered.extend(self.implicit_list(&info.implicit_args.cloned().unwrap_or_default(), named, span));
             let type_args = self.type_args_of(span);
             return Expr { ty, span, kind: ExprKind::MemberCall { instance: Box::new(instance), member: MemberRef { interface, index: mc.index }, type_args, args: lowered } };
@@ -1014,7 +1041,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                     lowered.push(self.effect_instance(&t, span));
                 }
             }
-            lowered.extend(self.args_for(decl.map(|d| Callee::Fn(k, d)), &all_args, span));
+            lowered.extend(self.args_for(decl.map(|d| Callee::Fn(k, d)), &all_args, named, span));
             lowered.extend(self.implicit_list(&info.implicit_args.cloned().unwrap_or_default(), named, span));
             let type_args = self.type_args_of(span);
             return Expr { ty, span, kind: ExprKind::Call { target: FnRef::Decl(self.ctx.decl_id(k)), type_args, args: lowered } };
@@ -1043,7 +1070,7 @@ impl<'a, 'p> Lower<'a, 'p> {
     /// The arguments of a call against the callee's declared parameters: a
     /// place handed to a `Moved` parameter is consumed; a variadic tail is
     /// one list argument.
-    fn args_for(&mut self, callee: Option<Callee<'p>>, args: &[&AExpr], span: Span) -> Vec<Expr> {
+    fn args_for(&mut self, callee: Option<Callee<'p>>, args: &[&AExpr], named: &[ast::NamedArg], span: Span) -> Vec<Expr> {
         let modes = crate::param_mode::Modes { symbols: self.ctx.symbols, checked: self.ctx.checked, program: self.ctx.program };
         let params: Option<&[ast::Param]> = callee.as_ref().map(|c| match c { Callee::Fn(_, d) => d.params.as_slice(), Callee::Member(m) => m.params.as_slice() });
         let fixed: Vec<&ast::Param> = params.map(|ps| ps.iter().filter(|p| !p.implicit).collect()).unwrap_or_default();
@@ -1089,6 +1116,53 @@ impl<'a, 'p> Lower<'a, 'p> {
                 }
             } else {
                 out.push(x);
+            }
+        }
+        // [fn-param-default] Parameters the positional arguments did not
+        // reach: fill each from a `name = value` argument if the call gave
+        // one, else from the parameter's own default — lowered fresh here,
+        // exactly as `struct_lit` lowers a field default at the construction
+        // site. Only without a variadic (a variadic absorbs the tail, so no
+        // fixed parameter is left unfilled). The fill runs in declaration
+        // order: a default may read an earlier Copy-scalar parameter (the
+        // checker already refused any other kind), substituted in by AST
+        // clone — `subst` maps each filled parameter's name to the argument
+        // expression that filled it, built up as the loop goes.
+        if variadic_at.is_none() {
+            let mut subst: std::collections::HashMap<String, AExpr> = std::collections::HashMap::new();
+            for (i, p) in fixed.iter().enumerate() {
+                let positional: Option<&AExpr> = args.get(i).copied();
+                let named_value: Option<&AExpr> = named
+                    .iter()
+                    .find(|a| a.name.name == p.name.name)
+                    .map(|a| &a.value);
+                let filler: Option<&AExpr> = positional.or(named_value);
+                if i >= args.len() {
+                    let lowered = match (named_value, &p.default) {
+                        (Some(v), _) => Some(self.expr(&substitute_param_refs(v, &subst))),
+                        (None, Some(d)) => Some(self.expr(&substitute_param_refs(d, &subst))),
+                        (None, None) => None, // a required gap — a checker error already
+                    };
+                    if let Some(mut x) = lowered {
+                        let mode = match &callee {
+                            Some(Callee::Fn(k, _)) => modes.fn_param(Some(*k), p),
+                            Some(Callee::Member(m)) => modes.member_param(m, p),
+                            None => modes.default_param(&p.ty, p.variadic),
+                        };
+                        if mode == PassMode::Moved {
+                            self.consume_if_owned(&mut x);
+                        }
+                        out.push(x);
+                    }
+                }
+                // Whatever filled this parameter — positional, named, or its
+                // own default — is what a later default reading it means
+                // (the checker allows this only for a Copy scalar).
+                if let Some(f) = filler {
+                    subst.insert(p.name.name.clone(), f.clone());
+                } else if let Some(d) = &p.default {
+                    subst.insert(p.name.name.clone(), substitute_param_refs(d, &subst));
+                }
             }
         }
         if let Some(v) = variadic_at {

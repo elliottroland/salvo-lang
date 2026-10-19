@@ -510,6 +510,7 @@ fn build_stub(effect: &EffectDecl, spans: &mut Spans) -> (HandlerDecl, Vec<Diagn
                 ty: group_ty,
                 variadic: false,
                 implicit: false,
+                default: None,
                 span: spans.take(),
             },
             Param {
@@ -517,6 +518,7 @@ fn build_stub(effect: &EffectDecl, spans: &mut Spans) -> (HandlerDecl, Vec<Diagn
                 ty: named("RouteConfig", Vec::new(), spans),
                 variadic: false,
                 implicit: false,
+                default: None,
                 span: spans.take(),
             },
         ],

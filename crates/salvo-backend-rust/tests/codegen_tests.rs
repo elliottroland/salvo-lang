@@ -17739,3 +17739,35 @@ fn rustc_compiles_and_runs_handles_into_element_containers() {
     let files = generate(&[("main.sv", ELEM_CONTAINER_DEMO)]);
     run_rust_files(&files, "elem-container", ELEM_CONTAINER_OUTPUT);
 }
+
+// [fn-param-default] A default value a caller may omit — positionally
+// (a trailing run), by naming a later parameter (skipping a defaulted one
+// in the middle), and referencing an earlier Copy-scalar parameter.
+const PARAM_DEFAULT_DEMO: &str = r#"
+fn greet(name: Str, greeting: Str = "Hello", punct: Str = "!") -> Str {
+    return "${greeting}, ${name}${punct}"
+}
+
+fn span(lo: Int, hi: Int = lo + 10) -> Int {
+    return hi - lo
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    println(greet("Ada", "Hi", "."))
+    println(greet("Ada", "Hi"))
+    println(greet("Ada"))
+    println(greet("Ada", punct = "?"))
+    println("${span(5)}")
+    println("${span(5, 20)}")
+}
+"#;
+
+pub const PARAM_DEFAULT_OUTPUT: &str =
+    "Hi, Ada.\nHi, Ada!\nHello, Ada!\nHello, Ada?\n10\n15\n";
+
+#[test]
+fn rustc_compiles_and_runs_parameter_defaults() {
+    let files = generate(&[("main.sv", PARAM_DEFAULT_DEMO)]);
+    run_rust_files(&files, "param-default", PARAM_DEFAULT_OUTPUT);
+}

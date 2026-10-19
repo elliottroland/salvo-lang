@@ -138,6 +138,98 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-18 — Default values for function parameters
+
+`name: T = expr` on an ordinary parameter (user request, following
+[struct-defaults]'s shape and this session's own four design decisions).
+Mirrors struct field defaults deliberately: a default is checked **once**,
+at the declaration, and lowered **fresh at each call that omits the
+argument** — in `args_for` (`crates/salvo-core/src/ir/build/body/exprs.rs`),
+the call-argument counterpart of `struct_lit`'s field-default fill. No IR or
+backend representation of "this parameter has a default" exists past that
+point; both backends render a call whose every slot is already filled, so
+neither needed a single line of its own.
+
+**The four decisions, as built.** (1) Named arguments reach a non-trailing
+default: the existing `name = value` grammar [implicit-override] — until now
+implicit-only — now also matches an ordinary defaulted parameter, checked
+and consumed on the fn path *before* falling through to implicit resolution
+(a new `call_fixed_params: HashSet<String>` set around `resolve_implicits`,
+read by `fill_implicit_list`'s two "no implicit parameter named X" sites so
+a defaulted-parameter name is not mistaken for an unknown implicit — the
+lifetime-cleanest fix once threading a filtered `&'p [NamedArg]` turned out
+to need five signatures changed for nothing [implicit-resolve] already owns).
+(2) A required parameter may follow a defaulted one — option (b) from the two
+discussed: the declaration is unrestricted, and what a *positional* call may
+omit is still only a trailing run (every parameter past the given arguments
+needs a default), with naming the way to reach a non-trailing one. (3)
+Default expressions are effect-free: checked with `effect_env` emptied,
+exactly like a struct field default and a module `use` binding — an
+effectful default errors "no handler for effect X in scope" rather than
+silently colouring every omitting caller. (4) A default may read an
+**earlier** parameter (`fn span(lo: Int, hi: Int = lo + 10)`), checked with
+an incrementally-grown locals scope (parameter *i*'s default sees 0..i, not
+i+1..n) — but **only when that earlier parameter is a Copy scalar**
+(`is_copy_scalar`: `Int`/`Long`/`Float`/`Double`/`Bool`/`Char`/`Byte`): the
+IR builder lowers the default by **substituting** the referenced name with
+whatever AST expression filled that earlier parameter at this call (a clone,
+walked in with the existing `salvo_syntax::visit_mut::MutVisitor` — the same
+mechanism `comptime.rs`'s `RenameParams` uses, generalized from a rename to a
+wholesale node replacement), which means that expression is lowered twice.
+Restricting this to Copy scalars is what makes lowering something twice
+free of ownership or effect consequences; a non-scalar reference is refused
+at check time (`ParamRefCollector`) rather than risked. A full let-binding
+approach (binding each filled parameter once, in a synthetic block, so
+anything — not just scalars — could be read twice safely) was considered and
+rejected: the IR has no block-valued-expression node outside `Branch`'s arms,
+repurposing `Branch` for this looked likely to confuse the ownership/lending
+/narrowing passes built on it meaning *conditional* branching, and the
+Copy-scalar restriction covers the motivating case (`span`-style arithmetic
+on earlier parameters) without the risk.
+
+**Arity**, relaxed in three places that each independently derived "exact
+positional count" before (`fitting_fns`, `lead_pool`, and the main overload
+loop in `resolve_named_call`), now via a shared shape test
+(`Checker::call_shape_fits` for the one that sees named arguments; the
+member-vs-fn comparison and the lead pool, which only ever see positional
+counts, use the narrower "every parameter past `n` has a default" form
+directly). Two overloads that both become viable for one call's arity — an
+exact-arity one and a defaulted one that reaches the same arity — rank as an
+ordinary [fn-overload-rank] ambiguity (an existing, generic mechanism;
+nothing param-default-specific needed building for it).
+
+**A debugging note, since it cost real time**: midway through, every std
+module started failing to resolve `mut_str` ("no function named `mut_str` is
+in scope"). Bisected by reverting each change in turn (down to a worktree
+checkout of HEAD for a byte-for-byte comparison) before finding the actual
+cause: `std/core/string.sv` carried a stray, unrelated, uncommitted edit
+(`export fn mut_str(…)` → `export fn Mut Str(…)`, turning a plain fn into a
+type-named one) left over from a prior session — nothing to do with this
+feature. `git checkout -- std/core/string.sv` fixed it. Lesson for the
+gotchas list: when a change that should be inert for some other area breaks
+that area anyway, check `git diff` against the *whole* working tree before
+assuming the new code is the cause — an unrelated dirty file is cheaper to
+rule out than a design is to re-derive.
+
+Verified end to end on both backends — `rustc_compiles_and_runs_parameter_defaults`
+(`crates/salvo-backend-rust/tests/codegen_tests.rs`) and
+`kotlinc_compiles_and_runs_parameter_defaults`
+(`crates/salvo-backend-kotlin/tests/codegen_tests.rs`) run the identical
+program (trailing omission, a named override of a non-trailing default, and
+a default reading an earlier parameter) to byte-identical stdout. Seven new
+diagnostic tests in `crates/salvo-core/tests/diag_tests.rs` cover acceptance
+and every refusal (non-scalar reference, later-parameter reference,
+effectful default, naming a non-defaulted parameter, variadic/implicit
+parse-time refusal). Rule [fn-param-default] in LANGUAGE_SPEC.md, new
+"Default parameter values" section in `docs/language/Functions.md`
+(cross-linked from `Data-and-Types.md`'s struct-defaults paragraph); wiki
+synced. A known, pre-existing, *shared* gap carried over unchanged from
+struct field defaults rather than fixed here (out of scope — would diverge
+the two mechanisms): a default's own type is not checked against a mismatched
+literal (`b: Int = "x"` on a struct field is accepted exactly as a defaulted
+parameter of the same shape is) — a declaration-time literal/expected-type
+check gap, not anything-goes.
+
 ### 2026-10-18 — `args` moved out of `core` into its own module
 
 The command-line-arguments surface was placed in `core` (so `args()`/`HostArgs`

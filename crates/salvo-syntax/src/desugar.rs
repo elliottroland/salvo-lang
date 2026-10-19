@@ -888,6 +888,7 @@ fn expand(
             ty: pass_ty(true),
             variadic: false,
             implicit: false,
+            default: None,
             span: next_span,
         }],
         implicit_groups: Vec::new(),

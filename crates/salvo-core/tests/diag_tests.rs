@@ -399,3 +399,129 @@ fn interpolating_a_narrowed_optional_is_accepted() {
     );
     assert!(errors.is_empty(), "unexpected errors: {errors:?}");
 }
+
+// [fn-param-default] A defaulted parameter may be omitted — positionally
+// (trailing) or by naming a later one — with no error.
+#[test]
+fn omitting_a_defaulted_parameter_is_accepted() {
+    let errors = check_errors(
+        "fn greet(name: Str, greeting: Str = \"Hi\", punct: Str = \"!\") -> Str {\n\
+        \x20   return \"${greeting}, ${name}${punct}\"\n\
+         }\n\
+         fn f() -> None {\n\
+        \x20   let a = greet(\"Ada\")\n\
+        \x20   let b = greet(\"Ada\", \"Hey\")\n\
+        \x20   let c = greet(\"Ada\", punct = \"?\")\n\
+         }\n",
+    );
+    assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+}
+
+// [fn-param-default] A default may read an earlier Copy-scalar parameter.
+#[test]
+fn a_default_may_reference_an_earlier_scalar_parameter() {
+    let errors = check_errors(
+        "fn span(lo: Int, hi: Int = lo + 10) -> Int {\n\
+        \x20   return hi - lo\n\
+         }\n\
+         fn f() -> None {\n\
+        \x20   let a = span(5)\n\
+         }\n",
+    );
+    assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+}
+
+// [fn-param-default] A default cannot read a non-Copy-scalar earlier
+// parameter: reading it twice (its own slot, and the default) is not
+// something only a plain value can shrug off.
+#[test]
+fn a_default_cannot_reference_a_non_scalar_earlier_parameter() {
+    let errors = check_errors(
+        "fn f(xs: List<Int>, y: Int = size(xs)) -> Int {\n\
+        \x20   return y\n\
+         }\n",
+    );
+    assert!(
+        errors.iter().any(|e| e.contains("only a Copy scalar parameter") && e.contains("`xs`")),
+        "errors: {errors:?}"
+    );
+}
+
+// [fn-param-default] A default cannot read a *later* parameter: only the
+// earlier ones are in scope, matching how a struct field default cannot
+// read a sibling field.
+#[test]
+fn a_default_cannot_reference_a_later_parameter() {
+    let errors = check_errors(
+        "fn f(a: Int = b, b: Int) -> Int {\n\
+        \x20   return a + b\n\
+         }\n",
+    );
+    assert!(
+        errors.iter().any(|e| e.contains("`b`") && (e.contains("not in scope") || e.contains("is in scope"))),
+        "errors: {errors:?}"
+    );
+}
+
+// [fn-param-default] A default is checked with no effects available, so an
+// effectful default is refused rather than silently colouring every caller
+// that omits the argument.
+#[test]
+fn an_effectful_default_is_refused() {
+    let errors = check_errors(
+        "fn noisy() [Console] -> Int {\n\
+        \x20   println(\"hi\")\n\
+        \x20   return 1\n\
+         }\n\
+         fn f(x: Int = noisy()) [Console] -> Int {\n\
+        \x20   return x\n\
+         }\n",
+    );
+    assert!(!errors.is_empty(), "expected an error for an effectful default");
+}
+
+// [fn-param-default] A named argument may only target a parameter that has
+// a default; naming an ordinary required parameter is refused.
+#[test]
+fn naming_a_parameter_with_no_default_is_refused() {
+    let errors = check_errors(
+        "fn add(a: Int, b: Int) -> Int {\n\
+        \x20   return a + b\n\
+         }\n\
+         fn f() -> None {\n\
+        \x20   let c = add(a = 1, b = 2)\n\
+         }\n",
+    );
+    assert!(
+        errors.iter().filter(|e| e.contains("has no default") && e.contains("only a defaulted parameter may be named")).count() >= 2,
+        "errors: {errors:?}"
+    );
+}
+
+// [fn-param-default] A variadic or an implicit parameter cannot carry a
+// default — each already fills itself its own way. Parser-level, so parsed
+// directly rather than through `check_errors` (which treats a parse error
+// as a test failure).
+#[test]
+fn variadic_and_implicit_parameters_refuse_a_default() {
+    let (_module, diags) = salvo_syntax::parse_module(
+        "fn f(...xs: Int[] = 5) -> Int {\n\
+        \x20   return 0\n\
+         }\n",
+    );
+    let errors: Vec<String> = diags.iter().filter(|d| d.is_error()).map(|d| d.message.clone()).collect();
+    assert!(
+        errors.iter().any(|e| e.contains("variadic parameter cannot have a default")),
+        "errors: {errors:?}"
+    );
+    let (_module, diags) = salvo_syntax::parse_module(
+        "fn f(?cmp: (Int, Int) -> Int = 5) -> Int {\n\
+        \x20   return 0\n\
+         }\n",
+    );
+    let errors: Vec<String> = diags.iter().filter(|d| d.is_error()).map(|d| d.message.clone()).collect();
+    assert!(
+        errors.iter().any(|e| e.contains("implicit parameter cannot have a default")),
+        "errors: {errors:?}"
+    );
+}

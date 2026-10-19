@@ -233,6 +233,9 @@ struct Person {
 }
 ```
 
+Function parameters can give a default the same way — see
+[Default parameter values](Functions.md#default-parameter-values).
+
 Structs can be destructured. If the variable we destructure it into is the same as the field name, then we just mention it directly, otherwise we use the syntax `field: variable_name`
 
 ```
