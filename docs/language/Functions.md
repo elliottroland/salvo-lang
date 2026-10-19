@@ -198,11 +198,21 @@ span(5)        // 10 — hi defaults to lo + 10
 span(5, 20)    // 15
 ```
 
-A default may read an earlier parameter only when it is a Copy scalar
-(`Int`, `Long`, `Float`, `Double`, `Bool`, `Char`, `Byte`) — reading one
-twice costs nothing exactly because nothing about it is owned. A `List`, a
-struct, or anything else with an identity is refused. A variadic parameter
-(`...xs`) and an implicit parameter (`?cmp`) each already have their own way
+A default may read an earlier parameter of any type — a `List`, a struct,
+anything. Behind the scenes, reading it twice (its own argument, and the
+default) does not mean evaluating your expression twice: the compiler binds
+the earlier parameter's value once and reads it from both places.
+
+```
+fn describe(xs: List<Int>, count: Int = size(xs)) -> Str {
+    return "size is ${count}"
+}
+
+describe(List(1, 2, 3))   // "size is 3" — xs is read once, shared by both uses
+```
+
+A variadic parameter (`...xs`) and an implicit parameter (`?cmp`) each already have
+their own way
 of filling themselves when the caller says nothing, so neither takes a
 default.
 

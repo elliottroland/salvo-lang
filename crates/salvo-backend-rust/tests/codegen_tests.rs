@@ -17742,7 +17742,11 @@ fn rustc_compiles_and_runs_handles_into_element_containers() {
 
 // [fn-param-default] A default value a caller may omit — positionally
 // (a trailing run), by naming a later parameter (skipping a defaulted one
-// in the middle), and referencing an earlier Copy-scalar parameter.
+// in the middle) — and a default that reads an earlier parameter: a Copy
+// scalar (`span`), a `List` (`describe`), and a struct (`locate`). The
+// earlier parameter is bound once (`Lower::args_for`/`block_expr`) and read
+// from both its own argument slot and the default, so nothing about its
+// type matters here.
 const PARAM_DEFAULT_DEMO: &str = r#"
 fn greet(name: Str, greeting: Str = "Hello", punct: Str = "!") -> Str {
     return "${greeting}, ${name}${punct}"
@@ -17750,6 +17754,16 @@ fn greet(name: Str, greeting: Str = "Hello", punct: Str = "!") -> Str {
 
 fn span(lo: Int, hi: Int = lo + 10) -> Int {
     return hi - lo
+}
+
+fn describe(xs: List<Int>, count: Int = size(xs)) -> Str {
+    return "size is ${count}"
+}
+
+struct Point { x: Int, y: Int }
+
+fn locate(p: Point, label: Str = "${p.x},${p.y}") -> Str => !label {
+    return label
 }
 
 fn main() [use] {
@@ -17760,11 +17774,13 @@ fn main() [use] {
     println(greet("Ada", punct = "?"))
     println("${span(5)}")
     println("${span(5, 20)}")
+    println(describe(List(1, 2, 3)))
+    println(locate(Point { x: 3, y: 4 }))
 }
 "#;
 
 pub const PARAM_DEFAULT_OUTPUT: &str =
-    "Hi, Ada.\nHi, Ada!\nHello, Ada!\nHello, Ada?\n10\n15\n";
+    "Hi, Ada.\nHi, Ada!\nHello, Ada!\nHello, Ada?\n10\n15\nsize is 3\n3,4\n";
 
 #[test]
 fn rustc_compiles_and_runs_parameter_defaults() {

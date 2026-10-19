@@ -138,7 +138,88 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-19 — Function parameter defaults: earlier-parameter references via a bound local, not AST substitution (any type, not just Copy scalars)
+
+Follow-up to the previous day's [fn-param-default] work, same session's
+design discussion. The shipped version let a default read an earlier
+parameter only when it was a Copy scalar (`Int`/`Long`/`Float`/`Double`/
+`Bool`/`Char`/`Byte`), because the lowering cloned the default's AST and
+spliced in whatever filled the earlier parameter, then lowered the clone —
+sound only when re-evaluating that filling expression a second time had no
+side effect and duplicated no identity, which a Copy scalar is the one type
+guaranteed to satisfy. The question that reopened it: could the IR instead
+bind the earlier parameter's value **once** and read it twice, lifting the
+restriction for every type?
+
+It can, with **no new IR node**. `salvo-core::ir::nodes::ExprKind` has no
+block-valued-expression variant of its own, but `Lower::block_expr`
+(`ir/build/body/exprs.rs`) already *is* one, built out of `Branch` with a
+single `Bool(true)` arm and no `otherwise`: "statements, then a value," used
+today for a field/tuple/index read of a non-place base and for pre/post-
+increment. Both backends already render this shape as a plain block with no
+`if (true)` wrapper (`body.rs`'s `branch()` on Rust, `mod.rs`'s `branch()` on
+Kotlin each special-case `arms.len()==1 && Bool(true) && otherwise.is_none()`
+before considering it a real branch at all), and the IR-level obligations
+walker already treats an unconditional arm as "always taken, no skip-past
+path" — fixed for exactly this shape on 2026-10-12 (`x ?: unreachable!()`).
+So the one-arm-`Branch` idiom was already load-bearing, general-purpose
+infrastructure; a brand-new node would have meant auditing the ownership/
+lending/narrowing passes for a second meaning of "a block appears here,"
+for no capability `block_expr` didn't already have.
+
+**The rework** (`Lower::args_for`): for each parameter a later default
+actually mentions (`mentioned_idents`, a small `salvo_syntax::visit::Visitor`
+collecting a default's `Ident`s — computed once per call, so an ordinary
+call referencing no earlier parameter pays nothing and gets no wrapper at
+all), the value that fills it — positional, named, or its own default — is
+lowered once, bound to a fresh local with `self.bind_owned` inside a pushed
+scope, and read back through the ordinary `Ident`→`lookup`→`Read` path
+every later default already uses for any other name. The accumulated
+`Stmt::Let`s return alongside the argument list; `call()` wraps the whole
+`Call`/`MemberCall` in `block_expr` when any exist, unwrapped otherwise.
+`args_for`'s signature changed from `-> Vec<Expr>` to
+`-> (Vec<Expr>, Vec<Stmt>)` for this.
+
+**What this removed**: the `substitute_param_refs` AST-clone-and-splice
+helper and its `MutVisitor` are gone; the checker's `is_copy_scalar`-gated
+`ParamRefCollector` and its "only a Copy scalar parameter...may be read by a
+later parameter's default" error are gone. `fn f(xs: List<Int>, y: Int =
+size(xs))` — rejected the day before — now compiles and runs, on both
+backends, with `xs` bound once and read from its own slot and the default.
+Verified in the emitted code directly: Rust renders
+`{ let mut xs: Vec<i32> = vec![1, 2, 3]; describe(&xs, size_platform(&xs)) }`,
+Kotlin the equivalent `run { val xs = listOf(1, 2, 3); describe(xs,
+sizePlatform(xs)) }` — one binding, two reads, no visible branch.
+
+Tests extended rather than added: `rustc_compiles_and_runs_parameter_defaults`
+and `kotlinc_compiles_and_runs_parameter_defaults` now also cover a `List`-
+and a struct-typed earlier parameter (`describe`, `locate`), same
+byte-identical-output assertion as before; the diag test that asserted the
+Copy-scalar *rejection* became `a_default_may_reference_a_non_scalar_earlier_parameter`,
+asserting acceptance instead. Rule [fn-param-default] in LANGUAGE_SPEC.md
+rewritten to describe the bound-local mechanism; [ir-branch] gained a new
+paragraph documenting `block_expr`'s one-arm-`Branch` idiom as a reusable
+general tool (named here for the first time, rather than only mentioned in
+passing at the obligations-checker fix); docs/language/Functions.md's
+"Default parameter values" section updated; wiki synced.
+
+**Naming note, in case a *new* IR node is ever actually needed for a
+future case**: before finding `block_expr`, several names for a
+hypothetical sequencing/let-expression `ExprKind` variant were checked for
+collisions and rejected — `Seq`/`Sequence` (collides with std's `core.seq`
+and the generated actor `Sequencer`/`Sequencing` types in `examples/`),
+`Scope` (collides with `ModuleScope` and the resolver's own "scope" vocabulary),
+`With` (collides with `[with-clause]`, `use H() with D()`). `Prelude`,
+`Staged`, and `Binding` were identified as collision-free if the need
+resurfaces; it did not this time.
+
 ### 2026-10-18 — Default values for function parameters
+
+*(The Copy-scalar restriction on reading an earlier parameter, described
+below, was lifted the next day — see the entry above: `block_expr` binds
+the value once instead of re-lowering it from source, so any type works.
+Everything else here — the four design decisions, the arity relaxation, the
+named-argument routing — is current.)*
 
 `name: T = expr` on an ordinary parameter (user request, following
 [struct-defaults]'s shape and this session's own four design decisions).
@@ -181,11 +262,13 @@ free of ownership or effect consequences; a non-scalar reference is refused
 at check time (`ParamRefCollector`) rather than risked. A full let-binding
 approach (binding each filled parameter once, in a synthetic block, so
 anything — not just scalars — could be read twice safely) was considered and
-rejected: the IR has no block-valued-expression node outside `Branch`'s arms,
-repurposing `Branch` for this looked likely to confuse the ownership/lending
-/narrowing passes built on it meaning *conditional* branching, and the
-Copy-scalar restriction covers the motivating case (`span`-style arithmetic
-on earlier parameters) without the risk.
+rejected *that day*: the IR appeared to have no block-valued-expression node
+outside `Branch`'s arms, and repurposing `Branch` for this looked likely to
+confuse the ownership/lending/narrowing passes built on it meaning
+*conditional* branching. **Revisited and reversed the next day** — see the
+entry above: `Lower::block_expr` already *is* exactly this node, built out
+of a one-arm `Branch` and already load-bearing elsewhere, so the Copy-scalar
+restriction was lifted rather than kept.
 
 **Arity**, relaxed in three places that each independently derived "exact
 positional count" before (`fitting_fns`, `lead_pool`, and the main overload

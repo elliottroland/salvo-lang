@@ -431,20 +431,22 @@ fn a_default_may_reference_an_earlier_scalar_parameter() {
     assert!(errors.is_empty(), "unexpected errors: {errors:?}");
 }
 
-// [fn-param-default] A default cannot read a non-Copy-scalar earlier
-// parameter: reading it twice (its own slot, and the default) is not
-// something only a plain value can shrug off.
+// [fn-param-default] A default MAY read a non-scalar earlier parameter
+// (a `List`, a struct, anything with identity): the IR builder binds the
+// parameter once (`Lower::args_for`/`block_expr`) and reads it from both
+// its own argument slot and the default, so there is nothing to forbid
+// based on the parameter's type.
 #[test]
-fn a_default_cannot_reference_a_non_scalar_earlier_parameter() {
+fn a_default_may_reference_a_non_scalar_earlier_parameter() {
     let errors = check_errors(
         "fn f(xs: List<Int>, y: Int = size(xs)) -> Int {\n\
         \x20   return y\n\
+         }\n\
+         fn g() -> None {\n\
+        \x20   let a = f(List(1, 2, 3))\n\
          }\n",
     );
-    assert!(
-        errors.iter().any(|e| e.contains("only a Copy scalar parameter") && e.contains("`xs`")),
-        "errors: {errors:?}"
-    );
+    assert!(errors.is_empty(), "unexpected errors: {errors:?}");
 }
 
 // [fn-param-default] A default cannot read a *later* parameter: only the

@@ -11,31 +11,26 @@ use super::Lower;
 use crate::ir::build::{apply_coercion, erase, unsupported};
 use crate::ir::*;
 
-/// [fn-param-default] A clone of `expr` with every `Ident` naming a key of
-/// `subst` replaced by that key's expression — how a default value that
-/// reads an earlier parameter (`fn f(a: Int, b: Int = a + 1)`) is lowered:
-/// the reference is spliced to the AST expression that filled that earlier
-/// parameter at this call, then the whole thing is lowered once. Sound only
-/// because the checker admits this for a Copy scalar parameter alone
-/// [fn-param-default]: reading one twice — once for its own argument slot,
-/// once substituted here — duplicates no ownership or effect.
-fn substitute_param_refs(expr: &AExpr, subst: &std::collections::HashMap<String, AExpr>) -> AExpr {
-    struct Subst<'a> {
-        map: &'a std::collections::HashMap<String, AExpr>,
+/// [fn-param-default] Every name a default expression's `Ident`s mention —
+/// the earlier parameters it may read. Used to decide, once per call, which
+/// filled parameters are worth binding to a local before lowering the
+/// defaults after them (`args_for`): binding every parameter unconditionally
+/// would wrap an ordinary call with needless `Let`s, so only a name a
+/// default actually names earns one.
+fn mentioned_idents(expr: &AExpr) -> std::collections::HashSet<String> {
+    struct Collect {
+        found: std::collections::HashSet<String>,
     }
-    impl salvo_syntax::visit_mut::MutVisitor for Subst<'_> {
-        fn visit_expr(&mut self, expr: &mut AExpr) {
+    impl salvo_syntax::visit::Visitor for Collect {
+        fn visit_expr(&mut self, expr: &AExpr) {
             if let AExpr::Ident(id) = expr {
-                if let Some(replacement) = self.map.get(&id.name) {
-                    *expr = replacement.clone();
-                }
+                self.found.insert(id.name.clone());
             }
         }
     }
-    let mut out = expr.clone();
-    let mut v = Subst { map: subst };
-    salvo_syntax::visit_mut::walk_expr(&mut v, &mut out);
-    out
+    let mut v = Collect { found: std::collections::HashSet::new() };
+    salvo_syntax::visit::walk_expr(&mut v, expr);
+    v.found
 }
 
 impl<'a, 'p> Lower<'a, 'p> {
@@ -992,10 +987,12 @@ impl<'a, 'p> Lower<'a, 'p> {
             let instance = self.effect_instance(&instance_ty, span);
             let decl = self.ctx.symbols.effects.get(mc.effect.as_str()).copied();
             let member_decl = decl.and_then(|d| d.fns.get(mc.index));
-            let mut lowered = self.args_for(member_decl.map(Callee::Member), &all_args, named, span);
+            let (args_lowered, prelude) = self.args_for(member_decl.map(Callee::Member), &all_args, named, span);
+            let mut lowered = args_lowered;
             lowered.extend(self.implicit_list(&info.implicit_args.cloned().unwrap_or_default(), named, span));
             let type_args = self.type_args_of(span);
-            return Expr { ty, span, kind: ExprKind::MemberCall { instance: Box::new(instance), member: MemberRef { interface, index: mc.index }, type_args, args: lowered } };
+            let call = Expr { ty: ty.clone(), span, kind: ExprKind::MemberCall { instance: Box::new(instance), member: MemberRef { interface, index: mc.index }, type_args, args: lowered } };
+            return if prelude.is_empty() { call } else { self.block_expr(prelude, call, span) };
         }
         // A fn-typed local, or the fn's own implicit [call-resolve].
         if info.local_call {
@@ -1041,10 +1038,12 @@ impl<'a, 'p> Lower<'a, 'p> {
                     lowered.push(self.effect_instance(&t, span));
                 }
             }
-            lowered.extend(self.args_for(decl.map(|d| Callee::Fn(k, d)), &all_args, named, span));
+            let (args_lowered, prelude) = self.args_for(decl.map(|d| Callee::Fn(k, d)), &all_args, named, span);
+            lowered.extend(args_lowered);
             lowered.extend(self.implicit_list(&info.implicit_args.cloned().unwrap_or_default(), named, span));
             let type_args = self.type_args_of(span);
-            return Expr { ty, span, kind: ExprKind::Call { target: FnRef::Decl(self.ctx.decl_id(k)), type_args, args: lowered } };
+            let call = Expr { ty: ty.clone(), span, kind: ExprKind::Call { target: FnRef::Decl(self.ctx.decl_id(k)), type_args, args: lowered } };
+            return if prelude.is_empty() { call } else { self.block_expr(prelude, call, span) };
         }
         // A computed callee: a lambda or fn value expression.
         let target = self.expr(callee);
@@ -1069,12 +1068,20 @@ impl<'a, 'p> Lower<'a, 'p> {
 
     /// The arguments of a call against the callee's declared parameters: a
     /// place handed to a `Moved` parameter is consumed; a variadic tail is
-    /// one list argument.
-    fn args_for(&mut self, callee: Option<Callee<'p>>, args: &[&AExpr], named: &[ast::NamedArg], span: Span) -> Vec<Expr> {
+    /// The arguments of a call against the callee's declared parameters,
+    /// plus any `Stmt`s that must run before them (empty unless a default
+    /// value reads an earlier parameter): a place handed to a `Moved`
+    /// parameter is consumed; a variadic tail is one list argument.
+    fn args_for(&mut self, callee: Option<Callee<'p>>, args: &[&AExpr], named: &[ast::NamedArg], span: Span) -> (Vec<Expr>, Vec<Stmt>) {
         let modes = crate::param_mode::Modes { symbols: self.ctx.symbols, checked: self.ctx.checked, program: self.ctx.program };
         let params: Option<&[ast::Param]> = callee.as_ref().map(|c| match c { Callee::Fn(_, d) => d.params.as_slice(), Callee::Member(m) => m.params.as_slice() });
         let fixed: Vec<&ast::Param> = params.map(|ps| ps.iter().filter(|p| !p.implicit).collect()).unwrap_or_default();
         let variadic_at = fixed.iter().position(|p| p.variadic);
+        let mode_of = |p: &ast::Param| match &callee {
+            Some(Callee::Fn(k, _)) => modes.fn_param(Some(*k), p),
+            Some(Callee::Member(m)) => modes.member_param(m, p),
+            None => modes.default_param(&p.ty, p.variadic),
+        };
         let mut out = Vec::new();
         let mut tail: Vec<Expr> = Vec::new();
         for (i, a) in args.iter().enumerate() {
@@ -1082,11 +1089,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             let mut x = self.expr(a);
             let param = if is_tail { fixed.get(variadic_at.unwrap()) } else { fixed.get(i) };
             if let Some(p) = param {
-                let mode = match &callee {
-                    Some(Callee::Fn(k, _)) => modes.fn_param(Some(*k), p),
-                    Some(Callee::Member(m)) => modes.member_param(m, p),
-                    None => modes.default_param(&p.ty, p.variadic),
-                };
+                let mode = mode_of(p);
                 // A variadic tail moves its elements only when the callee's
                 // deduction consumes the parameter [fn-variadic].
                 let tail_moves = is_tail
@@ -1106,7 +1109,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                     let lone = args.len() == variadic_at.unwrap() + 1;
                     if lone {
                         out.push(x);
-                        return out;
+                        return (out, Vec::new());
                     }
                     let xt = x.ty.clone();
                     let xs = x.span;
@@ -1123,45 +1126,97 @@ impl<'a, 'p> Lower<'a, 'p> {
         // one, else from the parameter's own default — lowered fresh here,
         // exactly as `struct_lit` lowers a field default at the construction
         // site. Only without a variadic (a variadic absorbs the tail, so no
-        // fixed parameter is left unfilled). The fill runs in declaration
-        // order: a default may read an earlier Copy-scalar parameter (the
-        // checker already refused any other kind), substituted in by AST
-        // clone — `subst` maps each filled parameter's name to the argument
-        // expression that filled it, built up as the loop goes.
+        // fixed parameter is left unfilled).
+        //
+        // A default may read an **earlier** parameter. Re-lowering that
+        // parameter's own argument expression a second time would be unsound
+        // for anything with a side effect or an identity, so instead every
+        // parameter any default in this call actually mentions is bound
+        // **once**, by name, in a fresh scope (`self.bind_owned`), before
+        // the defaults are lowered: an `Ident` inside a default then
+        // resolves through the ordinary `lookup` path to a `Read` of the
+        // bound local, exactly as it would inside the callee's own body.
+        // The resulting `Let`s are returned as a prelude the caller runs
+        // ahead of the call (`Lower::block_expr`) — empty, and no scope
+        // even pushed, when no default reads an earlier parameter, which is
+        // the overwhelmingly common case.
+        let mut prelude: Vec<Stmt> = Vec::new();
         if variadic_at.is_none() {
-            let mut subst: std::collections::HashMap<String, AExpr> = std::collections::HashMap::new();
-            for (i, p) in fixed.iter().enumerate() {
-                let positional: Option<&AExpr> = args.get(i).copied();
-                let named_value: Option<&AExpr> = named
-                    .iter()
-                    .find(|a| a.name.name == p.name.name)
-                    .map(|a| &a.value);
-                let filler: Option<&AExpr> = positional.or(named_value);
-                if i >= args.len() {
+            let referenced: std::collections::HashSet<String> =
+                fixed.iter().filter_map(|p| p.default.as_ref()).flat_map(mentioned_idents).collect();
+            if !referenced.is_empty() {
+                self.push_scope();
+                for (i, p) in fixed.iter().enumerate() {
+                    if !referenced.contains(p.name.name.as_str()) {
+                        if i >= args.len() {
+                            // Not referenced by any later default: fill it
+                            // the plain way, with nothing to bind.
+                            let named_value: Option<&AExpr> = named.iter().find(|a| a.name.name == p.name.name).map(|a| &a.value);
+                            let lowered = match (named_value, &p.default) {
+                                (Some(v), _) => Some(self.expr(v)),
+                                (None, Some(d)) => Some(self.expr(d)),
+                                (None, None) => None, // a required gap — a checker error already
+                            };
+                            if let Some(mut x) = lowered {
+                                if mode_of(p) == PassMode::Moved {
+                                    self.consume_if_owned(&mut x);
+                                }
+                                out.push(x);
+                            }
+                        }
+                        continue;
+                    }
+                    // Referenced by a later default: fill it (positionally,
+                    // by name, or by its own default) and bind the result
+                    // under its own name, so the defaults after it read the
+                    // one bound value rather than re-evaluating it.
+                    let value = if i < args.len() {
+                        None // already lowered into `out[i]` above
+                    } else {
+                        let named_value: Option<&AExpr> = named.iter().find(|a| a.name.name == p.name.name).map(|a| &a.value);
+                        let lowered = match (named_value, &p.default) {
+                            (Some(v), _) => self.expr(v),
+                            (None, Some(d)) => self.expr(d),
+                            (None, None) => continue, // a required gap — a checker error already
+                        };
+                        Some(lowered)
+                    };
+                    let mode = mode_of(p);
+                    if let Some(mut x) = value {
+                        if mode == PassMode::Moved {
+                            self.consume_if_owned(&mut x);
+                        }
+                        let ty = x.ty.clone();
+                        let id = self.id();
+                        let local = self.bind_owned(&p.name.name, ty.clone(), mode != PassMode::Lent);
+                        prelude.push(Stmt::Let { id, local: local.clone(), ty: ty.clone(), value: x });
+                        out.push(Expr { ty, span, kind: ExprKind::Read { place: Place { root: local, steps: Vec::new() }, consume: false } });
+                    } else {
+                        let ty = out[i].ty.clone();
+                        let id = self.id();
+                        let local = self.bind_owned(&p.name.name, ty.clone(), mode != PassMode::Lent);
+                        let moved = std::mem::replace(&mut out[i], Expr { ty: ty.clone(), span, kind: ExprKind::Read { place: Place { root: local.clone(), steps: Vec::new() }, consume: false } });
+                        prelude.push(Stmt::Let { id, local, ty, value: moved });
+                    }
+                }
+                self.pop_scope();
+            } else {
+                for (i, p) in fixed.iter().enumerate() {
+                    if i < args.len() {
+                        continue;
+                    }
+                    let named_value: Option<&AExpr> = named.iter().find(|a| a.name.name == p.name.name).map(|a| &a.value);
                     let lowered = match (named_value, &p.default) {
-                        (Some(v), _) => Some(self.expr(&substitute_param_refs(v, &subst))),
-                        (None, Some(d)) => Some(self.expr(&substitute_param_refs(d, &subst))),
+                        (Some(v), _) => Some(self.expr(v)),
+                        (None, Some(d)) => Some(self.expr(d)),
                         (None, None) => None, // a required gap — a checker error already
                     };
                     if let Some(mut x) = lowered {
-                        let mode = match &callee {
-                            Some(Callee::Fn(k, _)) => modes.fn_param(Some(*k), p),
-                            Some(Callee::Member(m)) => modes.member_param(m, p),
-                            None => modes.default_param(&p.ty, p.variadic),
-                        };
-                        if mode == PassMode::Moved {
+                        if mode_of(p) == PassMode::Moved {
                             self.consume_if_owned(&mut x);
                         }
                         out.push(x);
                     }
-                }
-                // Whatever filled this parameter — positional, named, or its
-                // own default — is what a later default reading it means
-                // (the checker allows this only for a Copy scalar).
-                if let Some(f) = filler {
-                    subst.insert(p.name.name.clone(), f.clone());
-                } else if let Some(d) = &p.default {
-                    subst.insert(p.name.name.clone(), substitute_param_refs(d, &subst));
                 }
             }
         }
@@ -1182,7 +1237,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             };
             out.push(Expr { ty: arr_ty, span, kind: ExprKind::Array(tail) });
         }
-        out
+        (out, prelude)
     }
 
     pub(crate) fn member_ref_by_name(&mut self, effect: &Ty, name: &str, span: Span) -> Option<MemberRef> {

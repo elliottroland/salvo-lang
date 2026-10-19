@@ -2956,28 +2956,6 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 }
 
-/// [fn-param-default] Collects every reference, inside a default
-/// expression, to a name in `watch` — the earlier parameters it may read.
-/// Used to require that a parameter a default reads is a Copy scalar
-/// (`Int`, `Bool`, …): reading one twice (once for its own argument slot,
-/// once substituted into the default) is always safe exactly because
-/// nothing about a Copy scalar is owned or aliased. A non-scalar earlier
-/// parameter is refused instead of risked.
-struct ParamRefCollector<'a> {
-    watch: &'a HashSet<String>,
-    found: Vec<Ident>,
-}
-
-impl salvo_syntax::visit::Visitor for ParamRefCollector<'_> {
-    fn visit_expr(&mut self, expr: &Expr) {
-        if let Expr::Ident(id) = expr {
-            if self.watch.contains(&id.name) {
-                self.found.push(id.clone());
-            }
-        }
-    }
-}
-
 impl<'p, 'r> Checker<'p, 'r> {
     fn key(&self, span: Span) -> Key {
         (self.file_idx, span)
@@ -8825,46 +8803,23 @@ impl<'p, 'r> Checker<'p, 'r> {
         // it but not after) and no effects available — so an effectful
         // default is rejected here, since it would silently colour every
         // caller that omits the argument. Checked once at the declaration;
-        // the value is substituted fresh at each omitting call site.
+        // the value is substituted fresh at each omitting call site, with an
+        // earlier parameter it reads bound once (`Lower::args_for`) so no
+        // ownership question depends on the parameter's type here.
         if f.params.iter().any(|p| p.default.is_some()) {
             let saved_env = std::mem::take(&mut self.effect_env);
             let mut scope: HashMap<String, LocalVar> = HashMap::new();
-            let mut copy_scalar: HashSet<String> = HashSet::new();
             self.locals.push(HashMap::new());
             for p in &f.params {
                 if let Some(default) = &p.default {
                     *self.locals.last_mut().unwrap() = scope.clone();
                     let expected = self.lower_type(&p.ty).strip_spread();
                     self.check_expr(default, Some(&expected));
-                    // [fn-param-default] A default may read an earlier
-                    // parameter only if it is a Copy scalar: reading it
-                    // twice (its own slot, and here) is then always safe,
-                    // since nothing about a Copy scalar is owned or aliased.
-                    let non_scalar: HashSet<String> = scope.keys().filter(|n| !copy_scalar.contains(*n)).cloned().collect();
-                    if !non_scalar.is_empty() {
-                        let mut collector = ParamRefCollector { watch: &non_scalar, found: Vec::new() };
-                        salvo_syntax::visit::walk_expr(&mut collector, default);
-                        for id in collector.found {
-                            self.error(
-                                id.span,
-                                format!(
-                                    "a default value cannot read `{}`: only a Copy scalar \
-                                     parameter (`Int`, `Long`, `Float`, `Double`, `Bool`, \
-                                     `Char`, `Byte`) may be read by a later parameter's \
-                                     default [fn-param-default]",
-                                    id.name
-                                ),
-                            );
-                        }
-                    }
                 }
                 // The parameter joins the scope its own default could not see,
                 // so a later parameter's default may read it.
                 if let Some(lv) = top.get(&p.name.name) {
                     scope.insert(p.name.name.clone(), lv.clone());
-                    if crate::types::is_copy_scalar(&lv.declared) {
-                        copy_scalar.insert(p.name.name.clone());
-                    }
                 }
             }
             self.locals.pop();

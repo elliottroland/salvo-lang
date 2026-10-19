@@ -3276,16 +3276,20 @@ Conventions:
     scope, added one at a time as the loop reaches each later default — so
     `fn f(a: Int, b: Int = a)` sees `a` but `fn f(a: Int = b, b: Int)` does
     not see `b` (an ordinary unresolved-name error).
-  * **A default may read an earlier parameter only if it is a Copy scalar**
-    (`Int`, `Long`, `Float`, `Double`, `Bool`, `Char`, `Byte`): reading one
-    twice — once for its own argument slot, once substituted into a later
-    default — duplicates no ownership and performs no effect only because
-    nothing about a Copy scalar is owned or aliased. A non-scalar reference
-    (a `List`, a struct, anything linear) is refused outright rather than
-    risked. The substitution is a plain AST clone of whatever filled the
-    earlier parameter at this call — its own argument, its named override,
-    or its own (already-substituted) default — spliced in for the `Ident`
-    and lowered once with the rest of the default.
+  * **A default may read an earlier parameter, of any type.** Reading one
+    twice — once for its own argument slot, once from a later default — is
+    not re-evaluated from source twice (which would duplicate a side effect
+    or an identity): the IR builder lowers the earlier parameter's filling
+    value **once**, binds it to a fresh local (`Lower::bind_owned`), and the
+    default's reference to the parameter's name resolves to a `Read` of
+    that local through the ordinary name-lookup path — the same path an
+    `Ident` inside the callee's own body would take. The bindings this needs
+    (only the parameters a default actually mentions; an ordinary call with
+    no such reference gets none) become the statements of one
+    block-valued expression ([ir-branch]'s `block_expr` form), wrapped
+    around the whole call. Only without a variadic parameter: a variadic
+    tail absorbs whatever is left, so no fixed parameter past it is ever
+    filled from a default in the first place.
   * **Variadic and implicit parameters refuse a default outright** (a parse
     error): a variadic tail already fills itself from however many arguments
     remain, and an implicit parameter already has its own fill order
@@ -10117,6 +10121,22 @@ replaced the working document TESTING.md).
   reconstructs an operator from a call (user decision 2026-10-06).
 * [ir-branch] `Branch` is the subjectless choice: ordered conditions and an
   optional else. `if`/`elif`/`else` and a subjectless `when` lower to it.
+  * **The IR has no block-valued-expression node of its own** — "statements,
+    then a value, as one expression" (what a `let`-and-use needs anywhere an
+    expression is expected, not only where a condition already belongs) is
+    `Branch` with **one `Bool(true)` arm and no `otherwise`**
+    (`Lower::block_expr`), rather than a second node. Both backends render
+    this exact shape as a plain block (Rust's `{ … }`, Kotlin's `run { … }`
+    when a value is needed), with no `if (true)` wrapper, and every pass
+    that reasons about `Branch`'s arms as alternatives (obligations, the
+    IR-level linear check, the Rust path-inliner) recognizes the
+    unconditional arm and treats it as the one path always taken rather
+    than as a branch. Used for a projection/index/field read of a
+    non-place base (`f().x` binds `f()` to a temp, then reads `.x`),
+    pre/post-increment (bind the old value, assign, read), a computed call
+    target (bind the callee, then call through the bound local), and — since
+    [fn-param-default] — binding a defaulted parameter's filling value once
+    when a later default reads it.
 * [ir-switch] `Switch` chooses on the arms of a subject union; each arm
   tests `Arm`, `Arms`, `None`, `Lit` or `Else`. `when x`, `?:`, `!` and
   `?.` lower to it. An exhaustive `when` with no written `else` carries an
