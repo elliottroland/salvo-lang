@@ -63,6 +63,17 @@ fun join(parts: List<String>, sep: String): String = parts.joinToString(sep)
 
 fun parseInt(str: String): Int? = str.toIntOrNull()
 
+// [str-parse] An optional sign and decimal digits, as `parseInt`.
+fun parseLong(str: String): Long? = str.toLongOrNull()
+
+// [str-parse] The decimal grammar every backend checks before converting:
+// sign? (digits (`.` digits?)? | `.` digits) ([eE] sign? digits)?. The JVM's
+// own parser also takes surrounding whitespace, `NaN`, `Infinity`, hex and a
+// `d`/`f` suffix; this refuses them, as the Rust host does.
+private val decimal = Regex("[+-]?([0-9]+(\\.[0-9]*)?|\\.[0-9]+)([eE][+-]?[0-9]+)?")
+
+fun parseDouble(str: String): Double? = if (decimal.matches(str)) str.toDoubleOrNull() else null
+
 fun append(str: MutStr, text: String) {
     str.append(text)
 }

@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1957 tests, complete: the toolchain tests are
+cargo test                  # 1958 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,37 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — `parse_long`, `parse_double`, `parse_bool` and `from_str`
+
+Phase 0.6 of the argument-parsing build (ARG_PARSE.md X11, Q4; `Bool` accepts
+`true`/`false` only, by the user's call in round 2). [str-parse]:
+`core.string` gains `parse_long` and `parse_double` (platform), `parse_bool`
+(Salvo), one `from_str` overloaded by return type for `Str?`, `Int?`,
+`Long?`, `Double?` and `Bool?`, and `params FromStr<T>`.
+
+What it took:
+- **One grammar on both hosts.** The JVM's `toDouble` takes `NaN`,
+  `Infinity`, hex and `f`/`d` suffixes; Rust's `parse::<f64>` takes `inf` and
+  `nan`. Each host now checks Salvo's grammar first — Kotlin with one
+  `Regex`, Rust with a hand-written `is_decimal` — and converts only text that
+  passes. `parse_long` uses the hosts' own parsers (`toLongOrNull`,
+  `parse::<i64>`), which already agree with `parse_int`: an optional sign and
+  decimal digits.
+- **All the overloads in `core.string`.** Placing one `from_str` per type in
+  the type's own module was the plan before return-type overloading; with it,
+  one module is simpler and the overload set is visible in one place.
+- The std platform project, `modules/aws`'s host project and every example's
+  generated `core/string` were regenerated; the examples' output is
+  unchanged.
+- `return_type_overloads_run_on_both_backends` declared its own
+  `from_str(Str) -> Int?`, which now meets `core.string`'s identical one and
+  is the ordinary cross-module ambiguity; the test's overloads are renamed
+  `read_as`.
+
+Tests: CLI run `the_value_parsers_agree_on_both_backends` (the accepted and
+refused spellings, a `?from_str` implicit filled at `Int`, and each
+`from_str` chosen by its annotation, identical output on both backends).
 
 ### 2026-10-20 — Overloading by return type
 
@@ -26856,7 +26887,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 1957 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1958 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

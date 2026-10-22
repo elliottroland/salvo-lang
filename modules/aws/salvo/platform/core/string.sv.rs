@@ -169,6 +169,44 @@ pub fn parse_int_platform(str: &String) -> Option<i32> {
     crate::platform_core_string::parse_int(str)
 }
 
+pub fn parse_long_platform(str: &String) -> Option<i64> {
+    crate::platform_core_string::parse_long(str)
+}
+
+pub fn parse_double_platform(str: &String) -> Option<f64> {
+    crate::platform_core_string::parse_double(str)
+}
+
+pub fn parse_bool(str: &String) -> Option<bool> {
+    if (&str[..] == &String::from("true")[..]) {
+        return Some(true);
+    };
+    if (&str[..] == &String::from("false")[..]) {
+        return Some(false);
+    };
+    return None;
+}
+
+pub fn from_str__Str_StrOpt(s: &String) -> Option<String> {
+    return Some((s).clone());
+}
+
+pub fn from_str__Str_IntOpt(s: &String) -> Option<i32> {
+    return crate::core_string::parse_int_platform(s);
+}
+
+pub fn from_str__Str_LongOpt(s: &String) -> Option<i64> {
+    return crate::core_string::parse_long_platform(s);
+}
+
+pub fn from_str__Str_DoubleOpt(s: &String) -> Option<f64> {
+    return crate::core_string::parse_double_platform(s);
+}
+
+pub fn from_str__Str_BoolOpt(s: &String) -> Option<bool> {
+    return crate::core_string::parse_bool(s);
+}
+
 pub fn append_platform(str: &mut String, text: &String) {
     crate::platform_core_string::append(str, text)
 }

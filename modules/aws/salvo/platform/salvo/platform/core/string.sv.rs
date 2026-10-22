@@ -120,6 +120,59 @@ pub fn parse_int(str: &String) -> Option<i32> {
     str.parse::<i32>().ok()
 }
 
+// [str-parse] An optional sign and decimal digits, as `parse_int`.
+pub fn parse_long(str: &String) -> Option<i64> {
+    str.parse::<i64>().ok()
+}
+
+// [str-parse] The decimal grammar every backend checks before converting:
+// sign? (digits (`.` digits?)? | `.` digits) ([eE] sign? digits)?. Rust's own
+// parser also takes `inf`, `nan` and `infinity`; this refuses them, as the
+// Kotlin host does.
+pub fn parse_double(str: &String) -> Option<f64> {
+    if !is_decimal(str.as_bytes()) {
+        return None;
+    }
+    str.parse::<f64>().ok()
+}
+
+fn is_decimal(b: &[u8]) -> bool {
+    let mut i = 0;
+    if i < b.len() && (b[i] == b'+' || b[i] == b'-') {
+        i += 1;
+    }
+    let int_start = i;
+    while i < b.len() && b[i].is_ascii_digit() {
+        i += 1;
+    }
+    let mut digits = i > int_start;
+    if i < b.len() && b[i] == b'.' {
+        i += 1;
+        let frac_start = i;
+        while i < b.len() && b[i].is_ascii_digit() {
+            i += 1;
+        }
+        digits = digits || i > frac_start;
+    }
+    if !digits {
+        return false;
+    }
+    if i < b.len() && (b[i] == b'e' || b[i] == b'E') {
+        i += 1;
+        if i < b.len() && (b[i] == b'+' || b[i] == b'-') {
+            i += 1;
+        }
+        let exp_start = i;
+        while i < b.len() && b[i].is_ascii_digit() {
+            i += 1;
+        }
+        if i == exp_start {
+            return false;
+        }
+    }
+    i == b.len()
+}
+
 pub fn append(str: &mut String, text: &String) {
     str.push_str(text);
 }

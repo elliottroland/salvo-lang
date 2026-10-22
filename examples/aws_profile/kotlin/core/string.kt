@@ -109,6 +109,40 @@ fun joinPlatform(parts: List<String>, sep: String): String = salvo.platform.core
 
 fun parseIntPlatform(str: String): Int? = salvo.platform.core.string.parseInt(str)
 
+fun parseLongPlatform(str: String): Long? = salvo.platform.core.string.parseLong(str)
+
+fun parseDoublePlatform(str: String): Double? = salvo.platform.core.string.parseDouble(str)
+
+fun parseBool(str: String): Boolean? {
+    if (((str) == ("true"))) {
+        return true
+    }
+    if (((str) == ("false"))) {
+        return false
+    }
+    return null
+}
+
+fun fromStr__Str_StrOpt(s: String): String? {
+    return s
+}
+
+fun fromStr__Str_IntOpt(s: String): Int? {
+    return parseIntPlatform(s)
+}
+
+fun fromStr__Str_LongOpt(s: String): Long? {
+    return parseLongPlatform(s)
+}
+
+fun fromStr__Str_DoubleOpt(s: String): Double? {
+    return parseDoublePlatform(s)
+}
+
+fun fromStr__Str_BoolOpt(s: String): Boolean? {
+    return parseBool(s)
+}
+
 fun appendPlatform(str: salvo.platform.core.string.MutStr, text: String) = salvo.platform.core.string.append(str, text)
 
 fun setPlatform(str: salvo.platform.core.string.MutStr, index: Int, chr: Char): Boolean = salvo.platform.core.string.set(str, index, chr)

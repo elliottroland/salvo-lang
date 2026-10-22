@@ -250,6 +250,26 @@ Conventions:
   each field, so a field of any type that itself renders — a scalar, a float
   by [interp-float], a nested struct with its own opt-in — renders inside it,
   where the old derivation stopped at natively renderable fields.
+* [str-parse] **Reading a scalar from a string** (ARG_PARSE.md X11, Q4,
+  user decision 2026-10-20). `core.string` has `parse_int`, `parse_long`,
+  `parse_double` and `parse_bool`, each returning `None` for text that does
+  not spell a value, and one `from_str` overloaded by return type
+  [fn-overload-return] for `Str?`, `Int?`, `Long?`, `Double?` and `Bool?`,
+  so `let port: Int? = from_str(text)` picks the reader by where the result
+  goes. `params FromStr<T> { fn from_str(s: Str) -> T? }` is the implicit
+  group, the dual of `ToStr<T>`.
+  * **One grammar on every backend.** The hosts' parsers disagree (the JVM's parser accepts `NaN`, hex and
+    an `f`/`d` suffix; Rust's `parse::<f64>` accepts `inf` and `nan` but no
+    suffix), so each host checks
+    Salvo's grammar before converting: for `parse_double`, an optional sign,
+    digits with an optional fraction or a fraction alone (`1`, `1.5`, `1.`,
+    `.5`), and an optional exponent (`1e3`, `2.5E-4`); for `parse_long`, an
+    optional sign and decimal digits. Nothing else is accepted.
+  * `parse_bool` accepts the spellings Salvo writes, `true` and `false`, and
+    no others. It is written in Salvo, not on the platform.
+  * The `from_str` overloads all live in `core.string`. The alternative, one
+    per type in that type's module, was only needed while overloads could
+    not differ by return type alone.
 * [type-tuple] `(A, B, C)` is a tuple type; tuples can be destructured in
   `let` and indexed by position ([expr-tuple-index]).
   * **Any arity** (2026-09-18). Rust's tuples are native; Kotlin has `Pair`

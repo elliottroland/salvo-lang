@@ -99,6 +99,24 @@ How `by auto` works is [Compile-time functions](Compile-Time-Functions.md).
 
 **Declaring the obligation is optional.** A type may say `: ToStr<self>`, which does not change how interpolation works — it checks at the declaration that a matching `to_str` exists, so the mistake surfaces where the type is defined rather than where it is printed.
 
+**Reading a value back out of text** is `from_str`, the dual of `to_str`. It
+returns `None` for text that does not spell a value, and it is overloaded by
+its return type ([Functions](Functions.md#overloading-by-return-type)), so the
+type the result goes to chooses the reader:
+
+```
+let port: Int? = from_str("8080")       // 8080
+let ratio: Double? = from_str("2.5e-1") // 0.25
+let on: Bool? = from_str("yes")         // None: only `true` and `false`
+```
+
+`core.string` has it for `Str`, `Int`, `Long`, `Double` and `Bool`, under the
+named functions `parse_int`, `parse_long`, `parse_double` and `parse_bool`.
+They accept the same text on every backend: an optional sign, digits, and for
+a `Double` a fraction and an exponent. Whitespace, `NaN`, `inf`, hex and type
+suffixes are refused everywhere, rather than accepted by whichever host
+happens to. A generic function that needs a reader asks for `?FromStr<T>`.
+
 The behavior of Strings are governed by the module `core.string`.
 
 ## Tuples and Unions

@@ -506,17 +506,17 @@ fn return_type_overloads_run_on_both_backends() {
     let dir = work_dir("return_overloads");
     fs::write(
         dir.join("main.sv"),
-        "fn from_str(s: Str) [] -> Int? => s { return parse_int(s) }\n\
-         fn from_str(s: Str) [] -> Bool? => s {\n    if s == \"true\" { return true }\n    \
+        "fn read_as(s: Str) [] -> Int? => s { return parse_int(s) }\n\
+         fn read_as(s: Str) [] -> Bool? => s {\n    if s == \"true\" { return true }\n    \
          if s == \"false\" { return false }\n    return None\n}\n\n\
          struct Opts { n: Int?, b: Bool? }\n\n\
          fn want_int(n: Int?) [] -> Int => n { return n ?: 0 }\n\n\
          fn main() [use] -> None {\n    use StdConsole()\n    \
-         let a: Int? = from_str(\"12\")\n    let b: Bool? = from_str(\"true\")\n    \
-         let c: Int = from_str(\"7\")!\n    let d: Int = from_str(\"x\") ?: 5\n    \
-         let o = Opts { n: from_str(\"3\"), b: from_str(\"false\") }\n    \
-         let e = want_int(from_str(\"9\"))\n    \
-         let f: Bool? = if c > 3 { from_str(\"true\") } else { None }\n    \
+         let a: Int? = read_as(\"12\")\n    let b: Bool? = read_as(\"true\")\n    \
+         let c: Int = read_as(\"7\")!\n    let d: Int = read_as(\"x\") ?: 5\n    \
+         let o = Opts { n: read_as(\"3\"), b: read_as(\"false\") }\n    \
+         let e = want_int(read_as(\"9\"))\n    \
+         let f: Bool? = if c > 3 { read_as(\"true\") } else { None }\n    \
          println(\"${a ?: 0} ${b ?: false} ${c} ${d} ${o.n ?: 0} ${o.b ?: true} ${e} ${f ?: false}\")\n}\n",
     )
     .unwrap();
@@ -542,6 +542,30 @@ fn return_type_overloads_run_on_both_backends() {
                 "{backend}: the two overloads are named by their return types"
             );
         }
+    }
+    __stamp.verified();
+}
+
+/// [str-parse] The value parsers read the same strings on both backends:
+/// `parse_double` checks one decimal grammar before converting (the hosts'
+/// own parsers disagree on whitespace, `NaN`, `inf`, hex and `f` suffixes),
+/// `parse_bool` takes exactly `true`/`false`, and `from_str` is one name for
+/// every scalar, chosen by the expected type and resolvable as an implicit.
+#[test]
+fn the_value_parsers_agree_on_both_backends() {
+    let Some(__stamp) = e2e_stamp("the_value_parsers_agree_on_both_backends", &["rustc", "kotlinc"]) else {
+        return;
+    };
+    let dir = work_dir("value_parsers");
+    fs::write(dir.join("main.sv"), "fn show(d: Double?) [] -> Str => d {\n    if d is None { return \"none\" }\n    return \"${d}\"\n}\n\nfn read<T>(s: Str, ?from_str: (s: Str) -> T?) [] -> T? => s {\n    return from_str(s)\n}\n\nfn main() [use] -> None {\n    use StdConsole()\n    for s in List(\"1.5\", \"-2\", \"1e3\", \"2.5E-4\", \".5\", \"1.\", \" 1\", \"1.5f\", \"NaN\", \"inf\", \"0x10\", \"\", \"+\", \"1e\", \"-.5e+2\") {\n        println(\"${s}|${show(parse_double(s))}\")\n    }\n    let l: Long? = from_str(\"9000000000\")\n    let b: Bool? = from_str(\"true\")\n    let bad: Bool? = from_str(\"True\")\n    let i: Int? = read(\"42\")\n    let t: Str? = from_str(\"text\")\n    println(\"${l ?: 0L} ${b ?: false} ${bad is None} ${i ?: 0} ${t ?: \"-\"}\")\n}\n").unwrap();
+    for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
+        if !have(tool) {
+            eprintln!("skipping {backend}: {tool} not found on PATH");
+            continue;
+        }
+        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", "."]);
+        assert!(out.status.success(), "{backend} failed: {}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "1.5|1.5\n-2|-2.0\n1e3|1000.0\n2.5E-4|2.5E-4\n.5|0.5\n1.|1.0\n 1|none\n1.5f|none\nNaN|none\ninf|none\n0x10|none\n|none\n+|none\n1e|none\n-.5e+2|-50.0\n9000000000 true true 42 text\n", "{backend}");
     }
     __stamp.verified();
 }

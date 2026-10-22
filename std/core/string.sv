@@ -162,6 +162,62 @@ export platform fn join(parts: List<Str>, sep: Str) [] -> Str => parts, sep
 // The integer [str] spells, or `None` when it does not spell one
 export platform fn parse_int(str: Str) [] -> Int? => str
 
+// [str-parse] The 64-bit integer [str] spells, or `None`: an optional sign
+// and decimal digits, nothing else (no whitespace, no `_`, no `L`).
+export platform fn parse_long(str: Str) [] -> Long? => str
+
+// [str-parse] The number [str] spells in decimal, or `None`. The grammar is
+// the same on every backend: an optional sign, digits with an optional
+// fraction (`1`, `1.5`, `1.`, `.5`), and an optional exponent (`1e3`,
+// `2.5E-4`). No whitespace, no `inf`/`nan`, no hex, no `f`/`d` suffix — the
+// hosts' own parsers disagree on all of those, so each host checks this
+// grammar before converting.
+export platform fn parse_double(str: Str) [] -> Double? => str
+
+// [str-parse] `true` for `"true"`, `false` for `"false"`, `None` otherwise:
+// the spellings Salvo writes, and no others (no `yes`, `1`, or other cases).
+export fn parse_bool(str: Str) [] -> Bool? => str {
+    if str == "true" {
+        return true
+    }
+    if str == "false" {
+        return false
+    }
+    return None
+}
+
+// [str-parse] [fn-overload-return] A value of the expected type read from
+// [s], or `None`: one name for every scalar, chosen by where the result goes
+// (`let port: Int? = from_str(text)`), and the default an implicit
+// `?from_str: (s: Str) -> T?` resolves to at each type — the dual of
+// `to_str` [interp-to-str].
+export fn from_str(s: Str) [] -> Str? => s {
+    return copy(s)
+}
+
+export fn from_str(s: Str) [] -> Int? => s {
+    return parse_int(s)
+}
+
+export fn from_str(s: Str) [] -> Long? => s {
+    return parse_long(s)
+}
+
+export fn from_str(s: Str) [] -> Double? => s {
+    return parse_double(s)
+}
+
+export fn from_str(s: Str) [] -> Bool? => s {
+    return parse_bool(s)
+}
+
+// [str-parse] Types that can be read from a string, as an implicit group:
+// `?FromStr<T>` declares `?from_str: (s: Str) -> T?`, the dual of
+// `?ToStr<T>`.
+export params FromStr<T> {
+    fn from_str(s: Str) -> T?
+}
+
 // Appends [text] to [str]. The string is mutated, which is why its
 // surviving qualifiers are listed exhaustively [deduce-syntax].
 export platform fn append(str: Mut Str, text: Str) [] -> None => str: Mut, text

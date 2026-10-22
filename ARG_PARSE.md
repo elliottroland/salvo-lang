@@ -99,7 +99,7 @@ tracked here so a fresh agent can carry on. Rules for whoever continues:
 - [x] 0.4 Warnings in comptime copies: redirected to written code, reported
   once, only if every copy would (§2d item 5).
 - [x] 0.5 Return-type overloading (§12, R-1 (a), R-2 (b), R-3).
-- [ ] 0.6 `parse_double`, `parse_long`, `parse_bool` and per-type `from_str`
+- [x] 0.6 `parse_double`, `parse_long`, `parse_bool` and per-type `from_str`
   overloads; `params FromStr<T>` (X11, Q4; `Bool` accepts `true`/`false`).
 - [ ] 0.7 `Process` (`exit`, flushing first) and `Env` effects with host
   handlers (X10, Q3).
@@ -135,6 +135,9 @@ tracked here so a fresh agent can carry on. Rules for whoever continues:
 **Blocked on the user:** nothing.
 
 **Log** (newest first):
+- 2026-10-20: 0.6 done ("Add parse_long, parse_double, parse_bool and
+  from_str"): [str-parse]; 1958 tests. All `from_str` overloads live in
+  `core.string`; `parse_double` checks one grammar on both hosts. Next: 0.7.
 - 2026-10-20: 0.5 done ("Overload by return type"): [fn-overload-return];
   1957 tests. Emitted names are `from_str__Str_IntOpt` (level 6). Not
   covered (ROADMAP "Recorded"): effect members, `rename fn`. Next: 0.6.
