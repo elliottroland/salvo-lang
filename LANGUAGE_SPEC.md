@@ -5044,6 +5044,16 @@ Conventions:
     used to land on the field's declaration, prefixed like a stamp's ("in
     `print_help` from `this declaration` for `ArgGroup.groups: …`"); a stamp's
     still does [comptime-instantiate].
+* [comptime-copy-warn] **A warning inside a comptime copy is reported
+  once, where an error there would land** (ROADMAP §2d item 5, done
+  2026-10-20): redirected through the same mapping as errors (to the
+  written code in an expanded-in-place fn, to the field or `by` site in a
+  stamp), and held until the fn is checked. An **unused local** declared in
+  a copy is reported only when every copy that declared it left it unused,
+  as an unused pattern binder already was; any other warning is reported
+  once per written place and text. Before, `warn` skipped the redirect, so
+  a copy's warning kept its synthetic span and printed past the end of the
+  file, once per copy.
 * [comptime-instantiate] **Instantiation is concrete and happens at a `by`
   site only** — an obligation clause or a fn declaration (a third site, an
   implicit override `eq by auto` at a call, is decided and deferred; ROADMAP

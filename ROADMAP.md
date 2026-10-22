@@ -871,32 +871,8 @@ reproduced in a scratch project; the repros are below.
 4. ✅ **A type name shadows `core` whatever kind declares it** (done
    2026-10-20, COMPLETED.md; [type-name-shadow]).
 
-5. **A warning inside a comptime copy lands past the end of the file, and
-   fires per copy.** `Checker::warn` does not go through `redirect_stamped`
-   as `error` does, so a warning on code in a `[for]` copy (an unused local,
-   say) keeps the copy's virtual span and prints with no source line
-   (`main.sv:14:1` for this 13-line repro, with a `main` calling `pick`); and
-   a local used in one copy's kept `[if]` branch but not in another's warns
-   for the second.
-
-   ```
-   struct S { a: Int, b: Str }
-   comptime fn pick(s: S) [] -> Int => s {
-       let total: Int = 0
-       [for f in S.fields] {
-           let y = 1
-           [if f.type is Int] { total = y }
-       }
-       return total
-   }
-   ```
-
-   *General fix:* every diagnostic, warnings included, goes through the
-   stamped-span redirect, so no diagnostic can carry a virtual span; and a
-   warning about written code is reported once, at the written code, and
-   only if every copy would report it (so an unused local warns only when no
-   copy used it, as unused pattern binders already do, `binder_used`). The
-   derive is comptime-heavy, so this matters to it directly.
+5. ✅ **Warnings in comptime copies land on the written code, once** (done
+   2026-10-20, COMPLETED.md; [comptime-copy-warn]).
 
 ### 3 — Recorded: the restrictive reading of a fn-typed slot's lend
 

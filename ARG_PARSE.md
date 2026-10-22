@@ -96,7 +96,7 @@ tracked here so a fresh agent can carry on. Rules for whoever continues:
   and without `Q` refused; `Q "lit"` parses (§2d items 2, 3; Q1).
 - [x] 0.3 A user type alias named like a `core.comptime` type resolves like a
   struct does (§2d item 4).
-- [ ] 0.4 Warnings in comptime copies: redirected to written code, reported
+- [x] 0.4 Warnings in comptime copies: redirected to written code, reported
   once, only if every copy would (§2d item 5).
 - [ ] 0.5 Return-type overloading (§12, R-1 (a), R-2 (b), R-3).
 - [ ] 0.6 `parse_double`, `parse_long`, `parse_bool` and per-type `from_str`
@@ -135,6 +135,9 @@ tracked here so a fresh agent can carry on. Rules for whoever continues:
 **Blocked on the user:** nothing.
 
 **Log** (newest first):
+- 2026-10-20: 0.4 done ("Report warnings in comptime copies once, on the
+  written code"): [comptime-copy-warn]; 1951 tests. ROADMAP §2d is now all
+  done. Next: 0.5 (return-type overloading).
 - 2026-10-20: 0.3 done ("Let a program's type name shadow core whatever kind
   declares it"): [type-name-shadow]; 1950 tests. Next: 0.4.
 - 2026-10-20: 0.2 done ("Collapse qualified literals like bare ones and parse

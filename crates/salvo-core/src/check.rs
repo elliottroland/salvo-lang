@@ -2635,6 +2635,15 @@ struct Checker<'p, 'r> {
     /// is redirected to the field or arm the copy was for and prefixed with
     /// what was being stamped, since the copy's own spans are synthetic.
     own_stamp: Option<&'p ast::Stamp>,
+    /// [comptime-copy-warn] Warnings raised inside the current fn's copies,
+    /// redirected and held until the fn is done, so each is reported once
+    /// (`flush_copy_warnings`).
+    copy_warnings: Vec<(Span, String)>,
+    /// [comptime-copy-warn] Per written declaration in an expanded-in-place
+    /// fn's copies: how many copies declared it, and how many left it unused
+    /// (with the message). Reported only when every copy left it unused.
+    copy_decls: HashMap<(u32, u32), usize>,
+    copy_unused: HashMap<(u32, u32), (usize, String)>,
     /// The current fn's effective deduction contract (written list, else
     /// the previous round's inferred facts): decides whether a parameter
     /// root is *owned* (moved by the contract) for move-mode bindings
@@ -2972,6 +2981,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             let_pattern: false,
             fn_name_clash: fn_name_clash(files, resolution),
             own_stamp: None,
+            copy_warnings: Vec::new(),
+            copy_decls: HashMap::new(),
+            copy_unused: HashMap::new(),
             own_contract: None,
             lit_spans: HashMap::new(),
             own_discharges: std::collections::HashSet::new(),
@@ -3076,9 +3088,56 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// something the author wrote is not doing what it looks like
     /// [qual-refn].
     fn warn(&mut self, span: Span, msg: impl Into<String>) {
+        // [comptime-copy-warn] A warning inside a comptime copy lands where
+        // an error there would (it used to keep the copy's synthetic span,
+        // past the end of the file), and is held so a warning every copy
+        // raises alike is reported once.
+        if self.own_stamp.is_some() && span.start as usize >= self.file_len {
+            let (at, msg) = self.redirect_stamped(span, msg.into());
+            self.copy_warnings.push((at, msg));
+            return;
+        }
         self.out
             .errors
             .push(FileDiagnostic::warning(self.file_idx, span, msg));
+    }
+
+    /// [comptime-copy-warn] Where a span in a copy of an **expanded-in-place**
+    /// fn was written, when it was: the written construct every copy of it
+    /// stands for. `None` outside a copy, or in a stamp (whose template is
+    /// another file's).
+    fn in_place_written(&self, span: Span) -> Option<Span> {
+        let stamp = self.own_stamp?;
+        if (span.start as usize) < self.file_len {
+            return None;
+        }
+        let region = stamp.regions.iter().rev().find(|r| span.start >= r.start && span.start < r.end)?;
+        region.written_from?;
+        let (at, _) = self.redirect_stamped(span, String::new());
+        ((at.start as usize) < self.file_len).then_some(at)
+    }
+
+    /// [comptime-copy-warn] Reports the warnings the fn's copies raised, once
+    /// each: an unused local only if no copy used it (as an unused pattern
+    /// binder already is), anything else once per written place and text.
+    fn flush_copy_warnings(&mut self) {
+        let mut unused: Vec<((u32, u32), (usize, String))> = self.copy_unused.drain().collect();
+        unused.sort_by_key(|(k, _)| *k);
+        for ((start, end), (count, msg)) in unused {
+            let declared = self.copy_decls.get(&(start, end)).copied().unwrap_or(0);
+            if count >= declared {
+                self.out
+                    .errors
+                    .push(FileDiagnostic::warning(self.file_idx, Span::new(start, end), msg));
+            }
+        }
+        self.copy_decls.clear();
+        let mut seen: HashSet<(u32, u32, String)> = HashSet::new();
+        for (at, msg) in std::mem::take(&mut self.copy_warnings) {
+            if seen.insert((at.start, at.end, msg.clone())) {
+                self.out.errors.push(FileDiagnostic::warning(self.file_idx, at, msg));
+            }
+        }
     }
 
     /// An unresolved-name error carrying import suggestions: modules
@@ -3208,6 +3267,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // the deadlock graph.
         self.own_task = f.is_send.then(|| f.name.name.clone());
         self.check_fn(f, &[], &[]);
+        self.flush_copy_warnings();
         self.own_task = None;
         self.own_fn = None;
         self.own_stamp = None;
@@ -10515,6 +10575,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             .or_insert_with(|| ty.clone());
         // [lsp-completion] Offer this binding as a completion inside its fn.
         self.record_local_decl(name, ty.clone());
+        // [comptime-copy-warn] One more copy declared this written local.
+        if let Some(at) = self.in_place_written(name.span) {
+            *self.copy_decls.entry((at.start, at.end)).or_default() += 1;
+        }
         if self.lookup(&name.name).is_some() || self.shadows_by_written_name(&name.name) {
             self.error(
                 name.span,
@@ -22170,13 +22234,19 @@ impl<'p, 'r> Checker<'p, 'r> {
         // that reorders between runs is not comparable in tests.
         unused.sort_by_key(|(_, span)| span.start);
         for (name, span) in unused {
-            self.warn(
-                span,
-                format!(
-                    "`{name}` is never used; prefix it with `_` (`_{name}`) if \
-                     that is deliberate"
-                ),
+            let msg = format!(
+                "`{name}` is never used; prefix it with `_` (`_{name}`) if \
+                 that is deliberate"
             );
+            // [comptime-copy-warn] In a copy of an expanded-in-place fn,
+            // counted against the copies that declared it: reported once,
+            // and only if no copy used it.
+            if let Some(at) = self.in_place_written(span) {
+                let entry = self.copy_unused.entry((at.start, at.end)).or_insert((0, msg));
+                entry.0 += 1;
+                continue;
+            }
+            self.warn(span, msg);
         }
     }
 

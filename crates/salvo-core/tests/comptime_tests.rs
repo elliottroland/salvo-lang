@@ -846,3 +846,33 @@ fn a_terminal_comptime_if_still_sees_its_rest() {
     let warns = warnings(&scoped("[if P.kind is Struct] { let unused = 1 }", "return total"));
     assert!(warns.iter().any(|w| w.starts_with("`unused` is never used")), "{warns:?}");
 }
+
+// ===== [comptime-copy-warn] warnings raised inside copies =====
+
+/// [comptime-copy-warn] A warning inside a copy of an expanded-in-place fn
+/// lands on the written code (it kept the copy's synthetic span, past the end
+/// of the file, before 2026-10-20) and is reported once: an unused local only
+/// when no copy used it, and any other warning once for every copy that
+/// raises it alike.
+#[test]
+fn a_warning_in_copies_is_reported_once_on_the_written_code() {
+    let src = "struct S { a: Int, b: Str }\n\
+               comptime fn pick(s: S) [] -> Int => s {\n    \
+               let total: Int = 0\n    \
+               [for f in S.fields] {\n        \
+               let y = 1\n        \
+               [if f.type is Int] { total = y }\n        \
+               let z = 2\n        \
+               [if f.first] { todo!() }\n    \
+               }\n    \
+               return total\n}\n";
+    let all = diagnostics_in(&[("main.sv", src)]);
+    let warns: Vec<&Reported> = all.iter().filter(|d| d.warning).collect();
+    let lines = src.lines().count();
+    assert!(warns.iter().all(|w| w.line <= lines), "a warning past the end of the file: {warns:?}");
+    let unused: Vec<&&Reported> = warns.iter().filter(|w| w.message.contains("is never used")).collect();
+    assert_eq!(unused.len(), 1, "only `z`, unused in every copy: {warns:?}");
+    assert!(unused[0].message.starts_with("`z` is never used") && unused[0].line == 7, "{warns:?}");
+    let todos = warns.iter().filter(|w| w.message.contains("todo!")).count();
+    assert_eq!(todos, 1, "one `todo!()`, reported once: {warns:?}");
+}

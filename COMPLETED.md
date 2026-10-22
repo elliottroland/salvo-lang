@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1950 tests, complete: the toolchain tests are
+cargo test                  # 1951 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,25 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — A warning in a comptime copy lands on the written code, once
+
+Phase 0.4 of the argument-parsing build (found while fixing the `[if]`
+scoping). **The defect**: `Checker::warn` did not go through
+`redirect_stamped` as `error` does, so an unused local in a `[for]` copy
+printed at the copy's synthetic span (`main.sv:14:1` in a 13-line file, no
+source line), once per copy, and a local used in one copy's kept `[if]`
+branch but not another's warned for the second. **The fix**
+([comptime-copy-warn], the general rule the user asked for): `warn` redirects
+like `error` and holds the result; `flush_copy_warnings` reports each once
+when the fn is done. An unused local is counted against the copies that
+declared it (`copy_decls`, incremented in `declare_var` via
+`in_place_written`) and reported only when every one left it unused, the rule
+unused pattern binders already followed.
+
+Tests: comptime_tests `a_warning_in_copies_is_reported_once_on_the_written_code`
+(every warning inside the file; `y`, used by the `Int` copy, not reported;
+`z`, unused everywhere, reported once on line 7; a `todo!()` once).
 
 ### 2026-10-20 — A type name shadows `core` whatever kind declares it
 
@@ -26788,7 +26807,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 1950 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1951 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
