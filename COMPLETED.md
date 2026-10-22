@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1958 tests, complete: the toolchain tests are
+cargo test                  # 1960 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,42 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — `Process` and `Env`: exit status and environment variables
+
+Phase 0.7, the last of phase 0 of the argument-parsing build (ARG_PARSE.md
+X10, Q3, accepted as recommended). [cli-process]: `import process` brings
+`effect Process { fn exit(code: Int) -> Never }` and `HostProcess()`, which
+flushes stdout and stderr and then exits. [cli-env]: `import env` brings
+`effect Env { fn env(name: Str) -> Str? }` and `HostEnv()`. Each is a module
+of its own, like `args`, with host files `std/platform/{process,env}.{rs,kt}`.
+
+What it took:
+- **Nothing in the checker.** A linear value live at an `exit` is not a leak
+  (Q3 (b)): the IR check already ends a path at any non-`throw` `Never`
+  expression without a discharge requirement, the rule `exit_process` relied
+  on. The spec now says so for `exit`.
+- **A Rust spelling for a `Never` call in value position** [rs-never-call].
+  The first probe (`let x: Int = if c { exit(9) } else { 3 }`, and a `-> Int`
+  fn ending in `exit(7)`) ran on Kotlin and failed rustc with "expected
+  `i32`, found `()`": only platform signatures are `-> !` on Rust
+  [rs-platform-never], and the program's effect trait is `-> ()`. `value`
+  now wraps such a call as `{ call; unreachable!() }`, `diverges` counts it
+  as an escape, and statement position keeps the bare call, so no checked-in
+  example changed. This was latent for any user `-> Never` fn called in
+  value position; nothing exercised it before.
+- `Env.env` needs `=> name`: an effect member has no body to infer its
+  deduction from.
+- Nine golden snapshots (`golden_{demo,effects,loops,qualifiers}` on both
+  backends, `golden_unions_kotlin`) still lacked 0.6's `core.string`
+  additions: that commit's suite run had failed them too, but only the last
+  lines of the log were read. Accepted here; the diff is those additions only.
+
+Tests: CLI run `process_exit_and_env_run_on_both_backends` (built once per
+backend, then run under three environments: exit codes 5, 9 and 7 from
+statement, value and tail position, an unterminated `print` flushed, a set
+and an unset variable); linear_release_tests
+`a_linear_value_live_at_an_exit_is_not_a_leak`.
 
 ### 2026-10-20 — `parse_long`, `parse_double`, `parse_bool` and `from_str`
 
@@ -26887,7 +26923,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 1958 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1960 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -28162,6 +28198,18 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **Read every `FAIL` line of a suite log, not its tail** (2026-10-20): the
+  tail of a nextest log shows only the last few failures before the summary,
+  and a 0.6 run's nine other golden failures went unseen into a commit. Use
+  `grep -E '^\s+FAIL' tmp/nextest.log | awk '{print $NF}' | sort -u` and the
+  `Summary` line's failed count.
+
+- **On Rust, a `Never` call is `()` unless a platform signature says `!`**
+  (2026-10-20): a call to a Salvo `-> Never` fn or effect member in value or
+  tail position needs [rs-never-call]'s `{ call; unreachable!() }`. A new
+  diverging construct the Rust emitter renders should also be counted by
+  `diverges`.
 
 - **A comptime body's locals are renamed, not scoped** (2026-10-20): there is
   no block statement in the AST, so a `[for]` copy and a kept `[if]`/`[when]`

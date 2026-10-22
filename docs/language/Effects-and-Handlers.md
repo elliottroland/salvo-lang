@@ -135,6 +135,31 @@ fn main() [use] -> None {
 
 `args()` gives the same list on every backend, which is the point of routing it through an effect: the Rust and JVM argv conventions differ (Rust's includes the program name, the JVM's array does not), and the `HostArgs` handler reconciles them so your program does not have to. During development, `salvo run -- alpha "beta gamma"` forwards everything after `--` to the program as its arguments.
 
+## Exit status and environment: `Process` and `Env`
+
+Two more capabilities for tools, each in its own module. `Process` ends the program with an exit status, and `Env` reads environment variables:
+
+```
+import process
+import env
+
+fn main() [use] -> None {
+    use StdConsole()
+    use HostProcess()
+    use HostEnv()
+    let home = env("HOME") ?: "/"       // `None` when the variable is unset
+    if home == "/" {
+        printerr("no home directory\n")
+        exit(2)                          // a status the shell sees
+    }
+    println(home)
+}
+```
+
+`exit(code)` does not return: its type is `Never`, so it can stand where a value is expected (`let port: Int = if ok { 8080 } else { exit(2) }`), and the code after it is unreachable. Before the process ends, standard output and standard error are flushed, so text printed without a newline is not lost. Like a trap, `exit` ends the process without discharging linear values still live at the call: nothing runs afterwards, so there is nothing for them to leak into.
+
+Both are effects for the reason `Args` is: a function that can end the process, or whose answer depends on the environment, says so in its signature, and a test can bind a handler of its own instead of the host's.
+
 ## Handlers with dependencies, and interception
 
 A handler may need an effect of its own to do its job. It declares that the way a function does — an effect list before the `of` clause — and the compiler supplies it where the handler is registered. Callers never mention it:

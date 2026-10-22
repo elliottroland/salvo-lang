@@ -546,6 +546,67 @@ fn return_type_overloads_run_on_both_backends() {
     __stamp.verified();
 }
 
+/// [cli-process] [cli-env] [rs-never-call] `exit` ends the process with its
+/// status after flushing what was printed without a newline, from statement,
+/// value and tail position; `env` answers a set variable and `None` for an
+/// unset one. Built once per backend, then the artifact runs under three
+/// environments, one per exit path.
+#[test]
+fn process_exit_and_env_run_on_both_backends() {
+    let Some(__stamp) = e2e_stamp("process_exit_and_env_run_on_both_backends", &["rustc", "kotlinc"]) else {
+        return;
+    };
+    const SRC: &str = r#"import process
+import env
+
+fn pick(c: Bool) [Process] -> Int {
+    let x: Int = if c { exit(9) } else { 3 }
+    return x
+}
+
+fn give_up() [Process] -> Int {
+    exit(7)
+}
+
+fn main() [use] -> None {
+    use StdConsole()
+    use HostProcess()
+    use HostEnv()
+    let probe = env("SALVO_PROBE") ?: "unset"
+    println("${probe} ${env("SALVO_PROBE_UNSET") ?: "unset"} ${pick(false)}")
+    print("no newline")
+    if probe == "value" {
+        println("${pick(true)}")
+    }
+    if probe == "tail" {
+        println("${give_up()}")
+    }
+    exit(5)
+}
+"#;
+    for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
+        if !have(tool) {
+            eprintln!("skipping {backend}: {tool} not found on PATH");
+            continue;
+        }
+        let dir = work_dir(&format!("process_env_{backend}"));
+        fs::write(dir.join("main.sv"), SRC).unwrap();
+        let out = salvo_in(&dir, &["build", "--backend", backend, "--src", ".", "--out", "out"]);
+        assert!(out.status.success(), "{backend} build failed: {}", String::from_utf8_lossy(&out.stderr));
+        for (probe, code) in [("plain", 5), ("value", 9), ("tail", 7)] {
+            let ran = Command::new(dir.join("out").join("main"))
+                .env("SALVO_PROBE", probe)
+                .env_remove("SALVO_PROBE_UNSET")
+                .output()
+                .expect("failed to run the artifact");
+            let stderr = String::from_utf8_lossy(&ran.stderr);
+            assert_eq!(ran.status.code(), Some(code), "{backend} {probe}: {stderr}");
+            assert_eq!(String::from_utf8_lossy(&ran.stdout), format!("{probe} unset 3\nno newline"), "{backend} {probe}: {stderr}");
+        }
+    }
+    __stamp.verified();
+}
+
 /// [str-parse] The value parsers read the same strings on both backends:
 /// `parse_double` checks one decimal grammar before converting (the hosts'
 /// own parsers disagree on whitespace, `NaN`, `inf`, hex and `f` suffixes),

@@ -828,7 +828,8 @@ in build order:
   language (§12: the return type decides only among identical parameter
   lists; subtype-related return types refused); comptime splices bracketed
   (§13: `[field.type]`, `[arm.type] { … }`). Build order: phase 0 (section 2d's
-  defects, `Process`/`Env`, value parsers, return-type overloading), phase 1
+  defects, `Process`/`Env`, value parsers, return-type overloading; **done**
+  2026-10-20, see COMPLETED.md), phase 1
   (comptime qualifiers, union-arm construction, `FromArgs<self> by args`,
   literal members, multi-literal `is`, `explain`, an accumulating outcome,
   `field.default`, `field.docs`), phase 2 (`std/args`). The derive shares its

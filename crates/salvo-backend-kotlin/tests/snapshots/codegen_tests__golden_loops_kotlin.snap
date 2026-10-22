@@ -1479,6 +1479,40 @@ fun joinPlatform(parts: List<String>, sep: String): String = salvo.platform.core
 
 fun parseIntPlatform(str: String): Int? = salvo.platform.core.string.parseInt(str)
 
+fun parseLongPlatform(str: String): Long? = salvo.platform.core.string.parseLong(str)
+
+fun parseDoublePlatform(str: String): Double? = salvo.platform.core.string.parseDouble(str)
+
+fun parseBool(str: String): Boolean? {
+    if (((str) == ("true"))) {
+        return true
+    }
+    if (((str) == ("false"))) {
+        return false
+    }
+    return null
+}
+
+fun fromStr__Str_StrOpt(s: String): String? {
+    return s
+}
+
+fun fromStr__Str_IntOpt(s: String): Int? {
+    return parseIntPlatform(s)
+}
+
+fun fromStr__Str_LongOpt(s: String): Long? {
+    return parseLongPlatform(s)
+}
+
+fun fromStr__Str_DoubleOpt(s: String): Double? {
+    return parseDoublePlatform(s)
+}
+
+fun fromStr__Str_BoolOpt(s: String): Boolean? {
+    return parseBool(s)
+}
+
 fun appendPlatform(str: salvo.platform.core.string.MutStr, text: String) = salvo.platform.core.string.append(str, text)
 
 fun setPlatform(str: salvo.platform.core.string.MutStr, index: Int, chr: Char): Boolean = salvo.platform.core.string.set(str, index, chr)
@@ -3123,6 +3157,17 @@ fun toLower(str: String): String = str.lowercase()
 fun join(parts: List<String>, sep: String): String = parts.joinToString(sep)
 
 fun parseInt(str: String): Int? = str.toIntOrNull()
+
+// [str-parse] An optional sign and decimal digits, as `parseInt`.
+fun parseLong(str: String): Long? = str.toLongOrNull()
+
+// [str-parse] The decimal grammar every backend checks before converting:
+// sign? (digits (`.` digits?)? | `.` digits) ([eE] sign? digits)?. The JVM's
+// own parser also takes surrounding whitespace, `NaN`, `Infinity`, hex and a
+// `d`/`f` suffix; this refuses them, as the Rust host does.
+private val decimal = Regex("[+-]?([0-9]+(\\.[0-9]*)?|\\.[0-9]+)([eE][+-]?[0-9]+)?")
+
+fun parseDouble(str: String): Double? = if (decimal.matches(str)) str.toDoubleOrNull() else null
 
 fun append(str: MutStr, text: String) {
     str.append(text)

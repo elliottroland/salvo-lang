@@ -1814,6 +1814,15 @@ effects" keeps the history).
   and skeleton, and an `EPlatform`/`EPlatformSync` member are `-> !`. The
   adapter's impl of the effect's own trait keeps `-> ()` and forwards the
   host's `!`, which coerces.
+* [rs-never-call] [type-any-never] **A call answering `Never` in value
+  position is `{ call; unreachable!() }`** (2026-10-20, for `Process.exit`
+  [cli-process]). By [rs-platform-never] only a platform signature is `-> !`;
+  the program's own fns and effect traits answer `()`, so the bare call has
+  the wrong type in an `if` arm, a `let` or a tail. The block has every
+  type. In statement position the call stays bare, and `diverges` counts such
+  a call as an escape, so a fn ending in one emits no `return`. The crate
+  allows `unreachable_code`, which the `unreachable!()` after a host `!` would
+  otherwise warn about.
 * [rs-platform-factory] [platform-factory] A named union gets `pub type FsError =
   Union7<…>;` (Rust otherwise spells union aliases out) and `impl FsError {
   pub fn not_found(value: NotFound) -> Self { crate::unions::Union7::U1(value)

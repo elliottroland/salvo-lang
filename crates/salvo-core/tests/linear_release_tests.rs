@@ -212,3 +212,21 @@ fn a_call_that_may_throw_must_release_first() {
         "expected the throw-path diagnostic naming the remedy, got: {errs:?}"
     );
 }
+
+/// [cli-process] [type-any-never] A call to an effect member answering
+/// `Never` (`Process.exit`) ends the path the way a trap does: the process
+/// does not continue, so a linear value live at the call is not a leak — while
+/// the same value live at a `return` is.
+#[test]
+fn a_linear_value_live_at_an_exit_is_not_a_leak() {
+    let src = |leave: &str| {
+        format!(
+            "{PRELUDE}\neffect Process {{\n    fn exit(code: Int) -> Never\n}}\n\n\
+             fn probe(flag: Bool) [Process] -> None {{\n    let h = open_handle(3)\n    if flag {{\n        {leave}\n    }}\n    close_handle(h)\n}}\n"
+        )
+    };
+    let errs = errors(&src("exit(2)"));
+    assert!(errs.is_empty(), "an exit owes nothing: {errs:?}");
+    let errs = errors(&src("return"));
+    assert!(errs.iter().any(|e| e.contains("still owns a linear value")), "a return does: {errs:?}");
+}

@@ -101,7 +101,7 @@ tracked here so a fresh agent can carry on. Rules for whoever continues:
 - [x] 0.5 Return-type overloading (§12, R-1 (a), R-2 (b), R-3).
 - [x] 0.6 `parse_double`, `parse_long`, `parse_bool` and per-type `from_str`
   overloads; `params FromStr<T>` (X11, Q4; `Bool` accepts `true`/`false`).
-- [ ] 0.7 `Process` (`exit`, flushing first) and `Env` effects with host
+- [x] 0.7 `Process` (`exit`, flushing first) and `Env` effects with host
   handlers (X10, Q3).
 
 **Phase 1: language extensions**
@@ -135,6 +135,9 @@ tracked here so a fresh agent can carry on. Rules for whoever continues:
 **Blocked on the user:** nothing.
 
 **Log** (newest first):
+- 2026-10-20: 0.7 done ("Add the Process and Env effects"): [cli-process],
+  [cli-env], [rs-never-call] (a `Never` call in value position on Rust);
+  1960 tests. Phase 0 is complete. Next: 1.1 (bracketed splices).
 - 2026-10-20: 0.6 done ("Add parse_long, parse_double, parse_bool and
   from_str"): [str-parse]; 1958 tests. All `from_str` overloads live in
   `core.string`; `parse_double` checks one grammar on both hosts. Next: 0.7.

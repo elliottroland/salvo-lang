@@ -326,9 +326,20 @@ pub(crate) fn walk_expr(e: &Expr, fs: &mut impl FnMut(&Stmt), fe: &mut impl FnMu
 }
 
 /// Whether an expression never yields (a block ending in a jump).
+/// [rs-never-call] A call whose Salvo type is `Never`: a `-> Never` fn, an
+/// effect member such as `Process.exit`. Rust sees most of them as `-> ()`
+/// (the program's own fns and effect traits keep `()`), so in value position
+/// the call needs an `unreachable!()` after it to have a value's type.
+pub(crate) fn never_call(e: &Expr) -> bool {
+    matches!(e.ty, Ty::Never) && matches!(e.kind, ExprKind::Call { .. } | ExprKind::MemberCall { .. } | ExprKind::HandlerCall { .. })
+}
+
 pub(crate) fn diverges(e: &Expr) -> bool {
     match &e.kind {
         ExprKind::Throw { .. } | ExprKind::Unreachable { .. } => true,
+        // [rs-never-call] A call answering `Never`, which `value` spells as a
+        // block Rust can see diverge.
+        _ if never_call(e) => true,
         // Every arm of a choice ends in an escape (a `when` whose arms all
         // `return`).
         ExprKind::Switch { arms, .. } => {
@@ -594,6 +605,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     fn expr_stmt(&mut self, e: &Expr, indent: usize) -> String {
         match &e.kind {
             ExprKind::Branch { .. } | ExprKind::Switch { .. } => self.value(e, indent),
+            // A statement needs no value, so a `Never` call stands bare.
+            _ if never_call(e) => self.value_of(e, indent),
             _ => self.value(e, indent),
         }
     }
@@ -1080,6 +1093,17 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
 
     /// An owned value of `e`'s type (a reference, for a `proj` type).
     pub fn value(&mut self, e: &Expr, indent: usize) -> String {
+        // [rs-never-call] `{ exit(9); unreachable!() }` has every type, which
+        // the bare call (`()` to Rust) does not.
+        if never_call(e) {
+            let call = self.value_of(e, indent);
+            return format!("{{ {call}; unreachable!() }}");
+        }
+        self.value_of(e, indent)
+    }
+
+    /// `value` without the [rs-never-call] wrapping.
+    fn value_of(&mut self, e: &Expr, indent: usize) -> String {
         match &e.kind {
             ExprKind::Int(v) => match e.ty.strip_quals() {
                 Ty::Named { name, .. } if name == "Long" => format!("{v}i64"),

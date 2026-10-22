@@ -6939,6 +6939,37 @@ surface is imported — `import args` brings `Args`, `args()` and `HostArgs`
     its argv [cli-run], so a program's command line can be exercised without
     building a persisted artifact.
 
+## Exit status and environment (std, `process` and `env`)
+
+Built 2026-10-20 (ARG_PARSE.md X10, Q3, user decisions of the same day). Each
+is a module of its own, imported like `args` [mod-import-module], so a function
+can have one capability without the other.
+
+* [cli-process] **`effect Process { fn exit(code: Int) -> Never }`** ends the
+  process with status `code`; `threadsafe platform handler HostProcess() of
+  Process` is the host's exit. An effect for the reason `Args` is [cli-args]:
+  ending the process is something a function does to the world, so it is in
+  the signature, and a test can bind a handler that records the code.
+  * **`exit` flushes standard output and standard error first** (Q3 (a)):
+    both hosts buffer stdout until a newline, so text printed without one
+    would otherwise be lost. Then `std::process::exit` / `exitProcess`.
+  * **Linear values live at an `exit` are treated as at a trap** (Q3 (b)):
+    the call is `Never`-typed, so it ends its path [type-any-never] without
+    the discharge a `return` or `throw` [throw-linear] needs — the process
+    does not continue, so there is nothing after the call for a value to leak
+    into, and no obligation runs. The IR check has treated every non-`throw`
+    `Never` expression this way since the runtime's `exit_process`.
+  * Nothing unwinds: no `catch` and no actor fault handling sees an `exit`.
+  * An `exit` in value or tail position (`let x: Int = if c { exit(9) } else {
+    3 }`, a `-> Int` fn ending in `exit(7)`) needed a Rust spelling, since Rust
+    sees the program's effect members as `-> ()` [rs-never-call]. Kotlin's
+    `Nothing` already fits.
+* [cli-env] **`effect Env { fn env(name: Str) -> Str? => name }`** reads an
+  environment variable, `None` when it is unset; `threadsafe platform handler
+  HostEnv() of Env` reads the host's (`System.getenv`, `std::env::var`). A
+  variable that is not valid Unicode is `None` on Rust, where a `Str` could
+  not hold it; the JVM decodes it.
+
 ## Network (std, module `net`) — step ① of the network sequence
 
 The wire under actors across machines (user decisions 2026-09-26; ROADMAP.md
