@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1939 tests, complete: the toolchain tests are
+cargo test                  # 1943 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,39 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — Defaults are checked against their type; a predicate default is tested where it is applied
+
+Phase 0.1 of the argument-parsing build (ARG_PARSE.md). **The defect**
+(found designing ARG_PARSE.md §10.1a): two of the three `= default` sites in
+the checker called `check_expr(default, Some(&expected))` and discarded the
+result (struct fields and parameters; only a handler's state tested
+`is_subtype`), so `port: InRange(1, 10) Int = 8080` compiled and
+`needs(Opts {}.port)` printed 8080 through an `InRange(1, 10) Int` on both
+backends. **The fix** ([default-fits]): one helper, `check_default`, at every
+site. **The user's call** (round 2 Q2, [default-predicate]): a default may
+lack a predicate qualifier whose arguments are constants and whose
+`qualifies` needs no implicits or effects; the IR then binds the default
+once where it is applied (each literal leaving the field out, each call
+leaving the parameter out, a handler's construction for its state) and emits
+an `Assert` of the `qualifies` calls, trapping with "the default for field
+`port` is not `InRange(1, 10) Int`". Anything else a default lacks is an
+error naming the qualifier.
+
+What it took: IR types are erased (only `Mut` and tags survive), so the IR
+cannot see a slot's qualifiers through `written_ty`; `Ctx::
+written_ty_unerased` reads the checker's lowering of the written type
+instead, and `Lower::applied_default` tests every predicate qualifier of the
+slot (redundant, never wrong, when the default already carried it). No
+existing std file, example or test relied on the old leniency.
+
+Tests: core `default_tests` (wrong type refused at all three sites; a
+constant predicate accepted at all three; constructive and
+implicit-needing predicates refused, naming the qualifier); CLI `run_tests`
+`a_predicate_default_is_tested_where_it_is_applied` (both backends: the
+parameter default holds, the field default traps with the message, 8080 is
+never printed).
+
 
 ### 2026-10-20 — A comptime body is a scope; a field's `canbe Mut` follows its type
 
@@ -26699,7 +26732,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 1939 under `cargo test` on 2026-10-20, in a copy without the untracked `std/args/parse.sv`; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1943 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

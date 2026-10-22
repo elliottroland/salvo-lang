@@ -1154,7 +1154,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                             let named_value: Option<&AExpr> = named.iter().find(|a| a.name.name == p.name.name).map(|a| &a.value);
                             let lowered = match (named_value, &p.default) {
                                 (Some(v), _) => Some(self.expr(v)),
-                                (None, Some(d)) => Some(self.expr(d)),
+                                (None, Some(d)) => Some(self.param_default(p, d, span)),
                                 (None, None) => None, // a required gap — a checker error already
                             };
                             if let Some(mut x) = lowered {
@@ -1176,7 +1176,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                         let named_value: Option<&AExpr> = named.iter().find(|a| a.name.name == p.name.name).map(|a| &a.value);
                         let lowered = match (named_value, &p.default) {
                             (Some(v), _) => self.expr(v),
-                            (None, Some(d)) => self.expr(d),
+                            (None, Some(d)) => self.param_default(p, d, span),
                             (None, None) => continue, // a required gap — a checker error already
                         };
                         Some(lowered)
@@ -1208,7 +1208,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                     let named_value: Option<&AExpr> = named.iter().find(|a| a.name.name == p.name.name).map(|a| &a.value);
                     let lowered = match (named_value, &p.default) {
                         (Some(v), _) => Some(self.expr(v)),
-                        (None, Some(d)) => Some(self.expr(d)),
+                        (None, Some(d)) => Some(self.param_default(p, d, span)),
                         (None, None) => None, // a required gap — a checker error already
                     };
                     if let Some(mut x) = lowered {
@@ -1307,7 +1307,10 @@ impl<'a, 'p> Lower<'a, 'p> {
                 let fty = match &fd.ty { Some(t) => self.ctx.written_ty(self.file_idx, t), None => self.ctx.ty_of(self.file_idx, fd.name.span).unwrap_or(Ty::Unknown) };
                 all.push((name.clone(), Expr { ty: fty, span, kind: ExprKind::Read { place: Place { root: src.clone(), steps: vec![Step::Field(name.clone())] }, consume: true } }));
             } else if let Some(d) = &fd.default {
-                all.push((name.clone(), self.expr(d)));
+                // [default-predicate] tested where it is applied.
+                let slot = fd.ty.as_ref().and_then(|t| self.ctx.written_ty_unerased(t));
+                let what = format!("field `{name}`");
+                all.push((name.clone(), self.applied_default(d, slot.as_ref(), &what, span)));
             }
         }
         all.extend(written);
@@ -1570,6 +1573,73 @@ impl<'a, 'p> Lower<'a, 'p> {
             args.extend(self.implicit_args_at(at));
         }
         Expr { ty: bool_ty, span, kind: ExprKind::Call { target: FnRef::Decl(target), type_args: Vec::new(), args } }
+    }
+
+    /// [default-predicate] A default applied to the slot it fills: lowered
+    /// fresh, as every default is, and — when the slot carries a predicate
+    /// qualifier the default's own type lacks — bound once and tested there,
+    /// trapping when the test fails, as `x!` traps on `None`. The checker let
+    /// such a default through only for predicate qualifiers with constant
+    /// arguments, no implicits and no effects ([default-fits]), which is what
+    /// makes the test buildable at any construction or call site.
+    /// [default-predicate] A parameter's default, applied at a call.
+    fn param_default(&mut self, p: &ast::Param, d: &AExpr, span: Span) -> Expr {
+        let what = format!("parameter `{}`", p.name.name);
+        self.applied_default(d, self.ctx.written_ty_unerased(&p.ty).map(|t| t.strip_spread()).as_ref(), &what, span)
+    }
+
+    ///
+    /// `slot` is the slot's type **before erasure** (IR types keep only `Mut`
+    /// and tags), so a default's own claims are not visible here: every
+    /// predicate qualifier of the slot is tested, which is redundant (never
+    /// wrong) for a default that already carried the claim.
+    pub(crate) fn applied_default(&mut self, default: &AExpr, slot: Option<&Ty>, what: &str, span: Span) -> Expr {
+        let value = self.expr(default);
+        let Some(slot) = slot else { return value };
+        let checks: Vec<crate::types::Qual> = slot
+            .quals()
+            .iter()
+            .filter(|q| q.args.iter().all(|a| matches!(a, Ty::ConstInt(_))))
+            .filter(|q| self.qualifies_ref(&q.name, slot).is_some())
+            .cloned()
+            .collect();
+        if checks.is_empty() {
+            return value;
+        }
+        let vty = value.ty.clone();
+        let tmp = self.fresh("__default");
+        let id = self.id();
+        let mut stmts = vec![Stmt::Let { id, local: tmp.clone(), ty: vty.clone(), value }];
+        let read = |consume: bool| Expr {
+            ty: vty.clone(),
+            span,
+            kind: ExprKind::Read { place: Place { root: tmp.clone(), steps: Vec::new() }, consume },
+        };
+        for q in &checks {
+            let args = q
+                .args
+                .iter()
+                .map(|a| match a {
+                    Ty::ConstInt(n) => crate::check::PredicateArg { path: n.to_string(), copy: true },
+                    other => crate::check::PredicateArg { path: other.to_string(), copy: true },
+                })
+                .collect();
+            let check = crate::check::PredicateCheck { name: q.name.clone(), args, implicits_at: None };
+            let cond = self.qualifies_call(&check, read(false), span);
+            let shown = Ty::Qualified { quals: vec![q.clone()], base: Box::new(slot.strip_quals().clone()) };
+            let message = Expr {
+                ty: Ty::named("Str"),
+                span,
+                kind: ExprKind::Str(format!("the default for {what} is not `{shown}`")),
+            };
+            stmts.push(Stmt::Expr(Expr {
+                ty: Ty::none(),
+                span,
+                kind: ExprKind::Assert { cond: Box::new(cond), message: Some(Box::new(message)), at: self.location(span) },
+            }));
+        }
+        let value = read(true);
+        self.block_expr(stmts, value, span)
     }
 
     fn qualifies_ref(&self, name: &str, subject: &Ty) -> Option<DeclId> {

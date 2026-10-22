@@ -72,8 +72,9 @@ to show a shape, not a syntax decision.
 
 **How to use this section.** The user asked (2026-10-20) for the work to be
 tracked here so a fresh agent can carry on. Rules for whoever continues:
-- Work the steps **in order**; mark a step `[x]` with the commit hash when it
-  lands, and add a line to the log below.
+- Work the steps **in order**; mark a step `[x]` when it lands, and add a
+  line to the log below naming its commit message (`git log --oneline
+  --grep` finds the hash).
 - **One commit per step** (AGENTS.md "Commits"): code, tests, spec rules,
   docs, the COMPLETED.md decision-log entry and the ROADMAP.md edits land
   together; a short imperative message.
@@ -87,7 +88,7 @@ tracked here so a fresh agent can carry on. Rules for whoever continues:
   (Q0 to Q19, all accepted), §12 (return-type overloading), §13 (brackets).
 
 **Phase 0: fixes and std basics**
-- [ ] 0.1 Defaults checked against their declared type, at every default site
+- [x] 0.1 Defaults checked against their declared type, at every default site
   (ROADMAP §2d item 1; round-2 Q2: a predicate-qualified default is tested
   with `qualifies` where it is applied, and traps on failure).
 - [ ] 0.2 Qualified literals in unions: supported, collapsing into the base arm;
@@ -134,6 +135,9 @@ tracked here so a fresh agent can carry on. Rules for whoever continues:
 **Blocked on the user:** nothing.
 
 **Log** (newest first):
+- 2026-10-20: 0.1 done ("Check defaults against their type and test predicate
+  defaults where applied"): [default-fits], [default-predicate]; 1943 tests.
+  Next: 0.2.
 - 2026-10-20: rounds 1 to 4 decided; `std/args/parse.sv` deleted; the
   session's earlier work committed as one commit before phase 0.
 

@@ -236,6 +236,8 @@ struct Person {
 Function parameters can give a default the same way — see
 [Default parameter values](Functions.md#default-parameter-values).
 
+A default must have the field's type. The one thing it may lack is a predicate qualifier with constant arguments, such as `InRange(1, 65535)` ([Qualifiers](Qualifiers.md)): `port: InRange(1, 65535) Int = 8080` is accepted, and the claim is tested each time the default is used, so a default that does not satisfy it stops the program at that literal with a message naming the field. Parameter defaults and a handler's state initialisers follow the same rule.
+
 Structs can be destructured. If the variable we destructure it into is the same as the field name, then we just mention it directly, otherwise we use the syntax `field: variable_name`
 
 ```

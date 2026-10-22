@@ -1411,6 +1411,35 @@ Conventions:
   fields, no methods. Trailing commas allowed.
 * [struct-defaults] Fields with `= expr` defaults are optional at
   construction; all other fields are required.
+* [default-fits] **A default must fit the slot it fills**, at every default
+  site: a struct field, a parameter [fn-param-default] and a handler's state
+  [handler-state] (one checker helper, `check_default`, so the sites cannot
+  drift). Until 2026-10-20 the struct-field and parameter sites checked the
+  expression and discarded the result, so `port: InRange(1, 10) Int = 8080`
+  compiled, and the claim was false on both backends (ARG_PARSE.md, ROADMAP
+  §2d item 1). The error: "this default does not fit its type: expected …,
+  found …".
+* [default-predicate] **A default may lack a predicate qualifier with
+  constant arguments**, which is then **tested where the default is
+  applied** and traps when it fails, as `x!` traps on `None` (user decision
+  2026-10-20, ARG_PARSE.md round 2 Q2): `port: InRange(1, 65535) Int = 8080`
+  compiles, and an `Opts {}` whose default does not satisfy the claim stops
+  there with "the default for field `port` is not `InRange(1, 65535) Int`".
+  * Testable means: the qualifier has `qualifies` [qual-predicate], every
+    argument is a constant [qual-const], and `qualifies` needs no implicits
+    and performs no effects, since a default is applied at sites that need
+    not have either. Anything else the default lacks (a constructive or
+    provenance claim, a dependent qualifier) is an error naming it.
+  * Applied means: at each struct literal that leaves the field out, at
+    each call that leaves the parameter out, and at a handler's
+    construction for its state. The IR binds the default once and emits an
+    `Assert` of the `qualifies` calls (`Lower::applied_default`), reading the
+    slot's type before erasure.
+  * Every predicate qualifier of the slot is tested, including one the
+    default's own type already carries (IR types are erased, so that is not
+    visible there): redundant, never wrong.
+  * Replaced by a compile-time test when literal establishment lands
+    [qual-const].
 * [struct-spread] `Name {...base, field: v}` copies `base` and overrides
   listed fields.
   * Multiple spreads in one literal are a codegen error (deliberate cut).

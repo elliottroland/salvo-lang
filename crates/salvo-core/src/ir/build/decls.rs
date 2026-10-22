@@ -161,26 +161,39 @@ fn type_params(generics: &[ast::Ident], canbe: &[(ast::Ident, ast::TypeRef)]) ->
         .collect()
 }
 
-fn fields(ctx: &Ctx<'_>, file_idx: usize, decls: &[ast::FieldDecl], errors: &mut Vec<String>) -> Vec<Field> {
+/// `state` says the fields are a handler's state, whose initializers are
+/// applied when the handler is constructed, so a predicate-qualified one is
+/// tested there [default-predicate]. A struct's own field defaults are applied
+/// by each literal instead (`struct_lit`), which tests them.
+fn fields(ctx: &Ctx<'_>, file_idx: usize, decls: &[ast::FieldDecl], state: bool, errors: &mut Vec<String>) -> Vec<Field> {
     decls
         .iter()
-        .map(|f| Field {
-            name: f.name.name.clone(),
+        .map(|f| {
             // [state-infer] An inferred state field (`name = value`, `ty` is
             // `None`) has no written type to lower; the checker recorded the
             // inferred type keyed by the field-name span, so read it back —
             // the same channel `waitfor` uses for its inferred token type.
-            ty: match &f.ty {
+            let ty = match &f.ty {
                 Some(t) => ctx.written_ty(file_idx, t),
                 None => ctx.ty_of(file_idx, f.name.span).unwrap_or(Ty::Unknown),
-            },
-            canbe_mut: f.canbe_mut,
-            default: f.default.as_ref().map(|d| {
-                let mut lower = Lower::new(ctx, file_idx, None);
-                let e = lower.expr(d);
-                errors.extend(lower.finish());
-                e
-            }),
+            };
+            Field {
+                name: f.name.name.clone(),
+                canbe_mut: f.canbe_mut,
+                default: f.default.as_ref().map(|d| {
+                    let mut lower = Lower::new(ctx, file_idx, None);
+                    let e = if state {
+                        let what = format!("state `{}`", f.name.name);
+                        let slot = f.ty.as_ref().and_then(|t| ctx.written_ty_unerased(t));
+                        lower.applied_default(d, slot.as_ref(), &what, d.span())
+                    } else {
+                        lower.expr(d)
+                    };
+                    errors.extend(lower.finish());
+                    e
+                }),
+                ty,
+            }
         })
         .collect()
 }
@@ -191,7 +204,7 @@ fn struct_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, s: &ast::StructDecl, 
         name: s.name.name.clone(),
         exported: s.exported,
         type_params: type_params(&s.generics, &s.generic_canbe),
-        fields: fields(ctx, file_idx, &s.fields, errors),
+        fields: fields(ctx, file_idx, &s.fields, false, errors),
         linear: s.linear,
         opaque: s.opaque,
         canbe_mut: s.auto_qualifiers.iter().any(|q| q.name.name == "Mut"),
@@ -308,7 +321,7 @@ fn impl_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, h: &ast::HandlerDecl, s
             span: p.span,
         })
         .collect();
-    let state = fields(ctx, file_idx, &h.state, errors);
+    let state = fields(ctx, file_idx, &h.state, true, errors);
     // The handler's fields are in scope inside its members.
     let self_fields: Vec<(String, Ty)> = ctor_params
         .iter()

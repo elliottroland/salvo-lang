@@ -861,30 +861,8 @@ design touches it, and scheduled **alongside the planned `std/args` derive
 and comptime work**. None is a decision except where marked. Each was
 reproduced in a scratch project; the repros are below.
 
-1. **Defaults are not checked against their declared type.** Two of the
-   three `= expr` sites in `check.rs` call `check_expr(default,
-   Some(&expected))` and discard the result: the **struct-field** loop (under
-   `check_linear_field`) and the **fn-parameter** loop (`for p in &f.params
-   … if let Some(default)`). Only the handler-state loop tests
-   `is_subtype(&got, &expected)`. So a default that does not fit compiles and
-   makes the type's claim false on both backends:
-
-   ```
-   struct Opts { port: InRange(1, 10) Int = 8080 }
-   fn needs(p: InRange(1, 10) Int) [] -> Int => p { return p + 0 }
-   fn f(p: InRange(1, 10) Int = 8080) [] -> Int => p { return needs(p) }
-   // main: println("${needs(Opts {}.port)}") and println("${f()}") both print 8080
-   ```
-
-   *General fix:* one helper that checks a default against its slot, used at
-   every default site (struct fields, parameters, handler state, and any later
-   one), so they cannot drift again; tests for each site with a qualified
-   type. Whether a *literal* default may establish a predicate qualifier
-   (`= 8` for `InRange(1, 10) Int`, by evaluating `qualifies` at compile
-   time) is [qual-const]'s recorded "literal establishment" item; until it
-   lands, such a default is an error naming `is` as the way to establish it.
-   That consequence (every qualified default refused for now, even a correct
-   one) is visible to users, so confirm it when the fix lands.
+1. ✅ **Defaults are checked against their declared type** (done 2026-10-20,
+   COMPLETED.md; [default-fits], [default-predicate]).
 
 2. **A union of provenance-qualified literals type-checks but does not
    compile.** The checker accepts it; both backends emit a two-arm union and

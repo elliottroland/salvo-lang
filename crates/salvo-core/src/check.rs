@@ -3952,13 +3952,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             match &field.ty {
                                 Some(t) => {
                                     let expected = self.lower_type(t);
-                                    let got = self.check_expr(default, Some(&expected));
-                                    if !is_subtype(&got, &expected) {
-                                        self.error(
-                                            default.span(),
-                                            format!("expected `{expected}`, found `{got}`"),
-                                        );
-                                    }
+                                    self.check_default(default, &expected);
                                 }
                                 None => {
                                     let got = self.check_expr(default, None);
@@ -4203,7 +4197,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         if let Some(default) = &field.default {
                             let expected = self.lower_type(written);
                             self.locals.push(HashMap::new());
-                            self.check_expr(default, Some(&expected));
+                            self.check_default(default, &expected);
                             self.locals.pop();
                         }
                     }
@@ -8991,7 +8985,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if let Some(default) = &p.default {
                     *self.locals.last_mut().unwrap() = scope.clone();
                     let expected = self.lower_type(&p.ty).strip_spread();
-                    self.check_expr(default, Some(&expected));
+                    self.check_default(default, &expected);
                 }
                 // The parameter joins the scope its own default could not see,
                 // so a later parameter's default may read it.
@@ -18006,6 +18000,69 @@ impl<'p, 'r> Checker<'p, 'r> {
             .get(name)
             .and_then(|decls| decls.first())
             .copied()
+    }
+
+    /// [default-fits] Checks a `= default` against the slot it fills: a struct
+    /// field, a parameter or a handler's state. One helper for every default
+    /// site, so they cannot drift (until 2026-10-20 the struct-field and
+    /// parameter sites discarded the result, and `port: InRange(1, 10) Int =
+    /// 8080` compiled with a false claim).
+    ///
+    /// A default may lack a **predicate** qualifier the slot carries when the
+    /// qualifier can be tested where the default is applied ([`Self::
+    /// default_checkable`]): the IR then tests it there and traps on failure,
+    /// as `x!` does ([default-predicate], user decision 2026-10-20, ARG_PARSE.md
+    /// round 2 Q2). Any other mismatch is an error.
+    fn check_default(&mut self, default: &'p ast::Expr, expected: &Ty) {
+        let got = self.check_expr(default, Some(expected));
+        if got.is_unknown() || expected.is_unknown() || is_subtype(&got, expected) {
+            return;
+        }
+        let missing: Vec<&Qual> = expected
+            .quals()
+            .iter()
+            .filter(|q| !got.quals().iter().any(|g| g.name == q.name && g.args == q.args))
+            .collect();
+        let deferred: HashSet<String> = missing
+            .iter()
+            .filter(|q| self.default_checkable(q))
+            .map(|q| q.name.clone())
+            .collect();
+        if !deferred.is_empty() && is_subtype(&got, &expected.clone().remove_quals(&deferred)) {
+            return;
+        }
+        let unprovable: Vec<String> = missing
+            .iter()
+            .filter(|q| !deferred.contains(&q.name) && self.qual_decl(&q.name).is_some())
+            .map(|q| format!("`{}`", q.name))
+            .collect();
+        let why = if unprovable.is_empty() || !is_subtype(&got, expected.strip_quals()) {
+            String::new()
+        } else {
+            format!(
+                ": a default can lack only a predicate qualifier with constant arguments \
+                 (tested where the default is used), and {} is not one",
+                unprovable.join(", ")
+            )
+        };
+        self.error(
+            default.span(),
+            format!("this default does not fit its type: expected `{expected}`, found `{got}`{why} [default-fits]"),
+        );
+    }
+
+    /// [default-predicate] Whether a slot's qualifier can be tested where a
+    /// default is applied: a predicate qualifier (it has `qualifies`) whose
+    /// arguments are all constants [qual-const], and whose `qualifies` needs
+    /// no implicits and performs no effects, since a default is applied at
+    /// sites that need not have either.
+    fn default_checkable(&self, q: &Qual) -> bool {
+        if !q.args.iter().all(|a| matches!(a, Ty::ConstInt(_))) {
+            return false;
+        }
+        let Some(decl) = self.qual_decl(&q.name) else { return false };
+        let Some(f) = decl.fns.iter().find(|f| f.name.name == "qualifies") else { return false };
+        f.params.iter().all(|p| !p.implicit) && f.effects.iter().flatten().next().is_none()
     }
 
     /// [cmp-carry] Validates a declaration's **slot list**: every written slot's

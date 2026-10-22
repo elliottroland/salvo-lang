@@ -414,6 +414,49 @@ fn the_programs_exit_code_is_the_commands() {
     __stamp.verified();
 }
 
+// ===== [default-predicate] =====
+
+/// A default whose slot carries a predicate qualifier it does not satisfy is
+/// tested where it is applied and traps there, on both backends (user
+/// decision 2026-10-20, ARG_PARSE.md round 2 Q2): a parameter default that
+/// holds runs, and a field default that does not stops the program at the
+/// literal with a message naming the field and the claim. Before the fix the
+/// default was not checked at all and printed 8080 through an `InRange(1,
+/// 10) Int`.
+#[test]
+fn a_predicate_default_is_tested_where_it_is_applied() {
+    let Some(__stamp) = e2e_stamp("a_predicate_default_is_tested_where_it_is_applied", &["rustc", "kotlinc"]) else {
+        return;
+    };
+    let dir = work_dir("default_predicate");
+    fs::write(
+        dir.join("main.sv"),
+        "struct Opts {\n    port: InRange(1, 10) Int = 8080\n    ok: InRange(1, 10) Int = 3\n}\n\n\
+         fn needs(p: InRange(1, 10) Int) [] -> Int => p { return p + 0 }\n\
+         fn f(p: InRange(1, 10) Int = 5) [] -> Int => p { return needs(p) }\n\n\
+         fn main() [use] -> None {\n    use StdConsole()\n    println(\"${f()}\")\n    \
+         let o = Opts {}\n    println(\"${needs(o.ok)} ${needs(o.port)}\")\n}\n",
+    )
+    .unwrap();
+    for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
+        if !have(tool) {
+            eprintln!("skipping {backend}: {tool} not found on PATH");
+            continue;
+        }
+        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", "."]);
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(!out.status.success(), "{backend}: the field default should trap; stdout: {stdout}");
+        assert!(stdout.contains('5'), "{backend}: the parameter default holds and runs first; stdout: {stdout}");
+        assert!(!stdout.contains("8080"), "{backend}: the bad default must not be read; stdout: {stdout}");
+        assert!(
+            stderr.contains("the default for field `port` is not `InRange(1, 10) Int`"),
+            "{backend}: stderr: {stderr}"
+        );
+    }
+    __stamp.verified();
+}
+
 // ===== --clean-target =====
 
 /// `both` (the default) leaves nothing behind; `before` keeps the output for

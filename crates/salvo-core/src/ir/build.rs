@@ -71,6 +71,14 @@ impl<'p> Ctx<'p> {
         }
     }
 
+    /// [default-predicate] A written type as the checker lowered it, **before
+    /// erasure**: its qualifiers intact, for the one place the IR acts on
+    /// them, a default tested where it is applied. `None` when the checker
+    /// never lowered it (then there is nothing it let through to test).
+    pub fn written_ty_unerased(&self, ty: &ast::Type) -> Option<Ty> {
+        self.checked.written_types.get(&crate::check::written_type_key(ty)).cloned()
+    }
+
     /// A written type the checker never lowered (a struct field only ever
     /// read through a substitution, say): approximated from the AST with
     /// every name resolved to its key and every alias expanded
