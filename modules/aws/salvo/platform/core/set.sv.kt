@@ -25,7 +25,7 @@ fun<T> containsPlatform(set: salvo.platform.core.set.Set<T>, elem: T, hash: (T) 
 fun<T> sizePlatform(set: salvo.platform.core.set.Set<T>): Int = salvo.platform.core.set.size(set)
 
 fun<T> toStr(set: salvo.platform.core.set.Set<T>, toStr: (T) -> String): String {
-    val out: salvo.platform.core.string.MutStr = salvo.core.string.mutStr(arrayOf<String>("{"))
+    val out: salvo.platform.core.string.MutStr = salvo.core.string.Mut_Str(arrayOf<String>("{"))
     var i: Int = 0
     for (x in salvo.platform.core.set.each(set)) {
         if ((i > 0)) {

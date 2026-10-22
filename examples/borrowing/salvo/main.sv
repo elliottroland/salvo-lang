@@ -179,7 +179,7 @@ fn hoist(camp: Mut Camp, banner: Str) -> None => camp.banners: Mut, !banner {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
 
     // ----- 1. read projections -----
 

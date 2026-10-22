@@ -181,7 +181,7 @@ fun settings(setting: Setting<Int>, setting__1: Setting<String>, console: salvo.
 }
 
 fun main() {
-    val __use_1: salvo.core.console.__Platform_StdOutConsole = salvo.core.console.__Platform_StdOutConsole()
+    val __use_1: salvo.core.console.__Platform_StdConsole = salvo.core.console.__Platform_StdConsole()
     val __handle_2: salvo.core.console.Console = __use_1
     val __use_3: TickingClock = TickingClock()
     val __lock___use_3 = java.util.concurrent.locks.ReentrantLock()

@@ -51,6 +51,7 @@ pub mod platform_core_string;
 use crate::core_console::Console;
 use crate::core_iterator::Finished;
 use crate::core_list::ListYield;
+use crate::core_string::Mut_Str;
 use crate::core_string::StrYield;
 use crate::core_list::add_platform;
 use crate::core_string::append_platform;
@@ -62,7 +63,6 @@ use crate::core_list::get_platform;
 use crate::core_seq::map__It_Fn;
 use crate::core_seq::map__List_Fn;
 use crate::core_seq::map_to;
-use crate::core_string::mut_str;
 use crate::core_list::next__ListYield;
 use crate::core_console::println;
 use crate::core_range::range__Int_Int_Int;
@@ -76,7 +76,7 @@ pub fn describe_container(console: &crate::core_console::Console, xs: &Vec<i32>)
         sum = i32::wrapping_add(sum, n);
     }
     crate::core_console::println(console, &format!("1. list of {} sums to {}", crate::core_list::size_platform::<i32>(xs), sum));
-    let mut letters: String = crate::core_string::mut_str(vec![]);
+    let mut letters: String = crate::core_string::Mut_Str(vec![]);
     for mut c in String::from("salvo").chars() {
         crate::core_string::append_platform(&mut letters, &format!("{}.", c));
     }
@@ -334,7 +334,7 @@ pub fn first<__It0: Clone>(it: &mut __It0, next: &mut dyn FnMut(&mut __It0) -> c
 }
 
 pub fn main() {
-    let mut __use_1: crate::core_console::__Platform_StdOutConsole = crate::core_console::__Platform_StdOutConsole::new();
+    let mut __use_1: crate::core_console::__Platform_StdConsole = crate::core_console::__Platform_StdConsole::new();
     let __handle_2 = crate::core_console::Console::shared(__use_1);
     let mut xs: Vec<i32> = vec![1i32, 2i32, 3i32, 4i32];
     crate::describe_container(&__handle_2, &xs);
@@ -434,7 +434,7 @@ pub fn main() {
         i32::wrapping_mul(*n, 10i32)
     }, &mut |__a0: &mut Vec<i32>, __a1: i32| crate::core_list::add_platform(&mut *__a0, __a1), &mut |__a0: &mut crate::Countdown| crate::next__Countdown(&mut *__a0));
     crate::core_console::println(&__handle_2, &format!("6. collected {}", crate::core_list::size_platform::<i32>(&collected)));
-    let mut evens: String = crate::core_string::mut_str(vec![]);
+    let mut evens: String = crate::core_string::Mut_Str(vec![]);
     let mut __pass_18: crate::core_range::__Iter_range_Int_Int_Int = crate::core_range::range__Int_Int_Int(0i32, 10i32, 2i32);
     loop {
         let mut __step_19: crate::unions::Union2<i32, crate::core_iterator::Finished> = crate::core_range::next(&mut __pass_18);

@@ -47,15 +47,37 @@ pub struct CompHover {
     pub module: Option<ModulePath>,
 }
 
+/// [lsp-completion] [when-exhaustive] The arms a comptime `[when …]` has yet
+/// to cover, at its written span: kind words for `[when x.kind]`, quoted names
+/// for `[when f.name]`, the uncovered types for `[when f.type]` — what the
+/// language server offers as the arms still to write. Empty when it covers
+/// its range. Only where the range is known where the fn is written: an
+/// expanded-in-place fn, and any `[when x.kind]`.
+#[derive(Clone, Debug)]
+pub struct CompWhenArms {
+    pub file: usize,
+    pub span: Span,
+    /// What follows `is` in each missing arm.
+    pub missing: Vec<String>,
+    /// A `[when f.type]`: `is *` covers the rest, so it is offered too.
+    pub types: bool,
+    /// The written arms' bodies: a position inside one is not between arms.
+    /// (The language server cannot read them off the program, whose comptime
+    /// fns are expanded by then.)
+    pub bodies: Vec<Span>,
+}
+
 pub struct ComptimeOutput {
     pub diagnostics: Vec<(usize, Diagnostic)>,
     pub hovers: Vec<CompHover>,
+    pub when_arms: Vec<CompWhenArms>,
 }
 
 /// Runs the expansion. `modules` is aligned with `files`.
 pub fn expand_comptime(files: &[SourceFile], modules: &mut [Module]) -> ComptimeOutput {
     let mut out = Vec::new();
     let mut hovers: Vec<CompHover> = Vec::new();
+    let mut when_arms: Vec<CompWhenArms> = Vec::new();
 
     // Program-wide tables. Names are flat here — the resolver's visibility
     // rules run later on what this produces — and a collision between two
@@ -86,10 +108,22 @@ pub fn expand_comptime(files: &[SourceFile], modules: &mut [Module]) -> Comptime
         for item in &module.items {
             match item {
                 Item::Fn(f) if f.compfn.as_ref().is_some_and(|c| c.bound.is_some()) => {
+                    // [when-exhaustive] A subject `[when]` over the bound
+                    // parameter's range is refused at the template; the
+                    // template still answers its `by` sites, with a body that
+                    // says nothing more, so the one mistake is one diagnostic.
+                    let refused = unchecked_subject_whens(f);
+                    let mut decl = f.clone();
+                    if !refused.is_empty() {
+                        out.extend(refused.into_iter().map(|d| (idx, d)));
+                        let compfn = decl.compfn.take();
+                        fallback_body(&mut decl);
+                        decl.compfn = compfn;
+                    }
                     compfns.push(CompFnDecl {
                         module: file.module.clone(),
                         file: idx,
-                        decl: f.clone(),
+                        decl,
                     });
                 }
                 // [type-identity] Every declaration of a name, by module: one
@@ -112,6 +146,7 @@ pub fn expand_comptime(files: &[SourceFile], modules: &mut [Module]) -> Comptime
         structs,
         types,
         own: std::cell::RefCell::new(ModulePath(Vec::new())),
+        imports: std::cell::RefCell::new(Vec::new()),
         groups,
         module_paths: files
             .iter()
@@ -123,12 +158,23 @@ pub fn expand_comptime(files: &[SourceFile], modules: &mut [Module]) -> Comptime
 
     for (file_idx, (file, module)) in files.iter().zip(modules.iter_mut()).enumerate() {
         *world.own.borrow_mut() = file.module.clone();
+        *world.imports.borrow_mut() = module
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                Item::Import(i) => Some(i.path.iter().map(|p| p.name.clone()).collect()),
+                _ => None,
+            })
+            .collect();
         let mut diags: Vec<Diagnostic> = Vec::new();
         let mut virtual_next = file.content.len() as u32 + 1;
         let mut generated: Vec<Item> = Vec::new();
 
         // [comptime-fields] Hovers over every comptime fn body, at the written
-        // spans, before the bodies are consumed by stamping.
+        // spans, before the bodies are consumed by stamping. The same walk
+        // collects the type names an expanded-in-place fn names directly
+        // [comptime-root-visible].
+        let mut roots_by_fn: HashMap<u32, Vec<Ident>> = HashMap::new();
         for item in &module.items {
             let Item::Fn(f) = item else { continue };
             let Some(cf) = &f.compfn else { continue };
@@ -144,9 +190,14 @@ pub fn expand_comptime(files: &[SourceFile], modules: &mut [Module]) -> Comptime
                 file: file_idx,
                 bound: cf.bound.as_ref().map(|(k, id)| (id.name.clone(), *k)),
                 binders: Vec::new(),
+                roots: Vec::new(),
                 out: &mut hovers,
+                when_arms: &mut when_arms,
             };
             rec.fn_decl(f);
+            if cf.bound.is_none() {
+                roots_by_fn.insert(f.name.span.start, std::mem::take(&mut rec.roots));
+            }
         }
 
         // [obligation-by] Clause sites: structs and type declarations.
@@ -224,7 +275,7 @@ pub fn expand_comptime(files: &[SourceFile], modules: &mut [Module]) -> Comptime
             }
         }
 
-        // [fn-by] Declaration sites, and concrete compfns.
+        // [fn-by] Declaration sites, and expanded-in-place compfns.
         for item in &mut module.items {
             let Item::Fn(f) = item else { continue };
             if let Some(by) = f.by.clone() {
@@ -292,16 +343,46 @@ pub fn expand_comptime(files: &[SourceFile], modules: &mut [Module]) -> Comptime
                     }
                 }
             } else if f.compfn.as_ref().is_some_and(|c| c.bound.is_none()) {
-                // A concrete compfn is its own instantiation: the roots it
-                // names are looked up directly.
+                // [comptime-bound] An expanded-in-place compfn is its own
+                // instantiation: expanded once, here, and an ordinary
+                // (callable) fn from then on. The roots it names are looked
+                // up directly.
                 let site = f.compfn.as_ref().map(|c| c.span).unwrap_or(f.span);
                 let mut ex = Expander::new(&world, None, site, &mut virtual_next);
                 ex.params = f.params.clone();
+                ex.written_limit = Some(file.content.len() as u32);
+                ex.fn_name = Some(f.name.name.clone());
+                ex.fn_generics = f.generics.iter().map(|g| g.name.clone()).collect();
                 let mut body = f.body.take();
                 if let Some(b) = &mut body {
                     ex.expand_block(b);
                 }
-                let (regions, errs) = ex.finish();
+                // [lsp-completion] One record per written `[when]`: the copies'
+                // uncovered arms, merged in order.
+                for (span, missing, types, bodies) in std::mem::take(&mut ex.when_arms) {
+                    match when_arms.iter_mut().find(|w| w.file == file_idx && w.span == span) {
+                        Some(w) => {
+                            for m in missing {
+                                if !w.missing.contains(&m) {
+                                    w.missing.push(m);
+                                }
+                            }
+                        }
+                        None => when_arms.push(CompWhenArms { file: file_idx, span, missing, types, bodies }),
+                    }
+                }
+                let (regions, mut errs) = ex.finish();
+                // Warnings ride along; only an error drops the expansion.
+                diags.extend(errs.iter().filter(|d| !d.is_error()).cloned());
+                errs.retain(|d| d.is_error());
+                // [comptime-root-visible] Only names the expansion read as a
+                // declared type are roots; the checker requires each visible.
+                let roots: Vec<Ident> = roots_by_fn
+                    .remove(&f.name.span.start)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|r| world.structs.contains_key(&r.name) || world.types.contains_key(&r.name))
+                    .collect();
                 if errs.is_empty() {
                     f.body = body;
                     f.stamped = Some(Stamp {
@@ -310,6 +391,7 @@ pub fn expand_comptime(files: &[SourceFile], modules: &mut [Module]) -> Comptime
                         at_type: first_param_type_text(f),
                         site,
                         regions,
+                        roots,
                     });
                 } else {
                     diags.extend(errs);
@@ -330,6 +412,7 @@ pub fn expand_comptime(files: &[SourceFile], modules: &mut [Module]) -> Comptime
     ComptimeOutput {
         diagnostics: out,
         hovers,
+        when_arms,
     }
 }
 
@@ -344,7 +427,12 @@ struct HoverRecorder<'w> {
     bound: Option<(String, CompKind)>,
     /// Binders in scope: name → (`Field`/`Arm`, what it walks).
     binders: Vec<(String, bool)>,
+    /// [comptime-root-visible] Type names written as comptime roots.
+    roots: Vec<Ident>,
     out: &'w mut Vec<CompHover>,
+    /// [lsp-completion] Each `[when x.kind]`'s missing kinds: known from its
+    /// arms alone, so recorded from the written body.
+    when_arms: &'w mut Vec<CompWhenArms>,
 }
 
 impl HoverRecorder<'_> {
@@ -392,11 +480,13 @@ impl HoverRecorder<'_> {
                 let owner = if is_arm { "Arm" } else { "Field" };
                 self.push(
                     ct.span,
-                    &format!("{}.type: Type", ct.root.name),
+                    &format!("{}.type", ct.root.name),
                     &format!(
-                        "The `{owner}`'s type, as `core.comptime`'s `Type` — `Struct | Union | \
-                         Tuple | FnType | Opaque`. Usable wherever a type is written inside \
-                         the body; test its arm with `is Struct` or dispatch with `[when …]`."
+                        "The `{owner}`'s type — usable wherever a type is written inside \
+                         the body, and tested with `is <Type>`. Its kind (`core.comptime`'s \
+                         `Kind`: `Struct | Union | Tuple | FnType | Opaque`) is \
+                         `{}.kind`, tested with `is Struct` or dispatched with `[when {}.kind]`.",
+                        ct.root.name, ct.root.name
                     ),
                 );
             }
@@ -407,7 +497,16 @@ impl HoverRecorder<'_> {
                     &format!("{} is {}", param, kind.word()),
                     "The bound type parameter, as its compile-time description.",
                 );
+            } else {
+                self.roots.push(ct.root.clone());
             }
+        } else {
+            self.roots.push(ct.root.clone());
+        }
+        // [comptime-root-visible] The type names written in an instantiated
+        // root's arguments (`Int` in `Arg<Int>.fields`) are written here too.
+        for a in &ct.args {
+            collect_type_names(a, &mut self.roots);
         }
     }
 
@@ -434,8 +533,8 @@ impl HoverRecorder<'_> {
             id.span,
             &format!("{}: {ty}", id.name),
             &format!(
-                "A `core.comptime` `{ty}`: `.name: Str`, `.type: Type`, `.index: Int`, \
-                 `.first: Bool`, `.last: Bool`. {}",
+                "A `core.comptime` `{ty}`: `.name` (a literal of the names), `.kind: Kind`, \
+                 `.type`, `.index: Int`, `.first: Bool`, `.last: Bool`. {}",
                 if is_arm {
                     "The value dispatched on reads as this arm inside the block."
                 } else {
@@ -447,6 +546,17 @@ impl HoverRecorder<'_> {
 
     fn cond(&mut self, c: &CompCond) {
         match c {
+            CompCond::Kind { ty, span, .. } if ty.via_type => {
+                if self.binder_kind(&ty.root.name).is_some() {
+                    self.push(
+                        ty.span,
+                        &format!("{}.kind: Kind", ty.root.name),
+                        "The kind of the binder's type — an arm of `core.comptime`'s `Kind`: \
+                         `Struct | Union | Tuple | FnType | Opaque` [comptime-kind].",
+                    );
+                }
+                let _ = span;
+            }
             CompCond::Kind { ty, .. } | CompCond::Is { ty, .. } | CompCond::Mutable { ty, .. } => {
                 self.comp_ty(ty);
                 if let CompCond::Mutable { span, .. } = c {
@@ -457,12 +567,13 @@ impl HoverRecorder<'_> {
                     );
                 }
             }
-            CompCond::NameEq { binder, span, .. } => {
+            CompCond::NameIs { binder, span, .. } => {
                 if self.binder_kind(&binder.name).is_some() {
                     self.push(
                         Span::new(span.start, binder.span.end + 5),
-                        &format!("{}.name: Str", binder.name),
-                        "The declared name, compared to a literal at compile time.",
+                        &format!("{}.name", binder.name),
+                        "The declared name — a literal of the union of the struct's field \
+                         names (or the union's arm names), tested at compile time.",
                     );
                 }
             }
@@ -487,6 +598,10 @@ impl HoverRecorder<'_> {
                 }
             }
             CompCond::Not(inner, _) => self.cond(inner),
+            CompCond::And(a, b, _) | CompCond::Or(a, b, _) => {
+                self.cond(a);
+                self.cond(b);
+            }
         }
     }
 
@@ -514,13 +629,36 @@ impl HoverRecorder<'_> {
                         self.block(b);
                     }
                 }
-                CompStmt::WhenKind { ty, arms, else_, .. } => {
+                CompStmt::WhenKind { ty, arms, span } => {
+                    self.comp_ty(ty);
+                    self.when_arms.push(CompWhenArms {
+                        file: self.file,
+                        span: *span,
+                        missing: kind_arms_missing(arms),
+                        types: false,
+                        bodies: arms.iter().map(|a| a.body.span).collect(),
+                    });
+                    for arm in arms {
+                        self.block(&arm.body);
+                    }
+                }
+                CompStmt::WhenType { ty, arms, .. } => {
                     self.comp_ty(ty);
                     for arm in arms {
                         self.block(&arm.body);
                     }
-                    if let Some(b) = else_ {
-                        self.block(b);
+                }
+                CompStmt::WhenName { binder, arms, .. } => {
+                    if self.binder_kind(&binder.name).is_some() {
+                        self.push(
+                            binder.span,
+                            &format!("{}.name", binder.name),
+                            "A dispatch over the declared name — exhaustive over the struct's \
+                             field names (or the union's arm names).",
+                        );
+                    }
+                    for arm in arms {
+                        self.block(&arm.body);
                     }
                 }
                 CompStmt::WhenArms {
@@ -593,7 +731,8 @@ impl HoverRecorder<'_> {
                             "index" => ("Int", "The declared position, from zero."),
                             "first" => ("Bool", "Whether this copy is for the first element."),
                             "last" => ("Bool", "Whether this copy is for the last element."),
-                            "type" => ("Type", "The compile-time type (`core.comptime`)."),
+                            "type" => ("Type", "The declared type itself (`core.comptime`)."),
+                            "kind" => ("Kind", "The declared type's kind (`core.comptime`), tested in a comptime head."),
                             _ => ("?", "Not a projection a `Field`/`Arm` has."),
                         };
                         let _ = is_arm;
@@ -605,6 +744,11 @@ impl HoverRecorder<'_> {
                             self.push(*span, &format!("{param}.name: Str"), "The stamped type's declared name, as a literal.");
                             return;
                         }
+                    }
+                    // `Reading.name`: a declared type named as a root.
+                    if field.name == "name" && root.name.starts_with(|c: char| c.is_uppercase()) {
+                        self.roots.push(root.clone());
+                        return;
                     }
                 }
                 self.expr(base);
@@ -735,6 +879,157 @@ fn comp_ty_text(ct: &CompTy) -> String {
     }
 }
 
+/// [when-exhaustive] [comptime-pattern] [comptime-name] A `[when]` with a
+/// subject is exhaustive the way an ordinary `when` is, with no `else`: the
+/// arms must cover the subject's range — so the range has to be one the
+/// declaration can see. In a **stamped** comptime fn (`<T is Struct>`) a
+/// field's (or arm's) type and name range over the fields of whatever `T` is
+/// stamped at, which nothing knows where the fn is declared: such a dispatch
+/// is refused there (user decision 2026-10-20). `[when f.kind]` stays — its
+/// range is `core.comptime`'s `Kind`, the same everywhere — and since its
+/// coverage is known from the arms alone, it is checked here too.
+fn unchecked_subject_whens(f: &FnDecl) -> Vec<Diagnostic> {
+    use salvo_syntax::visit::{self as v, Visitor};
+    struct RangeCheck {
+        bound: String,
+        fn_name: String,
+        /// The comptime names whose range comes from the bound parameter:
+        /// binders of a walk over it (or over one of these), pattern binders
+        /// of a test on one of these, and a union value's arm binder.
+        derived: std::collections::HashSet<String>,
+        errors: Vec<Diagnostic>,
+    }
+    impl RangeCheck {
+        fn depends(&self, ty: &CompTy) -> bool {
+            (!ty.via_type && ty.root.name == self.bound) || self.derived.contains(&ty.root.name)
+        }
+        fn cond(&mut self, c: &CompCond) {
+            match c {
+                CompCond::Is { ty, binders, .. } if self.depends(ty) => {
+                    self.derived.extend(binders.iter().map(|b| b.name.clone()));
+                }
+                CompCond::Not(inner, _) => self.cond(inner),
+                CompCond::And(a, b, _) | CompCond::Or(a, b, _) => {
+                    self.cond(a);
+                    self.cond(b);
+                }
+                _ => {}
+            }
+        }
+    }
+    impl Visitor for RangeCheck {
+        fn visit_stmt(&mut self, s: &Stmt) {
+            let Stmt::Comp(c) = s else { return };
+            match c {
+                CompStmt::For { binder, seq, .. } => {
+                    if self.depends(&seq.ty) {
+                        self.derived.insert(binder.name.clone());
+                    }
+                }
+                CompStmt::If { cond, .. } => self.cond(cond),
+                CompStmt::WhenArms { binder, .. } => {
+                    self.derived.insert(binder.name.clone());
+                }
+                CompStmt::WhenKind { arms, span, .. } => {
+                    self.errors.extend(kind_arms_incomplete(arms, *span));
+                }
+                CompStmt::WhenType { ty, arms, span, .. } if self.depends(ty) => {
+                    for arm in arms {
+                        self.derived.extend(arm.binders.iter().map(|b| b.name.clone()));
+                    }
+                    let subject = if ty.via_type { format!("{}.type", ty.root.name) } else { ty.root.name.clone() };
+                    self.errors.push(Diagnostic::error(
+                        format!(
+                            "a `[when {subject}]` cannot be checked here: `{subject}` ranges over the                              types `{bound}` has, which are known only where `{f}` is stamped, and a                              `[when]` with a subject must cover its range — dispatch on `[when {root}.kind]`,                              or test with `[if {subject} is …]` [when-exhaustive] [comptime-pattern]",
+                            bound = self.bound,
+                            f = self.fn_name,
+                            root = ty.root.name,
+                        ),
+                        *span,
+                    ));
+                }
+                CompStmt::WhenName { binder, span, .. } if self.derived.contains(&binder.name) => {
+                    self.errors.push(Diagnostic::error(
+                        format!(
+                            "a `[when {b}.name]` cannot be checked here: `{b}.name` ranges over the                              names `{bound}` has, which are known only where `{f}` is stamped, and a                              `[when]` with a subject must cover its range — test with `[if {b}.name is …]`                              [when-exhaustive] [comptime-name]",
+                            b = binder.name,
+                            bound = self.bound,
+                            f = self.fn_name,
+                        ),
+                        *span,
+                    ));
+                }
+                _ => {}
+            }
+        }
+    }
+    let Some((_, bound)) = f.compfn.as_ref().and_then(|c| c.bound.as_ref()) else {
+        return Vec::new();
+    };
+    let mut check = RangeCheck {
+        bound: bound.name.clone(),
+        fn_name: f.name.name.clone(),
+        derived: std::collections::HashSet::new(),
+        errors: Vec::new(),
+    };
+    v::walk_fn(&mut check, f);
+    check.errors
+}
+
+/// [lsp-completion] The kind words a `[when X.kind]`'s arms leave out, as
+/// arms would name them: `Opaque` for both its halves.
+fn kind_arms_missing(arms: &[KindArm]) -> Vec<String> {
+    let covered = |k: TypeKindWord| arms.iter().any(|a| kind_matches(a.kind, k));
+    let opaque = !covered(TypeKindWord::Basic) && !covered(TypeKindWord::Generic);
+    [
+        TypeKindWord::Struct,
+        TypeKindWord::Union,
+        TypeKindWord::Tuple,
+        TypeKindWord::FnType,
+        TypeKindWord::Basic,
+        TypeKindWord::Generic,
+    ]
+    .into_iter()
+    .filter(|k| !covered(*k))
+    .filter_map(|k| match k {
+        TypeKindWord::Basic if opaque => Some("Opaque".to_string()),
+        TypeKindWord::Generic if opaque => None,
+        k => Some(k.word().to_string()),
+    })
+    .collect()
+}
+
+/// [when-exhaustive] [comptime-kind] A `[when X.kind]` that leaves an arm of
+/// `Kind` out — known from the arms alone, so a template is told where it is
+/// declared rather than at every stamp.
+fn kind_arms_incomplete(arms: &[KindArm], span: Span) -> Option<Diagnostic> {
+    let covered = |k: TypeKindWord| arms.iter().any(|a| kind_matches(a.kind, k));
+    let missing: Vec<&str> = [
+        TypeKindWord::Struct,
+        TypeKindWord::Union,
+        TypeKindWord::Tuple,
+        TypeKindWord::FnType,
+        TypeKindWord::Basic,
+        TypeKindWord::Generic,
+    ]
+    .into_iter()
+    .filter(|k| !covered(*k))
+    .map(|k| k.word())
+    .collect();
+    if missing.is_empty() {
+        return None;
+    }
+    Some(Diagnostic::error(
+        format!(
+            "this `[when …]` over a kind does not consider every arm of `Kind`: missing {} — \
+             add the arms (`is Opaque` covers `Basic` and `Generic`) [comptime-inline] \
+             [when-exhaustive]",
+            missing.iter().map(|m| format!("`{m}`")).collect::<Vec<_>>().join(", ")
+        ),
+        span,
+    ))
+}
+
 fn fallback_body(f: &mut FnDecl) {
     // Something the checker will accept without a second diagnostic about
     // the same site: `unreachable!()` is `Never`, so the return check passes.
@@ -826,21 +1121,50 @@ struct World {
     /// [type-identity] The module being expanded: its own declaration of a
     /// name is the one meant.
     own: std::cell::RefCell<ModulePath>,
+    /// [comptime-root-visible] The `import` paths of the file being
+    /// expanded: of two same-named declarations, the one this file imports
+    /// is the one it can mean (the checker then requires the name to be
+    /// visible at all).
+    imports: std::cell::RefCell<Vec<Vec<String>>>,
     groups: HashMap<String, ParamsDecl>,
     module_paths: Vec<ModulePath>,
 }
 
 impl World {
+    /// [type-identity] [comptime-root-visible] Which of a name's
+    /// declarations the file being expanded means: its own module's, else
+    /// one from a module it imports (the module itself, or the item by
+    /// name), else one from `core` (implicitly visible), else the first.
+    fn pick_decl<'a, D>(&self, name: &str, all: &'a [(ModulePath, D)]) -> Option<&'a (ModulePath, D)> {
+        let own = self.own.borrow();
+        if let Some(d) = all.iter().find(|(m, _)| *m == *own) {
+            return Some(d);
+        }
+        let imports = self.imports.borrow();
+        let imported = |m: &ModulePath| {
+            imports.iter().any(|path| {
+                path.as_slice() == m.0.as_slice()
+                    || (path.len() == m.0.len() + 1
+                        && path[..m.0.len()] == m.0[..]
+                        && path.last().is_some_and(|l| l == name))
+            })
+        };
+        all.iter()
+            .find(|(m, _)| imported(m))
+            .or_else(|| all.iter().find(|(m, _)| m.0.first().is_some_and(|s| s == "core")))
+            .or_else(|| all.first())
+    }
+
     /// [struct-opaque] Whether `name` is an opaque struct whose fields the
     /// module being expanded may not see: declared elsewhere, and this is not
     /// its `*.test.sv` annex (module `m.test`).
     fn opaque_here(&self, name: &str) -> bool {
         let Some(all) = self.structs.get(name) else { return false };
-        let own = self.own.borrow();
-        let Some((module, decl)) = all.iter().find(|(m, _)| *m == *own).or_else(|| all.first()) else {
+        let own = self.own.borrow().clone();
+        let Some((module, decl)) = self.pick_decl(name, all) else {
             return false;
         };
-        if !decl.opaque || *module == *own {
+        if !decl.opaque || *module == own {
             return false;
         }
         let annex = own.0.len() == module.0.len() + 1
@@ -851,14 +1175,12 @@ impl World {
 
     fn struct_named(&self, name: &str) -> Option<&StructDecl> {
         let all = self.structs.get(name)?;
-        let own = self.own.borrow();
-        all.iter().find(|(m, _)| *m == *own).or_else(|| all.first()).map(|(_, d)| d)
+        self.pick_decl(name, all).map(|(_, d)| d)
     }
 
     fn type_named(&self, name: &str) -> Option<&TypeDecl> {
         let all = self.types.get(name)?;
-        let own = self.own.borrow();
-        all.iter().find(|(m, _)| *m == *own).or_else(|| all.first()).map(|(_, d)| d)
+        self.pick_decl(name, all).map(|(_, d)| d)
     }
 
     fn simple_named(name: &str, span: Span) -> Type {
@@ -1334,7 +1656,10 @@ impl<'w> Stamper<'w> {
         if let Some(b) = &mut f.body {
             ex.expand_block(b);
         }
-        let (mut regions, errs) = ex.finish();
+        let (mut regions, mut errs) = ex.finish();
+        // A stamp reports errors at its `by` site; a template's warnings are
+        // its author's business, not every stamping site's.
+        errs.retain(|d| d.is_error());
         if !errs.is_empty() {
             return Err(errs);
         }
@@ -1350,6 +1675,8 @@ impl<'w> Stamper<'w> {
                 end: start + 1,
                 target: site,
                 label: format!("`{}` stamped at `{}`", self.template.name.name, self.target.name),
+                written_from: None,
+                written_label: None,
             });
             Span::new(start, start + 1)
         } else {
@@ -1375,6 +1702,7 @@ impl<'w> Stamper<'w> {
             at_type: self.target.name.clone(),
             site,
             regions,
+            roots: Vec::new(),
         });
         f.span = site;
         f.name.span = name_span;
@@ -1467,7 +1795,8 @@ impl<'w> Stamper<'w> {
             }
             ex.expand_block(b);
         }
-        let (regions, errs) = ex.finish();
+        let (regions, mut errs) = ex.finish();
+        errs.retain(|d| d.is_error());
         if !errs.is_empty() {
             return Err(errs);
         }
@@ -1496,6 +1825,7 @@ impl<'w> Stamper<'w> {
             at_type: self.target.name.clone(),
             site,
             regions,
+            roots: Vec::new(),
         });
         Ok(())
     }
@@ -1634,9 +1964,11 @@ struct Binding {
     decl_span: Span,
     label: String,
     is_arm: bool,
-    /// The struct the field belongs to (for a field binder): what a
-    /// `field.name == "…"` is checked against.
-    owner: Option<String>,
+    /// [comptime-name] Every name of the sequence this element is in — the
+    /// literal union `binder.name` is a member of — and how to name the
+    /// sequence in a diagnostic ("`P` has no field", "`Source` has no arm").
+    siblings: Vec<String>,
+    sibling_owner: String,
 }
 
 /// The body rewriter: unrolls, selects, refuses, and substitutes.
@@ -1646,13 +1978,40 @@ struct Expander<'w> {
     /// compfn.
     bound: Option<(String, Target)>,
     env: Vec<(String, Binding)>,
-    /// The fn's parameters, for a concrete compfn's `inline when` over one.
+    /// The fn's parameters, for an expanded-in-place compfn's `[when …]` over one.
     params: Vec<Param>,
     site: Span,
     virtual_next: &'w mut u32,
     regions: Vec<StampRegion>,
     errors: Vec<Diagnostic>,
     rename_counter: u32,
+    /// [comptime-inline] For an **expanded-in-place** fn: the length of its
+    /// own file, so a diagnostic about a written construct lands where it is
+    /// written (a span below the limit, after undoing copies' remaps) rather
+    /// than on the declaration. `None` for a stamp, whose template lives in
+    /// another file — there the `by` site is where the author can act.
+    written_limit: Option<u32>,
+    /// The expanded-in-place fn's name, which a `refuse!` names in place of
+    /// a stamped type [comptime-refuse].
+    fn_name: Option<String>,
+    /// Each copy's remap, `(base, end, min)`: how a span in a copy maps back
+    /// to the span it was copied from.
+    remaps: Vec<(u32, u32, u32)>,
+    /// [comptime-generic-fn] An expanded-in-place fn's own type parameters:
+    /// opaque inside it (kind `Generic`), and names a type test may use.
+    fn_generics: Vec<String>,
+    /// [comptime-pattern] The pattern binders in scope (innermost last):
+    /// name, the type it bound, its declaration's span, and how often this
+    /// scope used it.
+    type_binders: Vec<(String, Type, Span, usize)>,
+    /// [comptime-pattern] Per binder declaration (keyed by its written span
+    /// and name): whether *any* copy used it — an unused binder warns once,
+    /// and only if no copy used it.
+    binder_used: HashMap<(u32, String), (Span, bool)>,
+    /// [lsp-completion] Per `[when f.name]` / `[when f.type]` copy, at its
+    /// written span: what that copy found uncovered (expanded-in-place fns
+    /// only, where the span is the author's own).
+    when_arms: Vec<(Span, Vec<String>, bool, Vec<Span>)>,
 }
 
 impl<'w> Expander<'w> {
@@ -1667,18 +2026,102 @@ impl<'w> Expander<'w> {
             regions: Vec::new(),
             errors: Vec::new(),
             rename_counter: 0,
+            written_limit: None,
+            fn_name: None,
+            remaps: Vec::new(),
+            fn_generics: Vec::new(),
+            type_binders: Vec::new(),
+            binder_used: HashMap::new(),
+            when_arms: Vec::new(),
+        }
+    }
+
+    /// [lsp-completion] Records a `[when]` copy's uncovered arms at the
+    /// construct's written span — an expanded-in-place fn's own text only.
+    fn record_when_arms(&mut self, span: Span, missing: Vec<String>, types: bool, bodies: Vec<Span>) {
+        if let Some(limit) = self.written_limit {
+            let written = self.unmap(span);
+            if written.start < limit && written.end > written.start {
+                let bodies = bodies.into_iter().map(|b| self.unmap(b)).collect();
+                self.when_arms.push((written, missing, types, bodies));
+            }
         }
     }
 
     fn finish(self) -> (Vec<StampRegion>, Vec<Diagnostic>) {
-        (self.regions, self.errors)
+        // One mistake, one diagnostic: a condition in an unrolled body is
+        // evaluated once per copy, and so is reported once per copy.
+        let mut errors: Vec<Diagnostic> = Vec::new();
+        for e in self.errors {
+            if !errors.iter().any(|d| d.message == e.message && d.span == e.span) {
+                errors.push(e);
+            }
+        }
+        // [comptime-pattern] A binder no copy used: `*` says the same thing.
+        let mut unused: Vec<(Span, String)> = self
+            .binder_used
+            .iter()
+            .filter(|(_, (_, used))| !*used)
+            .map(|((_, name), (span, _))| (*span, name.clone()))
+            .collect();
+        unused.sort_by_key(|(s, _)| s.start);
+        for (span, name) in unused {
+            let at = match self.written_limit {
+                Some(limit) if span.start < limit => span,
+                _ => self.site,
+            };
+            errors.push(Diagnostic::warning(
+                format!("pattern binder `{name}` is never used: write `*` in its place [comptime-pattern]"),
+                at,
+            ));
+        }
+        (self.regions, errors)
+    }
+
+    /// The written span a span in a copy came from: copies nest, so undo
+    /// each remap whose region holds it until none does.
+    fn unmap(&self, mut span: Span) -> Span {
+        let mut guard = 0;
+        while let Some((base, end, min)) = self
+            .remaps
+            .iter()
+            .rev()
+            .find(|(base, end, _)| span.start >= *base && span.start < *end)
+            .copied()
+        {
+            let len = span.end.saturating_sub(span.start);
+            let start = min + (span.start - base);
+            span = Span::new(start, start + len);
+            let _ = end;
+            guard += 1;
+            if guard > 64 {
+                break;
+            }
+        }
+        span
+    }
+
+    /// Where a diagnostic about the construct at `span` lands.
+    fn report_span(&self, span: Span) -> Span {
+        match self.written_limit {
+            Some(limit) => {
+                let written = self.unmap(span);
+                if written.start < limit && written.end > written.start {
+                    written
+                } else {
+                    self.site
+                }
+            }
+            None => self.site,
+        }
     }
 
     fn error(&mut self, span: Span, msg: impl Into<String>) {
-        // A diagnostic here is about the template or the site; the site is
-        // where the author can act, and the message says which.
-        let _ = span;
-        self.errors.push(Diagnostic::error(msg, self.site));
+        // A diagnostic here is about the template or the site: in an
+        // expanded-in-place fn the construct is the author's own text, so it
+        // lands there; in a stamp, the site is where the author can act.
+        let at = self.report_span(span);
+        self.errors.push(Diagnostic::error(msg, at));
     }
 
     fn binding(&self, name: &str) -> Option<&Binding> {
@@ -1686,7 +2129,9 @@ impl<'w> Expander<'w> {
     }
 
     fn generics(&self) -> Vec<String> {
-        self.bound.as_ref().map(|(_, t)| t.generics.clone()).unwrap_or_default()
+        let mut out = self.bound.as_ref().map(|(_, t)| t.generics.clone()).unwrap_or_default();
+        out.extend(self.fn_generics.iter().cloned());
+        out
     }
 
     /// The type a `CompTy` denotes here.
@@ -1705,8 +2150,19 @@ impl<'w> Expander<'w> {
                 return Some(target.ty.clone());
             }
         }
+        // [comptime-pattern] A binder is the type it bound (`E.fields`).
+        if ct.args.is_empty() {
+            if let Some(i) = self.type_binders.iter().rposition(|(n, ..)| *n == ct.root.name) {
+                self.type_binders[i].3 += 1;
+                return Some(self.type_binders[i].1.clone());
+            }
+        }
         if self.world.structs.contains_key(&ct.root.name) || self.world.types.contains_key(&ct.root.name) {
-            return Some(World::simple_named(&ct.root.name, ct.span));
+            let mut t = World::simple_named(&ct.root.name, ct.span);
+            if let Type::Named { base, .. } = &mut t {
+                base.args = ct.args.clone();
+            }
+            return Some(t);
         }
         self.error(
             ct.span,
@@ -1730,6 +2186,8 @@ impl<'w> Expander<'w> {
             }
             let arms = self.arms_of_type(&ty);
             let n = arms.len();
+            let siblings: Vec<String> = arms.iter().map(arm_name).collect();
+            let sibling_owner = named_base(&ty).unwrap_or_else(|| self.world.normalized(&ty));
             return Some(
                 arms.into_iter()
                     .enumerate()
@@ -1742,7 +2200,8 @@ impl<'w> Expander<'w> {
                         first: i == 0,
                         last: i + 1 == n,
                         is_arm: true,
-                        owner: None,
+                        siblings: siblings.clone(),
+                        sibling_owner: sibling_owner.clone(),
                     })
                     .collect(),
             );
@@ -1753,8 +2212,42 @@ impl<'w> Expander<'w> {
         }
         let Some(name) = named_base(&ty) else { return None };
         let Some(s) = self.world.struct_named(&name) else { return None };
+        // [comptime-generic-fn] A generic struct is walked at an instance:
+        // its field types come out with the instance's arguments in place of
+        // its parameters. A bare root has no arguments to put there.
+        let given: Vec<Type> = match &ty {
+            Type::Named { base, .. } => base.args.clone(),
+            _ => Vec::new(),
+        };
+        let params: Vec<String> = s.generics.iter().map(|g| g.name.clone()).collect();
+        if params.len() != given.len() {
+            let what = if seq.arms { "arms" } else { "fields" };
+            let wanted = params.join(", ");
+            if given.is_empty() {
+                self.error(
+                    seq.span,
+                    format!(
+                        "`{name}` is generic, so its {what} are walked at an instance: write \
+                         `{name}<{wanted}>.{what}` with the type arguments meant (a type \
+                         parameter of this fn, or a concrete type) [comptime-generic-fn]"
+                    ),
+                );
+            } else {
+                self.error(
+                    seq.span,
+                    format!(
+                        "`{name}` takes {} type argument(s), found {} [comptime-generic-fn]",
+                        params.len(),
+                        given.len()
+                    ),
+                );
+            }
+            return None;
+        }
+        let map: HashMap<String, Type> = params.into_iter().zip(given).collect();
         let n = s.fields.len();
         let type_name = name.clone();
+        let siblings: Vec<String> = s.fields.iter().map(|f| f.name.name.clone()).collect();
         Some(
             s.fields
                 .iter()
@@ -1763,7 +2256,7 @@ impl<'w> Expander<'w> {
                     // [state-infer] An inferred field has no written type; a
                     // comptime walk never targets a generated iterator struct,
                     // so this fallback is unreachable in practice.
-                    ty: f.ty.clone().unwrap_or_else(|| Type::Named {
+                    ty: f.ty.as_ref().map(|t| subst_generics(t, &map)).unwrap_or_else(|| Type::Named {
                         qualifiers: Vec::new(),
                         base: salvo_syntax::ast::TypeRef {
                             alias: None, at: None, binder: false, established: false,
@@ -1777,9 +2270,14 @@ impl<'w> Expander<'w> {
                     first: i == 0,
                     last: i + 1 == n,
                     decl_span: f.span,
-                    label: format!("{type_name}.{}: {}", f.name.name, f.ty.as_ref().map(|t| t.to_string()).unwrap_or_else(|| "_".into())),
+                    label: format!(
+                        "{type_name}.{}: {}",
+                        f.name.name,
+                        f.ty.as_ref().map(|t| subst_generics(t, &map).to_string()).unwrap_or_else(|| "_".into())
+                    ),
                     is_arm: false,
-                    owner: Some(type_name.clone()),
+                    siblings: siblings.clone(),
+                    sibling_owner: type_name.clone(),
                 })
                 .collect(),
         )
@@ -1795,17 +2293,254 @@ impl<'w> Expander<'w> {
         }
     }
 
-    fn eval_cond(&mut self, cond: &CompCond) -> Option<bool> {
+    /// [comptime-name] Whether every literal is a name of the binder's
+    /// sequence — a member of the literal union `binder.name` is drawn from.
+    /// Reports each one that is not, naming the sequence's owner.
+    fn check_names(&mut self, b: &Binding, lits: &[String], span: Span) -> bool {
+        let mut ok = true;
+        for lit in lits {
+            if !b.siblings.iter().any(|s| s == lit) {
+                let what = if b.is_arm { "arm" } else { "field" };
+                self.error(span, format!("`{}` has no {what} `{lit}` [comptime-name]", b.sibling_owner));
+                ok = false;
+            }
+        }
+        ok
+    }
+
+    /// [comptime-kind] A type a comptime test compares against must name
+    /// types: a declared type (not one of `core.comptime`'s compile-time
+    /// structs), `None`, or a type parameter in scope. A kind word that
+    /// names no type is the old kind-test spelling, and says so.
+    fn check_type_names(&mut self, ty: &Type, span: Span, allowed: &[String]) -> bool {
+        match ty {
+            Type::Named { base, .. } => {
+                let name = base.name.name.as_str();
+                let mut generics = self.generics();
+                // [comptime-pattern] `*`, the pattern's own binders, and the
+                // binders of enclosing patterns are names here too.
+                generics.push("*".to_string());
+                generics.extend(allowed.iter().cloned());
+                generics.extend(self.type_binders.iter().map(|(n, ..)| n.clone()));
+                let declared = self
+                    .world
+                    .structs
+                    .get(name)
+                    .is_some_and(|all| all.iter().any(|(_, s)| !s.comptime))
+                    || self
+                        .world
+                        .types
+                        .get(name)
+                        .is_some_and(|all| all.iter().any(|(_, t)| !t.comptime));
+                let mut ok = true;
+                if !(declared || name == "None" || generics.iter().any(|g| g == name)) {
+                    if TypeKindWord::parse(name).is_some() {
+                        self.error(
+                            span,
+                            format!(
+                                "`{name}` is a kind, not a type: a kind is tested on `.kind` \
+                                 (`field.kind is {name}`), and `is` after a type compares \
+                                 types [comptime-kind]"
+                            ),
+                        );
+                    } else {
+                        self.error(span, format!("unknown type `{name}` in a compile-time type test [comptime-inline]"));
+                    }
+                    ok = false;
+                }
+                for a in &base.args {
+                    ok &= self.check_type_names(a, span, allowed);
+                }
+                ok
+            }
+            Type::Union { arms, .. } => arms.iter().fold(true, |ok, a| self.check_type_names(a, span, allowed) && ok),
+            Type::Nullable { inner, .. } | Type::Spread { inner, .. } => self.check_type_names(inner, span, allowed),
+            Type::QualifiedGroup { base, .. } => self.check_type_names(base, span, allowed),
+            Type::Tuple { elems, .. } => elems.iter().fold(true, |ok, e| self.check_type_names(e, span, allowed) && ok),
+            Type::Array { elem, .. } => self.check_type_names(elem, span, allowed),
+            Type::Fn { params, ret, .. } => {
+                params.iter().fold(true, |ok, p| self.check_type_names(p, span, allowed) && ok)
+                    && self.check_type_names(ret, span, allowed)
+            }
+            Type::Literal { .. } => true,
+        }
+    }
+
+    /// [comptime-pattern] A pattern's binders and the names in it: a binder
+    /// may not reuse the name of a type, a type parameter or an enclosing
+    /// binder (it would hide it, as [var-no-shadow] refuses for a local), and
+    /// every other name must name a type.
+    fn check_pattern(&mut self, binders: &[Ident], pattern: &Type, span: Span) -> bool {
+        let mut ok = true;
+        for (i, b) in binders.iter().enumerate() {
+            let name = b.name.as_str();
+            let hides = self.world.structs.contains_key(name)
+                || self.world.types.contains_key(name)
+                || self.generics().iter().any(|g| g == name)
+                || self.type_binders.iter().any(|(n, ..)| n == name)
+                || binders[..i].iter().any(|o| o.name == name);
+            if hides {
+                self.error(
+                    span,
+                    format!(
+                        "pattern binder `{name}` would hide a type, type parameter or binder of                          that name: pick a fresh one [comptime-pattern]"
+                    ),
+                );
+                ok = false;
+            }
+        }
+        let names: Vec<String> = binders.iter().map(|b| b.name.clone()).collect();
+        ok && self.check_type_names(pattern, span, &names)
+    }
+
+    /// [comptime-pattern] The shape a pattern matches against: qualifiers
+    /// erased, an argument-less alias expanded, and a union (or `T?`)
+    /// flattened to its arms with `None` last.
+    fn peel(&self, ty: &Type, depth: u32) -> Type {
+        match ty {
+            Type::QualifiedGroup { base, .. } => self.peel(base, depth),
+            Type::Named { base, .. } => {
+                if base.args.is_empty() && depth < 8 {
+                    if let Some(t) = self.world.type_named(base.name.name.as_str()) {
+                        if let (Some(alias), false) = (&t.alias, t.intrinsic) {
+                            return self.peel(alias, depth + 1);
+                        }
+                    }
+                }
+                Type::Named { qualifiers: Vec::new(), base: base.clone() }
+            }
+            Type::Union { span, .. } | Type::Nullable { span, .. } => Type::Union {
+                arms: self.world.arms_of(ty),
+                span: *span,
+            },
+            other => other.clone(),
+        }
+    }
+
+    /// [comptime-pattern] Whether `actual` matches `pattern`, binding each of
+    /// `binders` to the part it stands at — as written, qualifiers kept. A
+    /// binder met twice must meet the same type both times (`<K> Map<K, K>`).
+    /// Unions match arm by arm, in order.
+    fn match_pattern(&self, pattern: &Type, actual: &Type, binders: &[String], out: &mut Vec<(String, Type)>) -> bool {
+        if let Type::Named { base, .. } = pattern {
+            if base.args.is_empty() && base.name.name == "*" {
+                return true;
+            }
+            if base.args.is_empty() && binders.iter().any(|b| *b == base.name.name) {
+                if let Some((_, prev)) = out.iter().find(|(n, _)| *n == base.name.name) {
+                    return self.world.normalized(prev) == self.world.normalized(actual);
+                }
+                out.push((base.name.name.clone(), actual.clone()));
+                return true;
+            }
+        }
+        let p = self.peel(pattern, 0);
+        let a = self.peel(actual, 0);
+        let all = |this: &Self, ps: &[Type], as_: &[Type], out: &mut Vec<(String, Type)>| {
+            ps.len() == as_.len() && ps.iter().zip(as_).all(|(p, a)| this.match_pattern(p, a, binders, out))
+        };
+        match (&p, &a) {
+            (Type::Named { base: pb, .. }, Type::Named { base: ab, .. }) => {
+                pb.name.name == ab.name.name && all(self, &pb.args, &ab.args, out)
+            }
+            (Type::Union { arms: pa, .. }, Type::Union { arms: aa, .. }) => all(self, pa, aa, out),
+            (Type::Tuple { elems: pe, .. }, Type::Tuple { elems: ae, .. }) => all(self, pe, ae, out),
+            (Type::Array { elem: pe, .. }, Type::Array { elem: ae, .. }) => self.match_pattern(pe, ae, binders, out),
+            (Type::Spread { inner: pi, .. }, Type::Spread { inner: ai, .. }) => self.match_pattern(pi, ai, binders, out),
+            (Type::Fn { params: pp, ret: pr, .. }, Type::Fn { params: ap, ret: ar, .. }) => {
+                all(self, pp, ap, out) && self.match_pattern(pr, ar, binders, out)
+            }
+            (Type::Literal { value: pv, .. }, Type::Literal { value: av, .. }) => pv.to_string() == av.to_string(),
+            _ => false,
+        }
+    }
+
+    /// [comptime-pattern] Expands `block` with `binds` in scope as types, and
+    /// records for each binder whether this scope used it.
+    fn expand_bound(&mut self, binds: Vec<(Ident, Type)>, mut block: Block, out: &mut Vec<Stmt>) {
+        let base = self.type_binders.len();
+        for (id, ty) in binds {
+            self.type_binders.push((id.name.clone(), ty, id.span, 0));
+        }
+        // [comptime-scope] A kept body is a scope.
+        self.rename_counter += 1;
+        rename_locals(&mut block, self.rename_counter);
+        self.expand_block(&mut block);
+        let scope: Vec<(String, Type, Span, usize)> = self.type_binders.drain(base..).collect();
+        for (name, _, span, uses) in scope {
+            let written = self.unmap(span);
+            let entry = self.binder_used.entry((written.start, name)).or_insert((written, false));
+            entry.1 |= uses > 0;
+        }
+        out.extend(block.stmts);
+    }
+
+    /// [comptime-scope] Splices the body a comptime test kept (an `[if]`'s
+    /// branch, a `[when]`'s arm) as a scope, as an ordinary `if` or `when`
+    /// body is one: its locals are renamed apart, so nothing it declares is
+    /// visible after it (user decision 2026-10-20; the body was spliced flat
+    /// before, and a `let` in it leaked into the code that followed). A
+    /// terminal `[if …] ...` renames the rest of the block, which holds every
+    /// use, so it reads as before.
+    fn expand_scoped(&mut self, mut block: Block, out: &mut Vec<Stmt>) {
+        self.rename_counter += 1;
+        rename_locals(&mut block, self.rename_counter);
+        self.expand_block(&mut block);
+        out.extend(block.stmts);
+    }
+
+    /// Evaluates a condition. `binds` collects what its patterns bind, when
+    /// `can_bind`: what a test proves holds only where the test did, so
+    /// under `||` and `!` nothing is bound [flow-or-not] [comptime-pattern].
+    fn eval_cond(&mut self, cond: &CompCond, binds: &mut Vec<(Ident, Type)>, can_bind: bool) -> Option<bool> {
         match cond {
-            CompCond::Not(inner, _) => self.eval_cond(inner).map(|b| !b),
+            CompCond::Not(inner, _) => self.eval_cond(inner, binds, false).map(|b| !b),
+            // [comptime-logic] Both sides are always evaluated: a misspelled
+            // name on the side that would short-circuit away is still a
+            // mistake, and is still reported.
+            CompCond::And(a, b, _) => {
+                let x = self.eval_cond(a, binds, can_bind);
+                let y = self.eval_cond(b, binds, can_bind);
+                Some(x? && y?)
+            }
+            CompCond::Or(a, b, _) => {
+                let x = self.eval_cond(a, binds, false);
+                let y = self.eval_cond(b, binds, false);
+                Some(x? || y?)
+            }
             CompCond::Kind { ty, kind, .. } => {
                 let t = self.resolve_ty(ty)?;
                 let actual = self.world.classify(&t, &self.generics(), 0);
                 Some(kind_matches(*kind, actual))
             }
-            CompCond::Is { ty, target, .. } => {
+            CompCond::Is { ty, binders, target, span } => {
                 let t = self.resolve_ty(ty)?;
-                Some(self.world.normalized(&t) == self.world.normalized(target))
+                if !self.check_pattern(binders, target, *span) {
+                    return None;
+                }
+                if !binders.is_empty() && !can_bind {
+                    self.error(
+                        *span,
+                        "a pattern's binders bind nothing under `||` or `!` — what the test \
+                         proves holds only where it did: write `*` there [comptime-pattern] \
+                         [flow-or-not]",
+                    );
+                    return None;
+                }
+                let names: Vec<String> = binders.iter().map(|b| b.name.clone()).collect();
+                let mut got: Vec<(String, Type)> = Vec::new();
+                let matched = self.match_pattern(target, &t, &names, &mut got);
+                if matched {
+                    for (name, ty) in got {
+                        let Some(id) = binders.iter().find(|b| b.name == name) else { continue };
+                        if binds.iter().any(|(b, _)| b.name == name) {
+                            self.error(*span, format!("pattern binder `{name}` is declared twice in one condition [comptime-pattern]"));
+                            return None;
+                        }
+                        binds.push((id.clone(), ty));
+                    }
+                }
+                Some(matched)
             }
             CompCond::Mutable { ty, .. } => {
                 let t = self.resolve_ty(ty)?;
@@ -1816,22 +2551,18 @@ impl<'w> Expander<'w> {
                 }
                 Some(self.world.canbe(&t, "Mut"))
             }
-            CompCond::NameEq { binder, lit, span } => {
+            CompCond::NameIs { binder, lits, span } => {
                 let Some(b) = self.binding(&binder.name).cloned() else {
                     self.error(*span, format!("`{}` is not a binder [comptime-inline]", binder.name));
                     return None;
                 };
-                // A name no field has is a mistake at the template, caught at
-                // the first instantiation.
-                if let Some(owner) = &b.owner {
-                    if let Some(st) = self.world.struct_named(owner) {
-                        if !st.fields.iter().any(|f| f.name.name == *lit) {
-                            self.error(*span, format!("`{owner}` has no field `{lit}` [comptime-inline]"));
-                            return None;
-                        }
-                    }
+                // [comptime-name] `binder.name` is a literal of the union of
+                // its sequence's names: a literal outside it is a mistake at
+                // the template, caught at the first instantiation.
+                if !self.check_names(&b, lits, *span) {
+                    return None;
                 }
-                Some(b.name == *lit)
+                Some(lits.iter().any(|l| *l == b.name))
             }
             CompCond::Flag { binder, last, span } => {
                 let Some(b) = self.binding(&binder.name) else {
@@ -1867,11 +2598,20 @@ impl<'w> Expander<'w> {
         let (_, max) = block.bounds();
         let end = remap.region_end(max);
         visit_mut::walk_block(&mut remap, &mut block);
+        self.remaps.push((remap.base, end, remap.min));
         self.regions.push(StampRegion {
             start: remap.base,
             end,
             target: b.decl_span,
             label: b.label.clone(),
+            written_from: self.written_limit.map(|_| remap.min),
+            written_label: self.written_limit.map(|_| {
+                if b.is_arm {
+                    format!("`{binder}` is `{}`", b.name)
+                } else {
+                    format!("`{binder}` is `{}` (`{}`)", b.name, b.ty)
+                }
+            }),
         });
         self.rename_counter += 1;
         rename_locals(&mut block, self.rename_counter);
@@ -1917,41 +2657,119 @@ impl<'w> Expander<'w> {
                 }
             }
             CompStmt::If { cond, then, else_, .. } => {
-                let Some(taken) = self.eval_cond(&cond) else { return };
-                let chosen = if taken { Some(then) } else { else_ };
-                if let Some(mut chosen) = chosen {
-                    self.expand_block(&mut chosen);
-                    out.extend(chosen.stmts);
+                let mut binds = Vec::new();
+                let Some(taken) = self.eval_cond(&cond, &mut binds, true) else { return };
+                if taken {
+                    self.expand_bound(binds, then, out);
+                } else if let Some(chosen) = else_ {
+                    self.expand_scoped(chosen, out);
                 }
             }
-            CompStmt::WhenKind { ty, arms, else_, span } => {
+            CompStmt::WhenType { ty, arms, span } => {
+                let Some(t) = self.resolve_ty(&ty) else { return };
+                let bodies: Vec<Span> = arms.iter().map(|a| a.body.span).collect();
+                let mut ok = true;
+                for arm in &arms {
+                    ok &= self.check_pattern(&arm.binders, &arm.pattern, arm.span);
+                }
+                if !ok {
+                    return;
+                }
+                for arm in arms {
+                    let names: Vec<String> = arm.binders.iter().map(|b| b.name.clone()).collect();
+                    let mut got: Vec<(String, Type)> = Vec::new();
+                    if self.match_pattern(&arm.pattern, &t, &names, &mut got) {
+                        let binds = got
+                            .into_iter()
+                            .filter_map(|(n, ty)| arm.binders.iter().find(|b| b.name == n).map(|id| (id.clone(), ty)))
+                            .collect();
+                        self.record_when_arms(span, Vec::new(), true, bodies.clone());
+                        self.expand_bound(binds, arm.body, out);
+                        return;
+                    }
+                }
+                self.record_when_arms(span, vec![t.to_string()], true, bodies);
+                // [comptime-pattern] [when-exhaustive] The arms cover the type
+                // this copy meets, as a `when` with a subject covers its arms.
+                // Types are not a closed set, but the subject's range is: every
+                // expansion knows the struct's fields (or the union's arms) it
+                // walks, so each copy either finds its arm or is reported.
+                let subject = if ty.via_type { format!("{}.type", ty.root.name) } else { ty.root.name.clone() };
+                self.error(
+                    span,
+                    format!(
+                        "no arm of this `[when {subject}]` matches `{t}`, which `{subject}` is \
+                         here: add an arm for it (`is *` matches every type the arms above it \
+                         did not) [comptime-pattern] [when-exhaustive]"
+                    ),
+                );
+            }
+            CompStmt::WhenKind { ty, arms, span } => {
                 let Some(t) = self.resolve_ty(&ty) else { return };
                 let actual = self.world.classify(&t, &self.generics(), 0);
-                // Exhaustive over the five kinds unless `else` closes it
-                // (comptime round 3): a kind added to the language is an error
-                // in every compfn that did not consider it.
-                if else_.is_none() {
-                    let covered = |k: TypeKindWord| arms.iter().any(|a| kind_matches(a.kind, k));
-                    let missing: Vec<&str> = [
-                        TypeKindWord::Struct,
-                        TypeKindWord::Union,
-                        TypeKindWord::Tuple,
-                        TypeKindWord::FnType,
-                        TypeKindWord::Basic,
-                        TypeKindWord::Generic,
-                    ]
+                // Exhaustive over the kinds (comptime round 3), with no `else`
+                // [when-exhaustive]: a kind added to the language is an error in
+                // every compfn that did not consider it.
+                if let Some(d) = kind_arms_incomplete(&arms, span) {
+                    // At the written construct, as every expansion error is
+                    // (a copy's spans are virtual).
+                    self.error(span, d.message);
+                    return;
+                }
+                let chosen = arms
                     .into_iter()
-                    .filter(|k| !covered(*k))
-                    .map(|k| k.word())
-                    .collect();
+                    .find(|a| kind_matches(a.kind, actual))
+                    .map(|a| a.body);
+                let Some(chosen) = chosen else {
+                    self.error(span, format!("`{}` is a `{}`, which this `[when …]` does not handle [comptime-inline]", self.world.normalized(&t), actual.word()));
+                    return;
+                };
+                self.expand_scoped(chosen, out);
+            }
+            CompStmt::WhenName { binder, arms, span } => {
+                let Some(b) = self.binding(&binder.name).cloned() else {
+                    self.error(span, format!("`{}` is not a binder of an enclosing `[for …]` [comptime-name]", binder.name));
+                    return;
+                };
+                // [comptime-name] Every literal names a member of the union,
+                // and no name is covered twice: the second arm could never be
+                // taken [when-exhaustive].
+                let mut covered: Vec<String> = Vec::new();
+                let mut ok = true;
+                for arm in &arms {
+                    for (lit, lspan) in &arm.lits {
+                        if covered.contains(lit) {
+                            self.error(*lspan, format!("`{lit}` is already covered by an earlier arm of this `[when {}.name]` [comptime-name] [when-exhaustive]", binder.name));
+                            ok = false;
+                        }
+                        ok &= self.check_names(&b, std::slice::from_ref(lit), *lspan);
+                        covered.push(lit.clone());
+                    }
+                }
+                if !ok {
+                    return;
+                }
+                {
+                    let uncovered: Vec<String> =
+                        b.siblings.iter().filter(|s| !covered.contains(s)).map(|s| format!("\"{s}\"")).collect();
+                    let bodies = arms.iter().map(|a| a.body.span).collect();
+                    self.record_when_arms(span, uncovered, false, bodies);
+                    let missing: Vec<String> = b
+                        .siblings
+                        .iter()
+                        .filter(|s| !covered.contains(s))
+                        .map(|s| format!("`{s}`"))
+                        .collect();
                     if !missing.is_empty() {
+                        let what = if b.is_arm { "arm" } else { "field" };
                         self.error(
                             span,
                             format!(
-                                "this `[when …]` over a type does not consider every arm of `Type`: \
-                                 missing {} — add the arms, or an `else` [comptime-inline] \
-                                 [when-exhaustive]",
-                                missing.iter().map(|m| format!("`{m}`")).collect::<Vec<_>>().join(", ")
+                                "this `[when {}.name]` does not cover every {what} of `{}`: \
+                                 missing {} — add them [comptime-name] [when-exhaustive]",
+                                binder.name,
+                                b.sibling_owner,
+                                missing.join(", ")
                             ),
                         );
                         return;
@@ -1959,15 +2777,11 @@ impl<'w> Expander<'w> {
                 }
                 let chosen = arms
                     .into_iter()
-                    .find(|a| kind_matches(a.kind, actual))
-                    .map(|a| a.body)
-                    .or(else_);
-                let Some(mut chosen) = chosen else {
-                    self.error(span, format!("`{}` is a `{}`, which this `[when …]` does not handle [comptime-inline]", self.world.normalized(&t), actual.word()));
-                    return;
-                };
-                self.expand_block(&mut chosen);
-                out.extend(chosen.stmts);
+                    .find(|a| a.lits.iter().any(|(l, _)| *l == b.name))
+                    .map(|a| a.body);
+                if let Some(chosen) = chosen {
+                    self.expand_scoped(chosen, out);
+                }
             }
             CompStmt::WhenArms { mut value, binder, body, span } => {
                 // The subject's arms come from what it reads: a `v.[field]`
@@ -1979,7 +2793,7 @@ impl<'w> Expander<'w> {
                     }
                     Expr::Ident(id) => match &self.bound {
                         Some((_, t)) => Some(t.ty.clone()),
-                        // A concrete compfn: the parameter's written type.
+                        // An expanded-in-place compfn: the parameter's written type.
                         None => self.params.iter().find(|p| p.name.name == id.name).map(|p| p.ty.clone()),
                     },
                     _ => None,
@@ -1995,6 +2809,8 @@ impl<'w> Expander<'w> {
                 visit_mut::walk_expr(self, &mut value);
                 let arms = self.arms_of_type(&subject_ty);
                 let n = arms.len();
+                let siblings: Vec<String> = arms.iter().map(arm_name).collect();
+                let sibling_owner = named_base(&subject_ty).unwrap_or_else(|| self.world.normalized(&subject_ty));
                 let mut branches = Vec::new();
                 for (i, arm) in arms.iter().enumerate() {
                     let Some(mut check) = arm_check(arm) else {
@@ -2010,7 +2826,8 @@ impl<'w> Expander<'w> {
                         decl_span: arm.span(),
                         label: format!("{} arm `{}`", self.world.normalized(&subject_ty), arm),
                         is_arm: true,
-                        owner: None,
+                        siblings: siblings.clone(),
+                        sibling_owner: sibling_owner.clone(),
                     };
                     let body = self.copy(&body, &binder.name, &b);
                     // The check's spans come from the union's declaration; two
@@ -2046,10 +2863,16 @@ impl<'w> Expander<'w> {
                         return;
                     }
                 };
-                let at = self.bound.as_ref().map(|(_, t)| t.name.clone()).unwrap_or_default();
+                let at = self
+                    .bound
+                    .as_ref()
+                    .map(|(_, t)| t.name.clone())
+                    .or_else(|| self.fn_name.clone())
+                    .unwrap_or_default();
+                let where_ = self.report_span(span);
                 self.errors.push(Diagnostic::error(
                     if at.is_empty() { text } else { format!("`{at}` refused: {text} [comptime-refuse]") },
-                    self.site,
+                    where_,
                 ));
             }
         }
@@ -2084,6 +2907,32 @@ impl MutVisitor for SigSubst<'_, '_> {
 impl MutVisitor for Expander<'_> {
     fn visit_type(&mut self, ty: &mut Type) {
         let Type::Named { qualifiers, base } = ty else { return };
+        // [comptime-pattern] A pattern binder stands for the type it bound.
+        if base.args.is_empty() {
+            if let Some(i) = self.type_binders.iter().rposition(|(n, ..)| *n == base.name.name) {
+                self.type_binders[i].3 += 1;
+                let mut new = self.type_binders[i].1.clone();
+                if !qualifiers.is_empty() {
+                    match &mut new {
+                        Type::Named { qualifiers: q2, .. } => {
+                            let mut all = qualifiers.clone();
+                            all.extend(q2.drain(..));
+                            *q2 = all;
+                        }
+                        other => {
+                            let span = other.span();
+                            new = Type::QualifiedGroup {
+                                qualifiers: qualifiers.clone(),
+                                base: Box::new(other.clone()),
+                                span,
+                            };
+                        }
+                    }
+                }
+                *ty = new;
+                return;
+            }
+        }
         let replacement = if let Some(b) = base.name.name.strip_suffix(".type") {
             match self.binding(b) {
                 Some(bd) => Some(bd.ty.clone()),
@@ -2158,8 +3007,11 @@ impl MutVisitor for Expander<'_> {
                         }
                         "first" => *expr = Expr::Bool { value: bd.first, span },
                         "last" => *expr = Expr::Bool { value: bd.last, span },
+                        "kind" => {
+                            self.error(span, format!("`{}.kind` is tested in a comptime head (`[if {}.kind is Struct]`, `[when {}.kind]`), not read as a value [comptime-kind]", root.name, root.name, root.name));
+                        }
                         other => {
-                            self.error(span, format!("a `Field`/`Arm` has `.name`, `.type`, `.index`, `.first` and `.last`, not `.{other}` [comptime-fields]"));
+                            self.error(span, format!("a `Field`/`Arm` has `.name`, `.kind`, `.type`, `.index`, `.first` and `.last`, not `.{other}` [comptime-fields]"));
                         }
                     }
                     return;
@@ -2273,6 +3125,110 @@ impl Expander<'_> {
     }
 }
 
+/// Every named type's name in `ty`, at its written span.
+fn collect_type_names(ty: &Type, out: &mut Vec<Ident>) {
+    match ty {
+        Type::Named { base, .. } => {
+            out.push(base.name.clone());
+            for a in &base.args {
+                collect_type_names(a, out);
+            }
+        }
+        Type::QualifiedGroup { base, .. } => collect_type_names(base, out),
+        Type::Union { arms, .. } => arms.iter().for_each(|a| collect_type_names(a, out)),
+        Type::Spread { inner, .. } | Type::Nullable { inner, .. } => collect_type_names(inner, out),
+        Type::Array { elem, .. } => collect_type_names(elem, out),
+        Type::Tuple { elems, .. } => elems.iter().for_each(|e| collect_type_names(e, out)),
+        Type::Fn { params, ret, .. } => {
+            params.iter().for_each(|p| collect_type_names(p, out));
+            collect_type_names(ret, out);
+        }
+        Type::Literal { .. } => {}
+    }
+}
+
+/// [comptime-generic-fn] `ty` with each bare type parameter in `map` replaced
+/// by its argument — a field type of a generic struct, at the instance a root
+/// names (`default: T?` of `Arg<T>` walked as `Arg<Int>` is `Int?`). Written
+/// out rather than as a visitor: a visitor walks into its own replacement,
+/// which loops on `T` → `List<T>`. A replaced parameter keeps the qualifiers
+/// written on it, in front of the argument's own.
+fn subst_generics(ty: &Type, map: &HashMap<String, Type>) -> Type {
+    match ty {
+        Type::Named { qualifiers, base } => {
+            if base.args.is_empty() {
+                if let Some(arg) = map.get(&base.name.name) {
+                    if qualifiers.is_empty() {
+                        return arg.clone();
+                    }
+                    return match arg.clone() {
+                        Type::Named { qualifiers: q2, base: b2 } => {
+                            let mut all = qualifiers.clone();
+                            all.extend(q2);
+                            Type::Named { qualifiers: all, base: b2 }
+                        }
+                        other => {
+                            let span = other.span();
+                            Type::QualifiedGroup {
+                                qualifiers: qualifiers.clone(),
+                                base: Box::new(other),
+                                span,
+                            }
+                        }
+                    };
+                }
+            }
+            let mut base = base.clone();
+            base.args = base.args.iter().map(|a| subst_generics(a, map)).collect();
+            Type::Named {
+                qualifiers: qualifiers.clone(),
+                base,
+            }
+        }
+        Type::QualifiedGroup { qualifiers, base, span } => Type::QualifiedGroup {
+            qualifiers: qualifiers.clone(),
+            base: Box::new(subst_generics(base, map)),
+            span: *span,
+        },
+        Type::Union { arms, span } => Type::Union {
+            arms: arms.iter().map(|a| subst_generics(a, map)).collect(),
+            span: *span,
+        },
+        Type::Spread { inner, span } => Type::Spread {
+            inner: Box::new(subst_generics(inner, map)),
+            span: *span,
+        },
+        Type::Tuple { elems, span } => Type::Tuple {
+            elems: elems.iter().map(|e| subst_generics(e, map)).collect(),
+            span: *span,
+        },
+        Type::Array { elem, span } => Type::Array {
+            elem: Box::new(subst_generics(elem, map)),
+            span: *span,
+        },
+        Type::Nullable { inner, span } => Type::Nullable {
+            inner: Box::new(subst_generics(inner, map)),
+            span: *span,
+        },
+        Type::Fn {
+            params,
+            param_names,
+            effects,
+            deductions,
+            ret,
+            span,
+        } => Type::Fn {
+            params: params.iter().map(|p| subst_generics(p, map)).collect(),
+            param_names: param_names.clone(),
+            effects: effects.clone(),
+            deductions: deductions.clone(),
+            ret: Box::new(subst_generics(ret, map)),
+            span: *span,
+        },
+        Type::Literal { .. } => ty.clone(),
+    }
+}
+
 fn push_text(parts: &mut Vec<StrExprPart>, t: &str) {
     if let Some(StrExprPart::Text(last)) = parts.last_mut() {
         last.push_str(t);
@@ -2319,10 +3275,59 @@ fn arm_check(arm: &Type) -> Option<Vec<TypeRef>> {
     }
 }
 
+/// The suffix [`rename_locals`] appends: `k` declared in a scoped comptime
+/// body becomes `k__c3`.
+const SCOPED_SUFFIX: &str = "__c";
+
+/// [comptime-scope] The name one scoped body's renaming wrapped: `k__c1__c3`
+/// was `k__c1` before the innermost body renamed it, and `None` for a name no
+/// body renamed.
+pub fn scoped_outer(name: &str) -> Option<&str> {
+    let at = name.rfind(SCOPED_SUFFIX)?;
+    let digits = &name[at + SCOPED_SUFFIX.len()..];
+    (at > 0 && !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit())).then(|| &name[..at])
+}
+
+/// [comptime-scope] The name a renamed local was written as: every scoped
+/// body's suffix stripped.
+pub fn written_local(mut name: &str) -> &str {
+    while let Some(outer) = scoped_outer(name) {
+        name = outer;
+    }
+    name
+}
+
+/// [comptime-scope] A diagnostic in the author's terms: every renamed local
+/// it names (`k__c3`, `_k__c3`) written as it was (`k`, `_k`).
+pub fn unmangle_message(msg: &str) -> std::borrow::Cow<'_, str> {
+    if !msg.contains(SCOPED_SUFFIX) {
+        return std::borrow::Cow::Borrowed(msg);
+    }
+    let mut out = String::with_capacity(msg.len());
+    let mut word = String::new();
+    let flush = |word: &mut String, out: &mut String| {
+        out.push_str(written_local(word));
+        word.clear();
+    };
+    for ch in msg.chars() {
+        if ch.is_alphanumeric() || ch == '_' {
+            word.push(ch);
+        } else {
+            flush(&mut word, &mut out);
+            out.push(ch);
+        }
+    }
+    flush(&mut word, &mut out);
+    std::borrow::Cow::Owned(out)
+}
+
 /// Renames every local an unrolled copy declares (`let` patterns, `is`
 /// bindings, `for` patterns), so two copies spliced into one block do not
 /// redeclare a name [var-no-shadow]. Field names and parameters are untouched:
-/// only names bound *inside* the copy are renamed.
+/// only names bound *inside* the copy are renamed. The same renaming makes a
+/// kept `[if]` / `[when]` body a scope [comptime-scope]: what it declares is
+/// not visible after it. The checker still refuses a renamed local that
+/// shadows a visible one, by its written name ([`scoped_outer`]).
 fn rename_locals(block: &mut Block, tag: u32) {
     let mut names: Vec<String> = Vec::new();
     let mut collect = CollectLocals { names: &mut names };
@@ -2330,7 +3335,7 @@ fn rename_locals(block: &mut Block, tag: u32) {
     if names.is_empty() {
         return;
     }
-    let renames: HashMap<String, String> = names.into_iter().map(|n| (n.clone(), format!("{n}__c{tag}"))).collect();
+    let renames: HashMap<String, String> = names.into_iter().map(|n| (n.clone(), format!("{n}{SCOPED_SUFFIX}{tag}"))).collect();
     let mut r = RenameLocals { renames: &renames };
     visit_mut::walk_block(&mut r, block);
 }

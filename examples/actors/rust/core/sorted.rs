@@ -1,7 +1,7 @@
 use crate::core_map::MapKeyYield;
+use crate::core_string::Mut_Str;
 use crate::core_set::SetYield;
 use crate::core_string::append_platform;
-use crate::core_string::mut_str;
 
 
 /// [platform-type] The host's `SortedSet`.
@@ -69,7 +69,7 @@ pub fn to_list_platform<T: Clone>(set: &crate::core_sorted::SortedSet<T>) -> Vec
 }
 
 pub fn to_str__SortedSet<T: Clone>(set: &crate::core_sorted::SortedSet<T>, to_str: &mut dyn FnMut(&T) -> String) -> String {
-    let mut out: String = crate::core_string::mut_str(vec![String::from("{")]);
+    let mut out: String = crate::core_string::Mut_Str(vec![String::from("{")]);
     let mut i: i32 = 0i32;
     for mut x in crate::platform_core_sorted::each_sorted_set(set).map(|__x| __x.clone()) {
         if (i > 0i32) {
@@ -138,7 +138,7 @@ pub fn keys_platform<K: Clone, V: Clone>(map: &crate::core_sorted::SortedMap<K, 
 }
 
 pub fn to_str__SortedMap<K: Clone, V: Clone>(map: &crate::core_sorted::SortedMap<K, V>, to_str: &mut dyn FnMut(&K) -> String, to_str__1: &mut dyn FnMut(&V) -> String, cmp: &mut dyn FnMut(&K, &K) -> i32) -> String {
-    let mut out: String = crate::core_string::mut_str(vec![String::from("{")]);
+    let mut out: String = crate::core_string::Mut_Str(vec![String::from("{")]);
     let mut i: i32 = 0i32;
     for mut k in crate::platform_core_sorted::each_sorted_map(map).map(|__x| __x.clone()) {
         if (i > 0i32) {

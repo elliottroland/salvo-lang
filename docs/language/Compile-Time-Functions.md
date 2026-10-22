@@ -13,7 +13,7 @@ struct Point : Ordered<self> by auto, Hashed<self> by auto, ToStr<self> by auto 
 ```
 
 This page is the other side of that line: what `by` does, what a `comptime fn` is,
-and how to write one of your own.
+how to write one of your own, and how to call one from ordinary code.
 
 ## `by`: stamping
 
@@ -85,12 +85,14 @@ corrupts the collection, and that refusal lands at the clause.
 
 ## `comptime fn`: what gets stamped
 
-A `comptime fn` is a function over a **kind** of type rather than a type. Its one
-type parameter is bound with `is` to an arm of `Type` — `<T is Struct>` or
-`<T is Union>`, the same test a `when` arm makes — and inside its body the
-compile-time syntax is legal. It is not callable: it exists to be instantiated
+A `comptime fn` with a bound type parameter is a function over a **kind** of
+type rather than a type. Its one type parameter is bound with `is` to an arm
+of `Kind` — `<T is Struct>` or `<T is Union>`, the same test a `when` arm
+makes — and inside its body the compile-time syntax is legal. A bounded
+comptime fn is **stamped**, and is not callable: it exists to be instantiated
 by `by`, and by the time the program is checked every use of one has been
-stamped and the comptime fn itself is gone.
+stamped and the comptime fn itself is gone. (A comptime fn *without* a bound
+is expanded in place and is callable; see below.)
 
 Here is `core.auto`'s `cmp` for structs, in full:
 
@@ -116,13 +118,14 @@ Three things in it are compile-time:
 - **`a.[field]`** reads the field the enclosing `[for …]` is at. Inside a
   struct literal, `[field]: value` is the same entry.
 - The binder exposes **`field.name`** (a string literal), **`field.type`**
-  (usable wherever a type is written), **`field.index`**, **`field.first`** and
+  (the type itself, usable wherever a type is written), **`field.kind`** (what
+  kind of type it is), **`field.index`**, **`field.first`** and
   **`field.last`**; the bound parameter exposes **`T.name`**. `to_str` uses
   them:
 
 ```
 export comptime fn to_str<T is Struct>(value: T) [] -> Str => value {
-    let out: Mut Str = mut_str("${T.name} {")
+    let out: Mut Str = Mut Str("${T.name} {")
     [for field in T.fields] {
         [if field.first] {
             append(out, " ")
@@ -138,9 +141,60 @@ export comptime fn to_str<T is Struct>(value: T) [] -> Str => value {
 
 `[if …]` keeps or drops a branch per instantiation, and the dropped branch is
 never checked. Its conditions are compile-time facts: `field.first`,
-`field.last`, `field.name == "value"`, `x.index == y.index` (and the other
-orderings), `T.mutable`, `field.type is Str` (a type, up to aliases), and
-`field.type is Struct` (a kind — an arm of `Type`, below).
+`field.last`, `field.name == "value"` or `field.name is "a" | "b"`,
+`x.index == y.index` (and the other orderings), `T.mutable`, `field.type is
+Str` (a type, up to aliases), and `field.kind is Struct` (a kind — an arm of
+`Kind`, below). Each `is` has a `!is`, and conditions combine with `&&`, `||`,
+`!` and parentheses, as ordinary conditions do:
+
+```
+[if field.kind is Struct && !field.last] { … }
+[if field.name !is "id" | "created_at"] { … }
+```
+
+`[for …]` and `[if …]` also take a terminal `...` body, as `for` and `if` do:
+the rest of the enclosing block becomes the body, so a filter inside a walk is
+one line:
+
+```
+[for field in T.fields] {
+    [if field.name !is "id" | "created_at"] ...
+    let c = cmp(a.[field], b.[field])
+    if c != 0 { return c }
+}
+```
+
+`[if cond] ... else { … }` keeps the braced `else` when the condition fails, as
+`if cond ... else { … }` does. A `[when …]` takes no `...`: it has several
+arms, and the rest of the block is one body.
+
+Each of these bodies is a scope, as the ordinary body it becomes is: what a
+`[for …]` copy, an `[if …]` branch or a `[when …]` arm declares is gone after
+it, and it may not reuse a name that is visible there.
+
+A type and its kind are kept apart on purpose. `field.type is Union` compares
+the field's type with a type called `Union`; `field.kind is Union` asks
+whether the field's type is a union. A program is free to declare a type
+called `Union`.
+
+`field.name` is not just any string: it is one of the struct's field names, a
+literal of the union `"x" | "y"` for a `Point`. Testing it against a name the
+struct does not have is an error, and `[when field.name]` dispatches on it the
+way an ordinary `when` dispatches on a literal union — **exhaustively**:
+
+```
+[when field.name] {
+    is "sub_commands" | "groups" { }
+    is "bools" | "strs" | "ints" {
+        for arg in args.[field] { … }
+    }
+}
+```
+
+Like any `when` with a subject it takes no `else`: every field has to be
+named by some arm. Add a field to the
+struct and this stops compiling until you decide what the code does with it,
+which is the point: the function stays exhaustive over the struct's fields.
 
 A comptime fn can **refuse** an instantiation, with a message in the caller's terms:
 
@@ -196,25 +250,26 @@ comptime struct FnType  {}
 comptime struct Basic   { name: Str }      // declared `intrinsic type`
 comptime struct Generic { name: Str }      // a type parameter of the struct being stamped
 comptime type Opaque = Basic | Generic
-comptime type Type   = Struct | Union | Tuple | FnType | Opaque
+comptime type Kind   = Struct | Union | Tuple | FnType | Opaque
+comptime struct Type  {}      // a type itself; what kind it is is `.kind`
 
-comptime struct Field { name: Str, type: Type, index: Int, first: Bool, last: Bool }
-comptime struct Arm   { name: Str, type: Type, index: Int, first: Bool, last: Bool }
+comptime struct Field { name: Str, kind: Kind, type: Type, index: Int, first: Bool, last: Bool }
+comptime struct Arm   { name: Str, kind: Kind, type: Type, index: Int, first: Bool, last: Bool }
 ```
 
 The bound `T` is a `Struct` or a `Union`; a `[for …]` binder is a `Field` or
-an `Arm`; `field.type` is a `Type`. These exist at compile time only — the
+an `Arm`; `field.kind` is a `Kind`, and `field.type` the type itself. These exist at compile time only — the
 compiler fills them, nothing constructs one, and naming one in an ordinary
 type position is an error — but they are ordinary declarations to read, and
 the language server shows them: hovering `T`, `field` or `field.index` inside
 a comptime fn body answers `T is Struct`, `field: Field`, `field.index: Int`.
 
-Because `Type` is a union, a comptime fn that treats field types differently
-dispatches on it with an ordinary `when`, exhaustive over the arms unless an
-`else` closes it:
+Because `Kind` is a union, a comptime fn that treats kinds of field
+differently dispatches on it with an ordinary `when`, exhaustive over the arms
+and, like any `when` with a subject, with no `else`:
 
 ```
-[when field.type] {
+[when field.kind] {
     is Struct { … }
     is Union  { … }
     is Tuple  { … }
@@ -229,11 +284,75 @@ when the body does not care which. The exhaustiveness is deliberate: when the
 language gains a kind, every comptime fn that did not consider it stops
 compiling rather than silently skipping it.
 
-### A concrete comptime fn
+### Type patterns
 
-A `comptime fn` with no type parameter is its own single instantiation, declared
-where a function is. It is how one field gets handled by hand while the rest
-stay structural — a `Double` that needs a total order, say:
+The type after `field.type is` is a **pattern**. `*` stands for any type, at
+any depth, so one test can pick out every field of a shape:
+
+```
+[if field.type is List<*>] { … }          // any list
+[if field.type is List<Arg<*>>] { … }     // a list of any `Arg`
+[if field.type is *?] { … }               // any optional
+```
+
+When the body needs the part a `*` stood for, name it: declare a **binder**
+before the pattern, the way a function declares its type parameters, and use
+it as a type in the branch:
+
+```
+[if field.type is <E> List<E>] {
+    let first: E? = None
+    [if E is Int] { … }
+}
+```
+
+A binder is the part as written, qualifiers and all, and is in scope only in
+the branch the test guards — under `||` or `!` the test proves nothing about
+the branch, so a binder there is an error. Writing the same binder twice
+constrains: `<K> Pair<K, K>` matches only a pair of one type. Matching ignores
+qualifiers (a `List<Int> canbe Mut` field is a `List<*>`), and a union matches
+arm by arm, in order.
+
+`[when field.type]` dispatches by pattern, trying the arms in order:
+
+```
+[when field.type] {
+    is <E> List<E> { … }
+    is <K, V> Map<K, V> { … }
+    is Str { … }
+    is * { … }
+}
+```
+
+Like any `when` with a subject, it must cover what its subject can be, and it
+takes no `else`: `is *` is the arm for every type the ones above it did not
+match. No list of patterns covers *every* type, but a walk over a struct's
+fields (or a union's arms) meets only the types that struct has, so each one
+either finds its arm or is reported by name:
+
+```
+// error: no arm of this `[when f.type]` matches `Int?`, which `f.type` is here
+[when f.type] {
+    is List<*> { … }
+    is Str { … }
+}
+```
+
+`[when field.kind]` is the dispatch that is exhaustive over every type at
+once.
+
+That check needs the fields in view, so a **stamped** comptime fn — `<T is
+Struct>`, whose `T` is only known where it is stamped — cannot dispatch on
+`[when f.type]` or `[when f.name]` over `T`'s fields at all: it dispatches on
+`[when f.kind]`, or tests one type at a time with
+`[if f.type is …]`.
+
+### A comptime fn expanded in place
+
+A `comptime fn` with no type parameter is **expanded in place**: it is its own
+single instantiation, expanded once where it is declared, and from then on an
+ordinary function. One use is handling one field by hand while the rest stay
+structural — a `Double` that needs a total order, say:
 
 ```
 struct Reading : Ordered<self> {
@@ -257,6 +376,79 @@ struct Reading : Ordered<self> {
 ```
 
 A field name no field has is an error at the declaration.
+
+The other use is ordinary code that has to cover **every field of a struct**.
+Because an expanded-in-place comptime fn is an ordinary function once
+expanded, ordinary code calls it — and because its body is unrolled over the
+fields the struct has *now*, a field added later is covered without anyone
+remembering to add it. When a function must stay exhaustive over a struct's
+fields, writing it as a comptime fn is how to guarantee that:
+
+```
+struct Totals { apples: Int, pears: Int, plums: Int }
+
+comptime fn sum(t: Totals) [] -> Int => t {
+    let n = 0
+    [for field in Totals.fields] {
+        n = n + t.[field]
+    }
+    return n
+}
+
+fn report(t: Totals) [Console] => t {
+    println("${sum(t)} pieces of fruit")
+}
+```
+
+The type a comptime construct names — `Totals` in `Totals.fields` — is a type
+name like any other: it must be declared in the module or imported where it
+is written. A mistake in a comptime construct is reported where it is
+written, once; an error in one unrolled copy is reported there too, on the
+code as written, saying which copy failed: ``when `field` is `groups`
+(`Map<Str, ArgGroup>`): no matching overload for `print_help(Map<Str,
+ArgGroup>)` ``.
+
+An expanded-in-place comptime fn may be **generic**, and stays generic. A
+generic struct's fields are walked at an *instance* — `Arg<T>.fields` with the
+function's own `T`, or `Arg<Int>.fields` — so each field's type comes out with
+the arguments in place (`default: T?`). The body is then checked like any
+generic function's: `T` is opaque, and interpolating a `T` needs a `?to_str`.
+Put together with an exhaustive `[when field.name]`, this is a function every
+field of a generic struct has to be considered by:
+
+```
+struct Arg<T> {
+    short_name: Str? = None
+    description: Str? = None
+    required: Bool = false
+    default: T? = None
+}
+
+comptime fn describe<T>(arg: Arg<T>, ?to_str: (x: T) -> Str) -> Str => arg {
+    let detail = Mut Str("\t")
+    [for field in Arg<T>.fields] {
+        [when field.name] {
+            is "short_name" | "description" {
+                if arg.[field] !is None {
+                    detail.append("${arg.[field]} ")
+                }
+            }
+            is "required" {
+                detail.append(if arg.required { "(Required)" } else { "(Optional)" })
+            }
+            is "default" {
+                if arg.default !is None {
+                    detail.append(" (default: ${arg.default})")
+                }
+            }
+        }
+    }
+    return detail.to_str()
+}
+```
+
+Add a field to `Arg` and `describe` stops compiling until it says what to do
+with it.
 
 ### Your own module
 

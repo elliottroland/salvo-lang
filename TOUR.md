@@ -53,7 +53,7 @@ iter fn countdown(from: Int) -> Emitted Int | Finished {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let b = Mut Box { n: 1, tag: "t" }
     println("1. ${b.n} ${bumped(b)}")
     println("2. ${label(b.tag, bumped(b))}")

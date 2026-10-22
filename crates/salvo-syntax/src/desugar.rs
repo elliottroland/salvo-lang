@@ -2349,12 +2349,19 @@ fn walk_block_with(block: &Block, on_stmt: &mut dyn FnMut(&Stmt), on_expr: &mut 
                         walk_block_with(b, on_stmt, on_expr);
                     }
                 }
-                CompStmt::WhenKind { arms, else_, .. } => {
+                CompStmt::WhenKind { arms, .. } => {
                     for arm in arms {
                         walk_block_with(&arm.body, on_stmt, on_expr);
                     }
-                    if let Some(b) = else_ {
-                        walk_block_with(b, on_stmt, on_expr);
+                }
+                CompStmt::WhenName { arms, .. } => {
+                    for arm in arms {
+                        walk_block_with(&arm.body, on_stmt, on_expr);
+                    }
+                }
+                CompStmt::WhenType { arms, .. } => {
+                    for arm in arms {
+                        walk_block_with(&arm.body, on_stmt, on_expr);
                     }
                 }
                 CompStmt::Refuse { message, .. } => walk_expr_with(message, on_stmt, on_expr),

@@ -6,7 +6,7 @@ package salvo.core.string
 
 import salvo.*
 
-fun mutStr(parts: Array<String>): salvo.platform.core.string.MutStr {
+fun Mut_Str(parts: Array<String>): salvo.platform.core.string.MutStr {
     val out: salvo.platform.core.string.MutStr = emptyStrPlatform()
     for (part in parts) {
         appendPlatform(out, part)
@@ -124,7 +124,7 @@ fun isEmpty(str: String): Boolean {
 }
 
 fun repeat(str: String, n: Int): String {
-    val out: salvo.platform.core.string.MutStr = mutStr(arrayOf<String>())
+    val out: salvo.platform.core.string.MutStr = Mut_Str(arrayOf<String>())
     var i: Int = 0
     while (true) {
         if (!((i < n))) {

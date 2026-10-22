@@ -407,7 +407,7 @@ Conventions:
   mutated concurrently"). The `!!` can never fire: the checker proved
   non-nullness, and an assignment through the name writes the storage and
   ends the narrowing ([flow-place-invalidate]).
-* [kt-field-canbe-mut] A `canbe Mut T` field [field-canbe-mut] is one
+* [kt-field-canbe-mut] A `T canbe Mut` field [field-canbe-mut] is one
   property for both shapes of its struct, declared at the **plain** `T`'s
   rendering (`var items: List<Int>`): a `Mut` struct stores a
   `MutList`/`MutableList` there, which is a `List`. A read the checker typed
@@ -700,7 +700,7 @@ nothing but the monitor.
   predicate both backends and the deadlock graph read — a `state` field, a
   `replyto` mint, a fn-typed constructor parameter, a platform handler
   without `threadsafe`): a **stateless** handler binds raw (`val console:
-  Console = StdOutConsole()` — the reference is the handle and nothing is
+  Console = StdConsole()` — the reference is the handle and nothing is
   locked), a **stateful** one behind the effect's lock wrapper
   (`val random: Random<Int> = __Mon_Random(CyclicRandom(…))`, [kt-monitor]).
   The `__Mon_E` class is emitted for **every** effect, actor effects included
@@ -827,7 +827,7 @@ nothing but the monitor.
     `kotlin.random.Random.nextDouble()`) so the emitted file needs no
     imports — and so a member implementing `print` does not recurse into
     itself (it would otherwise resolve to std's own `println`).
-* [kt-intrinsic-handler] An `intrinsic handler` (std's `StdOutConsole`, `DefaultRandom`) is the
+* [kt-intrinsic-handler] An `intrinsic handler` (std's `StdConsole`, `DefaultRandom`) is the
     is a real class, with member signatures taken from the
     *effect* declaration and bodies from `intrinsics::handler_member`. A
     value-returning member keeps the `return run { … }` shape
@@ -898,7 +898,10 @@ nothing but the monitor.
   type-directed decode, so a codec is a **value** — `WireCodec<T>` with
   `enc(v, WireOut)` / `dec(WireIn): T` — composed for compound types:
   `ListCodec(IntCodec)`, `MutListCodec`, `MutStrCodec` (a `StringBuilder`'s
-  bytes are a string's), `OptCodec(inner)` for a nullable, `PairCodec`/
+  bytes are a string's), `OptCodec(inner)` for a nullable — over an
+  unbounded `T`, since a generic struct's codec holds a `WireCodec<T>` Kotlin
+  cannot prove non-null (bounded `T : Any` until 2026-10-20, which refused
+  every generic struct with a `T?` field), `PairCodec`/
   `TripleCodec`, `UnionNCodec(c1, …)` generated in the unions file. Every
   struct with a wire form gets a top-level `object __Codec_S` (a `class`
   taking one codec per type parameter when generic; a nested dot-named

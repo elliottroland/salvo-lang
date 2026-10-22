@@ -274,3 +274,93 @@ fn a_written_type_argument_still_decides() {
         "the annotation decides and the field must fit it"
     );
 }
+
+/// [generic-arity] A generic struct referenced in a bare type position
+/// (a field declaration here) must supply every type argument it declares.
+/// Before this check, an omitted argument silently bound to `Ty::Unknown`
+/// and rode [type-unknown-lenient] for every later read through the field —
+/// no checking at all (defect closed 2026-10-19 via `List<Arg>` for a
+/// generic `Arg<T>` in `std/args/parse.sv`).
+#[test]
+fn a_generic_struct_in_a_type_position_must_supply_its_type_argument() {
+    let msgs = messages(
+        "struct Box<T> { value: T }\n\n\
+         struct Holder { b: Box }\n\n\
+         fn go() [] -> None {}\n",
+    );
+    assert_eq!(msgs.len(), 1, "expected exactly one diagnostic: {msgs:?}");
+    assert!(
+        msgs[0].contains("`Box` takes 1 type argument(s), found 0")
+            && msgs[0].contains("write all of them"),
+        "the diagnostic should name the struct and the missing count: {}",
+        msgs[0]
+    );
+}
+
+/// [generic-arity] The check only fires when a count is actually declared
+/// and wrong; a non-generic struct, or a fully-argued one, is unaffected.
+#[test]
+fn a_fully_argued_generic_struct_in_a_type_position_is_fine() {
+    let msgs = messages(
+        "struct Box<T> { value: T }\n\n\
+         struct Holder { b: Box<Int> }\n\n\
+         fn go() [] -> None {}\n",
+    );
+    assert!(msgs.is_empty(), "`Box<Int>` supplies its argument: {msgs:?}");
+}
+
+/// [generic-arity] A struct *literal*'s written type is exempt from this
+/// check — unlike a field declaration, a literal may infer `T` from its
+/// field values [struct-literal-arg], so `Arg { ... }` (no `<...>` at all)
+/// must not be flagged by the arity check that a bare type position gets.
+#[test]
+fn a_bare_struct_literal_type_name_is_exempt_from_the_arity_check() {
+    let msgs = messages(
+        "struct Box<T> { value: T }\n\n\
+         fn go() [] -> None {\n    let b = Box { value: 7 }\n}\n",
+    );
+    assert!(
+        msgs.is_empty(),
+        "the literal infers `T` from its field; it must not be arity-checked: {msgs:?}"
+    );
+}
+
+/// [struct-literal-arg] A struct literal passed as a *call argument*, with
+/// its generic type argument omitted, infers it from the callee's
+/// substituted parameter type when the call is otherwise unambiguous — no
+/// need to write `Arg<Int>` when `add(list: Mut List<Arg<Int>>, elem:
+/// Arg<Int>)` already pins `T = Int` (fixed 2026-10-19 alongside the
+/// [generic-arity] check, via `std/args/parse.sv`'s
+/// `args.ints.add(Arg { ... })`).
+#[test]
+fn a_struct_literal_call_argument_infers_its_type_argument_from_the_parameter() {
+    let msgs = messages(
+        "struct Arg<T> { short_name: Str? = None, default: T? = None }\n\n\
+         fn add<T>(list: Mut List<Arg<T>>, elem: Arg<T>) [] -> None => list: Mut, !elem {}\n\n\
+         fn go() [] -> None {\n    \
+         let xs: Mut List<Arg<Int>> = empty_list()\n    \
+         add(xs, Arg { short_name: \"-n\" })\n}\n",
+    );
+    assert!(
+        msgs.is_empty(),
+        "the parameter type `Arg<Int>` should determine the literal's `T`: {msgs:?}"
+    );
+}
+
+/// [struct-literal-arg] A written type argument on the literal still wins
+/// over the inferred one when it disagrees — the call-argument inference is
+/// only a fallback for when nothing else decided it.
+#[test]
+fn a_struct_literal_call_argument_s_own_written_type_argument_still_decides() {
+    let msgs = messages(
+        "struct Arg<T> { default: T? = None }\n\n\
+         fn add<T>(list: Mut List<Arg<T>>, elem: Arg<T>) [] -> None => list: Mut, !elem {}\n\n\
+         fn go() [] -> None {\n    \
+         let xs: Mut List<Arg<Int>> = empty_list()\n    \
+         add(xs, Arg<Str> { default: \"x\" })\n}\n",
+    );
+    assert!(
+        !msgs.is_empty(),
+        "`Arg<Str>` disagrees with the parameter's `Arg<Int>` and must be reported"
+    );
+}

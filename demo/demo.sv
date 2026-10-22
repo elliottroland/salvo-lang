@@ -18,7 +18,7 @@ handler BasicCounter of Counter {
 }
 
 fn main() [use, spawn] {
-    use StdOutConsole()
+    use StdConsole()
     let counter = spawn BasicCounter() on thread()
     use counter
     

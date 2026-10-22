@@ -78,86 +78,242 @@ impl Summary {
     }
 }
 
-/// Renders a harness's output stream as the report, onto `out`.
-///
-/// Every line that is not protocol is passed through: a test that prints is
-/// printing for a reason, and swallowing it would make a `println` debug
-/// session impossible.
+/// [test-output] Whose output the report shows: every test's, or only a
+/// failing (or dying) test's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShowFor {
+    All,
+    Failed,
+}
+
+/// [test-output] Which of a test's output streams the report shows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Streams {
+    /// Only what the test wrote to stderr.
+    Stderr,
+    /// stderr and stdout.
+    Both,
+}
+
+/// [test-output] What of a test's own output the report shows (`[test]
+/// output` / `streams` in the manifest, `--output` / `--streams` on the
+/// command line). The default is the failures' output, both streams.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OutputPolicy {
+    pub show_for: ShowFor,
+    pub streams: Streams,
+}
+
+impl Default for OutputPolicy {
+    fn default() -> Self {
+        OutputPolicy { show_for: ShowFor::Failed, streams: Streams::Both }
+    }
+}
+
+impl OutputPolicy {
+    /// From the written values (`all`/`failed`, `stderr`/`both`), each
+    /// defaulted when absent. The values are checked where they are written.
+    pub fn from_names(show_for: Option<&str>, streams: Option<&str>) -> Self {
+        let default = OutputPolicy::default();
+        OutputPolicy {
+            show_for: match show_for {
+                Some("all") => ShowFor::All,
+                Some("failed") => ShowFor::Failed,
+                _ => default.show_for,
+            },
+            streams: match streams {
+                Some("stderr") => Streams::Stderr,
+                Some("both") => Streams::Both,
+                _ => default.streams,
+            },
+        }
+    }
+}
+
+/// What one pass of the harness came to: its counts, and the stderr lines
+/// that arrived while no test was running (the runner prints those after the
+/// pass, as before).
+pub struct Rendered {
+    pub summary: Summary,
+    pub loose_stderr: Vec<String>,
+}
+
+/// Renders a harness's output stream as the report, onto `out`, closing with
+/// the summary.
 pub fn render(
     lines: impl BufRead,
     out: &mut impl Write,
     color: Color,
+    policy: OutputPolicy,
 ) -> std::io::Result<Summary> {
-    let summary = render_stream(lines, out, color)?;
+    let rendered = render_stream(lines, out, color, policy, &mut Vec::new)?;
     writeln!(out)?;
-    summary_line(&summary, out, color)?;
-    Ok(summary)
+    summary_line(&rendered.summary, out, color)?;
+    Ok(rendered.summary)
 }
 
-/// [test-report] `render` without the closing summary: one *pass* of the
-/// harness, which is not always the whole run — a test that dies takes the
-/// process with it, so the runner re-runs the remainder and the counts are
-/// merged before the summary is printed once [test-recover].
+/// The prefix every protocol line starts with.
+const MARK: &str = "##salvo-test ";
+
+/// The test between its `begin` and its verdict.
+struct Running {
+    id: String,
+    start: Instant,
+    /// Its output, held until the verdict says whether it is shown
+    /// ([`ShowFor::Failed`]): `(from stderr, line)`.
+    held: Vec<(bool, String)>,
+    /// Whether any of its output is already on the page (shown live), so the
+    /// verdict re-states which test it was.
+    shown: bool,
+}
+
+/// [test-report] [test-output] `render` without the closing summary: one
+/// *pass* of the harness, which is not always the whole run — a test that
+/// dies takes the process with it, so the runner re-runs the remainder and
+/// the counts are merged before the summary is printed once [test-recover].
+///
+/// A test's output goes under its header, indented — stderr marked as such —
+/// and the verdict re-states the test once it has: shown as it arrives under
+/// [`ShowFor::All`], held until the verdict and shown only for a failure (or a
+/// death) under [`ShowFor::Failed`]. `stderr` hands over the stderr lines
+/// that have arrived since it was last asked, which go to the test running
+/// when they are read (the two streams are separate pipes, so a line written
+/// just before a verdict can land after it).
+///
+/// Output the test left unterminated (`print("…")` with no newline) shares a
+/// line with the next protocol line; it is split off rather than mistaken for
+/// part of it (found 2026-10-20: the verdict was lost, the test reported
+/// `DIED` and the rest of the suite re-run).
 pub fn render_stream(
     lines: impl BufRead,
     out: &mut impl Write,
     color: Color,
-) -> std::io::Result<Summary> {
+    policy: OutputPolicy,
+    stderr: &mut dyn FnMut() -> Vec<String>,
+) -> std::io::Result<Rendered> {
     let mut summary = Summary::default();
-    // The test currently between its `begin` and its verdict, and when it
-    // started — which is how a passing test gets its milliseconds.
-    let mut running: Option<(String, Instant)> = None;
+    let mut running: Option<Running> = None;
+    let mut loose_stderr: Vec<String> = Vec::new();
+    let live = policy.show_for == ShowFor::All;
+
+    // One line of the test's output, from stdout or stderr.
+    let output = |text: &str,
+                  from_stderr: bool,
+                  running: &mut Option<Running>,
+                  loose_stderr: &mut Vec<String>,
+                  out: &mut dyn Write|
+     -> std::io::Result<()> {
+        if !from_stderr && policy.streams == Streams::Stderr {
+            return Ok(());
+        }
+        match running {
+            Some(r) if live => {
+                if !r.shown {
+                    writeln!(out)?;
+                    r.shown = true;
+                }
+                write_output_line(out, from_stderr, text)?;
+                out.flush()
+            }
+            Some(r) => {
+                r.held.push((from_stderr, text.to_string()));
+                Ok(())
+            }
+            None if from_stderr => {
+                loose_stderr.push(text.to_string());
+                Ok(())
+            }
+            None => writeln!(out, "{text}"),
+        }
+    };
+    // Before a verdict: the held output, when this verdict shows it, and the
+    // header again when anything went under it.
+    let close = |r: &mut Running, failed: bool, out: &mut dyn Write| -> std::io::Result<()> {
+        if !live && failed && !r.held.is_empty() {
+            writeln!(out)?;
+            for (from_stderr, line) in r.held.drain(..) {
+                write_output_line(out, from_stderr, &line)?;
+            }
+            r.shown = true;
+        }
+        if r.shown {
+            write!(out, "test {} ... ", r.id)?;
+        }
+        Ok(())
+    };
+
     for line in lines.lines() {
         let line = line?;
-        if let Some(id) = line.strip_prefix(BEGIN) {
-            if let Some((prior, _)) = running.take() {
+        for err in stderr() {
+            output(&err, true, &mut running, &mut loose_stderr, out)?;
+        }
+        // Text the test did not end with a newline, glued to a protocol line.
+        let protocol = match line.find(MARK) {
+            Some(0) => line.as_str(),
+            Some(at) => {
+                output(&line[..at], false, &mut running, &mut loose_stderr, out)?;
+                &line[at..]
+            }
+            None => {
+                output(&line, false, &mut running, &mut loose_stderr, out)?;
+                continue;
+            }
+        };
+        if let Some(id) = protocol.strip_prefix(BEGIN) {
+            if let Some(prior) = running.take() {
                 // A `begin` with one still open cannot happen from the
                 // generated harness; reported rather than assumed away.
-                summary.unfinished.push(prior);
+                summary.unfinished.push(prior.id);
             }
             write!(out, "test {id} ... ")?;
             out.flush()?;
-            running = Some((id.to_string(), Instant::now()));
-            continue;
-        }
-        if line == OK {
-            let ms = running
-                .take()
-                .map(|(_, start)| start.elapsed().as_millis())
-                .unwrap_or(0);
+            running = Some(Running { id: id.to_string(), start: Instant::now(), held: Vec::new(), shown: false });
+        } else if protocol == OK {
+            let ms = match running.take() {
+                Some(mut r) => {
+                    close(&mut r, false, out)?;
+                    r.start.elapsed().as_millis()
+                }
+                None => 0,
+            };
             writeln!(out, "{} ({ms} ms)", color.green("ok"))?;
             summary.passed += 1;
-            continue;
-        }
-        if let Some(message) = line.strip_prefix(FAIL) {
-            running = None;
+        } else if let Some(message) = protocol.strip_prefix(FAIL) {
+            if let Some(mut r) = running.take() {
+                close(&mut r, true, out)?;
+            }
             writeln!(out, "{}", color.red("FAILED"))?;
             for line in message.lines() {
                 writeln!(out, "    {line}")?;
             }
             summary.failed += 1;
-            continue;
-        }
-        // Output from the code under test.
-        if running.is_some() {
-            // Keep the pending `test … ` line readable: the test's own output
-            // goes below it.
-            writeln!(out)?;
-            writeln!(out, "  {line}")?;
-            // The verdict line that follows re-states which test it was.
-            let (id, start) = running.take().expect("checked");
-            write!(out, "test {id} ... ")?;
-            out.flush()?;
-            running = Some((id, start));
         } else {
-            writeln!(out, "{line}")?;
+            // A marker the harness never prints: the test's own text.
+            output(protocol, false, &mut running, &mut loose_stderr, out)?;
         }
     }
-    if let Some((pending, _)) = running.take() {
-        writeln!(out, "{}", color.red("DIED"))?;
-        summary.unfinished.push(pending);
+    // A test still running here died: what it left on stderr is the runner's
+    // to attribute ([`died_detail`]), so it is not drawn into the report too.
+    if running.is_none() {
+        for err in stderr() {
+            output(&err, true, &mut running, &mut loose_stderr, out)?;
+        }
     }
-    Ok(summary)
+    if let Some(mut pending) = running.take() {
+        close(&mut pending, true, out)?;
+        writeln!(out, "{}", color.red("DIED"))?;
+        summary.unfinished.push(pending.id);
+    }
+    Ok(Rendered { summary, loose_stderr })
+}
+
+/// One line of a test's output, under its header.
+fn write_output_line(out: &mut dyn Write, from_stderr: bool, text: &str) -> std::io::Result<()> {
+    if from_stderr {
+        writeln!(out, "  [stderr] {text}")
+    } else {
+        writeln!(out, "  {text}")
+    }
 }
 
 /// [test-recover] What the runner prints under a test that died: the trap
@@ -243,9 +399,23 @@ mod tests {
     use super::*;
 
     fn run(input: &str) -> (String, Summary) {
+        run_with(input, OutputPolicy { show_for: ShowFor::All, streams: Streams::Both }, Vec::new())
+    }
+
+    /// With `stderr` handed over in one batch once the first test has begun
+    /// (when the second stdout line is read), and the closing summary.
+    fn run_with(input: &str, policy: OutputPolicy, stderr: Vec<&str>) -> (String, Summary) {
         let mut out = Vec::new();
-        let summary = render(input.as_bytes(), &mut out, Color::Never).unwrap();
-        (String::from_utf8(out).unwrap(), summary)
+        let mut pending: Vec<String> = stderr.into_iter().map(str::to_string).collect();
+        let mut asked = 0;
+        let mut feed = move || {
+            asked += 1;
+            if asked == 2 { std::mem::take(&mut pending) } else { Vec::new() }
+        };
+        let rendered = render_stream(input.as_bytes(), &mut out, Color::Never, policy, &mut feed).unwrap();
+        writeln!(out).unwrap();
+        summary_line(&rendered.summary, &mut out, Color::Never).unwrap();
+        (String::from_utf8(out).unwrap(), rendered.summary)
     }
 
     /// [test-report] A pass carries its milliseconds; a failure carries its
@@ -273,12 +443,51 @@ mod tests {
         assert!(!summary.ok());
     }
 
-    /// Output from the code under test is passed through, not swallowed.
+    /// [test-output] Under `all`, a test's output goes under its header once,
+    /// indented, and the verdict re-states the test.
     #[test]
-    fn program_output_survives() {
-        let (text, _) = run(&format!("{BEGIN}heap :: one\nhello from the test\n{OK}\n"));
-        assert!(text.contains("  hello from the test"), "{text}");
-        assert!(text.contains("test heap :: one ... ok ("), "{text}");
+    fn program_output_goes_under_its_test() {
+        let (text, _) = run(&format!("{BEGIN}heap :: one\nfirst\nsecond\n{OK}\n"));
+        assert!(
+            text.starts_with("test heap :: one ... \n  first\n  second\ntest heap :: one ... ok ("),
+            "{text}"
+        );
+    }
+
+    /// [test-output] Under `failed`, a passing test's output is dropped and a
+    /// failing (or dying) test's is shown before its verdict.
+    #[test]
+    fn failed_shows_only_the_failures_output() {
+        let policy = OutputPolicy::default();
+        let (text, _) = run_with(
+            &format!("{BEGIN}m :: quiet\nhidden\n{OK}\n{BEGIN}m :: loud\nshown\n{FAIL}nope\n{BEGIN}m :: dies\nlast words\n"),
+            policy,
+            Vec::new(),
+        );
+        assert!(!text.contains("hidden"), "{text}");
+        assert!(text.contains("test m :: quiet ... ok ("), "{text}");
+        assert!(text.contains("test m :: loud ... \n  shown\ntest m :: loud ... FAILED\n    nope\n"), "{text}");
+        assert!(text.contains("test m :: dies ... \n  last words\ntest m :: dies ... DIED"), "{text}");
+    }
+
+    /// [test-output] `stderr` shows a test's stderr and not its stdout; stderr
+    /// lines are marked.
+    #[test]
+    fn stderr_streams_drop_stdout() {
+        let policy = OutputPolicy { show_for: ShowFor::All, streams: Streams::Stderr };
+        let (text, _) = run_with(&format!("{BEGIN}m :: t\nfrom stdout\n{OK}\n"), policy, vec!["from stderr"]);
+        assert!(!text.contains("from stdout"), "{text}");
+        assert!(text.contains("  [stderr] from stderr\ntest m :: t ... ok ("), "{text}");
+    }
+
+    /// [test-output] Output the test left without a newline is split off the
+    /// protocol line it shares, so the verdict still counts.
+    #[test]
+    fn unterminated_output_keeps_the_verdict() {
+        let (text, summary) = run(&format!("{BEGIN}m :: a\npartial{OK}\n{BEGIN}m :: b\n{OK}\n"));
+        assert_eq!(summary.passed, 2, "{text}");
+        assert!(summary.unfinished.is_empty(), "{text}");
+        assert!(text.contains("  partial\ntest m :: a ... ok ("), "{text}");
     }
 
     #[test]

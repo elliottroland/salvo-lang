@@ -157,10 +157,14 @@ pub fn mix_hash(mut seed: i64, mut value: i64) -> i64 {
 
 pub trait __Stateless_Console: Send + Sync {
     fn print(&self, message: &String);
+    fn printerr(&self, message: &String);
+    fn readln(&self) -> Option<String>;
 }
 
 pub trait __Stateful_Console: Send {
     fn print(&mut self, message: &String);
+    fn printerr(&mut self, message: &String);
+    fn readln(&mut self) -> Option<String>;
 }
 
 pub struct Console {
@@ -200,6 +204,18 @@ impl Console {
             __Inner_Console::Locked(h) => h.lock().unwrap().print(message),
         }
     }
+    pub fn printerr(&self, message: &String) {
+        match &self.inner {
+            __Inner_Console::Shared(h) => h.printerr(message),
+            __Inner_Console::Locked(h) => h.lock().unwrap().printerr(message),
+        }
+    }
+    pub fn readln(&self) -> Option<String> {
+        match &self.inner {
+            __Inner_Console::Shared(h) => h.readln(),
+            __Inner_Console::Locked(h) => h.lock().unwrap().readln(),
+        }
+    }
 }
 
 /// The adapter a `use` of a platform handler of `Console` constructs [platform-abi].
@@ -208,19 +224,27 @@ pub struct __Platform_Console<T>(pub T);
 /// What a `threadsafe platform handler` of `Console` implements [platform-abi].
 pub trait ConsolePlatformSync: Send + Sync {
     fn print(&self, message: &String);
+    fn printerr(&self, message: &String);
+    fn readln(&self) -> Option<String>;
 }
 
 impl<T: ConsolePlatformSync> __Stateless_Console for __Platform_Console<T> {
     fn print(&self, message: &String) {
         self.0.print(message)
     }
+    fn printerr(&self, message: &String) {
+        self.0.printerr(message)
+    }
+    fn readln(&self) -> Option<String> {
+        self.0.readln()
+    }
 }
 
-pub type __Platform_StdOutConsole = crate::core_console::__Platform_Console<crate::platform_core_console::StdOutConsole>;
+pub type __Platform_StdConsole = crate::core_console::__Platform_Console<crate::platform_core_console::StdConsole>;
 
-impl __Platform_StdOutConsole {
+impl __Platform_StdConsole {
     pub fn new() -> Self {
-        crate::core_console::__Platform_Console(crate::platform_core_console::StdOutConsole::new())
+        crate::core_console::__Platform_Console(crate::platform_core_console::StdConsole::new())
     }
 }
 
@@ -305,13 +329,13 @@ pub fn finished() -> crate::core_iterator::Finished {
 use crate::core_checked::Checked;
 use crate::core_iterator::Finished;
 use crate::core_index::Idx__Int_qualifies;
+use crate::core_string::Mut_Str;
 use crate::core_string::append_platform;
 use crate::core_checked::checked;
 use crate::core_iterator::emitted;
 use crate::core_iterator::finished;
 use crate::core_checked::ignore;
 use crate::core_index::indices;
-use crate::core_string::mut_str;
 use crate::core_index::next__Iter_indices_List;
 use crate::core_index::next__Iter_rev_indices_List;
 use crate::core_index::rev_indices;
@@ -812,7 +836,7 @@ pub fn next__Iter_enumerate_rev_List<'a, T: Clone>(__p: &mut crate::core_list::_
 }
 
 pub fn to_str<T: Clone>(list: &Vec<T>, to_str: &mut dyn FnMut(&T) -> String) -> String {
-    let mut out: String = crate::core_string::mut_str(vec![String::from("[")]);
+    let mut out: String = crate::core_string::Mut_Str(vec![String::from("[")]);
     let mut i: i32 = 0i32;
     for mut x in list.iter() {
         if (i > 0i32) {
@@ -872,10 +896,10 @@ pub fn binary_search<T: Clone>(list: &Vec<T>, elem: &T, cmp: &mut dyn FnMut(&T, 
 
 // ===== core/map.rs =====
 use crate::core_iterator::Finished;
+use crate::core_string::Mut_Str;
 use crate::core_string::append_platform;
 use crate::core_iterator::emitted;
 use crate::core_iterator::finished;
-use crate::core_string::mut_str;
 
 
 /// [platform-type] The host's `Map`.
@@ -996,7 +1020,7 @@ pub fn into_values_platform<K: Clone, V>(mut map: crate::core_map::Map<K, V>) ->
 }
 
 pub fn to_str<K: Clone, V: Clone>(map: &crate::core_map::Map<K, V>, to_str: &mut dyn FnMut(&K) -> String, to_str__1: &mut dyn FnMut(&V) -> String, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> String {
-    let mut out: String = crate::core_string::mut_str(vec![String::from("{")]);
+    let mut out: String = crate::core_string::Mut_Str(vec![String::from("{")]);
     let mut i: i32 = 0i32;
     for mut k in crate::platform_core_map::each(map).map(|__x| __x.clone()) {
         if (i > 0i32) {
@@ -1175,10 +1199,10 @@ pub fn Err<T>(mut value: T) -> T {
 
 // ===== core/set.rs =====
 use crate::core_iterator::Finished;
+use crate::core_string::Mut_Str;
 use crate::core_string::append_platform;
 use crate::core_iterator::emitted;
 use crate::core_iterator::finished;
-use crate::core_string::mut_str;
 
 
 /// [platform-type] The host's `Set`.
@@ -1242,7 +1266,7 @@ pub fn size_platform<T: Clone>(set: &crate::core_set::Set<T>) -> i32 {
 }
 
 pub fn to_str<T: Clone>(set: &crate::core_set::Set<T>, to_str: &mut dyn FnMut(&T) -> String) -> String {
-    let mut out: String = crate::core_string::mut_str(vec![String::from("{")]);
+    let mut out: String = crate::core_string::Mut_Str(vec![String::from("{")]);
     let mut i: i32 = 0i32;
     for mut x in crate::platform_core_set::each(set).map(|__x| __x.clone()) {
         if (i > 0i32) {
@@ -1310,9 +1334,9 @@ pub fn NonEmpty__Set_qualifies<T: Clone>(set: &crate::core_set::Set<T>) -> bool 
 
 // ===== core/sorted.rs =====
 use crate::core_map::MapKeyYield;
+use crate::core_string::Mut_Str;
 use crate::core_set::SetYield;
 use crate::core_string::append_platform;
-use crate::core_string::mut_str;
 
 
 /// [platform-type] The host's `SortedSet`.
@@ -1380,7 +1404,7 @@ pub fn to_list_platform<T: Clone>(set: &crate::core_sorted::SortedSet<T>) -> Vec
 }
 
 pub fn to_str__SortedSet<T: Clone>(set: &crate::core_sorted::SortedSet<T>, to_str: &mut dyn FnMut(&T) -> String) -> String {
-    let mut out: String = crate::core_string::mut_str(vec![String::from("{")]);
+    let mut out: String = crate::core_string::Mut_Str(vec![String::from("{")]);
     let mut i: i32 = 0i32;
     for mut x in crate::platform_core_sorted::each_sorted_set(set).map(|__x| __x.clone()) {
         if (i > 0i32) {
@@ -1449,7 +1473,7 @@ pub fn keys_platform<K: Clone, V: Clone>(map: &crate::core_sorted::SortedMap<K, 
 }
 
 pub fn to_str__SortedMap<K: Clone, V: Clone>(map: &crate::core_sorted::SortedMap<K, V>, to_str: &mut dyn FnMut(&K) -> String, to_str__1: &mut dyn FnMut(&V) -> String, cmp: &mut dyn FnMut(&K, &K) -> i32) -> String {
-    let mut out: String = crate::core_string::mut_str(vec![String::from("{")]);
+    let mut out: String = crate::core_string::Mut_Str(vec![String::from("{")]);
     let mut i: i32 = 0i32;
     for mut k in crate::platform_core_sorted::each_sorted_map(map).map(|__x| __x.clone()) {
         if (i > 0i32) {
@@ -1582,7 +1606,7 @@ pub use crate::platform_core_string::Str;
 const _: fn() = || { fn __contract<T: Send + 'static + Clone + std::fmt::Debug + PartialEq + Eq + std::hash::Hash>() {} __contract::<Str>(); };
 const _: fn() = || { fn __each(x: &Str) -> impl Iterator<Item = char> + '_ { crate::platform_core_string::each(x).map(|e| e.clone()) } let _ = __each; };
 
-pub fn mut_str(mut parts: Vec<String>) -> String {
+pub fn Mut_Str(mut parts: Vec<String>) -> String {
     let mut out: String = crate::core_string::empty_str_platform();
     for mut part in parts.iter().cloned() {
         crate::core_string::append_platform(&mut out, &part);
@@ -1754,7 +1778,7 @@ pub fn is_empty(str: &String) -> bool {
 }
 
 pub fn repeat(str: &String, mut n: i32) -> String {
-    let mut out: String = crate::core_string::mut_str(vec![]);
+    let mut out: String = crate::core_string::Mut_Str(vec![]);
     let mut i: i32 = 0i32;
     loop {
         if !((i < n)) {
@@ -1903,7 +1927,7 @@ pub fn describe(mut result: crate::unions::Union2<i32, &String>) -> String {
 }
 
 pub fn main() {
-    let mut __use_1: crate::core_console::__Platform_StdOutConsole = crate::core_console::__Platform_StdOutConsole::new();
+    let mut __use_1: crate::core_console::__Platform_StdConsole = crate::core_console::__Platform_StdConsole::new();
     let __handle_2 = crate::core_console::Console::shared(__use_1);
     let mut good: crate::unions::Union2<i32, String> = crate::parse_age(36i32);
     crate::core_console::println(&__handle_2, &crate::describe(match &good { crate::unions::Union2::U1(__v) => crate::unions::Union2::U1(*__v), crate::unions::Union2::U2(__v) => crate::unions::Union2::U2(__v) }));
@@ -2407,24 +2431,48 @@ pub fn salvo_mono_nanos() -> i64 {
 }
 
 // ===== platform/core/console.rs =====
-// [platform-tree] std's console, for `core.console`'s
-// `threadsafe platform handler StdOutConsole` (ROADMAP 0.5): standard output,
-// with no buffering of its own, so a line printed before a trap is seen.
+// [platform-tree] [console] std's console, for `core.console`'s
+// `threadsafe platform handler StdConsole` (ROADMAP 0.5): standard output and
+// standard error, with no buffering of their own, so a line printed before a
+// trap is seen; and standard input, a line at a time.
 
-use std::io::Write;
+use std::io::{BufRead, Write};
 
-pub struct StdOutConsole;
+pub struct StdConsole;
 
-impl StdOutConsole {
+impl StdConsole {
     pub fn new() -> Self {
-        StdOutConsole
+        StdConsole
     }
 }
 
-impl crate::core_console::ConsolePlatformSync for StdOutConsole {
+impl crate::core_console::ConsolePlatformSync for StdConsole {
     fn print(&self, message: &String) {
         let mut out = std::io::stdout().lock();
         let _ = out.write_all(message.as_bytes());
+    }
+
+    fn printerr(&self, message: &String) {
+        let mut err = std::io::stderr().lock();
+        let _ = err.write_all(message.as_bytes());
+    }
+
+    fn readln(&self) -> Option<String> {
+        // A prompt printed without a newline is still in stdout's buffer.
+        let _ = std::io::stdout().lock().flush();
+        let mut line = String::new();
+        match std::io::stdin().lock().read_line(&mut line) {
+            Ok(0) | Err(_) => None,
+            Ok(_) => {
+                if line.ends_with('\n') {
+                    line.pop();
+                    if line.ends_with('\r') {
+                        line.pop();
+                    }
+                }
+                Some(line)
+            }
+        }
     }
 }
 

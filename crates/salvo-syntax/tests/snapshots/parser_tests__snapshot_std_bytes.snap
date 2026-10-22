@@ -319,7 +319,7 @@ Module {
                 docs: [
                     "A buffer under construction, holding [parts] concatenated in order.",
                     "`mut_bytes()` is the empty one, which is how a read buffer starts;",
-                    "mutability is asked for here, mirroring [mut_str] and [Mut List].",
+                    "mutability is asked for here, mirroring [Mut Str] and [Mut List].",
                 ],
                 exported: true,
                 intrinsic: false,

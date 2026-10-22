@@ -49,6 +49,14 @@
           "type": "string",
           "default": "",
           "markdownDescription": "Optional backend passed to the language server as `--backend <name>` (e.g. `kotlin` or `rust`). Selects which backend define files (`*.<backend>.sv`) participate in analysis; empty means backend-neutral."
+        },
+        "salvo.serverEnv": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": {
+            "type": "string"
+          },
+          "markdownDescription": "Extra environment variables passed to the `salvo lsp` server process, merged over the editor's own environment (e.g. `{ \"SALVO_LSP_TRACE\": \"1\" }` to log dispatched messages and debounce activity to stderr, or `SALVO_LSP_SLOW_MS` to change the slow-pass dump threshold). Takes effect after \"Salvo: Restart Language Server\" or a settings change."
         }
       }
     },

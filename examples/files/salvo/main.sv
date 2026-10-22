@@ -246,7 +246,7 @@ fn workflow() [Fs, Console] -> None {
     when lined {
         is Ok {
             let s: InStream = lined
-            let line = mut_str()
+            let line = Mut Str()
             let longest = 0
             let reading = true
             while reading {
@@ -360,7 +360,7 @@ fn sandbox_edges() [Fs, Console] -> None {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole()
+    use StdConsole()
     // The machine's streams and filesystem, each in two layers: `HostRawStreams`
     // and `HostRawFs` are the host implementations (classes shipped per
     // backend, no obligations in them), and `DefaultStreams` and `DefaultFs`

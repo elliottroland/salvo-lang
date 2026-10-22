@@ -116,7 +116,7 @@ fun<T> drain(d: kotlin.collections.ArrayDeque<T>, each: (T) -> Unit) {
 }
 
 fun<T> toStr(d: kotlin.collections.ArrayDeque<T>, toStr: (T) -> String): String {
-    val out: salvo.platform.core.string.MutStr = salvo.core.string.mutStr(arrayOf<String>("["))
+    val out: salvo.platform.core.string.MutStr = salvo.core.string.Mut_Str(arrayOf<String>("["))
     var i: Int = 0
     for (x in salvo.platform.core.deque.each(d)) {
         if ((i > 0)) {

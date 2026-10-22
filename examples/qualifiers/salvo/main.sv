@@ -125,7 +125,7 @@ fn handle(request: Fresh Request) -> Str => request {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
 
     // ----- 1 & 2: establishing a claim -----
 

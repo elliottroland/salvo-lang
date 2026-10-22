@@ -25,19 +25,23 @@ use lsp_types::notification::{
     Notification as _, PublishDiagnostics,
 };
 use lsp_types::request::{
-    CodeActionRequest, Completion, GotoDefinition, HoverRequest, Request as _, SignatureHelpRequest,
+    CodeActionRequest, Completion, GotoDefinition, HoverRequest, OnTypeFormatting,
+    PrepareRenameRequest, Rename, Request as _, SignatureHelpRequest,
 };
 use lsp_types::{
     CodeAction, CodeActionKind, CodeActionOrCommand, CodeActionParams,
     CodeActionProviderCapability, CompletionItem, CompletionItemKind, CompletionOptions,
     CompletionParams, CompletionResponse, Diagnostic, DiagnosticSeverity,
     DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    DidSaveTextDocumentParams, GotoDefinitionParams, GotoDefinitionResponse, Hover,
+    DidSaveTextDocumentParams, DocumentOnTypeFormattingOptions, DocumentOnTypeFormattingParams,
+    GotoDefinitionParams, GotoDefinitionResponse, Hover,
     HoverContents, HoverParams, HoverProviderCapability, InitializeParams,
     Location, MarkupContent, MarkupKind, OneOf, ParameterInformation, ParameterLabel, Position,
-    PublishDiagnosticsParams, Range, ServerCapabilities, SignatureHelp, SignatureHelpOptions,
-    SignatureHelpParams, SignatureInformation, TextDocumentSyncCapability, TextDocumentSyncKind,
-    TextEdit, Url, WorkspaceEdit,
+    PrepareRenameResponse, PublishDiagnosticsParams, Range, RenameOptions, RenameParams,
+    ServerCapabilities, SignatureHelp, SignatureHelpOptions, SignatureHelpParams,
+    SignatureInformation, TextDocumentPositionParams, TextDocumentSyncCapability,
+    TextDocumentSyncKind, TextEdit, Url, WorkDoneProgressOptions, WorkspaceEdit,
+    CompletionTextEdit, InsertTextFormat, InsertTextMode,
 };
 
 use salvo_core::{
@@ -199,8 +203,13 @@ fn serve() -> Result<(), Box<dyn Error + Sync + Send>> {
             // `.` opens dot-field/dot-call completion; `[` opens the
             // doc-reference list inside a `//` comment's `[…]`, so a reference
             // auto-suggests as it is typed, the way code completion does
-            // (user request 2026-10-14).
-            trigger_characters: Some(vec![".".to_string(), "[".to_string()]),
+            // (user request 2026-10-14). `,` auto-suggests a struct literal's
+            // remaining fields right after a just-typed field separator
+            // (user request 2026-10-20) — the field-completion logic itself
+            // already covered this position; only the auto-trigger was
+            // missing, so writing `Person { name: "a", ` offers the rest
+            // without a manual completion request.
+            trigger_characters: Some(vec![".".to_string(), "[".to_string(), ",".to_string()]),
             ..Default::default()
         }),
         // [lsp-signature-help] The parameter list of the call being written,
@@ -209,6 +218,26 @@ fn serve() -> Result<(), Box<dyn Error + Sync + Send>> {
             trigger_characters: Some(vec!["(".to_string(), ",".to_string()]),
             retrigger_characters: Some(vec![",".to_string()]),
             work_done_progress_options: Default::default(),
+        }),
+        // [lsp-rename] Rename-symbol, with `prepareRename` so the client
+        // only offers it (and only highlights the renameable range) on a
+        // name the server actually resolves.
+        rename_provider: Some(OneOf::Right(RenameOptions {
+            prepare_provider: Some(true),
+            work_done_progress_options: WorkDoneProgressOptions::default(),
+        })),
+        // [lsp-comment-continuation] Continuing a `// `-prefixed comment on
+        // Enter aligns to the comment's own paragraph start, not just past
+        // `// ` — `// TODO: text` wraps its next line under `text`, where
+        // `onEnterRules`' static `appendText` cannot reach (it can only
+        // insert a fixed string, never one sized to the previous line's
+        // content; user request 2026-10-20). Triggered on `\n`, since VS
+        // Code requests on-type formatting using the FIRST character typed
+        // on the new line, not the newline that produced it — see
+        // `fn on_type_format`.
+        document_on_type_formatting_provider: Some(DocumentOnTypeFormattingOptions {
+            first_trigger_character: "\n".to_string(),
+            more_trigger_character: None,
         }),
         ..Default::default()
     })?;
@@ -224,6 +253,14 @@ fn serve() -> Result<(), Box<dyn Error + Sync + Send>> {
         .and_then(|uri| uri.to_file_path().ok())
         .unwrap_or_else(|| PathBuf::from("."));
     let root = root.canonicalize().unwrap_or(root);
+    let snippets = init_params
+        .capabilities
+        .text_document
+        .as_ref()
+        .and_then(|t| t.completion.as_ref())
+        .and_then(|c| c.completion_item.as_ref())
+        .and_then(|i| i.snippet_support)
+        .unwrap_or(false);
 
     let mut server = Server {
         root,
@@ -234,6 +271,7 @@ fn serve() -> Result<(), Box<dyn Error + Sync + Send>> {
         dirty: false,
         parse_cache: std::cell::RefCell::new(crate::analysis::ParseCache::new()),
         std_cache: std::cell::RefCell::new(None),
+        snippets,
     };
     server.main_loop()?;
     drop(server);
@@ -373,6 +411,9 @@ struct Server<'c> {
     /// analysis and reused by every later one whose program starts with that
     /// std unshadowed. A `RefCell` for the same reason as `parse_cache`.
     std_cache: std::cell::RefCell<Option<salvo_core::StdCache>>,
+    /// [lsp-completion] The client renders snippets (`$0` placeholders) in
+    /// completion items; otherwise an inserted arm is plain text.
+    snippets: bool,
 }
 
 impl Server<'_> {
@@ -484,6 +525,27 @@ impl Server<'_> {
                 let params: CodeActionParams = serde_json::from_value(req.params)?;
                 let result = self.code_actions(&params);
                 self.respond(Response::new_ok(req.id, result))?;
+            }
+            PrepareRenameRequest::METHOD => {
+                let params: TextDocumentPositionParams = serde_json::from_value(req.params)?;
+                let result = self.prepare_rename(&params);
+                self.respond(Response::new_ok(req.id, result))?;
+            }
+            OnTypeFormatting::METHOD => {
+                let params: DocumentOnTypeFormattingParams = serde_json::from_value(req.params)?;
+                let result = self.on_type_format(&params);
+                self.respond(Response::new_ok(req.id, result))?;
+            }
+            Rename::METHOD => {
+                let params: RenameParams = serde_json::from_value(req.params)?;
+                match self.rename(&params) {
+                    Ok(result) => self.respond(Response::new_ok(req.id, result))?,
+                    Err(message) => self.respond(Response::new_err(
+                        req.id,
+                        lsp_server::ErrorCode::InvalidRequest as i32,
+                        message,
+                    ))?,
+                }
             }
             _ => self.respond(Response::new_err(
                 req.id,
@@ -1212,7 +1274,7 @@ impl Server<'_> {
         let items = &analysis.program.modules.get(target.file)?.items;
         let found = decl_at(items, &|s: Span| s == target.span)?;
         // [lsp-hover-overloads] Read before the rendering match below consumes
-        // `found`: the name is what the other declarations are looked up by.
+        // `found`; the name is what the other declarations are looked up by.
         let decl_name: Option<String> = match &found {
             DeclAt::Member { decl, .. } => Some(decl.name.name.clone()),
             DeclAt::Field { decl, .. } => Some(decl.name.name.clone()),
@@ -1598,6 +1660,119 @@ impl Server<'_> {
         Some(GotoDefinitionResponse::Scalar(Location { uri, range }))
     }
 
+    /// [lsp-comment-continuation] `textDocument/onTypeFormatting`, fired
+    /// right after Enter inserts a newline (trigger `\n`): when the line
+    /// just left is a `//` comment, replaces whatever the client's own
+    /// `onEnterRules` already put on the new line (that rule only knows the
+    /// static `// `, since `appendText` cannot be computed from the
+    /// previous line) with a continuation aligned to the comment's
+    /// **paragraph start** — the first word after a `label: ` (`// TODO:
+    /// text` continues under `text`), or after `// ` itself when there is
+    /// no such label. A line that is not a `//` comment, or a `//` with
+    /// nothing to align past (no label and no body text yet), returns no
+    /// edit — the client's own static rule already did the only sensible
+    /// thing.
+    fn on_type_format(&self, params: &DocumentOnTypeFormattingParams) -> Option<Vec<TextEdit>> {
+        if params.ch != "\n" {
+            return None;
+        }
+        let doc = &params.text_document_position;
+        let path = file_path(&doc.text_document.uri)?;
+        let text = match self.overlay.get(&path) {
+            Some(t) => t.clone(),
+            None => std::fs::read_to_string(&path).ok()?,
+        };
+        let new_line_idx = doc.position.line as usize;
+        let lines: Vec<&str> = text.split('\n').collect();
+        let prev = *lines.get(new_line_idx.checked_sub(1)?)?;
+        let comment_at = comment_start(prev)?;
+        // The paragraph start: right after a `label: ` immediately following
+        // `// ` (`TODO: `, `NOTE: `, any single bare word then `: `), else
+        // right after `// ` itself. Byte-based (not UTF-16-code-unit-based,
+        // unlike `Position`) is fine here — the slash, colon and space are
+        // all ASCII, and only their count becomes the indent width below.
+        let after_slashes = &prev[comment_at + 2..];
+        let body_start = usize::from(after_slashes.starts_with(' '));
+        let body = &after_slashes[body_start..];
+        let label_end = body.find(": ").and_then(|i| {
+            let label = &body[..i];
+            (!label.is_empty() && label.chars().all(|c| c.is_alphanumeric() || c == '_'))
+                .then(|| comment_at + 2 + body_start + i + 2)
+        });
+        let align_to = label_end.unwrap_or(comment_at + 2 + body_start);
+        // Nothing to align to beyond the client's own static `// `: no
+        // label (an ordinary continuing comment), or a label with no text
+        // after it yet (just-opened `// TODO:` or `//`) — the already-
+        // inserted `// ` is exactly right, so no edit is needed at all.
+        let Some(align_to) = label_end.filter(|_| !prev[align_to..].trim().is_empty()) else {
+            return None;
+        };
+        let indent = " ".repeat(align_to.saturating_sub(comment_at + 2));
+        let leading_ws: String = prev.chars().take_while(|c| *c == ' ' || *c == '\t').collect();
+        let new_text = format!("{leading_ws}//{indent}");
+        let line_start = Position { line: doc.position.line, character: 0 };
+        Some(vec![TextEdit {
+            range: Range { start: line_start, end: doc.position },
+            new_text,
+        }])
+    }
+
+    /// [lsp-rename] `textDocument/prepareRename`: whether the cursor sits on
+    /// a renameable name, and if so, the exact range the client should
+    /// highlight as being renamed. Nothing is offered on a std declaration
+    /// the server could not actually edit (unshadowed embedded std).
+    fn prepare_rename(&self, params: &TextDocumentPositionParams) -> Option<PrepareRenameResponse> {
+        let path = file_path(&params.text_document.uri)?;
+        let analysis = self.analyze_for(&path)?;
+        let checked = analysis.checked.as_ref()?;
+        let view = doc_view(&analysis, &path)?;
+        let offset = view.offset(params.position);
+        let (span, target) = resolve_rename_target(&analysis, checked, view.file, offset)?;
+        rename_occurrences(&analysis, checked, target)?;
+        Some(PrepareRenameResponse::Range(view.range(span)))
+    }
+
+    /// [lsp-rename] `textDocument/rename`: resolves the cursor the same way
+    /// `prepareRename` does, then rewrites every occurrence — across every
+    /// file of the program, not only the one being edited — to `new_name`.
+    /// `Err` names a reason the client can show the user, rather than
+    /// quietly returning no edit (indistinguishable from "nothing here").
+    fn rename(&self, params: &RenameParams) -> Result<Option<WorkspaceEdit>, String> {
+        let doc = &params.text_document_position;
+        let path = file_path(&doc.text_document.uri)
+            .ok_or_else(|| "cannot resolve this document's path".to_string())?;
+        let analysis = self
+            .analyze_for(&path)
+            .ok_or_else(|| "cannot analyze this document".to_string())?;
+        let checked = analysis
+            .checked
+            .as_ref()
+            .ok_or_else(|| "the program has no successful analysis to rename against".to_string())?;
+        let view = doc_view(&analysis, &path)
+            .ok_or_else(|| "this document is not part of the analyzed program".to_string())?;
+        let offset = view.offset(doc.position);
+        let (_, target) = resolve_rename_target(&analysis, checked, view.file, offset)
+            .ok_or_else(|| "nothing renameable at this position".to_string())?;
+        let sites = rename_occurrences(&analysis, checked, target)
+            .ok_or_else(|| "this name is declared in the standard library and cannot be renamed".to_string())?;
+
+        let mut changes: HashMap<Url, Vec<TextEdit>> = HashMap::new();
+        for (file, span) in sites {
+            let (uri, range) = self
+                .site_location(&analysis, file, span)
+                .ok_or_else(|| "one occurrence has no editable location".to_string())?;
+            changes.entry(uri).or_default().push(TextEdit {
+                range,
+                new_text: params.new_name.clone(),
+            });
+        }
+        Ok(Some(WorkspaceEdit {
+            changes: Some(changes),
+            document_changes: None,
+            change_annotations: None,
+        }))
+    }
+
     /// [lsp-completion] Completion at a position: every function the file can
     /// call; after `receiver.`, only those whose first parameter the receiver
     /// fills [fn-dot] — matched by the receiver's type name — then those
@@ -1662,10 +1837,34 @@ impl Server<'_> {
             word -= 1;
         }
         let dot = word > 0 && bytes[word - 1] == b'.';
-        let patched = if dot {
-            format!("{}{}", &text[..word - 1], &text[cursor.min(text.len())..])
+        // [lsp-completion] The cursor may sit mid-token: completion
+        // triggered right after the dot of `arg.description` (cursor before
+        // the already-typed `description`) has nothing between the dot and
+        // the cursor, so `word == cursor` — but `description` itself is
+        // still sitting in the buffer right after the cursor. Patching with
+        // only a backward trim glues the receiver straight onto that
+        // trailing identifier (`arg` + `description` → `argdescription`),
+        // which parses as one broken name instead of `receiver.field`, and
+        // the receiver's type lookup below (keyed on an expression actually
+        // ending at the dot) then finds nothing. Scanning forward past any
+        // trailing identifier characters at the cursor excises the whole
+        // mid-edit word, not just its prefix, so the patched buffer reads
+        // `arg` (bare receiver) rather than a fused identifer.
+        let mut patch_end = cursor.min(bytes.len());
+        while patch_end < bytes.len() && (bytes[patch_end].is_ascii_alphanumeric() || bytes[patch_end] == b'_') {
+            patch_end += 1;
+        }
+        // [lsp-completion] [when-exhaustive] A line that can only be an arm
+        // head — blank, or a partial `is …` with no `{` yet — may be inside a
+        // `when`'s braces. A partial head is cut whole from the probe buffer:
+        // half an `is` check would make the parser drop the entire `when`.
+        let arm_head = arm_head_at(&text, line_start, cursor.min(text.len()));
+        let patched = if let Some((head, end, true)) = arm_head {
+            format!("{}{}", &text[..head], &text[end..])
+        } else if dot {
+            format!("{}{}", &text[..word - 1], &text[patch_end..])
         } else {
-            format!("{}{}", &text[..word], &text[cursor.min(text.len())..])
+            format!("{}{}", &text[..word], &text[patch_end..])
         };
         let mut overlay = self.overlay.clone();
         overlay.insert(path.clone(), patched);
@@ -1679,6 +1878,16 @@ impl Server<'_> {
         .ok()?;
         let checked = analysis.checked.as_ref()?;
         let view = doc_view(&analysis, &path)?;
+        // [lsp-completion] [when-exhaustive] Inside a `when`'s braces, between
+        // arms: the arms still to write, and nothing else — no other text is
+        // legal there.
+        if let Some((head, _, _)) = arm_head {
+            if let Some(missing) = when_missing_arms(&analysis, checked, view.file, head as u32) {
+                let range = Range::new(offset_to_position(&text, head as u32), offset_to_position(&text, cursor as u32));
+                let indent = &text[line_start..head];
+                return Some(CompletionResponse::Array(when_arm_items(&missing, range, indent, self.snippets)));
+            }
+        }
         let fns = analysis.completions.get(view.file)?;
         // [effect-member-completion] The effects available at the cursor: the
         // expanded effect set of the innermost fn/handler-member body that
@@ -1731,6 +1940,28 @@ impl Server<'_> {
         // `,` inside `<…>`), types come first; elsewhere after the fns.
         let before = text[..word].trim_end();
         let type_position = before.ends_with(':') || before.ends_with("->") || before.ends_with('<') || before.ends_with('|');
+        // [lsp-completion] Inside a struct literal's braces (`Person { name:
+        // "x", | }`): the struct's own remaining field names — the ones not
+        // already written — ranked first, the same as a dot-completion's
+        // fields. Not offered after a dot (dot-completion above already
+        // answered that case) or where a type is expected (a field's own
+        // *value* position is neither).
+        if !dot && !type_position {
+            if let Some((name, written)) = struct_lit_at(&analysis.program, view.file, word as u32) {
+                for f in struct_fields(&analysis.program, &name, view.file) {
+                    if written.contains(&f.0) {
+                        continue;
+                    }
+                    items.push(CompletionItem {
+                        label: f.0.clone(),
+                        kind: Some(CompletionItemKind::FIELD),
+                        detail: Some(f.1),
+                        sort_text: Some(format!("0{}", f.0)),
+                        ..Default::default()
+                    });
+                }
+            }
+        }
         if !dot {
             let type_rank = if type_position { "0" } else { "2" };
             for (name, kind) in analysis.type_completions.get(view.file).into_iter().flatten() {
@@ -1868,6 +2099,7 @@ impl Server<'_> {
         }
         Some(CompletionResponse::Array(items))
     }
+
 
     /// [lsp-signature-help] The parameter list of the call being written.
     /// Walks left from the cursor to the enclosing unmatched `(`, reads the
@@ -2077,6 +2309,173 @@ fn type_struct_name(ty: &salvo_syntax::ast::Type) -> Option<String> {
         Type::Nullable { inner, .. } => type_struct_name(inner),
         _ => None,
     }
+}
+
+/// [lsp-completion] [when-exhaustive] Where an arm head may be being written:
+/// the line up to the cursor is blank or a partial `is …`, and neither it nor
+/// the rest of the line opens a `{`. Answers the head's start (after the
+/// indentation), the end of the line, and whether there is a partial head to
+/// cut from the probe buffer.
+fn arm_head_at(text: &str, line_start: usize, cursor: usize) -> Option<(usize, usize, bool)> {
+    let before = &text[line_start..cursor];
+    let head_text = before.trim_start();
+    let head = cursor - head_text.len();
+    let line_end = text[cursor..].find('\n').map(|i| cursor + i).unwrap_or(text.len());
+    let after = &text[cursor..line_end];
+    if before.contains('{') || after.contains('{') || after.contains('}') {
+        return None;
+    }
+    let partial = head_text == "is" || head_text.starts_with("is ");
+    if !(head_text.is_empty() || partial) {
+        return None;
+    }
+    Some((head, line_end, partial))
+}
+
+/// [lsp-completion] The arms a `when` (or a comptime `[when …]`) at `offset`
+/// has yet to cover — `offset` inside its braces and outside every arm body
+/// — each with whether `is *` covers the rest (a type dispatch). `None` when
+/// no `when` encloses the offset that way.
+fn when_missing_arms(analysis: &Analysis, checked: &salvo_core::Checked, file_idx: usize, offset: u32) -> Option<(Vec<String>, bool)> {
+    use salvo_syntax::ast::{Expr, Item};
+    use salvo_syntax::visit::{walk_fn, Visitor};
+    struct Finder {
+        offset: u32,
+        /// The innermost enclosing `when`: its span, and whether it is
+        /// comptime.
+        best: Option<(Span, bool)>,
+    }
+    impl Finder {
+        fn consider(&mut self, span: Span, bodies: &[Span], comptime: bool) {
+            let inside = span.start < self.offset && self.offset < span.end;
+            let in_body = bodies.iter().any(|b| b.start < self.offset && self.offset < b.end);
+            if inside && !in_body && self.best.is_none_or(|(b, _)| span.len() < b.len()) {
+                self.best = Some((span, comptime));
+            }
+        }
+    }
+    impl Visitor for Finder {
+        fn visit_expr(&mut self, expr: &Expr) {
+            if let Expr::When { branches, span, .. } = expr {
+                let bodies: Vec<Span> = branches.iter().map(|b| b.body.span).collect();
+                self.consider(*span, &bodies, false);
+            }
+        }
+    }
+    let module = analysis.program.modules.get(file_idx)?;
+    let mut finder = Finder { offset, best: None };
+    for item in &module.items {
+        if let Item::Fn(f) = item {
+            walk_fn(&mut finder, f);
+        }
+    }
+    // A comptime `[when …]` is gone from the program by now (its fn is
+    // expanded), so the expansion's record carries its span and arm bodies.
+    for w in analysis.comptime_when_arms.iter().filter(|w| w.file == file_idx) {
+        finder.consider(w.span, &w.bodies, true);
+    }
+    let (span, comptime) = finder.best?;
+    if comptime {
+        let w = analysis.comptime_when_arms.iter().find(|w| w.file == file_idx && w.span == span)?;
+        let mut missing = w.missing.clone();
+        if w.types && !missing.is_empty() {
+            missing.push("*".to_string());
+        }
+        return Some((missing, w.types));
+    }
+    checked.when_arms.get(&(file_idx, span)).map(|m| (m.clone(), false))
+}
+
+/// [lsp-completion] One item per missing arm (`is Str { }`), and one writing
+/// them all when more than one is missing. With snippets the cursor lands in
+/// the (first) body; without, the arms are inserted empty. The text carries
+/// the line's indentation itself, inserted as is.
+fn when_arm_items((missing, _types): &(Vec<String>, bool), range: Range, indent: &str, snippets: bool) -> Vec<CompletionItem> {
+    let arm = |check: &str, stop: usize| -> String {
+        if snippets {
+            format!("is {check} {{\n{indent}    ${stop}\n{indent}}}")
+        } else {
+            format!("is {check} {{}}")
+        }
+    };
+    let item = |label: String, new_text: String, sort: String, detail: String| CompletionItem {
+        label: label.clone(),
+        kind: Some(CompletionItemKind::ENUM_MEMBER),
+        detail: Some(detail),
+        sort_text: Some(sort),
+        filter_text: Some(label),
+        text_edit: Some(CompletionTextEdit::Edit(TextEdit { range, new_text })),
+        insert_text_format: Some(if snippets { InsertTextFormat::SNIPPET } else { InsertTextFormat::PLAIN_TEXT }),
+        insert_text_mode: Some(InsertTextMode::AS_IS),
+        ..Default::default()
+    };
+    let mut items: Vec<CompletionItem> = missing
+        .iter()
+        .enumerate()
+        .map(|(i, m)| item(format!("is {m}"), arm(m, 0), format!("1{i:03}"), "an arm this `when` has yet to cover".to_string()))
+        .collect();
+    // The catch-all `is *` of a type dispatch covers the others, so writing
+    // "all of them" means the named ones.
+    let named: Vec<&String> = missing.iter().filter(|m| m.as_str() != "*").collect();
+    if named.len() > 1 {
+        let all: Vec<String> = named.iter().enumerate().map(|(i, m)| arm(m, i + 1)).collect();
+        items.push(item(
+            format!("is … (all {} missing arms)", named.len()),
+            all.join(&format!("\n{indent}")),
+            "0".to_string(),
+            named.iter().map(|m| format!("is {m}")).collect::<Vec<_>>().join(", "),
+        ));
+    }
+    items
+}
+
+/// [lsp-completion] The innermost `Person { name: "x", | }` struct literal
+/// containing `offset`, as `(type name, field names already written)` — so
+/// completion there can offer the struct's *remaining* fields. `None` for a
+/// bare `{...}` literal (no written type to look fields up against) and
+/// wherever the cursor is not inside any struct literal's braces at all.
+/// Walks every top-level `fn`'s body (field defaults included, via
+/// `walk_fn`'s own walk of each field's default) — the only places a struct
+/// literal can be written at file scope.
+fn struct_lit_at(program: &salvo_core::Program, file_idx: usize, offset: u32) -> Option<(String, HashSet<String>)> {
+    use salvo_syntax::ast::{Expr, Item, StructLitFieldKind};
+    use salvo_syntax::visit::{walk_fn, Visitor};
+
+    struct Finder {
+        offset: u32,
+        best: Option<(Span, String, HashSet<String>)>,
+    }
+    impl Visitor for Finder {
+        fn visit_expr(&mut self, expr: &Expr) {
+            let Expr::StructLit { ty, fields, span } = expr else { return };
+            if !(span.start <= self.offset && self.offset <= span.end) {
+                return;
+            }
+            // Smallest enclosing literal wins, same tie-break as every other
+            // offset-containment scan in this file.
+            if self.best.as_ref().is_some_and(|(b, ..)| span.len() >= b.len()) {
+                return;
+            }
+            let Some(salvo_syntax::ast::Type::Named { base, .. }) = ty else { return };
+            let written: HashSet<String> = fields
+                .iter()
+                .filter_map(|f| match &f.kind {
+                    StructLitFieldKind::Named { name, .. } => Some(name.name.clone()),
+                    _ => None,
+                })
+                .collect();
+            self.best = Some((*span, base.name.name.clone(), written));
+        }
+    }
+
+    let module = program.modules.get(file_idx)?;
+    let mut finder = Finder { offset, best: None };
+    for item in &module.items {
+        if let Item::Fn(f) = item {
+            walk_fn(&mut finder, f);
+        }
+    }
+    finder.best.map(|(_, name, written)| (name, written))
 }
 
 /// [lsp-completion] The fields of the struct named `name` (its first
@@ -2424,6 +2823,120 @@ fn fn_def_site(program: &Program, key: FnKey) -> Option<DefSite> {
         file: key.file,
         span: decl.name.span,
     })
+}
+
+/// [lsp-rename] What a rename affects: either a fn, identified precisely by
+/// its [`FnKey`] (overload-exact, since `fn_refs` already resolved it), or
+/// any other declaration, identified by its [`DefSite`]. Fns are kept
+/// separate from `def_refs`'/`field_refs`'s `DefSite`s for the same reason
+/// `goto_definition` keeps them separate: a fn's `DefSite` is derived
+/// (`fn_def_site`), not stored, so matching occurrences needs the key the
+/// table is actually keyed by.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RenameTarget {
+    Fn(FnKey),
+    Def(DefSite),
+}
+
+/// Resolves the cursor to the thing a rename would affect, exactly the way
+/// `Server::goto_definition` resolves it to a definition: the smallest
+/// reference span containing the cursor, in `fn_refs` first, then
+/// `def_refs`/`field_refs`; falling back, when the cursor sits on a
+/// declaration's own name rather than a use of it, to the top-level fn
+/// whose name span matches, else `decl_name_span_at` for every other
+/// declaration kind.
+fn resolve_rename_target(
+    analysis: &Analysis,
+    checked: &Checked,
+    file_idx: usize,
+    offset: u32,
+) -> Option<(Span, RenameTarget)> {
+    let mut best: Option<(Span, RenameTarget)> = None;
+    let consider = |span: Span, target: RenameTarget, best: &mut Option<(Span, RenameTarget)>| {
+        if span.start <= offset
+            && offset < span.end
+            && best.is_none_or(|(b, _)| span.len() < b.len())
+        {
+            *best = Some((span, target));
+        }
+    };
+    for ((file, span), key) in &checked.fn_refs {
+        if *file != file_idx {
+            continue;
+        }
+        consider(*span, RenameTarget::Fn(*key), &mut best);
+    }
+    for ((file, span), site) in checked.def_refs.iter().chain(&checked.field_refs) {
+        if *file != file_idx {
+            continue;
+        }
+        consider(*span, RenameTarget::Def(*site), &mut best);
+    }
+    if let Some(found) = best {
+        return Some(found);
+    }
+    // The cursor is on a declaration's own name, not a reference to it.
+    let items = &analysis.program.modules.get(file_idx)?.items;
+    let hit = |s: Span| s.start <= offset && offset < s.end;
+    // A top-level fn is not a `DeclAt` [lsp-definition]; match its name span
+    // directly, keyed by its `FnKey` so every overload (not just this
+    // file's declaration) collects correctly.
+    if let Some((item_idx, f)) = items.iter().enumerate().find_map(|(i, item)| match item {
+        Item::Fn(f) if hit(f.name.span) => Some((i, f)),
+        _ => None,
+    }) {
+        return Some((
+            f.name.span,
+            RenameTarget::Fn(FnKey { file: file_idx, item: item_idx }),
+        ));
+    }
+    let name_span = decl_name_span_at(items, &hit)?;
+    Some((
+        name_span,
+        RenameTarget::Def(DefSite { file: file_idx, span: name_span }),
+    ))
+}
+
+/// Every occurrence of `target` across the whole program — every reference
+/// plus the declaration's own name — as `(file, span)` pairs. `None` once
+/// any occurrence lands in the embedded, read-only std (unshadowed):
+/// renaming call sites in user code while leaving the std declaration
+/// untouched would break the program, so the rename is refused outright
+/// rather than silently dropping that occurrence.
+fn rename_occurrences(
+    analysis: &Analysis,
+    checked: &Checked,
+    target: RenameTarget,
+) -> Option<Vec<(usize, Span)>> {
+    let mut sites: Vec<(usize, Span)> = Vec::new();
+    match target {
+        RenameTarget::Fn(key) => {
+            let decl_site = fn_def_site(&analysis.program, key)?;
+            sites.push((decl_site.file, decl_site.span));
+            for ((file, span), k) in &checked.fn_refs {
+                if *k == key {
+                    sites.push((*file, *span));
+                }
+            }
+        }
+        RenameTarget::Def(site) => {
+            sites.push((site.file, site.span));
+            for ((file, span), s) in checked.def_refs.iter().chain(&checked.field_refs) {
+                if *s == site {
+                    sites.push((*file, *span));
+                }
+            }
+        }
+    }
+    sites.sort_unstable_by_key(|(file, span)| (*file, span.start));
+    sites.dedup();
+    for (file, _) in &sites {
+        let f = analysis.program.files.get(*file)?;
+        if f.is_std && !f.is_shadow {
+            return None;
+        }
+    }
+    Some(sites)
 }
 
 /// Renders the full source-like signature of a fn declaration, with the

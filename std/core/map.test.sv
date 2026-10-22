@@ -123,7 +123,7 @@ test "two maps are equal with the same entries in any order" {
 test "entries and values walk the live entries in insertion order, borrowed" {
     let m = Mut Map(("a", 1), ("b", 2), ("c", 3))
     let _gone = remove(m, "b")
-    let seen = mut_str("")
+    let seen = Mut Str("")
     for e in entries(m) {
         append(seen, "${e.key}=${e.value} ")
     }

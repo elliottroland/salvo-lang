@@ -233,7 +233,7 @@ fn settings() [Setting<Int>, Setting<Str>, Console] -> None {
 // reached by every function below it that declares the effect, without being
 // threaded through the calls in between.
 fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     use TickingClock
 
     println("1. the clock reads ${now()}, then ${now()}")

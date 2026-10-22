@@ -127,10 +127,43 @@ Module {
                 iter_state: [],
                 is_send: false,
                 name: Ident {
-                    name: "mut_str",
+                    name: "Mut_Str",
                     span: 1174..1181,
                 },
-                type_name: None,
+                type_name: Some(
+                    Named {
+                        qualifiers: [
+                            TypeRef {
+                                name: Ident {
+                                    name: "Mut",
+                                    span: 1174..1177,
+                                },
+                                args: [],
+                                value_args: [],
+                                from: [],
+                                at: None,
+                                binder: false,
+                                established: false,
+                                alias: None,
+                                span: 1174..1177,
+                            },
+                        ],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Str",
+                                span: 1178..1181,
+                            },
+                            args: [],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 1178..1181,
+                        },
+                    },
+                ),
                 scoped_to: None,
                 compfn: None,
                 by: None,
@@ -323,7 +356,7 @@ Module {
         Fn(
             FnDecl {
                 docs: [
-                    "An empty string to build: what [mut_str] starts from.",
+                    "An empty string to build: what [Mut Str] starts from.",
                 ],
                 exported: false,
                 intrinsic: false,
@@ -5409,7 +5442,7 @@ Module {
                                 value: Call {
                                     callee: Ident(
                                         Ident {
-                                            name: "mut_str",
+                                            name: "Mut_Str",
                                             span: 8183..8190,
                                         },
                                     ),

@@ -72,7 +72,7 @@ export platform fn size<T>(set: Set<T>) [] -> Int => set
 // which is the same shape `to_str` of a list follows [col-to-str]. Each
 // element renders by its own `to_str` [platform-value-type].
 export fn to_str<T>(set: Set<T>, ?to_str: (x: T) -> Str) [] -> Str => set {
-    let out = mut_str("{")
+    let out = Mut Str("{")
     let i = 0
     for x in set {
         if i > 0 {

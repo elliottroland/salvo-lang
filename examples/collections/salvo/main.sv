@@ -47,7 +47,7 @@ fn count_unique(xs: Distinct List<Int>) [] -> Int => xs {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole()
+    use StdConsole()
 
     // ===== 1. the constructors =====
     //

@@ -156,7 +156,7 @@ handler MemSqs() of Sqs {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
 
     // 1. The generated recording fake: every call answered as an empty success
     //    where the output allows one, and noted by name.

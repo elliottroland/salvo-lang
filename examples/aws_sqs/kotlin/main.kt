@@ -202,7 +202,7 @@ class MemSqs : salvo.aws.sqs.Sqs {
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun main() {
     salvo.SalvoSched.setProtocols(listOf(Pair("Faults", salvo.core.actor.__PROTO_Faults)))
-    val __use_1: salvo.core.console.__Platform_StdOutConsole = salvo.core.console.__Platform_StdOutConsole()
+    val __use_1: salvo.core.console.__Platform_StdConsole = salvo.core.console.__Platform_StdConsole()
     val __handle_2: salvo.core.console.Console = __use_1
     salvo.core.console.println(__handle_2, "-- FakeSqs --")
     run {

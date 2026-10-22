@@ -224,8 +224,11 @@ class MutListCodec<T>(private val elem: WireCodec<T>) : WireCodec<MutableList<T>
     }
 }
 
-/** An optional — `T?`, or a union with a `None` arm — is a presence byte. */
-class OptCodec<T : Any>(private val inner: WireCodec<T>) : WireCodec<T?> {
+/** An optional — `T?`, or a union with a `None` arm — is a presence byte. `T`
+ * is unbounded, as Rust's `impl<T: __Wire> __Wire for Option<T>` is: a generic
+ * struct's codec holds a `WireCodec<T>` for a `T` Kotlin cannot prove
+ * non-null [kt-wire]. */
+class OptCodec<T>(private val inner: WireCodec<T>) : WireCodec<T?> {
     override fun enc(v: T?, out: WireOut) {
         if (v == null) {
             out.u8(0)

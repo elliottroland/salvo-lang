@@ -1,9 +1,9 @@
 use crate::core_iterator::Finished;
 use crate::core_index::Idx__Int_qualifies;
+use crate::core_string::Mut_Str;
 use crate::core_string::append_platform;
 use crate::core_iterator::emitted;
 use crate::core_iterator::finished;
-use crate::core_string::mut_str;
 use crate::core_range::next;
 use crate::core_range::range__Int;
 
@@ -111,7 +111,7 @@ pub fn next__Iter_iter_LongBuffer(__p: &mut crate::core_buffer::__Iter_iter_Long
 }
 
 pub fn to_str__IntBuffer(buf: &crate::core_buffer::IntBuffer) -> String {
-    let mut out: String = crate::core_string::mut_str(vec![String::from("[")]);
+    let mut out: String = crate::core_string::Mut_Str(vec![String::from("[")]);
     let mut __pass_1: crate::core_range::__Iter_range_Int_Int_Int = crate::core_range::range__Int(crate::core_buffer::size__IntBuffer(buf));
     loop {
         let mut __step_2: crate::unions::Union2<i32, crate::core_iterator::Finished> = crate::core_range::next(&mut __pass_1);
@@ -131,7 +131,7 @@ pub fn to_str__IntBuffer(buf: &crate::core_buffer::IntBuffer) -> String {
 }
 
 pub fn to_str__LongBuffer(buf: &crate::core_buffer::LongBuffer) -> String {
-    let mut out: String = crate::core_string::mut_str(vec![String::from("[")]);
+    let mut out: String = crate::core_string::Mut_Str(vec![String::from("[")]);
     let mut __pass_1: crate::core_range::__Iter_range_Int_Int_Int = crate::core_range::range__Int(crate::core_buffer::size__LongBuffer(buf));
     loop {
         let mut __step_2: crate::unions::Union2<i32, crate::core_iterator::Finished> = crate::core_range::next(&mut __pass_1);

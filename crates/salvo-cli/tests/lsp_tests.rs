@@ -83,6 +83,11 @@ fn start(root: &PathBuf) -> Lsp {
 }
 
 fn start_with_env(root: &PathBuf, env: &[(&str, &str)]) -> Lsp {
+    start_with(root, env, json!({}))
+}
+
+/// A server initialized with the given client `capabilities`.
+fn start_with(root: &PathBuf, env: &[(&str, &str)], capabilities: serde_json::Value) -> Lsp {
     let mut command = Command::new(env!("CARGO_BIN_EXE_salvo"));
     command
         .arg("lsp")
@@ -111,7 +116,7 @@ fn start_with_env(root: &PathBuf, env: &[(&str, &str)]) -> Lsp {
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
             "params": {
                 "rootUri": format!("file://{}", root.display()),
-                "capabilities": {}
+                "capabilities": capabilities
             }
         }),
     );
@@ -125,11 +130,13 @@ fn start_with_env(root: &PathBuf, env: &[(&str, &str)]) -> Lsp {
         response["result"]["capabilities"]["definitionProvider"] == json!(true),
         "unexpected capabilities: {response}"
     );
-    // [lsp-completion] `.` opens dot completion and `[` opens the
-    // doc-reference list inside a comment, so both auto-trigger as typed.
+    // [lsp-completion] `.` opens dot completion, `[` opens the doc-reference
+    // list inside a comment, and `,` opens a struct literal's remaining
+    // fields right after a field separator — all three auto-trigger as
+    // typed.
     let triggers = &response["result"]["capabilities"]["completionProvider"]["triggerCharacters"];
     assert!(
-        triggers == &json!([".", "["]),
+        triggers == &json!([".", "[", ","]),
         "completion trigger characters: {response}"
     );
     send(
@@ -146,7 +153,7 @@ fn diagnostics_hover_and_shutdown() {
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(
         root.join("main.sv"),
-        "fn main() [use] {\n    use StdOutConsole()\n    println(\"hello\")\n}\n",
+        "fn main() [use] {\n    use StdConsole()\n    println(\"hello\")\n}\n",
     )
     .unwrap();
 
@@ -1442,7 +1449,7 @@ effect Store {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole()
+    use StdConsole()
     let t = Ticket {id: 1}
     println(\"${redeem(t)} ${describe(1)}\")
 }
@@ -1551,7 +1558,7 @@ fn describe(s: Str) -> Str => !s {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole()
+    use StdConsole()
     println(describe(1))
 }
 ";
@@ -1763,7 +1770,7 @@ fn total<C, It>(c: C, ?iter: (c: C) -> Mut It holds proj(c), ?Yield<It, Int>) ->
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let xs = List(1, 2)
     let v = borrowed(xs)
     println(\"${v.at}\")
@@ -1843,7 +1850,7 @@ fn documents_are_analysed_under_their_own_manifest() {
         .unwrap();
         std::fs::write(
             dir.join("main.sv"),
-            "struct Shared { x: Int }\nfn main() [use] {\n    use StdOutConsole()\n    println(\"hi\")\n}\n",
+            "struct Shared { x: Int }\nfn main() [use] {\n    use StdConsole()\n    println(\"hi\")\n}\n",
         )
         .unwrap();
     }
@@ -2453,6 +2460,338 @@ fn main() [Console] {
     lsp.child.wait().expect("failed to wait for salvo lsp");
 }
 
+/// [lsp-completion] Inside a struct literal's braces, completion offers the
+/// struct's remaining fields — excluding ones already written — scoped to
+/// the innermost enclosing literal when literals nest.
+#[test]
+fn completion_offers_struct_literal_remaining_fields() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_completion_struct_lit");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let source = "\
+struct Inner {
+    x: Int,
+    y: Int
+}
+
+struct Person {
+    name: Str,
+    age: Int,
+    nickname: Str?,
+    inner: Inner
+}
+
+fn make_person() -> Person {
+    return Person {
+        name: \"a\",
+        
+    }
+}
+
+fn make_nested() -> Person {
+    return Person {
+        name: \"a\",
+        inner: Inner {
+            x: 1,
+            
+        }
+    }
+}
+";
+    std::fs::write(root.join("main.sv"), source).unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {
+                "uri": uri, "languageId": "salvo", "version": 1, "text": source
+            }}
+        }),
+    );
+    let _ = expect_diagnostics(&lsp.rx);
+    let complete = |lsp: &mut Lsp, id: i64, line: u32, character: u32| -> Vec<(String, String)> {
+        send(
+            &mut lsp.stdin,
+            json!({
+                "jsonrpc": "2.0", "id": id, "method": "textDocument/completion",
+                "params": {"textDocument": {"uri": uri}, "position": {"line": line, "character": character}}
+            }),
+        );
+        let response = expect_response(&lsp.rx, id);
+        response["result"]
+            .as_array()
+            .unwrap_or_else(|| panic!("no completion list: {response}"))
+            .iter()
+            .map(|i| (i["label"].as_str().unwrap().to_string(), i["sortText"].as_str().unwrap_or("").to_string()))
+            .collect()
+    };
+    let rank = |items: &[(String, String)], l: &str| {
+        items.iter().find(|(x, _)| x == l).map(|(_, r)| r.clone()).unwrap_or_else(|| panic!("no `{l}` in {items:?}"))
+    };
+    let has = |items: &[(String, String)], l: &str| items.iter().any(|(x, _)| x == l);
+    // The blank line inside `Person { name: "a", | }`: remaining fields only.
+    let items = complete(&mut lsp, 2, 15, 8);
+    rank(&items, "age");
+    rank(&items, "nickname");
+    rank(&items, "inner");
+    assert!(!has(&items, "name"), "`name` is already written: {items:?}");
+    // The blank line inside the nested `Inner { x: 1, | }`: scoped to
+    // `Inner`'s remaining fields, not `Person`'s.
+    let items = complete(&mut lsp, 3, 24, 12);
+    rank(&items, "y");
+    assert!(!has(&items, "x"), "`x` is already written: {items:?}");
+    assert!(!has(&items, "age"), "outer `Person` fields must not leak in: {items:?}");
+    assert!(!has(&items, "name"), "outer `Person` fields must not leak in: {items:?}");
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "id": 99, "method": "shutdown", "params": null}));
+    expect_response(&lsp.rx, 99);
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
+    lsp.child.wait().expect("failed to wait for salvo lsp");
+}
+
+/// [lsp-completion] Dot-completion still finds the receiver's fields when
+/// the cursor sits *before* already-typed trailing text — `if arg.` with
+/// `description !is None {` already written after the dot — not just at the
+/// end of the buffer. Before this, the probe buffer trimmed only backward
+/// from the cursor, so patching glued the receiver straight onto the
+/// trailing identifier (`arg` + `description` → `argdescription`) and the
+/// receiver's type lookup found nothing.
+#[test]
+fn completion_after_a_dot_works_before_already_typed_trailing_text() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_completion_mid_token");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let source = "\
+struct Arg<T> {
+    short_name: Str?,
+    description: Str?
+}
+
+fn name<T>(arg: Arg<T>) -> Str {
+    if arg.description !is None {
+        return \"x\"
+    }
+    return \"y\"
+}
+
+fn take<T>(a: Arg<T>) -> None {}
+
+fn call_it<T>(arg: Arg<T>) -> None {
+    take(arg.)
+}
+";
+    std::fs::write(root.join("main.sv"), source).unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {
+                "uri": uri, "languageId": "salvo", "version": 1, "text": source
+            }}
+        }),
+    );
+    let _ = expect_diagnostics(&lsp.rx);
+    let complete = |lsp: &mut Lsp, id: i64, line: u32, character: u32| -> Vec<String> {
+        send(
+            &mut lsp.stdin,
+            json!({
+                "jsonrpc": "2.0", "id": id, "method": "textDocument/completion",
+                "params": {"textDocument": {"uri": uri}, "position": {"line": line, "character": character}}
+            }),
+        );
+        let response = expect_response(&lsp.rx, id);
+        response["result"]
+            .as_array()
+            .unwrap_or_else(|| panic!("no completion list: {response}"))
+            .iter()
+            .map(|i| i["label"].as_str().unwrap().to_string())
+            .collect()
+    };
+    // `if arg.` — cursor right after the dot, `description !is None {`
+    // already written after it.
+    let items = complete(&mut lsp, 2, 6, 11);
+    assert!(items.contains(&"short_name".to_string()), "expected `short_name`: {items:?}");
+    assert!(items.contains(&"description".to_string()), "expected `description`: {items:?}");
+    // `take(arg.)` — cursor right after the dot, a `)` already written
+    // right after it.
+    let items = complete(&mut lsp, 3, 15, 13);
+    assert!(items.contains(&"short_name".to_string()), "expected `short_name`: {items:?}");
+    assert!(items.contains(&"description".to_string()), "expected `description`: {items:?}");
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "id": 99, "method": "shutdown", "params": null}));
+    expect_response(&lsp.rx, 99);
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
+    lsp.child.wait().expect("failed to wait for salvo lsp");
+}
+
+/// [lsp-rename] Renaming a struct field reaches a struct-literal label
+/// (`Arg { short_name: … }`), not just a dot-access read — and still does
+/// when another module declares a struct of the same name, which forces the
+/// struct's internal type key to carry a module suffix (`Arg§main`). Before
+/// this, `record_field_ref` looked up the rename's declaration site by that
+/// suffixed key in a table keyed by the plain name only, so the lookup
+/// missed — silently recording no reference — for any struct literal, and
+/// for a dot-access read too once the struct's name was not globally unique
+/// (defect reported 2026-10-20).
+#[test]
+fn rename_reaches_a_struct_literal_field_and_survives_a_name_clash() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_rename_field_clash");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    // Two files each declare their own `Arg`, forcing the second's internal
+    // key to carry a module suffix.
+    let source_a = "\
+struct Arg<T> {
+    short_name: Str?
+    long_name: Str?
+}
+
+fn go() -> None {
+    let a = Arg {
+        short_name: \"-p\",
+        long_name: \"--print\"
+    }
+}
+";
+    let source_b = "\
+struct Arg<T> {
+    short_name: Str?
+}
+
+fn read(a: Arg<Int>) -> Str? {
+    return a.short_name
+}
+";
+    std::fs::write(root.join("a.sv"), source_a).unwrap();
+    std::fs::write(root.join("b.sv"), source_b).unwrap();
+    let mut lsp = start(&root);
+    let uri_a = format!("file://{}", root.join("a.sv").display());
+    let uri_b = format!("file://{}", root.join("b.sv").display());
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {"uri": uri_a, "languageId": "salvo", "version": 1, "text": source_a}}
+        }),
+    );
+    let _ = expect_diagnostics(&lsp.rx);
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {"uri": uri_b, "languageId": "salvo", "version": 1, "text": source_b}}
+        }),
+    );
+    let _ = expect_diagnostics(&lsp.rx);
+    // Rename from the struct-literal USE in a.sv, line 7 (`short_name: "-p"`).
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/rename",
+            "params": {"textDocument": {"uri": uri_a}, "position": {"line": 7, "character": 12}, "newName": "brief_name"}
+        }),
+    );
+    let response = expect_response(&lsp.rx, 2);
+    let edits = response["result"]["changes"][&uri_a]
+        .as_array()
+        .unwrap_or_else(|| panic!("no edits for a.sv: {response}"));
+    assert_eq!(edits.len(), 2, "expected the declaration and the literal label: {edits:?}");
+    let new_texts: Vec<&str> = edits.iter().map(|e| e["newText"].as_str().unwrap()).collect();
+    assert!(new_texts.iter().all(|t| *t == "brief_name"), "{new_texts:?}");
+    // b.sv's own, separate `Arg` must be untouched.
+    assert!(
+        response["result"]["changes"].get(&uri_b).is_none(),
+        "a different module's same-named struct must not be touched: {response}"
+    );
+    // Rename from the dot-access READ in b.sv, to confirm the same fix
+    // (plain-name lookup under a module-suffixed key) covers that path too.
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "id": 3, "method": "textDocument/rename",
+            "params": {"textDocument": {"uri": uri_b}, "position": {"line": 5, "character": 14}, "newName": "brief_name"}
+        }),
+    );
+    let response = expect_response(&lsp.rx, 3);
+    let edits = response["result"]["changes"][&uri_b]
+        .as_array()
+        .unwrap_or_else(|| panic!("no edits for b.sv: {response}"));
+    assert_eq!(edits.len(), 2, "expected the declaration and the dot-access read: {edits:?}");
+    assert!(
+        response["result"]["changes"].get(&uri_a).is_none(),
+        "a different module's same-named struct must not be touched: {response}"
+    );
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "id": 99, "method": "shutdown", "params": null}));
+    expect_response(&lsp.rx, 99);
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
+    lsp.child.wait().expect("failed to wait for salvo lsp");
+}
+
+/// [lsp-comment-continuation] Pressing Enter inside a `// LABEL: text`
+/// comment aligns the continuation line to the paragraph start — right
+/// after `LABEL: ` — not just to the client's own static `// `; a plain
+/// `//` comment with no label keeps the ordinary `// ` continuation (no
+/// edit at all, since the client's own rule already got it right).
+#[test]
+fn on_type_formatting_aligns_a_labeled_comments_continuation() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_on_type_format");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let source = "\
+fn go() -> None {
+    // TODO: Should be able to specify foo here for any arg
+    // 
+    // a plain continuing comment that wraps to the next line
+    // 
+}
+";
+    std::fs::write(root.join("main.sv"), source).unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {
+                "uri": uri, "languageId": "salvo", "version": 1, "text": source
+            }}
+        }),
+    );
+    let _ = expect_diagnostics(&lsp.rx);
+    let on_type_format = |lsp: &mut Lsp, id: i64, line: u32, character: u32| -> serde_json::Value {
+        send(
+            &mut lsp.stdin,
+            json!({
+                "jsonrpc": "2.0", "id": id, "method": "textDocument/onTypeFormatting",
+                "params": {
+                    "textDocument": {"uri": uri},
+                    "position": {"line": line, "character": character},
+                    "ch": "\n",
+                    "options": {"tabSize": 4, "insertSpaces": true}
+                }
+            }),
+        );
+        expect_response(&lsp.rx, id)["result"].clone()
+    };
+    // Right after the client's own static `    // ` on the line below the
+    // labeled TODO (line 2, 7 chars: 4-space indent + `// `): aligns to
+    // where `Should` starts on line 1 (column 13).
+    let result = on_type_format(&mut lsp, 2, 2, 7);
+    let edits = result.as_array().unwrap_or_else(|| panic!("expected an edit: {result}"));
+    assert_eq!(edits.len(), 1, "{edits:?}");
+    assert_eq!(edits[0]["newText"], json!("    //       "), "{edits:?}");
+    // The same position after a plain, label-less comment (line 4): no
+    // edit — the client's static `// ` is already correct.
+    let result = on_type_format(&mut lsp, 3, 4, 7);
+    assert_eq!(result, json!(null), "a plain comment needs no realignment: {result}");
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "id": 99, "method": "shutdown", "params": null}));
+    expect_response(&lsp.rx, 99);
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
+    lsp.child.wait().expect("failed to wait for salvo lsp");
+}
+
 /// [lsp-completion] Overloads of one name collapse to a single bare-prefix
 /// entry; a `//` comment offers no code completion, except inside a `[…]`
 /// reference where it offers code symbols; and the assertion builtins appear
@@ -2836,7 +3175,7 @@ fn a_slow_pass_dumps_the_analysed_buffer() {
     );
     let uri = format!("file://{}/main.sv", root.display());
     // The unsaved buffer differs from disk — this exact text must be dumped.
-    let buffer = "fn main() [use] {\n    use StdOutConsole()\n    println(\"dump me\")\n}\n";
+    let buffer = "fn main() [use] {\n    use StdConsole()\n    println(\"dump me\")\n}\n";
     send(
         &mut lsp.stdin,
         json!({
@@ -2882,7 +3221,7 @@ fn hovering_a_type_named_constructor_shows_the_readable_name() {
     let mut lsp = start(&root);
     let uri = format!("file://{}/main.sv", root.display());
     // Line index 2 is the `tally` line; the callee `Mut Map` begins at col 35.
-    let buf = "fn main() [use] {\n    use StdOutConsole()\n    let tally: Mut Map<Str, Int> = Mut Map(\"a\": 1)\n    let _ = tally\n}\n";
+    let buf = "fn main() [use] {\n    use StdConsole()\n    let tally: Mut Map<Str, Int> = Mut Map(\"a\": 1)\n    let _ = tally\n}\n";
     send(&mut lsp.stdin, json!({
         "jsonrpc": "2.0", "method": "textDocument/didOpen",
         "params": {"textDocument": {"uri": uri, "languageId": "salvo", "version": 1, "text": buf}}
@@ -3056,4 +3395,205 @@ fn goto_definition_works_inside_std() {
     expect_response(&lsp.rx, 99);
     send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
     lsp.child.wait().unwrap();
+}
+
+// [lsp-definition] A namespace member's type reference hovers and resolves
+// to its declaration even when it is never reached through a struct literal
+// or call argument — a bare union arm (`type Type = Option.Int | ...`) and a
+// never-instantiated struct's field type (`type: Option.Type`) are both
+// `Type::Named` nodes validated only by `Checker::validate_type`, which used
+// to skip `lower_base_ref` (and so never recorded a `def_refs` entry) for an
+// unqualified reference — only a qualified one (`Mut Option.Int`) reached
+// it. Regression for the gap found 2026-10-19 via `namespace Option { ... }`
+// sharing its name with a struct of the same name [namespace].
+#[test]
+fn hover_resolves_a_namespace_members_type_reference() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_namespace_hover");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    // Lines (0-based):
+    // 0 namespace Option {
+    // 1     struct Int {}
+    // 2     struct Str {}
+    // 3     struct Bool {}
+    // 4     type Type = Option.Int | Option.Str | Option.Bool
+    // 5 }
+    // 6
+    // 7 struct Option {
+    // 8     short_name: Str?
+    // 9     long_name: Str?
+    // 10     description: Str
+    // 11     type: Option.Type
+    // 12 }
+    let text = "namespace Option {\n\
+                \x20   struct Int {}\n\
+                \x20   struct Str {}\n\
+                \x20   struct Bool {}\n\
+                \x20   type Type = Option.Int | Option.Str | Option.Bool\n\
+                }\n\
+                \n\
+                struct Option {\n\
+                \x20   short_name: Str?\n\
+                \x20   long_name: Str?\n\
+                \x20   description: Str\n\
+                \x20   type: Option.Type\n\
+                }\n";
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {
+                "uri": uri, "languageId": "salvo", "version": 1, "text": text
+            }}
+        }),
+    );
+    let params = expect_diagnostics(&lsp.rx);
+    assert_eq!(params["diagnostics"].as_array().unwrap().len(), 0, "unexpected diagnostics: {params}");
+
+    // The bare union arms on line 4, never reached by a struct literal.
+    let at_int_arm = hover(&mut lsp, 10, &uri, 4, 17);
+    assert!(at_int_arm.contains("Int"), "expected Option.Int's hover, got: {at_int_arm}");
+    let at_str_arm = hover(&mut lsp, 11, &uri, 4, 30);
+    assert!(at_str_arm.contains("Str"), "expected Option.Str's hover, got: {at_str_arm}");
+    let at_bool_arm = hover(&mut lsp, 12, &uri, 4, 43);
+    assert!(at_bool_arm.contains("Bool"), "expected Option.Bool's hover, got: {at_bool_arm}");
+
+    // The never-instantiated struct's field type on line 11.
+    let at_field_ty = hover(&mut lsp, 13, &uri, 11, 11);
+    assert!(at_field_ty.contains("Type"), "expected Option.Type's hover, got: {at_field_ty}");
+
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "id": 99, "method": "shutdown", "params": null}));
+    expect_response(&lsp.rx, 99);
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
+    lsp.child.wait().unwrap();
+}
+
+/// [lsp-completion] [when-exhaustive] Between the arms of a `when` — on a blank
+/// line, or over a half-written `is …` head — completion offers exactly the
+/// arms not yet written, one item each plus one writing them all; the same
+/// for a comptime `[when f.name]`, `[when f.kind]` and `[when f.type]` (whose
+/// catch-all `is *` is offered beside the uncovered types). A client with
+/// snippet support gets the arm with the cursor placed in its body (user
+/// request 2026-10-20).
+#[test]
+fn completion_offers_the_missing_when_arms() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_completion_when_arms");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let source = "\
+struct Circle { r: Int }
+struct Square { s: Int }
+type Shape = Circle | Square | None
+
+fn area(s: Shape) -> Int {
+    when s {
+        is Circle { return 1 }
+        
+    }
+}
+
+fn pick(s: Shape) -> None {
+    when t = s {
+        is S
+    }
+}
+
+struct P { a: Int, b: Str, c: Int? }
+
+comptime fn names(p: P) [] -> Int => p {
+    [for f in P.fields] {
+        [when f.name] {
+            is \"a\" {}
+            
+        }
+        [when f.kind] {
+            is Struct {}
+            
+        }
+        [when f.type] {
+            is Int {}
+            
+        }
+    }
+    return 0
+}
+";
+    std::fs::write(root.join("main.sv"), source).unwrap();
+    let uri = format!("file://{}", root.join("main.sv").display());
+    // (label, newText, textEdit start/end character) per item.
+    type Item = (String, String, u64, u64);
+    let complete = |lsp: &mut Lsp, id: i64, line: u32, character: u32| -> Vec<Item> {
+        send(
+            &mut lsp.stdin,
+            json!({
+                "jsonrpc": "2.0", "id": id, "method": "textDocument/completion",
+                "params": {"textDocument": {"uri": uri}, "position": {"line": line, "character": character}}
+            }),
+        );
+        let response = expect_response(&lsp.rx, id);
+        response["result"]
+            .as_array()
+            .unwrap_or_else(|| panic!("no completion list: {response}"))
+            .iter()
+            .map(|i| {
+                (
+                    i["label"].as_str().unwrap().to_string(),
+                    i["textEdit"]["newText"].as_str().unwrap_or("").to_string(),
+                    i["textEdit"]["range"]["start"]["character"].as_u64().unwrap_or(0),
+                    i["textEdit"]["range"]["end"]["character"].as_u64().unwrap_or(0),
+                )
+            })
+            .collect()
+    };
+    let labels = |items: &[Item]| items.iter().map(|i| i.0.clone()).collect::<Vec<_>>();
+    let open = |lsp: &mut Lsp| {
+        send(
+            &mut lsp.stdin,
+            json!({
+                "jsonrpc": "2.0", "method": "textDocument/didOpen",
+                "params": {"textDocument": {"uri": uri, "languageId": "salvo", "version": 1, "text": source}}
+            }),
+        );
+        let _ = expect_diagnostics(&lsp.rx);
+    };
+    let stop = |mut lsp: Lsp| {
+        send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "id": 99, "method": "shutdown", "params": null}));
+        expect_response(&lsp.rx, 99);
+        send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
+        lsp.child.wait().expect("failed to wait for salvo lsp");
+    };
+
+    let mut lsp = start(&root);
+    open(&mut lsp);
+    // A blank line after `is Circle`: only the two arms left, and nothing else.
+    let items = complete(&mut lsp, 2, 7, 8);
+    assert_eq!(labels(&items), ["is Square", "is None", "is … (all 2 missing arms)"], "{items:?}");
+    let square = items.iter().find(|i| i.0 == "is Square").unwrap();
+    assert_eq!((square.1.as_str(), square.2, square.3), ("is Square {}", 8, 8), "{items:?}");
+    let all = items.iter().find(|i| i.0.starts_with("is …")).unwrap();
+    assert_eq!(all.1, "is Square {}\n        is None {}", "{items:?}");
+    // A half-written `is S` in the binding form: every arm, replacing the head.
+    let items = complete(&mut lsp, 3, 13, 12);
+    assert_eq!(labels(&items), ["is Circle", "is Square", "is None", "is … (all 3 missing arms)"], "{items:?}");
+    assert!(items.iter().all(|i| (i.2, i.3) == (8, 12)), "the edit replaces `is S`: {items:?}");
+    // The comptime dispatches.
+    assert_eq!(labels(&complete(&mut lsp, 4, 23, 12)), ["is \"b\"", "is \"c\"", "is … (all 2 missing arms)"]);
+    assert_eq!(
+        labels(&complete(&mut lsp, 5, 27, 12)),
+        ["is Union", "is Tuple", "is FnType", "is Opaque", "is … (all 4 missing arms)"]
+    );
+    assert_eq!(labels(&complete(&mut lsp, 6, 31, 12)), ["is Str", "is Int?", "is *", "is … (all 2 missing arms)"]);
+    stop(lsp);
+
+    // With snippet support the cursor lands in the arm's body.
+    let caps = json!({"textDocument": {"completion": {"completionItem": {"snippetSupport": true}}}});
+    let mut lsp = start_with(&root, &[], caps);
+    open(&mut lsp);
+    let items = complete(&mut lsp, 7, 7, 8);
+    let square = items.iter().find(|i| i.0 == "is Square").unwrap();
+    assert_eq!(square.1, "is Square {\n            $0\n        }", "{items:?}");
+    stop(lsp);
 }

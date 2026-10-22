@@ -12,7 +12,7 @@
 import aws.ProfileCredentials
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
 
     // The defaults are the AWS CLI's: the `default` profile, in the file the
     // CLI writes.

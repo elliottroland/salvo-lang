@@ -566,6 +566,12 @@ pub struct Checked {
     /// fallthrough is dead" is a fact in the IR rather than something each
     /// backend re-derives from the arm set.
     pub when_exhaustive: HashSet<Key>,
+    /// [lsp-completion] [when-exhaustive] For each `when` with a subject (keyed
+    /// by its span) whose arms could all be matched against the subject: the
+    /// union arms no branch covers yet, spelled as an `is` check writes them
+    /// (`Str`, `None`, `"a"`, `Ok Int`). Empty when the `when` is exhaustive.
+    /// What the language server offers as the arms still to write.
+    pub when_arms: HashMap<Key, Vec<String>>,
     /// Predicate-qualifier `is` checks on non-union subjects, keyed by the
     /// span of the `is` expression: the qualifier names whose `qualifies`
     /// functions must be called (conjunction), each with the places filling
@@ -1486,7 +1492,19 @@ pub fn check_program<'p>(
     let mut out = check_program_rounds(program, resolution, symbols, None);
     crate::literal::lower_tables(&mut out);
     check_std_deductions_total(program, &mut out);
+    unmangle_scoped_locals(&mut out);
     out
+}
+
+/// [comptime-scope] Diagnostics in the author's terms: a local a scoped
+/// comptime body renamed (`k__c3`) is named as written (`k`), wherever the
+/// message came from.
+fn unmangle_scoped_locals(out: &mut Checked) {
+    for d in &mut out.errors {
+        if let std::borrow::Cow::Owned(m) = crate::comptime::unmangle_message(&d.message) {
+            d.message = m;
+        }
+    }
 }
 
 /// [std-cache] Checks a project reusing a `StdCache`: std's leading files are
@@ -1509,6 +1527,7 @@ pub fn check_project<'p>(
 ) -> Checked {
     let mut out = check_program_rounds(program, resolution, symbols, Some(cache));
     crate::literal::lower_tables(&mut out);
+    unmangle_scoped_locals(&mut out);
     out
 }
 
@@ -2584,6 +2603,33 @@ struct Checker<'p, 'r> {
     /// [comptime-fields] Inside a `comptime struct`/`comptime type` declaration:
     /// its fields may name the other compile-time types.
     in_comptime_decl: bool,
+    /// [generic-arity] Suppresses the generic-argument-count check in
+    /// `lower_base_ref` while validating a struct **literal's** own written
+    /// type (`check_struct_lit`'s `self.validate_type(t)`/`self.lower_type(t)`
+    /// calls): a literal may omit its arguments and infer them from its
+    /// field values [struct-literal-arg], which a bare type-position
+    /// reference (a field declaration, a parameter) cannot — there are no
+    /// values there to infer from, so that case is still checked.
+    in_struct_lit_ty: bool,
+    /// [namespace] The enclosing namespace of the `type` alias currently
+    /// being validated, derived from its own flattened name (`Arg.Type` ->
+    /// `Some("Arg")`; an un-namespaced alias -> `None`). Lets the
+    /// leading-dot shorthand (`.Int`) resolve inside the alias's own
+    /// union-arm list against its *own* namespace — the one case
+    /// `resolve_dot_ref`'s `expected`-type mechanism cannot reach, since
+    /// there is no outer expression context here, only the declaration
+    /// naming itself (user decision 2026-10-19).
+    own_alias_namespace: Option<String>,
+    /// [col-key-eligible] [cmp-carry] Set while a `let` annotation with an
+    /// initializer is validated: the annotation is a **pattern** whose
+    /// unwritten slots the value fills, so a keyed container in it is held to
+    /// the intrinsic key bar only — whether the identity exists is the
+    /// initializer's business (its constructor resolves it, or says why not).
+    let_pattern: bool,
+    /// [cmp-carry] The fn names more than one non-std module of the program
+    /// declares (unattached): an identity of one prints `name@module`, the
+    /// spelling that says which.
+    fn_name_clash: HashSet<String>,
     /// [comptime-instantiate] The stamp of the fn being checked, when it was
     /// produced by a `by` site: a diagnostic inside one of its unrolled copies
     /// is redirected to the field or arm the copy was for and prefixed with
@@ -2921,6 +2967,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             own_fn: None,
             cur_fn_body: None,
             in_comptime_decl: false,
+            in_struct_lit_ty: false,
+            own_alias_namespace: None,
+            let_pattern: false,
+            fn_name_clash: fn_name_clash(files, resolution),
             own_stamp: None,
             own_contract: None,
             lit_spans: HashMap::new(),
@@ -2988,12 +3038,35 @@ impl<'p, 'r> Checker<'p, 'r> {
                 stamp.compfn, stamp.from
             )
         };
-        if let Some(region) = stamp
-            .regions
-            .iter()
-            .rev()
-            .find(|r| span.start >= r.start && span.start < r.end)
-        {
+        let region_of = |s: Span| stamp.regions.iter().rev().find(|r| s.start >= r.start && s.start < r.end);
+        if let Some(region) = region_of(span) {
+            // [comptime-inline] A copy of an expanded-in-place fn's own text
+            // maps back to what was written — through the copies it was copied
+            // from — so the error lands on the construct (`print_help(args.
+            // [field])`), not on the field the copy was for (found 2026-10-20,
+            // a TODO in std/args/parse.sv). The label still names the copy.
+            let mut at = span;
+            let mut guard = 0;
+            // The copies, innermost first, in the code's own terms.
+            let mut copies: Vec<&str> = Vec::new();
+            while let Some(r) = region_of(at).filter(|r| r.written_from.is_some()) {
+                copies.extend(r.written_label.as_deref());
+                let len = at.end.saturating_sub(at.start);
+                let start = r.written_from.unwrap_or(0) + (at.start - r.start);
+                at = Span::new(start, start + len);
+                guard += 1;
+                if (at.start as usize) < file_len || guard > 64 {
+                    break;
+                }
+            }
+            if (at.start as usize) < file_len && at.end as usize <= file_len {
+                // [comptime-inline] The error is on the written code, so all it
+                // needs to add is which copy failed: "when `field` is `groups`
+                // (`Map<Str, ArgGroup>`): …" (2026-10-20; the stamp's
+                // "in `f` from `this declaration` for `T.f: …`" read as jargon).
+                copies.reverse();
+                return (at, format!("when {}: {msg}", copies.join(" and ")));
+            }
             return (region.target, prefix_at(&region.label));
         }
         (stamp.site, prefix_at(&stamp.at_type))
@@ -3067,6 +3140,28 @@ impl<'p, 'r> Checker<'p, 'r> {
         // else the previous round's inferred facts.
         self.own_fn = Some(key);
         self.own_stamp = f.stamped.as_ref();
+        // [comptime-root-visible] A type an expanded-in-place comptime fn
+        // names as a root (`Pt` in `[for field in Pt.fields]`) is a type
+        // name written here, and is visible here or an error — the
+        // expansion looked it up program-wide, before resolution. Recorded
+        // for go-to-definition like any type reference.
+        if let Some(stamp) = &f.stamped {
+            for root in &stamp.roots {
+                let r = ast::TypeRef {
+                    name: root.clone(),
+                    args: Vec::new(),
+                    value_args: Vec::new(),
+                    from: Vec::new(),
+                    at: None,
+                    binder: false,
+                    established: false,
+                    alias: None,
+                    span: root.span,
+                };
+                self.require_name(&r, false);
+                self.record_def_ref(root.span, &root.name);
+            }
+        }
         self.own_written = f
             .deductions
             .as_ref()
@@ -4121,7 +4216,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.check_fn_slots(&t.name.name, &t.fn_slots, &t.generics);
                     self.validate_auto_quals(&t.auto_qualifiers);
                     if let Some(alias) = &t.alias {
+                        // [namespace] A leading-dot arm in the alias's own
+                        // union-arm list (`type Type = .Int | .Str` inside
+                        // `namespace Arg`) resolves against *this*
+                        // declaration's own enclosing namespace — the one
+                        // the flattened name's prefix names — not an outer
+                        // expected type, since there is none here.
+                        self.own_alias_namespace = t.name.name.rsplit_once('.').map(|(ns, _)| ns.to_string());
                         self.validate_type(alias);
+                        self.own_alias_namespace = None;
                     }
                     // [linear-group] The opaque form of the legal-death
                     // rule, checked where the modifier is written.
@@ -6090,12 +6193,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                             // (fixed 2026-09-26, user decision: **honour a mixed
                             // fill**; a group is a convenience, not a contract).
                             ImplicitArg::Given { .. } => {
-                                if let FnId::Named { name, at } = &id {
-                                    if let Ok((fkey, _)) =
-                                        self.resolve_implicit_fn_at(name, at.as_deref(), &want)
-                                    {
-                                        self.out.carried_identities.entry(ckey).or_insert(fkey);
-                                    }
+                                if let Ok((fkey, _)) = self.resolve_identity(&id, &want) {
+                                    self.out.carried_identities.entry(ckey).or_insert(fkey);
                                 }
                             }
                             _ => {}
@@ -6292,8 +6391,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 return Some((ImplicitArg::Forwarded { name: own.local.clone() }, None));
                             }
                         }
-                        FnId::Named { name, at } => {
-                            match self.resolve_implicit_fn_at(name, at.as_deref(), &want) {
+                        FnId::Named { .. } => {
+                            match self.resolve_identity(&id, &want) {
                                 Ok((key, _)) => {
                                     return Some((
                                         ImplicitArg::Resolved {
@@ -6417,6 +6516,20 @@ impl<'p, 'r> Checker<'p, 'r> {
                     ))
                 }
                 Err(why) => {
+                    // [col-key-eligible] [type-unknown-lenient] A keyed
+                    // container's key refused as such already (`Set(1.5)`:
+                    // "`Double` cannot be a key") is one mistake: its missing
+                    // `hash`/`eq`/`cmp` is not a second one.
+                    if matches!(imp.name.as_str(), "hash" | "eq" | "cmp") {
+                        if let Ty::Fn { params, .. } = want.strip_quals() {
+                            if params
+                                .first()
+                                .is_some_and(|p| self.reported_ineligible_keys.contains(&format!("{}", p.strip_quals())))
+                            {
+                                return None;
+                            }
+                        }
+                    }
                     let remedy = format!(
                         "declare a matching `fn {}`, or pass one here with `{} = ...`",
                         imp.name, imp.name
@@ -6520,6 +6633,55 @@ impl<'p, 'r> Checker<'p, 'r> {
         at: Option<&str>,
         want: &Ty,
     ) -> Result<(FnKey, FnId), ImplicitMiss> {
+        self.resolve_implicit_fn_in(name, at, None, want)
+    }
+
+    /// [cmp-carry] [cmp-binder] The declaration an **identity** names, at the
+    /// position's fn type: looked up in its declaring module rather than by
+    /// what the reading file can see, so a value built with `a`'s `my_hash`
+    /// is operated on with `a`'s, whatever this file imports.
+    fn resolve_identity(&mut self, id: &FnId, want: &Ty) -> Result<(FnKey, FnId), ImplicitMiss> {
+        match id {
+            FnId::Named { name, at, module, .. } => {
+                let (name, at, module) = (name.clone(), at.clone(), module.clone());
+                self.resolve_implicit_fn_in(&name, at.as_deref(), module.as_deref(), want)
+            }
+            FnId::Binder(_) => Err(ImplicitMiss::Unknown),
+        }
+    }
+
+    /// [cmp-carry] An identity of the declaration behind `key`: its name, its
+    /// `@`-scoping when it is attached [fn-attached], and its declaring module.
+    fn identity_of(&self, key: FnKey, decl: &FnDecl) -> FnId {
+        let at = self.attached_to(key, decl);
+        let file = self.files.get(key.file);
+        let module = file.map(|f| f.module.to_string());
+        let qualify = at.is_none()
+            && file.is_some_and(|f| !f.is_std)
+            && self.fn_name_clash.contains(decl.name.name.as_str());
+        FnId::Named { name: decl.name.name.clone(), at, module, qualify }
+    }
+
+    /// [cmp-carry] The overloads of `name` its declaring `module` itself
+    /// declares, seen from one of the module's own files.
+    fn module_overloads(&self, name: &str, module: &str) -> Vec<crate::resolve::FnEntry<'p>> {
+        let Some(file) = self.files.iter().position(|f| f.module.to_string() == module) else {
+            return Vec::new();
+        };
+        self.resolution.scopes[file]
+            .fns
+            .get(name)
+            .map(|es| es.iter().copied().filter(|e| e.module.to_string() == module).collect())
+            .unwrap_or_default()
+    }
+
+    fn resolve_implicit_fn_in(
+        &mut self,
+        name: &str,
+        at: Option<&str>,
+        module: Option<&str>,
+        want: &Ty,
+    ) -> Result<(FnKey, FnId), ImplicitMiss> {
         let Ty::Fn {
             params: want_params,
             ret: want_ret,
@@ -6528,9 +6690,13 @@ impl<'p, 'r> Checker<'p, 'r> {
         else {
             return Err(ImplicitMiss::Unknown);
         };
-        // [fn-rename] Only the overloads that still answer to this name.
-        let entries: Vec<crate::resolve::FnEntry<'p>> = self
-            .overloads_of(name)
+        // [fn-rename] Only the overloads that still answer to this name —
+        // or, for an identity, the ones its declaring module declares.
+        let pool = match module {
+            Some(m) => self.module_overloads(name, m),
+            None => self.overloads_of(name),
+        };
+        let entries: Vec<crate::resolve::FnEntry<'p>> = pool
             .into_iter()
             .filter(|e| match at {
                 None => true,
@@ -6623,9 +6789,13 @@ impl<'p, 'r> Checker<'p, 'r> {
             let candidate = self.fn_value_ty(entry.key, decl);
             let candidate = substitute_vars(&candidate, &binding, &generics);
             // [comptime-generic] A written implicit is filled at the call, so
-            // the shape compared is the explicit parameters'.
+            // the shape compared is the explicit parameters'. A spread group's
+            // members follow the written list (`fn_value_ty` appends them),
+            // so they are dropped with it: a generic `by auto` stamp asks for
+            // `?Hashed<T>` that way, and its `hash` fits `?hash: (W<Int>) ->
+            // Long` exactly as std's `hash(List<T>, ?hash)` does.
             let candidate = match candidate {
-                Ty::Fn { params, ret, contract, effects } if params.len() == decl.params.len() && fixed.len() < params.len() => {
+                Ty::Fn { params, ret, contract, effects } if params.len() >= decl.params.len() && fixed.len() < params.len() => {
                     let keep: Vec<usize> = decl.params.iter().enumerate().filter(|(_, p)| !p.implicit).map(|(i, _)| i).collect();
                     Ty::Fn {
                         params: keep.iter().map(|&i| params[i].clone()).collect(),
@@ -6656,10 +6826,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // name visible where the type is used", which is
                 // [implicit-resolve]'s locality, narrowed for canonicals by
                 // [fn-attached]'s travelling rule.
-                let identity = FnId::Named {
-                    name: decl.name.name.clone(),
-                    at: self.attached_to(entry.key, decl),
-                };
+                let identity = self.identity_of(entry.key, decl);
                 hits.push((
                     entry.key,
                     entry.rung,
@@ -6728,16 +6895,22 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// signature carries the binder that is an error rather than a silent
     /// loss of the claim.
     fn written_value_identity(&mut self, value: &Expr) -> Option<FnId> {
+        // [cmp-carry] The declaration the value was resolved to (`check_expr`
+        // recorded it), so the identity names it and not merely its spelling.
+        let resolved = |this: &Self, span: Span| {
+            let key = *this.out.fn_refs.get(&this.key(span))?;
+            Some(this.identity_of(key, this.fn_decl_by_key(key)?))
+        };
         match value {
             Expr::Ident(id) if self.lookup(&id.name).is_none() => {
-                Some(FnId::named(id.name.clone()))
+                Some(resolved(self, id.span).unwrap_or_else(|| FnId::named(id.name.clone())))
             }
             Expr::Scoped {
                 base: None,
                 name,
                 module,
                 ..
-            } => Some(FnId::Named {
+            } => Some(resolved(self, name.span).unwrap_or_else(|| FnId::Named {
                 name: name.name.clone(),
                 at: Some(
                     module
@@ -6746,7 +6919,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                         .collect::<Vec<_>>()
                         .join("."),
                 ),
-            }),
+                module: None,
+                qualify: false,
+            })),
             Expr::EffectScoped {
                 base: None,
                 name,
@@ -6755,6 +6930,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             } => Some(FnId::Named {
                 name: name.name.clone(),
                 at: Some(effect.name.clone()),
+                module: None,
+                qualify: false,
             }),
             other => {
                 self.error(
@@ -10295,7 +10472,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             .entry(self.file_idx)
             .or_default()
             .push(crate::check::LocalDecl {
-                name: name.name.clone(),
+                // [comptime-scope] As written, not as a scoped body renamed it.
+                name: crate::comptime::written_local(&name.name).to_string(),
                 ty,
                 span: name.span,
                 fn_body,
@@ -10307,6 +10485,21 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// [var-no-shadow].
     fn declare(&mut self, name: &Ident, ty: Ty) {
         self.declare_with_links(name, ty, Vec::new());
+    }
+
+    /// [comptime-scope] [var-no-shadow] A local a scoped comptime body renamed
+    /// (`k__c3`) still may not hide a visible one it was written as (`k`, or
+    /// `k__c1` when an enclosing copy renamed it first): the rename keeps the
+    /// body's locals from leaking out, not from shadowing what is in.
+    fn shadows_by_written_name(&self, name: &str) -> bool {
+        let mut at = name;
+        while let Some(outer) = crate::comptime::scoped_outer(at) {
+            if self.lookup(outer).is_some() {
+                return true;
+            }
+            at = outer;
+        }
+        false
     }
 
     /// Declares a new local carrying fate links to the variables it was
@@ -10334,12 +10527,12 @@ impl<'p, 'r> Checker<'p, 'r> {
             .or_insert_with(|| ty.clone());
         // [lsp-completion] Offer this binding as a completion inside its fn.
         self.record_local_decl(name, ty.clone());
-        if self.lookup(&name.name).is_some() {
+        if self.lookup(&name.name).is_some() || self.shadows_by_written_name(&name.name) {
             self.error(
                 name.span,
                 format!(
                     "`{}` is already declared (shadowing is not allowed)",
-                    name.name
+                    crate::comptime::written_local(&name.name)
                 ),
             );
         }
@@ -12357,8 +12550,8 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// it is instantiated, which is the same place [linear-generics] checks
     /// its own ban. `Unknown` passes for the usual reason
     /// [type-unknown-lenient] — one mistake, one diagnostic.
-    fn key_ineligible(&self, ty: &Ty) -> Option<String> {
-        self.hash_ineligible(ty, 0).map(|reason| {
+    fn key_ineligible(&self, ty: &Ty, canonical: bool) -> Option<String> {
+        self.hash_ineligible(ty, 0, canonical).map(|reason| {
             format!(
                 "`{ty}` cannot be a key: {reason}. A `Set` element and a `Map` \
                  key have to be hashable"
@@ -12802,7 +12995,14 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     /// [col-hashed-ordered] Whether a type can be **hashed** — the
     /// requirement for a `Set` element or a `Map` key. `None` is eligible.
-    fn hash_ineligible(&self, ty: &Ty, depth: usize) -> Option<String> {
+    ///
+    /// [col-key-eligible] `canonical` asks for the bar a key meets when its
+    /// identity is **resolved by name**: a struct (or an opaque type) has to
+    /// have its own `hash` and `eq`. Where the identity is written instead —
+    /// `Set<P>(my_hash, my_eq)`, a binder, a `let` annotation that the
+    /// initializer fills — only the intrinsic bar applies: what no identity
+    /// can fix (a float, a function value, a union).
+    fn hash_ineligible(&self, ty: &Ty, depth: usize, canonical: bool) -> Option<String> {
         if depth > 8 {
             return None;
         }
@@ -12820,11 +13020,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // Kotlin's `List` both hash structurally).
                 "List" | "Set" => args
                     .first()
-                    .and_then(|a| self.hash_ineligible(a, depth + 1)),
+                    .and_then(|a| self.hash_ineligible(a, depth + 1, canonical)),
                 "Map" => args
                     .iter()
                     .take(2)
-                    .find_map(|a| self.hash_ineligible(a, depth + 1)),
+                    .find_map(|a| self.hash_ineligible(a, depth + 1, canonical)),
+                // A struct keyed by a written identity needs nothing of its
+                // own; std's opaque types are what they are (`Bytes` is one
+                // mutable object on one backend, whoever hashes it).
+                _ if !canonical && self.symbols.structs.contains_key(name.as_str()) => None,
                 _ if self.symbols.structs.contains_key(name.as_str()) => {
                     // [cmp-groups] A key needs both halves: a `hash` to find the
                     // bucket and an `eq` to compare within it.
@@ -12845,8 +13049,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             },
             Ty::Tuple(elems) => elems
                 .iter()
-                .find_map(|e| self.hash_ineligible(e, depth + 1)),
-            Ty::Array(elem) => self.hash_ineligible(elem, depth + 1),
+                .find_map(|e| self.hash_ineligible(e, depth + 1, canonical)),
+            Ty::Array(elem) => self.hash_ineligible(elem, depth + 1, canonical),
             Ty::Fn { .. } => Some(
                 "a function value is not hashable: neither backend can \
                  compare or hash one meaningfully"
@@ -12863,7 +13067,7 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     /// [col-hashed-ordered] Whether a type can be **ordered** — the
     /// requirement for a `SortedSet` element or a `SortedMap` key.
-    fn order_ineligible(&self, ty: &Ty, depth: usize) -> Option<String> {
+    fn order_ineligible(&self, ty: &Ty, depth: usize, canonical: bool) -> Option<String> {
         if depth > 8 {
             return None;
         }
@@ -12881,7 +13085,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // (user decision 2026-09-12).
                 "List" => args
                     .first()
-                    .and_then(|a| self.order_ineligible(a, depth + 1)),
+                    .and_then(|a| self.order_ineligible(a, depth + 1, canonical)),
+                _ if !canonical && self.symbols.structs.contains_key(name.as_str()) => None,
                 _ if self.symbols.structs.contains_key(name.as_str()) => {
                     if self.has_member_for("cmp", name) {
                         None
@@ -12898,8 +13103,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             },
             Ty::Tuple(elems) => elems
                 .iter()
-                .find_map(|e| self.order_ineligible(e, depth + 1)),
-            Ty::Array(elem) => self.order_ineligible(elem, depth + 1),
+                .find_map(|e| self.order_ineligible(e, depth + 1, canonical)),
+            Ty::Array(elem) => self.order_ineligible(elem, depth + 1, canonical),
             Ty::Fn { .. } => Some(
                 "a function value is not orderable: neither backend can \
                  compare one"
@@ -12936,21 +13141,17 @@ impl<'p, 'r> Checker<'p, 'r> {
         };
         let name = base.name.name.clone();
         for (at, written) in base.value_args.iter().enumerate() {
-            let Some(id @ FnId::Named { .. }) = self.written_fn_id(written) else {
+            let Some(want) = self.type_slot_ty(&name, &type_args, at) else {
                 continue;
             };
-            let (fname, selector) = match &id {
-                FnId::Named { name, at } => (name.clone(), at.clone()),
-                FnId::Binder(_) => continue,
-            };
-            let Some(want) = self.type_slot_ty(&name, &type_args, at) else {
+            let Some(id @ FnId::Named { .. }) = self.written_fn_id(written, Some(&want)) else {
                 continue;
             };
             let key = (id.clone(), subject.clone());
             if self.out.carried_identities.contains_key(&key) {
                 continue;
             }
-            match self.resolve_implicit_fn_at(&fname, selector.as_deref(), &want) {
+            match self.resolve_identity(&id, &want) {
                 Ok((found, _)) => {
                     self.out.carried_identities.insert(key, found);
                     // [fn-ref-table] [mod-used-only] The written identity is a
@@ -12993,16 +13194,23 @@ impl<'p, 'r> Checker<'p, 'r> {
         // declaration behind the name, and redoing resolution in an emitter is
         // how the two would come to disagree.
         self.record_carried_identities(base, arity);
-        let _ = ordered;
         if base.args.len() != arity {
             return;
         }
+        // [col-key-eligible] The canonical bar — the key's own `hash`/`eq`
+        // (or `cmp`) — applies only where the identity will be resolved by
+        // name: no identity written, and not a `let` pattern the initializer
+        // fills. `Set<P>(my_hash, my_eq)` and `Set<P>(?hash, ?eq)` say where
+        // the identity comes from, and a key with none of its own is fine
+        // there (found 2026-10-20: the call form was accepted and the
+        // annotation of the same value refused).
+        let canonical = base.value_args.is_empty() && !self.let_pattern;
         let empty = HashMap::new();
         let key = self.lower_type_subst(&base.args[0], &empty, 0);
         let bad = if ordered {
-            self.sorted_key_ineligible(&key)
+            self.sorted_key_ineligible(&key, canonical)
         } else {
-            self.key_ineligible(&key)
+            self.key_ineligible(&key, canonical)
         };
         if let Some(reason) = bad {
             let span = base.args[0].span();
@@ -13032,7 +13240,7 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     /// [col-sorted-list] The element rule for a `Sorted List<T>` claim.
     fn sorted_list_elem_ineligible(&self, elem: &Ty) -> Option<String> {
-        self.order_ineligible(elem, 0).map(|reason| {
+        self.order_ineligible(elem, 0, true).map(|reason| {
             format!(
                 "`{elem}` cannot be the element of a `Sorted List`: {reason}. \
                  Sorting compares the elements, so they have to be orderable"
@@ -13041,8 +13249,8 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// [col-sorted] The key rule for the sorted collections.
-    fn sorted_key_ineligible(&self, ty: &Ty) -> Option<String> {
-        self.order_ineligible(ty, 0).map(|reason| {
+    fn sorted_key_ineligible(&self, ty: &Ty, canonical: bool) -> Option<String> {
+        self.order_ineligible(ty, 0, canonical).map(|reason| {
             format!(
                 "`{ty}` cannot be a sorted collection's key: {reason}. A \
                  `SortedSet` element and a `SortedMap` key have to be orderable"
@@ -13089,11 +13297,21 @@ impl<'p, 'r> Checker<'p, 'r> {
                     "SortedMap" => (2, true),
                     _ => (0, false),
                 };
-                if arity > 0 && args.len() == arity {
+                // [cmp-carry] The identities ride after the type arguments
+                // (`Set<P>(my_hash, my_eq)`), so the arity is the type
+                // arguments'. Only the intrinsic bar is checked here: whether
+                // the key has an identity is the constructor's implicit
+                // resolution to say, which runs after this and stays quiet
+                // about a key refused here [type-unknown-lenient].
+                let type_args: Vec<&Ty> = args
+                    .iter()
+                    .filter(|a| !matches!(a, Ty::FnName(_) | Ty::ValueRef { .. } | Ty::ConstInt(_)))
+                    .collect();
+                if arity > 0 && type_args.len() == arity {
                     let bad = if ordered {
-                        self.sorted_key_ineligible(&args[0])
+                        self.sorted_key_ineligible(type_args[0], false)
                     } else {
-                        self.key_ineligible(&args[0])
+                        self.key_ineligible(type_args[0], false)
                     };
                     if let Some(reason) = bad {
                         // [type-unknown-lenient] One mistake, one diagnostic: an
@@ -13104,7 +13322,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         // fix goes — and the call learned `T = Double` from that
                         // very annotation (2026-09-26, with the expected-type
                         // seeding that made the call's instantiation known).
-                        if self.reported_ineligible_keys.insert(format!("{}", args[0])) {
+                        if self.reported_ineligible_keys.insert(format!("{}", type_args[0])) {
                             self.error(span, reason);
                         }
                         return;
@@ -17639,11 +17857,20 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // (`Heap<T>(?cmp) List<T>`), its slots after — the same
                 // positional reading a keyed type has (user decision
                 // 2026-09-22).
-                let arity = self
+                let generics: Vec<String> = self
                     .qual_decl(&q.name.name)
-                    .map_or(0, |d| d.generics.len());
-                let args =
-                    self.lower_identity_args(&q.args, &q.value_args, Some(arity), slots, subst, depth);
+                    .map(|d| d.generics.iter().map(|g| g.name.clone()).collect())
+                    .unwrap_or_default();
+                let arity = generics.len();
+                let args = self.lower_identity_args(
+                    &q.args,
+                    &q.value_args,
+                    Some(arity),
+                    &generics,
+                    slots,
+                    subst,
+                    depth,
+                );
                 // [lsp-definition] Only a user qualifier has a declaration to
                 // point at; a built-in auto-qualifier (`Mut`) does not.
                 if self.scope.is_qualifier(&q.name.name) {
@@ -18012,6 +18239,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         written: &[ast::Type],
         values: &[ast::Type],
         type_arity: Option<usize>,
+        generics: &[String],
         slots: &[FnSlotInfo],
         subst: &HashMap<String, Ty>,
         depth: usize,
@@ -18096,7 +18324,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                 );
                 continue;
             }
-            filled[at] = Some(match self.written_fn_id(arg) {
+            // [cmp-carry] The slot's fn type at these type arguments, so a
+            // written name is resolved to the overload that fits it.
+            let want = {
+                let bind: HashMap<String, Ty> = generics.iter().cloned().zip(types.iter().cloned()).collect();
+                let names: HashSet<String> = generics.iter().cloned().collect();
+                substitute_vars(&slots[at].ty, &bind, &names)
+            };
+            filled[at] = Some(match self.written_fn_id(arg, Some(&want)) {
                 Some(id) => Ty::FnName(id),
                 None => Ty::Unknown,
             });
@@ -18138,7 +18373,35 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// refused here, because a type cannot carry something with no name of its
     /// own: that is what makes an identity printable, comparable and
     /// substitutable.
-    fn written_fn_id(&mut self, arg: &ast::Type) -> Option<FnId> {
+    fn written_fn_id(&mut self, arg: &ast::Type, want: Option<&Ty>) -> Option<FnId> {
+        // [type-identity] [cmp-carry] An identity is resolved in the file that
+        // **wrote** it: a callee's signature is lowered at every call, and its
+        // `Set<P>(my_hash, my_eq)` means the writer's `my_hash`, not whatever the
+        // calling file sees under that name (found 2026-10-20). That file
+        // reports its own mistakes when it is checked; lowering it here only
+        // reads the answer.
+        let own = match arg {
+            ast::Type::Named { base, .. } => self
+                .resolution
+                .type_ref_files
+                .get(&(base as *const TypeRef as usize))
+                .copied()
+                .filter(|f| *f != self.file_idx),
+            _ => None,
+        };
+        if let Some(own) = own {
+            let saved_scope = self.scope;
+            let saved_errors = self.out.errors.len();
+            self.scope = &self.resolution.scopes[own];
+            let out = self.written_fn_id_here(arg, want, false);
+            self.scope = saved_scope;
+            self.out.errors.truncate(saved_errors);
+            return out;
+        }
+        self.written_fn_id_here(arg, want, true)
+    }
+
+    fn written_fn_id_here(&mut self, arg: &ast::Type, want: Option<&Ty>, own_file: bool) -> Option<FnId> {
         let ast::Type::Named { qualifiers, base } = arg else {
             self.error(
                 arg.span(),
@@ -18180,13 +18443,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 );
                 return None;
             }
-            return Some(FnId::Named {
-                name,
-                at: Some(at_name),
-            });
+            return Some(self.written_declaration(&name, Some(&at_name), want));
         }
-        // A bare name: a top-level fn, and nothing else.
-        if self.lookup(&name).is_some() {
+        // A bare name: a top-level fn, and nothing else. (A local is the
+        // checking fn's, so it only shadows in the file that is checking.)
+        if own_file && self.lookup(&name).is_some() {
             self.error(
                 arg.span(),
                 format!(
@@ -18217,7 +18478,41 @@ impl<'p, 'r> Checker<'p, 'r> {
             );
             return None;
         }
-        Some(FnId::named(name))
+        Some(self.written_declaration(&name, None, want))
+    }
+
+    /// [cmp-carry] The identity a written name (`my_hash`, `cmp@Person`,
+    /// `size@core.list`) carries: the declaration it means here. With the
+    /// slot's fn type known that is resolution's answer — the overload of the
+    /// right shape, as a resolved fill would pick it, so a written `(hash,
+    /// eq)` and a resolved one are one identity. Without it (or where
+    /// resolution cannot decide), the most specific visible declaration
+    /// [fn-overload-scope]; whether it fits is reported where the slot is
+    /// checked.
+    fn written_declaration(&mut self, name: &str, at: Option<&str>, want: Option<&Ty>) -> FnId {
+        if let Some(want) = want {
+            let before = self.out.errors.len();
+            let found = self.resolve_implicit_fn_at(name, at, want);
+            self.out.errors.truncate(before);
+            if let Ok((_, id)) = found {
+                return id;
+            }
+        }
+        let best = self
+            .overloads_of(name)
+            .into_iter()
+            .filter(|e| match at {
+                None => true,
+                Some(sel) => {
+                    self.attached_to(e.key, e.decl).as_deref() == Some(sel)
+                        || ModulePath::text_matches_suffix(&e.module.to_string(), sel)
+                }
+            })
+            .max_by_key(|e| e.rung);
+        match best {
+            Some(e) => self.identity_of(e.key, e.decl),
+            None => FnId::Named { name: name.to_string(), at: at.map(str::to_string), module: None, qualify: false },
+        }
     }
 
     /// [cmp-carry] Whether some visible overload of `name` answers to the
@@ -18322,7 +18617,30 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// Lowers the base of a named type: substitutions, generic parameters,
     /// alias expansion, plain nominals.
     fn lower_base_ref(&mut self, base: &TypeRef, subst: &HashMap<String, Ty>, depth: usize) -> Ty {
-        let name = base.name.name.as_str();
+        // [namespace] A leading-dot arm inside a `type` alias's own
+        // union-arm list (`.Int` inside `namespace Arg { type Type = .Int |
+        // .Str }`) resolves against the alias's own enclosing namespace —
+        // there is no outer expected type here, only the declaration naming
+        // itself (user decision 2026-10-19). Resolved to the real name up
+        // front, as a owned string standing in for `base.name.name` through
+        // the rest of this fn, so alias expansion, struct lookup and the
+        // def-ref below all run on it exactly as they would for a fully
+        // written name.
+        let resolved_dot: Option<String> = if base.name.name.starts_with('.') {
+            match self.own_alias_namespace.clone() {
+                Some(ns) => match self.resolve_alias_arm_dot_ref(&base.name.name, &ns) {
+                    Ok(full) => Some(full),
+                    Err(msg) => {
+                        self.error(base.name.span, msg);
+                        return Ty::Unknown;
+                    }
+                },
+                None => None,
+            }
+        } else {
+            None
+        };
+        let name = resolved_dot.as_deref().unwrap_or(base.name.name.as_str());
         // [type-identity] A written name means what it means in the file that
         // wrote it, which is not this one when a callee's signature or a
         // struct's field is lowered at a use.
@@ -18340,6 +18658,46 @@ impl<'p, 'r> Checker<'p, 'r> {
         // alias itself rather than its target.
         let name_span = base.name.span;
         self.record_def_ref(name_span, name);
+        // [generic-arity] A generic struct, opaque type, or alias referenced
+        // in a type position must supply every type argument it declares —
+        // unlike a struct *literal* (`Box { value: 7 }`), which may infer
+        // `T` from its field values [struct-literal-arg], a bare type-
+        // position reference (a field declaration, a parameter, a return
+        // type) has no values to infer from, so an omitted argument has
+        // nothing to resolve it from either. Without this check it silently
+        // bound to `Ty::Unknown` and rode [type-unknown-lenient] for every
+        // later use — accepting any read through the field with no checking
+        // at all, found 2026-10-19 via a bare `List<Arg>` where `Arg<T>`
+        // dropped its own argument. Checked once here, before alias
+        // expansion and the fn-identity-slot branch below (which runs its
+        // own, different all-or-none arity rule for `?cmp`-style arguments
+        // [qual-value-arg] and would otherwise double-report).
+        let declared_generics = written_in
+            .structs
+            .get(name)
+            .map(|d| d.generics.len())
+            .or_else(|| written_in.opaque_types.get(name).map(|d| d.generics.len()))
+            .or_else(|| written_in.type_aliases.get(name).map(|d| d.generics.len()));
+        if let Some(expected) = declared_generics {
+            // [eff-handle] `eff[A, B, …]` parses straight to this same
+            // `Addr` name with one argument per effect — a legitimate
+            // multi-effect handle, not an under/over-supplied generic
+            // argument list on the single-generic `intrinsic type Addr<E>`
+            // declaration. Exempt here the same way a struct literal's
+            // written type is exempt: `Addr`'s own arity is governed by
+            // [eff-handle], not this check.
+            if expected > 0 && base.args.len() != expected && !self.in_struct_lit_ty && name != ADDR_TYPE {
+                self.error(
+                    base.span,
+                    format!(
+                        "`{name}` takes {expected} type argument(s), found {}: write all of \
+                         them (`{name}<...>`) — unlike a struct literal's fields, a type \
+                         position like this has no values to infer a missing one from",
+                        base.args.len()
+                    ),
+                );
+            }
+        }
         // [proj-type-arg] A `proj` type argument makes a *container of
         // borrows* (`List<proj T>` is a view, `Vec<&T>`). That is only
         // meaningful for the intrinsic containers the backends render that
@@ -18396,13 +18754,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .map(|a| self.lower_type_subst(a, subst, depth))
                     .collect()
             } else {
-                let arity = written_in
+                let generics: Vec<String> = written_in
                     .opaque_types
                     .get(name)
-                    .map(|d| d.generics.len())
-                    .or_else(|| written_in.structs.get(name).map(|d| d.generics.len()))
-                    .unwrap_or(0);
-                self.lower_identity_args(&base.args, &base.value_args, Some(arity), &slots, subst, depth)
+                    .map(|d| &d.generics)
+                    .or_else(|| written_in.structs.get(name).map(|d| &d.generics))
+                    .map(|gs| gs.iter().map(|g| g.name.clone()).collect())
+                    .unwrap_or_default();
+                let arity = generics.len();
+                self.lower_identity_args(&base.args, &base.value_args, Some(arity), &generics, &slots, subst, depth)
             }
         };
         // Type aliases expand structurally (with generic substitution).
@@ -18412,9 +18772,23 @@ impl<'p, 'r> Checker<'p, 'r> {
                 for (g, arg) in alias.generics.iter().zip(&args) {
                     alias_subst.insert(g.name.clone(), arg.clone());
                 }
+                // [namespace] A leading-dot arm in the alias's own body
+                // (`.Int` inside `namespace Arg { type Type = .Int | .Str
+                // }`) resolves against *this* alias's own enclosing
+                // namespace — set here, at the one place the alias's target
+                // is actually expanded, so it is correct regardless of
+                // which use site triggered the expansion (a use's own
+                // namespace context must never leak into the alias body's
+                // resolution; user decision 2026-10-19). Saved/restored
+                // around the recursive lowering, since an alias may itself
+                // reference another alias in a different namespace.
+                let saved_ns = self.own_alias_namespace.take();
+                self.own_alias_namespace = alias.name.name.rsplit_once('.').map(|(ns, _)| ns.to_string());
                 // The declaration's own node, not a copy: its references are
                 // resolved in the alias's file [type-identity].
-                return self.lower_type_subst(target, &alias_subst, depth + 1);
+                let lowered = self.lower_type_subst(target, &alias_subst, depth + 1);
+                self.own_alias_namespace = saved_ns;
+                return lowered;
             }
         }
         // [eff-handle] A multi-effect handle `eff[A, B, …]` *is* a tuple of
@@ -18596,6 +18970,27 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
+    /// [namespace] Resolves a leading-dot sugar reference (`.Int`) written
+    /// inside a `type` alias's own union-arm list, against the alias's own
+    /// enclosing namespace `ns` directly — the counterpart to
+    /// `resolve_dot_ref` for the one case that has no outer expected type to
+    /// derive a namespace from (user decision 2026-10-19): `.Int` inside
+    /// `namespace Arg { type Type = .Int | .Str }` means the unique declared
+    /// `Arg.Int`. Only `ns` itself is searched — not its ancestors — since an
+    /// alias's own namespace is exact, not a path to walk upward from.
+    fn resolve_alias_arm_dot_ref(&self, written: &str, ns: &str) -> Result<String, String> {
+        let suffix = written.trim_start_matches('.');
+        let cand = format!("{ns}.{suffix}");
+        if self.type_name_exists(&cand) || self.qual_name_exists(&cand) {
+            Ok(cand)
+        } else {
+            Err(format!(
+                "`{written}` names no member of `{ns}` — its declared members are what \
+                 `{ns}.{suffix}` would have to be [namespace]"
+            ))
+        }
+    }
+
     /// The base name of a type key, module key (`§…`) stripped, for namespace
     /// comparison.
     fn base_name(&self, name: &str) -> String {
@@ -18606,6 +19001,22 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// visible [name-resolve]. `expect_qual` picks the wording and the
     /// namespace searched.
     fn require_name(&mut self, r: &TypeRef, expect_qual: bool) {
+        // [namespace] A leading-dot arm inside a `type` alias's own
+        // union-arm list (`.Int` inside `namespace Arg { type Type = .Int |
+        // .Str }`) resolves against the alias's own enclosing namespace —
+        // the one case with no outer expected type to derive a namespace
+        // from, so it is checked here rather than through
+        // `resolve_dot_ref`'s `expected`-type mechanism (user decision
+        // 2026-10-19). `!expect_qual` since a namespace member is a type,
+        // never a qualifier, by construction.
+        if !expect_qual && r.name.name.starts_with('.') {
+            if let Some(ns) = self.own_alias_namespace.clone() {
+                if let Err(msg) = self.resolve_alias_arm_dot_ref(&r.name.name, &ns) {
+                    self.error(r.span, msg);
+                }
+                return;
+            }
+        }
         let name = r.name.name.as_str();
         if self.generics.contains(name) {
             return;
@@ -19352,9 +19763,20 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                     self.validate_type(a);
                 }
+                // [lsp-definition] Always lower the base — not only when
+                // qualifiers are written — so a plain (unqualified) type
+                // reference's `def_refs` entry is recorded too, the same
+                // way `lower_base_ref` already records one for a qualified
+                // reference here and an alias's target in
+                // `QualifiedGroup` below. Without this, a bare union arm
+                // (`type Type = Option.Int | Option.Str`) or struct field
+                // type reached only through `validate_type` (never through
+                // a call argument or struct literal) had no recorded
+                // reference at all, so hover/go-to-definition on it found
+                // nothing (2026-10-19, [lsp-definition] gap).
+                let empty = HashMap::new();
+                let lowered = self.lower_base_ref(base, &empty, 0);
                 if !qualifiers.is_empty() {
-                    let empty = HashMap::new();
-                    let lowered = self.lower_base_ref(base, &empty, 0);
                     self.validate_quals(qualifiers, &lowered);
                 }
             }
@@ -19951,7 +20373,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// [field-canbe-mut] `name: canbe Mut T` is legal in a `canbe Mut` struct
+    /// [field-canbe-mut] `name: T canbe Mut` is legal in a `canbe Mut` struct
     /// only (elsewhere the struct value is never `Mut`, so the field never
     /// would be), over a `T` whose declaration says `canbe Mut`, written
     /// without a `Mut` of its own.
@@ -21759,7 +22181,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 span,
             } => {
                 if let Some(t) = ty {
+                    let saved = std::mem::replace(&mut self.let_pattern, true);
                     self.validate_type(t);
+                    self.let_pattern = saved;
                 }
                 let mut annotated = ty.as_ref().map(|t| self.lower_type(t));
                 // [iter-type] `let p: iter Int = …` is a **pattern**: it asserts
@@ -23991,6 +24415,19 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// struct's own field, even when a predicate qualifier overrides its
     /// type [qual-field-override]: the override refines the field, it does
     /// not replace the declaration.
+    ///
+    /// [generic-arity]'s `name` (the `Ty::Named` key) is the struct's
+    /// **disambiguation key** (`Arg§main` once another module's `Arg` has
+    /// already claimed the plain name — see typekey.rs) — the same key
+    /// `self.symbols.structs` is keyed by. `self.scope.def_sites`, however,
+    /// is keyed by the plain declared name only (`resolve.rs`'s `def_site`
+    /// closure inserts `name`, never a key): a lookup with the qualified
+    /// key missed there even though the struct and its field both
+    /// resolved, silently recording no reference at all (defect found
+    /// 2026-10-20: a field's rename reached a dot-access read but not a
+    /// struct-literal label, and on closer look, not even every dot-access
+    /// — only structs whose name happened to be globally unique). Strip the
+    /// key down to its plain name — `typekey::plain` — before this lookup.
     fn record_field_ref(&mut self, base_ty: &Ty, field: &Ident) {
         let Ty::Named { name, .. } = base_ty.strip_quals() else {
             return;
@@ -24002,8 +24439,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             return;
         };
         // The struct's `DefSite` names the file it was declared in; the
-        // field span comes from that same declaration.
-        let Some(site) = self.scope.def_sites.get(name.as_str()).copied() else {
+        // field span comes from that same declaration. `def_sites` keys by
+        // the plain name, not the disambiguation key.
+        let Some(site) = self.scope.def_sites.get(crate::typekey::plain(name.as_str())).copied() else {
             return;
         };
         self.out.field_refs.insert(
@@ -25326,10 +25764,39 @@ impl<'p, 'r> Checker<'p, 'r> {
             _ => None,
         };
         let ty: Option<&ast::Type> = ty_resolved.as_ref().or(ty);
+        // [generic-arity] A struct literal's written type may omit its
+        // arguments — they are inferred from the field values below
+        // [struct-literal-arg] — so the arity check `lower_base_ref` runs
+        // for every other type-position reference is suppressed for the
+        // span of validating/lowering *this* written type.
+        let saved_lit_ty = self.in_struct_lit_ty;
+        self.in_struct_lit_ty = true;
         if let Some(t) = ty {
             self.validate_type(t);
         }
         let annotated = ty.map(|t| self.lower_type(t)).or_else(|| expected.cloned());
+        self.in_struct_lit_ty = saved_lit_ty;
+        // [struct-literal-arg] A written type name with too few arguments
+        // (`Arg { ... }` for `Arg<T>`, writing none of `T`) carries an empty
+        // `args` here — `lower_type`'s arity check was suppressed above, and
+        // nothing pads a short list to the declared arity on its own. When
+        // the call (or other outer context) already supplies a fully-argued
+        // `expected` of the same base type, prefer its arguments over the
+        // written type's short/empty ones: the field-value fallback below
+        // only reads evidence from values actually written, so a field that
+        // happens to not mention the missing generic (`short_name`, not
+        // `default`) would otherwise leave `T` as `Unknown` even though the
+        // call site already knows it — exactly the case
+        // [call-generic-progressive] already threads into every other kind
+        // of argument.
+        let annotated = match (&annotated, expected) {
+            (Some(Ty::Named { name: wn, args: wa }), Some(Ty::Named { name: en, args: ea }))
+                if wn == en && wa.len() < ea.len() =>
+            {
+                Some(Ty::Named { name: wn.clone(), args: ea.clone() })
+            }
+            _ => annotated,
+        };
         let Some(struct_ty) = annotated else {
             for f in fields {
                 match &f.kind {
@@ -25445,6 +25912,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                             // generic surfaces (the field is concrete).
                         }
                         Some(df) => {
+                            // [lsp-definition] A struct literal's field label
+                            // points at its declaration, exactly like a
+                            // dot-access field read — so a rename issued from
+                            // the declaration (or from a dot-access use)
+                            // reaches every literal that names this field too
+                            // (defect reported 2026-10-20: renaming
+                            // `Arg<T>.short_name` left `Arg { short_name:
+                            // ... }` call sites unchanged).
+                            self.record_field_ref(&struct_ty, name);
                             let fty = self.struct_field_ty(df, &subst, lit_mut);
                             self.check_expr(value, Some(&fty));
                             let vty = self.out.expr_ty[&self.key(value.span())].clone();
@@ -26813,6 +27289,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
         }
+        if !unresolved_check {
+            // [lsp-completion] The arms left to write, before the runtime-arm
+            // rewrite collapses literals: spelled as the check would be.
+            let key = self.key(span);
+            self.out.when_arms.insert(key, remaining.iter().map(|a| a.to_string()).collect());
+        }
         if !remaining.is_empty() && !unresolved_check {
             let missing: Vec<String> = remaining.iter().map(|a| a.to_string()).collect();
             self.error(
@@ -28112,6 +28594,28 @@ fn push_slot(out: &mut Vec<FnSlotInfo>, slot: FnSlotInfo) {
     }
 }
 
+/// [cmp-carry] The fn names declared, unattached, by more than one non-std
+/// module: the identities whose printed name needs its module to say which.
+fn fn_name_clash(files: &[crate::source::SourceFile], resolution: &Resolution<'_>) -> HashSet<String> {
+    let mut by_name: HashMap<&str, HashSet<String>> = HashMap::new();
+    for (i, scope) in resolution.scopes.iter().enumerate() {
+        if files.get(i).is_none_or(|f| f.is_std) {
+            continue;
+        }
+        for (name, entries) in &scope.fns {
+            for e in entries {
+                if e.rung == crate::resolve::Rung::Own
+                    && e.decl.scoped_to.is_none()
+                    && !resolution.attached.contains_key(&e.key)
+                {
+                    by_name.entry(name).or_default().insert(e.module.to_string());
+                }
+            }
+        }
+    }
+    by_name.into_iter().filter(|(_, ms)| ms.len() > 1).map(|(n, _)| n.to_string()).collect()
+}
+
 fn substitute_vars(ty: &Ty, subst: &HashMap<String, Ty>, callee_generics: &HashSet<String>) -> Ty {
     match ty {
         Ty::Var(g) if callee_generics.contains(g) => subst.get(g).cloned().unwrap_or(Ty::Unknown),
@@ -29309,6 +29813,24 @@ impl<'p, 'r> Checker<'p, 'r> {
                     });
                     self.check_expr(a, concrete.as_ref())
                 }
+                // [struct-literal-arg] The callee's own declared parameter
+                // type, substituted by what earlier arguments (the
+                // receiver, most often — `list.add(Arg { ... })` already
+                // knows `T` from `list`'s own `List<Arg<Int>>`) already
+                // bound, flows into a literal argument's missing type
+                // arguments the same way it flows into a nested call
+                // [call-type-args] — so a literal needs no written `<T>`
+                // and no field to infer one from when the call itself
+                // already supplies it unambiguously. Filtered the same
+                // way: a pattern still mentioning the callee's own unbound
+                // generics must not reach the literal as a concrete-looking
+                // `Unknown`.
+                Expr::StructLit { .. } => {
+                    let concrete = exp.filter(|t| {
+                        !ty_mentions_vars(t, &lead_generics) && !ty_mentions_unknown(t)
+                    });
+                    self.check_expr(a, concrete.as_ref())
+                }
                 // [fn-effects] A *named fn* passed by value needs the
                 // expected fn type too: what the position expects it to
                 // accept decides the value's shape (a pure fn passed
@@ -29898,6 +30420,32 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         }
         self.call_fixed_params = fixed_names;
+        // [col-key-eligible] The inferred half of the key rule: a call that
+        // *builds* a keyed collection without the type being written
+        // anywhere (`Set(1.5)`) has its key only in the resolved
+        // substitution, so it is checked here rather than in
+        // `validate_type`. Before the implicits are resolved, so a key refused
+        // here silences its constructor's missing `hash`/`eq` (one mistake).
+        if self.inferred.is_some() {
+            if let Some(ret) = decl.return_type.as_ref() {
+                if !subst.is_empty() {
+                    let lowered = self.lower_type_subst(ret, &subst, 0);
+                    // [col-sorted-list] A constructor's `as Q` lives beside the
+                    // return type, not in it, so `sort`'s `Sorted` claim would
+                    // be invisible here — and `sort(List(unorderable))` is
+                    // exactly the inferred case this block exists for.
+                    let lowered = match &decl.constructs {
+                        Some(cref) => lowered.qualify(vec![crate::types::Qual {
+                            effect: false,
+                            name: cref.name.name.clone(),
+                            args: Vec::new(),
+                        }]),
+                        None => lowered,
+                    };
+                    self.check_key_eligibility_ty(&lowered, span, 0);
+                }
+            }
+        }
         self.resolve_implicits(decl, best_key, &mut subst, &callee_generics, named, span);
         self.call_fixed_params = HashSet::new();
         // [linear-generics] An unconstrained generic parameter cannot be
@@ -29991,31 +30539,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                     );
                 }
                 break;
-            }
-        }
-        // [col-key-eligible] The inferred half of the key rule: a call that
-        // *builds* a keyed collection without the type being written
-        // anywhere (`Set(1.5)`) has its key only in the resolved
-        // substitution, so it is checked here rather than in
-        // `validate_type`.
-        if self.inferred.is_some() {
-            if let Some(ret) = decl.return_type.as_ref() {
-                if !subst.is_empty() {
-                    let lowered = self.lower_type_subst(ret, &subst, 0);
-                    // [col-sorted-list] A constructor's `as Q` lives beside the
-                    // return type, not in it, so `sort`'s `Sorted` claim would
-                    // be invisible here — and `sort(List(unorderable))` is
-                    // exactly the inferred case this block exists for.
-                    let lowered = match &decl.constructs {
-                        Some(cref) => lowered.qualify(vec![crate::types::Qual {
-                            effect: false,
-                            name: cref.name.name.clone(),
-                            args: Vec::new(),
-                        }]),
-                        None => lowered,
-                    };
-                    self.check_key_eligibility_ty(&lowered, span, 0);
-                }
             }
         }
         // [deduce-consume] Deduction lists are a contract, enforced

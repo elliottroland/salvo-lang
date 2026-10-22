@@ -1459,7 +1459,7 @@ effects" keeps the history).
   `Clone + Send + Sync + 'static`, since the instance sits in an `Arc`;
   every Salvo type satisfies them.
 * **A `use` is the handle**: the instance is bound, then wrapped —
-  `let mut __use_1: crate::core_console::__Platform_StdOutConsole = crate::core_console::__Platform_StdOutConsole::new();`
+  `let mut __use_1: crate::core_console::__Platform_StdConsole = crate::core_console::__Platform_StdConsole::new();`
   `let __handle_2 = crate::core_console::Console::shared(__use_1);` — and the
   handle is what everything downstream receives. A multi-face handler is one
   `Arc` (of a `Mutex` when stateful) and one handle per face:

@@ -3,10 +3,10 @@
 // by every build — do not edit; the build never reads this file.
 // salvo-abi 1 51417dfa7690428a
 use crate::core_iterator::Finished;
+use crate::core_string::Mut_Str;
 use crate::core_string::append_platform;
 use crate::core_iterator::emitted;
 use crate::core_iterator::finished;
-use crate::core_string::mut_str;
 
 
 /// [platform-type] The host's `Set`.
@@ -70,7 +70,7 @@ pub fn size_platform<T: Clone>(set: &crate::core_set::Set<T>) -> i32 {
 }
 
 pub fn to_str<T: Clone>(set: &crate::core_set::Set<T>, to_str: &mut dyn FnMut(&T) -> String) -> String {
-    let mut out: String = crate::core_string::mut_str(vec![String::from("{")]);
+    let mut out: String = crate::core_string::Mut_Str(vec![String::from("{")]);
     let mut i: i32 = 0i32;
     for mut x in crate::platform_core_set::each(set).map(|__x| __x.clone()) {
         if (i > 0i32) {

@@ -118,7 +118,7 @@ fn ms_since(start: Long) [] -> Long {
 }
 
 fn main() [use, spawn] {
-    use StdOutConsole()
+    use StdConsole()
     let workers = pool(2)
 
     let pong = spawn Ponging() on workers

@@ -22,7 +22,7 @@ fn salvo(args: &[&str]) -> Output {
         .expect("failed to run salvo")
 }
 
-const CLEAN: &str = "fn main() [use] {\n    use StdOutConsole()\n    println(\"hello\")\n}\n";
+const CLEAN: &str = "fn main() [use] {\n    use StdConsole()\n    println(\"hello\")\n}\n";
 
 #[test]
 fn clean_program_exits_zero() {
@@ -275,7 +275,7 @@ fn use_after_consume_is_an_error() {
     fs::write(
         dir.join("main.sv"),
         "fn add(a: Int, b: Int) -> Int => !a, !b {\n    return a + b\n}\n\n\
-         fn main() [use] {\n    use StdOutConsole\n    let a = 1\n    let b = 2\n    \
+         fn main() [use] {\n    use StdConsole\n    let a = 1\n    let b = 2\n    \
          let c = a.add(b)\n    println(\"${a}\")\n}\n",
     )
     .unwrap();
@@ -294,7 +294,7 @@ fn use_after_consume_is_an_error() {
         dir.join("main.sv"),
         "fn add(a: Int, b: Int) -> Int {\n    return a + b\n}\n\n\
          fn double(a: Int) -> Int => a {\n    return a + a\n}\n\n\
-         fn main() [use] {\n    use StdOutConsole\n    let a = 1\n    let b = 2\n    \
+         fn main() [use] {\n    use StdConsole\n    let a = 1\n    let b = 2\n    \
          let c = a.add(b)\n    a = 5\n    println(\"${a}\")\n    \
          let d = double(a)\n    println(\"${a}\")\n    \
          let n = 0\n    let found = while n < 5 {\n        if n == 3 {\n            break add(n, 10)\n        }\n        n++\n        n\n    }\n}\n",
@@ -312,7 +312,7 @@ fn use_after_consume_is_an_error() {
     fs::write(
         dir.join("main.sv"),
         "fn consume(text: Str) -> None => !text {\n}\n\n\
-         fn main() [use] {\n    use StdOutConsole\n    let s = \"x\"\n    let flag = true\n    \
+         fn main() [use] {\n    use StdConsole\n    let s = \"x\"\n    let flag = true\n    \
          if flag {\n        consume(s)\n    }\n    println(\"${s}\")\n}\n",
     )
     .unwrap();
@@ -341,7 +341,7 @@ fn inferred_moves_consume_arguments() {
     fs::write(
         dir.join("main.sv"),
         "fn give_back(list: List<Str>) -> List<Str>\n=> !list {\n    return list\n}\n\n\
-         fn main() [use] {\n    use StdOutConsole\n    \
+         fn main() [use] {\n    use StdConsole\n    \
          let strings = List(\"a\", \"b\")\n    give_back(strings)\n    \
          println(\"${strings.size()}\")\n}\n",
     )
@@ -359,7 +359,7 @@ fn inferred_moves_consume_arguments() {
     fs::write(
         dir.join("main.sv"),
         "fn give_back(list: List<Str>) -> List<Str>\n=> !list {\n    return list\n}\n\n\
-         fn main() [use] {\n    use StdOutConsole\n    \
+         fn main() [use] {\n    use StdConsole\n    \
          let strings: List<Str> = List(\"a\", \"b\")\n    \
          strings = give_back(strings)\n    \
          println(\"${strings.size()}\")\n}\n",
@@ -385,7 +385,7 @@ fn calls_remove_qualifiers_per_declared_deductions() {
         dir.join("main.sv"),
         "qualifier NonEmpty<T> of List<T> {\n    fn qualifies(list: List<T>) -> Bool {\n        return list.size() > 0\n    }\n}\n\n\
          fn take_head<T>(list: NonEmpty Mut List<T>) -> T => list: Mut {\n    return list.get(0)!\n}\n\n\
-         fn main() [use] {\n    use StdOutConsole\n    let strings = Mut List(\"a\", \"b\")\n    \
+         fn main() [use] {\n    use StdConsole\n    let strings = Mut List(\"a\", \"b\")\n    \
          if strings is NonEmpty {\n        let s = take_head(strings)\n        let t = take_head(strings)\n    }\n}\n",
     )
     .unwrap();
@@ -404,7 +404,7 @@ fn calls_remove_qualifiers_per_declared_deductions() {
         "qualifier NonEmpty<T> of List<T> {\n    fn qualifies(list: List<T>) -> Bool {\n        return list.size() > 0\n    }\n}\n\n\
          fn weaken<T>(list: NonEmpty List<T>) -> None => list: None {\n}\n\n\
          fn head<T>(list: NonEmpty List<T>) -> T {\n    return list.get(0)!\n}\n\n\
-         fn main() [use] {\n    use StdOutConsole\n    let strings = List(\"a\", \"b\")\n    \
+         fn main() [use] {\n    use StdConsole\n    let strings = List(\"a\", \"b\")\n    \
          if strings is NonEmpty {\n        weaken(strings)\n        let s = head(strings)\n    }\n}\n",
     )
     .unwrap();
@@ -429,7 +429,7 @@ fn consumption_survives_narrowing_and_loop_back_edges() {
         dir.join("main.sv"),
         "qualifier NonEmpty<T> of List<T> {\n    fn qualifies(list: List<T>) -> Bool {\n        return list.size() > 0\n    }\n}\n\n\
          fn consume(strings: List<Str>) -> None => !strings {\n}\n\n\
-         fn main() [use] {\n    use StdOutConsole\n    \
+         fn main() [use] {\n    use StdConsole\n    \
          let strings = List(\"a\", \"b\")\n    if strings is NonEmpty {\n        consume(strings)\n    }\n    println(\"${strings.size()}\")\n    \
          let s = List(\"x\")\n    let i = 0\n    while i < 3 {\n        println(\"${s.size()}\")\n        consume(s)\n        i++\n    }\n}\n",
     )
@@ -454,7 +454,7 @@ fn consumption_survives_narrowing_and_loop_back_edges() {
     fs::write(
         dir.join("main.sv"),
         "fn consume(strings: List<Str>) -> None => !strings {\n}\n\n\
-         fn main() [use] {\n    use StdOutConsole\n    \
+         fn main() [use] {\n    use StdConsole\n    \
          let s = List(\"x\")\n    let i = 0\n    while i < 3 {\n        consume(s)\n        s = List(\"y\")\n        i++\n    }\n    println(\"${s.size()}\")\n}\n",
     )
     .unwrap();
@@ -480,7 +480,7 @@ fn when_branches_merge_consumption() {
     fs::write(
         dir.join("main.sv"),
         format!(
-            "{prelude}fn main() [use] {{\n    use StdOutConsole\n    \
+            "{prelude}fn main() [use] {{\n    use StdConsole\n    \
              let result: Ok Str | Err Str = ok(\"x\")\n    \
              when result {{\n        is Ok {{\n            consume(result)\n        }}\n        is Err {{\n        }}\n    }}\n    \
              println(\"${{result}}\")\n}}\n"
@@ -499,7 +499,7 @@ fn when_branches_merge_consumption() {
     fs::write(
         dir.join("main.sv"),
         format!(
-            "{prelude}fn main() [use] {{\n    use StdOutConsole\n    \
+            "{prelude}fn main() [use] {{\n    use StdConsole\n    \
              let result: Ok Str | Err Str = ok(\"x\")\n    \
              when result {{\n        is Ok {{\n            consume(result)\n            return\n        }}\n        is Err {{\n        }}\n    }}\n    \
              println(\"${{result}}\")\n}}\n"
@@ -609,7 +609,7 @@ fn for_loop_back_edge() {
     fs::write(
         dir.join("main.sv"),
         "fn consume(strings: List<Str>) -> None => !strings {\n}\n\n\
-         fn main() [use] {\n    use StdOutConsole\n    let s = List(\"x\")\n    \
+         fn main() [use] {\n    use StdConsole\n    let s = List(\"x\")\n    \
          for i in List(1, 2, 3).iter() {\n        println(\"${s.size()}\")\n        consume(s)\n    }\n}\n",
     )
     .unwrap();
@@ -633,7 +633,7 @@ fn union_arm_arguments_resolve_against_union_params() {
     fs::write(
         dir.join("main.sv"),
         "fn describe(v: Ok Str | Err Str) -> Str {\n    when v {\n        is Ok {\n            return \"ok\"\n        }\n        is Err {\n            return \"err\"\n        }\n    }\n}\n\n\
-         fn main() [use] {\n    use StdOutConsole\n    println(describe(ok(\"x\")))\n}\n",
+         fn main() [use] {\n    use StdConsole\n    println(describe(ok(\"x\")))\n}\n",
     )
     .unwrap();
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
@@ -653,7 +653,7 @@ fn std_supplies_the_result_tags() {
         "fn parse_age(input: Int) -> Ok Int | Err Str | None {\n    \
          if input >= 0 {\n        return ok(input)\n    }\n    \
          return err(\"negative age\")\n}\n\n\
-         fn main() [use] {\n    use StdOutConsole\n    \
+         fn main() [use] {\n    use StdConsole\n    \
          let result = parse_age(36)\n    \
          when result {\n        is Ok {\n            println(\"age ${result}\")\n        }\n        \
          is Err {\n            println(\"error: ${result}\")\n        }\n        \
@@ -676,7 +676,7 @@ fn undeclared_qualifier_reports_the_name() {
     fs::write(
         dir.join("main.sv"),
         "fn f() -> Yes Int | No Str {\n    return 1\n}\n\n\
-         fn main() [use] {\n    use StdOutConsole\n    \
+         fn main() [use] {\n    use StdConsole\n    \
          let v = f()\n    if v is Yes {\n    }\n}\n",
     )
     .unwrap();
@@ -825,7 +825,7 @@ fn fate_copy_produces_independent_values() {
          longest = person.name\n        }\n    }\n    return copy(longest)\n}\n\n\
          fn independent() -> Int {\n    let xs = Mut List(1)\n    let ys = copy(xs)\n    \
          add(xs, 2)\n    add(ys, 3)\n    return size(ys) + size(xs)\n}\n\n\
-         fn main() [use] {\n    use StdOutConsole\n    \
+         fn main() [use] {\n    use StdConsole\n    \
          println(longest_name(array_of(Person {name: \"a\"})))\n    println(\"${independent()}\")\n}\n",
     )
     .unwrap();
@@ -1054,7 +1054,7 @@ fn s2_move_mode_pipelines_stay_clean() {
          fn copy_keeps_source() -> Int {\n    let xs = List(1, 2)\n    let ys = copy(xs)\n    \
          consume_list(ys)\n    return size(xs)\n}\n\n\
          fn consume_list(v: List<Int>) -> None => !v {\n}\n\n\
-         fn main() [use] {\n    use StdOutConsole()\n    \
+         fn main() [use] {\n    use StdConsole()\n    \
          let people = List(Person {name: \"Ada\", age: 36}, Person {name: \"Grace\", age: 45})\n    \
          println(longest_name(people))\n}\n",
     )
@@ -1727,7 +1727,7 @@ fn exhaustive_deductions_drop_undeclared_qualifiers() {
              fn clear(list: Mut List<Int>) [] -> None => list: Mut {{\n}}\n\n\
              fn describe(list: NonEmpty Mut List<Int>) -> Int {{\n    \
              return list.size()\n}}\n\n\
-             fn main() [use] {{\n    use StdOutConsole\n    \
+             fn main() [use] {{\n    use StdConsole\n    \
              let xs = Mut List(1, 2)\n    \
              if xs is NonEmpty {{\n        clear(xs)\n        \
              println(\"${{describe(xs)}}\")\n    }}\n}}\n"
@@ -1756,7 +1756,7 @@ fn exhaustive_deductions_drop_undeclared_qualifiers() {
              => list: -NonEmpty {{\n}}\n\n\
              fn needs_checked(list: Checked List<Int>) -> Int {{\n    \
              return list.size()\n}}\n\n\
-             fn main() [use] {{\n    use StdOutConsole\n    \
+             fn main() [use] {{\n    use StdConsole\n    \
              let xs = List(1, 2)\n    \
              if xs is NonEmpty Checked {{\n        forget_nonempty(xs)\n        \
              println(\"${{needs_checked(xs)}}\")\n    }}\n}}\n"
@@ -1784,7 +1784,7 @@ fn exhaustive_deductions_drop_undeclared_qualifiers() {
              qualifier Checked of List<Int> {{\n    \
              fn qualifies(list: List<Int>) -> Bool {{\n        \
              return true\n    }}\n}}\n\n\
-             fn main() [use] {{\n    use StdOutConsole\n    \
+             fn main() [use] {{\n    use StdConsole\n    \
              let xs = Mut List(1)\n    \
              if xs is Checked {{\n        touch(xs)\n        \
              println(\"${{describe(xs)}}\")\n    }}\n}}\n"
@@ -1931,7 +1931,7 @@ fn bodyless_declarations_must_be_explicit() {
          effect Sink {\n    fn eat(h: Handle) -> None => !h\n}\n\n\
          handler Bin of Sink {\n    fn eat(h: Handle) -> None => !h {\n        \
          discard(h)\n    }\n}\n\n\
-         fn main() [use] -> None {\n    use StdOutConsole\n    use Bin\n    \
+         fn main() [use] -> None {\n    use StdConsole\n    use Bin\n    \
          let h = Handle {id: 1}\n    eat(h)\n    println(\"${h.id}\")\n}\n",
     )
     .unwrap();
@@ -1954,7 +1954,7 @@ fn std_add_consumes_its_element() {
     fs::write(
         dir.join("main.sv"),
         "struct Handle {\n    id: Int\n}\n\n\
-         fn main() [use] -> None {\n    use StdOutConsole\n    \
+         fn main() [use] -> None {\n    use StdConsole\n    \
          let xs = Mut List(Handle {id: 1})\n    \
          let h = Handle {id: 2}\n    add(xs, h)\n    \
          println(\"${h.id}\")\n}\n",
@@ -2100,7 +2100,7 @@ fn a_kept_parameter_takes_a_borrowed_union_arm() {
         "fn show(step: Emitted Str | Finished) [Console] -> None {\n    \
          when step {\n        is Emitted { println(step) }\n        is Finished { println(\"done\") }\n    }\n}\n\n\
          fn keep(step: Emitted Str | Finished) [] -> None => !step {\n}\n\n\
-         fn main() [use] {\n    use StdOutConsole()\n    \
+         fn main() [use] {\n    use StdConsole()\n    \
          let words = List(\"ann\", \"bo\")\n    let p = iter(words)\n    show(next(p))\n    keep(next(p))\n}\n",
     )
     .unwrap();
@@ -2138,7 +2138,7 @@ fn a_combinator_result_is_a_view_of_its_container() {
          at = at + 1\n    return emitted(\"x\")\n}\n\n\
          fn keep_all<It, T>(it: Mut It, ?Yield<It, T>) -> Mut List<T> => it: Mut {\n    \
          let out = Mut List<T>()\n    for x in it {\n        add(out, x)\n    }\n    return out\n}\n\n\
-         fn main() [use] {\n    use StdOutConsole()\n    \
+         fn main() [use] {\n    use StdConsole()\n    \
          let words = List(\"ann\", \"bo\")\n    \
          let p = iter(words)\n    \
          let kept = map(p, keep)\n    \
@@ -2148,7 +2148,7 @@ fn a_combinator_result_is_a_view_of_its_container() {
          println(\"${size(more)}\")\n    \
          let free = keep_all(iter(Chars {n: 2}))\n    \
          println(\"${size(free)}\")\n    \
-         let parts = Mut List(mut_str(\"a\"))\n    \
+         let parts = Mut List(Mut Str(\"a\"))\n    \
          let e = get(parts, 0)!\n    \
          let n: Int = copy(e)\n}\n",
     )
@@ -2197,7 +2197,7 @@ fn a_capturing_lambda_is_a_view_of_its_captures() {
     fs::write(
         dir.join("main.sv"),
         "fn eat(xs: List<Str>) -> None => !xs {}\n\n\
-         fn main() [use] {\n    use StdOutConsole()\n    \
+         fn main() [use] {\n    use StdConsole()\n    \
          // 1. capture-free: the one-liner binds with no links\n    \
          let words = List(\"ann\", \"bo\")\n    \
          let p = iter(words)\n    \
@@ -2247,7 +2247,7 @@ fn a_written_proj_entry_narrows_the_instantiation_link() {
          fn keep_all<It, T>(it: Mut It, labels: List<Str>, ?Yield<It, T>) \
          -> Mut List<T> holds proj(it) => it: Mut, labels {\n    \
          let out = Mut List<T>()\n    for x in it {\n        add(out, x)\n    }\n    return out\n}\n\n\
-         fn main() [use] {\n    use StdOutConsole()\n    \
+         fn main() [use] {\n    use StdConsole()\n    \
          let words = List(\"ann\", \"bo\")\n    \
          let tags = List(\"x\")\n    \
          let kept = keep_all(iter(words), tags)\n    \
@@ -2288,7 +2288,7 @@ fn an_fs_failure_must_be_acknowledged() {
     let program = |body: &str| {
         format!(
             "import fs\nimport fs.path\nimport fs.host\nimport stream.host\n\n\
-             fn main() [use] -> None {{\n    use StdOutConsole()\n    \
+             fn main() [use] -> None {{\n    use StdConsole()\n    \
              use HostRawStreams()\n    use DefaultStreams()\n    \
              use HostRawFs()\n    use DefaultFs()\n    \
              let text = read_to_str(path(\"nope.txt\"))\n    \
@@ -2338,7 +2338,7 @@ fn a_spare_lend_on_an_opaque_slot_warns_once() {
         format!(
             "fn total<C, It, T>(c: C, ?iter: {slot}, ?Yield<It, T>) -> Int\n=> c {{\n    \
              let n = 0\n    for _ in iter(c) {{\n        n = n + 1\n    }}\n    return n\n}}\n\n\
-             fn main() [use] -> None {{\n    use StdOutConsole()\n    \
+             fn main() [use] -> None {{\n    use StdConsole()\n    \
              println(\"${{total(List(\"a\", \"b\"))}}\")\n}}\n"
         )
     };
@@ -2378,7 +2378,7 @@ fn a_spare_lend_on_an_opaque_slot_warns_once() {
         "fn walk<T>(xs: List<T>, ?iter: (c: List<T>) -> Mut ListYield<T> holds proj(c)) -> Int\n\
          => xs {\n    let n = 0\n    for _ in iter(xs) {\n        n = n + 1\n    }\n    \
          return n\n}\n\n\
-         fn main() [use] -> None {\n    use StdOutConsole()\n    \
+         fn main() [use] -> None {\n    use StdConsole()\n    \
          println(\"${walk(List(1, 2, 3))}\")\n}\n",
     )
     .unwrap();

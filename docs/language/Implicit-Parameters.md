@@ -224,7 +224,7 @@ its own rather than a claim on a list:
 
 ```
 struct Ranked<T>(?cmp: (T, T) -> Int) canbe Mut {
-    items: canbe Mut List<T>
+    items: List<T> canbe Mut
 }
 
 fn push<T>(r: Mut Ranked<T>(?cmp), x: T) -> None => r: Mut, !x { … }
@@ -291,7 +291,7 @@ Using it:
 import heap
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let h = heap_of(5, 1, 4)           // Heap<Int>(cmp) NonEmpty Mut List<Int>
     push(h, 0)
     println("${peek(h)}")              // 0 — under the ordering it was built with

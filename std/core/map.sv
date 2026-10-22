@@ -175,7 +175,7 @@ platform fn into_values<K, V canbe linear>(map: Map<K, V>) [] -> List<V> => !map
 // tells apart by its argument [implicit-resolve-body].
 export fn to_str<K, V>(map: Map<K, V>(?hash, ?eq), ?to_str: (k: K) -> Str, ?to_str: (v: V) -> Str) [] -> Str
 => map {
-    let out = mut_str("{")
+    let out = Mut Str("{")
     let i = 0
     for k in map {
         if i > 0 {

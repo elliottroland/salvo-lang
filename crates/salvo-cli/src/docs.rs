@@ -180,13 +180,13 @@ pub fn field_section(fields: &[FieldDecl], scope: &DocScope) -> Option<String> {
         out.push_str(&format!(
             "\n- `{}: {}{}{}`",
             field.name.name,
-            if field.canbe_mut { "canbe Mut " } else { "" },
             // [state-infer] An inferred state field shows `_` where the type
             // would be — the type is whatever the initializer resolves to.
             match &field.ty {
                 Some(t) => t.to_string(),
                 None => "_".to_string(),
             },
+            if field.canbe_mut { " canbe Mut" } else { "" },
             default
         ));
         if let Some(doc) = render(&field.docs, scope) {

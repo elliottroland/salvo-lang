@@ -488,16 +488,23 @@ fn run(xs: Mut List<Person>) [] -> Int => xs: Mut {
 /// restate. (The precedent for loading std in a `salvo-core` test is
 /// `diag_tests`' `check_errors`.)
 fn std_errors(src: &str) -> Vec<String> {
+    std_errors_in(&[("main.sv", src)])
+}
+
+/// [`std_errors`] over several program files.
+fn std_errors_in(files: &[(&str, &str)]) -> Vec<String> {
     let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../std");
     let mut sources = SourceSet::default();
     let io_errors = sources.add_dir(&std_dir, "rs", true, false);
     assert!(io_errors.is_empty(), "failed to read std: {io_errors:?}");
-    sources.add(
-        "main.sv",
-        SourceSet::classify(Path::new("main.sv")).unwrap(),
-        src.to_string(),
-        false,
-    );
+    for (name, src) in files {
+        sources.add(
+            *name,
+            SourceSet::classify(Path::new(name)).unwrap(),
+            src.to_string(),
+            false,
+        );
+    }
     let mut modules = Vec::with_capacity(sources.files.len());
     for file in &sources.files {
         let (ast, diagnostics) = salvo_syntax::parse_module(&file.content);
@@ -808,7 +815,7 @@ fn f(h: Ranked<Person, Int>(by_age) Mut List<Person>) [] -> Int => h {
 fn a_written_lend_narrows_which_arguments_the_result_holds() {
     let errs = std_errors(
         "fn main() [use] -> None {\n    \
-         use StdOutConsole()\n    \
+         use StdConsole()\n    \
          let words: List<Str> = List(\"a\", \"bb\")\n    \
          let limits: Mut List<Int> = Mut List(1)\n    \
          let p = iter(words)\n    \
@@ -830,7 +837,7 @@ fn a_written_lend_still_links_the_source_it_names() {
         "fn eat(words: List<Str>) [] -> None => !words {\n    \
          return None\n}\n\
          fn main() [use] -> None {\n    \
-         use StdOutConsole()\n    \
+         use StdConsole()\n    \
          let words: List<Str> = List(\"a\", \"bb\")\n    \
          let p = iter(words)\n    \
          let long = filter(p, (s: Str) -> { return size(s) > 1 })\n    \
@@ -857,7 +864,7 @@ fn a_written_lend_still_links_the_source_it_names() {
 fn a_bare_literal_argument_determines_a_type_argument() {
     let errs = std_errors(
         "fn main() [use] -> None {\n    \
-         use StdOutConsole()\n    \
+         use StdConsole()\n    \
          let a = to_set(List(1, 2))\n    \
          let b = to_list(Set(3, 4))\n    \
          let c = to_set(List(\"x\", \"y\"))\n    \
@@ -873,7 +880,7 @@ fn a_bare_literal_argument_determines_a_type_argument() {
 fn an_empty_literal_argument_still_needs_its_type() {
     let errs = std_errors(
         "fn main() [use] -> None {\n    \
-         use StdOutConsole()\n    \
+         use StdConsole()\n    \
          let a = to_set(List())\n    \
          println(\"${size(a)}\")\n}\n",
     );
@@ -889,7 +896,7 @@ fn an_empty_literal_argument_still_needs_its_type() {
 /// parameter [cmp-binder].
 const RANKED: &str = r#"
 struct Ranked<T>(?cmp: (T, T) -> Int) canbe Mut {
-    items: canbe Mut List<T>
+    items: List<T> canbe Mut
 }
 
 fn ranked<T>(?cmp: (T, T) -> Int) [] -> Mut Ranked<T>(?cmp) {
@@ -1072,4 +1079,121 @@ fn conditional_response_narrows_and_is_proof_checked() {
         moved.iter().any(|e| e.contains("moves it")),
         "a moved subject is refused: {moved:?}"
     );
+}
+
+// ===== [col-key-eligible] where a key's own identity is required =====
+
+/// [col-key-eligible] [cmp-carry] A key needs its **own** `hash`/`eq` only
+/// where the identity is resolved by name. Written identities, binders and a
+/// `let` pattern the initializer fills all say where the identity comes from,
+/// so a struct with none of its own is a key there — the annotation and the
+/// call it types agree (found 2026-10-20: the call was accepted and the same
+/// value's annotation refused).
+#[test]
+fn a_written_identity_makes_any_struct_a_key() {
+    let errs = std_errors(
+        r#"
+struct P { x: Int }
+
+fn my_hash(v: P) [] -> Long => v { return hash(v.x) }
+fn my_eq(a: P, b: P) [] -> Bool => a, b { return a.x == b.x }
+
+fn count(s: Set<P>(?hash, ?eq)) [] -> Int => s { return size(s) }
+
+fn run() [] -> Int {
+    let s = Mut Set<P>(hash = my_hash, eq = my_eq)
+    let t: Mut Set<P> = Mut Set(hash = my_hash, eq = my_eq)
+    let u: Mut Set<P>(my_hash, my_eq) = Mut Set(hash = my_hash, eq = my_eq)
+    return count(s) + count(t) + count(u)
+}
+"#,
+    );
+    assert!(errs.is_empty(), "{errs:?}");
+    // Where nothing is written the key's own pair is still required, and the
+    // refusal names the clause that stamps one.
+    let errs = std_errors("struct P { x: Int }\n\nfn count(s: Set<P>) [] -> Int => s { return size(s) }\n");
+    assert!(
+        errs.iter().any(|e| e.contains("`P` cannot be a key") && e.contains("Hashed<self> by auto")),
+        "{errs:?}"
+    );
+}
+
+/// [col-key-eligible] What no identity fixes is refused however the identity
+/// is given, and once: a float key with a hand-written pair, and `Set(1.5)`
+/// whose constructor would otherwise also report the `hash` it cannot find.
+#[test]
+fn an_intrinsically_ineligible_key_is_refused_once() {
+    let errs = std_errors(
+        r#"
+fn dh(d: Double) [] -> Long => d { return 1L }
+fn de(a: Double, b: Double) [] -> Bool => a, b { return a == b }
+
+fn run() [] -> Int {
+    let t = Mut Set<Double>(hash = dh, eq = de)
+    return size(t)
+}
+"#,
+    );
+    assert!(errs.iter().any(|e| e.contains("`Double` cannot be a key")), "{errs:?}");
+    let errs = std_errors("fn run() [] -> Int {\n    let s = Set(1.5)\n    return size(s)\n}\n");
+    assert_eq!(errs.len(), 1, "one mistake, one diagnostic: {errs:?}");
+    assert!(errs[0].contains("`Double` cannot be a key"), "{errs:?}");
+}
+
+// ===== [cmp-carry] an identity is a declaration =====
+
+/// The program of ROADMAP §0n's aliasing defect: two modules each declare a
+/// `my_hash` (and `my_eq`) for one `P` and build sets with them.
+const TWO_HASHES: [(&str, &str); 3] = [
+    ("p.sv", "export struct P : Hashed<self> by auto { x: Int }\n"),
+    (
+        "a.sv",
+        "import p.P\n\
+         export fn my_hash(v: P) [] -> Long => v { return hash(v.x) }\n\
+         export fn my_eq(l: P, r: P) [] -> Bool => l, r { return l.x == r.x }\n\
+         export fn make_a() [] -> Mut Set<P>(my_hash, my_eq) {\n    return Mut Set<P>(hash = my_hash, eq = my_eq)\n}\n",
+    ),
+    (
+        "b.sv",
+        "import p.P\n\
+         fn my_hash(v: P) [] -> Long => v { return 7L }\n\
+         fn my_eq(l: P, r: P) [] -> Bool => l, r { return true }\n\
+         export fn make_b() [] -> Mut Set<P>(my_hash, my_eq) {\n    return Mut Set<P>(hash = my_hash, eq = my_eq)\n}\n",
+    ),
+];
+
+/// [cmp-carry] [cmp-binder] Two modules' same-named fns are **two
+/// identities**: one binder cannot hold both, and the types name each by its
+/// module (found 2026-10-20 — they compared equal by name, and the binder was
+/// filled with the reading module's `my_hash`, a silently wrong program).
+#[test]
+fn same_named_identities_of_two_modules_are_two() {
+    let main = "import p.P\nimport a.make_a\nimport a.my_hash\nimport b.make_b\n\n\
+                fn same(x: Mut Set<P>(?hash, ?eq), y: Mut Set<P>(?hash, ?eq)) [] -> None => x, y {}\n\n\
+                fn run() [] -> None {\n    same(make_a(), make_b())\n}\n";
+    let mut files = TWO_HASHES.to_vec();
+    files.push(("main.sv", main));
+    let errs = std_errors_in(&files);
+    assert!(
+        errs.iter().any(|e| e.contains("Mut Set<P>(my_hash@a, my_eq@a)") && e.contains("Mut Set<P>(my_hash@b, my_eq@b)")),
+        "expected the two identities refused, each named by its module: {errs:?}"
+    );
+}
+
+/// [cmp-binder] A binder filled from a value's identity calls **that**
+/// declaration, wherever the value is read: `b`'s private `my_hash` reaches a
+/// file that imports `a`'s under the same name, and one that imports neither.
+#[test]
+fn an_identity_resolves_in_its_declaring_module() {
+    for imports in ["import a.my_hash\nimport a.my_eq\n", ""] {
+        let main = format!(
+            "import p.P\nimport b.make_b\n{imports}\n\
+             fn has(x: Mut Set<P>(?hash, ?eq), v: P) [] -> Bool => x, v {{ return contains(x, v) }}\n\n\
+             fn run() [] -> Bool {{\n    return has(make_b(), P {{ x: 1 }})\n}}\n"
+        );
+        let mut files = TWO_HASHES.to_vec();
+        files.push(("main.sv", &main));
+        let errs = std_errors_in(&files);
+        assert!(errs.is_empty(), "with `{imports}`: {errs:?}");
+    }
 }

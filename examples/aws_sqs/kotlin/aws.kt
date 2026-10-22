@@ -79,7 +79,7 @@ object __Codec_AwsError : salvo.WireCodec<AwsError> {
 }
 
 fun toStr(value: ProfileCredentials): String {
-    val out: salvo.platform.core.string.MutStr = salvo.core.string.mutStr(arrayOf<String>("ProfileCredentials {"))
+    val out: salvo.platform.core.string.MutStr = salvo.core.string.Mut_Str(arrayOf<String>("ProfileCredentials {"))
     salvo.core.string.appendPlatform(out, " ")
     salvo.core.string.appendPlatform(out, "profile: ${value.profile}")
     salvo.core.string.appendPlatform(out, ", ")

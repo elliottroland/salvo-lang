@@ -94,7 +94,7 @@ fun aQueueOfTickets(console: salvo.core.console.Console) {
 }
 
 fun main() {
-    val __use_1: salvo.core.console.__Platform_StdOutConsole = salvo.core.console.__Platform_StdOutConsole()
+    val __use_1: salvo.core.console.__Platform_StdConsole = salvo.core.console.__Platform_StdConsole()
     val __handle_2: salvo.core.console.Console = __use_1
     oneUse(__handle_2)
     borrowThenUse(__handle_2)

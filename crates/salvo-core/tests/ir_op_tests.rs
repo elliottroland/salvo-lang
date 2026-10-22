@@ -18,7 +18,7 @@ fn bigger<T>(a: T, b: T, ?Ordered<T>) -> Bool => a, b {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     let i = 3
     let l: Long = 4
     let d = 1.5

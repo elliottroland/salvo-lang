@@ -58,7 +58,7 @@ There is no equivalent to Rust's string literal type `str`.
 A string being immutable does not mean building one has to be quadratic: `Str` opts into the `Mut` auto-qualifier ([Qualifiers](Qualifiers.md)), so `Mut Str` is *a string under construction*. It is asked for explicitly — a literal is never a `Mut Str` — and it is the only place the string functions come in a mutating flavour:
 
 ```
-let text: Mut Str = mut_str("hello")
+let text: Mut Str = Mut Str("hello")
 append(text, ", world")
 set(text, 0, 'H')          // answers whether it wrote; ignorable
 println(text)              // Hello, world

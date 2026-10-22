@@ -20,7 +20,7 @@ handler CyclicRandom<T>(values: T[]) of Random<T> {
     }
 }
 
-handler StdOutConsole of Console {
+handler StdConsole of Console {
     fn println(message: Str) -> None {
     }
 }

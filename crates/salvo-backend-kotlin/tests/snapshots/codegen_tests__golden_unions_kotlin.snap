@@ -167,6 +167,8 @@ import salvo.*
 
 interface Console {
     fun print(message: String)
+    fun printerr(message: String)
+    fun readln(): String?
 }
 
 class __Mon_Console(
@@ -178,18 +180,32 @@ class __Mon_Console(
         lock.lock()
         try { inner.print(message) } finally { lock.unlock() }
     }
+    override fun printerr(message: String) {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.printerr(message) } finally { lock.unlock() }
+    }
+    override fun readln(): String? {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.readln() } finally { lock.unlock() }
+    }
 }
 
 interface ConsolePlatform {
     fun print(message: String)
+    fun printerr(message: String)
+    fun readln(): String?
 }
 
 open class __Platform_Console(private val impl: ConsolePlatform) : Console {
     override fun print(message: String) = impl.print(message)
+    override fun printerr(message: String) = impl.printerr(message)
+    override fun readln(): String? = impl.readln()
 }
 
 
-class __Platform_StdOutConsole() : __Platform_Console(salvo.platform.core.console.StdOutConsole())
+class __Platform_StdConsole() : __Platform_Console(salvo.platform.core.console.StdConsole())
 
 fun println(console: Console, message: String) {
     console.print(message)
@@ -767,7 +783,7 @@ fun<T> next__Iter_enumerate_rev_List(__p: __Iter_enumerate_rev_List<T>): Union2<
 }
 
 fun<T> toStr(list: List<T>, toStr: (T) -> String): String {
-    val out: salvo.platform.core.string.MutStr = salvo.core.string.mutStr(arrayOf<String>("["))
+    val out: salvo.platform.core.string.MutStr = salvo.core.string.Mut_Str(arrayOf<String>("["))
     var i: Int = 0
     for (x in salvo.platform.core.list.each(list)) {
         if ((i > 0)) {
@@ -880,7 +896,7 @@ fun<K, V> drain(map: salvo.platform.core.map.Map<K, V>, each: (V) -> Unit) {
 fun<K, V> intoValuesPlatform(map: salvo.platform.core.map.Map<K, V>): List<V> = salvo.platform.core.map.intoValues(map)
 
 fun<K, V> toStr(map: salvo.platform.core.map.Map<K, V>, toStr: (K) -> String, toStr__1: (V) -> String, hash: (K) -> Long, eq: (K, K) -> Boolean): String {
-    val out: salvo.platform.core.string.MutStr = salvo.core.string.mutStr(arrayOf<String>("{"))
+    val out: salvo.platform.core.string.MutStr = salvo.core.string.Mut_Str(arrayOf<String>("{"))
     var i: Int = 0
     for (k in salvo.platform.core.map.each(map)) {
         if ((i > 0)) {
@@ -1075,7 +1091,7 @@ fun<T> containsPlatform(set: salvo.platform.core.set.Set<T>, elem: T, hash: (T) 
 fun<T> sizePlatform(set: salvo.platform.core.set.Set<T>): Int = salvo.platform.core.set.size(set)
 
 fun<T> toStr(set: salvo.platform.core.set.Set<T>, toStr: (T) -> String): String {
-    val out: salvo.platform.core.string.MutStr = salvo.core.string.mutStr(arrayOf<String>("{"))
+    val out: salvo.platform.core.string.MutStr = salvo.core.string.Mut_Str(arrayOf<String>("{"))
     var i: Int = 0
     for (x in salvo.platform.core.set.each(set)) {
         if ((i > 0)) {
@@ -1170,7 +1186,7 @@ fun<T> maxPlatform(set: salvo.platform.core.sorted.SortedSet<T>): T? = salvo.pla
 fun<T> toListPlatform(set: salvo.platform.core.sorted.SortedSet<T>): List<T> = salvo.platform.core.sorted.toList(set)
 
 fun<T> toStr__SortedSet(set: salvo.platform.core.sorted.SortedSet<T>, toStr: (T) -> String): String {
-    val out: salvo.platform.core.string.MutStr = salvo.core.string.mutStr(arrayOf<String>("{"))
+    val out: salvo.platform.core.string.MutStr = salvo.core.string.Mut_Str(arrayOf<String>("{"))
     var i: Int = 0
     for (x in salvo.platform.core.sorted.eachSortedSet(set)) {
         if ((i > 0)) {
@@ -1212,7 +1228,7 @@ fun<K, V> lastKeyPlatform(map: salvo.platform.core.sorted.SortedMap<K, V>): K? =
 fun<K, V> keysPlatform(map: salvo.platform.core.sorted.SortedMap<K, V>): List<K> = salvo.platform.core.sorted.keys(map)
 
 fun<K, V> toStr__SortedMap(map: salvo.platform.core.sorted.SortedMap<K, V>, toStr: (K) -> String, toStr__1: (V) -> String, cmp: (K, K) -> Int): String {
-    val out: salvo.platform.core.string.MutStr = salvo.core.string.mutStr(arrayOf<String>("{"))
+    val out: salvo.platform.core.string.MutStr = salvo.core.string.Mut_Str(arrayOf<String>("{"))
     var i: Int = 0
     for (k in salvo.platform.core.sorted.eachSortedMap(map)) {
         if ((i > 0)) {
@@ -1356,7 +1372,7 @@ package salvo.core.string
 
 import salvo.*
 
-fun mutStr(parts: Array<String>): salvo.platform.core.string.MutStr {
+fun Mut_Str(parts: Array<String>): salvo.platform.core.string.MutStr {
     val out: salvo.platform.core.string.MutStr = emptyStrPlatform()
     for (part in parts) {
         appendPlatform(out, part)
@@ -1474,7 +1490,7 @@ fun isEmpty(str: String): Boolean {
 }
 
 fun repeat(str: String, n: Int): String {
-    val out: salvo.platform.core.string.MutStr = mutStr(arrayOf<String>())
+    val out: salvo.platform.core.string.MutStr = Mut_Str(arrayOf<String>())
     var i: Int = 0
     while (true) {
         if (!((i < n))) {
@@ -1585,7 +1601,7 @@ fun describe(result: Union2<Int, String>): String {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun main() {
-    val __use_1: salvo.core.console.__Platform_StdOutConsole = salvo.core.console.__Platform_StdOutConsole()
+    val __use_1: salvo.core.console.__Platform_StdConsole = salvo.core.console.__Platform_StdConsole()
     val __handle_2: salvo.core.console.Console = __use_1
     val good: Union2<Int, String> = parseAge(36)
     salvo.core.console.println(__handle_2, describe(good))
@@ -2112,8 +2128,11 @@ class MutListCodec<T>(private val elem: WireCodec<T>) : WireCodec<MutableList<T>
     }
 }
 
-/** An optional — `T?`, or a union with a `None` arm — is a presence byte. */
-class OptCodec<T : Any>(private val inner: WireCodec<T>) : WireCodec<T?> {
+/** An optional — `T?`, or a union with a `None` arm — is a presence byte. `T`
+ * is unbounded, as Rust's `impl<T: __Wire> __Wire for Option<T>` is: a generic
+ * struct's codec holds a `WireCodec<T>` for a `T` Kotlin cannot prove
+ * non-null [kt-wire]. */
+class OptCodec<T>(private val inner: WireCodec<T>) : WireCodec<T?> {
     override fun enc(v: T?, out: WireOut) {
         if (v == null) {
             out.u8(0)
@@ -2170,13 +2189,25 @@ object SalvoTime {
 }
 
 // ===== platform/core/console.kt =====
-// [platform-tree] std's console, for `core.console`'s
-// `threadsafe platform handler StdOutConsole` (ROADMAP 0.5): standard output.
+// [platform-tree] [console] std's console, for `core.console`'s
+// `threadsafe platform handler StdConsole` (ROADMAP 0.5): standard output,
+// standard error, and standard input a line at a time.
 package salvo.platform.core.console
 
-class StdOutConsole : salvo.core.console.ConsolePlatform {
+class StdConsole : salvo.core.console.ConsolePlatform {
     override fun print(message: String) {
         kotlin.io.print(message)
+    }
+
+    override fun printerr(message: String) {
+        System.err.print(message)
+        System.err.flush()
+    }
+
+    override fun readln(): String? {
+        // A prompt printed without a newline is still in stdout's buffer.
+        System.out.flush()
+        return readlnOrNull()
     }
 }
 

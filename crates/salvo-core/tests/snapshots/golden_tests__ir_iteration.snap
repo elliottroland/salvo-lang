@@ -10,7 +10,7 @@ fn main::describe_container(lent console: Console; lent xs: List<Int>) -> None {
     assign sum = (read sum + read n)
   }
   call core.console::println(read console, concat("1. list of ", call core.basic::to_str(Int)(call core.list::size<Int>(read xs)), " sums to ", call core.basic::to_str(Int)(read sum)))
-  bind#3 let letters: Mut Str = call core.string::mut_str(array[Str[]]())
+  bind#3 let letters: Mut Str = call core.string::Mut_Str(array[Str[]]())
   foreach#4 c: Char in "salvo" {
     call core.string::append(read letters, concat(call core.basic::to_str(Char)(read c), "."))
   }
@@ -209,7 +209,7 @@ fn main::first<__It0>(lent_mut it: Mut __It0; ?lent next: (Mut __It0) -> Int | F
 }
 
 fn main::main() -> None {
-  bind#1 let __use~1: StdOutConsole = construct StdOutConsole { }
+  bind#1 let __use~1: StdConsole = construct StdConsole { }
   bind#2 let __handle~2: Console = read __use~1
   bind#3 let xs: List<Int> = call core.list::List(T, T[])<Int>(1, array[Int[]](2, 3, 4))
   call main::describe_container(read __handle~2, read xs)
@@ -323,7 +323,7 @@ fn main::main() -> None {
     value (read n * 10)
   }, fn core.list::add, fn main::next(Mut Countdown))
   call core.console::println(read __handle~2, concat("6. collected ", call core.basic::to_str(Int)(call core.list::size<Int>(drop_mut(read collected)))))
-  bind#46 let evens: Mut Str = call core.string::mut_str(array[Str[]]())
+  bind#46 let evens: Mut Str = call core.string::Mut_Str(array[Str[]]())
   bind#48 let __pass~18: Mut __Iter_range_Int_Int_Int = call core.range::range(Int, Int, Int)(0, 10, 2)
   loop#47 {
     bind#49 let __step~19: Int | Finished = call core.range::next(read __pass~18)

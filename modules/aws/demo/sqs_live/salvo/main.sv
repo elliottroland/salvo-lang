@@ -23,7 +23,7 @@ fn say(what: Str, e: SqsFailure) [Console] -> None => what, e {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     use HostSqs(AwsConfig {
         credentials: ProfileCredentials {},
         region: Region { code: "eu-west-1" },

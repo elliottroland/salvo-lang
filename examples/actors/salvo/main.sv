@@ -182,7 +182,7 @@ fn report_line(counter: eff[Counter], label: Str, out: Reply<Str>) [] -> None
 }
 
 fn main() [use, spawn] {
-    use StdOutConsole()
+    use StdConsole()
 
     // A pool is an ordinary value: one pool, several actors on it.
     let workers = pool(2)

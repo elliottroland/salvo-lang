@@ -55,9 +55,9 @@ thing that produces one, and you reach it by calling the effect's members
 rather than by holding the handler:
 
 ```
-let c: Console = StdOutConsole()   // error: `Console` is an effect, not a data type
-let h = StdOutConsole()            // error: `StdOutConsole` is a handler, not a value
-use StdOutConsole()                // this is how you register it
+let c: Console = StdConsole()   // error: `Console` is an effect, not a data type
+let h = StdConsole()            // error: `StdConsole` is a handler, not a value
+use StdConsole()                // this is how you register it
 println("...")                     // and this is how you use it
 ```
 
@@ -123,7 +123,7 @@ A standard capability for writing command-line tools. Reading the process's argu
 import args
 
 fn main() [use] -> None {
-    use StdOutConsole()
+    use StdConsole()
     use HostArgs()                      // the host's argv
     for arg in args() {
         println(arg)
@@ -147,7 +147,7 @@ handler ConsoleLogger [Console] of Logger {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     use ConsoleLogger                   // the Console is not written here
     log("hello")
 }
@@ -167,7 +167,7 @@ handler Loud [Greeter] of Greeter {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     use Plain                           // greet -> "hello world"
     use Loud                            // greet -> "hello world!"
     println(greet("world"))
@@ -339,7 +339,7 @@ fn tally(n: Int) [Tally] -> None {
 
 A `use` makes one value — the **handle** of the instance — and everything downstream is that value or a copy of it: a function's `[E]` parameter, a dependent handler's captured dependency, a spawn's or task's inherited effect, a fn value's effect (user decision 2026-09-28: *one shape*, after a round that had distinguished shareable from scope-local bindings). A `use` of an addr or of a spawn expression is already a handle.
 
-The one thing a handle asks of a handler is whether it is **stateful**. A stateless handler — no `state` fields, no `replyto` mint, no stored function value — runs its members on the shared instance with nothing held: `StdOutConsole`, a pure forwarder, the send stub behind a bound `eff[E]`, a mixed handler's façade. A stateful one runs them under a lock through its handle — a **monitor**, `let h = spawn H(args); use h` in effect — so two spawns capturing the same stateful binding share its state, exactly as they would through an addr. The distinction is read off the declaration and is the same on both backends; a `platform handler` states it with `threadsafe` ([Backends](Backends.md)), since the compiler cannot see a host's fields.
+The one thing a handle asks of a handler is whether it is **stateful**. A stateless handler — no `state` fields, no `replyto` mint, no stored function value — runs its members on the shared instance with nothing held: `StdConsole`, a pure forwarder, the send stub behind a bound `eff[E]`, a mixed handler's façade. A stateful one runs them under a lock through its handle — a **monitor**, `let h = spawn H(args); use h` in effect — so two spawns capturing the same stateful binding share its state, exactly as they would through an addr. The distinction is read off the declaration and is the same on both backends; a `platform handler` states it with `threadsafe` ([Backends](Backends.md)), since the compiler cannot see a host's fields.
 
 The motivating goal is *spawn-inheritance*: for `spawn H on pool(2)` to pick up the scope's effects without re-declaration, a bare `[E]` in a signature has to be something that may cross a seam — and a handle is. Since every binding is one, nothing has to be annotated to be inherited, captured, or handed to a scheduled body, and a function called from inside a lambda declares `[E]` like any other.
 

@@ -3,7 +3,7 @@
 // compile-time code over a type's fields or arms, instantiated at a concrete
 // type by a `by` clause and never called as itself. What a body may know about
 // `T` is `core.comptime`'s model: `T.fields` is a `List<Field>`, `T.arms` a
-// `List<Arm>`, and a `[when field.type]` is a `when` over `Type`.
+// `List<Arm>`, and a `[when field.kind]` is a `when` over `Kind`.
 //
 // [obligation-by] `struct Point : Ordered<self> by auto, Hashed<self> by auto`
 // stamps `cmp`, `hash` and `eq` for `Point`, each declared on the type
@@ -63,7 +63,7 @@ export comptime fn hash<T is Struct>(value: T) [] -> Long => value {
 // backends, which is the whole reason the language fixes it rather than
 // deferring to `Debug` or `toString` [interp-to-str].
 export comptime fn to_str<T is Struct>(value: T) [] -> Str => value {
-    let out: Mut Str = mut_str("${T.name} {")
+    let out: Mut Str = Mut Str("${T.name} {")
     [for field in T.fields] {
         [if field.first] {
             append(out, " ")

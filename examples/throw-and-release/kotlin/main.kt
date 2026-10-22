@@ -97,7 +97,7 @@ fun report(console: salvo.core.console.Console, label: String, config: String) {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun main() {
-    val __use_1: salvo.core.console.__Platform_StdOutConsole = salvo.core.console.__Platform_StdOutConsole()
+    val __use_1: salvo.core.console.__Platform_StdConsole = salvo.core.console.__Platform_StdConsole()
     val __handle_2: salvo.core.console.Console = __use_1
     val small: Int = readSize(__handle_2, "notes.txt", 3)
     salvo.core.console.println(__handle_2, "1. read ${small}")

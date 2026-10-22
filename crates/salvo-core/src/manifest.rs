@@ -20,6 +20,11 @@
 //!
 //! [kotlin]
 //! target = "kotlin"
+//!
+//! [test]                 # `salvo test` (and the test step of `salvo build`)
+//! backend = "rust"       # over `[build] backend`, for tests only
+//! output = "failed"      # whose output the report shows: "all" or "failed"
+//! streams = "both"       # which of it: "stderr", or "both" (stdout too)
 //! ```
 //!
 //! [manifest-discovery] A file belongs to the **nearest ancestor** directory
@@ -98,6 +103,10 @@ pub struct Manifest {
     pub rust: RustSection,
     #[serde(default)]
     pub kotlin: KotlinSection,
+    /// [test-output] How `salvo test` runs: its backend and what of a test's
+    /// output the report shows.
+    #[serde(default)]
+    pub test: TestSection,
     /// [manifest-deps] Dependency name → required version. Sorted, so the
     /// load order is stable.
     #[serde(default)]
@@ -138,6 +147,20 @@ pub struct BuildSection {
     /// directory; a `[backend]` section's `platform` overrides it. No
     /// default: a project with platform files names where they are.
     pub platform: Option<String>,
+}
+
+/// [test-output] `[test]`: what `salvo test` does by default. A flag overrides
+/// each key.
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct TestSection {
+    /// `rust`, `kotlin`, or `*`: the backends tests run on, over `[build]
+    /// backend`.
+    pub backend: Option<String>,
+    /// `all` or `failed`: whose output the report shows.
+    pub output: Option<String>,
+    /// `stderr` or `both`: which streams of it.
+    pub streams: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -421,13 +444,30 @@ impl Project {
         let manifest: Manifest = toml::from_str(&text).map_err(|e| {
             format!("`{}`: {} [manifest]", path.display(), e.message())
         })?;
-        if let Some(b) = &manifest.build.backend {
-            if !matches!(b.as_str(), "rust" | "kotlin" | "*") {
-                return Err(format!(
-                    "`{}`: `[build] backend` is `{b}`; it names a backend (`rust`, `kotlin`) or \
-                     `*` for every backend [manifest]",
-                    path.display()
-                ));
+        for (section, b) in [("build", &manifest.build.backend), ("test", &manifest.test.backend)] {
+            if let Some(b) = b {
+                if !matches!(b.as_str(), "rust" | "kotlin" | "*") {
+                    return Err(format!(
+                        "`{}`: `[{section}] backend` is `{b}`; it names a backend (`rust`, \
+                         `kotlin`) or `*` for every backend [manifest]",
+                        path.display()
+                    ));
+                }
+            }
+        }
+        // [test-output] The two output keys, each a closed set.
+        for (key, value, allowed) in [
+            ("output", &manifest.test.output, &["all", "failed"][..]),
+            ("streams", &manifest.test.streams, &["stderr", "both"][..]),
+        ] {
+            if let Some(v) = value {
+                if !allowed.contains(&v.as_str()) {
+                    return Err(format!(
+                        "`{}`: `[test] {key}` is `{v}`; it is one of {} [test-output]",
+                        path.display(),
+                        allowed.iter().map(|a| format!("`{a}`")).collect::<Vec<_>>().join(", ")
+                    ));
+                }
             }
         }
         // [manifest-deps] A dependency has to be found somewhere.
@@ -511,7 +551,17 @@ impl Project {
     /// The backends `[build] backend` names: one, or both for `*`. `None`
     /// when the manifest is silent.
     pub fn backends(&self) -> Option<Vec<String>> {
-        match self.manifest.build.backend.as_deref() {
+        Self::named_backends(self.manifest.build.backend.as_deref())
+    }
+
+    /// [test-output] The backends tests run on: `[test] backend`, else
+    /// `[build] backend`.
+    pub fn test_backends(&self) -> Option<Vec<String>> {
+        Self::named_backends(self.manifest.test.backend.as_deref()).or_else(|| self.backends())
+    }
+
+    fn named_backends(written: Option<&str>) -> Option<Vec<String>> {
+        match written {
             None => None,
             Some("*") => Some(vec!["rust".to_string(), "kotlin".to_string()]),
             Some(b) => Some(vec![b.to_string()]),
@@ -685,5 +735,19 @@ mod tests {
     fn an_unknown_key_is_refused() {
         let text = "[build]\nsource = \"salvo\"\n";
         assert!(toml::from_str::<Manifest>(text).is_err());
+    }
+
+    /// [test-output] `[test]` names the tests' backend over `[build]`'s and the
+    /// report's output settings, each value from a closed set.
+    #[test]
+    fn the_test_section_overrides_the_build_backend() {
+        let p = Project::parse(Path::new("/p/salvo.toml"), "[build]\nbackend = \"*\"\n\n[test]\nbackend = \"rust\"\noutput = \"all\"\nstreams = \"stderr\"\n").unwrap();
+        assert_eq!(p.test_backends(), Some(vec!["rust".to_string()]));
+        assert_eq!(p.backends(), Some(vec!["rust".to_string(), "kotlin".to_string()]));
+        assert_eq!(p.manifest.test.output.as_deref(), Some("all"));
+        let p = Project::parse(Path::new("/p/salvo.toml"), "[build]\nbackend = \"kotlin\"\n").unwrap();
+        assert_eq!(p.test_backends(), Some(vec!["kotlin".to_string()]));
+        let err = Project::parse(Path::new("/p/salvo.toml"), "[test]\noutput = \"some\"\n").unwrap_err();
+        assert!(err.contains("`[test] output` is `some`") && err.contains("`all`, `failed`"), "{err}");
     }
 }

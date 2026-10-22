@@ -609,7 +609,7 @@ export iter fn enumerate_rev<T>(list: List<T>) -> Emitted Enumerated<T> | Finish
 // *elements* is the backend's own formatting, which is also why the element
 // type must render natively — a list of structs needs a `to_str` of your own.
 export fn to_str<T>(list: List<T>, ?to_str: (x: T) -> Str) [] -> Str => list {
-    let out = mut_str("[")
+    let out = Mut Str("[")
     let i = 0
     for x in list {
         if i > 0 {

@@ -48,7 +48,7 @@ use crate::aws::to_str;
 
 
 pub fn main() {
-    let mut __use_1: crate::core_console::__Platform_StdOutConsole = crate::core_console::__Platform_StdOutConsole::new();
+    let mut __use_1: crate::core_console::__Platform_StdConsole = crate::core_console::__Platform_StdConsole::new();
     let __handle_2 = crate::core_console::Console::shared(__use_1);
     let mut creds: crate::aws::ProfileCredentials = crate::aws::ProfileCredentials { profile: String::from("default"), path: String::from("~/.aws/credentials") };
     crate::core_console::println(&__handle_2, &format!("profile: {}", creds.profile));

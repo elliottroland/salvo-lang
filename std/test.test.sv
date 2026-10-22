@@ -57,7 +57,7 @@ test "a trapping body may register the handlers it needs" {
     // The body is a pure fn value, so it cannot *inherit* an effect from the
     // test — it registers its own, which is what the doc comment says to do.
     expect_trap(() -> {
-        use StdOutConsole()
+        use StdConsole()
         always_traps(4)
     }, "a body with an effect of its own")
 }

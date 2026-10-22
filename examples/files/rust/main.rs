@@ -98,6 +98,7 @@ use crate::stream::InStream;
 use crate::stream::InvalidUtf8;
 use crate::fs::IoError;
 use crate::stream::Lines;
+use crate::core_string::Mut_Str;
 use crate::fs::NotADirectory;
 use crate::fs::NotFound;
 use crate::stream::OutStream;
@@ -117,7 +118,6 @@ use crate::fs::copy_file;
 use crate::core_checked::detach;
 use crate::stream::lines;
 use crate::core_bytes::mut_bytes;
-use crate::core_string::mut_str;
 use crate::stream::next__Chunks;
 use crate::stream::next__Lines;
 use crate::fs::open_chunks;
@@ -378,7 +378,7 @@ pub fn workflow(fs: &crate::fs::Fs, console: &crate::core_console::Console, stre
     if matches!(lined, crate::unions::Union2::U1(_)) {
         let mut lined_39 = match lined { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
         let mut s: crate::stream::InStream = lined_39;
-        let mut line: String = crate::core_string::mut_str(vec![]);
+        let mut line: String = crate::core_string::Mut_Str(vec![]);
         let mut longest: i32 = 0i32;
         let mut reading: bool = true;
         loop {
@@ -530,7 +530,7 @@ pub fn sandbox_edges(fs: &crate::fs::Fs, console: &crate::core_console::Console,
 
 pub fn main() {
     crate::scheduler::salvo_set_protocols(vec![("Faults".to_string(), crate::core_actor::__PROTO_Faults.to_string())]);
-    let mut __use_1: crate::core_console::__Platform_StdOutConsole = crate::core_console::__Platform_StdOutConsole::new();
+    let mut __use_1: crate::core_console::__Platform_StdConsole = crate::core_console::__Platform_StdConsole::new();
     let __handle_2 = crate::core_console::Console::shared(__use_1);
     let mut __use_3: crate::stream_host::HostRawStreams = crate::stream_host::HostRawStreams::new();
     let __handle_4 = crate::stream_host::RawStreams::shared(__use_3);

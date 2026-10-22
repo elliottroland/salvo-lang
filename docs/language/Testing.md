@@ -116,6 +116,44 @@ salvo test --src . --list                         # enumerate, run nothing
 
 A test's **id** is the module a program would import, then the name as written: `heap :: an empty heap pops nothing`. The filter is a plain substring of that id, so one word selects a module, a test, or a family of tests. The command's exit code is what a build reads: nonzero when anything failed.
 
+**What a test prints** is shown under it in the report, indented, and the
+verdict line says again which test it was:
+
+```
+test calc :: a loud failure ...
+  fail line
+test calc :: a loud failure ... FAILED
+    expected 5, got 4
+```
+
+Two settings decide what is shown, each a flag or a key of the manifest's
+`[test]` section:
+
+- **Whose output**: `--output failed`, the default, holds a test's output and
+  shows it only when the test fails (or dies); `--output all` shows every
+  test's, as it is printed, so a `println` debug session works.
+- **Which output**: `--streams both`, the default, shows stdout and stderr;
+  `--streams stderr` shows only stderr, marked `[stderr]` — what `printerr`
+  wrote, and anything the host wrote there.
+
+A test runs with standard input closed: `readln()` in a test answers `None`.
+
+A test prints only with a console of its own — `use StdConsole()` in the
+test, as in any function that prints.
+
+The manifest's `[test]` section sets these for a project, and which backends
+the tests run on, over `[build] backend`:
+
+```toml
+[test]
+backend = "rust"     # "rust", "kotlin", or "*"
+output = "all"       # "all" or "failed"
+streams = "both"     # "stderr" or "both"
+```
+
+A flag overrides each key. `salvo build`'s test step reads `output` and
+`streams` too, and always tests the backend it builds.
+
 **A test that fails an assertion is a failed test, not a dead run.** An assertion traps, and a trap would ordinarily end the program — so the generated harness catches it and reports it like any other failure, with the trap's own message:
 
 ```
@@ -146,7 +184,7 @@ test "the message is available" {
 }
 ```
 
-The body is a plain fn value, so it does not inherit the test's effects — a body that needs one registers it itself (`() -> { use StdOutConsole(); … }`).
+The body is a plain fn value, so it does not inherit the test's effects — a body that needs one registers it itself (`() -> { use StdConsole(); … }`).
 
 An actor test's own frame is not inside that catch, because its body spawns and a fn value cannot. A trap there ends the program, and the runner reports the test as having died and re-runs the rest in a fresh process. A fault inside an actor is that actor's death, as anywhere.
 

@@ -4,6 +4,8 @@ import salvo.*
 
 interface Console {
     fun print(message: String)
+    fun printerr(message: String)
+    fun readln(): String?
 }
 
 class __Mon_Console(
@@ -15,18 +17,32 @@ class __Mon_Console(
         lock.lock()
         try { inner.print(message) } finally { lock.unlock() }
     }
+    override fun printerr(message: String) {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { inner.printerr(message) } finally { lock.unlock() }
+    }
+    override fun readln(): String? {
+        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        lock.lock()
+        try { return inner.readln() } finally { lock.unlock() }
+    }
 }
 
 interface ConsolePlatform {
     fun print(message: String)
+    fun printerr(message: String)
+    fun readln(): String?
 }
 
 open class __Platform_Console(private val impl: ConsolePlatform) : Console {
     override fun print(message: String) = impl.print(message)
+    override fun printerr(message: String) = impl.printerr(message)
+    override fun readln(): String? = impl.readln()
 }
 
 
-class __Platform_StdOutConsole() : __Platform_Console(salvo.platform.core.console.StdOutConsole())
+class __Platform_StdConsole() : __Platform_Console(salvo.platform.core.console.StdConsole())
 
 fun println(console: Console, message: String) {
     console.print(message)

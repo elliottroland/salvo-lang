@@ -47,6 +47,9 @@ pub struct Parser<'s> {
     /// position) is legal. Anywhere else each form is a parse error naming the
     /// scope it belongs to.
     in_compfn: bool,
+    /// [comptime-pattern] Inside the type after a comptime `is`: `*` is a
+    /// wildcard type there, and nowhere else.
+    in_comp_pattern: bool,
     /// [terminal-scope] True while parsing a statement's own expression at the
     /// top of a block, where a body-taking construct (`if`/`while`/`for`/
     /// `try`/`waitfor`) may write its body as a terminal `...` that runs to the
@@ -241,6 +244,7 @@ impl<'s> Parser<'s> {
             group_depth: 0,
             no_struct: false,
             in_compfn: false,
+            in_comp_pattern: false,
             allow_terminal: false,
             in_stmt_expr: false,
             pending_terminal_lambda: false,
@@ -1856,11 +1860,15 @@ impl<'s> Parser<'s> {
         self.expect(&TokenKind::KwFn)?;
         let name = self.ident_value("comptime fn")?;
         let mut bound = None;
-        if self.at(&TokenKind::Lt) {
+        // `<T is Struct>` / `<T is Union>` is a kind bound — a stamped fn.
+        // Any other `<…>` is an ordinary generics list, read with the rest
+        // of the signature: an expanded-in-place fn may be generic, and
+        // stays so (user decision 2026-10-20) [comptime-generic-fn].
+        if self.at(&TokenKind::Lt) && matches!(self.peek_at(2).kind, TokenKind::KwIs) {
             self.group_depth += 1;
             self.bump();
             // `<T is Struct>` / `<T is Union>`: the bound names an arm of
-            // `core.comptime`'s `Type`, spelled as the narrowing it is — the
+            // `core.comptime`'s `Kind`, spelled as the narrowing it is — the
             // same `is` a `[when field.type]` arm tests (user decision
             // 2026-09-29).
             let param = self.ident_type("type parameter")?;
@@ -1981,9 +1989,13 @@ impl<'s> Parser<'s> {
             });
         }
         self.expect(&TokenKind::Colon)?;
-        // [field-canbe-mut] `name: canbe Mut T`: only `Mut` may follow, since
-        // it is the one auto-qualifier a struct value carries.
-        let canbe_mut = if self.eat(&TokenKind::KwCanbe).is_some() {
+        let ty = self.parse_type()?;
+        // [field-canbe-mut] `name: T canbe Mut` (user decision 2026-10-20; it
+        // was `name: canbe Mut T`): written after the type, as a declaration's
+        // own `canbe Mut` is after its name. Only `Mut` may follow, since it is
+        // the one auto-qualifier a struct value carries.
+        let canbe_mut = if self.at(&TokenKind::KwCanbe) && self.same_line() {
+            self.bump();
             let q = self.ident_type("`Mut`")?;
             if q.name != "Mut" {
                 self.error(
@@ -1995,7 +2007,6 @@ impl<'s> Parser<'s> {
         } else {
             false
         };
-        let ty = self.parse_type()?;
         let default = if self.eat(&TokenKind::Eq).is_some() {
             Some(self.parse_expr()?)
         } else {
@@ -2712,7 +2723,7 @@ impl<'s> Parser<'s> {
                 } else if self.at(&TokenKind::KwState) {
                     // [effect-handler] [state-infer] A handler's state lives in
                     // a `state { … }` block, the same shape an `iter fn` uses
-                    // (user decision 2026-10-14, replacing the free field decls
+                    // (user decision 2026-10-20, replacing the free field decls
                     // that used to sit in the handler body). Each field is
                     // `name: Type = value` or the inferred `name = value`; the
                     // type, when inferred, is the initializer's.
@@ -2750,7 +2761,7 @@ impl<'s> Parser<'s> {
                 } else {
                     // [effect-handler] A bare field declaration in the handler
                     // body is no longer state — state moved into the `state {
-                    // … }` block (user decision 2026-10-14). Name the block so
+                    // … }` block (user decision 2026-10-20). Name the block so
                     // the fix is obvious.
                     let fspan = self.peek().span;
                     self.error(
@@ -3786,6 +3797,31 @@ impl<'s> Parser<'s> {
     /// `Ok<T canbe linear>`) — stopping before the parameter list `(`. The
     /// base's generics are parsed with `canbe` awareness, returned alongside
     /// the type and its generic names.
+    /// [fn-type-named] The type name of a type-fn **call** — qualifiers then a
+    /// base, stopping before the `(` — whose `<…>` are type *arguments*, so
+    /// any type may stand there (`Mut Set<(Int, Str)>()`, `Mut List<Int?>()`).
+    /// The declaration side reads generic *parameters* instead
+    /// ([`Self::parse_type_fn_name`]); sharing that reader is what refused a
+    /// tuple argument at a qualified call.
+    fn parse_type_call_name(&mut self) -> Option<Type> {
+        // A selector (`Ok@m`) or a borrow source is not part of a type-fn
+        // name: leave those to the expression forms that read them.
+        let plain = |r: &TypeRef| r.at.is_none() && r.from.is_empty();
+        // A ref's span is its name's, as the declaration reader gives it: the
+        // callee's span (hover, references) covers the name, not its `<…>`.
+        let named = |mut r: TypeRef| {
+            r.span = r.name.span;
+            r
+        };
+        let mut quals: Vec<TypeRef> = Vec::new();
+        let mut base = self.parse_type_ref_opts(false).filter(plain).map(named)?;
+        while self.at_type_name() && self.same_line() {
+            quals.push(base);
+            base = self.parse_type_ref_opts(false).filter(plain).map(named)?;
+        }
+        Some(Type::Named { qualifiers: quals, base })
+    }
+
     fn parse_type_fn_name(&mut self) -> Option<(Type, Vec<Ident>, Vec<(Ident, TypeRef)>)> {
         // Parse a run of refs; each is a name with optional (canbe-aware)
         // `<…>` generics. The last is the base, the rest qualifiers. Value
@@ -3889,6 +3925,26 @@ impl<'s> Parser<'s> {
     fn parse_type_atom(&mut self) -> Option<Type> {
         if self.at(&TokenKind::LParen) {
             return self.parse_paren_type();
+        }
+        // [comptime-pattern] `*` — any type, in a comptime type pattern only.
+        // Carried as a named type spelled `*`, which no declaration can spell;
+        // the expansion matches it and it never survives into checked code.
+        if self.in_comp_pattern && self.at(&TokenKind::Star) {
+            let span = self.bump().span;
+            return Some(Type::Named {
+                qualifiers: Vec::new(),
+                base: TypeRef {
+                    name: Ident { name: "*".to_string(), span },
+                    args: Vec::new(),
+                    value_args: Vec::new(),
+                    from: Vec::new(),
+                    at: None,
+                    binder: false,
+                    established: false,
+                    alias: None,
+                    span,
+                },
+            });
         }
         // [eff-handle] `eff[A, B, …]`: a first-class handle over a flat set of
         // effects. Contextual — only before `[` — so `eff` stays a name. It
@@ -4790,9 +4846,10 @@ impl<'s> Parser<'s> {
         }
     }
 
-    /// `inline for field in T.fields { … }`, `inline if <cond> { … } else { … }`,
-    /// `inline when field.type { is struct { … } … }`, `inline when value {
-    /// [arm] { … } }`.
+    /// `[for field in T.fields] { … }`, `[if <cond>] { … } else { … }`,
+    /// `[when field.kind] { is Struct { … } … }`, `[when value] { [arm] { … }
+    /// }`. [terminal-scope] `[for …]` and `[if …]` also take a terminal `...`
+    /// body, as `for` and `if` do: the rest of the enclosing block.
     fn parse_inline(&mut self) -> Option<CompStmt> {
         let start = self.expect(&TokenKind::LBracket)?.span;
         self.require_compfn(start, "a `[for …]`/`[if …]`/`[when …]` head");
@@ -4803,7 +4860,9 @@ impl<'s> Parser<'s> {
                 self.expect(&TokenKind::KwIn)?;
                 let seq = self.parse_comp_seq()?;
                 self.expect(&TokenKind::RBracket)?;
-                let body = self.parse_block()?;
+                // [terminal-scope] `[for f in T.fields] ...`: the rest of the
+                // block, once per field.
+                let (body, _terminal) = self.parse_body("the `[for …]`")?;
                 let span = start.to(body.span);
                 Some(CompStmt::For {
                     binder,
@@ -4816,6 +4875,42 @@ impl<'s> Parser<'s> {
                 self.bump();
                 let cond = self.parse_comp_cond()?;
                 self.expect(&TokenKind::RBracket)?;
+                // [terminal-scope] `[if cond] ...` keeps the rest of the block
+                // when the condition holds; an optional braced `else { … }`
+                // written inline right after the `...` is kept instead when it
+                // does not — the runtime `if cond ...` shape.
+                if self.at(&TokenKind::Ellipsis) {
+                    if !self.allow_terminal || self.group_depth != 0 {
+                        let span = self.peek().span;
+                        self.error(
+                            "`...` is a terminal scope — the rest of the enclosing block \
+                             becomes the `[if …]`'s body — so it is only a statement: write \
+                             a `{ … }` block",
+                            span,
+                        );
+                        return None;
+                    }
+                    self.bump();
+                    let mut else_ = None;
+                    if self.at(&TokenKind::KwElse) {
+                        self.bump();
+                        if self.at(&TokenKind::Ellipsis) {
+                            let span = self.peek().span;
+                            self.error(
+                                "`else ...` is not allowed on a terminal `[if …]`: only the \
+                                 `[if]` branch is the terminal scope, and its `else` is an \
+                                 ordinary `{ … }` block",
+                                span,
+                            );
+                            return None;
+                        }
+                        else_ = Some(self.parse_block()?);
+                    }
+                    let then = self.parse_terminal_rest();
+                    // The rest follows the `else`, so it is what the statement ends with.
+                    let span = start.to(then.span);
+                    return Some(CompStmt::If { cond, then, else_, span });
+                }
                 let then = self.parse_block()?;
                 let mut end = then.span;
                 let else_ = if self.at(&TokenKind::KwElse) {
@@ -4835,17 +4930,58 @@ impl<'s> Parser<'s> {
             }
             _ => {
                 self.expect(&TokenKind::KwWhen)?;
-                // A type subject (`T`, `field.type`) opens the kind dispatch; a
-                // value subject the arm dispatch. The brace decides which was
-                // meant: `{ is Kind` against `{ [arm]`.
+                // [comptime-name] `[when field.name] { is "a" | "b" { … } … }`.
+                if let TokenKind::Ident(b) = self.kind().clone() {
+                    if b.starts_with(|c: char| c.is_lowercase())
+                        && matches!(self.peek_at(1).kind, TokenKind::Dot)
+                        && matches!(&self.peek_at(2).kind, TokenKind::Ident(p) if p == "name")
+                        && matches!(self.peek_at(3).kind, TokenKind::RBracket)
+                    {
+                        let binder = self.ident()?;
+                        self.bump();
+                        self.bump();
+                        self.expect(&TokenKind::RBracket)?;
+                        return self.parse_inline_when_name(start, binder);
+                    }
+                    // [comptime-kind] `[when field.kind] { is Struct { … } … }`:
+                    // the kind of the binder's type.
+                    if b.starts_with(|c: char| c.is_lowercase())
+                        && matches!(self.peek_at(1).kind, TokenKind::Dot)
+                        && matches!(&self.peek_at(2).kind, TokenKind::Ident(p) if p == "kind")
+                        && matches!(self.peek_at(3).kind, TokenKind::RBracket)
+                    {
+                        let root = self.ident()?;
+                        self.bump();
+                        let end = self.bump().span;
+                        self.expect(&TokenKind::RBracket)?;
+                        let ty = CompTy { span: root.span.to(end), root, via_type: true, args: Vec::new() };
+                        return self.parse_inline_when_kind(start, ty);
+                    }
+                }
+                // A type subject (`T`, `field.type`) with `.kind` opens the
+                // kind dispatch; a value subject the arm dispatch. The brace
+                // decides which was meant: `{ is Kind` against `{ [arm]`.
                 let snap = self.snapshot();
                 if let Some(ty) = self.try_parse_comp_ty() {
+                    if self.at(&TokenKind::Dot)
+                        && matches!(&self.peek_at(1).kind, TokenKind::Ident(n) if n == "kind")
+                        && matches!(self.peek_at(2).kind, TokenKind::RBracket)
+                    {
+                        self.bump();
+                        self.bump();
+                        self.bump();
+                        return self.parse_inline_when_kind(start, ty);
+                    }
                     if self.at(&TokenKind::RBracket)
                         && matches!(self.peek_at(1).kind, TokenKind::LBrace)
                         && matches!(self.peek_at(2).kind, TokenKind::KwIs | TokenKind::KwElse | TokenKind::RBrace)
                     {
+                        // [comptime-pattern] A dispatch over the type itself,
+                        // by pattern. (A kind dispatch is over `.kind`
+                        // [comptime-kind]: a kind word here is a type name, and
+                        // the expansion says so when none is declared.)
                         self.bump();
-                        return self.parse_inline_when_kind(start, ty);
+                        return self.parse_inline_when_type(start, ty);
                     }
                 }
                 self.rollback(snap);
@@ -4878,14 +5014,53 @@ impl<'s> Parser<'s> {
         }
     }
 
+    /// [comptime-name] The arms of a `[when field.name]`: `is "a" | "b" { … }`,
+    /// and an optional `else`.
+    fn parse_inline_when_name(&mut self, start: Span, binder: Ident) -> Option<CompStmt> {
+        self.expect(&TokenKind::LBrace)?;
+        let mut arms = Vec::new();
+        while !self.at(&TokenKind::RBrace) && !self.at_eof() {
+            if self.at(&TokenKind::KwElse) {
+                self.comp_when_else("name the rest in an arm — `is \"a\" | \"b\" { … }` — since the arms cover every field (or arm) name")?;
+                continue;
+            }
+            let head = self.expect(&TokenKind::KwIs)?.span;
+            let lits = self.comp_name_lits()?;
+            let body = self.parse_block()?;
+            let span = head.to(body.span);
+            arms.push(NameArm { lits, body, span });
+        }
+        let end = self.expect(&TokenKind::RBrace)?.span;
+        Some(CompStmt::WhenName {
+            binder,
+            arms,
+            span: start.to(end),
+        })
+    }
+
+    /// [when-exhaustive] An `else` in a comptime `[when]` with a subject: refused,
+    /// as an ordinary `when` refuses one — the arms are the cases, and covering
+    /// them is what is checked (user decision 2026-10-20). The block is read
+    /// and dropped, so the rest of the dispatch still parses.
+    fn comp_when_else(&mut self, remedy: &str) -> Option<()> {
+        let span = self.bump().span;
+        self.error(
+            format!(
+                "a `[when]` with a subject takes no `else`, as a `when` with one does not: \
+                 {remedy} [when-exhaustive]"
+            ),
+            span,
+        );
+        self.parse_block()?;
+        Some(())
+    }
+
     fn parse_inline_when_kind(&mut self, start: Span, ty: CompTy) -> Option<CompStmt> {
         self.expect(&TokenKind::LBrace)?;
         let mut arms = Vec::new();
-        let mut else_ = None;
         while !self.at(&TokenKind::RBrace) && !self.at_eof() {
             if self.at(&TokenKind::KwElse) {
-                self.bump();
-                else_ = Some(self.parse_block()?);
+                self.comp_when_else("name the rest in an arm — `is Opaque` covers `Basic` and `Generic` — since the arms cover every kind")?;
                 continue;
             }
             let head = self.expect(&TokenKind::KwIs)?.span;
@@ -4898,12 +5073,11 @@ impl<'s> Parser<'s> {
         Some(CompStmt::WhenKind {
             ty,
             arms,
-            else_,
             span: start.to(end),
         })
     }
 
-    /// An arm of `core.comptime`'s `Type`: `Struct`, `Union`, `Tuple`,
+    /// An arm of `core.comptime`'s `Kind`: `Struct`, `Union`, `Tuple`,
     /// `FnType`, `Opaque` (or its halves `Basic`, `Generic`).
     fn parse_kind_word(&mut self) -> Option<TypeKindWord> {
         let span = self.peek().span;
@@ -4915,7 +5089,7 @@ impl<'s> Parser<'s> {
             let found = self.kind().describe();
             self.error(
                 format!(
-                    "expected an arm of `Type` — `Struct`, `Union`, `Tuple`, `FnType`, \
+                    "expected an arm of `Kind` — `Struct`, `Union`, `Tuple`, `FnType`, \
                      `Opaque` (or its halves `Basic`, `Generic`) — found {found} \
                      [comptime-inline]"
                 ),
@@ -4936,10 +5110,21 @@ impl<'s> Parser<'s> {
         };
         let root_span = self.peek().span;
         if head.starts_with(|c: char| c.is_uppercase()) {
+            // [comptime-generic-fn] `Arg<T>` — an instantiated root.
+            if matches!(self.peek_at(1).kind, TokenKind::Lt) {
+                let r = self.parse_type_ref_opts(false)?;
+                return Some(CompTy {
+                    root: r.name,
+                    via_type: false,
+                    args: r.args,
+                    span: r.span,
+                });
+            }
             self.bump();
             return Some(CompTy {
                 root: Ident { name: head, span: root_span },
                 via_type: false,
+                args: Vec::new(),
                 span: root_span,
             });
         }
@@ -4953,6 +5138,7 @@ impl<'s> Parser<'s> {
             return Some(CompTy {
                 root: Ident { name: head, span: root_span },
                 via_type: true,
+                args: Vec::new(),
                 span: root_span.to(end),
             });
         }
@@ -5001,23 +5187,116 @@ impl<'s> Parser<'s> {
         Some(CompSeq { ty, arms, span })
     }
 
-    /// The compile-time conditions [comptime-inline]: `X is <kind>`, `X is
-    /// <Type>`, `X canbe Q`, `b.name == "lit"`, `b.first`, `b.last`, and `!`
-    /// of any of them.
+    /// The compile-time conditions [comptime-inline] [comptime-logic]: leaves
+    /// joined by `||`, `&&`, `!` and parentheses, with the precedence the same
+    /// operators have in ordinary expressions (user decision 2026-10-20).
     fn parse_comp_cond(&mut self) -> Option<CompCond> {
+        let mut lhs = self.parse_comp_cond_and()?;
+        while self.at(&TokenKind::PipePipe) {
+            self.bump();
+            let rhs = self.parse_comp_cond_and()?;
+            let span = lhs.span().to(rhs.span());
+            lhs = CompCond::Or(Box::new(lhs), Box::new(rhs), span);
+        }
+        Some(lhs)
+    }
+
+    fn parse_comp_cond_and(&mut self) -> Option<CompCond> {
+        let mut lhs = self.parse_comp_cond_unary()?;
+        while self.at(&TokenKind::AmpAmp) {
+            self.bump();
+            let rhs = self.parse_comp_cond_unary()?;
+            let span = lhs.span().to(rhs.span());
+            lhs = CompCond::And(Box::new(lhs), Box::new(rhs), span);
+        }
+        Some(lhs)
+    }
+
+    fn parse_comp_cond_unary(&mut self) -> Option<CompCond> {
         if self.at(&TokenKind::Bang) {
             let start = self.bump().span;
-            let inner = self.parse_comp_cond()?;
+            let inner = self.parse_comp_cond_unary()?;
             let span = start.to(inner.span());
             return Some(CompCond::Not(Box::new(inner), span));
         }
+        if self.at(&TokenKind::LParen) {
+            self.bump();
+            self.group_depth += 1;
+            let inner = self.parse_comp_cond();
+            self.group_depth -= 1;
+            let inner = inner?;
+            self.expect(&TokenKind::RParen)?;
+            return Some(inner);
+        }
+        self.parse_comp_cond_leaf()
+    }
+
+    /// `is` or `!is`, answering whether it was negated.
+    fn comp_is_or_not_is(&mut self) -> Option<bool> {
+        if self.at(&TokenKind::Bang) && matches!(self.peek_at(1).kind, TokenKind::KwIs) {
+            self.bump();
+            self.bump();
+            return Some(true);
+        }
+        self.expect(&TokenKind::KwIs)?;
+        Some(false)
+    }
+
+    /// A plain string literal (no interpolation) in a comptime head: a
+    /// binder's name is compared to one [comptime-name].
+    fn comp_name_lit(&mut self) -> Option<(String, Span)> {
+        let lit_span = self.peek().span;
+        let TokenKind::Str(parts) = self.kind().clone() else {
+            let found = self.kind().describe();
+            self.error(
+                format!(
+                    "expected a string literal naming a field or arm, found {found} \
+                     [comptime-name]"
+                ),
+                lit_span,
+            );
+            return None;
+        };
+        self.bump();
+        let mut lit = String::new();
+        for part in parts {
+            match part {
+                StrPart::Text(t) => lit.push_str(&t),
+                StrPart::Interp { .. } => {
+                    self.error(
+                        "the name a binder is compared to is a plain literal, with no \
+                         interpolation [comptime-name]",
+                        lit_span,
+                    );
+                    return None;
+                }
+            }
+        }
+        Some((lit, lit_span))
+    }
+
+    /// `"a" | "b" | …` — the literals a `field.name is` test or a `[when
+    /// field.name]` arm names [comptime-name].
+    fn comp_name_lits(&mut self) -> Option<Vec<(String, Span)>> {
+        let mut lits = vec![self.comp_name_lit()?];
+        while self.at(&TokenKind::Pipe) {
+            self.bump();
+            lits.push(self.comp_name_lit()?);
+        }
+        Some(lits)
+    }
+
+    /// One compile-time test [comptime-inline]: `X.kind is <Kind>`, `X is
+    /// <Type>`, `X.mutable`, `b.name == "lit"` / `b.name is "a" | "b"`,
+    /// `b.first`, `b.last`, `x.index == y.index`, each `is` also as `!is`.
+    fn parse_comp_cond_leaf(&mut self) -> Option<CompCond> {
         let start = self.peek().span;
-        // `binder.name == "…"`, `binder.first`, `binder.last`,
+        // `binder.name …`, `binder.kind is …`, `binder.first`, `binder.last`,
         // `x.index == y.index`
         if let TokenKind::Ident(b) = self.kind().clone() {
             if b.starts_with(|c: char| c.is_lowercase())
                 && matches!(self.peek_at(1).kind, TokenKind::Dot)
-                && matches!(&self.peek_at(2).kind, TokenKind::Ident(p) if matches!(p.as_str(), "name" | "first" | "last" | "index"))
+                && matches!(&self.peek_at(2).kind, TokenKind::Ident(p) if matches!(p.as_str(), "name" | "first" | "last" | "index" | "kind"))
             {
                 let binder = self.ident()?;
                 self.bump();
@@ -5070,50 +5349,49 @@ impl<'s> Parser<'s> {
                             span: start.to(proj.span),
                         });
                     }
+                    "kind" => {
+                        // [comptime-kind] `field.kind` is the kind of `field.type`.
+                        let ty = CompTy {
+                            root: binder.clone(),
+                            via_type: true,
+                            args: Vec::new(),
+                            span: start.to(proj.span),
+                        };
+                        return self.comp_kind_test(start, ty);
+                    }
                     _ => {
-                        let negated = if self.eat(&TokenKind::EqEq).is_some() {
-                            false
+                        // `name`: `==`/`!=` one literal, or `is`/`!is` a
+                        // union of them [comptime-name].
+                        let negated;
+                        let lits = if self.eat(&TokenKind::EqEq).is_some() {
+                            negated = false;
+                            vec![self.comp_name_lit()?]
                         } else if self.eat(&TokenKind::BangEq).is_some() {
-                            true
+                            negated = true;
+                            vec![self.comp_name_lit()?]
+                        } else if self.at(&TokenKind::KwIs)
+                            || (self.at(&TokenKind::Bang) && matches!(self.peek_at(1).kind, TokenKind::KwIs))
+                        {
+                            negated = self.comp_is_or_not_is()?;
+                            self.comp_name_lits()?
                         } else {
                             let sp = self.peek().span;
                             self.error(
-                                "a binder's name is compared to a string literal: \
-                                 `field.name == \"value\"` [comptime-inline]",
+                                "a binder's name is compared to a literal: `field.name == \
+                                 \"value\"`, or tested against a union of them: `field.name \
+                                 is \"a\" | \"b\"` [comptime-name]",
                                 sp,
                             );
                             return None;
                         };
-                        let lit_span = self.peek().span;
-                        let TokenKind::Str(parts) = self.kind().clone() else {
-                            self.error(
-                                "expected a string literal after `==` [comptime-inline]",
-                                lit_span,
-                            );
-                            return None;
-                        };
-                        self.bump();
-                        let mut lit = String::new();
-                        for part in parts {
-                            match part {
-                                StrPart::Text(t) => lit.push_str(&t),
-                                StrPart::Interp { .. } => {
-                                    self.error(
-                                        "the name a binder is compared to is a plain literal, \
-                                         with no interpolation [comptime-inline]",
-                                        lit_span,
-                                    );
-                                    return None;
-                                }
-                            }
-                        }
-                        let cond = CompCond::NameEq {
+                        let end = lits.last().map(|(_, s)| *s).unwrap_or(proj.span);
+                        let cond = CompCond::NameIs {
                             binder,
-                            lit,
-                            span: start.to(lit_span),
+                            lits: lits.into_iter().map(|(l, _)| l).collect(),
+                            span: start.to(end),
                         };
                         return Some(if negated {
-                            CompCond::Not(Box::new(cond), start.to(lit_span))
+                            CompCond::Not(Box::new(cond), start.to(end))
                         } else {
                             cond
                         });
@@ -5133,6 +5411,14 @@ impl<'s> Parser<'s> {
                 span: start.to(end),
             });
         }
+        // `T.kind is Struct`, `field.type.kind is Union` [comptime-kind].
+        if self.at(&TokenKind::Dot)
+            && matches!(&self.peek_at(1).kind, TokenKind::Ident(n) if n == "kind")
+        {
+            self.bump();
+            self.bump();
+            return self.comp_kind_test(start, ty);
+        }
         if self.at(&TokenKind::KwCanbe) {
             let sp = self.peek().span;
             self.error(
@@ -5142,23 +5428,75 @@ impl<'s> Parser<'s> {
             );
             return None;
         }
-        self.expect(&TokenKind::KwIs)?;
-        // An arm of `Type` (a kind test), or a written type.
-        let is_kind = match self.kind() {
-            TokenKind::Ident(n) => {
-                TypeKindWord::parse(n).is_some()
-                    && !matches!(self.peek_at(1).kind, TokenKind::Lt | TokenKind::Dot)
-            }
-            _ => false,
-        };
-        if is_kind {
-            let kind = self.parse_kind_word()?;
-            let span = start.to(self.tokens[self.pos - 1].span);
-            return Some(CompCond::Kind { ty, kind, span });
-        }
-        let target = self.parse_type()?;
+        // A written type: equality, never a kind test [comptime-kind] — a
+        // pattern, with `*` and declared binders [comptime-pattern].
+        let negated = self.comp_is_or_not_is()?;
+        let (binders, target) = self.comp_type_pattern()?;
         let span = start.to(target.span());
-        Some(CompCond::Is { ty, target, span })
+        let cond = CompCond::Is { ty, binders, target, span };
+        Some(if negated { CompCond::Not(Box::new(cond), span) } else { cond })
+    }
+
+    /// [comptime-pattern] `<E, K> Map<K, List<E>>` / `List<*>` / `Str`: the
+    /// binders a pattern declares (before it, like a fn's generics), then
+    /// the pattern, in which `*` is any type.
+    fn comp_type_pattern(&mut self) -> Option<(Vec<Ident>, Type)> {
+        let mut binders = Vec::new();
+        if self.at(&TokenKind::Lt) {
+            self.bump();
+            self.group_depth += 1;
+            loop {
+                match self.ident_type("pattern binder") {
+                    Some(b) => binders.push(b),
+                    None => {
+                        self.group_depth -= 1;
+                        return None;
+                    }
+                }
+                if self.eat(&TokenKind::Comma).is_none() {
+                    break;
+                }
+            }
+            self.group_depth -= 1;
+            self.expect(&TokenKind::Gt)?;
+        }
+        let saved = std::mem::replace(&mut self.in_comp_pattern, true);
+        let target = self.parse_type();
+        self.in_comp_pattern = saved;
+        Some((binders, target?))
+    }
+
+    /// [comptime-pattern] The arms of a `[when field.type]`: `is <E> List<E> {
+    /// … }`, `is Str { … }`, and the `else` the expansion requires.
+    fn parse_inline_when_type(&mut self, start: Span, ty: CompTy) -> Option<CompStmt> {
+        self.expect(&TokenKind::LBrace)?;
+        let mut arms = Vec::new();
+        while !self.at(&TokenKind::RBrace) && !self.at_eof() {
+            if self.at(&TokenKind::KwElse) {
+                self.comp_when_else("end with `is * { … }`, which matches every type the arms above it did not")?;
+                continue;
+            }
+            let head = self.expect(&TokenKind::KwIs)?.span;
+            let (binders, pattern) = self.comp_type_pattern()?;
+            let body = self.parse_block()?;
+            let span = head.to(body.span);
+            arms.push(TypeArm { binders, pattern, body, span });
+        }
+        let end = self.expect(&TokenKind::RBrace)?.span;
+        Some(CompStmt::WhenType {
+            ty,
+            arms,
+            span: start.to(end),
+        })
+    }
+
+    /// `… is <Kind>` / `… !is <Kind>` after `X.kind` [comptime-kind].
+    fn comp_kind_test(&mut self, start: Span, ty: CompTy) -> Option<CompCond> {
+        let negated = self.comp_is_or_not_is()?;
+        let kind = self.parse_kind_word()?;
+        let span = start.to(self.tokens[self.pos - 1].span);
+        let cond = CompCond::Kind { ty, kind, span };
+        Some(if negated { CompCond::Not(Box::new(cond), span) } else { cond })
     }
 
     fn parse_let(&mut self) -> Option<Stmt> {
@@ -6167,7 +6505,7 @@ impl<'s> Parser<'s> {
                 // [actor-replyto] [expr-replyto-flat] A trailing `replyto k(…)`
                 // (or `replyto!`) after a call fills that call's final
                 // `Reply<T>` argument — the flattened form of
-                // `send(…, replyto k(…))` (user decision 2026-10-14). Same
+                // `send(…, replyto k(…))` (user decision 2026-10-20). Same
                 // line here; a newline-leading one is taken by
                 // `newline_postfix`, bracketing left like `.`.
                 TokenKind::Ident(name)
@@ -6656,7 +6994,7 @@ impl<'s> Parser<'s> {
             // the struct-literal / bare-ident handling below.
             if self.at_type_name() {
                 let snap = self.snapshot();
-                if let Some((ty, _, _)) = self.parse_type_fn_name() {
+                if let Some(ty) = self.parse_type_call_name() {
                     // A `(` here is the call's argument list — UNLESS a `{`
                     // follows the parens, in which case this was a struct
                     // literal with value-args (`Ranked<T>(?cmp) { … }`), or
@@ -6750,6 +7088,15 @@ impl<'s> Parser<'s> {
                             && matches!(self.peek_at(4).kind, TokenKind::Colon)))
             }
             TokenKind::Ident(_) => matches!(self.peek_at(2).kind, TokenKind::Colon),
+            // [comptime-fields] `type` is a field name a struct may declare
+            // (`parse_field_decl`'s carve-out for `core.comptime`'s
+            // `Field.type`), so `{ type: … }` must be recognised as a struct
+            // literal even when `type:` is its *first* field — the ordinary
+            // `Ident(_)` arm above never matches `KwType`, so without this
+            // a literal spelled `P { type: 1 }` fell through to `_ => false`
+            // and was misread as "neither a struct literal nor a lambda"
+            // (2026-10-19).
+            TokenKind::KwType => matches!(self.peek_at(2).kind, TokenKind::Colon),
             _ => false,
         }
     }
@@ -6818,6 +7165,16 @@ impl<'s> Parser<'s> {
                         name: format!("[{}]", binder.name),
                         span: open.to(close),
                     }
+                } else if self.at(&TokenKind::KwType) && matches!(self.peek_at(1).kind, TokenKind::Colon) {
+                    // [comptime-fields] `type` is a keyword, but `Field.type`
+                    // (and any struct declaring a field spelled that way,
+                    // following the same carve-out `parse_field_decl` makes)
+                    // must still be constructible as a struct literal — the
+                    // field label and the ordinary `type` item/type-position
+                    // keyword never collide, since this only fires with a
+                    // `:` immediately after.
+                    let span = self.bump().span;
+                    Ident { name: "type".to_string(), span }
                 } else {
                     self.ident()?
                 };
@@ -7255,7 +7612,7 @@ impl<'s> Parser<'s> {
     }
 
     /// [expr-replyto-flat] Append a flattened `replyto k(…)` to the preceding
-    /// call, filling its final `Reply<T>` argument (user decision 2026-10-14).
+    /// call, filling its final `Reply<T>` argument (user decision 2026-10-20).
     /// `send(a, b) replyto k(c)` is exactly `send(a, b, replyto k(c))`: the
     /// minted continuation becomes the call's last positional argument, so no
     /// checker or backend rule knows the flattened spelling exists. The base
@@ -7264,7 +7621,7 @@ impl<'s> Parser<'s> {
     ///
     /// A **chain** nests rightward: `a() replyto b() replyto c()` is
     /// `a(replyto b(replyto c()))` — each further `replyto` fills the previous
-    /// mint's own reply slot, not the outer call's (user decision 2026-10-14).
+    /// mint's own reply slot, not the outer call's (user decision 2026-10-20).
     /// `parse_replyto_chain` builds that nested mint; this only appends it.
     fn append_replyto(&mut self, base: Expr) -> Option<Expr> {
         let reply = self.parse_replyto_chain()?;

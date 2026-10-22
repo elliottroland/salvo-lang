@@ -215,7 +215,7 @@ mkdir -p tmp/recurse/salvo && cat > tmp/recurse/salvo/main.sv <<'EOF'
 fn show<T>(xs: List<List<List<List<List<List<T>>>>>>) [Console] -> None => xs {
     println("${xs}")
 }
-fn main() [use] { use StdOutConsole() }
+fn main() [use] { use StdConsole() }
 EOF
 time ./target/debug/salvo analyze --src tmp/recurse
 ```

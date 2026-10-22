@@ -14,7 +14,7 @@ pub use crate::platform_core_string::Str;
 const _: fn() = || { fn __contract<T: Send + 'static + Clone + std::fmt::Debug + PartialEq + Eq + std::hash::Hash>() {} __contract::<Str>(); };
 const _: fn() = || { fn __each(x: &Str) -> impl Iterator<Item = char> + '_ { crate::platform_core_string::each(x).map(|e| e.clone()) } let _ = __each; };
 
-pub fn mut_str(mut parts: Vec<String>) -> String {
+pub fn Mut_Str(mut parts: Vec<String>) -> String {
     let mut out: String = crate::core_string::empty_str_platform();
     for mut part in parts.iter().cloned() {
         crate::core_string::append_platform(&mut out, &part);
@@ -186,7 +186,7 @@ pub fn is_empty(str: &String) -> bool {
 }
 
 pub fn repeat(str: &String, mut n: i32) -> String {
-    let mut out: String = crate::core_string::mut_str(vec![]);
+    let mut out: String = crate::core_string::Mut_Str(vec![]);
     let mut i: i32 = 0i32;
     loop {
         if !((i < n)) {

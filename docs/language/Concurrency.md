@@ -30,7 +30,7 @@ handler Counting() of Counter {
 }
 
 fn main() [use, spawn] {
-    use StdOutConsole()
+    use StdConsole()
     let workers = pool(2)
     let counter = spawn Counting() on workers
 
@@ -146,7 +146,7 @@ handler Receiving() [Console] of Inbound {           // frames arrive as message
 }
 
 fn main() [use, spawn] {
-    use StdOutConsole()
+    use StdConsole()
     let me = NodeEndpoint { host: "127.0.0.1", port: 7000 }
     use HostTcpTransport(copy(me))                    // the wire: a host class
     listen(copy(me), spawn Receiving() on pool(1))    // receive here

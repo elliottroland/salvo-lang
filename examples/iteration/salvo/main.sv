@@ -18,7 +18,7 @@ fn describe_container(xs: List<Int>) [Console] -> None => xs {
     }
     println("1. list of ${size(xs)} sums to ${sum}")
 
-    let letters = mut_str()
+    let letters = Mut Str()
     for c in "salvo" {
         append(letters, "${c}.")
     }
@@ -205,7 +205,7 @@ fn first(it: iter Int) -> Int => it: Mut {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
 
     let xs = List(1, 2, 3, 4)
     describe_container(xs)
@@ -287,7 +287,7 @@ fn main() [use] {
     //
     // std's `range` is an `iter fn` with three parameters and two delegating
     // overloads returning `iter Int`.
-    let evens = mut_str()
+    let evens = Mut Str()
     for i in range(0, 10, 2) {
         append(evens, "${i} ")
     }

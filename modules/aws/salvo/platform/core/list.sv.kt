@@ -503,7 +503,7 @@ fun<T> next__Iter_enumerate_rev_List(__p: __Iter_enumerate_rev_List<T>): Union2<
 }
 
 fun<T> toStr(list: List<T>, toStr: (T) -> String): String {
-    val out: salvo.platform.core.string.MutStr = salvo.core.string.mutStr(arrayOf<String>("["))
+    val out: salvo.platform.core.string.MutStr = salvo.core.string.Mut_Str(arrayOf<String>("["))
     var i: Int = 0
     for (x in salvo.platform.core.list.each(list)) {
         if ((i > 0)) {

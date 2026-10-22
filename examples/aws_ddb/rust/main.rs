@@ -408,7 +408,7 @@ pub fn key_text(item: &crate::core_map::Map<String, crate::unions::Union10<crate
 
 pub fn main() {
     crate::scheduler::salvo_set_protocols(vec![("Faults".to_string(), crate::core_actor::__PROTO_Faults.to_string()), ("Timer".to_string(), crate::time::__PROTO_Timer.to_string()), ("TimerCtl".to_string(), crate::time::__PROTO_TimerCtl.to_string()), ("Wheel".to_string(), crate::runtime_timers::__PROTO_Wheel.to_string())]);
-    let mut __use_1: crate::core_console::__Platform_StdOutConsole = crate::core_console::__Platform_StdOutConsole::new();
+    let mut __use_1: crate::core_console::__Platform_StdConsole = crate::core_console::__Platform_StdConsole::new();
     let __handle_2 = crate::core_console::Console::shared(__use_1);
     crate::core_console::println(&__handle_2, &String::from("-- FakeDdb --"));
     {

@@ -483,7 +483,7 @@ pub fn settings(setting: &crate::Setting<i32>, setting__1: &crate::Setting<Strin
 }
 
 pub fn main() {
-    let mut __use_1: crate::core_console::__Platform_StdOutConsole = crate::core_console::__Platform_StdOutConsole::new();
+    let mut __use_1: crate::core_console::__Platform_StdConsole = crate::core_console::__Platform_StdConsole::new();
     let __handle_2 = crate::core_console::Console::shared(__use_1);
     let mut __use_3: crate::TickingClock = crate::TickingClock::new();
     let __handle_4 = crate::Clock::locked(__use_3);

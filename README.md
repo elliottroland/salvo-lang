@@ -131,7 +131,7 @@ fn describe(person: Person) [Console] {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     describe(Person {name: "Roland", age: 36})
 }
 ```

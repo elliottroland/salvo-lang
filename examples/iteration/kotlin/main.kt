@@ -8,7 +8,7 @@ fun describeContainer(console: salvo.core.console.Console, xs: List<Int>) {
         sum = (sum + n)
     }
     salvo.core.console.println(console, "1. list of ${salvo.core.list.sizePlatform(xs)} sums to ${sum}")
-    val letters: salvo.platform.core.string.MutStr = salvo.core.string.mutStr(arrayOf<String>())
+    val letters: salvo.platform.core.string.MutStr = salvo.core.string.Mut_Str(arrayOf<String>())
     for (c in salvo.platform.core.string.each("salvo")) {
         salvo.core.string.appendPlatform(letters, "${c}.")
     }
@@ -252,7 +252,7 @@ fun<__It0> first(it: __It0, next: (__It0) -> Union2<Int, salvo.core.iterator.Fin
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun main() {
-    val __use_1: salvo.core.console.__Platform_StdOutConsole = salvo.core.console.__Platform_StdOutConsole()
+    val __use_1: salvo.core.console.__Platform_StdConsole = salvo.core.console.__Platform_StdConsole()
     val __handle_2: salvo.core.console.Console = __use_1
     val xs: List<Int> = listOf<Int>(1, 2, 3, 4)
     describeContainer(__handle_2, xs)
@@ -366,7 +366,7 @@ fun main() {
         return (n * 10)
     }, { __a0, __a1 -> salvo.core.list.addPlatform(__a0, __a1) }, ::next__Countdown)
     salvo.core.console.println(__handle_2, "6. collected ${salvo.core.list.sizePlatform(collected)}")
-    val evens: salvo.platform.core.string.MutStr = salvo.core.string.mutStr(arrayOf<String>())
+    val evens: salvo.platform.core.string.MutStr = salvo.core.string.Mut_Str(arrayOf<String>())
     val __pass_18: salvo.core.range.__Iter_range_Int_Int_Int = salvo.core.range.range__Int_Int_Int(0, 10, 2)
     while (true) {
         val __step_19: Union2<Int, salvo.core.iterator.Finished> = salvo.core.range.next(__pass_18)

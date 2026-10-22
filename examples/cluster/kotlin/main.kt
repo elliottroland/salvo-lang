@@ -837,7 +837,7 @@ fun settle(timer: Int) {
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun main() {
     salvo.SalvoSched.setProtocols(listOf(Pair("ActorGroup", salvo.net.__PROTO_ActorGroup), Pair("ActorGroupWatcher", salvo.net.__PROTO_ActorGroupWatcher), Pair("Boot", salvo.main.__PROTO_Boot), Pair("Faults", salvo.core.actor.__PROTO_Faults), Pair("Gather", salvo.main.__PROTO_Gather), Pair("Inbound", salvo.net.__PROTO_Inbound), Pair("Inventory", salvo.main.__PROTO_Inventory), Pair("Lookup", salvo.main.__PROTO_Lookup), Pair("MemNet", salvo.net.__PROTO_MemNet), Pair("NodeGroup", salvo.net.__PROTO_NodeGroup), Pair("NodeGroupWatcher", salvo.net.__PROTO_NodeGroupWatcher), Pair("Outbound", salvo.net.__PROTO_Outbound), Pair("Race", salvo.main.__PROTO_Race), Pair("Search", salvo.main.__PROTO_Search), Pair("Sequencer", salvo.main.__PROTO_Sequencer), Pair("Timer", salvo.time.__PROTO_Timer), Pair("TimerCtl", salvo.time.__PROTO_TimerCtl), Pair("Wheel", salvo.runtime.timers.__PROTO_Wheel)))
-    val __use_1: salvo.core.console.__Platform_StdOutConsole = salvo.core.console.__Platform_StdOutConsole()
+    val __use_1: salvo.core.console.__Platform_StdConsole = salvo.core.console.__Platform_StdConsole()
     val __handle_2: salvo.core.console.Console = __use_1
     val a: salvo.net.NodeEndpoint = salvo.net.NodeEndpoint(host = "a", port = 1)
     val b: salvo.net.NodeEndpoint = salvo.net.NodeEndpoint(host = "b", port = 1)

@@ -1238,6 +1238,30 @@ fn pass() [] -> Bool {
     assert!(!errs.is_empty(), "a stamp with implicits passed as a value must be refused");
 }
 
+/// [comptime-generic] [implicit-recursive] A generic stamp **fills an implicit
+/// position** like std's `hash(List<T>, ?hash)` does: its `?Hashed<T>` spread
+/// is filled in turn, so `?hash: (W<Int>) -> Long` takes it (found 2026-10-20:
+/// the spread's members were compared as explicit parameters, and the stamp
+/// never fit a keyed container's slot).
+#[test]
+fn a_generic_stamp_fills_an_implicit_position() {
+    let src = r#"
+struct W<T> : Hashed<self> by auto {
+    v: T
+}
+
+fn digest(x: W<Int>, ?hash: (v: W<Int>) -> Long, ?eq: (a: W<Int>, b: W<Int>) -> Bool) [] -> Long => x {
+    return hash(x)
+}
+
+fn probe() [] -> Long {
+    return digest(W { v: 1 })
+}
+"#;
+    let errs = errors(src);
+    assert!(errs.is_empty(), "{errs:?}");
+}
+
 /// The obligation is still checked at the struct [group-obligation]: `default`
 /// satisfies it by generating, and a bare `Eq<self>` with nothing to satisfy it
 /// still fails — the two spellings answer the same question.
@@ -1427,8 +1451,8 @@ fn comptime_syntax_outside_a_comptime_fn_is_refused() {
     }
 }
 
-/// [comptime-inline] A `[when …]` over a type is exhaustive over `Type`'s arms
-/// unless an `else` closes it, so a kind a comptime fn did not consider is an error
+/// [comptime-inline] A `[when field.kind]` is exhaustive over `Kind`'s arms,
+/// with no `else` [when-exhaustive], so a kind a comptime fn did not consider is an error
 /// — the evolution guard (comptime round 3).
 #[test]
 fn a_when_over_a_type_is_exhaustive() {
@@ -1437,7 +1461,7 @@ fn a_when_over_a_type_is_exhaustive() {
 comptime fn describe<T is Struct>(v: T) [] -> Int => v {
     let n = 0
     [for field in T.fields] {
-        [when field.type] {
+        [when field.kind] {
             is Struct { n = n + 1 }
         }
     }
@@ -1454,17 +1478,17 @@ params Counted<T> {
 "#,
     );
     assert!(
-        errs.iter().any(|e| e.contains("does not consider every arm") && e.contains("`Union`")),
+        errs.iter().any(|e| e.contains("does not consider every arm of `Kind`") && e.contains("`Union`")),
         "expected the missing kinds to be named: {errs:?}"
     );
 
-    // With `else`, or with every kind, it stamps.
+    // With every kind, it stamps.
     let ok = errors(
         r#"
 comptime fn describe<T is Struct>(v: T) [] -> Int => v {
     let n = 0
     [for field in T.fields] {
-        [when field.type] {
+        [when field.kind] {
             is Struct { n = n + 1 }
             is Union { n = n + 2 }
             is Tuple { n = n + 3 }

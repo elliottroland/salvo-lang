@@ -415,7 +415,7 @@ fn __decode_msg_Napping(proto: &str, payload: &[u8]) -> Option<crate::scheduler:
 
 pub fn main() {
     crate::scheduler::salvo_set_protocols(vec![("Faults".to_string(), crate::core_actor::__PROTO_Faults.to_string()), ("Session".to_string(), crate::__PROTO_Session.to_string()), ("Sleeper".to_string(), crate::__PROTO_Sleeper.to_string()), ("Timer".to_string(), crate::time::__PROTO_Timer.to_string()), ("TimerCtl".to_string(), crate::time::__PROTO_TimerCtl.to_string()), ("Wheel".to_string(), crate::runtime_timers::__PROTO_Wheel.to_string())]);
-    let mut __use_1: crate::core_console::__Platform_StdOutConsole = crate::core_console::__Platform_StdOutConsole::new();
+    let mut __use_1: crate::core_console::__Platform_StdConsole = crate::core_console::__Platform_StdConsole::new();
     let __handle_2 = crate::core_console::Console::shared(__use_1);
     let mut budget: crate::time::Duration = crate::time::millis(1500i64);
     crate::core_console::println(&__handle_2, &format!("budget {}, doubled {}, in millis {}", crate::time::to_str(&budget), crate::time::to_str(&crate::time::times(&budget, 2i64)), crate::time::to_millis(&budget)));

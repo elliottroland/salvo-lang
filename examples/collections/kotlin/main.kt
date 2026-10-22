@@ -36,7 +36,7 @@ fun countUnique(xs: List<Int>): Int {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun main() {
-    val __use_1: salvo.core.console.__Platform_StdOutConsole = salvo.core.console.__Platform_StdOutConsole()
+    val __use_1: salvo.core.console.__Platform_StdConsole = salvo.core.console.__Platform_StdConsole()
     val __handle_2: salvo.core.console.Console = __use_1
     val primes: List<Int> = listOf<Int>(2, 3, 5, 7)
     val vowels: salvo.platform.core.set.Set<String> = salvo.core.set.Set_platform(arrayOf<String>("a", "e", "i", "o", "u"), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })

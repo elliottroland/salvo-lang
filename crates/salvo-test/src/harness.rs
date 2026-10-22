@@ -78,9 +78,9 @@ pub fn harness_source(tests: &[TestCase]) -> String {
         out.push_str("import test.actor\n");
     }
     out.push_str(if actor {
-        "\nfn main() [use, spawn] {\n    use StdOutConsole()\n"
+        "\nfn main() [use, spawn] {\n    use StdConsole()\n"
     } else {
-        "\nfn main() [use] {\n    use StdOutConsole()\n"
+        "\nfn main() [use] {\n    use StdConsole()\n"
     });
     for (i, test) in tests.iter().enumerate() {
         // [test-recover] Each test runs inside `trapped_by`, so a failure the

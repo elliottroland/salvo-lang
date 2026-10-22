@@ -313,7 +313,7 @@ fn settle(timer: eff[Timer]) [] -> None => timer {
 }
 
 fn main() [use, spawn] {
-    use StdOutConsole()
+    use StdConsole()
     let a = NodeEndpoint { host: "a", port: 1 }
     let b = NodeEndpoint { host: "b", port: 1 }
     let all = List(copy(a), copy(b))

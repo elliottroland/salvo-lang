@@ -65,7 +65,7 @@ import fs.host
 import stream.host
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     use HostRawStreams()  // the host's stream table: plain handles
     use DefaultStreams()  // Salvo: discharges the tokens, maps the errors
     use HostRawFs()       // the host's files, registered into that table
@@ -135,7 +135,7 @@ import fs.mem
 import fs.restricted
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     use MemFs()                      // a filesystem in memory: no host, no disk
     if true {
         use RestrictedFs(path("notes"))    // ...scoped to one directory, for this block

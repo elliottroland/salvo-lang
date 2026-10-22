@@ -57,7 +57,7 @@ iter fn iter(r: Upto) -> Emitted Int | Finished {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     let person = Person {name: "Roland", surname: "Elliott", age: 36}
     greet(person)
     let anon = Person {...person, surname: None}
@@ -96,7 +96,7 @@ fn a_std_platform_handler_is_supplied_by_a_shipped_companion() {
     sources.add(
         "main.sv",
         SourceSet::classify(Path::new("main.sv")).unwrap(),
-        "fn main() [use] -> None {\n    use StdOutConsole()\n    \
+        "fn main() [use] -> None {\n    use StdConsole()\n    \
          use HostRawClock()\n    println(\"now=${raw_now()}\")\n}\n"
             .to_string(),
         false,
@@ -260,7 +260,7 @@ fn describe(result: Ok Int | Err Str) -> Str {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     let good = parse_age(36)
     println(describe(good))
     let bad = parse_age(-1)
@@ -490,7 +490,7 @@ fn check(n: Int) [Console] {
 }
 
 fn main() [use] {
-    use StdOutConsole
+    use StdConsole
     describe(Person {name: "Roland", surname: "Elliott", age: 36})
     describe(Person {name: "Anon", age: 3})
     check(5)
@@ -628,7 +628,7 @@ fn countdown(from: Int) -> Countdown {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     for n in countdown(3) {
         println("n ${n}")
     }
@@ -744,7 +744,7 @@ fn read_all(lines: List<Str>) [Throw<Str>, Console] -> Int
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let good = try { read_all(List("alpha", "beta")) }
     when good {
         is Ok { println("read ${good}") }
@@ -826,7 +826,7 @@ fn show(n: Int) [Console] {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     show(1)
     show(2)
     show(3)
@@ -874,7 +874,7 @@ iter fn iter(f: Flat) -> Emitted Int | Finished {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let base = List(1, 2)
     let p: Mut ListYield<Int>? = iter(base)
     if p is Mut ListYield<Int> {
@@ -962,7 +962,7 @@ fn eat(o: Ok Mut List<Int> | Err Str) [] -> Str => !o {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     use Holder()
 
     let a: Mut List<Int>? = Mut List(1)
@@ -1021,7 +1021,7 @@ fn first_big(limit: Int) -> Int {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     println("guarded(-1) ${guarded(-1)}")
     println("guarded(7) ${guarded(7)}")
     println("first_big(4) ${first_big(4)}")
@@ -1062,7 +1062,7 @@ fn read_only(list: Mut List<Int>) [Console] -> None => list: Mut {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     describe(7)
     describe(0)
     read_only(Mut List(1, 2, 3))
@@ -1109,7 +1109,7 @@ fn pick(n: Int) -> Str | Int | None {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let named = Person {name: "Ada", nickname: "Addy"}
     let plain = Person {name: "Bob"}
     let s = shout(named)
@@ -1158,7 +1158,7 @@ fn add(a: Int, b: Int) -> Int {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     double(21) |> println("single ${_}")
     let chained = 5
         |> double(_)
@@ -1205,7 +1205,7 @@ fn show(label: Str, v: Int?) [Console] -> None {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     show("present", maybe(true) ?> double(_))
     show("absent", maybe(false) ?> double(_))
     // right side already optional: result is Int?, not Int??
@@ -1258,7 +1258,7 @@ fn guarded(text: Str) [Console] -> None {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     show("doubled", doubled("abc"))
     show("doubled", doubled(""))
     guarded("hello")
@@ -1333,7 +1333,7 @@ fn report(text: Str) [Console] -> None {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     show(3)
     show(-1)
     show(0)
@@ -1375,7 +1375,7 @@ fn show(v: Str | Int | Bool) [Console] -> None {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let a: Str | Int | Box2<Bool> = "hi"
     let b: Str | Int | Box2<Bool> = 7
     let c: Str | Int | Box2<Bool> = Box2<Bool> { value: true }
@@ -1417,7 +1417,7 @@ fn show(r: Str?, tag: Str) [Console] -> None {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     show(pick(0), "zero")
     show(pick(1), "one")
 }
@@ -1444,7 +1444,7 @@ fn pick(n: Int) -> Int {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     println("${pick(7)}")
 }
 "#;
@@ -1575,7 +1575,7 @@ fn twice(n: Int) -> Int {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let doubled = Mut Doubling { src: Mut Countdown { at: 3 }, f: twice }
     for n in doubled {
         println("n ${n}")
@@ -1678,7 +1678,7 @@ iter fn iter(r: Rolls) [Random<Int>] -> Emitted Int | Finished {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     use CyclicRandom(array_of(7, 8, 9))
     let xs = List(1, 2, 3, 4)
     let p = slice(xs)
@@ -1733,7 +1733,7 @@ fn drain<It canbe linear>(it: Mut It, stop: Int, end: (x: It) -> None, ?Yield<It
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     println("all ${drain(open_handle(4), 100, close)}")
     println("cut ${drain(open_handle(4), 5, close)}")
 }
@@ -1781,7 +1781,7 @@ fn abandoned() [Console] -> None {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     drained()
     abandoned()
 }
@@ -1863,7 +1863,7 @@ fn double(n: Int) -> Int {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let xs = List(1, 2, 3)
     let doubled = map2(slice(xs), double)
     for d in doubled {
@@ -1990,7 +1990,7 @@ export fn describe(x: Int) -> Str {
 }
 
 export fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     println(describe(make()))
 }
 "#;
@@ -2084,7 +2084,7 @@ export fn fill(target: Mut List<Int>, n: Int) -> None => target: Mut {
 }
 
 export fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     let items: Mut List<Int> = Mut List(1)
     fill(items, 2)
     println("size: ${items.size()}")
@@ -2164,7 +2164,7 @@ fn lucky_number() [Random<Int>] -> Int {
 }
 
 fn main() [use] {
-    use StdOutConsole
+    use StdConsole
     use CyclicRandom(List(10, 20, 30))
     use CyclicRandom(List("a", "b"))
     draw()
@@ -2235,7 +2235,7 @@ fn kotlinc_compiles_and_runs_effects() -> KotlinCase {
 // [use-requires-use]
 #[test]
 fn use_requires_the_use_effect() {
-    let errors = expect_errors("fn setup() -> None {\n    use StdOutConsole\n}\n");
+    let errors = expect_errors("fn setup() -> None {\n    use StdConsole\n}\n");
     assert!(
         errors
             .iter()
@@ -2264,7 +2264,7 @@ fn a_use_may_shadow_an_earlier_registration() {
     // written, so a second registration is legal and the innermost wins.
     let program = build_program(&[(
         "main.sv",
-        "fn main() [use] -> None {\n    use StdOutConsole\n    use StdOutConsole\n}\n",
+        "fn main() [use] -> None {\n    use StdConsole\n    use StdConsole\n}\n",
     )]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
@@ -2274,7 +2274,7 @@ fn a_use_may_shadow_an_earlier_registration() {
         .find(|f| f.rel_path.ends_with("main.kt"))
         .unwrap();
     assert_eq!(
-        main.content.matches("StdOutConsole()").count(),
+        main.content.matches("StdConsole()").count(),
         2,
         "both registrations should be emitted:\n{}",
         main.content
@@ -2363,7 +2363,7 @@ handler Twice<T> [Store<T>] of Store<T> {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole()
+    use StdConsole()
     use MemStore<Int>()
     use Twice<Int>()
     println(keep(3))
@@ -2507,7 +2507,7 @@ export fn by_len(a: Str, b: Str) [] -> Int => a, b {
 }
 
 export fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
 
     // NonEmpty by construction: the element constructor requires a first, so
     // `first` answers with an element, not `Int?` [col-of-nonempty].
@@ -2620,7 +2620,7 @@ export fn main() [use] {
 fn kotlinc_compiles_and_runs_bounds() -> KotlinCase {
     let src = r#"
 export fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
 
     // [col-bounds] A total exchange, and the one positional write a list of
     // obligations can have: nothing enters, nothing leaves, nothing is dropped.
@@ -2644,7 +2644,7 @@ export fn main() [use] {
     // A positional *write* answers whether it wrote, which is the same report
     // for the same reason: a write that quietly did nothing has no symptom at
     // the call. Out of range the value is the caller's and stays untouched.
-    let text = mut_str("hello")
+    let text = Mut Str("hello")
     println("wrote ${set(text, 0, 'H')} ${text}")
     println("write past the end ${set(text, 9, 'X')} ${text}")
     let buf = mut_bytes(bytes_of(to_byte(1), to_byte(2)))
@@ -2776,7 +2776,7 @@ fn by_last_digit(a: Int, b: Int) [] -> Int => a, b {
 // below, each in the ordering its own type carries [cmp-binder].
 fn drain_heap(heap: Heap<Int>(?cmp) Mut List<Int>) [Console] -> None
 => heap: +Heap<Int>(?cmp) Mut {
-    let out = mut_str()
+    let out = Mut Str()
     while heap_pop(heap) is Int n {
         append(out, "${n} ")
     }
@@ -2784,7 +2784,7 @@ fn drain_heap(heap: Heap<Int>(?cmp) Mut List<Int>) [Console] -> None
 }
 
 export fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
 
     let h = empty_heap<Int>()
     heap_push(h, 5)
@@ -2833,12 +2833,12 @@ export fn main() [use] {
 fn kotlinc_compiles_and_runs_mixed_spread() -> KotlinCase {
     let src = r#"
 export fn join_all(sep: Str, ...parts: Str[]) [Console] -> None => sep, parts {
-    let out = mut_str(...parts)
+    let out = Mut Str(...parts)
     println("${sep} ${out}")
 }
 
 export fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let rest = array_of(2, 3)
     let all = List(1, ...rest)
     println("List ${to_str(all)}")
@@ -2857,7 +2857,7 @@ export fn main() [use] {
     println("Map ${to_str(m)}")
 
     let words = array_of("b", "c")
-    let joined = mut_str("a", ...words)
+    let joined = Mut Str("a", ...words)
     println("mut_str ${joined}")
     join_all("ordinary", "x", ...words)
 
@@ -2902,12 +2902,12 @@ export fn count_ints(label: Str, ...ns: Int[]) [Console] -> Int => label, ns {
 }
 
 export fn join_strs(sep: Str, ...parts: Str[]) [Console] -> None => sep, parts {
-    let joined = mut_str(...parts)
+    let joined = Mut Str(...parts)
     println("${sep} ${joined}")
 }
 
 export fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
 
     // A variadic of a *primitive* element type: plain, spread, mixed, empty.
     let a = count_ints("plain", 1, 2, 3)
@@ -2987,7 +2987,7 @@ fn sign(n: Int) [] -> Str {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let ab = "ab"
     let b = "b"
     let same_ab = "ab"
@@ -3065,7 +3065,7 @@ fn min_of<T>(a: T, b: T, ?Ordered<T>) [] -> T => !a, !b {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let ada = Person { name: "ada", age: 36 }
     let bob = Person { name: "bob", age: 5 }
     // Both spellings of the selector: at a call, and as a value filling an
@@ -3136,7 +3136,7 @@ fn sign(n: Int) [] -> Str {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let p = Point { x: 1, y: 2 }
     let q = Point { x: 1, y: 9 }
     let r = Point { x: 1, y: 2 }
@@ -3198,7 +3198,7 @@ struct Reading : Hashed<self> {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let p = Point { x: 1, y: 2 }
     let q = Point { x: 1, y: 3 }
     println("${p}")
@@ -3270,7 +3270,7 @@ fn same_of<T>(a: T, b: T, ?Eq<T>) [] -> Bool => a, b {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let p = Point { x: 1, y: 2 }
     let q = Point { x: 1, y: 9 }
     println("struct ${p < q} ${p == q} ${p != q} ${q >= p}")
@@ -3366,7 +3366,7 @@ fn ranked_size<T>(r: Ranked List<T>) -> Int => r {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
 
     // Built with the canonical ordering: the youngest ranks first.
     let by_age = rank_add(
@@ -3417,7 +3417,7 @@ fn lowest<T>(s: SortedSet<T>) -> T? => s {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let byname = SortedSet(
         Person {name: "Cyd", age: 31},
         Person {name: "Ada", age: 36},
@@ -3479,7 +3479,7 @@ fn tally<T>(s: Set<T>) -> Int => s {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let all: Mut Set<Person> = Mut Set()
     // [cmp-binder] The pair is **passed**, never inferred from the annotation:
     // what fills the binder decides what the container is keyed by (user
@@ -3510,7 +3510,7 @@ fn main() [use] {
 fn kotlinc_compiles_and_runs_reads_of_an_optional_local() -> KotlinCase {
     let src = r#"
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let maybe: Str? = "hello"
     if contains(maybe!, "ell") { println("found") }
     println("upper ${to_upper(maybe!)}")
@@ -3543,7 +3543,7 @@ fn shout(s: Str) -> Str => !s { return s }
 struct Box { label: Str? }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let name: Str? = "hello"
     if name is Str {
         println("size ${size(name)}")
@@ -3593,7 +3593,7 @@ fn poke(xs: List<Mut Counter>) -> None {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let xs: List<Mut Counter> = List(Mut Counter { n: 1 }, Mut Counter { n: 2 })
     bump(at(xs, 0)!)
     poke(xs)
@@ -3627,7 +3627,7 @@ fn attack(a: Mut Entity, d: Mut Entity) -> None => a: Mut, d: Mut {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let es: List<Mut Entity> = List(
         Mut Entity { hp: 10, energy: 5 },
         Mut Entity { hp: 20, energy: 8 })
@@ -3667,7 +3667,7 @@ fn eq(a: Member, b: Member) -> Bool => a, b {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole()
+    use StdConsole()
     let s: Mut Set<Member> = Mut Set()
     add(s, Member { id: 1, name: "ann" })
     add(s, Member { id: 1, name: "bob" })
@@ -3710,7 +3710,7 @@ export fn by_x(p: Point) -> Long => p {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole()
+    use StdConsole()
     let s: Mut Set<Point> = Mut Set(hash = by_x, eq = eq)
     add(s, Point {x: 1, y: 1})
     add(s, Point {x: 1, y: 2})
@@ -3758,7 +3758,7 @@ fn gather<T>(a: T, b: T, ?Hashed<T>) -> Set<T> => !a, !b {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole()
+    use StdConsole()
     println("${size(gather(1, 2))}")
 }
 "#;
@@ -3800,7 +3800,7 @@ fn collect(a: Point, b: Point, ?Hashed<Point>) -> Set<Point> => !a, !b {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole()
+    use StdConsole()
     let s = collect(Point {x: 1, y: 1}, Point {x: 1, y: 2}, hash = by_x, eq = eq)
     println("${size(s)}")
 }
@@ -3880,7 +3880,7 @@ fn scored<T>(a: T, b: T, ?Ordered<T>) -> SortedMap<T, Int> => !a, !b {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole()
+    use StdConsole()
     // Fresh values per call: the collectors consume their elements.
     let one = size(gather(Member { id: 1, name: "ann" }, Member { id: 1, name: "bob" }))
     let two = size(gather(Member { id: 1, name: "ann" }, Member { id: 2, name: "cyd" }))
@@ -3923,7 +3923,7 @@ struct Point : ToStr<self> by auto {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole()
+    use StdConsole()
     println("${2.0} ${8.25} ${0.0 - 2.0} ${0.0} ${0.001} ${0.0001}")
     println("${1234567.0} ${12345678.0} ${100000000000000000000.0} ${0.00000000000001}")
     let zero = 0.0
@@ -3951,7 +3951,7 @@ fn kotlinc_compiles_and_runs_salvos_float_text() -> KotlinCase {
 /// this pair is the parity assertion.
 const LOOP_TEMP_DEMO: &str = r#"
 fn main() [use] -> None {
-    use StdOutConsole()
+    use StdConsole()
     for x in iter(List(1, 2)) {
         println("a ${x}")
     }
@@ -3991,7 +3991,7 @@ iter fn iter(r: Range) -> Emitted Int | Finished {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole()
+    use StdConsole()
     // `core.range` declares a `range(Int, Int)` too, and nothing separates the
     // two by signature, so the call names the place [fn-overload-ambiguous].
     for i in range@main(1, 4) {
@@ -4029,7 +4029,7 @@ import pair
 import fmt
 
 fn main() [use] -> None {
-    use StdOutConsole()
+    use StdConsole()
     let p = Pair { a: 1, b: 2 }
     println("${p}")
 }
@@ -4061,7 +4061,7 @@ fn total<C, It>(c: C, ?iter: (c: C) -> Mut It holds proj(c), ?Yield<It, Int>) ->
 }
 
 fn main() [use] -> None {
-    use StdOutConsole()
+    use StdConsole()
     println("${total(List(1, 2, 3))}")
     println("${total(List(1, 2, 3))}")
 }
@@ -4070,7 +4070,7 @@ fn main() [use] -> None {
 /// [col-no-literal] Bare collection constructors as arguments.
 const BARE_LITERAL_DEMO: &str = r#"
 fn main() [use] -> None {
-    use StdOutConsole()
+    use StdConsole()
     println("A ${size(to_set(List(1, 2)))}")
     println("B ${size(to_list(Set(3, 4)))}")
     let words = to_set(List("a", "b", "a"))
@@ -4137,7 +4137,7 @@ fn trade(members: List<Mut Fighter>, one: ref(members) Mut Fighter, other: ref(m
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let squad = Mut Squad { banner: "red", members: List(
         Mut Fighter { name: "Ada", hp: 30, energy: 4 },
         Mut Fighter { name: "Bo", hp: 8, energy: 9 }) }
@@ -4166,7 +4166,7 @@ fn label(s: Str, n: Int) -> Str => s, n {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let b = Mut Box { n: 1, tag: "t" }
     println("1. ${b.n} ${bumped(b)}")
     println("2. ${label(b.tag, bumped(b))}")
@@ -4180,7 +4180,7 @@ const UPDATE_FAMILY_DEMO: &str = r#"
 struct Entity canbe Mut { hp: Int }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let es: List<Mut Entity> = List(Mut Entity { hp: 10 }, Mut Entity { hp: 20 })
     let i = 0
     let j = 1
@@ -4215,7 +4215,7 @@ fn bump_at(es: List<Mut Entity>, i: Int,
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let es: List<Mut Entity> = List(Mut Entity { hp: 5 }, Mut Entity { hp: 7 })
     bump_at(es, 1, (c: List<Mut Entity>, k: Int) -> at(c, k))
     println("${get(es, 0)!.hp} ${get(es, 1)!.hp}")
@@ -4237,7 +4237,7 @@ fn heal_at<L>(c: List<Mut Entity>, l: L, ?Ref<List<Mut Entity>, L, Entity>) -> N
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let es: List<Mut Entity> = List(Mut Entity { hp: 5 }, Mut Entity { hp: 7 })
     heal_at(es, 1)
     println("${get(es, 0)!.hp} ${get(es, 1)!.hp}")
@@ -4269,7 +4269,7 @@ fn run(es: List<Mut Entity>) [Lender] -> None {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     use FirstLender()
     let es: List<Mut Entity> = List(Mut Entity { hp: 5 }, Mut Entity { hp: 7 })
     run(es)
@@ -4296,7 +4296,7 @@ fn wounded(es: List<Mut Entity>) -> (ref(es) Mut Entity)? {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let es: List<Mut Entity> = List(Mut Entity { hp: 50 }, Mut Entity { hp: 3 })
     heal(wounded(es)!)
     println("${get(es, 0)!.hp} ${get(es, 1)!.hp}")
@@ -4317,7 +4317,7 @@ fn attack(c: List<Mut Entity>, a: ref(c) Mut Entity, d: ref(c) Mut Entity) -> No
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let es: List<Mut Entity> = List(
         Mut Entity { hp: 10, energy: 5 },
         Mut Entity { hp: 20, energy: 8 })
@@ -4346,7 +4346,7 @@ fn damage(e: Mut Entity, n: Int) -> None => e.hp: Mut, n {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let e = Mut Entity { hp: 20, rings: Mut List(Ring { power: 3 }) }
     let rings = e.rings
     damage(e, 5)
@@ -4369,7 +4369,7 @@ fn add_ring(e: Mut Entity) -> None => e.rings: Mut {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let e = Mut Entity { hp: 20, rings: Mut List(Ring { power: 3 }) }
     let rings = e.rings
     add_ring(e)
@@ -4383,7 +4383,7 @@ fn main() [use] {
 /// `rustc_compiles_and_runs_a_borrowed_scalar_comparison`.
 const CMP_DEREF_DEMO: &str = r#"
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let xs = List(10, 20, 30)
     let i = 1
     if i is Idx(xs) {
@@ -4620,7 +4620,7 @@ fn nested() [Console] -> None {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     shared_container()
     map_slots()
     nested()
@@ -4666,7 +4666,7 @@ fn keep(w: Word) [] -> Word => !w {
 }
 
 export fn main() [use] -> None {
-    use StdOutConsole()
+    use StdConsole()
     let a = A { b: B { c: List(Mut Word { text: "something" }) }, d: List(Mut Word { text: "one" }, Mut Word { text: "two" }) }
     let x = at(a, -1)
     let y = at(a, 0)
@@ -4746,7 +4746,7 @@ fn score_both<C>(c: C, a: ref(c) Mut Player, b: ref(c) Mut Player) -> None {
 }
 
 export fn main() [use] -> None {
-    use StdOutConsole()
+    use StdConsole()
     let teams: Mut Map<Str, Mut Team> = Mut Map()
     put(teams, "red", Mut Team { coach: "Ada", roster: List(Mut Player { name: "Bo", goals: 0 }, Mut Player { name: "Cy", goals: 5 }) })
     let league = Mut League { teams: teams, bench: List(Mut Player { name: "Flo", goals: 9 }) }
@@ -4792,7 +4792,7 @@ fn kotlinc_compiles_and_runs_notsame_handles() -> KotlinCase {
 /// `rustc_compiles_and_runs_placeholder_loops`.
 const PLACEHOLDER_LOOP_DEMO: &str = r#"
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let hits: Mut List<Int> = Mut List()
     // [placeholder] Two loops that bind nothing, in one function: neither
     // introduces a name, so neither can collide with the other.
@@ -4844,7 +4844,7 @@ fn both(f: (a: Int, b: Int) [Console] -> Int, x: Int) [Console] -> Int {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     println("${first_big(List(1, 5)) ?: 0} ${first_big(List(1)) ?: 0}")
     println("${both((a, b) -> { println("f ${a} ${b}") return a + b }, 10)}")
 }
@@ -4870,7 +4870,7 @@ fn pick(n: Int) -> Int | Str | Bool {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     for k in List(0, 1, 2) {
         let v = pick(k)
         if v is Int || v is Str { println("int or str") }
@@ -4905,7 +4905,7 @@ fn wrapped(n: Int) [Throw<Str>] -> Ok Int | Err Str {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let h = H { result: try { wrapped(7) } }
     if h.result is ^Ok {
         if h.result is Ok { println("ok ${h.result}") } else { println("not ok") }
@@ -4931,7 +4931,7 @@ handler Derived(step: (n: Int) -> Int) of Calc {
     fn calc(n: Int) -> Int { return step(n) }
 }
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     use Derived(n -> n + 1)
     println("${calc(1)}")
 }
@@ -4961,7 +4961,7 @@ fn either(n: Int) -> Either {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let x: Int | Str = 3
     let y = widen(x)
     println("${y}")
@@ -5004,7 +5004,7 @@ fn run(es: List<Mut Entity>) [Lender] -> None {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     use FirstLender()
     let es: List<Mut Entity> = List(Mut Entity { hp: 5 }, Mut Entity { hp: 7 })
     run(es)
@@ -5063,7 +5063,7 @@ fn run(t: Mut Team) [Roster] -> None => t: Mut {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     use Plain()
     let t = Mut Team { name: "t", members: List(Mut Entity { hp: 1 }, Mut Entity { hp: 2 }) }
     run(t)
@@ -5126,7 +5126,7 @@ handler PrintShower [Console] of Shower {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     use PrintShower()
     let xs: List<Str> = List("abc", "de")
     println(outer(get(xs, 0)))
@@ -5135,7 +5135,7 @@ fn main() [use] {
     println(outer(o))
     println(outer("lit"))
     println(outer(None))
-    let ws: List<Mut Str> = List(mut_str("w"))
+    let ws: List<Mut Str> = List(Mut Str("w"))
     println(outer(get(ws, 0)))
     println(outer(at(ws, 0)))
     let cw = copy(get(ws, 0))
@@ -5177,7 +5177,7 @@ fn bump(i: Mut Item) -> None => i: Mut {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let d: Mut Deque<Mut Item> = mut_deque_of()
     add_first(d, Mut Item { n: 1 })
     add_last(d, Mut Item { n: 2 })
@@ -5245,7 +5245,7 @@ fn bump(c: Mut Counter) -> None => c: Mut {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let cs: Mut List<Mut Counter> = Mut List(Mut Counter { n: 1 }, Mut Counter { n: 2 })
     let h = head_of(cs)!
     h.n = h.n + 10
@@ -5321,7 +5321,7 @@ fn pick(flag: Bool, xs: List<Mut A>, b: B) -> Str => xs, b {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let xs: List<Mut A> = List(Mut A { n: 1 })
     let b = B { s: "x" }
     println("${pick(true, xs, b)} ${pick(false, xs, b)}")
@@ -5368,7 +5368,7 @@ fn shout(s: Mut Str?) -> None => s: Mut {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let es: List<Mut Entity> = List(Mut Entity { hp: 3 }, Mut Entity { hp: 10 })
     println("${heal(at(es, 0))} ${heal(at(es, 9))}")
     let h = at(es, 1)
@@ -5378,7 +5378,7 @@ fn main() [use] {
     let own: Mut Entity? = Mut Entity { hp: 100 }
     heal(own)
     heal(None)
-    let ws: List<Mut Str> = List(mut_str("hey"))
+    let ws: List<Mut Str> = List(Mut Str("hey"))
     shout(at(ws, 0))
     shout(at(ws, 0))
     println("${get(es, 0)!.hp} ${get(es, 1)!.hp} ${own!.hp} ${get(ws, 0)!}")
@@ -5441,7 +5441,7 @@ fn swap_in(lib: Library, al: ref(lib) Mut Album, a: ref(al) Mut Track, b: ref(al
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let lib = Mut Library { albums: List(
         Mut Album { name: "x", tracks: List(Mut Track { plays: 1 }, Mut Track { plays: 2 }) },
         Mut Album { name: "y", tracks: List(Mut Track { plays: 3 }) }) }
@@ -5499,7 +5499,7 @@ fn describe(i: Inner?) -> Str {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let a = Outer { inner: Inner { nanos: 42L } }
     let b = Outer { inner: None }
     let c: Outer? = None
@@ -5534,7 +5534,7 @@ fn nanos(m: Meta) -> Long {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     println(to_str(nanos(Meta { last_updated: 7L })))
     println(to_str(nanos(Meta { last_updated: None })))
     let last_updated = 99L
@@ -5566,7 +5566,7 @@ fn show(v: Long?) -> Str {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     println(show(normalize(-1L)))
     println(show(normalize(42L)))
     let n: Long? = 7L
@@ -5621,6 +5621,9 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_a_breaking_value_loop_and_ordered_arguments,
     kotlinc_compiles_and_runs_effect_members_taking_fn_values,
     kotlinc_compiles_and_runs_comptime,
+    kotlinc_compiles_and_runs_a_generic_optional_codec,
+    kotlinc_compiles_and_runs_a_generic_auto_key,
+    kotlinc_compiles_and_runs_two_modules_same_named_identities,
     kotlinc_compiles_and_runs_placeholder_loops,
     kotlinc_compiles_and_runs_a_held_identity,
     kotlinc_compiles_and_runs_a_mixed_identity,
@@ -6250,7 +6253,7 @@ iter fn iter(r: Upto) -> Emitted Int | Finished {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
 
     // Last evaluated body expression is the loop's value.
     let i = 0
@@ -6398,7 +6401,7 @@ fn build_multi_module() -> Program {
 import geometry.area
 
 fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     println("area: ${area(3, 4)}")
 }
 "#;
@@ -6490,7 +6493,7 @@ fn aliased_imports_emit_kotlin_alias_imports() {
 import geometry.area as rect_area
 
 fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     println("area: ${rect_area(3, 4)}")
 }
 "#;
@@ -6517,7 +6520,7 @@ import lib.shout as holler
 import lib.loud
 
 fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     println(holler("hi"))
     let l = loud("hey")
     println(holler(l))
@@ -6589,7 +6592,7 @@ export fn shadowed(console: Str) [Console] -> None => !console {
 }
 
 export fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     shadowed("value")
 }
 "#;
@@ -6623,7 +6626,7 @@ export struct Point {
 }
 
 export fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     let {x} = Point {x: 1, y: 2}
     let {y} = Point {x: 3, y: 4}
     println("${x} ${y}")
@@ -6657,7 +6660,7 @@ fn kotlinc_compiles_and_runs_multi_module() -> KotlinCase {
 fn companion_collision_with_generated_file_is_an_error() {
     let mut program = build_program(&[(
         "main.sv",
-        "fn main() [use] -> None {\n    use StdOutConsole\n    println(\"hi\")\n}\n",
+        "fn main() [use] -> None {\n    use StdConsole\n    println(\"hi\")\n}\n",
     )]);
     program.companions.push(salvo_core::CompanionFile {
         rel_path: std::path::PathBuf::from("main.kt"),
@@ -6683,7 +6686,7 @@ fn companion_collision_with_generated_file_is_an_error() {
 fn numeric_literal_suffixes_emit_kotlin_suffixes() {
     let program = build_program(&[(
         "main.sv",
-        "fn main() [use] -> None {\n    use StdOutConsole\n    \
+        "fn main() [use] -> None {\n    use StdConsole\n    \
          let big: Long = 5L\n    let ratio: Float = 2.5f\n    let d: Double = 1.5\n    \
          println(\"${big} ${ratio} ${d}\")\n}\n",
     )]);
@@ -6717,7 +6720,7 @@ export fn describe(v: Ok Str | Err Str) -> Str {
 }
 
 export fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     println(describe(ok("x")))
     println(describe(err("y")))
 }
@@ -6758,7 +6761,7 @@ struct Person canbe Mut {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     let s = "hi"
     let t = copy(s)
     println(t)
@@ -6825,7 +6828,7 @@ fn copy_lowers_type_directedly() {
 fn copy_of_nested_mutable_type_is_an_error() {
     let program = build_program(&[(
         "bad.sv",
-        "fn main() [use] -> None {\n    use StdOutConsole\n    \
+        "fn main() [use] -> None {\n    use StdConsole\n    \
          let m = Mut Map((\"a\", Mut List(1)))\n    let n = copy(m)\n    \
          println(\"${size(n)}\")\n}\n",
     )]);
@@ -6844,7 +6847,7 @@ pub const COPY_ELEMENTS_DEMO: &str = r#"
 struct Counter canbe Mut { n: Int }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let xs: List<Mut Counter> = List(Mut Counter { n: 1 })
     let ys = copy(xs)
     let e = at(xs, 0)!
@@ -6863,12 +6866,12 @@ fn main() [use] {
 pub const CANBE_MUT_FIELD_DEMO: &str = r#"
 struct Bag canbe Mut {
     n: Int,
-    items: canbe Mut List<Int>,
+    items: List<Int> canbe Mut,
     fixed: Mut List<Int>
 }
 
 struct Outer canbe Mut {
-    bag: canbe Mut Bag,
+    bag: Bag canbe Mut,
     tag: Str
 }
 
@@ -6886,7 +6889,7 @@ fn total(b: Bag) -> Int => b {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole()
+    use StdConsole()
     let b = Mut Bag { n: 1, items: Mut List<Int>(), fixed: Mut List<Int>() }
     add(b.items, 3)
     fill(b)
@@ -6937,7 +6940,7 @@ fn kotlinc_compiles_and_runs_canbe_mut_field() -> KotlinCase {
 /// nothing is stored. Shared with the Rust backend's run.
 pub const STRUCT_SLOT_DEMO: &str = r#"
 struct Ranked<T>(?cmp: (T, T) -> Int) canbe Mut {
-    items: canbe Mut List<T>
+    items: List<T> canbe Mut
 }
 
 fn ranked<T>(?cmp: (T, T) -> Int) [] -> Mut Ranked<T>(?cmp) {
@@ -6965,7 +6968,7 @@ fn backwards(a: Int, b: Int) [] -> Int {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole()
+    use StdConsole()
     let up = ranked<Int>()
     push(up, 3)
     push(up, 1)
@@ -6991,7 +6994,7 @@ fn show(v: Int?) [] -> Str => v {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole()
+    use StdConsole()
     // The first element fixes the constructor's `T`, so it is typed `P?`.
     let first: P? = P { a: 1 }
     let xs: List<P?> = List(first, None, P { a: 3 })
@@ -7041,7 +7044,7 @@ struct Wrapper<T> : Hashed<self> by auto, Ordered<self> by auto, ToStr<self> by 
 }
 
 fn main() [use] -> None {
-    use StdOutConsole()
+    use StdConsole()
     let a = Wrapper<Str> { value: "a", inner: Inner { k: 1 }, n: 1 }
     let b = Wrapper<Str> { value: "a", inner: Inner { k: 2 }, n: 0 }
     println("${cmp(a, b)} ${eq(a, b)} ${hash(a) == hash(copy(a))}")
@@ -7054,7 +7057,7 @@ fn h<T>(a: T, i: Inner, ?cmp: (T, T) -> Int) [] -> Int => a, i {
 }
 
 fn run_h() [use] -> None {
-    use StdOutConsole()
+    use StdConsole()
     println("${h("x", Inner { k: 3 })}")
 }
 "#;
@@ -7071,7 +7074,7 @@ fn kotlinc_compiles_and_runs_generic_stamp() -> KotlinCase {
 /// functions, its stamped `eq`/`to_str` reached from there, and copied deeply.
 pub const OPAQUE_BAG: &str = r#"
 export opaque struct Bag : Eq<self> by auto, ToStr<self> by auto canbe Mut {
-    items: canbe Mut List<Int>,
+    items: List<Int> canbe Mut,
     total: Int
 }
 
@@ -7100,7 +7103,7 @@ struct Shelf : Eq<self> by auto, ToStr<self> by auto {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole()
+    use StdConsole()
     let b = bag()
     put(b, 3)
     put(b, 4)
@@ -7162,7 +7165,7 @@ fn to_str(p: Point) [] -> Str => p {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole()
+    use StdConsole()
     let a = Bag<Int> { items: List(1, 2), n: 0 }
     let b = Bag<Int> { items: List(2, 1), n: 5 }
     println("${a == b} ${a}")
@@ -7180,14 +7183,14 @@ fn kotlinc_compiles_and_runs_mixed_members() -> KotlinCase {
     kotlin_case(files, "mixed_members", "true Bag { items: [1, 2], n: 0 }\n(1, 2) 1\n")
 }
 
-/// [kt-field-canbe-mut] A `canbe Mut Str` field would hold a `String` or a
+/// [kt-field-canbe-mut] A `Str canbe Mut` field would hold a `String` or a
 /// `StringBuilder` under one property: refused on Kotlin.
 #[test]
 fn canbe_mut_str_field_is_a_kotlin_error() {
     let program = build_program(&[(
         "bad.sv",
-        "struct Doc canbe Mut { text: canbe Mut Str }\n\nfn main() [use] -> None {\n    \
-         use StdOutConsole()\n    let d = Doc { text: \"a\" }\n    println(d.text)\n}\n",
+        "struct Doc canbe Mut { text: Str canbe Mut }\n\nfn main() [use] -> None {\n    \
+         use StdConsole()\n    let d = Doc { text: \"a\" }\n    println(d.text)\n}\n",
     )]);
     let errors = salvo_backend_kotlin::emit_program(&program).err().expect("expected codegen errors");
     assert!(
@@ -7236,7 +7239,7 @@ fn fold_eq(a: Str, b: Str) [] -> Bool => a, b {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let m: Mut Map<Str, Int>(fold_hash, fold_eq) = Mut Map("ab": 1, hash = fold_hash, eq = fold_eq)
     put(m, "cd", 2)
     let e: Mut Map<Str, Int>(fold_hash, fold_eq) = Mut Map<Str, Int>(hash = fold_hash, eq = fold_eq)
@@ -7263,7 +7266,7 @@ fn kotlinc_compiles_and_runs_literal_identity() -> KotlinCase {
 /// agree with Rust's, shift counts taken modulo the width (ROADMAP §0j step 2).
 pub const INT_WRAP_BITS_DEMO: &str = r#"
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let big = 2147483647
     let wrapped = big + 1
     let neg = -wrapped
@@ -7314,7 +7317,7 @@ fn consume(text: Str) -> None => !text {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     let people = List(Person {name: "Ada", age: 36}, Person {name: "Grace", age: 45})
     println(longest_name(people))
     for s in List("x", "y") {
@@ -7367,7 +7370,7 @@ fn poison_guards_the_borrow() -> Int {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     let people = List(Person {name: "Ada", age: 36}, Person {name: "Grace", age: 45})
     println("${count_long(people)}")
     println("${poison_guards_the_borrow()}")
@@ -7408,7 +7411,7 @@ fn close_file(h: FileHandle) [Console] -> None => !h {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     let h = open_file("data.txt")
     let n = h.fd
     println("fd=${n}")
@@ -7453,7 +7456,7 @@ fn hold<T canbe linear>(value: T) -> T => !value {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     let h = hold(open_file(9))
     println("held fd=${h.fd}")
     close(h)
@@ -7485,7 +7488,7 @@ fn consume_list(v: List<Int>) [Console] -> None => !v {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     let xs = List(1, 2, 3)
     let g = () -> { consume_list(xs) }
     run_once(g)
@@ -7531,7 +7534,7 @@ fn head_of(persons: List<Person>, tag: Str) -> proj(persons) Person? => persons,
 }
 
 fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     let people = List(Person {name: "Kid", age: 9}, Person {name: "Grace", age: 45})
     let adult = find_adult(people)
     if adult is Person a {
@@ -7580,7 +7583,7 @@ fn count(people: List<Person>) -> Int => people {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     let people = List(Person {name: "Ada", age: 36}, Person {name: "Grace", age: 45})
     let twice = apply_keeping((v: List<Person>) -> { return size(v) }, people)
     println("twice=${twice}")
@@ -7609,7 +7612,7 @@ fn kotlinc_compiles_and_runs_fn_contracts() -> KotlinCase {
 /// silently re-associate.
 const PRECEDENCE_DEMO: &str = r#"
 fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     let a = 10
     let b = 3
     let c = 2
@@ -7669,7 +7672,7 @@ struct Holder {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     let h = Holder {result: ok(1)}
     if h.result is Ok Int r {
         println("ok ${r}")
@@ -7724,7 +7727,7 @@ export struct Holder {
 }
 
 export fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     let h = Holder {result: ok(1)}
     when h.result {
         is Ok {
@@ -7774,7 +7777,7 @@ fn describe(p: Person) -> Str => p {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     println(describe(Person {name: "Ann", surname: "Lee", address: Mut Address {city: "Rome"}}))
     println(describe(Person {name: "Bo", address: Mut Address {city: None}}))
     let p = Person {name: "Cy", surname: "Ray", address: Mut Address {city: "Oslo"}}
@@ -7839,7 +7842,7 @@ struct Reading {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     let r = Reading {label: "temp", value: 21}
     if r.value is Int {
         println("${r.label}: ${r.value + 1}")
@@ -7891,7 +7894,7 @@ fn kotlinc_compiles_and_runs_place_operand() -> KotlinCase {
 
 const TUPLE_INDEX_DEMO: &str = r#"
 fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     let t: (Int, Str, Bool) = (1, "two", true)
     println("${t.0} ${t.1} ${t.2}")
     let nested: (Int, (Str, Int)) = (7, ("in", 9))
@@ -7955,7 +7958,7 @@ fn kotlinc_compiles_and_runs_tuple_index() -> KotlinCase {
 fn list_constructors_carry_their_element_type() {
     let src = r#"
 export fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     let xs: Mut List<Int> = Mut List()
     let ys = List<Str>()
     add(xs, 1)
@@ -7980,7 +7983,7 @@ export fn main() [use] -> None {
 fn kotlinc_compiles_and_runs_list_element_types() -> KotlinCase {
     let src = r#"
 export fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     let xs: Mut List<Int> = Mut List()
     add(xs, 1)
     add(xs, 2)
@@ -8007,7 +8010,7 @@ export fn main() [use] -> None {
 fn kotlinc_compiles_and_runs_collections() -> KotlinCase {
     let src = r#"
 export fn main() [use] -> None {
-    use StdOutConsole()
+    use StdConsole()
 
     let s: Mut Set<Str> = Mut Set("b", "a", "c")
     println("set: ${to_str(s)} size: ${size(s)}")
@@ -8073,7 +8076,7 @@ export fn main() [use] -> None {
 fn kotlinc_compiles_and_runs_collection_iteration() -> KotlinCase {
     let src = r#"
 export fn main() [use] -> None {
-    use StdOutConsole()
+    use StdConsole()
     let s = Set("b", "a", "c")
     for e in iter(s) {
         println("elem: ${e}")
@@ -8136,7 +8139,7 @@ export fn takes_set(s: Set<Int>) -> Int => s {
 }
 
 export fn main() [use] -> None {
-    use StdOutConsole()
+    use StdConsole()
     let xs = List(1, 2, 3)
     println("list: ${to_str(xs)}")
     let mxs: Mut List<Int> = Mut List(4, 5)
@@ -8193,7 +8196,7 @@ export struct Measure : Eq<self> by auto {
 }
 
 export fn main() [use] -> None {
-    use StdOutConsole()
+    use StdConsole()
     let p = Point { x: 1, y: 2 }
     let q = Point { x: 1, y: 3 }
     let r = Point { x: 1, y: 2 }
@@ -8248,7 +8251,7 @@ export fn main() [use] -> None {
 fn kotlinc_compiles_and_runs_operators() -> KotlinCase {
     let src = r#"
 export fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     let x: Long = 1
     let n = 5
     let y = x + n * 2
@@ -8319,7 +8322,7 @@ export fn shut(h: Int) [Store] -> Str {
 }
 
 export fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     use MemStore()
     use MemNet()
     let h = open("a.txt")
@@ -8345,7 +8348,7 @@ export fn main() [use] -> None {
 fn kotlinc_compiles_and_runs_sorted_collections() -> KotlinCase {
     let src = r#"
 export fn main() [use] -> None {
-    use StdOutConsole()
+    use StdConsole()
     let s: Mut SortedSet<Str> = Mut SortedSet("pear", "apple", "fig")
     println("set: ${to_str(s)}")
     let added = add(s, "banana")
@@ -8416,7 +8419,7 @@ export fn main() [use] -> None {
 fn kotlinc_compiles_and_runs_codepoint_string_order() -> KotlinCase {
     let src = r#"
 export fn main() [use] -> None {
-    use StdOutConsole()
+    use StdConsole()
     let bmp = "Ａ"
     let s = SortedSet("😀", "Ａ")
     let first = min(s)
@@ -8441,7 +8444,7 @@ export fn main() [use] -> None {
 fn kotlinc_compiles_and_runs_generated_constructors() -> KotlinCase {
     let src = r#"
 export fn main() [use] -> None {
-    use StdOutConsole()
+    use StdConsole()
     let a = array_by(3, i -> i * 2)
     println("array_by ${a[0]} ${a[1]} ${a[2]}")
     let xs = list_by(4, i -> i + 10)
@@ -8542,7 +8545,7 @@ fn shout(name: Str) [Greeter, Console] -> None => name {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     use Plain
     shout("a")
     use Formal
@@ -8624,7 +8627,7 @@ fn audit() [Counter, Console] -> None {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     use MemCounter()
     use PlainLogger()
     work("plain")
@@ -8711,7 +8714,7 @@ fn interception() [Logger, Clock, use] -> None {
 }
 
 fn main() [use, spawn] -> None {
-    use StdOutConsole
+    use StdConsole
     use TickingClock()
     use PlainLogger()
     interception()
@@ -8780,7 +8783,7 @@ handler Bookkeeping() [Counter] of Ledger {
 }
 
 fn main() [use, spawn] -> None {
-    use StdOutConsole()
+    use StdConsole()
     let counter = spawn Counting() on pool(2)
     counter.bump(2)
     counter.bump(3)
@@ -8821,7 +8824,7 @@ handler Relay<T> [Console] of Sink<T> {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     use Relay<Int>()
     println(accept(1))
 }
@@ -8854,7 +8857,7 @@ fn work() [Logger] -> None {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     use ConsoleLogger()
     work()
     log("from main")
@@ -8945,7 +8948,7 @@ fn draw() [Console, Random<Int>, use] -> None {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     use ConsoleLogger()
     banner()
     if true {
@@ -9025,7 +9028,7 @@ fn label(n: Int) [Console] -> Str {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     use ConsoleLogger()
     use LoggingAudit()
     note("first")
@@ -9111,7 +9114,7 @@ fn report(label: Str) [Console, Logger, Counter] -> None => label {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     use PrefixLogger("L", 3)
     use MemCounter
     log(twice(s -> {
@@ -9153,7 +9156,7 @@ const LOOP_DESTRUCTURE: &str = r#"
 struct Row { name: Str, score: Int }
 
 fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     // [let-destructure] A loop element destructures like a `let`: a tuple by
     // position, a struct by field (renamed where the pattern says so).
     let pairs: List<(Str, Int)> = List(("a", 1), ("b", 2))
@@ -9231,7 +9234,7 @@ fn loop_destructuring_binds_the_parts_of_a_temporary_kotlin() {
 /// backend's `rustc_compiles_and_runs_tuples_past_three`.
 const BIG_TUPLE_DEMO: &str = r#"
 fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     // [type-tuple] Past three elements Kotlin has no tuple type of its own,
     // so the backend generates one; Rust's are native at any arity.
     let q: (Int, Str, Bool, Int, Str) = (1, "two", true, 4, "five")
@@ -9329,7 +9332,7 @@ fn describe(r: Result) -> Str {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     // [col-no-literal] A variadic constructor does not yet coerce
     // differently-armed arguments into an explicit union `T`, so the second
     // arm is coerced at its own binding.
@@ -9401,7 +9404,7 @@ handler FirstStash of Stash {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     use FirstStash
     let x = pick(7, 2)
     let s = pick("l", "r")
@@ -9450,7 +9453,7 @@ export handler FirstStash of Stash {
 }
 
 export fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     use FirstStash
     let bad: Str = pick(1, 2)
     println(bad)
@@ -9496,7 +9499,7 @@ fn roll() [Random<Count>] -> Count {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     use CyclicRandom(List(7, 8))
     println("${roll()} ${roll()}")
 }
@@ -9558,7 +9561,7 @@ handler CyclicRandom<T>(values: T[]) of Random<T> {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     use CyclicRandom(array_of(1, 2, 3, 4))
     let nums: Int[] = array_of(3, 4, 5)
     println("size ${nums.size()} get ${nums.get(2)!} first ${nums.first()!}")
@@ -9639,7 +9642,7 @@ fn label(t: Environment.Tag Str) -> Str {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole()
+    use StdConsole()
     let env = Environment {
         id: Environment.Id {value: "prod"},
         name: Environment.Name {value: "Production"}
@@ -9754,7 +9757,7 @@ fn maybe(t: Environment.Tag Str | None) -> Str {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole()
+    use StdConsole()
     println(show(pick(true)))
     println(show(pick(false)))
     let m = Mut Environment.Id {value: "before"}
@@ -9810,7 +9813,7 @@ fn describe(v: AttrValue) -> Str {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole()
+    use StdConsole()
     println(describe(make_s("x")))
     println(describe(Attr.N { value: "y" }))
     println(Attr.tag("z"))
@@ -9856,7 +9859,7 @@ fn describe(l: Trusted List<Int>) -> Str {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole()
+    use StdConsole()
     let t = trust(Mut List(1, 2))
     t.add(3)
     println(describe(t))
@@ -9962,7 +9965,7 @@ fn report_text(outcome: Ok Int | Thrown Str) [Console] -> None => !outcome {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     report_text(try { measure("hello") })
     report_text(try { measure("") })
     let mixed = try {
@@ -10119,7 +10122,7 @@ fn demo() [Console, Logger] -> None {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     use ConsoleLogger()
     demo()
 }
@@ -10222,7 +10225,7 @@ fn describe(n: Int) [Console] -> None {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     describe(7)
     describe(0)
     describe(-1)
@@ -10334,7 +10337,7 @@ fn nested(o: Ok Int | Err Str) [Console] -> None => !o {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     println(classify(-5))
     println(classify(0))
     println(classify(7))
@@ -10418,7 +10421,7 @@ fn risky(n: Int) [Throw<Str>] -> Int {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     let counter = 0
     let outcome = try {
         counter = counter + 1
@@ -10481,7 +10484,7 @@ handler DefaultClock [RawClock] of Clock {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     use HostRawClock(35)
     use DefaultClock()
     println(stamp("boot"))
@@ -10649,7 +10652,7 @@ handler DefaultClock [RawClock] of Clock {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     use HostRawClock(35)
     use DefaultClock()
     println(stamp("boot"))
@@ -10773,7 +10776,7 @@ fn report(label: Str, outcome: Ok None | Err NetError) [Console] -> None => labe
 }
 
 fn main() [use, spawn] {
-    use StdOutConsole()
+    use StdConsole()
     let a = NodeEndpoint { host: "a", port: 1 }
     let b = NodeEndpoint { host: "b", port: 1 }
     let c = NodeEndpoint { host: "c", port: 9 }
@@ -10867,7 +10870,7 @@ fn report(label: Str, outcome: Ok None | Err NetError) [Console] -> None => labe
 }
 
 fn main() [use, spawn] {
-    use StdOutConsole()
+    use StdConsole()
     let me = NodeEndpoint { host: "127.0.0.1", port: 47321 }
     let nobody = NodeEndpoint { host: "127.0.0.1", port: 47322 }
     use HostTcpTransport(copy(me))
@@ -10903,7 +10906,7 @@ struct Circle { r: Double }
 struct Square { side: Float }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let p = Pin {
         at: Point { x: -2, y: 5000000000 },
         label: "home",
@@ -11008,7 +11011,7 @@ handler Booting() [Transport, spawn] of Boot {
 }
 
 fn main() [use, spawn] {
-    use StdOutConsole()
+    use StdConsole()
     let a = NodeEndpoint { host: "a", port: 1 }
     let b = NodeEndpoint { host: "b", port: 1 }
     let net = spawn MemNetwork() on pool(1)
@@ -11083,7 +11086,7 @@ handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: eff[MemNet], gos
 }
 
 fn main() [use, spawn] {
-    use StdOutConsole()
+    use StdConsole()
     let a = NodeEndpoint { host: "a", port: 1 }
     let b = NodeEndpoint { host: "b", port: 1 }
     let all = List(copy(a), copy(b))
@@ -11159,7 +11162,7 @@ fn boot_node(at: NodeEndpoint, seeds: List<NodeEndpoint>, net: eff[MemNet]) [spa
 actor effect Counter { send fn bump(n: Int) => !n }
 
 fn names_of(nodes: List<Node>) -> Str => nodes {
-    let out: Mut Str = mut_str()
+    let out: Mut Str = Mut Str()
     for n in nodes {
         append(out, to_str(n.at))
     }
@@ -11206,7 +11209,7 @@ handler Registering<E>() of Reg<E> {
 }
 
 fn main() [use, spawn] {
-    use StdOutConsole()
+    use StdConsole()
     let p = pool(1)
     let reg = spawn Registering<Ping>() on p
     let a = spawn Pinging() on p
@@ -11226,7 +11229,7 @@ fn kotlinc_compiles_and_runs_an_effect_typed_generic() -> KotlinCase {
 /// The Rust backend's `ELVIS_BORROW_DEMO`, verbatim [elvis] — parity for a
 /// Rust-side borrow defect.
 const ELVIS_BORROW_DEMO: &str = r#"fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let xs: List<Int> = List(3)
     let names: List<Str> = List("ann")
     let m: Mut Map<Str, Int> = Mut Map<Str, Int>()
@@ -11306,7 +11309,7 @@ handler LoudReporting(counter: eff[Counter]) [Console] of Report {
 }
 
 fn main() [use, spawn] {
-    use StdOutConsole()
+    use StdConsole()
     let p = pool(2)
     let c = spawn Counting() on p
     c.bump(3)
@@ -11342,7 +11345,7 @@ handler TwoFaced(who: Str) of Ping, Admin {
 }
 
 fn main() [use, spawn] {
-    use StdOutConsole()
+    use StdConsole()
     let a = NodeEndpoint { host: "a", port: 1 }
     let net = spawn MemNetwork() on pool(1)
     use MemTransport(copy(a), copy(net))
@@ -11419,7 +11422,7 @@ handler Stamped(who: Str) [Clock] of Greeter {
 }
 
 fn main() [use, spawn] {
-    use StdOutConsole()
+    use StdConsole()
     let p = pool(2)
     let reg = spawn Registering() on p
     let a = spawn Working(copy(reg), "a") on p
@@ -11475,7 +11478,7 @@ fn thumbnail(name: Str) [any Resizer] -> Str => !name {
 }
 
 fn main() [use, spawn] {
-    use StdOutConsole()
+    use StdConsole()
     let p = pool(2)
     let a = spawn Resizing("a") on p
     let b = spawn Resizing("b") on p
@@ -11518,7 +11521,7 @@ fn checkout(skus: List<Str>) [any Inventory, Console] -> None {
 }
 
 fn main() [use, spawn] {
-    use StdOutConsole()
+    use StdConsole()
     let a = NodeEndpoint { host: "a", port: 1 }
     let net = spawn MemNetwork() on pool(1)
     use MemTransport(copy(a), copy(net))
@@ -11579,7 +11582,7 @@ fn fresh_id() [any Sequencer] -> Str {
 }
 
 fn main() [use, spawn] {
-    use StdOutConsole()
+    use StdConsole()
     let a = NodeEndpoint { host: "a", port: 1 }
     let b = NodeEndpoint { host: "b", port: 1 }
     let all = List(copy(a), copy(b))
@@ -11652,7 +11655,7 @@ handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: eff[MemNet]) [Tr
 }
 
 fn main() [use, spawn] {
-    use StdOutConsole()
+    use StdConsole()
     let a = NodeEndpoint { host: "a", port: 1 }
     let b = NodeEndpoint { host: "b", port: 1 }
     let all = List(copy(a), copy(b))
@@ -11710,7 +11713,7 @@ fn double(n: Int) -> Int {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let xs = List(1, 2, 3)
     for v in xs.twice(double) {
         println("v=${v}")
@@ -11775,7 +11778,7 @@ fn is_even(n: Int) -> Bool {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole()
+    use StdConsole()
     let xs = List(1, 2, 3, 4)
     let doubled = map(xs, double)
     println("eager ${doubled.size()}")
@@ -11851,7 +11854,7 @@ fn is_even(n: Int) -> Bool {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole()
+    use StdConsole()
     for v in iter(naturals()) {
         if v > 4 {
             break
@@ -11904,7 +11907,7 @@ fn sum_pair<T>(a: T, b: T, ?add: (T, T) -> T) -> T {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     println("total=${total(List(1, 2, 3))}")
     println("product=${total(List(2, 3, 4), add = times, zero = one)}")
     // [col-of-nonempty] Literals rather than constructor calls: the element
@@ -11983,7 +11986,7 @@ fn loud(n: Int) -> Str => n {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     use Angle()
     println(show(7))
     println(show(7, fmt = loud))
@@ -12054,7 +12057,7 @@ handler Prefixed<T>(prefix: Str) of Tag<T> {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     use Plain<Int>()
     use Prefixed<Int>("p")
     println(show(7))
@@ -12119,7 +12122,7 @@ fn refill(list: Mut NonEmpty List<Int>, value: Int) -> None => list: Mut NonEmpt
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let xs: Mut List<Int> = Mut List()
     add(xs, 1)
     println("after add: ${count(xs)}")
@@ -12167,7 +12170,7 @@ fn kotlinc_compiles_and_runs_a_refined_program() -> KotlinCase {
 // it leaves exactly the Q1-vs-Q2 conflict this test is about.
 const REDUNDANT_SELECTOR_DEMO: &str = r#"
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let xs: Mut List<Int> = Mut List()
     add(xs, 1)
     add(xs, 2)
@@ -12210,7 +12213,7 @@ fn describe(value: Int) -> Str {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     println(describe(3))
     println(describe("text"))
 }
@@ -12236,9 +12239,9 @@ fn shout(text: Str) -> Str {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     // A builder, and the drop that lets it reach the `Str` surface.
-    let b = mut_str("he", "llo")
+    let b = Mut Str("he", "llo")
     append(b, " world")
     set(b, 0, 'H')
     println(shout(b))
@@ -12292,8 +12295,8 @@ fn main() [use] {
     println("bytes: ${bytes} ${to_hex(bytes)} ${round!} ${str_of_bytes(broken) is None}")
 
     // Operators drop `Mut` too, so equality is by content on both targets.
-    let x = mut_str(pa)
-    let y = mut_str(pa)
+    let x = Mut Str(pa)
+    let y = Mut Str(pa)
     println("equal: ${x == y}")
 }
 "#;
@@ -12322,7 +12325,7 @@ fn mut_str_lowers_to_a_string_builder() {
     // Construction is asked for; the parts are joined, which is also what
     // makes a `...spread` work [fn-variadic].
     assert!(
-        main.contains(r#"= salvo.core.string.mutStr(arrayOf<String>("he", "llo"))"#),
+        main.contains(r#"= salvo.core.string.Mut_Str(arrayOf<String>("he", "llo"))"#),
         "unexpected:\n{main}"
     );
     // [str-drop-mut] The conversion at a call argument, in interpolation,
@@ -12368,9 +12371,9 @@ fn kotlinc_compiles_and_runs_strings() -> KotlinCase {
 fn a_spread_into_a_variadic_intrinsic_spreads() -> KotlinCase {
     let src = r#"
 export fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let parts = array_of("a", "b")
-    let sb = mut_str(...parts)
+    let sb = Mut Str(...parts)
     let xs = Set(...parts)
     println("${sb} ${size(xs)}")
 }
@@ -12388,8 +12391,8 @@ export fn main() [use] {
     // take a *first* element now, which a spread may not supply
     // [fn-variadic], so a lone spread reaches the purely variadic intrinsics.
     assert!(
-        // [platform-value-type] `mut_str` is Salvo now; the spread is the array.
-        main.contains("= salvo.core.string.mutStr(parts)"),
+        // [platform-value-type] `Mut Str` is Salvo now; the spread is the array.
+        main.contains("= salvo.core.string.Mut_Str(parts)"),
         "unexpected:\n{main}"
     );
     kotlin_case(files, "strings-spread", "ab 2\n")
@@ -12414,11 +12417,11 @@ fn grow(s: Mut Str) -> None => s: Mut {
 }
 
 fn main() [use] {
-    use StdOutConsole()
-    let b = mut_str("seed")
+    use StdConsole()
+    let b = Mut Str("seed")
     grow(b)
     println("${b} ${size(b)}")
-    let buf = Mut Buf {text: mut_str("in-struct")}
+    let buf = Mut Buf {text: Mut Str("in-struct")}
     append(buf.text, "!")
     set(buf.text, 0, 'I')
     println("${buf.text}")
@@ -12476,7 +12479,7 @@ iter fn iter(n: Naturals) -> Emitted Int | Finished {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let xs = List(1, 2, 3, 4)
     let doubled = map(xs, n -> n * 2)
     let sum = reduce(xs, 0, (a, b) -> a + b)
@@ -12599,7 +12602,7 @@ fn label(n: Small Int) -> Str => n {
 rename fn label_small = label(n: Small Int)
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let xs = List(1, 2, 3)
     // Two `size`s fit and neither is more specific, so each call names its
     // place [fn-overload-ambiguous].
@@ -12754,7 +12757,7 @@ fn sum_ints<It>(it: Mut It, ?Yield<It, Int>) [] -> Int => it: Mut {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let xs = List(1, 2, 3)
     let p = slice(xs)
     println("count ${count_all(p)}")
@@ -12917,7 +12920,7 @@ iter fn iter(r: Row) -> Emitted Str | Finished {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
 
     let c = Countdown { from: 3 }
     for n in c {
@@ -13058,7 +13061,7 @@ fn total<C, It>(c: C, ?iter: (c: C) -> Mut It holds proj(c), ?Yield<It, Int>) ->
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let c = Countdown { from: 3 }
     println("generated pass: ${total(c)}")
     let b = Bag { items: List(4, 5) }
@@ -13103,7 +13106,7 @@ fn touch(list: Mut List<Str>) -> None => list: Mut {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     // read one field, mutate another
     let p = Person { name: "ann", tags: Mut List("x") }
     let n = p.name
@@ -13159,7 +13162,7 @@ fn eat(list: Mut List<Str>) -> None => !list {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     // hand one field away, keep reading the other
     let p = Person { name: "ann", tags: Mut List("x") }
     eat(p.tags)
@@ -13197,7 +13200,7 @@ fn kotlinc_compiles_and_runs_a_partial_move() -> KotlinCase {
 /// Shared with the other backend, byte for byte.
 const INC_DEC_DEMO: &str = r#"
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let i = 5
     i++
     i--
@@ -13255,7 +13258,7 @@ iter fn iter<T>(b: Box<T>) -> Emitted (proj(b) T) | Finished {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let b = Box<Str> { items: List("a", "b") }
     for s in iter(b) {
         println(s)
@@ -13273,6 +13276,114 @@ fn kotlinc_compiles_and_runs_a_generic_subject_iter_fn() -> KotlinCase {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "generic-iter-fn", GENERIC_ITER_FN_OUTPUT)
+}
+
+/// [kt-wire] [wire-format] A generic struct's `T?` field: its codec wraps the
+/// struct's own `WireCodec<T>` in `OptCodec`, which once demanded a non-null
+/// `T` and so did not compile (found 2026-10-20 through std/args). The bytes
+/// are Rust's (`generic_optional_codec` in the Rust suite).
+pub const GENERIC_OPT_CODEC_DEMO: &str = r#"import codec
+
+struct Arg<T> {
+    default: T? = None
+    n: Int? = None
+}
+
+fn main() [use] {
+    use StdConsole()
+    let a = encode(Arg<Int> { default: 3 })
+    println(to_hex(a))
+    let b = decode<Arg<Int>>(a)
+    if b is None { println("none") } else { println("${b.default ?: 0}") }
+    let c = encode(Arg<Str> { n: 4 })
+    println(to_hex(c))
+    let d = decode<Arg<Str>>(c)
+    if d is None { println("none") } else { println("${d.n ?: 0} ${d.default ?: "-"}") }
+}
+"#;
+
+pub const GENERIC_OPT_CODEC_OUTPUT: &str = "010000000300\n3\n000100000004\n4 -\n";
+
+fn kotlinc_compiles_and_runs_a_generic_optional_codec() -> KotlinCase {
+    let program = build_program(&[("main.sv", GENERIC_OPT_CODEC_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "generic-opt-codec", GENERIC_OPT_CODEC_OUTPUT)
+}
+
+/// [comptime-generic] [implicit-recursive] A generic struct stamped `by auto`
+/// keys a `Set`: the stamp's `?Hashed<T>` is filled at each instantiation
+/// (found 2026-10-20; the slot fit used to refuse it). Same program and output
+/// as the Rust suite's `compiles_and_runs_a_generic_auto_key`.
+fn kotlinc_compiles_and_runs_a_generic_auto_key() -> KotlinCase {
+    let src = r#"
+struct W<T> : Hashed<self> by auto { v: T }
+
+fn main() [use] {
+    use StdConsole()
+    let s: Mut Set<W<Int>> = Mut Set()
+    add(s, W { v: 1 })
+    add(s, W { v: 1 })
+    add(s, W { v: 2 })
+    let t = Mut Set(W { v: "a" }, W { v: "b" }, W { v: "a" })
+    let u = Mut Set<(Int, Str)>()
+    add(u, (1, "a"))
+    add(u, (1, "a"))
+    println("${size(s)} ${size(t)} ${contains(t, W { v: "b" })} ${contains(s, W { v: 3 })} ${size(u)}")
+}
+"#;
+    let program = build_program(&[("main.sv", src)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "generic-auto-key", "2 2 true false 1\n")
+}
+
+/// [cmp-carry] [cmp-binder] An identity is a **declaration**: two modules'
+/// `my_hash` key two sets, and a binder filled from one calls that module's —
+/// a private one, from a file that imports neither (found 2026-10-20: the
+/// reading file's `my_hash` was called). Same program and output as the Rust
+/// suite's `compiles_and_runs_two_modules_same_named_identities`.
+pub const TWO_IDENTITIES_FILES: [(&str, &str); 4] = [
+    ("p.sv", r#"export struct P : Hashed<self> by auto { x: Int }
+"#),
+    ("a.sv", r#"import p.P
+fn my_hash(v: P) -> Long { return hash(v.x) }
+fn my_eq(l: P, r: P) -> Bool { return l.x == r.x }
+export fn make_a() -> Mut Set<P>(my_hash, my_eq) {
+    return Mut Set<P>(hash = my_hash, eq = my_eq)
+}
+"#),
+    ("b.sv", r#"import p.P
+export fn my_hash(v: P) -> Long { return 7 }
+export fn my_eq(l: P, r: P) -> Bool { return true }
+export fn make_b() -> Mut Set<P>(my_hash, my_eq) {
+    return Mut Set<P>(hash = my_hash, eq = my_eq)
+}
+"#),
+    ("main.sv", r#"import p.P
+import a.make_a
+import b.make_b
+fn one(x: Mut Set<P>(?hash, ?eq), v: P) -> Bool => x, v { return contains(x, v) }
+fn main() [use] {
+    use StdConsole()
+    let x = make_a()
+    let y = make_b()
+    add(x, P { x: 1 })
+    add(y, P { x: 1 })
+    add(y, P { x: 2 })
+    println("${one(x, P { x: 2 })} ${one(y, P { x: 5 })} ${size(y)}")
+}
+"#),
+];
+
+fn kotlinc_compiles_and_runs_two_modules_same_named_identities() -> KotlinCase {
+    let program = build_program(&TWO_IDENTITIES_FILES);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "two-identities", "false true 1\n")
 }
 
 /// [deduce-syntax] [proj-anywhere] The `=>` clause's projection forms end to
@@ -13302,7 +13413,7 @@ fn either(a: List<Int>, b: List<Int>, flag: Bool) -> proj(a, b) List<Int> {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let a = List(1, 2)
     let b = List(3, 4, 5)
     println("${size(either(a, b, true))} ${size(either(a, b, false))}")
@@ -13338,7 +13449,7 @@ fn show(step: Emitted (proj Str) | Finished) [Console] -> None {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let words = List("ann", "bo")
     let p = iter(words)
     show(next(p))
@@ -13369,7 +13480,7 @@ fn kotlinc_compiles_and_runs_a_borrowed_union_arm_into_a_proj_parameter() -> Kot
 /// stdout with the Rust backend, which holds real borrows.
 const PICK_LIST_DEMO: &str = r#"
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let all = List("a", "b", "c", "d")
     let indices = List(1, 3)
     let picked = map(indices, i -> get(all, i)!)
@@ -13432,7 +13543,7 @@ fn attempt(path: Str) [Console] -> None
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     attempt("a.txt")
     attempt("")
 }
@@ -13497,7 +13608,7 @@ fn close_take(t: Take) [Console] -> None => !t {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let t = take(open_lines(5), 2)
     for n in t {
         println("n ${n}")
@@ -13564,7 +13675,7 @@ fn drain<It canbe linear>(it: Mut It, end: (x: It) -> None, ?Yield<It, Int>) -> 
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let h = open_handle(3)
     println("linear ${drain(h, close)}")
     let c = Mut Counter { at: 3 }
@@ -13613,7 +13724,7 @@ handler Files of Vault {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     use Files()
     println(describe(InFile { id: 3 }))
     println(close(InFile { id: 1 }))
@@ -13691,7 +13802,7 @@ handler Doubling [Sink] of Sink {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     use Direct()
     use Doubling()
     let t: Mut Token = Mut Token { id: 1 }
@@ -13753,7 +13864,7 @@ handler MemTape of Tape {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     use MemTape()
     let r: Mut InTape = open_read("data.txt")
     println(read_line(r))
@@ -13782,7 +13893,7 @@ fn kotlinc_compiles_and_runs_a_linear_token_closed_by_a_member() -> KotlinCase {
 /// both.
 const BYTES_PROGRAM: &str = r#"
 fn main() [use] -> None {
-    use StdOutConsole()
+    use StdConsole()
     // The two constructors: a fixed buffer, and one under construction.
     let fixed = bytes_of(to_byte(0), to_byte(255), to_byte(200))
     println("fixed: ${fixed} / ${to_hex(fixed)} / ${size(fixed)}")
@@ -13906,7 +14017,7 @@ fn describe(e: StreamError) [] -> Str => e {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole()
+    use StdConsole()
     use HostRawStreams()
     use DefaultStreams()
     use HostRawFs()
@@ -14104,7 +14215,7 @@ fn main() [use] -> None {
     when lined {
         is Ok {
             let s: InStream = lined
-            let line = mut_str()
+            let line = Mut Str()
             let lines_seen = 0
             let reading = true
             while reading {
@@ -14300,7 +14411,7 @@ fn read_and_say(label: Str, path: Path) [Fs, Console] -> None => label, path {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole()
+    use StdConsole()
     // No host handler anywhere: `MemFs` fakes the whole of `Fs`, streams
     // included, so this program touches no disk.
     use MemFs()
@@ -14468,7 +14579,7 @@ fn main() [use] -> None {
     when lined {
         is Ok {
             let s: InStream = lined
-            let line = mut_str()
+            let line = Mut Str()
             let lines_seen = 0
             let reading = true
             while reading {
@@ -14586,7 +14697,7 @@ fn double(x: Int) [] -> Int {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     use Summing()
     use Excited()
     add(4)
@@ -14638,7 +14749,7 @@ handler Counting() of Counter {
 }
 
 fn main() [use, spawn] {
-    use StdOutConsole()
+    use StdConsole()
     let counter = spawn Counting() on pool(1)
     counter.bump(2)
     counter.bump(3)
@@ -14724,7 +14835,7 @@ handler Drawing() [Random] of Drawer {
 }
 
 fn main() [use, spawn] -> None {
-    use StdOutConsole()
+    use StdConsole()
     let rng = spawn CyclicRandom(12345)
     use rng
     println("main drew ${next()}")
@@ -14823,7 +14934,7 @@ handler Drawing() [Random] of Drawer {
 }
 
 fn main() [use, spawn] -> None {
-    use StdOutConsole()
+    use StdConsole()
     let rng = spawn CyclicRandom(12345)
     use rng
     println("main drew ${next()}")
@@ -14878,7 +14989,7 @@ handler Forwarding(oracle: eff[Oracle]) of Random {
 }
 
 fn main() [use, spawn] -> None {
-    use StdOutConsole()
+    use StdConsole()
     let oracle = spawn Delphi() on pool(1)
     use Forwarding(oracle) on pool(1)
     println("first ${next()}")
@@ -14943,7 +15054,7 @@ handler Parking(oracle: eff[Oracle]) of Random {
 }
 
 fn main() [use, spawn] -> None {
-    use StdOutConsole()
+    use StdConsole()
     let oracle = spawn Delphi() on pool(1)
     use Parking(oracle) on pool(1)
     println("first ${next()}")
@@ -14996,7 +15107,7 @@ handler Chain() of Random {
 }
 
 fn main() [use, spawn] -> None {
-    use StdOutConsole()
+    use StdConsole()
     use Chain() on pool(1)
     println("first ${next()}")
     println("second ${next()}")
@@ -15101,7 +15212,7 @@ handler Fetching() [Db] of Notices {
 }
 
 fn main() [use, spawn] {
-    use StdOutConsole()
+    use StdConsole()
     let p = pool(2)
     let rows = spawn Rows() on p
     let fetcher = spawn Fetching() with rows on p
@@ -15160,7 +15271,7 @@ handler Tracing() [Echo] of Trace {
 }
 
 fn main() [use, spawn] {
-    use StdOutConsole()
+    use StdConsole()
     let p = pool(3)
     let echo = spawn Echoing() on p
     let tracer = spawn Tracing() with echo on p
@@ -15199,7 +15310,7 @@ handler Stepping() of Steps {
 }
 
 fn main() [use, spawn] {
-    use StdOutConsole()
+    use StdConsole()
     let s = spawn Stepping() on pool(1)
     let spawned = waitfor out: Reply<Str> {
         s.begin(1, out)
@@ -15273,7 +15384,7 @@ handler Counting() of Counter {
 }
 
 fn main() [use, spawn] {
-    use StdOutConsole()
+    use StdConsole()
     let c = spawn Counting() on pool(1)
     c.bump(2)
     let died = waitfor out: Reply<Exit> {
@@ -15333,7 +15444,7 @@ handler Desking() of Desk {
 }
 
 fn main() [use, spawn] {
-    use StdOutConsole()
+    use StdConsole()
     let desk = spawn Desking() on pool(1)
     let first = waitfor a: Reply<Str> {
         desk.ticket(a)
@@ -15435,7 +15546,7 @@ handler Counting() of Counter {
 }
 
 fn main() [use, spawn] {
-    use StdOutConsole()
+    use StdConsole()
 
     let timer = spawn Timing(1000) on pool(1)
     // `thread()` is consumed here: one thread, one occupant.
@@ -15504,7 +15615,7 @@ fn fetch_on(id: Int, out: Reply<Str>, p: Pool) [Db] -> None => !out, p {
 }
 
 fn main() [use, spawn] {
-    use StdOutConsole()
+    use StdConsole()
     let workers = pool(2)
     let db = spawn Rows() on workers
     use db
@@ -15542,7 +15653,7 @@ send fn chain(out: Reply<Int>, n: Int) [Console] => !out, !n {
 }
 
 fn main() [use, spawn] -> None {
-    use StdOutConsole()
+    use StdConsole()
     let direct = waitfor a: Reply<Int> {
         let k = replyto report(a)
         k.send(21)
@@ -15708,7 +15819,7 @@ fn count() [Tally, Stats] -> Int {
 }
 
 fn main() [use, spawn] {
-    use StdOutConsole()
+    use StdConsole()
     let (timer, ctl) = spawn ManualTime() on pool(1)
     let idle = waitfor c: Reply<Int> { ctl.pending(c) }
     println("pending ${idle}")
@@ -15813,7 +15924,7 @@ handler Clienting() of Client {
 }
 
 fn main() [use, spawn] {
-    use StdOutConsole()
+    use StdConsole()
     let p = pool(1)
     let desk = spawn Desking() on p
     let client = spawn Clienting() on p
@@ -15923,7 +16034,7 @@ fn work() [Log] {
 }
 
 fn main() [use, spawn] {
-    use StdOutConsole()
+    use StdConsole()
     let logger = spawn Counting() on pool(1)
     use logger
     work()
@@ -16030,7 +16141,7 @@ handler Counting() [Log, Tally] of Counter {
 }
 
 fn main() [use, spawn] {
-    use StdOutConsole()
+    use StdConsole()
     let tally = spawn Summing() on pool(1)
     let counter = spawn Counting() with Recording(), tally on pool(1)
     counter.bump(2)
@@ -16121,7 +16232,7 @@ fn sum_down(xs: Mut List<Int>) [] -> Int => xs: Mut {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let a: Mut List<Int> = Mut List(1, 2, 3)
     drain_ints(a)
     println("left ${size(a)}")
@@ -16302,7 +16413,7 @@ const TIME_SURFACE: &str = r#"
 import time
 
 fn main() [use] -> None {
-    use StdOutConsole()
+    use StdConsole()
     use DefaultTicker()
     use DefaultClock()
     let d = millis(1500)
@@ -16335,7 +16446,7 @@ const TIME_TIMER: &str = r#"
 import time
 
 fn main() [use, spawn] -> None {
-    use StdOutConsole()
+    use StdConsole()
     use DefaultTicker()
     let timers = spawn DefaultTimer() on pool(1)
     let started = tick()
@@ -16374,7 +16485,7 @@ handler Napping() [Timer] of Sleeper {
 }
 
 fn main() [use, spawn] -> None {
-    use StdOutConsole()
+    use StdConsole()
     let p = pool(1)
     let (timer, ctl) = spawn ManualTime() on p
     let sleeper = spawn Napping() with timer on p
@@ -16458,7 +16569,7 @@ handler Napping() [Timer, Ticker] of Sleeper {
 }
 
 fn main() [use, spawn] -> None {
-    use StdOutConsole()
+    use StdConsole()
     println("data: ${verdict(Tick {nanos: 0}, Tick {nanos: 1000000000}, millis(1500))}")
     use SteppingTicker(millis(500))
     let started = tick()
@@ -16567,7 +16678,7 @@ fn through(x: Int) [Apply] -> Int {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     use Applying()
     let k = 3
     println("${apply(n -> n * k, 2)} ${once_apply(() -> k + 1)} ${through(5)}")
@@ -16605,7 +16716,7 @@ fn locate(p: Point, label: Str = "${p.x},${p.y}") -> Str => !label {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     println(greet("Ada", "Hi", "."))
     println(greet("Ada", "Hi"))
     println(greet("Ada"))

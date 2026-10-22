@@ -291,7 +291,7 @@ impl crate::aws_sqs::__Stateful_Sqs for MemSqs {
 
 pub fn main() {
     crate::scheduler::salvo_set_protocols(vec![("Faults".to_string(), crate::core_actor::__PROTO_Faults.to_string())]);
-    let mut __use_1: crate::core_console::__Platform_StdOutConsole = crate::core_console::__Platform_StdOutConsole::new();
+    let mut __use_1: crate::core_console::__Platform_StdConsole = crate::core_console::__Platform_StdConsole::new();
     let __handle_2 = crate::core_console::Console::shared(__use_1);
     crate::core_console::println(&__handle_2, &String::from("-- FakeSqs --"));
     {

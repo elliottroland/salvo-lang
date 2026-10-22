@@ -1,4 +1,4 @@
-//! [field-canbe-mut] `name: canbe Mut T` on a struct field: the field is
+//! [field-canbe-mut] `name: T canbe Mut` on a struct field: the field is
 //! `Mut T` exactly when the struct value is `Mut`, so a plain struct is
 //! immutable all the way down. What the checker refuses, and what it types.
 
@@ -56,7 +56,7 @@ fn messages(src: &str) -> Vec<String> {
         .collect()
 }
 
-const BAG: &str = "struct Bag canbe Mut {\n    n: Int,\n    items: canbe Mut List<Int>\n}\n\n";
+const BAG: &str = "struct Bag canbe Mut {\n    n: Int,\n    items: List<Int> canbe Mut\n}\n\n";
 
 /// A `Mut` struct's field is `Mut`; a plain one's is not.
 #[test]
@@ -79,7 +79,7 @@ fn the_field_is_mut_exactly_when_the_struct_is() {
 #[test]
 fn a_mut_literal_takes_mut_fields_only() {
     let src = format!(
-        "{BAG}struct Def canbe Mut {{\n    items: canbe Mut List<Int> = List<Int>()\n}}\n\n\
+        "{BAG}struct Def canbe Mut {{\n    items: List<Int> canbe Mut = List<Int>()\n}}\n\n\
          fn bad(p: Bag) [] -> None => p {{\n    let w = Mut Bag {{ n: 1, items: List(1) }}\n    \
          let m = Mut Bag {{ n: 1, ...copy_bag(p) }}\n    let d = Mut Def {{}}\n}}\n\n\
          fn copy_bag(p: Bag) [] -> Bag => p {{\n    return Bag {{ n: p.n, items: List<Int>() }}\n}}\n"
@@ -97,8 +97,8 @@ fn a_mut_literal_takes_mut_fields_only() {
 /// over a type that cannot be, and over a type that already is.
 #[test]
 fn canbe_mut_fields_are_validated_at_the_declaration() {
-    let src = "struct Plain {\n    items: canbe Mut List<Int>\n}\n\n\
-               struct Bad canbe Mut {\n    a: canbe Mut Int,\n    b: canbe Mut Mut List<Int>\n}\n";
+    let src = "struct Plain {\n    items: List<Int> canbe Mut\n}\n\n\
+               struct Bad canbe Mut {\n    a: Int canbe Mut,\n    b: Mut List<Int> canbe Mut\n}\n";
     let errs = messages(src);
     assert!(errs.iter().any(|e| e.contains("but struct `Plain` does not")), "{errs:?}");
     assert!(errs.iter().any(|e| e.contains("`canbe Mut` does not apply to `Int`")), "{errs:?}");

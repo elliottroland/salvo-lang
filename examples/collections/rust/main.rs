@@ -114,7 +114,7 @@ pub fn count_unique(xs: &Vec<i32>) -> i32 {
 }
 
 pub fn main() {
-    let mut __use_1: crate::core_console::__Platform_StdOutConsole = crate::core_console::__Platform_StdOutConsole::new();
+    let mut __use_1: crate::core_console::__Platform_StdConsole = crate::core_console::__Platform_StdConsole::new();
     let __handle_2 = crate::core_console::Console::shared(__use_1);
     let mut primes: Vec<i32> = vec![2i32, 3i32, 5i32, 7i32];
     let mut vowels: crate::core_set::Set<String> = crate::core_set::Set_platform::<String>(vec![String::from("a"), String::from("e"), String::from("i"), String::from("o"), String::from("u")], &mut |__a0: &String| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__a0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &String, __a1: &String| (&__a0[..] == &__a1[..]));

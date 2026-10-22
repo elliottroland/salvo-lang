@@ -83,7 +83,7 @@ fun handle__FreshRequest(request: Request): String {
 }
 
 fun main() {
-    val __use_1: salvo.core.console.__Platform_StdOutConsole = salvo.core.console.__Platform_StdOutConsole()
+    val __use_1: salvo.core.console.__Platform_StdConsole = salvo.core.console.__Platform_StdConsole()
     val __handle_2: salvo.core.console.Console = __use_1
     val xs: salvo.platform.core.list.MutList<Int> = mutableListOf<Int>()
     salvo.core.list.addPlatform(xs, 3)

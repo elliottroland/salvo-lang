@@ -147,7 +147,7 @@ pub fn a_queue_of_tickets(console: &crate::core_console::Console) {
 }
 
 pub fn main() {
-    let mut __use_1: crate::core_console::__Platform_StdOutConsole = crate::core_console::__Platform_StdOutConsole::new();
+    let mut __use_1: crate::core_console::__Platform_StdConsole = crate::core_console::__Platform_StdConsole::new();
     let __handle_2 = crate::core_console::Console::shared(__use_1);
     crate::one_use(&__handle_2);
     crate::borrow_then_use(&__handle_2);

@@ -287,7 +287,7 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
    - a. ✅ **Fn slots on struct declarations** [struct-slot] (2026-10-05,
      COMPLETED.md).
    - b. ✅ **`canbe Mut` on a field type** [field-canbe-mut] (2026-10-05,
-     COMPLETED.md). Left: Kotlin refuses a `canbe Mut Str` field (a
+     COMPLETED.md). Left: Kotlin refuses a `Str canbe Mut` field (a
      `StringBuilder` is not a `String`, so one property cannot hold both
      shapes without `Any` and identity equality) [kt-field-canbe-mut].
    - c. ✅ **Opaque structs** [struct-opaque] (2026-10-05, COMPLETED.md; LSP
@@ -766,11 +766,48 @@ in build order:
   `Hash`/`Ord` derives on structs that have the functions for exactly this).
   Landing it deletes those intrinsics and the conditional derives, which is
   what makes §0j's host-equality rule hold.
-- **`by` at a call** (ROADMAP §2c, decided): `Mut Set(hash by auto, eq
-  by auto)` stamps the implicit at the type the call binds — a third `by` site,
-  emitted in the calling module once per (comptime fn, type), paired by
-  [implicit-with], printed as the stamped root. The only way a tuple gets an
-  identity, and the missing-tuple-identity diagnostic should name it meanwhile.
+- **`by` at a call** (ROADMAP §2c, decided in outline; **DECISIONS** open):
+  `Mut Set(hash by auto, eq by auto)` stamps the implicit at the type the call
+  binds — a third `by` site, emitted in the calling module once per (comptime
+  fn, type), paired by [implicit-with], printed as the stamped root.
+  Researched 2026-10-20 (user: research only, not built — COMPLETED.md's
+  2026-10-20 comptime entry, design record): today's equivalent is one line
+  (`fn my_hash(p: P) -> Long by hash@auto`, then `hash = my_hash`), and
+  tuples already have identities in `core.compare` since 2026-10-06, so the
+  feature is a convenience. The decisions it would need:
+  1. **The identity it carries into a type.** Identities are names
+     (`FnId { name, at }`) compared and printed by name, and a binder later
+     calls through whatever the name resolves to in the *reading* module —
+     a call-site stamp has no importable name. Options: `hash@auto` (a
+     template, not callable), `hash@P` (wrong once `P` has its own), a new
+     identity keyed by (comptime fn, type), or a mangled name. Whether
+     `Set(hash by auto)` equals `Set(hash = my_hash)` with `my_hash` itself
+     `by hash@auto`; whether two modules' stamps of one (fn, type) are one
+     identity (only sound if both resolve each field's `hash` alike, and
+     [implicit-resolve] is per-module); how a receiving module calls it
+     (re-stamp per module, a global synthetic module, carry a declaration
+     key, or forbid crossing modules). An identity now names its declaring
+     module and resolves there (2026-10-20, [cmp-carry]), which answers the
+     receiving-module question for named fns; a call-site stamp has no
+     declaring module of its own yet.
+  2. **Where the stamp lives**, kept out of the calling module's overload
+     set (or it becomes the default `?hash` and collides with a
+     hand-written `hash(P)`), its export, and whether it is refused beside an
+     existing `hash@P`.
+  3. **When it is stamped**: the expansion runs before resolution and knows
+     no call-site types. A checker-driven second round (std cache and LSP
+     seams), a required written type (`Mut Set<P>(hash by auto)`), or that
+     desugared to a hidden `fn … by hash@auto` (the cheapest).
+  4. **Generic and non-struct targets**: no tuple template exists; a generic
+     struct's stamp fits a keyed slot since 2026-10-20, so a generic stamp
+     at a call is a real option.
+  5. **[implicit-with] pairing**: whether "stamped" is a source of its own,
+     or a group spelling (`Hashed by auto`) fills the whole group at once.
+  6. **Typed overrides first**: a callee with two same-named implicits makes
+     a bare `hash by auto` ambiguous; and whether it applies at the top level
+     only or down a resolution chain (the tree identity of §6).
+  7. Printing, diagnostics inside the stamp reported at the call, LSP
+     hover/go-to on `auto`, and emission once per (fn, type, module).
 - **Typed implicit overrides** (ROADMAP §2c, decided): `to_str(xs,
   to_str: (Person) -> Str = short_name)` — an override keyed by name *and type*,
   consumed at whichever level of a resolution chain it fits (unused: error),
@@ -782,9 +819,24 @@ in build order:
 - **The `json` module** (`Json` union per SERDE.md SD-1, `to_json`/`from_json`
   comptime fns spelled `by json`, tag rules per SD-4) — waits on SERDE.md's SD-1 and
   SD-4 decisions and on section 6 for container fields.
+- **Command-line parsing** (`std/args`), **decided 2026-10-20, not built**
+  (ARG_PARSE.md rounds 1 and 2): a comptime derive from a struct; per-field
+  metadata as comptime qualifiers on `core.comptime`'s `Field`
+  (`export comptime qualifier Short(c: Char) of Field`, used as `Short('p')
+  port: …`); the recommended comptime and std extensions built alongside
+  (ARG_PARSE.md §7, §11); **overloading by return type** added to the
+  language (§12: the return type decides only among identical parameter
+  lists; subtype-related return types refused); comptime splices bracketed
+  (§13: `[field.type]`, `[arm.type] { … }`). Build order: phase 0 (section 2d's
+  defects, `Process`/`Env`, value parsers, return-type overloading), phase 1
+  (comptime qualifiers, union-arm construction, `FromArgs<self> by args`,
+  literal members, multi-literal `is`, `explain`, an accumulating outcome,
+  `field.default`, `field.docs`), phase 2 (`std/args`). The derive shares its
+  decoder prerequisites with the codec slice above.
 - **Docs**: a `Compile-Time-Functions.md` page exists; LANGUAGE_SPEC has
-  `[comptime-*]`, `[obligation-by]`, `[fn-by]`. COMPTIME.md was deleted with the
-  rounds in COMPLETED.md's log; SERDE.md's SD-3 carries a superseding note.
+  `[comptime-*]`, `[obligation-by]`, `[fn-by]`. Both COMPTIME.md working
+  documents were deleted with their rounds in COMPLETED.md (the second, the
+  2026-10-20 expansion, as its "Design record: comptime expansion"); SERDE.md's SD-3 carries a superseding note.
 
 Settled 2026-09-29 (user decisions): a module *selector* names a module by any
 **unambiguous suffix** of its path — `size@list`, `by auto`; an `import` stays
@@ -800,6 +852,112 @@ narrowed to `Manual`) make `${value}` ambiguous at the interpolation while
 `to_str(value)` resolves by [fn-overload-rank]; the comptime fn bodies therefore call
 `to_str(value)` rather than interpolating an arm. Pre-existing
 [implicit-resolve] locality, not a comptime defect.
+
+### 2d — Fix alongside the `std/args` work: defects found 2026-10-20
+
+Found while designing ARG_PARSE.md and the `[if]` scoping fix; the user asked
+(2026-10-20) for each to be fixed **in general**, not only where the args
+design touches it, and scheduled **alongside the planned `std/args` derive
+and comptime work**. None is a decision except where marked. Each was
+reproduced in a scratch project; the repros are below.
+
+1. **Defaults are not checked against their declared type.** Two of the
+   three `= expr` sites in `check.rs` call `check_expr(default,
+   Some(&expected))` and discard the result: the **struct-field** loop (under
+   `check_linear_field`) and the **fn-parameter** loop (`for p in &f.params
+   … if let Some(default)`). Only the handler-state loop tests
+   `is_subtype(&got, &expected)`. So a default that does not fit compiles and
+   makes the type's claim false on both backends:
+
+   ```
+   struct Opts { port: InRange(1, 10) Int = 8080 }
+   fn needs(p: InRange(1, 10) Int) [] -> Int => p { return p + 0 }
+   fn f(p: InRange(1, 10) Int = 8080) [] -> Int => p { return needs(p) }
+   // main: println("${needs(Opts {}.port)}") and println("${f()}") both print 8080
+   ```
+
+   *General fix:* one helper that checks a default against its slot, used at
+   every default site (struct fields, parameters, handler state, and any later
+   one), so they cannot drift again; tests for each site with a qualified
+   type. Whether a *literal* default may establish a predicate qualifier
+   (`= 8` for `InRange(1, 10) Int`, by evaluating `qualifies` at compile
+   time) is [qual-const]'s recorded "literal establishment" item; until it
+   lands, such a default is an error naming `is` as the way to establish it.
+   That consequence (every qualified default refused for now, even a correct
+   one) is visible to users, so confirm it when the fix lands.
+
+2. **A union of provenance-qualified literals type-checks but does not
+   compile.** The checker accepts it; both backends emit a two-arm union and
+   construct a third arm, so rustc (`E0599: no variant … named U3 found for
+   enum Union2`) and kotlinc (`unresolved reference 'U3'`) fail. A
+   [backend-never-wrong] hole: checker and emitters disagree on the arm
+   identity of qualified literals [union-arm-identity].
+
+   ```
+   provenance qualifier Short of Str
+   type Port = "port"
+   type Verbose = "verbose"
+   type FieldName = Short Port | Short Verbose | "host"
+   fn describe(f: FieldName) [] -> Str => f { if f is Short { return "short" } return "long" }
+   // main: let b: FieldName = "host"; println(describe(b))
+   ```
+
+   **DECISION (small):** what such a union means. (a) Support it: qualified
+   literals collapse into their base arm like every literal, `is Q` lowers to
+   a comparison against the literals that carry `Q`, and a union listing one
+   literal both with and without `Q` (whose qualifier the value cannot tell)
+   is refused; the rule lives in `salvo_core::literal`, the one definition
+   both sides use. (b) Refuse a qualified literal in a union, with a
+   diagnostic. *Recommendation:* (a), which keeps literal unions and
+   provenance tags orthogonal, as tags are everywhere else.
+
+3. **A qualifier cannot be written on a literal directly.** `Short "port"`
+   is a parse error ("expected item, found string literal"); the same type is
+   reachable through an alias (`type Port = "port"`, `Short Port`). *General
+   fix:* the type parser accepts a literal wherever a qualified base may
+   stand, so the two spellings mean the same thing. Lands with item 2, which
+   decides what the type means.
+
+4. **A type alias named like a `core.comptime` type resolves
+   inconsistently.** With `type Field = Short Port | Short Verbose | "host"`
+   in the file, two consecutive lines of `main` read `Field` differently:
+   `let a: Field = "port"` was checked against the alias (the [type-literal]
+   error named its values), while `let b: Field = "host"` reported "`Field`
+   is a compile-time type (`core.comptime`) … cannot appear in an ordinary
+   type position". A `struct Field` in the same position works. *General
+   fix:* one lookup order for every type name (the file's own, then an
+   import, then `core`'s, as [comptime-root-visible] states for comptime
+   roots), applied to aliases as to structs; find the second lookup that
+   special-cases `core.comptime` names and route it through the first; test
+   every `core.comptime` name (`Field`, `Arm`, `Struct`, `Union`, `Kind`,
+   `Type`, …) shadowed by a user alias and by a user struct.
+
+5. **A warning inside a comptime copy lands past the end of the file, and
+   fires per copy.** `Checker::warn` does not go through `redirect_stamped`
+   as `error` does, so a warning on code in a `[for]` copy (an unused local,
+   say) keeps the copy's virtual span and prints with no source line
+   (`main.sv:14:1` for this 13-line repro, with a `main` calling `pick`); and
+   a local used in one copy's kept `[if]` branch but not in another's warns
+   for the second.
+
+   ```
+   struct S { a: Int, b: Str }
+   comptime fn pick(s: S) [] -> Int => s {
+       let total: Int = 0
+       [for f in S.fields] {
+           let y = 1
+           [if f.type is Int] { total = y }
+       }
+       return total
+   }
+   ```
+
+   *General fix:* every diagnostic, warnings included, goes through the
+   stamped-span redirect, so no diagnostic can carry a virtual span; and a
+   warning about written code is reported once, at the written code, and
+   only if every copy would report it (so an unused local warns only when no
+   copy used it, as unused pattern binders already do, `binder_used`). The
+   derive is comptime-heavy, so this matters to it directly.
 
 ### 3 — Recorded: the restrictive reading of a fn-typed slot's lend
 
@@ -1168,7 +1326,11 @@ deliberately cut, in the order the decisions put it:
   embedded library whatever the on-disk layout, leaving `core` unprefixed as a
   stated exception.
 - **Smaller leftovers**: the annex's one-way visibility holds by construction but
-  is not *checked*; the report has no `--format json` for editors; nothing
+  is not *checked*; the report has no `--format json` for editors; a test's stderr
+  is attributed by arrival [test-output], so a line written just before a
+  verdict can land under the next test; `Console` has no unbuffered `read` (a
+  chunk, or the rest of standard input) beside `readln` [console] — asked
+  2026-10-20, not decided; nothing
   migrates the compiler's own e2e suite onto `salvo test` (user decision: leave
   it).
 

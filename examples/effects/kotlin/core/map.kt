@@ -60,7 +60,7 @@ fun<K, V> drain(map: salvo.platform.core.map.Map<K, V>, each: (V) -> Unit) {
 fun<K, V> intoValuesPlatform(map: salvo.platform.core.map.Map<K, V>): List<V> = salvo.platform.core.map.intoValues(map)
 
 fun<K, V> toStr(map: salvo.platform.core.map.Map<K, V>, toStr: (K) -> String, toStr__1: (V) -> String, hash: (K) -> Long, eq: (K, K) -> Boolean): String {
-    val out: salvo.platform.core.string.MutStr = salvo.core.string.mutStr(arrayOf<String>("{"))
+    val out: salvo.platform.core.string.MutStr = salvo.core.string.Mut_Str(arrayOf<String>("{"))
     var i: Int = 0
     for (k in salvo.platform.core.map.each(map)) {
         if ((i > 0)) {

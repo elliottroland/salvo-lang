@@ -1206,7 +1206,7 @@ fn threadsafe_is_an_ordinary_identifier_elsewhere() {
 fn a_plain_handler_is_not_a_platform_handler() {
     let source = "handler Loud of Console {\n    \
                   fn print(message: Str) -> None => message {\n    }\n}\n\
-                  intrinsic handler StdOutConsole of Console\n";
+                  intrinsic handler StdConsole of Console\n";
     let (module, _diagnostics) = salvo_syntax::parse_module(source);
     for item in &module.items {
         let salvo_syntax::ast::Item::Handler(h) = item else {
@@ -1286,7 +1286,7 @@ fn external_is_no_longer_a_keyword() {
     for source in [
         "external fn chars(str: Str) [] -> Char[] => str\n",
         "external type LinkedList<T>\n",
-        "external handler StdOutConsole of Console\n",
+        "external handler StdConsole of Console\n",
     ] {
         let errors = errors_of(source);
         assert!(
@@ -1302,7 +1302,7 @@ fn define_is_no_longer_a_keyword() {
     for source in [
         "define fn List<T>(...elems: T[]) -> List<T> {\n}\n",
         "define type LinkedList<T> {\n}\n",
-        "define handler StdOutConsole of Console {\n}\n",
+        "define handler StdConsole of Console {\n}\n",
     ] {
         let errors = errors_of(source);
         assert!(
@@ -3372,6 +3372,29 @@ fn a_struct_literal_field_may_be_written_by_its_name_alone() {
     );
 }
 
+/// [comptime-fields] `type` is a reserved keyword, but a struct may declare
+/// a field named `type` (the carve-out `parse_field_decl` makes for
+/// `core.comptime`'s `Field.type`) — and once declared, it must be
+/// constructible as an ordinary struct-literal field label `type: value`,
+/// the same `KwType`-before-`:` lookahead `parse_field_decl` already uses.
+/// Regression for a parse error found 2026-10-19 via `std/args/parse.sv`'s
+/// `Option { name: "x", type: .Str }`.
+#[test]
+fn a_struct_literal_field_may_be_named_type() {
+    use salvo_syntax::ast::{Expr, Item, Stmt, StructLitFieldKind};
+    let source = "struct P {\n    type: Int\n}\n\
+                  fn f() {\n    let p = P { type: 1 }\n}\n";
+    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    assert!(diagnostics.iter().all(|d| !d.is_error()), "{diagnostics:?}");
+    let Item::Fn(f) = &module.items[1] else { panic!() };
+    let stmts = &f.body.as_ref().unwrap().stmts;
+    let Stmt::Let { value: Expr::StructLit { fields, .. }, .. } = &stmts[0] else { panic!("{:?}", stmts[0]) };
+    assert!(
+        matches!(&fields[0].kind, StructLitFieldKind::Named { name, .. } if name.name == "type"),
+        "{:?}", fields[0]
+    );
+}
+
 // --- Terminal `...` scopes [terminal-scope] ---
 
 /// [terminal-scope] A trailing `...` where a body `{` would go makes the rest
@@ -3433,6 +3456,18 @@ fn a_terminal_if_refuses_elif_and_else_dots() {
         else_dots.iter().any(|e| e.contains("`else ...` is not allowed")),
         "expected the else-dots refusal, got: {else_dots:?}"
     );
+}
+
+/// [terminal-scope] [comptime-inline] A comptime `[for …]` or `[if …]` takes a
+/// terminal `...` body; the `[if]` an inline braced `else`, never `else ...`.
+#[test]
+fn comptime_for_and_if_take_terminal_scopes() {
+    let ok = errors_of(
+        "struct P { a: Int }\n\ncomptime fn f(p: P) [] -> Int => p {\n    [for f in P.fields] {\n        [if f.name is \"a\"] ... else {\n            return 1\n        }\n        g()\n    }\n    [for f in P.fields] ...\n    g()\n}\n",
+    );
+    assert!(ok.is_empty(), "unexpected errors: {ok:?}");
+    let else_dots = errors_of("struct P { a: Int }\n\ncomptime fn f(p: P) [] -> Int => p {\n    [if P.kind is Struct] ... else ...\n    return 0\n}\n");
+    assert!(else_dots.iter().any(|e| e.contains("`else ...` is not allowed on a terminal `[if …]`")), "{else_dots:?}");
 }
 
 // --- [expr-infix] Unified infix precedence, associativity, and cross-line ---
@@ -3871,5 +3906,78 @@ fn iter_fn_state_accepts_written_and_inferred() {
             !diags.iter().any(|d| d.is_error()),
             "iter-fn state parses (written and inferred): {diags:?}"
         );
+    }
+}
+
+/// [fn-type-named] A qualified type-fn call's `<…>` are type *arguments*, so
+/// any type stands there: a tuple, a nested generic, an optional (fixed
+/// 2026-10-20 — the call shared the declaration's generic-*parameter* reader,
+/// and `Mut Set<(Int, Str)>()` fell apart into an unresolved `Mut`).
+#[test]
+fn a_qualified_type_fn_call_takes_any_type_argument() {
+    for (call, key) in [
+        ("Mut Set<(Int, Str)>()", "Mut_Set"),
+        ("Mut List<List<Int>>()", "Mut_List"),
+        ("Mut List<Int?>()", "Mut_List"),
+        ("Mut Map<Str, (Int, Str)>()", "Mut_Map"),
+    ] {
+        let src = format!("fn main() -> None {{\n    let s = {call}\n}}\n");
+        let (module, diagnostics) = salvo_syntax::parse_module(&src);
+        let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+        assert!(errors.is_empty(), "`{call}`: {errors:?}");
+        let salvo_syntax::ast::Item::Fn(main) = &module.items[0] else { panic!("a fn") };
+        let Some(salvo_syntax::ast::Stmt::Let { value, .. }) = main.body.as_ref().and_then(|b| b.stmts.first()) else {
+            panic!("a let")
+        };
+        let Expr::Call { callee, type_args, .. } = value else { panic!("`{call}` is a call: {value:?}") };
+        let Expr::Ident(id) = callee.as_ref() else { panic!("an ident callee") };
+        assert_eq!(id.name, key, "`{call}`");
+        assert!(!type_args.is_empty(), "`{call}` keeps its type arguments");
+    }
+}
+
+/// [when-exhaustive] A comptime `[when]` with a subject takes no `else`, as an
+/// ordinary `when` with one does not (user decision 2026-10-20): the arms are
+/// the cases, and the error names what covers the rest.
+#[test]
+fn a_subject_comptime_when_takes_no_else() {
+    for (when, remedy) in [
+        ("[when f.kind] { is Struct {} else {} }", "`is Opaque` covers"),
+        ("[when f.name] { is \"a\" {} else {} }", "name the rest in an arm"),
+        ("[when f.type] { is Int {} else {} }", "`is * { … }`"),
+    ] {
+        let src = format!(
+            "struct P {{ a: Int }}\n\ncomptime fn f(p: P) [] -> Int => p {{\n    [for f in P.fields] {{\n        {when}\n    }}\n    return 0\n}}\n"
+        );
+        let (_, diagnostics) = salvo_syntax::parse_module(&src);
+        let errors: Vec<String> = diagnostics.iter().filter(|d| d.is_error()).map(|d| d.message.clone()).collect();
+        assert!(
+            errors.len() == 1
+                && errors[0].contains("a `[when]` with a subject takes no `else`")
+                && errors[0].contains(remedy),
+            "`{when}`: {errors:?}"
+        );
+    }
+}
+
+/// [field-canbe-mut] A field's `canbe Mut` is written after its type, before a
+/// default (user decision 2026-10-20); the old prefix spelling `name: canbe Mut
+/// T` is a plain parse error, and only `Mut` may follow `canbe`.
+#[test]
+fn a_field_canbe_mut_follows_the_type() {
+    let src = "struct S canbe Mut {\n    a: List<Int> canbe Mut,\n    b: Map<Str, Int> canbe Mut = Map<Str, Int>()\n    c: Int\n}\n";
+    let (module, diagnostics) = salvo_syntax::parse_module(src);
+    let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+    assert!(errors.is_empty(), "{errors:?}");
+    let Some(salvo_syntax::ast::Item::Struct(s)) = module.items.first() else { panic!("a struct") };
+    let flags: Vec<(&str, bool, bool)> =
+        s.fields.iter().map(|f| (f.name.name.as_str(), f.canbe_mut, f.default.is_some())).collect();
+    assert_eq!(flags, [("a", true, false), ("b", true, true), ("c", false, false)]);
+
+    for (field, want) in [("a: canbe Mut List<Int>", "expected"), ("a: List<Int> canbe Ord", "only `Mut` may follow `canbe`")] {
+        let src = format!("struct S canbe Mut {{\n    {field}\n}}\n");
+        let (_, diagnostics) = salvo_syntax::parse_module(&src);
+        let errors: Vec<String> = diagnostics.iter().filter(|d| d.is_error()).map(|d| d.message.clone()).collect();
+        assert!(errors.iter().any(|e| e.contains(want)), "`{field}`: {errors:?}");
     }
 }

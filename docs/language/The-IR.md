@@ -69,7 +69,7 @@ fn total(items: List<Int>) -> Int => !items {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     let b = Mut Box { n: 1, tag: "t" }
     println("${bumped(b)} ${b.tag}")
     let xs = [3, 2, 1]
@@ -99,7 +99,7 @@ fn main::total(moved items: List<Int>) -> Int {
 }
 
 fn main::main() -> None {
-  bind#1 let __use~1: StdOutConsole = construct StdOutConsole { }
+  bind#1 let __use~1: StdConsole = construct StdConsole { }
   bind#2 let __handle~2: Console = read __use~1
   bind#5 let b: Mut Box = construct Mut Box { n: 1, tag: "t" }
   call core.console::println(read __handle~2, concat(call core.basic::to_str(Int)(call main::bumped(read b)), " ", read b.tag))

@@ -1,10 +1,14 @@
 
 pub trait __Stateless_Console: Send + Sync {
     fn print(&self, message: &String);
+    fn printerr(&self, message: &String);
+    fn readln(&self) -> Option<String>;
 }
 
 pub trait __Stateful_Console: Send {
     fn print(&mut self, message: &String);
+    fn printerr(&mut self, message: &String);
+    fn readln(&mut self) -> Option<String>;
 }
 
 pub struct Console {
@@ -44,6 +48,18 @@ impl Console {
             __Inner_Console::Locked(h) => h.lock().unwrap().print(message),
         }
     }
+    pub fn printerr(&self, message: &String) {
+        match &self.inner {
+            __Inner_Console::Shared(h) => h.printerr(message),
+            __Inner_Console::Locked(h) => h.lock().unwrap().printerr(message),
+        }
+    }
+    pub fn readln(&self) -> Option<String> {
+        match &self.inner {
+            __Inner_Console::Shared(h) => h.readln(),
+            __Inner_Console::Locked(h) => h.lock().unwrap().readln(),
+        }
+    }
 }
 
 /// The adapter a `use` of a platform handler of `Console` constructs [platform-abi].
@@ -52,19 +68,27 @@ pub struct __Platform_Console<T>(pub T);
 /// What a `threadsafe platform handler` of `Console` implements [platform-abi].
 pub trait ConsolePlatformSync: Send + Sync {
     fn print(&self, message: &String);
+    fn printerr(&self, message: &String);
+    fn readln(&self) -> Option<String>;
 }
 
 impl<T: ConsolePlatformSync> __Stateless_Console for __Platform_Console<T> {
     fn print(&self, message: &String) {
         self.0.print(message)
     }
+    fn printerr(&self, message: &String) {
+        self.0.printerr(message)
+    }
+    fn readln(&self) -> Option<String> {
+        self.0.readln()
+    }
 }
 
-pub type __Platform_StdOutConsole = crate::core_console::__Platform_Console<crate::platform_core_console::StdOutConsole>;
+pub type __Platform_StdConsole = crate::core_console::__Platform_Console<crate::platform_core_console::StdConsole>;
 
-impl __Platform_StdOutConsole {
+impl __Platform_StdConsole {
     pub fn new() -> Self {
-        crate::core_console::__Platform_Console(crate::platform_core_console::StdOutConsole::new())
+        crate::core_console::__Platform_Console(crate::platform_core_console::StdConsole::new())
     }
 }
 

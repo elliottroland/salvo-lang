@@ -124,7 +124,7 @@ fn report(label: Str, config: Str) [Console] -> None => label, config {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
 
     let small = read_size("notes.txt", 3)
     println("1. read ${small}")

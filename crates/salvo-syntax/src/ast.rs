@@ -488,7 +488,7 @@ impl ByRef {
 /// [comptime-bound] The kind a `comptime fn`'s type parameter is bound to:
 /// `comptime fn cmp<T is Struct>(a: T, b: T)` is instantiated at struct types
 /// only, `<T is Union>` at named union types — the bound names an arm of
-/// `core.comptime`'s `Type`. Which of a module's same-named comptime fns a
+/// `core.comptime`'s `Kind`. Which of a module's same-named comptime fns a
 /// `by` picks is decided by the target's kind.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CompKind {
@@ -506,10 +506,11 @@ impl CompKind {
 }
 
 /// [comptime-bound] What makes a fn a `comptime fn`: the declaration kind, and
-/// its one bounded type parameter (`<T is Struct>` / `<T is Union>`) — or none,
-/// for a **concrete** one (`comptime fn cmp(a: Reading, b: Reading) -> Int {
-/// … }`), which is its own single instantiation and is declared where a fn is
-/// (comptime round 2).
+/// its one bounded type parameter (`<T is Struct>` / `<T is Union>`) for a
+/// **stamped** one — or none, for one **expanded in place** (`comptime fn
+/// cmp(a: Reading, b: Reading) -> Int { … }`), which is its own single
+/// instantiation, declared where a fn is, and an ordinary callable fn once
+/// expanded (comptime round 2; callable by decision 2026-10-20).
 #[derive(Clone, Debug, PartialEq)]
 pub struct CompFn {
     pub bound: Option<(CompKind, Ident)>,
@@ -534,6 +535,13 @@ pub struct Stamp {
     /// (`Point.y: Double`). Synthetic spans sit past the end of the file, so
     /// no side table keyed by span collides with a written node.
     pub regions: Vec<StampRegion>,
+    /// [comptime-root-visible] The type names an **expanded-in-place**
+    /// comptime fn's comptime constructs named directly (`Pt` in
+    /// `[for field in Pt.fields]`), at their written spans. The expansion
+    /// looks these up program-wide, before resolution; the checker then
+    /// requires each to be visible where it is written, like any type name,
+    /// and records it for go-to-definition. Empty for a stamped fn.
+    pub roots: Vec<Ident>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -543,11 +551,21 @@ pub struct StampRegion {
     /// Where the diagnostic lands: the field or arm declaration.
     pub target: Span,
     pub label: String,
+    /// [comptime-inline] For a copy in an **expanded-in-place** fn, whose
+    /// template is the author's own text: the offset the copy's `start`
+    /// stands for in it, so a diagnostic lands on the written construct (the
+    /// label still says which field's copy it was). `None` for a stamp,
+    /// whose template lives in another file.
+    pub written_from: Option<u32>,
+    /// [comptime-inline] For the same copies: which copy it is, in the
+    /// terms of the code it stands for — "`field` is `groups` (`Map<Str,
+    /// ArgGroup>`)" — what the diagnostic says, since it lands on that code.
+    pub written_label: Option<String>,
 }
 
 /// [comptime-fields] A compile-time type expression a comptime construct
 /// walks or tests: the bound parameter (`T`), a concrete type name in a
-/// concrete compfn (`Reading`), or a binder's type (`field.type`,
+/// expanded-in-place compfn (`Reading`), or a binder's type (`field.type`,
 /// `arm.type`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct CompTy {
@@ -556,6 +574,11 @@ pub struct CompTy {
     /// `.type` follows the root: the root is an `inline for`/`inline when`
     /// binder and the type meant is the field's or arm's.
     pub via_type: bool,
+    /// [comptime-generic-fn] The type arguments of an instantiated root
+    /// (`Arg<T>` in `Arg<T>.fields`): a generic struct is walked at an
+    /// instance, so its field types come out with the arguments substituted.
+    /// Empty for a non-generic root, the bound parameter and a binder.
+    pub args: Vec<Type>,
     pub span: Span,
 }
 
@@ -568,11 +591,11 @@ pub struct CompSeq {
     pub span: Span,
 }
 
-/// [comptime-fields] The kinds of a compile-time `Type` — the arms of
-/// `core.comptime`'s `Type` union (`Struct | Union | Tuple | FnType | Opaque`,
-/// with `Opaque = Basic | Generic`), so a `[when field.type]` is an ordinary
+/// [comptime-fields] The kinds of a compile-time type — the arms of
+/// `core.comptime`'s `Kind` union (`Struct | Union | Tuple | FnType | Opaque`,
+/// with `Opaque = Basic | Generic`), so a `[when field.kind]` is an ordinary
 /// exhaustive `when` over a union and `is Opaque` matches either of its two
-/// arms (comptime rounds 5 and 8).
+/// arms (comptime rounds 5 and 8; `Kind` split from `Type` 2026-10-20).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TypeKindWord {
     Struct,
@@ -612,20 +635,31 @@ impl TypeKindWord {
 }
 
 /// [comptime-inline] A compile-time condition, the subject of a `[if …]`
-/// (comptime round 1, CT-2's restriction; `==` on a name added round 2).
+/// (comptime round 1, CT-2's restriction; `==` on a name added round 2;
+/// `&&`/`||`/parentheses, `.kind`, and `.name is` a literal union added
+/// 2026-10-20).
 #[derive(Clone, Debug, PartialEq)]
 pub enum CompCond {
-    /// `field.type is Struct` — a kind test, against an arm of
-    /// `core.comptime`'s `Type`.
+    /// `field.kind is Struct`, `T.kind is Union` — a kind test, against an
+    /// arm of `core.comptime`'s `Kind`. The kind is of the type `ty`
+    /// denotes (`field.kind` is the kind of `field.type`). Resolved only
+    /// against the kinds, so a program type named `Union` cannot interfere
+    /// [comptime-kind].
     Kind { ty: CompTy, kind: TypeKindWord, span: Span },
-    /// `field.type is Extra<Json>` — equality with a written type, up to
-    /// alias expansion.
-    Is { ty: CompTy, target: Type, span: Span },
+    /// `field.type is Extra<Json>` — a written type, up to alias expansion
+    /// with qualifiers erased; a type test only, never a kind test
+    /// [comptime-kind]. The type is a **pattern** [comptime-pattern]: `*`
+    /// matches any type, and `binders` (`is <E> List<E>`) are declared
+    /// before it and bind the part they stand at, in the then-branch.
+    Is { ty: CompTy, binders: Vec<Ident>, target: Type, span: Span },
     /// `T.mutable` — whether the type declares `canbe Mut` (`core.comptime`'s
     /// `Struct.mutable`).
     Mutable { ty: CompTy, span: Span },
-    /// `field.name == "value"` — the binder's name against a literal.
-    NameEq { binder: Ident, lit: String, span: Span },
+    /// `field.name == "value"`, `field.name is "a" | "b"` — the binder's name
+    /// against a literal or a union of literals: `field.name` is the literal
+    /// union of its struct's field names [comptime-name]. `!=` and `!is` are
+    /// `Not` of it.
+    NameIs { binder: Ident, lits: Vec<String>, span: Span },
     /// `field.first` / `field.last`.
     Flag { binder: Ident, last: bool, span: Span },
     /// `x.index == y.index`, `x.index < y.index` — two arm (or field)
@@ -638,6 +672,10 @@ pub enum CompCond {
         span: Span,
     },
     Not(Box<CompCond>, Span),
+    /// `a && b` [comptime-logic].
+    And(Box<CompCond>, Box<CompCond>, Span),
+    /// `a || b` [comptime-logic].
+    Or(Box<CompCond>, Box<CompCond>, Span),
 }
 
 impl CompCond {
@@ -646,18 +684,38 @@ impl CompCond {
             CompCond::Kind { span, .. }
             | CompCond::Is { span, .. }
             | CompCond::Mutable { span, .. }
-            | CompCond::NameEq { span, .. }
+            | CompCond::NameIs { span, .. }
             | CompCond::Flag { span, .. }
             | CompCond::IndexCmp { span, .. }
-            | CompCond::Not(_, span) => *span,
+            | CompCond::Not(_, span)
+            | CompCond::And(_, _, span)
+            | CompCond::Or(_, _, span) => *span,
         }
     }
 }
 
-/// [comptime-inline] One arm of an `inline when` over a type.
+/// [comptime-inline] One arm of a `[when X.kind]`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct KindArm {
     pub kind: TypeKindWord,
+    pub body: Block,
+    pub span: Span,
+}
+
+/// [comptime-pattern] One arm of a `[when field.type]`: `is <E> List<E> { … }`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TypeArm {
+    pub binders: Vec<Ident>,
+    pub pattern: Type,
+    pub body: Block,
+    pub span: Span,
+}
+
+/// [comptime-name] One arm of a `[when field.name]`: `is "a" | "b" { … }`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct NameArm {
+    /// The literals the arm covers, each with its written span.
+    pub lits: Vec<(String, Span)>,
     pub body: Block,
     pub span: Span,
 }
@@ -683,14 +741,15 @@ pub enum CompStmt {
         else_: Option<Block>,
         span: Span,
     },
-    /// `[when field.type] { is Struct { … } is Union { … } … }` — a `when`
-    /// over `core.comptime`'s `Type` union. Exhaustive over its arms unless an
-    /// `else` closes it [when-exhaustive], so that a kind added to the language
-    /// is an error in every comptime fn that did not consider it (round 3).
+    /// `[when field.kind] { is Struct { … } is Union { … } … }` — a `when`
+    /// over `core.comptime`'s `Kind` union, of the kind of the type `ty`
+    /// denotes. Exhaustive over its arms, and like every `when` with a
+    /// subject it takes no `else` [when-exhaustive], so that a kind added to
+    /// the language is an error in every comptime fn that did not consider it
+    /// (round 3). Spelled `[when field.type]` until 2026-10-20 [comptime-kind].
     WhenKind {
         ty: CompTy,
         arms: Vec<KindArm>,
-        else_: Option<Block>,
         span: Span,
     },
     /// `[when value] { [arm] { … } }` — a dispatch over a **union value**:
@@ -701,6 +760,28 @@ pub enum CompStmt {
         value: Expr,
         binder: Ident,
         body: Block,
+        span: Span,
+    },
+    /// `[when field.name] { is "a" | "b" { … } is "c" { … } }` — a dispatch
+    /// over the binder's name, the literal union of its struct's field names
+    /// (or its union's arm names). **Exhaustive** over those names, with no
+    /// `else` [when-exhaustive], so a field added later is an error in every
+    /// `[when field.name]` that did not consider it [comptime-name].
+    WhenName {
+        binder: Ident,
+        arms: Vec<NameArm>,
+        span: Span,
+    },
+    /// `[when field.type] { is <E> List<E> { … } is Str { … } is * { … } }`
+    /// — a dispatch over a type by **pattern** [comptime-pattern], the
+    /// first matching arm taken. Exhaustive over the subject's range like
+    /// any `when` with a subject, and so with no `else` [when-exhaustive]
+    /// (`is *` is the catch-all arm): the walk's fields or arms, checked
+    /// where the fn is declared — so refused in a stamped fn over the bound
+    /// parameter's fields, which only a stamp knows.
+    WhenType {
+        ty: CompTy,
+        arms: Vec<TypeArm>,
         span: Span,
     },
     /// `refuse!("…")` — an error at the instantiation site, in the caller's
@@ -717,6 +798,8 @@ impl CompStmt {
             | CompStmt::If { span, .. }
             | CompStmt::WhenKind { span, .. }
             | CompStmt::WhenArms { span, .. }
+            | CompStmt::WhenName { span, .. }
+            | CompStmt::WhenType { span, .. }
             | CompStmt::Refuse { span, .. } => *span,
         }
     }
@@ -736,7 +819,7 @@ pub struct FieldDecl {
     /// field, a qualifier override, and an *annotated* state field all carry
     /// `Some`.
     pub ty: Option<Type>,
-    /// `name: canbe Mut T` [field-canbe-mut]: the field is `Mut T` exactly
+    /// `name: T canbe Mut` [field-canbe-mut]: the field is `Mut T` exactly
     /// when the struct value is `Mut`, and `T` otherwise. `ty` is the plain
     /// `T`.
     pub canbe_mut: bool,
@@ -858,8 +941,8 @@ pub struct EffectDecl {
 }
 
 /// `handler CyclicRandom<T>(values: T[]) of Random<T> { state fns }`,
-/// `intrinsic handler StdOutConsole of Console`, or `platform handler
-/// HostRawFs of RawFs` [platform-handler].
+/// `threadsafe platform handler StdConsole() of Console`, or `platform
+/// handler HostRawFs of RawFs` [platform-handler].
 #[derive(Clone, Debug, PartialEq)]
 pub struct HandlerDecl {
     /// The `//` comment block directly above the declaration, one entry

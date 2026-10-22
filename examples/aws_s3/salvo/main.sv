@@ -147,7 +147,7 @@ handler MemS3() [Streams] of S3 {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     use MemFs()
     let written = write_str(path("notes.txt"), "hello from Salvo\nsecond line\n")
     if written is Err {

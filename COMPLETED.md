@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1761 tests, complete: the toolchain tests are
+cargo test                  # 1939 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -138,7 +138,615 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
-### 2026-10-19 — Function parameter defaults: earlier-parameter references via a bound local, not AST substitution (any type, not just Copy scalars)
+### 2026-10-20 — A comptime body is a scope; a field's `canbe Mut` follows its type
+
+User requests. **Scoping** ([comptime-scope]): a kept `[if]` branch (or its
+`else`) was spliced flat, so `[if c] { let k = 1 }` then `return k` compiled
+wherever `c` held. The expansion now renames what the body declares apart, as
+a `[for]` copy always did (`expand_scoped`, and `expand_bound` for a branch with
+pattern binders); a chosen `[when]` arm, the same splice, got the same
+treatment without being asked — flagged to the user. Renaming alone would let
+a body's `let x` hide a visible `x` (a `[for]` copy already could, silently),
+so the checker's [var-no-shadow] test also looks up each name the rename
+wrapped (`comptime::scoped_outer`: `k__c1__c3` → `k__c1` → `k`); diagnostics
+are unmangled once at the end of `check_program`/`check_project`
+(`unmangle_message`), and completion records the written name. A terminal
+`[if …] ...` renames the rest of the block, which holds every use, so it needs
+no flag. Found while probing and recorded in ROADMAP §2c, not fixed: a warning
+in a copy keeps the copy's virtual span (`warn` does not redirect).
+
+**`field: T canbe Mut`** ([field-canbe-mut]): written after the type and before
+a default, as a declaration's own `canbe Mut` follows its name; the prefix
+`field: canbe Mut T` is a plain parse error ("expected identifier, found
+`canbe`"), with no transitional message. `parse_field_decl`, the docs.rs hover
+line, and every source swept — the tests, the spec, BACKEND_SPEC.kotlin.md,
+Qualifiers.md, Implicit-Parameters.md, Compile-Time-Functions.md. No std file
+outside the user's `std/args/parse.sv` and no example used the field form.
+`std/args/parse.sv` (six fields) is the user's in-progress file and was left
+alone; the embedded std fails to parse until it is updated, so the suite was
+run in a copy without it and `parse.test.sv`.
+
+Tests: comptime_tests `a_kept_comptime_body_does_not_leak_its_locals`,
+`a_comptime_body_may_not_shadow_a_visible_local`,
+`a_terminal_comptime_if_still_sees_its_rest`; parser_tests
+`a_field_canbe_mut_follows_the_type`. Full `cargo test --no-fail-fast` in the
+copy: 1939 passed, 0 failed; the examples regenerate unchanged.
+
+### 2026-10-20 — `Console` gains `printerr` and `readln`, its handler is `StdConsole`; `[for …] ...` and `[if …] ...`
+
+User requests. **Console** ([console]): `printerr(message)` writes standard
+error and `readln() -> Str?` reads a line of standard input (terminator
+stripped, `\r\n` included; `None` at the end or on an error, the `Str | None`
+`read_line` answers), flushing stdout first so a prompt shows. The handler
+`StdOutConsole` is renamed **`StdConsole`** everywhere — 167 files, the
+examples' generated trees and the goldens included (the
+`std/args/parse.test.sv` annex, the user's, still says `StdOutConsole`, and
+`hover_works_in_a_std_shadowing_file` fails on it until it is updated). No
+`printerrln` and no unbuffered `read`: the user asked whether a non-line read
+exists — none does; left open in ROADMAP §9. `salvo test` now runs the harness
+with stdin closed, so a test's `readln` answers `None` instead of blocking.
+Host files: Rust `stderr().lock()` / `stdin().lock().read_line`, Kotlin
+`System.err` + flush / `readlnOrNull` after `System.out.flush()`; std's host
+project regenerated (`salvo platform generate` in `std/`), every example
+recompiled.
+
+**Terminal comptime scopes** ([terminal-scope] [comptime-inline]): `[for …]
+...` (the rest of the block, once per field) and `[if …] ...` with the optional
+inline braced `else` and no `else ...` — the runtime `for`/`if` rules, parser
+only (`parse_body` for `[for]`, `parse_if`'s shape for `[if]`), since the
+expansion already splices bodies flat. **Not `[when …]`**, answering the user's
+question: an ordinary `when` takes no `...` (several arms, one rest-of-block),
+and a braced `[when]`'s chosen arm is spliced flat, so what follows it already
+runs after it — recommended no, the user's call. Noticed then: a braced
+`[if]` body was not a scope (fixed the same day, the entry above).
+
+Tests: run_tests `console_reads_lines_and_writes_stderr_on_each_backend`
+(stdin piped, `\r\n` and EOF, both backends); parser_tests
+`comptime_for_and_if_take_terminal_scopes`; comptime_tests
+`comptime_for_and_if_take_terminal_bodies`; the ten backend goldens and two
+parser snapshots updated for the new members and the rename. Full `cargo test
+--no-fail-fast`: 1933 passed, 2 failed — `std_tests_pass` and
+`hover_works_in_a_std_shadowing_file`, both on the user's untouched
+`std/args/parse.test.sv` still writing `use StdOutConsole()`.
+
+### 2026-10-20 — `salvo test` shows a test's output as configured, and a `[test]` manifest section
+
+User request and decisions: show what a test prints in the report; a test still
+needs `use StdConsole()` to print (1(a), [test-body] unchanged); two
+settings — **whose** output (`all` | `failed`) and **which** (`stderr` | `both`;
+"stderr isn't supported but it will be") — and a manifest `[test]` section
+configuring them together with the tests' backend, over `[build] backend`
+([test-output]).
+
+- **Report** (`salvo-test::report`): `render_stream` takes an `OutputPolicy {
+  show_for, streams }` and a callback handing over the stderr lines that have
+  arrived. A test's output goes under its header once, indented (stderr lines
+  marked `[stderr]`), and the verdict re-states the test; under `all` it is
+  shown live, under `failed` held until the verdict and shown for a failure or
+  a death. It returns `Rendered { summary, loose_stderr }`.
+- **Two defects fixed on the way**: the `test … ...` header was printed again
+  after every output line; and output a test left unterminated (`print("…")`)
+  was glued to the next protocol line, losing the verdict — the test reported
+  `DIED` and the rest of the suite re-ran. The renderer now splits at the
+  `##salvo-test ` marker.
+- **Runner** (`salvo-cli` main.rs): `--output all|failed` and `--streams
+  stderr|both` on `salvo test`; `test_output_policy` resolves flag → `[test]` →
+  default (**`failed` + `both`**, the agent's pick — flagged to the user);
+  `[test] backend` replaces `[build]`'s when no `--backend` is given;
+  `salvo build`'s test step reads the section's output keys and keeps its own
+  backend. stderr is read line by line on its thread into an mpsc channel (and
+  a whole copy for `died_detail`); a dying test's stderr is left to
+  `died_detail` rather than drawn into the report; stderr no test was running
+  for is printed after the pass, as the whole of it was before.
+- **Manifest** (`salvo-core::manifest`): `TestSection { backend, output,
+  streams }`, each validated against its closed set; `Project::test_backends`.
+  `salvo init`'s template shows the section commented.
+- Spec: new [test-output]; [test-report], [test-filter], [manifest] updated;
+  the Testing page has "What a test prints" and the `[test]` section. ROADMAP
+  §9 records the missing stderr console and the arrival-order attribution.
+- Tests: salvo-test +4 (grouped output, failures only, stderr only,
+  unterminated output keeps its verdict); manifest +1; test_command_tests
+  `a_tests_output_is_shown_as_configured` (both backends, the three modes, the
+  manifest's backend and output). Full suite in a fresh copy without the
+  in-progress `std/args/parse.sv` and its new annex `parse.test.sv`: 1932
+  passed, 0 failed.
+
+### 2026-10-20 — An in-place copy's error says which copy in the code's terms
+
+User request, following the entry below: the prefix "in `print_help` from
+`this declaration` for `ArgGroup.groups: Map<Str, ArgGroup>`" is the stamp's
+wording (compfn, the module it came from, the target's field), and for a fn
+expanded in place none of it means anything — the error already sits on the
+code. It now reads **"when `field` is `groups` (`Map<Str, ArgGroup>`): no
+matching overload for `print_help(Map<Str, ArgGroup>)`"**, naming the binder
+the author wrote; nested walks join innermost-last ("when `arm` is `Manual`
+and `field` is `note` (`Str`)"), and an arm copy omits the type (its name is
+the type). `StampRegion::written_label` carries the phrase, set by
+`Expander::copy` for in-place copies; `redirect_stamped` collects it along the
+chain it already follows. A stamp's errors keep the old prefix — there the
+compfn and its module are what the reader at the `by` site needs. Test:
+`an_expanded_in_place_body_is_checked_per_copy` asserts the new wording. Full
+suite in a copy without the in-progress `std/args/parse.sv` (its current
+state does not check): 1927 passed, 0 failed.
+
+### 2026-10-20 — An expanded-in-place fn's copy errors land on the written code
+
+A TODO in `std/args/parse.sv`: uncommenting `print_help(args.[field])` in the
+`"groups"` arm (a `Map<Str, ArgGroup>`, which no `print_help` takes) reported
+the error on the `groups` field's declaration, not on the call. The checker's
+`redirect_stamped` sent every error inside a copy to the copy's
+`StampRegion::target` — right for a stamp, whose template is another file's
+text, wrong for an expanded-in-place fn, whose template *is* the code to fix.
+
+- `StampRegion` gained `written_from: Option<u32>` — the offset a copy's
+  `start` stands for in the written body, set by `Expander::copy` when the fn
+  is expanded in place (`None` for stamps). `redirect_stamped` follows it back
+  through nested copies to a span inside the file, keeping the
+  "in `print_help` from `this declaration` for `ArgGroup.groups: …`" prefix
+  that says which copy failed; it falls back to the field when the chain does
+  not reach the file.
+- The probe: the uncommented TODO now reports at `parse.sv:95:17`, the call.
+  The TODO itself stays in your file for you to remove.
+- Tests: `an_expanded_in_place_body_is_checked_per_copy` asserted the old
+  landing (the field's line) and now asserts the written `+`'s.
+  [comptime-inline] in LANGUAGE_SPEC.md and the Compile-Time-Functions page
+  say where the error lands. Full `cargo test --no-fail-fast`: 1927 passed, 0
+  failed (8m41s, the saved `parse.sv` included).
+
+### 2026-10-20 — Completion offers a `when`'s missing arms
+
+User request: the exhaustiveness checks already know which arms a `when` lacks,
+so the editor should offer them while the `when` is being written
+([lsp-completion] [when-exhaustive]).
+
+- **Where**: on a blank line between a `when`'s arms, or over a half-written
+  `is …` head (no `{` on the line yet), inside an ordinary `when` with a
+  subject (both forms) and inside a comptime `[when f.name]`, `[when x.kind]`
+  or `[when f.type]`. Only the arm items are offered there — nothing else is
+  legal in an arm head. One item per missing arm (`is Square {}`), plus one
+  inserting all of them; a type dispatch also offers its catch-all `is *`.
+  With the client's snippet support each arm opens a body with the cursor in
+  it (`$0`, and `$1…` across the all-arms item); plain text otherwise. The
+  edit replaces the typed head, so `is S` + `is Square` does not double up.
+- **The facts**: `Checked::when_arms` (keyed by the `when`'s span) is the
+  `remaining` list `check_when_body` already computed, rendered as checks
+  before the runtime-arm rewrite collapses literals; `CompWhenArms` from the
+  expansion — kinds from the arms alone (`kind_arms_missing`, via the hover
+  walk, so templates get them too), names and uncovered types per copy of an
+  expanded-in-place fn (`Expander::record_when_arms`, unmapped to the written
+  span and merged across copies). The record carries the arms' body spans,
+  because the language server sees the program *after* expansion, when the
+  `[when]` is gone.
+- **The probe buffer**: a partial `is …` head is cut out whole
+  (`arm_head_at`), since half an `is` check makes the parser drop the entire
+  `when`; the enclosing `when` is found at the head's offset with the cursor
+  outside every arm body (`when_missing_arms`).
+- **Fixed on the way**: an incomplete `[when f.kind]` in an expanded-in-place
+  fn was reported once per field at the copy's virtual span (past the end of
+  the file); it now lands once, where it is written.
+- Tests: lsp_tests `completion_offers_the_missing_when_arms` (both `when`
+  forms, the three comptime dispatches, the replaced head, the all-arms item,
+  plain and snippet text); comptime_tests
+  `an_incomplete_kind_dispatch_lands_where_written`.
+
+### 2026-10-20 — A subject `[when]` takes no `else`
+
+User decision, correcting the agent's reading of the entry below: a comptime
+`[when]` with a subject is exactly an ordinary `when` with one
+[when-union-subject] — exhaustive over its subject, and **never** with an
+`else`. All three forms lose it: `[when f.kind]`, `[when f.name]` and `[when
+f.type]` (whose catch-all is the arm `is *`). No compatibility.
+
+- **Syntax**: the `else_` field is gone from `CompStmt::{WhenKind, WhenName,
+  WhenType}` and from both visitors, desugar's walk and the hover walk. An
+  `else` there is a parse error naming what covers the rest
+  (`comp_when_else`): the missing names, `is Opaque` for `Basic` and
+  `Generic`, `is * { … }` for types — the precedent being the ordinary
+  `when`'s own error naming the subject-less form.
+- **Expansion**: the coverage checks run unconditionally. A `[when f.kind]`'s
+  coverage is known from its arms alone (`kind_arms_incomplete`), so in a
+  stamped template it is now reported at the template by the same
+  declaration-time walk that refuses `[when f.type]` / `[when f.name]` over
+  the bound parameter, instead of at every `by` site.
+- **Rewritten**: the spec ([comptime-inline]'s list, [comptime-name],
+  [comptime-pattern]), the Compile-Time-Functions page, `core.comptime`'s
+  `Kind` comment, the AST doc comments, and five test sources that wrote an
+  `else` (`is *` or the remaining arms instead). Nothing in `std/`,
+  `examples/` or the corpus used one.
+- Tests: parser_tests +1 (`a_subject_comptime_when_takes_no_else`, each form
+  one error naming its remedy); the stamped-template test gained the
+  incomplete kind dispatch, reported once at the template.
+
+### 2026-10-20 — A subject `[when]` has an ordinary `when`'s rule; refused over a stamped fn's range
+
+User decision, answering the flag on the entry below: a `[when]` with a subject
+follows an ordinary `when` — exhaustive over its subject's range without an
+`else`, and an `else` only where that range is checkable. In a stamped fn
+(`<T is Struct>`) the fields of `T` are not known where it is declared, so the
+dispatch is **refused there**, with or without an `else`, rather than checked
+per stamp.
+
+- **What is refused**: `[when f.type]` over a walk of the bound parameter, a
+  `[when E]` on a pattern binder from such a test, and `[when f.name]` over
+  those fields (the same reason; the user named the type case, the agent
+  extended it to names — flagged). `[when f.kind]` stays: `Kind` is the same
+  range everywhere. `[if f.type is …]` / `[if f.name is …]` are unaffected.
+- **How**: `unchecked_subject_whens` (comptime.rs) walks each template when
+  the expansion collects it — a flat set of the comptime names derived from
+  the bound parameter (walk binders, pattern binders of a test on one, a union
+  value's arm binder) — and reports each offending `[when]` at the template.
+  The template is still registered, with an `unreachable!()` body, so its
+  `by` sites stamp quietly: one mistake, one diagnostic.
+- `else` stayed legal on every checkable subject `[when]` — the agent's
+  reading of the user's wording, *corrected the same day: see the next entry
+  up*.
+- Spec: [comptime-pattern] and [comptime-name] state it; the
+  Compile-Time-Functions page says it; the `WhenType` AST doc comment was
+  stale and is corrected. Tests: comptime_tests +1 (25),
+  `a_stamped_fn_refuses_a_subject_when_over_its_range` — four refused forms,
+  each one diagnostic in the template's file, and the kind dispatch accepted.
+
+### 2026-10-20 — An `else`-less type dispatch covers its range; five comptime-round defects fixed
+
+User request after the comptime expansion: make `[when field.type]` exhaustive
+without an `else` where the range of types is known, and fix every defect the
+round found (ROADMAP §0n, retired here).
+
+**`[when field.type]` without `else`** ([comptime-pattern] [when-exhaustive];
+user question, replacing the agent's same-day "always needs an `else`"): the
+subject's range is always known — a walk over one struct's fields or one
+union's arms — so each copy either finds its arm or is an error naming the type
+("no arm of this `[when f.type]` matches `Int?`…"). Checked at the declaration
+for an expanded-in-place fn, at each `by` site for a stamp, where it acts as a
+`refuse!` of the uncovered types. **Flagged to the user**: the stamped case is
+checked per stamp, not at the template, since a template's fields are unknown
+until it is stamped. *(The stamped half was replaced the same day: see the
+next entry up.)*
+
+**The five defects:**
+- **Same-named identities aliased across modules** (silently wrong) —
+  [cmp-carry]. `FnId::Named` gained `module` (the declaring module) and
+  `qualify` (print `name@module`, only for a name more than one non-std module
+  declares: `fn_name_clash`). Every identity is built by `identity_of`; a
+  written slot name is resolved **in the writing file** (`written_fn_id` swaps
+  to `type_ref_files`' scope, as `handler_dep_effects` does) at the slot's fn
+  type (`lower_identity_args` now takes the declaration's generics to compute
+  it; `written_declaration` falls back to the most specific visible overload);
+  a value written at a call names its `fn_refs` declaration; and a binder
+  filled from an identity resolves in its declaring module (`resolve_identity`
+  → `resolve_implicit_fn_in` → `module_overloads`), private fns included —
+  both emitters name them. The cause had a second half the repro hid: a
+  callee's written return type was re-lowered in the *caller's* scope, so a
+  caller without the import got a misfiled "no function `my_hash` in scope".
+- **A generic `by auto` stamp did not fit a keyed slot** — [comptime-generic].
+  `resolve_implicit_fn_in` trimmed implicit parameters only when the fn value
+  had exactly the written arity; a stamp's `?Hashed<T>` spread members are
+  appended after it. One condition (`==` → `>=`).
+- **Key eligibility differed between an annotation and a call** —
+  [col-key-eligible], now an actual rule (the label had been cited with no rule
+  behind it). Two bars: the intrinsic one (floats, fn values, unions, std
+  opaque types without a pair) everywhere, and the canonical one (a struct's
+  own `hash`/`eq`/`cmp`) only where the identity is resolved by name — not
+  with written identities or binders, and not in a `let` pattern (`let_pattern`).
+  The inferred check's guard counted identity arguments as type arguments and
+  so never ran on a constructed keyed type; fixed, moved before the
+  constructor's implicit resolution, and a key refused there silences the
+  constructor's "no `hash` fits" (`Set(1.5)` is one "`Double` cannot be a
+  key"; `Mut Set<Double>(hash = dh, eq = de)` is refused, where it was
+  accepted). **Flagged to the user**: a slotless *parameter* `Set<P>` still
+  demands `P`'s own pair, though [cmp-carry] makes a parameter a pattern too.
+- **`Mut Set<(Int, Str)>()` did not parse** — [fn-type-named]. A qualified
+  type-fn call read its `<…>` with the declaration's generic-*parameter* reader;
+  `parse_type_call_name` reads type arguments (a selector or borrow source
+  rolls back; spans stay the name's). The spec's "explicit type arguments on
+  the call are bare identifiers only" went with it.
+- **Kotlin: a generic struct's `T?` codec did not compile** — [kt-wire].
+  `OptCodec<T : Any>` became `OptCodec<T>`, as Rust's `Option<T>` impl is. This
+  was what failed every Kotlin std build while `std/args/parse.sv` sat in
+  `std/`: the full suite now passes with it.
+
+**Spec bugs fixed on the way**: Comparison-and-Hashing.md said a tuple or list
+key "does not work yet" (true until 2026-10-06); [cmp-carry]'s "a bare name is
+resolved where the type is used" now says *written*.
+
+**Tests**: comptime_tests +1 (24), carry_tests +4, compare_tests +1,
+parser_tests +1, Rust codegen +3 with three mirrored Kotlin cases, and
+updated: `a_literal_with_an_ineligible_key_is_refused` (one key error now) and
+the Kotlin golden snapshots (the runtime's `wire.kt`, copied verbatim; also
+into the 15 `examples/*/kotlin/wire.kt` and the std/aws host projects, via
+`salvo platform generate`). Full `cargo test --no-fail-fast`: 1923 passed, 0
+failed, in 8m10s — every Kotlin stamp missed, since `wire.kt` is in every
+generated program.
+
+### 2026-10-20 — Comptime expanded: callable and generic in-place fns, visible roots, condition logic, literal-union names, the kind/type split, type patterns
+
+User decisions, from the `std/args/parse.sv` `print_help` discussion. The
+principle the user set: **if you want to guarantee exhaustivity over a
+struct's fields, comptime is the solution.** Built as a six-step sequence
+tracked in COMPTIME.md (retired into the "Design record: comptime expansion"
+section below). No compatibility: the old kind spellings stopped being the
+language, and `core.auto`, `compare_tests.rs`, the docs page and the spec were
+rewritten.
+
+- **D1, expanded in place vs stamped** ([comptime-bound]): a comptime fn
+  without a kind bound is expanded once where it is declared and is then an
+  ordinary fn, officially callable from ordinary code. One with a bound
+  (`<T is Struct>`) is *stamped*, copied per type at a `by`. "Concrete" is
+  retired as a term.
+- **D2, roots obey visibility** ([comptime-root-visible]): `Pt.fields` needs
+  `Pt` visible where it is written. The checker checks `Stamp.roots` with
+  `require_name` + `record_def_ref` right after `own_stamp`. The expander's
+  `World::pick_decl` prefers own module, then imported, then `core`.
+  Rejected: the flat program-wide lookup it had (it accepted an unimported
+  struct).
+- **D3, condition logic** ([comptime-logic]): `&&`, `||`, `!`, parentheses
+  at ordinary precedence. Both sides are always evaluated, so a misspelled
+  field name in a short-circuited branch is still reported.
+- **D4, names are literal unions** ([comptime-name]): `field.name` is the
+  union of the struct's field names (`arm.name` of a union's arm names).
+  Tests are `is`/`!is` against `"a" | "b"`; `==`/`!=` stay; `[when
+  field.name]` is exhaustive unless it has an `else`. The expander evaluates
+  these itself; reusing the checker's literal machinery was rejected as too
+  large for what it buys.
+- **D5, kind and type split** ([comptime-kind]): kinds are `X.kind is K` /
+  `[when X.kind]`, resolved only against `core.comptime`'s kinds, which fixed
+  a silent wrong answer (a user `struct Union` read as the kind under the old
+  `field.type is Union`). `field.type is …` is a type test only; a kind word
+  there errors "`Struct` is a kind, not a type". The bound keeps `<T is
+  Struct>`. In `core.comptime` the `Type` union became `Kind`, `comptime
+  struct Type {}` was added, and `Field`/`Arm` gained `kind: Kind`.
+- **D6, ordinary generics** ([comptime-generic-fn]): an expanded-in-place fn
+  may take ordinary `<T>`; the result is an ordinary generic fn. A generic
+  struct root must be instantiated (`Arg<T>.fields`), field types are
+  substituted, arity is checked, and the bare `Arg.fields` errors naming the
+  instantiated form. `T` stays opaque (no `T.fields`).
+- **D7, type patterns** ([comptime-pattern]): `*` is the wildcard (not `_`,
+  which names a nameless variable); binders are declared before the pattern,
+  `is <E> List<E>`. Nothing binds under `||`/`!` (an error if binders are
+  declared there); a repeated binder constrains; a binder may not shadow a
+  visible type; an unused binder warns. Matching erases qualifiers, expands
+  argument-less aliases, matches unions arm by arm in order, and reads `T?`
+  as `T | None`. **Implementation-level call (agent), flagged to the user**:
+  `[when field.type]` requires an `else`, since types are not a closed set;
+  `[when field.kind]` is the exhaustive dispatch. *(Superseded the same day by
+  the user — an `else`-less one covers its range; see the next entry up.)*
+- **D8, `by` at a call**: research only (user, mid-run). The decision list is
+  in the design record below and condensed into ROADMAP §2c.
+- **Deferred**: a callable *bounded* comptime fn at an ordinary call.
+
+**What it took.** Syntax: `Stamp.roots`, `CompTy.args`, `CompCond::{NameIs,
+And, Or}`, `Is { binders }`, `CompStmt::{WhenName, WhenType}`; the parser's
+`parse_comp_cond` precedence climb, `comp_type_pattern`, `*` read by
+`parse_type_atom` inside a pattern only (`in_comp_pattern`), and
+`parse_compfn` treating `<` as a bound only when `peek_at(2)` is `is`. Core
+(`comptime.rs`): the expander reports errors at the *written* span for an
+in-place fn (`written_limit`, `remaps`/`unmap`), dedupes identical errors in
+`finish` (no per-copy duplicate "no field"), prefixes an in-place `refuse!`
+with "`fn` refused:", and gained `fn_generics`, `subst_generics`,
+`type_binders`/`binder_used`, `peel`, `match_pattern`, `check_pattern` and
+`eval_cond(cond, binds, can_bind)`; `Binding.siblings` replaced `owner`.
+`finish` now returns warnings beside errors (an in-place fn passes them on; a
+stamp drops template warnings).
+
+**Tests**: `crates/salvo-core/tests/comptime_tests.rs`, 23 tests tagged with
+the rule labels. Full `cargo test --no-fail-fast` green at 1913 tests in a copy
+of the tree without the user's untracked `std/args/parse.sv` (with it, 33
+Kotlin failures, all the pre-existing `OptCodec(__c_T)` wire-codec defect in
+the generated `parse.kt`). Probes over the motivating `describe<T>` /
+`print_help` program run on Rust; a parse.sv-free probe printed identically
+on Rust and Kotlin.
+
+**What fell out** (recorded in ROADMAP §0n, all fixed the same day — see
+the next entry up): same-name fn identities alias
+across modules (a silent wrong answer, `tmp/bycall9`); `by auto` at a generic
+struct does not fit a keyed container's slot and leaks `(?hash, ?eq)` into
+the printed type (`tmp/bycall7`); key eligibility differs between an
+annotation and a call (`tmp/bycall10`); `Mut Set<(Int, Str)>()` does not
+parse as a constructor call; the Kotlin `T?` generic-struct codec. Stale spec
+text fixed on the way: [col-key-eligible]'s "a tuple cannot be a keyed
+container's subject" and [implicit-resolve]'s "a candidate that itself needs
+implicits is skipped" (lifted by [implicit-recursive]).
+
+### 2026-10-19 — `type` as a struct-literal field label, and the leading-dot shorthand inside a `type` alias's own union-arm list
+
+Two follow-on language fixes while the user built `std/args/parse.sv`, a
+command-line argument parser using a namespaced union (`namespace Arg {
+struct Int {} struct Str {} struct Bool {} type Type = .Int | .Str | .Bool
+}`).
+
+**`type` as a struct-literal field label** — the user had `Option { name:
+"name", type: .Str }` (later reworked away, but the gap is real and stays
+fixed). `type` is a hard keyword (`TokenKind::KwType`, unconditional —
+unlike the genuinely *contextual* `namespace`/`effects`, which the lexer
+never tokenizes specially at all); `[comptime-fields]` already carves out
+`type` as a *field-declaration* name for `core.comptime`'s `Field.type`
+(`parse_field_decl`, lookahead-gated on `KwType` immediately before `:`),
+but the identical carve-out did not exist on the struct-*literal* side.
+Two gaps, both in `crates/salvo-syntax/src/parser.rs`, both closed with the
+same lookahead-gated pattern:
+* `brace_is_struct_lit`'s lookahead (`~line 6749`) only matched
+  `TokenKind::Ident(_)` followed by `:` to decide a brace opens a struct
+  literal rather than a block; a literal spelled `P { type: 1 }` (`type:`
+  as the *first* field) fell to `_ => false` and was misread as neither a
+  struct literal nor a lambda. Added a `TokenKind::KwType` arm with the
+  same `:` lookahead.
+* `parse_struct_lit_entries`'s field-name reading (`~line 6827`) called
+  `self.ident()` unconditionally, which only matches `TokenKind::Ident` —
+  never `KwType`. Added the same `KwType`-before-`:` branch
+  `parse_field_decl` already uses, synthesizing an `Ident { name: "type",
+  .. }`.
+  Regression test: `a_struct_literal_field_may_be_named_type`
+  (`crates/salvo-syntax/tests/parser_tests.rs`), covering `type:` as a
+  struct-literal field both first and non-first.
+
+**The leading-dot shorthand inside its own alias's union-arm list** — the
+other half of the pattern: `type Type = .Int | .Str | .Bool` written
+*inside* `namespace Arg`, meaning `Arg.Int | Arg.Str | Arg.Bool`. This did
+not work: `[namespace]`'s leading-dot shorthand (`resolve_dot_ref`,
+`check.rs`) resolves `.Thing` only against an **expected type computed from
+outer expression context** (a `let` annotation, a call parameter, a
+return type) — explicitly "rather than any alias's name," per the spec
+wording before this change. A `type` alias's own body has no such outer
+context; it is the declaration naming itself. **User decision (option A of
+two presented): extend the shorthand to this one position**, resolving
+against the alias's *own* enclosing namespace (derived from its own
+flattened name — `Arg.Type`'s prefix is `Arg`) rather than an ancestor-walk
+over an expected type. This was *not* inferred as already-licensed by the
+existing rule; the spec explicitly excluded it, so it was presented as a
+real language-surface decision before implementing (per AGENTS.md's
+invariant that such decisions are the user's).
+* New `Checker` field `own_alias_namespace: Option<String>` (`check.rs`,
+  beside `in_comptime_decl` as the model): the alias currently being
+  resolved/expanded's own enclosing namespace, set/cleared around two call
+  sites — the `Item::Type` declaration's own `validate_type(alias)` call
+  (diagnostics at the declaration), and, separately and **more
+  importantly**, inside `lower_base_ref`'s alias-expansion branch, set from
+  *that* alias's own name right where `written_in.type_aliases.get(name)`
+  expands its target. The second site is the one that matters for
+  correctness: an alias's target is expanded from *every* use site (a
+  `fn`'s return type, a parameter, a field), not only its own declaration,
+  and the namespace context must always be the alias's own — never leak a
+  use site's. First cut only set it at the declaration site and missed
+  this, which surfaced as the checker's own diagnostics rendering the type
+  as the literal unresolved `.Int | .Str | .Bool` instead of `Arg.Int |
+  Arg.Str`.
+* New `resolve_alias_arm_dot_ref` (`check.rs`, beside `resolve_dot_ref`):
+  given a leading-dot name and a namespace string, checks the one
+  candidate `{namespace}.{suffix}` directly — no ancestor-prefix walk
+  (unlike `resolve_dot_ref`'s single-named-type branch), since an alias's
+  own namespace is exact, not a path to search upward from. Wired into
+  `require_name` (so declaration-time validation accepts the arm and
+  non-dot callers are unaffected — a dot-prefixed name never matches any
+  real table lookup, so the early-return is a pure addition) and into
+  `lower_base_ref` (so the constructed `Ty::Union` actually holds
+  `Ty::Named("Arg.Int")`, not a literal dot-prefixed name — this is what
+  the IR and both backends consume, so getting only the diagnostic right
+  and not the `Ty` would have type-checked while emitting garbage
+  [backend-never-wrong]).
+* Verified end-to-end on both backends: a scratch program with
+  `namespace Arg { ... type Type = .Int | .Str | .Bool }`, a `when`
+  dispatching on it, and a fn returning `Arg.Int {}` via the shorthand
+  compiled and ran identically on `rustc` and `kotlinc`, printing the
+  expected arm name.
+* Regression tests: `leading_dot_shorthand_resolves_inside_its_own_alias`
+  (full round trip: declaration, `when` dispatch, a `return` using the
+  shorthand) and `leading_dot_shorthand_reports_an_unresolvable_sibling`
+  (an arm with no such sibling still names the namespace searched), both
+  in `crates/salvo-core/tests/name_tests.rs`.
+* `[namespace]` (LANGUAGE_SPEC.md) and `docs/language/Modules.md`'s
+  leading-dot-shorthand section both updated with the new rule and a
+  worked example.
+
+**Found and fixed in passing, unrelated to either feature**: hovering a
+bare (unqualified) type reference — a union arm or a struct field type
+reached only through `Checker::validate_type`, never through a call
+argument or struct literal — returned nothing, because `validate_type`'s
+`ast::Type::Named` branch only called `lower_base_ref` (the function that
+records a `def_refs` entry) `if !qualifiers.is_empty()`. Now called
+unconditionally; the qualifier check only gates whether `validate_quals`
+also runs. Regression test:
+`hover_resolves_a_namespace_members_type_reference`
+(`crates/salvo-cli/tests/lsp_tests.rs`). This fix is independent of the
+`own_alias_namespace` work above but landed in the same session and is
+what let `lower_base_ref`'s dot-resolution (added for the feature above)
+run for a *bare* union arm in the first place — without it, a dot-prefixed
+arm with no qualifiers would never reach `lower_base_ref` at all from
+`validate_type`'s declaration-time pass.
+
+
+User request: VS Code offered no refactorings on `mut_str` ("rename
+`mut_str` to `Mut Str`") — the LSP had no `rename_provider` capability and
+no `Rename`/`PrepareRenameRequest` handler at all. Added both, in
+`crates/salvo-cli/src/lsp.rs`:
+
+* `resolve_rename_target` resolves the cursor exactly the way
+  `goto_definition` resolves a definition — smallest span in `fn_refs`
+  (yielding a `FnKey`) or `def_refs`/`field_refs` (yielding a `DefSite`) —
+  falling back, when the cursor sits on a declaration's own name rather
+  than a reference to it, to a direct top-level-fn name-span search (fns
+  are not a `DeclAt`, same reason `goto_definition` special-cases them) or
+  `decl_name_span_at` for every other declaration kind.
+* `rename_occurrences` collects every occurrence of that `FnKey`/`DefSite`
+  **across every file of the program** — the existing reference tables are
+  already keyed by `(file, span)` program-wide, `goto_definition` just
+  filters them to one file; rename drops that filter — plus the
+  declaration's own name span. Returns `None` (rename refused with a named
+  reason, not a partial edit) if any occurrence lands in the embedded,
+  unshadowed std: there is no on-disk file to rewrite, and silently
+  renaming only the user's call sites would desync the program. A
+  std-shadow file [std-shadow] has a real path and renames normally.
+* `prepare_rename` runs the same resolution and answers with the range to
+  highlight (or nothing, if unresolvable or std-declared), so the client
+  only offers the refactoring where it will actually work.
+* `rename` builds a `WorkspaceEdit` via `changes: HashMap<Url, Vec<TextEdit>>`,
+  reusing `site_location`'s URI/range resolution (including into a
+  std-shadow copy on disk) — no `TextDocumentEdit`/document-versioning
+  needed, since this project has no concurrent-edit story to protect
+  against.
+* Capability declared with `prepareProvider: true`; `lsp-types = "0.95"`
+  already carries `Rename`/`PrepareRenameRequest`/`RenameParams`/
+  `RenameOptions`/`PrepareRenameResponse` (`src/rename.rs`), no new
+  dependency.
+* Tests (`crates/salvo-cli/tests/lsp_tests.rs`): a fn renamed from a call
+  site and from its own declaration, across two files, matches the same
+  edit set either way; a struct rename through `def_refs`; a std-declared
+  name (`size`) refuses with an error and `prepareRename` answers `null`.
+
+**The `mut_str` example turned out to be real, not a demonstration case.**
+`std/core/string.sv`'s `Mut Str` constructor had already been migrated from
+a plain `fn mut_str(...)` to the type-named-fn form `fn Mut Str(...)`
+[fn-type-named] in uncommitted work before this session, but only one of
+its ~14 call sites across `std/` and `examples/` had been updated to match
+— the rest still wrote `mut_str(...)`, which **[fn-type-named] says is
+never valid**: "a capitalized callee is a type-fn lookup... lowercase
+callees are ordinary value-fns," with no snake_case fallback for a
+type-named fn's call-site spelling. So most of std failed to resolve
+`mut_str` at all. Finished the migration: every `.sv` call site (`std/`,
+`examples/*/salvo/`), every inline Salvo source string in the backend test
+suites (`crates/salvo-backend-{kotlin,rust}/tests/codegen_tests.rs`,
+`crates/salvo-cli/tests/analyze_tests.rs` — ~30 occurrences, mechanical
+`mut_str(` → `Mut Str(` since the fn is otherwise unchanged), two stale
+`[mut_str]` doc-references (`std/core/string.sv`, `std/core/bytes.sv` — now
+`[Mut Str]`), and two docs pages (`Data-and-Types.md`,
+`Compile-Time-Functions.md`). `crates/salvo-core/tests/str_tests.rs`
+declares its own self-contained `intrinsic fn mut_str` prelude for checker
+unit tests, unrelated to std's real declaration — left alone.
+`std/core/sorted.sv`'s `to_str<T>(set: SortedSet<T>, ...)` overload was
+*not yet* touched by the half-finished migration (still called the old
+plain name as if it still existed, same bug) — fixed in the same pass.
+
+A type-named fn's call-site spelling and its *emitted* backend name are two
+different manglings that do not always agree: a call written `mut_str(…)`
+(back when the declaration was still plain) emitted `mutStr`/`mut_str`;
+the same call written `Mut Str(…)` (the only form [fn-type-named] actually
+allows) emits `Mut_Str`/`Mut_Str` — [fn-type-named]'s own canonical-key
+rule (qualifiers + base joined by `_`), applied consistently by both
+backends. Both compile and run correctly; the visual mismatch
+(`mutStr` elsewhere in hand-written platform code vs. generated `Mut_Str`)
+is cosmetic, not a defect, and was left alone.
+
+**Fallout, all mechanical and reviewed, nothing beyond the rename itself:**
+std's and `modules/aws`'s checked-in `platform/**/*.sv.{kt,rs}` ABI glue
+(12 files in `modules/aws`, regenerated via `salvo platform generate
+--backend '*'` run against a scratch copy — the in-place form refuses to
+touch existing files by design, so the fix is generate-elsewhere-then-copy,
+not generate-in-place); every example's checked-in `rust/`/`kotlin/` trees
+(all 15 — `string.sv`'s change reaches nearly every container's `to_str`);
+10 insta snapshots across `salvo-backend-kotlin`/`salvo-backend-rust`
+(golden fixtures embedding std's emitted code) and 3 in `salvo-syntax`
+(parser AST snapshots of `std/core/{string,list,bytes}.sv`) plus one in
+`salvo-core` (`golden_tests__ir_files`, the IR dump of
+`examples/files/salvo/main.sv`) — every diff reviewed line-by-line before
+`INSTA_UPDATE=always`, confirmed to be exactly the rename (plus the AST
+shape change from a plain `Ident` callee to a `Named`-type callee) and
+nothing else. `expected.txt` needed no changes anywhere — stdout is
+byte-identical before and after, as a pure rename should be. Full warm
+`cargo nextest run --no-fail-fast`: 0 failures (one run took ~260s, well
+over the usual ~15–20s warm budget — expected and one-time, since a
+std-wide source change invalidates nearly every toolchain stamp at once;
+not a steady-state regression).
+
+
 
 Follow-up to the previous day's [fn-param-default] work, same session's
 design discussion. The shipped version let a default read an earlier
@@ -3761,7 +4369,7 @@ both backends. **1708 tests.**
 
 **Shrinking the backends, steps 6b and 6e: `canbe Mut` fields and deep
 copies on Kotlin (2026-10-05, ROADMAP §0j).**
-- **`name: canbe Mut T`** [field-canbe-mut]: the field is `Mut T` exactly when
+- **`name: T canbe Mut`** [field-canbe-mut]: the field is `Mut T` exactly when
   its struct value is `Mut`. Spelling chosen by the implementer from the
   decision's wording (`canbe Mut` written before the field type); the AST
   carries it as `FieldDecl::canbe_mut` with the plain type in `ty`. One
@@ -3775,7 +4383,7 @@ copies on Kotlin (2026-10-05, ROADMAP §0j).**
   a plain value is identity).
 - **Kotlin** [kt-field-canbe-mut]: one property, declared at the plain type;
   a read typed `Mut` casts (`as salvo.platform.core.list.MutList<Int>`). A
-  `canbe Mut Str` field is a codegen error: `StringBuilder` and `String`
+  `Str canbe Mut` field is a codegen error: `StringBuilder` and `String`
   share no type but `Any`, where the data class's equality would compare a
   builder by identity. Rust erases `Mut` and needed nothing.
 - **Kotlin `copy` of a struct is deep** [kt-copy]: `.copy(f = <copy of f>, …)`
@@ -3785,7 +4393,7 @@ copies on Kotlin (2026-10-05, ROADMAP §0j).**
   field copies too, where it used to be a codegen error. A struct reached
   again inside its own copy is refused (ROADMAP).
 - Tests: `field_mut_tests` (typing and the refusals), the same program e2e
-  on both backends, the Kotlin rendering and the `canbe Mut Str` refusal.
+  on both backends, the Kotlin rendering and the `Str canbe Mut` refusal.
   **1706 tests.**
 
 **Integers wrap, and bit operations are functions (2026-10-05, user decisions;
@@ -4211,7 +4819,7 @@ its token's slot, and an answer with another slot is dropped), so a loop of
 `waitfor`s no longer grows it — tested with 50 waits. `std.test`'s
 `trapped_by` is Salvo over `runtime.trap_boundary`, the runtime's quiet fault
 boundary for a lent body; both backends' `trapped_by` lowerings are gone.
-`StdOutConsole` is a `threadsafe platform handler` (`std/platform/core/console.*`)
+`StdConsole` is a `threadsafe platform handler` (`std/platform/core/console.*`)
 and `DefaultRandom` an ordinary handler over `runtime.random_double`, seeded in
 an actor test (user decision) [random-default]; std has no intrinsic handler
 left, so the Kotlin test of intrinsic-handler templates went with it (the
@@ -9261,7 +9869,7 @@ thing, so nothing is called a panic:
 Three things fell out of building it:
 
 - **The body is a pure fn value and cannot inherit the test's effects.** A body
-  that needs one registers it itself (`() -> { use StdOutConsole(); … }`), which
+  that needs one registers it itself (`() -> { use StdConsole(); … }`), which
   works because a lambda in a test inherits the test's `use` permission. The
   first attempt gave `trapped_by` an effectful body type and hit the Rust
   effect-threading path — the same wall A-5 hit an hour earlier, and the same
@@ -19415,7 +20023,7 @@ handler Summing() of Tally {
 }
 fn double(x: Int) [] -> Int { return x * 2 }
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     use Summing()
     add(4)
     let ys = map(iter([1, 2, 3]), double)
@@ -19432,7 +20040,7 @@ Both backends, twice: `std/core/seq.sv: no handler for effect 'Tally' in scope`.
 effect Shout { fn to_upper(s: Str) -> Str => !s }
 handler Excited() of Shout { fn to_upper(s: Str) -> Str { return "${s}!" } }
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     use Excited()
     let mine = to_upper@Shout("hi")
     let theirs = to_upper@core.string("hi")     // ran the *member*
@@ -19709,7 +20317,7 @@ yield fn next(b: B) -> Int {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let b = make_b()             // rows = [1, 2]
     for n in b {
         println("saw ${n}")
@@ -19769,7 +20377,7 @@ fn bump(seen: Mut List<Int>, v: Int) -> Int => seen: Mut {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole()
+    use StdConsole()
     let seen = mutable_list<Int>()
     let source = tagged(upto(2), (v) -> bump(seen, v))
     for s in source { println("${s}") }
@@ -19825,7 +20433,7 @@ fn tally(limit: Int, sink: Mut List<Int>) -> Iter<Int> {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole()
+    use StdConsole()
     let seen = mutable_list<Int>()
     let source = tally(2, seen)
     for v in source { println("a ${v}") }
@@ -20293,7 +20901,7 @@ their failure modes are the argument for it:
   (cycle rejection, a handler-reachability rule, and a statement-hoisting
   invariant in the emitter), and a gap in any of them is a crash in a
   user's program instead of a diagnostic.
-- **B3 — ownership at construction** (`use LoudLogger(StdOutConsole())`,
+- **B3 — ownership at construction** (`use LoudLogger(StdConsole())`,
   handler owns a `Box<dyn Console>` or a monomorphized `C: Console`). No
   lifetimes, no runtime checks, and Kotlin already emits this shape
   correctly. Cost: the dependency comes from an explicit argument rather
@@ -24791,7 +25399,7 @@ buffer.
 - **`Addr`, `Reply` and `Pool`** become Salvo types (E7), not platform
   types: they have no host part, and Salvo types are cheaper for a new
   backend than either.
-- **The intrinsic handlers** `StdOutConsole` and `DefaultRandom` are not
+- **The intrinsic handlers** `StdConsole` and `DefaultRandom` are not
   types, but they are the same kind of leftover: once platform handlers in
   std are routine, both can become platform handlers. Not part of this
   work.
@@ -25605,7 +26213,7 @@ place).
 **Effects as values.** A fn declaring `[Console]` has a leading parameter
 `console: Console` of interface type. A call to it passes the instance the
 checker resolved (`call_effects`). A member call is `MemberCall { instance,
-member, args }`. `use StdOutConsole()` is a `Let` of a `Construct` whose type
+member, args }`. `use StdConsole()` is a `Let` of a `Construct` whose type
 is the handler, and the instance in scope for the rest of the block.
 
 **Declarations kept.** `Interface` (the effect): its members' signatures, with
@@ -25689,7 +26297,7 @@ fn main::next#1(lent_mut __p: __Iter_countdown_Int) -> Emitted Int | Finished {
 }
 
 fn main::main() -> None {
-  bind#1 let console: core.console::Console = construct core.console::StdOutConsole {}
+  bind#1 let console: core.console::Console = construct core.console::StdConsole {}
   bind#2 let b: Mut Box = construct Box { n: 1, tag: "t" }
   member core.console::Console.println(read console, concat("1. ",
       call core.basic::to_str(Int)(read b.n), " ",
@@ -26008,7 +26616,90 @@ implement a `ref` result; a union of borrows fits a kept owned union arm
 by arm (the user's generalization of the optional case), visible in the IR
 as `BorrowAs`; and element containers by prefix and by handle anchors.
 
-## Test inventory (all green: 1749 under nextest, the IR corpus test aside; the platform-effect tests were removed 2026-10-01)
+## Design record: comptime expansion (COMPTIME.md, retired 2026-10-20)
+
+The working document for the six-step comptime expansion (decision-log
+entry "Comptime expanded", 2026-10-20). The rules are in LANGUAGE_SPEC.md
+([comptime-bound], [comptime-root-visible], [comptime-logic],
+[comptime-name], [comptime-kind], [comptime-generic-fn], [comptime-pattern])
+and on `docs/language/Compile-Time-Functions.md`. Kept here: how the steps
+were cut, and the `by`-at-a-call research, which ROADMAP §2c condenses.
+
+**The sequence.** (1) D1 + D2 and the in-place diagnostics; (2) D3 condition
+logic; (3) D4 + D5, the `Field` reshape, built together with (2) because both
+reshape `CompCond`; (4) D6 generics; (5) D7 type patterns; (6) D8 research;
+(7) retirement. Each step landed with its spec rule, docs section and
+`comptime_tests.rs` tests (6, 14, 17, 23 cumulative).
+
+**Choices made while building**, under the user's decisions:
+- Expansion errors in an in-place fn land at the written span: each copied
+  body records `(base, end, min)` remaps, and `finish` dedupes, so a missing
+  field is reported once and not once per copy.
+- A type test's names (`check_type_names`) must be declared non-comptime
+  types, `None`, generics in scope, pattern binders or `*`; a kind word gets
+  the "is a kind, not a type" hint.
+- Step 3 briefly made `[when field.type] { is Struct … }` a parse error
+  naming `.kind`; step 5 gave that position to the type dispatch, so the
+  kind word is now the expander's error instead.
+- `[when field.type]` requires an `else` (types are open; `[when
+  field.kind]` is the exhaustive dispatch). Agent call, flagged to the user —
+  who replaced it the same day: the walk's range is known, so an `else`-less
+  dispatch covers it (decision log, "An `else`-less type dispatch…").
+- A binder binds the matched part *as written* (qualifiers kept), while the
+  match itself erases qualifiers.
+
+**`by` at a call: the decisions it would need** (research, user mid-run
+instruction: do not build). The decided spelling (ROADMAP §2c) is `Mut
+Set(hash by auto, eq by auto)`, stamping a bounded comptime fn at the type the
+call binds. What it would replace is one line: `fn my_hash(p: P) -> Long by
+hash@auto`, then `hash = my_hash`. (`fn my_hash(…) by auto` does *not* work:
+`by auto` picks the comptime fn of the declared fn's own name.) Tuples do not
+need it: `core.compare` has had Salvo `hash`/`eq`/`cmp` for pairs and triples
+since 2026-10-06. The open decisions:
+1. **The identity a call-site stamp carries** (the user's concern: implicit
+   parameters bind *by name* into slots, [cmp-binder] [cmp-carry]). An
+   identity is `FnId::Named { name, at }`, and a binder is later called
+   through whatever that name resolves to in the reading module. Options:
+   `hash@auto` (nothing callable resolves under it), `hash@P` (wrong once `P`
+   gets its own), a new (comptime fn, type) identity printed `hash by auto`
+   (changes `FnId`, unification, display, erasure), or a mangled name. Open
+   sub-questions: is it the same type as `hash = my_hash` where `my_hash` is
+   itself stamped; one identity or two when two modules stamp the same (fn,
+   type), given a stamp resolves fields' `hash` with the stamping module's
+   visibility; and how a receiving module calls through it (re-stamp, a
+   program-wide synthetic module, a declaration key in the identity, or
+   refuse such types across module boundaries). Prerequisite: the existing
+   cross-module aliasing defect (fixed 2026-10-20, [cmp-carry]).
+2. **Where the stamp lives**: the calling module, the target's (impossible
+   for `core` types, against [fn-attached]), or a synthetic module. It must
+   not join the caller's overload set (it would become the default `?hash` and
+   collide with a hand-written one), which means a hidden `FnDecl` against
+   [comptime-instantiate]. Also: redundancy with an existing `hash@P`, and
+   key eligibility at an annotation.
+3. **When it is stamped**: expansion runs before resolution and knows no
+   call-site types. Checker-driven demands plus another round (touches
+   `check_program_rounds`, `StdCache`, the LSP, termination); or require a
+   written type argument and stamp during expansion; or desugar that to a
+   hoisted hidden `fn … by hash@auto` (cheapest; decision 1 still open).
+4. **Generic and non-struct targets**: `<T is Tuple>` templates or refusal;
+   `W<Int>` stamped concretely or generically, the latter blocked by the
+   generic `by auto` slot defect (fixed 2026-10-20). `generic_needs` knows only the
+   cmp/eq/hash/to_str groups.
+5. **[implicit-with] pairing**: is a stamp a new source? If it counts as
+   written, `hash by auto, eq = all_same` passes, which `with` exists to
+   refuse. Options: one `by` per `with` component, or a group spelling
+   (`Hashed by auto`).
+6. **Typed overrides and same-name implicits**: `name [: Type] (= value | by
+   X)`; a bare `hash by auto` is ambiguous where a callee has two `hash`
+   implicits, so it depends on the (decided, unbuilt) typed override; and
+   whether it flows down a chain (`Set<List<P>>(hash by auto)`).
+7. **Diagnostics and printing**: the printed type, near-miss messages, and
+   errors inside the stamp reported at the call with a note at the field.
+8. **Tooling and emission**: LSP hover/go-to on `auto`, one hidden stamp per
+   (fn, type, module) with stable mangling, the IR dump. Identities are
+   erased from emitted types, so no runtime representation is involved.
+
+## Test inventory (all green: 1939 under `cargo test` on 2026-10-20, in a copy without the untracked `std/args/parse.sv`; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -26016,7 +26707,27 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo nextest run` for a run that takes nothing from the
 cache, with per-test timings.
 
-- `salvo-core`: 778 - a host-tool unit test (`src/manifest.rs` [host-tool]:
+- `salvo-core`: 808 - 4 identity and key-bar tests (`tests/carry_tests.rs`
+  [cmp-carry] [col-key-eligible]: two modules' same-named identities refused
+  under one binder and printed with their modules, an identity resolved in
+  its declaring module from a file importing the other or neither, a written
+  identity making any struct a key, and an intrinsically ineligible key
+  refused once) + a generic-stamp fill test (`tests/compare_tests.rs`
+  [comptime-generic]) + 25 comptime tests (`tests/comptime_tests.rs`
+  [comptime-bound] [comptime-root-visible] [comptime-logic] [comptime-name]
+  [comptime-kind] [comptime-generic-fn] [comptime-pattern]: an
+  expanded-in-place fn called from ordinary code and checked per copy, a
+  condition error and a `refuse!` reported once where written, a root that
+  must be visible and means the imported declaration, ordinary precedence
+  with a short-circuited leaf still checked, field and arm names tested
+  against literal unions with exhaustive `[when]`s, a user type named like a
+  kind read as a type and the old kind spellings naming the new ones, a
+  generic fn walking an instance, the bare generic root refused and field
+  types substituted, and the patterns: wildcard, a binder binding its part,
+  nothing bound under `||`/`!`, fresh and used binder names, unions arm by
+  arm, the `[when field.type]` dispatch, and its `else`-less form covering
+  a struct's fields and a union's arms, and a stamped fn's subject `[when]`
+  refused at the template) + a host-tool unit test (`src/manifest.rs` [host-tool]:
   tool paths and PATH names, the defaults, the Gradle build listing each
   artifact) + a platform-root unit test (`src/source.rs`
   [platform-root]: files attributed by their root, a shared and a split root,
@@ -26715,7 +27426,9 @@ cache, with per-test timings.
   the implementation and the entry's module (chosen with `--main`) gets the
   `main`, each mirroring its own source path, with the cross-module
   reference qualified as `crate::platform_telemetry::TelemetryHost`.
-- `salvo-syntax`: 103 (four [test-decl] tests — the declaration with its
+- `salvo-syntax`: 105 (a qualified type-fn call taking any type argument
+  [fn-type-named]; a subject comptime `[when]` refusing an `else`
+  [when-exhaustive]; four [test-decl] tests — the declaration with its
   string name, an interpolated name refused, `export test` refused, and `test`
   still an ordinary identifier; one std snapshot for `core.compare` [cmp-groups] — three
   `params` groups beside the `intrinsic fn` overloads that implement them for
@@ -27000,7 +27713,9 @@ cache, with per-test timings.
   the resolved `next` passed as `::next` at a pass subject, the origin mint and
   its advance adapter, and that nothing *declares* `Yield`; plus the kotlinc run
   of the seven-subject demo).
-- `salvo-backend-rust`: 234 - including the three [rs-read-mode] tests (an
+- `salvo-backend-rust`: 237 - including the 2026-10-20 trio (a generic
+  `T?` codec, a generic `by auto` key with a tuple set beside it, and two
+  modules' same-named identities), each mirrored by a Kotlin case; and the three [rs-read-mode] tests (an
   owned optional local read through a borrow; an intrinsic argument taking the
   intrinsic's own mode, with the `Mut` one reaching the payload through
   `as_mut()`; and a narrowed read borrowing unless the position owns, over a
@@ -27259,6 +27974,78 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A comptime body's locals are renamed, not scoped** (2026-10-20): there is
+  no block statement in the AST, so a `[for]` copy and a kept `[if]`/`[when]`
+  body become a scope by renaming what they declare (`k__c3`, `rename_locals`).
+  Anything that compares local names across that boundary must look through
+  the suffix — the shadow check does (`scoped_outer`), diagnostics are
+  unmangled at the end of checking, completion records `written_local`. A new
+  name-based check on locals (a lint, an LSP feature) needs the same.
+
+- **The language server sees a comptime fn after expansion** (2026-10-20):
+  `analysis.program` holds the expanded bodies (or an `unreachable!()`
+  fallback), so a `[for …]` / `[when …]` is not in the AST any LSP feature
+  walks. Anything about a comptime construct has to come from the expansion's
+  own records (`CompHover`, `CompWhenArms`) with the written spans in them.
+
+- **A callee's signature is lowered in the caller's scope** (2026-10-20):
+  `fn_return_ty`/`fn_value_ty` lower another file's written types at every
+  call. Type *names* survive that through `type_ref_files`/`scope_of`, but
+  anything else resolved by name inside a written type (a fn identity in a
+  slot) must swap to the writing file's scope itself, or it silently means the
+  caller's declaration of the name. `written_fn_id` and `handler_dep_effects`
+  do; check any new by-name lookup reached from `lower_type`.
+- **Changing `crates/salvo-backend-kotlin/runtime/wire.kt` touches ~35 files**
+  (2026-10-20): the five Kotlin golden snapshots, every
+  `examples/*/kotlin/wire.kt` (identical copies — `cp` them), and the
+  `salvo/wire.sv.kt` host files of `std/platform` and `modules/aws/salvo/platform`
+  (`salvo platform generate --backend '*'` in each root rewrites these GENERATED
+  files). It also misses every Kotlin stamp, so the next full run is ~8 minutes.
+
+- **A `MutVisitor` substitution walks into its own replacement** (2026-10-20,
+  [comptime-generic-fn]): substituting `T` → `List<T>` with a `visit_type`
+  override revisits the new `List<T>` and loops on its `T`. `subst_generics`
+  in comptime.rs is therefore hand-written recursion that does not descend
+  into what it just produced.
+- **The comptime expander's `finish` returns warnings as well as errors**
+  (2026-10-20): callers must keep the two apart. An in-place fn passes the
+  warnings (an unused pattern binder) on to diagnostics; a stamp drops the
+  template's warnings, or every `by` site would repeat them.
+- **A git worktree under `tmp/` can vanish between agent tool calls**
+  (2026-10-20): to test the tree without an untracked file (the user's
+  in-progress `std/args/parse.sv`), use an `rsync` copy into `tmp/` with its
+  own `--target-dir`, not `git worktree add`. Give that target dir as an
+  **absolute** path: a relative `CARGO_TARGET_DIR=../x` puts `..` into the
+  test scratch paths, and seven LSP/platform tests then fail comparing URIs
+  and paths (2026-10-20). `cp -cR target/tmp/salvo-e2e-cache` into the copy's
+  target keeps the toolchain stamps warm.
+- **An untracked `.sv` file in `std/` is part of every std build**
+  (2026-10-20): `std/` is embedded whole, so a work-in-progress std module
+  that trips a backend bug (here the Kotlin `T?` codec, fixed 2026-10-20) fails
+  every Kotlin test that builds std. Check `git status std/` before reading
+  a mass Kotlin failure as a regression.
+
+- **A type-named fn has no snake_case call-site fallback** (2026-10-19,
+  [fn-type-named]): once a declaration becomes `fn Mut Str(...)`, every
+  call site must spell it `Mut Str(...)` too — `mut_str(...)` is simply
+  unresolved ("a capitalized callee is a type-fn lookup... lowercase
+  callees are ordinary value-fns," no bridging between the two). A
+  half-finished rename (declaration changed, most call sites not) looks
+  like "no function named `mut_str` is in scope" at every remaining old
+  call site, not a partial success — grep every call site before
+  declaring a type-named-fn migration done.
+- **`salvo platform generate` never rewrites an existing `.sv.{kt,rs}`**
+  (2026-10-19, [cli-platform]/[platform-abi]): the command's own doc says
+  "existing files are never touched," which includes the ABI glue files
+  the build itself maintains, not just the hand-written skeleton stubs —
+  so a std/dependency source change that reaches the ABI (e.g. a renamed
+  fn) leaves the checked-in `.sv.kt`/`.sv.rs` stale with no in-place fix.
+  Regenerate into a scratch copy of the tree (`cp -r`, delete the
+  `.sv.{kt,rs}` files there, run `generate` in the copy) and diff/copy the
+  changed files back — exactly what
+  `the_checked_in_host_projects_are_current_and_compile` does to produce
+  its "fresh" tree.
 
 - **Move-marking must see through a `Rewrap`, but not `Present`/`MakeUnion`**
   (2026-10-14, [deduce-consume]): the IR builder's `consume_if_owned`
@@ -29794,7 +30581,7 @@ snapshot diffs.
   argument.
 - All handlers — external ones included — emit as Kotlin *classes* and are
   instantiated at their `use` site (user decision: `object` was an artifact
-  of StdOutConsole being stateless). Bare `use Handler` is sugar for
+  of StdConsole being stateless). Bare `use Handler` is sugar for
   `use Handler()`; external handlers support constructor params like any
   other handler.
 - `kotlin_ty(Ty)` (checker type → Kotlin) must agree with `emit_type`

@@ -258,7 +258,7 @@ fn key_text(item: Map<Str, AttributeValue>, name: Str) [] -> Str => item, !name 
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
 
     // 1. The generated recording fake: every call answered as an empty success
     //    where the output allows one, and noted by name.

@@ -130,7 +130,7 @@ pub fn handle__FreshRequest(request: &crate::Request) -> String {
 }
 
 pub fn main() {
-    let mut __use_1: crate::core_console::__Platform_StdOutConsole = crate::core_console::__Platform_StdOutConsole::new();
+    let mut __use_1: crate::core_console::__Platform_StdConsole = crate::core_console::__Platform_StdConsole::new();
     let __handle_2 = crate::core_console::Console::shared(__use_1);
     let mut xs: Vec<i32> = vec![];
     crate::core_list::add_platform::<i32>(&mut xs, 3i32);

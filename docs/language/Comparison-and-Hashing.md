@@ -219,7 +219,17 @@ let byage: Mut Set<Person>(age_hash, same_age) =
 
 An annotation that names a pair does not *choose* it — it has to agree with
 what the constructor resolved, because what fills the slot is what the
-container is actually keyed by.
+container is actually keyed by. A pair written this way also makes a struct
+with no `hash` of its own a key: the identity says where hashing comes from,
+so only a position that would look the pair up by name — a parameter written
+`Set<Person>`, a field — needs `Person`'s own.
+
+An identity names a **declaration**, not a spelling. Two modules that each
+declare a `by_age` key two different kinds of set, which a function taking
+both under one `?cmp` refuses, and a set always meets the `by_age` it was
+built with, wherever it travels — even a private one, in a file that imports
+neither. Where the name alone would not say which, a type prints it with its
+module: `Set<Person>(age_hash@people, same_age@people)`.
 
 A hash and an equality are only meaningful **together**: equal values must hash
 equally, and a container looks up by the hash first, so a custom equality beside
@@ -283,6 +293,7 @@ fn has<T>(s: Set<T>(?hash, ?eq), e: T) -> Bool => s, e {
 Written as a plain `Set<T>`, the parameter would ask for the `hash` of a bare
 `T`, which nothing can answer.
 
-One thing does not work yet, and says so: a keyed container over a **tuple or a
-list**, whose identities are the hosts' own and Salvo cannot name them yet — the
-same reason `(1, 2) == (1, 2)` does not resolve.
+A keyed container over a **tuple or a list** works the same way:
+`core.compare` declares `hash`, `eq` and `cmp` for them in Salvo, each taking
+its parts' own, so `Mut Set<(Int, Str)>()` is keyed by `(hash, eq)` like any
+other set.

@@ -18235,7 +18235,7 @@ Module {
                                 value: Call {
                                     callee: Ident(
                                         Ident {
-                                            name: "mut_str",
+                                            name: "Mut_Str",
                                             span: 27090..27097,
                                         },
                                     ),

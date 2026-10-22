@@ -75,7 +75,7 @@ fn classify(n: Int) -> Str {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole
+    use StdConsole
     println(classify(-5))
     println(classify(0))
     println(classify(7))
@@ -121,7 +121,7 @@ const ARGS_PROGRAM: &str = r#"
 import args
 
 fn main() [use] -> None {
-    use StdOutConsole()
+    use StdConsole()
     use HostArgs()
     let a = args()
     println("count: ${size(a)}")
@@ -216,7 +216,7 @@ fn build_runs_tests_first_and_a_failure_blocks_the_artifact() {
     let dir = work_dir("build_failing_test");
     fs::write(
         dir.join("main.sv"),
-        "fn two() -> Int { return 2 }\nfn main() [use] -> None { use StdOutConsole()\n println(\"${two()}\") }\n",
+        "fn two() -> Int { return 2 }\nfn main() [use] -> None { use StdConsole()\n println(\"${two()}\") }\n",
     )
     .unwrap();
     fs::write(dir.join("main.test.sv"), "test \"wrong\" { assert!(two() == 3) }\n").unwrap();
@@ -241,7 +241,7 @@ fn build_runs_tests_first_and_a_failure_blocks_the_artifact() {
 fn build_under_star_requires_an_explicit_out_per_backend() {
     let dir = work_dir("build_star_no_out");
     fs::create_dir_all(dir.join("salvo")).unwrap();
-    fs::write(dir.join("salvo").join("main.sv"), "fn main() [use] -> None { use StdOutConsole()\n println(\"x\") }\n").unwrap();
+    fs::write(dir.join("salvo").join("main.sv"), "fn main() [use] -> None { use StdConsole()\n println(\"x\") }\n").unwrap();
     fs::write(
         dir.join("salvo.toml"),
         "[project]\nname = \"s\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"salvo\"\nbackend = \"*\"\n",
@@ -348,7 +348,7 @@ fn main_flag_selects_among_several_entry_points() {
         fs::write(
             dir.join(file),
             format!(
-                "fn main() [use] -> None {{\n    use StdOutConsole\n    \
+                "fn main() [use] -> None {{\n    use StdConsole\n    \
                  println(\"{text}\")\n}}\n"
             ),
         )
@@ -395,7 +395,7 @@ fn the_programs_exit_code_is_the_commands() {
     let dir = work_dir("exit_code");
     fs::write(
         dir.join("main.sv"),
-        "fn main() [use] -> None {\n    use StdOutConsole\n    \
+        "fn main() [use] -> None {\n    use StdConsole\n    \
          let numbers = array_of(1, 2, 3)\n    let i = 10\n    \
          println(\"value ${numbers[i]}\")\n}\n",
     )
@@ -548,7 +548,7 @@ fn src_and_main_together_allow_a_nested_entry_point() {
     fs::write(
         bin.join("tool.sv"),
         "import helper.label\n\nfn main() [use] -> None {\n    \
-         use StdOutConsole\n    println(\"nested ${label(3)}\")\n}\n",
+         use StdConsole\n    println(\"nested ${label(3)}\")\n}\n",
     )
     .unwrap();
 
@@ -701,7 +701,7 @@ fn a_check_error_stops_the_run() {
     let dir = work_dir("check_error");
     fs::write(
         dir.join("main.sv"),
-        "fn main() [use] -> None {\n    use StdOutConsole\n    \
+        "fn main() [use] -> None {\n    use StdConsole\n    \
          let n: Int = \"not an int\"\n    println(\"${n}\")\n}\n",
     )
     .unwrap();
@@ -749,7 +749,7 @@ fn a_target_holding_sources_is_never_deleted() {
 /// runs, and the checker's *warning* has to reach the builder.
 const REDUNDANT_SELECTOR: &str = r#"
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let xs: Mut List<Int> = Mut List()
     // The selector changes nothing here, which is a warning — and a warning
     // must reach the builder without stopping it [fn-overload-at].
@@ -814,7 +814,7 @@ fn run_defaults_to_the_rust_backend() {
     let dir = work_dir("default_backend");
     fs::write(
         dir.join("main.sv"),
-        "fn main() [use] {\n    use StdOutConsole()\n    println(\"defaulted\")\n}\n",
+        "fn main() [use] {\n    use StdConsole()\n    println(\"defaulted\")\n}\n",
     )
     .unwrap();
     let out = salvo_in(&dir, &["run", "--src", "."]);
@@ -881,7 +881,7 @@ fn a_changed_protocol_needs_a_version_bump() {
         format!(
             "actor effect Counter {{\n    send fn bump(n: {member}) => !n\n}}\n\
              handler Counting() of Counter {{\n    mailbox {{ capacity: 4 }}\n    send fn bump(n: {member}) {{ }}\n}}\n\
-             fn main() [use] {{\n    use StdOutConsole()\n    println(\"ok\")\n}}\n"
+             fn main() [use] {{\n    use StdConsole()\n    println(\"ok\")\n}}\n"
         )
     };
     let manifest = |version: &str| {
@@ -948,13 +948,13 @@ fn a_dependency_is_loaded_from_the_modules_directory() {
         "// AWS services, modelled as actors.\n\n\
          export struct ProfileCredentials {\n    profile: Str = \"default\",\n    path: Str\n}\n\n\
          export actor effect Bucket {\n    send fn put(key: Str) => !key\n}\n\n\
-         fn main() [use] {\n    use StdOutConsole()\n    println(\"the dependency's own main\")\n}\n",
+         fn main() [use] {\n    use StdConsole()\n    println(\"the dependency's own main\")\n}\n",
     )
     .unwrap();
     fs::write(
         sources.join("main.sv"),
         "import aws.ProfileCredentials\n\n\
-         fn main() [use] {\n    use StdOutConsole()\n    \
+         fn main() [use] {\n    use StdConsole()\n    \
          let creds = ProfileCredentials {path: \"~/.aws/credentials\"}\n    \
          println(\"${creds.profile}: ${creds.path}\")\n}\n",
     )
@@ -1030,7 +1030,7 @@ fn effect_prerequisites_run_on_both_backends() {
         "import files.Files\nimport files.MemFiles\nimport streams.Counter\n\n\
          fn work(f: (Str) [Files] -> Str) [Files] -> Str {\n    return \"${f(\"a\")} ${next_id()}\"\n}\n\n\
          fn opener(p: Str) [Files] -> Str => p {\n    return open(p)\n}\n\n\
-         fn main() [use] {\n    use StdOutConsole()\n    use Counter()\n    use MemFiles()\n    println(opener(\"x\"))\n    println(work(opener))\n}\n",
+         fn main() [use] {\n    use StdConsole()\n    use Counter()\n    use MemFiles()\n    println(opener(\"x\"))\n    println(work(opener))\n}\n",
     )
     .unwrap();
     for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
@@ -1055,7 +1055,7 @@ fn a_stream_from_another_provider_traps() {
     let dir = work_dir("stream_provider");
     let program = |imports: &str, uses: &str| {
         format!(
-            "import stream\n{imports}\n\nfn main() [use] {{\n    use StdOutConsole()\n{uses}\
+            "import stream\n{imports}\n\nfn main() [use] {{\n    use StdConsole()\n{uses}\
              \n    let s = InStream {{ handle: 987654 }}\n    let line = read_line(s)\n    \
              println(\"read ${{line is None}}\")\n    let closed = close(s)\n    when closed {{\n        \
              is Ok {{ println(\"closed\") }}\n        is Err {{ ignore(closed) }}\n    }}\n}}\n"
@@ -1165,7 +1165,7 @@ fn run() [Fs, Console] {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     use HostRawStreams()
     use DefaultStreams()
     use HostRawFs()
@@ -1200,7 +1200,7 @@ fn a_type_namespace_runs_on_both_backends() {
     .unwrap();
     fs::write(
         dir.join("main.sv"),
-        "import sc.StorageClass\nimport sc.describe\n\nfn main() [use] {\n    use StdOutConsole()\n    \
+        "import sc.StorageClass\nimport sc.describe\n\nfn main() [use] {\n    use StdConsole()\n    \
          let one: StorageClass = StorageClass.Glacier {}\n    println(describe(one))\n    \
          println(describe(StorageClass.Standard {}))\n    println(describe(StorageClass.Unknown { value: \"DEEP\" }))\n}\n",
     )
@@ -1248,7 +1248,7 @@ fn a_dependency_brings_its_host_libraries_only_when_reached() {
          modules = \"salvo_modules\"\n\n[dependencies]\nlib = \"0.1.0\"\n",
     )
     .unwrap();
-    fs::write(dir.join("salvo/main.sv"), "import lib\n\nfn main() [use] {\n    use StdOutConsole()\n    \
+    fs::write(dir.join("salvo/main.sv"), "import lib\n\nfn main() [use] {\n    use StdConsole()\n    \
          use Plain()\n    println(greet())\n}\n").unwrap();
     let out = salvo_in(&dir, &["run"]);
     let stderr = String::from_utf8_lossy(&out.stderr);
@@ -1260,7 +1260,7 @@ fn a_dependency_brings_its_host_libraries_only_when_reached() {
     let out = salvo_in(&lib, &["platform", "generate", "--backend", "rust"]);
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     fs::write(dir.join("salvo/main.sv"), "import lib\nimport lib.host\n\nfn main() [use] {\n    \
-         use StdOutConsole()\n    use HostGreet()\n    println(greet())\n}\n").unwrap();
+         use StdConsole()\n    use HostGreet()\n    println(greet())\n}\n").unwrap();
     let out = salvo_in(&dir, &["compile", "--target", "out"]);
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     let cargo = fs::read_to_string(dir.join("out/Cargo.toml")).unwrap();
@@ -1349,7 +1349,7 @@ fn mixed(m: Mixed) [] -> Str => m {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     part_one()
     println(kind("KmsThrottled"))
     println(kind("QueueDoesNotExist"))
@@ -1424,7 +1424,7 @@ fn describe(r: Ok Int | Err Str) [] -> Str => r {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     use HostCounter(10)
     println(shout(make("hello")))
     println(shout(Greeting { text: "quiet", loud: false }))
@@ -1589,7 +1589,7 @@ handler Counting() of Counter {
 }
 
 fn main() [use, spawn] {
-    use StdOutConsole()
+    use StdConsole()
     use Fixed(42L)
     let mine = Token { label: "mine" }
     println(mine.label)
@@ -1729,7 +1729,7 @@ fn use_it<T>(h: H<T>, v: T) [] -> Bool => h, v {
 }
 
 fn main() [use, spawn] {
-    use StdOutConsole()
+    use StdConsole()
     let m: Mut Map<Int, Node> = Mut Map()
     put(m, 1, Node { id: 1, label: "ab" })
     println("1: ${rebind(m, 1)}")
@@ -1783,7 +1783,7 @@ fn an_interpolation_reads_before_a_later_part_mutates() {
     let dir = work_dir("interp_sequence");
     fs::write(
         dir.join("main.sv"),
-        "fn main() [use] {\n    use StdOutConsole()\n    let d = Mut List(1, 2, 3)\n    let i = 1\n    \
+        "fn main() [use] {\n    use StdConsole()\n    let d = Mut List(1, 2, 3)\n    let i = 1\n    \
          if i is Idx(d) {\n        println(\"${get(d, i)} ${replace(d, i, 0)}\")\n    }\n    println(\"${d}\")\n}\n",
     )
     .unwrap();
@@ -1809,7 +1809,7 @@ fn a_struct_holding_itself_copies_on_both_backends() {
         dir.join("main.sv"),
         "struct Node canbe Mut {\n    label: Str\n    kids: List<Mut Node>\n}\n\n\
          fn relabel(n: Mut Node) [] -> None {\n    n.label = \"changed\"\n}\n\n\
-         fn main() [use] {\n    use StdOutConsole()\n    \
+         fn main() [use] {\n    use StdConsole()\n    \
          let kid: Mut Node = Mut Node { label: \"kid\", kids: List<Mut Node>() }\n    \
          let root: Mut Node = Mut Node { label: \"root\", kids: List(kid) }\n    \
          let twin = copy(root)\n    relabel(root)\n    \
@@ -1840,7 +1840,7 @@ fn a_generic_union_with_a_scalar_arm_prints_on_both_backends() {
         dir.join("main.sv"),
         "struct Box<A> : ToStr<self> by auto {\n    v: A\n}\n\n\
          type Either<A> = Box<A> | Int : ToStr<self> by auto\n\n\
-         fn main() [use] {\n    use StdOutConsole()\n    \
+         fn main() [use] {\n    use StdConsole()\n    \
          let e: Either<Str> = Box { v: \"x\" }\n    let f: Either<Str> = 7\n    \
          println(\"${e} ${f}\")\n}\n",
     )
@@ -1874,7 +1874,7 @@ fn count(xs: List<Int>) [Console] -> None {\n\
 \x20   println(\"running ${total}\")\n\
 }\n\
 fn main() [use] {\n\
-\x20   use StdOutConsole()\n\
+\x20   use StdConsole()\n\
 \x20   label(\"here\")\n\
 \x20   label(None)\n\
 \x20   count(List(1, 2, 3))\n\
@@ -1904,4 +1904,60 @@ fn run_compiles_and_runs_terminal_scopes_on_each_backend() {
         );
     }
     __stamp.verified();
+}
+
+/// [console] `Console`'s three streams on both backends: `printerr` writes
+/// stderr, and `readln` answers each line without its terminator (a `\r\n`
+/// included) and `None` at the end of the input — with the prompt printed
+/// before it already flushed.
+const CONSOLE_STREAMS: &str = r#"
+fn main() [use] -> None {
+    use StdConsole()
+    print("name? ")
+    let name = readln()
+    if name is None {
+        printerr("no input\n")
+        return
+    }
+    println("hello ${name}")
+    let second = readln()
+    printerr("second: ${second ?: "<eof>"}\n")
+}
+"#;
+
+#[test]
+fn console_reads_lines_and_writes_stderr_on_each_backend() {
+    let Some(stamp) = e2e_stamp("console_streams", &["kotlinc", "rustc"]) else {
+        return;
+    };
+    for (backend, tool) in [("kotlin", "kotlinc"), ("rust", "rustc")] {
+        if !have(tool) {
+            eprintln!("skipping {backend}: {tool} not found on PATH");
+            continue;
+        }
+        let dir = work_dir(&format!("console_streams_{backend}"));
+        fs::write(dir.join("main.sv"), CONSOLE_STREAMS).unwrap();
+        for (input, stdout, stderr) in [
+            ("Ada\r\n", "name? hello Ada\n", "second: <eof>\n"),
+            ("", "name? ", "no input\n"),
+        ] {
+            let mut child = Command::new(env!("CARGO_BIN_EXE_salvo"))
+                .env("SALVO_CACHE_DIR", concat!(env!("CARGO_TARGET_TMPDIR"), "/salvo-cache"))
+                .current_dir(&dir)
+                .args(["run", "--backend", backend, "--src", "."])
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
+                .expect("failed to run salvo");
+            use std::io::Write as _;
+            child.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
+            let out = child.wait_with_output().unwrap();
+            let err = String::from_utf8_lossy(&out.stderr);
+            assert!(out.status.success(), "{backend} failed, stderr: {err}");
+            assert_eq!(String::from_utf8_lossy(&out.stdout), stdout, "{backend} stdout (stderr: {err})");
+            assert!(err.ends_with(stderr), "{backend} stderr: {err}");
+        }
+    }
+    stamp.verified();
 }

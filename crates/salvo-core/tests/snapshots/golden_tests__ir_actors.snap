@@ -116,7 +116,7 @@ fn main::report_line(moved counter: eff[Counter], moved label: Str, moved out: R
 }
 
 fn main::main() -> None {
-  bind#1 let __use~1: StdOutConsole = construct StdOutConsole { }
+  bind#1 let __use~1: StdConsole = construct StdConsole { }
   bind#2 let __handle~2: Console = read __use~1
   bind#3 let workers: Pool = call core.actor::pool(Int)(2)
   bind#4 let counter: eff[Counter] = spawn[eff[Counter]](construct Counting { }, on: read workers) serves [Counter]

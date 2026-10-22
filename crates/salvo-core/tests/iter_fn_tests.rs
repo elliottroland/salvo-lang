@@ -46,7 +46,7 @@ const STD_PRELUDE: &str =
      export params Yield<It, T> {\n    fn next(it: Mut It) -> Emitted T | Finished => it: Mut\n}\n\
      export params Iter<C, T> => iter with next {\n    fn iter(collection: C) -> iter T\n    fn next(iterator: iter T) -> Emitted T | Finished => iterator: Mut\n}\n\
      export effect Console {\n    fn print(message: Str) -> None => !message\n}\n\
-     export handler StdOutConsole of Console {\n    fn print(message: Str) -> None => !message {}\n}\n\
+     export handler StdConsole of Console {\n    fn print(message: Str) -> None => !message {}\n}\n\
      export fn println(message: Str) [Console] -> None => !message {}\n";
 
 /// Every diagnostic — parse, resolve and check — because an `iter fn`'s own

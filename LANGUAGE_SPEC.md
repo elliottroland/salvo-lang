@@ -1024,6 +1024,27 @@ Conventions:
     collapse differently in `SortedSet<Person>(cmp@Person)` and
     `SortedSet<Person>(by_age)`, and neither is the other
     [cmp-carry].
+* [col-key-eligible] **What may be a key** — a `Set` element, a `Map` key, and
+  the orderable counterparts for the sorted containers [col-sorted] — is two
+  bars (stated 2026-10-20; the label was cited from code and tests with no rule
+  behind it):
+  * **The intrinsic bar**, which no identity can lift: a `Double`/`Float`, a
+    function value, a union, and std's opaque types without their own pair
+    (`Bytes`, one mutable object on Kotlin [kt-bytes]); a `List`, a tuple or a
+    nested container is held to it element by element. Checked wherever a
+    keyed type is written or a call builds one (`Set(1.5)` is "`Double`
+    cannot be a key", once — the check runs before the constructor resolves
+    its `hash`/`eq`, and silences the miss that would follow).
+  * **The canonical bar**: a struct key has its *own* `hash`/`eq` (or `cmp`),
+    which is what a slot resolved by name finds [cmp-carry]. Applied only
+    where the identity *will* be resolved by name — a written `Set<P>` with no
+    identity and outside a `let` pattern: a parameter, a return, a field. A
+    written identity (`Set<P>(my_hash, my_eq)`), a binder (`Set<P>(?hash,
+    ?eq)`) or a `let` annotation, whose unwritten slots the initializer fills,
+    says where the identity comes from, so a struct with none of its own is a
+    key there (fixed 2026-10-20: the annotation of a set built with `hash =
+    my_hash` was refused while the call building it was accepted). The
+    refusal names `: Hashed<self> by auto` [obligation-by].
 * [col-keyed-slots] The four keyed containers declare their slots:
   `SortedSet<T>(?cmp: (T, T) -> Int)`,
   `SortedMap<K, V>(?cmp: (K, K) -> Int)`,
@@ -1049,15 +1070,13 @@ Conventions:
     so nothing is materialized for it: `Set<Str>` is exactly the type it has
     always been and only a container that says something *different* about its
     keys grows an argument to say it in.
-  * **One limitation, accepted deliberately** (user, 2026-09-26), refused with a
-    Salvo diagnostic rather than a target-compiler one: a **tuple or a list**
-    cannot be a keyed container's subject, because `core.compare` declares
-    identities for the intrinsic scalars only and [implicit-resolve] skips a
-    candidate that itself needs implicits. This is the same gap that stops
-    `(1, 2) == (1, 2)` from resolving, and it did not show before because a
-    keyed container over a tuple reached the host's structural comparison
-    without asking anyone. ROADMAP's "Recursive implicit resolution" is the
-    lift.
+  * **A tuple or a list is a key** since recursive implicit resolution
+    (2026-10-06) [implicit-recursive]: `core.compare` declares `hash`/`eq`/`cmp`
+    in Salvo for `List<T>` and for pairs and triples, each taking its parts'
+    own by implicit, so `Mut Set<(Int, Str)>` carries `(hash, eq)` like any
+    other key. (Until then this was a deliberate, diagnosed limitation of
+    2026-09-26; the text stating it outlived the lift and was corrected
+    2026-10-20.)
   * **The identity is passed per call, never stored** (user decision
     2026-10-06, ROADMAP §0j step 7): every operation receives the `hash`/`eq`
     or `cmp` its call resolved — at a concrete type the canonical or written
@@ -1087,7 +1106,7 @@ Conventions:
   unified against its value's type, in field order, so a later field may widen
   an earlier binding exactly as a later argument does.
 * [union-spread] **A `...T` spread arm binds a type parameter to a *span* of
-  union arms** (user decision 2026-10-14, superseding the implicit
+  union arms** (user decision 2026-10-20, superseding the implicit
   2026-10-12 grouping). In a union parameter or return type, an arm written
   `...T` (`T` a generic in scope) captures **one or more** of the argument
   union's arms; every other arm — concrete, or a *bare* generic — captures
@@ -1249,9 +1268,9 @@ Conventions:
     `Mut Set<Str>()`, `Map<Str, Int>()` — the no-argument constructor at
     the element type the annotation or position gives it. There is no
     empty-brace `{}` collection. Explicit type arguments on the call are
-    bare identifiers only (`List<Int>()`); a nullable, nested or `proj`
-    element type is supplied through the `let`/parameter annotation with a
-    bare `List()` / `Mut List()` [fn-type-named].
+    any type — `Mut Set<(Int, Str)>()`, `Mut List<Int?>()` (2026-10-20: a
+    qualified call read them as generic *parameters*, so only a bare
+    identifier parsed) [fn-type-named].
   * **Identity carries through named implicits**: a custom hash/eq/cmp is
     passed as `Mut Set("x", hash = my_hash, eq = my_eq)` (or `cmp = …` for
     the sorted containers), the implicit group members by name
@@ -1436,11 +1455,14 @@ Conventions:
     values really being immutable [copy-fn]). Arrays remain
     index-assignable without `Mut` (status quo; `copy` performs a real
     array copy).
-* [field-canbe-mut] **`name: canbe Mut T` on a struct field**: the field is
+* [field-canbe-mut] **`name: T canbe Mut` on a struct field**: the field is
   `Mut T` exactly when the struct value is `Mut`, and `T` otherwise, so a
   plain struct is immutable all the way down (user decision 2026-10-05,
   ROADMAP §0j step 6b; built 2026-10-05). A field written `Mut T` stays
   mutable inside a plain struct, as before.
+  * Spelled after the type, as a declaration writes `canbe Mut` after its
+    name (user decision 2026-10-20; was `name: canbe Mut T`). The prefix
+    spelling is a plain parse error.
   * One reading for every place a declared field type is used
     (`struct_field_ty` in the checker): a read `s.f`, a literal's expected
     field types (and their type-argument inference), destructuring.
@@ -2348,6 +2370,18 @@ Conventions:
     body; no `else` can follow (nothing follows a terminal scope).
   * **`try ...` / `waitfor out ...`** make the rest of the block the
     throw-delimited body / the async continuation.
+  * **`[for …] ...` / `[if …] ...`** in a comptime fn (user request
+    2026-10-20) [comptime-inline]: the rest of the block is unrolled once per
+    field, or kept when the condition holds — with an optional inline braced
+    `else { … }` on the `[if]`, as on `if`, and no `else ...`. Sugar only:
+    `[if c] ... R` is `[if c] { R }`; the body is a scope [comptime-scope], and
+    the rest of the block holds every use of what it declares. A `return` in
+    a terminal `[for]` rest is stamped once per field, and every copy after
+    the first is unreachable — the runtime loop's gotcha, a warning as it is
+    with braces.
+  * **Not `when`, nor `[when …]`**: a `when` has several arm bodies and the
+    rest of the block is one, so neither form takes a `...` (what follows a
+    `[when]` already runs after whichever arm was taken).
   * It is purely syntactic: a terminal body is the same `Block` a braced body
     is, so the checker, narrowing and both emitters treat it identically.
 * [terminal-lambda] **A call's last argument may be a lambda with a terminal
@@ -3351,7 +3385,8 @@ Conventions:
   * Parameters are contravariant and the result covariant, as for any fn
     value [fn-contract] — and the **contract** has to fit too: a fn that
     consumes an argument cannot fill a position that keeps it. A candidate
-    that itself needs implicits is skipped.
+    that itself needs implicits fits when they can be filled in turn
+    [implicit-recursive].
   * **A near-miss is reported as one.** The contract is not part of how a
     type *prints*, so two types that differ only there render identically;
     a diagnostic that showed them would read "expects `(Int, Int) -> Int`,
@@ -3893,7 +3928,7 @@ Conventions:
     the expression's types, which the backends' intrinsic lowerings rely
     on [backend-intrinsic].)
 * [state-infer] **A handler's state lives in a `state { … }` block**, the
-  same shape an `iter fn` uses (user decision 2026-10-14, replacing the free
+  same shape an `iter fn` uses (user decision 2026-10-20, replacing the free
   field declarations that used to sit directly in the handler body — a bare
   field in the body is now an error naming the block). Each field is written
   one of two ways:
@@ -4181,7 +4216,7 @@ Conventions:
 * [effect-alias] **An effect-group alias: `effects IO = [Console, Fs, Streams]`**
   is shorthand for its member list anywhere an effect list appears — a fn's
   effects, a fn *type*'s, a handler's dependency list, an effect's
-  prerequisites (user decision 2026-10-14). `fn f() [IO, Throw<Str>]` means
+  prerequisites (user decision 2026-10-20). `fn f() [IO, Throw<Str>]` means
   `[Console, Fs, Streams, Throw<Str>]`. The spelling is the plural keyword
   `effects` (contextual, like `namespace` — recognised only at item position
   before a capitalised name) and a bracketed effect list.
@@ -4657,7 +4692,10 @@ Conventions:
       [implicit-recursive]: a candidate with implicits of its own (a spread
       group included) fits a position when its explicit parameters do and its
       implicits can be filled, so the hash of a `Wrapper<Str>` is a stamped
-      `hash` closed over the `Str` one.
+      `hash` closed over the `Str` one. (The spread case only since
+      2026-10-20: a group's members were counted as explicit parameters in
+      the fit, so a `Mut Set<W<Int>>` over a `by auto` generic `W` found no
+      `hash`, and the unfilled `(?hash, ?eq)` showed in its type.)
     * Not yet: a generic union whose arm is a generic struct
       (`type Either<A> = Box<A> | Int`), whose stamped body calls `to_str`
       with a `Box<A>` that both the union's and `Box`'s overloads fit, which
@@ -4689,21 +4727,57 @@ Conventions:
 * [comptime-bound] **`comptime fn` is a compile-time function** (user decision
   2026-09-29: one modifier, `comptime`, for the whole facility — `comptime fn`,
   `comptime struct`, `comptime type` — replacing the standalone `compfn` of the
-  day before): the one scope the comptime syntax is legal in, and **not
-  callable** — a generic one exists only to be instantiated by `by`, and the
-  expansion removes it before resolution (COMPLETED.md's comptime entry,
-  decision 2). Its type parameter carries a **kind bound spelled as the
-  narrowing it is**, `comptime fn cmp<T is Struct>(a: T, b: T) -> Int` or `<T
-  is Union>` — the same `is` a `[when field.type]` arm tests, against an arm of
-  `core.comptime`'s `Type` — at most one, and a module's same-named comptime
-  fns of different kinds are the overloads a `by` picks between by the
-  target's kind. A `comptime fn` **with no bound** is concrete — its own single
-  instantiation — and is declared where a fn is (in a struct body or at top
-  level), which is the one-field-by-hand case (comptime round 2). Like an
-  `intrinsic fn` it writes its effect list, deductions and return type; an
-  instantiation reached by implicit resolution must be effect-free
-  [implicit-fn-only]. `core.auto` holds `cmp`, `eq`, `hash` and `to_str` for
-  structs and unions; a user module may hold its own, reached by `by mymodule`.
+  day before): the one scope the comptime syntax is legal in. It comes in two
+  forms (terminology fixed 2026-10-20, replacing "concrete"):
+  * **Stamped** — its type parameter carries a **kind bound spelled as the
+    narrowing it is**, `comptime fn cmp<T is Struct>(a: T, b: T) -> Int` or `<T
+    is Union>`, against an arm of `core.comptime`'s `Kind` — at most one, and a
+    module's same-named comptime fns of different kinds are the overloads a
+    `by` picks between by the target's kind. A stamped fn is **not callable**:
+    it exists only to be instantiated by `by`, and the expansion removes it
+    before resolution (COMPLETED.md's comptime entry, decision 2).
+  * **Expanded in place** — no kind bound. It is expanded **once, where it is
+    declared** (in a struct body or at top level), and is then an **ordinary
+    fn**: callable from ordinary code, resolved, checked and emitted like a
+    hand-written one (user decision 2026-10-20; it had worked by construction
+    since comptime round 2, undecided and untested). It may declare ordinary
+    type parameters and stays generic [comptime-generic-fn]. Its roots name their
+    types directly (`Reading.fields`). This is the form for **exhaustivity over
+    a struct's fields** in ordinary code — the guarantee a hand-written body
+    cannot give, since a field added later is walked by every expansion (user,
+    2026-10-20: "if you want to guarantee exhaustivity over struct fields, then
+    comptime is the solution"). It began as the one-field-by-hand case of an
+    obligation (comptime round 2).
+  * Like an `intrinsic fn` either form writes its effect list, deductions and
+    return type; an instantiation reached by implicit resolution must be
+    effect-free [implicit-fn-only]. `core.auto` holds `cmp`, `eq`, `hash` and
+    `to_str` for structs and unions; a user module may hold its own, reached by
+    `by mymodule`.
+* [comptime-generic-fn] **An expanded-in-place comptime fn may be generic**
+  (user decision 2026-10-20): `comptime fn describe<T>(arg: Arg<T>, ?to_str:
+  (x: T) -> Str) -> Str { [for field in Arg<T>.fields] { … } }`. Any `<…>`
+  that is not a kind bound (`<T is Struct>`) is an ordinary generics list. The
+  fn is still expanded once, keeping its type parameters, so the result is an
+  ordinary generic fn checked under the usual rules: its `T` is opaque (kind
+  `Generic` inside a comptime test, nothing known about its values), and
+  interpolating a `T` needs the `?to_str` a hand-written generic fn would.
+  * **A generic struct is walked at an instance**: the root carries its type
+    arguments — `Arg<T>.fields` with the fn's own `T`, or a concrete
+    `Arg<Int>.fields` — and each field's type comes out with them substituted
+    (`default: T?` is `Int?` at `Arg<Int>`). A bare root on a generic struct
+    (`Arg.fields`) is an error naming the instantiated form; a wrong number of
+    arguments is an error too. A non-generic root takes none.
+  * `T` itself is not walked (no `T.fields`): a type parameter is opaque, and
+    walking whatever a caller binds is the stamped form's job [comptime-bound].
+* [comptime-root-visible] **A root is a type name written where it stands**
+  (user decision 2026-10-20): `Pt` in `[for field in Pt.fields]` or `Pt.name`
+  must be visible there — declared in the module or imported — like any type
+  name, and is an error naming the import otherwise. The expansion runs before
+  resolution and looks names up program-wide, so it records each root of an
+  expanded-in-place fn on the fn (`Stamp::roots`) and the checker requires it;
+  the same record is what go-to-definition follows. Of two same-named
+  declarations the expansion reads the file's own, then an imported one, then
+  `core`'s. Before the rule an unimported struct was walked silently.
 * [comptime-fields] **What a comptime fn may know about a type is a declared
   model, `core.comptime`** (user decision 2026-09-29, round 8): compile-time
   structs, readable and hoverable, never values —
@@ -4716,17 +4790,20 @@ Conventions:
   comptime struct Basic   { name: Str }      // declared `intrinsic type`
   comptime struct Generic { name: Str }      // a type parameter of the struct being stamped
   comptime type Opaque = Basic | Generic
-  comptime type Type   = Struct | Union | Tuple | FnType | Opaque
-  comptime struct Field { name: Str, type: Type, index: Int, first: Bool, last: Bool }
-  comptime struct Arm   { name: Str, type: Type, index: Int, first: Bool, last: Bool }
+  comptime type Kind   = Struct | Union | Tuple | FnType | Opaque
+  comptime struct Type  {}                   // a type itself; its description is `.kind`
+  comptime struct Field { name: Str, kind: Kind, type: Type, index: Int, first: Bool, last: Bool }
+  comptime struct Arm   { name: Str, kind: Kind, type: Type, index: Int, first: Bool, last: Bool }
   ```
 
   Inside a body the bound `T` is a `Struct` or `Union` by its bound, `T.fields`
   / `T.arms` the sequence a `[for …]` walks (arms in declaration order, `None`
   included [union-arm-identity]), `T.name` and `T.mutable` its projections; a
-  binder is a `Field` or `Arm` with its five projections; `field.type` is
-  usable **as a type** wherever one is written inside the body, and
-  `field.type.arms` reaches a union field's arms. A concrete comptime fn names
+  binder is a `Field` or `Arm` with its six projections; `field.type` is
+  usable **as a type** wherever one is written inside the body, `field.kind`
+  is its kind [comptime-kind], `field.name` a literal of the union of the
+  struct's field names [comptime-name], and `field.type.arms` reaches a union
+  field's arms. An expanded-in-place comptime fn names
   its type directly (`Reading.fields`). Nothing else is exposed — no attached
   functions, no qualifiers on the value, no defaults yet (`field.default` is
   recorded for the codec slice).
@@ -4738,7 +4815,7 @@ Conventions:
     `Field.type` can be declared.
   * **Hover** (2026-09-29): a comptime fn body is never checked as itself, so
     the expansion records each comptime name's type at its written span — `T
-    is Struct`, `field: Field`, `field.type: Type`, `T.fields: List<Field>` —
+    is Struct`, `field: Field`, `field.type`, `T.fields: List<Field>` —
     and the language server answers from that record before its usual tables.
 * [comptime-inline] **The comptime constructs are written in brackets** (user
   decision 2026-09-29, replacing the `inline` word): a bracket appears exactly
@@ -4750,18 +4827,32 @@ Conventions:
     checked with `field.type` concrete; locals a copy declares are renamed so
     two copies in one block do not redeclare [var-no-shadow].
   * `[if <cond>] { … } else { … }` — kept or dropped per instantiation; the
-    dropped branch is never checked. Conditions: `X is Struct` (an arm of
-    `Type`), `X is <Type>` (equality up to alias expansion, qualifiers erased),
-    `T.mutable`, `field.name == "literal"` (a name no field has is an error at
-    the declaration), `field.first`/`field.last`, `x.index == y.index` and its
-    orderings, and `!` of any.
-  * `[when field.type] { is Struct { … } is Union { … } is Tuple { … } is FnType
-    { … } is Opaque { … } }` — an ordinary `when` over `core.comptime`'s `Type`,
-    **exhaustive** over its arms unless an `else` closes it [when-exhaustive],
-    so that a kind added to the language is an error in every comptime fn that
-    did not consider it. `is Opaque` matches either of its arms, `Basic` and
+    dropped branch is never checked. Tests: `X.kind is Struct` (an arm of
+    `Kind` [comptime-kind]), `X is <Type>` (equality up to alias expansion,
+    qualifiers erased; every name in it must name a type), `T.mutable`,
+    `field.name == "literal"` / `field.name is "a" | "b"` [comptime-name],
+    `field.first`/`field.last`, `x.index == y.index` and its orderings — each
+    `is` also as `!is` — combined with `&&`, `||`, `!` and parentheses
+    [comptime-logic].
+  * `[when field.kind] { is Struct { … } is Union { … } is Tuple { … } is FnType
+    { … } is Opaque { … } }` — an ordinary `when` over `core.comptime`'s `Kind`,
+    **exhaustive** over its arms and, like every `when` with a subject, taking
+    no `else` [when-exhaustive], so that a kind added to the language is an
+    error in every comptime fn that did not consider it. `is Opaque` matches either of its arms, `Basic` and
     `Generic`, the way `is Person` matches both arms of `Surname Person |
-    Person`.
+    Person`. `[when T.kind]` and `[when field.type.kind]` are the same
+    dispatch over another subject.
+  * `[when field.name] { is "a" | "b" { … } is "c" { … } }` — a dispatch over
+    the binder's name [comptime-name], exhaustive over the struct's field
+    names (or the union's arm names).
+  * `[when field.type] { is <E> List<E> { … } is Str { … } is * { … } }` — a
+    dispatch over the type by pattern [comptime-pattern], first match taken,
+    exhaustive over the types the walk meets; `is *` is the catch-all arm.
+  * **None of these takes an `else`** (user decision 2026-10-20): a `[when]`
+    with a subject has an ordinary `when`'s rule [when-union-subject] — the
+    arms are the cases, and covering them is what is checked. An `else` is a
+    parse error naming what covers the rest (the missing names, `is Opaque`
+    for `Basic` and `Generic`, `is *` for types).
   * `[when value] { [arm] { … } }` — a dispatch over a **union value** (a field
     read `v.[field]`, or a parameter of the bound or written type): the one
     written arm is stamped once per declared arm with `value` narrowed to
@@ -4769,6 +4860,108 @@ Conventions:
   * Every form is legal only inside a `comptime fn`; elsewhere it is a parse
     error naming the scope. An interpolation inside a comptime fn body may read
     the comptime forms like the body around it.
+* [comptime-scope] **A comptime body is a scope**, as the ordinary body it
+  becomes is one (user request 2026-10-20 for `[if]`; a `[when]` arm, the
+  same splice, was made one with it): what a `[for]` copy, a kept
+  `[if]` branch (or its `else`) or a chosen `[when]` arm declares is not
+  visible after it, and may not shadow what is visible in it [var-no-shadow].
+  Before, a kept `[if]` or `[when]` body was spliced flat and its `let`s leaked
+  into the code after it, so `[if c] { let k = 1 }` followed by `return k`
+  compiled wherever `c` held.
+  * The expansion renames what the body declares apart (`k` becomes `k__c3`;
+    a `[for]` copy always did, so two copies do not redeclare). The checker
+    refuses a renamed local that would hide a visible one by the name it was
+    written as, names it so in every diagnostic, and offers it so to
+    completion.
+  * Assigning to a local declared outside the body is unaffected, and a
+    terminal `[if …] ...` renames the rest of the block, which holds every use
+    [terminal-scope].
+  * A name ending in `__c` and digits is the rename's, so an identifier
+    written that way reads as its prefix in diagnostics.
+* [comptime-logic] **Comptime conditions combine with `&&`, `||`, `!` and
+  parentheses** (user decision 2026-10-20), with the precedence the operators
+  have in ordinary expressions: `&&` binds tighter than `||`, `!` tightest.
+  **Every leaf is evaluated**, even one a short circuit would skip, so a
+  misspelled field name is reported wherever it stands. Before, `!` was the
+  only connective and `field.name == "a" || …` was a parse error.
+* [comptime-name] **`field.name` is a literal of the union of its struct's
+  field names** (user decision 2026-10-20) — `"sub_commands" | "groups" |
+  "bools"` for a struct with those fields; `arm.name` likewise over a union's
+  arm names. It is tested the way an ordinary literal union is narrowed
+  [type-literal]: `field.name is "a" | "b"`, `field.name !is "c"`, and `==` /
+  `!=` against one literal; and dispatched by `[when field.name] { is "a" |
+  "b" { … } … }`, which is **exhaustive** over the names, with no `else`
+  [when-exhaustive] — a field added to the struct is then an error
+  in every `[when field.name]` that did not consider it, which is the
+  exhaustivity guarantee comptime exists for [comptime-bound]. A literal the
+  union does not list, or one an earlier arm already covers, is an error.
+  * The expansion evaluates these itself, as it does every comptime
+    condition: the semantics are [type-literal]'s and [when-exhaustive]'s,
+    the machinery the expansion's own (it runs before the checker, and a
+    comptime fn body is never checked as itself).
+  * In an ordinary expression `field.name` is still the name as a `Str`
+    literal in each copy.
+  * **Refused in a stamped fn** over the bound parameter's fields (user
+    decision 2026-10-20): the names are known only where it is
+    stamped, so the declaration cannot check the dispatch [comptime-pattern].
+    `[if field.name is …]` still works there.
+* [comptime-kind] **A type and its kind are separate projections** (user
+  decision 2026-10-20): `field.kind` / `T.kind` is the kind — an arm of
+  `core.comptime`'s `Kind`, `Struct | Union | Tuple | FnType | Opaque` — and
+  `field.type` is the type itself. A kind is tested only on `.kind` (`[if
+  field.kind is Struct]`, `[when field.kind]`), where the word after `is` is
+  read only against the kinds; after a type, `is` compares types. So a program
+  type named `Union` or `Struct` is a type like any other: until the split,
+  `[if field.type is Union]` with a user `struct Union` read as the kind test
+  and silently matched nothing.
+  * A kind word written as a type that names no type is an error naming
+    `.kind` ("`Struct` is a kind, not a type …") — in an `[if]` and in a
+    `[when field.type]`, which is the type dispatch by pattern now
+    [comptime-pattern] — so the old spellings stop being the language with
+    the replacement named.
+  * The bound keeps its spelling, `<T is Struct>`: only a kind is legal there.
+  * `.kind` is a head-only projection: it is tested, never read as a value.
+* [comptime-pattern] **The type after a comptime `is` is a pattern** (user
+  decisions 2026-10-20): `field.type is List<*>`, `field.type is <E>
+  List<E>`, `[when field.type] { is <K, V> Map<K, V> { … } … is * { … } }`.
+  * **`*` is any type**, at any depth (`List<Arg<*>>`, `Pair<Int, *>`, `*?`)
+    — spelled `*` rather than `_`, which already names a nameless variable,
+    and in line with `eff[*]`. It is legal only in a comptime pattern.
+  * **Binders are declared before the pattern**, the way a fn declares its
+    type parameters before using them: `is <E> List<E>`. A binder binds the
+    part it stands at, **as written** (qualifiers kept), and stands for that
+    type in the then-branch of the `[if]` or the body of the `[when]` arm —
+    in any type position, and as the root of a further comptime test (`[if E
+    is Int]`, `[for f in E.fields]`). It is not in scope in the `else`.
+  * **What a test proves holds only where the test did** [flow-or-not]: under
+    `||` or `!` (including `!is`) a binder binds nothing, so declaring one
+    there is an error naming `*`; `&&` keeps what both sides bind.
+  * **A binder met twice constrains**: `<K> Pair<K, K>` matches only a pair
+    of one type. A binder may not reuse the name of a type, a type parameter
+    or an enclosing binder ([var-no-shadow]'s reason), and one no copy uses
+    is a warning naming `*`.
+  * **Matching** erases qualifiers (so a `List<Int> canbe Mut` field is a
+    `List<*>`) and expands an argument-less alias, as `is <Type>` always did;
+    a union matches **arm by arm, in order** (`Int | Str` is not `Str | Int`),
+    and `T?` is the union `T | None`. A pattern with neither `*` nor binders is
+    the plain type test it always was.
+  * **A `[when]` with a subject has an ordinary `when`'s rule**
+    [when-exhaustive] (user decisions 2026-10-20, replacing the day-old rule
+    that `[when field.type]` always needs an `else`): its arms cover the
+    subject's range, and it takes no `else` — `is *` is the catch-all arm.
+    Types are not a closed set, but a walk's range is — one struct's fields
+    or one union's arms — so every copy knows the type it meets, and one no
+    arm matches is an error naming the type ("no arm of this `[when f.type]`
+    matches `Int?`…"), checked where the fn is declared. Arms are tried in
+    order and the first match is taken.
+  * **Refused in a stamped fn** over the bound parameter's range: the fields
+    of `T` in `comptime fn cmp<T is Struct>` are known only where it is
+    stamped, so the declaration cannot check a `[when f.type]`
+    (or a `[when E]` on a pattern binder from one, or a `[when f.name]`
+    [comptime-name]) — "a `[when f.type]` cannot be checked here: … dispatch
+    on `[when f.kind]`, or test with `[if f.type is …]`". Reported once, at
+    the template; its `by` sites stay quiet. `[when f.kind]` ranges over
+    `Kind`, the same everywhere, so it stays [comptime-kind].
 * [comptime-access] **`v.[field]`** reads the field an enclosing `[for …]`
   is at (the binder in brackets), rewritten by the expansion to `v.name`;
   **`[field]: expr`** is the same entry in a struct literal, and `inline for
@@ -4781,11 +4974,32 @@ Conventions:
   of `assert!`/`unreachable!` [assert-fn] — a place that fails (user decision
   2026-09-29). Legal only inside a comptime fn. `core.auto`'s `hash` refuses a
   `canbe Mut` struct this way (`[if T.mutable]`), which is the rule `canbe
-  hashed` used to carry and the compiler used to check.
+  hashed` used to carry and the compiler used to check. In an
+  expanded-in-place fn there is no stamped type and no `by`: the refusal names
+  the fn ("`describe` refused: …") and lands at the `refuse!` itself.
+  * **Where expansion errors land** (2026-10-20): in an expanded-in-place fn
+    every construct is the author's own text, so a mistake in it (a field name
+    no field has, a binder that is not one) is reported **once, where it is
+    written** — the expansion undoes each unrolled copy's span remap to find
+    it, and drops the identical reports the other copies would make. In a
+    stamp the template is another file's text, so the `by` site stays where
+    it lands.
+  * **So do the checker's errors in its copies** (2026-10-20, a TODO in
+    std/args/parse.sv): a copy of an expanded-in-place fn that does not
+    type-check is reported on the failing code as written, through every
+    copy it was copied from (`StampRegion::written_from`), prefixed with
+    which copy it was in the code's own terms — "when `field` is `groups`
+    (`Map<Str, ArgGroup>`): no matching overload …" at
+    `print_help(args.[field])`, and "when `arm` is `Manual` and `field` is
+    `note` (`Str`): …" for nested walks (`StampRegion::written_label`). It
+    used to land on the field's declaration, prefixed like a stamp's ("in
+    `print_help` from `this declaration` for `ArgGroup.groups: …`"); a stamp's
+    still does [comptime-instantiate].
 * [comptime-instantiate] **Instantiation is concrete and happens at a `by`
   site only** — an obligation clause or a fn declaration (a third site, an
   implicit override `eq by auto` at a call, is decided and deferred; ROADMAP
-  §2c). One specialization per (comptime fn, type), pushed into the target's
+  §2c) — for a stamped fn; an expanded-in-place fn is its own one
+  instantiation [comptime-bound]. One specialization per (comptime fn, type), pushed into the target's
   module beside the type on both backends. The expansion runs over the whole
   source set before resolution (`salvo_core::comptime`), so a `by auto` in any
   file reads `core.auto` and the target's declaration.
@@ -4795,7 +5009,8 @@ Conventions:
     the fn records the regions; the checker redirects a diagnostic inside one
     to the field or arm the copy was for and prefixes it — "in `cmp` from
     `auto` for `Point.y: Double`: no matching overload for `cmp(Double,
-    Double)`" at the field declaration.
+    Double)`" at the field declaration. (An expanded-in-place fn's copies are
+    redirected to the written code instead [comptime-inline].)
   * A stamped fn is an ordinary `FnDecl` for everything downstream:
     resolution, the duplicate check, mangling, export, both emitters.
 * [cmp-carry] A structure that **holds** an ordering (or a hash, or an
@@ -4841,7 +5056,7 @@ Conventions:
     parameter list, and the types the binder is written in.
   * [struct-slot] **A struct's slots** (user decision 2026-10-05, ROADMAP §0j
     step 6a; built 2026-10-05): `struct Ranked<T>(?cmp: (T, T) -> Int) canbe
-    Mut { items: canbe Mut List<T> }`, in the generics or a `(…)` block after
+    Mut { items: List<T> canbe Mut }`, in the generics or a `(…)` block after
     them, as a type declaration writes them. The identity is in the type and
     nowhere else: no value stores it, so the backends render nothing for it
     (the type renderers drop identities), and every fn over the struct takes
@@ -4872,13 +5087,26 @@ Conventions:
       fails the ordinary subtype check, naming both. Without this the one way
       to write a local's type would be to name an intrinsic `cmp` in it, and
       annotating would silently throw the identity away.
-  * **A bare name is resolved where the type is used**, like any implicit
+  * **A bare name is resolved where the type is written**, like any implicit
     [implicit-resolve]: `Heap<Person>(min_by_age)` names "the `min_by_age` visible
-    here", and an *unwritten* slot is resolved by the slot's own name — which is
+    there", and an *unwritten* slot is resolved by the slot's own name — which is
     why no default needs writing and why one slot means the right `cmp` at every
     instantiation. A `@`-scoped canonical is the spelling that
     does not depend on the reader's imports [fn-attached], and it is what a
     resolved identity is published as when the declaration has one.
+  * **An identity is a declaration, not a spelling** (fixed 2026-10-20). A
+    written name is resolved in the file that **wrote** it — `a.sv`'s `-> Mut
+    Set<P>(my_hash, my_eq)` means `a`'s `my_hash` at every call of the fn, as a
+    written type name does [type-identity] — at the slot's fn type, so the
+    overload it names is the one a resolved fill would pick. The identity then
+    carries the declaring module: two modules' `my_hash` are two identities
+    that one binder cannot hold, and a binder filled from a value's identity
+    calls that declaration — found in its own module, whatever the reading file
+    imports, a private fn included — rather than the reading file's fn of the
+    name. Before, both compared equal by name and the reader's `my_hash` was
+    called: a silently wrong program. An identity prints as its name, and as
+    `name@module` (a valid written spelling, [fn-overload-at]) only when more
+    than one module of the program declares the name.
 * [cmp-binder] **The binder binds bare in the signature** (user decision
   2026-09-21, the ordering round's decision 11): all `?name` occurrences in one
   signature denote **one binding**. It is filled either way round:
@@ -5187,7 +5415,7 @@ Conventions:
 * [fs-v1-cuts] Not in v1, and each an error rather than a surprise: seek
   (a ranged `open_read_at` replaces it, so streams stay forward-only),
   recursive walk or delete, temp files, watching, permissions, symlink
-  creation, and stdin (Console's, not Fs's). `rename_path` is spelled with
+  creation, and stdin (Console's `readln` [console], not Fs's). `rename_path` is spelled with
   the suffix because `rename` is a keyword [fn-rename].
 
 ### Non-resumption: `throw` and `try`
@@ -8646,7 +8874,7 @@ between endpoints and delivers what arrives into the scheduler.
     the host class keeps its fields under the host contract, so the backends
     change nothing.
   * **A comptime fn instantiated outside the module sees kind `opaque`**
-    (`Basic`): `[when field.type]` takes the `Opaque` arm, so `by auto` and
+    (`Basic`): `[when field.kind]` takes the `Opaque` arm, so `by auto` and
     the codecs call the type's own `eq`/`encode` instead of walking fields,
     and `fn same(a: Bag, b: Bag) by auto` there is refused naming the
     module to stamp it in [fn-by].
@@ -9094,6 +9322,16 @@ between endpoints and delivers what arrives into the scheduler.
     a call argument, and a **value or struct-literal in return position**
     (`fn s(v: Str) -> AttributeValue { return .S { value: v } }`, user
     refinement 2026-10-17).
+  * **A `type` alias's own union-arm list is the one exception**: there is no
+    outer expected type there, only the declaration naming itself — so
+    `.Thing` resolves against the alias's **own enclosing namespace** instead
+    (user decision 2026-10-19): `namespace Arg { struct Int {} struct Str {}
+    type Type = .Int | .Str }` means `.Int` -> `Arg.Int`, a sibling of `Type`
+    itself, not an ancestor-prefix search. Only the alias's own namespace is
+    searched (not its ancestors, unlike the expected-type form above), since
+    an alias's own namespace is exact. Resolved wherever the alias's target is
+    expanded — at the declaration and at every use — so a program reading
+    `Arg.Type` sees `Arg.Int | Arg.Str`, never the unresolved `.Int | .Str`.
   * A **namespaced free fn** is called by its dotted path
     (`Outer.Inner.make(x)`): a `Field` chain of uppercase namespace segments
     ending in a lowercase fn name resolves to the flat key `Outer.Inner.make`,
@@ -9202,9 +9440,26 @@ replaced the working document TESTING.md).
   `runtime.random_double()`, two draws of the scheduler's Lehmer generator
   as one double in [0, 1). Seeded by OS entropy on first use, and by the test's
   seed in an actor test, so its draws repeat there [test-actor]. Not
-  cryptographic. `core.console`'s `StdOutConsole` is a `threadsafe platform
+  cryptographic. `core.console`'s `StdConsole` is a `threadsafe platform
   handler` with its host files in `std/platform/core/console.{rs,kt}`; std
   declares no `intrinsic handler` any more.
+* [console] **`Console` is the program's standard streams** (user request
+  2026-10-20): `print(message)` writes standard output and `printerr(message)`
+  standard error, neither adding a newline (`println` is the free fn adding
+  one); `readln() -> Str?` reads the next line of standard input without its
+  terminator (`\n` or `\r\n`), and `None` at the end of the input or on a
+  read error — the `Str | None` an `InStream`'s `read_line` answers too. It
+  flushes standard output first, so a prompt `print`ed without a newline is
+  on the screen while the program waits.
+  * The handler is **`StdConsole`** (renamed from `StdOutConsole` the same
+    day, since it is no longer only stdout): a `threadsafe platform handler`,
+    stdout and stderr unbuffered on Rust, `System.err` flushed per write on
+    the JVM, Kotlin's `readlnOrNull` for a line.
+  * There is no unbuffered `read` (of a chunk, or the rest of the input):
+    the user's question, left open (ROADMAP §9).
+  * `salvo test` runs a test with **standard input closed**, so a `readln` in
+    a test answers `None` at once rather than waiting for a person who is not
+    there [test-output].
 * [test-kind] **A test's kind decides what it runs on** (user decision
   2026-10-03, D11): `test "…"` is a plain test, on the threaded runtime;
   `test actor(ARGS) "…"` is an actor test, on the virtual runtime
@@ -9312,7 +9567,7 @@ replaced the working document TESTING.md).
     meant rather than accepting any.
   * The body is a **pure** fn value, so it cannot inherit an effect from the
     enclosing test: a body that needs one **registers it itself**
-    (`() -> { use StdOutConsole(); … }`), which is legal because a lambda inside
+    (`() -> { use StdConsole(); … }`), which is legal because a lambda inside
     a test inherits the test's own `use` permission [test-body]. Effect
     polymorphism would remove the ceremony and does not exist (ROADMAP.md).
   * These are ordinary functions that `throw` [test-fail], so a test *about*
@@ -9349,11 +9604,41 @@ replaced the working document TESTING.md).
   a program would `import` (`heap`, not the annex's `heap.test`) and the name
   without its quotes (user decision 2026-09-23). The report is one line per
   test — `ok` green with its milliseconds, `FAILED` red with the failure
-  indented under it — then a blank line and a count. Output from the code under
-  test is passed through, never swallowed. Under `backend = "*"` the suite runs
-  once per backend, each report headed by the backend's name (`rust:`).
+  indented under it — then a blank line and a count. What the code under test
+  prints goes under its test as configured [test-output]. Under `backend =
+  "*"` the suite runs once per backend, each report headed by the backend's
+  name (`rust:`).
+* [test-output] **What of a test's output the report shows** is two settings
+  (user decisions 2026-10-20), each a flag or a key of the manifest's
+  `[test]` section, flag first:
+  * `output` (`--output`): `all` — every test's output, shown as it arrives —
+    or `failed`, the **default**: held until the verdict and shown only for a
+    failure or a death.
+  * `streams` (`--streams`): `both`, the default, or `stderr` — only what the
+    test wrote to stderr (`printerr` [console], and whatever the host wrote
+    there).
+  * A test's output goes under its header, indented (stderr lines marked
+    `[stderr]`), and the verdict re-states the test: `test m :: t ...`, the
+    lines, then `test m :: t ... ok (N ms)`. Before 2026-10-20 the header was
+    repeated after every line.
+  * A test still prints only with a console of its own (`use
+    StdConsole()`): the harness lends it none (user decision 2026-10-20,
+    keeping [test-body] as it is).
+  * The harness's protocol shares the test's stdout, so output a test leaves
+    **unterminated** (`print("…")`) shares a line with the next protocol line;
+    the runner splits it off at the marker (found 2026-10-20: the verdict was
+    lost, the test reported `DIED`, and the rest re-ran).
+  * stderr is a second pipe, read on a thread and handed to the report as it
+    arrives, so it goes to the test running when it is read — a line written
+    just before a verdict can land after it. A dying test's stderr stays the
+    runner's to attribute [test-recover]; what arrives while no test runs is
+    printed after the pass, as before.
+  * `[test] backend` names the backends tests run on, over `[build] backend`;
+    `salvo build`'s test step reads `output` and `streams` but always tests
+    the backend it builds.
 * [test-filter] `salvo test --src DIR [--backend B] [FILTER] [--list]
-  [--target DIR] [--clean-target before|both]`.
+  [--output all|failed] [--streams stderr|both] [--target DIR]
+  [--clean-target before|both]`.
   `FILTER` is a plain substring of the id, so one word selects a module, a
   test, or a family; `--list` enumerates and runs nothing. The command's exit
   code is nonzero iff something failed. Colour is on when stdout is a
@@ -9382,7 +9667,8 @@ replaced the working document TESTING.md).
   directory), which is how every example regenerates both trees with a bare
   `salvo compile`. A `main` is optional: without one, `analyze` and `test`
   work and `run` says there is nothing to run. Unknown keys and an unknown
-  backend value are refused naming the file. `run`/`test` never read the
+  backend value are refused naming the file. `[test]` sets `salvo test`'s
+  `backend`, `output` and `streams` [test-output]. `run`/`test` never read the
   manifest's `target`: they clean their directory, and the manifest's is where
   `compile` keeps the checked-in output.
 * [manifest-discovery] **A file belongs to the nearest ancestor directory
@@ -10547,6 +10833,21 @@ replaced the working document TESTING.md).
   (program types, qualifiers, effects, handlers, fns) are offered
   [doc-symbol-ref]. Since 2026-10-14: the **members of effects available at
   the cursor** are offered [effect-member-completion].
+  * **The arms still to write** (user request 2026-10-20) [when-exhaustive]:
+    on a blank line between a `when`'s arms, or over a half-written `is …`
+    head, completion offers exactly the arms no branch covers yet — one
+    `is Str { }` item each, plus one writing them all — and nothing else,
+    since nothing else is legal there. The same inside a comptime `[when
+    f.name]` (the uncovered names), `[when x.kind]` (the kinds, `Opaque` for
+    both halves) and `[when f.type]` (the types no arm matched, and the
+    catch-all `is *`), wherever the range is known as the fn is written. The
+    facts are the exhaustiveness check's own: `Checked::when_arms` per
+    `when`, `CompWhenArms` from the expansion (its fn is expanded before the
+    server sees the program, so the record carries the arm bodies too). A
+    partial head is cut from the probe buffer, since half an `is` check
+    drops the whole `when` from the parse. With a client's snippet support
+    the cursor lands in the inserted body; otherwise the arms are inserted
+    empty.
 * [effect-member-completion] **Completion offers effect members in scope**
   (2026-10-14, the salvo-noticeboard disk.sv TODOs): where a value is written,
   the members of every effect *available* in the enclosing fn/handler-member
@@ -10612,6 +10913,28 @@ replaced the working document TESTING.md).
     did not exist).
   * Positions convert between byte offsets (Salvo spans) and UTF-16
     line/character pairs (the LSP default encoding).
+* [lsp-rename] **`textDocument/rename` renames a name and every
+  occurrence of it, across every file of the program** (2026-10-19, user
+  request): the cursor resolves to a fn's `FnKey` through `fn_refs`, or to
+  any other declaration's `DefSite` through `def_refs`/`field_refs` —
+  exactly as [lsp-definition] resolves it — falling back to a declaration's
+  own name span when the cursor sits on the declaration rather than a
+  reference to it. The edit set is every stored reference matching that
+  key or site, program-wide (not filtered to one file, unlike
+  [lsp-definition]'s single-file reference tables), plus the declaration's
+  own name span.
+  * **`textDocument/prepareRename`** resolves the cursor the same way and
+    answers with the range to highlight, so a client only offers rename on
+    a name the server actually resolves.
+  * **A name declared in the embedded (unshadowed) standard library cannot
+    be renamed**: there is no on-disk declaration to edit, so the request
+    errors naming the reason rather than silently renaming only the call
+    sites — a partial rename would desync the program. A std-shadowing
+    file [std-shadow] has a real on-disk declaration and renames normally.
+  * The `WorkspaceEdit` groups edits by file through `changes` (a
+    `TextEdit` list per `Url`), reusing [lsp-definition]'s `site_location`
+    for the URI and range of each occurrence, including into a std-shadow
+    copy on disk.
 * [cli-lang] `salvo lang tm-grammar [--out PATH]` emits the TextMate
   grammar consumed by the VS Code extension (`vscode/syntaxes/`); without
   `--out` it prints to stdout.

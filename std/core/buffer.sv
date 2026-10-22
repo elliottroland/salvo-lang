@@ -111,7 +111,7 @@ export iter fn iter(buf: LongBuffer) -> Emitted Long | Finished {
 
 // The slots in order, as a list prints: `[1, 2, 3]`.
 export fn to_str(buf: IntBuffer) [] -> Str => buf {
-    let out: Mut Str = mut_str("[")
+    let out: Mut Str = Mut Str("[")
     for i in range(size(buf)) {
         if i > 0 {
             append(out, ", ")
@@ -123,7 +123,7 @@ export fn to_str(buf: IntBuffer) [] -> Str => buf {
 }
 
 export fn to_str(buf: LongBuffer) [] -> Str => buf {
-    let out: Mut Str = mut_str("[")
+    let out: Mut Str = Mut Str("[")
     for i in range(size(buf)) {
         if i > 0 {
             append(out, ", ")

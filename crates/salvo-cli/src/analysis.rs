@@ -112,6 +112,8 @@ pub struct Analysis {
     /// fn` bodies, recorded by the expansion — the checker never sees those
     /// bodies, so this is their only source.
     pub comptime_hovers: Vec<salvo_core::CompHover>,
+    /// [lsp-completion] The arms each comptime `[when …]` has yet to cover.
+    pub comptime_when_arms: Vec<salvo_core::CompWhenArms>,
     /// [lsp-completion] Per file (aligned with `program.files`): every free
     /// fn visible there, for completion.
     pub completions: Vec<Vec<CompletionFn>>,
@@ -234,6 +236,7 @@ pub fn analyze_std() -> Analysis {
     let expansion = salvo_core::expand(&sources.files, &mut modules);
     diagnostics.extend(expansion.diagnostics);
     let comptime_hovers = expansion.comptime_hovers;
+    let comptime_when_arms = expansion.comptime_when_arms;
     let program = Program {
         files: sources.files,
         modules,
@@ -257,6 +260,7 @@ pub fn analyze_std() -> Analysis {
         io_errors: Vec::new(),
         overloads,
         comptime_hovers,
+        comptime_when_arms,
         completions,
         type_completions,
         ir_reliant: std::collections::HashSet::new(),
@@ -405,6 +409,7 @@ fn analyze_project(
     let expansion = salvo_core::expand(&sources.files, &mut modules);
     diagnostics.extend(expansion.diagnostics);
     let comptime_hovers = expansion.comptime_hovers;
+    let comptime_when_arms = expansion.comptime_when_arms;
     diagnostics.sort_by_key(|d| (d.file, d.span.start));
     let parse_broken: std::collections::HashSet<usize> = diagnostics
         .iter()
@@ -469,6 +474,7 @@ fn analyze_project(
         io_errors,
         overloads,
         comptime_hovers,
+        comptime_when_arms,
         completions,
         type_completions,
         ir_reliant,
@@ -842,7 +848,7 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("main.sv"),
-            "fn main() [use] {\n    use StdOutConsole()\n    let xs = List(1, 2, 3)\n    \
+            "fn main() [use] {\n    use StdConsole()\n    let xs = List(1, 2, 3)\n    \
              let n = size(xs)\n    println(\"${n}\")\n}\n",
         )
         .unwrap();

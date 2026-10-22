@@ -133,7 +133,7 @@ handler Napping() [Timer, Ticker] of Sleeper {
 }
 
 fn main() [use, spawn] -> None {
-    use StdOutConsole()
+    use StdConsole()
 
     // ===== 1. spans, and two kinds of point =====
     //

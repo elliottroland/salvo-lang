@@ -52,7 +52,7 @@ fn label(x: Str?) [Console] -> None {
 
 There is no `elif` and no `else ...` on a terminal `if`: only the `if` branch is the terminal scope. Anything more complex is written with braces throughout.
 
-Loops take `...` the same way — `for n in xs ...` and `while cond ...` make the rest of the block the loop body (and take no `else`) — as do `try ...` and `waitfor out ...`.
+Loops take `...` the same way — `for n in xs ...` and `while cond ...` make the rest of the block the loop body (and take no `else`) — as do `try ...` and `waitfor out ...`, and in a comptime fn `[for …] ...` and `[if …] ...` ([Compile-Time Functions](Compile-Time-Functions.md)). A `when` does not: it has several arms, and the rest of the block is one body.
 
 ## Terminal lambda arguments
 

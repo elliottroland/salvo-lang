@@ -13,6 +13,11 @@ import {
 } from "vscode-languageclient/node";
 
 let client: LanguageClient | undefined;
+// Serializes restarts: a config change (or the restart command) always
+// waits for any restart already in flight, so two changes in quick
+// succession cannot race to create two clients that stomp on `client`
+// (each leaking its own output channel in the process).
+let restarting: Promise<void> = Promise.resolve();
 
 /** Resolves `salvo.serverPath`: absolute paths and bare command names are
  * used as-is; relative paths are resolved against the first workspace
@@ -51,7 +56,21 @@ async function startClient(): Promise<void> {
     args.push("--backend", backend);
   }
 
-  const serverOptions: ServerOptions = { command, args };
+  const serverEnv = vscode.workspace
+    .getConfiguration("salvo")
+    .get<Record<string, string>>("serverEnv", {});
+
+  const serverOptions: ServerOptions = {
+    command,
+    args,
+    options: {
+      // Merge over the editor's own environment so unset vars (PATH, etc.)
+      // still resolve; `serverEnv` only adds or overrides specific keys —
+      // e.g. SALVO_LSP_TRACE/SALVO_LSP_SLOW_MS/SALVO_LSP_SLOW_DIR when
+      // diagnosing a stuck or spinning server [lsp-trace] [lsp-slow-dump].
+      env: { ...process.env, ...serverEnv },
+    },
+  };
   const clientOptions: LanguageClientOptions = {
     documentSelector: [{ scheme: "file", language: "salvo" }],
   };
@@ -77,32 +96,39 @@ async function stopClient(): Promise<void> {
   if (client) {
     const current = client;
     client = undefined;
-    await current.stop().catch(() => {
+    // `stop()` alone leaves the client's output channel (the "Salvo
+    // Language Server" entry in the Output panel) undisposed — a restart
+    // that only stopped would leak one channel per restart. `dispose()`
+    // stops the server (if still running) and disposes the channel.
+    await current.dispose().catch(() => {
       /* server already gone (e.g. binary replaced mid-run) */
     });
   }
 }
 
+async function restartClient(): Promise<void> {
+  restarting = restarting.then(stopClient).then(startClient);
+  await restarting;
+}
+
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   context.subscriptions.push(
-    vscode.commands.registerCommand("salvo.restartServer", async () => {
-      await stopClient();
-      await startClient();
-    }),
+    vscode.commands.registerCommand("salvo.restartServer", restartClient),
     // Repoint automatically when the configuration changes.
     vscode.workspace.onDidChangeConfiguration(async (event) => {
       if (
         event.affectsConfiguration("salvo.serverPath") ||
-        event.affectsConfiguration("salvo.backend")
+        event.affectsConfiguration("salvo.backend") ||
+        event.affectsConfiguration("salvo.serverEnv")
       ) {
-        await stopClient();
-        await startClient();
+        await restartClient();
       }
     }),
   );
-  await startClient();
+  await restartClient();
 }
 
 export async function deactivate(): Promise<void> {
+  await restarting;
   await stopClient();
 }

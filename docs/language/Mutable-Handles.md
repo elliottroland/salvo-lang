@@ -40,7 +40,7 @@ fn bump(c: Mut Counter) -> None => c: Mut {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let counters: List<Mut Counter> = List(Mut Counter {n: 1}, Mut Counter {n: 2})
 
     bump(at(counters, 0)!)             // a handle, used where it is minted
@@ -155,7 +155,7 @@ fn heal(e: Mut Entity) -> None => e: Mut {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let squad: List<Mut Entity> = List(Mut Entity {hp: 50}, Mut Entity {hp: 3})
     heal(wounded(squad)!)                  // mutate through the lent handle
     println("${get(squad, 0)!.hp} ${get(squad, 1)!.hp}")   // 50 13

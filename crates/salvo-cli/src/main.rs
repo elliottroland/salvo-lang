@@ -128,7 +128,7 @@ enum Command {
     /// `test "name" { … }` block in a `<module>.test.sv` annex.
     Test {
         /// Target backend: `rust`, `kotlin`, or `*` (default: the manifest's
-        /// `[build] backend`, else `rust`).
+        /// `[test] backend`, else its `[build] backend`, else `rust`).
         #[arg(long)]
         backend: Option<String>,
         /// Directory containing `.sv` source files, annexes included
@@ -138,6 +138,15 @@ enum Command {
         /// Run only tests whose id contains this text — `module :: name`,
         /// so one word selects a module, a test, or a family [test-filter].
         filter: Option<String>,
+        /// Whose output the report shows: `all` tests', or only `failed`
+        /// ones' (default: the manifest's `[test] output`, else `failed`)
+        /// [test-output].
+        #[arg(long, value_parser = ["all", "failed"])]
+        output: Option<String>,
+        /// Which of it: `stderr` only, or `both` stdout and stderr (default:
+        /// the manifest's `[test] streams`, else `both`) [test-output].
+        #[arg(long, value_parser = ["stderr", "both"])]
+        streams: Option<String>,
         /// List the tests that would run, and run nothing.
         #[arg(long)]
         list: bool,
@@ -286,10 +295,12 @@ fn main() -> ExitCode {
             backend,
             src,
             filter,
+            output,
+            streams,
             list,
             target,
             clean_target,
-        } => test(backend, src, filter.as_deref(), list, target, clean_target),
+        } => test(backend, src, filter.as_deref(), (output, streams), list, target, clean_target),
         Command::Lsp => lsp::run(),
         Command::Lang { command } => match command {
             LangCommand::TmGrammar { out } => lang::run_tm_grammar(out.as_ref()),
@@ -321,7 +332,7 @@ const INIT_MAIN_SV: &str = "\
 // `println` needs. See `salvo init`'s manifest and the language docs to grow
 // from here.
 fn main() [use] -> None {
-    use StdOutConsole()
+    use StdConsole()
     println(\"Hello from Salvo!\")
 }
 ";
@@ -365,6 +376,13 @@ out = \"build\"           # where `salvo build` writes the executable
 # [kotlin]
 # artifacts = [\"com.example:lib:1.0\"]  # Maven coordinates, resolved by Gradle
 # libs = \"lib\"                          # a directory of jars for the classpath
+
+# How `salvo test` runs (each key also a flag):
+#
+# [test]
+# backend = \"rust\"     # over `[build] backend`, for tests only
+# output = \"failed\"    # whose output the report shows: \"all\" or \"failed\"
+# streams = \"both\"     # which of it: \"stderr\", or \"both\" (stdout too)
 
 # Other Salvo projects this one uses (needs `[build] modules` above):
 #
@@ -1214,7 +1232,8 @@ fn build_one(
             }
         };
         let test_target = PathBuf::from(format!("{DEFAULT_BUILD_TARGET}_test_{}", backend.name()));
-        let code = test_one(backend, &test_inputs, None, false, test_target, CleanTarget::Both);
+        let policy = test_output_policy(test_inputs.project.as_ref(), None, None);
+        let code = test_one(backend, &test_inputs, None, false, test_target, CleanTarget::Both, policy);
         if code != ExitCode::SUCCESS {
             eprintln!("error: tests failed; no artifact was built [cli-build]");
             return code;
@@ -1286,18 +1305,27 @@ fn test(
     backend_name: Option<String>,
     src: Option<PathBuf>,
     filter: Option<&str>,
+    (output, streams): (Option<String>, Option<String>),
     list: bool,
     target: Option<PathBuf>,
     clean: CleanTarget,
 ) -> ExitCode {
     let registry = registry();
-    let inputs = match resolve_inputs(src, None, backend_name, "rust", true) {
+    let flagged = backend_name.is_some();
+    let mut inputs = match resolve_inputs(src, None, backend_name, "rust", true) {
         Ok(i) => i,
         Err(msg) => {
             eprintln!("error: {msg}");
             return ExitCode::FAILURE;
         }
     };
+    // [test-output] `[test] backend` over `[build] backend`; a flag over both.
+    if !flagged {
+        if let Some(backends) = inputs.project.as_ref().and_then(|p| p.test_backends()) {
+            inputs.backends = backends;
+        }
+    }
+    let policy = test_output_policy(inputs.project.as_ref(), output.as_deref(), streams.as_deref());
     let mut worst = ExitCode::SUCCESS;
     for name in &inputs.backends {
         let Some(backend) = registry.get(name) else {
@@ -1319,7 +1347,7 @@ fn test(
             }
             println!("{name}:");
         }
-        let code = test_one(backend, &inputs, filter, list, target, clean);
+        let code = test_one(backend, &inputs, filter, list, target, clean, policy);
         if code != ExitCode::SUCCESS {
             worst = code;
         }
@@ -1330,6 +1358,20 @@ fn test(
     worst
 }
 
+/// [test-output] What of a test's output the report shows: the flags, else
+/// the manifest's `[test]`, else the default (failures' output, both streams).
+fn test_output_policy(
+    project: Option<&salvo_core::Project>,
+    output: Option<&str>,
+    streams: Option<&str>,
+) -> salvo_test::OutputPolicy {
+    let section = project.map(|p| &p.manifest.test);
+    salvo_test::OutputPolicy::from_names(
+        output.or_else(|| section.and_then(|t| t.output.as_deref())),
+        streams.or_else(|| section.and_then(|t| t.streams.as_deref())),
+    )
+}
+
 fn test_one(
     backend: &dyn salvo_backend::Backend,
     inputs: &Inputs,
@@ -1337,6 +1379,7 @@ fn test_one(
     list: bool,
     target: PathBuf,
     clean: CleanTarget,
+    policy: salvo_test::OutputPolicy,
 ) -> ExitCode {
     let layout = &inputs.layout;
     let Some(mut assembled) = (match assemble(backend, layout, None, false, inputs.project.as_ref()) {
@@ -1439,6 +1482,7 @@ fn test_one(
             group,
             &target,
             color,
+            policy,
             &host,
             inputs.project.as_ref(),
             &mut total,
@@ -1474,6 +1518,7 @@ fn run_test_group(
     group: Vec<salvo_core::TestCase>,
     target: &Path,
     color: salvo_test::Color,
+    policy: salvo_test::OutputPolicy,
     host: &salvo_core::HostDeps,
     project: Option<&salvo_core::Project>,
     total: &mut salvo_test::Summary,
@@ -1491,6 +1536,7 @@ fn run_test_group(
             &remaining,
             target,
             color,
+            policy,
             host,
             project,
         ) {
@@ -1526,8 +1572,10 @@ fn run_test_group(
                 }
             }
             None => {
-                if !pass.stderr.trim().is_empty() {
-                    eprint!("{}", pass.stderr);
+                // [test-output] What arrived while no test ran; a test's own
+                // stderr went under it, as the policy says.
+                if !pass.loose_stderr.is_empty() {
+                    eprintln!("{}", pass.loose_stderr.join("\n"));
                 }
                 if !pass.exit_ok && ok_so_far {
                     // Every test passed and the process still failed: something
@@ -1555,6 +1603,8 @@ struct TestPass {
     summary: salvo_test::Summary,
     /// What the program wrote to stderr — where a trap message lands.
     stderr: String,
+    /// [test-output] The part of it no test was running for.
+    loose_stderr: Vec<String>,
     exit_ok: bool,
 }
 
@@ -1565,6 +1615,7 @@ fn run_test_pass(
     tests: &[salvo_core::TestCase],
     target: &Path,
     color: salvo_test::Color,
+    policy: salvo_test::OutputPolicy,
     host: &salvo_core::HostDeps,
     project: Option<&salvo_core::Project>,
 ) -> Result<TestPass, ExitCode> {
@@ -1638,6 +1689,9 @@ fn run_test_pass(
     // test that was running [test-recover].
     command.stdout(std::process::Stdio::piped());
     command.stderr(std::process::Stdio::piped());
+    // [console] A test reads no terminal: `readln` in a test answers `None`
+    // at once rather than waiting for a person who is not there.
+    command.stdin(std::process::Stdio::null());
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(err) => {
@@ -1649,21 +1703,33 @@ fn run_test_pass(
         }
     };
     let stdout = child.stdout.take().expect("piped");
-    let mut err_pipe = child.stderr.take().expect("piped");
+    let err_pipe = child.stderr.take().expect("piped");
     // Drained on a thread: a program that writes more to stderr than the pipe
-    // holds would otherwise block while the runner reads stdout.
+    // holds would otherwise block while the runner reads stdout. Each line is
+    // kept whole (for a death's detail) and handed to the report as it
+    // arrives, which puts it under the test running then [test-output].
+    let (err_tx, err_rx) = std::sync::mpsc::channel::<String>();
     let err_reader = std::thread::spawn(move || {
         let mut buf = String::new();
-        let _ = std::io::Read::read_to_string(&mut err_pipe, &mut buf);
+        for line in std::io::BufRead::lines(std::io::BufReader::new(err_pipe)).map_while(Result::ok) {
+            buf.push_str(&line);
+            buf.push('\n');
+            let _ = err_tx.send(line);
+        }
         buf
     });
     let mut out = std::io::stdout().lock();
-    let summary = salvo_test::render_stream(std::io::BufReader::new(stdout), &mut out, color);
+    let mut arrived = || err_rx.try_iter().collect::<Vec<String>>();
+    let rendered = salvo_test::render_stream(std::io::BufReader::new(stdout), &mut out, color, policy, &mut arrived);
     drop(out);
     let stderr = err_reader.join().unwrap_or_default();
     let status = child.wait();
-    let summary = match summary {
-        Ok(summary) => summary,
+    let rendered = match rendered {
+        Ok(mut rendered) => {
+            // What came after the last stdout line belongs to no test.
+            rendered.loose_stderr.extend(err_rx.try_iter());
+            rendered
+        }
         Err(err) => {
             eprintln!("error: failed to read the test harness's output: {err}");
             return Err(ExitCode::FAILURE);
@@ -1677,8 +1743,9 @@ fn run_test_pass(
         }
     };
     Ok(TestPass {
-        summary,
+        summary: rendered.summary,
         stderr,
+        loose_stderr: rendered.loose_stderr,
         exit_ok,
     })
 }

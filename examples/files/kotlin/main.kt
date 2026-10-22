@@ -316,7 +316,7 @@ fun workflow(fs: salvo.fs.Fs, console: salvo.core.console.Console, streams: salv
         (lined is Union2.U1<*, *>) -> {
             val lined_39: salvo.stream.InStream = ((lined as Union2.U1<*, *>).value as salvo.stream.InStream)
             val s: salvo.stream.InStream = lined_39
-            val line: salvo.platform.core.string.MutStr = salvo.core.string.mutStr(arrayOf<String>())
+            val line: salvo.platform.core.string.MutStr = salvo.core.string.Mut_Str(arrayOf<String>())
             var longest: Int = 0
             var reading: Boolean = true
             while (true) {
@@ -508,7 +508,7 @@ fun sandboxEdges(fs: salvo.fs.Fs, console: salvo.core.console.Console, streams: 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun main() {
     salvo.SalvoSched.setProtocols(listOf(Pair("Faults", salvo.core.actor.__PROTO_Faults)))
-    val __use_1: salvo.core.console.__Platform_StdOutConsole = salvo.core.console.__Platform_StdOutConsole()
+    val __use_1: salvo.core.console.__Platform_StdConsole = salvo.core.console.__Platform_StdConsole()
     val __handle_2: salvo.core.console.Console = __use_1
     val __use_3: salvo.stream.host.HostRawStreams = salvo.stream.host.HostRawStreams()
     val __lock___use_3 = java.util.concurrent.locks.ReentrantLock()

@@ -78,7 +78,7 @@ export platform fn to_list<T>(set: SortedSet<T>) [] -> List<T> => set
 // The text form: `{1, 2, 3}` in **sorted** order [col-to-str], each element
 // by its own `to_str` [platform-value-type].
 export fn to_str<T>(set: SortedSet<T>, ?to_str: (x: T) -> Str) [] -> Str => set {
-    let out = mut_str("{")
+    let out = Mut Str("{")
     let i = 0
     for x in set {
         if i > 0 {
@@ -147,7 +147,7 @@ export platform fn keys<K, V>(map: SortedMap<K, V>) [] -> List<K> => map
 // The text form: `{a: 1, b: 2}` in **key order** [col-to-str].
 export fn to_str<K, V>(map: SortedMap<K, V>(?cmp), ?to_str: (k: K) -> Str, ?to_str: (v: V) -> Str) [] -> Str
 => map {
-    let out = mut_str("{")
+    let out = Mut Str("{")
     let i = 0
     for k in map {
         if i > 0 {

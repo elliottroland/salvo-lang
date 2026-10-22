@@ -48,6 +48,8 @@ pub struct Expansion {
     /// [comptime-fields] Hover text for the comptime names inside `comptime
     /// fn` bodies, which the checker never sees.
     pub comptime_hovers: Vec<crate::comptime::CompHover>,
+    /// [lsp-completion] The arms each comptime `[when …]` has yet to cover.
+    pub comptime_when_arms: Vec<crate::comptime::CompWhenArms>,
 }
 
 /// Expands every `iter fn` [iter-fn] and every `test` block [test-decl] in
@@ -136,6 +138,7 @@ pub fn expand(files: &[SourceFile], modules: &mut [Module]) -> Expansion {
         });
     }
     out.comptime_hovers = comptime.hovers;
+    out.comptime_when_arms = comptime.when_arms;
     // [route-stub] After the per-module expansions: the stubs read the
     // program's effect declarations, and a module's `use route_any(…)` may sit
     // inside an expanded test body.

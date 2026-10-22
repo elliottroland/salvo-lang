@@ -142,7 +142,7 @@ pub fn report(console: &crate::core_console::Console, label: &String, config: &S
 }
 
 pub fn main() {
-    let mut __use_1: crate::core_console::__Platform_StdOutConsole = crate::core_console::__Platform_StdOutConsole::new();
+    let mut __use_1: crate::core_console::__Platform_StdConsole = crate::core_console::__Platform_StdConsole::new();
     let __handle_2 = crate::core_console::Console::shared(__use_1);
     let mut small: i32 = crate::read_size(&__handle_2, String::from("notes.txt"), 3i32);
     crate::core_console::println(&__handle_2, &format!("1. read {}", small));

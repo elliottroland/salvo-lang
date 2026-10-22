@@ -155,7 +155,7 @@ fn a_queue_of_tickets() [Console] -> None {
 }
 
 fn main() [use] -> None {
-    use StdOutConsole()
+    use StdConsole()
     one_use()
     borrow_then_use()
     read_a_field()

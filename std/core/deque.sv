@@ -137,7 +137,7 @@ export fn drain<T canbe linear>(d: Deque<T>, each: (x: T) -> None) [] -> None
 // The text form, `[1, 2, 3]` front to back, as a list's [interp-to-str]: each
 // element by its own `to_str` (user decision 2026-10-04).
 export fn to_str<T>(d: Deque<T>, ?to_str: (x: T) -> Str) [] -> Str => d {
-    let out = mut_str("[")
+    let out = Mut Str("[")
     let i = 0
     for x in d {
         if i > 0 {

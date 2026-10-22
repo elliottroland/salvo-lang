@@ -593,7 +593,7 @@ pub fn report_line(mut counter: usize, mut label: String, mut out: crate::schedu
 
 pub fn main() {
     crate::scheduler::salvo_set_protocols(vec![("Counter".to_string(), crate::__PROTO_Counter.to_string()), ("Desk".to_string(), crate::__PROTO_Desk.to_string()), ("Faults".to_string(), crate::core_actor::__PROTO_Faults.to_string()), ("Fragile".to_string(), crate::__PROTO_Fragile.to_string()), ("Ledger".to_string(), crate::__PROTO_Ledger.to_string())]);
-    let mut __use_1: crate::core_console::__Platform_StdOutConsole = crate::core_console::__Platform_StdOutConsole::new();
+    let mut __use_1: crate::core_console::__Platform_StdConsole = crate::core_console::__Platform_StdConsole::new();
     let __handle_2 = crate::core_console::Console::shared(__use_1);
     let mut workers: usize = crate::core_actor::pool(2i32);
     let mut counter: usize = ({ let __h = crate::Counting::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(workers, __cap as usize, std::boxed::Box::new(crate::__Actor_Counting::new(__h)), crate::__DECODE_Counting); __a });

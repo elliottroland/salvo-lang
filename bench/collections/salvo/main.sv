@@ -88,7 +88,7 @@ fn sorted() [] -> Int {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let t1 = monotonic_nanos()
     let a = set_int()
     println("set-int ${ms_since(t1)} ms (${a})")

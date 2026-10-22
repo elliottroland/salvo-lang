@@ -500,19 +500,22 @@ fn an_empty_literal_needs_its_type_from_the_position() {
 }
 
 /// [col-key-eligible] A constructor's key type is checked like any other:
-/// with no `hash` for `Double`, `Set(1.5)` and `Map(1.5: 1)` are refused at
-/// the implicit the constructor needs.
+/// with no `hash` for `Double`, `Set(1.5)` and `Map(1.5: 1)` are refused —
+/// as a key, once: the key rule is checked before the constructor's
+/// implicits, and a key refused as such silences the `hash` it then cannot
+/// find (2026-10-20; until then the refusal was the implicit's "no `hash`
+/// fits").
 #[test]
 fn a_literal_with_an_ineligible_key_is_refused() {
     let set = lit_messages("fn probe() -> Int {\n    let s = Set(1.5)\n    return size(s)\n}\n");
     assert!(
-        set.iter().any(|m| m.contains("no `hash` fits `?hash: (Double) -> Long`")),
-        "expected the key refusal, got: {set:?}"
+        set.len() == 1 && set[0].contains("`Double` cannot be a key"),
+        "expected the key refusal, once: {set:?}"
     );
     let map = lit_messages("fn probe() -> Int {\n    let m = Map(1.5: 1)\n    return size(m)\n}\n");
     assert!(
-        map.iter().any(|m| m.contains("no `hash` fits `?hash: (Double) -> Long`")),
-        "expected the key refusal, got: {map:?}"
+        map.len() == 1 && map[0].contains("`Double` cannot be a key"),
+        "expected the key refusal, once: {map:?}"
     );
 }
 

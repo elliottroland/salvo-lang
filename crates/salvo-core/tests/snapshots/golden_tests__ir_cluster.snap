@@ -385,7 +385,7 @@ fn main::settle(lent timer: eff[Timer]) -> None {
 }
 
 fn main::main() -> None {
-  bind#1 let __use~1: StdOutConsole = construct StdOutConsole { }
+  bind#1 let __use~1: StdConsole = construct StdConsole { }
   bind#2 let __handle~2: Console = read __use~1
   bind#3 let a: NodeEndpoint = construct NodeEndpoint { host: "a", port: 1 }
   bind#4 let b: NodeEndpoint = construct NodeEndpoint { host: "b", port: 1 }

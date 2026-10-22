@@ -442,7 +442,7 @@ fn main::workflow(lent fs: Fs, lent console: Console, lent streams: Streams) -> 
       obligation release [lined~39]
       bind#112 let s: InStream = !read lined~39
       obligation gain [s]
-      bind#113 let line: Mut Str = call core.string::mut_str(array[Str[]]())
+      bind#113 let line: Mut Str = call core.string::Mut_Str(array[Str[]]())
       bind#114 let longest: Int = 0
       bind#115 let reading: Bool = true
       loop#116 {
@@ -695,7 +695,7 @@ fn main::sandbox_edges(lent fs: Fs, lent console: Console, lent streams: Streams
 }
 
 fn main::main() -> None {
-  bind#1 let __use~1: StdOutConsole = construct StdOutConsole { }
+  bind#1 let __use~1: StdConsole = construct StdConsole { }
   bind#2 let __handle~2: Console = read __use~1
   bind#3 let __use~3: HostRawStreams = construct HostRawStreams { }
   bind#4 let __handle~4: RawStreams = handle[RawStreams](read __use~3)

@@ -97,7 +97,7 @@ A field holding something that can itself be `Mut` — a list, say — can follo
 ```
 struct Inventory canbe Mut {
     owner: Str,
-    items: canbe Mut List<Str>
+    items: List<Str> canbe Mut
 }
 
 let shop = Mut Inventory {owner: "Ada", items: Mut List<Str>()}

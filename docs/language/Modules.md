@@ -205,6 +205,23 @@ type is in view — an `is` arm, a typed value, a call argument, and a value
 returned from a function whose return type names the namespace (`fn s(v: Str)
 -> AttributeValue { return .S { value: v } }`).
 
+**Inside the alias itself**, there is no outer expected type to resolve
+against — the declaration is naming itself — so the shorthand instead resolves
+against the alias's *own* enclosing namespace:
+
+```
+namespace Arg {
+    struct Int {}
+    struct Str {}
+    struct Bool {}
+    type Type = .Int | .Str | .Bool   // Arg.Int | Arg.Str | Arg.Bool
+}
+```
+
+`.Int` is a sibling of `Type` itself — only `Arg` is searched, not an
+ancestor's ancestor, since the alias's own namespace is exact rather than a
+path to walk upward from.
+
 **Exporting.** `export namespace X { … }` exports every member at once; or put
 `export` on individual members. A namespace is not itself a value you export —
 its members are.

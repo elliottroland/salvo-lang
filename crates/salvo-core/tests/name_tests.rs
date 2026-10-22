@@ -412,6 +412,51 @@ fn namespace_and_type_may_share_a_name() {
     assert!(resolve_errors(&[("main.sv", src)]).is_empty());
 }
 
+// [namespace] The leading-dot shorthand also resolves inside a `type`
+// alias's own union-arm list, against the alias's own enclosing namespace
+// (user decision 2026-10-19) — the one context with no outer expected type
+// to derive a namespace from, unlike every other dot-shorthand position
+// (an `is`/`when` arm, a typed value, a call argument, a return).
+// `namespace Arg { type Type = .Int | .Str }` means `.Int` -> `Arg.Int`,
+// `.Str` -> `Arg.Str`: the alias's own name (`Arg.Type`) names the
+// namespace the bare arms are siblings of.
+#[test]
+fn leading_dot_shorthand_resolves_inside_its_own_alias() {
+    let src = "namespace Arg {\n    \
+                   struct Int {}\n    \
+                   struct Str {}\n    \
+                   struct Bool {}\n    \
+                   type Type = .Int | .Str | .Bool\n\
+               }\n\n\
+               fn describe(t: Arg.Type) -> Str {\n    \
+                   when t {\n        \
+                       is .Int { return \"int\" }\n        \
+                       is .Str { return \"str\" }\n        \
+                       is .Bool { return \"bool\" }\n    \
+                   }\n\
+               }\n\n\
+               fn make_int() -> Arg.Type {\n    return Arg.Int {}\n}\n";
+    let msgs = messages(src);
+    assert!(msgs.is_empty(), "{msgs:?}");
+}
+
+// [namespace] An arm the shorthand cannot resolve inside the alias's own
+// body — no such sibling in its namespace — is still a clear error naming
+// the namespace searched (same error `resolve_alias_arm_dot_ref` reports
+// for every other arm position).
+#[test]
+fn leading_dot_shorthand_reports_an_unresolvable_sibling() {
+    let src = "namespace Arg {\n    \
+                   struct Int {}\n    \
+                   type Type = .Int | .Missing\n\
+               }\n";
+    let msgs = messages(src);
+    assert!(
+        msgs.iter().any(|m| m.contains("`.Missing` names no member of `Arg`")),
+        "{msgs:?}"
+    );
+}
+
 // [namespace] `export namespace` exports every member; a plain `namespace`
 // keeps them private, so importing one across modules is refused.
 #[test]

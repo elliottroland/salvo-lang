@@ -70,7 +70,7 @@ impl Napping() of Sleeper deps [Timer, Ticker] stateful {
 }
 
 fn main::main() -> None {
-  bind#1 let __use~1: StdOutConsole = construct StdOutConsole { }
+  bind#1 let __use~1: StdConsole = construct StdConsole { }
   bind#2 let __handle~2: Console = read __use~1
   bind#3 let budget: Duration = call time::millis(1500L)
   call core.console::println(read __handle~2, concat("budget ", call time::to_str(read budget), ", doubled ", call time::to_str(call time::times(read budget, 2L)), ", in millis ", call core.basic::to_str(Long)(call time::to_millis(read budget))))

@@ -91,7 +91,7 @@ fn download(bucket: Str, key: Str, path: Path) [S3, Fs, Console] => bucket, key,
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     use HostRawStreams()
     use DefaultStreams()
     use HostRawFs()

@@ -18,7 +18,7 @@ export iterable platform type Str canbe Mut : Iter<self, Char>
 // Builds a mutable string from [parts] (concatenated in order). A string
 // *literal* is a `Str`, never a `Mut Str`: mutability is asked for here,
 // mirroring [Mut List].
-export fn mut_str(...parts: Str[]) [] -> Mut Str => parts {
+export fn Mut Str(...parts: Str[]) [] -> Mut Str => parts {
     let out = empty_str()
     for part in parts {
         append(out, part)
@@ -26,7 +26,7 @@ export fn mut_str(...parts: Str[]) [] -> Mut Str => parts {
     return out
 }
 
-// An empty string to build: what [mut_str] starts from.
+// An empty string to build: what [Mut Str] starts from.
 platform fn empty_str() [] -> Mut Str
 
 // Returns the number of characters in the string
@@ -188,7 +188,7 @@ export fn is_empty(str: Str) [] -> Bool => str {
 
 // [str-salvo] [str] written [n] times over; empty for `n <= 0`.
 export fn repeat(str: Str, n: Int) [] -> Str => str, n {
-    let out = mut_str()
+    let out = Mut Str()
     let i = 0
     while i < n {
         append(out, str)

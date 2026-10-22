@@ -216,6 +216,91 @@ fn the_report_reads_the_same_on_both_backends() {
     stamp.verified();
 }
 
+/// Tests that print: a passing one, one that ends without a newline, and a
+/// failing one.
+const PRINTING_TESTS: &str = r#"
+test "a quiet pass" {
+    use StdConsole()
+    println("pass line")
+    expect_eq(double(1), 2)
+}
+
+test "an unterminated print" {
+    use StdConsole()
+    print("partial")
+}
+
+test "a loud failure" {
+    use StdConsole()
+    println("fail line")
+    expect_eq(double(2), 5)
+}
+"#;
+
+/// [test-output] A test's stdout is shown under it — by default only for a
+/// failure, with `--output all` for every test, and not at all with
+/// `--streams stderr` — and the same on both backends. Output a test leaves
+/// without a newline keeps its verdict (it was glued to the protocol line,
+/// lost, and the test reported `DIED`). `[test]` in the manifest sets the
+/// same, and its `backend` wins over `[build]`'s.
+#[test]
+fn a_tests_output_is_shown_as_configured() {
+    let Some(stamp) = e2e_stamp("test_output", &["rustc", "kotlinc"]) else {
+        return;
+    };
+    for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
+        if !have(tool) {
+            eprintln!("skipping {backend}: {tool} not found on PATH");
+            continue;
+        }
+        let dir = work_dir(&format!("output_{backend}"));
+        fs::write(dir.join("calc.sv"), CALC).unwrap();
+        fs::write(dir.join("calc.test.sv"), PRINTING_TESTS).unwrap();
+        let run = |args: &[&str]| {
+            let mut all = vec!["test", "--backend", backend, "--src", "."];
+            all.extend_from_slice(args);
+            let out = salvo_in(&dir, &all);
+            normalize_ms(&String::from_utf8_lossy(&out.stdout))
+        };
+        let failure = "test calc :: a loud failure ... \n  fail line\ntest calc :: a loud failure ... FAILED\n    expected 5, got 4\n";
+        assert_eq!(
+            run(&[]),
+            format!(
+                "test calc :: a quiet pass ... ok (N ms)\n\
+                 test calc :: an unterminated print ... ok (N ms)\n\
+                 {failure}\n3 tests: 2 passed, 1 failed\n"
+            ),
+            "{backend}: the default shows a failure's output only"
+        );
+        assert_eq!(
+            run(&["--output", "all"]),
+            format!(
+                "test calc :: a quiet pass ... \n  pass line\ntest calc :: a quiet pass ... ok (N ms)\n\
+                 test calc :: an unterminated print ... \n  partial\ntest calc :: an unterminated print ... ok (N ms)\n\
+                 {failure}\n3 tests: 2 passed, 1 failed\n"
+            ),
+            "{backend}: `--output all`"
+        );
+        assert!(!run(&["--output", "all", "--streams", "stderr"]).contains("line"), "{backend}: `--streams stderr`");
+    }
+    // The manifest: `[test] backend` over `[build] backend`, and `output`.
+    if have("rustc") {
+        let dir = work_dir("output_manifest");
+        fs::write(dir.join("calc.sv"), CALC).unwrap();
+        fs::write(dir.join("calc.test.sv"), PRINTING_TESTS).unwrap();
+        fs::write(
+            dir.join("salvo.toml"),
+            "[project]\nname = \"calc\"\nversion = \"0.1.0\"\n\n[build]\nbackend = \"*\"\n\n[test]\nbackend = \"rust\"\noutput = \"all\"\n",
+        )
+        .unwrap();
+        let out = salvo_in(&dir, &["test"]);
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(!stdout.contains("rust:") && !stdout.contains("kotlin:"), "one backend: {stdout}");
+        assert!(stdout.contains("  pass line\n"), "`output = \"all\"`: {stdout}");
+    }
+    stamp.verified();
+}
+
 /// A run where everything passes succeeds, and says so.
 #[test]
 fn a_green_run_succeeds() {

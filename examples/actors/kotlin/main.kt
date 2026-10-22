@@ -315,7 +315,7 @@ fun reportLine(counter: Int, label: String, out: salvo.SalvoReply) {
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun main() {
     salvo.SalvoSched.setProtocols(listOf(Pair("Counter", salvo.main.__PROTO_Counter), Pair("Desk", salvo.main.__PROTO_Desk), Pair("Faults", salvo.core.actor.__PROTO_Faults), Pair("Fragile", salvo.main.__PROTO_Fragile), Pair("Ledger", salvo.main.__PROTO_Ledger)))
-    val __use_1: salvo.core.console.__Platform_StdOutConsole = salvo.core.console.__Platform_StdOutConsole()
+    val __use_1: salvo.core.console.__Platform_StdConsole = salvo.core.console.__Platform_StdConsole()
     val __handle_2: salvo.core.console.Console = __use_1
     val workers: Int = salvo.core.actor.pool(2)
     val counter: Int = run { val __h = Counting(); val __a = salvo.SalvoSched.spawn(workers, __h.__mailboxCapacity, __Actor_Counting(__h), __Actor_Counting.__DECODE); __a }

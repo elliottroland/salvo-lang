@@ -3,10 +3,10 @@
 // by every build — do not edit; the build never reads this file.
 // salvo-abi 1 51417dfa7690428a
 use crate::core_iterator::Finished;
+use crate::core_string::Mut_Str;
 use crate::core_string::append_platform;
 use crate::core_iterator::emitted;
 use crate::core_iterator::finished;
-use crate::core_string::mut_str;
 
 
 /// [platform-type] The host's `Map`.
@@ -127,7 +127,7 @@ pub fn into_values_platform<K: Clone, V>(mut map: crate::core_map::Map<K, V>) ->
 }
 
 pub fn to_str<K: Clone, V: Clone>(map: &crate::core_map::Map<K, V>, to_str: &mut dyn FnMut(&K) -> String, to_str__1: &mut dyn FnMut(&V) -> String, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> String {
-    let mut out: String = crate::core_string::mut_str(vec![String::from("{")]);
+    let mut out: String = crate::core_string::Mut_Str(vec![String::from("{")]);
     let mut i: i32 = 0i32;
     for mut k in crate::platform_core_map::each(map).map(|__x| __x.clone()) {
         if (i > 0i32) {

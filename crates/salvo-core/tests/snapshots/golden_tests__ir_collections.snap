@@ -22,7 +22,7 @@ fn main::count_unique(lent xs: List<Int>) -> Int {
 }
 
 fn main::main() -> None {
-  bind#1 let __use~1: StdOutConsole = construct StdOutConsole { }
+  bind#1 let __use~1: StdConsole = construct StdConsole { }
   bind#2 let __handle~2: Console = read __use~1
   bind#3 let primes: List<Int> = call core.list::List(T, T[])<Int>(2, array[Int[]](3, 5, 7))
   bind#4 let vowels: Set<Str>(hash, eq) = call core.set::Set<Str>(array[Str[]]("a", "e", "i", "o", "u"), fn core.compare::hash(Str), fn core.compare::eq(Str, Str))

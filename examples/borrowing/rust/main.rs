@@ -204,7 +204,7 @@ pub fn hoist(camp: &mut crate::Camp, mut banner: String) {
 }
 
 pub fn main() {
-    let mut __use_1: crate::core_console::__Platform_StdOutConsole = crate::core_console::__Platform_StdOutConsole::new();
+    let mut __use_1: crate::core_console::__Platform_StdConsole = crate::core_console::__Platform_StdConsole::new();
     let __handle_2 = crate::core_console::Console::shared(__use_1);
     let mut roster: Vec<crate::Fighter> = vec![crate::Fighter { name: String::from("Ada"), hp: 30i32, energy: 4i32 }, crate::Fighter { name: String::from("Bo"), hp: 8i32, energy: 9i32 }];
     let mut ada: &crate::Fighter = {

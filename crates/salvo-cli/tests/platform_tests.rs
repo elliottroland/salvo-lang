@@ -91,7 +91,7 @@ handler DefaultClock [RawClock] of Clock {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     use HostRawClock(35)
     use DefaultClock()
     println(stamp("boot"))
@@ -153,7 +153,7 @@ fn a_program_without_platform_declarations_generates_nothing() {
     let dir = work_dir("nothing");
     fs::write(
         dir.join("main.sv"),
-        "fn main() [use] -> None {\n    use StdOutConsole\n    \
+        "fn main() [use] -> None {\n    use StdConsole\n    \
          println(\"hi\")\n}\n",
     )
     .unwrap();
@@ -255,7 +255,7 @@ platform handler HostStop() of Stop
 platform fn bail(why: Str) [] -> Never => why
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     use HostStop()
     println("before")
     if size("x") > 5 {
@@ -348,7 +348,7 @@ handler Holding() of Holder {
 }
 
 fn main() [use, spawn] {
-    use StdOutConsole()
+    use StdConsole()
     let t = new_tally(10)
     let u = copy(t)
     println("${bump(t)} ${bump(u)}")
@@ -487,7 +487,7 @@ export platform handler HostApply() of Apply
     const MAIN_SV: &str = r#"import host
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let k = 5
     println("${twice(n -> n + k, 1)}")
     let label = "late"
@@ -614,7 +614,7 @@ fn shout(n: Int, label: Str) [] -> Str => n, label {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     keep(shout)
     println(fire(4))
     println(fire(5))
@@ -709,7 +709,7 @@ export iter fn iter(b: Bag) -> Emitted Int | Finished {
     const MAIN_SV: &str = r#"import host
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let b = bag_of(3, 4)
     for x in b {
         println("each ${x}")
@@ -800,7 +800,7 @@ export platform fn unerase<T canbe linear>(d: Dyn) [] -> T => !d
 struct Point { x: Int, y: Int }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let c = cell_of("hi")
     println(take(c))
     let d = erase(Point { x: 1, y: 2 })
@@ -992,7 +992,7 @@ effect Greeter {
 platform handler HostGreeter of Greeter
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     use HostGreeter()
     println(greet(7))
 }
@@ -1173,7 +1173,7 @@ fn a_missing_host_tool_names_its_setting() {
             format!("[project]\nname = \"m\"\nversion = \"0.1.0\"\n\n[build]\nbackend = \"{backend}\"\n\n{section}"),
         )
         .unwrap();
-        fs::write(dir.join("main.sv"), "fn main() [use] {\n    use StdOutConsole()\n    println(\"x\")\n}\n").unwrap();
+        fs::write(dir.join("main.sv"), "fn main() [use] {\n    use StdConsole()\n    println(\"x\")\n}\n").unwrap();
         let out = salvo_in(&dir, &["run"]);
         let stderr = String::from_utf8_lossy(&out.stderr);
         let key = if backend == "rust" { "[rust] cargo" } else { "[kotlin] gradle" };
@@ -1201,7 +1201,7 @@ fn conflicting_host_libraries_are_refused() {
          [dependencies]\nlib = \"0.1.0\"\n\n[rust]\ncrates = { serde = \"2.0\" }\n",
     )
     .unwrap();
-    fs::write(dir.join("salvo/main.sv"), "fn main() [use] {\n    use StdOutConsole()\n    println(\"x\")\n}\n").unwrap();
+    fs::write(dir.join("salvo/main.sv"), "fn main() [use] {\n    use StdConsole()\n    println(\"x\")\n}\n").unwrap();
     let out = salvo_in(&dir, &["analyze"]);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success());
@@ -1235,7 +1235,7 @@ send fn labelled(label: Str, out: Reply<Str>, n: Int) => !label, !out, !n {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     use HostSlow()
     let n = waitfor done: Reply<Int> {
         later(41, done)
@@ -1463,7 +1463,7 @@ platform handler HostClock(offset: Int) of Clock
 platform fn shout(s: Str) [] -> Str => s
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     use HostClock(1)
     println(shout(\"${now()}\"))
 }
@@ -1544,7 +1544,7 @@ platform handler HostGreeter() of Greeter
 platform fn shout(s: Str) [] -> Str => s
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     use HostGreeter()
     println(shout(greet(Greeting { text: \"hi\", loud: true })))
 }
@@ -1758,7 +1758,7 @@ fn show(t: \"gold\" | \"silver\" | None) -> Str {
 }
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     use HostLookup()
     println(\"${show(tier(1))} ${show(tier(2))}\")
     println(\"${items(1).size()} ${names(1)}\")
@@ -1904,13 +1904,13 @@ fn a_dependencys_host_project_is_checked_before_its_code() {
         (out.status.success(), String::from_utf8_lossy(&out.stderr).to_string())
     };
     // Not reached: nothing is checked.
-    fs::write(dir.join("salvo/main.sv"), "import lib\n\nfn main() [use] {\n    use StdOutConsole()\n    use Plain()\n    println(greet())\n}\n").unwrap();
+    fs::write(dir.join("salvo/main.sv"), "import lib\n\nfn main() [use] {\n    use StdConsole()\n    use Plain()\n    println(greet())\n}\n").unwrap();
     let (ok, stderr) = compile();
     assert!(ok, "{stderr}");
     // Reached, with no host project.
     fs::write(
         dir.join("salvo/main.sv"),
-        "import lib\nimport lib.host\n\nfn main() [use] {\n    use StdOutConsole()\n    use HostGreet()\n    println(greet())\n}\n",
+        "import lib\nimport lib.host\n\nfn main() [use] {\n    use StdConsole()\n    use HostGreet()\n    println(greet())\n}\n",
     )
     .unwrap();
     let (ok, stderr) = compile();
@@ -1960,7 +1960,7 @@ platform fn ages() [] -> Map<Str, Int>
 platform fn bag() [] -> Bag
 
 fn main() [use] {
-    use StdOutConsole()
+    use StdConsole()
     let ns = names()
     let ag = ages()
     let has = contains(ns, \"a\")

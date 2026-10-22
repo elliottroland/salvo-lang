@@ -182,7 +182,16 @@ pub struct FnParamContract {
 pub enum FnId {
     /// A named fn: a module fn (`min_by_age`), an `@`-scoped canonical
     /// (`cmp@Person`) or an intrinsic.
-    Named { name: String, at: Option<String> },
+    ///
+    /// [cmp-carry] An identity is a **declaration**, not a spelling: `module`
+    /// is the declaring module (`None` only for an identity nothing
+    /// resolved), so two modules' `my_hash` are two identities, and a binder
+    /// filled from one calls that declaration wherever the value is read
+    /// (found 2026-10-20: they compared equal by name, and the reading
+    /// module's `my_hash` was the one called). `qualify` says whether it
+    /// prints as `name@module`: only when the name is declared by more than
+    /// one module of the program, so the usual case reads as written.
+    Named { name: String, at: Option<String>, module: Option<String>, qualify: bool },
     /// [cmp-binder] `?cmp` — the **binder**: one binding per signature, in the identity
     /// domain what `Ty::Var` is in the type domain. Filled at the call site
     /// by the resolved implicit, or captured from an argument's type
@@ -195,6 +204,8 @@ impl FnId {
         FnId::Named {
             name: name.into(),
             at: None,
+            module: None,
+            qualify: false,
         }
     }
 
@@ -216,8 +227,9 @@ impl FnId {
 impl fmt::Display for FnId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            FnId::Named { name, at: None } => write!(f, "{name}"),
-            FnId::Named { name, at: Some(at) } => write!(f, "{name}@{at}"),
+            FnId::Named { name, at: Some(at), .. } => write!(f, "{name}@{at}"),
+            FnId::Named { name, module: Some(m), qualify: true, .. } => write!(f, "{name}@{m}"),
+            FnId::Named { name, .. } => write!(f, "{name}"),
             FnId::Binder(name) => write!(f, "?{name}"),
         }
     }
@@ -1754,6 +1766,8 @@ mod tests {
         let canonical = FnId::Named {
             name: "cmp".into(),
             at: Some("Person".into()),
+            module: None,
+            qualify: false,
         };
         assert_eq!(heap(canonical.clone()).to_string(), "Heap(cmp@Person) List<Person>");
         assert_eq!(

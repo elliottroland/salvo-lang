@@ -95,7 +95,7 @@ fn main::report(lent console: Console; lent label: Str, lent config: Str) -> Non
 }
 
 fn main::main() -> None {
-  bind#1 let __use~1: StdOutConsole = construct StdOutConsole { }
+  bind#1 let __use~1: StdConsole = construct StdConsole { }
   bind#2 let __handle~2: Console = read __use~1
   bind#3 let small: Int = call main::read_size(read __handle~2, "notes.txt", 3)
   call core.console::println(read __handle~2, concat("1. read ", call core.basic::to_str(Int)(read small)))

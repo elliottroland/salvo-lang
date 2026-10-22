@@ -1,7 +1,7 @@
 // What a `comptime fn` may know about a type — declared here so the surface
-// is readable, greppable and hoverable, and so a `[when field.type]` is an
+// is readable, greppable and hoverable, and so a `[when field.kind]` is an
 // ordinary `when` over a union rather than a rule of its own (user decisions
-// 2026-09-29, comptime round 8).
+// 2026-09-29, comptime round 8; the kind split from the type 2026-10-20).
 //
 // [comptime-fields] These types exist at **compile time only**. The compiler
 // fills them for the body of a `comptime fn` — `T` is a `Struct` or a `Union`
@@ -11,8 +11,11 @@
 // written. Their shape is the compiler's: this module mirrors it, and a test
 // keeps the two in step.
 //
-// A compile-time `Type` is also usable **as a type** wherever one is written
-// inside the body: `let x: field.type = …`, `of_json<field.type>(…)`.
+// A binder's `.type` is the type itself, usable **as a type** wherever one is
+// written inside the body (`let x: field.type = …`, `of_json<field.type>(…)`)
+// and compared with `field.type is Str`. What kind of type it is — a struct, a
+// union, … — is a separate projection, `.kind`, so a program type that happens
+// to be called `Union` is never mistaken for the kind [comptime-kind].
 
 // A struct: its declared fields, in declaration order.
 export comptime struct Struct {
@@ -57,15 +60,25 @@ export comptime struct Generic {
 // The two kinds a comptime fn cannot look inside, when it does not care which.
 export comptime type Opaque = Basic | Generic
 
-// Every kind. A `[when field.type] { is Struct { … } … }` is exhaustive over
-// these arms unless an `else` closes it [when-exhaustive], so a kind added to
-// the language is an error in every comptime fn that did not consider it.
-export comptime type Type = Struct | Union | Tuple | FnType | Opaque
+// Every kind — what `.kind` is. A `[when field.kind] { is Struct { … } … }` is
+// exhaustive over these arms, with no `else` [when-exhaustive], so
+// a kind added to the language is an error in every comptime fn that did not
+// consider it.
+export comptime type Kind = Struct | Union | Tuple | FnType | Opaque
+
+// A type itself, as a binder's `.type` holds it: usable as a type inside the
+// body, compared with `is <Type>`; its description is the binder's `.kind`.
+export comptime struct Type {}
 
 // One field of a `Struct`.
 export comptime struct Field {
-    // The declared name, as a `Str` literal in each copy.
+    // The declared name: a literal of the union of the struct's field names
+    // (`"x" | "y"` for `Point`), tested with `field.name is "x"` or an
+    // exhaustive `[when field.name]`, and a `Str` literal in each copy
+    // [comptime-name].
     name: Str,
+    // The declared type's kind [comptime-kind].
+    kind: Kind,
     // The declared type; usable as a type inside the body.
     type: Type,
     // The declared position, from zero.
@@ -75,9 +88,10 @@ export comptime struct Field {
 }
 
 // One arm of a `Union`. `name` is the struct's name for a struct arm, the
-// type's text otherwise (`None`).
+// type's text otherwise (`None`) — a literal of the union of the arm names.
 export comptime struct Arm {
     name: Str,
+    kind: Kind,
     type: Type,
     index: Int,
     first: Bool,

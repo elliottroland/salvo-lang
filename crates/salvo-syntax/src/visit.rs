@@ -335,6 +335,9 @@ pub fn walk_stmt<V: Visitor>(v: &mut V, s: &Stmt) {
 pub fn walk_comp_ty<V: Visitor>(v: &mut V, t: &CompTy) {
     v.visit_span(&t.span);
     v.visit_ident(&t.root);
+    for a in &t.args {
+        walk_type(v, a);
+    }
 }
 
 pub fn walk_comp_cond<V: Visitor>(v: &mut V, c: &CompCond) {
@@ -343,16 +346,19 @@ pub fn walk_comp_cond<V: Visitor>(v: &mut V, c: &CompCond) {
             v.visit_span(span);
             walk_comp_ty(v, ty);
         }
-        CompCond::Is { ty, target, span } => {
+        CompCond::Is { ty, binders, target, span } => {
             v.visit_span(span);
             walk_comp_ty(v, ty);
+            for b in binders {
+                v.visit_ident(b);
+            }
             walk_type(v, target);
         }
         CompCond::Mutable { ty, span } => {
             v.visit_span(span);
             walk_comp_ty(v, ty);
         }
-        CompCond::NameEq { binder, span, .. } | CompCond::Flag { binder, span, .. } => {
+        CompCond::NameIs { binder, span, .. } | CompCond::Flag { binder, span, .. } => {
             v.visit_span(span);
             v.visit_ident(binder);
         }
@@ -364,6 +370,11 @@ pub fn walk_comp_cond<V: Visitor>(v: &mut V, c: &CompCond) {
         CompCond::Not(inner, span) => {
             v.visit_span(span);
             walk_comp_cond(v, inner);
+        }
+        CompCond::And(a, b, span) | CompCond::Or(a, b, span) => {
+            v.visit_span(span);
+            walk_comp_cond(v, a);
+            walk_comp_cond(v, b);
         }
     }
 }
@@ -398,7 +409,6 @@ pub fn walk_comp_stmt<V: Visitor>(v: &mut V, c: &CompStmt) {
         CompStmt::WhenKind {
             ty,
             arms,
-            else_,
             span,
         } => {
             v.visit_span(span);
@@ -407,8 +417,36 @@ pub fn walk_comp_stmt<V: Visitor>(v: &mut V, c: &CompStmt) {
                 v.visit_span(&arm.span);
                 walk_block(v, &arm.body);
             }
-            if let Some(b) = else_ {
-                walk_block(v, b);
+        }
+        CompStmt::WhenName {
+            binder,
+            arms,
+            span,
+        } => {
+            v.visit_span(span);
+            v.visit_ident(binder);
+            for arm in arms {
+                v.visit_span(&arm.span);
+                for (_, lit_span) in &arm.lits {
+                    v.visit_span(lit_span);
+                }
+                walk_block(v, &arm.body);
+            }
+        }
+        CompStmt::WhenType {
+            ty,
+            arms,
+            span,
+        } => {
+            v.visit_span(span);
+            walk_comp_ty(v, ty);
+            for arm in arms {
+                v.visit_span(&arm.span);
+                for b in &arm.binders {
+                    v.visit_ident(b);
+                }
+                walk_type(v, &arm.pattern);
+                walk_block(v, &arm.body);
             }
         }
         CompStmt::WhenArms {
