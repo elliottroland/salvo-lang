@@ -1009,6 +1009,41 @@ struct AddCtx<'e, 'p> {
 }
 
 impl<'e, 'p> AddCtx<'e, 'p> {
+    /// [type-name-shadow] A **type name** is one name whatever kind declares
+    /// it: a struct, a type alias or an opaque type. So an own declaration
+    /// or an import of `name` (any of the three) shadows an implicit `core`
+    /// one of the *other* two kinds too, the way it already shadowed one of
+    /// its own kind. Before 2026-10-20 a user `type Field = …` sat beside
+    /// `core.comptime`'s `comptime struct Field`, and which one a use meant
+    /// depended on which table the lookup consulted first (ROADMAP §2d item
+    /// 4). Core is added first, so removing its entries here is enough.
+    fn shadow_core_type(&mut self, scope: &mut ModuleScope<'p>, kind: NameKind, name: &'p str, level: Level) {
+        if level == Level::Core {
+            return;
+        }
+        for other in [NameKind::Struct, NameKind::TypeAlias, NameKind::OpaqueType] {
+            if other == kind {
+                continue;
+            }
+            if matches!(self.provenance.get(&(other, name, None)), Some((Level::Core, _))) {
+                self.provenance.remove(&(other, name, None));
+                match other {
+                    NameKind::Struct => {
+                        scope.structs.remove(name);
+                        scope.struct_files.remove(name);
+                    }
+                    NameKind::TypeAlias => {
+                        scope.type_aliases.remove(name);
+                    }
+                    _ => {
+                        scope.opaque_types.remove(name);
+                        scope.opaque_type_files.remove(name);
+                    }
+                }
+            }
+        }
+    }
+
     /// Decides whether a non-fn entry may land in the scope
     /// [mod-collision]. Own-module declarations and explicit imports
     /// override implicit `core.*` visibility; an import colliding with an
@@ -1337,6 +1372,7 @@ fn add_items<'p>(
             }
             let name = visible_as(&s.name.name);
             if ctx.admit(NameKind::Struct, name, module, level, import_span) {
+                ctx.shadow_core_type(scope, NameKind::Struct, name, level);
                 scope.structs.insert(name, s);
                 scope.struct_files.insert(name, *file);
                 origin(name, scope);
@@ -1447,6 +1483,7 @@ fn add_items<'p>(
             }
             let name = visible_as(&t.name.name);
             if ctx.admit(NameKind::TypeAlias, name, module, level, import_span) {
+                ctx.shadow_core_type(scope, NameKind::TypeAlias, name, level);
                 scope.type_aliases.insert(name, t);
                 origin(name, scope);
                 def_site(name, *file, t.name.span, scope);
@@ -1460,6 +1497,7 @@ fn add_items<'p>(
             }
             let name = visible_as(&t.name.name);
             if ctx.admit(NameKind::OpaqueType, name, module, level, import_span) {
+                ctx.shadow_core_type(scope, NameKind::OpaqueType, name, level);
                 scope.opaque_types.insert(name, t);
                 scope.opaque_type_files.insert(name, *file);
                 origin(name, scope);

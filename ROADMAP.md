@@ -868,19 +868,8 @@ reproduced in a scratch project; the repros are below.
    COMPLETED.md; [type-literal-qualified]).
 3. ✅ **`Short "port"` parses** (done 2026-10-20, with item 2).
 
-4. **A type alias named like a `core.comptime` type resolves
-   inconsistently.** With `type Field = Short Port | Short Verbose | "host"`
-   in the file, two consecutive lines of `main` read `Field` differently:
-   `let a: Field = "port"` was checked against the alias (the [type-literal]
-   error named its values), while `let b: Field = "host"` reported "`Field`
-   is a compile-time type (`core.comptime`) … cannot appear in an ordinary
-   type position". A `struct Field` in the same position works. *General
-   fix:* one lookup order for every type name (the file's own, then an
-   import, then `core`'s, as [comptime-root-visible] states for comptime
-   roots), applied to aliases as to structs; find the second lookup that
-   special-cases `core.comptime` names and route it through the first; test
-   every `core.comptime` name (`Field`, `Arm`, `Struct`, `Union`, `Kind`,
-   `Type`, …) shadowed by a user alias and by a user struct.
+4. ✅ **A type name shadows `core` whatever kind declares it** (done
+   2026-10-20, COMPLETED.md; [type-name-shadow]).
 
 5. **A warning inside a comptime copy lands past the end of the file, and
    fires per copy.** `Checker::warn` does not go through `redirect_stamped`

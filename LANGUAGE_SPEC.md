@@ -9409,6 +9409,14 @@ between endpoints and delivers what arrives into the scheduler.
   * Kinds are per-namespace (struct/effect/handler/qualifier/type
     alias/opaque type): same-name declarations of different kinds do
     not collide.
+* [type-name-shadow] **A type name is one name whatever kind declares it**:
+  a struct, a type alias or an opaque type. An own declaration or an import
+  of a type name shadows an implicit `core` one of *any* of the three kinds,
+  as it always shadowed one of its own kind [mod-collision]. Until 2026-10-20
+  a user `type Field = …` sat beside `core.comptime`'s `comptime struct
+  Field`, and a use of `Field` meant one or the other depending on which
+  table the lookup read first: two lines of one fn read it differently
+  (`AddCtx::shadow_core_type` in resolve.rs; ROADMAP §2d item 4).
 * [type-identity] **A type is its declaration, not its name** (user decision
   2026-10-03, option A): two modules may declare one name, and a program may
   use both so long as it never brings them into one scope unrenamed. Every

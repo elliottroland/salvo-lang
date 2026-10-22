@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1948 tests, complete: the toolchain tests are
+cargo test                  # 1950 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,27 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — A type name shadows `core` whatever kind declares it
+
+Phase 0.3 of the argument-parsing build. **The defect** (found probing
+ARG_PARSE.md §10.1b, and again testing 0.2): with `type Field = …` in a file,
+one use of `Field` was checked against the alias and the next refused as
+"`Field` is a compile-time type (`core.comptime`)". Resolution's
+[mod-collision] provenance is keyed by (kind, name), so a user *alias* did not
+displace `core.comptime`'s *struct* of the same name; both sat in the file's
+scope, and the checker's lookups read the struct table or the alias table
+first depending on the site. **The fix** ([type-name-shadow]): a type name
+is one name across struct, alias and opaque type; when an own declaration or
+an import admits one, `AddCtx::shadow_core_type` removes a `core` entry of
+the other two kinds (core is added first, so this is enough). No decision
+was needed: the rule is the existing "own and imports shadow core", applied
+across the three kinds a type name can have.
+
+Tests: core `type_name_tests` (each of `Field`, `Arm`, `Struct`, `Union`,
+`Kind` shadowed by a user alias and by a user struct, used as a parameter,
+return, `let` and field; an unshadowed `Field` still refused as data). The
+test fails without the fix.
 
 ### 2026-10-20 — A qualified literal is its literal: unions of them compile, `Short "port"` parses
 
@@ -26767,7 +26788,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 1948 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1950 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

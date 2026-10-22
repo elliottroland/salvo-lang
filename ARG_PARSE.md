@@ -94,7 +94,7 @@ tracked here so a fresh agent can carry on. Rules for whoever continues:
 - [x] 0.2 Qualified literals in unions: supported, collapsing into the base arm;
   `is Q` compares against the literals carrying `Q`; a literal listed with
   and without `Q` refused; `Q "lit"` parses (§2d items 2, 3; Q1).
-- [ ] 0.3 A user type alias named like a `core.comptime` type resolves like a
+- [x] 0.3 A user type alias named like a `core.comptime` type resolves like a
   struct does (§2d item 4).
 - [ ] 0.4 Warnings in comptime copies: redirected to written code, reported
   once, only if every copy would (§2d item 5).
@@ -135,6 +135,8 @@ tracked here so a fresh agent can carry on. Rules for whoever continues:
 **Blocked on the user:** nothing.
 
 **Log** (newest first):
+- 2026-10-20: 0.3 done ("Let a program's type name shadow core whatever kind
+  declares it"): [type-name-shadow]; 1950 tests. Next: 0.4.
 - 2026-10-20: 0.2 done ("Collapse qualified literals like bare ones and parse
   them directly"): [type-literal-qualified]; 1948 tests. Next: 0.3 (the
   `Field` alias bug reproduced again while testing 0.2).
