@@ -1421,7 +1421,7 @@ impl Rewrite {
             | Expr::Float { .. }
             | Expr::Bool { .. }
             | Expr::Char { .. }
-            | Expr::Error { .. } => {}
+            | Expr::FieldDefault { .. } | Expr::Error { .. } => {}
             Expr::Str { parts, .. } => {
                 for part in parts {
                     match part {
@@ -1906,7 +1906,7 @@ fn collect_shadowing(body: &Block, reserved: &[&Ident], out: &mut Vec<(String, S
             | Expr::Bool { .. }
             | Expr::Char { .. }
             | Expr::Ident(_)
-            | Expr::Error { .. } => {}
+            | Expr::FieldDefault { .. } | Expr::Error { .. } => {}
         }
     }
 
@@ -2543,6 +2543,6 @@ fn walk_expr_with(expr: &Expr, on_stmt: &mut dyn FnMut(&Stmt), on_expr: &mut dyn
         | Expr::Continue { .. }
         | Expr::SelfScoped { .. }
         | Expr::SelfAddr { .. }
-        | Expr::Error { .. } => {}
+        | Expr::FieldDefault { .. } | Expr::Error { .. } => {}
     }
 }

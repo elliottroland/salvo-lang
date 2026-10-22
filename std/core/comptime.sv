@@ -71,6 +71,10 @@ export comptime type Kind = Struct | Union | Tuple | FnType | Opaque
 // body, compared with `is <Type>`; its description is the binder's `.kind`.
 export comptime struct Type {}
 
+// A value a declaration writes, as a field's `.default` holds it: in a copy it
+// is that expression, evaluated where it was declared [comptime-default].
+export comptime struct Value {}
+
 // One field of a `Struct`.
 export comptime struct Field {
     // The declared name: a literal of the union of the struct's field names
@@ -85,7 +89,12 @@ export comptime struct Field {
     // The declared position, from zero.
     index: Int,
     first: Bool,
-    last: Bool
+    last: Bool,
+    // The declared default (`port: Int = 8080`), or `None` when the field has
+    // none: read as an expression in a copy (`field.default`), evaluated
+    // where the struct is declared, and tested with `[if field.default is
+    // None]` [comptime-default]. A declared `= None` is a default.
+    default: Value?
 }
 
 // One arm of a `Union`. `name` is the struct's name for a struct arm, the

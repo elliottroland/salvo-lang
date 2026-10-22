@@ -1480,6 +1480,19 @@ Conventions:
     visible there): redundant, never wrong.
   * Replaced by a compile-time test when literal establishment lands
     [qual-const].
+* [default-scope] **A default is evaluated where it is declared** (fixed
+  2026-10-20, found building `field.default`): it is checked once at the
+  declaration, in that module's scope, and every site that applies it — a
+  struct literal leaving the field out, a call leaving the parameter out, a
+  comptime copy reading `field.default` [comptime-default] — lowers it under
+  the declaring file (`Lower::applied_default`'s `file`). So a default may
+  call a private fn of its module and still apply in another. Before, the
+  IR lowered it under the *using* file, whose checker facts are keyed by
+  that file: a struct default or parameter default calling a private fn
+  failed with "unresolved identifier" when applied elsewhere (a codegen
+  error, never wrong code). The predicate test around it stays at the site.
+  * Neither backend needed anything: every Salvo fn is public in emitted
+    code, so the declaring module's fn is reachable from the site's.
 * [struct-spread] `Name {...base, field: v}` copies `base` and overrides
   listed fields.
   * Multiple spreads in one literal are a codegen error (deliberate cut).
@@ -4907,8 +4920,8 @@ Conventions:
   struct's field names [comptime-name], and `field.type.arms` reaches a union
   field's arms. An expanded-in-place comptime fn names
   its type directly (`Reading.fields`). Nothing else is exposed — no attached
-  functions, no qualifiers on the value, no defaults yet (`field.default` is
-  recorded for the codec slice).
+  functions and no qualifiers on the value; a field's default is
+  `field.default` [comptime-default].
   * **Compile-time only.** `comptime struct`/`comptime type` are never emitted,
     have no wire form, cannot be constructed, and are refused in an ordinary
     type position where they are written; only another `comptime struct`'s
@@ -4919,6 +4932,24 @@ Conventions:
     the expansion records each comptime name's type at its written span — `T
     is Struct`, `field: Field`, `field.type`, `T.fields: List<Field>` —
     and the language server answers from that record before its usual tables.
+* [comptime-default] **`field.default` is the field's declared default**
+  (ARG_PARSE.md X1, built 2026-10-20 as engineering under round 2): in a copy
+  it is the `= expr` the field declares, evaluated where the struct is
+  declared [default-scope] and tested against the field's predicate
+  qualifiers like any applied default [default-predicate]; where the field
+  declares none it is `None`, so a copy can pass it to a `T?` either way
+  (`take<[field.type]>(t, field.default)`). `[if field.default is None]` (and
+  `!is None`) tests whether a default is declared; a declared `= None` is a
+  default, so `tag: Str? = None` is `!is None` and reads `None`.
+  * The expansion places an `Expr::FieldDefault { owner, field, ty }`, never
+    written: the checker types it as the field's type at that instance
+    without re-checking it, and the IR lowers the declaration's own
+    expression in the declaring file.
+  * Only a field has one: `arm.default` is an error, as a value and in a
+    head. `core.comptime` models it as `Field.default: Value?`, with
+    `comptime struct Value {}` for a declared value.
+  * A default that mentions the struct's own type parameters is lowered
+    with them unsubstituted; no std or test struct has one.
 * [comptime-inline] **The comptime constructs are written in brackets** (user
   decision 2026-09-29, replacing the `inline` word; restated 2026-10-20,
   ARG_PARSE.md §13 (B)). Two kinds of bracket, one principle — a bracket marks

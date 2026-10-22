@@ -1290,7 +1290,7 @@ impl<'p> Walk<'_, 'p> {
             | Expr::Float { .. }
             | Expr::Bool { .. }
             | Expr::Char { .. }
-            | Expr::Error { .. } => {}
+            | Expr::FieldDefault { .. } | Expr::Error { .. } => {}
         }
     }
 

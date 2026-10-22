@@ -934,3 +934,43 @@ fn a_spliced_arm_type_heads_a_struct_literal() {
     assert_eq!(errs.len(), 1, "expected one error, from the `B` copy: {errs:?}");
     assert!(errs[0].contains("`arm` is `B`") && errs[0].contains("`m`"), "{errs:?}");
 }
+
+// ===== [comptime-default] a field's declared default =====
+
+/// [comptime-default] `field.default` is the field's declared default where it
+/// has one and `None` where it has none, and `[if field.default is None]`
+/// tells the two apart: guarded, every copy checks; unguarded, only the copy
+/// for the field without a default fails, as `None` is not an `Int`.
+#[test]
+fn a_field_default_is_its_declared_default_or_none() {
+    let src = |body: &str| {
+        format!(
+            "struct P {{ a: Int = 3, b: Int, c: Int? = None }}\n\n\
+             comptime fn sum(p: P) [] -> Int => p {{\n    \
+             let total = 0\n    \
+             [for f in P.fields] {{\n{body}\n    }}\n    \
+             return total\n}}\n"
+        )
+    };
+    let errs = messages(&src("        [if f.default !is None && f.name !is \"c\"] {\n            let d: [f.type] = f.default\n            total = total + d\n        }"));
+    assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+    let errs = messages(&src("        let d: Int? = f.default\n        total = total + (d ?: 0)"));
+    assert!(errs.is_empty(), "a default passes to an optional either way: {errs:?}");
+    let errs = messages(&src("        let d: Int = f.default\n        total = total + d"));
+    assert_eq!(errs.len(), 2, "expected the `b` and `c` copies to fail: {errs:?}");
+    assert!(errs.iter().any(|e| e.contains("`f` is `b`")) && errs.iter().any(|e| e.contains("`f` is `c`")), "{errs:?}");
+}
+
+/// [comptime-default] Only a field has a default: `.default` on an arm binder,
+/// as a value or in a head, is an error naming why.
+#[test]
+fn an_arm_has_no_default() {
+    for body in ["        let d = arm.default", "        [if arm.default is None] { total = total + 1 }"] {
+        let src = format!(
+            "struct A {{ n: Int }}\nstruct B {{ n: Int }}\ntype U = A | B\n\n\
+             comptime fn count() [] -> Int {{\n    let total = 0\n    [for arm in U.arms] {{\n{body}\n    }}\n    return total\n}}\n"
+        );
+        let errs = messages(&src);
+        assert!(errs.iter().any(|e| e.contains("only a field has a default")), "{body}: {errs:?}");
+    }
+}

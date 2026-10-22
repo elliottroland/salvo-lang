@@ -607,6 +607,56 @@ fn main() [use] -> None {
     __stamp.verified();
 }
 
+/// [default-scope] [comptime-default] A default is evaluated where it is
+/// declared: a struct field's and a parameter's default that call a private
+/// fn of their module work when applied in another module (they were an
+/// "unresolved identifier" in the IR, which looked the default's facts up
+/// under the using file), and a comptime walk in another module reads each
+/// field's default with `field.default` — the declared value, tested
+/// against its predicate qualifier — or `None` where there is none.
+#[test]
+fn defaults_are_evaluated_where_they_are_declared() {
+    let Some(__stamp) = e2e_stamp("defaults_are_evaluated_where_they_are_declared", &["rustc", "kotlinc"]) else {
+        return;
+    };
+    let dir = work_dir("default_scope");
+    fs::create_dir_all(dir.join("lib")).unwrap();
+    fs::write(
+        dir.join("lib").join("conf.sv"),
+        "fn base_port() [] -> Int {\n    return 8000\n}\n\n\
+         fn suffix() [] -> Str {\n    return \"!\"\n}\n\n\
+         export fn wave(name: Str, punct: Str = suffix()) [] -> Str => name, punct {\n    return \"bye ${name}${punct}\"\n}\n\n\
+         export struct Conf {\n    host: Str = \"127.0.0.1\",\n    port: InRange(1, 65535) Int = base_port() + 80,\n    \
+         name: Str,\n    tag: Str? = None\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.join("main.sv"),
+        "import lib.conf\n\n\
+         fn show<T>(x: T?, ?to_str: (x: T) -> Str) [] -> Str => x {\n    if x is None {\n        return \"(none)\"\n    }\n    return to_str(x)\n}\n\n\
+         comptime fn defaults() [] -> Str {\n    let out: Mut Str = Mut Str(\"\")\n    [for f in Conf.fields] {\n        \
+         [if f.default is None] {\n            append(out, \"${f.name}: required\\n\")\n        } else {\n            \
+         let d: [f.type]? = f.default\n            append(out, \"${f.name}: ${show(d)}\\n\")\n        }\n    }\n    return out\n}\n\n\
+         fn main() [use] -> None {\n    use StdConsole()\n    let c = Conf { name: \"x\" }\n    \
+         println(\"${c.port} ${wave(c.host)}\")\n    print(defaults())\n}\n",
+    )
+    .unwrap();
+    for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
+        if !have(tool) {
+            eprintln!("skipping {backend}: {tool} not found on PATH");
+            continue;
+        }
+        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", ".", "--clean-target", "before"]);
+        assert!(out.status.success(), "{backend} failed: {}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(
+            String::from_utf8_lossy(&out.stdout),
+            "8080 bye 127.0.0.1!\nhost: 127.0.0.1\nport: 8080\nname: required\ntag: (none)\n",
+            "{backend}"
+        );
+    }
+    __stamp.verified();
+}
+
 /// [str-parse] The value parsers read the same strings on both backends:
 /// `parse_double` checks one decimal grammar before converting (the hosts'
 /// own parsers disagree on whitespace, `NaN`, `inf`, hex and `f` suffixes),

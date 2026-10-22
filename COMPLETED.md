@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1965 tests, complete: the toolchain tests are
+cargo test                  # 1969 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,52 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — `field.default`, and a default is evaluated where it is declared
+
+Phase 1.2 of the argument-parsing build (ARG_PARSE.md X1; engineering under
+round 2, which listed it as needing no decision). [comptime-default]: in a
+copy, `field.default` is the field's declared `= expr`, or `None` where it
+declares none, and `[if field.default is None]` / `!is None` tests which.
+`core.comptime`'s `Field` gains `default: Value?`, with `comptime struct Value
+{}` for a declared value.
+
+What it took:
+- **A defect found first** [default-scope]: a struct field's or parameter's
+  default that calls a private fn of its module failed with "unresolved
+  identifier" when applied in another module. The checker checks a default
+  once, in its own file, so its facts are keyed `(declaring file, span)`;
+  the IR lowered it under the *using* file's index, found nothing, and
+  stopped with a codegen error (never wrong code, but a program that should
+  compile did not). `applied_default` now takes the declaring file and
+  lowers the value under it (`struct_file`, `member_file`, and `FnKey.file`
+  for a fn's parameter); the predicate test around it stays the site's.
+  Neither backend needed anything: emitted fns are all public.
+- **A placed node, not a copied expression.** Copying the default's AST into
+  the copy would check it in the copy's scope (the comptime fn's module,
+  wrong for a private fn and for any name it does not import) and collide
+  with its declaring file's spans in the span-keyed tables. The expansion
+  instead places `Expr::FieldDefault { owner, field, ty }`: the checker types
+  it as the field's type without re-checking it, and the IR lowers the
+  declaration's own expression through `applied_default` with the declaring
+  file, the path every other applied default now takes. The new variant
+  touched the exhaustive `Expr` matches in desugar, check, deduce, lends,
+  reach and the IR, each as a leaf (reach follows the owner's type, which
+  reaches the struct's module and so whatever its default calls).
+- `Binding` gained `default_of` (the walked struct type, with an instance's
+  type arguments) for a field that declares a default; an arm has none, and
+  `arm.default` is an error as a value and in a head.
+- Not covered, in the spec: a default that mentions the struct's own type
+  parameters is lowered with them unsubstituted. No struct in std or the
+  tests has one.
+
+Tests: CLI run `defaults_are_evaluated_where_they_are_declared` (both
+backends: a struct default and a parameter default calling private fns of
+`lib.conf`, applied in `main`; a comptime walk in `main` printing each
+field's default, a predicate-qualified one included, `required` for the one
+without, and `(none)` for a declared `= None`); comptime_tests
+`a_field_default_is_its_declared_default_or_none`, `an_arm_has_no_default`;
+parser_tests `a_default_test_compares_with_none_only`.
 
 ### 2026-10-20 — A comptime type is spliced in brackets: `[field.type]`, `[arm.type] { … }`
 
@@ -26976,7 +27022,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 1965 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1969 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -28251,6 +28297,14 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **The IR's `Lower` reads checker facts under its own file index**
+  (2026-10-20): `ty_of`, `call_info` and every `key(span)` lookup are
+  `(self.file_idx, span)`. An expression checked in one file and lowered
+  while building another (a default applied elsewhere, anything a comptime
+  expansion carries across files) finds nothing, or another node's facts at
+  the same offsets. Lower it under the file that checked it, as
+  `applied_default` does with its `file` argument.
 
 - **Read every `FAIL` line of a suite log, not its tail** (2026-10-20): the
   tail of a nextest log shows only the last few failures before the summary,

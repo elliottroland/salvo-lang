@@ -452,7 +452,7 @@ impl<'p> Walk<'_, '_, 'p> {
                 }
                 Some(out)
             }
-            Expr::Scoped { .. } | Expr::EffectScoped { .. } | Expr::Error { .. } => None,
+            Expr::Scoped { .. } | Expr::EffectScoped { .. } | Expr::FieldDefault { .. } | Expr::Error { .. } => None,
         }
     }
 

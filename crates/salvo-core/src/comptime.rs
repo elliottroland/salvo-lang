@@ -586,6 +586,16 @@ impl HoverRecorder<'_> {
                     );
                 }
             }
+            CompCond::NoDefault { binder, span } => {
+                if self.binder_kind(&binder.name).is_some() {
+                    self.push(
+                        *span,
+                        &format!("{}.default", binder.name),
+                        "Whether the field declares a default: `is None` when it does not \
+                         [comptime-default].",
+                    );
+                }
+            }
             CompCond::IndexCmp { a, b, .. } => {
                 for id in [a, b] {
                     if self.binder_kind(&id.name).is_some() {
@@ -733,6 +743,7 @@ impl HoverRecorder<'_> {
                             "last" => ("Bool", "Whether this copy is for the last element."),
                             "type" => ("Type", "The declared type itself (`core.comptime`)."),
                             "kind" => ("Kind", "The declared type's kind (`core.comptime`), tested in a comptime head."),
+                            "default" => ("Value?", "The declared default, evaluated where the struct is declared; `None` where the field has none [comptime-default]."),
                             _ => ("?", "Not a projection a `Field`/`Arm` has."),
                         };
                         let _ = is_arm;
@@ -1969,6 +1980,10 @@ struct Binding {
     /// sequence in a diagnostic ("`P` has no field", "`Source` has no arm").
     siblings: Vec<String>,
     sibling_owner: String,
+    /// [comptime-default] The struct a field binder walks (with an instance's
+    /// type arguments), when the field declares a default; `None` for a field
+    /// without one, and for an arm.
+    default_of: Option<Type>,
 }
 
 /// The body rewriter: unrolls, selects, refuses, and substitutes.
@@ -2202,6 +2217,7 @@ impl<'w> Expander<'w> {
                         is_arm: true,
                         siblings: siblings.clone(),
                         sibling_owner: sibling_owner.clone(),
+                        default_of: None,
                     })
                     .collect(),
             );
@@ -2278,6 +2294,7 @@ impl<'w> Expander<'w> {
                     is_arm: false,
                     siblings: siblings.clone(),
                     sibling_owner: type_name.clone(),
+                    default_of: f.default.as_ref().map(|_| ty.clone()),
                 })
                 .collect(),
         )
@@ -2571,6 +2588,17 @@ impl<'w> Expander<'w> {
                 };
                 Some(if *last { b.last } else { b.first })
             }
+            CompCond::NoDefault { binder, span } => {
+                let Some(b) = self.binding(&binder.name) else {
+                    self.error(*span, format!("`{}` is not a binder [comptime-inline]", binder.name));
+                    return None;
+                };
+                if b.is_arm {
+                    self.error(*span, format!("`{}` is an arm, and only a field has a default [comptime-default]", binder.name));
+                    return None;
+                }
+                Some(b.default_of.is_none())
+            }
             CompCond::IndexCmp { a, b, op, span } => {
                 let (Some(x), Some(y)) = (self.binding(&a.name).map(|b| b.index), self.binding(&b.name).map(|b| b.index)) else {
                     self.error(*span, "both sides of an `.index` comparison must be binders [comptime-inline]");
@@ -2828,6 +2856,7 @@ impl<'w> Expander<'w> {
                         is_arm: true,
                         siblings: siblings.clone(),
                         sibling_owner: sibling_owner.clone(),
+                        default_of: None,
                     };
                     let body = self.copy(&body, &binder.name, &b);
                     // The check's spans come from the union's declaration; two
@@ -3007,11 +3036,29 @@ impl MutVisitor for Expander<'_> {
                         }
                         "first" => *expr = Expr::Bool { value: bd.first, span },
                         "last" => *expr = Expr::Bool { value: bd.last, span },
+                        // [comptime-default] The field's declared default,
+                        // evaluated where the struct is declared; `None`
+                        // where it declares none, so a copy can pass it to a
+                        // `T?` either way.
+                        "default" if bd.is_arm => {
+                            self.error(span, format!("`{}` is an arm, and only a field has a default [comptime-default]", root.name));
+                        }
+                        "default" => {
+                            *expr = match &bd.default_of {
+                                Some(owner) => Expr::FieldDefault {
+                                    owner: owner.clone(),
+                                    field: Ident { name: bd.name.clone(), span },
+                                    ty: bd.ty.clone(),
+                                    span,
+                                },
+                                None => Expr::Ident(Ident { name: "None".to_string(), span }),
+                            };
+                        }
                         "kind" => {
                             self.error(span, format!("`{}.kind` is tested in a comptime head (`[if {}.kind is Struct]`, `[when {}.kind]`), not read as a value [comptime-kind]", root.name, root.name, root.name));
                         }
                         other => {
-                            self.error(span, format!("a `Field`/`Arm` has `.name`, `.kind`, `.type`, `.index`, `.first` and `.last`, not `.{other}` [comptime-fields]"));
+                            self.error(span, format!("a `Field`/`Arm` has `.name`, `.kind`, `.type`, `.index`, `.first`, `.last` and (a field) `.default`, not `.{other}` [comptime-fields]"));
                         }
                     }
                     return;

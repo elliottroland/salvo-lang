@@ -810,5 +810,11 @@ fn expr_names<'p>(expr: &'p Expr, used: &mut HashSet<&'p str>) {
         | Expr::Bool { .. }
         | Expr::Char { .. }
         | Expr::Error { .. } => {}
+        // [comptime-default] The struct whose default it is (and the
+        // modules its default reaches, through that struct's module).
+        Expr::FieldDefault { owner, ty, .. } => {
+            type_names(owner, used);
+            type_names(ty, used);
+        }
     }
 }

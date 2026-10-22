@@ -16725,7 +16725,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             | Expr::Spread { .. }
             | Expr::Scoped { .. }
             | Expr::EffectScoped { .. }
-            | Expr::Error { .. } => false,
+            | Expr::FieldDefault { .. } | Expr::Error { .. } => false,
         }
     }
 
@@ -16826,7 +16826,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             | Expr::Spread { .. }
             | Expr::Scoped { .. }
             | Expr::EffectScoped { .. }
-            | Expr::Error { .. } => false,
+            | Expr::FieldDefault { .. } | Expr::Error { .. } => false,
         }
     }
 
@@ -21772,7 +21772,7 @@ fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
         | Expr::Bool { .. }
         | Expr::Char { .. }
         | Expr::Ident(_)
-        | Expr::Error { .. } => {}
+        | Expr::FieldDefault { .. } | Expr::Error { .. } => {}
     }
 }
 
@@ -21963,7 +21963,7 @@ fn expr_mentions(expr: &Expr, name: &str) -> bool {
         | Expr::Float { .. }
         | Expr::Bool { .. }
         | Expr::Char { .. }
-        | Expr::Error { .. } => false,
+        | Expr::FieldDefault { .. } | Expr::Error { .. } => false,
     }
 }
 
@@ -24807,6 +24807,13 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             Expr::Lambda { params, body, span } => self.check_lambda(params, body, *span, expected),
             Expr::Spread { operand, .. } => self.check_expr(operand, None),
+            // [comptime-default] Checked once where its struct is declared;
+            // here it is a value of the field's type. The owner is lowered so
+            // the IR can find the struct the expansion meant.
+            Expr::FieldDefault { owner, ty, .. } => {
+                let _ = self.lower_type(owner);
+                self.lower_type(ty)
+            }
             Expr::Error { .. } => Ty::Unknown,
         }
     }

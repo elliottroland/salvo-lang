@@ -107,7 +107,7 @@ tracked here so a fresh agent can carry on. Rules for whoever continues:
 **Phase 1: language extensions**
 - [x] 1.1 Bracketed splices: `[field.type]` in type positions and `[arm.type]`
   as a literal head; bare projections as types become a parse error (§13).
-- [ ] 1.2 `field.default` (X1).
+- [x] 1.2 `field.default` (X1).
 - [ ] 1.3 `field.docs` (and on `Struct`, `Arm`, `Union`) (X2).
 - [ ] 1.4 `Char`/`Str` constant slots in qualifiers (Q5c).
 - [ ] 1.5 Comptime qualifiers `of Field` / `of Struct`: declaration, placement
@@ -135,6 +135,11 @@ tracked here so a fresh agent can carry on. Rules for whoever continues:
 **Blocked on the user:** nothing.
 
 **Log** (newest first):
+- 2026-10-20: 1.2 done ("Add field.default, and evaluate defaults where they are
+  declared"): [comptime-default], [default-scope]; 1969 tests. `field.default`
+  is `None` where a field declares none, so `take(t, field.default)` works
+  either way. Fixed first: a default calling a private fn failed when
+  applied in another module. Next: 1.3 (`field.docs`).
 - 2026-10-20: 1.1 done ("Splice comptime types in brackets"): [comptime-inline]
   restated; 1965 tests. `[arm.type] { … }` already builds a struct arm;
   qualified and literal arms are 1.6. Also fixed a parser hang (a stray `is`
@@ -228,6 +233,7 @@ co-occurring; one or more positional files.
 
 1. **`field.default` is recorded, unbuilt** (ROADMAP §2c, for the codec slice).
    A derived parser cannot apply a default, or print one in help, without it.
+   (Built 2026-10-20, step 1.2.)
 2. **No per-field metadata.** Salvo has no attributes. Doc comments are on the
    AST but not exposed to comptime. So short names (`-p`), help text and
    metavariables have nowhere to live on a field.

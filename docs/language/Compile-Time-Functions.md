@@ -119,8 +119,9 @@ Three things in it are compile-time:
   struct literal, `[field]: value` is the same entry.
 - The binder exposes **`field.name`** (a string literal), **`field.type`**
   (the type itself), **`field.kind`** (what kind of type it is),
-  **`field.index`**, **`field.first`** and **`field.last`**; the bound
-  parameter exposes **`T.name`**. `to_str` uses them:
+  **`field.index`**, **`field.first`**, **`field.last`** and
+  **`field.default`** (below); the bound parameter exposes **`T.name`**.
+  `to_str` uses them:
 
 ```
 export comptime fn to_str<T is Struct>(value: T) [] -> Str => value {
@@ -191,6 +192,25 @@ either: `field.name` and `"${T.name}"` are constants an expression already
 accepts. The heads `[for …]`, `[if …]` and `[when …]` are bracketed for a
 related reason, that the same text without them is a runtime loop or test;
 inside a head, `field.type is Str` and `[when field.type]` stay bare.
+
+**`field.default` is the field's declared default**, `= 8080` in `port: Int =
+8080`, and `None` for a field that declares none. It is evaluated where the
+struct is declared, so a default that calls a private function of its module
+works from a comptime fn anywhere. `[if field.default is None]` tells the two
+cases apart:
+
+```
+[for field in T.fields] {
+    [if field.default is None] {
+        append(out, "${field.name} (required)\n")
+    } else {
+        let d: [field.type]? = field.default
+        …
+    }
+}
+```
+
+A field declared `= None` has a default, which is `None`.
 
 A type and its kind are kept apart on purpose. `field.type is Union` compares
 the field's type with a type called `Union`; `field.kind is Union` asks

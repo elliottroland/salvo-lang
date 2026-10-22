@@ -814,8 +814,6 @@ in build order:
   also the spelling for two same-named implicits at different types; makes the
   carried identity a **tree** printed only where a level is not the canonical
   default (section 6's decision 3). Needs section 6.
-- **`field.default`** (a compile-time optional of the declared `= expr`), for
-  the codec slice's `from_json` — recorded, unbuilt.
 - **The `json` module** (`Json` union per SERDE.md SD-1, `to_json`/`from_json`
   comptime fns spelled `by json`, tag rules per SD-4) — waits on SERDE.md's SD-1 and
   SD-4 decisions and on section 6 for container fields.

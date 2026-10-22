@@ -185,7 +185,7 @@ fn fields(ctx: &Ctx<'_>, file_idx: usize, decls: &[ast::FieldDecl], state: bool,
                     let e = if state {
                         let what = format!("state `{}`", f.name.name);
                         let slot = f.ty.as_ref().and_then(|t| ctx.written_ty_unerased(t));
-                        lower.applied_default(d, slot.as_ref(), &what, d.span())
+                        lower.applied_default(d, slot.as_ref(), &what, d.span(), None)
                     } else {
                         lower.expr(d)
                     };

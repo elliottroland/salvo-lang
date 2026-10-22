@@ -318,6 +318,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 self.pop_scope();
                 Expr { ty, span, kind: ExprKind::WaitFor { local, token_ty, body: b } }
             }
+            AExpr::FieldDefault { owner, field, .. } => self.field_default(owner, field, span),
             AExpr::Error { .. } => unsupported(Ty::Unknown, span, "parse error"),
         }
     }
@@ -1077,6 +1078,12 @@ impl<'a, 'p> Lower<'a, 'p> {
         let params: Option<&[ast::Param]> = callee.as_ref().map(|c| match c { Callee::Fn(_, d) => d.params.as_slice(), Callee::Member(m) => m.params.as_slice() });
         let fixed: Vec<&ast::Param> = params.map(|ps| ps.iter().filter(|p| !p.implicit).collect()).unwrap_or_default();
         let variadic_at = fixed.iter().position(|p| p.variadic);
+        // [default-scope] A default is lowered in the file that declares it.
+        let default_file = match &callee {
+            Some(Callee::Fn(k, _)) => Some(k.file),
+            Some(Callee::Member(m)) => self.member_file(m),
+            None => None,
+        };
         let mode_of = |p: &ast::Param| match &callee {
             Some(Callee::Fn(k, _)) => modes.fn_param(Some(*k), p),
             Some(Callee::Member(m)) => modes.member_param(m, p),
@@ -1154,7 +1161,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                             let named_value: Option<&AExpr> = named.iter().find(|a| a.name.name == p.name.name).map(|a| &a.value);
                             let lowered = match (named_value, &p.default) {
                                 (Some(v), _) => Some(self.expr(v)),
-                                (None, Some(d)) => Some(self.param_default(p, d, span)),
+                                (None, Some(d)) => Some(self.param_default(p, d, span, default_file)),
                                 (None, None) => None, // a required gap — a checker error already
                             };
                             if let Some(mut x) = lowered {
@@ -1176,7 +1183,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                         let named_value: Option<&AExpr> = named.iter().find(|a| a.name.name == p.name.name).map(|a| &a.value);
                         let lowered = match (named_value, &p.default) {
                             (Some(v), _) => self.expr(v),
-                            (None, Some(d)) => self.param_default(p, d, span),
+                            (None, Some(d)) => self.param_default(p, d, span, default_file),
                             (None, None) => continue, // a required gap — a checker error already
                         };
                         Some(lowered)
@@ -1208,7 +1215,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                     let named_value: Option<&AExpr> = named.iter().find(|a| a.name.name == p.name.name).map(|a| &a.value);
                     let lowered = match (named_value, &p.default) {
                         (Some(v), _) => Some(self.expr(v)),
-                        (None, Some(d)) => Some(self.param_default(p, d, span)),
+                        (None, Some(d)) => Some(self.param_default(p, d, span, default_file)),
                         (None, None) => None, // a required gap — a checker error already
                     };
                     if let Some(mut x) = lowered {
@@ -1310,7 +1317,8 @@ impl<'a, 'p> Lower<'a, 'p> {
                 // [default-predicate] tested where it is applied.
                 let slot = fd.ty.as_ref().and_then(|t| self.ctx.written_ty_unerased(t));
                 let what = format!("field `{name}`");
-                all.push((name.clone(), self.applied_default(d, slot.as_ref(), &what, span)));
+                let file = self.struct_file(decl);
+                all.push((name.clone(), self.applied_default(d, slot.as_ref(), &what, span, file)));
             }
         }
         all.extend(written);
@@ -1583,9 +1591,45 @@ impl<'a, 'p> Lower<'a, 'p> {
     /// arguments, no implicits and no effects ([default-fits]), which is what
     /// makes the test buildable at any construction or call site.
     /// [default-predicate] A parameter's default, applied at a call.
-    fn param_default(&mut self, p: &ast::Param, d: &AExpr, span: Span) -> Expr {
+    fn param_default(&mut self, p: &ast::Param, d: &AExpr, span: Span, file: Option<usize>) -> Expr {
         let what = format!("parameter `{}`", p.name.name);
-        self.applied_default(d, self.ctx.written_ty_unerased(&p.ty).map(|t| t.strip_spread()).as_ref(), &what, span)
+        self.applied_default(d, self.ctx.written_ty_unerased(&p.ty).map(|t| t.strip_spread()).as_ref(), &what, span, file)
+    }
+
+    /// [comptime-default] `field.default` as the expansion placed it: the
+    /// field's declared default, applied like any other — lowered in the
+    /// declaring file, and tested there against a predicate qualifier.
+    fn field_default(&mut self, owner: &ast::Type, field: &ast::Ident, span: Span) -> Expr {
+        let ty = self.ty_of(span);
+        let decl = match self.ctx.written_ty(self.file_idx, owner).strip_quals() {
+            Ty::Named { name, .. } => self.ctx.symbols.structs.get(name.as_str()).copied(),
+            _ => None,
+        };
+        let Some(fd) = decl.and_then(|d| d.fields.iter().find(|f| f.name.name == field.name)) else {
+            return unsupported(ty, span, format!("the default of field `{}`: its struct is not known here", field.name));
+        };
+        let Some(d) = &fd.default else {
+            return unsupported(ty, span, format!("field `{}` declares no default", field.name));
+        };
+        let slot = fd.ty.as_ref().and_then(|t| self.ctx.written_ty_unerased(t));
+        let file = decl.and_then(|d| self.struct_file(d));
+        self.applied_default(d, slot.as_ref(), &format!("field `{}`", field.name), span, file)
+    }
+
+    /// [default-scope] The file that declares `decl`.
+    fn struct_file(&self, decl: &ast::StructDecl) -> Option<usize> {
+        self.ctx
+            .program
+            .modules
+            .iter()
+            .position(|m| m.items.iter().any(|i| matches!(i, ast::Item::Struct(s) if std::ptr::eq(s, decl))))
+    }
+
+    /// [default-scope] The file that declares the effect member `m`.
+    fn member_file(&self, m: &ast::FnDecl) -> Option<usize> {
+        self.ctx.program.modules.iter().position(|module| {
+            module.items.iter().any(|i| matches!(i, ast::Item::Effect(e) if e.fns.iter().any(|f| std::ptr::eq(f, m))))
+        })
     }
 
     ///
@@ -1593,8 +1637,20 @@ impl<'a, 'p> Lower<'a, 'p> {
     /// and tags), so a default's own claims are not visible here: every
     /// predicate qualifier of the slot is tested, which is redundant (never
     /// wrong) for a default that already carried the claim.
-    pub(crate) fn applied_default(&mut self, default: &AExpr, slot: Option<&Ty>, what: &str, span: Span) -> Expr {
+    ///
+    /// [default-scope] `file` is the file that declares the default: it was
+    /// checked there, so the checker's facts about it are keyed by that
+    /// file's index, and it is lowered under that index — a default that
+    /// calls a private fn of its module, applied in another module, found
+    /// nothing under the using file's (2026-10-20: "unresolved identifier").
+    /// Only the value is lowered there; the test around it is the site's.
+    pub(crate) fn applied_default(&mut self, default: &AExpr, slot: Option<&Ty>, what: &str, span: Span, file: Option<usize>) -> Expr {
+        let saved = self.file_idx;
+        if let Some(f) = file {
+            self.file_idx = f;
+        }
         let value = self.expr(default);
+        self.file_idx = saved;
         let Some(slot) = slot else { return value };
         let checks: Vec<crate::types::Qual> = slot
             .quals()

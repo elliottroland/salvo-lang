@@ -5372,7 +5372,7 @@ impl<'s> Parser<'s> {
         if let TokenKind::Ident(b) = self.kind().clone() {
             if b.starts_with(|c: char| c.is_lowercase())
                 && matches!(self.peek_at(1).kind, TokenKind::Dot)
-                && matches!(&self.peek_at(2).kind, TokenKind::Ident(p) if matches!(p.as_str(), "name" | "first" | "last" | "index" | "kind"))
+                && matches!(&self.peek_at(2).kind, TokenKind::Ident(p) if matches!(p.as_str(), "name" | "first" | "last" | "index" | "kind" | "default"))
             {
                 let binder = self.ident()?;
                 self.bump();
@@ -5417,6 +5417,25 @@ impl<'s> Parser<'s> {
                             op,
                             span: start.to(what.span),
                         });
+                    }
+                    "default" => {
+                        // [comptime-default] `field.default is None`: whether
+                        // the field declares no default. Only `None` is a
+                        // test of a default: the value itself is the code's.
+                        let negated = self.comp_is_or_not_is()?;
+                        let none = self.peek().span;
+                        if !matches!(self.kind(), TokenKind::Ident(n) if n == "None") {
+                            self.error(
+                                "a field's default is tested for being declared: \
+                                 `field.default is None` or `!is None` [comptime-default]",
+                                none,
+                            );
+                            return None;
+                        }
+                        self.bump();
+                        let span = start.to(none);
+                        let cond = CompCond::NoDefault { binder, span };
+                        return Some(if negated { CompCond::Not(Box::new(cond), span) } else { cond });
                     }
                     "first" | "last" => {
                         return Some(CompCond::Flag {

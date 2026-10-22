@@ -662,6 +662,9 @@ pub enum CompCond {
     NameIs { binder: Ident, lits: Vec<String>, span: Span },
     /// `field.first` / `field.last`.
     Flag { binder: Ident, last: bool, span: Span },
+    /// [comptime-default] `field.default is None`: the field declares no `=
+    /// expr`. `!is None` is `Not` of it.
+    NoDefault { binder: Ident, span: Span },
     /// `x.index == y.index`, `x.index < y.index` — two arm (or field)
     /// positions compared, which is how a union `cmp` orders arms without an
     /// intrinsic (comptime round 7's std sketch).
@@ -686,6 +689,7 @@ impl CompCond {
             | CompCond::Mutable { span, .. }
             | CompCond::NameIs { span, .. }
             | CompCond::Flag { span, .. }
+            | CompCond::NoDefault { span, .. }
             | CompCond::IndexCmp { span, .. }
             | CompCond::Not(_, span)
             | CompCond::And(_, _, span)
@@ -2231,6 +2235,14 @@ pub enum Expr {
         body: Block,
         span: Span,
     },
+    /// [comptime-default] A field's declared default, placed by the comptime
+    /// expansion where a copy reads `field.default`: never written, and never
+    /// re-checked where it lands. It is the `= expr` on field `field` of the
+    /// struct `owner` (an instance's type arguments included), of type `ty`
+    /// (the field's type at that instance), checked once where the struct is
+    /// declared and lowered in that file's scope, as every applied default is
+    /// [struct-defaults].
+    FieldDefault { owner: Type, field: Ident, ty: Type, span: Span },
     /// Placeholder produced on parse errors so parsing can continue.
     Error { span: Span },
 }
@@ -2399,6 +2411,7 @@ impl Expr {
             | Expr::ReplyTo { span, .. }
             | Expr::WaitFor { span, .. }
             | Expr::Spread { span, .. }
+            | Expr::FieldDefault { span, .. }
             | Expr::Error { span } => *span,
             Expr::Ident(ident) => ident.span,
         }

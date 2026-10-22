@@ -358,7 +358,7 @@ pub fn walk_comp_cond<V: Visitor>(v: &mut V, c: &CompCond) {
             v.visit_span(span);
             walk_comp_ty(v, ty);
         }
-        CompCond::NameIs { binder, span, .. } | CompCond::Flag { binder, span, .. } => {
+        CompCond::NameIs { binder, span, .. } | CompCond::Flag { binder, span, .. } | CompCond::NoDefault { binder, span } => {
             v.visit_span(span);
             v.visit_ident(binder);
         }
@@ -871,6 +871,12 @@ pub fn walk_expr<V: Visitor>(v: &mut V, e: &Expr) {
                 walk_type(v, t);
             }
             walk_block(v, body);
+        }
+        Expr::FieldDefault { owner, field, ty, span } => {
+            v.visit_span(span);
+            walk_type(v, owner);
+            v.visit_ident(field);
+            walk_type(v, ty);
         }
         Expr::Error { span } => v.visit_span(span),
     }
