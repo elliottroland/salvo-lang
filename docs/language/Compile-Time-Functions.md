@@ -119,9 +119,9 @@ Three things in it are compile-time:
   struct literal, `[field]: value` is the same entry.
 - The binder exposes **`field.name`** (a string literal), **`field.type`**
   (the type itself), **`field.kind`** (what kind of type it is),
-  **`field.index`**, **`field.first`**, **`field.last`** and
-  **`field.default`** (below); the bound parameter exposes **`T.name`**.
-  `to_str` uses them:
+  **`field.index`**, **`field.first`**, **`field.last`**,
+  **`field.default`** and **`field.docs`** (below); the bound parameter
+  exposes **`T.name`** and **`T.docs`**. `to_str` uses them:
 
 ```
 export comptime fn to_str<T is Struct>(value: T) [] -> Str => value {
@@ -211,6 +211,20 @@ cases apart:
 ```
 
 A field declared `= None` has a default, which is `None`.
+
+**`field.docs` is the field's doc comment**, the `//` lines above it joined
+as hover shows them, and `None` where there is none; `arm.docs` is the
+comment of the declaration an arm names, and `T.docs` the type's own. Both
+`.default` and `.docs` are one thing or the other in each copy, so test them
+in a head (`[if field.docs !is None]`) rather than with `?:`:
+
+```
+[for field in T.fields] {
+    [if field.docs !is None] {
+        append(out, "  --${field.name}  ${field.docs}\n")
+    }
+}
+```
 
 A type and its kind are kept apart on purpose. `field.type is Union` compares
 the field's type with a type called `Union`; `field.kind is Union` asks

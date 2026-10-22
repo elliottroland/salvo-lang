@@ -5372,7 +5372,7 @@ impl<'s> Parser<'s> {
         if let TokenKind::Ident(b) = self.kind().clone() {
             if b.starts_with(|c: char| c.is_lowercase())
                 && matches!(self.peek_at(1).kind, TokenKind::Dot)
-                && matches!(&self.peek_at(2).kind, TokenKind::Ident(p) if matches!(p.as_str(), "name" | "first" | "last" | "index" | "kind" | "default"))
+                && matches!(&self.peek_at(2).kind, TokenKind::Ident(p) if matches!(p.as_str(), "name" | "first" | "last" | "index" | "kind" | "default" | "docs"))
             {
                 let binder = self.ident()?;
                 self.bump();
@@ -5418,24 +5418,8 @@ impl<'s> Parser<'s> {
                             span: start.to(what.span),
                         });
                     }
-                    "default" => {
-                        // [comptime-default] `field.default is None`: whether
-                        // the field declares no default. Only `None` is a
-                        // test of a default: the value itself is the code's.
-                        let negated = self.comp_is_or_not_is()?;
-                        let none = self.peek().span;
-                        if !matches!(self.kind(), TokenKind::Ident(n) if n == "None") {
-                            self.error(
-                                "a field's default is tested for being declared: \
-                                 `field.default is None` or `!is None` [comptime-default]",
-                                none,
-                            );
-                            return None;
-                        }
-                        self.bump();
-                        let span = start.to(none);
-                        let cond = CompCond::NoDefault { binder, span };
-                        return Some(if negated { CompCond::Not(Box::new(cond), span) } else { cond });
+                    "default" | "docs" => {
+                        return self.comp_unset_test(start, binder, proj.name == "docs");
                     }
                     "first" | "last" => {
                         return Some(CompCond::Flag {
@@ -5494,6 +5478,16 @@ impl<'s> Parser<'s> {
                 }
             }
         }
+        // [comptime-docs] `T.docs is None`, `Reading.docs is None`.
+        if matches!(&self.kind(), TokenKind::Ident(n) if n.starts_with(|c: char| c.is_uppercase()))
+            && matches!(self.peek_at(1).kind, TokenKind::Dot)
+            && matches!(&self.peek_at(2).kind, TokenKind::Ident(p) if p == "docs")
+        {
+            let root = self.ident()?;
+            self.bump();
+            self.bump();
+            return self.comp_unset_test(start, root, true);
+        }
         let ty = self.parse_comp_ty()?;
         // `T.mutable`: the `Struct.mutable` projection as a condition.
         if self.at(&TokenKind::Dot)
@@ -5529,6 +5523,30 @@ impl<'s> Parser<'s> {
         let (binders, target) = self.comp_type_pattern()?;
         let span = start.to(target.span());
         let cond = CompCond::Is { ty, binders, target, span };
+        Some(if negated { CompCond::Not(Box::new(cond), span) } else { cond })
+    }
+
+    /// [comptime-default] [comptime-docs] The rest of `x.default is None` /
+    /// `x.docs is None`: these are tested only for being there, so `None` is
+    /// the one thing they are compared with.
+    fn comp_unset_test(&mut self, start: Span, binder: Ident, docs: bool) -> Option<CompCond> {
+        let negated = self.comp_is_or_not_is()?;
+        let none = self.peek().span;
+        if !matches!(self.kind(), TokenKind::Ident(n) if n == "None") {
+            let (what, label) = if docs { ("docs", "comptime-docs") } else { ("default", "comptime-default") };
+            self.error(
+                format!(
+                    "a {what} is tested for being there: `{}.{what} is None` or `!is None` \
+                     [{label}]",
+                    binder.name
+                ),
+                none,
+            );
+            return None;
+        }
+        self.bump();
+        let span = start.to(none);
+        let cond = CompCond::Unset { binder, docs, span };
         Some(if negated { CompCond::Not(Box::new(cond), span) } else { cond })
     }
 

@@ -108,7 +108,7 @@ tracked here so a fresh agent can carry on. Rules for whoever continues:
 - [x] 1.1 Bracketed splices: `[field.type]` in type positions and `[arm.type]`
   as a literal head; bare projections as types become a parse error (§13).
 - [x] 1.2 `field.default` (X1).
-- [ ] 1.3 `field.docs` (and on `Struct`, `Arm`, `Union`) (X2).
+- [x] 1.3 `field.docs` (and on `Struct`, `Arm`, `Union`) (X2).
 - [ ] 1.4 `Char`/`Str` constant slots in qualifiers (Q5c).
 - [ ] 1.5 Comptime qualifiers `of Field` / `of Struct`: declaration, placement
   before a field's name or a declaration, comptime `field is Q` and
@@ -135,6 +135,9 @@ tracked here so a fresh agent can carry on. Rules for whoever continues:
 **Blocked on the user:** nothing.
 
 **Log** (newest first):
+- 2026-10-20: 1.3 done ("Read doc comments in comptime"): [comptime-docs]; 1971
+  tests. A copy's `.docs`/`.default` is one value, so it is tested in a head
+  (`[if field.docs !is None]`), not with `?:`. Next: 1.4 (`Char`/`Str` slots).
 - 2026-10-20: 1.2 done ("Add field.default, and evaluate defaults where they are
   declared"): [comptime-default], [default-scope]; 1969 tests. `field.default`
   is `None` where a field declares none, so `take(t, field.default)` works

@@ -358,7 +358,7 @@ pub fn walk_comp_cond<V: Visitor>(v: &mut V, c: &CompCond) {
             v.visit_span(span);
             walk_comp_ty(v, ty);
         }
-        CompCond::NameIs { binder, span, .. } | CompCond::Flag { binder, span, .. } | CompCond::NoDefault { binder, span } => {
+        CompCond::NameIs { binder, span, .. } | CompCond::Flag { binder, span, .. } | CompCond::Unset { binder, span, .. } => {
             v.visit_span(span);
             v.visit_ident(binder);
         }

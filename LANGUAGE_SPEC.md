@@ -4897,8 +4897,8 @@ Conventions:
   structs, readable and hoverable, never values —
 
   ```
-  comptime struct Struct  { name: Str, fields: List<Field>, mutable: Bool }
-  comptime struct Union   { name: Str, arms: List<Arm> }
+  comptime struct Struct  { name: Str, fields: List<Field>, mutable: Bool, docs: Str? }
+  comptime struct Union   { name: Str, arms: List<Arm>, docs: Str? }
   comptime struct Tuple   { elems: List<Type> }
   comptime struct FnType  {}
   comptime struct Basic   { name: Str }      // declared `intrinsic type`
@@ -4906,8 +4906,11 @@ Conventions:
   comptime type Opaque = Basic | Generic
   comptime type Kind   = Struct | Union | Tuple | FnType | Opaque
   comptime struct Type  {}                   // a type itself; its description is `.kind`
-  comptime struct Field { name: Str, kind: Kind, type: Type, index: Int, first: Bool, last: Bool }
-  comptime struct Arm   { name: Str, kind: Kind, type: Type, index: Int, first: Bool, last: Bool }
+  comptime struct Value {}                   // a value a declaration writes
+  comptime struct Field { name: Str, kind: Kind, type: Type, index: Int, first: Bool, last: Bool,
+                          default: Value?, docs: Str? }
+  comptime struct Arm   { name: Str, kind: Kind, type: Type, index: Int, first: Bool, last: Bool,
+                          docs: Str? }
   ```
 
   Inside a body the bound `T` is a `Struct` or `Union` by its bound, `T.fields`
@@ -4921,7 +4924,8 @@ Conventions:
   field's arms. An expanded-in-place comptime fn names
   its type directly (`Reading.fields`). Nothing else is exposed — no attached
   functions and no qualifiers on the value; a field's default is
-  `field.default` [comptime-default].
+  `field.default` [comptime-default], and doc comments are `.docs`
+  [comptime-docs].
   * **Compile-time only.** `comptime struct`/`comptime type` are never emitted,
     have no wire form, cannot be constructed, and are refused in an ordinary
     type position where they are written; only another `comptime struct`'s
@@ -4950,6 +4954,19 @@ Conventions:
     `comptime struct Value {}` for a declared value.
   * A default that mentions the struct's own type parameters is lowered
     with them unsubstituted; no std or test struct has one.
+  * In a copy the value is one thing or the other — the default, or `None`
+    — so it is tested in a head, not with `?:`, which each copy refuses as
+    on any value with one arm. Passing it to a `T?` needs neither.
+* [comptime-docs] **`.docs` is a doc comment as text** (ARG_PARSE.md X2,
+  built 2026-10-20 under round 2: "text as hover prints it"): on a field
+  binder its own [doc-comment], on an arm binder the comment of the
+  declaration the arm names (a struct or a `type`), and on the bound `T` or
+  a named root (`Serve.docs`) the type's. In a copy it is a `Str` literal,
+  the lines joined with newlines as hover joins them, `[symbol]` references
+  left as written (a link means nothing outside an editor); `None` where
+  the comment is absent or blank. `[if x.docs is None]` / `!is None` tests
+  which, as for `field.default`, and for the same reason a copy's value is
+  tested in a head rather than with `?:`.
 * [comptime-inline] **The comptime constructs are written in brackets** (user
   decision 2026-09-29, replacing the `inline` word; restated 2026-10-20,
   ARG_PARSE.md §13 (B)). Two kinds of bracket, one principle — a bracket marks

@@ -586,14 +586,14 @@ impl HoverRecorder<'_> {
                     );
                 }
             }
-            CompCond::NoDefault { binder, span } => {
+            CompCond::Unset { binder, docs, span } => {
                 if self.binder_kind(&binder.name).is_some() {
-                    self.push(
-                        *span,
-                        &format!("{}.default", binder.name),
-                        "Whether the field declares a default: `is None` when it does not \
-                         [comptime-default].",
-                    );
+                    let (proj, note) = if *docs {
+                        ("docs", "Whether there is a doc comment: `is None` when there is not [comptime-docs].")
+                    } else {
+                        ("default", "Whether the field declares a default: `is None` when it does not [comptime-default].")
+                    };
+                    self.push(*span, &format!("{}.{proj}", binder.name), note);
                 }
             }
             CompCond::IndexCmp { a, b, .. } => {
@@ -743,6 +743,7 @@ impl HoverRecorder<'_> {
                             "last" => ("Bool", "Whether this copy is for the last element."),
                             "type" => ("Type", "The declared type itself (`core.comptime`)."),
                             "kind" => ("Kind", "The declared type's kind (`core.comptime`), tested in a comptime head."),
+                            "docs" => ("Str?", "The doc comment above the declaration, as text, or `None` [comptime-docs]."),
                             "default" => ("Value?", "The declared default, evaluated where the struct is declared; `None` where the field has none [comptime-default]."),
                             _ => ("?", "Not a projection a `Field`/`Arm` has."),
                         };
@@ -756,8 +757,8 @@ impl HoverRecorder<'_> {
                             return;
                         }
                     }
-                    // `Reading.name`: a declared type named as a root.
-                    if field.name == "name" && root.name.starts_with(|c: char| c.is_uppercase()) {
+                    // `Reading.name`, `Reading.docs`: a declared type named as a root.
+                    if (field.name == "name" || field.name == "docs") && root.name.starts_with(|c: char| c.is_uppercase()) {
                         self.roots.push(root.clone());
                         return;
                     }
@@ -1192,6 +1193,17 @@ impl World {
     fn type_named(&self, name: &str) -> Option<&TypeDecl> {
         let all = self.types.get(name)?;
         self.pick_decl(name, all).map(|(_, d)| d)
+    }
+
+    /// [comptime-docs] The doc comment of the declaration a type names — a
+    /// struct, or a `type` declaration — as text.
+    fn docs_of(&self, ty: &Type) -> Option<String> {
+        let Type::Named { base, .. } = ty else { return None };
+        let name = base.name.name.as_str();
+        match self.struct_named(name) {
+            Some(s) => doc_text(&s.docs),
+            None => self.type_named(name).and_then(|t| doc_text(&t.docs)),
+        }
     }
 
     fn simple_named(name: &str, span: Span) -> Type {
@@ -1984,6 +1996,18 @@ struct Binding {
     /// type arguments), when the field declares a default; `None` for a field
     /// without one, and for an arm.
     default_of: Option<Type>,
+    /// [comptime-docs] The element's doc comment as text, or `None`: a
+    /// field's own, an arm's the declaration it names.
+    docs: Option<String>,
+}
+
+/// [comptime-docs] A doc block as a value: its lines joined, as hover joins
+/// them, with `[symbol]` references left as written; `None` when blank.
+fn doc_text(docs: &[String]) -> Option<String> {
+    if docs.iter().all(|l| l.trim().is_empty()) {
+        return None;
+    }
+    Some(docs.join("\n").trim_end().to_string())
 }
 
 /// The body rewriter: unrolls, selects, refuses, and substitutes.
@@ -2207,6 +2231,7 @@ impl<'w> Expander<'w> {
                 arms.into_iter()
                     .enumerate()
                     .map(|(i, a)| Binding {
+                        docs: self.world.docs_of(&a),
                         name: arm_name(&a),
                         decl_span: a.span(),
                         label: format!("{} arm `{}`", self.world.normalized(&ty), a),
@@ -2295,6 +2320,7 @@ impl<'w> Expander<'w> {
                     siblings: siblings.clone(),
                     sibling_owner: type_name.clone(),
                     default_of: f.default.as_ref().map(|_| ty.clone()),
+                    docs: doc_text(&f.docs),
                 })
                 .collect(),
         )
@@ -2588,7 +2614,22 @@ impl<'w> Expander<'w> {
                 };
                 Some(if *last { b.last } else { b.first })
             }
-            CompCond::NoDefault { binder, span } => {
+            CompCond::Unset { binder, docs: true, span } => {
+                if let Some(b) = self.binding(&binder.name) {
+                    return Some(b.docs.is_none());
+                }
+                if let Some((param, target)) = &self.bound {
+                    if binder.name == *param {
+                        return Some(self.world.docs_of(&target.ty).is_none());
+                    }
+                }
+                if self.world.structs.contains_key(&binder.name) || self.world.types.contains_key(&binder.name) {
+                    return Some(self.world.docs_of(&World::simple_named(&binder.name, binder.span)).is_none());
+                }
+                self.error(*span, format!("`{}` is neither a binder nor a type [comptime-docs]", binder.name));
+                None
+            }
+            CompCond::Unset { binder, docs: false, span } => {
                 let Some(b) = self.binding(&binder.name) else {
                     self.error(*span, format!("`{}` is not a binder [comptime-inline]", binder.name));
                     return None;
@@ -2857,6 +2898,7 @@ impl<'w> Expander<'w> {
                         siblings: siblings.clone(),
                         sibling_owner: sibling_owner.clone(),
                         default_of: None,
+                        docs: self.world.docs_of(arm),
                     };
                     let body = self.copy(&body, &binder.name, &b);
                     // The check's spans come from the union's declaration; two
@@ -3036,6 +3078,14 @@ impl MutVisitor for Expander<'_> {
                         }
                         "first" => *expr = Expr::Bool { value: bd.first, span },
                         "last" => *expr = Expr::Bool { value: bd.last, span },
+                        // [comptime-docs] The element's doc comment, as a
+                        // `Str` literal, or `None`.
+                        "docs" => {
+                            *expr = match &bd.docs {
+                                Some(text) => self.str_lit(text, span),
+                                None => Expr::Ident(Ident { name: "None".to_string(), span }),
+                            };
+                        }
                         // [comptime-default] The field's declared default,
                         // evaluated where the struct is declared; `None`
                         // where it declares none, so a copy can pass it to a
@@ -3058,7 +3108,7 @@ impl MutVisitor for Expander<'_> {
                             self.error(span, format!("`{}.kind` is tested in a comptime head (`[if {}.kind is Struct]`, `[when {}.kind]`), not read as a value [comptime-kind]", root.name, root.name, root.name));
                         }
                         other => {
-                            self.error(span, format!("a `Field`/`Arm` has `.name`, `.kind`, `.type`, `.index`, `.first`, `.last` and (a field) `.default`, not `.{other}` [comptime-fields]"));
+                            self.error(span, format!("a `Field`/`Arm` has `.name`, `.kind`, `.type`, `.index`, `.first`, `.last`, `.docs` and (a field) `.default`, not `.{other}` [comptime-fields]"));
                         }
                     }
                     return;
@@ -3067,14 +3117,30 @@ impl MutVisitor for Expander<'_> {
                     if root.name == *param && field.name == "name" {
                         let name = target.name.clone();
                         *expr = self.str_lit(&name, span);
+                    } else if root.name == *param && field.name == "docs" {
+                        // [comptime-docs] The stamped type's doc comment.
+                        let docs = self.world.docs_of(&target.ty);
+                        *expr = match docs {
+                            Some(text) => self.str_lit(&text, span),
+                            None => Expr::Ident(Ident { name: "None".to_string(), span }),
+                        };
                     }
                     return;
                 }
-                if field.name == "name" && root.name.starts_with(|c: char| c.is_uppercase())
+                if root.name.starts_with(|c: char| c.is_uppercase())
                     && (self.world.structs.contains_key(&root.name) || self.world.types.contains_key(&root.name))
                 {
-                    let name = root.name.clone();
-                    *expr = self.str_lit(&name, span);
+                    if field.name == "name" {
+                        let name = root.name.clone();
+                        *expr = self.str_lit(&name, span);
+                    } else if field.name == "docs" {
+                        // [comptime-docs] `Reading.docs`: a named root's.
+                        let docs = self.world.docs_of(&World::simple_named(&root.name, root.span));
+                        *expr = match docs {
+                            Some(text) => self.str_lit(&text, span),
+                            None => Expr::Ident(Ident { name: "None".to_string(), span }),
+                        };
+                    }
                 }
             }
             // [comptime-inline] A struct literal's `inline for` entries unroll

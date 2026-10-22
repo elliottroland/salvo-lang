@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1969 tests, complete: the toolchain tests are
+cargo test                  # 1971 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,34 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — `.docs`: a doc comment as a comptime value
+
+Phase 1.3 of the argument-parsing build (ARG_PARSE.md X2; "text as hover
+prints it", round 2). [comptime-docs]: `field.docs`, `arm.docs`, `T.docs`
+and a named root's `Serve.docs` are the doc comment above the declaration,
+lines joined with newlines and `[symbol]` references left as written, or
+`None`; `core.comptime`'s `Struct`, `Union`, `Field` and `Arm` gain
+`docs: Str?`.
+
+What it took:
+- A copy's value is a `Str` literal or `None`, and the first probe wrote
+  `field.docs ?: "-"`: every copy refused it ("`?:` on `Str` keeps its only
+  arm"), since each copy's value has one arm. The same holds for
+  `field.default`. Rather than invent a typed placed value, both are tested
+  in a head: the default test generalized to `CompCond::Unset { binder,
+  docs }`, so `[if field.docs is None]`, `[if T.docs !is None]` and
+  `[if field.default is None]` share one parser (`comp_unset_test`) and
+  error. Passing either to a `T?` parameter needs no test.
+- An arm's docs are the named declaration's (`World::docs_of`, a struct or a
+  `type`): a union's arms are types, and the parser keeps no comment per arm.
+- `Reading.docs` makes `Reading` a root the visibility check requires, as
+  `Reading.name` does [comptime-root-visible].
+
+Tests: comptime_tests `docs_are_the_doc_comment_or_none` (field, arm, struct
+and a two-line comment, read back through `refuse!`),
+`a_copys_docs_are_tested_in_a_head`; parser_tests
+`a_default_test_compares_with_none_only` extended to `.docs`.
 
 ### 2026-10-20 — `field.default`, and a default is evaluated where it is declared
 
@@ -27022,7 +27050,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 1969 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1971 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

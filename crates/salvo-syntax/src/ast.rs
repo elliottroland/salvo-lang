@@ -662,9 +662,12 @@ pub enum CompCond {
     NameIs { binder: Ident, lits: Vec<String>, span: Span },
     /// `field.first` / `field.last`.
     Flag { binder: Ident, last: bool, span: Span },
-    /// [comptime-default] `field.default is None`: the field declares no `=
-    /// expr`. `!is None` is `Not` of it.
-    NoDefault { binder: Ident, span: Span },
+    /// [comptime-default] [comptime-docs] `field.default is None`,
+    /// `field.docs is None`, `T.docs is None`: the element declares no
+    /// default, or carries no doc comment. `docs` says which projection;
+    /// `binder` is a binder, the bound parameter or a named root. `!is None`
+    /// is `Not` of it.
+    Unset { binder: Ident, docs: bool, span: Span },
     /// `x.index == y.index`, `x.index < y.index` — two arm (or field)
     /// positions compared, which is how a union `cmp` orders arms without an
     /// intrinsic (comptime round 7's std sketch).
@@ -689,7 +692,7 @@ impl CompCond {
             | CompCond::Mutable { span, .. }
             | CompCond::NameIs { span, .. }
             | CompCond::Flag { span, .. }
-            | CompCond::NoDefault { span, .. }
+            | CompCond::Unset { span, .. }
             | CompCond::IndexCmp { span, .. }
             | CompCond::Not(_, span)
             | CompCond::And(_, _, span)

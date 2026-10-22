@@ -4073,12 +4073,12 @@ fn a_stray_keyword_in_a_handler_body_does_not_hang() {
     assert!((1..=3).contains(&errors), "{diagnostics:?}");
 }
 
-/// [comptime-default] `field.default` is tested only for being declared:
-/// `is None` / `!is None`; any other type after it is an error naming the
-/// two forms.
+/// [comptime-default] [comptime-docs] `field.default`, `field.docs` and
+/// `T.docs` are tested only for being there: `is None` / `!is None`; any
+/// other type after one is an error naming the two forms.
 #[test]
 fn a_default_test_compares_with_none_only() {
-    let ok = "comptime fn f<T is Struct>(v: T) [] -> Int => v {\n    [for field in T.fields] {\n        [if field.default is None] { }\n        [if field.default !is None] { }\n    }\n    return 0\n}\n";
+    let ok = "comptime fn f<T is Struct>(v: T) [] -> Int => v {\n    [for field in T.fields] {\n        [if field.default is None] { }\n        [if field.default !is None] { }\n        [if field.docs is None] { }\n    }\n    [if T.docs !is None] { }\n    return 0\n}\n";
     let (_, diags) = salvo_syntax::parse_module(ok);
     assert!(diags.iter().all(|d| !d.is_error()), "{diags:?}");
     let bad = "comptime fn f<T is Struct>(v: T) [] -> Int => v {\n    [for field in T.fields] {\n        [if field.default is Int] { }\n    }\n    return 0\n}\n";

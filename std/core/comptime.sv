@@ -26,7 +26,10 @@ export comptime struct Struct {
     fields: List<Field>,
     // Whether the declaration says `canbe Mut`. A structural `hash` refuses a
     // mutable struct [col-hashed-ordered].
-    mutable: Bool
+    mutable: Bool,
+    // The doc comment above the declaration, as text, or `None` (`T.docs`,
+    // tested with `[if T.docs is None]`) [comptime-docs].
+    docs: Str?
 }
 
 // A named union (`type Source = A | B | None`): its declared arms, `None`
@@ -35,7 +38,9 @@ export comptime struct Union {
     name: Str,
     // The arms — what `[for arm in T.arms]` unrolls, and what a
     // `[when value] { [arm] { … } }` dispatches over.
-    arms: List<Arm>
+    arms: List<Arm>,
+    // The doc comment above the declaration, or `None` [comptime-docs].
+    docs: Str?
 }
 
 // A tuple type: its elements, in order.
@@ -94,7 +99,11 @@ export comptime struct Field {
     // none: read as an expression in a copy (`field.default`), evaluated
     // where the struct is declared, and tested with `[if field.default is
     // None]` [comptime-default]. A declared `= None` is a default.
-    default: Value?
+    default: Value?,
+    // The doc comment above the field, its lines joined, or `None`: a `Str`
+    // literal in a copy that has one, tested with `[if field.docs is None]`
+    // [comptime-docs].
+    docs: Str?
 }
 
 // One arm of a `Union`. `name` is the struct's name for a struct arm, the
@@ -105,5 +114,8 @@ export comptime struct Arm {
     type: Type,
     index: Int,
     first: Bool,
-    last: Bool
+    last: Bool,
+    // The doc comment of the declaration the arm names (a struct, or a
+    // `type`), or `None` [comptime-docs].
+    docs: Str?
 }

@@ -974,3 +974,37 @@ fn an_arm_has_no_default() {
         assert!(errs.iter().any(|e| e.contains("only a field has a default")), "{body}: {errs:?}");
     }
 }
+
+// ===== [comptime-docs] doc comments as values =====
+
+/// [comptime-docs] `field.docs`, `arm.docs`, `T.docs` and a named root's
+/// `.docs` are the doc comment above the declaration, its lines joined as
+/// hover joins them, or `None`; `[if x.docs is None]` tells which. An arm's
+/// is the declaration it names.
+#[test]
+fn docs_are_the_doc_comment_or_none() {
+    let src = "// Serve files.\n// Over HTTP.\nstruct Serve {\n    // The address.\n    host: Str,\n    port: Int\n}\n\n\
+               // An arm.\nstruct A { n: Int }\nstruct B { n: Int }\ntype U = A | B\n\n\
+               comptime fn help() [] -> Int {\n    \
+               [if Serve.docs !is None] {\n        refuse!(\"struct ${Serve.docs}\")\n    }\n    \
+               [for f in Serve.fields] {\n        [if f.docs is None] {\n            refuse!(\"${f.name} none\")\n        } else {\n            refuse!(\"${f.name} ${f.docs}\")\n        }\n    }\n    \
+               [for arm in U.arms] {\n        [if arm.docs !is None] {\n            refuse!(\"${arm.name} ${arm.docs}\")\n        }\n    }\n    \
+               return 0\n}\n";
+    assert_eq!(
+        refused(src),
+        ["A An arm.", "host The address.", "port none", "struct Serve files.\nOver HTTP."]
+    );
+}
+
+/// [comptime-docs] A copy's `docs` is a `Str` literal or `None`, so it is
+/// tested in a head: `?:` on it is refused in each copy as on any value with
+/// one arm, which the error names.
+#[test]
+fn a_copys_docs_are_tested_in_a_head() {
+    let errs = messages(
+        "struct S {\n    // Doc.\n    a: Int\n}\n\n\
+         comptime fn help() [] -> Str {\n    let out: Mut Str = Mut Str(\"\")\n    \
+         [for f in S.fields] {\n        append(out, f.docs ?: \"-\")\n    }\n    return out\n}\n",
+    );
+    assert!(errs.iter().any(|e| e.contains("when `f` is `a`") && e.contains("`?:`")), "{errs:?}");
+}
