@@ -206,6 +206,8 @@ if code is Kms { … }
 
 **At run time a literal is its base.** A union of one base type's literals is that base type on both backends — `Direction` is a `String` — and the `Other` arm, being a `Str` too, collapses with them. In a union that mixes bases, each base's literals share one arm: `"name" | 3 | "other" | Person` is a `Str | Int | Person` at run time, its arms in the order they first appear. Since two literals of one base are the same host type, two overloads that differ only in literal types (`fn pick(x: "A")` and `fn pick(x: "B")`) are refused; take the union in one function and `when` over it. `"a" | Str` is a warning — every `Str` is already an arm — pointing at `Other Str`.
 
+**Qualified literals.** A literal can carry a qualifier like any other type: `Short "port" | Short "verbose" | "host"`. The qualifier erases, so at run time this is still one `Str`, and `is Short` is the test "the value is `"port"` or `"verbose"`". Because the value alone decides, a union may not list one literal twice under different qualifiers (`Short "port" | "port"`); that is an error naming both arms.
+
 ## Structs
 
 Data types can be combined into structs which are like Kotlin class objects where all the fields are public and there are no methods:

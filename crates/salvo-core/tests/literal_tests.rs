@@ -163,3 +163,52 @@ fn g() [] -> Mixed {{
     assert_eq!(wrap.1, 0, "\"other\" shares the first Str arm");
     assert_eq!(wrap.0.to_string(), "Str | Int | P");
 }
+
+// ===== [type-literal-qualified] qualified literals =====
+
+const SHORT: &str = "export provenance qualifier Short of Str\ntype Port = \"port\"\n\
+type Field = Short Port | Short \"verbose\" | \"host\"\n";
+
+/// [type-literal-qualified] `is Short` on a union of qualified literals is a
+/// value test against the literals that carry `Short`, on the one runtime
+/// arm they all collapsed into (no wrapper); a `when` over the arms is
+/// exhaustive as over any; and the bare literal wraps into nothing.
+#[test]
+fn a_qualified_literal_test_is_a_value_comparison() {
+    let src = format!(
+        "{SHORT}fn f(x: Field) [] -> Bool => x {{\n    return x is Short\n}}\n\
+         fn g(x: Field) [] -> Int => x {{\n    when x {{\n        is Short {{ return 1 }}\n        is \"host\" {{ return 2 }}\n    }}\n}}\n\
+         fn h() [] -> Field {{\n    return \"host\"\n}}\n"
+    );
+    let (_, out) = checked(&src);
+    assert!(out.errors.iter().all(|e| !e.is_error()), "{:?}", out.errors);
+    let want = vec![(0, false, vec![TypeLit::Str("port".into()), TypeLit::Str("verbose".into())])];
+    assert!(
+        out.is_tests.values().any(|t| t.size == 1 && t.values == want),
+        "{:?}",
+        out.is_tests.values().map(|t| (t.size, t.values.clone())).collect::<Vec<_>>()
+    );
+    assert!(
+        out.is_tests.values().any(|t| t.size == 1 && t.values == vec![(0, false, vec![TypeLit::Str("host".into())])]),
+        "the `when`'s `is \"host\"` arm is a value test too"
+    );
+    assert!(
+        !out.coerce.values().any(|c| matches!(c, Coercion::WrapUnion { .. })),
+        "a union that collapsed to `Str` has no arm to wrap into: {:?}",
+        out.coerce.values().collect::<Vec<_>>()
+    );
+}
+
+/// [type-literal-qualified] A literal listed under two qualifier sets is
+/// refused, aliases expanded, naming both arms.
+#[test]
+fn a_literal_listed_with_and_without_a_qualifier_is_refused() {
+    for ty in ["Short \"port\" | \"port\"", "Short Port | \"port\" | \"host\""] {
+        let src = format!("{SHORT}type Bad = {ty}\n");
+        let errs = errors(&src);
+        assert!(
+            errs.iter().any(|e| e.contains("this union lists `\"port\"` twice, as `Short \"port\"` and as `\"port\"`")),
+            "`{ty}`: {errs:?}"
+        );
+    }
+}

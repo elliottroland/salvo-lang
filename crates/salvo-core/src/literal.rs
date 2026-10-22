@@ -40,19 +40,40 @@ fn plain_base(ty: &Ty) -> Option<&str> {
     }
 }
 
+/// [type-literal-qualified] The literal an arm holds, qualified or not:
+/// `"port"` and `Short "port"` both hold `"port"`. A qualifier on a literal
+/// erases like every qualifier [qual-erasure], so the value alone says which
+/// arm it is, and a qualified literal collapses into its base exactly as a
+/// bare one does (user decision 2026-10-20, ARG_PARSE.md round 2 Q1).
+pub fn arm_lit(ty: &Ty) -> Option<&TypeLit> {
+    match ty.strip_quals() {
+        Ty::Lit(l) => Some(l),
+        _ => None,
+    }
+}
+
+/// [type-literal-qualified] A literal a union lists twice under different
+/// qualifiers (`Short "port" | "port"`): the value cannot tell the two arms
+/// apart, so the union is refused. The literal and the two arms, in order.
+pub fn literal_conflict(value_arms: &[&Ty]) -> Option<(TypeLit, Ty, Ty)> {
+    for (i, a) in value_arms.iter().enumerate() {
+        let Some(la) = arm_lit(a) else { continue };
+        for b in &value_arms[i + 1..] {
+            if arm_lit(b) == Some(la) && a.quals() != b.quals() {
+                return Some((la.clone(), (*a).clone(), (*b).clone()));
+            }
+        }
+    }
+    None
+}
+
 fn layout(value_arms: &[&Ty]) -> Layout {
     // The bases that have literals, and how many non-literal arms share each.
-    let lit_bases: Vec<&str> = value_arms
-        .iter()
-        .filter_map(|a| match a {
-            Ty::Lit(l) => Some(l.base()),
-            _ => None,
-        })
-        .collect();
+    let lit_bases: Vec<&str> = value_arms.iter().filter_map(|a| arm_lit(a).map(|l| l.base())).collect();
     let joiners = |base: &str| {
         value_arms
             .iter()
-            .filter(|a| !matches!(a, Ty::Lit(_)) && plain_base(a) == Some(base))
+            .filter(|a| arm_lit(a).is_none() && plain_base(a) == Some(base))
             .count()
     };
     let mut runtime: Vec<Ty> = Vec::new();
@@ -60,9 +81,9 @@ fn layout(value_arms: &[&Ty]) -> Layout {
     let mut base_slot: Vec<(&str, usize)> = Vec::new();
     let mut to_runtime = Vec::with_capacity(value_arms.len());
     for arm in value_arms {
-        let base = match arm {
-            Ty::Lit(l) => Some(l.base()),
-            other => plain_base(other).filter(|b| lit_bases.contains(b) && joiners(b) == 1),
+        let base = match arm_lit(arm) {
+            Some(l) => Some(l.base()),
+            None => plain_base(arm).filter(|b| lit_bases.contains(b) && joiners(b) == 1),
         };
         match base {
             Some(b) => {
@@ -70,11 +91,12 @@ fn layout(value_arms: &[&Ty]) -> Layout {
                     to_runtime.push(*slot);
                     // A joining non-literal arm keeps its own spelling (and
                     // qualifiers, which erase) in the runtime union.
-                    if !matches!(arm, Ty::Lit(_)) {
+                    if arm_lit(arm).is_none() {
                         runtime[*slot] = collapse_ty(arm);
                     }
                 } else {
-                    let ty = if matches!(arm, Ty::Lit(_)) { Ty::named(b) } else { collapse_ty(arm) };
+                    // A literal, qualified or not, is its plain base.
+                    let ty = if arm_lit(arm).is_some() { Ty::named(b) } else { collapse_ty(arm) };
                     runtime.push(ty);
                     base_slot.push((b, runtime.len() - 1));
                     to_runtime.push(runtime.len() - 1);
@@ -158,7 +180,7 @@ pub fn widen(ty: &Ty) -> Ty {
                     let has_lit = values
                         .iter()
                         .zip(&lay.to_runtime)
-                        .any(|(a, at)| *at == r && matches!(a, Ty::Lit(_)));
+                        .any(|(a, at)| *at == r && arm_lit(a).is_some());
                     if has_lit {
                         t.strip_quals().clone()
                     } else {
@@ -253,6 +275,19 @@ pub fn collapse_ast_with<'a>(ty: &ast::Type, alias: &dyn Fn(&str) -> Option<&'a 
                                 None => arm.clone(),
                             }
                         }
+                        // [type-literal-qualified] `Short Port` where `Port` is
+                        // a literal: the qualified literal it stands for, so it
+                        // collapses with its neighbours.
+                        ast::Type::Named { qualifiers, base } if base.args.is_empty() => {
+                            match alias(&base.name.name) {
+                                Some(def @ ast::Type::Literal { .. }) => ast::Type::QualifiedGroup {
+                                    qualifiers: qualifiers.clone(),
+                                    base: Box::new(def.clone()),
+                                    span: base.span,
+                                },
+                                _ => arm.clone(),
+                            }
+                        }
                         other => expand(other, alias, depth + 1),
                     };
                     match arm {
@@ -304,35 +339,40 @@ pub fn collapse_ast(ty: &ast::Type) -> ast::Type {
             _ => None,
         }
     }
+    // [type-literal-qualified] A literal arm, qualified (`Short "port"`) or
+    // not: the qualifier erases, so both are the literal's base at run time.
+    fn lit_of(ty: &ast::Type) -> Option<(&TypeLit, salvo_syntax::span::Span)> {
+        match ty {
+            ast::Type::Literal { value, span } => Some((value, *span)),
+            ast::Type::QualifiedGroup { base, .. } => lit_of(base),
+            _ => None,
+        }
+    }
+    if let Some((value, span)) = lit_of(ty) {
+        return value.base_type(span);
+    }
     match ty {
-        ast::Type::Literal { value, span } => value.base_type(*span),
         ast::Type::Union { arms, span } => {
-            let lits: Vec<&TypeLit> = arms
-                .iter()
-                .filter_map(|a| match a {
-                    ast::Type::Literal { value, .. } => Some(value),
-                    _ => None,
-                })
-                .collect();
+            let lits: Vec<&TypeLit> = arms.iter().filter_map(|a| lit_of(a).map(|(v, _)| v)).collect();
             let joiners = |b: &str| arms.iter().filter(|a| plain(a) == Some(b)).count();
             let mut out: Vec<ast::Type> = Vec::new();
             let mut seen: Vec<(&str, usize)> = Vec::new();
             for arm in arms {
-                let base = match arm {
-                    ast::Type::Literal { value, .. } => Some(value.base()),
-                    other => plain(other).filter(|b| lits.iter().any(|l| l.base() == *b) && joiners(b) == 1),
+                let base = match lit_of(arm) {
+                    Some((value, _)) => Some(value.base()),
+                    None => plain(arm).filter(|b| lits.iter().any(|l| l.base() == *b) && joiners(b) == 1),
                 };
                 match base {
                     Some(b) => match seen.iter().find(|(n, _)| *n == b) {
                         Some((_, at)) => {
-                            if !matches!(arm, ast::Type::Literal { .. }) {
+                            if lit_of(arm).is_none() {
                                 out[*at] = arm.clone();
                             }
                         }
                         None => {
-                            out.push(match arm {
-                                ast::Type::Literal { value, span } => value.base_type(*span),
-                                other => other.clone(),
+                            out.push(match lit_of(arm) {
+                                Some((value, span)) => value.base_type(span),
+                                None => arm.clone(),
                             });
                             seen.push((b, out.len() - 1));
                         }
@@ -428,6 +468,24 @@ mod tests {
         );
         let u = Ty::union_of(vec![s("A"), s("B")]);
         assert_eq!(runtime_arm(&u, 1), None);
+    }
+
+    /// [type-literal-qualified] A qualified literal collapses into its base
+    /// like a bare one: `Short "port" | Short "verbose" | "host"` is one `Str`
+    /// at run time, every arm on it. Before 2026-10-20 each qualified literal
+    /// took a runtime arm of its own while the union deduplicated them, so a
+    /// backend emitted two arms and constructed a third.
+    #[test]
+    fn a_qualified_literal_collapses_like_a_bare_one() {
+        let short = |v: &str| s(v).qualify(vec![crate::types::Qual::plain("Short", Vec::new())]);
+        let u = Ty::union_of(vec![short("port"), short("verbose"), s("host")]);
+        assert_eq!(collapse_ty(&u), Ty::named("Str"));
+        assert_eq!(runtime_size(&u), 1);
+        assert_eq!(runtime_arm(&u, 2), None);
+        assert_eq!(arm_lit(&short("port")), Some(&TypeLit::Str("port".into())));
+        assert!(literal_conflict(&[&short("port"), &s("host")]).is_none());
+        let conflict = literal_conflict(&[&short("port"), &s("port")]).expect("a conflict");
+        assert_eq!(conflict.0, TypeLit::Str("port".into()));
     }
 
     #[test]

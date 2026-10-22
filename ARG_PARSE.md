@@ -91,7 +91,7 @@ tracked here so a fresh agent can carry on. Rules for whoever continues:
 - [x] 0.1 Defaults checked against their declared type, at every default site
   (ROADMAP §2d item 1; round-2 Q2: a predicate-qualified default is tested
   with `qualifies` where it is applied, and traps on failure).
-- [ ] 0.2 Qualified literals in unions: supported, collapsing into the base arm;
+- [x] 0.2 Qualified literals in unions: supported, collapsing into the base arm;
   `is Q` compares against the literals carrying `Q`; a literal listed with
   and without `Q` refused; `Q "lit"` parses (§2d items 2, 3; Q1).
 - [ ] 0.3 A user type alias named like a `core.comptime` type resolves like a
@@ -135,6 +135,9 @@ tracked here so a fresh agent can carry on. Rules for whoever continues:
 **Blocked on the user:** nothing.
 
 **Log** (newest first):
+- 2026-10-20: 0.2 done ("Collapse qualified literals like bare ones and parse
+  them directly"): [type-literal-qualified]; 1948 tests. Next: 0.3 (the
+  `Field` alias bug reproduced again while testing 0.2).
 - 2026-10-20: 0.1 done ("Check defaults against their type and test predicate
   defaults where applied"): [default-fits], [default-predicate]; 1943 tests.
   Next: 0.2.

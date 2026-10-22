@@ -457,6 +457,41 @@ fn a_predicate_default_is_tested_where_it_is_applied() {
     __stamp.verified();
 }
 
+/// [type-literal-qualified] A union of provenance-qualified literals compiles
+/// and runs on both backends: the qualified literals collapse into `Str`
+/// like bare ones, `is Short` compares against the literals carrying it, and
+/// a `when` over the arms dispatches. Before 2026-10-20 both backends emitted
+/// a two-arm union and constructed a third arm, and rustc and kotlinc
+/// refused the output.
+#[test]
+fn a_union_of_qualified_literals_runs_on_both_backends() {
+    let Some(__stamp) = e2e_stamp("a_union_of_qualified_literals_runs_on_both_backends", &["rustc", "kotlinc"]) else {
+        return;
+    };
+    let dir = work_dir("qualified_literals");
+    fs::write(
+        dir.join("main.sv"),
+        "provenance qualifier Short of Str\ntype Port = \"port\"\n\
+         type FieldName = Short Port | Short \"verbose\" | \"host\"\n\n\
+         fn describe(f: FieldName) [] -> Str => f {\n    if f is Short {\n        return \"short ${f}\"\n    }\n    return \"long ${f}\"\n}\n\n\
+         fn code(f: FieldName) [] -> Int => f {\n    when f {\n        is Short { return 1 }\n        is \"host\" { return 2 }\n    }\n}\n\n\
+         fn main() [use] -> None {\n    use StdConsole()\n    let h: FieldName = \"host\"\n    \
+         println(describe(h))\n    println(\"${code(h)}\")\n}\n",
+    )
+    .unwrap();
+    for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
+        if !have(tool) {
+            eprintln!("skipping {backend}: {tool} not found on PATH");
+            continue;
+        }
+        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", "."]);
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(out.status.success(), "{backend} failed: {}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(stdout, "long host\n2\n", "{backend}");
+    }
+    __stamp.verified();
+}
+
 // ===== --clean-target =====
 
 /// `both` (the default) leaves nothing behind; `before` keeps the output for

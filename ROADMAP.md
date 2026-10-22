@@ -864,37 +864,9 @@ reproduced in a scratch project; the repros are below.
 1. ✅ **Defaults are checked against their declared type** (done 2026-10-20,
    COMPLETED.md; [default-fits], [default-predicate]).
 
-2. **A union of provenance-qualified literals type-checks but does not
-   compile.** The checker accepts it; both backends emit a two-arm union and
-   construct a third arm, so rustc (`E0599: no variant … named U3 found for
-   enum Union2`) and kotlinc (`unresolved reference 'U3'`) fail. A
-   [backend-never-wrong] hole: checker and emitters disagree on the arm
-   identity of qualified literals [union-arm-identity].
-
-   ```
-   provenance qualifier Short of Str
-   type Port = "port"
-   type Verbose = "verbose"
-   type FieldName = Short Port | Short Verbose | "host"
-   fn describe(f: FieldName) [] -> Str => f { if f is Short { return "short" } return "long" }
-   // main: let b: FieldName = "host"; println(describe(b))
-   ```
-
-   **DECISION (small):** what such a union means. (a) Support it: qualified
-   literals collapse into their base arm like every literal, `is Q` lowers to
-   a comparison against the literals that carry `Q`, and a union listing one
-   literal both with and without `Q` (whose qualifier the value cannot tell)
-   is refused; the rule lives in `salvo_core::literal`, the one definition
-   both sides use. (b) Refuse a qualified literal in a union, with a
-   diagnostic. *Recommendation:* (a), which keeps literal unions and
-   provenance tags orthogonal, as tags are everywhere else.
-
-3. **A qualifier cannot be written on a literal directly.** `Short "port"`
-   is a parse error ("expected item, found string literal"); the same type is
-   reachable through an alias (`type Port = "port"`, `Short Port`). *General
-   fix:* the type parser accepts a literal wherever a qualified base may
-   stand, so the two spellings mean the same thing. Lands with item 2, which
-   decides what the type means.
+2. ✅ **A union of qualified literals compiles** (done 2026-10-20,
+   COMPLETED.md; [type-literal-qualified]).
+3. ✅ **`Short "port"` parses** (done 2026-10-20, with item 2).
 
 4. **A type alias named like a `core.comptime` type resolves
    inconsistently.** With `type Field = Short Port | Short Verbose | "host"`

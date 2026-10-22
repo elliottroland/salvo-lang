@@ -4028,6 +4028,21 @@ impl<'s> Parser<'s> {
                 span,
             });
         }
+        // [type-literal-qualified] Qualifiers applied to a literal type:
+        // `Short "port"`. Every ref read so far is a qualifier, so none is
+        // popped as the base. (It used to stop here, leaving the literal
+        // to fail as "expected item"; only the alias spelling worked.)
+        if self.same_line() {
+            if let Some(lit) = self.parse_type_literal() {
+                let start = refs.first().unwrap().span;
+                let span = start.to(lit.span());
+                return Some(Type::QualifiedGroup {
+                    qualifiers: refs,
+                    base: Box::new(lit),
+                    span,
+                });
+            }
+        }
         let base = refs.pop().unwrap();
         Some(Type::Named {
             qualifiers: refs,

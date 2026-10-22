@@ -3981,3 +3981,28 @@ fn a_field_canbe_mut_follows_the_type() {
         assert!(errors.iter().any(|e| e.contains(want)), "`{field}`: {errors:?}");
     }
 }
+
+/// [type-literal-qualified] Qualifiers may stand before a literal type
+/// (`Short "port"`), as before any other type; until 2026-10-20 the
+/// qualifier run stopped at the literal and only the alias spelling parsed.
+#[test]
+fn a_qualifier_may_stand_before_a_literal_type() {
+    let src = "type F = Short \"port\" | Short Long 3 | \"host\"\n";
+    let (module, diagnostics) = salvo_syntax::parse_module(src);
+    let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+    assert!(errors.is_empty(), "{errors:?}");
+    let Some(salvo_syntax::ast::Item::Type(t)) = module.items.first() else { panic!("a type") };
+    let Some(salvo_syntax::ast::Type::Union { arms, .. }) = &t.alias else { panic!("a union: {:?}", t.alias) };
+    let quals: Vec<usize> = arms
+        .iter()
+        .map(|a| match a {
+            salvo_syntax::ast::Type::QualifiedGroup { qualifiers, base, .. } => {
+                assert!(matches!(base.as_ref(), salvo_syntax::ast::Type::Literal { .. }), "{a:?}");
+                qualifiers.len()
+            }
+            salvo_syntax::ast::Type::Literal { .. } => 0,
+            other => panic!("unexpected arm {other:?}"),
+        })
+        .collect();
+    assert_eq!(quals, [1, 2, 0]);
+}

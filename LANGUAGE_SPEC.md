@@ -341,6 +341,26 @@ Conventions:
     is a comparison — Kotlin a subject-less `when`/`==`, Rust a guarded
     pattern (`ref __v if *__v == "A"`, the last `when` branch the `_` rustc
     needs).
+* [type-literal-qualified] **A qualified literal is its literal** (user
+  decision 2026-10-20, ARG_PARSE.md round 2 Q1): `Short "port" | Short
+  "verbose" | "host"` collapses into one `Str` at run time like any literal
+  union [union-arm-identity], because the qualifier erases [qual-erasure];
+  `is Short` is a value test against the literals carrying `Short`
+  (`literal_union_test`), and a `when` over the arms is exhaustive as over
+  any. `literal::arm_lit` is the one predicate both the checker and the
+  emitters use for "this arm holds a literal".
+  * Spelled directly (`Short "port"`) or through an alias (`type Port =
+    "port"`, `Short Port`); the parser reads a literal after a qualifier run
+    as a `QualifiedGroup` (until 2026-10-20 only the alias spelling parsed).
+  * **Refused**: a union listing one literal under two qualifier sets
+    (`Short "port" | "port"`, aliases expanded), since the value cannot say
+    which arm it is — "this union lists `"port"` twice, as `Short "port"`
+    and as `"port"`" (`literal::literal_conflict`, checked when a written
+    union with a qualified arm is validated).
+  * Until 2026-10-20 a qualified literal took a runtime arm of its own in
+    `literal::layout` while the union deduplicated the arms, so both
+    backends emitted a two-arm union and constructed a third (ROADMAP §2d
+    item 2, a [backend-never-wrong] hole).
 * [type-nullable] There is no null value: `T?` is shorthand for
   `T | None`. `x!` asserts non-`None` (panics otherwise).
 * [assert-op] `expr!` asserts that a value is **present** and answers it

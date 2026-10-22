@@ -3351,12 +3351,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         for (i, group) in groups.iter().enumerate() {
             let lits: Vec<salvo_syntax::ast::TypeLit> = group
                 .iter()
-                .filter_map(|g| match values[*g] {
-                    Ty::Lit(l) => Some(l.clone()),
-                    _ => None,
-                })
+                .filter_map(|g| crate::literal::arm_lit(values[*g]).cloned())
                 .collect();
-            let joiner = group.iter().find(|g| !matches!(values[**g], Ty::Lit(_))).map(|g| values[*g]);
+            let joiner = group.iter().find(|g| crate::literal::arm_lit(values[**g]).is_none()).map(|g| values[*g]);
             let (name, param, check) = match joiner {
                 Some(j) if lits.is_empty() => (crate::abi::factory_name(j), crate::literal::collapse_ty(j), None),
                 // A base's literals and its open arm (`| Other Str`): one
@@ -3522,18 +3519,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // The runtime arm's type: the joiner's, or the literals' base.
                     let rt = group
                         .iter()
-                        .find(|i| !matches!(values[**i], Ty::Lit(_)))
+                        .find(|i| crate::literal::arm_lit(values[**i]).is_none())
                         .map(|i| crate::literal::collapse_ty(values[*i]))
                         .unwrap_or_else(|| crate::literal::collapse_ty(values[group[0]]));
                     runtime_tys.push(rt);
                     let lits: Vec<salvo_syntax::ast::TypeLit> = group
                         .iter()
-                        .filter_map(|i| match values[*i] {
-                            Ty::Lit(l) => Some(l.clone()),
-                            _ => None,
-                        })
+                        .filter_map(|i| crate::literal::arm_lit(values[*i]).cloned())
                         .collect();
-                    let joiner = group.iter().find(|i| !matches!(values[**i], Ty::Lit(_)));
+                    let joiner = group.iter().find(|i| crate::literal::arm_lit(values[**i]).is_none());
                     let plan = match joiner {
                         // An open arm (`"A" | Other Str`): anything of the base
                         // is admitted, so only its own claims are checked.
@@ -19846,6 +19840,28 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.validate_quals(qualifiers, &lowered);
             }
             ast::Type::Union { arms, .. } => {
+                // [type-literal-qualified] A literal listed twice under
+                // different qualifiers (`Short "port" | "port"`, aliases
+                // expanded): the qualifiers erase, so the value cannot say
+                // which arm it is. Checked on the lowered union, where
+                // aliases are expanded — only when some arm is qualified,
+                // since a conflict needs one (and lowering again must not
+                // repeat name errors for every plain union).
+                let qualified_arm = arms.iter().any(|a| {
+                    matches!(a, ast::Type::QualifiedGroup { .. })
+                        || matches!(a, ast::Type::Named { qualifiers, .. } if !qualifiers.is_empty())
+                });
+                let lowered = if qualified_arm { self.lower_type(ty) } else { Ty::Unknown };
+                if let Some((lit, a, b)) = crate::literal::literal_conflict(&lowered.value_arms()) {
+                    self.error(
+                        ty.span(),
+                        format!(
+                            "this union lists `{lit}` twice, as `{a}` and as `{b}`: qualifiers erase, \
+                             so a value of `{lit}` cannot say which arm it is; list it once \
+                             [type-literal-qualified]"
+                        ),
+                    );
+                }
                 for a in arms {
                     // [union-spread] A spread arm is validated through its
                     // inner here; `validate_type(Spread)` on its own is the
@@ -26985,10 +27001,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             if on_arm.iter().all(|j| matched.contains(j)) {
                 continue;
             }
-            let lit = |j: &usize| match declared[*j] {
-                Ty::Lit(l) => Some(l.clone()),
-                _ => None,
-            };
+            // [type-literal-qualified] A qualified literal is its literal: `is
+            // Short` on `Short "port" | Short "verbose" | "host"` is the value
+            // being `"port"` or `"verbose"`.
+            let lit = |j: &usize| crate::literal::arm_lit(declared[*j]).cloned();
             let hit: Vec<usize> = on_arm.iter().copied().filter(|j| matched.contains(j)).collect();
             if hit.iter().all(|j| lit(j).is_some()) {
                 values.push((r, false, hit.iter().filter_map(lit).collect()));

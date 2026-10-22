@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1943 tests, complete: the toolchain tests are
+cargo test                  # 1948 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,41 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — A qualified literal is its literal: unions of them compile, `Short "port"` parses
+
+Phase 0.2 of the argument-parsing build. **The defect** (found designing
+ARG_PARSE.md §10.1b): `type F = Short Port | Short Verbose | "host"` checked,
+then both backends emitted `Union2<String, String>` and constructed `U3`.
+`literal::layout` counted an arm as a literal only when it was a bare
+`Ty::Lit`, so each qualified literal took a runtime arm of its own while
+`Ty::union_of` deduplicated the arms: three indices, two arms. **The user's
+call** (round 2 Q1, [type-literal-qualified]): a qualified literal collapses
+into its base like a bare one; `is Q` compares against the literals carrying
+`Q`; a literal listed under two qualifier sets is refused.
+
+What it took: one predicate, `literal::arm_lit` (a literal seen through its
+qualifiers), used by `layout`, `widen`, the AST counterpart `collapse_ast`
+(which also learned `QualifiedGroup { base: Literal }`), `collapse_ast_with`
+(which now expands a qualified alias arm to the literal it stands for), the
+checker's `literal_union_test` and both platform-factory groupings. With the
+layout right, `is Short` is `[(0, false, ["port", "verbose"])]` through the
+existing value-condition machinery, and no emitter changed. The refusal,
+`literal::literal_conflict`, runs where a written union is validated, only
+when some arm is qualified (a conflict needs one, and lowering every plain
+union again would repeat its name errors; a conflict reached only through a
+qualified *alias* of a whole arm is not caught). The parser now reads a
+literal after a qualifier run as a `QualifiedGroup`.
+
+Found while testing: a fn parameter typed by a user alias named `Field`
+reports "`Field` is a compile-time type (`core.comptime`)"; that is ROADMAP
+§2d item 4, the next step.
+
+Tests: `literal.rs` unit `a_qualified_literal_collapses_like_a_bare_one`;
+`literal_tests` `a_qualified_literal_test_is_a_value_comparison` and
+`a_literal_listed_with_and_without_a_qualifier_is_refused`; parser
+`a_qualifier_may_stand_before_a_literal_type`; CLI run
+`a_union_of_qualified_literals_runs_on_both_backends`.
 
 ### 2026-10-20 — Defaults are checked against their type; a predicate default is tested where it is applied
 
@@ -26732,7 +26767,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 1943 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1948 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
