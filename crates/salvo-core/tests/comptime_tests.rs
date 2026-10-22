@@ -876,3 +876,61 @@ fn a_warning_in_copies_is_reported_once_on_the_written_code() {
     let todos = warns.iter().filter(|w| w.message.contains("todo!")).count();
     assert_eq!(todos, 1, "one `todo!()`, reported once: {warns:?}");
 }
+
+// ===== [comptime-inline] a binder's type spliced into a type position =====
+
+/// [comptime-inline] [comptime-fields] `[field.type]` stands for the field's
+/// type in every type position — a `let` annotation, a type argument of a
+/// call or of another type, under `?` and after a qualifier — substituted
+/// per copy (ARG_PARSE.md §13 (B), user decision 2026-10-20).
+#[test]
+fn a_spliced_binder_type_is_the_fields_type_in_each_copy() {
+    let src = |init: &str| {
+        format!(
+            "struct P {{ n: Int, s: Str }}\n\n\
+             fn probe<T>(x: T) [] -> Int => x {{\n    return 0\n}}\n\n\
+             fn none<T>() [] -> T? {{\n    return None\n}}\n\n\
+             comptime fn count(p: P) [] -> Int => p {{\n    \
+             let total = 0\n    \
+             [for f in P.fields] {{\n        \
+             let v: [f.type] = {init}\n        \
+             let w = probe<[f.type]>(v)\n        \
+             let xs: List<[f.type]>? = None\n        \
+             let o: [f.type]? = none<[f.type]>()\n        \
+             total = total + 1\n    \
+             }}\n    \
+             return total\n}}\n"
+        )
+    };
+    let errs = messages(&src("p.[f]"));
+    assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+    // Only the `Str` copy fails, so the type really is the field's.
+    let errs = messages(&src("1"));
+    assert_eq!(errs.len(), 1, "expected one error, from the `s` copy: {errs:?}");
+    assert!(errs[0].contains("`f` is `s`"), "expected the copy to be named: {errs:?}");
+}
+
+/// [comptime-inline] `[arm.type] { … }` is a struct literal whose head is the
+/// arm's type, per copy: over a union of structs each copy builds its own arm
+/// (the literal checked against that struct's fields). Building a qualified or
+/// literal arm is ARG_PARSE.md step 1.6.
+#[test]
+fn a_spliced_arm_type_heads_a_struct_literal() {
+    let src = |entries: &str| {
+        format!(
+            "struct A {{ n: Int }}\nstruct B {{ n: Int, m: Int }}\ntype U = A | B\n\n\
+             fn keep(u: U) [] -> Int => u {{\n    return 0\n}}\n\n\
+             comptime fn build() [] -> Int {{\n    \
+             let total = 0\n    \
+             [for arm in U.arms] {{\n        \
+             let v: [arm.type] = [arm.type] {{ {entries} }}\n        \
+             total = total + keep(v)\n    \
+             }}\n    \
+             return total\n}}\n"
+        )
+    };
+    let errs = messages(&src("n: arm.index"));
+    // `B` also needs `m`, so only its copy fails.
+    assert_eq!(errs.len(), 1, "expected one error, from the `B` copy: {errs:?}");
+    assert!(errs[0].contains("`arm` is `B`") && errs[0].contains("`m`"), "{errs:?}");
+}

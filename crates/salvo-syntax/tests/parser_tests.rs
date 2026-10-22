@@ -4006,3 +4006,69 @@ fn a_qualifier_may_stand_before_a_literal_type() {
         .collect();
     assert_eq!(quals, [1, 2, 0]);
 }
+
+/// [comptime-inline] [comptime-fields] A binder's type spliced into a type
+/// position is bracketed, `[field.type]` (ARG_PARSE.md §13 (B), user decision
+/// 2026-10-20): in a `let`, a call's and a type's arguments, under `?` and
+/// `[]`, after a qualifier, and as a struct literal's head. Each is the ref
+/// named `field.type` the expansion substitutes, its span covering the
+/// brackets.
+#[test]
+fn a_binder_type_is_spliced_in_brackets() {
+    use salvo_syntax::ast::{Expr, Item, Stmt, Type};
+    let source = "comptime fn f<T is Struct>(v: T) [] -> Int => v {\n    \
+                  [for field in T.fields] {\n        \
+                  let a: [field.type] = v.[field]\n        \
+                  let b = take<[field.type]>(a)\n        \
+                  let c: List<[field.type]?> = List()\n        \
+                  let d: Mut [field.type][] = make()\n        \
+                  let e = [field.type] { x: 1 }\n    \
+                  }\n    \
+                  return 0\n}\n";
+    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    assert!(diagnostics.iter().all(|d| !d.is_error()), "{diagnostics:?}");
+    let Item::Fn(f) = &module.items[0] else { panic!() };
+    let Stmt::Comp(salvo_syntax::ast::CompStmt::For { body, .. }) = &f.body.as_ref().unwrap().stmts[0] else { panic!() };
+    let Stmt::Let { ty: Some(Type::Named { base, .. }), .. } = &body.stmts[0] else { panic!("{:?}", body.stmts[0]) };
+    assert_eq!(base.name.name, "field.type");
+    assert_eq!(&source[base.span.start as usize..base.span.end as usize], "[field.type]");
+    let Stmt::Let { value: Expr::Call { type_args, .. }, .. } = &body.stmts[1] else { panic!("{:?}", body.stmts[1]) };
+    assert!(matches!(&type_args[0], Type::Named { base, .. } if base.name.name == "field.type"), "{type_args:?}");
+    let Stmt::Let { ty: Some(Type::Array { elem, .. }), .. } = &body.stmts[3] else { panic!("{:?}", body.stmts[3]) };
+    assert!(matches!(&**elem, Type::Named { qualifiers, base } if qualifiers[0].name.name == "Mut" && base.name.name == "field.type"), "{elem:?}");
+    let Stmt::Let { value: Expr::StructLit { ty: Some(Type::Named { base, .. }), .. }, .. } = &body.stmts[4] else { panic!("{:?}", body.stmts[4]) };
+    assert_eq!(base.name.name, "field.type");
+}
+
+/// [comptime-inline] The bare projection in a type position is not the
+/// language (no compatibility form, AGENTS.md): a parse error naming the
+/// bracketed spelling, in a `let` and inside a generic call's `<…>` (where a
+/// speculative parse rolls back). A splice outside a comptime fn names the
+/// scope.
+#[test]
+fn a_bare_binder_type_names_the_bracketed_form() {
+    for src in [
+        "comptime fn f<T is Struct>(v: T) [] -> Int => v {\n    [for field in T.fields] {\n        let a: field.type = v.[field]\n    }\n    return 0\n}\n",
+        "comptime fn f<T is Struct>(v: T) [] -> Int => v {\n    [for field in T.fields] {\n        take<field.type>(v.[field])\n    }\n    return 0\n}\n",
+    ] {
+        let (_, diags) = salvo_syntax::parse_module(src);
+        assert!(
+            diags.iter().any(|d| d.message.contains("write `[field.type]`, not `field.type`")),
+            "expected the bracketed form to be named for {src:?}: {diags:?}"
+        );
+    }
+    let (_, diags) = salvo_syntax::parse_module("fn f(p: Int) -> Int => p {\n    let a: [x.type] = p\n    return a\n}\n");
+    assert!(diags.iter().any(|d| d.message.contains("belongs inside a `comptime fn`")), "{diags:?}");
+}
+
+/// [effect-handler] A handler body whose line starts with a token that is
+/// neither a member nor a field (`is`) is one error, not an endless loop:
+/// field recovery stops at a line start, so the body loop made no progress
+/// and pushed a diagnostic per turn until memory ran out (found 2026-10-20
+/// compiling a stale scratch project; the parse never returned).
+#[test]
+fn a_stray_keyword_in_a_handler_body_does_not_hang() {
+    let (_, diagnostics) = salvo_syntax::parse_module("handler H() of C {\n    is\n}\n");
+    let errors = diagnostics.iter().filter(|d| d.is_error()).count();
+    assert!((1..=3).contains(&errors), "{diagnostics:?}");
+}

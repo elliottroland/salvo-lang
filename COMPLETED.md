@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1960 tests, complete: the toolchain tests are
+cargo test                  # 1965 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,59 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — A comptime type is spliced in brackets: `[field.type]`, `[arm.type] { … }`
+
+Phase 1.1 of the argument-parsing build; the user's decision (ARG_PARSE.md
+§13, round 4: (B)). [comptime-inline] is restated as one principle: a bracket
+marks where expansion acts on the code, either a head (`[for …]`, `[if …]`,
+`[when …]`) or a **splice**, where a comptime value becomes part of the
+code's structure. Splices are a field name (`v.[field]`, `[field]: …`, as
+before) and now a type: `[field.type]` in every type position, and
+`[arm.type] { … }` as a struct literal's head. Declared names (`T`, `<E>`)
+and values (`field.name`) stay bare, and so do projections inside a head.
+
+What it took:
+- **Parser only.** `parse_type_atom` reads `[` lowercase `.` `type` `]` as a
+  ref named `field.type`, the name the expansion already substituted, so
+  `Expander::visit_type` and the hover recorder needed nothing; a qualifier
+  run before it (`Mut [field.type]`) is merged as for any binder type, and
+  `?`/`[]` compose. `parse_primary` reads `[arm.type] {` as a struct literal.
+- **The bare form is a parse error** naming `[field.type]`, reported from
+  `type_ref_name` while still reading the ref, because a generic call's
+  `<…>` is a speculative parse that rolls back and discards diagnostics:
+  returning `None` there turned `take<field.type>(v)` into "expected
+  identifier, found `type`". No std body, test or example wrote the bare
+  form, so nothing else needed rewriting; the comment in
+  `std/core/comptime.sv`, the Compile-Time-Functions page, [comptime-fields],
+  [comptime-access] and ARG_PARSE.md's examples were.
+- Expansion messages said "an enclosing `inline for`", the spelling retired
+  on 2026-09-29; they now say `[for …]`/`[when …]`.
+- `[arm.type] { … }` already builds a struct arm on both backends (probe:
+  a `List<U>` built from each arm of `A | B`, printed by a `when`). A
+  qualified or literal arm is step 1.6.
+
+Tests: parser_tests `a_binder_type_is_spliced_in_brackets` (let, a call's
+and a type's arguments, `?`, `Mut … []`, a literal head, the span covering
+the brackets), `a_bare_binder_type_names_the_bracketed_form` (in a `let`,
+inside `<…>`, and outside a comptime fn); comptime_tests
+`a_spliced_binder_type_is_the_fields_type_in_each_copy`,
+`a_spliced_arm_type_heads_a_struct_literal`.
+
+### 2026-10-20 — A stray keyword in a handler body no longer hangs the parser
+
+Found while probing 1.1: compiling a stale scratch project never returned
+and was killed (exit 137). `handler H() of C {` followed by a line starting
+with `is` looped forever in the handler body's bare-field recovery:
+`recover_in_block` stops at a token that starts a line without consuming
+it, so the loop made no progress and pushed one diagnostic per turn until
+memory ran out. The loop now bumps a token when a turn consumed nothing, as
+the `state { … }` loop beside it already did. A mid-edit buffer in the
+editor would have pinned the language server the same way, so this is a
+second candidate for the LSP CPU reports (the slow-pass dump never fires for
+it, since the pass never ends). A fuzz of 19 block heads against 20 leading
+tokens found no other hang. Test: parser_tests
+`a_stray_keyword_in_a_handler_body_does_not_hang`.
 
 ### 2026-10-20 — `Process` and `Env`: exit status and environment variables
 
@@ -26923,7 +26976,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 1960 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1965 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

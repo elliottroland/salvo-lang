@@ -4901,7 +4901,8 @@ Conventions:
   / `T.arms` the sequence a `[for …]` walks (arms in declaration order, `None`
   included [union-arm-identity]), `T.name` and `T.mutable` its projections; a
   binder is a `Field` or `Arm` with its six projections; `field.type` is
-  usable **as a type** wherever one is written inside the body, `field.kind`
+  spliced **as a type** wherever one is written inside the body, in brackets
+  (`[field.type]`, [comptime-inline]), `field.kind`
   is its kind [comptime-kind], `field.name` a literal of the union of the
   struct's field names [comptime-name], and `field.type.arms` reaches a union
   field's arms. An expanded-in-place comptime fn names
@@ -4919,11 +4920,26 @@ Conventions:
     is Struct`, `field: Field`, `field.type`, `T.fields: List<Field>` —
     and the language server answers from that record before its usual tables.
 * [comptime-inline] **The comptime constructs are written in brackets** (user
-  decision 2026-09-29, replacing the `inline` word): a bracket appears exactly
-  where the same text without it would be runtime Salvo with another meaning
-  — `[for …]` against a runtime loop, `v.[field]` against a field literally
-  called `field` — and where no runtime reading competes (`field.name`,
-  `T.fields`, `is Struct`, `else`) nothing is bracketed.
+  decision 2026-09-29, replacing the `inline` word; restated 2026-10-20,
+  ARG_PARSE.md §13 (B)). Two kinds of bracket, one principle — a bracket marks
+  where expansion acts on the code itself:
+  * **A head** — `[for …]`, `[if …]`, `[when …]` — is a construct whose
+    unbracketed text would be a runtime loop, test or dispatch.
+  * **A splice** is where a comptime *value* becomes part of the code's
+    structure, as something that is not a value: a field name (`v.[field]`,
+    `[field]: …`) or a type (`[field.type]` in any type position — a
+    `let`, a parameter, a type argument of a call or of a type, under `?`,
+    `[]` or a qualifier — and `[arm.type] { … }` as a struct literal's
+    head). The ref the parser builds is named `field.type`, which no written
+    type can spell, and the expansion substitutes it per copy.
+  * **No bracket** for declared names, which already are types (`T`, a
+    pattern binder `<E>`: bare in the body as in the signature), and for
+    values, which an expression accepts as constants (`field.name`,
+    `"${T.name}"`, `field.index`). Inside a head the projections stay bare
+    (`[if field.type is Str]`, `[when field.type]`, `field.type.arms`).
+  * A bare `field.type` in a type position is a parse error naming
+    `[field.type]`; it was the spelling until 2026-10-20, with no other use in
+    the repository, and no compatibility form is kept.
   * `[for field in T.fields] { … }` — one copy of the body per field, each
     checked with `field.type` concrete; locals a copy declares are renamed so
     two copies in one block do not redeclare [var-no-shadow].
@@ -5065,8 +5081,8 @@ Conventions:
     `Kind`, the same everywhere, so it stays [comptime-kind].
 * [comptime-access] **`v.[field]`** reads the field an enclosing `[for …]`
   is at (the binder in brackets), rewritten by the expansion to `v.name`;
-  **`[field]: expr`** is the same entry in a struct literal, and `inline for
-  field in T.fields { [field]: … }` inside a literal produces one entry per
+  **`[field]: expr`** is the same entry in a struct literal, and `[for
+  field in T.fields] { [field]: … }` inside a literal produces one entry per
   field — how a comptime fn builds a `T`, exhaustively by construction (parsed and
   expanded; its first customer is the codec slice).
 * [comptime-refuse] **`refuse!("…")`** is an error at the instantiation site

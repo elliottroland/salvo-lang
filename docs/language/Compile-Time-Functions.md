@@ -118,10 +118,9 @@ Three things in it are compile-time:
 - **`a.[field]`** reads the field the enclosing `[for …]` is at. Inside a
   struct literal, `[field]: value` is the same entry.
 - The binder exposes **`field.name`** (a string literal), **`field.type`**
-  (the type itself, usable wherever a type is written), **`field.kind`** (what
-  kind of type it is), **`field.index`**, **`field.first`** and
-  **`field.last`**; the bound parameter exposes **`T.name`**. `to_str` uses
-  them:
+  (the type itself), **`field.kind`** (what kind of type it is),
+  **`field.index`**, **`field.first`** and **`field.last`**; the bound
+  parameter exposes **`T.name`**. `to_str` uses them:
 
 ```
 export comptime fn to_str<T is Struct>(value: T) [] -> Str => value {
@@ -171,6 +170,27 @@ arms, and the rest of the block is one body.
 Each of these bodies is a scope, as the ordinary body it becomes is: what a
 `[for …]` copy, an `[if …]` branch or a `[when …]` arm declares is gone after
 it, and it may not reuse a name that is visible there.
+
+**Brackets mark a splice.** A bracket is where expansion puts a comptime value
+into the code's structure, as something that is not a value: `a.[field]` and
+`[field]: …` turn a `Field` into a field name, and `[field.type]` turns it
+into a type, wherever a type is written:
+
+```
+[for field in T.fields] {
+    let value: [field.type] = decode<[field.type]>(text)
+    let seen: List<[field.type]>? = None
+}
+```
+
+and as a struct literal's head, `[arm.type] { … }`. A bare `field.type` in a
+type position is an error naming the bracketed form. Declared names need no
+bracket, because they already are types: `T`, and a pattern binder such as
+`<E>` below, read the same in the body as in any generic fn. Values need none
+either: `field.name` and `"${T.name}"` are constants an expression already
+accepts. The heads `[for …]`, `[if …]` and `[when …]` are bracketed for a
+related reason, that the same text without them is a runtime loop or test;
+inside a head, `field.type is Str` and `[when field.type]` stay bare.
 
 A type and its kind are kept apart on purpose. `field.type is Union` compares
 the field's type with a type called `Union`; `field.kind is Union` asks

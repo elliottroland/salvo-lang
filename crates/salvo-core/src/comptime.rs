@@ -700,7 +700,7 @@ impl HoverRecorder<'_> {
                     self.push(
                         base.span,
                         &format!("{b}.type: Type"),
-                        &format!("The `{owner}`'s type, standing here as the type itself."),
+                        &format!("The `{owner}`'s type, spliced here as the type itself (`[{b}.type]`)."),
                     );
                 }
             }
@@ -2140,7 +2140,7 @@ impl<'w> Expander<'w> {
             return match self.binding(&ct.root.name) {
                 Some(b) => Some(b.ty.clone()),
                 None => {
-                    self.error(ct.span, format!("`{}` is not a binder of an enclosing `inline for` or `inline when` [comptime-fields]", ct.root.name));
+                    self.error(ct.span, format!("`{}` is not a binder of an enclosing `[for …]` or `[when …]` [comptime-fields]", ct.root.name));
                     None
                 }
             };
@@ -2938,7 +2938,7 @@ impl MutVisitor for Expander<'_> {
                 Some(bd) => Some(bd.ty.clone()),
                 None => {
                     let span = base.span;
-                    self.error(span, format!("`{b}` is not a binder of an enclosing `inline for` or `inline when` [comptime-fields]"));
+                    self.error(span, format!("`{b}` is not a binder of an enclosing `[for …]` or `[when …]` [comptime-fields]"));
                     None
                 }
             }
@@ -2988,7 +2988,7 @@ impl MutVisitor for Expander<'_> {
                         }
                         None => {
                             let span = *span;
-                            self.error(span, format!("`{b}` is not a binder of an enclosing `inline for` [comptime-access]"));
+                            self.error(span, format!("`{b}` is not a binder of an enclosing `[for …]` [comptime-access]"));
                         }
                     }
                     return;
@@ -3080,7 +3080,7 @@ impl MutVisitor for Expander<'_> {
                     Some(bd) if !bd.is_arm => name.name = bd.name.clone(),
                     _ => {
                         let span = name.span;
-                        self.error(span, format!("`[{b}]:` names a field through a binder, and `{b}` is not a field binder of an enclosing `inline for` [comptime-access]"));
+                        self.error(span, format!("`[{b}]:` names a field through a binder, and `{b}` is not a field binder of an enclosing `[for …]` [comptime-access]"));
                     }
                 }
             }

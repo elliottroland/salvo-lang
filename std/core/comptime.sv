@@ -11,9 +11,10 @@
 // written. Their shape is the compiler's: this module mirrors it, and a test
 // keeps the two in step.
 //
-// A binder's `.type` is the type itself, usable **as a type** wherever one is
-// written inside the body (`let x: field.type = …`, `of_json<field.type>(…)`)
-// and compared with `field.type is Str`. What kind of type it is — a struct, a
+// A binder's `.type` is the type itself, spliced **as a type** in brackets
+// wherever one is written inside the body (`let x: [field.type] = …`,
+// `of_json<[field.type]>(…)`) and compared with `field.type is Str`
+// [comptime-inline]. What kind of type it is — a struct, a
 // union, … — is a separate projection, `.kind`, so a program type that happens
 // to be called `Union` is never mistaken for the kind [comptime-kind].
 

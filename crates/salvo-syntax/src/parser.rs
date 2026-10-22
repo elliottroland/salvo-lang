@@ -43,7 +43,7 @@ pub struct Parser<'s> {
     /// (condition position).
     no_struct: bool,
     /// [comptime-inline] Inside a `compfn` body: the comptime syntax (`inline`,
-    /// `refuse`, `v.[field]`, `[field]:`, `T.fields`, `field.type` in a type
+    /// `refuse`, `v.[field]`, `[field]:`, `T.fields`, `[field.type]` in a type
     /// position) is legal. Anywhere else each form is a parse error naming the
     /// scope it belongs to.
     in_compfn: bool,
@@ -2772,10 +2772,17 @@ impl<'s> Parser<'s> {
                     );
                     // Recover by parsing it as a field anyway, so one stray
                     // field is one diagnostic rather than a cascade.
+                    let before = self.pos;
                     if let Some(field) = self.parse_field_decl(true) {
                         state.push(field);
                     } else {
                         self.recover_in_block();
+                    }
+                    // A token neither a field nor recovery consumes (a
+                    // keyword such as `is` at the start of a line) would
+                    // otherwise loop here forever, one diagnostic per turn.
+                    if self.pos == before {
+                        self.bump();
                     }
                     self.eat(&TokenKind::Comma);
                 }
@@ -3922,9 +3929,49 @@ impl<'s> Parser<'s> {
         Some(Type::Named { qualifiers: Vec::new(), base })
     }
 
+    /// [comptime-inline] Whether a type splice `[binder.type]` starts here:
+    /// exactly `[`, a lowercase name, `.`, `type`, `]`.
+    fn at_type_splice(&self) -> bool {
+        self.at(&TokenKind::LBracket)
+            && matches!(&self.peek_at(1).kind, TokenKind::Ident(n) if n.starts_with(|c: char| c.is_lowercase()))
+            && matches!(self.peek_at(2).kind, TokenKind::Dot)
+            && matches!(self.peek_at(3).kind, TokenKind::KwType)
+            && matches!(self.peek_at(4).kind, TokenKind::RBracket)
+    }
+
+    /// [comptime-inline] [comptime-fields] `[field.type]`: a binder's type
+    /// spliced into a type position (ARG_PARSE.md §13 (B), user decision
+    /// 2026-10-20). Carried as a ref named `field.type` — a name with a dot
+    /// in it, which no written type can spell — that the expansion replaces
+    /// per copy; the span covers the brackets.
+    fn parse_type_splice(&mut self) -> Option<TypeRef> {
+        let open = self.expect(&TokenKind::LBracket)?.span;
+        self.require_compfn(open, "a type splice `[field.type]`");
+        let binder = self.ident()?;
+        self.bump(); // .
+        self.bump(); // type
+        let close = self.expect(&TokenKind::RBracket)?.span;
+        let span = open.to(close);
+        Some(TypeRef {
+            name: Ident { name: format!("{}.type", binder.name), span },
+            args: Vec::new(),
+            value_args: Vec::new(),
+            from: Vec::new(),
+            at: None,
+            binder: false,
+            established: false,
+            alias: None,
+            span,
+        })
+    }
+
     fn parse_type_atom(&mut self) -> Option<Type> {
         if self.at(&TokenKind::LParen) {
             return self.parse_paren_type();
+        }
+        if self.at_type_splice() {
+            let base = self.parse_type_splice()?;
+            return Some(Type::Named { qualifiers: Vec::new(), base });
         }
         // [comptime-pattern] `*` — any type, in a comptime type pattern only.
         // Carried as a named type spelled `*`, which no declaration can spell;
@@ -4016,6 +4063,13 @@ impl<'s> Parser<'s> {
             let mut r = self.parse_type_ref()?;
             r.established = established;
             refs.push(r);
+        }
+        // [comptime-inline] Qualifiers applied to a type splice: `Mut
+        // [field.type]`. Every ref read so far is a qualifier; the expansion
+        // puts them in front of the binder's own.
+        if self.at_type_splice() && self.same_line() {
+            let base = self.parse_type_splice()?;
+            return Some(Type::Named { qualifiers: refs, base });
         }
         // Qualifiers applied to a parenthesized type: `Ok (Ok Str | Err Int)`.
         if self.at(&TokenKind::LParen) && self.same_line() {
@@ -4199,21 +4253,28 @@ impl<'s> Parser<'s> {
             }
             _ => {}
         }
-        // [comptime-fields] `field.type` / `arm.type` in a type position: the
-        // binder's type, substituted per copy by the expansion. Carried as a
-        // name with the dot in it, which no written type can spell.
-        if self.in_compfn
-            && matches!(&self.kind(), TokenKind::Ident(n) if n.starts_with(|c: char| c.is_lowercase()))
+        // [comptime-inline] A bare `field.type` in a type position is not the
+        // language: a binder's type is spliced in brackets, `[field.type]`
+        // (ARG_PARSE.md §13 (B)). Reported here and still read as the splice,
+        // so a speculative parse that rolls back (a generic call's `<…>`)
+        // does not turn it into a misleading error elsewhere.
+        if matches!(&self.kind(), TokenKind::Ident(n) if n.starts_with(|c: char| c.is_lowercase()))
             && matches!(self.peek_at(1).kind, TokenKind::Dot)
             && matches!(self.peek_at(2).kind, TokenKind::KwType)
         {
             let binder = self.ident()?;
             self.bump();
             let end = self.bump().span;
-            return Some(Ident {
-                name: format!("{}.type", binder.name),
-                span: binder.span.to(end),
-            });
+            let span = binder.span.to(end);
+            self.error(
+                format!(
+                    "a binder's type is spliced into a type position in brackets: write \
+                     `[{0}.type]`, not `{0}.type` [comptime-inline]",
+                    binder.name
+                ),
+                span,
+            );
+            return Some(Ident { name: format!("{}.type", binder.name), span });
         }
         let head = self.ident()?;
         // [iter-fn] A leading `_` is the compiler's namespace: a generated
@@ -6738,6 +6799,29 @@ impl<'s> Parser<'s> {
     }
 
     fn parse_primary(&mut self) -> Option<Expr> {
+        // [comptime-inline] `[arm.type] { … }`: a struct literal whose head is
+        // a binder's type, spliced per copy (ARG_PARSE.md §13 (B)).
+        if self.at_type_splice() && !self.no_struct {
+            let snap = self.snapshot();
+            if let Some(ty) = self.parse_type_atom() {
+                let shorthand = matches!(self.peek_at(1).kind, TokenKind::Ident(_))
+                    && matches!(self.peek_at(2).kind, TokenKind::Comma | TokenKind::RBrace);
+                if self.at(&TokenKind::LBrace)
+                    && self.same_line()
+                    && (self.brace_is_struct_lit() || shorthand || matches!(self.peek_at(1).kind, TokenKind::RBrace))
+                {
+                    return self.parse_struct_lit_body(Some(ty));
+                }
+            }
+            self.rollback(snap);
+            let span = self.peek().span;
+            self.error(
+                "a type splice in an expression is the head of a struct literal: \
+                 `[arm.type] { … }` [comptime-inline]",
+                span,
+            );
+            return None;
+        }
         match self.kind().clone() {
             // [eff-handle] `use H(...)` as an expression — the value-producing
             // form, yielding the registered handle. `use` is a real keyword,

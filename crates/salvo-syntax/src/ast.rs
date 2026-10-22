@@ -2279,7 +2279,7 @@ pub struct StructLitField {
 #[derive(Clone, Debug, PartialEq)]
 pub enum StructLitFieldKind {
     /// `name: expr` — or, inside a `compfn`, `[field]: expr`, the entry for
-    /// the field an enclosing `inline for` is at, spelled with the binder in
+    /// the field an enclosing `[for …]` is at, spelled with the binder in
     /// brackets [comptime-access].
     Named { name: Ident, value: Expr },
     /// `...expr`

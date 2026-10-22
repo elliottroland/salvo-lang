@@ -105,7 +105,7 @@ tracked here so a fresh agent can carry on. Rules for whoever continues:
   handlers (X10, Q3).
 
 **Phase 1: language extensions**
-- [ ] 1.1 Bracketed splices: `[field.type]` in type positions and `[arm.type]`
+- [x] 1.1 Bracketed splices: `[field.type]` in type positions and `[arm.type]`
   as a literal head; bare projections as types become a parse error (§13).
 - [ ] 1.2 `field.default` (X1).
 - [ ] 1.3 `field.docs` (and on `Struct`, `Arm`, `Union`) (X2).
@@ -135,6 +135,10 @@ tracked here so a fresh agent can carry on. Rules for whoever continues:
 **Blocked on the user:** nothing.
 
 **Log** (newest first):
+- 2026-10-20: 1.1 done ("Splice comptime types in brackets"): [comptime-inline]
+  restated; 1965 tests. `[arm.type] { … }` already builds a struct arm;
+  qualified and literal arms are 1.6. Also fixed a parser hang (a stray `is`
+  in a handler body). Next: 1.2 (`field.default`).
 - 2026-10-20: 0.7 done ("Add the Process and Env effects"): [cli-process],
   [cli-env], [rs-never-call] (a `Never` call in value position on Rust);
   1960 tests. Phase 0 is complete. Next: 1.1 (bracketed splices).
@@ -873,7 +877,7 @@ construction, and a home for `from_strs` in `by`):
 comptime fn from_strs<T is Struct>(found: Found) [Throw<ArgError>] -> T {
     return T {
         [for field in T.fields] {
-            [field]: take<field.type>(found, flag_name(field.name), field.default)
+            [field]: take<[field.type]>(found, flag_name(field.name), field.default)
         }
     }
 }
@@ -1258,7 +1262,7 @@ at `&&`/`||`. **Recommendation:** build; small and generally useful.
 **What.** Comptime can dispatch on a union value it has (`[when value] {
 [arm] { … } }`) but cannot produce one. The extension lets a copy over
 `T.arms` build an arm's value: for a struct arm, a literal of `arm.type`
-(`arm.type { [for f in arm.type.fields] { [f]: … } }`); for a qualified arm,
+(`[arm.type] { [for f in arm.type.fields] { [f]: … } }`); for a qualified arm,
 the arm's constructor; for `None`, `None`.
 
 **For parsing.** Subcommands (`type Command = Serve | Stop`) and one-of groups
@@ -1464,7 +1468,7 @@ and an exhaustive companion (C5, or X8) cover the parsing need without it.
 ### X14. Comptime-declared types (recorded, not recommended now)
 
 **What.** Comptime that *declares* a type from another: `Partial<T>` (every
-field optional) or `Parsers<T>` (every field a `Parser<field.type>`), the
+field optional) or `Parsers<T>` (every field a `Parser<[field.type]>`), the
 "higher-kinded data" pattern of Haskell's barbies library and TypeScript's
 mapped types.
 
@@ -2263,7 +2267,7 @@ comptime fn, with the per-field value parser found as an implicit:
 fn from_tokens(t: Tokens, into: Int?) [] -> Int => t, into { … }
 fn take<E>(t: Tokens, ?from_tokens: (t: Tokens, into: E?) -> E) [] -> E => t { … }
 comptime fn serve_from(t: Tokens) [] -> Serve => t {
-    return Serve { [for field in Serve.fields] { [field]: take<field.type>(t) } }
+    return Serve { [for field in Serve.fields] { [field]: take<[field.type]>(t) } }
 }
 ```
 
@@ -2328,7 +2332,7 @@ strings a `Bool` accepts. *Recommendation:* (a), and `true`/`false` only.
   being written. *Recommendation:* as written.
 
 **Q6. Building a union arm in comptime (X5).** Inside `[for arm in
-U.arms]`: `return arm.type { [for f in arm.type.fields] { [f]: … } }` for a
+U.arms]`: `return [arm.type] { [for f in arm.type.fields] { [f]: … } }` for a
 struct arm; the arm's constructor for a qualified arm; `None` for `None`.
 *Recommendation:* as written.
 
@@ -2452,7 +2456,7 @@ let ratio: Double = from_str(text) ?: 1.0  // ?: passes Double? down
 let n = from_str(text)                      // error: ambiguous; annotate it
 ```
 
-and the derive's per-field call is `[field]: take<field.type>(t)` with `take`
+and the derive's per-field call is `[field]: take<[field.type]>(t)` with `take`
 holding `?from_str: (s: Str) -> E?`, resolved per field type as today.
 
 **What it simplifies elsewhere.** X11's group becomes the obvious `params
