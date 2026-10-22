@@ -98,7 +98,7 @@ tracked here so a fresh agent can carry on. Rules for whoever continues:
   struct does (§2d item 4).
 - [x] 0.4 Warnings in comptime copies: redirected to written code, reported
   once, only if every copy would (§2d item 5).
-- [ ] 0.5 Return-type overloading (§12, R-1 (a), R-2 (b), R-3).
+- [x] 0.5 Return-type overloading (§12, R-1 (a), R-2 (b), R-3).
 - [ ] 0.6 `parse_double`, `parse_long`, `parse_bool` and per-type `from_str`
   overloads; `params FromStr<T>` (X11, Q4; `Bool` accepts `true`/`false`).
 - [ ] 0.7 `Process` (`exit`, flushing first) and `Env` effects with host
@@ -135,6 +135,9 @@ tracked here so a fresh agent can carry on. Rules for whoever continues:
 **Blocked on the user:** nothing.
 
 **Log** (newest first):
+- 2026-10-20: 0.5 done ("Overload by return type"): [fn-overload-return];
+  1957 tests. Emitted names are `from_str__Str_IntOpt` (level 6). Not
+  covered (ROADMAP "Recorded"): effect members, `rename fn`. Next: 0.6.
 - 2026-10-20: 0.4 done ("Report warnings in comptime copies once, on the
   written code"): [comptime-copy-warn]; 1951 tests. ROADMAP §2d is now all
   done. Next: 0.5 (return-type overloading).
@@ -2427,7 +2430,7 @@ extension gives calls the same information.
 5. **Emitted names.** Neither backend can overload by return type (Rust has
    no overloading; Kotlin refuses two signatures differing only in result),
    so [fn-emit-name] gains a sixth level: the return type, appended to the
-   suffix (`from_str__Str_Int`, `from_str__Str_Double`). Nothing else in the
+   suffix (`from_str__Str_IntOpt`, `from_str__Str_DoubleOpt`). Nothing else in the
    backends changes; they already call the overload the checker recorded.
 
 **Example** (std, after the change):

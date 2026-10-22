@@ -84,9 +84,9 @@ A local variable is different: it is not an overload but a value, so it hides ev
 
 Specificity can never exceed what the caller knows: a value whose type is `Int | Str` does not fit `f(Int)` at all, and once narrowed with `is`, it does.
 
-The comparison is per argument, and a candidate wins only by being at least as specific in *every* argument and more specific in at least one. Nothing else takes part: not the return type, not effects, not deductions, not implicit parameters.
+The comparison is per argument, and a candidate wins only by being at least as specific in *every* argument and more specific in at least one. Nothing else takes part — not effects, not deductions, not implicit parameters — except the return type, among overloads whose parameters are identical (below).
 
-**3. No single winner is an error.** Two candidates that each win one argument — `mix<T>(a: T, b: Int)` against `mix<T>(a: Int, b: T)`, called as `mix(1, 2)` — rank neither way, and so do two that differ only in *which* qualifier they demand. The call is an error naming both candidates, never a coin flip. Two declarations with the same parameter *types* are a duplicate rather than an overload set, reported where the second one is written.
+**3. No single winner is an error.** Two candidates that each win one argument — `mix<T>(a: T, b: Int)` against `mix<T>(a: Int, b: T)`, called as `mix(1, 2)` — rank neither way, and so do two that differ only in *which* qualifier they demand. The call is an error naming both candidates, never a coin flip. Two declarations with the same parameter *types* and the same return type are a duplicate rather than an overload set, reported where the second one is written.
 
 ### Saying which one you meant
 
@@ -118,7 +118,7 @@ label(n)         // the `Even` overload — the only one still called `label`
 label_small(n)   // the other one
 ```
 
-A rename is not an alias: from that point on the renamed overload answers *only* to the new name. The parameter list repeats one overload's parameters exactly — same names, same types, type parameters positional — and may not mention effects, deductions or a return type, since none of them takes part in choosing an overload. A rename at module level applies to the whole module; written inside a function or a block it applies from that line to the end of that scope, loops and lambdas included. It is not importable: taking an overload out of a shared name is the consumer's decision to make.
+A rename is not an alias: from that point on the renamed overload answers *only* to the new name. The parameter list repeats one overload's parameters exactly — same names, same types, type parameters positional — and may not mention effects, deductions or a return type. So a rename cannot single out one of a set of overloads that differ only in their return type. A rename at module level applies to the whole module; written inside a function or a block it applies from that line to the end of that scope, loops and lambdas included. It is not importable: taking an overload out of a shared name is the consumer's decision to make.
 
 ### Two places the same rule applies
 
@@ -162,6 +162,20 @@ sort(names, cmp = descending)  // or supplied by name
 They are how a type's capabilities travel without a trait system, and they
 reach into type declarations and qualifiers too:
 [Implicit parameters](Implicit-Parameters.md) is the whole story.
+
+### Overloading by return type
+
+Two overloads may also take the same parameters and differ only in what they return. The call is then chosen by where its result goes:
+
+```
+fn from_str(s: Str) -> Int? { … }
+fn from_str(s: Str) -> Bool? { … }
+
+let port: Int? = from_str("8080")       // the annotation chooses
+let on: Bool = from_str(text) ?: false  // so does the type the `?:` must produce
+```
+
+Only overloads with identical parameters are chosen this way: a call its arguments already decide is never moved to another overload by its annotation. Where nothing says which result is wanted (`let x = from_str(text)`), the call is an error asking for an annotation. Two such overloads may not return types one of which contains the other, such as `Int` and `Int?`.
 
 ## Default parameter values
 

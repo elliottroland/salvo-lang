@@ -917,11 +917,19 @@ pub(crate) fn match_overload<'p>(
     }
 }
 
+/// [fn-overload-return] A return type as part of *overload identity*,
+/// spelled like a parameter type (`None` when none is written). Two
+/// declarations of one name with the same parameter types are an overload
+/// set when this differs, and a duplicate when it agrees.
+pub(crate) fn return_type_signature(ret: Option<&Type>, generics: &[&str]) -> String {
+    ret.map(|t| normalize(t, generics)).unwrap_or_else(|| "None".to_string())
+}
+
 /// [fn-overload-duplicate] A parameter list as *overload identity*: the
 /// types only, with type parameters positional and the `...`/`?` markers
-/// kept. Two declarations of one name that agree here are duplicates —
-/// nothing at a call site could ever tell them apart, since parameter names
-/// and return types take no part in selection [fn-overload-rank].
+/// kept. With the return type ([`return_type_signature`]) it is what makes
+/// two declarations of one name a duplicate: nothing at a call site could
+/// ever tell them apart [fn-overload-return].
 pub(crate) fn param_type_signature(params: &[Param], generics: &[&str]) -> Vec<String> {
     params
         .iter()

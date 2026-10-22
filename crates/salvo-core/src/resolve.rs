@@ -639,11 +639,13 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
         }
     }
 
-    // [fn-overload-duplicate] Two fns of one module with the same name *and*
-    // the same parameter types are duplicates, not overloads: nothing at a
-    // call site could tell them apart, since neither parameter names nor
-    // return types take part in selection [fn-overload-rank]. Reported at the
-    // second declaration (user decision 2026-09-07).
+    // [fn-overload-duplicate] Two fns of one module with the same name, the
+    // same parameter types *and* the same return type are duplicates, not
+    // overloads: nothing at a call site could tell them apart. Parameter
+    // names take no part in selection; the return type does, among
+    // candidates whose parameters are identical [fn-overload-return] (user
+    // decision 2026-10-20, ARG_PARSE.md round 2). Reported at the second
+    // declaration (user decision 2026-09-07).
     {
         let mut sorted_modules: Vec<&&ModulePath> = by_module.keys().collect();
         sorted_modules.sort_by_key(|m| m.to_string());
@@ -651,7 +653,7 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
             let items = &by_module[*module];
             // The span it was first declared at, and whether that one was
             // *generated* [obligation-by].
-            let mut seen: HashMap<(&str, Vec<String>), (Span, bool)> = HashMap::new();
+            let mut seen: HashMap<(&str, Vec<String>, String), (Span, bool)> = HashMap::new();
             let mut erased_seen: HashMap<(&str, Vec<String>), Vec<String>> = HashMap::new();
             for (key, f) in &items.fns {
                 let mut generics: Vec<&str> =
@@ -662,8 +664,9 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
                     }
                 }
                 let sig = crate::refine::param_type_signature(&f.params, &generics);
+                let ret = crate::refine::return_type_signature(f.return_type.as_ref(), &generics);
                 if let Some((_, other_stamped)) =
-                    seen.get(&(f.name.name.as_str(), sig.clone()))
+                    seen.get(&(f.name.name.as_str(), sig.clone(), ret.clone()))
                 {
                     let shown = sig.join(", ");
                     // [obligation-by] One of the two is *stamped*: the remedy
@@ -681,11 +684,12 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
                         )
                     } else {
                         format!(
-                            "duplicate fn `{}({shown})` in module `{module}`: an \
-                             overload set is distinguished by parameter *types*, \
-                             so this one could never be called. Parameter names \
-                             and return types take no part in choosing an \
-                             overload [fn-overload-rank]",
+                            "duplicate fn `{}({shown}) -> {ret}` in module `{module}`: \
+                             an overload set is distinguished by parameter *types*, \
+                             or by the return type among overloads whose parameters \
+                             agree, so this one could never be called. Parameter \
+                             names take no part in choosing an overload \
+                             [fn-overload-rank] [fn-overload-return]",
                             f.name.name
                         )
                     };
@@ -696,7 +700,7 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
                     ));
                     continue;
                 }
-                seen.insert((f.name.name.as_str(), sig.clone()), (f.name.span, f.stamped.is_some()));
+                seen.insert((f.name.name.as_str(), sig.clone(), ret), (f.name.span, f.stamped.is_some()));
                 // [type-literal] Two overloads apart only by literal types of
                 // one base erase to the same host signature (a literal *is*
                 // its base at run time), so neither backend could declare both.

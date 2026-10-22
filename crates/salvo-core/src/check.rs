@@ -2644,6 +2644,19 @@ struct Checker<'p, 'r> {
     /// (with the message). Reported only when every copy left it unused.
     copy_decls: HashMap<(u32, u32), usize>,
     copy_unused: HashMap<(u32, u32), (usize, String)>,
+    /// [fn-overload-return] Where the value of the next call checked is
+    /// going, for choosing among overloads that differ only in their return
+    /// type, when that position has no expected type of its own to pass: the
+    /// operand of `!`, the subject of `?:`, the tail of a value `if`/`when`
+    /// branch. Taken (and cleared) by the first call checked, so it never
+    /// reaches a nested one, and never used for coercion.
+    select_hint: Option<Ty>,
+    /// [fn-overload-return] The expected type of a value `if`/`when`, handed
+    /// to the branch block about to be checked for its tail (R-3).
+    tail_hint: Option<Ty>,
+    /// [fn-overload-return] The expected type of the value `if`/`when` being
+    /// checked, which each of its branch blocks receives as `tail_hint`.
+    value_expected: Option<Ty>,
     /// The current fn's effective deduction contract (written list, else
     /// the previous round's inferred facts): decides whether a parameter
     /// root is *owned* (moved by the contract) for move-mode bindings
@@ -2984,6 +2997,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             copy_warnings: Vec::new(),
             copy_decls: HashMap::new(),
             copy_unused: HashMap::new(),
+            select_hint: None,
+            tail_hint: None,
+            value_expected: None,
             own_contract: None,
             lit_spans: HashMap::new(),
             own_discharges: std::collections::HashSet::new(),
@@ -3697,7 +3713,60 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
+    /// [fn-overload-return] Overloads with identical parameter types are told
+    /// apart by their return types alone, so two return types one of which is
+    /// a subtype of the other are refused (R-2, user decision 2026-10-20): an
+    /// expected `Int?` would fit both `-> Int` and `-> Int?`, and the pair
+    /// reads as a mistake.
+    fn check_return_overloads(&mut self, module: &'p Module) {
+        let mut groups: Vec<((String, Vec<String>), Vec<&'p FnDecl>)> = Vec::new();
+        for item in &module.items {
+            let Item::Fn(f) = item else { continue };
+            let generics: Vec<&str> = f.generics.iter().map(|g| g.name.as_str()).collect();
+            let key = (f.name.name.clone(), crate::refine::param_type_signature(&f.params, &generics));
+            match groups.iter_mut().find(|(k, _)| *k == key) {
+                Some((_, fns)) => fns.push(f),
+                None => groups.push((key, vec![f])),
+            }
+        }
+        for (_, fns) in groups.into_iter().filter(|(_, fns)| fns.len() > 1) {
+            let rets: Vec<Ty> = fns
+                .iter()
+                .map(|f| {
+                    let saved = self.enter_generics(&f.generics);
+                    let t = f.return_type.as_ref().map(|t| self.lower_type(t)).unwrap_or_else(Ty::none);
+                    self.generics = saved;
+                    t
+                })
+                .collect();
+            for j in 1..fns.len() {
+                for i in 0..j {
+                    let (a, b) = (&rets[i], &rets[j]);
+                    if a == b || a.is_unknown() || b.is_unknown() {
+                        continue;
+                    }
+                    if is_subtype(a, b) || is_subtype(b, a) {
+                        self.error(
+                            fns[j].name.span,
+                            format!(
+                                "`{}` is overloaded on its return type alone, and `{a}` and \
+                                 `{b}` overlap: where `{}` is expected both would fit, so \
+                                 nothing could choose. Give the overloads return types \
+                                 neither of which is a subtype of the other, or different \
+                                 parameters [fn-overload-return]",
+                                fns[j].name.name,
+                                if is_subtype(a, b) { b } else { a }
+                            ),
+                        );
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
     fn check_module(&mut self, module: &'p Module) {
+        self.check_return_overloads(module);
         // [mod-use] The module's own bindings, checked as a `use` in a body
         // with nothing else in scope (no locals, no effects), so what they
         // construct can depend on nothing the module's functions could see.
@@ -7449,6 +7518,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         viable: &[Viable<'p>],
         arg_tys: &[Ty],
         at: Option<Selector<'p>>,
+        expected: Option<&Ty>,
         span: Span,
     ) -> Option<usize> {
         let shown_args = || -> String {
@@ -7546,6 +7616,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         // what makes step 2's "no single winner is an error" mean what it says —
         // it compares *alternatives*, and these are not.
         Self::dedupe_by_declaration(&mut pool, viable);
+        // [fn-overload-return] Candidates whose parameter types are identical
+        // are one alternative for the ranking (parameters cannot tell them
+        // apart); the return type chooses within it below.
+        let classes = Self::param_classes(&pool, viable);
         // 2. The most specific *signature*, across every rung: **scope no
         // longer breaks a tie** (user decision 2026-09-26 — "when faced with an
         // ambiguity, refuse to choose and let the user choose instead"). Until
@@ -7553,62 +7627,29 @@ impl<'p, 'r> Checker<'p, 'r> {
         // was only a warning, so which `add` a call meant depended on a rule
         // the reader had to know std's surface to predict.
         let ranks: Vec<crate::types::RankedCandidate> =
-            pool.iter().map(|&i| viable[i].rank.clone()).collect();
+            classes.iter().map(|c| viable[c[0]].rank.clone()).collect();
         let winner = match crate::types::most_specific(&ranks) {
-            Some(i) => pool[i],
-            None => {
-                // [type-unknown-lenient] An un-inferred argument fits every
-                // candidate, so it must not produce an ambiguity of its own:
-                // one mistake, one diagnostic.
-                if arg_tys.iter().any(ty_mentions_unknown) {
-                    return Some(pool[0]);
+            Some(ci) if classes[ci].len() == 1 => classes[ci][0],
+            Some(ci) => {
+                let class = classes[ci].clone();
+                match self.pick_by_return(name, &class, viable, arg_tys, expected, span) {
+                    Ok(w) => w,
+                    Err(true) => return None,
+                    // [fn-overload-return] Several modules' overloads that the
+                    // expected type cannot separate: the ordinary ambiguity,
+                    // whose remedy is naming the place.
+                    Err(false) => {
+                        self.report_ambiguity(name, &class, viable, arg_tys, span);
+                        return None;
+                    }
                 }
-                let mut shown: Vec<String> = pool
-                    .iter()
-                    .map(|&i| {
-                        format!(
-                            "{} from `{}`",
-                            Self::render_signature(name, &viable[i]),
-                            viable[i].module
-                        )
-                    })
-                    .collect();
-                shown.sort();
-                shown.dedup();
-                let mut places: Vec<String> =
-                    pool.iter().map(|&i| viable[i].module.clone()).collect();
-                places.sort();
-                places.dedup();
-                // Several places, one name: naming the place is the remedy.
-                // One place with several unrankable overloads: only a name of
-                // its own can separate them.
-                let remedy = if places.len() > 1 {
-                    let forms: Vec<String> = places
-                        .iter()
-                        .map(|m| format!("`{name}@{m}(...)`"))
-                        .collect();
-                    format!(
-                        "Name the one you mean — {} — or narrow an argument, or give \
-                         one its own name with `rename fn <new> = {name}(...)`",
-                        forms.join(" or ")
-                    )
-                } else {
-                    format!(
-                        "Narrow an argument, or give one overload its own name with \
-                         `rename fn <new> = {name}(...)`"
-                    )
-                };
-                self.error(
-                    span,
-                    format!(
-                        "ambiguous call to `{name}({})`: {} all fit and none is more \
-                         specific — a broader union, a smaller qualifier set and a type \
-                         variable are each less specific, but these differ in ways the \
-                         rule does not rank. {remedy}",
-                        shown_args(),
-                        shown.join(", ")
-                    ),
-                );
+            }
+            None => {
+                let all: Vec<usize> = classes.iter().flatten().copied().collect();
+                if arg_tys.iter().any(ty_mentions_unknown) {
+                    return Some(all[0]);
+                }
+                self.report_ambiguity(name, &all, viable, arg_tys, span);
                 return None;
             }
         };
@@ -7636,6 +7677,157 @@ impl<'p, 'r> Checker<'p, 'r> {
         Some(winner)
     }
 
+    /// [fn-overload-ambiguous] Reports a call no rule could settle among
+    /// `pool` (indices into `viable`), naming the candidates and the remedy.
+    fn report_ambiguity(&mut self, name: &str, pool: &[usize], viable: &[Viable<'p>], arg_tys: &[Ty], span: Span) {
+        let shown_args = || -> String {
+            arg_tys
+                .iter()
+                .map(|t| t.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let mut shown: Vec<String> = pool
+            .iter()
+            .map(|&i| {
+                format!(
+                    "{} from `{}`",
+                    Self::render_signature(name, &viable[i]),
+                    viable[i].module
+                )
+            })
+            .collect();
+        shown.sort();
+        shown.dedup();
+        let mut places: Vec<String> =
+            pool.iter().map(|&i| viable[i].module.clone()).collect();
+        places.sort();
+        places.dedup();
+        // Several places, one name: naming the place is the remedy.
+        // One place with several unrankable overloads: only a name of
+        // its own can separate them.
+        let remedy = if places.len() > 1 {
+            let forms: Vec<String> = places
+                .iter()
+                .map(|m| format!("`{name}@{m}(...)`"))
+                .collect();
+            format!(
+                "Name the one you mean — {} — or narrow an argument, or give \
+                 one its own name with `rename fn <new> = {name}(...)`",
+                forms.join(" or ")
+            )
+        } else {
+            format!(
+                "Narrow an argument, or give one overload its own name with \
+                 `rename fn <new> = {name}(...)`"
+            )
+        };
+        self.error(
+            span,
+            format!(
+                "ambiguous call to `{name}({})`: {} all fit and none is more \
+                 specific — a broader union, a smaller qualifier set and a type \
+                 variable are each less specific, but these differ in ways the \
+                 rule does not rank. {remedy}",
+                shown_args(),
+                shown.join(", ")
+            ),
+        );
+    }
+
+    /// [fn-overload-return] The pool grouped by **identical declared
+    /// parameter types** (the declaration-side identity, `param_type_signature`),
+    /// in pool order: each group is one alternative for the ranking.
+    fn param_classes(pool: &[usize], viable: &[Viable<'p>]) -> Vec<Vec<usize>> {
+        let mut classes: Vec<(Vec<String>, Vec<usize>)> = Vec::new();
+        for &i in pool {
+            let d = viable[i].decl;
+            let generics: Vec<&str> = d.generics.iter().map(|g| g.name.as_str()).collect();
+            let sig = crate::refine::param_type_signature(&d.params, &generics);
+            match classes.iter_mut().find(|(s, _)| *s == sig) {
+                Some((_, members)) => members.push(i),
+                None => classes.push((sig, vec![i])),
+            }
+        }
+        classes.into_iter().map(|(_, m)| m).collect()
+    }
+
+    /// [fn-overload-return] A candidate's return type at this call: lowered
+    /// under its generics, with what the arguments bound substituted.
+    fn candidate_return(&mut self, v: &Viable<'p>) -> Ty {
+        let saved = self.enter_generics(&v.decl.generics);
+        let ret = v.decl.return_type.as_ref().map(|t| self.lower_type(t)).unwrap_or_else(Ty::none);
+        self.generics = saved;
+        let generics: HashSet<String> = v.decl.generics.iter().map(|g| g.name.clone()).collect();
+        substitute_vars(&ret, &v.subst, &generics)
+    }
+
+    /// [fn-overload-return] Chooses among overloads whose parameter types are
+    /// identical by **where the value goes** (R-1 (a), user decision
+    /// 2026-10-20): the one whose return type fits the expected type, if
+    /// exactly one does. With no expected type, or one that fits none or
+    /// several, the call is ambiguous and says how to say which — never a pick.
+    fn pick_by_return(
+        &mut self,
+        name: &str,
+        class: &[usize],
+        viable: &[Viable<'p>],
+        arg_tys: &[Ty],
+        expected: Option<&Ty>,
+        span: Span,
+    ) -> Result<usize, bool> {
+        let rets: Vec<Ty> = class.iter().map(|&i| self.candidate_return(&viable[i])).collect();
+        let exp = expected.filter(|e| !e.is_unknown() && !matches!(e, Ty::Never));
+        if let Some(e) = exp {
+            let fits: Vec<usize> = class
+                .iter()
+                .zip(&rets)
+                .filter(|(_, r)| is_subtype(r, e))
+                .map(|(i, _)| *i)
+                .collect();
+            if fits.len() == 1 {
+                return Ok(fits[0]);
+            }
+        }
+        // [type-unknown-lenient] One mistake, one diagnostic.
+        if arg_tys.iter().any(ty_mentions_unknown) || expected.is_some_and(ty_mentions_unknown) {
+            return Ok(class[0]);
+        }
+        // Overloads from several places that the result cannot separate:
+        // naming the place is the remedy, as for any cross-module ambiguity.
+        let mut modules: Vec<&str> = class.iter().map(|&i| viable[i].module.as_str()).collect();
+        modules.sort();
+        modules.dedup();
+        if modules.len() > 1 {
+            return Err(false);
+        }
+        let shown_args: Vec<String> = arg_tys.iter().map(|t| t.to_string()).collect();
+        let shown_rets: Vec<String> = rets.iter().map(|r| format!("`{r}`")).collect();
+        let why = match exp {
+            None => "nothing here says which result is wanted".to_string(),
+            Some(e) => {
+                let n = rets.iter().filter(|r| is_subtype(r, e)).count();
+                if n == 0 {
+                    format!("none of them is a `{e}`, which is what is expected here")
+                } else {
+                    format!("more than one of them is a `{e}`, which is what is expected here")
+                }
+            }
+        };
+        self.error(
+            span,
+            format!(
+                "`{name}({})` has overloads that differ only in their return type ({}), and \
+                 {why}: annotate where the result goes (`let x: {} = {name}(…)`), or pass it \
+                 where one type is expected [fn-overload-return]",
+                shown_args.join(", "),
+                shown_rets.join(", "),
+                rets.first().map(|r| r.to_string()).unwrap_or_default()
+            ),
+        );
+        Err(true)
+    }
+
     /// One *declaration* is one candidate: drops the duplicate entries two
     /// routes to the same function produce.
     fn dedupe_by_declaration(pool: &mut Vec<usize>, viable: &[Viable<'p>]) {
@@ -7657,9 +7849,12 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn unqualified_winner(&self, viable: &[Viable<'p>]) -> Option<usize> {
         let mut pool: Vec<usize> = (0..viable.len()).collect();
         Self::dedupe_by_declaration(&mut pool, viable);
+        // [fn-overload-return] A class of return-type overloads has no winner
+        // without the expected type, so a selector there is never "noise".
+        let classes = Self::param_classes(&pool, viable);
         let ranks: Vec<crate::types::RankedCandidate> =
-            pool.iter().map(|&i| viable[i].rank.clone()).collect();
-        crate::types::most_specific(&ranks).map(|i| pool[i])
+            classes.iter().map(|c| viable[c[0]].rank.clone()).collect();
+        crate::types::most_specific(&ranks).and_then(|i| (classes[i].len() == 1).then(|| classes[i][0]))
     }
 
     /// [fn-attached] The type a function is **declared on**, by either route:
@@ -7677,7 +7872,12 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// the *declared* patterns, since those are what the ranking compared.
     fn render_signature(name: &str, v: &Viable<'p>) -> String {
         let ps: Vec<String> = v.rank.patterns.iter().map(|p| p.to_string()).collect();
-        format!("`{name}({})`", ps.join(", "))
+        // [fn-overload-return] The return type is part of what tells two
+        // candidates apart, so it is shown when written.
+        match &v.decl.return_type {
+            Some(r) => format!("`{name}({}) -> {r}`", ps.join(", ")),
+            None => format!("`{name}({})`", ps.join(", ")),
+        }
     }
 
     /// [proj-type] [fn-overload-rank] Whether an argument of type `arg` fits
@@ -8093,9 +8293,20 @@ impl<'p, 'r> Checker<'p, 'r> {
         if at_top.len() == 1 {
             return Some(at_top[0]);
         }
+        // [fn-overload-return] Overloads whose parameters are identical type
+        // the arguments identically: one of them leads for all.
+        let mut distinct: Vec<usize> = Vec::new();
+        for &i in &at_top {
+            if !distinct.iter().any(|&d| pool[d].rank.patterns == pool[i].rank.patterns) {
+                distinct.push(i);
+            }
+        }
+        if distinct.len() == 1 {
+            return Some(distinct[0]);
+        }
         let ranks: Vec<crate::types::RankedCandidate> =
-            at_top.iter().map(|&i| pool[i].rank.clone()).collect();
-        crate::types::most_specific(&ranks).map(|i| at_top[i])
+            distinct.iter().map(|&i| pool[i].rank.clone()).collect();
+        crate::types::most_specific(&ranks).map(|i| distinct[i])
     }
 
     /// [lit-adopt] The numeric type an unsuffixed literal argument may adopt
@@ -22273,12 +22484,22 @@ impl<'p, 'r> Checker<'p, 'r> {
         // `todo!()` — all `Never`-typed) is unreachable. Warn once per block,
         // on that first dead statement; std is exempt, like other smells.
         let mut diverged = false;
-        for stmt in &block.stmts {
+        // [fn-overload-return] R-3: a value branch's tail is where the value
+        // goes, so its call may be chosen by the branch's expected type.
+        let tail_hint = self.tail_hint.take();
+        let last = block.stmts.len().saturating_sub(1);
+        for (si, stmt) in block.stmts.iter().enumerate() {
             if diverged && !self.is_std {
                 self.warn(stmt.span(), "this code is unreachable: an earlier statement never returns");
                 diverged = false; // one warning per run of dead code
             }
+            if si == last {
+                if let (Some(h), Stmt::Expr(Expr::Call { .. })) = (&tail_hint, stmt) {
+                    self.select_hint = Some(h.clone());
+                }
+            }
             value = self.check_stmt(stmt);
+            self.select_hint = None;
             if matches!(value, Ty::Never) {
                 diverged = true;
             }
@@ -23400,7 +23621,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                 args,
                 named,
                 span,
-            } => self.check_call(callee, type_args, args, named, expected, *span),
+            } => {
+                // [fn-overload-return] A position with no expected type of its
+                // own (`!`'s operand, `?:`'s subject, a value branch's tail) may
+                // still say where the value goes: for choosing among return-type
+                // overloads only, never for coercion.
+                let hint = self.select_hint.take();
+                let exp = expected.cloned().or(hint);
+                self.check_call(callee, type_args, args, named, exp.as_ref(), *span)
+            }
             Expr::Index { base, index, span } => {
                 // [fate-partial-move] A projection base, not a whole use.
                 self.projection_base += 1;
@@ -23589,7 +23818,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                 Ty::named("Bool")
             }
             Expr::NonNull { operand, span } => {
+                // [fn-overload-return] `f(s)!` where a `T` is expected asks
+                // `f` for a `T?`.
+                if let (Some(e), Expr::Call { .. }) = (expected, operand.as_ref()) {
+                    self.select_hint = Some(self.mk_union(vec![e.clone(), Ty::none()]));
+                }
                 let t = self.check_expr(operand, None);
+                self.select_hint = None;
                 // [assert-op] A `!` says "this can be absent, and here it is
                 // not". On a type with no `None` arm it says something false,
                 // and the two backends disagreed about the leftover — rustc
@@ -23730,13 +23965,23 @@ impl<'p, 'r> Checker<'p, 'r> {
                 branches,
                 else_block,
                 ..
-            } => self.check_if(branches, else_block.as_ref(), expr.span()),
+            } => {
+                let saved = std::mem::replace(&mut self.value_expected, expected.cloned());
+                let t = self.check_if(branches, else_block.as_ref(), expr.span());
+                self.value_expected = saved;
+                t
+            }
             Expr::When {
                 binding,
                 subject,
                 branches,
                 span,
-            } => self.check_when(binding.as_ref(), subject, branches, *span),
+            } => {
+                let saved = std::mem::replace(&mut self.value_expected, expected.cloned());
+                let t = self.check_when(binding.as_ref(), subject, branches, *span);
+                self.value_expected = saved;
+                t
+            }
             // [when-condition] The subject-less form is a condition chain
             // with a mandatory `else`: the same checking as
             // `if`/`elif`/`else`, and the `else` is what keeps `None` out of
@@ -23745,7 +23990,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                 branches,
                 else_block,
                 span,
-            } => self.check_if(branches, Some(else_block), *span),
+            } => {
+                let saved = std::mem::replace(&mut self.value_expected, expected.cloned());
+                let t = self.check_if(branches, Some(else_block), *span);
+                self.value_expected = saved;
+                t
+            }
             // [try] The throw delimiter: an intrinsic, not an effect.
             Expr::Try { body, span } => self.check_try(body, *span),
             // [elvis] `subject ?…?: rhs` / `subject :?…? rhs` — the positional
@@ -23757,7 +24007,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                 subject,
                 rhs,
                 span,
-            } => self.check_elvis(subject, rhs, *span),
+            } => {
+                // [fn-overload-return] `f(s) ?: d` where a `T` is expected asks
+                // `f` for a `T?`: the pick keeps the subject's first arm.
+                if let (Some(e), Expr::Call { .. }) = (expected, subject.as_ref()) {
+                    self.select_hint = Some(self.mk_union(vec![e.clone(), Ty::none()]));
+                }
+                self.check_elvis(subject, rhs, *span)
+            }
             // [expr-pipe] `lhs |> rhs` — the left side evaluated once, bound to
             // `_`, read in the right side. The result is the right side's type.
             Expr::Pipe { lhs, rhs, span } => self.check_pipe(lhs, rhs, *span),
@@ -27116,6 +27373,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             let mut narrows = acc_else.clone();
             narrows.extend(info.then_narrows.iter().cloned());
             let (ty, tail) = self.with_narrows(&narrows, |c| {
+                c.tail_hint = c.value_expected.clone();
                 c.check_branch_block(block, info.bindings.clone())
             });
             if !self.block_exits(block) {
@@ -27130,6 +27388,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             Some(block) => {
                 let entry = self.snapshot_narrows();
                 let (ty, tail) = self.with_narrows(&acc_else.clone(), |c| {
+                    c.tail_hint = c.value_expected.clone();
                     c.check_branch_block(block, Vec::new())
                 });
                 if !self.block_exits(block) {
@@ -27408,7 +27667,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             // [deduce-consume].
             let entry = self.snapshot_narrows();
             let (ty, tail) =
-                self.with_narrows(&narrows, |c| c.check_branch_block(&branch.body, bindings));
+                self.with_narrows(&narrows, |c| {
+                    c.tail_hint = c.value_expected.clone();
+                    c.check_branch_block(&branch.body, bindings)
+                });
             if !self.block_exits(&branch.body) {
                 fallthrough.push(self.snapshot_narrows());
             }
@@ -30321,7 +30583,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             );
             return Ty::Unknown;
         }
-        let Some(best_idx) = self.select_overload(name, &viable, &arg_tys, at, span) else {
+        let Some(best_idx) = self.select_overload(name, &viable, &arg_tys, at, expected, span) else {
             return Ty::Unknown;
         };
         let best = &viable[best_idx];

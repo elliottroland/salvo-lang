@@ -14,7 +14,10 @@
 //! 2. the base types with their qualifiers (`swap__MutList_IdxInt_IdxInt`);
 //! 3. the full types, type arguments included (`get__ListT_Int`);
 //! 4. the full types with their qualifiers;
-//! 5. level 4 plus the names of the implicit parameters.
+//! 5. level 4 plus the names of the implicit parameters;
+//! 6. level 5 plus the return type, for overloads whose parameters agree and
+//!    whose return types do not [fn-overload-return] (`from_str__Str_IntOpt`
+//!    beside `from_str__Str_DoubleOpt`).
 //!
 //! Parameters are joined with `_`; a fn with no explicit parameters has an
 //! empty suffix, so it keeps the bare name. Nothing outside the module takes
@@ -78,9 +81,9 @@ impl FnNames {
                     Err(which) => {
                         out.errors.push(format!(
                             "module `{}` declares overloads of `{name}` that no naming rule tells \
-                             apart ({}): their parameter types, qualifiers and implicit \
-                             parameters all agree, so neither backend can give them names of \
-                             their own [fn-emit-name]",
+                             apart ({}): their parameter types, qualifiers, implicit \
+                             parameters and return types all agree, so neither backend can \
+                             give them names of their own [fn-emit-name]",
                             module.0.join("."),
                             which.join("; ")
                         ));
@@ -172,7 +175,7 @@ pub fn overload_names(name: &str, fns: &[&FnDecl]) -> Result<Vec<String>, Vec<St
 /// [fn-emit-name] The suffix of each overload, at the first level that sets
 /// it apart from the rest; `Err` lists the overloads left indistinguishable.
 fn suffixes(fns: &[&FnDecl]) -> Result<Vec<String>, Vec<String>> {
-    let levels: Vec<Vec<String>> = (1..=5).map(|l| fns.iter().map(|f| suffix_at(f, l)).collect()).collect();
+    let levels: Vec<Vec<String>> = (1..=6).map(|l| fns.iter().map(|f| suffix_at(f, l)).collect()).collect();
     let mut chosen = Vec::new();
     let mut stuck = Vec::new();
     for i in 0..fns.len() {
@@ -207,7 +210,10 @@ fn signature(f: &FnDecl) -> String {
         .iter()
         .map(|p| format!("{}{}: {}", if p.implicit { "?" } else { "" }, p.name.name, render(&p.ty, true, true)))
         .collect();
-    format!("`{}({})`", f.name.name, ps.join(", "))
+    match &f.return_type {
+        Some(r) => format!("`{}({}) -> {}`", f.name.name, ps.join(", "), render(r, true, true)),
+        None => format!("`{}({})`", f.name.name, ps.join(", ")),
+    }
 }
 
 fn suffix_at(f: &FnDecl, level: u8) -> String {
@@ -225,6 +231,11 @@ fn suffix_at(f: &FnDecl, level: u8) -> String {
         .collect();
     if level >= 5 {
         parts.extend(f.params.iter().filter(|p| p.implicit).map(|p| p.name.name.clone()));
+    }
+    // [fn-overload-return] Only where nothing earlier told the overloads
+    // apart, so every existing name is unchanged.
+    if level >= 6 {
+        parts.push(f.return_type.as_ref().map(|r| render(r, true, true)).unwrap_or_else(|| "None".to_string()));
     }
     parts.join("_")
 }

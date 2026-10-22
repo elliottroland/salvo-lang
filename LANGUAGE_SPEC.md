@@ -2817,8 +2817,10 @@ Conventions:
   decides every call, in three steps — `@module`, then the most specific
   *scope* [fn-overload-scope], then the most specific *signature*
   [fn-overload-rank] — and no single winner is an error
-  [fn-overload-ambiguous]. Nothing else takes part: not the return type, not
-  effects, not deductions, not implicit parameters.
+  [fn-overload-ambiguous]. Nothing else takes part — not effects, not
+  deductions, not implicit parameters — except the return type, which
+  decides among candidates whose parameter types are identical
+  [fn-overload-return].
   * The checker records the winner per call site (`call_fn`). In unchecked
     contexts (no recorded winner) emitters narrow same-arity candidates by
     the checked argument types' base names; an ambiguous dispatch is a
@@ -2961,9 +2963,39 @@ Conventions:
     the emitters to spell the declaration's own name, where an import alias
     keeps the alias.
 * [fn-overload-duplicate] Two declarations of one name in one module with
-  the same parameter **types** are a duplicate, not an overload set —
-  reported at the second one. Parameter names and return types take no part
+  the same parameter **types** and the same return type are a duplicate, not
+  an overload set — reported at the second one. Parameter names take no part
   in selection, so nothing at a call site could tell them apart.
+* [fn-overload-return] **Overloads may differ only in their return type**
+  (user decision 2026-10-20, ARG_PARSE.md rounds 2 to 4, consistent with
+  [fn-value-select], which already chose a fn value by its result type):
+  `fn from_str(s: Str) -> Int?` beside `fn from_str(s: Str) -> Bool?`.
+  * **Selection** is unchanged until the parameters can decide no more:
+    candidates whose declared parameter types are identical are one
+    alternative for [fn-overload-rank], and **within** that alternative the
+    one whose return type fits the call's expected type wins, if exactly
+    one does (R-1 (a)). A call its parameters already decide is decided the
+    same way whatever its expected type, so an annotation never moves a call
+    to another overload.
+  * **The expected type** is the one a call already receives — a `let`
+    annotation, a `return`, a parameter, a struct field, an assignment, an
+    implicit's slot — plus, for this choice only (never for coercion), the
+    operand of `!` (an expected `T` asks for `T?`), the subject of `?:`
+    (likewise), and the tail of a value `if`/`when` branch (R-3).
+  * **No expected type, or one that fits none or several**: an error naming
+    the return types and the remedy ("`from_str(Str)` has overloads that
+    differ only in their return type (`Int?`, `Bool?`), and nothing here says
+    which result is wanted: annotate where the result goes …"), never a pick.
+    Across modules the scope ambiguity [fn-overload-ambiguous] is reported
+    instead, with `f@module` as the remedy.
+  * **Refused at the declaration** (R-2): return types one of which is a
+    subtype of the other (`-> Int` beside `-> Int?`), since an expected
+    supertype would fit both (`check_return_overloads`).
+  * **Emitted names**: neither backend overloads by return type, so
+    [fn-emit-name] gains a sixth level, the return type (`from_str__Str_IntOpt`).
+  * Not covered: effect members still overload by parameters only
+    [effect-member-overload], and `rename fn` names an overload by its
+    parameter list, so it cannot single out one of a return-type set.
 * [fn-value-select] A function passed **by name** is selected by the
   **expected fn type**, through the same three steps a call uses (parameters
   contravariant, result covariant, contract included). With no expectation a
@@ -9242,7 +9274,9 @@ between endpoints and delivers what arrives into the scheduler.
   its name there: (1) each explicit parameter's base type (`next__StrYield`,
   `map__List_Fn`); (2) with qualifiers (`swap__MutList_IdxInt_IdxInt`);
   (3) with type arguments (`get__ListT_Int`); (4) with both; (5) plus the
-  implicit parameters' names. Parameters join with `_`, a generated type's
+  implicit parameters' names; (6) plus the return type, for overloads whose
+  parameters agree [fn-overload-return] (`from_str__Str_IntOpt`; 2026-10-20,
+  so every name the earlier levels gave is unchanged). Parameters join with `_`, a generated type's
   leading underscores drop, and a fn with no explicit parameters has the bare
   name. Effect members overloaded within an effect follow the same rule
   [effect-member-overload]. **No positional numbers**: overloads no level

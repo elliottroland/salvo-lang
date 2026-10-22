@@ -492,6 +492,60 @@ fn a_union_of_qualified_literals_runs_on_both_backends() {
     __stamp.verified();
 }
 
+/// [fn-overload-return] Overloads that differ only in their return type,
+/// chosen by where each value goes, compile and run on both backends: a
+/// `let`, `!`, `?:`, a struct field, an argument and a value `if` branch.
+/// Neither target overloads by return type, so each gets a name of its own
+/// from [fn-emit-name]'s sixth level (`from_str__Str_IntOpt`; Kotlin camel-
+/// cases the part before the `__`).
+#[test]
+fn return_type_overloads_run_on_both_backends() {
+    let Some(__stamp) = e2e_stamp("return_type_overloads_run_on_both_backends", &["rustc", "kotlinc"]) else {
+        return;
+    };
+    let dir = work_dir("return_overloads");
+    fs::write(
+        dir.join("main.sv"),
+        "fn from_str(s: Str) [] -> Int? => s { return parse_int(s) }\n\
+         fn from_str(s: Str) [] -> Bool? => s {\n    if s == \"true\" { return true }\n    \
+         if s == \"false\" { return false }\n    return None\n}\n\n\
+         struct Opts { n: Int?, b: Bool? }\n\n\
+         fn want_int(n: Int?) [] -> Int => n { return n ?: 0 }\n\n\
+         fn main() [use] -> None {\n    use StdConsole()\n    \
+         let a: Int? = from_str(\"12\")\n    let b: Bool? = from_str(\"true\")\n    \
+         let c: Int = from_str(\"7\")!\n    let d: Int = from_str(\"x\") ?: 5\n    \
+         let o = Opts { n: from_str(\"3\"), b: from_str(\"false\") }\n    \
+         let e = want_int(from_str(\"9\"))\n    \
+         let f: Bool? = if c > 3 { from_str(\"true\") } else { None }\n    \
+         println(\"${a ?: 0} ${b ?: false} ${c} ${d} ${o.n ?: 0} ${o.b ?: true} ${e} ${f ?: false}\")\n}\n",
+    )
+    .unwrap();
+    for (backend, tool, ext) in [("rust", "rustc", "rs"), ("kotlin", "kotlinc", "kt")] {
+        if !have(tool) {
+            eprintln!("skipping {backend}: {tool} not found on PATH");
+            continue;
+        }
+        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", ".", "--clean-target", "before"]);
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(out.status.success(), "{backend} failed: {}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(stdout, "12 true 7 5 3 false 9 true\n", "{backend}");
+        let emitted: String = fs::read_dir(dir.join(".salvo_tmp_run").join(""))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter(|e| e.path().extension().is_some_and(|x| x == ext))
+            .map(|e| fs::read_to_string(e.path()).unwrap_or_default())
+            .collect();
+        if !emitted.is_empty() {
+            assert!(
+                emitted.contains("__Str_IntOpt(") && emitted.contains("__Str_BoolOpt("),
+                "{backend}: the two overloads are named by their return types"
+            );
+        }
+    }
+    __stamp.verified();
+}
+
 // ===== --clean-target =====
 
 /// `both` (the default) leaves nothing behind; `before` keeps the output for

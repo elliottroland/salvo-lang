@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1951 tests, complete: the toolchain tests are
+cargo test                  # 1957 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,55 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — Overloading by return type
+
+Phase 0.5 of the argument-parsing build; the user's decision (ARG_PARSE.md
+round 2, Q4), with R-1 (a), R-2 (b) and R-3 decided in rounds 3 and 4.
+[fn-overload-return]: overloads may share their parameter types and differ in
+the return type, and the expected type at the call chooses — only among
+candidates whose parameters are identical, so a call its arguments already
+decide never moves to another overload because of an annotation.
+
+What it took:
+- **Declarations**: [fn-overload-duplicate]'s key gained the normalized
+  return type (`refine::return_type_signature`). R-2 is checked on lowered
+  types in the checker (`check_return_overloads`), since resolution has only
+  AST types.
+- **Selection**: `select_overload` groups candidates by declared parameter
+  signature (`param_classes`) and ranks one per group; within the winning
+  group `pick_by_return` takes the one whose substituted return type fits the
+  expected type. With none or several fitting it reports the return types and
+  the remedy, except across modules, where the ordinary scope ambiguity and
+  its `f@module` remedy stand. `unqualified_winner` (the redundant-`@`
+  warning) and `dominant_lead` (argument typing) treat a group as one.
+  Diagnostics now render candidates with their return types.
+- **Expected types where none was passed**: a new `select_hint` carries the
+  expected type into the operand of `!` and the subject of `?:` (as `T?`) and
+  into a value `if`/`when` branch's tail (`tail_hint`, R-3), used by the next
+  call for choosing only, never for coercion (passing a real expected type
+  there would have recorded coercions against it).
+- **Names**: [fn-emit-name] level 6 appends the return type
+  (`from_str__Str_IntOpt`); every earlier name is unchanged. Neither backend
+  needed anything else, since both call the overload the checker recorded.
+- A cross-module consequence, intended: a module's `size(List<T>) -> Str`
+  beside `core.list`'s `-> Int` is now chosen by the expected type instead of
+  being ambiguous; that is what lets each type's module declare its own
+  `from_str`. Two tests that used differing return types to stage a scope
+  ambiguity now use equal ones.
+
+Not covered, recorded in ROADMAP: effect members still overload by
+parameters only, and `rename fn` cannot single out one of a return-type set.
+
+Tests: overload_tests `the_expected_type_chooses_among_return_type_overloads`
+(let, `!`, `?:`, argument, struct field, assignment, `return`, value `if`),
+`a_return_type_overload_with_no_expected_type_is_ambiguous`,
+`the_expected_type_never_overrides_the_parameters` (R-1),
+`overlapping_return_types_are_refused` (R-2),
+`a_fn_value_and_an_implicit_choose_by_return_type`; the duplicate test now
+needs the same return type; CLI run
+`return_type_overloads_run_on_both_backends` (both backends, and the
+level-6 names in the output).
 
 ### 2026-10-20 — A warning in a comptime copy lands on the written code, once
 
@@ -26807,7 +26856,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 1951 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1957 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

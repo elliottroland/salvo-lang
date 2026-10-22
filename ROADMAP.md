@@ -1622,6 +1622,14 @@ it would save only the cheap transcription and inherit every coupling of the
 
 ## Recorded, not scheduled
 
+- **Return-type overloading, the two places it does not reach** (recorded
+  2026-10-20 with [fn-overload-return]): effect members still overload by
+  parameters only ([effect-member-overload]; `effect_member_index` and the
+  member-signature check key on parameters), and `rename fn` names an
+  overload by its parameter list, so it cannot single out one of a set that
+  differs only in return type. Both would need a spelling decision (a
+  `-> R` in the rename's signature, say).
+
 Each was considered and deliberately parked. Nothing here is blocking, and
 several are "revisit only if a customer appears".
 

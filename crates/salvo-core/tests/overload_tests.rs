@@ -245,8 +245,8 @@ fn one_slot_never_pays_for_another() {
     assert_eq!(msgs.len(), 1, "{msgs:?}");
     assert!(
         msgs[0].contains("ambiguous call to `mix(Int, Int)`")
-            && msgs[0].contains("`mix(T, Int)`")
-            && msgs[0].contains("`mix(Int, T)`")
+            && msgs[0].contains("`mix(T, Int) -> Bool`")
+            && msgs[0].contains("`mix(Int, T) -> Bool`")
             && msgs[0].contains("rename fn"),
         "{}",
         msgs[0]
@@ -275,8 +275,8 @@ fn an_un_inferred_argument_produces_no_ambiguity() {
 fn an_own_overload_does_not_silently_beat_core() {
     let src = format!(
         "{}{}",
-        "fn size<T>(list: List<T>) [] -> Str => list { return \"mine\" }\n",
-        probe("    let xs = of_list(1, 2)\n    let _picked: Str = size(xs)")
+        "fn size<T>(list: List<T>) [] -> Int => list { return 0 }\n",
+        probe("    let xs = of_list(1, 2)\n    let _picked: Int = size(xs)")
     );
     let msgs = messages(&src);
     assert!(
@@ -285,6 +285,15 @@ fn an_own_overload_does_not_silently_beat_core() {
             && m.contains("size@main(...)")),
         "{msgs:?}"
     );
+    // [fn-overload-return] With a different return type the expected type
+    // tells them apart, from any module: overloading by return type is how
+    // each type's module can declare its own `from_str`.
+    let src = format!(
+        "{}{}",
+        "fn size<T>(list: List<T>) [] -> Str => list { return \"mine\" }\n",
+        probe("    let xs = of_list(1, 2)\n    let _mine: Str = size(xs)\n    let _core: Int = size(xs)")
+    );
+    assert_eq!(messages(&src), Vec::<String>::new());
 }
 
 /// And naming the place resolves it — either place.
@@ -320,8 +329,8 @@ fn an_import_is_not_a_tiebreaker() {
     );
     // An own declaration of the same shape makes the call ambiguous.
     let src = format!(
-        "{main_import}fn describe(v: Int) [] -> Str {{ return \"mine\" }}\n{}",
-        probe("    let _picked: Str = describe(1)")
+        "{main_import}fn describe(v: Int) [] -> Bool {{ return false }}\n{}",
+        probe("    let _picked: Bool = describe(1)")
     );
     let msgs = messages_files(&[("main.sv", &src), ("lib.sv", lib)]);
     assert!(
@@ -559,13 +568,15 @@ fn a_renamed_name_takes_no_module_selector() {
 /// apart at a call.
 #[test]
 fn identical_parameter_types_are_a_duplicate() {
+    // The same parameters and the same return type: nothing could tell them
+    // apart.
     let src = "fn f(n: Int) [] -> Str { return \"a\" }\n\
-               fn f(other: Int) [] -> Int { return 1 }\n";
+               fn f(other: Int) [] -> Str { return \"b\" }\n";
     let msgs = messages(src);
     assert_eq!(msgs.len(), 1, "{msgs:?}");
     assert!(
-        msgs[0].contains("duplicate fn `f(Int)`")
-            && msgs[0].contains("Parameter names and return types take no part"),
+        msgs[0].contains("duplicate fn `f(Int) -> Str`")
+            && msgs[0].contains("Parameter names take no part"),
         "{}",
         msgs[0]
     );
@@ -573,6 +584,95 @@ fn identical_parameter_types_are_a_duplicate() {
     let ok = "fn f(n: Int) [] -> Int { return 1 }\n\
               fn f(s: Str) [] -> Int => !s { return 2 }\n";
     assert!(messages(ok).is_empty(), "{:?}", messages(ok));
+}
+
+// ===== [fn-overload-return] overloading by return type =====
+
+const FROM_STR: &str = "fn from_str(s: Str) [] -> Int? => s { return 1 }\n\
+                        fn from_str(s: Str) [] -> Bool? => s { return true }\n";
+
+/// [fn-overload-return] The same parameters with different return types are
+/// an overload set, chosen by where the value goes: a `let`, a `return`, an
+/// argument, a struct field, an assignment, through `!` and `?:`, and into
+/// the branches of a value `if` (R-3).
+#[test]
+fn the_expected_type_chooses_among_return_type_overloads() {
+    let body = [
+        "    let a: Int? = from_str(\"1\")",
+        "    let b: Bool? = from_str(\"t\")",
+        "    let c: Int = from_str(\"1\")!",
+        "    let d: Bool = from_str(\"t\") ?: false",
+        "    let e = takes_int(from_str(\"1\"))",
+        "    let h = Holder { b: from_str(\"t\") }",
+        "    let g: Int? = None",
+        "    g = from_str(\"2\")",
+        "    let i: Bool? = if d { from_str(\"t\") } else { None }",
+    ]
+    .join("\n");
+    let src = format!(
+        "{FROM_STR}struct Holder {{ b: Bool? }}\n\
+         fn takes_int(n: Int?) [] -> Int => n {{ return 0 }}\n\
+         fn give() [] -> Bool? {{ return from_str(\"t\") }}\n{}",
+        probe(&body)
+    );
+    assert_eq!(messages(&src), Vec::<String>::new());
+}
+
+/// [fn-overload-return] With nothing saying which result is wanted, the call
+/// is ambiguous, naming the return types and the remedy — never a pick.
+#[test]
+fn a_return_type_overload_with_no_expected_type_is_ambiguous() {
+    let src = format!("{FROM_STR}{}", probe("    let x = from_str(\"1\")"));
+    let msgs = messages(&src);
+    assert!(
+        msgs.iter().any(|m| m.contains("has overloads that differ only in their return type (`Int?`, `Bool?`)")
+            && m.contains("nothing here says which result is wanted")),
+        "{msgs:?}"
+    );
+    let src = format!("{FROM_STR}{}", probe("    let x: Str? = from_str(\"1\")"));
+    let msgs = messages(&src);
+    assert!(msgs.iter().any(|m| m.contains("none of them is a `Str?`")), "{msgs:?}");
+}
+
+/// [fn-overload-return] R-1 (a): a call its parameters already decide is
+/// decided the same way whatever its expected type, so an annotation never
+/// moves a call to another overload.
+#[test]
+fn the_expected_type_never_overrides_the_parameters() {
+    let decls = "fn f(x: Int) [] -> Str => x { return \"s\" }\n\
+                 fn f(x: Int?) [] -> Int => x { return 1 }\n";
+    let src = format!("{decls}{}", probe("    let c: Int = f(3)"));
+    let msgs = messages(&src);
+    assert!(msgs.iter().any(|m| m.contains("expected `Int`, found `Str`") || m.contains("`Str`")), "{msgs:?}");
+    let ok = format!("{decls}{}", probe("    let s: Str = f(3)"));
+    assert_eq!(messages(&ok), Vec::<String>::new());
+}
+
+/// [fn-overload-return] R-2: return types one of which is a subtype of the
+/// other are refused at the declaration, since an expected supertype would
+/// fit both.
+#[test]
+fn overlapping_return_types_are_refused() {
+    let src = "fn f(s: Str) [] -> Int => s { return 1 }\n\
+               fn f(s: Str) [] -> Int? => s { return None }\n";
+    let msgs = messages(src);
+    assert!(
+        msgs.iter().any(|m| m.contains("is overloaded on its return type alone, and `Int` and `Int?` overlap")),
+        "{msgs:?}"
+    );
+}
+
+/// [fn-overload-return] [fn-value-select] A fn passed by name and an
+/// implicit already compare the whole fn type, result included, so a
+/// return-type overload is chosen there by the slot it fills.
+#[test]
+fn a_fn_value_and_an_implicit_choose_by_return_type() {
+    let src = format!(
+        "{FROM_STR}fn apply(f: (s: Str) -> Bool?, s: Str) [] -> Bool? => f, s {{ return f(s) }}\n\
+         fn parse<E>(s: Str, ?from_str: (s: Str) -> E?) [] -> E? => s {{ return from_str(s) }}\n{}",
+        probe("    let a = apply(from_str, \"t\")\n    let b: Int? = parse(\"1\")")
+    );
+    assert_eq!(messages(&src), Vec::<String>::new());
 }
 
 fn messages_files(files: &[(&str, &str)]) -> Vec<String> {
