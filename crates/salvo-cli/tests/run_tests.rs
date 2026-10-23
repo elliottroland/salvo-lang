@@ -1311,6 +1311,143 @@ fn main() [use] -> None {
     __stamp.verified();
 }
 
+/// [args-commands] Sub-commands: a `Subcommand` field over a union of
+/// command structs, chosen by the first word (named by kebab case, the last
+/// segment of a namespaced name, or `Named`), nested to two levels, optional
+/// (`(A | B)?`), with the parent's options only before the word, an unknown
+/// or missing command an error, and help at each level naming the path
+/// (`git remote add`), on both backends.
+#[test]
+fn derived_sub_commands_run_on_both_backends() {
+    let Some(__stamp) = e2e_stamp("derived_sub_commands_run_on_both_backends", &["rustc", "kotlinc"]) else {
+        return;
+    };
+    const SRC: &str = r#"import args
+
+// Manage a repository.
+struct Git : FromArgs<self> by args {
+    // Print more.
+    Short('v') verbose: Bool
+    Subcommand command: GitCommand
+}
+
+type GitCommand = Clone | Remote
+
+// Copy a repository.
+struct Clone : FromArgs<self> by args {
+    // Where from.
+    Positional url: Str
+    depth: Int?
+}
+
+// Manage remotes.
+struct Remote : FromArgs<self> by args {
+    Subcommand command: (Remote.Add | Remote.Remove)?
+}
+
+namespace Remote {
+    // Add a remote.
+    struct Add : FromArgs<self> by args {
+        Positional name: Str
+        Positional url: Str
+    }
+
+    // Remove a remote.
+    Named("rm")
+    struct Remove : FromArgs<self> by args {
+        Positional name: Str
+    }
+}
+
+fn describe(g: Git) [] -> Str => g {
+    let c = g.command
+    when c {
+        is Clone { return "clone ${c.url} ${c.depth ?: 0}" }
+        is Remote {
+            let sub = c.command
+            when sub {
+                is Remote.Add { return "remote add ${sub.name} ${sub.url}" }
+                is Remote.Remove { return "remote rm ${sub.name}" }
+                is None { return "remote" }
+            }
+        }
+    }
+}
+
+fn show(args: List<Str>) [Console] -> None => args {
+    let r: Ok Git | Errs NonEmpty List<ArgError> = parse_args(args)
+    when r {
+        is Ok { println("ok ${r.verbose} ${describe(r)}") }
+        is Errs {
+            for e in r {
+                let one = copy(e)
+                if one is HelpRequested {
+                    print(one.text)
+                } else {
+                    println("error: ${message(one)}")
+                }
+            }
+        }
+    }
+}
+
+fn main() [use] -> None {
+    use StdConsole()
+    show(List("-v", "clone", "URL", "--depth", "1"))
+    show(List("remote", "add", "origin", "u"))
+    show(List("remote", "rm", "origin"))
+    show(List("remote"))
+    show(List("clone", "-v"))
+    show(List("push"))
+    show(List())
+    show(List("--help"))
+    show(List("remote", "add", "--help"))
+}
+"#;
+    const EXPECTED: &str = r#"ok true clone URL 1
+ok false remote add origin u
+ok false remote rm origin
+ok false remote
+error: unknown option '-v'
+error: '<url>' is required
+error: unrecognized command 'push'
+error: '<command>' is required
+Manage a repository.
+
+Usage: git [OPTIONS] <COMMAND>
+
+Commands:
+  clone          Copy a repository.
+  remote         Manage remotes.
+
+Options:
+  -v, --verbose  Print more.
+  -h, --help     Print help
+Add a remote.
+
+Usage: git remote add <name> <url>
+
+Arguments:
+  <name>
+  <url>
+
+Options:
+  -h, --help  Print help
+"#;
+    let dir = work_dir("sub_commands");
+    fs::write(dir.join("main.sv"), SRC).unwrap();
+    for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
+        if !have(tool) {
+            eprintln!("skipping {backend}: {tool} not found on PATH");
+            continue;
+        }
+        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", ".", "--clean-target", "before"]);
+        assert!(out.status.success(), "{backend} failed: {}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(String::from_utf8_lossy(&out.stdout), EXPECTED, "{backend}");
+    }
+    __stamp.verified();
+}
+
 /// [str-parse] The value parsers read the same strings on both backends:
 /// `parse_double` checks one decimal grammar before converting (the hosts'
 /// own parsers disagree on whitespace, `NaN`, `inf`, hex and `f` suffixes),

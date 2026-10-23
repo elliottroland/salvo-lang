@@ -7223,8 +7223,9 @@ can have one capability without the other.
   * `command_name("Remote.Add")` is `add`, `RemoteAdd` `remote-add`.
 * [args-errors] **`ArgError` is every way a command line fails**, and the
   request for help: `UnknownOption | MissingValue | Missing | Invalid |
-  Unexpected | Repeated | Requires | Conflict | MissingOne | HelpRequested`
-  (the middle three for groups [args-groups]). Help is an outcome, so parsing is
+  Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand |
+  HelpRequested` (`Requires`, `Conflict` and `MissingOne` for groups
+  [args-groups], `UnknownCommand` for sub-commands [args-commands]). Help is an outcome, so parsing is
   pure (Q17); `message(e)` is one line in the user's terms (`invalid value
   'xml' for '--output': expected one of json, text`).
 * [args-help] **`help_text(spec)`** is the about line, `usage(spec)`
@@ -7254,6 +7255,27 @@ can have one capability without the other.
   * A group's `from_found` reads the same `Found`; its errors after the
     scan's are added (`group_errors`), and its value taken once every check
     passed (`built`).
+* [args-commands] **A `Subcommand` field takes a sub-command** (ARG_PARSE.md
+  §10.2, Q14, D-3, D-4): `export comptime qualifier Subcommand of Field`, on
+  a field whose type is a union of command structs, each declaring
+  `FromArgs`; `(A | B)?` makes the command optional.
+  * A command's name is its spec's: `Named`'s, or `command_name` of its
+    type's (`Clone` is `clone`, `Remote.Add` is `add`). Listed under
+    `Commands:` in help, with each struct's doc comment, and `<COMMAND>` (or
+    `[COMMAND]`) in usage.
+  * The scan takes the **first word** as the command; everything after it
+    is the command's (`Found.command`, `Found.rest`), so the parent's options
+    come before it (git's rule). A word naming no command is
+    `UnknownCommand` (`unrecognized command 'push'`); none, when required, is
+    `Missing { what: "<command>" }`.
+  * The chosen arm is parsed by `parse_named(found.rest, found.path)`, so its
+    usage and help name the path (`Usage: git remote add <name> <url>`); its
+    errors join the parent's, and its help, when asked for, is the answer.
+  * **Trapped as the parser starts**: a sub-command beside positionals (a
+    word would be one or the other by its spelling), two `Subcommand`
+    fields, two commands of one name. **Refused at the `by` site**: a
+    `Subcommand` that is also `Positional` or `Short`, a field type that is
+    not a union, a non-struct arm.
 * [args-derive] **`struct S : FromArgs<self> by args` derives a parser**
   (ARG_PARSE.md §10.1, Q7, Q13): `params FromArgs<T> { fn arg_spec() ->
   Spec<T>; fn from_found(found: Found) -> Ok T | Errs NonEmpty

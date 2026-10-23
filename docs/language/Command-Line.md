@@ -134,6 +134,66 @@ struct Fetch : FromArgs<self> by args {
 
 Groups nest: an exclusive arm may hold an all-or-none group, and so on.
 
+## Sub-commands
+
+A field marked `Subcommand`, whose type is a union of command structs, takes
+a sub-command: the first word names it, and the rest of the line is its own.
+
+```
+// Manage a repository.
+struct Git : FromArgs<self> by args {
+    Short('v') verbose: Bool
+    Subcommand command: Clone | Remote
+}
+
+// Copy a repository.
+struct Clone : FromArgs<self> by args {
+    Positional url: Str
+    depth: Int?
+}
+
+// Manage remotes.
+struct Remote : FromArgs<self> by args {
+    Subcommand command: (Remote.Add | Remote.Remove)?
+}
+
+namespace Remote {
+    // Add a remote.
+    struct Add : FromArgs<self> by args {
+        Positional name: Str
+        Positional url: Str
+    }
+
+    // Remove a remote.
+    Named("rm")
+    struct Remove : FromArgs<self> by args {
+        Positional name: Str
+    }
+}
+```
+
+`git -v clone URL --depth 1` gives `Git { verbose: true, command: Clone {
+url: "URL", depth: 1 } }`, and the program dispatches with an exhaustive
+`when`, so a command added later breaks every dispatch that does not handle
+it:
+
+```
+when c = git.command {
+    is Clone { clone(c) }
+    is Remote { remote(c) }
+}
+```
+
+- A command is named after its struct in kebab case, the last segment of a
+  namespaced name (`Remote.Add` is `add`), or by `Named`.
+- The parent's options come before the command's name: `git clone -v` is an
+  error, since `-v` is `git`'s.
+- With `?` the command may be left out; otherwise `'<command>' is required`.
+- `git remote add --help` is `add`'s help, its usage naming the path:
+  `Usage: git remote add <name> <url>`.
+- A struct with a `Subcommand` field takes no positionals: whether a word
+  named a command would depend on its spelling.
+
 ## The conventions
 
 - `--port 80` and `--port=80`; `-p 80` and `-p80`.

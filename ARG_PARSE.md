@@ -127,7 +127,7 @@ tracked here so a fresh agent can carry on. Rules for whoever continues:
 - [x] 2.1 Lexer, `ArgError`, internal runtime layer (§4.0, Q12, Q17, Q18).
 - [x] 2.2 The derive: flags, defaults, `Short`, `Positional`, help (§10.1).
 - [x] 2.3 Groups: flattened, co-occurring, exclusive (§10.3, Q15).
-- [ ] 2.4 Sub-commands (§10.2, Q14).
+- [x] 2.4 Sub-commands (§10.2, Q14).
 - [ ] 2.5 Validation hook and qualifier re-testing (§5.2, Q16).
 - [ ] 2.6 An example in `examples/`, the docs page, and retiring this
   document per its lifecycle.
@@ -135,6 +135,18 @@ tracked here so a fresh agent can carry on. Rules for whoever continues:
 **Blocked on the user:** nothing.
 
 **Log** (newest first):
+- 2026-10-20: 2.4 done ("Add sub-commands to the args derive"):
+  [args-commands]; 2000 tests. Next: 2.5 (validation hook and `explain`).
+  Plan: `params Validates<T> { fn validate(o: T) [Throw<ArgError>] -> T }`?
+  No: Q16 says the derive calls a user `validate(o: T) [Throw<ArgError>] ->
+  +Valid T` when one is declared, found as an implicit, so the result is the
+  validated type. An implicit with no default cannot be optional, so check
+  what "when one is declared" can mean here (an overload set that always
+  has the identity? a second entry `parse_valid<T, V>`?) before building;
+  if it needs a language call, record it under "Blocked on the user". The
+  `explain` half: `check_value`'s "the value is not accepted" becomes the
+  qualifier's `explain` text, via `[if field.type is <lo, hi> InRange(lo,
+  hi) *]` or a generic `?explain` implicit.
 - 2026-10-20: 2.3 done ("Add option groups to the args derive"):
   [args-groups]; 1999 tests. Not built (recorded in ROADMAP at 2.6):
   provenance-tagged scalar arms (`FromUrl Str | FromFile Str`), prefixed

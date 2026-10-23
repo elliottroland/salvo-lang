@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1999 tests, complete: the toolchain tests are
+cargo test                  # 2000 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,25 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — Sub-commands in the args derive
+
+Phase 2.4 (ARG_PARSE.md §10.2, Q14, D-3, D-4; no new decision).
+[args-commands]: `export comptime qualifier Subcommand of Field` on a field
+whose type is a union of `FromArgs` command structs (`(A | B)?` optional).
+The scan takes the first word as the command and keeps the rest for it
+(`Found.command`, `Found.rest`), so the parent's options come first; the arm
+is parsed by `parse_named(rest, path)`, whose usage and help name the path
+(`git remote add`). `UnknownCommand` is a new error; `Commands:` a help
+section. Traps: a sub-command beside positionals, two `Subcommand` fields,
+two commands of one name.
+
+Nothing in the compiler needed changing: nested commands are ordinary
+stamped members calling each other by return type, which 2.2 and 2.3 had
+already made work.
+
+Tests: CLI run `derived_sub_commands_run_on_both_backends` (two levels, an
+optional level, `Named`, a namespaced arm, errors, help at each level).
 
 ### 2026-10-20 — Groups of options: flattened, all-or-none, exclusive
 
@@ -27401,7 +27420,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 1999 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2000 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

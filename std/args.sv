@@ -53,7 +53,7 @@ export threadsafe platform handler HostArgs() of Args
 // [args-errors] Every way a command line can fail to parse, and the request
 // for help, which is an outcome rather than a side effect so parsing stays
 // pure (Q17). A parse reports all of its errors at once.
-export type ArgError = UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | HelpRequested
+export type ArgError = UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested
 
 // An option the command does not have: `--prot`, `-x`.
 export struct UnknownOption {
@@ -106,6 +106,11 @@ export struct MissingOne {
     options: List<Str>
 }
 
+// [args-commands] A word where a sub-command goes that names none.
+export struct UnknownCommand {
+    name: Str
+}
+
 // `--help` or `-h`: the help text, to print and exit successfully.
 export struct HelpRequested {
     text: Str
@@ -123,6 +128,7 @@ export fn message(e: ArgError) [] -> Str => e {
         is Requires { return "'${e.option}' requires '${e.needs}'" }
         is Conflict { return "'${e.option}' cannot be used with '${e.other}'" }
         is MissingOne { return "one of '${join(e.options, "', '")}' is required" }
+        is UnknownCommand { return "unrecognized command '${e.name}'" }
         is HelpRequested { return "help was requested" }
     }
 }
@@ -185,7 +191,20 @@ export struct Spec<T> {
     about: Str? = None,
     opts: List<OptSpec>,
     args: List<ArgSpec>,
-    groups: List<GroupSpec> = List<GroupSpec>()
+    groups: List<GroupSpec> = List<GroupSpec>(),
+    // [args-commands] The sub-commands, when a field takes one.
+    commands: List<CmdSpec> = List<CmdSpec>(),
+    // Whether one must be given (the field's union has no `None`).
+    command_required: Bool = false,
+    // How many fields take a sub-command (more than one is refused).
+    command_fields: Int = 0
+}
+
+// [args-commands] A sub-command: its name (`clone`, or `Named`'s) and what
+// it does.
+export struct CmdSpec {
+    name: Str,
+    about: Str? = None
 }
 
 // [args-groups] Adds a group's options to a command's: `child`, the spec of
@@ -286,7 +305,13 @@ export struct Hit {
 export struct Found {
     hits: List<Hit>,
     errors: List<ArgError>,
-    help: Bool
+    help: Bool,
+    // [args-commands] The sub-command named, and the arguments after its
+    // name, which are its own.
+    command: Str? = None,
+    rest: List<Str> = List<Str>(),
+    // [args-commands] How usage names this command: `git remote`.
+    path: Str = ""
 }
 
 // [args-runtime] Reads `args` against `spec`. Every problem the scan can
@@ -300,6 +325,9 @@ export fn scan<T>(spec: Spec<T>, args: List<Str>) [] -> Found => spec, args {
     let errors: Mut List<ArgError> = Mut List<ArgError>()
     let words: Mut List<Str> = Mut List<Str>()
     let help = false
+    let command: Str? = None
+    let failed_command = false
+    let rest: Mut List<Str> = Mut List<Str>()
     let n = size(tokens)
     let i = 0
     while i < n {
@@ -307,7 +335,25 @@ export fn scan<T>(spec: Spec<T>, args: List<Str>) [] -> Found => spec, args {
         i = i + 1
         when t {
             is EndToken {}
-            is WordToken { add(words, t.value) }
+            is WordToken {
+                // [args-commands] The first word names the sub-command, and
+                // everything after it is the sub-command's.
+                if !is_empty(spec.commands) && command is None && !failed_command {
+                    if has_command(spec, t.value) {
+                        command = copy(t.value)
+                        while i < n {
+                            add(rest, copy(get(args, i)!))
+                            i = i + 1
+                        }
+                    } else {
+                        add(errors, UnknownCommand { name: copy(t.value) })
+                        failed_command = true
+                        i = n
+                    }
+                } else {
+                    add(words, t.value)
+                }
+            }
             is LongToken {
                 if t.name == "help" {
                     help = true
@@ -458,7 +504,10 @@ export fn scan<T>(spec: Spec<T>, args: List<Str>) [] -> Found => spec, args {
         add(errors, Unexpected { value: copy(get(words, w)!) })
         w = w + 1
     }
-    return Found { hits: hits, errors: errors, help: help }
+    if !is_empty(spec.commands) && command is None && !failed_command && spec.command_required {
+        add(errors, Missing { what: "<command>" })
+    }
+    return Found { hits: hits, errors: errors, help: help, command: command, rest: rest, path: copy(spec.name) }
 }
 
 // [args-groups] The group a key nests in: `source` for `source/FromUrl`.
@@ -557,6 +606,25 @@ fn unmet_group<T>(spec: Spec<T>, hits: List<Hit>, key: Str?) [] -> Str? => spec,
     return None
 }
 
+// [args-commands] Whether `spec` has a sub-command named `name`.
+fn has_command<T>(spec: Spec<T>, name: Str) [] -> Bool => spec, name {
+    for c in spec.commands {
+        if c.name == name {
+            return true
+        }
+    }
+    return false
+}
+
+// [args-commands] Whether the scan found the sub-command `name`.
+export fn is_command(found: Found, name: Str) [] -> Bool => found, name {
+    let c = found.command
+    if c is None {
+        return false
+    }
+    return c == name
+}
+
 // The option spelled `--name`.
 fn long_opt<T>(spec: Spec<T>, name: Str) [] -> OptSpec? => spec, name {
     for o in spec.opts {
@@ -645,6 +713,9 @@ export fn usage<T>(spec: Spec<T>) [] -> Str => spec {
         let shown = if a.many { "${name}..." } else { name }
         append(out, if a.required { " ${shown}" } else { " [${shown}]" })
     }
+    if !is_empty(spec.commands) {
+        append(out, if spec.command_required { " <COMMAND>" } else { " [COMMAND]" })
+    }
     return out
 }
 
@@ -669,6 +740,12 @@ export fn help_text<T>(spec: Spec<T>) [] -> Str => spec {
         add(rights, copy(a.help ?: ""))
     }
     let nargs = size(lefts)
+    // [args-commands] The sub-commands, each with what it does.
+    for c in spec.commands {
+        add(lefts, copy(c.name))
+        add(rights, copy(c.about ?: ""))
+    }
+    let ncommands = size(lefts) - nargs
     // [args-groups] Each option under its section: the command's own under
     // `Options:`, a group's with a heading under it, in field order.
     let sections: Mut List<Str> = Mut List<Str>()
@@ -715,11 +792,22 @@ export fn help_text<T>(spec: Spec<T>) [] -> Str => spec {
         }
         help_rows(out, lefts, rights, rows, width)
     }
+    if ncommands > 0 {
+        append(out, "\nCommands:\n")
+        let commands: Mut List<Int> = Mut List<Int>()
+        let c: Int = 0
+        while c < ncommands {
+            add(commands, nargs + c + 0)
+            c = c + 1
+        }
+        help_rows(out, lefts, rights, commands, width)
+    }
+    let first_opt = nargs + ncommands
     let mine: Mut List<Int> = Mut List<Int>()
     let k = 0
     for s in section_of {
         if s == "" {
-            add(mine, nargs + k)
+            add(mine, first_opt + k)
         }
         k = k + 1
     }
@@ -731,7 +819,7 @@ export fn help_text<T>(spec: Spec<T>) [] -> Str => spec {
         let j = 0
         for s in section_of {
             if s == heading {
-                add(these, nargs + j)
+                add(these, first_opt + j)
             }
             j = j + 1
         }
@@ -821,6 +909,10 @@ export comptime qualifier Short(c: Char) of Field
 // [args-derive] A field taken by position rather than by name.
 export comptime qualifier Positional of Field
 
+// [args-commands] A field whose union of command structs is chosen by the
+// first word: `Subcommand command: Clone | Remote`.
+export comptime qualifier Subcommand of Field
+
 // [args-derive] A command's name, when its type's will not do:
 // `Named("rm") struct Remove`. Otherwise a command is named after its type
 // [args-runtime] (`command_name`).
@@ -840,14 +932,32 @@ export params FromArgs<T> {
 // text when `--help` or `-h` was given (an `Errs` holding one
 // `HelpRequested`, whatever else is wrong).
 export fn parse_args<T>(args: List<Str>, ?FromArgs<T>) [] -> Ok T | Errs NonEmpty List<ArgError> => args {
-    let spec: Spec<T> = arg_spec()
-    check_spec(spec)
+    return parse_named(args, None)
+}
+
+// [args-commands] `parse_args`, for a command whose usage names it after
+// `prefix`: a sub-command `clone` of `git` is `git clone`.
+export fn parse_named<T>(args: List<Str>, prefix: Str?, ?FromArgs<T>) [] -> Ok T | Errs NonEmpty List<ArgError> => args, !prefix {
+    let base: Spec<T> = arg_spec()
+    check_spec(base)
+    let spec = if prefix is None { base } else { Spec<T> { ...base, name: "${prefix} ${base.name}" } }
     let found = scan(spec, args)
     if found.help {
         let help: ArgError = HelpRequested { text: help_text(spec) }
         return errs(help)
     }
-    return from_found(found)
+    let r: Ok T | Errs NonEmpty List<ArgError> = from_found(found)
+    // A sub-command's help is the answer, whatever else is wrong.
+    if r is Errs {
+        for e in r {
+            let one: ArgError = copy(e)
+            if one is HelpRequested {
+                let help: ArgError = one
+                return errs(help)
+            }
+        }
+    }
+    return r
 }
 
 // [args-derive] Parses `args` into a `T`, or ends the process: help is
@@ -919,6 +1029,20 @@ fn check_spec<T>(spec: Spec<T>) [] -> None => spec {
                 unreachable!("every option of `${g.key}` is optional, so nothing chooses that arm: make one required")
             }
         }
+    }
+    // [args-commands] A word is a sub-command or a positional, not either.
+    if !is_empty(spec.commands) && !is_empty(spec.args) {
+        unreachable!("`${spec.name}` takes a sub-command and positionals: whether a word is one or the other would depend on its spelling")
+    }
+    if spec.command_fields > 1 {
+        unreachable!("`${spec.name}` has more than one `Subcommand` field")
+    }
+    let names: Mut List<Str> = Mut List<Str>()
+    for c in spec.commands {
+        if contains(names, c.name) {
+            unreachable!("two sub-commands of `${spec.name}` are named `${c.name}`")
+        }
+        add(names, copy(c.name))
     }
     let optional = false
     let many = false
@@ -1056,7 +1180,33 @@ export comptime fn arg_spec<T is Struct>() [] -> Spec<T> {
     let opts: Mut List<OptSpec> = Mut List<OptSpec>()
     let args: Mut List<ArgSpec> = Mut List<ArgSpec>()
     let groups: Mut List<GroupSpec> = Mut List<GroupSpec>()
+    let commands: Mut List<CmdSpec> = Mut List<CmdSpec>()
+    let command_required = false
+    let command_fields = 0
     [for field in T.fields] {
+        [if field is Subcommand] {
+            [if field is Positional || field is Short] {
+                refuse!("a sub-command is chosen by a word of its own, so it is neither positional nor an option")
+            }
+            command_fields = command_fields + 1
+            [if field.type is *?] {} else {
+                command_required = true
+            }
+            [if field.kind is Union] {
+                [for arm in field.type.arms] {
+                    [if arm.kind is Struct] {
+                        let child: Spec<[arm.type]> = arg_spec()
+                        add(commands, CmdSpec { name: copy(child.name), about: copy(child.about) })
+                    } else {
+                        [if arm.type is None] {} else {
+                            refuse!("a sub-command is a struct, declared `: FromArgs<self> by args`")
+                        }
+                    }
+                }
+            } else {
+                refuse!("a `Subcommand` field's type is a union of command structs")
+            }
+        } else {
         [if field.type is <S> S? && S.kind is Struct] {
             [if field is Positional] {
                 refuse!("a positional takes words, and a group of options does not")
@@ -1167,12 +1317,22 @@ export comptime fn arg_spec<T is Struct>() [] -> Spec<T> {
             }
         }
         }
+        }
     }
     let name = command_name(T.name)
     [if T is <n> Named(n)] {
         name = n
     }
-    return Spec<T> { name: name, about: T.docs, opts: opts, args: args, groups: groups }
+    return Spec<T> {
+        name: name,
+        about: T.docs,
+        opts: opts,
+        args: args,
+        groups: groups,
+        commands: commands,
+        command_required: command_required,
+        command_fields: command_fields
+    }
 }
 
 // [args-derive] `T` from a scan: first every value checked against its
@@ -1185,6 +1345,19 @@ export comptime fn from_found<T is Struct>(found: Found) [] -> Ok T | Errs NonEm
         add(errors, copy(e))
     }
     [for field in T.fields] {
+        [if field is Subcommand] {
+            [if field.kind is Union] {
+                [for arm in field.type.arms] {
+                    [if arm.kind is Struct] {
+                        let s: Spec<[arm.type]> = arg_spec()
+                        if is_command(found, s.name) {
+                            let r: Ok [arm.type] | Errs NonEmpty List<ArgError> = parse_named(found.rest, copy(found.path))
+                            group_errors(errors, r, 0)
+                        }
+                    }
+                }
+            }
+        } else {
         [if field.type is <S> S? && S.kind is Struct] {
             let s: Spec<S> = arg_spec()
             if any_given(found, s) {
@@ -1264,6 +1437,7 @@ export comptime fn from_found<T is Struct>(found: Found) [] -> Ok T | Errs NonEm
         }
         }
         }
+        }
     }
     if errors is NonEmpty {
         return Errs(errors)
@@ -1271,6 +1445,23 @@ export comptime fn from_found<T is Struct>(found: Found) [] -> Ok T | Errs NonEm
     return Ok(T {
         [for field in T.fields] {
             [field]: eval<[field.type]>(() -> {
+                [if field is Subcommand] {
+                    [if field.kind is Union] {
+                        [for arm in field.type.arms] {
+                            [if arm.kind is Struct] {
+                                let s: Spec<[arm.type]> = arg_spec()
+                                if is_command(found, s.name) {
+                                    return built<[arm.type]>(parse_named(found.rest, copy(found.path)))
+                                }
+                            }
+                        }
+                    }
+                    [if field.type is *?] {
+                        return None
+                    } else {
+                        unreachable!("the sub-command was checked")
+                    }
+                } else {
                 [if field.type is <S> S? && S.kind is Struct] {
                     let s: Spec<S> = arg_spec()
                     if any_given(found, s) {
@@ -1379,6 +1570,7 @@ export comptime fn from_found<T is Struct>(found: Found) [] -> Ok T | Errs NonEm
                     return read_value<Double, [field.type]>(found, field.name, field.default, (v: Double) -> if v is [field.type] { v } else { None })
                 } else {
                     return read_value<[field.type], [field.type]>(found, field.name, field.default, (v: [field.type]) -> v)
+                }
                 }
                 }
                 }
