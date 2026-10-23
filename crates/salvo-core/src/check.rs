@@ -9512,16 +9512,21 @@ impl<'p, 'r> Checker<'p, 'r> {
         // too (user decision 2026-09-04): the only reason to take `f` is to
         // call it, and calling it needs those effects here — so they are
         // *inherited* rather than repeated in the written list. Callers
-        // supply them like any declared effect.
+        // supply them like any declared effect. **Only where no list is
+        // written** (user decision 2026-10-20): a written list, `[]`
+        // included, is the whole set, so a body that handles a parameter's
+        // effect itself (`try` around `f(n)`, `use` before it) can say so.
         //
         // Transitional (ROADMAP §2b): an inherited availability arrives as
         // the value's effect parameter, which the emitters do not mint a
         // handle from yet — so it is marked inline (`local`) here, which
         // refuses its capture until step ② makes it a handle.
-        for p in &f.params {
-            for ty in self.inherited_fn_effects(&p.ty) {
-                if !env.iter().any(|a| a.ty == ty) {
-                    env.push(EffectAvail { ty, declared: true, any: false });
+        if f.effects.is_none() {
+            for p in &f.params {
+                for ty in self.inherited_fn_effects(&p.ty) {
+                    if !env.iter().any(|a| a.ty == ty) {
+                        env.push(EffectAvail { ty, declared: true, any: false });
+                    }
                 }
             }
         }
@@ -14437,6 +14442,21 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [use-no-dup] Innermost first, shadowed duplicates hidden.
         let visible = self.visible_effects();
         for want in effects {
+            // [throw] [fn-effects] A function value that may throw needs a
+            // delimiter, not a handler, exactly as a named callee that may
+            // does: the call is an exit `record_throw` accounts for, and a
+            // `try` around it receives the throw (2026-10-20; before, it
+            // looked for a `Throw` handler, so a `try` around `f(n)` saw
+            // nothing that could throw).
+            if record {
+                if let Ty::Named { name: eff, args } = want {
+                    if eff == THROW_EFFECT && !visible.iter().any(|c| c == want) {
+                        let message = args.first().cloned().unwrap_or(Ty::Unknown);
+                        self.record_throw(span, message, false);
+                        continue;
+                    }
+                }
+            }
             let found = visible.iter().find(|c| *c == want).cloned();
             let found = found.or_else(|| {
                 let compatible: Vec<&Ty> = visible
@@ -32131,7 +32151,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             // `fn_effects` — the emitters pass one argument per entry, so
             // the two lists must agree position by position.
             let mut inherited: Vec<(Ty, bool)> = Vec::new();
-            for p in &decl.params {
+            // [fn-effects] Only a callee with no written list inherits.
+            for p in decl.params.iter().filter(|_| decl.effects.is_none()) {
                 for ty in self.inherited_fn_effects(&p.ty) {
                     if !inherited.iter().any(|(w, _)| *w == ty) {
                         inherited.push((ty, false));

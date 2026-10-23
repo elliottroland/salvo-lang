@@ -57,9 +57,20 @@ fn demo() [Console, Logger] {
 The rules follow from "the caller supplies it":
 
 - **A lambda body performs what its type declares** — not whatever its enclosing scope happens to have. A lambda passed where the fn type declares nothing may not log, even inside a function that can.
-- **A function inherits its fn-typed parameters' effects.** `run_it` above needs no effect list of its own, but its *callers* must have `Logger` available, because that is where the value comes from at run time.
+- **A function that writes no effect list inherits its fn-typed parameters' effects.** `run_it` above needs no effect list of its own, but its *callers* must have `Logger` available, because that is where the value comes from at run time. A written list is the whole set, `[]` included: a function that handles the effect itself writes the list without it, which is how a `try` around a throwing parameter's call keeps the throw from its callers:
+
+```
+fn attempt(f: (n: Int) [Throw<Str>] -> Int, n: Int) [] -> Str => f {
+    let r = try { f(n) }
+    when r {
+        is Ok { return "ok ${r}" }
+        is Thrown { return "failed: ${r}" }
+    }
+}
+```
 - **Fewer effects fit where more are expected.** A pure function passes wherever an effectful one is expected — it is handed the effect and ignores it. The reverse is an error: the value would reach a call site that cannot supply it.
 - **An un-annotated lambda's effects are inferred** from its body, so `let f = () -> { println("hi") }` has type `() [Console] -> None` and does not silently fit a pure position.
+- **A function value that may throw** (`[Throw<M>]` in its type) throws to the `try` around its call, or out of a function that declares the throw, as a call of a named function does.
 - **A function value carries no capability**, so storing or returning one is fine; what needs the effect is *calling* it. A stored effectful value called where its effects are unavailable is an error at the call.
 - `use` cannot appear in a function type: registering a handler is local to a body, so a lambda may `use` exactly when the function containing it may.
 

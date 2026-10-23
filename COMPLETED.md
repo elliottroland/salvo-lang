@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2001 tests, complete: the toolchain tests are
+cargo test                  # 2003 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,39 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — Only a fn with no effect list inherits; a throwing fn value is delimited
+
+User decision (gap 2 of the validation hook, option (c)): "I have been
+trying to make the behavior of inference much simpler and always give the
+user a way out." [fn-effects]: a fn inherits its fn-typed parameters'
+effects **only when it writes no effect list**; a written list, `[]`
+included, is the whole set. Options (a) (inherit what the body leaves
+unhandled) and (b) (no inheritance) were set aside: (a) made a fn's effects
+depend on its body, (b) brought back the annotation cost the 2026-09-04 rule
+removed. The rationale of the original rule, from E3 step 3: "we only give
+the parameter `f` to `twice` so that it can call it".
+
+That alone did not make `try { f(n) }` work, because a throwing fn *value*
+had never been supported: its call looked for a `Throw` handler, and every
+emitter threaded `Throw<M>` in as an effect parameter. [fn-throw-value]:
+- the checker records a fn-value call that may throw as an exit to its
+  delimiter (`record_throw`), as it does a named callee's;
+- `salvo_core::threaded_effects` drops `Throw` wherever a fn type's effects
+  become parameters (the IR's lambdas, fn-value adapters and local calls,
+  Kotlin's fn types, Rust's fn types and closure parameters);
+- Rust ([rs-throw-controlflow]): a throwing fn type answers
+  `ControlFlow<M, T>`, a lambda in such a slot answers `Continue` and
+  `Break`s on a throw, a named fn passed into one is a forwarding closure,
+  and a call of one takes the `match` a named callee's does. Kotlin needed
+  only the parameter list: its throw is the signal exception.
+
+One test relied on a written list being widened: Rust's
+`rustc_compiles_and_runs_effect_using_fn_value` wrote `run_it(f: (s: Str)
+[Logger] -> Str) [Console]` and now lists `Logger` too. Tests: fn_effect_tests `a_written_list_is_not_widened_by_inheritance`;
+CLI run `a_throwing_fn_value_is_delimited_on_both_backends` (named and
+lambda values, `[]` with `try`, passing the throw on, inheriting with no
+list, and a throwing implicit).
 
 ### 2026-10-20 — A function value is one rule, by name or as an implicit
 
@@ -27490,7 +27523,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2001 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2003 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

@@ -1525,6 +1525,104 @@ fn main() [use] -> None {
     __stamp.verified();
 }
 
+/// [fn-throw-value] [fn-effects] A fn value that may throw throws to the
+/// `try` around its call: a named fn and a lambda passed into a throwing
+/// slot, a function that delimits it writing `[]`, one passing it on
+/// declaring the throw, one writing no list inheriting it, and an implicit
+/// with a throwing type (the shape `args`' validation hook needs), on both
+/// backends.
+#[test]
+fn a_throwing_fn_value_is_delimited_on_both_backends() {
+    let Some(__stamp) = e2e_stamp("a_throwing_fn_value_is_delimited_on_both_backends", &["rustc", "kotlinc"]) else {
+        return;
+    };
+    const SRC: &str = r#"import throw
+
+fn check(n: Int) [Throw<Str>] -> Int {
+    if n < 0 {
+        throw("negative")
+    }
+    return n
+}
+
+// Delimits the throw itself, so says `[]`.
+fn run<T>(n: Int, f: (n: Int) [Throw<Str>] -> T) [] -> Str => f {
+    let r = try {
+        f(n)
+    }
+    when r {
+        is Ok { return "ok" }
+        is Thrown { return "thrown: ${r}" }
+    }
+}
+
+// Passes the throw on, so says so.
+fn pass_on(n: Int, f: (n: Int) [Throw<Str>] -> Int) [Throw<Str>] -> Int => f {
+    return f(n) + 1
+}
+
+// Writes no list, so inherits `f`'s.
+fn inherit(n: Int, f: (n: Int) [Throw<Str>] -> Int) -> Int => f {
+    return f(n) * 10
+}
+
+// The implicit form the args hook needs.
+fn by_implicit<V>(n: Int, ?check: (n: Int) [Throw<Str>] -> V) [] -> Str {
+    let r = try {
+        check(n)
+    }
+    when r {
+        is Ok { return "implicit ok" }
+        is Thrown { return "implicit thrown: ${r}" }
+    }
+}
+
+fn main() [use] -> None {
+    use StdConsole()
+    println(run(3, check))
+    println(run(-1, check))
+    println(run(5, (n: Int) -> {
+        if n > 3 {
+            throw("big")
+        }
+        return n + 0
+    }))
+    let a = try {
+        pass_on(-2, check)
+    }
+    when a {
+        is Ok { println("passed ${a}") }
+        is Thrown { println("passed on: ${a}") }
+    }
+    let b = try {
+        inherit(4, check)
+    }
+    when b {
+        is Ok { println("inherited ${b}") }
+        is Thrown { println("inherited: ${b}") }
+    }
+    let i: Str = by_implicit<Int>(-7)
+    println(i)
+}
+"#;
+    let dir = work_dir("throwing_fn_value");
+    fs::write(dir.join("main.sv"), SRC).unwrap();
+    for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
+        if !have(tool) {
+            eprintln!("skipping {backend}: {tool} not found on PATH");
+            continue;
+        }
+        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", ".", "--clean-target", "before"]);
+        assert!(out.status.success(), "{backend} failed: {}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(
+            String::from_utf8_lossy(&out.stdout),
+            "ok\nthrown: negative\nthrown: big\npassed on: negative\ninherited 40\nimplicit thrown: negative\n",
+            "{backend}"
+        );
+    }
+    __stamp.verified();
+}
+
 /// [str-parse] The value parsers read the same strings on both backends:
 /// `parse_double` checks one decimal grammar before converting (the hosts'
 /// own parsers disagree on whitespace, `NaN`, `inf`, hex and `f` suffixes),

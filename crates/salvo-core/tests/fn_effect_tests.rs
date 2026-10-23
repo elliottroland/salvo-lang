@@ -191,6 +191,34 @@ fn inheritance_reaches_through_a_qualifier() {
     assert!(errs.is_empty(), "unexpected errors: {errs:?}");
 }
 
+/// [fn-effects] A written list is the whole set, `[]` included (user
+/// decision 2026-10-20): a fn that writes one inherits nothing, so calling
+/// an effectful parameter it did not list is refused at the call, and its
+/// callers need not supply the effect.
+#[test]
+fn a_written_list_is_not_widened_by_inheritance() {
+    let errs = errors(&format!(
+        "{PRELUDE}\n\
+         fn run(f: (s: Str) [Logger] -> Str) [] -> None =>[f] s {{\n\
+         note(f(\"x\"))\n\
+         }}\n"
+    ));
+    assert!(
+        errs.iter().any(|e| e.contains("no handler for effect `Logger`")),
+        "a `[]` fn may not call a `[Logger]` parameter: {errs:?}"
+    );
+    let errs = errors(&format!(
+        "{PRELUDE}\n\
+         fn run(f: (s: Str) [Logger] -> Str) [Logger] -> None =>[f] s {{\n\
+         note(f(\"x\"))\n\
+         }}\n\
+         fn caller() [Logger] -> None {{\n\
+         run(s -> \"${{s}}\")\n\
+         }}\n"
+    ));
+    assert!(errs.is_empty(), "listing the effect is the way to pass it on: {errs:?}");
+}
+
 // ===== variance =====
 
 /// [fn-effects] A value performing *fewer* effects fits where more are

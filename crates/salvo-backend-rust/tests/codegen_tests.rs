@@ -3098,7 +3098,7 @@ export handler ConsoleLogger [Console] of Logger {
     }
 }
 
-export fn run_it(f: (s: Str) [Logger] -> Str) [Console] -> None =>[f] s {
+export fn run_it(f: (s: Str) [Logger] -> Str) [Console, Logger] -> None =>[f] s {
     println(f("x"))
 }
 

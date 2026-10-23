@@ -340,8 +340,9 @@ impl<'a, 'p> Lower<'a, 'p> {
     fn fn_value(&mut self, k: crate::FnKey, name_span: Span, span: Span) -> Expr {
         let ty = self.ty_of(span);
         let id = self.ctx.decl_id(k);
-        let taken: Vec<Ty> = self.ctx.checked.lambda_effects.get(&self.key(name_span)).map(|v| v.iter().map(erase).collect()).unwrap_or_default();
-        let declared: Vec<Ty> = self.ctx.checked.fn_effects.get(&k).map(|v| v.iter().map(erase).collect()).unwrap_or_default();
+        // [throw] Neither side threads a throw [`crate::is_throw_effect`].
+        let taken: Vec<Ty> = self.ctx.checked.lambda_effects.get(&self.key(name_span)).map(|v| crate::threaded_effects(v).iter().map(erase).collect()).unwrap_or_default();
+        let declared: Vec<Ty> = self.ctx.checked.fn_effects.get(&k).map(|v| crate::threaded_effects(v).iter().map(erase).collect()).unwrap_or_default();
         let nested = self.ctx.checked.fn_value_implicits.get(&self.key(name_span)).cloned().unwrap_or_default();
         if taken == declared && nested.is_empty() {
             return Expr { ty, span, kind: ExprKind::FnValue(FnRef::Decl(id)) };
@@ -1040,7 +1041,9 @@ impl<'a, 'p> Lower<'a, 'p> {
             // arguments; the contract says how each position is taken.
             let mut a: Vec<Expr> = Vec::new();
             if let Some(Ty::Fn { effects, .. }) = self.lookup(&local.0).map(|b| b.ty.clone()) {
-                for t in effects {
+                // [throw] A throw is not a threaded instance: it goes to the
+                // delimiter, as a named callee's does.
+                for t in crate::threaded_effects(&effects) {
                     a.push(self.effect_instance(&t, span));
                 }
             }
@@ -1366,7 +1369,8 @@ impl<'a, 'p> Lower<'a, 'p> {
         let mut ps = Vec::new();
         // [fn-effects] the effects a lambda takes as leading parameters.
         if let Some(effs) = self.ctx.checked.lambda_effects.get(&self.key(span)).cloned() {
-            for (i, t) in effs.iter().enumerate() {
+            // [throw] A throw is not threaded in [`crate::is_throw_effect`].
+            for (i, t) in crate::threaded_effects(&effs).iter().enumerate() {
                 let local = Local(format!("__leff{i}"));
                 let t = erase(t);
                 self.effect_env.push((t.clone(), local.clone()));

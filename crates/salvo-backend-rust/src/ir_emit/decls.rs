@@ -220,10 +220,14 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let Ty::Fn { params, ret, effects, .. } = t.strip_quals() else { return self.ty(t) };
         let saved = self.f.lt.take();
         let mut ps: Vec<String> = Vec::new();
-        for e in effects {
-            let h = self.ty(e);
+        // [throw] A throw is not threaded in: the value answers a
+        // `ControlFlow` instead, as a named fn that may throw does
+        // [rs-throw-controlflow].
+        for e in salvo_core::threaded_effects(effects) {
+            let h = self.ty(&e);
             ps.push(format!("&{h}"));
         }
+        let throws = salvo_core::fn_type_throws(t);
         for (i, p) in params.iter().enumerate() {
             let mut mode = fn_ty_param_mode(t, i);
             if lends && mode == PassMode::LentMut {
@@ -246,6 +250,9 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             let ret = ret.clone();
             let p = self.handle_path_ty(&ret).map(|pt| self.path_rust(&pt)).unwrap_or_else(|| "usize".to_string());
             if ret.strip_quals().has_none_arm() { format!(" -> Option<{p}>") } else { format!(" -> {p}") }
+        } else if let Some(m) = &throws {
+            let v = if ret.is_none_ty() { "()".to_string() } else { self.ty(ret) };
+            format!(" -> std::ops::ControlFlow<{}, {v}>", self.ty(m))
         } else if ret.is_none_ty() {
             String::new()
         } else {

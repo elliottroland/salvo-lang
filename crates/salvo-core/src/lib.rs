@@ -73,4 +73,4 @@ pub use source::{
     dependencies_with_reached_platform, CompanionFile, ModulePath, PlatformFile, PlatformRoots, SourceFile, SourceSet,
     PLATFORM_DIR, TEST_SUFFIX,
 };
-pub use types::{is_subtype, Qual, QualEffect, Ty};
+pub use types::{fn_type_throws, is_subtype, is_throw_effect, threaded_effects, Qual, QualEffect, Ty};

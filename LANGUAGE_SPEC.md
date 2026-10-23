@@ -8408,6 +8408,16 @@ between endpoints and delivers what arrives into the scheduler.
     the expectation (`contract_fits`).
   * Effect lists on fn types are enforced as of E3 step 3 — see
     [fn-effects]. `once` inference remains open.
+* [fn-throw-value] **A fn value that may throw is delimited like a named
+  callee** (2026-10-20): `Throw<M>` in a fn type is not a handler the caller
+  threads in, so a call of the value needs a delimiter — the innermost
+  `try`, or a fn that declares `[Throw<M>]` — and is an exit to it
+  (`record_throw`), exactly as a call of a named fn that may throw is.
+  Before, it looked for a `Throw` handler: a `try` around `f(n)` saw
+  nothing that could throw. Every place that turns a fn type's effects into
+  parameters skips `Throw` (`salvo_core::threaded_effects`); Kotlin's
+  throw is its signal exception, Rust's a `ControlFlow` answer
+  [rs-throw-controlflow].
 * [fn-effects] A fn type may declare effects — `(s: Str) [Logger] -> Str` —
   and they mean **a requirement the caller of the value supplies**, not a
   capability the value carries (user decision 2026-09-04). The effects are
@@ -8416,11 +8426,18 @@ between endpoints and delivers what arrives into the scheduler.
     its enclosing scope happens to have. Lexical leakage is what made a fn
     value's capabilities invisible in its type — the same objection as
     silent colouring elsewhere in E3.
-  * **A fn inherits its fn-typed parameters' effects** (user decision
-    2026-09-04): the only reason to take `f` is to call it, and calling it
-    needs those effects *here*, so `fn run(f: (s: Str) [Logger] -> Str)`
-    needs no list of its own — and its callers must supply `Logger`, since
-    that is where the value comes from at run time. Inheritance reaches
+  * **A fn that writes no effect list inherits its fn-typed parameters'
+    effects** (user decision 2026-09-04, narrowed 2026-10-20): the only
+    reason to take `f` is to call it, and calling it needs those effects
+    *here*, so `fn run(f: (s: Str) [Logger] -> Str)` needs no list of its
+    own — and its callers must supply `Logger`, since that is where the value
+    comes from at run time. **A written list, `[]` included, is the whole
+    set** (user decision 2026-10-20, "always give the user a way out"): a
+    body that handles a parameter's effect itself — a `try` around `f(n)`,
+    a `use` before it — writes the list without it, and one that passes it
+    on writes it in. Before, inheritance ignored a written list, so `fn
+    run(f: (n: Int) [Throw<Str>] -> T) [] -> Str` with `try { f(n) }` was
+    charged `Throw<Str>` at its callers. Inheritance reaches
     through qualifiers (`once () [Logger] -> None`), optionals and unions,
     and it is part of the callee's contract at call sites.
   * **Variance**: a value performing *fewer* effects fits where more are

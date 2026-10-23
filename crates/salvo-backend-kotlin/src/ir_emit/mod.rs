@@ -533,8 +533,9 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             Ty::Array(e) => format!("Array<{}>", self.ty(e)),
             Ty::Fn { params, ret, effects, .. } => {
                 // [fn-effects] the effects a fn value performs are its leading
-                // parameters.
-                let mut ps: Vec<String> = effects.iter().map(|p| self.ty(p)).collect();
+                // parameters — a throw excepted, which is a signal to the
+                // innermost `try` [throw].
+                let mut ps: Vec<String> = salvo_core::threaded_effects(effects).iter().map(|p| self.ty(p)).collect();
                 ps.extend(params.iter().map(|p| self.ty(p)));
                 let r = if ret.is_none_ty() { "Unit".to_string() } else { self.ty(ret) };
                 format!("({}) -> {r}", ps.join(", "))

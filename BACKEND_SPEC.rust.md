@@ -1200,7 +1200,14 @@ the blanket rule:
     hoisting, and the same shape serves inside a `try` (where the break
     arm transfers to the label) and where the message must be wrapped into
     a union arm.
-  * Closures do not throw: a lambda body has no `Throw` to propagate.
+  * **A fn value that may throw** (its fn type declares `[Throw<M>]`,
+    2026-10-20) is a `&mut dyn FnMut(…) -> std::ops::ControlFlow<M, T>`:
+    `Throw` is filtered out of its effect parameters as from a fn's, a call
+    of it takes the `match` form above (to the innermost `try`, or out of a
+    fn that declares the throw), a lambda in such a slot answers
+    `Continue(v)` and leaves with `Break(m)` on a throw, and a named fn
+    passed into one is a forwarding closure answering its `ControlFlow`.
+    A lambda whose slot cannot throw has no `Throw` to propagate.
 * [try] [rs-try-label] `try { ... }` is a **labelled block**
   (`('try_N: { ... })`), not a closure. A closure would have to capture the
   fn's effect parameters and any local the body mutates — an exclusivity

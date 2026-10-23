@@ -2820,7 +2820,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         };
         let mut out = Vec::new();
         let mut modes = Vec::new();
-        for (i, e) in effects.iter().enumerate() {
+        // [throw] A throw is not threaded in [rs-throw-controlflow].
+        for (i, e) in salvo_core::threaded_effects(effects).iter().enumerate() {
             let h = self.ty(e);
             out.push((format!("__e{i}"), format!("&{h}")));
             modes.push(PassMode::Lent);
@@ -2851,7 +2852,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     fn lambda(&mut self, params: &[Param], ret: &Ty, body: &Block, slot: &Ty, pos: FnPos, indent: usize) -> String {
         let inst_slot = super::decls::subst_ty(slot, &self.f.call_subst);
         let inst_params: Vec<Ty> = match inst_slot.strip_quals() {
-            Ty::Fn { params, effects, .. } => effects.iter().chain(params.iter()).cloned().collect(),
+            Ty::Fn { params, effects, .. } => salvo_core::threaded_effects(effects).iter().chain(params.iter()).cloned().collect(),
             _ => Vec::new(),
         };
         let saved_kinds = self.f.kinds.clone();
@@ -2861,13 +2862,16 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             self.f.ref_handles.remove(&p.local.0);
         }
         let saved_ret = self.f.ret.replace(ret.clone());
-        // Closures do not throw [rs-throw-controlflow].
-        let saved_throws = self.f.throws.take();
+        // [rs-throw-controlflow] A closure throws only where its slot's fn
+        // type says it may: it answers a `ControlFlow`, as a named fn that
+        // may throw does, and a throw in it leaves it with `Break`.
+        let lambda_throws = salvo_core::fn_type_throws(slot);
+        let saved_throws = std::mem::replace(&mut self.f.throws, lambda_throws.clone());
         let saved_tries = std::mem::take(&mut self.f.tries);
         let saved_lt = self.f.ret_lt;
         self.f.ret_lt = false;
         let slot_effects = match slot.strip_quals() {
-            Ty::Fn { effects, .. } => effects.len(),
+            Ty::Fn { effects, .. } => salvo_core::threaded_effects(effects).len(),
             _ => 0,
         };
         let inst = Ty::Fn { params: params.iter().skip(slot_effects).map(|p| p.ty.clone()).collect(), ret: Box::new(ret.clone()), contract: None, effects: Vec::new() };
@@ -2939,7 +2943,13 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             } else {
                 self.value_into(v, ret, indent + 1)
             };
-            b.push_str(&format!("{}{code}\n", Self::pad(indent + 1)));
+            if lambda_throws.is_some() && !lends {
+                b.push_str(&format!("{}std::ops::ControlFlow::Continue({code})\n", Self::pad(indent + 1)));
+            } else {
+                b.push_str(&format!("{}{code}\n", Self::pad(indent + 1)));
+            }
+        } else if lambda_throws.is_some() && ret.is_none_ty() {
+            b.push_str(&format!("{}std::ops::ControlFlow::Continue(())\n", Self::pad(indent + 1)));
         }
         self.f.loc = saved_loc;
         self.f.loc_index = saved_li;
@@ -2953,6 +2963,9 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let r = if lends {
             let p = lambda_pt.clone().map(|pt| self.path_rust(&pt)).unwrap_or_else(|| "usize".to_string());
             if ret.strip_quals().has_none_arm() { format!(" -> Option<{p}>") } else { format!(" -> {p}") }
+        } else if lambda_throws.is_some() {
+            // The slot's own type names it; inference does the rest.
+            String::new()
         } else if ret.is_none_ty() || foreign_var(ret, &self.f.generics) {
             String::new()
         } else {
@@ -2986,9 +2999,11 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             self.error("a fn value of a non-fn type");
             return "()".to_string();
         };
+        // [throw] A throw is not threaded in [rs-throw-controlflow].
+        let effects = salvo_core::threaded_effects(&effects);
         let saved = self.f.kinds.clone();
         let inst_params: Vec<Ty> = match super::decls::subst_ty(slot, &self.f.call_subst).strip_quals() {
-            Ty::Fn { params, effects, .. } => effects.iter().chain(params.iter()).cloned().collect(),
+            Ty::Fn { params, effects, .. } => salvo_core::threaded_effects(effects).iter().chain(params.iter()).cloned().collect(),
             _ => Vec::new(),
         };
         let mut args = Vec::new();
@@ -3017,6 +3032,12 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             _ => (*ret).clone(),
         };
         let call = Expr { ty: want, span: e.span, kind: ExprKind::Call { target: FnRef::Decl(id.clone()), type_args: Vec::new(), args } };
+        // [rs-throw-controlflow] Into a slot that may throw, the forwarding
+        // closure answers the callee's `ControlFlow`: a throw leaves the
+        // closure (not the enclosing fn), and a value is `Continue`.
+        let slot_throws = salvo_core::fn_type_throws(slot);
+        let saved_throws = std::mem::replace(&mut self.f.throws, slot_throws.clone());
+        let saved_tries = std::mem::take(&mut self.f.tries);
         let body = if self.s.fn_ty_lends_mut(slot) {
             // [rs-loc] The callee's locator.
             let ExprKind::Call { args, .. } = &call.kind else { unreachable!() };
@@ -3024,9 +3045,14 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 Some(f) => self.loc_call(id, f, args, indent),
                 None => "0".to_string(),
             }
+        } else if slot_throws.is_some() {
+            let v = self.value(&call, indent);
+            format!("std::ops::ControlFlow::Continue({v})")
         } else {
             self.value(&call, indent)
         };
+        self.f.throws = saved_throws;
+        self.f.tries = saved_tries;
         self.f.kinds = saved;
         // Annotated whenever the instantiated slot is concrete: inference
         // through `&mut *` needs the type.
@@ -3269,6 +3295,16 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     format!("{callee}({})", a.join(", "))
                 } else {
                     format!("{{ {} {callee}({}) }}", lets.join(" "), a.join(", "))
+                };
+                // [rs-throw-controlflow] A fn value that may throw answers a
+                // `ControlFlow`: a throw goes to the innermost `try`, or out
+                // of the fn, as a named callee's does.
+                let code = match salvo_core::fn_type_throws(&ty) {
+                    Some(mt) => {
+                        let prop = self.propagate("__m", &mt);
+                        format!("(match {code} {{ std::ops::ControlFlow::Continue(__v) => __v, std::ops::ControlFlow::Break(__m) => {prop} }})")
+                    }
+                    None => code,
                 };
                 if !lends || self.f.want_path {
                     return code;

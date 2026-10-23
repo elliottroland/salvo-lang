@@ -1919,3 +1919,30 @@ mod tests {
     }
 }
 
+/// [throw] [fn-effects] Whether an entry of a fn type's effect list is
+/// `Throw<M>`. It is not a handler the caller threads into the value: a call
+/// that may throw needs a delimiter, so a throwing fn value's call is an exit
+/// to the innermost `try` (or out of a fn that declares `[Throw<M>]`), as a
+/// named callee's is. Every place that turns a fn type's effects into
+/// parameters skips it.
+pub fn is_throw_effect(t: &Ty) -> bool {
+    matches!(t.strip_quals(), Ty::Named { name, .. } if name == crate::THROW_EFFECT)
+}
+
+/// [throw] The message type a fn *type* may throw with: `M` for `(n: Int)
+/// [Throw<M>] -> T`, `None` for one that cannot throw.
+pub fn fn_type_throws(t: &Ty) -> Option<Ty> {
+    match t.strip_quals() {
+        Ty::Fn { effects, .. } => effects.iter().find(|e| is_throw_effect(e)).map(|e| match e.strip_quals() {
+            Ty::Named { args, .. } => args.first().cloned().unwrap_or(Ty::Unknown),
+            _ => Ty::Unknown,
+        }),
+        _ => None,
+    }
+}
+
+/// [throw] [fn-effects] A fn type's effects that are threaded in as leading
+/// parameters: every one but `Throw<M>`.
+pub fn threaded_effects(effects: &[Ty]) -> Vec<Ty> {
+    effects.iter().filter(|e| !is_throw_effect(e)).cloned().collect()
+}
