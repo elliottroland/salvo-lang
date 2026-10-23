@@ -7,11 +7,11 @@ package salvo.core.basic
 
 import salvo.*
 
-fun<A, B> toStr__TupleAB(value: Pair<A, B>, toStr: (A) -> String, toStr__1: (B) -> String): String {
+fun<A, B> toStr__TupleAB(value: kotlin.Pair<A, B>, toStr: (A) -> String, toStr__1: (B) -> String): String {
     return "(${toStr(value.first)}, ${toStr__1(value.second)})"
 }
 
-fun<A, B, C> toStr__TupleABC(value: Triple<A, B, C>, toStr: (A) -> String, toStr__1: (B) -> String, toStr__2: (C) -> String): String {
+fun<A, B, C> toStr__TupleABC(value: kotlin.Triple<A, B, C>, toStr: (A) -> String, toStr__1: (B) -> String, toStr__2: (C) -> String): String {
     return "(${toStr(value.first)}, ${toStr__1(value.second)}, ${toStr__2(value.third)})"
 }
 
@@ -37,7 +37,7 @@ fun<T> checked(value: T): Checked<T> {
 }
 
 fun<T> ignore(checked: Checked<T>) {
-    run { checked; Unit }
+    kotlin.run { checked; Unit }
 }
 
 fun<T> detach(checked: Checked<T>): T {
@@ -119,11 +119,11 @@ fun<T> hash__List(value: List<T>, hash: (T) -> Long): Long {
     return h
 }
 
-fun<A, B> eq__TupleAB_TupleAB(a: Pair<A, B>, b: Pair<A, B>, eq: (A, A) -> Boolean, eq__1: (B, B) -> Boolean): Boolean {
+fun<A, B> eq__TupleAB_TupleAB(a: kotlin.Pair<A, B>, b: kotlin.Pair<A, B>, eq: (A, A) -> Boolean, eq__1: (B, B) -> Boolean): Boolean {
     return (eq(a.first, b.first) && eq__1(a.second, b.second))
 }
 
-fun<A, B> cmp__TupleAB_TupleAB(a: Pair<A, B>, b: Pair<A, B>, cmp: (A, A) -> Int, cmp__1: (B, B) -> Int): Int {
+fun<A, B> cmp__TupleAB_TupleAB(a: kotlin.Pair<A, B>, b: kotlin.Pair<A, B>, cmp: (A, A) -> Int, cmp__1: (B, B) -> Int): Int {
     val c: Int = cmp(a.first, b.first)
     if ((c != 0)) {
         return c
@@ -131,15 +131,15 @@ fun<A, B> cmp__TupleAB_TupleAB(a: Pair<A, B>, b: Pair<A, B>, cmp: (A, A) -> Int,
     return cmp__1(a.second, b.second)
 }
 
-fun<A, B> hash__TupleAB(value: Pair<A, B>, hash: (A) -> Long, hash__1: (B) -> Long): Long {
+fun<A, B> hash__TupleAB(value: kotlin.Pair<A, B>, hash: (A) -> Long, hash__1: (B) -> Long): Long {
     return mixHash(mixHash(7L, hash(value.first)), hash__1(value.second))
 }
 
-fun<A, B, C> eq__TupleABC_TupleABC(a: Triple<A, B, C>, b: Triple<A, B, C>, eq: (A, A) -> Boolean, eq__1: (B, B) -> Boolean, eq__2: (C, C) -> Boolean): Boolean {
+fun<A, B, C> eq__TupleABC_TupleABC(a: kotlin.Triple<A, B, C>, b: kotlin.Triple<A, B, C>, eq: (A, A) -> Boolean, eq__1: (B, B) -> Boolean, eq__2: (C, C) -> Boolean): Boolean {
     return ((eq(a.first, b.first) && eq__1(a.second, b.second)) && eq__2(a.third, b.third))
 }
 
-fun<A, B, C> cmp__TupleABC_TupleABC(a: Triple<A, B, C>, b: Triple<A, B, C>, cmp: (A, A) -> Int, cmp__1: (B, B) -> Int, cmp__2: (C, C) -> Int): Int {
+fun<A, B, C> cmp__TupleABC_TupleABC(a: kotlin.Triple<A, B, C>, b: kotlin.Triple<A, B, C>, cmp: (A, A) -> Int, cmp__1: (B, B) -> Int, cmp__2: (C, C) -> Int): Int {
     val c: Int = cmp(a.first, b.first)
     if ((c != 0)) {
         return c
@@ -151,7 +151,7 @@ fun<A, B, C> cmp__TupleABC_TupleABC(a: Triple<A, B, C>, b: Triple<A, B, C>, cmp:
     return cmp__2(a.third, b.third)
 }
 
-fun<A, B, C> hash__TupleABC(value: Triple<A, B, C>, hash: (A) -> Long, hash__1: (B) -> Long, hash__2: (C) -> Long): Long {
+fun<A, B, C> hash__TupleABC(value: kotlin.Triple<A, B, C>, hash: (A) -> Long, hash__1: (B) -> Long, hash__2: (C) -> Long): Long {
     return mixHash(mixHash(mixHash(7L, hash(value.first)), hash__1(value.second)), hash__2(value.third))
 }
 
@@ -176,17 +176,17 @@ class __Mon_Console(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : Console {
     override fun print(message: String) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.print(message) } finally { lock.unlock() }
     }
     override fun printerr(message: String) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.printerr(message) } finally { lock.unlock() }
     }
     override fun readln(): String? {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.readln() } finally { lock.unlock() }
     }
@@ -356,7 +356,7 @@ fun<T> drain(list: List<T>, each: (T) -> Unit) {
         if (!((sizePlatform(m) > 0))) {
             break
         }
-        each(run {
+        each(kotlin.run {
             val __nn_1: T? = removeLastPlatform(m)
             when {
                 (__nn_1 == null) -> {
@@ -385,7 +385,7 @@ fun<T> NonEmpty_qualifies(list: List<T>): Boolean {
 }
 
 fun<T> first(list: List<T>): T {
-    return run {
+    return kotlin.run {
         val __nn_1: T? = getPlatform(list, 0)
         when {
             (__nn_1 == null) -> {
@@ -424,7 +424,7 @@ fun<T> removeBack(list: salvo.platform.core.list.MutList<T>, n: Int): salvo.plat
 fun<T> removeFrontWhile(list: salvo.platform.core.list.MutList<T>, keep: (T) -> Boolean): salvo.platform.core.list.MutList<T> {
     var n: Int = 0
     while (true) {
-        if (!(((n < sizePlatform(list)) && keep(run {
+        if (!(((n < sizePlatform(list)) && keep(kotlin.run {
             val __nn_1: T? = getPlatform(list, n)
             when {
                 (__nn_1 == null) -> {
@@ -446,7 +446,7 @@ fun<T> removeFrontWhile(list: salvo.platform.core.list.MutList<T>, keep: (T) -> 
 fun<T> removeBackWhile(list: salvo.platform.core.list.MutList<T>, keep: (T) -> Boolean): salvo.platform.core.list.MutList<T> {
     var at: Int = sizePlatform(list)
     while (true) {
-        if (!(((at > 0) && keep(run {
+        if (!(((at > 0) && keep(kotlin.run {
             val __nn_1: T? = getPlatform(list, (at - 1))
             when {
                 (__nn_1 == null) -> {
@@ -475,7 +475,7 @@ fun<T> subList(list: List<T>, from: Int, to: Int, copy: (T) -> T): salvo.platfor
         if (!(((i < to) && (i < sizePlatform(list))))) {
             break
         }
-        addPlatform(out, copy(run {
+        addPlatform(out, copy(kotlin.run {
             val __nn_1: T? = getPlatform(list, i)
             when {
                 (__nn_1 == null) -> {
@@ -582,7 +582,7 @@ fun<T> contains(list: List<T>, elem: T, eq: (T, T) -> Boolean): Boolean {
         if (!((i < sizePlatform(list)))) {
             break
         }
-        if (eq(run {
+        if (eq(kotlin.run {
             val __nn_1: T? = getPlatform(list, i)
             when {
                 (__nn_1 == null) -> {
@@ -611,7 +611,7 @@ fun<T> all(list: List<T>, pick: (T) -> Boolean): Boolean {
         if (!((i < sizePlatform(list)))) {
             break
         }
-        if (!(pick(run {
+        if (!(pick(kotlin.run {
             val __nn_1: T? = getPlatform(list, i)
             when {
                 (__nn_1 == null) -> {
@@ -637,7 +637,7 @@ fun<T> count(list: List<T>, pick: (T) -> Boolean): Int {
         if (!((i < sizePlatform(list)))) {
             break
         }
-        if (pick(run {
+        if (pick(kotlin.run {
             val __nn_1: T? = getPlatform(list, i)
             when {
                 (__nn_1 == null) -> {
@@ -656,7 +656,7 @@ fun<T> count(list: List<T>, pick: (T) -> Boolean): Int {
     return n
 }
 
-fun<T> partition(list: List<T>, pick: (T) -> Boolean, copy: (T) -> T): Pair<salvo.platform.core.list.MutList<T>, salvo.platform.core.list.MutList<T>> {
+fun<T> partition(list: List<T>, pick: (T) -> Boolean, copy: (T) -> T): kotlin.Pair<salvo.platform.core.list.MutList<T>, salvo.platform.core.list.MutList<T>> {
     val yes: salvo.platform.core.list.MutList<T> = mutableListOf<T>()
     val no: salvo.platform.core.list.MutList<T> = mutableListOf<T>()
     var i: Int = 0
@@ -664,7 +664,7 @@ fun<T> partition(list: List<T>, pick: (T) -> Boolean, copy: (T) -> T): Pair<salv
         if (!((i < sizePlatform(list)))) {
             break
         }
-        val x: T = run {
+        val x: T = kotlin.run {
             val __nn_1: T? = getPlatform(list, i)
             when {
                 (__nn_1 == null) -> {
@@ -683,7 +683,7 @@ fun<T> partition(list: List<T>, pick: (T) -> Boolean, copy: (T) -> T): Pair<salv
         }
         i = (i + 1)
     }
-    return Pair(yes, no)
+    return kotlin.Pair(yes, no)
 }
 
 fun<T> reverse(list: salvo.platform.core.list.MutList<T>) {
@@ -815,13 +815,13 @@ fun<T> addSorted(list: salvo.platform.core.list.MutList<T>, elem: T, cmp: (T, T)
 }
 
 fun<T> binarySearch(list: List<T>, elem: T, cmp: (T, T) -> Int): Int? {
-    val found: Int = run {
+    val found: Int = kotlin.run {
         val __pick_1: Int? = searchSortedByPlatform(list, elem, cmp)
         (if ((__pick_1 != null)) {
             val __picked_2: Int = __pick_1!!
             __picked_2
         } else {
-            run {
+            kotlin.run {
                 return null
             }
         })
@@ -838,20 +838,20 @@ package salvo.core.map
 
 import salvo.*
 
-fun<K, V> Map_platform(entries: Array<Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.Map<K, V> = salvo.platform.core.map.Map(entries, hash, eq)
+fun<K, V> Map_platform(entries: Array<kotlin.Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.Map<K, V> = salvo.platform.core.map.Map(entries, hash, eq)
 
-fun<K, V> Mut_Map_platform(entries: Array<Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.MutMap<K, V> = salvo.platform.core.map.Mut_Map(entries, hash, eq)
+fun<K, V> Mut_Map_platform(entries: Array<kotlin.Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.MutMap<K, V> = salvo.platform.core.map.Mut_Map(entries, hash, eq)
 
-fun<K, V> mapByPlatform(size: Int, init: (Int) -> Pair<K, V>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.Map<K, V> = salvo.platform.core.map.mapBy(size, init, hash, eq)
+fun<K, V> mapByPlatform(size: Int, init: (Int) -> kotlin.Pair<K, V>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.Map<K, V> = salvo.platform.core.map.mapBy(size, init, hash, eq)
 
-fun<K, V> mutMapByPlatform(size: Int, init: (Int) -> Pair<K, V>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.MutMap<K, V> = salvo.platform.core.map.mutMapBy(size, init, hash, eq)
+fun<K, V> mutMapByPlatform(size: Int, init: (Int) -> kotlin.Pair<K, V>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.MutMap<K, V> = salvo.platform.core.map.mutMapBy(size, init, hash, eq)
 
-fun<K, V> toMapPlatform(pairs: List<Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.Map<K, V> = salvo.platform.core.map.toMap(pairs, hash, eq)
+fun<K, V> toMapPlatform(pairs: List<kotlin.Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.Map<K, V> = salvo.platform.core.map.toMap(pairs, hash, eq)
 
-fun<T, K, V> toMap(items: List<T>, entry: (T) -> Pair<K, V>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.Map<K, V> {
-    val map: salvo.platform.core.map.MutMap<K, V> = Mut_Map_platform(arrayOf<Pair<K, V>>(), hash, eq)
+fun<T, K, V> toMap(items: List<T>, entry: (T) -> kotlin.Pair<K, V>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.Map<K, V> {
+    val map: salvo.platform.core.map.MutMap<K, V> = Mut_Map_platform(arrayOf<kotlin.Pair<K, V>>(), hash, eq)
     for (x in salvo.platform.core.list.each(items)) {
-        val __destructured_1: Pair<K, V> = entry(x)
+        val __destructured_1: kotlin.Pair<K, V> = entry(x)
         val k: K = __destructured_1.first
         val v: V = __destructured_1.second
         putPlatform(map, k, v, hash, eq)
@@ -904,7 +904,7 @@ fun<K, V> toStr(map: salvo.platform.core.map.Map<K, V>, toStr: (K) -> String, to
         }
         salvo.core.string.appendPlatform(out, toStr(k))
         salvo.core.string.appendPlatform(out, ": ")
-        salvo.core.string.appendPlatform(out, toStr__1(run {
+        salvo.core.string.appendPlatform(out, toStr__1(kotlin.run {
             val __nn_1: V? = getPlatform(map, k, hash, eq)
             when {
                 (__nn_1 == null) -> {
@@ -932,7 +932,7 @@ fun<K, V> eq(a: salvo.platform.core.map.Map<K, V>, b: salvo.platform.core.map.Ma
             return false
         }
         val theirs_3: V = theirs!!
-        if (!(eq(run {
+        if (!(eq(kotlin.run {
             val __nn_1: V? = getPlatform(a, k, hash, eq__1)
             when {
                 (__nn_1 == null) -> {
@@ -1075,18 +1075,18 @@ fun<T> Errs(value: T): T {
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun<A, B, E> both(a: Union2<A, List<E>>, b: Union2<B, List<E>>, copy: (E) -> E): Union2<Pair<A, B>, List<E>> {
+fun<A, B, E> both(a: Union2<A, List<E>>, b: Union2<B, List<E>>, copy: (E) -> E): Union2<kotlin.Pair<A, B>, List<E>> {
     return when {
         (a is Union2.U1<*, *>) -> {
             val a_1: A = ((a as Union2.U1<*, *>).value as A)
             when {
                 (b is Union2.U1<*, *>) -> {
                     val b_2: B = ((b as Union2.U1<*, *>).value as B)
-                    return Union2.U1<Pair<A, B>, List<E>>(Ok(Pair(a_1, b_2)))
+                    return Union2.U1<kotlin.Pair<A, B>, List<E>>(Ok(kotlin.Pair(a_1, b_2)))
                 }
                 (b is Union2.U2<*, *>) -> {
                     val b_3: List<E> = ((b as Union2.U2<*, *>).value as List<E>)
-                    return Union2.U2<Pair<A, B>, List<E>>(Errs(b_3))
+                    return Union2.U2<kotlin.Pair<A, B>, List<E>>(Errs(b_3))
                 }
                 else -> {
                     throw AssertionError(("salvo: " + ("unhandled union arm") + " at core.result:70:13"))
@@ -1098,11 +1098,11 @@ fun<A, B, E> both(a: Union2<A, List<E>>, b: Union2<B, List<E>>, copy: (E) -> E):
             when {
                 (b is Union2.U1<*, *>) -> {
                     val b_5: B = ((b as Union2.U1<*, *>).value as B)
-                    return Union2.U2<Pair<A, B>, List<E>>(Errs(a_4))
+                    return Union2.U2<kotlin.Pair<A, B>, List<E>>(Errs(a_4))
                 }
                 (b is Union2.U2<*, *>) -> {
                     val b_6: List<E> = ((b as Union2.U2<*, *>).value as List<E>)
-                    return Union2.U2<Pair<A, B>, List<E>>(Errs(joined(a_4, b_6, copy)))
+                    return Union2.U2<kotlin.Pair<A, B>, List<E>>(Errs(joined(a_4, b_6, copy)))
                 }
                 else -> {
                     throw AssertionError(("salvo: " + ("unhandled union arm") + " at core.result:76:13"))
@@ -1307,9 +1307,9 @@ fun<T> iter__SortedSet(set: salvo.platform.core.sorted.SortedSet<T>): salvo.core
     return salvo.core.set.SetYield<T>(items = toListPlatform(set), at = 0)
 }
 
-fun<K, V> SortedMap_platform(entries: Array<Pair<K, V>>, cmp: (K, K) -> Int): salvo.platform.core.sorted.SortedMap<K, V> = salvo.platform.core.sorted.SortedMap(entries, cmp)
+fun<K, V> SortedMap_platform(entries: Array<kotlin.Pair<K, V>>, cmp: (K, K) -> Int): salvo.platform.core.sorted.SortedMap<K, V> = salvo.platform.core.sorted.SortedMap(entries, cmp)
 
-fun<K, V> Mut_SortedMap_platform(entries: Array<Pair<K, V>>, cmp: (K, K) -> Int): salvo.platform.core.sorted.MutSortedMap<K, V> = salvo.platform.core.sorted.Mut_SortedMap(entries, cmp)
+fun<K, V> Mut_SortedMap_platform(entries: Array<kotlin.Pair<K, V>>, cmp: (K, K) -> Int): salvo.platform.core.sorted.MutSortedMap<K, V> = salvo.platform.core.sorted.Mut_SortedMap(entries, cmp)
 
 fun<K, V> getPlatform(map: salvo.platform.core.sorted.SortedMap<K, V>, key: K, cmp: (K, K) -> Int): V? = salvo.platform.core.sorted.get(map, key, cmp)
 
@@ -1340,7 +1340,7 @@ fun<K, V> toStr__SortedMap(map: salvo.platform.core.sorted.SortedMap<K, V>, toSt
         }
         salvo.core.string.appendPlatform(out, toStr(k))
         salvo.core.string.appendPlatform(out, ": ")
-        salvo.core.string.appendPlatform(out, toStr__1(run {
+        salvo.core.string.appendPlatform(out, toStr__1(kotlin.run {
             val __nn_1: V? = getPlatform(map, k, cmp)
             when {
                 (__nn_1 == null) -> {
@@ -1380,7 +1380,7 @@ fun<K, V> eq__SortedMap_SortedMap(a: salvo.platform.core.sorted.SortedMap<K, V>,
             return false
         }
         val theirs_3: V = theirs!!
-        if (!(eq(run {
+        if (!(eq(kotlin.run {
             val __nn_1: V? = getPlatform(a, k, cmp)
             when {
                 (__nn_1 == null) -> {
@@ -1411,7 +1411,7 @@ fun<K, V> NonEmpty_qualifies(map: salvo.platform.core.sorted.SortedMap<K, V>): B
 }
 
 fun<T> min(set: salvo.platform.core.sorted.SortedSet<T>): T {
-    return run {
+    return kotlin.run {
         val __nn_1: T? = minPlatform(set)
         when {
             (__nn_1 == null) -> {
@@ -1426,7 +1426,7 @@ fun<T> min(set: salvo.platform.core.sorted.SortedSet<T>): T {
 }
 
 fun<T> max(set: salvo.platform.core.sorted.SortedSet<T>): T {
-    return run {
+    return kotlin.run {
         val __nn_1: T? = maxPlatform(set)
         when {
             (__nn_1 == null) -> {
@@ -1441,7 +1441,7 @@ fun<T> max(set: salvo.platform.core.sorted.SortedSet<T>): T {
 }
 
 fun<K, V> firstKey(map: salvo.platform.core.sorted.SortedMap<K, V>): K {
-    return run {
+    return kotlin.run {
         val __nn_1: K? = firstKeyPlatform(map)
         when {
             (__nn_1 == null) -> {
@@ -1456,7 +1456,7 @@ fun<K, V> firstKey(map: salvo.platform.core.sorted.SortedMap<K, V>): K {
 }
 
 fun<K, V> lastKey(map: salvo.platform.core.sorted.SortedMap<K, V>): K {
-    return run {
+    return kotlin.run {
         val __nn_1: K? = lastKeyPlatform(map)
         when {
             (__nn_1 == null) -> {
@@ -1561,7 +1561,7 @@ fun SpanOf_qualifies(span: Span, str: String): Boolean {
 }
 
 fun substr(str: String, at: Span): String {
-    return run {
+    return kotlin.run {
         val __nn_1: String? = substrPlatform(str, at.start, at.end)
         when {
             (__nn_1 == null) -> {
@@ -1652,11 +1652,11 @@ fun lines(str: String): salvo.platform.core.list.MutList<String> {
     return out
 }
 
-fun splitOnce(str: String, sep: String): Pair<String, String>? {
+fun splitOnce(str: String, sep: String): kotlin.Pair<String, String>? {
     val at: Int? = indexOfPlatform(str, sep)
     if ((at != null)) {
         val i: Int = at!!
-        val before: String = run {
+        val before: String = kotlin.run {
             val __pick_1: String? = substrPlatform(str, 0, i)
             (if ((__pick_1 != null)) {
                 val __picked_2: String = __pick_1!!
@@ -1665,7 +1665,7 @@ fun splitOnce(str: String, sep: String): Pair<String, String>? {
                 ""
             })
         }
-        val after: String = run {
+        val after: String = kotlin.run {
             val __pick_4: String? = substrPlatform(str, (i + sizePlatform(sep)), sizePlatform(str))
             (if ((__pick_4 != null)) {
                 val __picked_5: String = __pick_4!!
@@ -1674,16 +1674,16 @@ fun splitOnce(str: String, sep: String): Pair<String, String>? {
                 ""
             })
         }
-        return Pair(before, after)
+        return kotlin.Pair(before, after)
     }
     return null
 }
 
-fun splitLast(str: String, sep: String): Pair<String, String>? {
+fun splitLast(str: String, sep: String): kotlin.Pair<String, String>? {
     val at: Int? = lastIndexOfPlatform(str, sep)
     if ((at != null)) {
         val i: Int = at!!
-        val before: String = run {
+        val before: String = kotlin.run {
             val __pick_1: String? = substrPlatform(str, 0, i)
             (if ((__pick_1 != null)) {
                 val __picked_2: String = __pick_1!!
@@ -1692,7 +1692,7 @@ fun splitLast(str: String, sep: String): Pair<String, String>? {
                 ""
             })
         }
-        val after: String = run {
+        val after: String = kotlin.run {
             val __pick_4: String? = substrPlatform(str, (i + sizePlatform(sep)), sizePlatform(str))
             (if ((__pick_4 != null)) {
                 val __picked_5: String = __pick_4!!
@@ -1701,7 +1701,7 @@ fun splitLast(str: String, sep: String): Pair<String, String>? {
                 ""
             })
         }
-        return Pair(before, after)
+        return kotlin.Pair(before, after)
     }
     return null
 }

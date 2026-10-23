@@ -35,7 +35,7 @@ pub fn fn_call(
     type_args: &[String],
 ) -> Option<String> {
     let elem = || type_args.first().map(String::as_str).unwrap_or("Any");
-    let a = |i: usize| args.get(i).map(String::as_str).unwrap_or("TODO()");
+    let a = |i: usize| args.get(i).map(String::as_str).unwrap_or("kotlin.TODO()");
     Some(match (name, recv) {
         // core.basic -----------------------------------------------------
         // [op-convert] The explicit numeric conversions. Kotlin's `toX()`

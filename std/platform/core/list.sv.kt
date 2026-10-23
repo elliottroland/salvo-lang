@@ -76,7 +76,7 @@ fun<T> drain(list: List<T>, each: (T) -> Unit) {
         if (!((sizePlatform(m) > 0))) {
             break
         }
-        each(run {
+        each(kotlin.run {
             val __nn_1: T? = removeLastPlatform(m)
             when {
                 (__nn_1 == null) -> {
@@ -105,7 +105,7 @@ fun<T> NonEmpty_qualifies(list: List<T>): Boolean {
 }
 
 fun<T> first(list: List<T>): T {
-    return run {
+    return kotlin.run {
         val __nn_1: T? = getPlatform(list, 0)
         when {
             (__nn_1 == null) -> {
@@ -144,7 +144,7 @@ fun<T> removeBack(list: salvo.platform.core.list.MutList<T>, n: Int): salvo.plat
 fun<T> removeFrontWhile(list: salvo.platform.core.list.MutList<T>, keep: (T) -> Boolean): salvo.platform.core.list.MutList<T> {
     var n: Int = 0
     while (true) {
-        if (!(((n < sizePlatform(list)) && keep(run {
+        if (!(((n < sizePlatform(list)) && keep(kotlin.run {
             val __nn_1: T? = getPlatform(list, n)
             when {
                 (__nn_1 == null) -> {
@@ -166,7 +166,7 @@ fun<T> removeFrontWhile(list: salvo.platform.core.list.MutList<T>, keep: (T) -> 
 fun<T> removeBackWhile(list: salvo.platform.core.list.MutList<T>, keep: (T) -> Boolean): salvo.platform.core.list.MutList<T> {
     var at: Int = sizePlatform(list)
     while (true) {
-        if (!(((at > 0) && keep(run {
+        if (!(((at > 0) && keep(kotlin.run {
             val __nn_1: T? = getPlatform(list, (at - 1))
             when {
                 (__nn_1 == null) -> {
@@ -195,7 +195,7 @@ fun<T> subList(list: List<T>, from: Int, to: Int, copy: (T) -> T): salvo.platfor
         if (!(((i < to) && (i < sizePlatform(list))))) {
             break
         }
-        addPlatform(out, copy(run {
+        addPlatform(out, copy(kotlin.run {
             val __nn_1: T? = getPlatform(list, i)
             when {
                 (__nn_1 == null) -> {
@@ -302,7 +302,7 @@ fun<T> contains(list: List<T>, elem: T, eq: (T, T) -> Boolean): Boolean {
         if (!((i < sizePlatform(list)))) {
             break
         }
-        if (eq(run {
+        if (eq(kotlin.run {
             val __nn_1: T? = getPlatform(list, i)
             when {
                 (__nn_1 == null) -> {
@@ -331,7 +331,7 @@ fun<T> all(list: List<T>, pick: (T) -> Boolean): Boolean {
         if (!((i < sizePlatform(list)))) {
             break
         }
-        if (!(pick(run {
+        if (!(pick(kotlin.run {
             val __nn_1: T? = getPlatform(list, i)
             when {
                 (__nn_1 == null) -> {
@@ -357,7 +357,7 @@ fun<T> count(list: List<T>, pick: (T) -> Boolean): Int {
         if (!((i < sizePlatform(list)))) {
             break
         }
-        if (pick(run {
+        if (pick(kotlin.run {
             val __nn_1: T? = getPlatform(list, i)
             when {
                 (__nn_1 == null) -> {
@@ -376,7 +376,7 @@ fun<T> count(list: List<T>, pick: (T) -> Boolean): Int {
     return n
 }
 
-fun<T> partition(list: List<T>, pick: (T) -> Boolean, copy: (T) -> T): Pair<salvo.platform.core.list.MutList<T>, salvo.platform.core.list.MutList<T>> {
+fun<T> partition(list: List<T>, pick: (T) -> Boolean, copy: (T) -> T): kotlin.Pair<salvo.platform.core.list.MutList<T>, salvo.platform.core.list.MutList<T>> {
     val yes: salvo.platform.core.list.MutList<T> = mutableListOf<T>()
     val no: salvo.platform.core.list.MutList<T> = mutableListOf<T>()
     var i: Int = 0
@@ -384,7 +384,7 @@ fun<T> partition(list: List<T>, pick: (T) -> Boolean, copy: (T) -> T): Pair<salv
         if (!((i < sizePlatform(list)))) {
             break
         }
-        val x: T = run {
+        val x: T = kotlin.run {
             val __nn_1: T? = getPlatform(list, i)
             when {
                 (__nn_1 == null) -> {
@@ -403,7 +403,7 @@ fun<T> partition(list: List<T>, pick: (T) -> Boolean, copy: (T) -> T): Pair<salv
         }
         i = (i + 1)
     }
-    return Pair(yes, no)
+    return kotlin.Pair(yes, no)
 }
 
 fun<T> reverse(list: salvo.platform.core.list.MutList<T>) {
@@ -535,13 +535,13 @@ fun<T> addSorted(list: salvo.platform.core.list.MutList<T>, elem: T, cmp: (T, T)
 }
 
 fun<T> binarySearch(list: List<T>, elem: T, cmp: (T, T) -> Int): Int? {
-    val found: Int = run {
+    val found: Int = kotlin.run {
         val __pick_1: Int? = searchSortedByPlatform(list, elem, cmp)
         (if ((__pick_1 != null)) {
             val __picked_2: Int = __pick_1!!
             __picked_2
         } else {
-            run {
+            kotlin.run {
                 return null
             }
         })

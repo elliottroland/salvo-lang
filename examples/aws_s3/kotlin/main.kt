@@ -44,7 +44,7 @@ fun upload(s3: salvo.aws.s3.S3, fs: salvo.fs.Fs, console: salvo.core.console.Con
         null
         return
     }
-    val put: Union2<salvo.aws.s3.PutObjectOutput, salvo.core.checked.Checked<Union2<salvo.aws.s3.S3Error, salvo.aws.AwsError>>> = run {
+    val put: Union2<salvo.aws.s3.PutObjectOutput, salvo.core.checked.Checked<Union2<salvo.aws.s3.S3Error, salvo.aws.AwsError>>> = kotlin.run {
         val (r, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.Union2Codec(salvo.aws.s3.__Codec_PutObjectOutput, salvo.core.checked.__Codec_Checked(salvo.Union2Codec(salvo.aws.s3.__Codec_S3Error, salvo.aws.__Codec_AwsError)))) })
         val opened_2: salvo.stream.InStream = ((opened as Union2.U1<*, *>).value as salvo.stream.InStream)
@@ -54,7 +54,7 @@ fun upload(s3: salvo.aws.s3.S3, fs: salvo.fs.Fs, console: salvo.core.console.Con
     when {
         (put is Union2.U1<*, *>) -> {
             val put_3: salvo.aws.s3.PutObjectOutput = ((put as Union2.U1<*, *>).value as salvo.aws.s3.PutObjectOutput)
-            salvo.core.console.println(console, "put ${key}: etag ${run {
+            salvo.core.console.println(console, "put ${key}: etag ${kotlin.run {
                 val __pick_4: String? = put_3.eTag
                 (if ((__pick_4 != null)) {
                     val __picked_5: String = __pick_4!!
@@ -76,9 +76,9 @@ fun upload(s3: salvo.aws.s3.S3, fs: salvo.fs.Fs, console: salvo.core.console.Con
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun download(s3: salvo.aws.s3.S3, fs: salvo.fs.Fs, console: salvo.core.console.Console, streams: salvo.stream.Streams, bucket: String, key: String, path: salvo.fs.path.Path) {
-    val got: Union2<salvo.aws.s3.GetObjectOutput, salvo.core.checked.Checked<Union2<salvo.aws.s3.S3Error, salvo.aws.AwsError>>> = run {
+    val got: Union2<salvo.aws.s3.GetObjectOutput, salvo.core.checked.Checked<Union2<salvo.aws.s3.S3Error, salvo.aws.AwsError>>> = kotlin.run {
         val (r, __wid) = salvo.SalvoSched.waiter()
-        salvo.SalvoSched.waiterDecoder(__wid, { _: ByteArray -> Pair(false, null) })
+        salvo.SalvoSched.waiterDecoder(__wid, { _: ByteArray -> kotlin.Pair(false, null) })
         s3.getObject(salvo.aws.s3.GetObjectInput(bucket = bucket, ifMatch = null, ifModifiedSince = null, ifNoneMatch = null, ifUnmodifiedSince = null, key = key, range = null, responseCacheControl = null, responseContentDisposition = null, responseContentEncoding = null, responseContentLanguage = null, responseContentType = null, responseExpires = null, versionId = null, sseCustomerAlgorithm = null, sseCustomerKey = null, sseCustomerKeyMd5 = null, requestPayer = null, partNumber = null, expectedBucketOwner = null, checksumMode = null), r)
         salvo.SalvoSched.awaitReply(__wid) as Union2<salvo.aws.s3.GetObjectOutput, salvo.core.checked.Checked<Union2<salvo.aws.s3.S3Error, salvo.aws.AwsError>>>
     }
@@ -92,7 +92,7 @@ fun download(s3: salvo.aws.s3.S3, fs: salvo.fs.Fs, console: salvo.core.console.C
     val __destructured_3: salvo.aws.s3.GetObjectOutput = got_2
     val body: salvo.stream.InStream = __destructured_3.body
     val contentLength: Long? = __destructured_3.contentLength
-    salvo.core.console.println(console, "get ${key}: ${run {
+    salvo.core.console.println(console, "get ${key}: ${kotlin.run {
         val __pick_4: Long? = contentLength
         (if ((__pick_4 != null)) {
             val __picked_5: Long = __pick_4!!
@@ -113,7 +113,7 @@ fun download(s3: salvo.aws.s3.S3, fs: salvo.fs.Fs, console: salvo.core.console.C
         null
         return
     }
-    val copied: Union2<Long, salvo.core.checked.Checked<Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>>> = run {
+    val copied: Union2<Long, salvo.core.checked.Checked<Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>>> = kotlin.run {
         val (r, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.Union2Codec(salvo.LongCodec, salvo.core.checked.__Codec_Checked(salvo.Union2Codec(salvo.stream.__Codec_InvalidUtf8, salvo.stream.__Codec_StreamFailed)))) })
         val target_9: salvo.stream.OutStream = ((target as Union2.U1<*, *>).value as salvo.stream.OutStream)
@@ -157,7 +157,7 @@ fun roundTrip(s3: salvo.aws.s3.S3, fs: salvo.fs.Fs, console: salvo.core.console.
 }
 
 class MemS3(private val __dep0: salvo.stream.Streams) : salvo.aws.s3.S3 {
-    var objects: salvo.platform.core.map.MutMap<String, salvo.platform.core.bytes.Bytes> = salvo.core.map.Mut_Map_platform(arrayOf<Pair<String, salvo.platform.core.bytes.Bytes>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+    var objects: salvo.platform.core.map.MutMap<String, salvo.platform.core.bytes.Bytes> = salvo.core.map.Mut_Map_platform(arrayOf<kotlin.Pair<String, salvo.platform.core.bytes.Bytes>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun putObject(input: salvo.aws.s3.PutObjectInput, reply: salvo.SalvoReply) {
         val __destructured_1: salvo.aws.s3.PutObjectInput = input
@@ -198,7 +198,7 @@ class MemS3(private val __dep0: salvo.stream.Streams) : salvo.aws.s3.S3 {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun main() {
-    salvo.SalvoSched.setProtocols(listOf(Pair("Faults", salvo.core.actor.__PROTO_Faults), Pair("Timer", salvo.time.__PROTO_Timer), Pair("TimerCtl", salvo.time.__PROTO_TimerCtl), Pair("Wheel", salvo.runtime.timers.__PROTO_Wheel)))
+    salvo.SalvoSched.setProtocols(kotlin.collections.listOf(kotlin.Pair("Faults", salvo.core.actor.__PROTO_Faults), kotlin.Pair("Timer", salvo.time.__PROTO_Timer), kotlin.Pair("TimerCtl", salvo.time.__PROTO_TimerCtl), kotlin.Pair("Wheel", salvo.runtime.timers.__PROTO_Wheel)))
     val __use_1: salvo.core.console.__Platform_StdConsole = salvo.core.console.__Platform_StdConsole()
     val __handle_2: salvo.core.console.Console = __use_1
     val __use_3: salvo.fs.mem.MemFs = salvo.fs.mem.MemFs()
@@ -213,7 +213,7 @@ fun main() {
         return
     }
     salvo.core.console.println(__handle_2, "-- FakeS3 --")
-    run {
+    kotlin.run {
         val __use_7: salvo.aws.s3.FakeS3 = salvo.aws.s3.FakeS3(__handle_5)
         val __lock___use_7 = java.util.concurrent.locks.ReentrantLock()
         val __handle_8: salvo.aws.s3.S3 = salvo.aws.s3.__Mon_S3(__use_7, __lock___use_7)
@@ -223,7 +223,7 @@ fun main() {
         salvo.core.console.println(__handle_2, "calls: ${salvo.core.list.toStr(__handle_9.calls(), { __a0 -> __a0 })}")
     }
     salvo.core.console.println(__handle_2, "-- MemS3 --")
-    run {
+    kotlin.run {
         val __use_10: MemS3 = MemS3(__handle_5)
         val __lock___use_10 = java.util.concurrent.locks.ReentrantLock()
         val __handle_11: salvo.aws.s3.S3 = salvo.aws.s3.__Mon_S3(__use_10, __lock___use_10)

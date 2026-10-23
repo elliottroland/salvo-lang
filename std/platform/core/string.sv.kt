@@ -91,7 +91,7 @@ fun SpanOf_qualifies(span: Span, str: String): Boolean {
 }
 
 fun substr(str: String, at: Span): String {
-    return run {
+    return kotlin.run {
         val __nn_1: String? = substrPlatform(str, at.start, at.end)
         when {
             (__nn_1 == null) -> {
@@ -182,11 +182,11 @@ fun lines(str: String): salvo.platform.core.list.MutList<String> {
     return out
 }
 
-fun splitOnce(str: String, sep: String): Pair<String, String>? {
+fun splitOnce(str: String, sep: String): kotlin.Pair<String, String>? {
     val at: Int? = indexOfPlatform(str, sep)
     if ((at != null)) {
         val i: Int = at!!
-        val before: String = run {
+        val before: String = kotlin.run {
             val __pick_1: String? = substrPlatform(str, 0, i)
             (if ((__pick_1 != null)) {
                 val __picked_2: String = __pick_1!!
@@ -195,7 +195,7 @@ fun splitOnce(str: String, sep: String): Pair<String, String>? {
                 ""
             })
         }
-        val after: String = run {
+        val after: String = kotlin.run {
             val __pick_4: String? = substrPlatform(str, (i + sizePlatform(sep)), sizePlatform(str))
             (if ((__pick_4 != null)) {
                 val __picked_5: String = __pick_4!!
@@ -204,16 +204,16 @@ fun splitOnce(str: String, sep: String): Pair<String, String>? {
                 ""
             })
         }
-        return Pair(before, after)
+        return kotlin.Pair(before, after)
     }
     return null
 }
 
-fun splitLast(str: String, sep: String): Pair<String, String>? {
+fun splitLast(str: String, sep: String): kotlin.Pair<String, String>? {
     val at: Int? = lastIndexOfPlatform(str, sep)
     if ((at != null)) {
         val i: Int = at!!
-        val before: String = run {
+        val before: String = kotlin.run {
             val __pick_1: String? = substrPlatform(str, 0, i)
             (if ((__pick_1 != null)) {
                 val __picked_2: String = __pick_1!!
@@ -222,7 +222,7 @@ fun splitLast(str: String, sep: String): Pair<String, String>? {
                 ""
             })
         }
-        val after: String = run {
+        val after: String = kotlin.run {
             val __pick_4: String? = substrPlatform(str, (i + sizePlatform(sep)), sizePlatform(str))
             (if ((__pick_4 != null)) {
                 val __picked_5: String = __pick_4!!
@@ -231,7 +231,7 @@ fun splitLast(str: String, sep: String): Pair<String, String>? {
                 ""
             })
         }
-        return Pair(before, after)
+        return kotlin.Pair(before, after)
     }
     return null
 }

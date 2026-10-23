@@ -41,12 +41,12 @@ fun join__Path_Path(p: Path, child: Path): Path {
 
 fun parent(p: Path): Path? {
     val text: String = trimTrailingSlashes(p.value)
-    val cut: Pair<String, String>? = salvo.core.string.splitLast(text, "/")
+    val cut: kotlin.Pair<String, String>? = salvo.core.string.splitLast(text, "/")
     if ((cut == null)) {
         return null
     }
-    val cut_1: Pair<String, String> = cut!!
-    val __destructured_2: Pair<String, String> = cut_1
+    val cut_1: kotlin.Pair<String, String> = cut!!
+    val __destructured_2: kotlin.Pair<String, String> = cut_1
     val dir: String = __destructured_2.first
     val _name: String = __destructured_2.second
     if (salvo.core.string.isEmpty(dir)) {
@@ -60,15 +60,15 @@ fun parent(p: Path): Path? {
 
 fun fileName(p: Path): String? {
     val text: String = trimTrailingSlashes(p.value)
-    val cut: Pair<String, String>? = salvo.core.string.splitLast(text, "/")
+    val cut: kotlin.Pair<String, String>? = salvo.core.string.splitLast(text, "/")
     if ((cut == null)) {
         if (salvo.core.string.isEmpty(text)) {
             return null
         }
         return text
     }
-    val cut_1: Pair<String, String> = cut!!
-    val __destructured_2: Pair<String, String> = cut_1
+    val cut_1: kotlin.Pair<String, String> = cut!!
+    val __destructured_2: kotlin.Pair<String, String> = cut_1
     val _dir: String = __destructured_2.first
     val name: String = __destructured_2.second
     if (salvo.core.string.isEmpty(name)) {
@@ -81,12 +81,12 @@ fun extension(p: Path): String? {
     val name: String? = fileName(p)
     if ((name != null)) {
         val n: String = name!!
-        val cut: Pair<String, String>? = salvo.core.string.splitLast(n, ".")
+        val cut: kotlin.Pair<String, String>? = salvo.core.string.splitLast(n, ".")
         if ((cut == null)) {
             return null
         }
-        val cut_1: Pair<String, String> = cut!!
-        val __destructured_2: Pair<String, String> = cut_1
+        val cut_1: kotlin.Pair<String, String> = cut!!
+        val __destructured_2: kotlin.Pair<String, String> = cut_1
         val stem: String = __destructured_2.first
         val ext: String = __destructured_2.second
         if (salvo.core.string.isEmpty(stem)) {
@@ -101,12 +101,12 @@ fun stem(p: Path): String? {
     val name: String? = fileName(p)
     if ((name != null)) {
         val n: String = name!!
-        val cut: Pair<String, String>? = salvo.core.string.splitLast(n, ".")
+        val cut: kotlin.Pair<String, String>? = salvo.core.string.splitLast(n, ".")
         if ((cut == null)) {
             return n
         }
-        val cut_1: Pair<String, String> = cut!!
-        val __destructured_2: Pair<String, String> = cut_1
+        val cut_1: kotlin.Pair<String, String> = cut!!
+        val __destructured_2: kotlin.Pair<String, String> = cut_1
         val stem: String = __destructured_2.first
         val _ext: String = __destructured_2.second
         if (salvo.core.string.isEmpty(stem)) {

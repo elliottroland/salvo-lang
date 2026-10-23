@@ -171,7 +171,7 @@ class __Mon_Ticker(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : Ticker {
     override fun tick(): Tick {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.tick() } finally { lock.unlock() }
     }
@@ -188,17 +188,17 @@ class __Mon_Clock(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : Clock {
     override fun now(): Instant {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.now() } finally { lock.unlock() }
     }
     override fun toInstant(at: Tick): Instant {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.toInstant(at) } finally { lock.unlock() }
     }
     override fun toTick(at: Instant): Tick {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.toTick(at) } finally { lock.unlock() }
     }
@@ -254,7 +254,7 @@ class __Mon_Timer(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : Timer {
     override fun after(wait: Duration, done: salvo.SalvoReply) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.after(wait, done) } finally { lock.unlock() }
     }
@@ -263,7 +263,7 @@ class __Mon_Timer(
 class DefaultTimer : Timer {
     val __mailboxCapacity: Int = 64
     var __addr: Int? = null
-    val __parked: MutableMap<Long, __Cont_DefaultTimer> = mutableMapOf()
+    val __parked: MutableMap<Long, __Cont_DefaultTimer> = kotlin.collections.mutableMapOf()
     override fun after(wait: Duration, done: salvo.SalvoReply) {
         salvo.runtime.timers.afterNanos(wait.nanos, done)
     }
@@ -295,7 +295,7 @@ class __Actor_DefaultTimer(private val handler: DefaultTimer) : salvo.SalvoActor
     companion object {
         val __DECODE: ((String, ByteArray) -> Pair<Boolean, Any?>)? = { proto, payload ->
             when (proto) {
-                __PROTO_Timer -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Timer)?.let { Pair(true, it) } ?: Pair(false, null)
+                __PROTO_Timer -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Timer)?.let { kotlin.Pair(true, it) } ?: kotlin.Pair(false, null)
                 else -> Pair(false, null)
             }
         }
@@ -311,7 +311,7 @@ class __Mon_TimerCtl(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : TimerCtl {
     override fun advance(by: Duration) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.advance(by) } finally { lock.unlock() }
     }
@@ -320,7 +320,7 @@ class __Mon_TimerCtl(
 class ManualTime : Timer, TimerCtl {
     val __mailboxCapacity: Int = 64
     var __addr: Int? = null
-    val __parked: MutableMap<Long, __Cont_ManualTime> = mutableMapOf()
+    val __parked: MutableMap<Long, __Cont_ManualTime> = kotlin.collections.mutableMapOf()
     var now: Long = 0L
     var deadlines: salvo.platform.core.list.MutList<Long> = mutableListOf<Long>()
     var pending: salvo.platform.core.list.MutList<salvo.SalvoReply> = mutableListOf<salvo.SalvoReply>()
@@ -340,7 +340,7 @@ class ManualTime : Timer, TimerCtl {
                 break
             }
             val at: Int = __subject_1!!
-            val deadline: Long = run {
+            val deadline: Long = kotlin.run {
                 val __nn_2: Long? = salvo.core.list.getPlatform(deadlines, at)
                 when {
                     (__nn_2 == null) -> {
@@ -370,7 +370,7 @@ class __Actor_ManualTime(private val handler: ManualTime) : salvo.SalvoActor {
         when (msg) {
             is __Msg_Timer -> __dispatch_ManualTime_Timer(handler, msg)
             is __Msg_TimerCtl -> __dispatch_ManualTime_TimerCtl(handler, msg)
-            else -> error("a message of one of this actor's protocols")
+            else -> kotlin.error("a message of one of this actor's protocols")
         }
     }
 
@@ -396,8 +396,8 @@ class __Actor_ManualTime(private val handler: ManualTime) : salvo.SalvoActor {
     companion object {
         val __DECODE: ((String, ByteArray) -> Pair<Boolean, Any?>)? = { proto, payload ->
             when (proto) {
-                __PROTO_Timer -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Timer)?.let { Pair(true, it) } ?: Pair(false, null)
-                __PROTO_TimerCtl -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_TimerCtl)?.let { Pair(true, it) } ?: Pair(false, null)
+                __PROTO_Timer -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Timer)?.let { kotlin.Pair(true, it) } ?: kotlin.Pair(false, null)
+                __PROTO_TimerCtl -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_TimerCtl)?.let { kotlin.Pair(true, it) } ?: kotlin.Pair(false, null)
                 else -> Pair(false, null)
             }
         }
@@ -412,7 +412,7 @@ fun earliestDue(deadlines: List<Long>, target: Long): Int? {
         if (!((i < salvo.core.list.sizePlatform(deadlines)))) {
             break
         }
-        val at: Long = run {
+        val at: Long = kotlin.run {
             val __nn_1: Long? = salvo.core.list.getPlatform(deadlines, i)
             when {
                 (__nn_1 == null) -> {

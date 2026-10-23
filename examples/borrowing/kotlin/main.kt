@@ -55,7 +55,7 @@ fun wounded(squad: List<Fighter>): Fighter? {
 }
 
 fun<L> rallyAt(squad: List<Fighter>, l: L, at: (List<Fighter>, L) -> Fighter?) {
-    heal(run {
+    heal(kotlin.run {
         val __nn_1: Fighter? = at(squad, l)
         when {
             (__nn_1 == null) -> {
@@ -135,7 +135,7 @@ fun main() {
     val __use_1: salvo.core.console.__Platform_StdConsole = salvo.core.console.__Platform_StdConsole()
     val __handle_2: salvo.core.console.Console = __use_1
     val roster: List<Fighter> = listOf<Fighter>(Fighter(name = "Ada", hp = 30, energy = 4), Fighter(name = "Bo", hp = 8, energy = 9))
-    val ada: Fighter = run {
+    val ada: Fighter = kotlin.run {
         val __nn_3: Fighter? = named(roster, "Ada")
         when {
             (__nn_3 == null) -> {
@@ -153,8 +153,8 @@ fun main() {
     salvo.core.console.println(__handle_2, "1. copied out ${salvo.core.list.toStr(names, { __a0 -> __a0 })}")
     var w: Window = window(roster)
     w.at = 1
-    salvo.core.console.println(__handle_2, "1. window at ${w.at}: ${run {
-        val __proj_7: Fighter = run {
+    salvo.core.console.println(__handle_2, "1. window at ${w.at}: ${kotlin.run {
+        val __proj_7: Fighter = kotlin.run {
             val __nn_5: Fighter? = peek(w)
             when {
                 (__nn_5 == null) -> {
@@ -175,8 +175,8 @@ fun main() {
     salvo.core.console.println(__handle_2, "1. ${salvo.core.list.sizePlatform(standing)} of ${salvo.core.list.sizePlatform(roster)} still standing")
     val bench: salvo.platform.core.list.MutList<Fighter> = mutableListOf<Fighter>(Fighter(name = "Cy", hp = 12, energy = 2))
     salvo.core.list.addPlatform(bench, Fighter(name = "Dee", hp = 6, energy = 7))
-    salvo.core.console.println(__handle_2, "2. bench ${salvo.core.list.sizePlatform(bench)}, front ${run {
-        val __proj_10: Fighter = run {
+    salvo.core.console.println(__handle_2, "2. bench ${salvo.core.list.sizePlatform(bench)}, front ${kotlin.run {
+        val __proj_10: Fighter = kotlin.run {
             val __nn_8: Fighter? = salvo.core.list.getPlatform(bench, 0)
             when {
                 (__nn_8 == null) -> {
@@ -191,7 +191,7 @@ fun main() {
         __proj_10.name
     }} (a reading, not a handle)")
     val squad: List<Fighter> = listOf<Fighter>(Fighter(name = "Ada", hp = 30, energy = 4), Fighter(name = "Bo", hp = 8, energy = 9))
-    var boss: Fighter = run {
+    var boss: Fighter = kotlin.run {
         val __nn_11: Fighter? = salvo.core.list.atPlatform(squad, 0)
         when {
             (__nn_11 == null) -> {
@@ -206,8 +206,8 @@ fun main() {
     boss.hp = (boss.hp + 1)
     val n: Int = salvo.core.list.sizePlatform(squad)
     boss.hp = (boss.hp + n)
-    salvo.core.console.println(__handle_2, "2. ${run {
-        val __proj_15: Fighter = run {
+    salvo.core.console.println(__handle_2, "2. ${kotlin.run {
+        val __proj_15: Fighter = kotlin.run {
             val __nn_13: Fighter? = salvo.core.list.getPlatform(squad, 0)
             when {
                 (__nn_13 == null) -> {
@@ -220,8 +220,8 @@ fun main() {
             }
         }
         __proj_15.name
-    }} at ${run {
-        val __proj_18: Fighter = run {
+    }} at ${kotlin.run {
+        val __proj_18: Fighter = kotlin.run {
             val __nn_16: Fighter? = salvo.core.list.getPlatform(squad, 0)
             when {
                 (__nn_16 == null) -> {
@@ -235,7 +235,7 @@ fun main() {
         }
         __proj_18.hp
     }} after a read in the middle")
-    heal(run {
+    heal(kotlin.run {
         val __nn_19: Fighter? = wounded(squad)
         when {
             (__nn_19 == null) -> {
@@ -248,8 +248,8 @@ fun main() {
         }
     })
     rallyAt(squad, 1, { __a0, __a1 -> salvo.core.list.atPlatform(__a0, __a1) })
-    salvo.core.console.println(__handle_2, "2. after the searches: ${run {
-        val __proj_23: Fighter = run {
+    salvo.core.console.println(__handle_2, "2. after the searches: ${kotlin.run {
+        val __proj_23: Fighter = kotlin.run {
             val __nn_21: Fighter? = salvo.core.list.getPlatform(squad, 0)
             when {
                 (__nn_21 == null) -> {
@@ -262,8 +262,8 @@ fun main() {
             }
         }
         __proj_23.hp
-    }} ${run {
-        val __proj_26: Fighter = run {
+    }} ${kotlin.run {
+        val __proj_26: Fighter = kotlin.run {
             val __nn_24: Fighter? = salvo.core.list.getPlatform(squad, 1)
             when {
                 (__nn_24 == null) -> {
@@ -279,7 +279,7 @@ fun main() {
     }}")
     val i: Int = 0
     val j: Int = 1
-    var a: Fighter = run {
+    var a: Fighter = kotlin.run {
         val __nn_27: Fighter? = salvo.core.list.atPlatform(squad, i)
         when {
             (__nn_27 == null) -> {
@@ -291,7 +291,7 @@ fun main() {
             }
         }
     }
-    var d: Fighter = run {
+    var d: Fighter = kotlin.run {
         val __nn_29: Fighter? = salvo.core.list.atPlatform(squad, j)
         when {
             (__nn_29 == null) -> {
@@ -315,16 +315,16 @@ fun main() {
             salvo.core.list.update(squad, i, fun(f: Fighter) {
                 f.energy = (f.energy + 1)
             })
-            salvo.core.console.println(__handle_2, "3. ${run {
+            salvo.core.console.println(__handle_2, "3. ${kotlin.run {
                 val __proj_31: Fighter = salvo.core.list.get(squad, i)
                 __proj_31.energy
-            }} ${run {
+            }} ${kotlin.run {
                 val __proj_32: Fighter = salvo.core.list.get(squad, j)
                 __proj_32.energy
             }} (total reads: `Idx` survived)")
         }
     }
-    strike(squad, run {
+    strike(squad, kotlin.run {
         val __nn_33: Fighter? = salvo.core.list.atPlatform(squad, i)
         when {
             (__nn_33 == null) -> {
@@ -335,7 +335,7 @@ fun main() {
                 __some_34
             }
         }
-    }, run {
+    }, kotlin.run {
         val __nn_35: Fighter? = salvo.core.list.atPlatform(squad, j)
         when {
             (__nn_35 == null) -> {
@@ -347,7 +347,7 @@ fun main() {
             }
         }
     })
-    strike(squad, run {
+    strike(squad, kotlin.run {
         val __nn_37: Fighter? = salvo.core.list.atPlatform(squad, i)
         when {
             (__nn_37 == null) -> {
@@ -358,7 +358,7 @@ fun main() {
                 __some_38
             }
         }
-    }, run {
+    }, kotlin.run {
         val __nn_39: Fighter? = salvo.core.list.atPlatform(squad, i)
         when {
             (__nn_39 == null) -> {
@@ -370,8 +370,8 @@ fun main() {
             }
         }
     })
-    salvo.core.console.println(__handle_2, "4. ${run {
-        val __proj_43: Fighter = run {
+    salvo.core.console.println(__handle_2, "4. ${kotlin.run {
+        val __proj_43: Fighter = kotlin.run {
             val __nn_41: Fighter? = salvo.core.list.getPlatform(squad, 0)
             when {
                 (__nn_41 == null) -> {
@@ -384,8 +384,8 @@ fun main() {
             }
         }
         __proj_43.hp
-    }} hp / ${run {
-        val __proj_46: Fighter = run {
+    }} hp / ${kotlin.run {
+        val __proj_46: Fighter = kotlin.run {
             val __nn_44: Fighter? = salvo.core.list.getPlatform(squad, 0)
             when {
                 (__nn_44 == null) -> {
@@ -400,7 +400,7 @@ fun main() {
         __proj_46.energy
     }} energy after striking itself")
     val team: Squad = Squad(banner = "Red", members = listOf<Fighter>(Fighter(name = "Cy", hp = 12, energy = 2), Fighter(name = "Dee", hp = 6, energy = 7)))
-    rotate(team.members, run {
+    rotate(team.members, kotlin.run {
         val __nn_47: Fighter? = salvo.core.list.atPlatform(team.members, i)
         when {
             (__nn_47 == null) -> {
@@ -411,7 +411,7 @@ fun main() {
                 __some_48
             }
         }
-    }, run {
+    }, kotlin.run {
         val __nn_49: Fighter? = salvo.core.list.atPlatform(team.members, j)
         when {
             (__nn_49 == null) -> {
@@ -423,8 +423,8 @@ fun main() {
             }
         }
     })
-    salvo.core.console.println(__handle_2, "4. ${team.banner}: ${run {
-        val __proj_53: Fighter = run {
+    salvo.core.console.println(__handle_2, "4. ${team.banner}: ${kotlin.run {
+        val __proj_53: Fighter = kotlin.run {
             val __nn_51: Fighter? = salvo.core.list.getPlatform(team.members, 0)
             when {
                 (__nn_51 == null) -> {
@@ -437,8 +437,8 @@ fun main() {
             }
         }
         __proj_53.energy
-    }} ${run {
-        val __proj_56: Fighter = run {
+    }} ${kotlin.run {
+        val __proj_56: Fighter = kotlin.run {
             val __nn_54: Fighter? = salvo.core.list.getPlatform(team.members, 1)
             when {
                 (__nn_54 == null) -> {

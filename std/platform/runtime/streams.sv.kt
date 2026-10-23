@@ -6,12 +6,12 @@ package salvo.runtime.streams
 
 import salvo.*
 
-val __module_use0: Streams by lazy {
+val __module_use0: Streams by kotlin.lazy {
     val __module_use0: Streams = Streams()
     __module_use0
 }
 
-val __module_use0_0: StreamTable by lazy {
+val __module_use0_0: StreamTable by kotlin.lazy {
     val __lock___module_use0 = java.util.concurrent.locks.ReentrantLock()
     val __module_use0_0: StreamTable = __Mon_StreamTable(__module_use0, __lock___module_use0)
     __module_use0_0
@@ -144,42 +144,42 @@ class __Mon_StreamTable(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : StreamTable {
     override fun nextHandle(): Long {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.nextHandle() } finally { lock.unlock() }
     }
     override fun putIn(handle: Long, e: InEntry) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.putIn(handle, e) } finally { lock.unlock() }
     }
     override fun putOut(handle: Long, e: OutEntry) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.putOut(handle, e) } finally { lock.unlock() }
     }
     override fun takeIn(handle: Long, me: salvo.platform.runtime.Parker): Union3<InEntry, Busy, Unknown> {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.takeIn(handle, me) } finally { lock.unlock() }
     }
     override fun takeOut(handle: Long, me: salvo.platform.runtime.Parker): Union3<OutEntry, Busy, Unknown> {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.takeOut(handle, me) } finally { lock.unlock() }
     }
     override fun forget(handle: Long) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.forget(handle) } finally { lock.unlock() }
     }
     override fun addPending(p: Pending) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.addPending(p) } finally { lock.unlock() }
     }
     override fun takePending(handle: Long): Pending? {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.takePending(handle) } finally { lock.unlock() }
     }
@@ -213,7 +213,7 @@ class Streams : StreamTable {
         if ((at >= 0)) {
             val _k: Long? = salvo.core.list.removeAtPlatform(inKeys, at)
             salvo.core.list.addPlatform(busy, handle)
-            return Union3.U1<InEntry, Busy, Unknown>(run {
+            return Union3.U1<InEntry, Busy, Unknown>(kotlin.run {
                 val __nn_1: InEntry? = salvo.core.list.removeAtPlatform(ins, at)
                 when {
                     (__nn_1 == null) -> {
@@ -237,7 +237,7 @@ class Streams : StreamTable {
         if ((at >= 0)) {
             val _k: Long? = salvo.core.list.removeAtPlatform(outKeys, at)
             salvo.core.list.addPlatform(busy, handle)
-            return Union3.U1<OutEntry, Busy, Unknown>(run {
+            return Union3.U1<OutEntry, Busy, Unknown>(kotlin.run {
                 val __nn_1: OutEntry? = salvo.core.list.removeAtPlatform(outs, at)
                 when {
                     (__nn_1 == null) -> {
@@ -268,8 +268,8 @@ class Streams : StreamTable {
             if (!((i < salvo.core.list.sizePlatform(pending)))) {
                 break
             }
-            if ((run {
-                val __proj_3: Pending = run {
+            if ((kotlin.run {
+                val __proj_3: Pending = kotlin.run {
                     val __nn_1: Pending? = salvo.core.list.getPlatform(pending, i)
                     when {
                         (__nn_1 == null) -> {
@@ -297,7 +297,7 @@ fun indexIn(keys: List<Long>, handle: Long): Int {
         if (!((i < salvo.core.list.sizePlatform(keys)))) {
             break
         }
-        if ((run {
+        if ((kotlin.run {
             val __nn_1: Long? = salvo.core.list.getPlatform(keys, i)
             when {
                 (__nn_1 == null) -> {
@@ -325,7 +325,7 @@ fun unbusy(busy: salvo.platform.core.list.MutList<Long>, waiting: salvo.platform
         if (!((salvo.core.list.sizePlatform(waiting) > 0))) {
             break
         }
-        salvo.runtime.unparkPlatform(run {
+        salvo.runtime.unparkPlatform(kotlin.run {
             val __nn_1: salvo.platform.runtime.Parker? = salvo.core.list.removeAtPlatform(waiting, 0)
             when {
                 (__nn_1 == null) -> {
@@ -450,7 +450,7 @@ fun record(e: InEntry, message: String): Fault {
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun takeAhead(e: InEntry, n: Int): salvo.platform.core.bytes.Bytes {
     val all: Int = salvo.core.bytes.sizePlatform((e.ahead as salvo.platform.core.bytes.MutBytes))
-    val front: salvo.platform.core.bytes.Bytes = run {
+    val front: salvo.platform.core.bytes.Bytes = kotlin.run {
         val __pick_1: salvo.platform.core.bytes.Bytes? = salvo.core.bytes.slicePlatform((e.ahead as salvo.platform.core.bytes.MutBytes), 0, n)
         (if ((__pick_1 != null)) {
             val __picked_2: salvo.platform.core.bytes.Bytes = __pick_1!!
@@ -459,7 +459,7 @@ fun takeAhead(e: InEntry, n: Int): salvo.platform.core.bytes.Bytes {
             salvo.core.bytes.bytesOf(arrayOf<UByte>())
         })
     }
-    val rest: salvo.platform.core.bytes.Bytes = run {
+    val rest: salvo.platform.core.bytes.Bytes = kotlin.run {
         val __pick_4: salvo.platform.core.bytes.Bytes? = salvo.core.bytes.slicePlatform((e.ahead as salvo.platform.core.bytes.MutBytes), n, all)
         (if ((__pick_4 != null)) {
             val __picked_5: salvo.platform.core.bytes.Bytes = __pick_4!!
@@ -500,7 +500,7 @@ fun readLine(e: InEntry): Read {
             val i: Int = at!!
             val line: salvo.platform.core.bytes.Bytes = takeAhead(e, (i + 1))
             var n: Int = (salvo.core.bytes.sizePlatform(line) - 1)
-            if (((n > 0) && ((run {
+            if (((n > 0) && ((kotlin.run {
                 val __nn_1: UByte? = salvo.core.bytes.getPlatform(line, (n - 1))
                 when {
                     (__nn_1 == null) -> {
@@ -514,7 +514,7 @@ fun readLine(e: InEntry): Read {
             }).toInt() == 13))) {
                 n = (n - 1)
             }
-            return Read(data = run {
+            return Read(data = kotlin.run {
                 val __pick_3: salvo.platform.core.bytes.Bytes? = salvo.core.bytes.slicePlatform(line, 0, n)
                 (if ((__pick_3 != null)) {
                     val __picked_4: salvo.platform.core.bytes.Bytes = __pick_3!!

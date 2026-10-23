@@ -2,19 +2,19 @@ package salvo.runtime.timers
 
 import salvo.*
 
-val __module_use0: Deadlines by lazy {
+val __module_use0: Deadlines by kotlin.lazy {
     val __module_use0: Deadlines = Deadlines()
     __module_use0
 }
 
-val __module_use0_0: DeadlineTable by lazy {
+val __module_use0_0: DeadlineTable by kotlin.lazy {
     val __lock___module_use0 = java.util.concurrent.locks.ReentrantLock()
     val __module_use0_0: DeadlineTable = __Mon_DeadlineTable(__module_use0, __lock___module_use0)
     __module_use0_0
 }
 
-val __module_use1: Wheel by lazy {
-    val __module_use1: Wheel = __Stub_Wheel(run { val __h = Wheeling(); val __a = salvo.SalvoSched.spawn(salvo.SalvoSched.thread(), __h.__mailboxCapacity, __Actor_Wheeling(__h), __Actor_Wheeling.__DECODE); __a })
+val __module_use1: Wheel by kotlin.lazy {
+    val __module_use1: Wheel = __Stub_Wheel(kotlin.run { val __h = Wheeling(); val __a = salvo.SalvoSched.spawn(salvo.SalvoSched.thread(), __h.__mailboxCapacity, __Actor_Wheeling(__h), __Actor_Wheeling.__DECODE); __a })
     __module_use1
 }
 
@@ -32,32 +32,32 @@ class __Mon_DeadlineTable(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : DeadlineTable {
     override fun register(at: Long, done: salvo.SalvoReply): Boolean {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.register(at, done) } finally { lock.unlock() }
     }
     override fun wheelParker(p: salvo.platform.runtime.Parker) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.wheelParker(p) } finally { lock.unlock() }
     }
     override fun waker(): salvo.platform.runtime.Parker? {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.waker() } finally { lock.unlock() }
     }
     override fun takeDue(now: Long): salvo.platform.core.list.MutList<salvo.SalvoReply> {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.takeDue(now) } finally { lock.unlock() }
     }
     override fun nextDeadline(): Long? {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.nextDeadline() } finally { lock.unlock() }
     }
     override fun clear() {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.clear() } finally { lock.unlock() }
     }
@@ -94,7 +94,7 @@ class Deadlines : DeadlineTable {
             if (!((i < salvo.core.list.sizePlatform(ats)))) {
                 break
             }
-            if ((run {
+            if ((kotlin.run {
                 val __nn_1: Long? = salvo.core.list.getPlatform(ats, i)
                 when {
                     (__nn_1 == null) -> {
@@ -168,7 +168,7 @@ class __Mon_Wheel(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : Wheel {
     override fun run() {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.run() } finally { lock.unlock() }
     }
@@ -177,7 +177,7 @@ class __Mon_Wheel(
 class Wheeling : Wheel {
     val __mailboxCapacity: Int = 2
     var __addr: Int? = null
-    val __parked: MutableMap<Long, __Cont_Wheeling> = mutableMapOf()
+    val __parked: MutableMap<Long, __Cont_Wheeling> = kotlin.collections.mutableMapOf()
     override fun run() {
         __module_use0_0.wheelParker(salvo.runtime.thisParkerPlatform())
         while (true) {
@@ -223,7 +223,7 @@ class __Actor_Wheeling(private val handler: Wheeling) : salvo.SalvoActor {
     companion object {
         val __DECODE: ((String, ByteArray) -> Pair<Boolean, Any?>)? = { proto, payload ->
             when (proto) {
-                __PROTO_Wheel -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Wheel)?.let { Pair(true, it) } ?: Pair(false, null)
+                __PROTO_Wheel -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Wheel)?.let { kotlin.Pair(true, it) } ?: kotlin.Pair(false, null)
                 else -> Pair(false, null)
             }
         }

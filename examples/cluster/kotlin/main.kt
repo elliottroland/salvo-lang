@@ -11,7 +11,7 @@ class __Mon_Sequencer(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : Sequencer {
     override fun next(out: salvo.SalvoReply) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.next(out) } finally { lock.unlock() }
     }
@@ -26,7 +26,7 @@ class __Mon_Inventory(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : Inventory {
     override fun reserve(sku: String, qty: Int, out: salvo.SalvoReply) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.reserve(sku, qty, out) } finally { lock.unlock() }
     }
@@ -41,7 +41,7 @@ class __Mon_Search(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : Search {
     override fun query(word: String, out: salvo.SalvoReply) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.query(word, out) } finally { lock.unlock() }
     }
@@ -56,7 +56,7 @@ class __Mon_Lookup(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : Lookup {
     override fun lookup(key: String, out: salvo.SalvoReply) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.lookup(key, out) } finally { lock.unlock() }
     }
@@ -65,7 +65,7 @@ class __Mon_Lookup(
 class Sequencing(private val who: String) : Sequencer {
     val __mailboxCapacity: Int = 16
     var __addr: Int? = null
-    val __parked: MutableMap<Long, __Cont_Sequencing> = mutableMapOf()
+    val __parked: MutableMap<Long, __Cont_Sequencing> = kotlin.collections.mutableMapOf()
     var n: Int = 0
     override fun next(out: salvo.SalvoReply) {
         n = (n + 1)
@@ -99,7 +99,7 @@ class __Actor_Sequencing(private val handler: Sequencing) : salvo.SalvoActor {
     companion object {
         val __DECODE: ((String, ByteArray) -> Pair<Boolean, Any?>)? = { proto, payload ->
             when (proto) {
-                __PROTO_Sequencer -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Sequencer)?.let { Pair(true, it) } ?: Pair(false, null)
+                __PROTO_Sequencer -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Sequencer)?.let { kotlin.Pair(true, it) } ?: kotlin.Pair(false, null)
                 else -> Pair(false, null)
             }
         }
@@ -109,7 +109,7 @@ class __Actor_Sequencing(private val handler: Sequencing) : salvo.SalvoActor {
 class Stocking(private val shard: String) : Inventory {
     val __mailboxCapacity: Int = 32
     var __addr: Int? = null
-    val __parked: MutableMap<Long, __Cont_Stocking> = mutableMapOf()
+    val __parked: MutableMap<Long, __Cont_Stocking> = kotlin.collections.mutableMapOf()
     var served: Int = 0
     override fun reserve(sku: String, qty: Int, out: salvo.SalvoReply) {
         served = (served + qty)
@@ -143,7 +143,7 @@ class __Actor_Stocking(private val handler: Stocking) : salvo.SalvoActor {
     companion object {
         val __DECODE: ((String, ByteArray) -> Pair<Boolean, Any?>)? = { proto, payload ->
             when (proto) {
-                __PROTO_Inventory -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Inventory)?.let { Pair(true, it) } ?: Pair(false, null)
+                __PROTO_Inventory -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Inventory)?.let { kotlin.Pair(true, it) } ?: kotlin.Pair(false, null)
                 else -> Pair(false, null)
             }
         }
@@ -153,7 +153,7 @@ class __Actor_Stocking(private val handler: Stocking) : salvo.SalvoActor {
 class Indexing(private val words: List<String>) : Search {
     val __mailboxCapacity: Int = 16
     var __addr: Int? = null
-    val __parked: MutableMap<Long, __Cont_Indexing> = mutableMapOf()
+    val __parked: MutableMap<Long, __Cont_Indexing> = kotlin.collections.mutableMapOf()
     override fun query(word: String, out: salvo.SalvoReply) {
         var n: Int = 0
         for (w in salvo.platform.core.list.each(words)) {
@@ -191,7 +191,7 @@ class __Actor_Indexing(private val handler: Indexing) : salvo.SalvoActor {
     companion object {
         val __DECODE: ((String, ByteArray) -> Pair<Boolean, Any?>)? = { proto, payload ->
             when (proto) {
-                __PROTO_Search -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Search)?.let { Pair(true, it) } ?: Pair(false, null)
+                __PROTO_Search -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Search)?.let { kotlin.Pair(true, it) } ?: kotlin.Pair(false, null)
                 else -> Pair(false, null)
             }
         }
@@ -201,7 +201,7 @@ class __Actor_Indexing(private val handler: Indexing) : salvo.SalvoActor {
 class Looking(private val who: String) : Lookup {
     val __mailboxCapacity: Int = 16
     var __addr: Int? = null
-    val __parked: MutableMap<Long, __Cont_Looking> = mutableMapOf()
+    val __parked: MutableMap<Long, __Cont_Looking> = kotlin.collections.mutableMapOf()
     override fun lookup(key: String, out: salvo.SalvoReply) {
         salvo.SalvoSched.replyWire(out, "${key} from ${who}", salvo.StrCodec)
     }
@@ -233,7 +233,7 @@ class __Actor_Looking(private val handler: Looking) : salvo.SalvoActor {
     companion object {
         val __DECODE: ((String, ByteArray) -> Pair<Boolean, Any?>)? = { proto, payload ->
             when (proto) {
-                __PROTO_Lookup -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Lookup)?.let { Pair(true, it) } ?: Pair(false, null)
+                __PROTO_Lookup -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Lookup)?.let { kotlin.Pair(true, it) } ?: kotlin.Pair(false, null)
                 else -> Pair(false, null)
             }
         }
@@ -243,9 +243,9 @@ class __Actor_Looking(private val handler: Looking) : salvo.SalvoActor {
 class SlowLooking(private val who: String, private val timer: Int) : Lookup {
     val __mailboxCapacity: Int = 16
     var __addr: Int? = null
-    val __parked: MutableMap<Long, __Cont_SlowLooking> = mutableMapOf()
+    val __parked: MutableMap<Long, __Cont_SlowLooking> = kotlin.collections.mutableMapOf()
     override fun lookup(key: String, out: salvo.SalvoReply) {
-        salvo.SalvoSched.sendWire(timer, salvo.time.__Msg_Timer.After(salvo.time.millis(150L), run { val (__r, __s) = salvo.SalvoSched.mint(__addr!!); __parked[__s] = __Cont_SlowLooking.Answer(key, out); __r }), salvo.time.__PROTO_Timer, salvo.time.__Codec___Msg_Timer)
+        salvo.SalvoSched.sendWire(timer, salvo.time.__Msg_Timer.After(salvo.time.millis(150L), kotlin.run { val (__r, __s) = salvo.SalvoSched.mint(__addr!!); __parked[__s] = __Cont_SlowLooking.Answer(key, out); __r }), salvo.time.__PROTO_Timer, salvo.time.__Codec___Msg_Timer)
     }
     fun answer(key: String, out: salvo.SalvoReply, fired: salvo.time.Fired) {
         salvo.SalvoSched.replyWire(out, "${key} from ${who}", salvo.StrCodec)
@@ -258,7 +258,7 @@ class __Actor_SlowLooking(private val handler: SlowLooking) : salvo.SalvoActor {
         when (msg) {
             is __Msg_Lookup -> __dispatch_SlowLooking_Lookup(handler, msg)
             is __Priv_SlowLooking -> __dispatch_priv_SlowLooking(handler, msg)
-            else -> error("a message of one of this actor's protocols")
+            else -> kotlin.error("a message of one of this actor's protocols")
         }
     }
 
@@ -284,7 +284,7 @@ class __Actor_SlowLooking(private val handler: SlowLooking) : salvo.SalvoActor {
     companion object {
         val __DECODE: ((String, ByteArray) -> Pair<Boolean, Any?>)? = { proto, payload ->
             when (proto) {
-                __PROTO_Lookup -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Lookup)?.let { Pair(true, it) } ?: Pair(false, null)
+                __PROTO_Lookup -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Lookup)?.let { kotlin.Pair(true, it) } ?: kotlin.Pair(false, null)
                 else -> Pair(false, null)
             }
         }
@@ -294,10 +294,10 @@ class __Actor_SlowLooking(private val handler: SlowLooking) : salvo.SalvoActor {
 class Scattering(private val group: Int, private val gather: Int) : Search {
     val __mailboxCapacity: Int = 16
     var __addr: Int? = null
-    val __parked: MutableMap<Long, __Cont_Scattering> = mutableMapOf()
+    val __parked: MutableMap<Long, __Cont_Scattering> = kotlin.collections.mutableMapOf()
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun query(word: String, out: salvo.SalvoReply) {
-        val members: List<Int> = run {
+        val members: List<Int> = kotlin.run {
             val (ms, __wid) = salvo.SalvoSched.waiter()
             salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.ListCodec(salvo.AddrCodec)) })
             salvo.SalvoSched.sendWire(group, salvo.net.__Msg_ActorGroup.Members(ms), salvo.net.__PROTO_ActorGroup, salvo.net.__Codec___Msg_ActorGroup)
@@ -333,7 +333,7 @@ class __Actor_Scattering(private val handler: Scattering) : salvo.SalvoActor {
     companion object {
         val __DECODE: ((String, ByteArray) -> Pair<Boolean, Any?>)? = { proto, payload ->
             when (proto) {
-                __PROTO_Search -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Search)?.let { Pair(true, it) } ?: Pair(false, null)
+                __PROTO_Search -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Search)?.let { kotlin.Pair(true, it) } ?: kotlin.Pair(false, null)
                 else -> Pair(false, null)
             }
         }
@@ -349,7 +349,7 @@ class __Mon_Gather(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : Gather {
     override fun scatter(word: String, members: List<Int>, out: salvo.SalvoReply) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.scatter(word, members, out) } finally { lock.unlock() }
     }
@@ -358,7 +358,7 @@ class __Mon_Gather(
 class Gathering : Gather {
     val __mailboxCapacity: Int = 16
     var __addr: Int? = null
-    val __parked: MutableMap<Long, __Cont_Gathering> = mutableMapOf()
+    val __parked: MutableMap<Long, __Cont_Gathering> = kotlin.collections.mutableMapOf()
     var pending: salvo.platform.core.deque.MutDeque<salvo.SalvoReply> = salvo.core.deque.mutDequeOf()
     var left: Int = 0
     var total: Int = 0
@@ -367,7 +367,7 @@ class Gathering : Gather {
         left = salvo.core.list.sizePlatform(members)
         total = 0
         for (m in salvo.platform.core.list.each(members)) {
-            salvo.SalvoSched.sendWire(m, __Msg_Search.Query(word, run { val (__r, __s) = salvo.SalvoSched.mint(__addr!!); __parked[__s] = __Cont_Gathering.Partial(); __r }), __PROTO_Search, __Codec___Msg_Search)
+            salvo.SalvoSched.sendWire(m, __Msg_Search.Query(word, kotlin.run { val (__r, __s) = salvo.SalvoSched.mint(__addr!!); __parked[__s] = __Cont_Gathering.Partial(); __r }), __PROTO_Search, __Codec___Msg_Search)
         }
     }
     fun partial(n: Int) {
@@ -396,7 +396,7 @@ class __Actor_Gathering(private val handler: Gathering) : salvo.SalvoActor {
         when (msg) {
             is __Msg_Gather -> __dispatch_Gathering_Gather(handler, msg)
             is __Priv_Gathering -> __dispatch_priv_Gathering(handler, msg)
-            else -> error("a message of one of this actor's protocols")
+            else -> kotlin.error("a message of one of this actor's protocols")
         }
     }
 
@@ -422,7 +422,7 @@ class __Actor_Gathering(private val handler: Gathering) : salvo.SalvoActor {
     companion object {
         val __DECODE: ((String, ByteArray) -> Pair<Boolean, Any?>)? = { proto, payload ->
             when (proto) {
-                __PROTO_Gather -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Gather)?.let { Pair(true, it) } ?: Pair(false, null)
+                __PROTO_Gather -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Gather)?.let { kotlin.Pair(true, it) } ?: kotlin.Pair(false, null)
                 else -> Pair(false, null)
             }
         }
@@ -432,10 +432,10 @@ class __Actor_Gathering(private val handler: Gathering) : salvo.SalvoActor {
 class Hedging(private val group: Int, private val racer: Int) : Lookup {
     val __mailboxCapacity: Int = 16
     var __addr: Int? = null
-    val __parked: MutableMap<Long, __Cont_Hedging> = mutableMapOf()
+    val __parked: MutableMap<Long, __Cont_Hedging> = kotlin.collections.mutableMapOf()
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun lookup(key: String, out: salvo.SalvoReply) {
-        val members: List<Int> = run {
+        val members: List<Int> = kotlin.run {
             val (ms, __wid) = salvo.SalvoSched.waiter()
             salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.ListCodec(salvo.AddrCodec)) })
             salvo.SalvoSched.sendWire(group, salvo.net.__Msg_ActorGroup.Members(ms), salvo.net.__PROTO_ActorGroup, salvo.net.__Codec___Msg_ActorGroup)
@@ -471,7 +471,7 @@ class __Actor_Hedging(private val handler: Hedging) : salvo.SalvoActor {
     companion object {
         val __DECODE: ((String, ByteArray) -> Pair<Boolean, Any?>)? = { proto, payload ->
             when (proto) {
-                __PROTO_Lookup -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Lookup)?.let { Pair(true, it) } ?: Pair(false, null)
+                __PROTO_Lookup -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Lookup)?.let { kotlin.Pair(true, it) } ?: kotlin.Pair(false, null)
                 else -> Pair(false, null)
             }
         }
@@ -487,7 +487,7 @@ class __Mon_Race(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : Race {
     override fun race(key: String, members: List<Int>, out: salvo.SalvoReply) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.race(key, members, out) } finally { lock.unlock() }
     }
@@ -496,12 +496,12 @@ class __Mon_Race(
 class Racing : Race {
     val __mailboxCapacity: Int = 16
     var __addr: Int? = null
-    val __parked: MutableMap<Long, __Cont_Racing> = mutableMapOf()
+    val __parked: MutableMap<Long, __Cont_Racing> = kotlin.collections.mutableMapOf()
     var pending: salvo.platform.core.deque.MutDeque<salvo.SalvoReply> = salvo.core.deque.mutDequeOf()
     override fun race(key: String, members: List<Int>, out: salvo.SalvoReply) {
         salvo.core.deque.addLastPlatform(pending, out)
         for (m in salvo.platform.core.list.each(members)) {
-            salvo.SalvoSched.sendWire(m, __Msg_Lookup.Lookup(key, run { val (__r, __s) = salvo.SalvoSched.mint(__addr!!); __parked[__s] = __Cont_Racing.First(); __r }), __PROTO_Lookup, __Codec___Msg_Lookup)
+            salvo.SalvoSched.sendWire(m, __Msg_Lookup.Lookup(key, kotlin.run { val (__r, __s) = salvo.SalvoSched.mint(__addr!!); __parked[__s] = __Cont_Racing.First(); __r }), __PROTO_Lookup, __Codec___Msg_Lookup)
         }
     }
     fun first(answer: String) {
@@ -512,7 +512,7 @@ class Racing : Race {
                 salvo.SalvoSched.replyWire(out_1, answer, salvo.StrCodec)
             }
             (out == null) -> {
-                run { answer; Unit }
+                kotlin.run { answer; Unit }
             }
             else -> {
                 throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:177:9"))
@@ -527,7 +527,7 @@ class __Actor_Racing(private val handler: Racing) : salvo.SalvoActor {
         when (msg) {
             is __Msg_Race -> __dispatch_Racing_Race(handler, msg)
             is __Priv_Racing -> __dispatch_priv_Racing(handler, msg)
-            else -> error("a message of one of this actor's protocols")
+            else -> kotlin.error("a message of one of this actor's protocols")
         }
     }
 
@@ -553,7 +553,7 @@ class __Actor_Racing(private val handler: Racing) : salvo.SalvoActor {
     companion object {
         val __DECODE: ((String, ByteArray) -> Pair<Boolean, Any?>)? = { proto, payload ->
             when (proto) {
-                __PROTO_Race -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Race)?.let { Pair(true, it) } ?: Pair(false, null)
+                __PROTO_Race -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Race)?.let { kotlin.Pair(true, it) } ?: kotlin.Pair(false, null)
                 else -> Pair(false, null)
             }
         }
@@ -563,7 +563,7 @@ class __Actor_Racing(private val handler: Racing) : salvo.SalvoActor {
 class LastHost(private val nodes: Int, private val me: salvo.net.NodeEndpoint) : salvo.net.Leader {
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun leader(): salvo.net.NodeId? {
-        val peers: List<salvo.net.Node> = run {
+        val peers: List<salvo.net.Node> = kotlin.run {
             val (out, __wid) = salvo.SalvoSched.waiter()
             salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.ListCodec(salvo.net.__Codec_Node)) })
             salvo.SalvoSched.sendWire(nodes, salvo.net.__Msg_NodeGroup.Members(out), salvo.net.__PROTO_NodeGroup, salvo.net.__Codec___Msg_NodeGroup)
@@ -583,7 +583,7 @@ class LastHost(private val nodes: Int, private val me: salvo.net.NodeEndpoint) :
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun freshId(sequencer: Sequencer): String {
-    return run {
+    return kotlin.run {
         val (out, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.StrCodec) })
         sequencer.next(out)
@@ -595,14 +595,14 @@ fun freshId(sequencer: Sequencer): String {
 fun checkout(inventory: Inventory, console: salvo.core.console.Console, skus: List<String>) {
     val shards: salvo.platform.core.list.MutList<String> = mutableListOf<String>()
     for (sku in salvo.platform.core.list.each(skus)) {
-        val answer: String = run {
+        val answer: String = kotlin.run {
             val (out, __wid) = salvo.SalvoSched.waiter()
             salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.StrCodec) })
             inventory.reserve(sku, 1, out)
             salvo.SalvoSched.awaitReply(__wid) as String
         }
         val parts: salvo.platform.core.list.MutList<String> = salvo.core.string.splitPlatform(answer, ":")
-        salvo.core.list.addPlatform(shards, run {
+        salvo.core.list.addPlatform(shards, kotlin.run {
             val __nn_1: String? = salvo.core.list.getPlatform(parts, 0)
             when {
                 (__nn_1 == null) -> {
@@ -614,7 +614,7 @@ fun checkout(inventory: Inventory, console: salvo.core.console.Console, skus: Li
                 }
             }
         })
-        salvo.core.console.println(console, "  ${sku}: ${run {
+        salvo.core.console.println(console, "  ${sku}: ${kotlin.run {
             val __nn_3: String? = salvo.core.list.getPlatform(parts, 1)
             when {
                 (__nn_3 == null) -> {
@@ -627,7 +627,7 @@ fun checkout(inventory: Inventory, console: salvo.core.console.Console, skus: Li
             }
         }} reserved on its shard so far")
     }
-    salvo.core.console.println(console, "  apple and apple on one shard: ${((run {
+    salvo.core.console.println(console, "  apple and apple on one shard: ${((kotlin.run {
         val __nn_5: String? = salvo.core.list.getPlatform(shards, 0)
         when {
             (__nn_5 == null) -> {
@@ -638,7 +638,7 @@ fun checkout(inventory: Inventory, console: salvo.core.console.Console, skus: Li
                 __some_6
             }
         }
-    }) == (run {
+    }) == (kotlin.run {
         val __nn_7: String? = salvo.core.list.getPlatform(shards, 2)
         when {
             (__nn_7 == null) -> {
@@ -650,7 +650,7 @@ fun checkout(inventory: Inventory, console: salvo.core.console.Console, skus: Li
             }
         }
     }))}")
-    salvo.core.console.println(console, "  apple and fig on one shard: ${((run {
+    salvo.core.console.println(console, "  apple and fig on one shard: ${((kotlin.run {
         val __nn_9: String? = salvo.core.list.getPlatform(shards, 0)
         when {
             (__nn_9 == null) -> {
@@ -661,7 +661,7 @@ fun checkout(inventory: Inventory, console: salvo.core.console.Console, skus: Li
                 __some_10
             }
         }
-    }) == (run {
+    }) == (kotlin.run {
         val __nn_11: String? = salvo.core.list.getPlatform(shards, 3)
         when {
             (__nn_11 == null) -> {
@@ -673,7 +673,7 @@ fun checkout(inventory: Inventory, console: salvo.core.console.Console, skus: Li
             }
         }
     }))}")
-    salvo.core.console.println(console, "  apple and pear on one shard: ${((run {
+    salvo.core.console.println(console, "  apple and pear on one shard: ${((kotlin.run {
         val __nn_13: String? = salvo.core.list.getPlatform(shards, 0)
         when {
             (__nn_13 == null) -> {
@@ -684,7 +684,7 @@ fun checkout(inventory: Inventory, console: salvo.core.console.Console, skus: Li
                 __some_14
             }
         }
-    }) == (run {
+    }) == (kotlin.run {
         val __nn_15: String? = salvo.core.list.getPlatform(shards, 1)
         when {
             (__nn_15 == null) -> {
@@ -700,7 +700,7 @@ fun checkout(inventory: Inventory, console: salvo.core.console.Console, skus: Li
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun count(search: Search, word: String): Int {
-    return run {
+    return kotlin.run {
         val (out, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.IntCodec) })
         search.query(word, out)
@@ -710,7 +710,7 @@ fun count(search: Search, word: String): Int {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun find(lookup: Lookup, key: String): String {
-    return run {
+    return kotlin.run {
         val (out, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.StrCodec) })
         lookup.lookup(key, out)
@@ -748,12 +748,12 @@ class __Mon_Boot(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : Boot {
     override fun boot(done: salvo.SalvoReply) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.boot(done) } finally { lock.unlock() }
     }
     override fun stop(done: salvo.SalvoReply) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.stop(done) } finally { lock.unlock() }
     }
@@ -762,21 +762,21 @@ class __Mon_Boot(
 class Booting(private val at: salvo.net.NodeEndpoint, private val all: List<salvo.net.NodeEndpoint>, private val net: Int, private val __dep0: salvo.net.Transport) : Boot {
     val __mailboxCapacity: Int = 2
     var __addr: Int? = null
-    val __parked: MutableMap<Long, __Cont_Booting> = mutableMapOf()
+    val __parked: MutableMap<Long, __Cont_Booting> = kotlin.collections.mutableMapOf()
     var nodes: Int? = null
     override fun boot(done: salvo.SalvoReply) {
         val p: Int = salvo.core.actor.pool(1)
-        val group: Int = run { val __h = salvo.net.StaticNodeGroup(name = "cluster", all = all, __dep0); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, salvo.net.__Actor_StaticNodeGroup(__h), salvo.net.__Actor_StaticNodeGroup.__DECODE); salvo.SalvoSched.send(__a, salvo.net.__Priv_StaticNodeGroup.Init); __a }
+        val group: Int = kotlin.run { val __h = salvo.net.StaticNodeGroup(name = "cluster", all = all, __dep0); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, salvo.net.__Actor_StaticNodeGroup(__h), salvo.net.__Actor_StaticNodeGroup.__DECODE); salvo.SalvoSched.send(__a, salvo.net.__Priv_StaticNodeGroup.Init); __a }
         nodes = group
         val seq: Int = salvo.net.actorGroup__Addr(group, {  -> salvo.net.Protocol("Sequencer", __PROTO_Sequencer) })
-        val mine: Int = run { val __h = Sequencing(who = "b"); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Sequencing(__h), __Actor_Sequencing.__DECODE); salvo.SalvoSched.sendWire(seq, salvo.net.__Msg_ActorGroup.Join(__a), salvo.net.__PROTO_ActorGroup, salvo.net.__Codec___Msg_ActorGroup); __a }
+        val mine: Int = kotlin.run { val __h = Sequencing(who = "b"); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Sequencing(__h), __Actor_Sequencing.__DECODE); salvo.SalvoSched.sendWire(seq, salvo.net.__Msg_ActorGroup.Join(__a), salvo.net.__PROTO_ActorGroup, salvo.net.__Codec___Msg_ActorGroup); __a }
         val stock: Int = salvo.net.actorGroup__Addr(group, {  -> salvo.net.Protocol("Inventory", __PROTO_Inventory) })
-        run { val __h = Stocking(shard = "shard-b"); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Stocking(__h), __Actor_Stocking.__DECODE); salvo.SalvoSched.sendWire(stock, salvo.net.__Msg_ActorGroup.Join(__a), salvo.net.__PROTO_ActorGroup, salvo.net.__Codec___Msg_ActorGroup); __a }
+        kotlin.run { val __h = Stocking(shard = "shard-b"); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Stocking(__h), __Actor_Stocking.__DECODE); salvo.SalvoSched.sendWire(stock, salvo.net.__Msg_ActorGroup.Join(__a), salvo.net.__PROTO_ActorGroup, salvo.net.__Codec___Msg_ActorGroup); __a }
         val index: Int = salvo.net.actorGroup__Addr(group, {  -> salvo.net.Protocol("Search", __PROTO_Search) })
-        run { val __h = Indexing(words = listOf<String>("salvo", "actors", "salvo", "nodes")); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Indexing(__h), __Actor_Indexing.__DECODE); salvo.SalvoSched.sendWire(index, salvo.net.__Msg_ActorGroup.Join(__a), salvo.net.__PROTO_ActorGroup, salvo.net.__Codec___Msg_ActorGroup); __a }
+        kotlin.run { val __h = Indexing(words = listOf<String>("salvo", "actors", "salvo", "nodes")); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Indexing(__h), __Actor_Indexing.__DECODE); salvo.SalvoSched.sendWire(index, salvo.net.__Msg_ActorGroup.Join(__a), salvo.net.__PROTO_ActorGroup, salvo.net.__Codec___Msg_ActorGroup); __a }
         val looks: Int = salvo.net.actorGroup__Addr(group, {  -> salvo.net.Protocol("Lookup", __PROTO_Lookup) })
-        val timer: Int = run { val __h = salvo.time.DefaultTimer(); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, salvo.time.__Actor_DefaultTimer(__h), salvo.time.__Actor_DefaultTimer.__DECODE); __a }
-        run { val __h = SlowLooking(who = "b (slow)", timer = timer); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_SlowLooking(__h), __Actor_SlowLooking.__DECODE); salvo.SalvoSched.sendWire(looks, salvo.net.__Msg_ActorGroup.Join(__a), salvo.net.__PROTO_ActorGroup, salvo.net.__Codec___Msg_ActorGroup); __a }
+        val timer: Int = kotlin.run { val __h = salvo.time.DefaultTimer(); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, salvo.time.__Actor_DefaultTimer(__h), salvo.time.__Actor_DefaultTimer.__DECODE); __a }
+        kotlin.run { val __h = SlowLooking(who = "b (slow)", timer = timer); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_SlowLooking(__h), __Actor_SlowLooking.__DECODE); salvo.SalvoSched.sendWire(looks, salvo.net.__Msg_ActorGroup.Join(__a), salvo.net.__PROTO_ActorGroup, salvo.net.__Codec___Msg_ActorGroup); __a }
         salvo.SalvoSched.replyWire(done, mine, salvo.AddrCodec)
     }
     override fun stop(done: salvo.SalvoReply) {
@@ -817,7 +817,7 @@ class __Actor_Booting(private val handler: Booting) : salvo.SalvoActor {
     companion object {
         val __DECODE: ((String, ByteArray) -> Pair<Boolean, Any?>)? = { proto, payload ->
             when (proto) {
-                __PROTO_Boot -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Boot)?.let { Pair(true, it) } ?: Pair(false, null)
+                __PROTO_Boot -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Boot)?.let { kotlin.Pair(true, it) } ?: kotlin.Pair(false, null)
                 else -> Pair(false, null)
             }
         }
@@ -826,7 +826,7 @@ class __Actor_Booting(private val handler: Booting) : salvo.SalvoActor {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun settle(timer: Int) {
-    val _f: salvo.time.Fired = run {
+    val _f: salvo.time.Fired = kotlin.run {
         val (f, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.time.__Codec_Fired) })
         salvo.SalvoSched.sendWire(timer, salvo.time.__Msg_Timer.After(salvo.time.millis(400L), f), salvo.time.__PROTO_Timer, salvo.time.__Codec___Msg_Timer)
@@ -836,43 +836,43 @@ fun settle(timer: Int) {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun main() {
-    salvo.SalvoSched.setProtocols(listOf(Pair("ActorGroup", salvo.net.__PROTO_ActorGroup), Pair("ActorGroupWatcher", salvo.net.__PROTO_ActorGroupWatcher), Pair("Boot", salvo.main.__PROTO_Boot), Pair("Faults", salvo.core.actor.__PROTO_Faults), Pair("Gather", salvo.main.__PROTO_Gather), Pair("Inbound", salvo.net.__PROTO_Inbound), Pair("Inventory", salvo.main.__PROTO_Inventory), Pair("Lookup", salvo.main.__PROTO_Lookup), Pair("MemNet", salvo.net.__PROTO_MemNet), Pair("NodeGroup", salvo.net.__PROTO_NodeGroup), Pair("NodeGroupWatcher", salvo.net.__PROTO_NodeGroupWatcher), Pair("Outbound", salvo.net.__PROTO_Outbound), Pair("Race", salvo.main.__PROTO_Race), Pair("Search", salvo.main.__PROTO_Search), Pair("Sequencer", salvo.main.__PROTO_Sequencer), Pair("Timer", salvo.time.__PROTO_Timer), Pair("TimerCtl", salvo.time.__PROTO_TimerCtl), Pair("Wheel", salvo.runtime.timers.__PROTO_Wheel)))
+    salvo.SalvoSched.setProtocols(kotlin.collections.listOf(kotlin.Pair("ActorGroup", salvo.net.__PROTO_ActorGroup), kotlin.Pair("ActorGroupWatcher", salvo.net.__PROTO_ActorGroupWatcher), kotlin.Pair("Boot", salvo.main.__PROTO_Boot), kotlin.Pair("Faults", salvo.core.actor.__PROTO_Faults), kotlin.Pair("Gather", salvo.main.__PROTO_Gather), kotlin.Pair("Inbound", salvo.net.__PROTO_Inbound), kotlin.Pair("Inventory", salvo.main.__PROTO_Inventory), kotlin.Pair("Lookup", salvo.main.__PROTO_Lookup), kotlin.Pair("MemNet", salvo.net.__PROTO_MemNet), kotlin.Pair("NodeGroup", salvo.net.__PROTO_NodeGroup), kotlin.Pair("NodeGroupWatcher", salvo.net.__PROTO_NodeGroupWatcher), kotlin.Pair("Outbound", salvo.net.__PROTO_Outbound), kotlin.Pair("Race", salvo.main.__PROTO_Race), kotlin.Pair("Search", salvo.main.__PROTO_Search), kotlin.Pair("Sequencer", salvo.main.__PROTO_Sequencer), kotlin.Pair("Timer", salvo.time.__PROTO_Timer), kotlin.Pair("TimerCtl", salvo.time.__PROTO_TimerCtl), kotlin.Pair("Wheel", salvo.runtime.timers.__PROTO_Wheel)))
     val __use_1: salvo.core.console.__Platform_StdConsole = salvo.core.console.__Platform_StdConsole()
     val __handle_2: salvo.core.console.Console = __use_1
     val a: salvo.net.NodeEndpoint = salvo.net.NodeEndpoint(host = "a", port = 1)
     val b: salvo.net.NodeEndpoint = salvo.net.NodeEndpoint(host = "b", port = 1)
     val all: List<salvo.net.NodeEndpoint> = listOf<salvo.net.NodeEndpoint>(a, b)
-    val network: Int = run { val __h = salvo.net.MemNetwork(); val __a = salvo.SalvoSched.spawn(salvo.core.actor.pool(1), __h.__mailboxCapacity, salvo.net.__Actor_MemNetwork(__h), salvo.net.__Actor_MemNetwork.__DECODE); __a }
+    val network: Int = kotlin.run { val __h = salvo.net.MemNetwork(); val __a = salvo.SalvoSched.spawn(salvo.core.actor.pool(1), __h.__mailboxCapacity, salvo.net.__Actor_MemNetwork(__h), salvo.net.__Actor_MemNetwork.__DECODE); __a }
     val __use_3: salvo.net.MemTransport = salvo.net.MemTransport(me = a, net = network)
     val __lock___use_3 = java.util.concurrent.locks.ReentrantLock()
     val __handle_4: salvo.net.Transport = salvo.net.__Mon_Transport(__use_3, __lock___use_3)
     val p: Int = salvo.core.actor.pool(2)
-    val nodes: Int = run { val __h = salvo.net.StaticNodeGroup(name = "cluster", all = all, __handle_4); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, salvo.net.__Actor_StaticNodeGroup(__h), salvo.net.__Actor_StaticNodeGroup.__DECODE); salvo.SalvoSched.send(__a, salvo.net.__Priv_StaticNodeGroup.Init); __a }
+    val nodes: Int = kotlin.run { val __h = salvo.net.StaticNodeGroup(name = "cluster", all = all, __handle_4); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, salvo.net.__Actor_StaticNodeGroup(__h), salvo.net.__Actor_StaticNodeGroup.__DECODE); salvo.SalvoSched.send(__a, salvo.net.__Priv_StaticNodeGroup.Init); __a }
     val seq: Int = salvo.net.actorGroup__Addr(nodes, {  -> salvo.net.Protocol("Sequencer", __PROTO_Sequencer) })
-    run { val __h = Sequencing(who = "a"); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Sequencing(__h), __Actor_Sequencing.__DECODE); salvo.SalvoSched.sendWire(seq, salvo.net.__Msg_ActorGroup.Join(__a), salvo.net.__PROTO_ActorGroup, salvo.net.__Codec___Msg_ActorGroup); __a }
+    kotlin.run { val __h = Sequencing(who = "a"); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Sequencing(__h), __Actor_Sequencing.__DECODE); salvo.SalvoSched.sendWire(seq, salvo.net.__Msg_ActorGroup.Join(__a), salvo.net.__PROTO_ActorGroup, salvo.net.__Codec___Msg_ActorGroup); __a }
     val stock: Int = salvo.net.actorGroup__Addr(nodes, {  -> salvo.net.Protocol("Inventory", __PROTO_Inventory) })
-    run { val __h = Stocking(shard = "shard-a"); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Stocking(__h), __Actor_Stocking.__DECODE); salvo.SalvoSched.sendWire(stock, salvo.net.__Msg_ActorGroup.Join(__a), salvo.net.__PROTO_ActorGroup, salvo.net.__Codec___Msg_ActorGroup); __a }
+    kotlin.run { val __h = Stocking(shard = "shard-a"); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Stocking(__h), __Actor_Stocking.__DECODE); salvo.SalvoSched.sendWire(stock, salvo.net.__Msg_ActorGroup.Join(__a), salvo.net.__PROTO_ActorGroup, salvo.net.__Codec___Msg_ActorGroup); __a }
     val index: Int = salvo.net.actorGroup__Addr(nodes, {  -> salvo.net.Protocol("Search", __PROTO_Search) })
-    run { val __h = Indexing(words = listOf<String>("salvo", "is", "salvo")); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Indexing(__h), __Actor_Indexing.__DECODE); salvo.SalvoSched.sendWire(index, salvo.net.__Msg_ActorGroup.Join(__a), salvo.net.__PROTO_ActorGroup, salvo.net.__Codec___Msg_ActorGroup); __a }
+    kotlin.run { val __h = Indexing(words = listOf<String>("salvo", "is", "salvo")); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Indexing(__h), __Actor_Indexing.__DECODE); salvo.SalvoSched.sendWire(index, salvo.net.__Msg_ActorGroup.Join(__a), salvo.net.__PROTO_ActorGroup, salvo.net.__Codec___Msg_ActorGroup); __a }
     val looks: Int = salvo.net.actorGroup__Addr(nodes, {  -> salvo.net.Protocol("Lookup", __PROTO_Lookup) })
-    run { val __h = Looking(who = "a"); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Looking(__h), __Actor_Looking.__DECODE); salvo.SalvoSched.sendWire(looks, salvo.net.__Msg_ActorGroup.Join(__a), salvo.net.__PROTO_ActorGroup, salvo.net.__Codec___Msg_ActorGroup); __a }
+    kotlin.run { val __h = Looking(who = "a"); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Looking(__h), __Actor_Looking.__DECODE); salvo.SalvoSched.sendWire(looks, salvo.net.__Msg_ActorGroup.Join(__a), salvo.net.__PROTO_ActorGroup, salvo.net.__Codec___Msg_ActorGroup); __a }
     val pb: Int = salvo.net.poolAt(salvo.net.newNode(), 1)
-    val booter: Int = run { val __h = Booting(at = b, all = all, net = network, salvo.net.__Mon_Transport(salvo.net.MemTransport(me = b, net = network))); val __a = salvo.SalvoSched.spawn(pb, __h.__mailboxCapacity, __Actor_Booting(__h), __Actor_Booting.__DECODE); __a }
-    val remoteSeq: Int = run {
+    val booter: Int = kotlin.run { val __h = Booting(at = b, all = all, net = network, salvo.net.__Mon_Transport(salvo.net.MemTransport(me = b, net = network))); val __a = salvo.SalvoSched.spawn(pb, __h.__mailboxCapacity, __Actor_Booting(__h), __Actor_Booting.__DECODE); __a }
+    val remoteSeq: Int = kotlin.run {
         val (done, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.AddrCodec) })
         salvo.SalvoSched.sendWire(booter, __Msg_Boot.Boot(done), __PROTO_Boot, __Codec___Msg_Boot)
         salvo.SalvoSched.awaitReply(__wid) as Int
     }
-    val timer: Int = run { val __h = salvo.time.DefaultTimer(); val __a = salvo.SalvoSched.spawn(salvo.core.actor.pool(1), __h.__mailboxCapacity, salvo.time.__Actor_DefaultTimer(__h), salvo.time.__Actor_DefaultTimer.__DECODE); __a }
+    val timer: Int = kotlin.run { val __h = salvo.time.DefaultTimer(); val __a = salvo.SalvoSched.spawn(salvo.core.actor.pool(1), __h.__mailboxCapacity, salvo.time.__Actor_DefaultTimer(__h), salvo.time.__Actor_DefaultTimer.__DECODE); __a }
     settle(timer)
-    val members: List<salvo.net.Node> = run {
+    val members: List<salvo.net.Node> = kotlin.run {
         val (out, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.ListCodec(salvo.net.__Codec_Node)) })
         salvo.SalvoSched.sendWire(nodes, salvo.net.__Msg_NodeGroup.Members(out), salvo.net.__PROTO_NodeGroup, salvo.net.__Codec___Msg_NodeGroup)
         salvo.SalvoSched.awaitReply(__wid) as List<salvo.net.Node>
     }
-    salvo.core.console.println(__handle_2, "nodes: ${(salvo.core.list.sizePlatform(members) + 1)}, sequencers: ${salvo.core.list.sizePlatform(run {
+    salvo.core.console.println(__handle_2, "nodes: ${(salvo.core.list.sizePlatform(members) + 1)}, sequencers: ${salvo.core.list.sizePlatform(kotlin.run {
         val (out, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.ListCodec(salvo.AddrCodec)) })
         salvo.SalvoSched.sendWire(seq, salvo.net.__Msg_ActorGroup.Members(out), salvo.net.__PROTO_ActorGroup, salvo.net.__Codec___Msg_ActorGroup)
@@ -886,16 +886,16 @@ fun main() {
     salvo.core.console.println(__handle_2, "sharded:")
     shop(__handle_2, stock)
     salvo.core.console.println(__handle_2, "scatter:")
-    val __use_7: Scattering = Scattering(group = index, gather = run { val __h = Gathering(); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Gathering(__h), __Actor_Gathering.__DECODE); __a })
+    val __use_7: Scattering = Scattering(group = index, gather = kotlin.run { val __h = Gathering(); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Gathering(__h), __Actor_Gathering.__DECODE); __a })
     val __lock___use_7 = java.util.concurrent.locks.ReentrantLock()
     val __handle_8: Search = __Mon_Search(__use_7, __lock___use_7)
     salvo.core.console.println(__handle_2, "  salvo: ${count(__handle_8, "salvo")}, actors: ${count(__handle_8, "actors")}, none: ${count(__handle_8, "none")}")
     salvo.core.console.println(__handle_2, "hedge:")
-    val __use_9: Hedging = Hedging(group = looks, racer = run { val __h = Racing(); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Racing(__h), __Actor_Racing.__DECODE); __a })
+    val __use_9: Hedging = Hedging(group = looks, racer = kotlin.run { val __h = Racing(); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Racing(__h), __Actor_Racing.__DECODE); __a })
     val __lock___use_9 = java.util.concurrent.locks.ReentrantLock()
     val __handle_10: Lookup = __Mon_Lookup(__use_9, __lock___use_9)
     salvo.core.console.println(__handle_2, "  ${find(__handle_10, "k1")}")
-    val _stopped: Boolean = run {
+    val _stopped: Boolean = kotlin.run {
         val (done, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.BoolCodec) })
         salvo.SalvoSched.sendWire(booter, __Msg_Boot.Stop(done), __PROTO_Boot, __Codec___Msg_Boot)
@@ -903,7 +903,7 @@ fun main() {
     }
     settle(timer)
     salvo.core.console.println(__handle_2, "after b left:")
-    salvo.core.console.println(__handle_2, "  sequencers: ${salvo.core.list.sizePlatform(run {
+    salvo.core.console.println(__handle_2, "  sequencers: ${salvo.core.list.sizePlatform(kotlin.run {
         val (out, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.ListCodec(salvo.AddrCodec)) })
         salvo.SalvoSched.sendWire(seq, salvo.net.__Msg_ActorGroup.Members(out), salvo.net.__PROTO_ActorGroup, salvo.net.__Codec___Msg_ActorGroup)
@@ -915,7 +915,7 @@ fun main() {
 class __Route_Inventory(private val group: Int, private val config: salvo.net.RouteConfig, private val __dep0: salvo.net.RouteSelector) : Inventory {
     val __mailboxCapacity: Int = 1
     var __addr: Int? = null
-    val __parked: MutableMap<Long, __Cont___Route_Inventory> = mutableMapOf()
+    val __parked: MutableMap<Long, __Cont___Route_Inventory> = kotlin.collections.mutableMapOf()
     var seen: Long = -1L
     override fun reserve(sku: String, qty: Int, out: salvo.SalvoReply) {
         val __pick: salvo.net.RoutePick = salvo.net.routePick__Addr_RouteConfig_Long_Long(__dep0, group, config, seen, salvo.SalvoSched.keyHash(salvo.salvoEncode(sku, salvo.StrCodec).toByteArray()))
@@ -950,7 +950,7 @@ class __Actor___Route_Inventory(private val handler: __Route_Inventory) : salvo.
     companion object {
         val __DECODE: ((String, ByteArray) -> Pair<Boolean, Any?>)? = { proto, payload ->
             when (proto) {
-                __PROTO_Inventory -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Inventory)?.let { Pair(true, it) } ?: Pair(false, null)
+                __PROTO_Inventory -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Inventory)?.let { kotlin.Pair(true, it) } ?: kotlin.Pair(false, null)
                 else -> Pair(false, null)
             }
         }
@@ -960,7 +960,7 @@ class __Actor___Route_Inventory(private val handler: __Route_Inventory) : salvo.
 class __Route_Lookup(private val group: Int, private val config: salvo.net.RouteConfig, private val __dep0: salvo.net.RouteSelector) : Lookup {
     val __mailboxCapacity: Int = 1
     var __addr: Int? = null
-    val __parked: MutableMap<Long, __Cont___Route_Lookup> = mutableMapOf()
+    val __parked: MutableMap<Long, __Cont___Route_Lookup> = kotlin.collections.mutableMapOf()
     var seen: Long = -1L
     override fun lookup(key: String, out: salvo.SalvoReply) {
         val __pick: salvo.net.RoutePick = salvo.net.routePick__Addr_RouteConfig_Long(__dep0, group, config, seen)
@@ -995,7 +995,7 @@ class __Actor___Route_Lookup(private val handler: __Route_Lookup) : salvo.SalvoA
     companion object {
         val __DECODE: ((String, ByteArray) -> Pair<Boolean, Any?>)? = { proto, payload ->
             when (proto) {
-                __PROTO_Lookup -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Lookup)?.let { Pair(true, it) } ?: Pair(false, null)
+                __PROTO_Lookup -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Lookup)?.let { kotlin.Pair(true, it) } ?: kotlin.Pair(false, null)
                 else -> Pair(false, null)
             }
         }
@@ -1005,7 +1005,7 @@ class __Actor___Route_Lookup(private val handler: __Route_Lookup) : salvo.SalvoA
 class __Route_Search(private val group: Int, private val config: salvo.net.RouteConfig, private val __dep0: salvo.net.RouteSelector) : Search {
     val __mailboxCapacity: Int = 1
     var __addr: Int? = null
-    val __parked: MutableMap<Long, __Cont___Route_Search> = mutableMapOf()
+    val __parked: MutableMap<Long, __Cont___Route_Search> = kotlin.collections.mutableMapOf()
     var seen: Long = -1L
     override fun query(word: String, out: salvo.SalvoReply) {
         val __pick: salvo.net.RoutePick = salvo.net.routePick__Addr_RouteConfig_Long(__dep0, group, config, seen)
@@ -1040,7 +1040,7 @@ class __Actor___Route_Search(private val handler: __Route_Search) : salvo.SalvoA
     companion object {
         val __DECODE: ((String, ByteArray) -> Pair<Boolean, Any?>)? = { proto, payload ->
             when (proto) {
-                __PROTO_Search -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Search)?.let { Pair(true, it) } ?: Pair(false, null)
+                __PROTO_Search -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Search)?.let { kotlin.Pair(true, it) } ?: kotlin.Pair(false, null)
                 else -> Pair(false, null)
             }
         }
@@ -1050,7 +1050,7 @@ class __Actor___Route_Search(private val handler: __Route_Search) : salvo.SalvoA
 class __Route_Sequencer(private val group: Int, private val config: salvo.net.RouteConfig, private val __dep0: salvo.net.RouteSelector) : Sequencer {
     val __mailboxCapacity: Int = 1
     var __addr: Int? = null
-    val __parked: MutableMap<Long, __Cont___Route_Sequencer> = mutableMapOf()
+    val __parked: MutableMap<Long, __Cont___Route_Sequencer> = kotlin.collections.mutableMapOf()
     var seen: Long = -1L
     override fun next(out: salvo.SalvoReply) {
         val __pick: salvo.net.RoutePick = salvo.net.routePick__Addr_RouteConfig_Long(__dep0, group, config, seen)
@@ -1085,7 +1085,7 @@ class __Actor___Route_Sequencer(private val handler: __Route_Sequencer) : salvo.
     companion object {
         val __DECODE: ((String, ByteArray) -> Pair<Boolean, Any?>)? = { proto, payload ->
             when (proto) {
-                __PROTO_Sequencer -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Sequencer)?.let { Pair(true, it) } ?: Pair(false, null)
+                __PROTO_Sequencer -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Sequencer)?.let { kotlin.Pair(true, it) } ?: kotlin.Pair(false, null)
                 else -> Pair(false, null)
             }
         }

@@ -71,11 +71,11 @@ fun<T> hash__List(value: List<T>, hash: (T) -> Long): Long {
     return h
 }
 
-fun<A, B> eq__TupleAB_TupleAB(a: Pair<A, B>, b: Pair<A, B>, eq: (A, A) -> Boolean, eq__1: (B, B) -> Boolean): Boolean {
+fun<A, B> eq__TupleAB_TupleAB(a: kotlin.Pair<A, B>, b: kotlin.Pair<A, B>, eq: (A, A) -> Boolean, eq__1: (B, B) -> Boolean): Boolean {
     return (eq(a.first, b.first) && eq__1(a.second, b.second))
 }
 
-fun<A, B> cmp__TupleAB_TupleAB(a: Pair<A, B>, b: Pair<A, B>, cmp: (A, A) -> Int, cmp__1: (B, B) -> Int): Int {
+fun<A, B> cmp__TupleAB_TupleAB(a: kotlin.Pair<A, B>, b: kotlin.Pair<A, B>, cmp: (A, A) -> Int, cmp__1: (B, B) -> Int): Int {
     val c: Int = cmp(a.first, b.first)
     if ((c != 0)) {
         return c
@@ -83,15 +83,15 @@ fun<A, B> cmp__TupleAB_TupleAB(a: Pair<A, B>, b: Pair<A, B>, cmp: (A, A) -> Int,
     return cmp__1(a.second, b.second)
 }
 
-fun<A, B> hash__TupleAB(value: Pair<A, B>, hash: (A) -> Long, hash__1: (B) -> Long): Long {
+fun<A, B> hash__TupleAB(value: kotlin.Pair<A, B>, hash: (A) -> Long, hash__1: (B) -> Long): Long {
     return mixHash(mixHash(7L, hash(value.first)), hash__1(value.second))
 }
 
-fun<A, B, C> eq__TupleABC_TupleABC(a: Triple<A, B, C>, b: Triple<A, B, C>, eq: (A, A) -> Boolean, eq__1: (B, B) -> Boolean, eq__2: (C, C) -> Boolean): Boolean {
+fun<A, B, C> eq__TupleABC_TupleABC(a: kotlin.Triple<A, B, C>, b: kotlin.Triple<A, B, C>, eq: (A, A) -> Boolean, eq__1: (B, B) -> Boolean, eq__2: (C, C) -> Boolean): Boolean {
     return ((eq(a.first, b.first) && eq__1(a.second, b.second)) && eq__2(a.third, b.third))
 }
 
-fun<A, B, C> cmp__TupleABC_TupleABC(a: Triple<A, B, C>, b: Triple<A, B, C>, cmp: (A, A) -> Int, cmp__1: (B, B) -> Int, cmp__2: (C, C) -> Int): Int {
+fun<A, B, C> cmp__TupleABC_TupleABC(a: kotlin.Triple<A, B, C>, b: kotlin.Triple<A, B, C>, cmp: (A, A) -> Int, cmp__1: (B, B) -> Int, cmp__2: (C, C) -> Int): Int {
     val c: Int = cmp(a.first, b.first)
     if ((c != 0)) {
         return c
@@ -103,7 +103,7 @@ fun<A, B, C> cmp__TupleABC_TupleABC(a: Triple<A, B, C>, b: Triple<A, B, C>, cmp:
     return cmp__2(a.third, b.third)
 }
 
-fun<A, B, C> hash__TupleABC(value: Triple<A, B, C>, hash: (A) -> Long, hash__1: (B) -> Long, hash__2: (C) -> Long): Long {
+fun<A, B, C> hash__TupleABC(value: kotlin.Triple<A, B, C>, hash: (A) -> Long, hash__1: (B) -> Long, hash__2: (C) -> Long): Long {
     return mixHash(mixHash(mixHash(7L, hash(value.first)), hash__1(value.second)), hash__2(value.third))
 }
 

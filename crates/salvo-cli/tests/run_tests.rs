@@ -920,6 +920,62 @@ fn main() [use] -> None {
     __stamp.verified();
 }
 
+/// [kt-stdlib-qualified] A program may name its own fns and types after the
+/// Kotlin stdlib functions the emitter calls — `run` (every block in value
+/// position), `error`, `check`, `Pair` (tuples) — without the generated code
+/// calling the program's instead: each is written qualified. Before
+/// 2026-10-20 the elvis below recursed into the program's `run` and
+/// overflowed the stack on Kotlin. On both backends.
+#[test]
+fn kotlin_stdlib_names_do_not_capture_generated_calls_on_both_backends() {
+    let Some(__stamp) = e2e_stamp("kotlin_stdlib_names_do_not_capture_generated_calls_on_both_backends", &["rustc", "kotlinc"]) else {
+        return;
+    };
+    let dir = work_dir("ktnames");
+    const SRC: &str = r#"struct Pair {
+    a: Int
+}
+
+struct Triple {
+    b: Int
+}
+
+fn run(f: (v: Int) -> Str?) [] -> Str => f {
+    return f(1) ?: "none"
+}
+
+fn error(s: Str) [] -> Str => s {
+    return "mine: ${s}"
+}
+
+fn check(b: Bool) [] -> Bool {
+    return !b
+}
+
+fn main() [use] -> None {
+    use StdConsole()
+    println(run((v: Int) -> None))
+    println(error("x"))
+    println("${check(true)}")
+    let (n, s) = (Pair { a: 1 }.a, "two")
+    let (x, y, z) = (Triple { b: 3 }.b, 4, 5)
+    println("${n} ${s} ${x + y + z}")
+}
+"#;
+    fs::write(dir.join("main.sv"), SRC).unwrap();
+    for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
+        if !have(tool) {
+            eprintln!("skipping {backend}: {tool} not found on PATH");
+            continue;
+        }
+        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", ".", "--clean-target", "before"]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "{backend} failed: {stderr}");
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "none\nmine: x\nfalse\n1 two 12\n", "{backend}: {stderr}");
+    }
+    __stamp.verified();
+}
+
 /// [result-errs] The accumulating outcome keeps every error: `map2` of two
 /// successes, of two failures (both errors, in order), and of one failure,
 /// on both backends.

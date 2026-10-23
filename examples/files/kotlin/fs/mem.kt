@@ -33,9 +33,9 @@ object __Codec_MemWrite : salvo.WireCodec<MemWrite> {
 }
 
 class MemFs : salvo.fs.Fs, salvo.stream.Streams {
-    var files: salvo.platform.core.map.MutMap<String, salvo.platform.core.bytes.Bytes> = salvo.core.map.Mut_Map_platform(arrayOf<Pair<String, salvo.platform.core.bytes.Bytes>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
-    var reads: salvo.platform.core.map.MutMap<Long, MemRead> = salvo.core.map.Mut_Map_platform(arrayOf<Pair<Long, MemRead>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
-    var writes: salvo.platform.core.map.MutMap<Long, MemWrite> = salvo.core.map.Mut_Map_platform(arrayOf<Pair<Long, MemWrite>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+    var files: salvo.platform.core.map.MutMap<String, salvo.platform.core.bytes.Bytes> = salvo.core.map.Mut_Map_platform(arrayOf<kotlin.Pair<String, salvo.platform.core.bytes.Bytes>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+    var reads: salvo.platform.core.map.MutMap<Long, MemRead> = salvo.core.map.Mut_Map_platform(arrayOf<kotlin.Pair<Long, MemRead>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+    var writes: salvo.platform.core.map.MutMap<Long, MemWrite> = salvo.core.map.Mut_Map_platform(arrayOf<kotlin.Pair<Long, MemWrite>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     override fun openRead(path: salvo.fs.path.Path): Union2<salvo.stream.InStream, salvo.core.checked.Checked<Union7<salvo.fs.NotFound, salvo.fs.PermissionDenied, salvo.fs.AlreadyExists, salvo.fs.NotADirectory, salvo.fs.PathEscapes, salvo.fs.IoError, salvo.fs.Streaming>>> {
         val pathText: String = salvo.fs.path.toStr(path)
         val content: salvo.platform.core.bytes.Bytes? = salvo.core.map.getPlatform(files, pathText, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
@@ -212,7 +212,7 @@ class MemFs : salvo.fs.Fs, salvo.stream.Streams {
         }
     }
     override fun position__InStream(s: salvo.stream.InStream): Long {
-        return (run {
+        return (kotlin.run {
             val __proj_1: MemRead = memReadState(reads, s.handle)
             __proj_1.at
         }).toLong()
@@ -222,7 +222,7 @@ class MemFs : salvo.fs.Fs, salvo.stream.Streams {
         val failed: Boolean = open.failed
         val source: String = open.source
         salvo.core.map.removePlatform(reads, s.handle, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
-        run { s; Unit }
+        kotlin.run { s; Unit }
         if (failed) {
             return Union2.U2<Unit, salvo.core.checked.Checked<Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>>>(salvo.core.result.err(salvo.core.checked.checked(Union2.U1<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>(salvo.stream.InvalidUtf8(source = source)))))
         }
@@ -235,7 +235,7 @@ class MemFs : salvo.fs.Fs, salvo.stream.Streams {
             val got_1: salvo.core.checked.Checked<Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>> = ((got as Union2.U2<*, *>).value as salvo.core.checked.Checked<Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>>)
             val open: MemRead = memReadState(reads, s.handle)
             salvo.core.map.removePlatform(reads, s.handle, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
-            run { s; Unit }
+            kotlin.run { s; Unit }
             reply.send(Union3.U3<salvo.stream.Packet, salvo.stream.End, salvo.core.checked.Checked<Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>>>(salvo.core.result.err(salvo.core.checked.checked(Union2.U2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>(salvo.stream.StreamFailed(source = open.source, message = "read failed"))))))
             salvo.core.checked.ignore(got_1)
             null
@@ -245,7 +245,7 @@ class MemFs : salvo.fs.Fs, salvo.stream.Streams {
         val data: salvo.platform.core.bytes.Bytes = got_2
         if ((salvo.core.bytes.sizePlatform(data) == 0)) {
             salvo.core.map.removePlatform(reads, s.handle, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
-            run { s; Unit }
+            kotlin.run { s; Unit }
             reply.send(Union3.U2<salvo.stream.Packet, salvo.stream.End, salvo.core.checked.Checked<Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>>>(salvo.stream.End()))
             null
             return
@@ -267,7 +267,7 @@ class MemFs : salvo.fs.Fs, salvo.stream.Streams {
         return memAppend(writes, s.handle, data)
     }
     override fun position__OutStream(s: salvo.stream.OutStream): Long {
-        return (salvo.core.bytes.sizePlatform(run {
+        return (salvo.core.bytes.sizePlatform(kotlin.run {
             val __proj_1: MemWrite = memWriteState(writes, s.handle)
             __proj_1.buffer
         })).toLong()
@@ -281,7 +281,7 @@ class MemFs : salvo.fs.Fs, salvo.stream.Streams {
         val open: MemWrite = memWriteState(writes, s.handle)
         salvo.core.map.putPlatform(files, open.path, open.buffer, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
         salvo.core.map.removePlatform(writes, s.handle, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
-        run { s; Unit }
+        kotlin.run { s; Unit }
         return Union2.U1<Unit, salvo.core.checked.Checked<Union2<salvo.stream.InvalidUtf8, salvo.stream.StreamFailed>>>(salvo.core.result.ok(Unit))
     }
 }
@@ -303,7 +303,7 @@ fun memFindNewline(data: salvo.platform.core.bytes.Bytes, from: Int): Int {
         if (!((i < end))) {
             break
         }
-        if (((run {
+        if (((kotlin.run {
             val __nn_1: UByte? = salvo.core.bytes.getPlatform(data, i)
             when {
                 (__nn_1 == null) -> {
@@ -361,7 +361,7 @@ fun memReadLine(reads: salvo.platform.core.map.MutMap<Long, MemRead>, handle: Lo
         return null
     }
     val stop: Int = memFindNewline(bytes, at)
-    val line: salvo.platform.core.bytes.Bytes = run {
+    val line: salvo.platform.core.bytes.Bytes = kotlin.run {
         val __nn_1: salvo.platform.core.bytes.Bytes? = salvo.core.bytes.slicePlatform(bytes, at, stop)
         when {
             (__nn_1 == null) -> {
@@ -395,7 +395,7 @@ fun memReadAll(reads: salvo.platform.core.map.MutMap<Long, MemRead>, handle: Lon
     }
     val bytes: salvo.platform.core.bytes.Bytes = open.data
     val end: Int = salvo.core.bytes.sizePlatform(bytes)
-    val rest: salvo.platform.core.bytes.Bytes = run {
+    val rest: salvo.platform.core.bytes.Bytes = kotlin.run {
         val __nn_1: salvo.platform.core.bytes.Bytes? = salvo.core.bytes.slicePlatform(bytes, open.at, end)
         when {
             (__nn_1 == null) -> {
@@ -432,7 +432,7 @@ fun memReadBytes(reads: salvo.platform.core.map.MutMap<Long, MemRead>, handle: L
     if ((stop > end)) {
         stop = end
     }
-    val taken: salvo.platform.core.bytes.Bytes = run {
+    val taken: salvo.platform.core.bytes.Bytes = kotlin.run {
         val __nn_1: salvo.platform.core.bytes.Bytes? = salvo.core.bytes.slicePlatform(bytes, open.at, stop)
         when {
             (__nn_1 == null) -> {

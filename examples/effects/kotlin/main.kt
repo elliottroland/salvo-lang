@@ -11,7 +11,7 @@ class __Mon_Clock(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : Clock {
     override fun now(): Int {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.now() } finally { lock.unlock() }
     }
@@ -43,7 +43,7 @@ class __Mon_Logger(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : Logger {
     override fun log(message: String) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.log(message) } finally { lock.unlock() }
     }
@@ -93,7 +93,7 @@ fun interception(logger: Logger, clock: Clock) {
 
 fun scoping(logger: Logger) {
     work(logger, "5. before the block")
-    run {
+    kotlin.run {
         val __use_1: QuietLogger = QuietLogger()
         val __lock___use_1 = java.util.concurrent.locks.ReentrantLock()
         val __handle_2: Logger = __Mon_Logger(__use_1, __lock___use_1)
@@ -111,7 +111,7 @@ class __Mon_Audit(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : Audit {
     override fun record(what: String) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.record(what) } finally { lock.unlock() }
     }
@@ -126,7 +126,7 @@ class __Mon_Metrics(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : Metrics {
     override fun record(what: String) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.record(what) } finally { lock.unlock() }
     }
@@ -162,7 +162,7 @@ class __Mon_Setting<T>(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : Setting<T> {
     override fun setting(copy: (T) -> T): T {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.setting(copy) } finally { lock.unlock() }
     }

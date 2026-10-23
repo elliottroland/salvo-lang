@@ -215,32 +215,32 @@ class __Mon_Sqs(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : Sqs {
     override fun createQueue(input: CreateQueueInput, reply: salvo.SalvoReply) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.createQueue(input, reply) } finally { lock.unlock() }
     }
     override fun getQueueUrl(input: GetQueueUrlInput, reply: salvo.SalvoReply) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.getQueueUrl(input, reply) } finally { lock.unlock() }
     }
     override fun sendMessage(input: SendMessageInput, reply: salvo.SalvoReply) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.sendMessage(input, reply) } finally { lock.unlock() }
     }
     override fun receiveMessage(input: ReceiveMessageInput, reply: salvo.SalvoReply) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.receiveMessage(input, reply) } finally { lock.unlock() }
     }
     override fun deleteMessage(input: DeleteMessageInput, reply: salvo.SalvoReply) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.deleteMessage(input, reply) } finally { lock.unlock() }
     }
     override fun deleteQueue(input: DeleteQueueInput, reply: salvo.SalvoReply) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.deleteQueue(input, reply) } finally { lock.unlock() }
     }

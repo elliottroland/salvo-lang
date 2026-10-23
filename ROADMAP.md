@@ -951,14 +951,13 @@ reproduced in a scratch project; the repros are below.
     should match the `Str` arm, with the value condition the test already
     records.
 
-14. **Kotlin: a Salvo fn named `run` shadows Kotlin's `run { }`: wrong
-    code.** Found 2026-10-20 (2.5). `fn run(f: (v: Int) -> Str?) [] -> Str
-    => f { return f(1) ?: "none" }` emits its elvis as `return run { … }`,
-    which calls the program's own `run` again: a `StackOverflowError` at run
-    time, where Rust prints `none` [backend-never-wrong]. The emitter writes
-    `run {` for block expressions in ten places; either write `kotlin.run {`
-    there or rename a declared `run`. Any other Kotlin stdlib name the
-    emitter calls unqualified (`error`, `require`, `let`) is the same risk.
+14. ✅ **Kotlin stdlib calls are qualified** — done 2026-10-20
+    ([kt-stdlib-qualified], COMPLETED.md). Left over: the Kotlin *types* the
+    emitter writes bare (`String`, `Int`, `Long`, `Boolean`, `Unit`,
+    `MutableList`, `StringBuilder`, `AssertionError`) can be shadowed the same
+    way by a program's `struct String` in the same package. Untested; most
+    shapes would be a kotlinc error rather than wrong code, but that is not
+    established. Qualify them (`kotlin.String`, …) or reserve the names.
 
 15. ✅ **The derive explains every qualifier's failure** — done 2026-10-20
     with a `@whynot` doc tag and `whynot?(x is Q)` ([qual-whynot],

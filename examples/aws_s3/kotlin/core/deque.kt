@@ -95,7 +95,7 @@ fun<T> drain(d: kotlin.collections.ArrayDeque<T>, each: (T) -> Unit) {
         if (!((sizePlatform(m) > 0))) {
             break
         }
-        each(run {
+        each(kotlin.run {
             val __nn_1: T? = removeFirstPlatform(m)
             when {
                 (__nn_1 == null) -> {

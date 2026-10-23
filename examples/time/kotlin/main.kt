@@ -32,12 +32,12 @@ class __Mon_Session(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : Session {
     override fun open(started: salvo.time.Tick, budget: salvo.time.Duration, out: salvo.SalvoReply) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.open(started, budget, out) } finally { lock.unlock() }
     }
     override fun expire(started: salvo.time.Tick, budget: salvo.time.Duration, out: salvo.SalvoReply, f: salvo.time.Fired) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.expire(started, budget, out, f) } finally { lock.unlock() }
     }
@@ -46,9 +46,9 @@ class __Mon_Session(
 class Sessions(private val __dep0: salvo.time.Timer) : Session {
     val __mailboxCapacity: Int = 8
     var __addr: Int? = null
-    val __parked: MutableMap<Long, __Cont_Sessions> = mutableMapOf()
+    val __parked: MutableMap<Long, __Cont_Sessions> = kotlin.collections.mutableMapOf()
     override fun open(started: salvo.time.Tick, budget: salvo.time.Duration, out: salvo.SalvoReply) {
-        __dep0.after(salvo.time.plus__Duration_Duration(budget, salvo.time.seconds(1L)), run { val (__r, __s) = salvo.SalvoSched.mint(__addr!!); __parked[__s] = __Cont_Sessions.Expire(started, budget, out); __r })
+        __dep0.after(salvo.time.plus__Duration_Duration(budget, salvo.time.seconds(1L)), kotlin.run { val (__r, __s) = salvo.SalvoSched.mint(__addr!!); __parked[__s] = __Cont_Sessions.Expire(started, budget, out); __r })
     }
     override fun expire(started: salvo.time.Tick, budget: salvo.time.Duration, out: salvo.SalvoReply, f: salvo.time.Fired) {
         salvo.SalvoSched.replyWire(out, verdict(started, f.at, budget), salvo.StrCodec)
@@ -83,7 +83,7 @@ class __Actor_Sessions(private val handler: Sessions) : salvo.SalvoActor {
     companion object {
         val __DECODE: ((String, ByteArray) -> Pair<Boolean, Any?>)? = { proto, payload ->
             when (proto) {
-                __PROTO_Session -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Session)?.let { Pair(true, it) } ?: Pair(false, null)
+                __PROTO_Session -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Session)?.let { kotlin.Pair(true, it) } ?: kotlin.Pair(false, null)
                 else -> Pair(false, null)
             }
         }
@@ -93,7 +93,7 @@ class __Actor_Sessions(private val handler: Sessions) : salvo.SalvoActor {
 class TestTicker(private val timer: Int) : salvo.time.Ticker {
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun tick(): salvo.time.Tick {
-        val fired: salvo.time.Fired = run {
+        val fired: salvo.time.Fired = kotlin.run {
             val (answer, __wid) = salvo.SalvoSched.waiter()
             salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.time.__Codec_Fired) })
             salvo.SalvoSched.sendWire(timer, salvo.time.__Msg_Timer.After(salvo.time.nanos(0L), answer), salvo.time.__PROTO_Timer, salvo.time.__Codec___Msg_Timer)
@@ -113,12 +113,12 @@ class __Mon_Sleeper(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : Sleeper {
     override fun nap(wait: salvo.time.Duration, out: salvo.SalvoReply) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.nap(wait, out) } finally { lock.unlock() }
     }
     override fun woke(started: salvo.time.Tick, out: salvo.SalvoReply, f: salvo.time.Fired) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.woke(started, out, f) } finally { lock.unlock() }
     }
@@ -127,9 +127,9 @@ class __Mon_Sleeper(
 class Napping(private val __dep0: salvo.time.Timer, private val __dep1: salvo.time.Ticker) : Sleeper {
     val __mailboxCapacity: Int = 8
     var __addr: Int? = null
-    val __parked: MutableMap<Long, __Cont_Napping> = mutableMapOf()
+    val __parked: MutableMap<Long, __Cont_Napping> = kotlin.collections.mutableMapOf()
     override fun nap(wait: salvo.time.Duration, out: salvo.SalvoReply) {
-        __dep0.after(wait, run { val (__r, __s) = salvo.SalvoSched.mint(__addr!!); __parked[__s] = __Cont_Napping.Woke(__dep1.tick(), out); __r })
+        __dep0.after(wait, kotlin.run { val (__r, __s) = salvo.SalvoSched.mint(__addr!!); __parked[__s] = __Cont_Napping.Woke(__dep1.tick(), out); __r })
     }
     override fun woke(started: salvo.time.Tick, out: salvo.SalvoReply, f: salvo.time.Fired) {
         salvo.SalvoSched.replyWire(out, "napped ${salvo.time.toStr(salvo.time.elapsed(__dep1, started))}", salvo.StrCodec)
@@ -164,7 +164,7 @@ class __Actor_Napping(private val handler: Napping) : salvo.SalvoActor {
     companion object {
         val __DECODE: ((String, ByteArray) -> Pair<Boolean, Any?>)? = { proto, payload ->
             when (proto) {
-                __PROTO_Sleeper -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Sleeper)?.let { Pair(true, it) } ?: Pair(false, null)
+                __PROTO_Sleeper -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Sleeper)?.let { kotlin.Pair(true, it) } ?: kotlin.Pair(false, null)
                 else -> Pair(false, null)
             }
         }
@@ -173,7 +173,7 @@ class __Actor_Napping(private val handler: Napping) : salvo.SalvoActor {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun main() {
-    salvo.SalvoSched.setProtocols(listOf(Pair("Faults", salvo.core.actor.__PROTO_Faults), Pair("Session", salvo.main.__PROTO_Session), Pair("Sleeper", salvo.main.__PROTO_Sleeper), Pair("Timer", salvo.time.__PROTO_Timer), Pair("TimerCtl", salvo.time.__PROTO_TimerCtl), Pair("Wheel", salvo.runtime.timers.__PROTO_Wheel)))
+    salvo.SalvoSched.setProtocols(kotlin.collections.listOf(kotlin.Pair("Faults", salvo.core.actor.__PROTO_Faults), kotlin.Pair("Session", salvo.main.__PROTO_Session), kotlin.Pair("Sleeper", salvo.main.__PROTO_Sleeper), kotlin.Pair("Timer", salvo.time.__PROTO_Timer), kotlin.Pair("TimerCtl", salvo.time.__PROTO_TimerCtl), kotlin.Pair("Wheel", salvo.runtime.timers.__PROTO_Wheel)))
     val __use_1: salvo.core.console.__Platform_StdConsole = salvo.core.console.__Platform_StdConsole()
     val __handle_2: salvo.core.console.Console = __use_1
     val budget: salvo.time.Duration = salvo.time.millis(1500L)
@@ -196,15 +196,15 @@ fun main() {
     salvo.core.console.println(__handle_2, verdict(salvo.time.Tick(nanos = 0L), salvo.time.Tick(nanos = 1000000000L), budget))
     salvo.core.console.println(__handle_2, verdict(salvo.time.Tick(nanos = 0L), salvo.time.Tick(nanos = 2000000000L), budget))
     val p: Int = salvo.core.actor.pool(1)
-    val __destructured_9: Pair<Int, Int> = run { val __h = salvo.time.ManualTime(); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, salvo.time.__Actor_ManualTime(__h), salvo.time.__Actor_ManualTime.__DECODE); Pair(__a, __a) }
+    val __destructured_9: kotlin.Pair<Int, Int> = kotlin.run { val __h = salvo.time.ManualTime(); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, salvo.time.__Actor_ManualTime(__h), salvo.time.__Actor_ManualTime.__DECODE); kotlin.Pair(__a, __a) }
     val timer: Int = __destructured_9.first
     val ctl: Int = __destructured_9.second
-    val sessions: Int = run { val __h = Sessions(salvo.time.__Stub_Timer(timer)); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Sessions(__h), __Actor_Sessions.__DECODE); __a }
-    val outcome: String = run {
+    val sessions: Int = kotlin.run { val __h = Sessions(salvo.time.__Stub_Timer(timer)); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Sessions(__h), __Actor_Sessions.__DECODE); __a }
+    val outcome: String = kotlin.run {
         val (answer, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.StrCodec) })
         salvo.SalvoSched.sendWire(sessions, __Msg_Session.Open(salvo.time.Tick(nanos = 0L), budget, answer), __PROTO_Session, __Codec___Msg_Session)
-        run {
+        kotlin.run {
             val (settled, __wid) = salvo.SalvoSched.waiter()
             salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.core.actor.__Codec_Idle) })
             salvo.core.actor.onIdle(p, settled)
@@ -214,12 +214,12 @@ fun main() {
         salvo.SalvoSched.awaitReply(__wid) as String
     }
     salvo.core.console.println(__handle_2, "session: ${outcome}")
-    val sleeper: Int = run { val __h = Napping(salvo.time.__Stub_Timer(timer), salvo.time.__Mon_Ticker(TestTicker(timer = timer))); val __a = salvo.SalvoSched.spawn(salvo.SalvoSched.thread(), __h.__mailboxCapacity, __Actor_Napping(__h), __Actor_Napping.__DECODE); __a }
-    val napped: String = run {
+    val sleeper: Int = kotlin.run { val __h = Napping(salvo.time.__Stub_Timer(timer), salvo.time.__Mon_Ticker(TestTicker(timer = timer))); val __a = salvo.SalvoSched.spawn(salvo.SalvoSched.thread(), __h.__mailboxCapacity, __Actor_Napping(__h), __Actor_Napping.__DECODE); __a }
+    val napped: String = kotlin.run {
         val (answer, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.StrCodec) })
         salvo.SalvoSched.sendWire(sleeper, __Msg_Sleeper.Nap(salvo.time.seconds(2L), answer), __PROTO_Sleeper, __Codec___Msg_Sleeper)
-        run {
+        kotlin.run {
             val (settled, __wid) = salvo.SalvoSched.waiter()
             salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.core.actor.__Codec_Idle) })
             salvo.core.actor.onIdle(p, settled)

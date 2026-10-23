@@ -71,7 +71,7 @@ fun showItem(item: salvo.platform.core.map.Map<String, Union10<salvo.aws.ddb.Att
 }
 
 fun rebuild(item: salvo.platform.core.map.Map<String, Union10<salvo.aws.ddb.AttributeValue.S, salvo.aws.ddb.AttributeValue.N, salvo.aws.ddb.AttributeValue.B, salvo.aws.ddb.AttributeValue.Ss, salvo.aws.ddb.AttributeValue.Ns, salvo.aws.ddb.AttributeValue.Bs, salvo.aws.ddb.AttributeValue.M, salvo.aws.ddb.AttributeValue.L, salvo.aws.ddb.AttributeValue.Bool, salvo.aws.ddb.AttributeValue.Null>>): salvo.platform.core.map.Map<String, Union10<salvo.aws.ddb.AttributeValue.S, salvo.aws.ddb.AttributeValue.N, salvo.aws.ddb.AttributeValue.B, salvo.aws.ddb.AttributeValue.Ss, salvo.aws.ddb.AttributeValue.Ns, salvo.aws.ddb.AttributeValue.Bs, salvo.aws.ddb.AttributeValue.M, salvo.aws.ddb.AttributeValue.L, salvo.aws.ddb.AttributeValue.Bool, salvo.aws.ddb.AttributeValue.Null>> {
-    val out: salvo.platform.core.map.MutMap<String, Union10<salvo.aws.ddb.AttributeValue.S, salvo.aws.ddb.AttributeValue.N, salvo.aws.ddb.AttributeValue.B, salvo.aws.ddb.AttributeValue.Ss, salvo.aws.ddb.AttributeValue.Ns, salvo.aws.ddb.AttributeValue.Bs, salvo.aws.ddb.AttributeValue.M, salvo.aws.ddb.AttributeValue.L, salvo.aws.ddb.AttributeValue.Bool, salvo.aws.ddb.AttributeValue.Null>> = salvo.core.map.Mut_Map_platform(arrayOf<Pair<String, Union10<salvo.aws.ddb.AttributeValue.S, salvo.aws.ddb.AttributeValue.N, salvo.aws.ddb.AttributeValue.B, salvo.aws.ddb.AttributeValue.Ss, salvo.aws.ddb.AttributeValue.Ns, salvo.aws.ddb.AttributeValue.Bs, salvo.aws.ddb.AttributeValue.M, salvo.aws.ddb.AttributeValue.L, salvo.aws.ddb.AttributeValue.Bool, salvo.aws.ddb.AttributeValue.Null>>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+    val out: salvo.platform.core.map.MutMap<String, Union10<salvo.aws.ddb.AttributeValue.S, salvo.aws.ddb.AttributeValue.N, salvo.aws.ddb.AttributeValue.B, salvo.aws.ddb.AttributeValue.Ss, salvo.aws.ddb.AttributeValue.Ns, salvo.aws.ddb.AttributeValue.Bs, salvo.aws.ddb.AttributeValue.M, salvo.aws.ddb.AttributeValue.L, salvo.aws.ddb.AttributeValue.Bool, salvo.aws.ddb.AttributeValue.Null>> = salvo.core.map.Mut_Map_platform(arrayOf<kotlin.Pair<String, Union10<salvo.aws.ddb.AttributeValue.S, salvo.aws.ddb.AttributeValue.N, salvo.aws.ddb.AttributeValue.B, salvo.aws.ddb.AttributeValue.Ss, salvo.aws.ddb.AttributeValue.Ns, salvo.aws.ddb.AttributeValue.Bs, salvo.aws.ddb.AttributeValue.M, salvo.aws.ddb.AttributeValue.L, salvo.aws.ddb.AttributeValue.Bool, salvo.aws.ddb.AttributeValue.Null>>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     for (k in salvo.platform.core.map.each(item)) {
         val v: Union10<salvo.aws.ddb.AttributeValue.S, salvo.aws.ddb.AttributeValue.N, salvo.aws.ddb.AttributeValue.B, salvo.aws.ddb.AttributeValue.Ss, salvo.aws.ddb.AttributeValue.Ns, salvo.aws.ddb.AttributeValue.Bs, salvo.aws.ddb.AttributeValue.M, salvo.aws.ddb.AttributeValue.L, salvo.aws.ddb.AttributeValue.Bool, salvo.aws.ddb.AttributeValue.Null>? = salvo.core.map.getPlatform(item, k, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
         if ((v == null)) {
@@ -102,9 +102,9 @@ fun noTable(name: String): salvo.aws.ddb.DdbError {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun roundTrip(ddb: salvo.aws.ddb.Ddb, console: salvo.core.console.Console, table: String) {
-    val made: Union2<salvo.aws.ddb.CreateTableOutput, salvo.core.checked.Checked<Union2<salvo.aws.ddb.DdbError, salvo.aws.AwsError>>> = run {
+    val made: Union2<salvo.aws.ddb.CreateTableOutput, salvo.core.checked.Checked<Union2<salvo.aws.ddb.DdbError, salvo.aws.AwsError>>> = kotlin.run {
         val (r, __wid) = salvo.SalvoSched.waiter()
-        salvo.SalvoSched.waiterDecoder(__wid, { _: ByteArray -> Pair(false, null) })
+        salvo.SalvoSched.waiterDecoder(__wid, { _: ByteArray -> kotlin.Pair(false, null) })
         ddb.createTable(salvo.aws.ddb.CreateTableInput(attributeDefinitions = listOf<salvo.aws.ddb.AttributeDefinition>(salvo.aws.ddb.AttributeDefinition(attributeName = "id", attributeType = "S")), tableName = table, keySchema = listOf<salvo.aws.ddb.KeySchemaElement>(salvo.aws.ddb.KeySchemaElement(attributeName = "id", keyType = "HASH")), localSecondaryIndexes = null, globalSecondaryIndexes = null, billingMode = null, provisionedThroughput = null, streamSpecification = null, sseSpecification = null, tags = null, tableClass = null, deletionProtectionEnabled = null, warmThroughput = null, resourcePolicy = null, onDemandThroughput = null, globalTableSourceArn = null, globalTableSettingsReplicationMode = null, vectorIndexes = null), r)
         salvo.SalvoSched.awaitReply(__wid) as Union2<salvo.aws.ddb.CreateTableOutput, salvo.core.checked.Checked<Union2<salvo.aws.ddb.DdbError, salvo.aws.AwsError>>>
     }
@@ -121,11 +121,11 @@ fun roundTrip(ddb: salvo.aws.ddb.Ddb, console: salvo.core.console.Console, table
             throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:107:5"))
         }
     }
-    val item: salvo.platform.core.map.Map<String, Union10<salvo.aws.ddb.AttributeValue.S, salvo.aws.ddb.AttributeValue.N, salvo.aws.ddb.AttributeValue.B, salvo.aws.ddb.AttributeValue.Ss, salvo.aws.ddb.AttributeValue.Ns, salvo.aws.ddb.AttributeValue.Bs, salvo.aws.ddb.AttributeValue.M, salvo.aws.ddb.AttributeValue.L, salvo.aws.ddb.AttributeValue.Bool, salvo.aws.ddb.AttributeValue.Null>> = salvo.core.map.Map_platform(arrayOf<Pair<String, Union10<salvo.aws.ddb.AttributeValue.S, salvo.aws.ddb.AttributeValue.N, salvo.aws.ddb.AttributeValue.B, salvo.aws.ddb.AttributeValue.Ss, salvo.aws.ddb.AttributeValue.Ns, salvo.aws.ddb.AttributeValue.Bs, salvo.aws.ddb.AttributeValue.M, salvo.aws.ddb.AttributeValue.L, salvo.aws.ddb.AttributeValue.Bool, salvo.aws.ddb.AttributeValue.Null>>>(Pair("id", s("user-42")), Pair("name", s("Ada")), Pair("age", n("37")), Pair("active", boolean(true))), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+    val item: salvo.platform.core.map.Map<String, Union10<salvo.aws.ddb.AttributeValue.S, salvo.aws.ddb.AttributeValue.N, salvo.aws.ddb.AttributeValue.B, salvo.aws.ddb.AttributeValue.Ss, salvo.aws.ddb.AttributeValue.Ns, salvo.aws.ddb.AttributeValue.Bs, salvo.aws.ddb.AttributeValue.M, salvo.aws.ddb.AttributeValue.L, salvo.aws.ddb.AttributeValue.Bool, salvo.aws.ddb.AttributeValue.Null>> = salvo.core.map.Map_platform(arrayOf<kotlin.Pair<String, Union10<salvo.aws.ddb.AttributeValue.S, salvo.aws.ddb.AttributeValue.N, salvo.aws.ddb.AttributeValue.B, salvo.aws.ddb.AttributeValue.Ss, salvo.aws.ddb.AttributeValue.Ns, salvo.aws.ddb.AttributeValue.Bs, salvo.aws.ddb.AttributeValue.M, salvo.aws.ddb.AttributeValue.L, salvo.aws.ddb.AttributeValue.Bool, salvo.aws.ddb.AttributeValue.Null>>>(kotlin.Pair("id", s("user-42")), kotlin.Pair("name", s("Ada")), kotlin.Pair("age", n("37")), kotlin.Pair("active", boolean(true))), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     salvo.core.console.println(console, "put ${showItem(item)}")
-    val put: Union2<salvo.aws.ddb.PutItemOutput, salvo.core.checked.Checked<Union2<salvo.aws.ddb.DdbError, salvo.aws.AwsError>>> = run {
+    val put: Union2<salvo.aws.ddb.PutItemOutput, salvo.core.checked.Checked<Union2<salvo.aws.ddb.DdbError, salvo.aws.AwsError>>> = kotlin.run {
         val (r, __wid) = salvo.SalvoSched.waiter()
-        salvo.SalvoSched.waiterDecoder(__wid, { _: ByteArray -> Pair(false, null) })
+        salvo.SalvoSched.waiterDecoder(__wid, { _: ByteArray -> kotlin.Pair(false, null) })
         ddb.putItem(salvo.aws.ddb.PutItemInput(tableName = table, item = item, expected = null, returnValues = null, returnConsumedCapacity = null, returnItemCollectionMetrics = null, conditionalOperator = null, conditionExpression = null, expressionAttributeNames = null, expressionAttributeValues = null, returnValuesOnConditionCheckFailure = null), r)
         salvo.SalvoSched.awaitReply(__wid) as Union2<salvo.aws.ddb.PutItemOutput, salvo.core.checked.Checked<Union2<salvo.aws.ddb.DdbError, salvo.aws.AwsError>>>
     }
@@ -141,10 +141,10 @@ fun roundTrip(ddb: salvo.aws.ddb.Ddb, console: salvo.core.console.Console, table
             throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:124:5"))
         }
     }
-    val got: Union2<salvo.aws.ddb.GetItemOutput, salvo.core.checked.Checked<Union2<salvo.aws.ddb.DdbError, salvo.aws.AwsError>>> = run {
+    val got: Union2<salvo.aws.ddb.GetItemOutput, salvo.core.checked.Checked<Union2<salvo.aws.ddb.DdbError, salvo.aws.AwsError>>> = kotlin.run {
         val (r, __wid) = salvo.SalvoSched.waiter()
-        salvo.SalvoSched.waiterDecoder(__wid, { _: ByteArray -> Pair(false, null) })
-        ddb.getItem(salvo.aws.ddb.GetItemInput(tableName = table, key = salvo.core.map.Map_platform(arrayOf<Pair<String, Union10<salvo.aws.ddb.AttributeValue.S, salvo.aws.ddb.AttributeValue.N, salvo.aws.ddb.AttributeValue.B, salvo.aws.ddb.AttributeValue.Ss, salvo.aws.ddb.AttributeValue.Ns, salvo.aws.ddb.AttributeValue.Bs, salvo.aws.ddb.AttributeValue.M, salvo.aws.ddb.AttributeValue.L, salvo.aws.ddb.AttributeValue.Bool, salvo.aws.ddb.AttributeValue.Null>>>(Pair("id", s("user-42"))), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) }), attributesToGet = null, consistentRead = null, returnConsumedCapacity = null, projectionExpression = null, expressionAttributeNames = null), r)
+        salvo.SalvoSched.waiterDecoder(__wid, { _: ByteArray -> kotlin.Pair(false, null) })
+        ddb.getItem(salvo.aws.ddb.GetItemInput(tableName = table, key = salvo.core.map.Map_platform(arrayOf<kotlin.Pair<String, Union10<salvo.aws.ddb.AttributeValue.S, salvo.aws.ddb.AttributeValue.N, salvo.aws.ddb.AttributeValue.B, salvo.aws.ddb.AttributeValue.Ss, salvo.aws.ddb.AttributeValue.Ns, salvo.aws.ddb.AttributeValue.Bs, salvo.aws.ddb.AttributeValue.M, salvo.aws.ddb.AttributeValue.L, salvo.aws.ddb.AttributeValue.Bool, salvo.aws.ddb.AttributeValue.Null>>>(kotlin.Pair("id", s("user-42"))), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) }), attributesToGet = null, consistentRead = null, returnConsumedCapacity = null, projectionExpression = null, expressionAttributeNames = null), r)
         salvo.SalvoSched.awaitReply(__wid) as Union2<salvo.aws.ddb.GetItemOutput, salvo.core.checked.Checked<Union2<salvo.aws.ddb.DdbError, salvo.aws.AwsError>>>
     }
     when {
@@ -166,10 +166,10 @@ fun roundTrip(ddb: salvo.aws.ddb.Ddb, console: salvo.core.console.Console, table
             throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:133:5"))
         }
     }
-    val gone: Union2<salvo.aws.ddb.DeleteItemOutput, salvo.core.checked.Checked<Union2<salvo.aws.ddb.DdbError, salvo.aws.AwsError>>> = run {
+    val gone: Union2<salvo.aws.ddb.DeleteItemOutput, salvo.core.checked.Checked<Union2<salvo.aws.ddb.DdbError, salvo.aws.AwsError>>> = kotlin.run {
         val (r, __wid) = salvo.SalvoSched.waiter()
-        salvo.SalvoSched.waiterDecoder(__wid, { _: ByteArray -> Pair(false, null) })
-        ddb.deleteItem(salvo.aws.ddb.DeleteItemInput(tableName = table, key = salvo.core.map.Map_platform(arrayOf<Pair<String, Union10<salvo.aws.ddb.AttributeValue.S, salvo.aws.ddb.AttributeValue.N, salvo.aws.ddb.AttributeValue.B, salvo.aws.ddb.AttributeValue.Ss, salvo.aws.ddb.AttributeValue.Ns, salvo.aws.ddb.AttributeValue.Bs, salvo.aws.ddb.AttributeValue.M, salvo.aws.ddb.AttributeValue.L, salvo.aws.ddb.AttributeValue.Bool, salvo.aws.ddb.AttributeValue.Null>>>(Pair("id", s("user-42"))), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) }), expected = null, conditionalOperator = null, returnValues = null, returnConsumedCapacity = null, returnItemCollectionMetrics = null, conditionExpression = null, expressionAttributeNames = null, expressionAttributeValues = null, returnValuesOnConditionCheckFailure = null), r)
+        salvo.SalvoSched.waiterDecoder(__wid, { _: ByteArray -> kotlin.Pair(false, null) })
+        ddb.deleteItem(salvo.aws.ddb.DeleteItemInput(tableName = table, key = salvo.core.map.Map_platform(arrayOf<kotlin.Pair<String, Union10<salvo.aws.ddb.AttributeValue.S, salvo.aws.ddb.AttributeValue.N, salvo.aws.ddb.AttributeValue.B, salvo.aws.ddb.AttributeValue.Ss, salvo.aws.ddb.AttributeValue.Ns, salvo.aws.ddb.AttributeValue.Bs, salvo.aws.ddb.AttributeValue.M, salvo.aws.ddb.AttributeValue.L, salvo.aws.ddb.AttributeValue.Bool, salvo.aws.ddb.AttributeValue.Null>>>(kotlin.Pair("id", s("user-42"))), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) }), expected = null, conditionalOperator = null, returnValues = null, returnConsumedCapacity = null, returnItemCollectionMetrics = null, conditionExpression = null, expressionAttributeNames = null, expressionAttributeValues = null, returnValuesOnConditionCheckFailure = null), r)
         salvo.SalvoSched.awaitReply(__wid) as Union2<salvo.aws.ddb.DeleteItemOutput, salvo.core.checked.Checked<Union2<salvo.aws.ddb.DdbError, salvo.aws.AwsError>>>
     }
     when {
@@ -202,7 +202,7 @@ fun describe(e: Union2<salvo.aws.ddb.DdbError, salvo.aws.AwsError>): String {
 }
 
 class MemDdb : salvo.aws.ddb.Ddb {
-    var rows: salvo.platform.core.map.MutMap<String, salvo.platform.core.map.Map<String, Union10<salvo.aws.ddb.AttributeValue.S, salvo.aws.ddb.AttributeValue.N, salvo.aws.ddb.AttributeValue.B, salvo.aws.ddb.AttributeValue.Ss, salvo.aws.ddb.AttributeValue.Ns, salvo.aws.ddb.AttributeValue.Bs, salvo.aws.ddb.AttributeValue.M, salvo.aws.ddb.AttributeValue.L, salvo.aws.ddb.AttributeValue.Bool, salvo.aws.ddb.AttributeValue.Null>>> = salvo.core.map.Mut_Map_platform(arrayOf<Pair<String, salvo.platform.core.map.Map<String, Union10<salvo.aws.ddb.AttributeValue.S, salvo.aws.ddb.AttributeValue.N, salvo.aws.ddb.AttributeValue.B, salvo.aws.ddb.AttributeValue.Ss, salvo.aws.ddb.AttributeValue.Ns, salvo.aws.ddb.AttributeValue.Bs, salvo.aws.ddb.AttributeValue.M, salvo.aws.ddb.AttributeValue.L, salvo.aws.ddb.AttributeValue.Bool, salvo.aws.ddb.AttributeValue.Null>>>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+    var rows: salvo.platform.core.map.MutMap<String, salvo.platform.core.map.Map<String, Union10<salvo.aws.ddb.AttributeValue.S, salvo.aws.ddb.AttributeValue.N, salvo.aws.ddb.AttributeValue.B, salvo.aws.ddb.AttributeValue.Ss, salvo.aws.ddb.AttributeValue.Ns, salvo.aws.ddb.AttributeValue.Bs, salvo.aws.ddb.AttributeValue.M, salvo.aws.ddb.AttributeValue.L, salvo.aws.ddb.AttributeValue.Bool, salvo.aws.ddb.AttributeValue.Null>>> = salvo.core.map.Mut_Map_platform(arrayOf<kotlin.Pair<String, salvo.platform.core.map.Map<String, Union10<salvo.aws.ddb.AttributeValue.S, salvo.aws.ddb.AttributeValue.N, salvo.aws.ddb.AttributeValue.B, salvo.aws.ddb.AttributeValue.Ss, salvo.aws.ddb.AttributeValue.Ns, salvo.aws.ddb.AttributeValue.Bs, salvo.aws.ddb.AttributeValue.M, salvo.aws.ddb.AttributeValue.L, salvo.aws.ddb.AttributeValue.Bool, salvo.aws.ddb.AttributeValue.Null>>>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     var tables: salvo.platform.core.set.MutSet<String> = salvo.core.set.Mut_Set_platform(arrayOf<String>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     override fun createTable(input: salvo.aws.ddb.CreateTableInput, reply: salvo.SalvoReply) {
         salvo.core.set.addPlatform(tables, input.tableName, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
@@ -317,11 +317,11 @@ fun keyText(item: salvo.platform.core.map.Map<String, Union10<salvo.aws.ddb.Attr
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun main() {
-    salvo.SalvoSched.setProtocols(listOf(Pair("Faults", salvo.core.actor.__PROTO_Faults), Pair("Timer", salvo.time.__PROTO_Timer), Pair("TimerCtl", salvo.time.__PROTO_TimerCtl), Pair("Wheel", salvo.runtime.timers.__PROTO_Wheel)))
+    salvo.SalvoSched.setProtocols(kotlin.collections.listOf(kotlin.Pair("Faults", salvo.core.actor.__PROTO_Faults), kotlin.Pair("Timer", salvo.time.__PROTO_Timer), kotlin.Pair("TimerCtl", salvo.time.__PROTO_TimerCtl), kotlin.Pair("Wheel", salvo.runtime.timers.__PROTO_Wheel)))
     val __use_1: salvo.core.console.__Platform_StdConsole = salvo.core.console.__Platform_StdConsole()
     val __handle_2: salvo.core.console.Console = __use_1
     salvo.core.console.println(__handle_2, "-- FakeDdb --")
-    run {
+    kotlin.run {
         val __use_3: salvo.aws.ddb.FakeDdb = salvo.aws.ddb.FakeDdb()
         val __lock___use_3 = java.util.concurrent.locks.ReentrantLock()
         val __handle_4: salvo.aws.ddb.Ddb = salvo.aws.ddb.__Mon_Ddb(__use_3, __lock___use_3)
@@ -330,15 +330,15 @@ fun main() {
         salvo.core.console.println(__handle_2, "calls: ${salvo.core.list.toStr(__handle_5.calls(), { __a0 -> __a0 })}")
     }
     salvo.core.console.println(__handle_2, "-- MemDdb --")
-    run {
+    kotlin.run {
         val __use_6: MemDdb = MemDdb()
         val __lock___use_6 = java.util.concurrent.locks.ReentrantLock()
         val __handle_7: salvo.aws.ddb.Ddb = salvo.aws.ddb.__Mon_Ddb(__use_6, __lock___use_6)
         roundTrip(__handle_7, __handle_2, "users")
-        val missing: Union2<salvo.aws.ddb.GetItemOutput, salvo.core.checked.Checked<Union2<salvo.aws.ddb.DdbError, salvo.aws.AwsError>>> = run {
+        val missing: Union2<salvo.aws.ddb.GetItemOutput, salvo.core.checked.Checked<Union2<salvo.aws.ddb.DdbError, salvo.aws.AwsError>>> = kotlin.run {
             val (r, __wid) = salvo.SalvoSched.waiter()
-            salvo.SalvoSched.waiterDecoder(__wid, { _: ByteArray -> Pair(false, null) })
-            __handle_7.getItem(salvo.aws.ddb.GetItemInput(tableName = "nowhere", key = salvo.core.map.Map_platform(arrayOf<Pair<String, Union10<salvo.aws.ddb.AttributeValue.S, salvo.aws.ddb.AttributeValue.N, salvo.aws.ddb.AttributeValue.B, salvo.aws.ddb.AttributeValue.Ss, salvo.aws.ddb.AttributeValue.Ns, salvo.aws.ddb.AttributeValue.Bs, salvo.aws.ddb.AttributeValue.M, salvo.aws.ddb.AttributeValue.L, salvo.aws.ddb.AttributeValue.Bool, salvo.aws.ddb.AttributeValue.Null>>>(Pair("id", s("x"))), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) }), attributesToGet = null, consistentRead = null, returnConsumedCapacity = null, projectionExpression = null, expressionAttributeNames = null), r)
+            salvo.SalvoSched.waiterDecoder(__wid, { _: ByteArray -> kotlin.Pair(false, null) })
+            __handle_7.getItem(salvo.aws.ddb.GetItemInput(tableName = "nowhere", key = salvo.core.map.Map_platform(arrayOf<kotlin.Pair<String, Union10<salvo.aws.ddb.AttributeValue.S, salvo.aws.ddb.AttributeValue.N, salvo.aws.ddb.AttributeValue.B, salvo.aws.ddb.AttributeValue.Ss, salvo.aws.ddb.AttributeValue.Ns, salvo.aws.ddb.AttributeValue.Bs, salvo.aws.ddb.AttributeValue.M, salvo.aws.ddb.AttributeValue.L, salvo.aws.ddb.AttributeValue.Bool, salvo.aws.ddb.AttributeValue.Null>>>(kotlin.Pair("id", s("x"))), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) }), attributesToGet = null, consistentRead = null, returnConsumedCapacity = null, projectionExpression = null, expressionAttributeNames = null), r)
             salvo.SalvoSched.awaitReply(__wid) as Union2<salvo.aws.ddb.GetItemOutput, salvo.core.checked.Checked<Union2<salvo.aws.ddb.DdbError, salvo.aws.AwsError>>>
         }
         when {

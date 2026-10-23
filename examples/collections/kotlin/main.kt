@@ -40,7 +40,7 @@ fun main() {
     val __handle_2: salvo.core.console.Console = __use_1
     val primes: List<Int> = listOf<Int>(2, 3, 5, 7)
     val vowels: salvo.platform.core.set.Set<String> = salvo.core.set.Set_platform(arrayOf<String>("a", "e", "i", "o", "u"), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
-    val ages: salvo.platform.core.map.Map<String, Int> = salvo.core.map.Map_platform(arrayOf<Pair<String, Int>>(Pair("ada", 36), Pair("grace", 45)), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+    val ages: salvo.platform.core.map.Map<String, Int> = salvo.core.map.Map_platform(arrayOf<kotlin.Pair<String, Int>>(kotlin.Pair("ada", 36), kotlin.Pair("grace", 45)), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     salvo.core.console.println(__handle_2, "1. list ${salvo.core.list.toStr(primes, { __a0 -> (__a0).toString() })}")
     salvo.core.console.println(__handle_2, "1. set ${salvo.core.set.toStr(vowels, { __a0 -> __a0 })} of ${salvo.core.set.sizePlatform(vowels)}")
     salvo.core.console.println(__handle_2, "1. map ${salvo.core.map.toStr(ages, { __a0 -> __a0 }, { __a0 -> (__a0).toString() }, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })}")
@@ -49,7 +49,7 @@ fun main() {
     val seen: salvo.platform.core.set.MutSet<String> = salvo.core.set.Mut_Set_platform(arrayOf<String>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     salvo.core.set.addPlatform(seen, "first", { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     salvo.core.console.println(__handle_2, "1. empty then filled ${salvo.core.set.toStr(seen, { __a0 -> __a0 })}")
-    val tally: salvo.platform.core.map.MutMap<String, Int> = salvo.core.map.Mut_Map_platform(arrayOf<Pair<String, Int>>(Pair("pear", 1), Pair("apple", 2)), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+    val tally: salvo.platform.core.map.MutMap<String, Int> = salvo.core.map.Mut_Map_platform(arrayOf<kotlin.Pair<String, Int>>(kotlin.Pair("pear", 1), kotlin.Pair("apple", 2)), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     salvo.core.map.putPlatform(tally, "fig", 3, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     salvo.core.map.putPlatform(tally, "pear", 99, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     salvo.core.console.println(__handle_2, "2. insertion order kept ${salvo.core.map.toStr(tally, { __a0 -> __a0 }, { __a0 -> (__a0).toString() }, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })}")
@@ -64,7 +64,7 @@ fun main() {
     salvo.core.set.addPlatform(corners, Point(x = 0, y = 0), ::hash, ::eq__Point_Point)
     val again: Boolean = salvo.core.set.addPlatform(corners, Point(x = 0, y = 0), ::hash, ::eq__Point_Point)
     salvo.core.console.println(__handle_2, "3. struct key: size ${salvo.core.set.sizePlatform(corners)}, second add ${again}")
-    val labels: salvo.platform.core.map.MutMap<Point, String> = salvo.core.map.Mut_Map_platform(arrayOf<Pair<Point, String>>(), ::hash, ::eq__Point_Point)
+    val labels: salvo.platform.core.map.MutMap<Point, String> = salvo.core.map.Mut_Map_platform(arrayOf<kotlin.Pair<Point, String>>(), ::hash, ::eq__Point_Point)
     salvo.core.map.putPlatform(labels, Point(x = 1, y = 1), "diagonal", ::hash, ::eq__Point_Point)
     val found: String? = salvo.core.map.getPlatform(labels, Point(x = 1, y = 1), ::hash, ::eq__Point_Point)
     if ((found != null)) {
@@ -88,8 +88,8 @@ fun main() {
     val deduped: salvo.platform.core.set.Set<Int> = salvo.core.set.toSetPlatform(primes, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     salvo.core.console.println(__handle_2, "5. to_set ${salvo.core.set.toStr(deduped, { __a0 -> (__a0).toString() })}")
     val words: List<String> = listOf<String>("alpha", "be")
-    val lengths: salvo.platform.core.map.Map<String, Int> = salvo.core.map.toMap(words, fun(w: String): Pair<String, Int> {
-        return Pair(w, salvo.core.string.sizePlatform(w))
+    val lengths: salvo.platform.core.map.Map<String, Int> = salvo.core.map.toMap(words, fun(w: String): kotlin.Pair<String, Int> {
+        return kotlin.Pair(w, salvo.core.string.sizePlatform(w))
     }, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     salvo.core.console.println(__handle_2, "5. to_map with a rule ${salvo.core.map.toStr(lengths, { __a0 -> __a0 }, { __a0 -> (__a0).toString() }, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })}")
     val filled: List<String> = listOf<String>("ada", "grace")

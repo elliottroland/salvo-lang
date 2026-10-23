@@ -22,7 +22,7 @@ fun issue(console: salvo.core.console.Console, id: Int, seat: String): Ticket {
 
 fun redeem(console: salvo.core.console.Console, ticket: Ticket) {
     salvo.core.console.println(console, "1. redeemed #${ticket.id}")
-    run { ticket; Unit }
+    kotlin.run { ticket; Unit }
 }
 
 fun oneUse(console: salvo.core.console.Console) {
@@ -61,7 +61,7 @@ fun genericHandoff(console: salvo.core.console.Console) {
 }
 
 fun scrap(ticket: Ticket) {
-    run { ticket; Unit }
+    kotlin.run { ticket; Unit }
 }
 
 fun aQueueOfTickets(console: salvo.core.console.Console) {

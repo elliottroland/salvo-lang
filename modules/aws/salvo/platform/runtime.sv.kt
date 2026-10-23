@@ -6,22 +6,22 @@ package salvo.runtime
 
 import salvo.*
 
-val __module_use0: __Platform_HostRuntime by lazy {
+val __module_use0: __Platform_HostRuntime by kotlin.lazy {
     val __module_use0: __Platform_HostRuntime = __Platform_HostRuntime()
     __module_use0
 }
 
-val __module_use0_0: RuntimeHost by lazy {
+val __module_use0_0: RuntimeHost by kotlin.lazy {
     val __module_use0_0: RuntimeHost = __module_use0
     __module_use0_0
 }
 
-val __module_use1: Scheduler by lazy {
+val __module_use1: Scheduler by kotlin.lazy {
     val __module_use1: Scheduler = Scheduler()
     __module_use1
 }
 
-val __module_use1_0: SchedTable by lazy {
+val __module_use1_0: SchedTable by kotlin.lazy {
     val __lock___module_use1 = java.util.concurrent.locks.ReentrantLock()
     val __module_use1_0: SchedTable = __Mon_SchedTable(__module_use1, __lock___module_use1)
     __module_use1_0
@@ -52,17 +52,17 @@ class __Mon_RuntimeHost(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : RuntimeHost {
     override fun secureBits(): Long {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.secureBits() } finally { lock.unlock() }
     }
     override fun report(line: String) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.report(line) } finally { lock.unlock() }
     }
     override fun monoNanos(): Long {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.monoNanos() } finally { lock.unlock() }
     }
@@ -200,7 +200,7 @@ fun dropEntry(e: Union3<Delivered, Answered, Reported>) {
         dropAnswered(a)
     } else {
         val e_1: Reported = ((e as Union3.U3<*, *, *>).value as Reported)
-        run { e_1; Unit }
+        kotlin.run { e_1; Unit }
     }
 }
 
@@ -534,162 +534,162 @@ class __Mon_SchedTable(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : SchedTable {
     override fun newPool(sink: Int, dedicated: Boolean): Int {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.newPool(sink, dedicated) } finally { lock.unlock() }
     }
     override fun newActor(pool: Int, bound: Int, body: salvo.platform.runtime.Body): Int {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.newActor(pool, bound, body) } finally { lock.unlock() }
     }
     override fun enqueue(addr: Int, msg: salvo.platform.runtime.Dyn, waiter: salvo.platform.runtime.Parker): Union4<Sent, Dead, Full, Remote> {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.enqueue(addr, msg, waiter) } finally { lock.unlock() }
     }
     override fun setProxy(addr: Int) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.setProxy(addr) } finally { lock.unlock() }
     }
     override fun enqueueRemote(addr: Int, msg: salvo.platform.runtime.Dyn, from: Long): Boolean {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.enqueueRemote(addr, msg, from) } finally { lock.unlock() }
     }
     override fun kill(addr: Int, reason: String) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.kill(addr, reason) } finally { lock.unlock() }
     }
     override fun mintActor(addr: Int, gated: Boolean): Token {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.mintActor(addr, gated) } finally { lock.unlock() }
     }
     override fun mintTask(pool: Int, body: salvo.platform.runtime.Body): Token {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.mintTask(pool, body) } finally { lock.unlock() }
     }
     override fun mintWaiter(pool: Int): WaiterMint {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.mintWaiter(pool) } finally { lock.unlock() }
     }
     override fun deliver(t: Token, value: salvo.platform.runtime.Dyn) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.deliver(t, value) } finally { lock.unlock() }
     }
     override fun watchActor(addr: Int, t: Token) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.watchActor(addr, t) } finally { lock.unlock() }
     }
     override fun idleHook(pool: Int, t: Token) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.idleHook(pool, t) } finally { lock.unlock() }
     }
     override fun nextWork(pool: Int, idle: salvo.platform.runtime.Parker): Union3<RunActor, RunTask, Retire>? {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.nextWork(pool, idle) } finally { lock.unlock() }
     }
     override fun retiredWorkers(): Int {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.retiredWorkers() } finally { lock.unlock() }
     }
     override fun waiterRecords(): Int {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.waiterRecords() } finally { lock.unlock() }
     }
     override fun waitStep(wid: Int, pool: Int, own: Int, frame: Int, me: salvo.platform.runtime.Parker): Union6<Got, RunActor, RunTask, Sleep, Again, Stuck> {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.waitStep(wid, pool, own, frame, me) } finally { lock.unlock() }
     }
     override fun finish(addr: Int, body: salvo.platform.runtime.Body, fault: String?) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.finish(addr, body, fault) } finally { lock.unlock() }
     }
     override fun taskDone(pool: Int, fault: String?) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.taskDone(pool, fault) } finally { lock.unlock() }
     }
     override fun poolOfActor(addr: Int): Int {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.poolOfActor(addr) } finally { lock.unlock() }
     }
     override fun poolOfWaiter(wid: Int): Int {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.poolOfWaiter(wid) } finally { lock.unlock() }
     }
     override fun external(delta: Int) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.external(delta) } finally { lock.unlock() }
     }
     override fun room(addr: Int): Int {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.room(addr) } finally { lock.unlock() }
     }
     override fun isDead(addr: Int): Boolean {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.isDead(addr) } finally { lock.unlock() }
     }
     override fun queued(addr: Int): Int {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.queued(addr) } finally { lock.unlock() }
     }
     override fun goVirtual(seed: Long) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.goVirtual(seed) } finally { lock.unlock() }
     }
     override fun isVirtual(): Boolean {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.isVirtual() } finally { lock.unlock() }
     }
     override fun virtualNow(): Long {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.virtualNow() } finally { lock.unlock() }
     }
     override fun advanceTo(at: Long) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.advanceTo(at) } finally { lock.unlock() }
     }
     override fun randomBits(): Long {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.randomBits() } finally { lock.unlock() }
     }
     override fun randomUnit(): Double {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.randomUnit() } finally { lock.unlock() }
     }
     override fun clockHook(t: Token) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.clockHook(t) } finally { lock.unlock() }
     }
     override fun virtualWork(own: Int): Union2<RunActor, RunTask>? {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.virtualWork(own) } finally { lock.unlock() }
     }
@@ -729,7 +729,7 @@ class Scheduler : SchedTable {
             dropDynPlatform(msg)
             return Union4.U2<Sent, Dead, Full, Remote>(Dead())
         }
-        var a: ActorRec = run {
+        var a: ActorRec = kotlin.run {
             val __nn_1: ActorRec? = salvo.core.list.atPlatform(actors, addr)
             when {
                 (__nn_1 == null) -> {
@@ -768,7 +768,7 @@ class Scheduler : SchedTable {
             dropDynPlatform(msg)
             return false
         }
-        var a: ActorRec = run {
+        var a: ActorRec = kotlin.run {
             val __nn_1: ActorRec? = salvo.core.list.atPlatform(actors, addr)
             when {
                 (__nn_1 == null) -> {
@@ -796,7 +796,7 @@ class Scheduler : SchedTable {
     }
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun kill(addr: Int, reason: String) {
-        var a: ActorRec = run {
+        var a: ActorRec = kotlin.run {
             val __nn_1: ActorRec? = salvo.core.list.atPlatform(actors, addr)
             when {
                 (__nn_1 == null) -> {
@@ -845,7 +845,7 @@ class Scheduler : SchedTable {
     override fun mintActor(addr: Int, gated: Boolean): Token {
         nextSlot = (nextSlot + 1L)
         val slot: Long = nextSlot
-        var a: ActorRec = run {
+        var a: ActorRec = kotlin.run {
             val __nn_1: ActorRec? = salvo.core.list.atPlatform(actors, addr)
             when {
                 (__nn_1 == null) -> {
@@ -865,7 +865,7 @@ class Scheduler : SchedTable {
     }
     override fun mintTask(pool: Int, body: salvo.platform.runtime.Body): Token {
         nextSlot = (nextSlot + 1L)
-        var p: PoolRec = run {
+        var p: PoolRec = kotlin.run {
             val __nn_1: PoolRec? = salvo.core.list.atPlatform(pools, pool)
             when {
                 (__nn_1 == null) -> {
@@ -881,7 +881,7 @@ class Scheduler : SchedTable {
         return Token(target = Union3.U3<ToActor, ToWaiter, ToTask>(ToTask(pool = pool, body = body)), slot = nextSlot, tracked = true)
     }
     override fun mintWaiter(pool: Int): WaiterMint {
-        var p: PoolRec = run {
+        var p: PoolRec = kotlin.run {
             val __nn_1: PoolRec? = salvo.core.list.atPlatform(pools, pool)
             when {
                 (__nn_1 == null) -> {
@@ -905,7 +905,7 @@ class Scheduler : SchedTable {
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun watchActor(addr: Int, t: Token) {
         val watch: Token = untrack(actors, waiters, pools, t)
-        val a: ActorRec = run {
+        val a: ActorRec = kotlin.run {
             val __nn_1: ActorRec? = salvo.core.list.atPlatform(actors, addr)
             when {
                 (__nn_1 == null) -> {
@@ -934,8 +934,8 @@ class Scheduler : SchedTable {
     }
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun nextWork(pool: Int, idle: salvo.platform.runtime.Parker): Union3<RunActor, RunTask, Retire>? {
-        if (run {
-            val __proj_3: PoolRec = run {
+        if (kotlin.run {
+            val __proj_3: PoolRec = kotlin.run {
                 val __nn_1: PoolRec? = salvo.core.list.getPlatform(pools, pool)
                 when {
                     (__nn_1 == null) -> {
@@ -963,7 +963,7 @@ class Scheduler : SchedTable {
             active = (active + 1)
             return Union3.U2<RunActor, RunTask, Retire>(rt)
         }
-        val p: PoolRec = run {
+        val p: PoolRec = kotlin.run {
             val __nn_4: PoolRec? = salvo.core.list.atPlatform(pools, pool)
             when {
                 (__nn_4 == null) -> {
@@ -989,7 +989,7 @@ class Scheduler : SchedTable {
     }
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun waitStep(wid: Int, pool: Int, own: Int, frame: Int, me: salvo.platform.runtime.Parker): Union6<Got, RunActor, RunTask, Sleep, Again, Stuck> {
-        var w: WaiterRec = run {
+        var w: WaiterRec = kotlin.run {
             val __nn_1: WaiterRec? = salvo.core.list.atPlatform(waiters, wid)
             when {
                 (__nn_1 == null) -> {
@@ -1049,7 +1049,7 @@ class Scheduler : SchedTable {
         if ((virtualMode || (((active == parkedFrames) && (mainWaits > 0)) && q))) {
             return Union6.U6<Got, RunActor, RunTask, Sleep, Again, Stuck>(Stuck(report = deadlockReport(actors, waiters, own)))
         }
-        var parked: WaiterRec = run {
+        var parked: WaiterRec = kotlin.run {
             val __nn_3: WaiterRec? = salvo.core.list.atPlatform(waiters, wid)
             when {
                 (__nn_3 == null) -> {
@@ -1062,7 +1062,7 @@ class Scheduler : SchedTable {
             }
         }
         parked.parker = me
-        val p: PoolRec = run {
+        val p: PoolRec = kotlin.run {
             val __nn_5: PoolRec? = salvo.core.list.atPlatform(pools, pool)
             when {
                 (__nn_5 == null) -> {
@@ -1080,7 +1080,7 @@ class Scheduler : SchedTable {
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun finish(addr: Int, body: salvo.platform.runtime.Body, fault: String?) {
         active = (active - 1)
-        var a: ActorRec = run {
+        var a: ActorRec = kotlin.run {
             val __nn_1: ActorRec? = salvo.core.list.atPlatform(actors, addr)
             when {
                 (__nn_1 == null) -> {
@@ -1109,7 +1109,7 @@ class Scheduler : SchedTable {
             if (!((salvo.core.deque.sizePlatform((a.queue as salvo.platform.core.deque.MutDeque<Union3<Delivered, Answered, Reported>>)) > 0))) {
                 break
             }
-            dropEntry(run {
+            dropEntry(kotlin.run {
                 val __nn_4: Union3<Delivered, Answered, Reported>? = salvo.core.deque.removeFirstPlatform((a.queue as salvo.platform.core.deque.MutDeque<Union3<Delivered, Answered, Reported>>))
                 when {
                     (__nn_4 == null) -> {
@@ -1172,8 +1172,8 @@ class Scheduler : SchedTable {
         retireIfDone(actors, pools, pool)
     }
     override fun poolOfActor(addr: Int): Int {
-        return run {
-            val __proj_3: ActorRec = run {
+        return kotlin.run {
+            val __proj_3: ActorRec = kotlin.run {
                 val __nn_1: ActorRec? = salvo.core.list.getPlatform(actors, addr)
                 when {
                     (__nn_1 == null) -> {
@@ -1189,7 +1189,7 @@ class Scheduler : SchedTable {
         }
     }
     override fun setProxy(addr: Int) {
-        var a: ActorRec = run {
+        var a: ActorRec = kotlin.run {
             val __nn_1: ActorRec? = salvo.core.list.atPlatform(actors, addr)
             when {
                 (__nn_1 == null) -> {
@@ -1204,8 +1204,8 @@ class Scheduler : SchedTable {
         a.proxy = true
     }
     override fun poolOfWaiter(wid: Int): Int {
-        return run {
-            val __proj_3: WaiterRec = run {
+        return kotlin.run {
+            val __proj_3: WaiterRec = kotlin.run {
                 val __nn_1: WaiterRec? = salvo.core.list.getPlatform(waiters, wid)
                 when {
                     (__nn_1 == null) -> {
@@ -1221,7 +1221,7 @@ class Scheduler : SchedTable {
         }
     }
     override fun room(addr: Int): Int {
-        val a: ActorRec = run {
+        val a: ActorRec = kotlin.run {
             val __nn_1: ActorRec? = salvo.core.list.getPlatform(actors, addr)
             when {
                 (__nn_1 == null) -> {
@@ -1236,8 +1236,8 @@ class Scheduler : SchedTable {
         return (a.bound - a.userLen)
     }
     override fun isDead(addr: Int): Boolean {
-        return run {
-            val __proj_3: ActorRec = run {
+        return kotlin.run {
+            val __proj_3: ActorRec = kotlin.run {
                 val __nn_1: ActorRec? = salvo.core.list.getPlatform(actors, addr)
                 when {
                     (__nn_1 == null) -> {
@@ -1253,8 +1253,8 @@ class Scheduler : SchedTable {
         }
     }
     override fun queued(addr: Int): Int {
-        return run {
-            val __proj_3: ActorRec = run {
+        return kotlin.run {
+            val __proj_3: ActorRec = kotlin.run {
                 val __nn_1: ActorRec? = salvo.core.list.getPlatform(actors, addr)
                 when {
                     (__nn_1 == null) -> {
@@ -1354,7 +1354,7 @@ fun resetAll(actors: salvo.platform.core.list.MutList<ActorRec>, pools: salvo.pl
         if (!((k < salvo.core.list.sizePlatform(actors)))) {
             break
         }
-        var a: ActorRec = run {
+        var a: ActorRec = kotlin.run {
             val __nn_1: ActorRec? = salvo.core.list.atPlatform(actors, k)
             when {
                 (__nn_1 == null) -> {
@@ -1377,7 +1377,7 @@ fun resetAll(actors: salvo.platform.core.list.MutList<ActorRec>, pools: salvo.pl
             if (!((salvo.core.deque.sizePlatform((a.queue as salvo.platform.core.deque.MutDeque<Union3<Delivered, Answered, Reported>>)) > 0))) {
                 break
             }
-            dropEntry(run {
+            dropEntry(kotlin.run {
                 val __nn_3: Union3<Delivered, Answered, Reported>? = salvo.core.deque.removeFirstPlatform((a.queue as salvo.platform.core.deque.MutDeque<Union3<Delivered, Answered, Reported>>))
                 when {
                     (__nn_3 == null) -> {
@@ -1419,7 +1419,7 @@ fun resetAll(actors: salvo.platform.core.list.MutList<ActorRec>, pools: salvo.pl
         if (!((i < salvo.core.list.sizePlatform(pools)))) {
             break
         }
-        var p: PoolRec = run {
+        var p: PoolRec = kotlin.run {
             val __nn_7: PoolRec? = salvo.core.list.atPlatform(pools, i)
             when {
                 (__nn_7 == null) -> {
@@ -1515,7 +1515,7 @@ fun untrack(actors: salvo.platform.core.list.MutList<ActorRec>, waiters: salvo.p
 fun release(actors: salvo.platform.core.list.MutList<ActorRec>, waiters: salvo.platform.core.list.MutList<WaiterRec>, pools: salvo.platform.core.list.MutList<PoolRec>, target: Union3<ToActor, ToWaiter, ToTask>) {
     if ((target is Union3.U1<*, *, *>)) {
         val to: ToActor = ((target as Union3.U1<*, *, *>).value as ToActor)
-        var a: ActorRec = run {
+        var a: ActorRec = kotlin.run {
             val __nn_1: ActorRec? = salvo.core.list.atPlatform(actors, to.addr)
             when {
                 (__nn_1 == null) -> {
@@ -1532,8 +1532,8 @@ fun release(actors: salvo.platform.core.list.MutList<ActorRec>, waiters: salvo.p
         }
     } else if ((target is Union3.U2<*, *, *>)) {
         val tw: ToWaiter = ((target as Union3.U2<*, *, *>).value as ToWaiter)
-        val pool: Int = run {
-            val __proj_5: WaiterRec = run {
+        val pool: Int = kotlin.run {
+            val __proj_5: WaiterRec = kotlin.run {
                 val __nn_3: WaiterRec? = salvo.core.list.getPlatform(waiters, tw.wid)
                 when {
                     (__nn_3 == null) -> {
@@ -1547,7 +1547,7 @@ fun release(actors: salvo.platform.core.list.MutList<ActorRec>, waiters: salvo.p
             }
             __proj_5.pool
         }
-        var p: PoolRec = run {
+        var p: PoolRec = kotlin.run {
             val __nn_6: PoolRec? = salvo.core.list.atPlatform(pools, pool)
             when {
                 (__nn_6 == null) -> {
@@ -1564,7 +1564,7 @@ fun release(actors: salvo.platform.core.list.MutList<ActorRec>, waiters: salvo.p
         }
     } else {
         val target_8: ToTask = ((target as Union3.U3<*, *, *>).value as ToTask)
-        var p: PoolRec = run {
+        var p: PoolRec = kotlin.run {
             val __nn_9: PoolRec? = salvo.core.list.atPlatform(pools, target_8.pool)
             when {
                 (__nn_9 == null) -> {
@@ -1586,7 +1586,7 @@ fun reuseWaiter(waiters: salvo.platform.core.list.MutList<WaiterRec>, free: salv
     val __subject_1: Int? = salvo.core.list.removeFirstPlatform(free)
     if ((__subject_1 != null)) {
         val wid: Int = __subject_1!!
-        var w: WaiterRec = run {
+        var w: WaiterRec = kotlin.run {
             val __nn_2: WaiterRec? = salvo.core.list.atPlatform(waiters, wid)
             when {
                 (__nn_2 == null) -> {
@@ -1621,7 +1621,7 @@ fun deliverTo(actors: salvo.platform.core.list.MutList<ActorRec>, waiters: salvo
     }
     if ((target is Union3.U1<*, *, *>)) {
         val to: ToActor = ((target as Union3.U1<*, *, *>).value as ToActor)
-        val a: ActorRec = run {
+        val a: ActorRec = kotlin.run {
             val __nn_2: ActorRec? = salvo.core.list.atPlatform(actors, to.addr)
             when {
                 (__nn_2 == null) -> {
@@ -1646,7 +1646,7 @@ fun deliverTo(actors: salvo.platform.core.list.MutList<ActorRec>, waiters: salvo
         }
     } else if ((target is Union3.U2<*, *, *>)) {
         val tw: ToWaiter = ((target as Union3.U2<*, *, *>).value as ToWaiter)
-        var w: WaiterRec = run {
+        var w: WaiterRec = kotlin.run {
             val __nn_4: WaiterRec? = salvo.core.list.atPlatform(waiters, tw.wid)
             when {
                 (__nn_4 == null) -> {
@@ -1673,7 +1673,7 @@ fun deliverTo(actors: salvo.platform.core.list.MutList<ActorRec>, waiters: salvo
         val __destructured_7: ToTask = target_6
         val pool: Int = __destructured_7.pool
         val body: salvo.platform.runtime.Body = __destructured_7.body
-        val p: PoolRec = run {
+        val p: PoolRec = kotlin.run {
             val __nn_8: PoolRec? = salvo.core.list.atPlatform(pools, pool)
             when {
                 (__nn_8 == null) -> {
@@ -1692,8 +1692,8 @@ fun deliverTo(actors: salvo.platform.core.list.MutList<ActorRec>, waiters: salvo
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun reportFault(actors: salvo.platform.core.list.MutList<ActorRec>, pools: salvo.platform.core.list.MutList<PoolRec>, pool: Int, reason: String) {
-    val sink: Int = run {
-        val __proj_3: PoolRec = run {
+    val sink: Int = kotlin.run {
+        val __proj_3: PoolRec = kotlin.run {
             val __nn_1: PoolRec? = salvo.core.list.getPlatform(pools, pool)
             when {
                 (__nn_1 == null) -> {
@@ -1708,7 +1708,7 @@ fun reportFault(actors: salvo.platform.core.list.MutList<ActorRec>, pools: salvo
         __proj_3.sink
     }
     if ((sink >= 0)) {
-        val s: ActorRec = run {
+        val s: ActorRec = kotlin.run {
             val __nn_4: ActorRec? = salvo.core.list.atPlatform(actors, sink)
             when {
                 (__nn_4 == null) -> {
@@ -1768,8 +1768,8 @@ fun fireIdle(actors: salvo.platform.core.list.MutList<ActorRec>, waiters: salvo.
         val pool: Int = __destructured_2.pool
         val token: Token = __destructured_2.token
         var gates: Int = 0
-        var tokens: Int = run {
-            val __proj_5: PoolRec = run {
+        var tokens: Int = kotlin.run {
+            val __proj_5: PoolRec = kotlin.run {
                 val __nn_3: PoolRec? = salvo.core.list.getPlatform(pools, pool)
                 when {
                     (__nn_3 == null) -> {
@@ -1832,7 +1832,7 @@ fun deadlockReport(actors: salvo.platform.core.list.MutList<ActorRec>, waiters: 
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun takeWork(actors: salvo.platform.core.list.MutList<ActorRec>, pools: salvo.platform.core.list.MutList<PoolRec>, pool: Int, exclude: Int): Union2<RunActor, RunTask>? {
-    val p: PoolRec = run {
+    val p: PoolRec = kotlin.run {
         val __nn_1: PoolRec? = salvo.core.list.atPlatform(pools, pool)
         when {
             (__nn_1 == null) -> {
@@ -1858,7 +1858,7 @@ fun takeWork(actors: salvo.platform.core.list.MutList<ActorRec>, pools: salvo.pl
             break
         }
         val i: Int = __subject_4!!
-        var a: ActorRec = run {
+        var a: ActorRec = kotlin.run {
             val __nn_5: ActorRec? = salvo.core.list.atPlatform(actors, i)
             when {
                 (__nn_5 == null) -> {
@@ -1876,7 +1876,7 @@ fun takeWork(actors: salvo.platform.core.list.MutList<ActorRec>, pools: salvo.pl
             if ((at != null)) {
                 val k: Int = at!!
                 val _slot: Long? = salvo.core.deque.removeAtPlatform((a.slots as salvo.platform.core.deque.MutDeque<Long>), k)
-                val e: Union3<Delivered, Answered, Reported> = run {
+                val e: Union3<Delivered, Answered, Reported> = kotlin.run {
                     val __nn_7: Union3<Delivered, Answered, Reported>? = salvo.core.deque.removeAtPlatform((a.queue as salvo.platform.core.deque.MutDeque<Union3<Delivered, Answered, Reported>>), k)
                     when {
                         (__nn_7 == null) -> {
@@ -1889,7 +1889,7 @@ fun takeWork(actors: salvo.platform.core.list.MutList<ActorRec>, pools: salvo.pl
                     }
                 }
                 a.running = true
-                val body: salvo.platform.runtime.Body = run {
+                val body: salvo.platform.runtime.Body = kotlin.run {
                     val __nn_9: salvo.platform.runtime.Body? = slotTakePlatform(a.body)
                     when {
                         (__nn_9 == null) -> {
@@ -1917,7 +1917,7 @@ fun markReady(a: ActorRec, pools: salvo.platform.core.list.MutList<PoolRec>, add
         return false
     }
     a.ready = true
-    val p: PoolRec = run {
+    val p: PoolRec = kotlin.run {
         val __nn_1: PoolRec? = salvo.core.list.atPlatform(pools, a.pool)
         when {
             (__nn_1 == null) -> {
@@ -1983,7 +1983,7 @@ fun deliverable(slots: kotlin.collections.ArrayDeque<Long>, gate: Long?): Int? {
             break
         }
         val gate_3: Long = gate!!
-        if ((run {
+        if ((kotlin.run {
             val __nn_1: Long? = salvo.core.deque.getPlatform(slots, i)
             when {
                 (__nn_1 == null) -> {
@@ -2004,7 +2004,7 @@ fun deliverable(slots: kotlin.collections.ArrayDeque<Long>, gate: Long?): Int? {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun wakePool(pools: salvo.platform.core.list.MutList<PoolRec>, pool: Int) {
-    val p: PoolRec = run {
+    val p: PoolRec = kotlin.run {
         val __nn_1: PoolRec? = salvo.core.list.atPlatform(pools, pool)
         when {
             (__nn_1 == null) -> {
@@ -2025,7 +2025,7 @@ fun wakePool(pools: salvo.platform.core.list.MutList<PoolRec>, pool: Int) {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun wakeEvery(pools: salvo.platform.core.list.MutList<PoolRec>, pool: Int) {
-    val p: PoolRec = run {
+    val p: PoolRec = kotlin.run {
         val __nn_1: PoolRec? = salvo.core.list.atPlatform(pools, pool)
         when {
             (__nn_1 == null) -> {
@@ -2058,7 +2058,7 @@ fun wakeWaiters(waiters: salvo.platform.core.list.MutList<WaiterRec>) {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun retireIfDone(actors: salvo.platform.core.list.MutList<ActorRec>, pools: salvo.platform.core.list.MutList<PoolRec>, pool: Int) {
-    var p: PoolRec = run {
+    var p: PoolRec = kotlin.run {
         val __nn_1: PoolRec? = salvo.core.list.atPlatform(pools, pool)
         when {
             (__nn_1 == null) -> {

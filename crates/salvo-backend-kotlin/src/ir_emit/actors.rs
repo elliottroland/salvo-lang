@@ -107,7 +107,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
 
     pub(super) fn reply_decoder(&mut self, ty: &Ty) -> String {
         if salvo_core::wire_blocker(self.s.symbols, ty.strip_quals()).is_some() {
-            return "{ _: ByteArray -> Pair(false, null) }".to_string();
+            return "{ _: ByteArray -> kotlin.Pair(false, null) }".to_string();
         }
         let codec = self.codec(ty);
         format!("{{ __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), {codec}) }}")
@@ -260,7 +260,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             None => "0".to_string(),
         };
         format!(
-            "    val __mailboxCapacity: Int = {cap}\n    var __addr: Int? = null\n    val __parked: MutableMap<Long, __Cont_{}> = mutableMapOf()\n",
+            "    val __mailboxCapacity: Int = {cap}\n    var __addr: Int? = null\n    val __parked: MutableMap<Long, __Cont_{}> = kotlin.collections.mutableMapOf()\n",
             h.name
         )
     }
@@ -318,7 +318,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let dispatchers = String::new();
         let handle = match (&only, faces.len() == 1 && !has_priv) {
             (Some((msg, f)), true) => format!("        {f}(handler, msg as {msg})\n"),
-            _ => format!("        when (msg) {{\n{handle_arms}            else -> error(\"a message of one of this actor's protocols\")\n        }}\n"),
+            _ => format!("        when (msg) {{\n{handle_arms}            else -> kotlin.error(\"a message of one of this actor's protocols\")\n        }}\n"),
         };
         let mut resume = String::new();
         let mut decode = String::new();
@@ -340,7 +340,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 let msg = self.msg_class(face);
                 let proto = self.proto_const(face);
                 proto_arms.push_str(&format!(
-                    "                {proto} -> salvo.salvoDecode(salvo.SalvoBytes(payload), {})?.let {{ Pair(true, it) }} ?: Pair(false, null)\n",
+                    "                {proto} -> salvo.salvoDecode(salvo.SalvoBytes(payload), {})?.let {{ kotlin.Pair(true, it) }} ?: kotlin.Pair(false, null)\n",
                     self.msg_codec(face)
                 ));
                 let _ = msg;
@@ -376,7 +376,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             // [kt-monitor-reentry] re-entering the handle on its own thread
             // would deadlock on Rust, so it traps here [backend-parity].
             self.out.push_str(&format!(
-                "    override fun{mtps} {kt}({ps}){ret} {{\n        check(!lock.isHeldByCurrentThread) {{ \"salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]\" }}\n        lock.lock()\n        try {{ {}inner.{kt}({}) }} finally {{ lock.unlock() }}\n    }}\n",
+                "    override fun{mtps} {kt}({ps}){ret} {{\n        kotlin.check(!lock.isHeldByCurrentThread) {{ \"salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]\" }}\n        lock.lock()\n        try {{ {}inner.{kt}({}) }} finally {{ lock.unlock() }}\n    }}\n",
                 if ret.is_empty() { "" } else { "return " },
                 args.join(", ")
             ));
@@ -411,14 +411,14 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let a = self.exprs(args, indent).join(", ");
         let Some(hname) = self.current_impl.clone() else {
             self.error("`@self` send outside an actor");
-            return "TODO()".to_string();
+            return "kotlin.TODO()".to_string();
         };
         let Some(h) = self.s.ir.modules.iter().flat_map(|m| &m.decls).find_map(|d| match d {
             Decl::Impl(h) if h.name == hname => Some(h),
             _ => None,
         }) else {
             self.error(format!("internal: no impl `{hname}` for a self-send"));
-            return "TODO()".to_string();
+            return "kotlin.TODO()".to_string();
         };
         let faces = self.actor_faces(h);
         let kt = self.impl_member_name(h, member);
@@ -426,7 +426,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             let fm = face.members.iter().find(|m| m.name == member).unwrap();
             let msg = self.msg_class(face);
             return format!(
-                "run {{ val __a = __addr; if (__a != null) salvo.SalvoSched.send(__a, {msg}.{}({a})) else this.{kt}({a}) }}",
+                "kotlin.run {{ val __a = __addr; if (__a != null) salvo.SalvoSched.send(__a, {msg}.{}({a})) else this.{kt}({a}) }}",
                 variant(&fm.emitted_name)
             );
         }
@@ -435,7 +435,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             // [kt-mixed] the façade's addr is the servant's, always set.
             return format!("salvo.SalvoSched.send(__addr, {built})");
         }
-        format!("run {{ val __a = __addr; if (__a != null) salvo.SalvoSched.send(__a, {built}) else this.{kt}({a}) }}")
+        format!("kotlin.run {{ val __a = __addr; if (__a != null) salvo.SalvoSched.send(__a, {built}) else this.{kt}({a}) }}")
     }
 
     /// [kt-actor] `spawn H(…) [on p] [in g]`: build the instance, spawn the
@@ -444,7 +444,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     pub(super) fn spawn(&mut self, e: &Expr, handler: &Expr, pool: Option<&Expr>, join: Option<&Expr>, indent: usize) -> String {
         let Ty::Named { name, .. } = handler.ty.strip_quals() else {
             self.error("`spawn` of something that is not a handler");
-            return "TODO()".to_string();
+            return "kotlin.TODO()".to_string();
         };
         let plain = salvo_core::typekey::plain(name).to_string();
         let Some(decl) = self.s.ir.modules.iter().flat_map(|m| &m.decls).find_map(|d| match d {
@@ -452,7 +452,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             _ => None,
         }) else {
             self.error(format!("`spawn` of an unknown handler `{plain}`"));
-            return "TODO()".to_string();
+            return "kotlin.TODO()".to_string();
         };
         let faces = self.actor_faces(decl);
         if faces.is_empty() && self.is_mixed(decl) {
@@ -460,7 +460,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             // arguments evaluated once, shared by servant and façade.
             let ExprKind::Construct { fields } = &handler.kind else {
                 self.error("`spawn` of a mixed handler needs its construction");
-                return "TODO()".to_string();
+                return "kotlin.TODO()".to_string();
             };
             let mut lets = String::new();
             let mut all: Vec<String> = Vec::new();
@@ -482,7 +482,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             let facade = self.handler_path(name, &format!("__Fac_{plain}"));
             let init = if decl.init.is_some() { format!("salvo.SalvoSched.send(__a, {}.Init); ", self.handler_path(name, &format!("__Priv_{plain}"))) } else { String::new() };
             return format!(
-                "run {{ {lets}val __h = {ctor}({}); val __a = salvo.SalvoSched.spawn({pool_code}, __h.__mailboxCapacity, {actor}(__h), {actor}.__DECODE); {init}{facade}({}) }}",
+                "kotlin.run {{ {lets}val __h = {ctor}({}); val __a = salvo.SalvoSched.spawn({pool_code}, __h.__mailboxCapacity, {actor}(__h), {actor}.__DECODE); {init}{facade}({}) }}",
                 all.join(", "),
                 fac.join(", ")
             );
@@ -492,7 +492,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             // behind the effect's monitor.
             if decl.faces.len() != 1 {
                 self.error(format!("handler `{plain}` implements several plain effects, and a shared instance behind several faces is not supported yet"));
-                return "TODO()".to_string();
+                return "kotlin.TODO()".to_string();
             }
             let h = self.expr(handler, indent);
             let face = self.ty(&decl.faces[0]);
@@ -500,7 +500,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         }
         if faces.len() != decl.faces.len() {
             self.error(format!("handler `{plain}` mixes actor and plain effects, which the IR emitter does not render yet"));
-            return "TODO()".to_string();
+            return "kotlin.TODO()".to_string();
         }
         let h = self.expr(handler, indent);
         let pool_code = match pool {
@@ -518,11 +518,11 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             Some(g) => {
                 let Some(group) = self.interface_by_name("ActorGroup") else {
                     self.error("`spawn … in group` needs std `net`");
-                    return "TODO()".to_string();
+                    return "kotlin.TODO()".to_string();
                 };
                 let Some(idx) = group.members.iter().position(|m| m.name == "join") else {
                     self.error("`ActorGroup` has no `join` member");
-                    return "TODO()".to_string();
+                    return "kotlin.TODO()".to_string();
                 };
                 let g_code = self.expr(g, indent);
                 let built = format!("{}.{}(__a)", self.msg_class(group), variant(&group.members[idx].emitted_name));
@@ -532,15 +532,15 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         };
         let result = match faces.len() {
             1 => "__a".to_string(),
-            2 => "Pair(__a, __a)".to_string(),
-            3 => "Triple(__a, __a, __a)".to_string(),
+            2 => "kotlin.Pair(__a, __a)".to_string(),
+            3 => "kotlin.Triple(__a, __a, __a)".to_string(),
             n => {
                 self.error(format!("handler `{plain}` implements {n} effects, and the kotlin backend renders a spawn's addr tuple as `Pair`/`Triple` — at most three faces"));
-                return "TODO()".to_string();
+                return "kotlin.TODO()".to_string();
             }
         };
         let _ = e;
-        format!("run {{ val __h = {h}; val __a = salvo.SalvoSched.spawn({pool_code}, __h.__mailboxCapacity, {actor}(__h), {actor}.__DECODE); {init}{joined}{result} }}")
+        format!("kotlin.run {{ val __h = {h}; val __a = salvo.SalvoSched.spawn({pool_code}, __h.__mailboxCapacity, {actor}(__h), {actor}.__DECODE); {init}{joined}{result} }}")
     }
 
     fn handler_path(&self, key: &str, class: &str) -> String {
@@ -572,7 +572,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         });
         let Some(iface) = iface else {
             self.error("send to an unknown interface");
-            return "TODO()".to_string();
+            return "kotlin.TODO()".to_string();
         };
         let m = &iface.members[member.index];
         let args_code = self.exprs(args, indent);
@@ -595,12 +595,12 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             ReplyTarget::Member(member) => {
                 let Some(h) = self.current_impl.clone() else {
                     self.error("`replyto` outside a handler");
-                    return "TODO()".to_string();
+                    return "kotlin.TODO()".to_string();
                 };
                 let caps = self.exprs(captures, indent);
                 let mint = if gated { "mintGated" } else { "mint" };
                 format!(
-                    "run {{ val (__r, __s) = salvo.SalvoSched.{mint}(__addr!!); __parked[__s] = __Cont_{h}.{}({}); __r }}",
+                    "kotlin.run {{ val (__r, __s) = salvo.SalvoSched.{mint}(__addr!!); __parked[__s] = __Cont_{h}.{}({}); __r }}",
                     variant(member),
                     caps.join(", ")
                 )
@@ -611,12 +611,12 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     _ => None,
                 }) else {
                     self.error("`replyto` of an unknown task");
-                    return "TODO()".to_string();
+                    return "kotlin.TODO()".to_string();
                 };
                 let declared: Vec<&salvo_core::ir::Param> = decl.params.iter().skip(decl.effect_params).collect();
                 let Some(last) = declared.last() else {
                     self.error("a task target has no answer parameter");
-                    return "TODO()".to_string();
+                    return "kotlin.TODO()".to_string();
                 };
                 let payload = self.ty(&last.ty);
                 let decoder = self.reply_decoder(&last.ty);
@@ -638,7 +638,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     Some(p) => self.expr(p, indent),
                     None => "salvo.SalvoSched.currentPool()".to_string(),
                 };
-                format!("run {{ {lets}salvo.SalvoSched.mintTask({pool_code}, {decoder}) {{ __v -> {name}({}) }} }}", args.join(", "))
+                format!("kotlin.run {{ {lets}salvo.SalvoSched.mintTask({pool_code}, {decoder}) {{ __v -> {name}({}) }} }}", args.join(", "))
             }
         }
     }
@@ -650,7 +650,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             Ty::Named { name, args } if name == "Reply" && args.len() == 1 => args[0].clone(),
             _ => {
                 self.error("`waitfor` binds a `Reply<T>`");
-                return "TODO()".to_string();
+                return "kotlin.TODO()".to_string();
             }
         };
         let payload = self.ty(&payload_ty);
@@ -659,7 +659,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         self.block_stmts(body, indent + 1);
         let stmts = std::mem::replace(&mut self.out, saved);
         format!(
-            "run {{\n{pad}val ({}, __wid) = salvo.SalvoSched.waiter()\n{pad}salvo.SalvoSched.waiterDecoder(__wid, {decoder})\n{stmts}{pad}salvo.SalvoSched.awaitReply(__wid) as {payload}\n{close}}}",
+            "kotlin.run {{\n{pad}val ({}, __wid) = salvo.SalvoSched.waiter()\n{pad}salvo.SalvoSched.waiterDecoder(__wid, {decoder})\n{stmts}{pad}salvo.SalvoSched.awaitReply(__wid) as {payload}\n{close}}}",
             kt_local(local)
         )
     }
@@ -674,12 +674,12 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         ifaces.sort_by(|a, b| a.name.cmp(&b.name));
         for iface in ifaces {
             let name = &iface.name;
-            pairs.push(format!("Pair(\"{name}\", {}.__PROTO_{name})", kotlin_package(&iface.id.module)));
+            pairs.push(format!("kotlin.Pair(\"{name}\", {}.__PROTO_{name})", kotlin_package(&iface.id.module)));
         }
         if pairs.is_empty() {
             return String::new();
         }
-        format!("    salvo.SalvoSched.setProtocols(listOf({}))\n", pairs.join(", "))
+        format!("    salvo.SalvoSched.setProtocols(kotlin.collections.listOf({}))\n", pairs.join(", "))
     }
 }
 

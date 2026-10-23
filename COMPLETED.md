@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2013 tests, complete: the toolchain tests are
+cargo test                  # 2014 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,30 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — The Kotlin stdlib the emitter calls is written qualified
+
+ROADMAP §2d item 14, the user's call: "let's call `kotlin.run`, and also for
+the other functions". Kotlin resolves a bare name to the file's own package
+before its default imports, so a program's `fn run` was the `run` every
+value-position block called: `return f(1) ?: "none"` recursed into itself and
+overflowed the stack, where Rust printed `none`. [kt-stdlib-qualified]:
+`kotlin.run`, `kotlin.error`, `kotlin.check`, `kotlin.TODO`, `kotlin.lazy`,
+`kotlin.Pair`/`kotlin.Triple` (constructors and tuple types) and
+`kotlin.collections.listOf`/`mutableMapOf`, rewritten inside the emitter's
+string literals by a scan of every format string (49 sites). Extension calls
+(`x.let {}`) need nothing; a Salvo fn is never an extension.
+
+Kept bare on purpose: the `TODO("implement …")` in a host **skeleton**. The
+skeleton is the user's file to fill in, and the platform tests (and anyone's
+editor) find the stubs by that text. Left open in ROADMAP: the Kotlin *types*
+the emitter writes bare (`String`, `MutableList`, …) can be shadowed the same
+way.
+
+Tests: CLI `kotlin_stdlib_names_do_not_capture_generated_calls_on_both_backends`
+(a program declaring `run`, `error`, `check`, `struct Pair` and `struct
+Triple`, with tuples of both sizes); the Kotlin snapshots and five
+`contains` assertions follow the new spelling.
 
 ### 2026-10-20 — Doc tags, and `whynot?` asks a qualifier why a value failed
 
@@ -27723,7 +27747,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2013 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2014 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

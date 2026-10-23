@@ -50,9 +50,9 @@ fun<T> iter__SortedSet(set: salvo.platform.core.sorted.SortedSet<T>): salvo.core
     return salvo.core.set.SetYield<T>(items = toListPlatform(set), at = 0)
 }
 
-fun<K, V> SortedMap_platform(entries: Array<Pair<K, V>>, cmp: (K, K) -> Int): salvo.platform.core.sorted.SortedMap<K, V> = salvo.platform.core.sorted.SortedMap(entries, cmp)
+fun<K, V> SortedMap_platform(entries: Array<kotlin.Pair<K, V>>, cmp: (K, K) -> Int): salvo.platform.core.sorted.SortedMap<K, V> = salvo.platform.core.sorted.SortedMap(entries, cmp)
 
-fun<K, V> Mut_SortedMap_platform(entries: Array<Pair<K, V>>, cmp: (K, K) -> Int): salvo.platform.core.sorted.MutSortedMap<K, V> = salvo.platform.core.sorted.Mut_SortedMap(entries, cmp)
+fun<K, V> Mut_SortedMap_platform(entries: Array<kotlin.Pair<K, V>>, cmp: (K, K) -> Int): salvo.platform.core.sorted.MutSortedMap<K, V> = salvo.platform.core.sorted.Mut_SortedMap(entries, cmp)
 
 fun<K, V> getPlatform(map: salvo.platform.core.sorted.SortedMap<K, V>, key: K, cmp: (K, K) -> Int): V? = salvo.platform.core.sorted.get(map, key, cmp)
 
@@ -83,7 +83,7 @@ fun<K, V> toStr__SortedMap(map: salvo.platform.core.sorted.SortedMap<K, V>, toSt
         }
         salvo.core.string.appendPlatform(out, toStr(k))
         salvo.core.string.appendPlatform(out, ": ")
-        salvo.core.string.appendPlatform(out, toStr__1(run {
+        salvo.core.string.appendPlatform(out, toStr__1(kotlin.run {
             val __nn_1: V? = getPlatform(map, k, cmp)
             when {
                 (__nn_1 == null) -> {
@@ -123,7 +123,7 @@ fun<K, V> eq__SortedMap_SortedMap(a: salvo.platform.core.sorted.SortedMap<K, V>,
             return false
         }
         val theirs_3: V = theirs!!
-        if (!(eq(run {
+        if (!(eq(kotlin.run {
             val __nn_1: V? = getPlatform(a, k, cmp)
             when {
                 (__nn_1 == null) -> {
@@ -154,7 +154,7 @@ fun<K, V> NonEmpty_qualifies(map: salvo.platform.core.sorted.SortedMap<K, V>): B
 }
 
 fun<T> min(set: salvo.platform.core.sorted.SortedSet<T>): T {
-    return run {
+    return kotlin.run {
         val __nn_1: T? = minPlatform(set)
         when {
             (__nn_1 == null) -> {
@@ -169,7 +169,7 @@ fun<T> min(set: salvo.platform.core.sorted.SortedSet<T>): T {
 }
 
 fun<T> max(set: salvo.platform.core.sorted.SortedSet<T>): T {
-    return run {
+    return kotlin.run {
         val __nn_1: T? = maxPlatform(set)
         when {
             (__nn_1 == null) -> {
@@ -184,7 +184,7 @@ fun<T> max(set: salvo.platform.core.sorted.SortedSet<T>): T {
 }
 
 fun<K, V> firstKey(map: salvo.platform.core.sorted.SortedMap<K, V>): K {
-    return run {
+    return kotlin.run {
         val __nn_1: K? = firstKeyPlatform(map)
         when {
             (__nn_1 == null) -> {
@@ -199,7 +199,7 @@ fun<K, V> firstKey(map: salvo.platform.core.sorted.SortedMap<K, V>): K {
 }
 
 fun<K, V> lastKey(map: salvo.platform.core.sorted.SortedMap<K, V>): K {
-    return run {
+    return kotlin.run {
         val __nn_1: K? = lastKeyPlatform(map)
         when {
             (__nn_1 == null) -> {

@@ -57,12 +57,12 @@ fun lex(args: List<String>): List<Union4<LongToken, ShortToken, WordToken, EndTo
             salvo.core.list.addPlatform(out, Union4.U4<LongToken, ShortToken, WordToken, EndToken>(EndToken()))
         } else if (salvo.core.string.startsWithPlatform(a, "--")) {
             val body: String = salvo.core.string.trimPrefixPlatform(a, "--")
-            val parts: Pair<String, String>? = salvo.core.string.splitOnce(body, "=")
+            val parts: kotlin.Pair<String, String>? = salvo.core.string.splitOnce(body, "=")
             if ((parts == null)) {
                 salvo.core.list.addPlatform(out, Union4.U1<LongToken, ShortToken, WordToken, EndToken>(LongToken(name = body, value = null)))
             } else {
-                val parts_1: Pair<String, String> = parts!!
-                val __destructured_2: Pair<String, String> = parts_1
+                val parts_1: kotlin.Pair<String, String> = parts!!
+                val __destructured_2: kotlin.Pair<String, String> = parts_1
                 val name: String = __destructured_2.first
                 val value: String = __destructured_2.second
                 salvo.core.list.addPlatform(out, Union4.U1<LongToken, ShortToken, WordToken, EndToken>(LongToken(name = name, value = value)))

@@ -12,12 +12,12 @@ class __Mon_Counter(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : Counter {
     override fun bump(n: Int) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.bump(n) } finally { lock.unlock() }
     }
     override fun total(out: salvo.SalvoReply) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.total(out) } finally { lock.unlock() }
     }
@@ -26,7 +26,7 @@ class __Mon_Counter(
 class Counting : Counter {
     val __mailboxCapacity: Int = 8
     var __addr: Int? = null
-    val __parked: MutableMap<Long, __Cont_Counting> = mutableMapOf()
+    val __parked: MutableMap<Long, __Cont_Counting> = kotlin.collections.mutableMapOf()
     var sum: Int = 0
     override fun bump(n: Int) {
         sum = (sum + n)
@@ -64,7 +64,7 @@ class __Actor_Counting(private val handler: Counting) : salvo.SalvoActor {
     companion object {
         val __DECODE: ((String, ByteArray) -> Pair<Boolean, Any?>)? = { proto, payload ->
             when (proto) {
-                __PROTO_Counter -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Counter)?.let { Pair(true, it) } ?: Pair(false, null)
+                __PROTO_Counter -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Counter)?.let { kotlin.Pair(true, it) } ?: kotlin.Pair(false, null)
                 else -> Pair(false, null)
             }
         }
@@ -81,12 +81,12 @@ class __Mon_Ledger(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : Ledger {
     override fun report(label: String, out: salvo.SalvoReply) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.report(label, out) } finally { lock.unlock() }
     }
     override fun reported(label: String, out: salvo.SalvoReply, total: Int) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.reported(label, out, total) } finally { lock.unlock() }
     }
@@ -95,9 +95,9 @@ class __Mon_Ledger(
 class Bookkeeping(private val __dep0: Counter) : Ledger {
     val __mailboxCapacity: Int = 4
     var __addr: Int? = null
-    val __parked: MutableMap<Long, __Cont_Bookkeeping> = mutableMapOf()
+    val __parked: MutableMap<Long, __Cont_Bookkeeping> = kotlin.collections.mutableMapOf()
     override fun report(label: String, out: salvo.SalvoReply) {
-        __dep0.total(run { val (__r, __s) = salvo.SalvoSched.mint(__addr!!); __parked[__s] = __Cont_Bookkeeping.Reported(label, out); __r })
+        __dep0.total(kotlin.run { val (__r, __s) = salvo.SalvoSched.mint(__addr!!); __parked[__s] = __Cont_Bookkeeping.Reported(label, out); __r })
     }
     override fun reported(label: String, out: salvo.SalvoReply, total: Int) {
         salvo.SalvoSched.replyWire(out, "${label}=${total}", salvo.StrCodec)
@@ -132,7 +132,7 @@ class __Actor_Bookkeeping(private val handler: Bookkeeping) : salvo.SalvoActor {
     companion object {
         val __DECODE: ((String, ByteArray) -> Pair<Boolean, Any?>)? = { proto, payload ->
             when (proto) {
-                __PROTO_Ledger -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Ledger)?.let { Pair(true, it) } ?: Pair(false, null)
+                __PROTO_Ledger -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Ledger)?.let { kotlin.Pair(true, it) } ?: kotlin.Pair(false, null)
                 else -> Pair(false, null)
             }
         }
@@ -150,17 +150,17 @@ class __Mon_Desk(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : Desk {
     override fun ticket(out: salvo.SalvoReply) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.ticket(out) } finally { lock.unlock() }
     }
     override fun serve(name: String) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.serve(name) } finally { lock.unlock() }
     }
     override fun closeUp(reason: String) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.closeUp(reason) } finally { lock.unlock() }
     }
@@ -169,7 +169,7 @@ class __Mon_Desk(
 class Desking(private val room: Int) : Desk {
     val __mailboxCapacity: Int = room
     var __addr: Int? = null
-    val __parked: MutableMap<Long, __Cont_Desking> = mutableMapOf()
+    val __parked: MutableMap<Long, __Cont_Desking> = kotlin.collections.mutableMapOf()
     var waiting: salvo.platform.core.deque.MutDeque<salvo.SalvoReply> = salvo.core.deque.mutDequeOf()
     override fun ticket(out: salvo.SalvoReply) {
         salvo.core.deque.addLastPlatform(waiting, out)
@@ -182,7 +182,7 @@ class Desking(private val room: Int) : Desk {
                 salvo.SalvoSched.replyWire(next_1, "served ${name}", salvo.StrCodec)
             }
             (next == null) -> {
-                run { name; Unit }
+                kotlin.run { name; Unit }
             }
             else -> {
                 throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:118:9"))
@@ -227,7 +227,7 @@ class __Actor_Desking(private val handler: Desking) : salvo.SalvoActor {
     companion object {
         val __DECODE: ((String, ByteArray) -> Pair<Boolean, Any?>)? = { proto, payload ->
             when (proto) {
-                __PROTO_Desk -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Desk)?.let { Pair(true, it) } ?: Pair(false, null)
+                __PROTO_Desk -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Desk)?.let { kotlin.Pair(true, it) } ?: kotlin.Pair(false, null)
                 else -> Pair(false, null)
             }
         }
@@ -243,7 +243,7 @@ class __Mon_Fragile(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : Fragile {
     override fun crash() {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.crash() } finally { lock.unlock() }
     }
@@ -252,10 +252,10 @@ class __Mon_Fragile(
 class Breaking : Fragile {
     val __mailboxCapacity: Int = 1
     var __addr: Int? = null
-    val __parked: MutableMap<Long, __Cont_Breaking> = mutableMapOf()
+    val __parked: MutableMap<Long, __Cont_Breaking> = kotlin.collections.mutableMapOf()
     override fun crash() {
         val empty: List<Int> = listOf<Int>()
-        val boom: Int = run {
+        val boom: Int = kotlin.run {
             val __nn_1: Int? = salvo.core.list.getPlatform(empty, 7)
             when {
                 (__nn_1 == null) -> {
@@ -267,7 +267,7 @@ class Breaking : Fragile {
                 }
             }
         }
-        run { boom; Unit }
+        kotlin.run { boom; Unit }
     }
 }
 
@@ -296,7 +296,7 @@ class __Actor_Breaking(private val handler: Breaking) : salvo.SalvoActor {
     companion object {
         val __DECODE: ((String, ByteArray) -> Pair<Boolean, Any?>)? = { proto, payload ->
             when (proto) {
-                __PROTO_Fragile -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Fragile)?.let { Pair(true, it) } ?: Pair(false, null)
+                __PROTO_Fragile -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Fragile)?.let { kotlin.Pair(true, it) } ?: kotlin.Pair(false, null)
                 else -> Pair(false, null)
             }
         }
@@ -309,39 +309,39 @@ fun formatted(label: String, out: salvo.SalvoReply, total: Int) {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun reportLine(counter: Int, label: String, out: salvo.SalvoReply) {
-    salvo.SalvoSched.sendWire(counter, __Msg_Counter.Total(run { val __c0 = label; val __c1 = out; salvo.SalvoSched.mintTask(salvo.SalvoSched.currentPool(), { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.IntCodec) }) { __v -> formatted(__c0, __c1, __v as Int) } }), __PROTO_Counter, __Codec___Msg_Counter)
+    salvo.SalvoSched.sendWire(counter, __Msg_Counter.Total(kotlin.run { val __c0 = label; val __c1 = out; salvo.SalvoSched.mintTask(salvo.SalvoSched.currentPool(), { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.IntCodec) }) { __v -> formatted(__c0, __c1, __v as Int) } }), __PROTO_Counter, __Codec___Msg_Counter)
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun main() {
-    salvo.SalvoSched.setProtocols(listOf(Pair("Counter", salvo.main.__PROTO_Counter), Pair("Desk", salvo.main.__PROTO_Desk), Pair("Faults", salvo.core.actor.__PROTO_Faults), Pair("Fragile", salvo.main.__PROTO_Fragile), Pair("Ledger", salvo.main.__PROTO_Ledger)))
+    salvo.SalvoSched.setProtocols(kotlin.collections.listOf(kotlin.Pair("Counter", salvo.main.__PROTO_Counter), kotlin.Pair("Desk", salvo.main.__PROTO_Desk), kotlin.Pair("Faults", salvo.core.actor.__PROTO_Faults), kotlin.Pair("Fragile", salvo.main.__PROTO_Fragile), kotlin.Pair("Ledger", salvo.main.__PROTO_Ledger)))
     val __use_1: salvo.core.console.__Platform_StdConsole = salvo.core.console.__Platform_StdConsole()
     val __handle_2: salvo.core.console.Console = __use_1
     val workers: Int = salvo.core.actor.pool(2)
-    val counter: Int = run { val __h = Counting(); val __a = salvo.SalvoSched.spawn(workers, __h.__mailboxCapacity, __Actor_Counting(__h), __Actor_Counting.__DECODE); __a }
+    val counter: Int = kotlin.run { val __h = Counting(); val __a = salvo.SalvoSched.spawn(workers, __h.__mailboxCapacity, __Actor_Counting(__h), __Actor_Counting.__DECODE); __a }
     salvo.SalvoSched.sendWire(counter, __Msg_Counter.Bump(2), __PROTO_Counter, __Codec___Msg_Counter)
     salvo.SalvoSched.sendWire(counter, __Msg_Counter.Bump(3), __PROTO_Counter, __Codec___Msg_Counter)
-    val sum: Int = run {
+    val sum: Int = kotlin.run {
         val (out, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.IntCodec) })
         salvo.SalvoSched.sendWire(counter, __Msg_Counter.Total(out), __PROTO_Counter, __Codec___Msg_Counter)
         salvo.SalvoSched.awaitReply(__wid) as Int
     }
     salvo.core.console.println(__handle_2, "1. counter total is ${sum}")
-    val ledger: Int = run { val __h = Bookkeeping(__Stub_Counter(counter)); val __a = salvo.SalvoSched.spawn(workers, __h.__mailboxCapacity, __Actor_Bookkeeping(__h), __Actor_Bookkeeping.__DECODE); __a }
-    val line: String = run {
+    val ledger: Int = kotlin.run { val __h = Bookkeeping(__Stub_Counter(counter)); val __a = salvo.SalvoSched.spawn(workers, __h.__mailboxCapacity, __Actor_Bookkeeping(__h), __Actor_Bookkeeping.__DECODE); __a }
+    val line: String = kotlin.run {
         val (out, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.StrCodec) })
         salvo.SalvoSched.sendWire(ledger, __Msg_Ledger.Report("counter", out), __PROTO_Ledger, __Codec___Msg_Ledger)
         salvo.SalvoSched.awaitReply(__wid) as String
     }
     salvo.core.console.println(__handle_2, "3. ledger says ${line}")
-    val desk: Int = run { val __h = Desking(room = 8); val __a = salvo.SalvoSched.spawn(workers, __h.__mailboxCapacity, __Actor_Desking(__h), __Actor_Desking.__DECODE); __a }
-    val first: String = run {
+    val desk: Int = kotlin.run { val __h = Desking(room = 8); val __a = salvo.SalvoSched.spawn(workers, __h.__mailboxCapacity, __Actor_Desking(__h), __Actor_Desking.__DECODE); __a }
+    val first: String = kotlin.run {
         val (a, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.StrCodec) })
         salvo.SalvoSched.sendWire(desk, __Msg_Desk.Ticket(a), __PROTO_Desk, __Codec___Msg_Desk)
-        val second: String = run {
+        val second: String = kotlin.run {
             val (b, __wid) = salvo.SalvoSched.waiter()
             salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.StrCodec) })
             salvo.SalvoSched.sendWire(desk, __Msg_Desk.Ticket(b), __PROTO_Desk, __Codec___Msg_Desk)
@@ -353,8 +353,8 @@ fun main() {
         salvo.SalvoSched.awaitReply(__wid) as String
     }
     salvo.core.console.println(__handle_2, "4. first waiter got: ${first}")
-    val fragile: Int = run { val __h = Breaking(); val __a = salvo.SalvoSched.spawn(workers, __h.__mailboxCapacity, __Actor_Breaking(__h), __Actor_Breaking.__DECODE); __a }
-    val exit: salvo.core.actor.Exit = run {
+    val fragile: Int = kotlin.run { val __h = Breaking(); val __a = salvo.SalvoSched.spawn(workers, __h.__mailboxCapacity, __Actor_Breaking(__h), __Actor_Breaking.__DECODE); __a }
+    val exit: salvo.core.actor.Exit = kotlin.run {
         val (gone, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.core.actor.__Codec_Exit) })
         salvo.core.actor.watch(fragile, gone)
@@ -368,7 +368,7 @@ fun main() {
     val __handle_4: Counter = __Mon_Counter(__use_3, __lock___use_3)
     __handle_4.bump(4)
     __handle_4.bump(5)
-    val inline: Int = run {
+    val inline: Int = kotlin.run {
         val (out, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.IntCodec) })
         __handle_4.total(out)
@@ -376,16 +376,16 @@ fun main() {
     }
     salvo.core.console.println(__handle_2, "6. inline total is ${inline}")
     val solo: Int = salvo.core.actor.pool(1)
-    val mine: Int = run { val __h = Counting(); val __a = salvo.SalvoSched.spawn(solo, __h.__mailboxCapacity, __Actor_Counting(__h), __Actor_Counting.__DECODE); __a }
+    val mine: Int = kotlin.run { val __h = Counting(); val __a = salvo.SalvoSched.spawn(solo, __h.__mailboxCapacity, __Actor_Counting(__h), __Actor_Counting.__DECODE); __a }
     salvo.SalvoSched.sendWire(mine, __Msg_Counter.Bump(6), __PROTO_Counter, __Codec___Msg_Counter)
-    val local: Int = run {
+    val local: Int = kotlin.run {
         val (out, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.IntCodec) })
         salvo.SalvoSched.sendWire(mine, __Msg_Counter.Total(out), __PROTO_Counter, __Codec___Msg_Counter)
         salvo.SalvoSched.awaitReply(__wid) as Int
     }
     salvo.core.console.println(__handle_2, "7. the solo pool's own actor totalled ${local}")
-    val line8: String = run {
+    val line8: String = kotlin.run {
         val (out, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.StrCodec) })
         reportLine(mine, "the counter", out)

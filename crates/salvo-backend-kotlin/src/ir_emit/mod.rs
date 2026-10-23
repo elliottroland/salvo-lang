@@ -522,8 +522,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             Ty::Tuple(es) => {
                 let strs: Vec<String> = es.iter().map(|e| self.ty(e)).collect();
                 match strs.len() {
-                    2 => format!("Pair<{}, {}>", strs[0], strs[1]),
-                    3 => format!("Triple<{}, {}, {}>", strs[0], strs[1], strs[2]),
+                    2 => format!("kotlin.Pair<{}, {}>", strs[0], strs[1]),
+                    3 => format!("kotlin.Triple<{}, {}, {}>", strs[0], strs[1], strs[2]),
                     n => {
                         self.s.tuple_sizes.insert(n);
                         format!("Tuple{n}<{}>", strs.join(", "))
@@ -599,7 +599,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 let ty = self.ty(&st.ty);
                 let name = kt_local(&st.local);
                 let _ = &name;
-                self.out.push_str(&format!("val {name}: {ty} by lazy {{\n"));
+                self.out.push_str(&format!("val {name}: {ty} by kotlin.lazy {{\n"));
                 self.assigned = assigned_locals(&Block { stmts: st.stmts.clone(), value: None, span: st.span });
                 let saved = std::mem::take(&mut self.out);
                 self.stmts(&st.stmts, 1);
@@ -964,7 +964,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             let ty = self.ty(&f.ty);
             let init = match &f.default {
                 Some(e) => self.expr(e, 1),
-                None => "TODO()".to_string(),
+                None => "kotlin.TODO()".to_string(),
             };
             self.out.push_str(&format!("    var {}: {ty} = {init}\n", kt_ident(&f.name)));
         }
@@ -1320,7 +1320,9 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             self.out.push_str(&format!("{}{code}\n", "    ".repeat(indent + 1)));
         }
         let body = std::mem::replace(&mut self.out, saved);
-        format!("run {{\n{body}{}}}", "    ".repeat(indent))
+        // [kt-stdlib-qualified] Qualified: a program's own `fn run` would
+        // otherwise be the `run` this calls.
+        format!("kotlin.run {{\n{body}{}}}", "    ".repeat(indent))
     }
 
     fn expr(&mut self, e: &Expr, indent: usize) -> String {
@@ -1460,8 +1462,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             ExprKind::Tuple(es) => {
                 let a = self.exprs(es, indent);
                 match a.len() {
-                    2 => format!("Pair({}, {})", a[0], a[1]),
-                    3 => format!("Triple({}, {}, {})", a[0], a[1], a[2]),
+                    2 => format!("kotlin.Pair({}, {})", a[0], a[1]),
+                    3 => format!("kotlin.Triple({}, {}, {})", a[0], a[1], a[2]),
                     n => {
                         self.s.tuple_sizes.insert(n);
                         format!("Tuple{n}({})", a.join(", "))
@@ -1671,7 +1673,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             ExprKind::SelfSend { member, args } => self.self_send(member, args, indent),
             ExprKind::Unsupported(what) => {
                 self.error(format!("unsupported IR node: {what}"));
-                "TODO()".to_string()
+                "kotlin.TODO()".to_string()
             }
         }
     }
@@ -1930,7 +1932,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         }
         if name == "discard" {
             let v = self.expr(&args[0], indent);
-            return format!("run {{ {v}; Unit }}");
+            return format!("kotlin.run {{ {v}; Unit }}");
         }
         // [kt-actor] a reply's answer travels encoded.
         if name == "send" && recv == Some("Reply") && args.len() == 2 {
@@ -1968,7 +1970,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             let sink = self.expr(&args[1], indent);
             let Some(hname) = self.current_impl.clone() else {
                 self.error("`watch_control` is called from a handler's `init`");
-                return "TODO()".to_string();
+                return "kotlin.TODO()".to_string();
             };
             let control = self.s.ir.modules.iter().flat_map(|m| &m.decls).find_map(|d| match d {
                 Decl::Impl(h) if h.name == hname => h.members.iter().find(|m| m.name == "control"),
@@ -1976,7 +1978,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             });
             let Some(control) = control else {
                 self.error(format!("`watch_control`: handler `{hname}` has no private `control(from, data)` member"));
-                return "TODO()".to_string();
+                return "kotlin.TODO()".to_string();
             };
             let from_ty = control.params.get(control.effect_params).map(|p| p.ty.clone()).unwrap_or(Ty::Unknown);
             let nid = self.ty(&from_ty);
@@ -1995,11 +1997,11 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             };
             let Some(effect) = effect else {
                 self.error("`protocol` needs an effect as its type argument");
-                return "TODO()".to_string();
+                return "kotlin.TODO()".to_string();
             };
             let Some(iface) = self.interface_by_name(&effect).filter(|i| i.protocol_hash.is_some()) else {
                 self.error(format!("`protocol<{effect}>`: `{effect}` has no wire form, so it cannot be a group's protocol"));
-                return "TODO()".to_string();
+                return "kotlin.TODO()".to_string();
             };
             let st = self.ty(&e.ty);
             let st = st.split('<').next().unwrap_or(&st).to_string();
@@ -2037,7 +2039,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             None => {
                 self.error(format!("intrinsic fn `{name}` is not supported by the kotlin backend"));
                 let _ = e;
-                "TODO()".to_string()
+                "kotlin.TODO()".to_string()
             }
         }
     }
@@ -2351,7 +2353,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     self.out.push_str(&format!("{}{code}\n", "    ".repeat(indent + 1)));
                 }
                 let b = std::mem::replace(&mut self.out, saved);
-                format!("run {{\n{b}{pad}}}")
+                format!("kotlin.run {{\n{b}{pad}}}")
             };
         }
         let mut out = String::new();

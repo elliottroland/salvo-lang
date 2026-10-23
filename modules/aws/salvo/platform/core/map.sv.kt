@@ -6,20 +6,20 @@ package salvo.core.map
 
 import salvo.*
 
-fun<K, V> Map_platform(entries: Array<Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.Map<K, V> = salvo.platform.core.map.Map(entries, hash, eq)
+fun<K, V> Map_platform(entries: Array<kotlin.Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.Map<K, V> = salvo.platform.core.map.Map(entries, hash, eq)
 
-fun<K, V> Mut_Map_platform(entries: Array<Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.MutMap<K, V> = salvo.platform.core.map.Mut_Map(entries, hash, eq)
+fun<K, V> Mut_Map_platform(entries: Array<kotlin.Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.MutMap<K, V> = salvo.platform.core.map.Mut_Map(entries, hash, eq)
 
-fun<K, V> mapByPlatform(size: Int, init: (Int) -> Pair<K, V>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.Map<K, V> = salvo.platform.core.map.mapBy(size, init, hash, eq)
+fun<K, V> mapByPlatform(size: Int, init: (Int) -> kotlin.Pair<K, V>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.Map<K, V> = salvo.platform.core.map.mapBy(size, init, hash, eq)
 
-fun<K, V> mutMapByPlatform(size: Int, init: (Int) -> Pair<K, V>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.MutMap<K, V> = salvo.platform.core.map.mutMapBy(size, init, hash, eq)
+fun<K, V> mutMapByPlatform(size: Int, init: (Int) -> kotlin.Pair<K, V>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.MutMap<K, V> = salvo.platform.core.map.mutMapBy(size, init, hash, eq)
 
-fun<K, V> toMapPlatform(pairs: List<Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.Map<K, V> = salvo.platform.core.map.toMap(pairs, hash, eq)
+fun<K, V> toMapPlatform(pairs: List<kotlin.Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.Map<K, V> = salvo.platform.core.map.toMap(pairs, hash, eq)
 
-fun<T, K, V> toMap(items: List<T>, entry: (T) -> Pair<K, V>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.Map<K, V> {
-    val map: salvo.platform.core.map.MutMap<K, V> = Mut_Map_platform(arrayOf<Pair<K, V>>(), hash, eq)
+fun<T, K, V> toMap(items: List<T>, entry: (T) -> kotlin.Pair<K, V>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.core.map.Map<K, V> {
+    val map: salvo.platform.core.map.MutMap<K, V> = Mut_Map_platform(arrayOf<kotlin.Pair<K, V>>(), hash, eq)
     for (x in salvo.platform.core.list.each(items)) {
-        val __destructured_1: Pair<K, V> = entry(x)
+        val __destructured_1: kotlin.Pair<K, V> = entry(x)
         val k: K = __destructured_1.first
         val v: V = __destructured_1.second
         putPlatform(map, k, v, hash, eq)
@@ -72,7 +72,7 @@ fun<K, V> toStr(map: salvo.platform.core.map.Map<K, V>, toStr: (K) -> String, to
         }
         salvo.core.string.appendPlatform(out, toStr(k))
         salvo.core.string.appendPlatform(out, ": ")
-        salvo.core.string.appendPlatform(out, toStr__1(run {
+        salvo.core.string.appendPlatform(out, toStr__1(kotlin.run {
             val __nn_1: V? = getPlatform(map, k, hash, eq)
             when {
                 (__nn_1 == null) -> {
@@ -100,7 +100,7 @@ fun<K, V> eq(a: salvo.platform.core.map.Map<K, V>, b: salvo.platform.core.map.Ma
             return false
         }
         val theirs_3: V = theirs!!
-        if (!(eq(run {
+        if (!(eq(kotlin.run {
             val __nn_1: V? = getPlatform(a, k, hash, eq__1)
             when {
                 (__nn_1 == null) -> {

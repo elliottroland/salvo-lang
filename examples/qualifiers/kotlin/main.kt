@@ -8,7 +8,7 @@ fun<T> NonEmpty_qualifies(list: List<T>): Boolean {
 
 fun head(list: List<Int>): Int {
     val first: Int? = salvo.core.list.getPlatform(list, 0)
-    return run {
+    return kotlin.run {
         val __nn_1: Int? = first
         when {
             (__nn_1 == null) -> {
@@ -95,7 +95,7 @@ fun main() {
     val plain: Int = 21
     val warm: Int = celsius(21)
     salvo.core.console.println(__handle_2, "2. ${describe__Int(plain)} vs ${describe__CelsiusInt(warm)}")
-    run {
+    kotlin.run {
         salvo.core.console.println(__handle_2, "2. widened: ${describe__Int(warm)}")
     }
     salvo.core.console.println(__handle_2, "3. sum ${sum(xs)}, head still ${head(xs)}")

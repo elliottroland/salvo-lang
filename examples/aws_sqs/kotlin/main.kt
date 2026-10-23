@@ -18,7 +18,7 @@ fun describe(e: Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>): String {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun roundTrip(sqs: salvo.aws.sqs.Sqs, console: salvo.core.console.Console, name: String) {
-    val created: Union2<salvo.aws.sqs.CreateQueueOutput, salvo.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>>> = run {
+    val created: Union2<salvo.aws.sqs.CreateQueueOutput, salvo.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>>> = kotlin.run {
         val (r, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.Union2Codec(salvo.aws.sqs.__Codec_CreateQueueOutput, salvo.core.checked.__Codec_Checked(salvo.Union2Codec(salvo.aws.sqs.__Codec_SqsError, salvo.aws.__Codec_AwsError)))) })
         sqs.createQueue(salvo.aws.sqs.CreateQueueInput(queueName = name, attributes = null, tags = null), r)
@@ -31,7 +31,7 @@ fun roundTrip(sqs: salvo.aws.sqs.Sqs, console: salvo.core.console.Console, name:
         return
     }
     val created_2: salvo.aws.sqs.CreateQueueOutput = ((created as Union2.U1<*, *>).value as salvo.aws.sqs.CreateQueueOutput)
-    val url: String = run {
+    val url: String = kotlin.run {
         val __pick_3: String? = created_2.queueUrl
         (if ((__pick_3 != null)) {
             val __picked_4: String = __pick_3!!
@@ -41,7 +41,7 @@ fun roundTrip(sqs: salvo.aws.sqs.Sqs, console: salvo.core.console.Console, name:
         })
     }
     salvo.core.console.println(console, "created ${url}")
-    val sent: Union2<salvo.aws.sqs.SendMessageOutput, salvo.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>>> = run {
+    val sent: Union2<salvo.aws.sqs.SendMessageOutput, salvo.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>>> = kotlin.run {
         val (r, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.Union2Codec(salvo.aws.sqs.__Codec_SendMessageOutput, salvo.core.checked.__Codec_Checked(salvo.Union2Codec(salvo.aws.sqs.__Codec_SqsError, salvo.aws.__Codec_AwsError)))) })
         sqs.sendMessage(salvo.aws.sqs.SendMessageInput(queueUrl = url, messageBody = "hello from Salvo", delaySeconds = null, messageAttributes = null, messageSystemAttributes = null, messageDeduplicationId = null, messageGroupId = null), r)
@@ -50,7 +50,7 @@ fun roundTrip(sqs: salvo.aws.sqs.Sqs, console: salvo.core.console.Console, name:
     when {
         (sent is Union2.U1<*, *>) -> {
             val sent_6: salvo.aws.sqs.SendMessageOutput = ((sent as Union2.U1<*, *>).value as salvo.aws.sqs.SendMessageOutput)
-            salvo.core.console.println(console, "sent ${run {
+            salvo.core.console.println(console, "sent ${kotlin.run {
                 val __pick_7: String? = sent_6.messageId
                 (if ((__pick_7 != null)) {
                     val __picked_8: String = __pick_7!!
@@ -68,16 +68,16 @@ fun roundTrip(sqs: salvo.aws.sqs.Sqs, console: salvo.core.console.Console, name:
             throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:47:5"))
         }
     }
-    val got: Union2<salvo.aws.sqs.ReceiveMessageOutput, salvo.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>>> = run {
+    val got: Union2<salvo.aws.sqs.ReceiveMessageOutput, salvo.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>>> = kotlin.run {
         val (r, __wid) = salvo.SalvoSched.waiter()
-        salvo.SalvoSched.waiterDecoder(__wid, { _: ByteArray -> Pair(false, null) })
+        salvo.SalvoSched.waiterDecoder(__wid, { _: ByteArray -> kotlin.Pair(false, null) })
         sqs.receiveMessage(salvo.aws.sqs.ReceiveMessageInput(queueUrl = url, attributeNames = null, messageSystemAttributeNames = null, messageAttributeNames = null, maxNumberOfMessages = 10, visibilityTimeout = null, waitTimeSeconds = null, receiveRequestAttemptId = null), r)
         salvo.SalvoSched.awaitReply(__wid) as Union2<salvo.aws.sqs.ReceiveMessageOutput, salvo.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>>>
     }
     when {
         (got is Union2.U1<*, *>) -> {
             val got_11: salvo.aws.sqs.ReceiveMessageOutput = ((got as Union2.U1<*, *>).value as salvo.aws.sqs.ReceiveMessageOutput)
-            val messages: List<salvo.aws.sqs.Message> = run {
+            val messages: List<salvo.aws.sqs.Message> = kotlin.run {
                 val __pick_12: List<salvo.aws.sqs.Message>? = got_11.messages
                 (if ((__pick_12 != null)) {
                     val __picked_13: List<salvo.aws.sqs.Message> = __pick_12!!
@@ -88,7 +88,7 @@ fun roundTrip(sqs: salvo.aws.sqs.Sqs, console: salvo.core.console.Console, name:
             }
             salvo.core.console.println(console, "received ${salvo.core.list.sizePlatform(messages)} message(s)")
             for (m in salvo.platform.core.list.each(messages)) {
-                salvo.core.console.println(console, "  ${run {
+                salvo.core.console.println(console, "  ${kotlin.run {
                     val __pick_15: String? = m.body
                     (if ((__pick_15 != null)) {
                         val __picked_16: String = __pick_15!!
@@ -107,7 +107,7 @@ fun roundTrip(sqs: salvo.aws.sqs.Sqs, console: salvo.core.console.Console, name:
             throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:55:5"))
         }
     }
-    val gone: Union2<Unit, salvo.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>>> = run {
+    val gone: Union2<Unit, salvo.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>>> = kotlin.run {
         val (r, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.Union2Codec(salvo.UnitCodec, salvo.core.checked.__Codec_Checked(salvo.Union2Codec(salvo.aws.sqs.__Codec_SqsError, salvo.aws.__Codec_AwsError)))) })
         sqs.deleteQueue(salvo.aws.sqs.DeleteQueueInput(queueUrl = url), r)
@@ -133,7 +133,7 @@ fun noQueue(url: String): salvo.aws.sqs.SqsError {
 }
 
 class MemSqs : salvo.aws.sqs.Sqs {
-    var queues: salvo.platform.core.map.MutMap<String, List<String>> = salvo.core.map.Mut_Map_platform(arrayOf<Pair<String, List<String>>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+    var queues: salvo.platform.core.map.MutMap<String, List<String>> = salvo.core.map.Mut_Map_platform(arrayOf<kotlin.Pair<String, List<String>>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     override fun createQueue(input: salvo.aws.sqs.CreateQueueInput, reply: salvo.SalvoReply) {
         val url: String = "mem://${input.queueName}"
         if (!(salvo.core.map.containsKeyPlatform(queues, url, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) }))) {
@@ -201,11 +201,11 @@ class MemSqs : salvo.aws.sqs.Sqs {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun main() {
-    salvo.SalvoSched.setProtocols(listOf(Pair("Faults", salvo.core.actor.__PROTO_Faults)))
+    salvo.SalvoSched.setProtocols(kotlin.collections.listOf(kotlin.Pair("Faults", salvo.core.actor.__PROTO_Faults)))
     val __use_1: salvo.core.console.__Platform_StdConsole = salvo.core.console.__Platform_StdConsole()
     val __handle_2: salvo.core.console.Console = __use_1
     salvo.core.console.println(__handle_2, "-- FakeSqs --")
-    run {
+    kotlin.run {
         val __use_3: salvo.aws.sqs.FakeSqs = salvo.aws.sqs.FakeSqs()
         val __lock___use_3 = java.util.concurrent.locks.ReentrantLock()
         val __handle_4: salvo.aws.sqs.Sqs = salvo.aws.sqs.__Mon_Sqs(__use_3, __lock___use_3)
@@ -214,12 +214,12 @@ fun main() {
         salvo.core.console.println(__handle_2, "calls: ${salvo.core.list.toStr(__handle_5.calls(), { __a0 -> __a0 })}")
     }
     salvo.core.console.println(__handle_2, "-- MemSqs --")
-    run {
+    kotlin.run {
         val __use_6: MemSqs = MemSqs()
         val __lock___use_6 = java.util.concurrent.locks.ReentrantLock()
         val __handle_7: salvo.aws.sqs.Sqs = salvo.aws.sqs.__Mon_Sqs(__use_6, __lock___use_6)
         roundTrip(__handle_7, __handle_2, "orders")
-        val missing: Union2<salvo.aws.sqs.GetQueueUrlOutput, salvo.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>>> = run {
+        val missing: Union2<salvo.aws.sqs.GetQueueUrlOutput, salvo.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>>> = kotlin.run {
             val (r, __wid) = salvo.SalvoSched.waiter()
             salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.Union2Codec(salvo.aws.sqs.__Codec_GetQueueUrlOutput, salvo.core.checked.__Codec_Checked(salvo.Union2Codec(salvo.aws.sqs.__Codec_SqsError, salvo.aws.__Codec_AwsError)))) })
             __handle_7.getQueueUrl(salvo.aws.sqs.GetQueueUrlInput(queueName = "nowhere", queueOwnerAwsAccountId = null), r)
@@ -228,7 +228,7 @@ fun main() {
         when {
             (missing is Union2.U1<*, *>) -> {
                 val missing_8: salvo.aws.sqs.GetQueueUrlOutput = ((missing as Union2.U1<*, *>).value as salvo.aws.sqs.GetQueueUrlOutput)
-                salvo.core.console.println(__handle_2, "unexpected: ${run {
+                salvo.core.console.println(__handle_2, "unexpected: ${kotlin.run {
                     val __pick_9: String? = missing_8.queueUrl
                     (if ((__pick_9 != null)) {
                         val __picked_10: String = __pick_9!!

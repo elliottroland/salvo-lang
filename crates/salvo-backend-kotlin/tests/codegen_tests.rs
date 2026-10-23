@@ -6354,7 +6354,7 @@ fn loops_lower_to_run_blocks() {
     // local, read narrowed after the loop when the join type has no `None`
     // arm (`Justification::LoopValue`).
     let c = &main.content;
-    assert!(c.contains("val last: Int = run {"), "{c}");
+    assert!(c.contains("val last: Int = kotlin.run {"), "{c}");
     assert!(c.contains("var __loop_3: Int? = null"), "{c}");
     assert!(c.contains("__loop_3 = (i * 10)"), "{c}");
     assert!(c.contains("val __loop_value_6: Int = __loop_3!!"), "{c}");
@@ -9208,7 +9208,7 @@ fn loop_destructuring_binds_the_parts_of_a_temporary_kotlin() {
         .unwrap();
     let text = &main.content;
     assert!(
-        text.contains(": Pair<String, Int> = __emitted_"),
+        text.contains(": kotlin.Pair<String, Int> = __emitted_"),
         "the element temporary must be typed as itself:\n{text}"
     );
     assert!(
@@ -9368,7 +9368,7 @@ fn union_coercion_in_array_tuple_lambda() {
         // own binding.
         "listOf<Union2<Int, String>>(Union2.U1<Int, String>(tagOk(1)), second)",
         "Union2.U2<Int, String>(tagErr(\"a\"))",
-        "Pair(\"t\", Union2.U1<Int, String>(tagOk(2)))",
+        "kotlin.Pair(\"t\", Union2.U1<Int, String>(tagOk(2)))",
         "Union2.U1<Int, String>(tagOk(3))",
     ] {
         assert!(
@@ -15870,7 +15870,7 @@ fn several_faces_lower_to_one_actor_with_a_dispatcher_each_kotlin() {
         "the delivery must ask which protocol the message is:\n{text}"
     );
     assert!(
-        text.contains("val __a = salvo.SalvoSched.spawn(") && text.contains("Pair(__a, __a)"),
+        text.contains("val __a = salvo.SalvoSched.spawn(") && text.contains("kotlin.Pair(__a, __a)"),
         "the spawn must answer one addr per face:\n{text}"
     );
     assert!(
@@ -15984,7 +15984,7 @@ fn a_parked_continuation_lowers_to_a_slot_table_kotlin() {
     assert!(
         text.contains("var __addr: Int? = null")
             && text.contains(
-                "val __parked: MutableMap<Long, __Cont_Fetching> = mutableMapOf()"
+                "val __parked: MutableMap<Long, __Cont_Fetching> = kotlin.collections.mutableMapOf()"
             ),
         "the handler's generated fields are missing:\n{text}"
     );
@@ -16642,7 +16642,7 @@ fn a_deadline_lowers_to_the_runtime_modules_wheel() {
     let time = find("time.kt").expect("time.kt");
     assert!(time.contains("afterNanos("), "expected the deadline call in:\n{time}");
     let runtime = find("runtime/timers.kt").expect("runtime/timers.kt");
-    assert!(runtime.contains("val __module_use0: Deadlines by lazy {"), "{runtime}");
+    assert!(runtime.contains("val __module_use0: Deadlines by kotlin.lazy {"), "{runtime}");
     let scheduler = find("scheduler.kt").expect("scheduler.kt");
     assert!(!scheduler.contains("fun after(") && !scheduler.contains("timers"), "the host scheduler keeps no timers");
     assert!(

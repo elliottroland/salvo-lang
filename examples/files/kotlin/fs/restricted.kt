@@ -14,7 +14,7 @@ fun fsResolve(root: String, path: String): String? {
         if (!((i >= 0))) {
             break
         }
-        val seg: String = run {
+        val seg: String = kotlin.run {
             val __nn_1: String? = salvo.core.list.getPlatform(segs, i)
             when {
                 (__nn_1 == null) -> {
@@ -49,7 +49,7 @@ fun fsResolve(root: String, path: String): String? {
         if (!((j >= 0))) {
             break
         }
-        salvo.core.list.addPlatform(parts, run {
+        salvo.core.list.addPlatform(parts, kotlin.run {
             val __nn_3: String? = salvo.core.list.getPlatform(kept, j)
             when {
                 (__nn_3 == null) -> {

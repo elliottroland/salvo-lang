@@ -11,7 +11,7 @@ class __Mon_Args(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : Args {
     override fun args(): List<String> {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.args() } finally { lock.unlock() }
     }
@@ -313,7 +313,7 @@ fun mergeGroup(opts: salvo.platform.core.list.MutList<OptSpec>, groups: salvo.pl
     if (!(salvo.core.list.isEmpty(child.args))) {
         throw AssertionError(("salvo: " + ("`${key}` is a group of options, and `${child.name}` takes positionals") + " at args:217:9"))
     }
-    salvo.core.list.addPlatform(groups, GroupSpec(key = key, kind = kind, required = false, heading = run {
+    salvo.core.list.addPlatform(groups, GroupSpec(key = key, kind = kind, required = false, heading = kotlin.run {
         val __pick_1: String? = heading
         (if ((__pick_1 != null)) {
             val __picked_2: String = __pick_1!!
@@ -365,10 +365,10 @@ fun argName(field: String): String {
 
 fun commandName(typeName: String): String {
     var last: String = typeName
-    val cut: Pair<String, String>? = salvo.core.string.splitLast(typeName, ".")
+    val cut: kotlin.Pair<String, String>? = salvo.core.string.splitLast(typeName, ".")
     if (!((cut == null))) {
-        val cut_1: Pair<String, String> = cut!!
-        val __destructured_2: Pair<String, String> = cut_1
+        val cut_1: kotlin.Pair<String, String> = cut!!
+        val __destructured_2: kotlin.Pair<String, String> = cut_1
         val __unused_3: String = __destructured_2.first
         val tail: String = __destructured_2.second
         last = tail
@@ -436,7 +436,7 @@ fun scan(spec: Spec, args: List<String>): Found {
         if (!((i < n))) {
             break
         }
-        val t: Union4<salvo.args.lex.LongToken, salvo.args.lex.ShortToken, salvo.args.lex.WordToken, salvo.args.lex.EndToken> = run {
+        val t: Union4<salvo.args.lex.LongToken, salvo.args.lex.ShortToken, salvo.args.lex.WordToken, salvo.args.lex.EndToken> = kotlin.run {
             val __nn_1: Union4<salvo.args.lex.LongToken, salvo.args.lex.ShortToken, salvo.args.lex.WordToken, salvo.args.lex.EndToken>? = salvo.core.list.getPlatform(tokens, i)
             when {
                 (__nn_1 == null) -> {
@@ -462,7 +462,7 @@ fun scan(spec: Spec, args: List<String>): Found {
                             if (!((i < n))) {
                                 break
                             }
-                            salvo.core.list.addPlatform(rest, run {
+                            salvo.core.list.addPlatform(rest, kotlin.run {
                                 val __nn_5: String? = salvo.core.list.getPlatform(args, i)
                                 when {
                                     (__nn_5 == null) -> {
@@ -500,7 +500,7 @@ fun scan(spec: Spec, args: List<String>): Found {
                         if ((!(o_8.takesValue) && (attached == null))) {
                             salvo.core.list.addPlatform(hits, Hit(field = o_8.field, value = ""))
                         } else if (!(o_8.takesValue)) {
-                            salvo.core.list.addPlatform(errors, Union11.U4<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>(Invalid(what = flag, value = run {
+                            salvo.core.list.addPlatform(errors, Union11.U4<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>(Invalid(what = flag, value = kotlin.run {
                                 val __pick_9: String? = attached
                                 (if ((__pick_9 != null)) {
                                     val __picked_10: String = __pick_9!!
@@ -534,7 +534,7 @@ fun scan(spec: Spec, args: List<String>): Found {
                     if (!((k < len))) {
                         break
                     }
-                    val c: Char = run {
+                    val c: Char = kotlin.run {
                         val __nn_15: Char? = salvo.core.string.charAtPlatform(letters, k)
                         when {
                             (__nn_15 == null) -> {
@@ -561,7 +561,7 @@ fun scan(spec: Spec, args: List<String>): Found {
                             } else {
                                 if ((k < len)) {
                                     val o_19: OptSpec = o!!
-                                    salvo.core.list.addPlatform(hits, Hit(field = o_19.field, value = run {
+                                    salvo.core.list.addPlatform(hits, Hit(field = o_19.field, value = kotlin.run {
                                         val __nn_20: String? = salvo.core.string.substrPlatform(letters, k, len)
                                         when {
                                             (__nn_20 == null) -> {
@@ -656,7 +656,7 @@ fun scan(spec: Spec, args: List<String>): Found {
                 if (!((w < nw))) {
                     break
                 }
-                salvo.core.list.addPlatform(hits, Hit(field = a.field, value = run {
+                salvo.core.list.addPlatform(hits, Hit(field = a.field, value = kotlin.run {
                     val __nn_28: String? = salvo.core.list.getPlatform(words, w)
                     when {
                         (__nn_28 == null) -> {
@@ -672,7 +672,7 @@ fun scan(spec: Spec, args: List<String>): Found {
             }
         } else {
             if ((w < nw)) {
-                salvo.core.list.addPlatform(hits, Hit(field = a.field, value = run {
+                salvo.core.list.addPlatform(hits, Hit(field = a.field, value = kotlin.run {
                     val __nn_30: String? = salvo.core.list.getPlatform(words, w)
                     when {
                         (__nn_30 == null) -> {
@@ -695,7 +695,7 @@ fun scan(spec: Spec, args: List<String>): Found {
         if (!((w < nw))) {
             break
         }
-        salvo.core.list.addPlatform(errors, Union11.U5<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>(Unexpected(value = run {
+        salvo.core.list.addPlatform(errors, Union11.U5<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>(Unexpected(value = kotlin.run {
             val __nn_32: String? = salvo.core.list.getPlatform(words, w)
             when {
                 (__nn_32 == null) -> {
@@ -716,12 +716,12 @@ fun scan(spec: Spec, args: List<String>): Found {
 }
 
 fun parentKey(key: String): String? {
-    val cut: Pair<String, String>? = salvo.core.string.splitLast(key, "/")
+    val cut: kotlin.Pair<String, String>? = salvo.core.string.splitLast(key, "/")
     if ((cut == null)) {
         return null
     }
-    val cut_1: Pair<String, String> = cut!!
-    val __destructured_2: Pair<String, String> = cut_1
+    val cut_1: kotlin.Pair<String, String> = cut!!
+    val __destructured_2: kotlin.Pair<String, String> = cut_1
     val parent: String = __destructured_2.first
     val __unused_3: String = __destructured_2.second
     return parent
@@ -843,7 +843,7 @@ fun longOpt(spec: Spec, name: String): OptSpec? {
 
 fun shortOpt(spec: Spec, c: Char): OptSpec? {
     for (o in salvo.platform.core.list.each(spec.opts)) {
-        if (run {
+        if (kotlin.run {
             val __cmp_1: Char? = o.short
             (if ((__cmp_1 != null)) {
                 val __arm_2: Char = __cmp_1!!
@@ -1065,7 +1065,7 @@ fun oneLine(text: String?): String {
 
 fun helpRows(out: salvo.platform.core.string.MutStr, lefts: List<String>, rights: List<String>, rows: List<Int>, width: Int) {
     for (i in salvo.platform.core.list.each(rows)) {
-        val l: String = run {
+        val l: String = kotlin.run {
             val __nn_1: String? = salvo.core.list.getPlatform(lefts, i)
             when {
                 (__nn_1 == null) -> {
@@ -1077,7 +1077,7 @@ fun helpRows(out: salvo.platform.core.string.MutStr, lefts: List<String>, rights
                 }
             }
         }
-        val r: String = run {
+        val r: String = kotlin.run {
             val __nn_3: String? = salvo.core.list.getPlatform(rights, i)
             when {
                 (__nn_3 == null) -> {
@@ -1103,10 +1103,10 @@ fun section(spec: Spec, group: String?): String {
     }
     val group_1: String = group!!
     var top: String = group_1
-    val cut: Pair<String, String>? = salvo.core.string.splitOnce(top, "/")
+    val cut: kotlin.Pair<String, String>? = salvo.core.string.splitOnce(top, "/")
     if (!((cut == null))) {
-        val cut_2: Pair<String, String> = cut!!
-        val __destructured_3: Pair<String, String> = cut_2
+        val cut_2: kotlin.Pair<String, String> = cut!!
+        val __destructured_3: kotlin.Pair<String, String> = cut_2
         val head: String = __destructured_3.first
         val __unused_4: String = __destructured_3.second
         top = head
@@ -1132,7 +1132,7 @@ fun<T> parseNamed(args: List<String>, prefix: String?, argSpec: () -> Spec, from
         base
     } else {
         val prefix_1: String = prefix!!
-        run {
+        kotlin.run {
             val __spread_2: Spec = base
             Spec(name = "${prefix_1} ${base.name}", about = __spread_2.about, opts = __spread_2.opts, args = __spread_2.args, groups = __spread_2.groups, commands = __spread_2.commands, commandRequired = __spread_2.commandRequired, commandFields = __spread_2.commandFields)
         }

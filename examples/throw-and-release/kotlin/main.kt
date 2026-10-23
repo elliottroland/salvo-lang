@@ -20,7 +20,7 @@ fun openFile(console: salvo.core.console.Console, name: String): FileHandle {
 
 fun close(console: salvo.core.console.Console, handle: FileHandle) {
     salvo.core.console.println(console, "1. close ${handle.name}")
-    run { handle; Unit }
+    kotlin.run { handle; Unit }
 }
 
 fun readSize(console: salvo.core.console.Console, name: String, want: Int): Int {

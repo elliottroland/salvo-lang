@@ -118,7 +118,7 @@ fun describe(t: Tool): String {
                 val tls_2: Tls = tls!!
                 "tls ${tls_2.cert}"
             })
-            return "serve ${salvo.core.string.joinPlatform(c_1.files, ",")} on ${c_1.net.host}:${c_1.port} as ${c_1.output}, ${secure}, ${run {
+            return "serve ${salvo.core.string.joinPlatform(c_1.files, ",")} on ${c_1.net.host}:${c_1.port} as ${c_1.output}, ${secure}, ${kotlin.run {
                 val __pick_3: Int? = c_1.net.workers
                 (if ((__pick_3 != null)) {
                     val __picked_4: Int = __pick_3!!
@@ -294,7 +294,7 @@ fun argSpec__SpecServe(): salvo.args.Spec {
     var defaultText__c5__c6__c7__c8: String? = null
     val choices__c5__c6__c7__c8: salvo.platform.core.list.MutList<String> = mutableListOf<String>()
     val exclusive__c5__c6__c7__c8: Boolean = false
-    defaultText__c5__c6__c7__c8 = "${run {
+    defaultText__c5__c6__c7__c8 = "${kotlin.run {
         val __default_1: Int = 8080
         (if (!(salvo.core.range.InRange_qualifies(__default_1, 1, 65535))) throw AssertionError(("salvo: " + ("the default for field `port` is not `InRange(1, 65535) Int`") + " at main:157:1")) else Unit)
         __default_1
@@ -388,7 +388,7 @@ fun fromFound__Found_OkServeOrErrsNonEmptyListArgError(found: salvo.args.Found):
     return Union2.U1<Serve, List<Union11<salvo.args.UnknownOption, salvo.args.MissingValue, salvo.args.Missing, salvo.args.Invalid, salvo.args.Unexpected, salvo.args.Repeated, salvo.args.Requires, salvo.args.Conflict, salvo.args.MissingOne, salvo.args.UnknownCommand, salvo.args.HelpRequested>>>(salvo.core.result.Ok(Serve(net = salvo.args.eval(fun(): Net {
         return salvo.args.built(fromFound__Found_OkNetOrErrsNonEmptyListArgError(found))
     }), port = salvo.args.eval(fun(): Int {
-        return salvo.args.readValue(found, "port", run {
+        return salvo.args.readValue(found, "port", kotlin.run {
             val __default_1: Int = 8080
             (if (!(salvo.core.range.InRange_qualifies(__default_1, 1, 65535))) throw AssertionError(("salvo: " + ("the default for field `port` is not `InRange(1, 65535) Int`") + " at main:157:1")) else Unit)
             __default_1
@@ -681,7 +681,7 @@ fun fromFound__Found_OkFetchOrErrsNonEmptyListArgError(found: salvo.args.Found):
         return throw AssertionError(("salvo: " + ("`source` was checked as required") + " at main:157:1"))
     }), header = salvo.args.eval(fun(): List<String> {
         val all__c41__c42__c43__c44__c45__c46__c47__c48: List<String> = salvo.args.readAll(found, "header", { __a0 -> salvo.core.string.fromStr__Str_StrOpt(__a0) })
-        run {
+        kotlin.run {
             return all__c41__c42__c43__c44__c45__c46__c47__c48
         }
         return throw AssertionError(("salvo: " + ("`header` was checked as required") + " at main:157:1"))

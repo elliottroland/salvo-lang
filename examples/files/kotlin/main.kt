@@ -507,7 +507,7 @@ fun sandboxEdges(fs: salvo.fs.Fs, console: salvo.core.console.Console, streams: 
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun main() {
-    salvo.SalvoSched.setProtocols(listOf(Pair("Faults", salvo.core.actor.__PROTO_Faults)))
+    salvo.SalvoSched.setProtocols(kotlin.collections.listOf(kotlin.Pair("Faults", salvo.core.actor.__PROTO_Faults)))
     val __use_1: salvo.core.console.__Platform_StdConsole = salvo.core.console.__Platform_StdConsole()
     val __handle_2: salvo.core.console.Console = __use_1
     val __use_3: salvo.stream.host.HostRawStreams = salvo.stream.host.HostRawStreams()
@@ -531,7 +531,7 @@ fun main() {
         return
     }
     salvo.core.console.println(__handle_2, "-- the real filesystem, scoped to one directory --")
-    run {
+    kotlin.run {
         val __use_12: salvo.fs.restricted.RestrictedFs = salvo.fs.restricted.RestrictedFs(root = root, __handle_10, __handle_6)
         val __lock___use_12 = java.util.concurrent.locks.ReentrantLock()
         val __handle_13: salvo.fs.Fs = salvo.fs.__Mon_Fs(__use_12, __lock___use_12)
@@ -544,7 +544,7 @@ fun main() {
         salvo.core.console.println(__handle_2, "cleanup failed: ${kindName__FsError(salvo.core.checked.detach(gone_14))}")
     }
     salvo.core.console.println(__handle_2, "-- the same code, with no disk at all --")
-    run {
+    kotlin.run {
         val __use_15: salvo.fs.mem.MemFs = salvo.fs.mem.MemFs()
         val __lock___use_15 = java.util.concurrent.locks.ReentrantLock()
         val __handle_16: salvo.fs.Fs = salvo.fs.__Mon_Fs(__use_15, __lock___use_15)

@@ -6,12 +6,12 @@ package salvo.runtime.routing
 
 import salvo.*
 
-val __module_use0: Routes by lazy {
+val __module_use0: Routes by kotlin.lazy {
     val __module_use0: Routes = Routes()
     __module_use0
 }
 
-val __module_use0_0: RouteTable by lazy {
+val __module_use0_0: RouteTable by kotlin.lazy {
     val __lock___module_use0 = java.util.concurrent.locks.ReentrantLock()
     val __module_use0_0: RouteTable = __Mon_RouteTable(__module_use0, __lock___module_use0)
     __module_use0_0
@@ -266,9 +266,9 @@ interface RouteTable {
     fun takeTask(key: Long): ExportedTask?
     fun watchChannel(node: Long, channel: String, sink: Int)
     fun channelSink(node: Long, channel: String): Int
-    fun setProtocols(table: List<Pair<String, String>>)
-    fun protocols(): List<Pair<String, String>>
-    fun setPeer(node: Long, table: List<Pair<String, String>>)
+    fun setProtocols(table: List<kotlin.Pair<String, String>>)
+    fun protocols(): List<kotlin.Pair<String, String>>
+    fun setPeer(node: Long, table: List<kotlin.Pair<String, String>>)
     fun peerHash(node: Long, protocol: String): String?
     fun forgetNode(node: Long): List<Int>
     fun creditsOf(addr: Int): Int?
@@ -285,187 +285,187 @@ class __Mon_RouteTable(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : RouteTable {
     override fun nodeOfPool(pool: Int): Long {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.nodeOfPool(pool) } finally { lock.unlock() }
     }
     override fun adoptPool(pool: Int, node: Long) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.adoptPool(pool, node) } finally { lock.unlock() }
     }
     override fun addNode(): Long {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.addNode() } finally { lock.unlock() }
     }
     override fun hosts(node: Long): Boolean {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.hosts(node) } finally { lock.unlock() }
     }
     override fun identityOf(addr: Int, pool: Int): RemoteRef {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.identityOf(addr, pool) } finally { lock.unlock() }
     }
     override fun findImport(r: RemoteRef, here: Long): Union3<Found, MakeProxy, MakeDead> {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.findImport(r, here) } finally { lock.unlock() }
     }
     override fun registerProxy(r: RemoteRef, idx: Int, here: Long): Int {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.registerProxy(r, idx, here) } finally { lock.unlock() }
     }
     override fun registerDead(idx: Int): Int {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.registerDead(idx) } finally { lock.unlock() }
     }
     override fun isProxy(addr: Int): Boolean {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.isProxy(addr) } finally { lock.unlock() }
     }
     override fun proxyRef(addr: Int): RemoteRef? {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.proxyRef(addr) } finally { lock.unlock() }
     }
     override fun takeCredit(addr: Int, me: salvo.platform.runtime.Parker): Int {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.takeCredit(addr, me) } finally { lock.unlock() }
     }
     override fun stage(from: Long, to: Long, frame: salvo.platform.core.bytes.Bytes) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.stage(from, to, frame) } finally { lock.unlock() }
     }
     override fun grant(addr: Int, pool: Int, from: Long, n: Int) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.grant(addr, pool, from, n) } finally { lock.unlock() }
     }
     override fun takeOutbox(): salvo.platform.core.list.MutList<Staged> {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.takeOutbox() } finally { lock.unlock() }
     }
     override fun addRoute(node: Long, at: salvo.platform.core.bytes.Bytes) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.addRoute(node, at) } finally { lock.unlock() }
     }
     override fun setOutbound(node: Long) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.setOutbound(node) } finally { lock.unlock() }
     }
     override fun hasOutbound(node: Long): Boolean {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.hasOutbound(node) } finally { lock.unlock() }
     }
     override fun accepts(to: Long, actor: Long, claimed: Long): Boolean {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.accepts(to, actor, claimed) } finally { lock.unlock() }
     }
     override fun received(idx: Int) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.received(idx) } finally { lock.unlock() }
     }
     override fun credited(r: RemoteRef, to: Long, n: Int): Boolean {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.credited(r, to, n) } finally { lock.unlock() }
     }
     override fun held(idx: Int): Int {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.held(idx) } finally { lock.unlock() }
     }
     override fun putTask(key: Long, t: ExportedTask) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.putTask(key, t) } finally { lock.unlock() }
     }
     override fun takeTask(key: Long): ExportedTask? {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.takeTask(key) } finally { lock.unlock() }
     }
     override fun watchChannel(node: Long, channel: String, sink: Int) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.watchChannel(node, channel, sink) } finally { lock.unlock() }
     }
     override fun channelSink(node: Long, channel: String): Int {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.channelSink(node, channel) } finally { lock.unlock() }
     }
-    override fun setProtocols(table: List<Pair<String, String>>) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+    override fun setProtocols(table: List<kotlin.Pair<String, String>>) {
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.setProtocols(table) } finally { lock.unlock() }
     }
-    override fun protocols(): List<Pair<String, String>> {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+    override fun protocols(): List<kotlin.Pair<String, String>> {
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.protocols() } finally { lock.unlock() }
     }
-    override fun setPeer(node: Long, table: List<Pair<String, String>>) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+    override fun setPeer(node: Long, table: List<kotlin.Pair<String, String>>) {
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.setPeer(node, table) } finally { lock.unlock() }
     }
     override fun peerHash(node: Long, protocol: String): String? {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.peerHash(node, protocol) } finally { lock.unlock() }
     }
     override fun forgetNode(node: Long): List<Int> {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.forgetNode(node) } finally { lock.unlock() }
     }
     override fun creditsOf(addr: Int): Int? {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.creditsOf(addr) } finally { lock.unlock() }
     }
     override fun setView(group: Int, members: List<Int>) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.setView(group, members) } finally { lock.unlock() }
     }
     override fun viewOf(group: Int): List<Int> {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.viewOf(group) } finally { lock.unlock() }
     }
     override fun versionOf(group: Int): Long {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.versionOf(group) } finally { lock.unlock() }
     }
     override fun bump(group: Int) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.bump(group) } finally { lock.unlock() }
     }
     override fun addViewWaiter(group: Int, seen: Long, me: salvo.platform.runtime.Parker): Long {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.addViewWaiter(group, seen, me) } finally { lock.unlock() }
     }
     override fun dropViewWaiter(id: Long) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.dropViewWaiter(id) } finally { lock.unlock() }
     }
@@ -487,8 +487,8 @@ fun bumpIn(versions: salvo.platform.core.map.MutMap<Int, Long>, waiters: salvo.p
         if (!((i < salvo.core.list.sizePlatform(waiters)))) {
             break
         }
-        if ((run {
-            val __proj_3: ViewWaiter = run {
+        if ((kotlin.run {
+            val __proj_3: ViewWaiter = kotlin.run {
                 val __nn_1: ViewWaiter? = salvo.core.list.getPlatform(waiters, i)
                 when {
                     (__nn_1 == null) -> {
@@ -502,7 +502,7 @@ fun bumpIn(versions: salvo.platform.core.map.MutMap<Int, Long>, waiters: salvo.p
             }
             __proj_3.group
         } == group)) {
-            val w: ViewWaiter = run {
+            val w: ViewWaiter = kotlin.run {
                 val __nn_4: ViewWaiter? = salvo.core.list.removeAtPlatform(waiters, i)
                 when {
                     (__nn_4 == null) -> {
@@ -530,25 +530,25 @@ data class ViewWaiter(
 class Routes : RouteTable {
     var nodeId: Long = 0L
     var hosted: salvo.platform.core.set.MutSet<Long> = salvo.core.set.Mut_Set_platform(arrayOf<Long>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
-    var poolNode: salvo.platform.core.map.MutMap<Int, Long> = salvo.core.map.Mut_Map_platform(arrayOf<Pair<Int, Long>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
-    var bits: salvo.platform.core.map.MutMap<Int, Long> = salvo.core.map.Mut_Map_platform(arrayOf<Pair<Int, Long>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
-    var remote: salvo.platform.core.map.MutMap<Int, RemoteRef> = salvo.core.map.Mut_Map_platform(arrayOf<Pair<Int, RemoteRef>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
-    var proxies: salvo.platform.core.map.MutMap<RemoteRef, Int> = salvo.core.map.Mut_Map_platform(arrayOf<Pair<RemoteRef, Int>>(), ::hash__RemoteRef, ::eq__RemoteRef_RemoteRef)
-    var credits: salvo.platform.core.map.MutMap<Int, Int> = salvo.core.map.Mut_Map_platform(arrayOf<Pair<Int, Int>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
-    var heldN: salvo.platform.core.map.MutMap<Int, Int> = salvo.core.map.Mut_Map_platform(arrayOf<Pair<Int, Int>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
-    var routes: salvo.platform.core.map.MutMap<Long, salvo.platform.core.bytes.Bytes> = salvo.core.map.Mut_Map_platform(arrayOf<Pair<Long, salvo.platform.core.bytes.Bytes>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+    var poolNode: salvo.platform.core.map.MutMap<Int, Long> = salvo.core.map.Mut_Map_platform(arrayOf<kotlin.Pair<Int, Long>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+    var bits: salvo.platform.core.map.MutMap<Int, Long> = salvo.core.map.Mut_Map_platform(arrayOf<kotlin.Pair<Int, Long>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+    var remote: salvo.platform.core.map.MutMap<Int, RemoteRef> = salvo.core.map.Mut_Map_platform(arrayOf<kotlin.Pair<Int, RemoteRef>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+    var proxies: salvo.platform.core.map.MutMap<RemoteRef, Int> = salvo.core.map.Mut_Map_platform(arrayOf<kotlin.Pair<RemoteRef, Int>>(), ::hash__RemoteRef, ::eq__RemoteRef_RemoteRef)
+    var credits: salvo.platform.core.map.MutMap<Int, Int> = salvo.core.map.Mut_Map_platform(arrayOf<kotlin.Pair<Int, Int>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+    var heldN: salvo.platform.core.map.MutMap<Int, Int> = salvo.core.map.Mut_Map_platform(arrayOf<kotlin.Pair<Int, Int>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+    var routes: salvo.platform.core.map.MutMap<Long, salvo.platform.core.bytes.Bytes> = salvo.core.map.Mut_Map_platform(arrayOf<kotlin.Pair<Long, salvo.platform.core.bytes.Bytes>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     var outbound: salvo.platform.core.set.MutSet<Long> = salvo.core.set.Mut_Set_platform(arrayOf<Long>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     var parked: salvo.platform.core.list.MutList<Parked> = mutableListOf<Parked>()
     var outbox: salvo.platform.core.list.MutList<Staged> = mutableListOf<Staged>()
     var taskKeys: salvo.platform.core.list.MutList<Long> = mutableListOf<Long>()
     var tasks: salvo.platform.core.list.MutList<ExportedTask> = mutableListOf<ExportedTask>()
-    var controls: salvo.platform.core.map.MutMap<ControlKey, Int> = salvo.core.map.Mut_Map_platform(arrayOf<Pair<ControlKey, Int>>(), ::hash__ControlKey, ::eq__ControlKey_ControlKey)
-    var local: List<Pair<String, String>> = listOf<Pair<String, String>>()
-    var peers: salvo.platform.core.map.MutMap<Long, List<Pair<String, String>>> = salvo.core.map.Mut_Map_platform(arrayOf<Pair<Long, List<Pair<String, String>>>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+    var controls: salvo.platform.core.map.MutMap<ControlKey, Int> = salvo.core.map.Mut_Map_platform(arrayOf<kotlin.Pair<ControlKey, Int>>(), ::hash__ControlKey, ::eq__ControlKey_ControlKey)
+    var local: List<kotlin.Pair<String, String>> = listOf<kotlin.Pair<String, String>>()
+    var peers: salvo.platform.core.map.MutMap<Long, List<kotlin.Pair<String, String>>> = salvo.core.map.Mut_Map_platform(arrayOf<kotlin.Pair<Long, List<kotlin.Pair<String, String>>>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     var deadEntry: Int = (-1)
     var creditWaiters: salvo.platform.core.list.MutList<salvo.platform.runtime.Parker> = mutableListOf<salvo.platform.runtime.Parker>()
-    var views: salvo.platform.core.map.MutMap<Int, List<Int>> = salvo.core.map.Mut_Map_platform(arrayOf<Pair<Int, List<Int>>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
-    var versions: salvo.platform.core.map.MutMap<Int, Long> = salvo.core.map.Mut_Map_platform(arrayOf<Pair<Int, Long>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+    var views: salvo.platform.core.map.MutMap<Int, List<Int>> = salvo.core.map.Mut_Map_platform(arrayOf<kotlin.Pair<Int, List<Int>>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+    var versions: salvo.platform.core.map.MutMap<Int, Long> = salvo.core.map.Mut_Map_platform(arrayOf<kotlin.Pair<Int, Long>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     var viewWaiters: salvo.platform.core.list.MutList<ViewWaiter> = mutableListOf<ViewWaiter>()
     var nextWaiter: Long = 0L
     init {
@@ -658,7 +658,7 @@ class Routes : RouteTable {
             if (!((salvo.core.list.sizePlatform(outbox) > 0))) {
                 break
             }
-            salvo.core.list.addPlatform(out, run {
+            salvo.core.list.addPlatform(out, kotlin.run {
                 val __nn_1: Staged? = salvo.core.list.removeAtPlatform(outbox, 0)
                 when {
                     (__nn_1 == null) -> {
@@ -745,7 +745,7 @@ class Routes : RouteTable {
             if (!((i < salvo.core.list.sizePlatform(taskKeys)))) {
                 break
             }
-            if ((run {
+            if ((kotlin.run {
                 val __nn_1: Long? = salvo.core.list.getPlatform(taskKeys, i)
                 when {
                     (__nn_1 == null) -> {
@@ -775,21 +775,21 @@ class Routes : RouteTable {
         }
         return (-1)
     }
-    override fun setProtocols(table: List<Pair<String, String>>) {
+    override fun setProtocols(table: List<kotlin.Pair<String, String>>) {
         local = table
     }
-    override fun protocols(): List<Pair<String, String>> {
+    override fun protocols(): List<kotlin.Pair<String, String>> {
         return local
     }
-    override fun setPeer(node: Long, table: List<Pair<String, String>>) {
+    override fun setPeer(node: Long, table: List<kotlin.Pair<String, String>>) {
         salvo.core.map.putPlatform(peers, node, table, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     }
     override fun peerHash(node: Long, protocol: String): String? {
-        val t: List<Pair<String, String>>? = salvo.core.map.getPlatform(peers, node, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+        val t: List<kotlin.Pair<String, String>>? = salvo.core.map.getPlatform(peers, node, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
         if ((t != null)) {
-            val table: List<Pair<String, String>> = t!!
+            val table: List<kotlin.Pair<String, String>> = t!!
             for (entry in salvo.platform.core.list.each(table)) {
-                val __destructured_1: Pair<String, String> = entry
+                val __destructured_1: kotlin.Pair<String, String> = entry
                 val name: String = __destructured_1.first
                 val hash: String = __destructured_1.second
                 if (((name) == (protocol))) {
@@ -801,7 +801,7 @@ class Routes : RouteTable {
     }
     override fun forgetNode(node: Long): List<Int> {
         val _route: salvo.platform.core.bytes.Bytes? = salvo.core.map.removePlatform(routes, node, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
-        val _peer: List<Pair<String, String>>? = salvo.core.map.removePlatform(peers, node, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+        val _peer: List<kotlin.Pair<String, String>>? = salvo.core.map.removePlatform(peers, node, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
         val gone: salvo.platform.core.list.MutList<Int> = mutableListOf<Int>()
         for (idx in salvo.platform.core.list.each(salvo.core.map.keysPlatform(remote))) {
             val r: RemoteRef? = salvo.core.map.getPlatform(remote, idx, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
@@ -847,8 +847,8 @@ class Routes : RouteTable {
             if (!((i < salvo.core.list.sizePlatform(viewWaiters)))) {
                 break
             }
-            if ((run {
-                val __proj_3: ViewWaiter = run {
+            if ((kotlin.run {
+                val __proj_3: ViewWaiter = kotlin.run {
                     val __nn_1: ViewWaiter? = salvo.core.list.getPlatform(viewWaiters, i)
                     when {
                         (__nn_1 == null) -> {
@@ -918,7 +918,7 @@ fun wakeSenders(waiters: salvo.platform.core.list.MutList<salvo.platform.runtime
         if (!((salvo.core.list.sizePlatform(waiters) > 0))) {
             break
         }
-        salvo.runtime.unparkPlatform(run {
+        salvo.runtime.unparkPlatform(kotlin.run {
             val __nn_1: salvo.platform.runtime.Parker? = salvo.core.list.removeAtPlatform(waiters, 0)
             when {
                 (__nn_1 == null) -> {
@@ -951,7 +951,7 @@ fun restage(routes: salvo.platform.core.map.Map<Long, salvo.platform.core.bytes.
         if (!((salvo.core.list.sizePlatform(parked) > 0))) {
             break
         }
-        salvo.core.list.addPlatform(waiting, run {
+        salvo.core.list.addPlatform(waiting, kotlin.run {
             val __nn_1: Parked? = salvo.core.list.removeAtPlatform(parked, 0)
             when {
                 (__nn_1 == null) -> {
@@ -1150,15 +1150,15 @@ fun nodeLeft(node: Long) {
     }
 }
 
-fun registerProtocols(table: List<Pair<String, String>>) {
+fun registerProtocols(table: List<kotlin.Pair<String, String>>) {
     __module_use0_0.setProtocols(table)
 }
 
-fun localProtocols(): List<Pair<String, String>> {
+fun localProtocols(): List<kotlin.Pair<String, String>> {
     return __module_use0_0.protocols()
 }
 
-fun setPeerProtocols(node: Long, table: List<Pair<String, String>>) {
+fun setPeerProtocols(node: Long, table: List<kotlin.Pair<String, String>>) {
     __module_use0_0.setPeer(node, table)
 }
 
@@ -1288,7 +1288,7 @@ fun viewMembers(group: Int): List<Int> {
             if (!((i < salvo.core.list.sizePlatform(left)))) {
                 break
             }
-            if (before(identity(run {
+            if (before(identity(kotlin.run {
                 val __nn_1: Int? = salvo.core.list.getPlatform(left, i)
                 when {
                     (__nn_1 == null) -> {
@@ -1299,7 +1299,7 @@ fun viewMembers(group: Int): List<Int> {
                         __some_2
                     }
                 }
-            }), identity(run {
+            }), identity(kotlin.run {
                 val __nn_3: Int? = salvo.core.list.getPlatform(left, best)
                 when {
                     (__nn_3 == null) -> {
@@ -1315,7 +1315,7 @@ fun viewMembers(group: Int): List<Int> {
             }
             i = (i + 1)
         }
-        salvo.core.list.addPlatform(out, run {
+        salvo.core.list.addPlatform(out, kotlin.run {
             val __nn_5: Int? = salvo.core.list.removeAtPlatform(left, best)
             when {
                 (__nn_5 == null) -> {

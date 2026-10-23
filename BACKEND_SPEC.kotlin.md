@@ -54,6 +54,17 @@ Conventions:
   module is a forwarding lambda, since a callable reference cannot name a
   package. (Before the IR the backend wrote one import per name, with
   renames for clashing names; qualification made all of that unnecessary.)
+* [kt-stdlib-qualified] **The Kotlin stdlib the emitter calls is written
+  qualified too** (2026-10-20, ROADMAP §2d item 14): `kotlin.run { … }` for a
+  block in value position, `kotlin.error`, `kotlin.check`, `kotlin.TODO`,
+  `kotlin.lazy`, `kotlin.Pair` / `kotlin.Triple` (tuples, as types and
+  constructors) and `kotlin.collections.listOf` / `mutableMapOf`. Kotlin
+  resolves a bare name to the file's own package before its default imports,
+  so a program declaring `fn run` had its own `run` called by every
+  value-position block — a stack overflow where Rust printed the answer
+  [backend-never-wrong]. Extension calls (`x.let { … }`) need nothing: a
+  Salvo fn is never an extension. Types the emitter writes bare (`String`,
+  `Int`, `MutableList`) are not covered yet: ROADMAP records it.
 * [kt-entry] `fn main() [use]` emits as `fun main()` with *no* effect
   parameters; the entry point is `salvo.<module>.MainKt` (`main.sv` →
   `salvo.main.MainKt`; the CLI prints it after compiling).
@@ -210,7 +221,7 @@ Conventions:
   * The mutators are native: `append` → `.append(..)`, `clear` →
     `.clear()`, and `set` → a guarded `setCharAt` (which throws out of
     range, where Salvo's `set` writes nothing and answers `false`
-    [col-bounds]), binding its arguments in a `run { }` so a call argument is
+    [col-bounds]), binding its arguments in a `kotlin.run { }` so a call argument is
     evaluated once and the guard is the expression's value.
   * `copy` of a `Mut Str` is `StringBuilder(sb)` [kt-copy]: identity would
     alias the buffer.
@@ -665,7 +676,7 @@ Conventions:
   site; state fields become `private var`, constructor params
   `private val`.
 * [kt-handler-template-return] An `intrinsic handler` member with a return
-  type wraps its `intrinsics::handler_member` body in `return run { … }`:
+  type wraps its `intrinsics::handler_member` body in `return kotlin.run { … }`:
   `run` yields the block's last expression, so both single-expression
   bodies (`kotlin.random.Random.nextDouble()`) and statement-sequence
   bodies work unchanged. Members without a return type keep their plain
@@ -838,7 +849,7 @@ nothing but the monitor.
 * [kt-intrinsic-handler] An `intrinsic handler` (std's `StdConsole`, `DefaultRandom`) is the
     is a real class, with member signatures taken from the
     *effect* declaration and bodies from `intrinsics::handler_member`. A
-    value-returning member keeps the `return run { … }` shape
+    value-returning member keeps the `return kotlin.run { … }` shape
     [kt-handler-template-return].
 * [kt-classpath] [platform-host-deps] **Declared jars go on both classpaths.**
   Every `*.jar` under the merged `HostDeps::kotlin_libs` directories is passed
@@ -1228,7 +1239,7 @@ nothing but the monitor.
 * [kt-mailbox] [actor-mailbox] **The mailbox bound is a generated property**,
   `internal val __mailboxCapacity: Int`, initialised from the slot's expression
   where a constructor parameter is in scope for free. The spawn reads it off the
-  instance: `run { val __h = H(args); SalvoSched.spawn(pool,
+  instance: `kotlin.run { val __h = H(args); SalvoSched.spawn(pool,
   __h.__mailboxCapacity, __Actor_H(__h)) }` — `internal` rather than `private`
   for the reason `__addr` is, since `__Actor_H` is a different class.
 * [kt-is-hoist] [is-bind-once] **A non-place `is` subject becomes a `var`**,
@@ -1444,13 +1455,13 @@ nothing but the monitor.
     no rendering, since the runtime is untyped (`Any?`) and the message classes
     carry the payload types.
   * **The forms**: `spawn H(args) on P` →
-    `run { val __h = H(args); SalvoSched.spawn(P, __h.__mailboxCapacity,
+    `kotlin.run { val __h = H(args); SalvoSched.spawn(P, __h.__mailboxCapacity,
     __Actor_H(__h)) }`, the bound read off the instance because it is the
     *handler's* [actor-mailbox], with the child's carrier as a trailing
     constructor argument when the handler has dependencies;
     `addr.member(args)` →
     `SalvoSched.send(addr, __Msg_E.Member(args))`; `waitfor out: Reply<T> { … }`
-    → a `run { }` expression that mints a waiter with a destructuring `val
+    → a `kotlin.run { }` expression that mints a waiter with a destructuring `val
     (out, __wid)`, runs the block, then `awaitReply(__wid) as T`; `send(r, v)`
     → `r.send(v)`; `pool(n)` → `SalvoSched.pool(n)`; `thread()` →
     `SalvoSched.thread()`; `watch` and `on_idle` are Salvo over
@@ -1470,7 +1481,7 @@ nothing but the monitor.
     qualifier [qual-erasure], and what it buys is static.
   * **[kt-task] A task mint is a scheduled lambda, and nothing else.**
     `replyto k(caps) on P` where `k` is a free `send fn` [free-send-fn] →
-    `run { val __c0 = …; SalvoSched.mintTask(P) { __v -> k(__c0, …, __v as
+    `kotlin.run { val __c0 = …; SalvoSched.mintTask(P) { __v -> k(__c0, …, __v as
     Payload) } }`, with `SalvoSched.currentPool()` for an omitted `on`
     [task-pool-inherit]. No continuation class, no slot, no `__parked` entry:
     the lambda *is* the continuation. The captures are bound to `val`s
@@ -1505,12 +1516,12 @@ nothing but the monitor.
     "no waiter is parked on a slot that is already filled", which is the
     delivery-before-pickup window. `reportDeadlock` names the actors parked in a
     wait (`SalvoWaiterState.parkedActor`) beside the gated ones.
-  * **`replyto k(caps)`** → `run { val (__r, __s) = SalvoSched.mint(__addr!!);
+  * **`replyto k(caps)`** → `kotlin.run { val (__r, __s) = SalvoSched.mint(__addr!!);
     __parked[__s] = __Cont_H.K(caps); __r }`, with `mintGated` for `replyto!`.
     `SalvoSched.mint`/`mintGated` answer a `Pair` of the token and its slot —
     changed with this slice, mirroring the Rust runtime and `waiter()`, because
     generated code keys `__parked` by the slot.
-  * **`k@self(args)`** → `run { val __a = __addr; if (__a != null)
+  * **`k@self(args)`** → `kotlin.run { val __a = __addr; if (__a != null)
     SalvoSched.send(__a, __Msg_E.K(args)) else this.k(args) }`.
   * **The forwarding stub**, `class __Stub_E(private val addr: Int) : E`, a
     generated IR handler (`stub`, constructor parameter `addr`) rendered by the

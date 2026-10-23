@@ -76,7 +76,7 @@ class __Mon_Inbound(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : Inbound {
     override fun receiveFrame(from: NodeEndpoint, frame: salvo.platform.core.bytes.Bytes) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.receiveFrame(from, frame) } finally { lock.unlock() }
     }
@@ -94,22 +94,22 @@ class __Mon_Transport(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : Transport {
     override fun listen(at: NodeEndpoint, sink: Int): Union2<Unit, Union2<Unreachable, WireFailed>> {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.listen(at, sink) } finally { lock.unlock() }
     }
     override fun unlisten(at: NodeEndpoint) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.unlisten(at) } finally { lock.unlock() }
     }
     override fun deliver(to: NodeEndpoint, frame: salvo.platform.core.bytes.Bytes): Union2<Unit, Union2<Unreachable, WireFailed>> {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.deliver(to, frame) } finally { lock.unlock() }
     }
     override fun localEndpoint(): NodeEndpoint {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.localEndpoint() } finally { lock.unlock() }
     }
@@ -210,7 +210,7 @@ class __Mon_Outbound(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : Outbound {
     override fun sendFrame(to: NodeEndpoint, frame: salvo.platform.core.bytes.Bytes) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.sendFrame(to, frame) } finally { lock.unlock() }
     }
@@ -219,7 +219,7 @@ class __Mon_Outbound(
 class Sending(private val __dep0: Transport) : Outbound {
     val __mailboxCapacity: Int = 256
     var __addr: Int? = null
-    val __parked: MutableMap<Long, __Cont_Sending> = mutableMapOf()
+    val __parked: MutableMap<Long, __Cont_Sending> = kotlin.collections.mutableMapOf()
     override fun sendFrame(to: NodeEndpoint, frame: salvo.platform.core.bytes.Bytes) {
         val _sent: Union2<Unit, Union2<Unreachable, WireFailed>> = __dep0.deliver(to, frame)
     }
@@ -251,7 +251,7 @@ class __Actor_Sending(private val handler: Sending) : salvo.SalvoActor {
     companion object {
         val __DECODE: ((String, ByteArray) -> Pair<Boolean, Any?>)? = { proto, payload ->
             when (proto) {
-                __PROTO_Outbound -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Outbound)?.let { Pair(true, it) } ?: Pair(false, null)
+                __PROTO_Outbound -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Outbound)?.let { kotlin.Pair(true, it) } ?: kotlin.Pair(false, null)
                 else -> Pair(false, null)
             }
         }
@@ -261,7 +261,7 @@ class __Actor_Sending(private val handler: Sending) : salvo.SalvoActor {
 class Receiving : Inbound {
     val __mailboxCapacity: Int = 256
     var __addr: Int? = null
-    val __parked: MutableMap<Long, __Cont_Receiving> = mutableMapOf()
+    val __parked: MutableMap<Long, __Cont_Receiving> = kotlin.collections.mutableMapOf()
     override fun receiveFrame(from: NodeEndpoint, frame: salvo.platform.core.bytes.Bytes) {
         val _delivered: Boolean = deliverFrame(frame)
     }
@@ -293,7 +293,7 @@ class __Actor_Receiving(private val handler: Receiving) : salvo.SalvoActor {
     companion object {
         val __DECODE: ((String, ByteArray) -> Pair<Boolean, Any?>)? = { proto, payload ->
             when (proto) {
-                __PROTO_Inbound -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Inbound)?.let { Pair(true, it) } ?: Pair(false, null)
+                __PROTO_Inbound -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Inbound)?.let { kotlin.Pair(true, it) } ?: kotlin.Pair(false, null)
                 else -> Pair(false, null)
             }
         }
@@ -312,8 +312,8 @@ fun connect__NodeEndpoint_Pool(transport: Transport, me: NodeEndpoint, on: Int):
     if (connected()) {
         return false
     }
-    val sending: Int = run { val __h = Sending(transport); val __a = salvo.SalvoSched.spawn(on, __h.__mailboxCapacity, __Actor_Sending(__h), __Actor_Sending.__DECODE); __a }
-    val receiving: Int = run { val __h = Receiving(); val __a = salvo.SalvoSched.spawn(on, __h.__mailboxCapacity, __Actor_Receiving(__h), __Actor_Receiving.__DECODE); __a }
+    val sending: Int = kotlin.run { val __h = Sending(transport); val __a = salvo.SalvoSched.spawn(on, __h.__mailboxCapacity, __Actor_Sending(__h), __Actor_Sending.__DECODE); __a }
+    val receiving: Int = kotlin.run { val __h = Receiving(); val __a = salvo.SalvoSched.spawn(on, __h.__mailboxCapacity, __Actor_Receiving(__h), __Actor_Receiving.__DECODE); __a }
     routeFrames(sending)
     val _listening: Union2<Unit, Union2<Unreachable, WireFailed>> = transport.listen(me, receiving)
     addRoute(thisNode(), me)
@@ -344,17 +344,17 @@ class __Mon_NodeGroup(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : NodeGroup {
     override fun members(out: salvo.SalvoReply) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.members(out) } finally { lock.unlock() }
     }
     override fun subscribe(w: Int) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.subscribe(w) } finally { lock.unlock() }
     }
     override fun leave() {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.leave() } finally { lock.unlock() }
     }
@@ -370,12 +370,12 @@ class __Mon_NodeGroupWatcher(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : NodeGroupWatcher {
     override fun joined(n: Node) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.joined(n) } finally { lock.unlock() }
     }
     override fun left(n: Node, why: String) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.left(n, why) } finally { lock.unlock() }
     }
@@ -384,7 +384,7 @@ class __Mon_NodeGroupWatcher(
 data class Hello(
     val group: String,
     val at: NodeEndpoint,
-    val protocols: List<Pair<String, String>>,
+    val protocols: List<kotlin.Pair<String, String>>,
 )
 
 object __Codec_Hello : salvo.WireCodec<Hello> {
@@ -399,7 +399,7 @@ object __Codec_Hello : salvo.WireCodec<Hello> {
 data class Ack(
     val group: String,
     val at: NodeEndpoint,
-    val protocols: List<Pair<String, String>>,
+    val protocols: List<kotlin.Pair<String, String>>,
 )
 
 object __Codec_Ack : salvo.WireCodec<Ack> {
@@ -438,7 +438,7 @@ fun nodeLeft(node: NodeId) {
     salvo.runtime.routing.nodeLeft(node.value)
 }
 
-fun setPeerProtocols(node: NodeId, table: List<Pair<String, String>>) {
+fun setPeerProtocols(node: NodeId, table: List<kotlin.Pair<String, String>>) {
     salvo.runtime.routing.setPeerProtocols(node.value, table)
 }
 
@@ -543,8 +543,8 @@ fun leaveGroup(known: salvo.platform.core.map.Map<NodeId, Node>) {
 class StaticNodeGroup(private val name: String, private val all: List<NodeEndpoint>, private val __dep0: Transport) : NodeGroup {
     val __mailboxCapacity: Int = 64
     var __addr: Int? = null
-    val __parked: MutableMap<Long, __Cont_StaticNodeGroup> = mutableMapOf()
-    var known: salvo.platform.core.map.MutMap<NodeId, Node> = salvo.core.map.Mut_Map_platform(arrayOf<Pair<NodeId, Node>>(), ::hash__NodeId, ::eq__NodeId_NodeId)
+    val __parked: MutableMap<Long, __Cont_StaticNodeGroup> = kotlin.collections.mutableMapOf()
+    var known: salvo.platform.core.map.MutMap<NodeId, Node> = salvo.core.map.Mut_Map_platform(arrayOf<kotlin.Pair<NodeId, Node>>(), ::hash__NodeId, ::eq__NodeId_NodeId)
     var watchers: salvo.platform.core.list.MutList<Int> = mutableListOf<Int>()
     fun init() {
         val me: NodeEndpoint = __dep0.localEndpoint()
@@ -616,7 +616,7 @@ class __Actor_StaticNodeGroup(private val handler: StaticNodeGroup) : salvo.Salv
         when (msg) {
             is __Msg_NodeGroup -> __dispatch_StaticNodeGroup_NodeGroup(handler, msg)
             is __Priv_StaticNodeGroup -> __dispatch_priv_StaticNodeGroup(handler, msg)
-            else -> error("a message of one of this actor's protocols")
+            else -> kotlin.error("a message of one of this actor's protocols")
         }
     }
 
@@ -644,7 +644,7 @@ class __Actor_StaticNodeGroup(private val handler: StaticNodeGroup) : salvo.Salv
     companion object {
         val __DECODE: ((String, ByteArray) -> Pair<Boolean, Any?>)? = { proto, payload ->
             when (proto) {
-                __PROTO_NodeGroup -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_NodeGroup)?.let { Pair(true, it) } ?: Pair(false, null)
+                __PROTO_NodeGroup -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_NodeGroup)?.let { kotlin.Pair(true, it) } ?: kotlin.Pair(false, null)
                 else -> Pair(false, null)
             }
         }
@@ -666,8 +666,8 @@ fun knownNodes(known: salvo.platform.core.map.Map<NodeId, Node>): List<Node> {
 class GossipNodeGroup(private val name: String, private val seeds: List<NodeEndpoint>, private val __dep0: Transport) : NodeGroup {
     val __mailboxCapacity: Int = 64
     var __addr: Int? = null
-    val __parked: MutableMap<Long, __Cont_GossipNodeGroup> = mutableMapOf()
-    var known: salvo.platform.core.map.MutMap<NodeId, Node> = salvo.core.map.Mut_Map_platform(arrayOf<Pair<NodeId, Node>>(), ::hash__NodeId, ::eq__NodeId_NodeId)
+    val __parked: MutableMap<Long, __Cont_GossipNodeGroup> = kotlin.collections.mutableMapOf()
+    var known: salvo.platform.core.map.MutMap<NodeId, Node> = salvo.core.map.Mut_Map_platform(arrayOf<kotlin.Pair<NodeId, Node>>(), ::hash__NodeId, ::eq__NodeId_NodeId)
     var dialed: salvo.platform.core.set.MutSet<String> = salvo.core.set.Mut_Set_platform(arrayOf<String>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     var watchers: salvo.platform.core.list.MutList<Int> = mutableListOf<Int>()
     fun init() {
@@ -752,7 +752,7 @@ class __Actor_GossipNodeGroup(private val handler: GossipNodeGroup) : salvo.Salv
         when (msg) {
             is __Msg_NodeGroup -> __dispatch_GossipNodeGroup_NodeGroup(handler, msg)
             is __Priv_GossipNodeGroup -> __dispatch_priv_GossipNodeGroup(handler, msg)
-            else -> error("a message of one of this actor's protocols")
+            else -> kotlin.error("a message of one of this actor's protocols")
         }
     }
 
@@ -780,7 +780,7 @@ class __Actor_GossipNodeGroup(private val handler: GossipNodeGroup) : salvo.Salv
     companion object {
         val __DECODE: ((String, ByteArray) -> Pair<Boolean, Any?>)? = { proto, payload ->
             when (proto) {
-                __PROTO_NodeGroup -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_NodeGroup)?.let { Pair(true, it) } ?: Pair(false, null)
+                __PROTO_NodeGroup -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_NodeGroup)?.let { kotlin.Pair(true, it) } ?: kotlin.Pair(false, null)
                 else -> Pair(false, null)
             }
         }
@@ -826,27 +826,27 @@ class __Mon_ActorGroup(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : ActorGroup {
     override fun join(member: Int) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.join(member) } finally { lock.unlock() }
     }
     override fun leave(member: Int) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.leave(member) } finally { lock.unlock() }
     }
     override fun members(out: salvo.SalvoReply) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.members(out) } finally { lock.unlock() }
     }
     override fun subscribe(w: Int) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.subscribe(w) } finally { lock.unlock() }
     }
     override fun refresh() {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.refresh() } finally { lock.unlock() }
     }
@@ -862,19 +862,19 @@ class __Mon_ActorGroupWatcher(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : ActorGroupWatcher {
     override fun joined(member: Int) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.joined(member) } finally { lock.unlock() }
     }
     override fun left(member: Int) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.left(member) } finally { lock.unlock() }
     }
 }
 
 fun shareMembers(name: String, hash: String, node: NodeId, members: List<Int>) {
-    sendControl(node, name, salvo.salvoEncode(Pair(hash, members), salvo.PairCodec(salvo.StrCodec, salvo.ListCodec(salvo.AddrCodec))))
+    sendControl(node, name, salvo.salvoEncode(kotlin.Pair(hash, members), salvo.PairCodec(salvo.StrCodec, salvo.ListCodec(salvo.AddrCodec))))
 }
 
 fun pending(a: Int): Int {
@@ -888,7 +888,7 @@ fun actorGroup__Addr(nodes: Int, protocol: () -> Protocol): Int {
 }
 
 fun actorGroup__Str_Addr(name: String, nodes: Int, protocol: () -> Protocol): Int {
-    val __destructured_1: Pair<Int, Int> = run { val __h = ActorGrouping(name = name, proto = protocol()); val __a = salvo.SalvoSched.spawn(salvo.core.actor.pool(1), __h.__mailboxCapacity, __Actor_ActorGrouping(__h), __Actor_ActorGrouping.__DECODE); salvo.SalvoSched.send(__a, __Priv_ActorGrouping.Init); Pair(__a, __a) }
+    val __destructured_1: kotlin.Pair<Int, Int> = kotlin.run { val __h = ActorGrouping(name = name, proto = protocol()); val __a = salvo.SalvoSched.spawn(salvo.core.actor.pool(1), __h.__mailboxCapacity, __Actor_ActorGrouping(__h), __Actor_ActorGrouping.__DECODE); salvo.SalvoSched.send(__a, __Priv_ActorGrouping.Init); kotlin.Pair(__a, __a) }
     val group: Int = __destructured_1.first
     val watcher: Int = __destructured_1.second
     salvo.SalvoSched.sendWire(nodes, __Msg_NodeGroup.Subscribe(watcher), __PROTO_NodeGroup, __Codec___Msg_NodeGroup)
@@ -902,7 +902,7 @@ fun join(group: Int, member: Int) {
 class ActorGrouping(private val name: String, private val proto: Protocol) : ActorGroup, NodeGroupWatcher {
     val __mailboxCapacity: Int = 64
     var __addr: Int? = null
-    val __parked: MutableMap<Long, __Cont_ActorGrouping> = mutableMapOf()
+    val __parked: MutableMap<Long, __Cont_ActorGrouping> = kotlin.collections.mutableMapOf()
     var all: salvo.platform.core.list.MutList<Int> = mutableListOf<Int>()
     var peers: salvo.platform.core.list.MutList<NodeId> = mutableListOf<NodeId>()
     var watchers: salvo.platform.core.list.MutList<Int> = mutableListOf<Int>()
@@ -961,11 +961,11 @@ class ActorGrouping(private val name: String, private val proto: Protocol) : Act
         salvo.core.list.addPlatform(watchers, w)
     }
     fun control(from: NodeId, data: salvo.platform.core.bytes.Bytes) {
-        val got: Pair<String, List<Int>>? = salvo.salvoDecode(data, salvo.PairCodec(salvo.StrCodec, salvo.ListCodec(salvo.AddrCodec)))
+        val got: kotlin.Pair<String, List<Int>>? = salvo.salvoDecode(data, salvo.PairCodec(salvo.StrCodec, salvo.ListCodec(salvo.AddrCodec)))
         if ((got == null)) {
             return
         }
-        val got_1: Pair<String, List<Int>> = got!!
+        val got_1: kotlin.Pair<String, List<Int>> = got!!
         if (!(((got_1.first) == (proto.hash)))) {
             return
         }
@@ -974,7 +974,7 @@ class ActorGrouping(private val name: String, private val proto: Protocol) : Act
             shareMembers(name, proto.hash, from, all)
         }
         var changed: Boolean = false
-        val got_2: Pair<String, List<Int>> = got!!
+        val got_2: kotlin.Pair<String, List<Int>> = got!!
         for (m in salvo.platform.core.list.each(got_2.second)) {
             if (admit(all, m)) {
                 changed = true
@@ -996,7 +996,7 @@ class __Actor_ActorGrouping(private val handler: ActorGrouping) : salvo.SalvoAct
             is __Msg_ActorGroup -> __dispatch_ActorGrouping_ActorGroup(handler, msg)
             is __Msg_NodeGroupWatcher -> __dispatch_ActorGrouping_NodeGroupWatcher(handler, msg)
             is __Priv_ActorGrouping -> __dispatch_priv_ActorGrouping(handler, msg)
-            else -> error("a message of one of this actor's protocols")
+            else -> kotlin.error("a message of one of this actor's protocols")
         }
     }
 
@@ -1032,8 +1032,8 @@ class __Actor_ActorGrouping(private val handler: ActorGrouping) : salvo.SalvoAct
     companion object {
         val __DECODE: ((String, ByteArray) -> Pair<Boolean, Any?>)? = { proto, payload ->
             when (proto) {
-                __PROTO_ActorGroup -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_ActorGroup)?.let { Pair(true, it) } ?: Pair(false, null)
-                __PROTO_NodeGroupWatcher -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_NodeGroupWatcher)?.let { Pair(true, it) } ?: Pair(false, null)
+                __PROTO_ActorGroup -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_ActorGroup)?.let { kotlin.Pair(true, it) } ?: kotlin.Pair(false, null)
+                __PROTO_NodeGroupWatcher -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_NodeGroupWatcher)?.let { kotlin.Pair(true, it) } ?: kotlin.Pair(false, null)
                 else -> Pair(false, null)
             }
         }
@@ -1081,7 +1081,7 @@ fun withdraw(list: salvo.platform.core.list.MutList<Int>, a: Int): Boolean {
 }
 
 fun nodeOf(a: Int): NodeId {
-    return NodeId(value = run {
+    return NodeId(value = kotlin.run {
         val __proj_1: salvo.runtime.routing.RemoteRef = salvo.runtime.routing.identity((a))
         __proj_1.node
     })
@@ -1166,12 +1166,12 @@ class __Mon_RouteSelector(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : RouteSelector {
     override fun changed(view: RouteView) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.changed(view) } finally { lock.unlock() }
     }
     override fun select(view: RouteView, key: Long?): Int? {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.select(view, key) } finally { lock.unlock() }
     }
@@ -1259,13 +1259,13 @@ class LeastLoaded(private val preferLocal: Boolean) : RouteSelector {
                 }
             }
         }
-        val chosen: RouteMember = run {
+        val chosen: RouteMember = kotlin.run {
             val __pick_2: RouteMember? = best
             (if ((__pick_2 != null)) {
                 val __picked_3: RouteMember = __pick_2!!
                 __picked_3
             } else {
-                run {
+                kotlin.run {
                     return null
                 }
             })
@@ -1282,7 +1282,7 @@ class Sharded : RouteSelector {
         if ((n == 0)) {
             return null
         }
-        val k: Long = run {
+        val k: Long = kotlin.run {
             val __pick_1: Long? = key
             (if ((__pick_1 != null)) {
                 val __picked_2: Long = __pick_1!!
@@ -1297,13 +1297,13 @@ class Sharded : RouteSelector {
             k
         })
         val slot: Int = ((magnitude % (n).toLong())).toInt()
-        val picked: RouteMember = run {
+        val picked: RouteMember = kotlin.run {
             val __pick_4: RouteMember? = salvo.core.list.getPlatform(view.members, slot)
             (if ((__pick_4 != null)) {
                 val __picked_5: RouteMember = __pick_4!!
                 __picked_5
             } else {
-                run {
+                kotlin.run {
                     return null
                 }
             })
@@ -1321,7 +1321,7 @@ class __Mon_Leader(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : Leader {
     override fun leader(): NodeId? {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { return inner.leader() } finally { lock.unlock() }
     }
@@ -1337,13 +1337,13 @@ class Elected(private val __dep0: Leader) : RouteSelector {
     var chosen: Int? = null
     override fun changed(view: RouteView) {
         chosen = null
-        val l: NodeId = run {
+        val l: NodeId = kotlin.run {
             val __pick_1: NodeId? = __dep0.leader()
             (if ((__pick_1 != null)) {
                 val __picked_2: NodeId = __pick_1!!
                 __picked_2
             } else {
-                run {
+                kotlin.run {
                     return
                 }
             })
@@ -1378,37 +1378,37 @@ class __Mon_MemNet(
     private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
 ) : MemNet {
     override fun attach(at: NodeEndpoint, sink: Int) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.attach(at, sink) } finally { lock.unlock() }
     }
     override fun detach(at: NodeEndpoint) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.detach(at) } finally { lock.unlock() }
     }
     override fun route(from: NodeEndpoint, to: NodeEndpoint, out: salvo.SalvoReply) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.route(from, to, out) } finally { lock.unlock() }
     }
     override fun partition(a: NodeEndpoint, b: NodeEndpoint) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.partition(a, b) } finally { lock.unlock() }
     }
     override fun heal(a: NodeEndpoint, b: NodeEndpoint) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.heal(a, b) } finally { lock.unlock() }
     }
     override fun kill(node: NodeEndpoint) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.kill(node) } finally { lock.unlock() }
     }
     override fun delivered(out: salvo.SalvoReply) {
-        check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
+        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [monitor-handler]" }
         lock.lock()
         try { inner.delivered(out) } finally { lock.unlock() }
     }
@@ -1417,8 +1417,8 @@ class __Mon_MemNet(
 class MemNetwork : MemNet {
     val __mailboxCapacity: Int = 64
     var __addr: Int? = null
-    val __parked: MutableMap<Long, __Cont_MemNetwork> = mutableMapOf()
-    var listeners: salvo.platform.core.map.MutMap<NodeEndpoint, Int> = salvo.core.map.Mut_Map_platform(arrayOf<Pair<NodeEndpoint, Int>>(), ::hash__NodeEndpoint, ::eq__NodeEndpoint_NodeEndpoint)
+    val __parked: MutableMap<Long, __Cont_MemNetwork> = kotlin.collections.mutableMapOf()
+    var listeners: salvo.platform.core.map.MutMap<NodeEndpoint, Int> = salvo.core.map.Mut_Map_platform(arrayOf<kotlin.Pair<NodeEndpoint, Int>>(), ::hash__NodeEndpoint, ::eq__NodeEndpoint_NodeEndpoint)
     var cuts: salvo.platform.core.set.MutSet<String> = salvo.core.set.Mut_Set_platform(arrayOf<String>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     var dead: salvo.platform.core.set.MutSet<NodeEndpoint> = salvo.core.set.Mut_Set_platform(arrayOf<NodeEndpoint>(), ::hash__NodeEndpoint, ::eq__NodeEndpoint_NodeEndpoint)
     var count: Int = 0
@@ -1498,7 +1498,7 @@ class __Actor_MemNetwork(private val handler: MemNetwork) : salvo.SalvoActor {
     companion object {
         val __DECODE: ((String, ByteArray) -> Pair<Boolean, Any?>)? = { proto, payload ->
             when (proto) {
-                __PROTO_MemNet -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_MemNet)?.let { Pair(true, it) } ?: Pair(false, null)
+                __PROTO_MemNet -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_MemNet)?.let { kotlin.Pair(true, it) } ?: kotlin.Pair(false, null)
                 else -> Pair(false, null)
             }
         }
@@ -1515,7 +1515,7 @@ class MemTransport(private val me: NodeEndpoint, private val net: Int) : Transpo
     }
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun deliver(to: NodeEndpoint, frame: salvo.platform.core.bytes.Bytes): Union2<Unit, Union2<Unreachable, WireFailed>> {
-        val sink: Int? = run {
+        val sink: Int? = kotlin.run {
             val (out, __wid) = salvo.SalvoSched.waiter()
             salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.OptCodec(salvo.AddrCodec)) })
             salvo.SalvoSched.sendWire(net, __Msg_MemNet.Route(me, to, out), __PROTO_MemNet, __Codec___Msg_MemNet)

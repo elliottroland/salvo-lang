@@ -27,18 +27,18 @@ fun<T> Errs(value: T): T {
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun<A, B, E> both(a: Union2<A, List<E>>, b: Union2<B, List<E>>, copy: (E) -> E): Union2<Pair<A, B>, List<E>> {
+fun<A, B, E> both(a: Union2<A, List<E>>, b: Union2<B, List<E>>, copy: (E) -> E): Union2<kotlin.Pair<A, B>, List<E>> {
     return when {
         (a is Union2.U1<*, *>) -> {
             val a_1: A = ((a as Union2.U1<*, *>).value as A)
             when {
                 (b is Union2.U1<*, *>) -> {
                     val b_2: B = ((b as Union2.U1<*, *>).value as B)
-                    return Union2.U1<Pair<A, B>, List<E>>(Ok(Pair(a_1, b_2)))
+                    return Union2.U1<kotlin.Pair<A, B>, List<E>>(Ok(kotlin.Pair(a_1, b_2)))
                 }
                 (b is Union2.U2<*, *>) -> {
                     val b_3: List<E> = ((b as Union2.U2<*, *>).value as List<E>)
-                    return Union2.U2<Pair<A, B>, List<E>>(Errs(b_3))
+                    return Union2.U2<kotlin.Pair<A, B>, List<E>>(Errs(b_3))
                 }
                 else -> {
                     throw AssertionError(("salvo: " + ("unhandled union arm") + " at core.result:70:13"))
@@ -50,11 +50,11 @@ fun<A, B, E> both(a: Union2<A, List<E>>, b: Union2<B, List<E>>, copy: (E) -> E):
             when {
                 (b is Union2.U1<*, *>) -> {
                     val b_5: B = ((b as Union2.U1<*, *>).value as B)
-                    return Union2.U2<Pair<A, B>, List<E>>(Errs(a_4))
+                    return Union2.U2<kotlin.Pair<A, B>, List<E>>(Errs(a_4))
                 }
                 (b is Union2.U2<*, *>) -> {
                     val b_6: List<E> = ((b as Union2.U2<*, *>).value as List<E>)
-                    return Union2.U2<Pair<A, B>, List<E>>(Errs(joined(a_4, b_6, copy)))
+                    return Union2.U2<kotlin.Pair<A, B>, List<E>>(Errs(joined(a_4, b_6, copy)))
                 }
                 else -> {
                     throw AssertionError(("salvo: " + ("unhandled union arm") + " at core.result:76:13"))
