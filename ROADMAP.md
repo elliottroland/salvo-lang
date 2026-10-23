@@ -994,7 +994,11 @@ reproduced in a scratch project; the repros are below.
     carry the claim its `+Valid Range` return gains, so it does not fit `->
     Valid Range`; and (2) calling the implicit inside `try` is not seen as
     throwing ("nothing in this `try` block can throw"), and the throw is
-    charged to the caller. Options:
+    charged to the caller. **(1) is fixed** (2026-10-20, [fn-value]: a
+    function value is one rule by name and as an implicit, and the probe's
+    `T` and `V` now resolve); **(2) is being fixed** by the user's call on
+    [fn-effects] (2026-10-20: a function inherits its fn-typed parameters'
+    effects only when it writes no effect list). Options:
     - (a) **A separate entry point**, `parse_valid` / `valid_args_or_exit`
       as above, after fixing (1) and (2), both general: a fn value keeps a
       gained claim, and an effectful implicit's throw lands in the `try`

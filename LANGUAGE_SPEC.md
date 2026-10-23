@@ -3109,6 +3109,30 @@ Conventions:
   remedies (annotate the position, or `rename`). When candidates exist but
   none fits, the diagnostic says so and explains why — a contract difference
   does not show in a printed type [fn-contract].
+* [fn-value] **A function passed by name and a function filling an implicit
+  are one rule; only the selection differs** (user decision 2026-10-20:
+  "implicits should just be lambdas which are automatically selected").
+  `Checker::fn_value_at` makes a declaration a value at an expected fn type,
+  for both:
+  * its return as a call sees it (`fn_return_ty`): the claim a constructor
+    gains (`-> +Valid Range`) and the concrete pass an `iter T` stands for;
+  * its explicit parameters, its own implicits filled in turn
+    [implicit-recursive] — or, failing that, every parameter, for a position
+    that passes them itself;
+  * its generics bound from the position, its contract [fn-contract] and its
+    effects [fn-effects];
+  * by name, the linear-generics ban on what a generic binds.
+  Selection stays each one's own: by name, [fn-value-select]'s `@`, rung and
+  ambiguity; an implicit, [implicit-resolve]'s canonical and rung. The IR
+  passes a function with implicits of its own as a lambda filling them,
+  whichever way it was chosen (`Checked::fn_value_implicits` for a name).
+  * Before, the two built the type separately and disagreed. An implicit
+    read the return as written, so `validate(o) -> +Valid Range` did not fill
+    `?validate: (o: Range) -> Valid Range` though it could be passed by name;
+    a function with implicits of its own could fill an implicit but not be
+    passed by name (`takes(eq)` for a stamped generic `eq` was refused); and
+    by-name selection compared the claim-less type while the chosen value
+    carried the claim.
 * [effect-member-call] An effect member call is checked against its declared
   parameters like any other call — arity and types. Both selections happen
   *before* this: which **effect**, by availability or `@Effect`, and which

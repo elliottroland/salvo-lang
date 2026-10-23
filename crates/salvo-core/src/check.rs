@@ -855,6 +855,11 @@ pub struct Checked {
     /// inferred from its body. Both emitters thread these *into* the
     /// closure instead of capturing them.
     pub lambda_effects: HashMap<Key, Vec<Ty>>,
+    /// [fn-value] The implicits a function passed **by name** fills in turn,
+    /// at the name's span — the same `nested` an implicit filled by that
+    /// function records (`ImplicitArg::Resolved`), since the two are one
+    /// rule [fn-value]. Absent for a function with none.
+    pub fn_value_implicits: HashMap<Key, Vec<ImplicitArg>>,
     /// [qual-lift] The type a `^` check widens its subject to, keyed by the
     /// check's span (a `^` expression, or a `^` branch head in a `when`).
     /// Present only when the check *peels a wrapper arm*, which is when the
@@ -6047,14 +6052,16 @@ impl<'p, 'r> Checker<'p, 'r> {
             .unwrap_or_default()
     }
 
+    /// [fn-value] A declared function's own type as a value, every parameter
+    /// included (written implicits and a spread group's members too), its
+    /// return as a call sees it — the claim a constructor gains (`-> +Valid
+    /// Range`) and the concrete pass an `iter T` stands for, through
+    /// [`Self::fn_return_ty`] — its contract and its effects. What a position
+    /// makes of it is [`Self::fn_value_at`].
     fn fn_value_ty(&mut self, key: FnKey, decl: &'p FnDecl) -> Ty {
         let saved = self.enter_generics(&decl.generics);
         let mut params: Vec<Ty> = decl.params.iter().map(|p| self.lower_type(&p.ty)).collect();
-        let ret = decl
-            .return_type
-            .as_ref()
-            .map(|t| self.lower_type(t))
-            .unwrap_or_else(Ty::none);
+        let ret = self.fn_return_ty(decl);
         self.generics = saved;
         // [implicit-group] A spread group's members are implicit parameters
         // the written list does not show; as a value the fn takes them like a
@@ -6089,6 +6096,95 @@ impl<'p, 'r> Checker<'p, 'r> {
             contract,
             effects,
         }
+    }
+
+    /// [fn-value] A declared function as a value **at the fn type `want`**:
+    /// one rule for a function passed by name and for one filling an
+    /// implicit, which differ only in how the candidate is selected (user
+    /// decision 2026-10-20: "implicits should just be lambdas which are
+    /// automatically selected"). Before, the two built the value's type
+    /// separately and disagreed — an implicit lost the claim its candidate's
+    /// return gains, so `validate(o) -> +Valid Range` did not fill
+    /// `?validate: (o: Range) -> Valid Range`, while passing it by name did;
+    /// and a function with implicits of its own could fill an implicit but
+    /// not be passed by name.
+    ///
+    /// The value's shape is the function's explicit parameters, with its own
+    /// implicits filled in turn [implicit-recursive]; failing that, every
+    /// parameter, for a position that passes the implicits itself. Its
+    /// generics bind from `want`, and the contract has to fit as well as the
+    /// types [fn-contract]. A miss is ranked for the diagnostic: 2 for the
+    /// wrong number of parameters, 1 for types that do not match, 0 for what
+    /// a printed type cannot show (a contract, an implicit that cannot be
+    /// filled).
+    fn fn_value_at(&mut self, key: FnKey, decl: &'p FnDecl, want: &Ty) -> Result<FnValueAt, (u8, String)> {
+        let name = decl.name.name.clone();
+        let Ty::Fn { params: want_params, ret: want_ret, .. } = want.strip_quals().clone() else {
+            return Err((2, format!("the position for `{name}` is not a function type")));
+        };
+        let full = self.fn_value_ty(key, decl);
+        let Ty::Fn { params: all, ret, contract, effects } = full.clone() else {
+            return Err((2, format!("`{name}` is not a function")));
+        };
+        // The explicit shape: written implicits and a spread group's members
+        // are dropped (`fn_value_ty` appends the members after the written
+        // list, so everything past it goes).
+        let keep: Vec<usize> = decl.params.iter().enumerate().filter(|(_, p)| !p.implicit).map(|(i, _)| i).collect();
+        let has_imps = keep.len() < all.len();
+        let explicit = Ty::Fn {
+            params: keep.iter().map(|&i| all[i].clone()).collect(),
+            ret: ret.clone(),
+            contract: contract.clone().map(|c| keep.iter().filter_map(|&i| c.get(i).cloned()).collect()),
+            effects: effects.clone(),
+        };
+        let shapes: Vec<(Ty, bool)> = if has_imps { vec![(explicit, true), (full, false)] } else { vec![(full, false)] };
+        let generics: HashSet<String> = decl.generics.iter().map(|g| g.name.clone()).collect();
+        let mut best: Option<(u8, String)> = None;
+        let miss = |rank: u8, reason: String, best: &mut Option<(u8, String)>| {
+            if best.as_ref().is_none_or(|(r, _)| rank < *r) {
+                *best = Some((rank, reason));
+            }
+        };
+        for (shape, fills) in shapes {
+            let Ty::Fn { params: have, ret: have_ret, .. } = &shape else { continue };
+            if have.len() != want_params.len() {
+                miss(
+                    2,
+                    format!("the `{name}` in scope takes {} argument(s), but the position needs {}", have.len(), want_params.len()),
+                    &mut best,
+                );
+                continue;
+            }
+            // The candidate's own generics bind from the position, so a
+            // universal `fn cmp<T>(a: T, b: T) -> Int` is compared as
+            // instantiated.
+            let mut binding: HashMap<String, Ty> = HashMap::new();
+            let matched = have.iter().zip(&want_params).all(|(h, w)| unify(h, w, &mut binding)) && unify(have_ret, &want_ret, &mut binding);
+            if !matched {
+                miss(1, format!("the `{name}` in scope is `{shape}`, and the position needs `{want}`"), &mut best);
+                continue;
+            }
+            let candidate = if generics.is_empty() { shape.clone() } else { substitute_vars(&shape, &binding, &generics) };
+            if !fn_value_fits(&candidate, want) {
+                let reason = self
+                    .fn_fit_reason(want, &candidate, &name)
+                    .unwrap_or_else(|| format!("the `{name}` in scope is `{candidate}`, and the position needs `{want}`"));
+                miss(0, reason, &mut best);
+                continue;
+            }
+            let mut nested = Vec::new();
+            if fills && !self.resolve_as_call {
+                match self.try_nested(key, decl, &binding, &generics, want) {
+                    Ok(n) => nested = n,
+                    Err(reason) => {
+                        miss(0, reason, &mut best);
+                        continue;
+                    }
+                }
+            }
+            return Ok(FnValueAt { ty: candidate, nested, binding });
+        }
+        Err(best.unwrap_or_else(|| (2, format!("`{name}` does not fit `{want}`"))))
     }
 
     /// The fn type of a `params` group member (or any bodiless signature),
@@ -6862,114 +6958,30 @@ impl<'p, 'r> Checker<'p, 'r> {
         };
         for entry in entries {
             let decl = entry.decl;
-            // [implicit-recursive] A candidate with implicits of its own is a
-            // candidate: its implicits are filled in turn once it fits
-            // (decision 1, 2026-09-28), and one that cannot be filled is
-            // a near miss, never silently dropped.
-            let has_imps = decl.params.iter().any(|p| p.implicit) || !decl.implicit_groups.is_empty();
-            // A written implicit (`?eq: (V, V) -> Bool`) is filled at the call,
-            // not by the position's arguments [comptime-generic].
-            let fixed: Vec<&ast::Param> = decl.params.iter().filter(|p| !p.implicit).collect();
-            if fixed.len() != want_params.len() {
-                note(
-                    2,
-                    format!(
-                        "the `{name}` in scope takes {} argument(s), but the position \
-                         needs {}",
-                        fixed.len(),
-                        want_params.len()
-                    ),
-                    &mut near,
-                );
-                continue;
-            }
-            let saved = self.enter_generics(&decl.generics);
-            let have_params: Vec<Ty> = fixed.iter().map(|p| self.lower_type(&p.ty)).collect();
-            let have_ret = decl
-                .return_type
-                .as_ref()
-                .map(|t| self.lower_type(t))
-                .unwrap_or_else(Ty::none);
-            self.generics = saved;
-            // The candidate's own generics bind from the required type, so a
-            // universal `fn cmp<T>(a: T, b: T) -> Int` matches every T.
-            let mut binding: HashMap<String, Ty> = HashMap::new();
-            let generics: HashSet<String> = decl.generics.iter().map(|g| g.name.clone()).collect();
-            let matched = have_params
-                .iter()
-                .zip(want_params)
-                .all(|(have, want)| unify(have, want, &mut binding))
-                && unify(&have_ret, want_ret, &mut binding);
-            if !matched {
-                let shown = self.fn_value_ty(entry.key, decl);
-                note(
-                    1,
-                    format!("the `{name}` in scope is `{shown}`, and the position needs `{want}`"),
-                    &mut near,
-                );
-                continue;
-            }
-            // Parameters are contravariant and the result covariant, as for
-            // any fn value [fn-contract]; the *contract* has to fit too, and
-            // that part a printed type does not show.
-            // The candidate's own generics bind from the required type, so a
-            // universal `fn cmp<T>(a: T, b: T) -> Int` is compared *as
-            // instantiated* — without this it would never fit a concrete
-            // position, and a concrete sibling would win by default.
-            let candidate = self.fn_value_ty(entry.key, decl);
-            let candidate = substitute_vars(&candidate, &binding, &generics);
-            // [comptime-generic] A written implicit is filled at the call, so
-            // the shape compared is the explicit parameters'. A spread group's
-            // members follow the written list (`fn_value_ty` appends them),
-            // so they are dropped with it: a generic `by auto` stamp asks for
-            // `?Hashed<T>` that way, and its `hash` fits `?hash: (W<Int>) ->
-            // Long` exactly as std's `hash(List<T>, ?hash)` does.
-            let candidate = match candidate {
-                Ty::Fn { params, ret, contract, effects } if params.len() >= decl.params.len() && fixed.len() < params.len() => {
-                    let keep: Vec<usize> = decl.params.iter().enumerate().filter(|(_, p)| !p.implicit).map(|(i, _)| i).collect();
-                    Ty::Fn {
-                        params: keep.iter().map(|&i| params[i].clone()).collect(),
-                        ret,
-                        contract: contract.map(|c| keep.iter().filter_map(|&i| c.get(i).cloned()).collect()),
-                        effects,
-                    }
+            // [fn-value] The rule a function passed by name follows; only
+            // the selection below is the implicit's own.
+            match self.fn_value_at(entry.key, decl, want) {
+                Ok(value) => {
+                    let canonical = self
+                        .attached_to(entry.key, decl)
+                        .filter(|t| want_types.contains(t));
+                    // [cmp-carry] The identity of the declaration itself, which is
+                    // what a result type publishes: `@`-scoped when it is, and the
+                    // bare name otherwise — a bare name means "the `cmp` of that
+                    // name visible where the type is used", which is
+                    // [implicit-resolve]'s locality, narrowed for canonicals by
+                    // [fn-attached]'s travelling rule.
+                    let identity = self.identity_of(entry.key, decl);
+                    hits.push((
+                        entry.key,
+                        entry.rung,
+                        canonical,
+                        entry.module.to_string(),
+                        identity,
+                        value.nested,
+                    ));
                 }
-                other => other,
-            };
-            if fn_value_fits(&candidate, want) {
-                let mut nested: Vec<ImplicitArg> = Vec::new();
-                if has_imps && !self.resolve_as_call {
-                    match self.try_nested(entry.key, decl, &binding, &generics, want) {
-                        Ok(n) => nested = n,
-                        Err(reason) => {
-                            note(0, reason, &mut near);
-                            continue;
-                        }
-                    }
-                }
-                let canonical = self
-                    .attached_to(entry.key, decl)
-                    .filter(|t| want_types.contains(t));
-                // [cmp-carry] The identity of the declaration itself, which is
-                // what a result type publishes: `@`-scoped when it is, and the
-                // bare name otherwise — a bare name means "the `cmp` of that
-                // name visible where the type is used", which is
-                // [implicit-resolve]'s locality, narrowed for canonicals by
-                // [fn-attached]'s travelling rule.
-                let identity = self.identity_of(entry.key, decl);
-                hits.push((
-                    entry.key,
-                    entry.rung,
-                    canonical,
-                    entry.module.to_string(),
-                    identity,
-                    nested,
-                ));
-            } else {
-                let reason = self.fn_fit_reason(want, &candidate, name).unwrap_or_else(|| {
-                    format!("the `{name}` in scope is `{candidate}`, and the position needs `{want}`")
-                });
-                note(0, reason, &mut near);
+                Err((rank, reason)) => note(rank, reason, &mut near),
             }
         }
         // One declaration is one candidate here too [fn-overload-scope]: a fn
@@ -7186,10 +7198,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let fitting: Vec<crate::resolve::FnEntry<'p>> = pool
                     .iter()
                     .copied()
-                    .filter(|e| {
-                        let candidate = self.fn_value_ty(e.key, e.decl);
-                        fn_value_fits(&candidate, want)
-                    })
+                    .filter(|e| self.fn_value_at(e.key, e.decl, want).is_ok())
                     .collect();
                 if fitting.is_empty() {
                     // None of them fits — which is a *mismatch*, not an
@@ -7200,9 +7209,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                         .iter()
                         .map(|e| {
                             let ty = self.fn_value_ty(e.key, e.decl);
-                            match self.fn_fit_reason(want, &ty, name) {
-                                Some(reason) => format!("`{ty}` ({reason})"),
-                                None => format!("`{ty}`"),
+                            match self.fn_value_at(e.key, e.decl, want) {
+                                Err((_, reason)) => format!("`{ty}` ({reason})"),
+                                Ok(_) => format!("`{ty}`"),
                             }
                         })
                         .collect();
@@ -7246,48 +7255,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [fn-ref-table]
         self.out.fn_refs.insert(self.key(name_span), entry.key);
         let decl = entry.decl;
-        let saved = self.enter_generics(&decl.generics);
-        let mut params: Vec<Ty> = decl.params.iter().map(|p| self.lower_type(&p.ty)).collect();
-        let ret = self.fn_return_ty(decl);
-        self.generics = saved;
-        params.extend(self.group_member_params(entry.key, decl));
-        // [fn-contract] The fn value carries the declaration's contract
-        // (written list, else the inferred facts), so boundary checks compare
-        // real modes — a consuming fn no longer masquerades as
-        // keeps-everything.
-        let facts: Option<Vec<crate::deduce::ParamDeduction>> = match &decl.deductions {
-            Some(_) => self.effective_contract(Some(entry.key), decl),
-            None => self
-                .inferred
-                .and_then(|table| table.get(&entry.key).cloned()),
-        };
-        let contract = facts.map(|facts| {
-            decl.params
-                .iter()
-                .zip(&params)
-                .map(|(p, pty)| {
-                    let entry = facts.iter().find(|d| d.param == p.name.name);
-                    FnParamContract {
-                        name: Some(p.name.name.clone()),
-                        kept: entry.map(|d| d.kept).unwrap_or(true),
-                        effect: entry
-                            .map(|d| d.effect.clone())
-                            .unwrap_or(QualEffect::KeepAll),
-                        mutable: pty.quals().iter().any(|q| q.name == "Mut"),
-                        lent: entry.is_some_and(|d| d.lent),
-                    }
-                })
-                .collect()
-        });
         // [fn-effects] A named fn passed by value performs exactly the
         // effects it declares (inherited entries included) — its callers
         // supply them.
-        let effects = self
-            .out
-            .fn_effects
-            .get(&entry.key)
-            .cloned()
-            .unwrap_or_default();
+        let effects = self.out.fn_effects.get(&entry.key).cloned().unwrap_or_default();
         // [fn-effects] What the *use site* expects the value to accept: a
         // pure fn passed where effects are expected must still take (and
         // ignore) them, so the emitters adapt against the expectation, not
@@ -7300,64 +7271,51 @@ impl<'p, 'r> Checker<'p, 'r> {
             _ => effects.clone(),
         };
         self.out.lambda_effects.insert(self.key(name_span), taken);
-        let candidate = Ty::Fn {
-            params,
-            ret: Box::new(ret),
-            contract,
-            effects,
+        // [fn-value] At an expected fn type, the value is what the shared
+        // rule makes of the declaration there — generics instantiated, its
+        // own implicits filled — exactly as an implicit filled by it would
+        // be. With none, or where it does not fit (the mismatch is reported
+        // where the value is used), it is the declaration's own type.
+        let want = expected.filter(|t| matches!(t.strip_quals(), Ty::Fn { .. })).cloned();
+        let fitted = want.as_ref().and_then(|w| self.fn_value_at(entry.key, decl, w).ok());
+        let Some(value) = fitted else {
+            return self.fn_value_ty(entry.key, decl);
         };
-        // [fn-value-select] A **generic** fn passed by name instantiates
-        // from the position's expected fn type (closed 2026-09-12 with the
-        // consuming-callback pattern: `drain(counter, drop)` binds `drop`'s
-        // `T = Counter`). Without this the value's type kept its unbound
-        // `Var`s and no concrete position could unify with it. The target
-        // languages infer the instantiation at the adapter's forwarding
-        // call, so the emitters need nothing.
-        if !decl.generics.is_empty() {
-            if let Some(want) = expected.map(|t| t.strip_quals()) {
-                if matches!(want, Ty::Fn { .. }) {
-                    let mut subst: HashMap<String, Ty> = HashMap::new();
-                    if unify(&candidate, want, &mut subst) && !subst.is_empty() {
-                        let generic_names: HashSet<String> =
-                            decl.generics.iter().map(|g| g.name.clone()).collect();
-                        // [linear-generics] The instantiation ban applies
-                        // here as at any call: an unopted generic cannot
-                        // bind a linear type.
-                        if self.inferred.is_some() {
-                            let opted: HashSet<&str> = decl
-                                .generic_canbe
-                                .iter()
-                                .filter(|(_, q)| q.name.name == "linear")
-                                .map(|(id, _)| id.name.as_str())
-                                .collect();
-                            for g in &decl.generics {
-                                if opted.contains(g.name.as_str()) {
-                                    continue;
-                                }
-                                if let Some(bound) = subst.get(&g.name) {
-                                    if self.ty_own_linear(bound) {
-                                        self.error(
-                                            name_span,
-                                            format!(
-                                                "cannot instantiate generic parameter \
-                                                 `{}` of `{name}` with linear type \
-                                                 `{bound}`: `{name}` does not declare \
-                                                 `<{} canbe linear>`, so it does not \
-                                                 honor the use obligation",
-                                                g.name, g.name
-                                            ),
-                                        );
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                        return substitute_vars(&candidate, &subst, &generic_names);
+        if !value.nested.is_empty() {
+            self.out.fn_value_implicits.insert(self.key(name_span), value.nested);
+        }
+        // [linear-generics] The instantiation ban applies here as at any
+        // call: an unopted generic cannot bind a linear type.
+        if self.inferred.is_some() {
+            let opted: HashSet<&str> = decl
+                .generic_canbe
+                .iter()
+                .filter(|(_, q)| q.name.name == "linear")
+                .map(|(id, _)| id.name.as_str())
+                .collect();
+            for g in &decl.generics {
+                if opted.contains(g.name.as_str()) {
+                    continue;
+                }
+                if let Some(bound) = value.binding.get(&g.name) {
+                    if self.ty_own_linear(bound) {
+                        self.error(
+                            name_span,
+                            format!(
+                                "cannot instantiate generic parameter \
+                                 `{}` of `{name}` with linear type \
+                                 `{bound}`: `{name}` does not declare \
+                                 `<{} canbe linear>`, so it does not \
+                                 honor the use obligation",
+                                g.name, g.name
+                            ),
+                        );
+                        break;
                     }
                 }
             }
         }
-        candidate
+        value.ty
     }
 
     /// [fn-rename] Brings a `rename fn` into force: resolves the overload it
@@ -33451,4 +33409,13 @@ fn same_fn_shape(a: &Ty, b: &Ty) -> bool {
         (Ty::Fn { params: pa, ret: ra, .. }, Ty::Fn { params: pb, ret: rb, .. }) => pa == pb && ra == rb,
         _ => a == b,
     }
+}
+
+/// [fn-value] What [`Checker::fn_value_at`] makes of a declaration at a fn
+/// type: the value's type, the implicits it fills in turn, and how its
+/// generics bound.
+struct FnValueAt {
+    ty: Ty,
+    nested: Vec<ImplicitArg>,
+    binding: HashMap<String, Ty>,
 }

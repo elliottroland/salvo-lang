@@ -642,10 +642,10 @@ by auto { value: T, n: Int }` stamps `fn cmp<T>(a: Wrapper<T>, b: Wrapper<T>,
 by but what the caller hands in. Each type parameter a field mentions gets the
 group (`?Eq<T>` for `eq`, `?Hashed<T>` for `hash`, `?ToStr<T>` for `to_str`),
 and the `n: Int` beside it still reaches the ordinary `cmp`. Calls, operators
-and interpolation fill those implicits as they would any function's. What does
-not work yet is passing such a function as a *value*, which a `Set<Wrapper<Str>>`
-needs for its `hash`: a function value cannot carry implicits of its own until
-recursive implicit resolution lands, and the compiler says so.
+and interpolation fill those implicits as they would any function's, and so
+does passing such a function as a *value*: `takes(eq)` with `eq` stamped for
+`Wrapper<T>` is a function of two `Wrapper<Str>`s, its `?Eq<Str>` filled
+where it is passed, as a `Set<Wrapper<Str>>` needs for its `hash`.
 
 Recorded rather than shipped: `eq by auto` at a **call**, supplying an implicit
 by stamping, which is how a tuple would get an identity. It is in ROADMAP.md.

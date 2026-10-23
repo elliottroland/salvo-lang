@@ -1205,8 +1205,9 @@ struct Point : Eq<self> by auto {
 /// has nothing to compare it by but what the caller passes. A concrete field
 /// beside it still reaches its own `eq` — the implicit joins resolution
 /// rather than shadowing [implicit-resolve-body]. Calls and operators fill
-/// the stamp's implicits; a fn *value* cannot carry them yet (step 8), and
-/// says so.
+/// the stamp's implicits, and so does passing it by name [fn-value]: a value
+/// is filled exactly as an implicit is (refused until 2026-10-20, when the
+/// two rules were made one).
 #[test]
 fn a_generic_struct_is_stamped_with_the_implicits_it_needs() {
     let src = r#"
@@ -1235,7 +1236,7 @@ fn pass() [] -> Bool {
 }
 "#;
     let errs = errors(as_value);
-    assert!(!errs.is_empty(), "a stamp with implicits passed as a value must be refused");
+    assert!(errs.is_empty(), "a stamp passed by name fills its implicits: {errs:?}");
 }
 
 /// [comptime-generic] [implicit-recursive] A generic stamp **fills an implicit

@@ -1448,6 +1448,83 @@ Options:
     __stamp.verified();
 }
 
+/// [fn-value] A function passed by name and one filling an implicit are one
+/// rule: the constructor's gained claim (`-> +Valid Range`) reaches both, a
+/// function with implicits of its own (`twice`, `?double`) is passed by name
+/// with them filled as it fills an implicit, and so is a stamped generic `eq`
+/// for `Box<Str>`, on both backends.
+#[test]
+fn a_fn_value_is_one_rule_by_name_and_as_an_implicit_on_both_backends() {
+    let Some(__stamp) = e2e_stamp("a_fn_value_is_one_rule_by_name_and_as_an_implicit_on_both_backends", &["rustc", "kotlinc"]) else {
+        return;
+    };
+    const SRC: &str = r#"struct Range { min: Int, max: Int }
+
+qualifier Valid of Range
+
+fn validate(o: Range) [] -> +Valid Range => !o {
+    return o
+}
+
+fn by_name<V>(o: Range, f: (o: Range) -> V) [] -> V =>[f] !o => !o, f {
+    return f(o)
+}
+
+fn by_implicit<V>(o: Range, ?validate: (o: Range) -> V) [] -> V =>[validate] !o => !o {
+    return validate(o)
+}
+
+fn width(r: Valid Range) [] -> Int => r {
+    return r.max - r.min
+}
+
+fn double(n: Int) [] -> Int {
+    return n * 2
+}
+
+fn twice<T>(x: T, ?double: (n: T) -> T) [] -> T => x {
+    return double(double(x))
+}
+
+fn apply(n: Int, f: (n: Int) -> Int) [] -> Int => f {
+    return f(n)
+}
+
+fn as_implicit(n: Int, ?twice: (n: Int) -> Int) [] -> Int {
+    return twice(n)
+}
+
+struct Box<T> : Eq<self> by auto {
+    item: T
+}
+
+fn same(a: Box<Str>, b: Box<Str>, f: (x: Box<Str>, y: Box<Str>) -> Bool) [] -> Bool => a, b, f {
+    return f(a, b)
+}
+
+fn main() [use] -> None {
+    use StdConsole()
+    let a: Valid Range = by_name(Range { min: 1, max: 5 }, validate)
+    let b: Valid Range = by_implicit(Range { min: 2, max: 9 })
+    println("${width(a)} ${width(b)}")
+    println("${apply(3, twice)} ${as_implicit(3)}")
+    println("${same(Box { item: "x" }, Box { item: "x" }, eq)} ${same(Box { item: "x" }, Box { item: "y" }, eq)}")
+}
+"#;
+    let dir = work_dir("fn_value_one_rule");
+    fs::write(dir.join("main.sv"), SRC).unwrap();
+    for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
+        if !have(tool) {
+            eprintln!("skipping {backend}: {tool} not found on PATH");
+            continue;
+        }
+        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", ".", "--clean-target", "before"]);
+        assert!(out.status.success(), "{backend} failed: {}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "4 7\n12 12\ntrue false\n", "{backend}");
+    }
+    __stamp.verified();
+}
+
 /// [str-parse] The value parsers read the same strings on both backends:
 /// `parse_double` checks one decimal grammar before converting (the hosts'
 /// own parsers disagree on whitespace, `NaN`, `inf`, hex and `f` suffixes),

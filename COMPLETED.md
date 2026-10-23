@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2000 tests, complete: the toolchain tests are
+cargo test                  # 2001 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,36 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — A function value is one rule, by name or as an implicit
+
+User decision: "implicits should just be lambdas which are automatically
+selected. These two should be unified into one rule set (aside from the
+selection) in the compiler." [fn-value]: `Checker::fn_value_at` makes a
+declaration a value at an expected fn type for both a function passed by
+name and one filling an implicit; each keeps only its own selection.
+
+The two had grown apart. `fn_value_ty` (implicits, and by-name *selection*)
+read the return as written, and the tail of `fn_value_by_name` built the
+chosen value's type again with `fn_return_ty`. What differed, and now does
+not:
+- **The return**: an implicit lost a constructor's gained claim, so
+  `validate(o) -> +Valid Range` did not fill `?validate: (o: Range) -> Valid
+  Range` (ROADMAP §2d item 16's gap 1) though it could be passed by name;
+  by-name selection compared the claim-less type while the value carried the
+  claim.
+- **A function's own implicits**: filled in turn for an implicit, put into
+  the value's type by name, so `apply(3, twice)` for `twice<T>(x: T,
+  ?double: …)` and `takes(eq)` for a stamped generic `eq` were refused. The
+  IR now passes such a value as a lambda filling them
+  (`Checked::fn_value_implicits`), as it did for an implicit.
+- The linear-generics ban, applied by name only, uses the shared binding.
+- A `name@module` value now goes through the same adapter as a bare name, so
+  an effect-adapted fn named with a selector is adapted too.
+
+Tests: CLI run `a_fn_value_is_one_rule_by_name_and_as_an_implicit_on_both_backends`;
+compare_tests `a_generic_struct_is_stamped_with_the_implicits_it_needs` now
+expects `takes(eq)` to check (it asserted the old refusal).
 
 ### 2026-10-20 — `examples/cli`, and help that reads a doc comment as one row
 
@@ -27460,7 +27490,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2000 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2001 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

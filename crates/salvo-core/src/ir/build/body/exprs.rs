@@ -82,7 +82,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             AExpr::Scoped { name, .. } | AExpr::EffectScoped { name, .. } => {
                 // A fn named through a selector, as a value.
                 match self.ctx.checked.fn_refs.get(&self.key(name.span)).copied() {
-                    Some(k) => Expr { ty: self.ty_of(span), span, kind: ExprKind::FnValue(FnRef::Decl(self.ctx.decl_id(k))) },
+                    Some(k) => self.fn_value(k, name.span, span),
                     None => {
                         self.error(span, "unresolved scoped reference");
                         unsupported(self.ty_of(span), span, "scoped reference")
@@ -333,13 +333,17 @@ impl<'a, 'p> Lower<'a, 'p> {
     /// [fn-effects] A named fn as a value. Where the fn type it is passed as
     /// threads other effects than the fn declares (a pure fn where effects
     /// are threaded — the variance rule), an adapter lambda takes the
-    /// type's effects and passes on the ones the fn needs.
-    fn fn_value(&mut self, k: crate::FnKey, span: Span) -> Expr {
+    /// type's effects and passes on the ones the fn needs. [fn-value] Where
+    /// the fn has implicits of its own, the same lambda fills them, as an
+    /// implicit filled by the fn does [implicit-recursive]. `name_span` is
+    /// where the checker keyed the name, `span` the whole value.
+    fn fn_value(&mut self, k: crate::FnKey, name_span: Span, span: Span) -> Expr {
         let ty = self.ty_of(span);
         let id = self.ctx.decl_id(k);
-        let taken: Vec<Ty> = self.ctx.checked.lambda_effects.get(&self.key(span)).map(|v| v.iter().map(erase).collect()).unwrap_or_default();
+        let taken: Vec<Ty> = self.ctx.checked.lambda_effects.get(&self.key(name_span)).map(|v| v.iter().map(erase).collect()).unwrap_or_default();
         let declared: Vec<Ty> = self.ctx.checked.fn_effects.get(&k).map(|v| v.iter().map(erase).collect()).unwrap_or_default();
-        if taken == declared {
+        let nested = self.ctx.checked.fn_value_implicits.get(&self.key(name_span)).cloned().unwrap_or_default();
+        if taken == declared && nested.is_empty() {
             return Expr { ty, span, kind: ExprKind::FnValue(FnRef::Decl(id)) };
         }
         let (params, ret) = match ty.strip_quals() {
@@ -365,6 +369,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             ps.push(Param { local: l.clone(), ty: t.clone(), mode: PassMode::Lent, variadic: false, check: None, span });
             args.push(Expr { ty: t.clone(), span, kind: ExprKind::Read { place: Place { root: l, steps: Vec::new() }, consume: false } });
         }
+        args.extend(self.implicit_list(&nested, &[], span));
         let call = Expr { ty: ret.clone(), span, kind: ExprKind::Call { target: FnRef::Decl(id), type_args: Vec::new(), args } };
         Expr { ty, span, kind: ExprKind::Lambda { params: ps, ret, body: Block { stmts: Vec::new(), value: Some(Box::new(call)), span }, captures: Vec::new() } }
     }
@@ -379,7 +384,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             return self.read(&AExpr::Ident(id.clone()));
         }
         if let Some(k) = self.ctx.checked.fn_refs.get(&self.key(span)).copied() {
-            return self.fn_value(k, span);
+            return self.fn_value(k, span, span);
         }
         if let Some(local) = self.implicit_locals.get(&id.name).cloned() {
             return Expr { ty: self.ty_of(span), span, kind: ExprKind::FnValue(FnRef::Local(local)) };
