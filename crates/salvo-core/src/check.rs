@@ -26228,7 +26228,17 @@ impl<'p, 'r> Checker<'p, 'r> {
         let saved_can_spawn = std::mem::replace(&mut self.can_spawn, false);
         let saved_own_handler = self.own_handler.take();
         let ret = match body {
-            LambdaBody::Expr(e) => self.check_expr(e, exp_ret.as_ref()),
+            // [type-none-unit] `(v: Int) -> None` into a `(v: Int) -> Str?` slot
+            // answers the slot's optional: typed as answering `None` alone,
+            // Kotlin emitted a `Unit` function where a `String?` one was
+            // expected (found building `args`, 2026-10-20).
+            LambdaBody::Expr(e) => {
+                let t = self.check_expr(e, exp_ret.as_ref());
+                match &exp_ret {
+                    Some(want) if t.is_none_ty() && !want.is_none_ty() && want.has_none_arm() => want.clone(),
+                    _ => t,
+                }
+            }
             LambdaBody::Block(b) => {
                 for stmt in &b.stmts {
                     self.check_stmt(stmt);

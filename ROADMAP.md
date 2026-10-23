@@ -961,6 +961,53 @@ reproduced in a scratch project; the repros are below.
     should match the `Str` arm, with the value condition the test already
     records.
 
+14. **Kotlin: a Salvo fn named `run` shadows Kotlin's `run { }`: wrong
+    code.** Found 2026-10-20 (2.5). `fn run(f: (v: Int) -> Str?) [] -> Str
+    => f { return f(1) ?: "none" }` emits its elvis as `return run { … }`,
+    which calls the program's own `run` again: a `StackOverflowError` at run
+    time, where Rust prints `none` [backend-never-wrong]. The emitter writes
+    `run {` for block expressions in ten places; either write `kotlin.run {`
+    there or rename a declared `run`. Any other Kotlin stdlib name the
+    emitter calls unqualified (`error`, `require`, `let`) is the same risk.
+
+15. **The derive explains only `InRange` failures.** Found 2026-10-20
+    (2.5). Comptime can test for a known qualifier and read its constants
+    (`[if field.type is <lo, hi> InRange(lo, hi) *]`), so `args` calls
+    `InRange.explain`; a user's predicate qualifier with an `explain` gets
+    "the value is not accepted". Options: a comptime walk over a type's
+    qualifiers (`[for q in field.type.qualifiers]`, with a way to call the
+    walked qualifier's `explain`), or an expression asking an `is` test why
+    it failed (the IR already builds `Q.explain(x, …)` for `assert!(x is
+    Q(…))` [qual-explain]). A language call.
+
+16. **The validation hook (Q16): how the derive reaches a user's
+    `validate` (DECISION).** Q16 (accepted) says the parse calls a user
+    `validate(o: T) [Throw<ArgError>] -> +Valid T` "when one is declared
+    (found as an implicit), so the parse result is the validated type". An
+    implicit cannot be optional, so "when one is declared" needs a
+    mechanism, and the one that keeps the claim in the type does not compile
+    today. Probed 2026-10-20 with `fn parse_valid<T, V>(args: List<Str>,
+    ?FromArgs<T>, ?validate: (o: T) [Throw<ArgError>] -> V) [] -> Ok V |
+    Errs NonEmpty List<ArgError>`, called as `let r: Ok Valid Range | Errs
+    … = parse_valid(args)`: `T` is inferred from the candidate, but (1) the
+    candidate's type is `(Range) [Throw<…>] -> Range`: a fn value does not
+    carry the claim its `+Valid Range` return gains, so it does not fit `->
+    Valid Range`; and (2) calling the implicit inside `try` is not seen as
+    throwing ("nothing in this `try` block can throw"), and the throw is
+    charged to the caller. Options:
+    - (a) **A separate entry point**, `parse_valid` / `valid_args_or_exit`
+      as above, after fixing (1) and (2), both general: a fn value keeps a
+      gained claim, and an effectful implicit's throw lands in the `try`
+      around its call. The user writes `let opts: Valid Serve =
+      valid_args_or_exit(args())`.
+    - (b) **No hook**: the user validates after parsing, `let checked = try
+      { validate(opts) }`, and `args` exports a helper that reports errors
+      the way `args_or_exit` does and exits 2. Works today.
+    - (c) **A `FromArgs` member `validate`**, stamped as the identity unless
+      written by hand: no compiler work, but it returns `T`, so the claim
+      Q16 wants in the type is lost.
+    Recommendation: (a), with (b)'s helper useful either way.
+
 ### 3 — Recorded: the restrictive reading of a fn-typed slot's lend
 
 Both defects of the 2026-09-25 round are closed — a bare generic struct literal

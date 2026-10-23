@@ -977,7 +977,7 @@ ok 127.0.0.1 80 json high true 4 -1.5 9000000000 [x,y] [a,b]
 error: unknown option '--nope'
 error: invalid value 'mid' for '--level': expected one of low, high
 error: '<files>' is required
-error: invalid value '70000' for '--port': the value is not accepted
+error: invalid value '70000' for '--port': 70000 is not in 1..65535
 error: invalid value 'x' for '--ratio': expected a number
 error: invalid value '1.5' for '--big': expected an integer
 ok true x -

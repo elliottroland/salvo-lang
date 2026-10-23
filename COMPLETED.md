@@ -138,6 +138,28 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-20 — A failed value says why; the validation hook waits on a decision
+
+Phase 2.5, first half (ARG_PARSE.md §5.2, Q10, Q16). [args-explain]: the
+derive's check of a qualified value answers the reason, and for std's
+`InRange` it is `InRange.explain` (`invalid value '70000' for '--port':
+70000 is not in 1..65535`); other qualifiers say "the value is not
+accepted" until comptime can walk a type's qualifiers (ROADMAP §2d item 15).
+
+The second half, the `validate` hook, is **blocked on a decision** (ROADMAP
+§2d item 16): an implicit cannot be optional, and the entry point that keeps
+the `Valid` claim in the type (`parse_valid<T, V>` with `?validate: (o: T)
+[Throw<ArgError>] -> V`) needs a fn value to keep the claim its function
+gains and an effectful implicit's throw to land in the `try` around it.
+
+Fixed on the way:
+- [type-none-unit] A lambda answering `None` into an optional slot is typed
+  by the slot, so Kotlin emits a `String?` function, not `Unit`.
+Found and recorded: a Salvo fn named `run` shadows the `run { }` blocks the
+Kotlin emitter writes, a `StackOverflowError` (wrong code; §2d item 14).
+
+Tests: the derived-parser run test's port error now reads the `explain`.
+
 ### 2026-10-20 — Sub-commands in the args derive
 
 Phase 2.4 (ARG_PARSE.md §10.2, Q14, D-3, D-4; no new decision).

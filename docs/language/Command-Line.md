@@ -72,8 +72,9 @@ type:
 A value is parsed with `from_str` at the field's type, so `Int`, `Long`,
 `Double`, `Str` and a type of your own with a `from_str` all work. A field
 whose type has a predicate qualifier, `InRange(1, 65535) Int`, is tested as
-well: `--port 0` is an error, and `opts.port` is an `InRange(1, 65535) Int`
-with nothing more to check.
+well: `--port 0` is an error (`invalid value '0' for '--port': 0 is not in
+1..65535`), and `opts.port` is an `InRange(1, 65535) Int` with nothing more
+to check.
 
 Three comptime qualifiers say what the type cannot:
 

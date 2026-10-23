@@ -128,13 +128,21 @@ tracked here so a fresh agent can carry on. Rules for whoever continues:
 - [x] 2.2 The derive: flags, defaults, `Short`, `Positional`, help (§10.1).
 - [x] 2.3 Groups: flattened, co-occurring, exclusive (§10.3, Q15).
 - [x] 2.4 Sub-commands (§10.2, Q14).
-- [ ] 2.5 Validation hook and qualifier re-testing (§5.2, Q16).
+- [~] 2.5 Validation hook and qualifier re-testing (§5.2, Q16). Re-testing
+  with `explain` done; the hook is blocked on a decision (below).
 - [ ] 2.6 An example in `examples/`, the docs page, and retiring this
   document per its lifecycle.
 
-**Blocked on the user:** nothing.
+**Blocked on the user:** the validation hook (step 2.5's second half): how
+the derive reaches a user's `validate` — ROADMAP §2d item 16 has the
+options, the probe and a recommendation. 2.6 proceeds without it, but this
+document is retired only after it is decided.
 
 **Log** (newest first):
+- 2026-10-20: 2.5, first half ("Explain why a parsed value was refused"):
+  [args-explain]; 2000 tests. The hook is ROADMAP §2d item 16 (DECISION).
+  Next: 2.6 without retiring this document: an `examples/` program, the
+  docs page finished.
 - 2026-10-20: 2.4 done ("Add sub-commands to the args derive"):
   [args-commands]; 2000 tests. Next: 2.5 (validation hook and `explain`).
   Plan: `params Validates<T> { fn validate(o: T) [Throw<ArgError>] -> T }`?

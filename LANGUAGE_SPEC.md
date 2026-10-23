@@ -620,6 +620,10 @@ Conventions:
     `.and_then`/`.map` on Rust). A general union takes the rewrap shape (no
     native reconstruction). The whole short-circuit is the same machinery
     `!`/`?:` use; the linear check, narrowing and effects all apply unchanged.
+* [type-none-unit] **A lambda answering `None` into an optional slot answers
+  the slot's type** (2026-10-20): `(v: Int) -> None` passed as a `(v: Int)
+  -> Str?` is typed `(Int) -> Str?`, not `(Int) -> None`, which Kotlin
+  emitted as a `Unit` function where a `String?` one was expected.
 * [type-none-unit] `None` is **one spelling for two things** — the absent
   arm of a `T?` and the sole value of the `None` type — and the targets
   spell them differently (Rust `None` vs `()`, Kotlin `null` vs `Unit`),
@@ -7293,7 +7297,16 @@ can have one capability without the other.
     field.type is Int]` chain over `Str`, `Int`, `Long`, `Double`; any other
     type at itself), and re-tested against the field's qualifiers with `v is
     [field.type]` [comptime-is-splice]; a failure is an `Invalid` error
-    ("expected an integer", "the value is not accepted").
+    ("expected an integer"), and a qualifier failure says why
+    [args-explain].
+* [args-explain] **A value that fails its field's qualifiers says why**
+  (ARG_PARSE.md §5.2, Q10, Q16): `check_value`'s test answers the reason
+  (`None` when accepted). For std's `InRange`, found with `[if field.type
+  is <lo, hi> InRange(lo, hi) *]`, it is `InRange.explain` (`invalid value
+  '70000' for '--port': 70000 is not in 1..65535`); any other qualifier is
+  "the value is not accepted", since comptime cannot yet walk a type's
+  qualifiers to call each one's `explain` (ROADMAP §2d item 15). The
+  validation hook Q16 also asks for is a DECISION (ROADMAP §2d item 16).
   * **Comptime qualifiers**: `Short(c: Char) of Field`, `Positional of
     Field` (taken in field order), `Named(name: Str) of Struct` (the command
     name; otherwise `command_name(T.name)`). A struct's doc comment is the

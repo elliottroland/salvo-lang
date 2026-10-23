@@ -1119,21 +1119,28 @@ export fn read_all<E>(found: Found, field: Str, ?from_str: (s: Str) -> E?) [] ->
     return out
 }
 
-// [args-derive] Reports the value found for `field` that does not parse as
-// a `B` (`what` says what one is: "an integer"), or that fails `test`, the
-// field type's qualifiers.
-export fn check_value<B>(errors: Mut List<ArgError>, found: Found, field: Str, shown: Str, what: Str, test: (v: B) -> Bool, ?from_str: (s: Str) -> B?) [] -> None
+// [args-derive] [args-explain] Reports the value found for `field` that does
+// not parse as a `B` (`what` says what one is: "an integer"), or that fails
+// `test`, the field type's qualifiers, which answers why (`None` when the
+// value is accepted).
+export fn check_value<B>(errors: Mut List<ArgError>, found: Found, field: Str, shown: Str, what: Str, test: (v: B) -> Str?, ?from_str: (s: Str) -> B?) [] -> None
 =>[test] v => errors: Mut, found, field, shown, what, test {
     for s in values_of(found, field) {
         let v = from_str(copy(s))
         if v is None {
             add(errors, Invalid { what: copy(shown), value: copy(s), reason: "expected ${what}" })
         } else {
-            if !test(v) {
-                add(errors, Invalid { what: copy(shown), value: copy(s), reason: "the value is not accepted" })
+            let why = test(v)
+            if why !is None {
+                add(errors, Invalid { what: copy(shown), value: copy(s), reason: why })
             }
         }
     }
+}
+
+// [args-explain] Why a value failed a qualifier that cannot say.
+export fn rejected() [] -> Str? {
+    return "the value is not accepted"
 }
 
 // [args-derive] How errors name a field: `--max-workers`, or `<files>`.
@@ -1408,24 +1415,29 @@ export comptime fn from_found<T is Struct>(found: Found) [] -> Ok T | Errs NonEm
                 what = "a number"
             }
             [if field.type is <E> List<E>] {
-                check_value<E>(errors, found, field.name, shown, what, (_v: E) -> true)
+                check_value<E>(errors, found, field.name, shown, what, (_v: E) -> None)
             } else {
                 [if field.type is <E> E?] {
-                    check_value<E>(errors, found, field.name, shown, what, (_v: E) -> true)
+                    check_value<E>(errors, found, field.name, shown, what, (_v: E) -> None)
                 } else {
                     [if field.type is Str] {
-                        check_value<Str>(errors, found, field.name, shown, what, (v: Str) -> v is [field.type])
+                        check_value<Str>(errors, found, field.name, shown, what, (v: Str) -> if v is [field.type] { None } else { rejected() })
                     } else {
                         [if field.type is Int] {
-                            check_value<Int>(errors, found, field.name, shown, what, (v: Int) -> v is [field.type])
+                            // std's `InRange` says why: "0 is not in 1..65535".
+                            [if field.type is <lo, hi> InRange(lo, hi) *] {
+                                check_value<Int>(errors, found, field.name, shown, what, (v: Int) -> if InRange.qualifies(v, lo, hi) { if v is [field.type] { None } else { rejected() } } else { InRange.explain(v, lo, hi) })
+                            } else {
+                                check_value<Int>(errors, found, field.name, shown, what, (v: Int) -> if v is [field.type] { None } else { rejected() })
+                            }
                         } else {
                             [if field.type is Long] {
-                                check_value<Long>(errors, found, field.name, shown, what, (v: Long) -> v is [field.type])
+                                check_value<Long>(errors, found, field.name, shown, what, (v: Long) -> if v is [field.type] { None } else { rejected() })
                             } else {
                                 [if field.type is Double] {
-                                    check_value<Double>(errors, found, field.name, shown, what, (v: Double) -> v is [field.type])
+                                    check_value<Double>(errors, found, field.name, shown, what, (v: Double) -> if v is [field.type] { None } else { rejected() })
                                 } else {
-                                    check_value<[field.type]>(errors, found, field.name, shown, what, (_v: [field.type]) -> true)
+                                    check_value<[field.type]>(errors, found, field.name, shown, what, (_v: [field.type]) -> None)
                                 }
                             }
                         }
