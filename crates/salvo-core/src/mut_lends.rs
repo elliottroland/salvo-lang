@@ -401,18 +401,7 @@ pub fn mut_lend_call_of(expr: &Expr) -> Option<Span> {
 /// qualified group), or `None` when the type is not a projection at its
 /// top. A Copy scalar under `proj` is the scalar itself [copy-scalar-free].
 pub fn strip_top_proj_ast(ty: &Type) -> Option<Type> {
-    let is_scalar = |t: &Type| {
-        matches!(
-            t,
-            Type::Named { qualifiers, base }
-                if qualifiers.is_empty()
-                    && base.args.is_empty()
-                    && matches!(
-                        base.name.name.as_str(),
-                        "Int" | "Long" | "Float" | "Double" | "Bool" | "Char" | "Byte"
-                    )
-        )
-    };
+    let is_scalar = salvo_syntax::is_copy_scalar_type;
     match ty {
         Type::Named { qualifiers, base } if qualifiers.iter().any(|q| is_proj_name(&q.name.name)) => {
             let rest: Vec<salvo_syntax::ast::TypeRef> = qualifiers

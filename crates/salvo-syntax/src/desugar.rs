@@ -1938,16 +1938,7 @@ fn proj_of(ty: &Type, span: Span) -> Type {
 
 /// [copy-scalar-free] A bare native scalar, whose copy is free.
 fn is_copy_scalar(ty: &Type) -> bool {
-    matches!(
-        ty,
-        Type::Named { qualifiers, base }
-            if qualifiers.is_empty()
-                && base.args.is_empty()
-                && matches!(
-                    base.name.name.as_str(),
-                    "Int" | "Long" | "Float" | "Double" | "Bool" | "Char" | "Byte"
-                )
-    )
+    crate::is_copy_scalar_type(ty)
 }
 
 /// [yield-proj] Renames the source of every `proj(old)` in `ty` to

@@ -936,13 +936,8 @@ reproduced in a scratch project; the repros are below.
 11. ✅ **A reassigned local owns or borrows for its whole life** — done
     2026-10-20 ([proj-local], [rs-opt-borrow], COMPLETED.md).
 
-12. **An `Int` passed to a consuming parameter is moved.** Found 2026-10-20
-    (2.3). `let x: Int = 1`, `add(rows, x)` with `rows: Mut List<Int>`, then
-    `println("${x}")`: "`x` … was consumed (moved) by an earlier call". The
-    deduction docs say Copy scalars are exempt (a move of one is free), and
-    the same loop `while i < n { add(rows, i); i = i + 1 }` is refused.
-    Pre-existing (reproduced with 2.2's unification change reverted).
-    `args`' help writes `add(rows, i + 0)`.
+12. ✅ **Moving a Copy scalar is a copy** — done 2026-10-20
+    ([copy-scalar-free], COMPLETED.md).
 
 13. ✅ **A literal `is` on an un-narrowed `Str?`** — done 2026-10-20
     ([is-union], COMPLETED.md).

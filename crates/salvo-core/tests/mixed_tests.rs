@@ -271,7 +271,7 @@ handler Sloppy() of Peek {
         tally: Int = 0
     }
 
-    send fn poke(n: Int) {
+    send fn poke(n: Int, why: Str) {
         tally = tally + n
     }
 
@@ -281,9 +281,11 @@ handler Sloppy() of Peek {
 }
 ",
     );
+    // [copy-scalar-free] A Copy scalar is never consumed, so the required
+    // clause names only `why`.
     assert!(
         errs.iter().any(|m| m.contains("deduction clause must be written out")
-            && m.contains("`=> !n`")),
+            && m.contains("`=> !why`")),
         "expected the clause requirement: {errs:?}"
     );
 }
@@ -772,7 +774,7 @@ handler Parking(oracle: eff[Oracle]) of Random {
         oracle.divine(replyto settled(out))
     }
 
-    send fn settled(out: Reply<Int>, drawn: Int) => !out, !drawn {
+    send fn settled(out: Reply<Int>, drawn: Int) => !out {
         send(out, drawn + tally)
     }
 
@@ -824,7 +826,7 @@ handler Parking(oracle: eff[Oracle]) of Random {
         oracle.divine(replyto settled(out))
     }
 
-    send fn settled(out: Reply<Int>, drawn: Int) => !out, !drawn {
+    send fn settled(out: Reply<Int>, drawn: Int) => !out {
         send(out, drawn + tally)
     }
 
@@ -866,7 +868,7 @@ handler Feedback(drawer: eff[Drawer]) of Random {
         drawer.draw(replyto! settled(out))
     }
 
-    send fn settled(out: Reply<Int>, drawn: Int) => !out, !drawn {
+    send fn settled(out: Reply<Int>, drawn: Int) => !out {
         send(out, drawn + tally)
     }
 

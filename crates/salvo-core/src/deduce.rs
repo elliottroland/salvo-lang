@@ -623,16 +623,10 @@ fn infer_body<'a, 'p>(
 /// table); an alias to a scalar is not caught, which only risks a spurious
 /// move error on an alias and never unsound output.
 fn is_copy_scalar_param(ty: &Type) -> bool {
-    let base = match ty {
-        Type::Named { qualifiers, base } if qualifiers.is_empty() && base.args.is_empty() => base,
-        Type::Nullable { inner, .. } => return is_copy_scalar_param(inner),
-        Type::Spread { inner, .. } => return is_copy_scalar_param(inner),
-        _ => return false,
-    };
-    matches!(
-        base.name.name.as_str(),
-        "Int" | "Long" | "Float" | "Double" | "Bool" | "Char" | "Byte"
-    )
+    match ty {
+        Type::Nullable { inner, .. } | Type::Spread { inner, .. } => is_copy_scalar_param(inner),
+        _ => salvo_syntax::is_copy_scalar_type(ty),
+    }
 }
 
 /// [deduce-default] Validates a fn's **contract** (defaults, written entries,

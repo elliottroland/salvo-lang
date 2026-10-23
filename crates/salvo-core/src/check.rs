@@ -1653,16 +1653,7 @@ fn holds_top_borrow(t: &Ty) -> bool {
 /// its deduction is keep-all and no caller can change it, so a total clause
 /// need not mention it.
 fn is_copy_scalar_param(p: &ast::Param) -> bool {
-    matches!(
-        &p.ty,
-        ast::Type::Named { qualifiers, base }
-            if qualifiers.is_empty()
-                && base.args.is_empty()
-                && matches!(
-                    base.name.name.as_str(),
-                    "Int" | "Long" | "Float" | "Double" | "Bool" | "Char" | "Byte"
-                )
-    )
+    salvo_syntax::is_copy_scalar_type(&p.ty)
 }
 
 /// [deduce-std-explicit] The **total** deduction clause an inferred contract
@@ -3811,6 +3802,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.error(span, msg);
         }
         self.check_doc_tags(module);
+        self.check_scalar_moves(module);
         // [fn-rename] Module-level renames are in force for the whole module,
         // in every file of it — order-independent, like every other
         // module-level declaration. They are validated once here (a duplicate
@@ -5030,6 +5022,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 continue;
             }
             let Some(name) = d.param_name() else { continue };
+            // [copy-scalar-free] Keeping a Copy scalar is moving it: a copy.
+            if f.params.iter().any(|p| p.name.name == name.name && salvo_syntax::is_copy_scalar_type(&p.ty)) {
+                continue;
+            }
             self.error(
                 d.span,
                 format!(
@@ -5232,6 +5228,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 continue;
             }
             let Some(name) = d.param_name() else { continue };
+            // [copy-scalar-free] Keeping a Copy scalar is moving it: a copy.
+            if f.params.iter().any(|p| p.name.name == name.name && salvo_syntax::is_copy_scalar_type(&p.ty)) {
+                continue;
+            }
             self.error(
                 d.span,
                 format!(
@@ -12168,16 +12168,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             if mentioned.contains(&p.name.name) {
                 continue;
             }
-            let scalar = matches!(
-                &p.ty,
-                ast::Type::Named { qualifiers, base }
-                    if qualifiers.is_empty()
-                        && base.args.is_empty()
-                        && matches!(
-                            base.name.name.as_str(),
-                            "Int" | "Long" | "Float" | "Double" | "Bool" | "Char" | "Byte"
-                        )
-            );
+            let scalar = salvo_syntax::is_copy_scalar_type(&p.ty);
             if scalar {
                 continue;
             }
@@ -12538,6 +12529,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .lookup(&id.name)
                 .map(|v| v.narrowed.quals().iter().any(|q| q.name == "once"))
                 .unwrap_or(false);
+            // [copy-scalar-free] Moving a Copy scalar is a copy, judged by the
+            // argument's own type: a generic `T` bound to `Int` moves for free
+            // too, and so does an `Int` handed to a written `!v`.
+            if !kept && !arg_once && self.moves_for_free_var(&id.name) {
+                continue;
+            }
             if !kept || arg_once {
                 if self.inferred.is_none() {
                     continue;
@@ -12591,6 +12588,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
         }
+    }
+
+    /// [copy-scalar-free] Whether the variable `name` holds a Copy scalar, so
+    /// moving it is a copy.
+    fn moves_for_free_var(&self, name: &str) -> bool {
+        self.lookup(name).is_some_and(|v| crate::types::moves_for_free(&v.declared))
     }
 
     /// Guards consumption of a lambda parameter the contract *keeps*
@@ -15507,7 +15510,9 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// [actor-sendable]. And one restriction of its own: no overloading —
     /// the servant's message dispatch is by member name.
     fn check_local_send_member(&mut self, h: &'p ast::HandlerDecl, f: &'p FnDecl) {
-        let has_params = f.params.iter().any(|p| !p.implicit);
+        // [copy-scalar-free] A Copy scalar is never consumed, so the clause
+        // has nothing to say about one.
+        let has_params = f.params.iter().any(|p| !p.implicit && !salvo_syntax::is_copy_scalar_type(&p.ty));
         if f.deductions.is_none() && has_params {
             self.error(
                 f.name.span,
@@ -15518,7 +15523,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     f.name.name,
                     f.params
                         .iter()
-                        .filter(|p| !p.implicit)
+                        .filter(|p| !p.implicit && !salvo_syntax::is_copy_scalar_type(&p.ty))
                         .map(|p| format!("!{}", p.name.name))
                         .collect::<Vec<_>>()
                         .join(", ")
@@ -15534,6 +15539,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 continue;
             }
             let Some(name) = d.param_name() else { continue };
+            // [copy-scalar-free] Keeping a Copy scalar is moving it: a copy.
+            if f.params.iter().any(|p| p.name.name == name.name && salvo_syntax::is_copy_scalar_type(&p.ty)) {
+                continue;
+            }
             self.error(
                 d.span,
                 format!(
@@ -20968,6 +20977,47 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
+    /// [copy-scalar-free] A written `!v` on a parameter typed as a Copy scalar
+    /// says nothing: moving one is a copy, so the caller keeps its value
+    /// either way. A warning naming the clause entry, so the clause says only
+    /// what it means (user decision 2026-10-20). std is exempt, like the
+    /// other smells. A generic `!elem` stays legal and silent: whether its
+    /// argument moves is the call's question.
+    fn check_scalar_moves(&mut self, module: &'p Module) {
+        if self.is_std {
+            return;
+        }
+        let mut found: Vec<(Span, String)> = Vec::new();
+        let mut visit = |f: &ast::FnDecl| {
+            for d in f.deductions.iter().flatten() {
+                if !matches!(d.kind, ast::DeductionKind::Moved) {
+                    continue;
+                }
+                let Some(name) = d.param_name() else { continue };
+                let Some(p) = f.params.iter().find(|p| p.name.name == name.name) else { continue };
+                if salvo_syntax::is_copy_scalar_type(&p.ty) {
+                    found.push((
+                        d.span,
+                        format!("moving an `{}` is a copy, so `!{}` changes nothing for the caller: drop it [copy-scalar-free]", p.ty, name.name),
+                    ));
+                }
+            }
+        };
+        for item in &module.items {
+            match item {
+                Item::Fn(f) => visit(f),
+                Item::Effect(e) => e.fns.iter().for_each(&mut visit),
+                Item::Handler(h) => h.fns.iter().for_each(&mut visit),
+                Item::Qualifier(q) => q.fns.iter().for_each(&mut visit),
+                Item::Params(p) => p.fns.iter().for_each(&mut visit),
+                _ => {}
+            }
+        }
+        for (span, msg) in found {
+            self.warn(span, msg);
+        }
+    }
+
     /// [qual-whynot] A predicate qualifier says why a value failed it in a
     /// `@whynot` tag on `fn qualifies`: a template whose `[name]`s are
     /// `qualifies`' parameters — the subject, or a slot of a scalar type,
@@ -23488,6 +23538,11 @@ impl<'p, 'r> Checker<'p, 'r> {
         let Some(var) = self.lookup(&id.name) else {
             return;
         };
+        // [copy-scalar-free] Moving a Copy scalar is a copy: a store, a
+        // `return`, a spread or a `use` argument leaves the source standing.
+        if crate::types::moves_for_free(&var.declared) {
+            return;
+        }
         let (var_id, links) = (var.id, var.links.clone());
         let name = id.name.clone();
         // [effect-state-store] A handler's **storage** — a state field or a
@@ -27395,9 +27450,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 roots.extend(place_roots);
                 rendered.push(PredicateArg {
                     path: path.clone(),
-                    copy: matches!(&place_ty.strip_quals(), Ty::Named { name, args }
-                        if args.is_empty()
-                            && matches!(name.as_str(), "Int" | "Long" | "Bool" | "Char" | "Float" | "Double" | "Byte")),
+                    copy: crate::types::moves_for_free(&place_ty),
                 });
             }
             roots.sort_unstable();
@@ -31729,6 +31782,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .lookup(&id.name)
                     .map(|v| v.narrowed.quals().iter().any(|q| q.name == "once"))
                     .unwrap_or(false);
+                // [copy-scalar-free] Moving a Copy scalar is a copy, judged
+                // by the argument's own type: std's `add(list, elem: T) =>
+                // !elem` called with an `Int` leaves the `Int` usable.
+                if !d.kept && !arg_once && self.moves_for_free_var(&id.name) {
+                    continue;
+                }
                 if !d.kept || arg_once {
                     // Moved. A fate-linked (derived) variable cannot be
                     // moved [fate-derived-readonly]; moving a root

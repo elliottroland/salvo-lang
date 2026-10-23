@@ -5,7 +5,7 @@ expression: text
 module main
 
 actor interface Counter {
-  send fn bump(moved n: Int) -> None
+  send fn bump(lent n: Int) -> None
   send fn total(moved out: Reply<Int>) -> None
 }
 
@@ -23,7 +23,7 @@ impl Counting() of Counter stateful {
 
 actor interface Ledger {
   send fn report(moved label: Str, moved out: Reply<Str>) -> None
-  send fn reported(moved label: Str, moved out: Reply<Str>, moved total: Int) -> None
+  send fn reported(moved label: Str, moved out: Reply<Str>, lent total: Int) -> None
 }
 
 impl Bookkeeping() of Ledger deps [Counter] stateful {
@@ -227,7 +227,7 @@ enum __Cont_Breaking {
 }
 
 impl __Stub_Counter(moved addr: eff[Counter]) of Counter {
-  fn bump(moved n: Int) -> None {
+  fn bump(lent n: Int) -> None {
     send main::Counter#0(read addr, !read n)
   }
   fn total(moved out: Reply<Int>) -> None {
@@ -243,7 +243,7 @@ impl __Stub_Ledger(moved addr: eff[Ledger]) of Ledger {
     obligation release [out]
     send main::Ledger#0(read addr, !read label, !read out)
   }
-  fn reported(moved label: Str, moved out: Reply<Str>, moved total: Int) -> None {
+  fn reported(moved label: Str, moved out: Reply<Str>, lent total: Int) -> None {
     obligation gain-params [out]
     obligation release [out]
     send main::Ledger#1(read addr, !read label, !read out, !read total)

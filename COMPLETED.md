@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2017 tests, complete: the toolchain tests are
+cargo test                  # 2020 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,53 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — Moving a Copy scalar is a copy, by one rule
+
+ROADMAP §2d item 12. The user asked why it regressed and whether a
+unification would stop it recurring. It never regressed: the call site did
+exactly what [deduce-consume] said — "Consumption is uniform across all
+types … consistency over target-level permissiveness" (2026-09-01). Later
+decisions exempted scalars one *position* at a time: derived scalars
+(2026-09-11, [copy-scalar-free]), fate links, lambda captures, handler
+storage, and the callee's own contract check (2026-10-11/12, where "a move
+of one is free" was written). Each tested the position's own idea of a
+scalar — usually the *declared* parameter type by written name — so std's
+`add(list, elem: T) => !elem` called with an `Int` consumed it, and `args`
+wrote `add(rows, i + 0)`. The same seven-name test existed eight times
+(core `types`, `check` twice, `deduce`, `param_mode`, `ir::build::refs`,
+`mut_lends`, `desugar`, the LSP and the Rust backend), disagreeing on
+qualifiers, `T?` and aliases.
+
+The user agreed to unify and chose a warning for a written `!v`. One list,
+`salvo_syntax::COPY_SCALARS`, with `is_copy_scalar_name` and
+`is_copy_scalar_type` for the passes without types; `types::is_copy_scalar`
+over it, and `types::moves_for_free` (qualifiers stripped) — the question a
+consuming position now asks of the **argument's** type at the three places
+a bare identifier is consumed: a named call, a fn-value or effect-member
+call, and `fate_move` (stores, spreads, `return`, `use` arguments). Every
+other copy of the list now calls one of them, and the Rust backend's
+`is_copy_ty` is the core test plus `Pool` and a plain actor `Addr`. A written
+`!v` on a concrete scalar parameter warns (std exempt); a generic `!elem`
+does not. [deduce-consume]'s uniform-consumption sentence is reversed in the
+spec, and [copy-scalar-free] is restated as the one rule. `args` drops its
+`+ 0`s; the `index + 0` in `core.buffer`, `core.deque` and `core.list` stay —
+they strip an `Idx` claim to reach the partial overload, not a move.
+
+Falling out of the warning: a handler-local `send fn`'s clause, which must be
+written out [mixed-handler], no longer has to name a Copy scalar, and a
+`send fn` or actor effect member may keep one (keeping and moving a scalar
+are the same thing); otherwise the rule demanded the `!n` the warning
+forbids. `examples/actors` and `examples/cluster`, five doc snippets
+(Concurrency, Backends, Effects-and-Handlers, Files) and the actor, mixed,
+wire and deduce tests drop their scalar `!n`s; the clause-requirement tests
+now ask about a `Str`. A send member written without an entry for its
+scalar is lent in the IR rather than moved, which renders the same for a
+scalar.
+
+Tests: `copy_scalar_tests` (each scalar through a generic moved parameter
+twice, a literal store and a written `!v` with its warning, a `Str` still
+consumed).
 
 ### 2026-10-20 — A reassigned local is an owner or a borrow for its whole life
 
@@ -27834,7 +27881,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2017 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2020 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

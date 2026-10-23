@@ -9,7 +9,7 @@ gives it a mailbox:
 
 ```
 actor effect Counter {
-    send fn bump(n: Int) => !n
+    send fn bump(n: Int)
     send fn total(out: Reply<Int>) => !out
 }
 
@@ -52,7 +52,7 @@ The two kinds of work are:
 * a **task** — the body of a free `send fn`, scheduled rather than called. A task has no mailbox, no state and no identity; it exists because `replyto` may target a free `send fn`, so an ordinary synchronous function can wire future work and return:
 
 ```
-send fn finish(label: Str, out: Reply<Str>, row: Int) => !label, !out, !row {
+send fn finish(label: Str, out: Reply<Str>, row: Int) => !label, !out {
     out.send("${label}=${row}")
 }
 
@@ -73,7 +73,7 @@ handler Gathering() of Gather {
         for m in members { m.query(copy(word), replyto partial()) }   // one continuation per member
         …
     }
-    send fn partial(n: Int) => !n { total = total + n … }              // private: no face declares it
+    send fn partial(n: Int) { total = total + n … }              // private: no face declares it
 }
 ```
 
@@ -231,7 +231,7 @@ A program that wants *a* member rather than the set binds the group as the effec
 
 ```
 actor effect Inventory {
-    send fn reserve(sku: Key Str, qty: Int, out: Reply<Str>) => !sku, !qty, !out
+    send fn reserve(sku: Key Str, qty: Int, out: Reply<Str>) => !sku, !out
 }
 
 fn checkout(skus: List<Str>) [any Inventory, Console] -> None { … }   // `any`: shards are unordered

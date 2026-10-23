@@ -784,7 +784,8 @@ thread_local! {
 
 pub(crate) fn is_copy_ty(t: &Ty) -> bool {
     match t.strip_quals() {
-        Ty::Named { name, args } if args.is_empty() => matches!(name.as_str(), "Int" | "Long" | "Float" | "Double" | "Bool" | "Char" | "Byte" | "Pool"),
+        // [copy-scalar-free] The Copy scalars, and a pool's index.
+        Ty::Named { name, args } if args.is_empty() => salvo_syntax::is_copy_scalar_name(name) || name == "Pool",
         // [runtime-handles] an actor's addr is a scheduler index.
         Ty::Named { name, args } if name == "Addr" => !matches!(args.first().map(|a| a.strip_quals()), Some(Ty::Named { name: e, .. }) if PLAIN_EFFECTS.with(|p| p.borrow().contains(e))),
         _ => false,

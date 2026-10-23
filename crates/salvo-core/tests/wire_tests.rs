@@ -252,7 +252,7 @@ fn a_protocol_with_a_noremote_payload_cannot_be_named_for_a_group() {
     let errs = messages(&format!(
         "{IMPORT}noremote struct Canvas {{ n: Int }}\n\
          actor effect Painter {{ send fn paint(c: Canvas) => !c }}\n\
-         actor effect Counter {{ send fn bump(n: Int) => !n }}\n\
+         actor effect Counter {{ send fn bump(n: Int) }}\n\
          fn main() -> None {{\n    let _ok = protocol<Counter>()\n    let _bad = protocol<Painter>()\n}}\n"
     ));
     assert_eq!(errs.len(), 1, "one refusal, for the noremote protocol only: {errs:?}");
@@ -284,7 +284,7 @@ fn a_protocol_with_a_noremote_payload_cannot_be_named_for_a_group() {
     let errs = messages(&format!(
         "{IMPORT}noremote struct Canvas {{ n: Int }}\n\
          actor effect Painter {{ send fn paint(c: Canvas) => !c }}\n\
-         actor effect Counter {{ send fn bump(n: Int) => !n }}\n\
+         actor effect Counter {{ send fn bump(n: Int) }}\n\
          fn open<E>(nodes: eff[NodeGroup], ?protocol: () -> Protocol<E>) [spawn] -> Int => !nodes {{\n\
              return actor_group<E>(nodes)\n}}\n\
          fn main(a: eff[NodeGroup], b: eff[NodeGroup]) [spawn] -> None\n=> !a, !b {{\n\
@@ -304,7 +304,7 @@ fn a_protocol_with_a_noremote_payload_cannot_be_named_for_a_group() {
 #[test]
 fn effect_typed_generics_check() {
     let errs = messages(&format!(
-        "{IMPORT}actor effect Ping {{ send fn ping(n: Int) => !n }}\n\
+        "{IMPORT}actor effect Ping {{ send fn ping(n: Int) }}\n\
          actor effect Reg<E> {{\n    send fn join(member: eff[E]) => !member\n    \
          send fn peers(out: Reply<List<eff[E]>>) => !out\n    \
          send fn twin(other: eff[Reg<E>]) => !other\n}}\n\

@@ -70,7 +70,7 @@ fn set_container(ty: &mut Ty, c: &Ty) {
 }
 
 fn is_scalar(t: &Ty) -> bool {
-    matches!(t.strip_quals(), Ty::Named { name, args } if args.is_empty() && matches!(name.as_str(), "Int" | "Long" | "Float" | "Double" | "Bool" | "Char" | "Byte"))
+    crate::types::moves_for_free(t)
 }
 
 /// A fn type lending a handle answers one into its first non-scalar,

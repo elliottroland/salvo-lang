@@ -8124,11 +8124,12 @@ between endpoints and delivers what arrives into the scheduler.
   * A parameter *not kept* is consumed — the variable's type narrows to
     `Never`, and any later reference to it is a compile error (a
     `Never`-typed value represents an impossibility). Reassigning the
-    variable revives it. Consumption is uniform across all types: for
-    backend-copyable scalars the move never appears in generated code,
-    but the Salvo-level contract is enforced the same (decision:
-    consistency over target-level permissiveness).
-  * Every other move event consumes a bare identifier the same way (L2,
+    variable revives it. **A Copy scalar is never consumed**: moving one is
+    a copy [copy-scalar-free] (user decision 2026-10-20, reversing the
+    2026-09-01 "consumption is uniform across all types … consistency over
+    target-level permissiveness").
+  * Every other move event consumes a bare identifier the same way, a Copy
+    scalar excepted (L2,
     mirroring the [deduce-infer] move list): storing it in a
     struct/array/tuple literal, spreading it (`...n` — in a struct
     literal or any spread position), `return n`, `break n`,
@@ -9026,12 +9027,33 @@ between endpoints and delivers what arrives into the scheduler.
   [proj-anywhere]; an `iter fn`'s struct borrows its parameters [iter-fn]. A
   backend that would need a hidden clone to be correct reports instead
   [backend-never-wrong] [rs-proj-arm].
-* [copy-scalar-free] Moving a derived **Copy scalar** (`Int`, `Long`,
-  `Float`, `Double`, `Bool`, `Char`, `Byte` — not `Str`) is a read: the
-  number taken out of a borrow is the value itself on both backends, so no
-  `copy` is owed (user decision 2026-09-11). Poison still applies. The
-  same exemption lets a bodiless declaration leave a scalar parameter out
-  of its clause [deduce-syntax], and the hover omits scalars.
+* [copy-scalar-free] **Moving a Copy scalar is a copy** (`Int`, `Long`,
+  `Float`, `Double`, `Bool`, `Char`, `Byte` — not `Str`; one list,
+  `salvo_syntax::COPY_SCALARS`). The value is duplicated for free on every
+  backend, so no position consumes one: a call's moved parameter, a literal
+  store, a spread, a `use` argument, a `return` — all leave the source
+  usable. Judged by the **value's own type** (`types::moves_for_free`, any
+  qualifiers stripped), not the parameter's, so `add(rows, i)` with std's
+  `add(list, elem: T) => !elem` leaves `i` standing (user decision
+  2026-10-20, ROADMAP §2d item 12; the rule had been stated position by
+  position since 2026-09-01 — callee validation, derived scalars
+  (2026-09-11), fate links, captures, handler storage — and the plain
+  "identifier at a moved parameter" position never got it).
+  * A derived scalar is a read too: the number taken out of a borrow is the
+    value itself, so no `copy` is owed (user decision 2026-09-11).
+  * A bodiless declaration may leave a scalar parameter out of its clause
+    [deduce-syntax], and the hover omits scalars.
+  * A written `!v` on a parameter typed as a Copy scalar says nothing and
+    **warns**, naming the entry; a generic `!elem` is silent, since whether
+    its argument moves is the call's question. std is exempt. Where a clause
+    must be written out (a handler-local `send fn` [mixed-handler]) it need
+    not mention a Copy scalar, and a `send fn` or an actor effect member may
+    keep one: keeping and moving a scalar are the same thing.
+  * Which passes ask: the syntax passes by written name
+    (`salvo_syntax::is_copy_scalar_type`), the checker and IR by type
+    (`types::is_copy_scalar`, `moves_for_free`), the Rust backend's `Copy`
+    test on top of them (adding `Pool` and a plain actor `Addr`). How a
+    backend passes one (by value, `*x`) is the backend's spelling.
   * And a call **handing one back** records no fate link at all: `proj Int` is
     `Int` — `Ty::qualify` erases the qualifier — so there is nothing borrowed to
     keep a link to, and the result travels like any owned scalar (returned,

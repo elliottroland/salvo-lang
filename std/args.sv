@@ -787,7 +787,7 @@ export fn help_text<T>(spec: Spec<T>) [] -> Str => spec {
         append(out, "\nArguments:\n")
         let i: Int = 0
         while i < nargs {
-            add(rows, i + 0)
+            add(rows, i)
             i = i + 1
         }
         help_rows(out, lefts, rights, rows, width)
@@ -797,7 +797,7 @@ export fn help_text<T>(spec: Spec<T>) [] -> Str => spec {
         let commands: Mut List<Int> = Mut List<Int>()
         let c: Int = 0
         while c < ncommands {
-            add(commands, nargs + c + 0)
+            add(commands, nargs + c)
             c = c + 1
         }
         help_rows(out, lefts, rights, commands, width)

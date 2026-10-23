@@ -112,7 +112,7 @@ Or hand the loop over: `chunks(s, size)` is an iterator over a stream's bytes (a
 A read can also **not block**. `receive(s, reply)` hands the stream and a continuation to the provider and returns at once; the answer arrives on the reply — the bytes and the stream back, or `End`, or a failure (both of which have closed the stream):
 
 ```
-send fn on_chunk(total: Long, got: Received) [Streams, Console] => !total, !got {
+send fn on_chunk(total: Long, got: Received) [Streams, Console] => !got {
     when got {
         is Ok {
             let {bytes, stream} = got              // the stream comes back with the bytes

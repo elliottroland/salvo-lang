@@ -19,7 +19,7 @@ actor effect Sequencer {
 
 // 2. Shards: `Key` marks the argument that decides the shard.
 actor effect Inventory {
-    send fn reserve(sku: Key Str, qty: Int, out: Reply<Str>) => !sku, !qty, !out
+    send fn reserve(sku: Key Str, qty: Int, out: Reply<Str>) => !sku, !out
 }
 
 // 3. Scatter (map/reduce): every index answers a count, the sum is the answer.
@@ -50,7 +50,7 @@ handler Stocking(shard: Str) of Inventory {
     state {
         served: Int = 0
     }
-    send fn reserve(sku: Key Str, qty: Int, out: Reply<Str>) => !sku, !qty, !out {
+    send fn reserve(sku: Key Str, qty: Int, out: Reply<Str>) => !sku, !out {
         served = served + qty
         out.send("${shard}:${served}")
     }
@@ -133,7 +133,7 @@ handler Gathering() of Gather {
         }
     }
     // Private: one index's answer, the continuation `scatter` mints per member.
-    send fn partial(n: Int) => !n {
+    send fn partial(n: Int) {
         total = total + n
         left = left - 1
         if left == 0 {

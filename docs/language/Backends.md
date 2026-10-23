@@ -120,7 +120,7 @@ A member may take a `Reply<T>` — a continuation — and **return at once**, an
 
 ```
 effect Slow {
-    fn later(n: Int, done: Reply<Int>) [] -> None => !n, !done
+    fn later(n: Int, done: Reply<Int>) [] -> None => !done
 }
 
 threadsafe platform handler HostSlow of Slow

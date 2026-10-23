@@ -265,17 +265,18 @@ fn missing_return_is_an_error() {
     );
 }
 
-// [deduce-consume] A written `!p` consumes the identifier argument
-// uniformly across all types: its type narrows to `Never` and later uses
-// are errors; reassignment revives it; kept parameters are unaffected.
-// Consumption on an always-exiting branch does not leak past the branch.
+// [deduce-consume] A written `!p` consumes the identifier argument: its type
+// narrows to `Never` and later uses are errors; reassignment revives it; kept
+// parameters are unaffected. Consumption on an always-exiting branch does not
+// leak past the branch. A Copy scalar is the exception [copy-scalar-free]:
+// moving one is a copy, so the same program over `Int`s compiles.
 #[test]
 fn use_after_consume_is_an_error() {
     let dir = src_dir("consume");
     fs::write(
         dir.join("main.sv"),
-        "fn add(a: Int, b: Int) -> Int => !a, !b {\n    return a + b\n}\n\n\
-         fn main() [use] {\n    use StdConsole\n    let a = 1\n    let b = 2\n    \
+        "fn add(a: Str, b: Str) -> Str => !a, !b {\n    return \"${a}${b}\"\n}\n\n\
+         fn main() [use] {\n    use StdConsole\n    let a = \"1\"\n    let b = \"2\"\n    \
          let c = a.add(b)\n    println(\"${a}\")\n}\n",
     )
     .unwrap();
@@ -286,6 +287,19 @@ fn use_after_consume_is_an_error() {
         stderr.contains("`a` cannot be used here: it was consumed (moved) by an earlier call"),
         "stderr: {stderr}"
     );
+    // [copy-scalar-free] The same over `Int`s: moving one is a copy, and the
+    // written `!a, !b` only warns that it changes nothing.
+    fs::write(
+        dir.join("main.sv"),
+        "fn add(a: Int, b: Int) -> Int => !a, !b {\n    return a + b\n}\n\n\
+         fn main() [use] {\n    use StdConsole\n    let a = 1\n    let b = 2\n    \
+         let c = a.add(b)\n    println(\"${a}\")\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "stderr: {stderr}");
+    assert!(stderr.contains("moving an `Int` is a copy, so `!a` changes nothing"), "stderr: {stderr}");
 
     // Reassignment revives the variable; kept parameters (`[a]`) are
     // never consumed; consumption inside an always-exiting `if` branch

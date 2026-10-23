@@ -138,7 +138,7 @@ impl<'a, 'p> Modes<'a, 'p> {
                 return self.is_copy(target);
             }
         }
-        matches!(base.name.name.as_str(), "Int" | "Long" | "Float" | "Double" | "Bool" | "Char" | "Byte")
+        salvo_syntax::is_copy_scalar_name(&base.name.name)
     }
 
     /// [rs-fn-field] Whether this fn **stores** a callback it is given: a

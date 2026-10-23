@@ -9,7 +9,7 @@ actor interface Sequencer {
 }
 
 actor interface Inventory {
-  send fn reserve(moved sku: Str, moved qty: Int, moved out: Reply<Str>) -> None
+  send fn reserve(moved sku: Str, lent qty: Int, moved out: Reply<Str>) -> None
 }
 
 actor interface Search {
@@ -601,7 +601,7 @@ impl __Stub_Sequencer(moved addr: eff[Sequencer]) of Sequencer {
 }
 
 impl __Stub_Inventory(moved addr: eff[Inventory]) of Inventory {
-  fn reserve(moved sku: Str, moved qty: Int, moved out: Reply<Str>) -> None {
+  fn reserve(moved sku: Str, lent qty: Int, moved out: Reply<Str>) -> None {
     obligation gain-params [out]
     obligation release [out]
     send main::Inventory#0(read addr, !read sku, !read qty, !read out)

@@ -1010,7 +1010,7 @@ fun helpText(spec: Spec): String {
             if (!((i < nargs))) {
                 break
             }
-            salvo.core.list.addPlatform(rows, (i + 0))
+            salvo.core.list.addPlatform(rows, i)
             i = (i + 1)
         }
         helpRows(out, lefts, rights, rows, width)
@@ -1023,7 +1023,7 @@ fun helpText(spec: Spec): String {
             if (!((c < ncommands))) {
                 break
             }
-            salvo.core.list.addPlatform(commands, ((nargs + c) + 0))
+            salvo.core.list.addPlatform(commands, (nargs + c))
             c = (c + 1)
         }
         helpRows(out, lefts, rights, commands, width)

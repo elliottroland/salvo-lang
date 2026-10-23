@@ -14,6 +14,24 @@ pub mod visit_mut;
 pub use diag::Diagnostic;
 pub use span::Span;
 
+/// [copy-scalar-free] The **Copy scalars**: a value of one is duplicated for
+/// free on every backend, so moving one is a copy and never consumes the
+/// source. The one list every "is this a scalar" question asks, from the
+/// syntax passes (which have no types) to the backends.
+pub const COPY_SCALARS: &[&str] = &["Int", "Long", "Float", "Double", "Bool", "Char", "Byte"];
+
+/// [copy-scalar-free] Whether `name` is one of [`COPY_SCALARS`].
+pub fn is_copy_scalar_name(name: &str) -> bool {
+    COPY_SCALARS.contains(&name)
+}
+
+/// [copy-scalar-free] Whether a written type is a bare Copy scalar
+/// (`Int`, no qualifiers, no arguments), by its written name. For the passes
+/// that run before or without types; an alias to a scalar is not seen.
+pub fn is_copy_scalar_type(ty: &ast::Type) -> bool {
+    matches!(ty, ast::Type::Named { qualifiers, base } if qualifiers.is_empty() && base.args.is_empty() && is_copy_scalar_name(&base.name.name))
+}
+
 /// Parse a single Salvo source file into a module AST.
 ///
 /// Always returns an AST (possibly partial) together with any diagnostics

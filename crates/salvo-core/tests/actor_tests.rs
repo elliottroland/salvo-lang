@@ -43,7 +43,7 @@ export intrinsic fn watch<E>(target: eff[E], on_exit: Reply<Exit>) [spawn] -> No
 /// request/response pair, a `Log` dependency, and handlers for both.
 const PRELUDE: &str = r#"
 actor effect Counter {
-    send fn bump(n: Int) => !n
+    send fn bump(n: Int)
     send fn total(out: Reply<Int>) => !out
 }
 
@@ -986,8 +986,8 @@ fn a_member_can_send_to_its_own_process() {
     let errs = errors(
         "\
 actor effect Work {
-    send fn start(n: Int) => !n
-    send fn step(n: Int) => !n
+    send fn start(n: Int)
+    send fn step(n: Int)
 }
 
 handler Working() of Work {
@@ -1035,7 +1035,7 @@ handler Working() of Log {
     let not_send = errors(
         "\
 actor effect Work {
-    send fn start(n: Int) => !n
+    send fn start(n: Int)
     fn ready() -> Bool
 }
 
@@ -1086,8 +1086,8 @@ fn a_self_send_types_and_consumes_its_arguments() {
     let errs = errors(
         "\
 actor effect Work {
-    send fn start(n: Int) => !n
-    send fn step(n: Int) => !n
+    send fn start(n: Int)
+    send fn step(n: Int)
 }
 
 handler Working() of Work {
@@ -1195,7 +1195,7 @@ fn a_send_member_needs_an_actor_effect() {
     let errs = errors(
         "\
 effect Plain {
-    send fn nope(n: Int) => !n
+    send fn nope(n: Int)
 }
 ",
     );
@@ -1367,7 +1367,7 @@ fn a_parking_handler_may_not_be_used_synchronously() {
         "\
 actor effect Waiting {
     send fn ask() 
-    send fn got(n: Int) => !n
+    send fn got(n: Int)
 }
 
 handler Asking() [Counter] of Waiting {
@@ -1402,7 +1402,7 @@ fn a_parking_handler_may_be_spawned() {
         "\
 actor effect Waiting {
     send fn ask() 
-    send fn got(n: Int) => !n
+    send fn got(n: Int)
 }
 
 handler Asking() [Counter] of Waiting {
@@ -1886,7 +1886,7 @@ actor effect Ask {
     send fn ask(out: Reply<Int>) => !out
 }
 
-send fn answer(peer: eff[Peer], back: eff[Counter], n: Int) => !peer, !back, !n {
+send fn answer(peer: eff[Peer], back: eff[Counter], n: Int) => !peer, !back {
     peer.ping(back)
     discard(n)
 }
@@ -1986,7 +1986,7 @@ handler Credit(orders: eff[OrderApi]) of CreditApi {
     send fn credit(id: Int, out: Reply<Bool>) {
         orders.open_orders(id, replyto! counted(out))
     }
-    send fn counted(out: Reply<Bool>, n: Int) => !out, !n {
+    send fn counted(out: Reply<Bool>, n: Int) => !out {
         out.send(true)
     }
 }
@@ -2085,7 +2085,7 @@ handler Credit(orders: eff[OrderApi]) of CreditApi {
     send fn credit(id: Int, out: Reply<Bool>) {
         orders.open_orders(id, replyto counted(out))
     }
-    send fn counted(out: Reply<Bool>, n: Int) => !out, !n {
+    send fn counted(out: Reply<Bool>, n: Int) => !out {
         out.send(true)
     }
 }
@@ -2121,7 +2121,7 @@ handler Caching() [Counter] of Counter {
     send fn total(out: Reply<Int>) {
         total(replyto! answered(out))
     }
-    send fn answered(out: Reply<Int>, n: Int) => !out, !n {
+    send fn answered(out: Reply<Int>, n: Int) => !out {
         out.send(n)
     }
 }
@@ -2146,7 +2146,7 @@ fn a_one_way_request_response_pair_is_silent() {
     let src = "\
 actor effect Waiting {
     send fn ask()
-    send fn got(n: Int) => !n
+    send fn got(n: Int)
 }
 
 handler Asking(c: eff[Counter]) of Waiting {
@@ -2492,8 +2492,8 @@ handler Sneaky(inner: eff[Counter]) of Counter {
     }
     send fn bump(n: Int) { helper@self(n) }
     send fn total(out: Reply<Int>) { inner.total(replyto answered(out)) }
-    send fn helper(n: Int) => !n { sum = sum + n }
-    send fn answered(out: Reply<Int>, n: Int) => !out, !n { out.send(n + sum) }
+    send fn helper(n: Int) { sum = sum + n }
+    send fn answered(out: Reply<Int>, n: Int) => !out { out.send(n + sum) }
 }
 ",
     );
@@ -2505,15 +2505,17 @@ handler Sneaky() of Counter {
     state {
         sum: Int = 0
     }
-    send fn bump(n: Int) { helper(n) }
+    send fn bump(n: Int) { helper(\"x\") }
     send fn total(out: Reply<Int>) { out.send(sum) }
-    send fn helper(n: Int) { sum = sum + n }
+    send fn helper(s: Str) { sum = sum + 1 }
 }
 ",
     );
+    // [copy-scalar-free] The clause names what is consumed, so the
+    // requirement is about a non-scalar parameter.
     assert!(
         errs.iter().any(|m| m.contains("`send fn helper` implements no effect member")
-            && m.contains("`=> !n`")),
+            && m.contains("`=> !s`")),
         "the clause is required, as for a free send fn: {errs:?}"
     );
     assert!(

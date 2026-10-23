@@ -293,7 +293,7 @@ For a spawned handler, `init` is the actor's **first activation**: the spawn enq
 A handler may implement more than one effect, and the effects are simply listed: `handler H() of Public, Admin`. It stays one handler with one piece of state — what it gains is a *face* per effect, which is how a public protocol and an administrative one share an implementation without a second handler forwarding into the first.
 
 ```
-effect Tally { fn bump(n: Int) -> None => !n }
+effect Tally { fn bump(n: Int) -> None }
 effect Stats { fn total() -> Int }
 
 handler Counting() of Tally, Stats {

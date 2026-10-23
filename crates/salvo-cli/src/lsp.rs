@@ -3765,16 +3765,7 @@ fn render_deductions(
     let scalar = |name: &str| -> bool {
         decl.params.iter().any(|p| {
             p.name.name == name
-                && matches!(
-                    &p.ty,
-                    salvo_syntax::ast::Type::Named { qualifiers, base }
-                        if qualifiers.is_empty()
-                            && base.args.is_empty()
-                            && matches!(
-                                base.name.name.as_str(),
-                                "Int" | "Long" | "Float" | "Double" | "Bool" | "Char" | "Byte"
-                            )
-                )
+                && salvo_syntax::is_copy_scalar_type(&p.ty)
         })
     };
     let mut entries: Vec<String> = deductions

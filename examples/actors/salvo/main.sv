@@ -27,7 +27,7 @@
 // invocation crosses to another thread, its payload is consumed: the clause
 // says `=> !n`.
 actor effect Counter {
-    send fn bump(n: Int) => !n
+    send fn bump(n: Int)
     send fn total(out: Reply<Int>) => !out
 }
 
@@ -67,7 +67,7 @@ handler Counting() of Counter {
 // `main` is not involved: the answer travels actor to actor.
 actor effect Ledger {
     send fn report(label: Str, out: Reply<Str>) => !label, !out
-    send fn reported(label: Str, out: Reply<Str>, total: Int) => !label, !out, !total
+    send fn reported(label: Str, out: Reply<Str>, total: Int) => !label, !out
 }
 
 // The handler declares what it depends on exactly as a synchronous one does —
@@ -169,7 +169,7 @@ handler Breaking() of Fragile {
 // So an ordinary function can wire future work and return, which is what makes
 // a plain function a full citizen here: `report_line` below is synchronous,
 // keeps every feature, and never parks.
-send fn formatted(label: Str, out: Reply<Str>, total: Int) => !label, !out, !total {
+send fn formatted(label: Str, out: Reply<Str>, total: Int) => !label, !out {
     out.send("${label} totalled ${total}")
 }
 

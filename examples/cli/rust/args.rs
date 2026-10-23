@@ -1157,7 +1157,7 @@ pub fn help_text(spec: &crate::args::Spec) -> String {
             if !((i < nargs)) {
                 break;
             };
-            crate::core_list::add_platform::<i32>(&mut rows, i32::wrapping_add(i, 0i32));
+            crate::core_list::add_platform::<i32>(&mut rows, i);
             i = i32::wrapping_add(i, 1i32);
         }
         crate::args::help_rows(&mut out, &lefts, &rights, &rows, width);
@@ -1170,7 +1170,7 @@ pub fn help_text(spec: &crate::args::Spec) -> String {
             if !((c < ncommands)) {
                 break;
             };
-            crate::core_list::add_platform::<i32>(&mut commands, i32::wrapping_add(i32::wrapping_add(nargs, c), 0i32));
+            crate::core_list::add_platform::<i32>(&mut commands, i32::wrapping_add(nargs, c));
             c = i32::wrapping_add(c, 1i32);
         }
         crate::args::help_rows(&mut out, &lefts, &rights, &commands, width);

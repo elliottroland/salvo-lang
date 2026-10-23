@@ -1240,15 +1240,16 @@ pub fn qual_drop_block(name: &str) -> Option<&'static str> {
 /// [copy-scalar-free] A bare native scalar, whose copy is free and whose
 /// projection is therefore the value itself.
 pub fn is_copy_scalar(ty: &Ty) -> bool {
-    matches!(
-        ty,
-        Ty::Named { name, args }
-            if args.is_empty()
-                && matches!(
-                    name.as_str(),
-                    "Int" | "Long" | "Float" | "Double" | "Bool" | "Char" | "Byte"
-                )
-    )
+    matches!(ty, Ty::Named { name, args } if args.is_empty() && salvo_syntax::is_copy_scalar_name(name))
+}
+
+/// [copy-scalar-free] Whether a **value** of this type moves for free: a Copy
+/// scalar under any qualifiers (`InRange(1, 10) Int`, `proj Int`). The
+/// question a consuming position asks of its argument — of the argument's
+/// own type, not the parameter's, so a generic `T` bound to `Int` is free
+/// too.
+pub fn moves_for_free(ty: &Ty) -> bool {
+    is_copy_scalar(ty.strip_quals())
 }
 
 pub fn compatible(a: &Ty, b: &Ty) -> bool {

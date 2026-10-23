@@ -579,7 +579,7 @@ handler Bin(seed: List<Int>) of Sink {{
 fn a_copy_scalar_state_field_may_be_handed_over() {
     let src = format!(
         r#"{QUALIFIED_LISTS}
-fn eat(n: Int) -> None => !n {{ }}
+fn eat<T>(n: T) -> None => !n {{ }}
 
 effect Sink {{
     fn read() -> Int
