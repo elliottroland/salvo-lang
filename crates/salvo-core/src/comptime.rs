@@ -2714,6 +2714,20 @@ impl<'w> Expander<'w> {
                 return true;
             }
         }
+        // [comptime-pattern] `X?` matches any union with a `None` arm, `X` standing for the
+        // rest: `*?` is every optional, and `<E> E?` binds `"a" | "b"` in
+        // `("a" | "b")?` — whose arms are three, so arm-by-arm matching
+        // against the pattern's two found none.
+        if let Type::Nullable { inner, span } = pattern {
+            let Type::Union { arms, .. } = self.peel(actual, 0) else { return false };
+            let is_none = |t: &Type| matches!(t, Type::Named { qualifiers, base } if qualifiers.is_empty() && base.args.is_empty() && base.name.name == "None");
+            let rest: Vec<Type> = arms.iter().filter(|a| !is_none(a)).cloned().collect();
+            if rest.len() + 1 != arms.len() || rest.is_empty() {
+                return false;
+            }
+            let rest = if rest.len() == 1 { rest.into_iter().next().unwrap() } else { Type::Union { arms: rest, span: *span } };
+            return self.match_pattern(inner, &rest, binders, out);
+        }
         let p = self.peel(pattern, 0);
         let a = self.peel(actual, 0);
         let all = |this: &Self, ps: &[Type], as_: &[Type], out: &mut Vec<(String, Type)>| {
@@ -3405,6 +3419,26 @@ impl MutVisitor for Expander<'_> {
                 }
             }
         }
+        // [comptime-is-splice] `v is [field.type]` tests what the type says:
+        // its qualifiers, then its base, as an arm's `is` check is written.
+        if let Expr::Is { check, .. } = expr {
+            if let Some(b) = check.first().and_then(|r| r.name.name.strip_suffix(".type")).map(str::to_string) {
+                let span = check[0].span;
+                match self.binding(&b).map(|bd| bd.ty.clone()) {
+                    Some(ty) => match arm_check(&ty) {
+                        Some(refs) => {
+                            let rest: Vec<TypeRef> = check.drain(1..).collect();
+                            *check = refs.into_iter().map(|mut r| {
+                                r.span = span;
+                                r
+                            }).chain(rest).collect();
+                        }
+                        None => self.error(span, format!("`{b}.type` is `{}` here, which an `is` cannot test: an `is` tests a named type, qualified or not [comptime-is-splice]", ty)),
+                    },
+                    None => self.error(span, format!("`{b}` is not a binder of an enclosing `[for …]` or `[when …]` [comptime-fields]")),
+                }
+            }
+        }
         match expr {
             // `v.[field]` → `v.field`; `field.name` / `field.index` /
             // `field.first` / `field.last`; `T.name`.
@@ -3913,6 +3947,16 @@ impl MutVisitor for RenameLocals<'_> {
                 }
             }
             Expr::For { pattern, .. } => self.pattern(pattern),
+            // A lambda's parameter is renamed with the uses in its body, which
+            // the walk renames: `(v: Int) -> v` in a body that also declares
+            // a `v` stays one name.
+            Expr::Lambda { params, .. } => {
+                for p in params {
+                    if let Some(n) = self.renames.get(&p.name.name) {
+                        p.name.name = n.clone();
+                    }
+                }
+            }
             _ => {}
         }
     }

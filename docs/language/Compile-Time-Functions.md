@@ -202,7 +202,21 @@ into a type, wherever a type is written:
 }
 ```
 
-and as a struct literal's head, `[arm.type] { … }`. A bare `field.type` in a
+and as a struct literal's head, `[arm.type] { … }`. After `is`, it tests
+what the type says, its qualifiers and then its base, so a value parsed as an
+`Int` can be checked against the field's own `InRange(1, 65535) Int` and is
+narrowed to it:
+
+```
+[if field.type is Int] {
+    let v = parse_int(text)!
+    if v is [field.type] {
+        return v                    // an `InRange(1, 65535) Int`
+    }
+}
+```
+
+A bare `field.type` in a
 type position is an error naming the bracketed form. Declared names need no
 bracket, because they already are types: `T`, and a pattern binder such as
 `<E>` below, read the same in the body as in any generic fn. Values need none
@@ -401,6 +415,9 @@ any depth, so one test can pick out every field of a shape:
 [if field.type is *?] { … }               // any optional
 ```
 
+`X?` matches any union with a `None` arm, `X` standing for the others, so
+`*?` is every optional, `("low" | "high")?` included.
+
 When the body needs the part a `*` stood for, name it: declare a **binder**
 before the pattern, the way a function declares its type parameters, and use
 it as a type in the branch:
@@ -412,7 +429,8 @@ it as a type in the branch:
 }
 ```
 
-A binder is the part as written, qualifiers and all, and is in scope only in
+A binder is the part as written, qualifiers and all; it has a `.kind` like a
+field (`[if E.kind is Union]`), and it is in scope only in
 the branch the test guards — under `||` or `!` the test proves nothing about
 the branch, so a binder there is an error. Writing the same binder twice
 constrains: `<K> Pair<K, K>` matches only a pair of one type. Matching ignores

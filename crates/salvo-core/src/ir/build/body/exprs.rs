@@ -2215,7 +2215,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             self.pop_scope();
             arms.push((c, b));
             if i + 1 == branches.len() {
-                otherwise = else_block.map(|b| self.block(b, value));
+                otherwise = else_block.map(|b| self.else_block(id, b, value));
             }
         }
         self.set_last_branch(id);
@@ -2256,13 +2256,26 @@ impl<'a, 'p> Lower<'a, 'p> {
         self.pop_scope();
         arms.push((c, b));
         if branches.len() == 1 {
-            otherwise = else_block.map(|b| self.block(b, value));
+            otherwise = else_block.map(|b| self.else_block(id, b, value));
         } else {
             let e = self.if_expr(&branches[1..], else_block, span, value);
             otherwise = Some(if value { Block { stmts: Vec::new(), value: Some(Box::new(e)), span } } else { Block { stmts: vec![Stmt::Expr(e)], value: None, span } });
         }
         self.set_last_branch(id);
         (pending, Expr { ty, span, kind: ExprKind::Branch { id, arms, otherwise } })
+    }
+
+    /// [ir-narrow] An `else` is where `branch`'s tests failed, so a name they
+    /// narrowed reads as what remains — justified by the branch, not by an
+    /// enclosing arm's test. Lowered under the enclosing justification, the
+    /// `else` of `if one is A` inside a `when`'s `is Errs` arm read `one`
+    /// as that arm's index: a `ClassCastException` on Kotlin, a type error
+    /// on Rust.
+    fn else_block(&mut self, branch: NodeId, b: &ast::Block, value: bool) -> Block {
+        let saved = self.last_branch.replace(branch);
+        let out = self.with_test(None, |me| me.block(b, value));
+        self.last_branch = saved;
+        out
     }
 
     pub(crate) fn when_cond_expr(&mut self, branches: &[(AExpr, ast::Block)], else_block: Option<&ast::Block>, span: Span, value: bool) -> Expr {

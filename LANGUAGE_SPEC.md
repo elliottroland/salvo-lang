@@ -5251,8 +5251,12 @@ Conventions:
     requires the type to carry `InRange` (through an alias too) and binds its
     constants, and a constant written there (`InRange(1, 10) *`) is compared.
     Only the pattern's outermost qualifiers are read;
-    a union matches **arm by arm, in order** (`Int | Str` is not `Str | Int`),
-    and `T?` is the union `T | None`. A pattern with neither `*` nor binders is
+    a union matches **arm by arm, in order** (`Int | Str` is not `Str | Int`).
+    **`X?` matches any union with a `None` arm**, `X` standing for the other
+    arms (one arm, or their union): `*?` is every optional, and `<E> E?` binds
+    `"low" | "high"` in `("low" | "high")?` (2026-10-20; arm by arm, three
+    arms against the pattern's two matched nothing). A binder supports `.kind`
+    (`[if E.kind is Union]`). A pattern with neither `*` nor binders is
     the plain type test it always was.
   * **A `[when]` with a subject has an ordinary `when`'s rule**
     [when-exhaustive] (user decisions 2026-10-20, replacing the day-old rule
@@ -5271,6 +5275,13 @@ Conventions:
     on `[when f.kind]`, or test with `[if f.type is …]`". Reported once, at
     the template; its `by` sites stay quiet. `[when f.kind]` ranges over
     `Kind`, the same everywhere, so it stays [comptime-kind].
+* [comptime-is-splice] **`v is [field.type]` tests what a binder's type
+  says** (ARG_PARSE.md 2.2, under §13 (B): a splice wherever a type is
+  written): its qualifiers, then its base, spliced per copy as an arm's `is`
+  check is written. So a value parsed as an `Int` is re-tested against the
+  field's `InRange(1, 65535) Int` and narrowed to it, and against a plain
+  `Int` field the test is the trivial one. The binder's type must be a named
+  type, qualified or not: a union or optional is refused naming the type.
 * [comptime-access] **`v.[field]`** reads the field an enclosing `[for …]`
   is at (the binder in brackets), rewritten by the expansion to `v.name`;
   **`[field]: expr`** is the same entry in a struct literal, and `[for
@@ -7211,6 +7222,37 @@ can have one capability without the other.
   and `Options:` in two aligned columns, each row its doc comment, choices
   (`[possible values: json, text]`) and default (`[default: 8080]`), and
   `-h, --help` last.
+* [args-derive] **`struct S : FromArgs<self> by args` derives a parser**
+  (ARG_PARSE.md §10.1, Q7, Q13): `params FromArgs<T> { fn arg_spec() ->
+  Spec<T>; fn from_found(found: Found) -> Ok T | Errs NonEmpty
+  List<ArgError> }`, both return-only and picked by type
+  [fn-overload-return]. `parse_args<T>(args)` is spec, scan, then the help
+  text (an `Errs` of one `HelpRequested`) or `from_found`;
+  `args_or_exit<T>(args) [Console, Process]` prints help to stdout and
+  exits 0, or every error to stderr with the usage line and exits 2.
+  * **By field type**: `Bool` a switch (true when given, else its default);
+    `List<T>` repeated, every value (`NonEmpty` requires one); `T?` absent
+    as `None`; a literal union one of its literals (optional too), the
+    choices listed in help and checked by the scan; any other type one
+    value, required unless it has a default, shown as `[default: …]`.
+  * **Values** are parsed with `from_str` at the base type (an `[if
+    field.type is Int]` chain over `Str`, `Int`, `Long`, `Double`; any other
+    type at itself), and re-tested against the field's qualifiers with `v is
+    [field.type]` [comptime-is-splice]; a failure is an `Invalid` error
+    ("expected an integer", "the value is not accepted").
+  * **Comptime qualifiers**: `Short(c: Char) of Field`, `Positional of
+    Field` (taken in field order), `Named(name: Str) of Struct` (the command
+    name; otherwise `command_name(T.name)`). A struct's doc comment is the
+    about line, a field's its help.
+  * `from_found` runs a check pass (statements, errors in a `Mut List`),
+    then builds `T` with each entry `[field]: eval<[field.type]>(() -> {
+    … })`, a block lambda being the statement context a struct-literal
+    entry lacks.
+  * **Refused** at the `by` site: a struct-typed field (groups are not
+    built yet), `Short` on a positional, a `Bool` positional. **Trapped as
+    the parser starts** (`check_spec`, which the derive cannot see): two
+    options with one short name, `Short('h')`, a field named `help`, a
+    required positional after an optional one, a positional after a list.
 
 ## Network (std, module `net`) — step ① of the network sequence
 
@@ -10827,6 +10869,10 @@ replaced the working document TESTING.md).
   type, read from the subject's place, with a `Justification` naming the
   node that proved it (a test, a switch arm, a branch condition, a branch
   that left, a loop's totality, or a carried claim).
+  * An `if`'s `else` is justified by its own branch (`After`), never by an
+    enclosing arm's test (2026-10-20): inside a `when`'s `is Errs` arm, the
+    `else` of `if one is A` read `one` as that arm's index, a
+    `ClassCastException` on Kotlin and a type error on Rust.
 * [ir-alias] `Alias` names a place: every read and write of the local is
   one of the place [deduce-field].
 * [ir-loop] There is one general loop, `Loop`, unconditional and left by

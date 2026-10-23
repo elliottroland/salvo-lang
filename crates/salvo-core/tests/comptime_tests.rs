@@ -591,6 +591,20 @@ fn a_wildcard_matches_any_type() {
     assert_eq!(pick("*"), ["args", "either", "ints", "mixed", "name", "opt", "same"]);
 }
 
+/// [comptime-pattern] `X?` matches any union with a `None` arm, `X` standing
+/// for the rest: an optional literal union is three arms, and arm-by-arm
+/// matching against the pattern's two found none (ARG_PARSE.md 2.2).
+#[test]
+fn an_optional_pattern_matches_an_optional_literal_union() {
+    let src = "struct S {\n    level: (\"low\" | \"high\")?,\n    n: Int?,\n    both: Int | Str | None,\n    either: Int | Str\n}\n\n\
+               comptime fn pick(s: S) [] -> Int => s {\n    \
+               [for f in S.fields] {\n        \
+               [if f.type is <E> E?] {\n            \
+               [if E.kind is Union] { refuse!(\"union:${f.name}\") } else { refuse!(\"one:${f.name}\") }\n        \
+               }\n    }\n    return 0\n}\n";
+    assert_eq!(refused(src), ["one:n", "union:both", "union:level"]);
+}
+
 /// [comptime-pattern] Binders are declared before the pattern (`is <E>
 /// List<E>`) and bind the part they stand at, in the then-branch: usable as a
 /// type there, and as a root of further comptime tests.

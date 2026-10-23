@@ -364,3 +364,19 @@ fn a_struct_literal_call_argument_s_own_written_type_argument_still_decides() {
         "`Arg<Str>` disagrees with the parameter's `Arg<Int>` and must be reported"
     );
 }
+
+/// [call-type-args] A `None` argument meets `Q?`'s `None` arm and leaves `Q`
+/// to what follows: binding `Q` to `None` first refused a lambda after it,
+/// whose return then had to be a `None?` (found building `args`' derive,
+/// 2026-10-20). The order of the arguments no longer matters.
+#[test]
+fn a_none_argument_leaves_an_optional_s_variable_unbound() {
+    for call in ["m<Str>(None, (x: Str) -> x)", "m(None, (x: Str) -> x)", "late((x: Str) -> x, None)"] {
+        let msgs = messages(&format!(
+            "fn m<Q>(d: Q?, r: (v: Q) -> Q?) [] -> Int =>[r] v => d, r {{ return 1 }}\n\n\
+             fn late<Q>(r: (v: Q) -> Q?, d: Q?) [] -> Int =>[r] v => d, r {{ return 1 }}\n\n\
+             fn go() [] -> Int {{\n    return {call}\n}}\n"
+        ));
+        assert!(msgs.is_empty(), "`{call}` should check: {msgs:?}");
+    }
+}

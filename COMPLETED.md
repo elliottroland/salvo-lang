@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1992 tests, complete: the toolchain tests are
+cargo test                  # 1997 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,48 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — `FromArgs<self> by args`: a struct derives its command line
+
+Phase 2.2 of the argument-parsing build (ARG_PARSE.md §10.1, Q7, Q13, Q17;
+no new decision). [args-derive]: `params FromArgs<T> { arg_spec() ->
+Spec<T>; from_found(found) -> Ok T | Errs NonEmpty List<ArgError> }`, both
+stamped by `args`'s comptime fns and picked by return type; `parse_args`
+(pure) and `args_or_exit` (help to stdout and 0, errors to stderr and 2).
+Fields map by type (switch, valued, optional, repeated, literal choices,
+`NonEmpty`), `Short`/`Positional`/`Named` are comptime qualifiers, doc
+comments are help, defaults print as `[default: …]`. A new page,
+docs/language/Command-Line.md.
+
+How the derive reads a field: a check pass of statements (errors into a
+`Mut List`), then `T { [field]: eval<[field.type]>(() -> { … }) }`, a block
+lambda being the statement context a struct-literal entry lacks. Values parse
+at a base type found by an `[if field.type is Int]` chain, then re-test the
+field's qualifiers with the new **`v is [field.type]`**
+([comptime-is-splice]).
+
+Fixed on the way, each in general:
+- [comptime-pattern] `X?` matched only unions of exactly two arms, so `*?`
+  missed `("low" | "high")?` (three arms); it now matches any union with a
+  `None` arm, and binders have `.kind`.
+- [comptime-scope] A lambda's parameter was not renamed with its uses when
+  the scoped body declared a local of the same name: "no variable `v`".
+- [call-type-args] A `None` argument bound `Q` in `Q?` to `None`, refusing a
+  lambda after it (`read_value(found, f, None, (v: Int) -> …)`); a concrete
+  union arm is now tried before a bare variable.
+- [ir-narrow] An `else` was justified by the enclosing `when` arm's test,
+  so `if one is A { } else { msg(one) }` inside `is Errs` read the wrong
+  arm: a `ClassCastException` on Kotlin (wrong code), a type error on Rust.
+- Rust: a kept (`move`) closure's capture of a borrowed parameter is an
+  owned clone, now passed on as `&x`; `unused_assignments` is allowed in the
+  generated crate ([rs-crate]), since a comptime copy assigns a placeholder.
+
+Tests: comptime_tests
+`an_optional_pattern_matches_an_optional_literal_union`, type_arg_tests
+`a_none_argument_leaves_an_optional_s_variable_unbound`, CLI run
+`a_derived_parser_reads_a_command_line_on_both_backends`,
+`args_or_exit_ends_the_process_with_help_or_errors_on_both_backends`,
+`an_else_narrows_by_its_own_test_inside_a_when_arm_on_both_backends`.
 
 ### 2026-10-20 — `std/args`: the lexer, the errors and the scan under the derive
 
@@ -27328,7 +27370,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 1992 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1997 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -28603,6 +28645,16 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **Writing a derive in Salvo** (2026-10-20, `std/args`): a stamped body
+  resolves names in the *stamping* module, so everything it calls must be
+  exported (ROADMAP §2d item 10); a struct-literal entry is one expression,
+  so a field read that needs statements goes in a block lambda run by a
+  `eval(f: once () -> Q)`; a dropped `[if]` branch is never checked, but a
+  statement after an `[if] { return … }` is, in every copy, so a type chain
+  must nest its `else`s; a local some copies never use warns, so give every
+  copy a use; there is no `else if` (write `when { c { } … else { } }`), and
+  `when` needs a union subject.
 
 - **A missing `is_tests` entry lowers to `true`** (2026-10-20): the IR builder
   reads "no runtime test recorded" as "the checker decided it statically".

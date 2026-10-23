@@ -28939,7 +28939,15 @@ fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
         // qualified arm (`Ok Str | Err Str`) [type-union].
         (Ty::Union(parms), _) => match arg {
             Ty::Union(aarms) => unify_union_arms(parms, aarms, subst),
-            _ => parms.iter().any(|p| unify(p, arg, subst)),
+            // [call-type-args] A concrete arm is tried before a bare variable, so a `None`
+            // argument meets `Q?`'s `None` and leaves `Q` for a later
+            // argument: binding `Q` to `None` first refused `m<Str>(None,
+            // (x: Str) -> x)` for `m<Q>(d: Q?, r: (v: Q) -> Q?)`.
+            _ => {
+                let is_var = |p: &Ty| matches!(p, Ty::Var(_));
+                parms.iter().filter(|p| !is_var(p)).any(|p| unify(p, arg, &mut subst.clone()) && unify(p, arg, subst))
+                    || parms.iter().filter(|p| is_var(p)).any(|p| unify(p, arg, subst))
+            }
         },
         // `Qual T` can be passed where `T` is expected — except `once`,
         // which may never be dropped [once-fn]. (A top-level `proj` is

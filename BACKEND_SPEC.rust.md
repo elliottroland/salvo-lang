@@ -115,7 +115,9 @@ Conventions:
   declaring `fn main` becomes the crate root; it starts with the crate
   attributes (`#![allow(...)]` for cosmetic lints the generator does not
   fight: `non_snake_case`, `unused_parens`, `unused_mut`, `unused_braces`,
-  ...) and one `#[path = "..."] pub mod <mangled>;` declaration per other
+  `unused_assignments` — a comptime copy that declares `let short: Char? =
+  None` and then assigns it the field's short name is ordinary Salvo,
+  2026-10-20 — ...) and one `#[path = "..."] pub mod <mangled>;` declaration per other
   emitted file.
   For a library compile (no `main`), a synthetic `lib.rs` carries the
   attributes and mod declarations.

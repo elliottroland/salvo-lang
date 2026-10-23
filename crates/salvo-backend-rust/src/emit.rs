@@ -13,11 +13,12 @@ pub use salvo_backend::emit_util::*;
 /// Crate-root lint allowances [rs-crate]: the generator does not fight
 /// cosmetic lints (every local is `let mut`, Salvo naming is snake/camel
 /// mixed, defensive code may be unreachable, a block expression may be
-/// braced where none is needed).
+/// braced where none is needed, a comptime copy may assign a local its
+/// first value after declaring it with a placeholder).
 pub(crate) const CRATE_ATTRS: &str = "#![allow(non_snake_case, non_camel_case_types, unused_mut, \
                            unused_parens, unused_imports, dead_code, unreachable_code, \
                            unused_variables, path_statements, unused_must_use, suspicious_double_ref_op, \
-                           non_upper_case_globals, unused_braces)]\n";
+                           non_upper_case_globals, unused_braces, unused_assignments)]\n";
 
 /// Emits Rust for every *reachable* module that produces code
 /// [mod-used-only], plus the generated `unions.rs` and the crate-root

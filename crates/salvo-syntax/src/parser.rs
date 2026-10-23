@@ -6270,6 +6270,12 @@ impl<'s> Parser<'s> {
             if !self.same_line() {
                 break;
             }
+            // [comptime-is-splice] `v is [field.type]`: every claim the
+            // binder's type carries, then its base, spliced per copy.
+            if refs.is_empty() && self.at_type_splice() {
+                refs.push(self.parse_type_splice()?);
+                continue;
+            }
             // [qual-lift] `is ^Ok` — the qualifier is tested *and removed*
             // (user decision 2026-09-21, superseding the standalone `^ Ok`
             // operator). The mark is on the qualifier, not on the check, so a

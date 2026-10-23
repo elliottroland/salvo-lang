@@ -889,6 +889,273 @@ fn a_stamped_decoder_runs_on_both_backends() {
     __stamp.verified();
 }
 
+/// [args-derive] [comptime-is-splice] [comptime-pattern] A struct's command
+/// line, derived by `: FromArgs<self> by args`: switches, defaults, `Short`
+/// bundles, choices from literal unions (optional too), optional and
+/// repeated options, `Double`/`Long` values, a qualified `InRange` port
+/// re-tested with `v is [field.type]`, positionals with `NonEmpty`, every
+/// error at once, and help with a `Named` command's name, on both backends.
+#[test]
+fn a_derived_parser_reads_a_command_line_on_both_backends() {
+    let Some(__stamp) = e2e_stamp("a_derived_parser_reads_a_command_line_on_both_backends", &["rustc", "kotlinc"]) else {
+        return;
+    };
+    const SRC: &str = r#"import args
+
+// Serve files.
+struct Serve : FromArgs<self> by args {
+    // Address to bind.
+    host: Str = "127.0.0.1",
+    Short('p') port: InRange(1, 65535) Int = 8080,
+    output: "json" | "text" = "text",
+    level: ("low" | "high")?,
+    Short('v') verbose: Bool,
+    workers: Int?,
+    ratio: Double = 0.5,
+    big: Long?,
+    tag: List<Str>,
+    Positional files: NonEmpty List<Str>
+}
+
+// Remove a file.
+Named("rm")
+struct Remove : FromArgs<self> by args {
+    Short('f') force: Bool,
+    // What to remove.
+    Positional path: Str,
+    Positional backup: Str?
+}
+
+fn level(l: ("low" | "high")?) [] -> Str => !l {
+    if l is None {
+        return "-"
+    }
+    return l
+}
+
+fn serve(args: List<Str>) [Console] -> None => args {
+    let r: Ok Serve | Errs NonEmpty List<ArgError> = parse_args(args)
+    when r {
+        is Ok { println("ok ${r.host} ${r.port} ${r.output} ${level(r.level)} ${r.verbose} ${r.workers ?: 0} ${r.ratio} ${r.big ?: 0L} [${join(r.tag, ",")}] [${join(r.files, ",")}]") }
+        is Errs {
+            for e in r {
+                println("error: ${message(copy(e))}")
+            }
+        }
+    }
+}
+
+fn remove(args: List<Str>) [Console] -> None => args {
+    let r: Ok Remove | Errs NonEmpty List<ArgError> = parse_args(args)
+    when r {
+        is Ok { println("ok ${r.force} ${r.path} ${r.backup ?: "-"}") }
+        is Errs {
+            for e in r {
+                let one = copy(e)
+                if one is HelpRequested {
+                    print(one.text)
+                } else {
+                    println("error: ${message(one)}")
+                }
+            }
+        }
+    }
+}
+
+fn main() [use] -> None {
+    use StdConsole()
+    serve(List("a"))
+    serve(List("-vp80", "--output=json", "--level", "high", "--workers", "4", "--ratio", "-1.5", "--big", "9000000000", "--tag", "x", "--tag", "y", "a", "b"))
+    serve(List("-p", "70000", "--ratio", "x", "--level", "mid", "--big", "1.5", "--nope"))
+    remove(List("-f", "x"))
+    remove(List("x", "y", "z"))
+    remove(List("-h"))
+}
+"#;
+    const EXPECTED: &str = r#"ok 127.0.0.1 8080 text - false 0 0.5 0 [] [a]
+ok 127.0.0.1 80 json high true 4 -1.5 9000000000 [x,y] [a,b]
+error: unknown option '--nope'
+error: invalid value 'mid' for '--level': expected one of low, high
+error: '<files>' is required
+error: invalid value '70000' for '--port': the value is not accepted
+error: invalid value 'x' for '--ratio': expected a number
+error: invalid value '1.5' for '--big': expected an integer
+ok true x -
+error: unexpected argument 'z'
+Remove a file.
+
+Usage: rm [OPTIONS] <path> [<backup>]
+
+Arguments:
+  <path>       What to remove.
+  <backup>
+
+Options:
+  -f, --force
+  -h, --help   Print help
+"#;
+    let dir = work_dir("derived_parser");
+    fs::write(dir.join("main.sv"), SRC).unwrap();
+    for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
+        if !have(tool) {
+            eprintln!("skipping {backend}: {tool} not found on PATH");
+            continue;
+        }
+        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", ".", "--clean-target", "before"]);
+        assert!(out.status.success(), "{backend} failed: {}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(String::from_utf8_lossy(&out.stdout), EXPECTED, "{backend}");
+    }
+    __stamp.verified();
+}
+
+/// [args-derive] `args_or_exit` prints help to standard output with status 0,
+/// and every error to standard error with the usage line and status 2.
+#[test]
+fn args_or_exit_ends_the_process_with_help_or_errors_on_both_backends() {
+    let Some(__stamp) = e2e_stamp("args_or_exit_ends_the_process_with_help_or_errors_on_both_backends", &["rustc", "kotlinc"]) else {
+        return;
+    };
+    const SRC: &str = r#"import args
+import process
+
+// Copy a file.
+struct Copy : FromArgs<self> by args {
+    // Overwrite what is there.
+    Short('f') force: Bool,
+    Positional from: Str,
+    Positional to: Str
+}
+
+fn main() [use] -> None {
+    use StdConsole()
+    use HostArgs()
+    use HostProcess()
+    let c: Copy = args_or_exit(args())
+    println("${c.force} ${c.from} ${c.to}")
+}
+"#;
+    for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
+        if !have(tool) {
+            eprintln!("skipping {backend}: {tool} not found on PATH");
+            continue;
+        }
+        let dir = work_dir(&format!("args_or_exit_{backend}"));
+        fs::write(dir.join("main.sv"), SRC).unwrap();
+        let out = salvo_in(&dir, &["build", "--backend", backend, "--src", ".", "--out", "out"]);
+        assert!(out.status.success(), "{backend} build failed: {}", String::from_utf8_lossy(&out.stderr));
+        let run = |args: &[&str]| Command::new(dir.join("out").join("main")).args(args).output().expect("failed to run the artifact");
+        let ok = run(&["-f", "a", "b"]);
+        assert_eq!(ok.status.code(), Some(0), "{backend}");
+        assert_eq!(String::from_utf8_lossy(&ok.stdout), "true a b\n", "{backend}");
+        let help = run(&["--help"]);
+        assert_eq!(help.status.code(), Some(0), "{backend}");
+        assert_eq!(
+            String::from_utf8_lossy(&help.stdout),
+            "Copy a file.\n\nUsage: copy [OPTIONS] <from> <to>\n\nArguments:\n  <from>\n  <to>\n\nOptions:\n  -f, --force  Overwrite what is there.\n  -h, --help   Print help\n",
+            "{backend}"
+        );
+        let bad = run(&["-x", "a"]);
+        assert_eq!(bad.status.code(), Some(2), "{backend}");
+        assert_eq!(String::from_utf8_lossy(&bad.stdout), "", "{backend}");
+        assert_eq!(
+            String::from_utf8_lossy(&bad.stderr),
+            "error: unknown option '-x'\nerror: '<to>' is required\n\nUsage: copy [OPTIONS] <from> <to>\n\nFor more information, try '--help'.\n",
+            "{backend}"
+        );
+    }
+    __stamp.verified();
+}
+
+/// [ir-narrow] An `else` reads a name its branch's test narrowed as what
+/// remains, even inside an enclosing `when` arm: the else of `if one is A`
+/// in an `is Errs` arm used that arm's index (a `ClassCastException` on
+/// Kotlin, a type error on Rust). And a kept lambda's capture of a borrowed
+/// parameter is an owned clone, passed on borrowed (a type error on Rust).
+#[test]
+fn an_else_narrows_by_its_own_test_inside_a_when_arm_on_both_backends() {
+    let Some(__stamp) = e2e_stamp("an_else_narrows_by_its_own_test_inside_a_when_arm_on_both_backends", &["rustc", "kotlinc"]) else {
+        return;
+    };
+    const SRC: &str = r#"struct A { x: Str }
+struct B { y: Str }
+struct C { z: Str }
+type U = A | B | C
+
+fn msg(u: U) [] -> Str => u {
+    when u {
+        is A { return "a ${u.x}" }
+        is B { return "b ${u.y}" }
+        is C { return "c ${u.z}" }
+    }
+}
+
+fn make() [] -> Ok Int | Errs NonEmpty List<U> {
+    let b: U = B { y: "1" }
+    let c: U = C { z: "2" }
+    let a: U = A { x: "3" }
+    let all: Mut List<U> = Mut List<U>()
+    add(all, b)
+    add(all, c)
+    add(all, a)
+    if all is NonEmpty {
+        return Errs(all)
+    }
+    return Ok(1)
+}
+
+struct Found { values: List<Str> }
+
+fn eval<Q>(f: once () -> Q) [] -> Q => !f {
+    return f()
+}
+
+fn pick(found: Found, i: Int) [] -> Str => found {
+    return copy(get(found.values, i)!)
+}
+
+fn both(found: Found) [] -> Str => found {
+    let a: Str = eval(() -> {
+        return pick(found, 0)
+    })
+    let b: Str = eval(() -> {
+        return pick(found, 1)
+    })
+    return "${a}${b}"
+}
+
+fn main() [use] -> None {
+    use StdConsole()
+    let r = make()
+    when r {
+        is Ok { println("ok") }
+        is Errs {
+            for e in r {
+                let one = copy(e)
+                if one is A {
+                    println(one.x)
+                } else {
+                    println(msg(one))
+                }
+            }
+        }
+    }
+    println(both(Found { values: List("x", "y") }))
+}
+"#;
+    let dir = work_dir("else_narrow");
+    fs::write(dir.join("main.sv"), SRC).unwrap();
+    for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
+        if !have(tool) {
+            eprintln!("skipping {backend}: {tool} not found on PATH");
+            continue;
+        }
+        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", ".", "--clean-target", "before"]);
+        assert!(out.status.success(), "{backend} failed: {}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "b 1\nc 2\n3\nxy\n", "{backend}");
+    }
+    __stamp.verified();
+}
+
 /// [str-parse] The value parsers read the same strings on both backends:
 /// `parse_double` checks one decimal grammar before converting (the hosts'
 /// own parsers disagree on whitespace, `NaN`, `inf`, hex and `f` suffixes),

@@ -2898,6 +2898,27 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 _ => ps.push(format!("mut {n}")),
             }
         }
+        // A kept closure owns clones of what it captures, so inside it a
+        // capture of a borrowed local is an owned value: passed on as `&x`,
+        // not as the reference it was outside.
+        let mv = if matches!(pos, FnPos::Owned | FnPos::Stored) { "move " } else { "" };
+        let mut caps: Vec<String> = Vec::new();
+        if !mv.is_empty() {
+            walk_block(body, &mut |_| {}, &mut |e| {
+                if let ExprKind::Read { place, .. } = &e.kind {
+                    caps.push(place.root.0.clone());
+                }
+            });
+            caps.sort();
+            caps.dedup();
+            let own: HashSet<String> = params.iter().map(|p| p.local.0.clone()).collect();
+            caps.retain(|c| !own.contains(c) && saved_kinds.contains_key(c));
+            for c in &caps {
+                if saved_kinds[c] == Kind::Ref {
+                    self.f.kinds.insert(c.clone(), Kind::Owned);
+                }
+            }
+        }
         // [rs-loc] A lambda in a lending slot is a locator: it answers the
         // position in its anchor parameter.
         let lends = self.s.fn_ty_lends_mut(slot);
@@ -2937,27 +2958,13 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         } else {
             format!(" -> {}", self.ty(ret))
         };
-        let mv = if matches!(pos, FnPos::Owned | FnPos::Stored) { "move " } else { "" };
         let _ = &cps;
         let closure = format!("{mv}|{}|{r} {{\n{b}{}}}", ps.join(", "), Self::pad(indent));
         if mv.is_empty() {
             return closure;
         }
-        // A kept closure owns clones of what it captures.
-        let mut caps: Vec<String> = Vec::new();
-        walk_block(body, &mut |_| {}, &mut |e| {
-            if let ExprKind::Read { place, .. } = &e.kind {
-                caps.push(place.root.0.clone());
-            }
-        });
-        caps.sort();
-        caps.dedup();
-        let own: HashSet<String> = params.iter().map(|p| p.local.0.clone()).collect();
         let mut pre = String::new();
         for c in caps {
-            if own.contains(&c) || !self.f.kinds.contains_key(&c) {
-                continue;
-            }
             let k = self.f.kinds[&c];
             let n = rs_local(&c);
             match k {

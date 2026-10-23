@@ -125,7 +125,7 @@ tracked here so a fresh agent can carry on. Rules for whoever continues:
 
 **Phase 2: `std/args`**
 - [x] 2.1 Lexer, `ArgError`, internal runtime layer (§4.0, Q12, Q17, Q18).
-- [ ] 2.2 The derive: flags, defaults, `Short`, `Positional`, help (§10.1).
+- [x] 2.2 The derive: flags, defaults, `Short`, `Positional`, help (§10.1).
 - [ ] 2.3 Groups: flattened, co-occurring, exclusive (§10.3, Q15).
 - [ ] 2.4 Sub-commands (§10.2, Q14).
 - [ ] 2.5 Validation hook and qualifier re-testing (§5.2, Q16).
@@ -135,6 +135,17 @@ tracked here so a fresh agent can carry on. Rules for whoever continues:
 **Blocked on the user:** nothing.
 
 **Log** (newest first):
+- 2026-10-20: 2.2 done ("Derive a command-line parser from a struct"):
+  [args-derive], [comptime-is-splice]; 1997 tests; docs page
+  Command-Line.md. Fixed: `X?` patterns on 3+-arm unions, lambda params in
+  scoped comptime bodies, `None` binding `Q` in `Q?`, an `else`'s narrowing
+  inside a `when` arm (wrong code on Kotlin), Rust closure captures. Next:
+  2.3 (groups). Plan: a struct-typed field calls the field type's own
+  stamped `arg_spec()`/`from_found` (so a group struct also says
+  `: FromArgs<self> by args`), merging its options into the parent's spec;
+  `S?` is co-occurring (present when any of its fields was given), a union
+  of structs exclusive (the arm whose fields were given). Remove the
+  "struct-typed field" refusal in `arg_spec`.
 - 2026-10-20: 2.1 done ("Add the argument lexer and scan to std/args"):
   [args-lex], [args-runtime], [args-errors], [args-help]; 1992 tests, 150
   std tests. The layer is exported (a stamp resolves at the site; ROADMAP

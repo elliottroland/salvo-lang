@@ -59,6 +59,7 @@ Start at the top; each page stands on its own, so jumping in is fine too.
 | [Linear Types](Linear-Types.md) | values that must be used |
 | [Throwing](Throwing.md) | leaving early with a message, and `try` |
 | [Effects and Handlers](Effects-and-Handlers.md) | capabilities, `use`, dependencies, interception, monitors, mixed handlers |
+| [Command-line tools](Command-Line.md) | a struct as a command line: `FromArgs<self> by args`, flags, positionals, help and errors |
 | [Concurrency](Concurrency.md) | where work runs: pools, actors and waiting |
 
 ### The surrounding world
