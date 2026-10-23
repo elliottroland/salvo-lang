@@ -910,6 +910,7 @@ fn section<T>(spec: Spec<T>, group: Str?) [] -> Str => spec, group {
 // position instead, in field order.
 
 import process
+import throw
 
 // [args-derive] A field's short name: `Short('p') port: Int` is `-p` too.
 export comptime qualifier Short(c: Char) of Field
@@ -975,22 +976,75 @@ export fn args_or_exit<T>(args: List<Str>, ?FromArgs<T>) [Console, Process] -> T
     let parsed: Ok T | Errs NonEmpty List<ArgError> = parse_args(args)
     when parsed {
         is Ok { return parsed }
-        is Errs {
-            for e in parsed {
-                let one = copy(e)
-                if one is HelpRequested {
-                    print(one.text)
-                    exit(0)
+        is Errs { exit_with<T>(parsed) }
+    }
+}
+
+// [args-validate] Parses `args` into a `T` and validates it with the
+// `validate` in scope, so the answer is the validated type (ARG_PARSE.md
+// §5.2, Q16): with
+//
+//     qualifier Valid of Serve
+//
+//     fn validate(o: Serve) [Throw<ArgError>] -> +Valid Serve => !o {
+//         if o.min_workers > o.max_workers {
+//             let e: ArgError = Invalid { what: "--min-workers", value: "${o.min_workers}", reason: "must not exceed --max-workers" }
+//             throw(e)
+//         }
+//         return o
+//     }
+//
+// `let r: Ok Valid Serve | Errs … = parse_valid(args)` is every parse
+// error, or the one `validate` threw, or a `Valid Serve`. `validate` runs
+// only on a command line that parsed; `T` comes from it.
+export fn parse_valid<T, V>(args: List<Str>, ?FromArgs<T>, ?validate: (o: T) [Throw<ArgError>] -> V) [] -> Ok V | Errs NonEmpty List<ArgError>
+=>[validate] !o => args {
+    let parsed: Ok T | Errs NonEmpty List<ArgError> = parse_args(args)
+    when parsed {
+        is Errs { return parsed }
+        is Ok {
+            let checked = try {
+                validate(parsed)
+            }
+            when checked {
+                is Ok { return Ok(checked) }
+                is Thrown {
+                    let e: ArgError = checked
+                    return errs(e)
                 }
             }
-            for e in parsed {
-                printerr("error: ${message(copy(e))}\n")
-            }
-            let spec: Spec<T> = arg_spec()
-            printerr("\n${usage(spec)}\n\nFor more information, try '--help'.\n")
-            exit(2)
         }
     }
+}
+
+// [args-validate] `parse_valid`, ending the process on help or errors as
+// `args_or_exit` does: `let opts: Valid Serve = valid_args_or_exit(args())`.
+export fn valid_args_or_exit<T, V>(args: List<Str>, ?FromArgs<T>, ?validate: (o: T) [Throw<ArgError>] -> V) [Console, Process] -> V
+=>[validate] !o => args {
+    let parsed: Ok V | Errs NonEmpty List<ArgError> = parse_valid<T, V>(args)
+    when parsed {
+        is Ok { return parsed }
+        is Errs { exit_with<T>(parsed) }
+    }
+}
+
+// [args-derive] Ends the process for a parse that did not answer a value:
+// help to standard output with status 0, or every error to standard error,
+// then the usage line, with status 2 (AP-9).
+fn exit_with<T>(errors: NonEmpty List<ArgError>, ?FromArgs<T>) [Console, Process] -> Never => errors {
+    for e in errors {
+        let one = copy(e)
+        if one is HelpRequested {
+            print(one.text)
+            exit(0)
+        }
+    }
+    for e in errors {
+        printerr("error: ${message(copy(e))}\n")
+    }
+    let spec: Spec<T> = arg_spec()
+    printerr("\n${usage(spec)}\n\nFor more information, try '--help'.\n")
+    exit(2)
 }
 
 // [args-derive] What the derive cannot see at compile time, checked as the

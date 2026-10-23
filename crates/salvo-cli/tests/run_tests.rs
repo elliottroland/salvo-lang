@@ -1623,6 +1623,139 @@ fn main() [use] -> None {
     __stamp.verified();
 }
 
+/// [args-validate] [fn-value] [fn-throw-value] The validation hook: a user's
+/// `validate(o) [Throw<ArgError>] -> +Valid Range`, found as an implicit, so
+/// `parse_valid` answers `Ok Valid Range` or the parse errors or the one
+/// `validate` threw, and `valid_args_or_exit` ends the process on an error
+/// with status 2, on both backends.
+#[test]
+fn the_validation_hook_runs_on_both_backends() {
+    let Some(__stamp) = e2e_stamp("the_validation_hook_runs_on_both_backends", &["rustc", "kotlinc"]) else {
+        return;
+    };
+    const SRC: &str = r#"import args
+import process
+import throw
+
+struct Range : FromArgs<self> by args {
+    // Smallest.
+    min: Int = 0
+    // Largest.
+    max: Int = 10
+}
+
+qualifier Valid of Range
+
+fn validate(o: Range) [Throw<ArgError>] -> +Valid Range => !o {
+    if o.min > o.max {
+        let e: ArgError = Invalid { what: "--min", value: "${o.min}", reason: "must not exceed --max" }
+        throw(e)
+    }
+    return o
+}
+
+fn width(r: Valid Range) [] -> Int => r {
+    return r.max - r.min
+}
+
+fn show(line: List<Str>) [Console] -> None => line {
+    let r: Ok Valid Range | Errs NonEmpty List<ArgError> = parse_valid(line)
+    when r {
+        is Ok { println("width ${width(r)}") }
+        is Errs {
+            for e in r {
+                println("error: ${message(copy(e))}")
+            }
+        }
+    }
+}
+
+fn main() [use] -> None {
+    use StdConsole()
+    use HostArgs()
+    use HostProcess()
+    show(List("--min", "3"))
+    show(List("--min", "30"))
+    show(List("--min", "x"))
+    let r: Valid Range = valid_args_or_exit(args())
+    println("argv width ${width(r)}")
+}
+"#;
+    for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
+        if !have(tool) {
+            eprintln!("skipping {backend}: {tool} not found on PATH");
+            continue;
+        }
+        let dir = work_dir(&format!("validation_hook_{backend}"));
+        fs::write(dir.join("main.sv"), SRC).unwrap();
+        let out = salvo_in(&dir, &["build", "--backend", backend, "--src", ".", "--out", "out"]);
+        assert!(out.status.success(), "{backend} build failed: {}", String::from_utf8_lossy(&out.stderr));
+        let lines = "width 7\nerror: invalid value '30' for '--min': must not exceed --max\nerror: invalid value 'x' for '--min': expected an integer\n";
+        let ok = Command::new(dir.join("out").join("main")).args(["--max", "4"]).output().expect("failed to run the artifact");
+        assert_eq!(ok.status.code(), Some(0), "{backend}");
+        assert_eq!(String::from_utf8_lossy(&ok.stdout), format!("{lines}argv width 4\n"), "{backend}");
+        let bad = Command::new(dir.join("out").join("main")).args(["--min", "9", "--max", "4"]).output().expect("failed to run the artifact");
+        assert_eq!(bad.status.code(), Some(2), "{backend}");
+        assert_eq!(String::from_utf8_lossy(&bad.stdout), lines, "{backend}");
+        assert!(String::from_utf8_lossy(&bad.stderr).starts_with("error: invalid value '9' for '--min': must not exceed --max\n"), "{backend}: {}", String::from_utf8_lossy(&bad.stderr));
+    }
+    __stamp.verified();
+}
+
+/// [kt-throw-tag] [rs-throw-controlflow] A union-typed message is caught by
+/// a `try` whose message is a wider union: on Kotlin it escaped, since the
+/// signal was tagged with the sub-union's name, which matched no case.
+#[test]
+fn a_sub_union_throw_is_caught_on_both_backends() {
+    let Some(__stamp) = e2e_stamp("a_sub_union_throw_is_caught_on_both_backends", &["rustc", "kotlinc"]) else {
+        return;
+    };
+    const SRC: &str = r#"import throw
+
+struct A { x: Int }
+struct B { y: Int }
+struct C { z: Int }
+
+fn pick(n: Int) [] -> A | B {
+    if n > 0 {
+        return A { x: n }
+    }
+    return B { y: n }
+}
+
+fn f(n: Int) [Throw<A | B | C>] -> Int {
+    if n == 0 {
+        throw(C { z: 0 })
+    }
+    let e: A | B = pick(n)
+    throw(e)
+}
+
+fn main() [use] -> None {
+    use StdConsole()
+    let r = try {
+        f(1)
+    }
+    when r {
+        is Ok { println("ok") }
+        is Thrown { println("caught") }
+    }
+}
+"#;
+    let dir = work_dir("sub_union_throw");
+    fs::write(dir.join("main.sv"), SRC).unwrap();
+    for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
+        if !have(tool) {
+            eprintln!("skipping {backend}: {tool} not found on PATH");
+            continue;
+        }
+        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", ".", "--clean-target", "before"]);
+        assert!(out.status.success(), "{backend} failed: {}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "caught\n", "{backend}");
+    }
+    __stamp.verified();
+}
+
 /// [str-parse] The value parsers read the same strings on both backends:
 /// `parse_double` checks one decimal grammar before converting (the hosts'
 /// own parsers disagree on whitespace, `NaN`, `inf`, hex and `f` suffixes),

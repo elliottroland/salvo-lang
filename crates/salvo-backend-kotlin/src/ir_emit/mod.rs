@@ -1585,6 +1585,25 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 self.s.needs_throw = true;
                 let m = self.expr(message, indent);
                 let tag = message.ty.strip_quals().to_string();
+                // [kt-throw-tag] A union-typed message is thrown as its arm,
+                // tagged with the arm's type, so a `try` whose message is a
+                // wider union finds its case (2026-10-20: a sub-union
+                // `A | B` thrown into `A | B | C` carried the tag `A | B`,
+                // matched nothing and escaped the `try`).
+                let arms: Vec<Ty> = message.ty.strip_quals().value_arms().into_iter().cloned().collect();
+                if arms.len() >= 2 && !message.ty.strip_quals().has_none_arm() && !salvo_core::literal::mentions_lit(&message.ty) {
+                    let mut cases = Vec::new();
+                    for (i, a) in arms.iter().enumerate() {
+                        if let Some((ctor, _)) = self.union_arm(&message.ty, i) {
+                            let wild = vec!["*"; arms.len()].join(", ");
+                            let class = ctor.split('<').next().unwrap_or(&ctor).to_string();
+                            cases.push(format!("is {class}<{wild}> -> ThrowSignal(__t.value, \"{}\")", escape_string(&a.strip_quals().to_string())));
+                        }
+                    }
+                    if cases.len() == arms.len() {
+                        return format!("throw (when (val __t = {m}) {{ {}; else -> ThrowSignal(__t, \"{}\") }})", cases.join("; "), escape_string(&tag));
+                    }
+                }
                 format!("throw ThrowSignal({m}, \"{}\")", escape_string(&tag))
             }
             ExprKind::Assert { cond, message, at } => {
@@ -1699,6 +1718,16 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     };
                     cases.push(format!("{inner}    \"{}\" -> {outer}", escape_string(&a.strip_quals().to_string())));
                 }
+                // [kt-throw-tag] [kt-throw-signal] A message thrown as the whole union (`let e:
+                // ArgError = …; throw(e)`) is tagged with the union's own
+                // name and carries the union value itself. It fell to `else`
+                // and escaped the `try` (found 2026-10-20).
+                let whole = self.ty(msg);
+                let outer = match self.union_arm(outcome, 1) {
+                    Some((c, _)) => format!("{c}(__signal.payload as {whole})"),
+                    None => format!("(__signal.payload as {whole})"),
+                };
+                cases.push(format!("{inner}    \"{}\" -> {outer}", escape_string(&msg.strip_quals().to_string())));
                 cases.push(format!("{inner}    else -> throw __signal"));
                 format!("when (__signal.tag) {{\n{}\n{inner}}}", cases.join("\n"))
             }

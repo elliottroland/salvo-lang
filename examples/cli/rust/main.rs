@@ -37,6 +37,8 @@ pub mod core_sorted;
 pub mod core_string;
 #[path = "process.rs"]
 pub mod process;
+#[path = "throw.rs"]
+pub mod throw;
 #[path = "platform/args.rs"]
 pub mod platform_args;
 #[path = "platform/core/console.rs"]

@@ -128,18 +128,19 @@ tracked here so a fresh agent can carry on. Rules for whoever continues:
 - [x] 2.2 The derive: flags, defaults, `Short`, `Positional`, help (§10.1).
 - [x] 2.3 Groups: flattened, co-occurring, exclusive (§10.3, Q15).
 - [x] 2.4 Sub-commands (§10.2, Q14).
-- [~] 2.5 Validation hook and qualifier re-testing (§5.2, Q16). Re-testing
-  with `explain` done; the hook is blocked on a decision (below).
+- [x] 2.5 Validation hook and qualifier re-testing (§5.2, Q16).
 - [~] 2.6 An example in `examples/`, the docs page, and retiring this
   document per its lifecycle. Example (`examples/cli`) and docs page done;
   retiring waits on 2.5's hook.
 
-**Blocked on the user:** the validation hook (step 2.5's second half): how
-the derive reaches a user's `validate` — ROADMAP §2d item 16 has the
-options, the probe and a recommendation. 2.6 proceeds without it, but this
-document is retired only after it is decided.
+**Blocked on the user:** nothing.
 
 **Log** (newest first):
+- 2026-10-20: 2.5 done ("Add the args validation hook"): [args-validate];
+  2005 tests. The user chose ROADMAP §2d item 16's option (a); its two
+  gaps landed first ("Type a function value by one rule, by name or as an
+  implicit"; "Inherit parameter effects only without a written list, and
+  delimit throwing fn values"). Next: retire this document (2.6's last part).
 - 2026-10-20: 2.6, all but the retirement ("Add a command-line example"):
   `examples/cli`, Command-Line.md finished; 2000 tests. **What is left**:
   the user's call on the validation hook (ROADMAP §2d item 16); then build

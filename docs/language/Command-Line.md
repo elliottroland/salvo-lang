@@ -236,10 +236,46 @@ let r: Ok Serve | Errs NonEmpty List<ArgError> = parse_args(List("-p", "0", "a.t
 
 ## Validating the whole command line
 
-A rule between options that no type says, `--min` at most `--max`, is
-checked after parsing, with a qualifier the rest of the program can demand
-(`fn run(o: Valid Serve)`). How the parser could call such a check itself is
-still being decided.
+A rule between options that no type says, `--min` at most `--max`, is a
+`validate` function that answers a qualified type the rest of the program
+can demand, and throws an `ArgError` when the rule is broken:
+
+```
+import throw
+
+struct Range : FromArgs<self> by args {
+    min: Int = 0
+    max: Int = 10
+}
+
+qualifier Valid of Range
+
+fn validate(o: Range) [Throw<ArgError>] -> +Valid Range => !o {
+    if o.min > o.max {
+        let e: ArgError = Invalid { what: "--min", value: "${o.min}", reason: "must not exceed --max" }
+        throw(e)
+    }
+    return o
+}
+
+fn width(r: Valid Range) [] -> Int => r {
+    return r.max - r.min
+}
+```
+
+`valid_args_or_exit` parses and then calls the `validate` in scope, so what
+it answers is the validated type:
+
+```
+let r: Valid Range = valid_args_or_exit(args())
+println("${width(r)}")
+```
+
+`range --min 9 --max 4` prints `error: invalid value '9' for '--min': must
+not exceed --max` and exits with status 2. `parse_valid` is the same without
+the exit: `Ok Valid Range | Errs NonEmpty List<ArgError>`. Since `width`
+takes a `Valid Range`, a program that parses with `args_or_exit` and forgets
+to validate does not compile.
 
 ## What is checked where
 

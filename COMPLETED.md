@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2003 tests, complete: the toolchain tests are
+cargo test                  # 2005 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,29 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — The validation hook: `parse_valid` and `valid_args_or_exit`
+
+Phase 2.5's second half (ARG_PARSE.md §5.2, Q16), option (a) of ROADMAP
+§2d item 16, chosen by the user with "I'd like to fix both gaps" — the two
+compiler gaps the probe found, closed in the two commits before this one.
+[args-validate]: `parse_valid<T, V>(args, ?FromArgs<T>, ?validate: (o: T)
+[Throw<ArgError>] -> V)` parses, then calls the `validate` in scope inside
+a `try`; `valid_args_or_exit` ends the process on help or errors (status 2
+for a `validate` error too). `T` is learned from the `validate` candidate,
+so `let r: Valid Range = valid_args_or_exit(args())` is the whole call.
+`args_or_exit`'s reporting moved into `exit_with`, shared by both.
+
+Fixed on the way — wrong code on Kotlin: a **union-typed** throw message
+(`let e: ArgError = …; throw(e)`) carried the union's own name as its
+signal tag, which no `try` case matched, so it escaped the `try`
+([kt-throw-tag]). Now the throw dispatches on the arm and tags it with the
+arm's type, so a `try` over the same union or a wider one catches it; Rust
+was right already (its `ControlFlow` converts at the propagation site).
+`examples/throw-and-release`'s Kotlin output changed with it.
+
+Tests: CLI `the_validation_hook_runs_on_both_backends` (parse, refuse,
+exit 0 and 2 through the real argv), `a_sub_union_throw_is_caught_on_both_backends`.
 
 ### 2026-10-20 — Only a fn with no effect list inherits; a throwing fn value is delimited
 
@@ -27523,7 +27546,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2003 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2005 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

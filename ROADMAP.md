@@ -980,8 +980,8 @@ reproduced in a scratch project; the repros are below.
     it failed (the IR already builds `Q.explain(x, …)` for `assert!(x is
     Q(…))` [qual-explain]). A language call.
 
-16. **The validation hook (Q16): how the derive reaches a user's
-    `validate` (DECISION).** Q16 (accepted) says the parse calls a user
+16. ✅ **The validation hook (Q16)** — done 2026-10-20 with option (a)
+    ([args-validate], COMPLETED.md). The record of how it was decided: Q16 (accepted) says the parse calls a user
     `validate(o: T) [Throw<ArgError>] -> +Valid T` "when one is declared
     (found as an implicit), so the parse result is the validated type". An
     implicit cannot be optional, so "when one is declared" needs a

@@ -129,6 +129,7 @@ fun main() {
         when (__signal.tag) {
             "Str" -> Union2.U2<Int, Union2<String, Int>>(Union2.U1<String, Int>(__signal.payload as String))
             "Int" -> Union2.U2<Int, Union2<String, Int>>(Union2.U2<String, Int>(__signal.payload as Int))
+            "Str | Int" -> Union2.U2<Int, Union2<String, Int>>(__signal.payload as Union2<String, Int>)
             else -> throw __signal
         }
     }

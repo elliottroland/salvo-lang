@@ -1167,25 +1167,98 @@ fun<T> argsOrExit(console: salvo.core.console.Console, process: salvo.process.Pr
         }
         (parsed is Union2.U2<*, *>) -> {
             val parsed_2: List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>> = ((parsed as Union2.U2<*, *>).value as List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>)
-            for (e in salvo.platform.core.list.each(parsed_2)) {
-                val one: Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested> = e
-                if ((one is Union11.U11<*, *, *, *, *, *, *, *, *, *, *>)) {
-                    val one_3: HelpRequested = ((one as Union11.U11<*, *, *, *, *, *, *, *, *, *, *>).value as HelpRequested)
-                    console.print(one_3.text)
-                    process.exit(0)
-                }
-            }
-            for (e in salvo.platform.core.list.each(parsed_2)) {
-                console.printerr("error: ${message(e)}\n")
-            }
-            val spec: Spec = argSpec()
-            console.printerr("\n${usage(spec)}\n\nFor more information, try '--help'.\n")
-            process.exit(2)
+            exitWith(console, process, parsed_2, argSpec, fromFound)
         }
         else -> {
-            throw AssertionError(("salvo: " + ("unhandled union arm") + " at args:976:5"))
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at args:977:5"))
         }
     }
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun<T, V> parseValid(args: List<String>, validate: (T) -> V, argSpec: () -> Spec, fromFound: (Found) -> Union2<T, List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>>): Union2<V, List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>> {
+    val parsed: Union2<T, List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>> = parseArgs(args, argSpec, fromFound)
+    return when {
+        (parsed is Union2.U2<*, *>) -> {
+            val parsed_1: List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>> = ((parsed as Union2.U2<*, *>).value as List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>)
+            return Union2.U2<V, List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>>(parsed_1)
+        }
+        (parsed is Union2.U1<*, *>) -> {
+            val parsed_2: T = ((parsed as Union2.U1<*, *>).value as T)
+            val checked: Union2<V, Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>> = try {
+                Union2.U1<V, Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>(validate(parsed_2))
+            } catch (__signal: ThrowSignal) {
+                when (__signal.tag) {
+                    "UnknownOption" -> Union2.U2<V, Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>(Union11.U1<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>(__signal.payload as UnknownOption))
+                    "MissingValue" -> Union2.U2<V, Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>(Union11.U2<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>(__signal.payload as MissingValue))
+                    "Missing" -> Union2.U2<V, Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>(Union11.U3<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>(__signal.payload as Missing))
+                    "Invalid" -> Union2.U2<V, Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>(Union11.U4<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>(__signal.payload as Invalid))
+                    "Unexpected" -> Union2.U2<V, Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>(Union11.U5<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>(__signal.payload as Unexpected))
+                    "Repeated" -> Union2.U2<V, Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>(Union11.U6<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>(__signal.payload as Repeated))
+                    "Requires" -> Union2.U2<V, Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>(Union11.U7<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>(__signal.payload as Requires))
+                    "Conflict" -> Union2.U2<V, Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>(Union11.U8<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>(__signal.payload as Conflict))
+                    "MissingOne" -> Union2.U2<V, Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>(Union11.U9<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>(__signal.payload as MissingOne))
+                    "UnknownCommand" -> Union2.U2<V, Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>(Union11.U10<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>(__signal.payload as UnknownCommand))
+                    "HelpRequested" -> Union2.U2<V, Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>(Union11.U11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>(__signal.payload as HelpRequested))
+                    "UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested" -> Union2.U2<V, Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>(__signal.payload as Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>)
+                    else -> throw __signal
+                }
+            }
+            when {
+                (checked is Union2.U1<*, *>) -> {
+                    val checked_3: V = ((checked as Union2.U1<*, *>).value as V)
+                    return Union2.U1<V, List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>>(salvo.core.result.Ok(checked_3))
+                }
+                (checked is Union2.U2<*, *>) -> {
+                    val checked_4: Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested> = ((checked as Union2.U2<*, *>).value as Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>)
+                    val e: Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested> = checked_4
+                    return Union2.U2<V, List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>>(salvo.core.result.errs(e))
+                }
+                else -> {
+                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at args:1009:13"))
+                }
+            }
+        }
+        else -> {
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at args:1003:5"))
+        }
+    }
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun<T, V> validArgsOrExit(console: salvo.core.console.Console, process: salvo.process.Process, args: List<String>, validate: (T) -> V, argSpec: () -> Spec, fromFound: (Found) -> Union2<T, List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>>): V {
+    val parsed: Union2<V, List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>> = parseValid(args, validate, argSpec, fromFound)
+    return when {
+        (parsed is Union2.U1<*, *>) -> {
+            val parsed_1: V = ((parsed as Union2.U1<*, *>).value as V)
+            return parsed_1
+        }
+        (parsed is Union2.U2<*, *>) -> {
+            val parsed_2: List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>> = ((parsed as Union2.U2<*, *>).value as List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>)
+            exitWith(console, process, parsed_2, argSpec, fromFound)
+        }
+        else -> {
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at args:1025:5"))
+        }
+    }
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
+fun<T> exitWith(console: salvo.core.console.Console, process: salvo.process.Process, errors: List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>, argSpec: () -> Spec, fromFound: (Found) -> Union2<T, List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>>): Nothing {
+    for (e in salvo.platform.core.list.each(errors)) {
+        val one: Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested> = e
+        if ((one is Union11.U11<*, *, *, *, *, *, *, *, *, *, *>)) {
+            val one_1: HelpRequested = ((one as Union11.U11<*, *, *, *, *, *, *, *, *, *, *>).value as HelpRequested)
+            console.print(one_1.text)
+            process.exit(0)
+        }
+    }
+    for (e in salvo.platform.core.list.each(errors)) {
+        console.printerr("error: ${message(e)}\n")
+    }
+    val spec: Spec = argSpec()
+    console.printerr("\n${usage(spec)}\n\nFor more information, try '--help'.\n")
+    return process.exit(2)
 }
 
 fun checkSpec(spec: Spec) {
@@ -1193,21 +1266,21 @@ fun checkSpec(spec: Spec) {
     val fields: salvo.platform.core.list.MutList<String> = mutableListOf<String>()
     for (o in salvo.platform.core.list.each(spec.opts)) {
         if (salvo.core.list.contains(fields, o.field, { __a0, __a1 -> ((__a0) == (__a1)) })) {
-            throw AssertionError(("salvo: " + ("two options of `${spec.name}` are spelled `${longName(o.field)}`") + " at args:1007:13"))
+            throw AssertionError(("salvo: " + ("two options of `${spec.name}` are spelled `${longName(o.field)}`") + " at args:1061:13"))
         }
         salvo.core.list.addPlatform(fields, o.field)
         if (((o.field) == ("help"))) {
-            throw AssertionError(("salvo: " + ("`--help` is the parser's own: name the field of `${spec.name}` something else") + " at args:1011:13"))
+            throw AssertionError(("salvo: " + ("`--help` is the parser's own: name the field of `${spec.name}` something else") + " at args:1065:13"))
         }
         val s: Char? = o.short
         if (!((s == null))) {
             val s_1: Char = s!!
             if ((s_1 == 'h')) {
-                throw AssertionError(("salvo: " + ("`Short('h')` on `${o.field}` takes help's short name") + " at args:1016:17"))
+                throw AssertionError(("salvo: " + ("`Short('h')` on `${o.field}` takes help's short name") + " at args:1070:17"))
             }
             val s_2: Char = s!!
             if (salvo.core.list.contains(shorts, s_2, { __a0, __a1 -> ((__a0) == (__a1)) })) {
-                throw AssertionError(("salvo: " + ("two options of `${spec.name}` have the short name `-${s_2}`") + " at args:1019:17"))
+                throw AssertionError(("salvo: " + ("two options of `${spec.name}` have the short name `-${s_2}`") + " at args:1073:17"))
             }
             val s_3: Char = s!!
             salvo.core.list.addPlatform(shorts, s_3)
@@ -1224,20 +1297,20 @@ fun checkSpec(spec: Spec) {
                 }
             }
             if ((((count > 0) && !(required)) && !(((count == 1) && !(optTakesValue(spec, g.key)))))) {
-                throw AssertionError(("salvo: " + ("every option of `${g.key}` is optional, so nothing chooses that arm: make one required") + " at args:1037:17"))
+                throw AssertionError(("salvo: " + ("every option of `${g.key}` is optional, so nothing chooses that arm: make one required") + " at args:1091:17"))
             }
         }
     }
     if ((!(salvo.core.list.isEmpty(spec.commands)) && !(salvo.core.list.isEmpty(spec.args)))) {
-        throw AssertionError(("salvo: " + ("`${spec.name}` takes a sub-command and positionals: whether a word is one or the other would depend on its spelling") + " at args:1043:9"))
+        throw AssertionError(("salvo: " + ("`${spec.name}` takes a sub-command and positionals: whether a word is one or the other would depend on its spelling") + " at args:1097:9"))
     }
     if ((spec.commandFields > 1)) {
-        throw AssertionError(("salvo: " + ("`${spec.name}` has more than one `Subcommand` field") + " at args:1046:9"))
+        throw AssertionError(("salvo: " + ("`${spec.name}` has more than one `Subcommand` field") + " at args:1100:9"))
     }
     val names: salvo.platform.core.list.MutList<String> = mutableListOf<String>()
     for (c in salvo.platform.core.list.each(spec.commands)) {
         if (salvo.core.list.contains(names, c.name, { __a0, __a1 -> ((__a0) == (__a1)) })) {
-            throw AssertionError(("salvo: " + ("two sub-commands of `${spec.name}` are named `${c.name}`") + " at args:1051:13"))
+            throw AssertionError(("salvo: " + ("two sub-commands of `${spec.name}` are named `${c.name}`") + " at args:1105:13"))
         }
         salvo.core.list.addPlatform(names, c.name)
     }
@@ -1245,10 +1318,10 @@ fun checkSpec(spec: Spec) {
     var many: Boolean = false
     for (a in salvo.platform.core.list.each(spec.args)) {
         if (many) {
-            throw AssertionError(("salvo: " + ("positional `${a.field}` follows one that takes every remaining word") + " at args:1059:13"))
+            throw AssertionError(("salvo: " + ("positional `${a.field}` follows one that takes every remaining word") + " at args:1113:13"))
         }
         if ((a.required && optional)) {
-            throw AssertionError(("salvo: " + ("required positional `${a.field}` follows an optional one") + " at args:1062:13"))
+            throw AssertionError(("salvo: " + ("required positional `${a.field}` follows an optional one") + " at args:1116:13"))
         }
         optional = (optional || !(a.required))
         many = a.many
@@ -1282,13 +1355,13 @@ fun<B, Q> readValue(found: Found, field: String, default: Q?, refine: (B) -> Q?,
                 return q_3
             }
         }
-        throw AssertionError(("salvo: " + ("`${field}`'s value was checked") + " at args:1101:9"))
+        throw AssertionError(("salvo: " + ("`${field}`'s value was checked") + " at args:1155:9"))
     }
     if (!((default == null))) {
         val default_4: Q = default!!
         return default_4
     }
-    return throw AssertionError(("salvo: " + ("`${field}` was checked as required") + " at args:1106:5"))
+    return throw AssertionError(("salvo: " + ("`${field}` was checked as required") + " at args:1160:5"))
 }
 
 fun<E> readOptional(found: Found, field: String, fromStr: (String) -> E?): E? {
@@ -1366,10 +1439,10 @@ fun<C> built(r: Union2<C, List<Union11<UnknownOption, MissingValue, Missing, Inv
         }
         (r is Union2.U2<*, *>) -> {
             val r_2: List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>> = ((r as Union2.U2<*, *>).value as List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>)
-            throw AssertionError(("salvo: " + ("a group failed after its checks passed") + " at args:1187:19"))
+            throw AssertionError(("salvo: " + ("a group failed after its checks passed") + " at args:1241:19"))
         }
         else -> {
-            throw AssertionError(("salvo: " + ("unhandled union arm") + " at args:1185:5"))
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at args:1239:5"))
         }
     }
 }

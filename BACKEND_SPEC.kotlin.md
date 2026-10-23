@@ -562,6 +562,14 @@ Conventions:
     cannot know which `try` will catch it. So the signal carries the Salvo
     type of the message as a `tag`, and a union-typed `M` dispatches on it
     (`when (__signal.tag) { "Str" -> …; "Int" -> …; else -> throw __signal }`).
+  * [kt-throw-tag] A **union-typed** message (`let e: ArgError = …;
+    throw(e)`) is thrown as its arm: `throw (when (val __t = e) { is
+    Union11.U4<*, …> -> ThrowSignal(__t.value, "Invalid"); … })`, so the tag
+    is always an arm's type and a `try` whose message is the same union or a
+    wider one finds its case (2026-10-20: the signal carried the union's own
+    name, matched no case and escaped the `try` — wrong code, found building
+    `args`' validation hook). The catch keeps a case for the union's own
+    name too, for a union with literal arms, which is still thrown whole.
     Comparing Salvo type *names* is erasure-proof, unlike `is` tests on the
     payload; the `else` rethrow means a signal from outside this delimiter's
     set is passed on rather than mis-wrapped [backend-never-wrong].

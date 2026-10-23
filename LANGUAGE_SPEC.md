@@ -7331,8 +7331,19 @@ can have one capability without the other.
   is <lo, hi> InRange(lo, hi) *]`, it is `InRange.explain` (`invalid value
   '70000' for '--port': 70000 is not in 1..65535`); any other qualifier is
   "the value is not accepted", since comptime cannot yet walk a type's
-  qualifiers to call each one's `explain` (ROADMAP §2d item 15). The
-  validation hook Q16 also asks for is a DECISION (ROADMAP §2d item 16).
+  qualifiers to call each one's `explain` (ROADMAP §2d item 15).
+* [args-validate] **The validation hook** (ARG_PARSE.md §5.2, Q16; user
+  decision 2026-10-20, option (a)): `parse_valid<T, V>(args, ?FromArgs<T>,
+  ?validate: (o: T) [Throw<ArgError>] -> V)` parses, then calls the
+  `validate` in scope — found as an implicit, so `T` comes from it — inside
+  a `try`, answering `Ok V`, the parse errors, or the one error `validate`
+  threw. With `fn validate(o: Range) [Throw<ArgError>] -> +Valid Range`,
+  `let r: Ok Valid Range | Errs … = parse_valid(args)` is the validated
+  type, so forgetting to validate is a type error at the first function
+  that needs `Valid Range`. `valid_args_or_exit` ends the process on help
+  or errors as `args_or_exit` does. It rests on [fn-value] (the implicit
+  keeps the claim `+Valid` gains) and [fn-throw-value] (the implicit's
+  throw lands in the `try`).
   * **Comptime qualifiers**: `Short(c: Char) of Field`, `Positional of
     Field` (taken in field order), `Named(name: Str) of Struct` (the command
     name; otherwise `command_name(T.name)`). A struct's doc comment is the
