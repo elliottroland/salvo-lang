@@ -1,6 +1,5 @@
 ---
 source: crates/salvo-core/tests/golden_tests.rs
-assertion_line: 44
 expression: text
 ---
 module main
@@ -300,68 +299,64 @@ fn main::from_found(Found)(lent found: Found) -> Serve | List<UnknownOption | Mi
   bind#6 let what__c5__c6__c7__c8__c9__c10__c11: Str = "a valid value"
   assign what__c5__c6__c7__c8__c9__c10__c11 = "an integer"
   call args::check_value<Int>(read errors, read found, "port", read shown__c5__c6__c7__c8__c9__c10__c11, read what__c5__c6__c7__c8__c9__c10__c11, lambda(lent v: Int) -> Str? {
-    value branch#7 cond#0 call core.range::InRange.qualifies(read v, 1, 65535) {
-      value branch#8 cond#0 call core.range::InRange.qualifies(read v, 1, 65535) {
-        value none[None]
-      } else {
-        value call args::rejected()
-      }
+    value branch#7 cond#0 !(call core.range::InRange.qualifies(read v, 1, 65535)) {
+      value present(concat(call core.basic::to_str(Int)(read v), " is not in 1..65535"))
     } else {
-      value present(call core.range::InRange.explain(read v, 1, 65535))
+      value none[Str?]
     }
   }, fn core.string::from_str(Str))
-  bind#9 let s__c26__c27__c28: Spec<Tls> = call main::arg_spec()()
-  branch#10 cond#0 call args::any_given<Tls>(read found, read s__c26__c27__c28) {
-    bind#11 let r__c26__c27__c28: Tls | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> = call main::from_found(Found)(read found)
-    call args::group_errors<Tls>(read errors, !read r__c26__c27__c28, call core.list::size<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>(read found.errors))
+  bind#8 let s__c25__c26__c27: Spec<Tls> = call main::arg_spec()()
+  branch#9 cond#0 call args::any_given<Tls>(read found, read s__c25__c26__c27) {
+    bind#10 let r__c25__c26__c27: Tls | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> = call main::from_found(Found)(read found)
+    call args::group_errors<Tls>(read errors, !read r__c25__c26__c27, call core.list::size<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>(read found.errors))
   }
-  bind#12 let positional__c29__c30__c31__c32__c33__c34__c35: Bool = false
-  assign positional__c29__c30__c31__c32__c33__c34__c35 = true
-  bind#13 let shown__c29__c30__c31__c32__c33__c34__c35: Str = call args::shown_name("files", read positional__c29__c30__c31__c32__c33__c34__c35)
-  bind#14 let what__c29__c30__c31__c32__c33__c34__c35: Str = "a valid value"
-  call args::check_value<Str>(read errors, read found, "files", read shown__c29__c30__c31__c32__c33__c34__c35, read what__c29__c30__c31__c32__c33__c34__c35, lambda(lent _v: Str) -> Str? {
+  bind#11 let positional__c28__c29__c30__c31__c32__c33__c34: Bool = false
+  assign positional__c28__c29__c30__c31__c32__c33__c34 = true
+  bind#12 let shown__c28__c29__c30__c31__c32__c33__c34: Str = call args::shown_name("files", read positional__c28__c29__c30__c31__c32__c33__c34)
+  bind#13 let what__c28__c29__c30__c31__c32__c33__c34: Str = "a valid value"
+  call args::check_value<Str>(read errors, read found, "files", read shown__c28__c29__c30__c31__c32__c33__c34, read what__c28__c29__c30__c31__c32__c33__c34, lambda(lent _v: Str) -> Str? {
     value none[None]
   }, fn core.string::from_str(Str))
-  branch#15 cond#0 call core.list::NonEmpty.qualifies(read errors) {
+  branch#14 cond#0 call core.list::NonEmpty.qualifies(read errors) {
     return make_union[Serve | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#1(drop_mut(call core.result::Errs<Mut List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>>(!read errors)))
   }
   return make_union[Serve | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#0(call core.result::Ok<Serve>(construct Serve { net: call args::eval<Net>(lambda() -> Net captures [found] {
     return call args::built<Net>(call main::from_found(Found)(read found))
   }), port: call args::eval<Int>(lambda() -> Int captures [found] {
-    return call args::read_value<Int, Int>(read found, "port", present(branch#17 cond#0 true {
-      bind#16 let __default~1: Int = 8080
+    return call args::read_value<Int, Int>(read found, "port", present(branch#16 cond#0 true {
+      bind#15 let __default~1: Int = 8080
       assert(call core.range::InRange.qualifies(read __default~1, 1, 65535), "the default for field `port` is not `InRange(1, 65535) Int`") at main:157:1
       value !read __default~1
-    }), lambda(lent v__c42__c43__c44__c45__c46__c47__c48__c49: Int) -> Int? {
-      value branch#18 cond#0 call core.range::InRange.qualifies(read v__c42__c43__c44__c45__c46__c47__c48__c49, 1, 65535) {
-        value present(read v__c42__c43__c44__c45__c46__c47__c48__c49)
+    }), lambda(lent v__c41__c42__c43__c44__c45__c46__c47__c48: Int) -> Int? {
+      value branch#17 cond#0 call core.range::InRange.qualifies(read v__c41__c42__c43__c44__c45__c46__c47__c48, 1, 65535) {
+        value present(read v__c41__c42__c43__c44__c45__c46__c47__c48)
       } else {
         value none[None]
       }
     }, fn core.string::from_str(Str))
   }), output: call args::eval<Str>(lambda() -> Str captures [found] {
-    bind#19 let v__c53__c54__c55__c56__c57__c58: Str? = call args::value_of(read found, "output")
-    branch#20 cond#0 !(check#21 (read v__c53__c54__c55__c56__c57__c58 is none)) {
-      branch#22 cond#0 check#23 (read v__c53__c54__c55__c56__c57__c58 is lit 0 [Str("json")]) {
-        narrow#24[check#23] v__c53__c54__c55__c56__c57__c58~2: Str = v__c53__c54__c55__c56__c57__c58
-        return !read v__c53__c54__c55__c56__c57__c58~2
+    bind#18 let v__c52__c53__c54__c55__c56__c57: Str? = call args::value_of(read found, "output")
+    branch#19 cond#0 !(check#20 (read v__c52__c53__c54__c55__c56__c57 is none)) {
+      branch#21 cond#0 check#22 (read v__c52__c53__c54__c55__c56__c57 is lit 0 [Str("json")]) {
+        narrow#23[check#22] v__c52__c53__c54__c55__c56__c57~2: Str = v__c52__c53__c54__c55__c56__c57
+        return !read v__c52__c53__c54__c55__c56__c57~2
       }
-      branch#25 cond#0 check#26 (read v__c53__c54__c55__c56__c57__c58 is lit 0 [Str("text")]) {
-        narrow#27[check#26] v__c53__c54__c55__c56__c57__c58~3: Str = v__c53__c54__c55__c56__c57__c58
-        return !read v__c53__c54__c55__c56__c57__c58~3
+      branch#24 cond#0 check#25 (read v__c52__c53__c54__c55__c56__c57 is lit 0 [Str("text")]) {
+        narrow#26[check#25] v__c52__c53__c54__c55__c56__c57~3: Str = v__c52__c53__c54__c55__c56__c57
+        return !read v__c52__c53__c54__c55__c56__c57~3
       }
     }
     return "text"
   }), tls: call args::eval<Tls?>(lambda() -> Tls? captures [found] {
-    bind#28 let s__c66__c67__c68: Spec<Tls> = call main::arg_spec()()
-    branch#29 cond#0 call args::any_given<Tls>(read found, read s__c66__c67__c68) {
+    bind#27 let s__c65__c66__c67: Spec<Tls> = call main::arg_spec()()
+    branch#28 cond#0 call args::any_given<Tls>(read found, read s__c65__c66__c67) {
       return present(call args::built<Tls>(call main::from_found(Found)(read found)))
     }
     return none[None]
   }), files: call args::eval<List<Str>>(lambda() -> List<Str> captures [found] {
-    bind#30 let all__c69__c70__c71__c72__c73__c74__c75__c76: List<Str> = call args::read_all<Str>(read found, "files", fn core.string::from_str(Str))
-    branch#31 cond#0 call core.list::NonEmpty.qualifies(read all__c69__c70__c71__c72__c73__c74__c75__c76) {
-      return !read all__c69__c70__c71__c72__c73__c74__c75__c76
+    bind#29 let all__c68__c69__c70__c71__c72__c73__c74__c75: List<Str> = call args::read_all<Str>(read found, "files", fn core.string::from_str(Str))
+    branch#30 cond#0 call core.list::NonEmpty.qualifies(read all__c68__c69__c70__c71__c72__c73__c74__c75) {
+      return !read all__c68__c69__c70__c71__c72__c73__c74__c75
     }
     value unreachable("`files` was checked as required") at main:157:1
   }) }))
@@ -417,25 +412,21 @@ fn main::from_found(Found)(lent found: Found) -> Net | List<UnknownOption | Miss
   bind#4 let shown__c1__c2__c3__c4__c5__c6__c7: Str = call args::shown_name("host", read positional__c1__c2__c3__c4__c5__c6__c7)
   bind#5 let what__c1__c2__c3__c4__c5__c6__c7: Str = "a valid value"
   call args::check_value<Str>(read errors, read found, "host", read shown__c1__c2__c3__c4__c5__c6__c7, read what__c1__c2__c3__c4__c5__c6__c7, lambda(lent v: Str) -> Str? {
-    value branch#6 cond#0 true {
-      value none[None]
-    } else {
-      value call args::rejected()
-    }
+    value none[Str?]
   }, fn core.string::from_str(Str))
-  bind#7 let positional__c11__c12__c13__c14__c15__c16__c17: Bool = false
-  bind#8 let shown__c11__c12__c13__c14__c15__c16__c17: Str = call args::shown_name("workers", read positional__c11__c12__c13__c14__c15__c16__c17)
-  bind#9 let what__c11__c12__c13__c14__c15__c16__c17: Str = "a valid value"
+  bind#6 let positional__c11__c12__c13__c14__c15__c16__c17: Bool = false
+  bind#7 let shown__c11__c12__c13__c14__c15__c16__c17: Str = call args::shown_name("workers", read positional__c11__c12__c13__c14__c15__c16__c17)
+  bind#8 let what__c11__c12__c13__c14__c15__c16__c17: Str = "a valid value"
   assign what__c11__c12__c13__c14__c15__c16__c17 = "an integer"
   call args::check_value<Int>(read errors, read found, "workers", read shown__c11__c12__c13__c14__c15__c16__c17, read what__c11__c12__c13__c14__c15__c16__c17, lambda(lent _v: Int) -> Str? {
     value none[None]
   }, fn core.string::from_str(Str))
-  branch#10 cond#0 call core.list::NonEmpty.qualifies(read errors) {
+  branch#9 cond#0 call core.list::NonEmpty.qualifies(read errors) {
     return make_union[Net | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#1(drop_mut(call core.result::Errs<Mut List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>>(!read errors)))
   }
   return make_union[Net | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#0(call core.result::Ok<Net>(construct Net { host: call args::eval<Str>(lambda() -> Str captures [found] {
     return call args::read_value<Str, Str>(read found, "host", present("127.0.0.1"), lambda(lent v__c21__c22__c23__c24__c25__c26__c27__c28: Str) -> Str? {
-      value branch#11 cond#0 true {
+      value branch#10 cond#0 true {
         value present(read v__c21__c22__c23__c24__c25__c26__c27__c28)
       } else {
         value none[None]
@@ -496,28 +487,20 @@ fn main::from_found(Found)(lent found: Found) -> Tls | List<UnknownOption | Miss
   bind#4 let shown__c1__c2__c3__c4__c5__c6__c7: Str = call args::shown_name("cert", read positional__c1__c2__c3__c4__c5__c6__c7)
   bind#5 let what__c1__c2__c3__c4__c5__c6__c7: Str = "a valid value"
   call args::check_value<Str>(read errors, read found, "cert", read shown__c1__c2__c3__c4__c5__c6__c7, read what__c1__c2__c3__c4__c5__c6__c7, lambda(lent v: Str) -> Str? {
-    value branch#6 cond#0 true {
-      value none[None]
-    } else {
-      value call args::rejected()
-    }
+    value none[Str?]
   }, fn core.string::from_str(Str))
-  bind#7 let positional__c11__c12__c13__c14__c15__c16__c17: Bool = false
-  bind#8 let shown__c11__c12__c13__c14__c15__c16__c17: Str = call args::shown_name("key", read positional__c11__c12__c13__c14__c15__c16__c17)
-  bind#9 let what__c11__c12__c13__c14__c15__c16__c17: Str = "a valid value"
+  bind#6 let positional__c11__c12__c13__c14__c15__c16__c17: Bool = false
+  bind#7 let shown__c11__c12__c13__c14__c15__c16__c17: Str = call args::shown_name("key", read positional__c11__c12__c13__c14__c15__c16__c17)
+  bind#8 let what__c11__c12__c13__c14__c15__c16__c17: Str = "a valid value"
   call args::check_value<Str>(read errors, read found, "key", read shown__c11__c12__c13__c14__c15__c16__c17, read what__c11__c12__c13__c14__c15__c16__c17, lambda(lent v: Str) -> Str? {
-    value branch#10 cond#0 true {
-      value none[None]
-    } else {
-      value call args::rejected()
-    }
+    value none[Str?]
   }, fn core.string::from_str(Str))
-  branch#11 cond#0 call core.list::NonEmpty.qualifies(read errors) {
+  branch#9 cond#0 call core.list::NonEmpty.qualifies(read errors) {
     return make_union[Tls | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#1(drop_mut(call core.result::Errs<Mut List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>>(!read errors)))
   }
   return make_union[Tls | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#0(call core.result::Ok<Tls>(construct Tls { cert: call args::eval<Str>(lambda() -> Str captures [found] {
     return call args::read_value<Str, Str>(read found, "cert", none[None], lambda(lent v__c21__c22__c23__c24__c25__c26__c27__c28: Str) -> Str? {
-      value branch#12 cond#0 true {
+      value branch#10 cond#0 true {
         value present(read v__c21__c22__c23__c24__c25__c26__c27__c28)
       } else {
         value none[None]
@@ -525,7 +508,7 @@ fn main::from_found(Found)(lent found: Found) -> Tls | List<UnknownOption | Miss
     }, fn core.string::from_str(Str))
   }), key: call args::eval<Str>(lambda() -> Str captures [found] {
     return call args::read_value<Str, Str>(read found, "key", none[None], lambda(lent v__c31__c32__c33__c34__c35__c36__c37__c38: Str) -> Str? {
-      value branch#13 cond#0 true {
+      value branch#11 cond#0 true {
         value present(read v__c31__c32__c33__c34__c35__c36__c37__c38)
       } else {
         value none[None]
@@ -690,38 +673,30 @@ fn main::from_found(Found)(lent found: Found) -> FromUrl | List<UnknownOption | 
   bind#4 let shown__c1__c2__c3__c4__c5__c6__c7: Str = call args::shown_name("url", read positional__c1__c2__c3__c4__c5__c6__c7)
   bind#5 let what__c1__c2__c3__c4__c5__c6__c7: Str = "a valid value"
   call args::check_value<Str>(read errors, read found, "url", read shown__c1__c2__c3__c4__c5__c6__c7, read what__c1__c2__c3__c4__c5__c6__c7, lambda(lent v: Str) -> Str? {
-    value branch#6 cond#0 true {
-      value none[None]
-    } else {
-      value call args::rejected()
-    }
+    value none[Str?]
   }, fn core.string::from_str(Str))
-  bind#7 let positional__c11__c12__c13__c14__c15__c16__c17: Bool = false
-  bind#8 let shown__c11__c12__c13__c14__c15__c16__c17: Str = call args::shown_name("timeout", read positional__c11__c12__c13__c14__c15__c16__c17)
-  bind#9 let what__c11__c12__c13__c14__c15__c16__c17: Str = "a valid value"
+  bind#6 let positional__c11__c12__c13__c14__c15__c16__c17: Bool = false
+  bind#7 let shown__c11__c12__c13__c14__c15__c16__c17: Str = call args::shown_name("timeout", read positional__c11__c12__c13__c14__c15__c16__c17)
+  bind#8 let what__c11__c12__c13__c14__c15__c16__c17: Str = "a valid value"
   assign what__c11__c12__c13__c14__c15__c16__c17 = "an integer"
   call args::check_value<Int>(read errors, read found, "timeout", read shown__c11__c12__c13__c14__c15__c16__c17, read what__c11__c12__c13__c14__c15__c16__c17, lambda(lent v: Int) -> Str? {
-    value branch#10 cond#0 true {
-      value none[None]
-    } else {
-      value call args::rejected()
-    }
+    value none[Str?]
   }, fn core.string::from_str(Str))
-  branch#11 cond#0 call core.list::NonEmpty.qualifies(read errors) {
+  branch#9 cond#0 call core.list::NonEmpty.qualifies(read errors) {
     return make_union[FromUrl | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#1(drop_mut(call core.result::Errs<Mut List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>>(!read errors)))
   }
   return make_union[FromUrl | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#0(call core.result::Ok<FromUrl>(construct FromUrl { url: call args::eval<Str>(lambda() -> Str captures [found] {
-    return call args::read_value<Str, Str>(read found, "url", none[None], lambda(lent v__c24__c25__c26__c27__c28__c29__c30__c31: Str) -> Str? {
-      value branch#12 cond#0 true {
-        value present(read v__c24__c25__c26__c27__c28__c29__c30__c31)
+    return call args::read_value<Str, Str>(read found, "url", none[None], lambda(lent v__c23__c24__c25__c26__c27__c28__c29__c30: Str) -> Str? {
+      value branch#10 cond#0 true {
+        value present(read v__c23__c24__c25__c26__c27__c28__c29__c30)
       } else {
         value none[None]
       }
     }, fn core.string::from_str(Str))
   }), timeout: call args::eval<Int>(lambda() -> Int captures [found] {
-    return call args::read_value<Int, Int>(read found, "timeout", present(30), lambda(lent v__c34__c35__c36__c37__c38__c39__c40__c41: Int) -> Int? {
-      value branch#13 cond#0 true {
-        value present(read v__c34__c35__c36__c37__c38__c39__c40__c41)
+    return call args::read_value<Int, Int>(read found, "timeout", present(30), lambda(lent v__c33__c34__c35__c36__c37__c38__c39__c40: Int) -> Int? {
+      value branch#11 cond#0 true {
+        value present(read v__c33__c34__c35__c36__c37__c38__c39__c40)
       } else {
         value none[None]
       }
@@ -764,18 +739,14 @@ fn main::from_found(Found)(lent found: Found) -> FromFile | List<UnknownOption |
   bind#4 let shown__c1__c2__c3__c4__c5__c6__c7: Str = call args::shown_name("file", read positional__c1__c2__c3__c4__c5__c6__c7)
   bind#5 let what__c1__c2__c3__c4__c5__c6__c7: Str = "a valid value"
   call args::check_value<Str>(read errors, read found, "file", read shown__c1__c2__c3__c4__c5__c6__c7, read what__c1__c2__c3__c4__c5__c6__c7, lambda(lent v: Str) -> Str? {
-    value branch#6 cond#0 true {
-      value none[None]
-    } else {
-      value call args::rejected()
-    }
+    value none[Str?]
   }, fn core.string::from_str(Str))
-  branch#7 cond#0 call core.list::NonEmpty.qualifies(read errors) {
+  branch#6 cond#0 call core.list::NonEmpty.qualifies(read errors) {
     return make_union[FromFile | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#1(drop_mut(call core.result::Errs<Mut List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>>(!read errors)))
   }
   return make_union[FromFile | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#0(call core.result::Ok<FromFile>(construct FromFile { file: call args::eval<Str>(lambda() -> Str captures [found] {
     return call args::read_value<Str, Str>(read found, "file", none[None], lambda(lent v__c11__c12__c13__c14__c15__c16__c17__c18: Str) -> Str? {
-      value branch#8 cond#0 true {
+      value branch#7 cond#0 true {
         value present(read v__c11__c12__c13__c14__c15__c16__c17__c18)
       } else {
         value none[None]

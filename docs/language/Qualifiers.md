@@ -152,16 +152,18 @@ qualifier Negative of Int {
 }
 ```
 
-A predicate qualifier can also say **why** a value fails, with an optional `explain` that takes the same parameters as `qualifies` and returns the message:
+A predicate qualifier can also say **why** a value fails, in a `@whynot` tag in the doc comment of its `qualifies` ([doc tags](Modules.md#documentation-comments)). The message is plain language around `[name]`s, which are `qualifies`' parameters: the value tested, and any slot of a scalar type (`Int`, `Long`, `Double`, `Bool`, `Char`, `Str`). Nothing else can be named, so the message can only say what the test had in hand.
 
 ```
 qualifier InRange(lo: Int, hi: Int) of Int {
+    // @whynot [n] is not in [lo]..[hi]
     fn qualifies(n: Int, lo: Int, hi: Int) -> Bool { return n >= lo && n <= hi }
-    fn explain(n: Int, lo: Int, hi: Int) -> Str { return "${n} is not in ${lo}..${hi}" }
 }
 ```
 
-`assert!(port is InRange(1, 65535))` then fails with "70000 is not in 1..65535", and code that reports errors can call it directly: `InRange.explain(port, 1, 65535)`. `InRange.qualifies(port, 1, 65535)` is the test as a plain call.
+`whynot?(port is InRange(1, 65535))` asks for it: a `Str?` that is `None` when `port` qualifies and "70000 is not in 1..65535" when it does not. With several qualifiers it answers for the first one that fails, in the order they are written, and for a qualifier with no `@whynot` it says "70000 is not Small(10)". It is a compiler form, like `assert!`, written in place at each use; the `?` says it answers an optional, where `!` would mean it can stop the program.
+
+`assert!(port is InRange(1, 65535))` with no message of its own fails with the same text. `InRange.qualifies(port, 1, 65535)` is the test as a plain call.
 
 A claim is tested with the same `is` syntax that narrows a union ([Control flow](Control-Flow.md)). When applied to a non-union type of the relevant kind (in this case `Int`), then it calls the `qualifies` function and allows casting:
 

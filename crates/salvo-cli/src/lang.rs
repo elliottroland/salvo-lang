@@ -323,6 +323,11 @@ pub fn tm_grammar() -> String {
           "end": "$",
           "patterns": [
             {{
+              "comment": "[doc-tags] a doc tag opening its line: `// @param name  text`",
+              "name": "storage.type.class.doc.salvo",
+              "match": "\\G\\s*@(?:param|returns|throws|see|todo|whynot)\\b"
+            }},
+            {{
               "comment": "[symbol] doc references to parameters, fields and types, and the [rule-label] references the compiler's own comments carry",
               "name": "variable.parameter.reference.salvo",
               "match": "\\[[A-Za-z_][A-Za-z0-9_.-]*\\]"

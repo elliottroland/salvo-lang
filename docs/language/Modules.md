@@ -289,6 +289,17 @@ Docs are **markdown**. The `//` and one following space come off; everything aft
 
 `[symbol]` in a doc comment references a name: a parameter, generic or field of the declaration being documented, or a type, qualifier, effect, handler or function declared in the program. A reference that resolves becomes a link to the declaration; one that does not is left exactly as written, so brackets in prose are safe.
 
+A line that starts with **`@name`** opens a **tag**: `@param name`, `@returns`, `@throws`, `@see`, `@todo`, and `@whynot` (for a predicate qualifier's `qualifies`, [Qualifiers](Qualifiers.md)). The prose comes first. A tag's text runs over the lines below it until the next tag, a bare `//` line or the end of the block, so it can wrap as far as it needs; pressing Enter in the editor lines the next line up under the text. Hover shows each kind as a section after the prose (**Parameters**, **Returns**, …). A tag the compiler does not know, or an `@param` naming no parameter, is a warning, never an error.
+
+```
+// The words of a command line, split the way a shell splits them.
+//
+// @param line  the command line; quotes group words and a
+//              backslash escapes the next character
+// @returns     the words, quotes removed
+// @see [split]
+```
+
 Structs document their fields individually — the comment above a field belongs to that field, and tooling shows the struct's own docs followed by a list of its fields. The same goes for anything else declared inside a declaration: an effect's or handler's member functions, and a handler's state.
 
 **A module has documentation too**: the first comment run in the file, when it documents no declaration. A blank line after it makes it the module's — the run then sits above nothing — and so does the file's first `import` on the very next line, since an import carries no docs of its own; the header-then-imports layout needs no blank line. A run sitting directly above the first declaration is that declaration's, and the module then has none. `[symbol]` references in a module's docs resolve against its top-level declarations.

@@ -64,7 +64,6 @@ use crate::core_result::Errs;
 use crate::args::Found;
 use crate::args::GroupSpec;
 use crate::args::HelpRequested;
-use crate::core_range::InRange__Int_explain;
 use crate::core_range::InRange__Int_qualifies;
 use crate::args::Invalid;
 use crate::args::Missing;
@@ -103,7 +102,6 @@ use crate::core_console::println;
 use crate::args::read_all;
 use crate::args::read_optional;
 use crate::args::read_value;
-use crate::args::rejected;
 use crate::args::shown_name;
 use crate::core_list::size_platform;
 use crate::args::value_of;
@@ -502,26 +500,22 @@ pub fn from_found__Found_OkServeOrErrsNonEmptyListArgError(found: &crate::args::
     let mut what__c5__c6__c7__c8__c9__c10__c11: String = String::from("a valid value");
     what__c5__c6__c7__c8__c9__c10__c11 = String::from("an integer");
     crate::args::check_value::<i32>(&mut errors, found, &String::from("port"), &shown__c5__c6__c7__c8__c9__c10__c11, &what__c5__c6__c7__c8__c9__c10__c11, &mut |mut v| -> Option<String> {
-        if crate::core_range::InRange__Int_qualifies(*v, 1i32, 65535i32) {
-            if crate::core_range::InRange__Int_qualifies(*v, 1i32, 65535i32) {
-                None
-            } else {
-                crate::args::rejected()
-            }
+        if !(crate::core_range::InRange__Int_qualifies(*v, 1i32, 65535i32)) {
+            Some(format!("{} is not in 1..65535", *v))
         } else {
-            Some(crate::core_range::InRange__Int_explain(*v, 1i32, 65535i32))
+            None
         }
     }, &mut |__a0: &String| crate::core_string::from_str__Str_IntOpt(__a0));
-    let mut s__c26__c27__c28: crate::args::Spec = crate::arg_spec__SpecTls();
-    if crate::args::any_given(found, &s__c26__c27__c28) {
-        let mut r__c26__c27__c28: crate::unions::Union2<crate::Tls, Vec<crate::unions::Union11<crate::args::UnknownOption, crate::args::MissingValue, crate::args::Missing, crate::args::Invalid, crate::args::Unexpected, crate::args::Repeated, crate::args::Requires, crate::args::Conflict, crate::args::MissingOne, crate::args::UnknownCommand, crate::args::HelpRequested>>> = crate::from_found__Found_OkTlsOrErrsNonEmptyListArgError(found);
-        crate::args::group_errors::<crate::Tls>(&mut errors, r__c26__c27__c28, crate::core_list::size_platform::<crate::unions::Union11<crate::args::UnknownOption, crate::args::MissingValue, crate::args::Missing, crate::args::Invalid, crate::args::Unexpected, crate::args::Repeated, crate::args::Requires, crate::args::Conflict, crate::args::MissingOne, crate::args::UnknownCommand, crate::args::HelpRequested>>(&found.errors));
+    let mut s__c25__c26__c27: crate::args::Spec = crate::arg_spec__SpecTls();
+    if crate::args::any_given(found, &s__c25__c26__c27) {
+        let mut r__c25__c26__c27: crate::unions::Union2<crate::Tls, Vec<crate::unions::Union11<crate::args::UnknownOption, crate::args::MissingValue, crate::args::Missing, crate::args::Invalid, crate::args::Unexpected, crate::args::Repeated, crate::args::Requires, crate::args::Conflict, crate::args::MissingOne, crate::args::UnknownCommand, crate::args::HelpRequested>>> = crate::from_found__Found_OkTlsOrErrsNonEmptyListArgError(found);
+        crate::args::group_errors::<crate::Tls>(&mut errors, r__c25__c26__c27, crate::core_list::size_platform::<crate::unions::Union11<crate::args::UnknownOption, crate::args::MissingValue, crate::args::Missing, crate::args::Invalid, crate::args::Unexpected, crate::args::Repeated, crate::args::Requires, crate::args::Conflict, crate::args::MissingOne, crate::args::UnknownCommand, crate::args::HelpRequested>>(&found.errors));
     };
-    let mut positional__c29__c30__c31__c32__c33__c34__c35: bool = false;
-    positional__c29__c30__c31__c32__c33__c34__c35 = true;
-    let mut shown__c29__c30__c31__c32__c33__c34__c35: String = crate::args::shown_name(&String::from("files"), positional__c29__c30__c31__c32__c33__c34__c35);
-    let mut what__c29__c30__c31__c32__c33__c34__c35: String = String::from("a valid value");
-    crate::args::check_value::<String>(&mut errors, found, &String::from("files"), &shown__c29__c30__c31__c32__c33__c34__c35, &what__c29__c30__c31__c32__c33__c34__c35, &mut |mut _v| -> Option<String> {
+    let mut positional__c28__c29__c30__c31__c32__c33__c34: bool = false;
+    positional__c28__c29__c30__c31__c32__c33__c34 = true;
+    let mut shown__c28__c29__c30__c31__c32__c33__c34: String = crate::args::shown_name(&String::from("files"), positional__c28__c29__c30__c31__c32__c33__c34);
+    let mut what__c28__c29__c30__c31__c32__c33__c34: String = String::from("a valid value");
+    crate::args::check_value::<String>(&mut errors, found, &String::from("files"), &shown__c28__c29__c30__c31__c32__c33__c34, &what__c28__c29__c30__c31__c32__c33__c34, &mut |mut _v| -> Option<String> {
         None
     }, &mut |__a0: &String| crate::core_string::from_str__Str_StrOpt(__a0));
     if crate::core_list::NonEmpty__List_qualifies(&errors) {
@@ -534,36 +528,36 @@ pub fn from_found__Found_OkServeOrErrsNonEmptyListArgError(found: &crate::args::
             let mut __default_1: i32 = 8080i32;
             if !(crate::core_range::InRange__Int_qualifies(__default_1, 1i32, 65535i32)) { panic!("salvo: {} at main:157:1", String::from("the default for field `port` is not `InRange(1, 65535) Int`")) };
             __default_1
-        }), &mut |mut v__c42__c43__c44__c45__c46__c47__c48__c49| -> Option<i32> {
-            if crate::core_range::InRange__Int_qualifies(v__c42__c43__c44__c45__c46__c47__c48__c49, 1i32, 65535i32) {
-                Some(v__c42__c43__c44__c45__c46__c47__c48__c49)
+        }), &mut |mut v__c41__c42__c43__c44__c45__c46__c47__c48| -> Option<i32> {
+            if crate::core_range::InRange__Int_qualifies(v__c41__c42__c43__c44__c45__c46__c47__c48, 1i32, 65535i32) {
+                Some(v__c41__c42__c43__c44__c45__c46__c47__c48)
             } else {
                 None
             }
         }, &mut |__a0: &String| crate::core_string::from_str__Str_IntOpt(__a0));
     } }), output: crate::args::eval({ let mut found = found.clone(); move || -> String {
-        let mut v__c53__c54__c55__c56__c57__c58: Option<String> = crate::args::value_of(&found, &String::from("output"));
-        if !(v__c53__c54__c55__c56__c57__c58.is_none()) {
-            if (match &v__c53__c54__c55__c56__c57__c58 { Some(__v) => __v == &"json", #[allow(unreachable_patterns)] _ => false }) {
-                let mut v__c53__c54__c55__c56__c57__c58_2 = v__c53__c54__c55__c56__c57__c58.unwrap();
-                return v__c53__c54__c55__c56__c57__c58_2;
+        let mut v__c52__c53__c54__c55__c56__c57: Option<String> = crate::args::value_of(&found, &String::from("output"));
+        if !(v__c52__c53__c54__c55__c56__c57.is_none()) {
+            if (match &v__c52__c53__c54__c55__c56__c57 { Some(__v) => __v == &"json", #[allow(unreachable_patterns)] _ => false }) {
+                let mut v__c52__c53__c54__c55__c56__c57_2 = v__c52__c53__c54__c55__c56__c57.unwrap();
+                return v__c52__c53__c54__c55__c56__c57_2;
             };
-            if (match &v__c53__c54__c55__c56__c57__c58 { Some(__v) => __v == &"text", #[allow(unreachable_patterns)] _ => false }) {
-                let mut v__c53__c54__c55__c56__c57__c58_3 = v__c53__c54__c55__c56__c57__c58.unwrap();
-                return v__c53__c54__c55__c56__c57__c58_3;
+            if (match &v__c52__c53__c54__c55__c56__c57 { Some(__v) => __v == &"text", #[allow(unreachable_patterns)] _ => false }) {
+                let mut v__c52__c53__c54__c55__c56__c57_3 = v__c52__c53__c54__c55__c56__c57.unwrap();
+                return v__c52__c53__c54__c55__c56__c57_3;
             };
         };
         return String::from("text");
     } }), tls: crate::args::eval({ let mut found = found.clone(); move || -> Option<crate::Tls> {
-        let mut s__c66__c67__c68: crate::args::Spec = crate::arg_spec__SpecTls();
-        if crate::args::any_given(&found, &s__c66__c67__c68) {
+        let mut s__c65__c66__c67: crate::args::Spec = crate::arg_spec__SpecTls();
+        if crate::args::any_given(&found, &s__c65__c66__c67) {
             return Some(crate::args::built::<crate::Tls>(crate::from_found__Found_OkTlsOrErrsNonEmptyListArgError(&found)));
         };
         return None;
     } }), files: crate::args::eval({ let mut found = found.clone(); move || -> Vec<String> {
-        let mut all__c69__c70__c71__c72__c73__c74__c75__c76: Vec<String> = crate::args::read_all::<String>(&found, &String::from("files"), &mut |__a0: &String| crate::core_string::from_str__Str_StrOpt(__a0));
-        if crate::core_list::NonEmpty__List_qualifies(&all__c69__c70__c71__c72__c73__c74__c75__c76) {
-            return all__c69__c70__c71__c72__c73__c74__c75__c76;
+        let mut all__c68__c69__c70__c71__c72__c73__c74__c75: Vec<String> = crate::args::read_all::<String>(&found, &String::from("files"), &mut |__a0: &String| crate::core_string::from_str__Str_StrOpt(__a0));
+        if crate::core_list::NonEmpty__List_qualifies(&all__c68__c69__c70__c71__c72__c73__c74__c75) {
+            return all__c68__c69__c70__c71__c72__c73__c74__c75;
         };
         panic!("salvo: `files` was checked as required at main:157:1")
     } }) }));
@@ -619,11 +613,7 @@ pub fn from_found__Found_OkNetOrErrsNonEmptyListArgError(found: &crate::args::Fo
     let mut shown__c1__c2__c3__c4__c5__c6__c7: String = crate::args::shown_name(&String::from("host"), positional__c1__c2__c3__c4__c5__c6__c7);
     let mut what__c1__c2__c3__c4__c5__c6__c7: String = String::from("a valid value");
     crate::args::check_value::<String>(&mut errors, found, &String::from("host"), &shown__c1__c2__c3__c4__c5__c6__c7, &what__c1__c2__c3__c4__c5__c6__c7, &mut |mut v| -> Option<String> {
-        if true {
-            None
-        } else {
-            crate::args::rejected()
-        }
+        None
     }, &mut |__a0: &String| crate::core_string::from_str__Str_StrOpt(__a0));
     let mut positional__c11__c12__c13__c14__c15__c16__c17: bool = false;
     let mut shown__c11__c12__c13__c14__c15__c16__c17: String = crate::args::shown_name(&String::from("workers"), positional__c11__c12__c13__c14__c15__c16__c17);
@@ -698,21 +688,13 @@ pub fn from_found__Found_OkTlsOrErrsNonEmptyListArgError(found: &crate::args::Fo
     let mut shown__c1__c2__c3__c4__c5__c6__c7: String = crate::args::shown_name(&String::from("cert"), positional__c1__c2__c3__c4__c5__c6__c7);
     let mut what__c1__c2__c3__c4__c5__c6__c7: String = String::from("a valid value");
     crate::args::check_value::<String>(&mut errors, found, &String::from("cert"), &shown__c1__c2__c3__c4__c5__c6__c7, &what__c1__c2__c3__c4__c5__c6__c7, &mut |mut v| -> Option<String> {
-        if true {
-            None
-        } else {
-            crate::args::rejected()
-        }
+        None
     }, &mut |__a0: &String| crate::core_string::from_str__Str_StrOpt(__a0));
     let mut positional__c11__c12__c13__c14__c15__c16__c17: bool = false;
     let mut shown__c11__c12__c13__c14__c15__c16__c17: String = crate::args::shown_name(&String::from("key"), positional__c11__c12__c13__c14__c15__c16__c17);
     let mut what__c11__c12__c13__c14__c15__c16__c17: String = String::from("a valid value");
     crate::args::check_value::<String>(&mut errors, found, &String::from("key"), &shown__c11__c12__c13__c14__c15__c16__c17, &what__c11__c12__c13__c14__c15__c16__c17, &mut |mut v| -> Option<String> {
-        if true {
-            None
-        } else {
-            crate::args::rejected()
-        }
+        None
     }, &mut |__a0: &String| crate::core_string::from_str__Str_StrOpt(__a0));
     if crate::core_list::NonEmpty__List_qualifies(&errors) {
         return crate::unions::Union2::U2(crate::core_result::Errs::<Vec<crate::unions::Union11<crate::args::UnknownOption, crate::args::MissingValue, crate::args::Missing, crate::args::Invalid, crate::args::Unexpected, crate::args::Repeated, crate::args::Requires, crate::args::Conflict, crate::args::MissingOne, crate::args::UnknownCommand, crate::args::HelpRequested>>>(errors));
@@ -892,38 +874,30 @@ pub fn from_found__Found_OkFromUrlOrErrsNonEmptyListArgError(found: &crate::args
     let mut shown__c1__c2__c3__c4__c5__c6__c7: String = crate::args::shown_name(&String::from("url"), positional__c1__c2__c3__c4__c5__c6__c7);
     let mut what__c1__c2__c3__c4__c5__c6__c7: String = String::from("a valid value");
     crate::args::check_value::<String>(&mut errors, found, &String::from("url"), &shown__c1__c2__c3__c4__c5__c6__c7, &what__c1__c2__c3__c4__c5__c6__c7, &mut |mut v| -> Option<String> {
-        if true {
-            None
-        } else {
-            crate::args::rejected()
-        }
+        None
     }, &mut |__a0: &String| crate::core_string::from_str__Str_StrOpt(__a0));
     let mut positional__c11__c12__c13__c14__c15__c16__c17: bool = false;
     let mut shown__c11__c12__c13__c14__c15__c16__c17: String = crate::args::shown_name(&String::from("timeout"), positional__c11__c12__c13__c14__c15__c16__c17);
     let mut what__c11__c12__c13__c14__c15__c16__c17: String = String::from("a valid value");
     what__c11__c12__c13__c14__c15__c16__c17 = String::from("an integer");
     crate::args::check_value::<i32>(&mut errors, found, &String::from("timeout"), &shown__c11__c12__c13__c14__c15__c16__c17, &what__c11__c12__c13__c14__c15__c16__c17, &mut |mut v| -> Option<String> {
-        if true {
-            None
-        } else {
-            crate::args::rejected()
-        }
+        None
     }, &mut |__a0: &String| crate::core_string::from_str__Str_IntOpt(__a0));
     if crate::core_list::NonEmpty__List_qualifies(&errors) {
         return crate::unions::Union2::U2(crate::core_result::Errs::<Vec<crate::unions::Union11<crate::args::UnknownOption, crate::args::MissingValue, crate::args::Missing, crate::args::Invalid, crate::args::Unexpected, crate::args::Repeated, crate::args::Requires, crate::args::Conflict, crate::args::MissingOne, crate::args::UnknownCommand, crate::args::HelpRequested>>>(errors));
     };
     return crate::unions::Union2::U1(crate::core_result::Ok::<crate::FromUrl>(crate::FromUrl { url: crate::args::eval({ let mut found = found.clone(); move || -> String {
-        return crate::args::read_value::<String, String>(&found, &String::from("url"), None, &mut |mut v__c24__c25__c26__c27__c28__c29__c30__c31| -> Option<String> {
+        return crate::args::read_value::<String, String>(&found, &String::from("url"), None, &mut |mut v__c23__c24__c25__c26__c27__c28__c29__c30| -> Option<String> {
             if true {
-                Some(v__c24__c25__c26__c27__c28__c29__c30__c31.clone())
+                Some(v__c23__c24__c25__c26__c27__c28__c29__c30.clone())
             } else {
                 None
             }
         }, &mut |__a0: &String| crate::core_string::from_str__Str_StrOpt(__a0));
     } }), timeout: crate::args::eval({ let mut found = found.clone(); move || -> i32 {
-        return crate::args::read_value::<i32, i32>(&found, &String::from("timeout"), Some(30i32), &mut |mut v__c34__c35__c36__c37__c38__c39__c40__c41| -> Option<i32> {
+        return crate::args::read_value::<i32, i32>(&found, &String::from("timeout"), Some(30i32), &mut |mut v__c33__c34__c35__c36__c37__c38__c39__c40| -> Option<i32> {
             if true {
-                Some(v__c34__c35__c36__c37__c38__c39__c40__c41)
+                Some(v__c33__c34__c35__c36__c37__c38__c39__c40)
             } else {
                 None
             }
@@ -966,11 +940,7 @@ pub fn from_found__Found_OkFromFileOrErrsNonEmptyListArgError(found: &crate::arg
     let mut shown__c1__c2__c3__c4__c5__c6__c7: String = crate::args::shown_name(&String::from("file"), positional__c1__c2__c3__c4__c5__c6__c7);
     let mut what__c1__c2__c3__c4__c5__c6__c7: String = String::from("a valid value");
     crate::args::check_value::<String>(&mut errors, found, &String::from("file"), &shown__c1__c2__c3__c4__c5__c6__c7, &what__c1__c2__c3__c4__c5__c6__c7, &mut |mut v| -> Option<String> {
-        if true {
-            None
-        } else {
-            crate::args::rejected()
-        }
+        None
     }, &mut |__a0: &String| crate::core_string::from_str__Str_StrOpt(__a0));
     if crate::core_list::NonEmpty__List_qualifies(&errors) {
         return crate::unions::Union2::U2(crate::core_result::Errs::<Vec<crate::unions::Union11<crate::args::UnknownOption, crate::args::MissingValue, crate::args::Missing, crate::args::Invalid, crate::args::Unexpected, crate::args::Repeated, crate::args::Requires, crate::args::Conflict, crate::args::MissingOne, crate::args::UnknownCommand, crate::args::HelpRequested>>>(errors));

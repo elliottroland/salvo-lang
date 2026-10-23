@@ -543,6 +543,7 @@ fn expr_names<'p>(expr: &'p Expr, used: &mut HashSet<&'p str>) {
                 expr_names(m, used);
             }
         }
+        Expr::WhyNot { test, .. } => expr_names(test, used),
         // [elvis] Names used on either side keep their modules reachable.
         Expr::Elvis { subject, rhs, .. } => {
             expr_names(subject, used);

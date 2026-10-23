@@ -2792,6 +2792,64 @@ fn go() -> None {
     lsp.child.wait().expect("failed to wait for salvo lsp");
 }
 
+/// [lsp-comment-continuation] [doc-tags] A doc tag continues under its text
+/// — after `@param`'s name — and an indented continuation line keeps its
+/// indentation, so a tag runs over as many lines as it needs.
+#[test]
+fn on_type_formatting_aligns_doc_tag_continuations() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_on_type_format_tags");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let source = "\
+// @param line  the command line, quotes
+// 
+//              and escapes
+// 
+// @returns the words
+// 
+fn go(line: Str) -> Str {
+    return line
+}
+";
+    std::fs::write(root.join("main.sv"), source).unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {
+                "uri": uri, "languageId": "salvo", "version": 1, "text": source
+            }}
+        }),
+    );
+    let _ = expect_diagnostics(&lsp.rx);
+    let on_type_format = |lsp: &mut Lsp, id: i64, line: u32| -> serde_json::Value {
+        send(
+            &mut lsp.stdin,
+            json!({
+                "jsonrpc": "2.0", "id": id, "method": "textDocument/onTypeFormatting",
+                "params": {
+                    "textDocument": {"uri": uri},
+                    "position": {"line": line, "character": 3},
+                    "ch": "\n",
+                    "options": {"tabSize": 4, "insertSpaces": true}
+                }
+            }),
+        );
+        expect_response(&lsp.rx, id)["result"].clone()
+    };
+    for (id, line, want) in [(2, 1, "//              "), (3, 3, "//              "), (4, 5, "//          ")] {
+        let result = on_type_format(&mut lsp, id, line);
+        let edits = result.as_array().unwrap_or_else(|| panic!("expected an edit on line {line}: {result}"));
+        assert_eq!(edits[0]["newText"], json!(want), "line {line}: {edits:?}");
+    }
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "id": 99, "method": "shutdown", "params": null}));
+    expect_response(&lsp.rx, 99);
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
+    lsp.child.wait().expect("failed to wait for salvo lsp");
+}
+
 /// [lsp-completion] Overloads of one name collapse to a single bare-prefix
 /// entry; a `//` comment offers no code completion, except inside a `[…]`
 /// reference where it offers code symbols; and the assertion builtins appear

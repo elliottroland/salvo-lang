@@ -234,7 +234,10 @@ fn describe(value: Int | Str) [Console] -> None {
 That is what makes it more than a check: the same `is` test that would narrow
 inside an `if` narrows for the rest of the scope, so an assertion buys a fact the
 type system then carries. `assert!(xs is NonEmpty)` makes `first(xs)` answer an
-element.
+element. Testing a predicate qualifier with no message of your own,
+`assert!(port is InRange(1, 65535))`, fails with the qualifier's own reason,
+"70000 is not in 1..65535"; `whynot?(port is InRange(1, 65535))` gives you that
+reason as a `Str?` without stopping ([Qualifiers](Qualifiers.md)).
 
 **`unreachable!()` asserts that a path is not taken.** Its type is `Never`, so it
 stands wherever a value is expected and ends the path, exactly as `throw` and

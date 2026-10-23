@@ -1401,10 +1401,6 @@ fun<B> checkValue(errors: salvo.platform.core.list.MutList<Union11<UnknownOption
     }
 }
 
-fun rejected(): String? {
-    return "the value is not accepted"
-}
-
 fun shownName(field: String, positional: Boolean): String {
     if (positional) {
         return argName(field)
@@ -1439,10 +1435,10 @@ fun<C> built(r: Union2<C, List<Union11<UnknownOption, MissingValue, Missing, Inv
         }
         (r is Union2.U2<*, *>) -> {
             val r_2: List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>> = ((r as Union2.U2<*, *>).value as List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>)
-            throw AssertionError(("salvo: " + ("a group failed after its checks passed") + " at args:1241:19"))
+            throw AssertionError(("salvo: " + ("a group failed after its checks passed") + " at args:1236:19"))
         }
         else -> {
-            throw AssertionError(("salvo: " + ("unhandled union arm") + " at args:1239:5"))
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at args:1234:5"))
         }
     }
 }

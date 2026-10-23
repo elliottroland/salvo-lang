@@ -815,16 +815,91 @@ fn union_is_tests_narrow_on_both_backends() {
     __stamp.verified();
 }
 
-/// [qual-explain] A predicate qualifier says why a value failed: `Q.explain`
-/// called directly, and an `assert!(x is Q(…))` with no message of its own
-/// trapping with the explanation (std's `InRange` has one), on both backends.
+/// [qual-whynot] A predicate qualifier says why a value failed: `whynot?`
+/// answers `None` or the first failed check's message — its `@whynot`
+/// template filled, or "<value> is not Q(args)" — and an `assert!(x is Q)`
+/// with no message of its own traps with the same text. [args-explain] A
+/// derived parser reports a field's failed qualifier the same way, a user
+/// qualifier as well as std's `InRange`. On both backends.
 #[test]
-fn explain_messages_run_on_both_backends() {
-    let Some(__stamp) = e2e_stamp("explain_messages_run_on_both_backends", &["rustc", "kotlinc"]) else {
+fn whynot_messages_run_on_both_backends() {
+    let Some(__stamp) = e2e_stamp("whynot_messages_run_on_both_backends", &["rustc", "kotlinc"]) else {
         return;
     };
-    let dir = work_dir("explain");
-    fs::write(dir.join("main.sv"), "qualifier Small(hi: Int) of Int {\n    fn qualifies(n: Int, hi: Int) -> Bool {\n        return n < hi\n    }\n    fn explain(n: Int, hi: Int) -> Str {\n        return \"${n} is not below ${hi}\"\n    }\n}\n\n\nfn main() [use] -> None {\n    use StdConsole()\n    println(\"${Small.qualifies(5, 10)} ${Small.explain(50, 10)} ${InRange.explain(70000, 1, 65535)}\")\n    let x = 70000\n    assert!(x is InRange(1, 65535))\n}\n").unwrap();
+    let dir = work_dir("whynot");
+    const SRC: &str = r#"import args
+
+qualifier Even of Int {
+    // @whynot [n] is odd
+    fn qualifies(n: Int) -> Bool {
+        return n % 2 == 0
+    }
+}
+
+qualifier Small(hi: Int) of Int {
+    fn qualifies(n: Int, hi: Int) -> Bool {
+        return n < hi
+    }
+}
+
+qualifier Brief(most: Int) of Str {
+    // @whynot "[s]" is longer than [most] characters
+    fn qualifies(s: Str, most: Int) -> Bool {
+        return size(s) <= most
+    }
+}
+
+struct P {
+    x: Int
+}
+
+qualifier Origin of P {
+    fn qualifies(p: P) -> Bool {
+        return p.x == 0
+    }
+}
+
+struct Opts : FromArgs<self> by args {
+    count: Even Int = 2,
+    name: Brief(3) Str = "abc"
+}
+
+fn seven() [] -> Int {
+    return 7
+}
+
+fn show(m: Str?) [Console] -> None => m {
+    if m is None {
+        println("ok")
+    } else {
+        println(m)
+    }
+}
+
+fn main() [use] -> None {
+    use StdConsole()
+    let n = 70000
+    let lim = 5
+    show(whynot?(n is InRange(1, 65535) Int))
+    show(whynot?(n is Even InRange(1, 65535) Int))
+    show(whynot?(seven() is Even Int))
+    show(whynot?(n is Small(10) Int))
+    show(whynot?(n is Small(lim) Int))
+    show(whynot?(n is Int))
+    show(whynot?(4 is Even Int))
+    let p = P { x: 3 }
+    show(whynot?(p is Origin P))
+    show(whynot?("long" is Brief(3) Str))
+    let r: Ok Opts | Errs NonEmpty List<ArgError> = parse_args(List("--count", "3", "--name", "abcd"))
+    when r {
+        is Ok { println("parsed") }
+        is Errs { for e in r { println(message(copy(e))) } }
+    }
+    let x = 70000
+    assert!(x is InRange(1, 65535))
+}
+"#;
+    fs::write(dir.join("main.sv"), SRC).unwrap();
     for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
         if !have(tool) {
             eprintln!("skipping {backend}: {tool} not found on PATH");
@@ -832,8 +907,14 @@ fn explain_messages_run_on_both_backends() {
         }
         let out = salvo_in(&dir, &["run", "--backend", backend, "--src", ".", "--clean-target", "before"]);
         let stderr = String::from_utf8_lossy(&out.stderr);
-        assert!(!out.status.success(), "{backend}: the assert must trap");
-        assert_eq!(String::from_utf8_lossy(&out.stdout), "true 50 is not below 10 70000 is not in 1..65535\n", "{backend}");
+        assert!(!out.status.success(), "{backend}: the assert must trap: {stderr}");
+        assert_eq!(
+            String::from_utf8_lossy(&out.stdout),
+            "70000 is not in 1..65535\n70000 is not in 1..65535\n7 is odd\n70000 is not Small(10)\n70000 is not Small(lim)\nok\nok\n\
+             the value is not Origin\n\"long\" is longer than 3 characters\n\
+             invalid value '3' for '--count': 3 is odd\ninvalid value 'abcd' for '--name': \"abcd\" is longer than 3 characters\n",
+            "{backend}: {stderr}"
+        );
         assert!(stderr.contains("salvo: 70000 is not in 1..65535 at main:"), "{backend}: {stderr}");
     }
     __stamp.verified();
@@ -893,7 +974,7 @@ fn a_stamped_decoder_runs_on_both_backends() {
 /// line, derived by `: FromArgs<self> by args`: switches, defaults, `Short`
 /// bundles, choices from literal unions (optional too), optional and
 /// repeated options, `Double`/`Long` values, a qualified `InRange` port
-/// re-tested with `v is [field.type]`, positionals with `NonEmpty`, every
+/// explained with `whynot?(v is [field.type])`, positionals with `NonEmpty`, every
 /// error at once, and help with a `Named` command's name, on both backends.
 #[test]
 fn a_derived_parser_reads_a_command_line_on_both_backends() {

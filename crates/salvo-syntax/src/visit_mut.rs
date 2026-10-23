@@ -674,6 +674,10 @@ pub fn walk_expr<V: MutVisitor>(v: &mut V, e: &mut Expr) {
                 walk_expr(v, m);
             }
         }
+        Expr::WhyNot { test, span } => {
+            v.visit_span(span);
+            walk_expr(v, test);
+        }
         Expr::Unreachable { message, span } | Expr::Todo { message, span } => {
             v.visit_span(span);
             if let Some(m) = message {

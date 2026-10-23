@@ -469,22 +469,26 @@ fn stepping_a_linked_int_strips_the_claim() {
     );
 }
 
-/// [qual-explain] A predicate qualifier's `explain` takes `qualifies`'s
-/// parameters and returns a `Str`; `Q.qualifies(…)` and `Q.explain(…)` are
-/// callable directly, with the subject then the slot values, and checked.
+/// [qual-whynot] A predicate qualifier says why a value fails it in a
+/// `@whynot` tag on `fn qualifies`, whose `[name]`s are `qualifies`'
+/// parameters — the subject, or a scalar slot. A fn `explain` is refused,
+/// naming the tag. `Q.qualifies(…)` stays callable directly, with the
+/// subject then the slot values, and checked.
 #[test]
-fn explain_is_declared_like_qualifies_and_callable() {
-    let ok = "qualifier Small(hi: Int) of Int {\n    fn qualifies(n: Int, hi: Int) -> Bool {\n        return n < hi\n    }\n    \
-              fn explain(n: Int, hi: Int) -> Str {\n        return \"too big\"\n    }\n}\n\n\
-              fn f(n: Int) [] -> Str => n {\n    if Small.qualifies(n, 10) {\n        return \"ok\"\n    }\n    return Small.explain(n, 10)\n}\n";
+fn whynot_templates_name_qualifies_parameters() {
+    let ok = "qualifier Small(hi: Int) of Int {\n    // @whynot [n] is not below [hi], [[sic]\n    fn qualifies(n: Int, hi: Int) -> Bool {\n        return n < hi\n    }\n}\n\n\
+              fn f(n: Int) [] -> Str? => n {\n    if Small.qualifies(n, 10) {\n        return None\n    }\n    return whynot?(n is Small(10) Int)\n}\n";
     assert!(errors(ok).is_empty(), "got {:?}", errors(ok));
-    let bad = "qualifier Bad of Int {\n    fn qualifies(n: Int) -> Bool {\n        return true\n    }\n    fn explain(n: Str) -> Int {\n        return 0\n    }\n}\n\n\
+    let bad = "qualifier Bad of Int {\n    // @whynot [m] is wrong\n    fn qualifies(n: Int) -> Bool {\n        return true\n    }\n    fn explain(n: Int) -> Str {\n        return \"no\"\n    }\n}\n\n\
+               qualifier Within(xs: List) of Int {\n    // @whynot [n] is not in [xs]\n    fn qualifies(n: Int, xs: List) -> Bool {\n        return true\n    }\n}\n\n\
+               export intrinsic type List\n\n\
                qualifier Small(hi: Int) of Int {\n    fn qualifies(n: Int, hi: Int) -> Bool {\n        return n < hi\n    }\n}\n\n\
                fn f(n: Int) [] -> Bool => n {\n    return Small.qualifies(n) || Small.qualifies(\"x\", 3)\n}\n";
     let errs = errors(bad);
     for want in [
-        "`Bad.explain` takes the parameters `qualifies` takes",
-        "`Bad.explain` returns the message, a `Str`",
+        "write `// @whynot …` above `Bad.qualifies`",
+        "`@whynot` shows `[m]`, which is not a parameter of `Bad.qualifies`: write one of [n]",
+        "`@whynot` shows `[xs]`, a `List`",
         "`Small.qualifies` takes 2 argument(s)",
         "`Small.qualifies` expects `Int`, found",
     ] {

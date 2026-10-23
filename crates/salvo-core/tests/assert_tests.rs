@@ -318,3 +318,45 @@ fn the_names_are_contextual() {
                return assert + unreachable\n}\n";
     assert!(errors(src).is_empty(), "{:?}", errors(src));
 }
+
+/// [qual-whynot] `whynot?(x is Q)` is a `Str?` — usable where one is
+/// expected and refused where a `Str` is — and explains a predicate test
+/// only: a binding and a union arm test are refused.
+#[test]
+fn whynot_answers_an_optional_message_for_a_predicate_test() {
+    let pre = "qualifier Even of Int {\n    // @whynot [n] is odd\n    fn qualifies(n: Int) -> Bool {\n        return true\n    }\n}\n\n";
+    let ok = format!("{pre}fn f(n: Int) [] -> Str? => n {{\n    return whynot?(n is Even Int)\n}}\n");
+    assert!(errors(&ok).is_empty(), "got {:?}", errors(&ok));
+    let not_str = format!("{pre}fn f(n: Int) [] -> Str => n {{\n    return whynot?(n is Even Int)\n}}\n");
+    assert!(!errors(&not_str).is_empty(), "a `Str?` is not a `Str`");
+    let bad = format!(
+        "{pre}fn f(n: Int, u: Int | Str) [] -> None => n, u {{\n    let a = whynot?(n is Even Int e)\n    let b = whynot?(u is Int)\n}}\n"
+    );
+    let errs = errors(&bad);
+    for want in ["`whynot?` answers a message, and binds nothing", "this one tests which arm a union holds"] {
+        assert!(errs.iter().any(|e| e.contains(want)), "missing {want:?} in {errs:?}");
+    }
+}
+
+/// [doc-tags] The doc tags are checked where they are written: a tag this
+/// version does not know, an `@param` naming no parameter (or nothing, or on
+/// a declaration that is not a fn), and an `@whynot` that is not on a
+/// qualifier's `qualifies` warn, at the documented name.
+#[test]
+fn doc_tags_warn_when_they_cannot_mean_anything() {
+    let src = "// A point.\n//\n// @param x  nothing\n// @frob something\nstruct P {\n    x: Int\n}\n\n\
+               // Adds.\n//\n// @param a  the first\n// @param c  no such\n// @param\n// @whynot nope\n// @returns  the sum,\n//           of both\n\
+               fn add(a: Int, b: Int) [] -> Int => a, b {\n    return a + b\n}\n";
+    assert!(errors(src).is_empty(), "tags never reject a program: {:?}", errors(src));
+    let warns = warnings(src);
+    for want in [
+        "`@param` describes a fn's parameter, and `P` is not a fn",
+        "`@frob` is not a doc tag",
+        "`@param c`: `add` has no parameter `c`",
+        "`@param` names the parameter it describes",
+        "`@whynot` says why a value fails a predicate qualifier",
+    ] {
+        assert!(warns.iter().any(|w| w.contains(want)), "missing {want:?} in {warns:?}");
+    }
+    assert_eq!(warns.len(), 5, "{warns:?}");
+}

@@ -128,6 +128,11 @@ pub const UNREACHABLE_FORM: &str = "unreachable";
 /// **warns at every site** — the compiler flags unfinished code during a
 /// build. Contextual, like the other two.
 pub const TODO_FORM: &str = "todo";
+/// [qual-whynot] `whynot?(x is Q)`: why a predicate test fails, or `None`.
+/// Spelled with `?` rather than `!`, which marks the forms that stop the
+/// program or the build; `name?(` is no other expression, so it cannot
+/// collide with a user's function.
+pub const WHYNOT_FORM: &str = "whynot";
 
 /// [actor-effect-kind] The contextual modifier that makes an effect an actor
 /// protocol: `actor effect E { … }`. Contextual, not reserved — and the only
@@ -7190,6 +7195,28 @@ impl<'s> Parser<'s> {
                     None if is_todo => Expr::Todo { message, span },
                     None => Expr::Unreachable { message, span },
                 })
+            }
+            // [qual-whynot] `whynot?(x is Q)`.
+            TokenKind::Ident(name)
+                if name == WHYNOT_FORM
+                    && matches!(self.peek_at(1).kind, TokenKind::Question)
+                    && matches!(self.peek_at(2).kind, TokenKind::LParen) =>
+            {
+                let start = self.bump().span;
+                self.bump(); // `?`
+                self.expect(&TokenKind::LParen)?;
+                let saved_depth = self.group_depth;
+                self.group_depth += 1;
+                let test = self.parse_expr()?;
+                let end = self.expect(&TokenKind::RParen)?.span;
+                self.group_depth = saved_depth;
+                if !matches!(test, Expr::Is { .. }) {
+                    self.error(
+                        "`whynot?` explains an `is` test — `whynot?(port is InRange(1, 65535))` [qual-whynot]",
+                        test.span(),
+                    );
+                }
+                Some(Expr::WhyNot { test: Box::new(test), span: start.to(end) })
             }
             // [expr-escape] The three escapes are **expressions** of type
             // `Never` (user decision 2026-09-21), so a tail position can hold

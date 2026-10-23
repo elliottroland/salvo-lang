@@ -578,8 +578,8 @@ pub struct Checked {
     /// its value slots [qual-depend] — `k is KeyOf(m)` lowers to
     /// `KeyOf.qualifies(k, m)`.
     pub predicate_tests: HashMap<Key, Vec<PredicateCheck>>,
-    /// [qual-explain] `Q.member(args)` — a call to a qualifier's own fn
-    /// (`InRange.explain(n, 1, 65535)`): the qualifier, the member, and the
+    /// [qual-whynot] `Q.member(args)` — a call to a qualifier's own fn
+    /// (`InRange.qualifies(n, 1, 65535)`): the qualifier, the member, and the
     /// base its `of` names (which declaration of an overloaded qualifier).
     pub qual_member_calls: HashMap<Key, (String, String, Option<String>)>,
     /// Field accesses whose type is refined by a predicate-qualifier field
@@ -3799,6 +3799,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         for (span, msg) in crate::case::module_clashes(module) {
             self.error(span, msg);
         }
+        self.check_doc_tags(module);
         // [fn-rename] Module-level renames are in force for the whole module,
         // in every file of it — order-independent, like every other
         // module-level declaration. They are validated once here (a duplicate
@@ -16640,7 +16641,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             Expr::Unreachable { .. } => true,
             // [assert-fn] `todo!()` diverges like `unreachable!()`.
             Expr::Todo { .. } => true,
-            Expr::Assert { .. } => false,
+            Expr::Assert { .. } | Expr::WhyNot { .. } => false,
             // [elvis] Neither side escapes by itself: a diverging right side
             // is recognized by its recorded type, like any diverging call.
             Expr::Elvis { .. } | Expr::Placeholder { .. } => false,
@@ -16748,7 +16749,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // [assert-fn] It leaves the function, but not by returning a value:
             // a `fn` whose only tail is `unreachable!()` has no missing return
             // [fn-must-return], which `expr_exits` above answers.
-            Expr::Unreachable { .. } | Expr::Todo { .. } | Expr::Assert { .. } => false,
+            Expr::Unreachable { .. } | Expr::Todo { .. } | Expr::Assert { .. } | Expr::WhyNot { .. } => false,
             Expr::Elvis { .. } | Expr::Placeholder { .. } => false,
             Expr::Pipe { .. } | Expr::SafePipe { .. } => false,
             Expr::SafeNav { .. } => false,
@@ -17405,6 +17406,60 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// evaluated **only when the assertion fails** — which is why the forms are
     /// compiler-owned rather than functions (an argument would be evaluated on
     /// every success, interpolation and all).
+    /// [qual-whynot] `whynot?(x is Q)`: the test is checked as any `is` is,
+    /// and must be a predicate test — the message comes from the predicate
+    /// qualifiers it calls. A test decided statically (no predicate to call)
+    /// answers `None`. The subject's text form is recorded for messages that
+    /// show it.
+    fn check_whynot(&mut self, test: &'p Expr, span: Span) -> Ty {
+        let opt_str = Ty::union_of(vec![Ty::named("Str"), Ty::none()]);
+        let Expr::Is { subject, binding, span: is_span, .. } = test else {
+            // The parser refuses anything else.
+            self.check_expr(test, None);
+            return opt_str;
+        };
+        self.check_expr(test, None);
+        if let Some(b) = binding {
+            self.error(b.span, "`whynot?` answers a message, and binds nothing: drop the name [qual-whynot]".to_string());
+        }
+        let key = self.key(*is_span);
+        if self.out.is_tests.contains_key(&key) {
+            self.error(
+                span,
+                "`whynot?` explains a predicate qualifier's test, and this one tests which arm a union holds: write `x is T` as a condition [qual-whynot]".to_string(),
+            );
+        }
+        self.whynot_text_form(subject, *is_span);
+        opt_str
+    }
+
+    /// [qual-whynot] Records the text form of a predicate test's subject when
+    /// the message of one of its qualifiers shows it (a `[subject]` in its
+    /// `@whynot`, or no `@whynot`, whose default does). A subject with no
+    /// text form is "the value" in the message: never an error, since the
+    /// message is the qualifier's, not the site's.
+    fn whynot_text_form(&mut self, subject: &'p Expr, is_span: Span) {
+        let Some(checks) = self.out.predicate_tests.get(&self.key(is_span)).cloned() else { return };
+        let Some(ty) = self.expr_ty_recorded(subject) else { return };
+        if ty.is_unknown() || Self::interp_native(&ty) {
+            return;
+        }
+        let shows = checks.iter().any(|c| {
+            let Some(decl) = self.qualifier_for(&c.name, Some(&ty)) else { return false };
+            let Some(qf) = decl.fns.iter().find(|f| f.name.name == "qualifies") else { return false };
+            let Some(first) = qf.params.iter().find(|p| !p.implicit) else { return false };
+            match salvo_syntax::doc::split(&qf.docs).tag("whynot") {
+                None => true,
+                Some(tag) => salvo_syntax::doc::template(&tag.text)
+                    .iter()
+                    .any(|p| matches!(p, salvo_syntax::doc::TemplatePart::Param(n) if *n == first.name.name)),
+            }
+        });
+        if shows {
+            self.record_text_form(subject, &ty);
+        }
+    }
+
     fn check_assert_message(&mut self, message: &'p Expr) {
         let t = self.check_expr(message, Some(&Ty::named("Str")));
         if !matches!(t, Ty::Unknown) && t.to_string() != "Str" {
@@ -20822,46 +20877,152 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// well-formed `qualifies` function [qual-predicate]; field overrides
     /// must refine real fields of the `of` struct [qual-field-override];
     /// bodiless (constructive) qualifiers take neither [qual-constructive].
-    /// [qual-explain] A predicate qualifier's optional `explain`: it says why
-    /// a value failed `qualifies`, so it takes exactly `qualifies`'s
-    /// parameters and returns a `Str`.
-    fn check_explain_decl(&mut self, q: &'p QualifierDecl) {
-        let Some(explain) = q.fns.iter().find(|f| f.name.name == "explain") else { return };
-        let Some(qualifies) = q.fns.iter().find(|f| f.name.name == "qualifies") else {
-            self.error(explain.name.span, format!("`{}.explain` says why `qualifies` failed, and `{}` has no `qualifies` [qual-explain]", q.name.name, q.name.name));
-            return;
-        };
-        let shape = |f: &ast::FnDecl| -> Vec<String> { f.params.iter().map(|p| format!("{}{}", if p.implicit { "?" } else { "" }, p.ty)).collect() };
-        if shape(explain) != shape(qualifies) {
-            self.error(
-                explain.name.span,
-                format!(
-                    "`{}.explain` takes the parameters `qualifies` takes — ({}) — so it can be called with the same arguments [qual-explain]",
-                    q.name.name,
-                    shape(qualifies).join(", ")
-                ),
-            );
+    /// [doc-tags] The tags of every doc block in `module`: a tag this
+    /// version does not know, an `@param` naming no parameter, and an
+    /// `@whynot` anywhere but on a qualifier's `fn qualifies` are warnings,
+    /// at the documented declaration's name (doc lines carry no spans). A
+    /// `@whynot` that names what it may not is the qualifier check's error
+    /// [qual-whynot].
+    fn check_doc_tags(&mut self, module: &'p Module) {
+        enum Owner<'a> {
+            Fn(&'a [ast::Param], bool),
+            Other,
         }
-        let returns_str = matches!(&explain.return_type, Some(ast::Type::Named { qualifiers, base }) if qualifiers.is_empty() && base.name.name == "Str");
-        if !returns_str {
-            self.error(explain.name.span, format!("`{}.explain` returns the message, a `Str` [qual-explain]", q.name.name));
+        let mut found: Vec<(Span, String)> = Vec::new();
+        let mut visit = |docs: &[String], name: &ast::Ident, owner: Owner| {
+            for tag in salvo_syntax::doc::split(docs).tags {
+                if !salvo_syntax::doc::KNOWN_TAGS.contains(&tag.name.as_str()) {
+                    let known: Vec<String> = salvo_syntax::doc::KNOWN_TAGS.iter().map(|t| format!("@{t}")).collect();
+                    found.push((name.span, format!("`@{}` is not a doc tag: the tags are {} [doc-tags]", tag.name, known.join(", "))));
+                    continue;
+                }
+                match (tag.name.as_str(), &owner) {
+                    ("param", Owner::Fn(params, _)) => match &tag.target {
+                        None => found.push((name.span, "`@param` names the parameter it describes: `@param name  what it is` [doc-tags]".to_string())),
+                        Some(t) if !params.iter().any(|p| p.name.name == *t) => {
+                            found.push((name.span, format!("`@param {t}`: `{}` has no parameter `{t}` [doc-tags]", name.name)))
+                        }
+                        Some(_) => {}
+                    },
+                    ("param", Owner::Other) => found.push((name.span, format!("`@param` describes a fn's parameter, and `{}` is not a fn [doc-tags]", name.name))),
+                    ("whynot", Owner::Fn(_, true)) => {}
+                    ("whynot", _) => found.push((
+                        name.span,
+                        "`@whynot` says why a value fails a predicate qualifier: it belongs on the qualifier's `fn qualifies` [doc-tags] [qual-whynot]".to_string(),
+                    )),
+                    _ => {}
+                }
+            }
+        };
+        let fns = |fs: &'p [ast::FnDecl], visit: &mut dyn FnMut(&[String], &ast::Ident, Owner)| {
+            for f in fs {
+                visit(&f.docs, &f.name, Owner::Fn(&f.params, false));
+            }
+        };
+        for item in &module.items {
+            match item {
+                Item::Fn(f) => visit(&f.docs, &f.name, Owner::Fn(&f.params, false)),
+                Item::Struct(s) => {
+                    visit(&s.docs, &s.name, Owner::Other);
+                    for fd in &s.fields {
+                        visit(&fd.docs, &fd.name, Owner::Other);
+                    }
+                }
+                Item::Type(t) => visit(&t.docs, &t.name, Owner::Other),
+                Item::Qualifier(q) => {
+                    visit(&q.docs, &q.name, Owner::Other);
+                    for f in &q.fns {
+                        visit(&f.docs, &f.name, Owner::Fn(&f.params, f.name.name == "qualifies"));
+                    }
+                }
+                Item::Effect(e) => {
+                    visit(&e.docs, &e.name, Owner::Other);
+                    fns(&e.fns, &mut visit);
+                }
+                Item::Handler(h) => {
+                    visit(&h.docs, &h.name, Owner::Other);
+                    fns(&h.fns, &mut visit);
+                }
+                Item::Params(p) => {
+                    visit(&p.docs, &p.name, Owner::Other);
+                    fns(&p.fns, &mut visit);
+                }
+                Item::EffectAlias(a) => visit(&a.docs, &a.name, Owner::Other),
+                Item::Refn(r) => visit(&r.docs, &r.name, Owner::Fn(&r.params, false)),
+                _ => {}
+            }
+        }
+        for (span, msg) in found {
+            self.warn(span, msg);
         }
     }
 
-    /// [qual-explain] `Q.member(args)`: a qualifier's own fn called directly —
-    /// `qualifies` or `explain` — with every non-implicit parameter given, the
-    /// qualifier's type parameters inferred from the arguments.
+    /// [qual-whynot] A predicate qualifier says why a value failed it in a
+    /// `@whynot` tag on `fn qualifies`: a template whose `[name]`s are
+    /// `qualifies`' parameters — the subject, or a slot of a scalar type,
+    /// which has a text form wherever the test is written. The member fn
+    /// `explain` it replaced is refused, naming the tag.
+    fn check_whynot_decl(&mut self, q: &'p QualifierDecl) {
+        if let Some(explain) = q.fns.iter().find(|f| f.name.name == "explain") {
+            self.error(
+                explain.name.span,
+                format!(
+                    "a qualifier says why a value fails it in a doc tag, not a fn: write `// @whynot …` above `{}.qualifies`, with `[name]` for its parameters [qual-whynot]",
+                    q.name.name
+                ),
+            );
+        }
+        let Some(qualifies) = q.fns.iter().find(|f| f.name.name == "qualifies") else { return };
+        let parts = salvo_syntax::doc::split(&qualifies.docs);
+        let Some(tag) = parts.tag("whynot") else { return };
+        let params: Vec<&ast::Param> = qualifies.params.iter().filter(|p| !p.implicit).collect();
+        for part in salvo_syntax::doc::template(&tag.text) {
+            let salvo_syntax::doc::TemplatePart::Param(name) = part else { continue };
+            match params.iter().position(|p| p.name.name == name) {
+                Some(0) => {}
+                Some(i) => {
+                    let scalar = matches!(&params[i].ty, ast::Type::Named { qualifiers, base }
+                        if qualifiers.is_empty() && base.args.is_empty()
+                            && matches!(base.name.name.as_str(), "Int" | "Long" | "Double" | "Bool" | "Char" | "Str"));
+                    if !scalar {
+                        self.error(
+                            qualifies.name.span,
+                            format!(
+                                "`@whynot` shows `[{name}]`, a `{}`: a slot shown in the message is an `Int`, `Long`, `Double`, `Bool`, `Char` or `Str` [qual-whynot]",
+                                params[i].ty
+                            ),
+                        );
+                    }
+                }
+                None => {
+                    let names: Vec<String> = params.iter().map(|p| format!("[{}]", p.name.name)).collect();
+                    self.error(
+                        qualifies.name.span,
+                        format!(
+                            "`@whynot` shows `[{name}]`, which is not a parameter of `{}.qualifies`: write one of {} (`[[` is a literal `[`) [qual-whynot]",
+                            q.name.name,
+                            names.join(", ")
+                        ),
+                    );
+                }
+            }
+        }
+    }
+
+    /// [qual-whynot] `Q.qualifies(args)`: a qualifier's own fn called
+    /// directly, with every non-implicit parameter given, the qualifier's
+    /// type parameters inferred from the arguments.
     fn check_qual_member_call(&mut self, q: &'p QualifierDecl, f: &'p ast::FnDecl, args: &'p [Expr], span: Span) -> Ty {
         let saved = self.enter_generics(&q.generics);
         let params: Vec<&ast::Param> = f.params.iter().filter(|p| !p.implicit).collect();
         if f.params.iter().any(|p| p.implicit) {
-            self.error(span, format!("`{}.{}` takes implicit parameters, which a direct call does not fill: test with `is` [qual-explain]", q.name.name, f.name.name));
+            self.error(span, format!("`{}.{}` takes implicit parameters, which a direct call does not fill: test with `is` [qual-whynot]", q.name.name, f.name.name));
         }
         if params.len() != args.len() {
             self.error(
                 span,
                 format!(
-                    "`{}.{}` takes {} argument(s) — the subject, then one per slot — found {} [qual-explain]",
+                    "`{}.{}` takes {} argument(s) — the subject, then one per slot — found {} [qual-whynot]",
                     q.name.name,
                     f.name.name,
                     params.len(),
@@ -21082,7 +21243,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         if !q.has_body {
             return;
         }
-        self.check_explain_decl(q);
+        self.check_whynot_decl(q);
         let Some(qualifies) = q.fns.iter().find(|f| f.name.name == "qualifies") else {
             // [qual-refn-scope] A **constructive** qualifier may still have a
             // body: refinements live in the qualifier that owns the claim, and a
@@ -21835,6 +21996,7 @@ fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
                 collect_assigned_expr(m, out);
             }
         }
+        Expr::WhyNot { test, .. } => collect_assigned_expr(test, out),
         // [elvis] Both sides may hold assignments (a block-valued branch).
         Expr::Elvis { subject, rhs, .. } => {
             collect_assigned_expr(subject, out);
@@ -22092,6 +22254,7 @@ fn expr_mentions(expr: &Expr, name: &str) -> bool {
         Expr::Unreachable { message, .. } | Expr::Todo { message, .. } => {
             message.as_ref().is_some_and(|m| expr_mentions(m, name))
         }
+        Expr::WhyNot { test, .. } => expr_mentions(test, name),
         Expr::Elvis { subject, rhs, .. } => {
             expr_mentions(subject, name) || expr_mentions(rhs, name)
         }
@@ -24137,8 +24300,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                 }
                 self.install_narrows(&info.then_narrows);
-                if let Some(m) = message {
-                    self.check_assert_message(m);
+                match message {
+                    Some(m) => self.check_assert_message(m),
+                    // [qual-whynot] With no message of its own, a failed
+                    // `assert!(x is Q)` says what `whynot?(x is Q)` would.
+                    None => {
+                        if let Expr::Is { subject, span: is_span, .. } = &**cond {
+                            self.whynot_text_form(subject, *is_span);
+                        }
+                    }
                 }
                 let _ = span;
                 Ty::none()
@@ -24166,6 +24336,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 Ty::Never
             }
+            // [qual-whynot] `whynot?(x is Q)`: the test, and a `Str?`.
+            Expr::WhyNot { test, span } => self.check_whynot(test, *span),
             // [inc-dec] All four forms do the same thing to the operand — a
             // step of one on an `Int` place — so the checker ignores the
             // direction and the fixity; they only decide the expression's
@@ -29486,7 +29658,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         if let Expr::Field { base, field, .. } = callee {
             let name = field.name.as_str();
-            // [qual-explain] `InRange.explain(n, 1, 65535)`: a qualifier's
+            // [qual-whynot] `InRange.qualifies(n, 1, 65535)`: a qualifier's
             // own fn, called with the subject and the slot values.
             if let Expr::Ident(q) = &**base {
                 if q.name.starts_with(|c: char| c.is_uppercase()) && self.scope.is_qualifier(&q.name) {

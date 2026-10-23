@@ -61,11 +61,10 @@ export fn range(end: Int) -> iter Int {
 // identities [cmp-carry] and places [qual-depend]: compile-time known, so
 // nothing tracks it and nothing can invalidate it.
 export qualifier InRange(lo: Int, hi: Int) of Int {
+    // [qual-whynot] Why a value failed: "70000 is not in 1..65535".
+    //
+    // @whynot [n] is not in [lo]..[hi]
     fn qualifies(n: Int, lo: Int, hi: Int) -> Bool {
         return n >= lo && n <= hi
-    }
-    // [qual-explain] Why a value failed: "70000 is not in 1..65535".
-    fn explain(n: Int, lo: Int, hi: Int) -> Str {
-        return "${n} is not in ${lo}..${hi}"
     }
 }

@@ -1667,11 +1667,13 @@ impl Server<'_> {
     /// static `// `, since `appendText` cannot be computed from the
     /// previous line) with a continuation aligned to the comment's
     /// **paragraph start** — the first word after a `label: ` (`// TODO:
-    /// text` continues under `text`), or after `// ` itself when there is
-    /// no such label. A line that is not a `//` comment, or a `//` with
-    /// nothing to align past (no label and no body text yet), returns no
-    /// edit — the client's own static rule already did the only sensible
-    /// thing.
+    /// text` continues under `text`), after a doc tag [doc-tags] (`// @returns
+    /// text` under `text`; `// @param name  text` under `text`), or under the
+    /// text of a continuation line that is itself indented (so the third line
+    /// of a tag lines up with the second); else after `// ` itself. A line
+    /// that is not a `//` comment, or a `//` with nothing to align past (no
+    /// label and no body text yet), returns no edit — the client's own
+    /// static rule already did the only sensible thing.
     fn on_type_format(&self, params: &DocumentOnTypeFormattingParams) -> Option<Vec<TextEdit>> {
         if params.ch != "\n" {
             return None;
@@ -1699,6 +1701,24 @@ impl Server<'_> {
             (!label.is_empty() && label.chars().all(|c| c.is_alphanumeric() || c == '_'))
                 .then(|| comment_at + 2 + body_start + i + 2)
         });
+        // [doc-tags] `@name text`, and `@param name text`: the text.
+        let tag_end = body.strip_prefix('@').and_then(|rest| {
+            let name_len = rest.chars().take_while(|c| c.is_ascii_alphabetic()).count();
+            if name_len == 0 || !rest[name_len..].starts_with(' ') {
+                return None;
+            }
+            let mut at = 1 + name_len;
+            let skip_spaces = |at: usize| at + body[at..].chars().take_while(|c| *c == ' ').count();
+            at = skip_spaces(at);
+            if &rest[..name_len] == "param" {
+                at += body[at..].chars().take_while(|c| !c.is_whitespace()).count();
+                at = skip_spaces(at);
+            }
+            Some(comment_at + 2 + body_start + at)
+        });
+        // An indented continuation keeps its indentation.
+        let indent_end = (body_start == 1 && body.starts_with(' ')).then(|| comment_at + 3 + body.chars().take_while(|c| *c == ' ').count());
+        let label_end = label_end.or(tag_end).or(indent_end);
         let align_to = label_end.unwrap_or(comment_at + 2 + body_start);
         // Nothing to align to beyond the client's own static `// `: no
         // label (an ordinary continuing comment), or a label with no text

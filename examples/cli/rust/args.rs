@@ -1504,10 +1504,6 @@ pub fn check_value<B: Clone>(errors: &mut Vec<crate::unions::Union11<crate::args
     }
 }
 
-pub fn rejected() -> Option<String> {
-    return Some(String::from("the value is not accepted"));
-}
-
 pub fn shown_name(field: &String, mut positional: bool) -> String {
     if positional {
         return crate::args::arg_name(field);
@@ -1538,8 +1534,8 @@ pub fn built<C: Clone>(mut r: crate::unions::Union2<C, Vec<crate::unions::Union1
         return r_1;
     } else if matches!(r, crate::unions::Union2::U2(_)) {
         let mut r_2 = match &r { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
-        panic!("salvo: a group failed after its checks passed at args:1241:19")
+        panic!("salvo: a group failed after its checks passed at args:1236:19")
     } else {
-        panic!("salvo: unhandled union arm at args:1239:5");
+        panic!("salvo: unhandled union arm at args:1234:5");
     };
 }

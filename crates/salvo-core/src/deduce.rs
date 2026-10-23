@@ -1062,6 +1062,7 @@ impl<'p> Walk<'_, 'p> {
                     self.expr(m);
                 }
             }
+            Expr::WhyNot { test, .. } => self.expr(test),
             // [elvis] The picked value leaves through the expression, so the
             // subject is used the way a returned value is; the right side is
             // an ordinary expression.

@@ -1,6 +1,7 @@
 //! Lexer, parser, AST, and diagnostics for the Salvo language.
 
 pub mod ast;
+pub mod doc;
 pub mod desugar;
 pub mod diag;
 pub mod lexer;

@@ -168,13 +168,14 @@ impl<'a, 'p> Lower<'a, 'p> {
             AExpr::Assert { cond, message, .. } => {
                 let c = self.expr(cond);
                 let mut m = message.as_ref().map(|m| Box::new(self.expr(m)));
-                // [qual-explain] `assert!(x is Q(…))` with no message of its
-                // own fails with `Q`'s `explain`, when it declares one.
+                // [qual-whynot] `assert!(x is Q(…))` with no message of its
+                // own fails with what `whynot?(x is Q(…))` would say.
                 if m.is_none() {
-                    m = self.explained(cond).map(Box::new);
+                    m = self.assert_whynot(cond).map(Box::new);
                 }
                 Expr { ty: Ty::none(), span, kind: ExprKind::Assert { cond: Box::new(c), message: m, at: self.location(span) } }
             }
+            AExpr::WhyNot { test, .. } => self.why_not(test, span),
             AExpr::Unreachable { message, .. } => {
                 let m = message.as_ref().map(|m| Box::new(self.expr(m)));
                 Expr { ty: self.ty_of(span), span, kind: ExprKind::Unreachable { message: m, at: self.location(span) } }
@@ -542,33 +543,47 @@ impl<'a, 'p> Lower<'a, 'p> {
     fn interp(&mut self, e: &AExpr) -> Expr {
         let span = e.span();
         let value = self.expr(e);
+        let ty = value.ty.clone();
+        match self.text_of(value, span) {
+            Some(text) => text,
+            None => {
+                self.error(span, format!("no `to_str` for `{ty}` in an interpolation"));
+                unsupported(Ty::named("Str"), span, "interpolation")
+            }
+        }
+    }
+
+    /// [interp-to-str] The text of `value`, by the form the checker recorded
+    /// at `span` (the expression's own), else natively; `None` when it has
+    /// none.
+    fn text_of(&mut self, value: Expr, span: Span) -> Option<Expr> {
         let str_ty = Ty::named("Str");
         let info = self.ctx.checked.interp_info(self.key(span));
         if let Some(local) = info.implicit.cloned() {
-            return Expr { ty: str_ty, span, kind: ExprKind::Call { target: FnRef::Local(Local(local)), type_args: Vec::new(), args: vec![value] } };
+            return Some(Expr { ty: str_ty, span, kind: ExprKind::Call { target: FnRef::Local(Local(local)), type_args: Vec::new(), args: vec![value] } });
         }
         // [interp-union] A union is the text of the arm it holds: a switch on
         // the value, each arm calling its own `to_str`.
         if let Some(arms) = info.union.cloned() {
-            return self.interp_union(value, &arms, span);
+            return Some(self.interp_union(value, &arms, span));
         }
         if let Some(k) = info.to_str.copied() {
             let at = Span::new(span.end, span.end);
             let mut args = vec![value];
             args.extend(self.implicit_args_at(at));
-            return Expr { ty: str_ty, span, kind: ExprKind::Call { target: FnRef::Decl(self.ctx.decl_id(k)), type_args: Vec::new(), args } };
+            return Some(Expr { ty: str_ty, span, kind: ExprKind::Call { target: FnRef::Decl(self.ctx.decl_id(k)), type_args: Vec::new(), args } });
         }
+        self.native_text(value, span)
+    }
+
+    /// The text of a `Str` (itself) or a scalar the target renders natively
+    /// (the std `to_str` for it).
+    fn native_text(&mut self, value: Expr, span: Span) -> Option<Expr> {
         if matches!(value.ty.strip_quals(), Ty::Named { name, .. } if name == "Str") {
-            return value;
+            return Some(value);
         }
-        // A scalar the target renders natively: the std `to_str` for it.
-        match self.intrinsic_fn("to_str", &[value.ty.clone()]) {
-            Some(id) => Expr { ty: str_ty, span, kind: ExprKind::Call { target: FnRef::Decl(id), type_args: Vec::new(), args: vec![value] } },
-            None => {
-                self.error(span, format!("no `to_str` for `{}` in an interpolation", value.ty));
-                unsupported(str_ty, span, "interpolation")
-            }
-        }
+        let id = self.intrinsic_fn("to_str", &[value.ty.clone()])?;
+        Some(Expr { ty: Ty::named("Str"), span, kind: ExprKind::Call { target: FnRef::Decl(id), type_args: Vec::new(), args: vec![value] } })
     }
 
     /// [interp-union] `${u}` for a union `u`: the union's own `to_str`, given
@@ -950,7 +965,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         let checked = self.ctx.checked;
         // [unify-checker] One lookup for the whole call cluster.
         let info = checked.call_info(key);
-        // [qual-explain] `InRange.explain(n, 1, 65535)`: a qualifier's own fn.
+        // [qual-whynot] `InRange.qualifies(n, 1, 65535)`: a qualifier's own fn.
         if let Some((q, member, of)) = checked.qual_member_calls.get(&key).cloned() {
             let subject = match &of {
                 Some(base) => Ty::named(base.clone()),
@@ -1561,9 +1576,8 @@ impl<'a, 'p> Lower<'a, 'p> {
         self.qual_fn_call(check, subject, span, "qualifies", Ty::named("Bool"))
     }
 
-    /// [qual-explain] A call to one of a predicate qualifier's own fns —
-    /// `qualifies`, or `explain` for a failed test's message — with the
-    /// subject and the check's slot values.
+    /// [qual-whynot] A call to one of a predicate qualifier's own fns —
+    /// `qualifies` — with the subject and the check's slot values.
     fn qual_fn_call(&mut self, check: &crate::check::PredicateCheck, subject: Expr, span: Span, member: &str, ret: Ty) -> Expr {
         let bool_ty = ret;
         let Some(target) = self.qual_fn_ref(&check.name, &subject.ty, member) else {
@@ -1597,23 +1611,29 @@ impl<'a, 'p> Lower<'a, 'p> {
         }
         args.push(subject);
         for a in &check.args {
-            let parts: Vec<&str> = a.path.split('.').collect();
-            match self.lookup(parts[0]).cloned() {
-                Some(b) => {
-                    let steps = parts[1..].iter().map(|s| Step::Field(s.to_string())).collect();
-                    args.push(Expr { ty: Ty::Unknown, span, kind: ExprKind::Read { place: Place { root: b.local, steps }, consume: false } });
-                }
-                // [qual-value-args] a literal argument, as spelled.
-                None => match literal_arg(&a.path) {
-                    Some(e) => args.push(Expr { span, ..e }),
-                    None => args.push(unsupported(Ty::Unknown, span, format!("qualifier argument `{}`", a.path))),
-                },
-            }
+            args.push(self.slot_arg(a, Ty::Unknown, span));
         }
         if let Some(at) = check.implicits_at {
             args.extend(self.implicit_args_at(at));
         }
         Expr { ty: bool_ty, span, kind: ExprKind::Call { target: FnRef::Decl(target), type_args: Vec::new(), args } }
+    }
+
+    /// [qual-depend] A predicate check's slot value: the place it names,
+    /// read (typed `ty`), or the literal it is.
+    fn slot_arg(&mut self, a: &crate::check::PredicateArg, ty: Ty, span: Span) -> Expr {
+        let parts: Vec<&str> = a.path.split('.').collect();
+        match self.lookup(parts[0]).cloned() {
+            Some(b) => {
+                let steps = parts[1..].iter().map(|s| Step::Field(s.to_string())).collect();
+                Expr { ty, span, kind: ExprKind::Read { place: Place { root: b.local, steps }, consume: false } }
+            }
+            // [qual-value-args] a literal argument, as spelled.
+            None => match literal_arg(&a.path) {
+                Some(e) => Expr { span, ..e },
+                None => unsupported(Ty::Unknown, span, format!("qualifier argument `{}`", a.path)),
+            },
+        }
     }
 
     /// [default-predicate] A default applied to the slot it fills: lowered
@@ -1735,7 +1755,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         self.qual_fn_ref(name, subject, "qualifies")
     }
 
-    /// [qual-explain] The fn `member` of the qualifier `name` (the declaration
+    /// [qual-whynot] The fn `member` of the qualifier `name` (the declaration
     /// for `subject` when the name is overloaded).
     fn qual_fn_ref(&self, name: &str, subject: &Ty, member: &str) -> Option<DeclId> {
         let candidates = self.ctx.symbols.qualifiers.get(name)?;
@@ -1760,17 +1780,165 @@ impl<'a, 'p> Lower<'a, 'p> {
         None
     }
 
-    /// [qual-explain] The message an `x is Q(…)` test that failed has: `Q`'s
-    /// `explain` with the same arguments, for a single predicate check over a
-    /// place (the place is read again, only when the test failed).
-    fn explained(&mut self, cond: &AExpr) -> Option<Expr> {
+    /// [qual-whynot] `whynot?(x is Q(…))`: `None` when the value qualifies,
+    /// else the message of the first check it fails, in the order written.
+    /// The subject is read per check when it is a place, and evaluated once
+    /// into a temporary otherwise; a test with no predicate to call (decided
+    /// statically) is `None`.
+    fn why_not(&mut self, test: &AExpr, span: Span) -> Expr {
+        let opt = Ty::union_of(vec![Ty::named("Str"), Ty::none()]);
+        let AExpr::Is { subject, span: is_span, .. } = test else {
+            return unsupported(opt, span, "`whynot?` of a non-`is` test");
+        };
+        let none = Expr { ty: opt.clone(), span, kind: ExprKind::MakeNone };
+        let Some(checks) = self.ctx.checked.predicate_tests.get(&self.key(*is_span)).cloned() else {
+            return none;
+        };
+        if checks.is_empty() {
+            return none;
+        }
+        let mut bind = Vec::new();
+        let tmp = if self.stored_place_of(subject).is_some() {
+            None
+        } else {
+            let value = self.expr(subject);
+            let local = self.fresh("__subject");
+            let id = self.id();
+            let ty = value.ty.clone();
+            bind.push(Stmt::Let { id, local: local.clone(), ty: ty.clone(), value });
+            Some((local, ty))
+        };
+        let mut arms = Vec::new();
+        for check in &checks {
+            let read = |this: &mut Self| match &tmp {
+                Some((local, ty)) => Expr { ty: ty.clone(), span, kind: ExprKind::Read { place: Place { root: local.clone(), steps: Vec::new() }, consume: false } },
+                None => this.expr(subject),
+            };
+            let subj = read(self);
+            let call = self.qualifies_call(check, subj, *is_span);
+            let failed = Expr { ty: Ty::named("Bool"), span, kind: ExprKind::Op { op: Op::Not, args: vec![call] } };
+            let subj = read(self);
+            let message = self.whynot_message(check, subj, subject.span(), span);
+            let present = Expr { ty: opt.clone(), span, kind: ExprKind::Present { value: Box::new(message) } };
+            arms.push((failed, Block { stmts: Vec::new(), value: Some(Box::new(present)), span }));
+        }
+        let id = self.id();
+        let br = Expr { ty: opt, span, kind: ExprKind::Branch { id, arms, otherwise: Some(Block { stmts: Vec::new(), value: Some(Box::new(none)), span }) } };
+        if bind.is_empty() {
+            br
+        } else {
+            self.block_expr(bind, br, span)
+        }
+    }
+
+    /// [qual-whynot] The message a failed `assert!(x is Q(…))` gives when it
+    /// writes none: the failed check's, for a test over a place (read again,
+    /// only on failure). With several checks, the first that fails says it.
+    fn assert_whynot(&mut self, cond: &AExpr) -> Option<Expr> {
         let AExpr::Is { subject, span, .. } = cond else { return None };
         let checks = self.ctx.checked.predicate_tests.get(&self.key(*span)).cloned()?;
-        let [check] = checks.as_slice() else { return None };
         self.stored_place_of(subject)?;
+        let (last, rest) = checks.split_last()?;
+        let mut arms = Vec::new();
+        for check in rest {
+            let subj = self.expr(subject);
+            let call = self.qualifies_call(check, subj, *span);
+            let failed = Expr { ty: Ty::named("Bool"), span: *span, kind: ExprKind::Op { op: Op::Not, args: vec![call] } };
+            let subj = self.expr(subject);
+            let message = self.whynot_message(check, subj, subject.span(), *span);
+            arms.push((failed, Block { stmts: Vec::new(), value: Some(Box::new(message)), span: *span }));
+        }
         let subj = self.expr(subject);
-        self.qual_fn_ref(&check.name, &subj.ty, "explain")?;
-        Some(self.qual_fn_call(check, subj, *span, "explain", Ty::named("Str")))
+        let last = self.whynot_message(last, subj, subject.span(), *span);
+        if arms.is_empty() {
+            return Some(last);
+        }
+        let id = self.id();
+        Some(Expr { ty: Ty::named("Str"), span: *span, kind: ExprKind::Branch { id, arms, otherwise: Some(Block { stmts: Vec::new(), value: Some(Box::new(last)), span: *span }) } })
+    }
+
+    /// [qual-whynot] What a value that failed `check` is told: the
+    /// qualifier's `@whynot` template, its `[name]`s filled with the subject
+    /// (by the text form the checker recorded at `subject_span`, else "the
+    /// value") and the check's slot values; with no `@whynot`, "`<subject>`
+    /// is not Q(args)".
+    fn whynot_message(&mut self, check: &crate::check::PredicateCheck, subject: Expr, subject_span: Span, span: Span) -> Expr {
+        use salvo_syntax::doc::{self, TemplatePart};
+        let str_ty = Ty::named("Str");
+        let text = |s: String| Expr { ty: Ty::named("Str"), span, kind: ExprKind::Str(s) };
+        let Some(target) = self.qual_fn_ref(&check.name, &subject.ty, "qualifies") else {
+            return text(format!("the value is not {}", check.name));
+        };
+        let Some((fi, qf)) = self.decl_fn(&target) else {
+            return text(format!("the value is not {}", check.name));
+        };
+        let params: Vec<(String, ast::Type)> = qf.params.iter().filter(|p| !p.implicit).map(|p| (p.name.name.clone(), p.ty.clone())).collect();
+        let template = doc::split(&qf.docs).tag("whynot").map(|t| doc::template(&t.text));
+        let subject_text = self.text_of(subject, subject_span).unwrap_or_else(|| text("the value".to_string()));
+        let parts = match template {
+            Some(parts) => parts,
+            None => {
+                let shown = if check.args.is_empty() {
+                    check.name.clone()
+                } else {
+                    format!("{}({})", check.name, check.args.iter().map(|a| a.path.clone()).collect::<Vec<_>>().join(", "))
+                };
+                return Expr { ty: str_ty, span, kind: ExprKind::Concat(vec![subject_text, text(format!(" is not {shown}"))]) };
+            }
+        };
+        let mut out: Vec<Expr> = Vec::new();
+        for part in parts {
+            match part {
+                TemplatePart::Text(t) => out.push(text(t)),
+                TemplatePart::Param(name) => match params.iter().position(|(n, _)| *n == name) {
+                    Some(0) => out.push(subject_text.clone()),
+                    Some(i) if i - 1 < check.args.len() => {
+                        let a = &check.args[i - 1];
+                        // A constant is shown as it reads; `Str` without its quotes.
+                        let shown = match literal_arg(&a.path).map(|e| e.kind) {
+                            Some(ExprKind::Str(s)) => Some(s),
+                            Some(ExprKind::Int(v)) | Some(ExprKind::Long(v)) => Some(v.to_string()),
+                            Some(ExprKind::Bool(b)) => Some(b.to_string()),
+                            Some(ExprKind::Char(c)) => Some(c.to_string()),
+                            _ => None,
+                        };
+                        match shown {
+                            Some(s) => out.push(text(s)),
+                            None => {
+                                let ty = self.ctx.written_ty(fi, &params[i].1);
+                                let value = self.slot_arg(a, ty, span);
+                                match self.native_text(value, span) {
+                                    Some(t) => out.push(t),
+                                    None => out.push(text(a.path.clone())),
+                                }
+                            }
+                        }
+                    }
+                    _ => out.push(text(format!("[{name}]"))),
+                },
+            }
+        }
+        // Adjacent text is one literal: `" is not in 1..65535"`.
+        let mut merged: Vec<Expr> = Vec::new();
+        for e in out {
+            match (merged.last_mut().map(|l| &mut l.kind), &e.kind) {
+                (Some(ExprKind::Str(prev)), ExprKind::Str(next)) => prev.push_str(next),
+                _ => merged.push(e),
+            }
+        }
+        match merged.len() {
+            1 if matches!(merged[0].ty.strip_quals(), Ty::Named { name, .. } if name == "Str") => merged.pop().unwrap(),
+            _ => Expr { ty: str_ty, span, kind: ExprKind::Concat(merged) },
+        }
+    }
+
+    /// The file index and fn declaration a qualifier member's id names.
+    fn decl_fn(&self, target: &DeclId) -> Option<(usize, ast::FnDecl)> {
+        let fi = self.ctx.program.files.iter().position(|f| f.module == target.module)?;
+        match self.ctx.program.modules[fi].items.get(target.item) {
+            Some(ast::Item::Qualifier(q)) => q.fns.get((target.sub as usize).wrapping_sub(1)).map(|f| (fi, f.clone())),
+            _ => None,
+        }
     }
 
     /// [safe-nav] `base?.link`: switch on the receiver; `None` short-circuits

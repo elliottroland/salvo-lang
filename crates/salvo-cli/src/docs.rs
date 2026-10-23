@@ -62,11 +62,49 @@ fn decl_name_span(item: &Item, name: &str) -> Option<Span> {
 /// Joins a doc block into markdown [doc-markdown]: the lines are already
 /// stripped of `//`, so they pass through verbatim (markdown is the
 /// format), with `[symbol]` references resolved [doc-symbol-ref].
+/// [doc-tags] The tags follow the prose as sections, in the order the
+/// sections are listed here — **Parameters**, **Returns**, **Throws**,
+/// **Why not**, **See also**, **To do** — and a tag this version does not
+/// know under its own name.
 pub fn render(docs: &[String], scope: &DocScope) -> Option<String> {
     if docs.iter().all(|line| line.trim().is_empty()) {
         return None;
     }
-    let body: Vec<String> = docs.iter().map(|line| resolve_refs(line, scope)).collect();
+    let parts = salvo_syntax::doc::split(docs);
+    let mut body: Vec<String> = parts.prose.iter().map(|line| resolve_refs(line, scope)).collect();
+    while body.first().is_some_and(|l| l.trim().is_empty()) {
+        body.remove(0);
+    }
+    let sections: [(&str, &str); 6] =
+        [("param", "Parameters"), ("returns", "Returns"), ("throws", "Throws"), ("whynot", "Why not"), ("see", "See also"), ("todo", "To do")];
+    let mut add = |title: &str, items: Vec<String>| {
+        if items.is_empty() {
+            return;
+        }
+        if !body.is_empty() {
+            body.push(String::new());
+        }
+        body.push(format!("**{title}**"));
+        body.extend(items);
+    };
+    for (tag, title) in sections {
+        let items: Vec<String> = parts
+            .tags
+            .iter()
+            .filter(|t| t.name == tag)
+            .map(|t| match &t.target {
+                Some(p) => format!("- `{p}` — {}", resolve_refs(&t.text, scope)),
+                None => format!("- {}", resolve_refs(&t.text, scope)),
+            })
+            .collect();
+        add(title, items);
+    }
+    for t in parts.tags.iter().filter(|t| !sections.iter().any(|(s, _)| *s == t.name)) {
+        add(&format!("@{}", t.name), vec![format!("- {}", resolve_refs(&t.text, scope))]);
+    }
+    if body.iter().all(|l| l.trim().is_empty()) {
+        return None;
+    }
     Some(body.join("\n").trim_end().to_string())
 }
 
@@ -264,4 +302,34 @@ pub fn hover_markdown(signature: &str, sections: &[Option<String>]) -> String {
         out.push_str(section);
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// [doc-tags] The tags follow the prose as sections, `[name]`s resolved
+    /// as anywhere in a doc block, and an unknown tag under its own name.
+    #[test]
+    fn tags_render_as_sections_after_the_prose() {
+        let link = |_: usize, _: Span| -> Option<String> { None };
+        let scope = DocScope { locals: vec![("line".to_string(), Span::default())], file: 0, source: "", modules: &[], link: &link };
+        let docs: Vec<String> = [
+            "The words of a command line.",
+            "",
+            "@param line  the command line; quotes group",
+            "             words",
+            "@returns the words of [line]",
+            "@frob something",
+            "@todo the empty case",
+        ]
+        .iter()
+        .map(|l| l.to_string())
+        .collect();
+        let shown = render(&docs, &scope).unwrap();
+        assert_eq!(
+            shown,
+            "The words of a command line.\n\n**Parameters**\n- `line` — the command line; quotes group words\n\n**Returns**\n- the words of `line`\n\n**To do**\n- the empty case\n\n**@frob**\n- something"
+        );
+    }
 }

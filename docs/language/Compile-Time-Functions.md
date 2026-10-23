@@ -245,7 +245,7 @@ cases apart:
 A field declared `= None` has a default, which is `None`.
 
 **`field.docs` is the field's doc comment**, the `//` lines above it joined
-as hover shows them, and `None` where there is none; `arm.docs` is the
+as hover shows them — the prose, without its tags — and `None` where there is none; `arm.docs` is the
 comment of the declaration an arm names, and `T.docs` the type's own. Both
 `.default` and `.docs` are one thing or the other in each copy, so test them
 in a head (`[if field.docs !is None]`) rather than with `?:`:

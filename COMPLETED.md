@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2005 tests, complete: the toolchain tests are
+cargo test                  # 2013 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,56 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — Doc tags, and `whynot?` asks a qualifier why a value failed
+
+ROADMAP §2d item 15 (the derive could explain only `InRange`), designed with
+the user over four rounds. The user asked whether `explain` needed runtime
+information (it does: the value) and proposed doc annotations instead of a
+fn; then `[n]` references to parameters only ("ok with not supporting more
+general expressions"), the tags `@param` and `@see` (the agent's `@returns`,
+`@throws`, `@todo` accepted), the `TODO:` indentation rule applied to every
+tag, and "the doc annotation and the builtin should have the same name" —
+"`whynot?` on the function and `@whynot` on the annotation". Expansion:
+"keeping it consistent with how we handle assert! today is good" — written in
+place at each site, no generated helper per qualifier.
+
+[doc-tags]: a doc line starting with `@name` opens a tag that runs to the
+next tag, a bare `//` or the end (`salvo_syntax::doc`). Hover renders them as
+sections after the prose; `.docs` is the prose only [comptime-docs]; Enter
+continues a tag under its text, and an indented continuation keeps its
+indentation [lsp-comment-continuation] (the rule had no spec entry until
+now); the TextMate grammar colours them. An unknown tag, a misnamed or
+misplaced `@param`, and a misplaced `@whynot` warn at the declaration's name.
+[qual-whynot]: `// @whynot [n] is not in [lo]..[hi]` above `fn qualifies`;
+`whynot?(x is Q)` is a `Str?`, the first failed check's message in written
+order, else `None`; `assert!(x is Q)` with no message traps with the same
+text. `fn explain` and `Q.explain(…)` are gone (a qualifier fn named
+`explain` is an error naming the tag); `Q.qualifies(…)` stays.
+[args-explain]: the derive's four scalar arms are `whynot?(v is
+[field.type])`, so the `InRange` special case and `args.rejected()` went.
+
+What it took: the parser form and AST node with an arm in every visitor;
+`check_whynot` (the `is` checked as usual, then refused when it is a union
+arm test or binds), `whynot_text_form` recording the subject's `to_str` only
+when a message shows it; the IR's `why_not` / `assert_whynot` /
+`whynot_message`, and `interp` split into `text_of` and `native_text` so a
+message renders the subject exactly as an interpolation would. A subject
+with no text form is "the value" rather than an error — the message is the
+qualifier's, and the site can do nothing about it. A slot shown in a
+message must be a scalar, checked at the qualifier, so every site can
+render it on both backends. Rejected on the way: `why!` (a bang marks code
+that traps), `@explain` (too general), `@whynot(…)` in code, a generated
+helper fn per qualifier, and naming expressions beyond parameters.
+
+Tests: `doc` unit tests (split, templates), hover sections
+(`tags_render_as_sections_after_the_prose`), the LSP's
+`on_type_formatting_aligns_doc_tag_continuations`, checker tests for the
+template errors, `whynot?`'s type and refusals and the tag warnings, and the
+CLI `whynot_messages_run_on_both_backends` (templates, defaults, written
+order, place and constant slots, a subject with no text form, `assert!`'s
+message, and a user qualifier through the derive), replacing the `explain`
+tests.
 
 ### 2026-10-20 — ARG_PARSE.md retired
 
@@ -258,6 +308,8 @@ derive's check of a qualified value answers the reason, and for std's
 `InRange` it is `InRange.explain` (`invalid value '70000' for '--port':
 70000 is not in 1..65535`); other qualifiers say "the value is not
 accepted" until comptime can walk a type's qualifiers (ROADMAP §2d item 15).
+*Superseded the same day*: the derive asks `whynot?(v is [field.type])`,
+and every qualifier says why through its `@whynot` [qual-whynot].
 
 The second half, the `validate` hook, is **blocked on a decision** (ROADMAP
 §2d item 16): an implicit cannot be optional, and the entry point that keeps
@@ -452,8 +504,12 @@ because every stamp keyed on std missed.
 
 ### 2026-10-20 — `explain`: a predicate qualifier says why a value failed
 
+*Superseded the same day*: `fn explain` gave way to a `@whynot` doc tag and
+the `whynot?(x is Q)` form [qual-whynot]; the entry is the record of the
+first version.
+
 Phase 1.9 of the argument-parsing build (the CLI design record X9, Q10, accepted with
-the call spelling `InRange.explain(n, 1, 65535)`). [qual-explain]: an
+the call spelling `InRange.explain(n, 1, 65535)`). [qual-whynot]: an
 optional `fn explain` with `qualifies`'s parameters returns the message;
 `assert!(x is Q(…))` without a message of its own traps with it; `Q.qualifies`
 and `Q.explain` are callable directly. std's `InRange` gains one, so the
@@ -27519,7 +27575,7 @@ literal members `[for lit in t.literals]` [comptime-literals]; X4 `s is "a" |
 "b"` [is-union]; X5 building a union arm [comptime-arm]; X6 a `by` site for a
 return-only member [obligation-return]; X7 comptime patterns over
 qualifiers [comptime-pattern]; X8 `FieldOf<T>` (not built); X9 `explain`
-[qual-explain]; X10 `Process`/`Env` [cli-process] [cli-env]; X11 `from_str`
+[qual-whynot]; X10 `Process`/`Env` [cli-process] [cli-env]; X11 `from_str`
 per type and `FromStr<T>` [str-parse]; X12 `Errs` [result-errs]; X13
 attributes and X14 comptime-declared types (recorded, not recommended); X15
 marker aliases and X17 declared annotations (superseded by comptime
@@ -27667,7 +27723,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2005 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2013 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

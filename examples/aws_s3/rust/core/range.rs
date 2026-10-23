@@ -64,7 +64,3 @@ pub fn range__Int(mut end: i32) -> crate::core_range::__Iter_range_Int_Int_Int {
 pub fn InRange__Int_qualifies(mut n: i32, mut lo: i32, mut hi: i32) -> bool {
     return ((n >= lo) && (n <= hi));
 }
-
-pub fn InRange__Int_explain(mut n: i32, mut lo: i32, mut hi: i32) -> String {
-    return format!("{} is not in {}..{}", n, lo, hi);
-}

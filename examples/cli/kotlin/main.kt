@@ -364,26 +364,22 @@ fun fromFound__Found_OkServeOrErrsNonEmptyListArgError(found: salvo.args.Found):
     var what__c5__c6__c7__c8__c9__c10__c11: String = "a valid value"
     what__c5__c6__c7__c8__c9__c10__c11 = "an integer"
     salvo.args.checkValue(errors, found, "port", shown__c5__c6__c7__c8__c9__c10__c11, what__c5__c6__c7__c8__c9__c10__c11, fun(v: Int): String? {
-        return (if (salvo.core.range.InRange_qualifies(v, 1, 65535)) {
-            (if (salvo.core.range.InRange_qualifies(v, 1, 65535)) {
-                null
-            } else {
-                salvo.args.rejected()
-            })
+        return (if (!(salvo.core.range.InRange_qualifies(v, 1, 65535))) {
+            "${v} is not in 1..65535"
         } else {
-            salvo.core.range.InRange_explain(v, 1, 65535)
+            null
         })
     }, { __a0 -> salvo.core.string.fromStr__Str_IntOpt(__a0) })
-    val s__c26__c27__c28: salvo.args.Spec = argSpec__SpecTls()
-    if (salvo.args.anyGiven(found, s__c26__c27__c28)) {
-        val r__c26__c27__c28: Union2<Tls, List<Union11<salvo.args.UnknownOption, salvo.args.MissingValue, salvo.args.Missing, salvo.args.Invalid, salvo.args.Unexpected, salvo.args.Repeated, salvo.args.Requires, salvo.args.Conflict, salvo.args.MissingOne, salvo.args.UnknownCommand, salvo.args.HelpRequested>>> = fromFound__Found_OkTlsOrErrsNonEmptyListArgError(found)
-        salvo.args.groupErrors(errors, r__c26__c27__c28, salvo.core.list.sizePlatform(found.errors))
+    val s__c25__c26__c27: salvo.args.Spec = argSpec__SpecTls()
+    if (salvo.args.anyGiven(found, s__c25__c26__c27)) {
+        val r__c25__c26__c27: Union2<Tls, List<Union11<salvo.args.UnknownOption, salvo.args.MissingValue, salvo.args.Missing, salvo.args.Invalid, salvo.args.Unexpected, salvo.args.Repeated, salvo.args.Requires, salvo.args.Conflict, salvo.args.MissingOne, salvo.args.UnknownCommand, salvo.args.HelpRequested>>> = fromFound__Found_OkTlsOrErrsNonEmptyListArgError(found)
+        salvo.args.groupErrors(errors, r__c25__c26__c27, salvo.core.list.sizePlatform(found.errors))
     }
-    var positional__c29__c30__c31__c32__c33__c34__c35: Boolean = false
-    positional__c29__c30__c31__c32__c33__c34__c35 = true
-    val shown__c29__c30__c31__c32__c33__c34__c35: String = salvo.args.shownName("files", positional__c29__c30__c31__c32__c33__c34__c35)
-    val what__c29__c30__c31__c32__c33__c34__c35: String = "a valid value"
-    salvo.args.checkValue(errors, found, "files", shown__c29__c30__c31__c32__c33__c34__c35, what__c29__c30__c31__c32__c33__c34__c35, fun(_v: String): String? {
+    var positional__c28__c29__c30__c31__c32__c33__c34: Boolean = false
+    positional__c28__c29__c30__c31__c32__c33__c34 = true
+    val shown__c28__c29__c30__c31__c32__c33__c34: String = salvo.args.shownName("files", positional__c28__c29__c30__c31__c32__c33__c34)
+    val what__c28__c29__c30__c31__c32__c33__c34: String = "a valid value"
+    salvo.args.checkValue(errors, found, "files", shown__c28__c29__c30__c31__c32__c33__c34, what__c28__c29__c30__c31__c32__c33__c34, fun(_v: String): String? {
         return null
     }, { __a0 -> salvo.core.string.fromStr__Str_StrOpt(__a0) })
     if (salvo.core.list.NonEmpty_qualifies(errors)) {
@@ -396,36 +392,36 @@ fun fromFound__Found_OkServeOrErrsNonEmptyListArgError(found: salvo.args.Found):
             val __default_1: Int = 8080
             (if (!(salvo.core.range.InRange_qualifies(__default_1, 1, 65535))) throw AssertionError(("salvo: " + ("the default for field `port` is not `InRange(1, 65535) Int`") + " at main:157:1")) else Unit)
             __default_1
-        }, fun(v__c42__c43__c44__c45__c46__c47__c48__c49: Int): Int? {
-            return (if (salvo.core.range.InRange_qualifies(v__c42__c43__c44__c45__c46__c47__c48__c49, 1, 65535)) {
-                v__c42__c43__c44__c45__c46__c47__c48__c49
+        }, fun(v__c41__c42__c43__c44__c45__c46__c47__c48: Int): Int? {
+            return (if (salvo.core.range.InRange_qualifies(v__c41__c42__c43__c44__c45__c46__c47__c48, 1, 65535)) {
+                v__c41__c42__c43__c44__c45__c46__c47__c48
             } else {
                 null
             })
         }, { __a0 -> salvo.core.string.fromStr__Str_IntOpt(__a0) })
     }), output = salvo.args.eval(fun(): String {
-        val v__c53__c54__c55__c56__c57__c58: String? = salvo.args.valueOf(found, "output")
-        if (!((v__c53__c54__c55__c56__c57__c58 == null))) {
-            if ((v__c53__c54__c55__c56__c57__c58 != null && (v__c53__c54__c55__c56__c57__c58 == "json"))) {
-                val v__c53__c54__c55__c56__c57__c58_2: String = v__c53__c54__c55__c56__c57__c58!!
-                return v__c53__c54__c55__c56__c57__c58_2
+        val v__c52__c53__c54__c55__c56__c57: String? = salvo.args.valueOf(found, "output")
+        if (!((v__c52__c53__c54__c55__c56__c57 == null))) {
+            if ((v__c52__c53__c54__c55__c56__c57 != null && (v__c52__c53__c54__c55__c56__c57 == "json"))) {
+                val v__c52__c53__c54__c55__c56__c57_2: String = v__c52__c53__c54__c55__c56__c57!!
+                return v__c52__c53__c54__c55__c56__c57_2
             }
-            if ((v__c53__c54__c55__c56__c57__c58 != null && (v__c53__c54__c55__c56__c57__c58 == "text"))) {
-                val v__c53__c54__c55__c56__c57__c58_3: String = v__c53__c54__c55__c56__c57__c58!!
-                return v__c53__c54__c55__c56__c57__c58_3
+            if ((v__c52__c53__c54__c55__c56__c57 != null && (v__c52__c53__c54__c55__c56__c57 == "text"))) {
+                val v__c52__c53__c54__c55__c56__c57_3: String = v__c52__c53__c54__c55__c56__c57!!
+                return v__c52__c53__c54__c55__c56__c57_3
             }
         }
         return "text"
     }), tls = salvo.args.eval(fun(): Tls? {
-        val s__c66__c67__c68: salvo.args.Spec = argSpec__SpecTls()
-        if (salvo.args.anyGiven(found, s__c66__c67__c68)) {
+        val s__c65__c66__c67: salvo.args.Spec = argSpec__SpecTls()
+        if (salvo.args.anyGiven(found, s__c65__c66__c67)) {
             return salvo.args.built(fromFound__Found_OkTlsOrErrsNonEmptyListArgError(found))
         }
         return null
     }), files = salvo.args.eval(fun(): List<String> {
-        val all__c69__c70__c71__c72__c73__c74__c75__c76: List<String> = salvo.args.readAll(found, "files", { __a0 -> salvo.core.string.fromStr__Str_StrOpt(__a0) })
-        if (salvo.core.list.NonEmpty_qualifies(all__c69__c70__c71__c72__c73__c74__c75__c76)) {
-            return all__c69__c70__c71__c72__c73__c74__c75__c76
+        val all__c68__c69__c70__c71__c72__c73__c74__c75: List<String> = salvo.args.readAll(found, "files", { __a0 -> salvo.core.string.fromStr__Str_StrOpt(__a0) })
+        if (salvo.core.list.NonEmpty_qualifies(all__c68__c69__c70__c71__c72__c73__c74__c75)) {
+            return all__c68__c69__c70__c71__c72__c73__c74__c75
         }
         return throw AssertionError(("salvo: " + ("`files` was checked as required") + " at main:157:1"))
     }))))
@@ -481,11 +477,7 @@ fun fromFound__Found_OkNetOrErrsNonEmptyListArgError(found: salvo.args.Found): U
     val shown__c1__c2__c3__c4__c5__c6__c7: String = salvo.args.shownName("host", positional__c1__c2__c3__c4__c5__c6__c7)
     val what__c1__c2__c3__c4__c5__c6__c7: String = "a valid value"
     salvo.args.checkValue(errors, found, "host", shown__c1__c2__c3__c4__c5__c6__c7, what__c1__c2__c3__c4__c5__c6__c7, fun(v: String): String? {
-        return (if (true) {
-            null
-        } else {
-            salvo.args.rejected()
-        })
+        return null
     }, { __a0 -> salvo.core.string.fromStr__Str_StrOpt(__a0) })
     val positional__c11__c12__c13__c14__c15__c16__c17: Boolean = false
     val shown__c11__c12__c13__c14__c15__c16__c17: String = salvo.args.shownName("workers", positional__c11__c12__c13__c14__c15__c16__c17)
@@ -560,21 +552,13 @@ fun fromFound__Found_OkTlsOrErrsNonEmptyListArgError(found: salvo.args.Found): U
     val shown__c1__c2__c3__c4__c5__c6__c7: String = salvo.args.shownName("cert", positional__c1__c2__c3__c4__c5__c6__c7)
     val what__c1__c2__c3__c4__c5__c6__c7: String = "a valid value"
     salvo.args.checkValue(errors, found, "cert", shown__c1__c2__c3__c4__c5__c6__c7, what__c1__c2__c3__c4__c5__c6__c7, fun(v: String): String? {
-        return (if (true) {
-            null
-        } else {
-            salvo.args.rejected()
-        })
+        return null
     }, { __a0 -> salvo.core.string.fromStr__Str_StrOpt(__a0) })
     val positional__c11__c12__c13__c14__c15__c16__c17: Boolean = false
     val shown__c11__c12__c13__c14__c15__c16__c17: String = salvo.args.shownName("key", positional__c11__c12__c13__c14__c15__c16__c17)
     val what__c11__c12__c13__c14__c15__c16__c17: String = "a valid value"
     salvo.args.checkValue(errors, found, "key", shown__c11__c12__c13__c14__c15__c16__c17, what__c11__c12__c13__c14__c15__c16__c17, fun(v: String): String? {
-        return (if (true) {
-            null
-        } else {
-            salvo.args.rejected()
-        })
+        return null
     }, { __a0 -> salvo.core.string.fromStr__Str_StrOpt(__a0) })
     if (salvo.core.list.NonEmpty_qualifies(errors)) {
         return Union2.U2<Tls, List<Union11<salvo.args.UnknownOption, salvo.args.MissingValue, salvo.args.Missing, salvo.args.Invalid, salvo.args.Unexpected, salvo.args.Repeated, salvo.args.Requires, salvo.args.Conflict, salvo.args.MissingOne, salvo.args.UnknownCommand, salvo.args.HelpRequested>>>(salvo.core.result.Errs(errors))
@@ -755,38 +739,30 @@ fun fromFound__Found_OkFromUrlOrErrsNonEmptyListArgError(found: salvo.args.Found
     val shown__c1__c2__c3__c4__c5__c6__c7: String = salvo.args.shownName("url", positional__c1__c2__c3__c4__c5__c6__c7)
     val what__c1__c2__c3__c4__c5__c6__c7: String = "a valid value"
     salvo.args.checkValue(errors, found, "url", shown__c1__c2__c3__c4__c5__c6__c7, what__c1__c2__c3__c4__c5__c6__c7, fun(v: String): String? {
-        return (if (true) {
-            null
-        } else {
-            salvo.args.rejected()
-        })
+        return null
     }, { __a0 -> salvo.core.string.fromStr__Str_StrOpt(__a0) })
     val positional__c11__c12__c13__c14__c15__c16__c17: Boolean = false
     val shown__c11__c12__c13__c14__c15__c16__c17: String = salvo.args.shownName("timeout", positional__c11__c12__c13__c14__c15__c16__c17)
     var what__c11__c12__c13__c14__c15__c16__c17: String = "a valid value"
     what__c11__c12__c13__c14__c15__c16__c17 = "an integer"
     salvo.args.checkValue(errors, found, "timeout", shown__c11__c12__c13__c14__c15__c16__c17, what__c11__c12__c13__c14__c15__c16__c17, fun(v: Int): String? {
-        return (if (true) {
-            null
-        } else {
-            salvo.args.rejected()
-        })
+        return null
     }, { __a0 -> salvo.core.string.fromStr__Str_IntOpt(__a0) })
     if (salvo.core.list.NonEmpty_qualifies(errors)) {
         return Union2.U2<FromUrl, List<Union11<salvo.args.UnknownOption, salvo.args.MissingValue, salvo.args.Missing, salvo.args.Invalid, salvo.args.Unexpected, salvo.args.Repeated, salvo.args.Requires, salvo.args.Conflict, salvo.args.MissingOne, salvo.args.UnknownCommand, salvo.args.HelpRequested>>>(salvo.core.result.Errs(errors))
     }
     return Union2.U1<FromUrl, List<Union11<salvo.args.UnknownOption, salvo.args.MissingValue, salvo.args.Missing, salvo.args.Invalid, salvo.args.Unexpected, salvo.args.Repeated, salvo.args.Requires, salvo.args.Conflict, salvo.args.MissingOne, salvo.args.UnknownCommand, salvo.args.HelpRequested>>>(salvo.core.result.Ok(FromUrl(url = salvo.args.eval(fun(): String {
-        return salvo.args.readValue(found, "url", null, fun(v__c24__c25__c26__c27__c28__c29__c30__c31: String): String? {
+        return salvo.args.readValue(found, "url", null, fun(v__c23__c24__c25__c26__c27__c28__c29__c30: String): String? {
             return (if (true) {
-                v__c24__c25__c26__c27__c28__c29__c30__c31
+                v__c23__c24__c25__c26__c27__c28__c29__c30
             } else {
                 null
             })
         }, { __a0 -> salvo.core.string.fromStr__Str_StrOpt(__a0) })
     }), timeout = salvo.args.eval(fun(): Int {
-        return salvo.args.readValue(found, "timeout", 30, fun(v__c34__c35__c36__c37__c38__c39__c40__c41: Int): Int? {
+        return salvo.args.readValue(found, "timeout", 30, fun(v__c33__c34__c35__c36__c37__c38__c39__c40: Int): Int? {
             return (if (true) {
-                v__c34__c35__c36__c37__c38__c39__c40__c41
+                v__c33__c34__c35__c36__c37__c38__c39__c40
             } else {
                 null
             })
@@ -829,11 +805,7 @@ fun fromFound__Found_OkFromFileOrErrsNonEmptyListArgError(found: salvo.args.Foun
     val shown__c1__c2__c3__c4__c5__c6__c7: String = salvo.args.shownName("file", positional__c1__c2__c3__c4__c5__c6__c7)
     val what__c1__c2__c3__c4__c5__c6__c7: String = "a valid value"
     salvo.args.checkValue(errors, found, "file", shown__c1__c2__c3__c4__c5__c6__c7, what__c1__c2__c3__c4__c5__c6__c7, fun(v: String): String? {
-        return (if (true) {
-            null
-        } else {
-            salvo.args.rejected()
-        })
+        return null
     }, { __a0 -> salvo.core.string.fromStr__Str_StrOpt(__a0) })
     if (salvo.core.list.NonEmpty_qualifies(errors)) {
         return Union2.U2<FromFile, List<Union11<salvo.args.UnknownOption, salvo.args.MissingValue, salvo.args.Missing, salvo.args.Invalid, salvo.args.Unexpected, salvo.args.Repeated, salvo.args.Requires, salvo.args.Conflict, salvo.args.MissingOne, salvo.args.UnknownCommand, salvo.args.HelpRequested>>>(salvo.core.result.Errs(errors))

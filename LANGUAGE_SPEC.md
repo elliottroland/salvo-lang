@@ -402,7 +402,8 @@ Conventions:
   Salvo marks a place that can fail (user decision 2026-09-23, A-3):
   `assert!(cond)` / `assert!(cond, "why")`, `unreachable!()` /
   `unreachable!("why")`, and `todo!()` / `todo!("why")` (user decision
-  2026-10-12).
+  2026-10-12). A third form, `whynot?(x is Q)`, answers a message instead
+  of trapping, and is spelled with `?` for it [qual-whynot].
   * `assert!` has type `None` and continues when the condition holds;
     `unreachable!` has type **`Never`**, so it stands where any value is
     expected and ends the path exactly as `throw` and `return` do
@@ -1942,20 +1943,39 @@ Conventions:
     `x is Positive` errors with "this check can never succeed"). Narrow
     first — `x is Int && x is Positive`. Lifting this needs qualifiers
     over unions; see D4 in ROADMAP.md.
-* [qual-explain] **A predicate qualifier may say why a value failed**
-  (the CLI design record X9, Q10; built 2026-10-20): an optional `fn explain` beside
-  `qualifies`, with exactly its parameters, returning the message as a
-  `Str`. std's `InRange` has one ("70000 is not in 1..65535").
-  * **`assert!(x is Q(…))` with no message of its own fails with it**: the
-    IR builds the message as `Q.explain(x, …)` from the test's single
-    predicate check, read only when the test failed, for a subject that is a
-    place.
-  * **`Q.qualifies(…)` and `Q.explain(…)` are callable directly**, the
-    subject first and then one value per slot (`InRange.explain(n, 1,
-    65535)`), the qualifier's type parameters inferred from the arguments;
-    the checker records it in `Checked::qual_member_calls` and the IR calls
-    the member's declaration. A member that takes implicits is refused here
-    (an `is` fills them).
+* [qual-whynot] **A predicate qualifier says why a value failed it in a
+  `@whynot` doc tag** on its `fn qualifies` (user decisions 2026-10-20,
+  replacing the member `fn explain` of the CLI design record X9/Q10): a
+  template, `// @whynot [n] is not in [lo]..[hi]`, whose `[name]`s are
+  `qualifies`' parameters — the subject, or a slot whose type is `Int`,
+  `Long`, `Double`, `Bool`, `Char` or `Str` — and `[[` a literal `[`. Any
+  other `[name]` is an error at the qualifier; so is a qualifier fn named
+  `explain`, the error naming the tag. Only parameters, by design: the
+  message is plain language around the values the test had.
+  * **`whynot?(x is Q(…))`** is the compiler form that answers it, a `Str?`:
+    `None` when `x` qualifies, else the message of the **first check that
+    fails, in the order written** (`n is Even InRange(1, 65535) Int` asks
+    `Even` first). Spelled with `?` because it answers an optional, not with
+    `!`, which marks code that traps [assert-fn]. The test must be a
+    predicate test [is-qualifies]: a binding is refused, and so is a test of
+    which arm a union holds; a test decided statically (`n is Int` on an
+    `Int`) answers `None`.
+  * **Expanded at each site**, as `assert!` is: `if !Q.qualifies(x, …) {
+    "<message>" } else … { None }`, the subject read again when it is a
+    place and evaluated once into a temporary otherwise. A constant slot is
+    shown as it reads (a `Str` without its quotes); a place slot by its
+    value; the subject by its text form at the site [interp-to-str] — "the
+    value" when it has none, which is never an error, since the message is
+    the qualifier's and not the site's. With no `@whynot` the message is
+    "`<subject>` is not Q(args)", the arguments as written (`Small(lim)`).
+  * **`assert!(x is Q(…))` with no message of its own fails with the same
+    text**, for a subject that is a place (read again only on failure); with
+    several checks the first that failed says it.
+  * **`Q.qualifies(…)` is callable directly**, the subject first and then
+    one value per slot (`InRange.qualifies(n, 1, 65535)`), the qualifier's
+    type parameters inferred from the arguments; the checker records it in
+    `Checked::qual_member_calls` and the IR calls the member's declaration.
+    A member that takes implicits is refused here (an `is` fills them).
   * Not covered: `expect(x is Q(…))` in std's tests does not use it yet, and
     a failing predicate default [default-predicate] keeps its own message.
 * [is-qualifies-effects] `qualifies` may declare effects; at each
@@ -5131,7 +5151,9 @@ Conventions:
   binder its own [doc-comment], on an arm binder the comment of the
   declaration the arm names (a struct or a `type`), and on the bound `T` or
   a named root (`Serve.docs`) the type's. In a copy it is a `Str` literal,
-  the lines joined with newlines as hover joins them, `[symbol]` references
+  the **prose** lines joined with newlines as hover joins them — the tags
+  [doc-tags] are for the reader of the declaration, not text a derive
+  shows — `[symbol]` references
   left as written (a link means nothing outside an editor); `None` where
   the comment is absent or blank. `[if x.docs is None]` / `!is None` tests
   which, as for `field.default`, and for the same reason a copy's value is
@@ -7321,17 +7343,17 @@ can have one capability without the other.
     value, required unless it has a default, shown as `[default: …]`.
   * **Values** are parsed with `from_str` at the base type (an `[if
     field.type is Int]` chain over `Str`, `Int`, `Long`, `Double`; any other
-    type at itself), and re-tested against the field's qualifiers with `v is
-    [field.type]` [comptime-is-splice]; a failure is an `Invalid` error
+    type at itself), and re-tested against the field's qualifiers with
+    `whynot?(v is [field.type])` [comptime-is-splice]; a failure is an `Invalid` error
     ("expected an integer"), and a qualifier failure says why
     [args-explain].
 * [args-explain] **A value that fails its field's qualifiers says why**
-  (the CLI design record §5.2, Q10, Q16): `check_value`'s test answers the reason
-  (`None` when accepted). For std's `InRange`, found with `[if field.type
-  is <lo, hi> InRange(lo, hi) *]`, it is `InRange.explain` (`invalid value
-  '70000' for '--port': 70000 is not in 1..65535`); any other qualifier is
-  "the value is not accepted", since comptime cannot yet walk a type's
-  qualifiers to call each one's `explain` (ROADMAP §2d item 15).
+  (the CLI design record §5.2, Q10, Q16; 2026-10-20 through `whynot?`):
+  `check_value`'s test is `(v: T) -> whynot?(v is [field.type])`, so the
+  reason is the first failed qualifier's `@whynot` [qual-whynot] — std's
+  `InRange` gives `invalid value '70000' for '--port': 70000 is not in
+  1..65535`, and a user's qualifier its own template or "`<value>` is not
+  Q(args)". `None` when accepted.
 * [args-validate] **The validation hook** (the CLI design record §5.2, Q16; user
   decision 2026-10-20, option (a)): `parse_valid<T, V>(args, ?FromArgs<T>,
   ?validate: (o: T) [Throw<ArgError>] -> V)` parses, then calls the
@@ -11356,6 +11378,33 @@ replaced the working document TESTING.md).
     exactly as written, so ordinary prose in brackets is never mangled.
   * Markdown links (`[text](url)`) and inline code spans are skipped, so
     `` `[a, b]` `` stays literal.
+* [doc-tags] **A doc line that starts with `@name` opens a tag** (user
+  decisions 2026-10-20): `@param name  text`, `@returns`, `@throws`, `@see`,
+  `@todo`, and `@whynot` [qual-whynot]. Prose comes first; a tag's text runs
+  over the lines below it until the next tag, a bare `//` line, or the end
+  of the block, its lines joined by spaces (so it wraps freely,
+  [lsp-comment-continuation] lining up the continuation). An `@` inside a
+  line is prose. `salvo_syntax::doc` reads them.
+  * Only `@whynot` changes what a program does; the others are for the
+    reader. **Hover** shows the prose and then a section per kind —
+    **Parameters**, **Returns**, **Throws**, **Why not**, **See also**,
+    **To do** — `[symbol]`s resolved as in prose [doc-symbol-ref].
+    `.docs` is the prose only [comptime-docs].
+  * **Warnings, never errors**, at the documented declaration's name (doc
+    lines carry no spans): a tag this version does not know (naming the
+    ones it does), an `@param` with no name or naming no parameter, an
+    `@param` on a declaration that is not a fn, and an `@whynot` anywhere
+    but a qualifier's `fn qualifies`. A `@whynot` that names what it may not
+    is [qual-whynot]'s error.
+  * The TextMate grammar colours a tag opening a comment line
+    (`storage.type.class.doc.salvo`) [cli-lang].
+* [lsp-comment-continuation] **Enter in a `//` comment continues it aligned**
+  (`textDocument/onTypeFormatting` on `\n`): under the text after a
+  `LABEL: ` (`// TODO: text`), after a doc tag (`// @returns text`;
+  `// @param name  text` under `text`) [doc-tags], or under the text of a
+  continuation line that is itself indented, so a tag runs over as many
+  lines as it needs. Otherwise no edit: the client's own static `// ` is
+  right.
 * [doc-struct-fields] A struct's hover lists every field in declaration
   order with its type and its default as written, and appends each
   field's own doc comment [doc-comment]. Undocumented fields are listed

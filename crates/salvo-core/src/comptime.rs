@@ -2057,13 +2057,17 @@ struct Binding {
     literal: Option<salvo_syntax::ast::TypeLit>,
 }
 
-/// [comptime-docs] A doc block as a value: its lines joined, as hover joins
-/// them, with `[symbol]` references left as written; `None` when blank.
+/// [comptime-docs] A doc block as a value: its prose lines joined, as hover
+/// joins them, with `[symbol]` references left as written; `None` when
+/// blank. The tags are not part of it [doc-tags].
 fn doc_text(docs: &[String]) -> Option<String> {
-    if docs.iter().all(|l| l.trim().is_empty()) {
+    // [doc-tags] The prose only: a tag is for the reader of the declaration
+    // (hover), not text a derive shows.
+    let prose = salvo_syntax::doc::split(docs).prose;
+    if prose.iter().all(|l| l.trim().is_empty()) {
         return None;
     }
-    Some(docs.join("\n").trim_end().to_string())
+    Some(prose.join("\n").trim_start_matches('\n').trim_end().to_string())
 }
 
 /// The body rewriter: unrolls, selects, refuses, and substitutes.

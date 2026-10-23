@@ -960,15 +960,9 @@ reproduced in a scratch project; the repros are below.
     there or rename a declared `run`. Any other Kotlin stdlib name the
     emitter calls unqualified (`error`, `require`, `let`) is the same risk.
 
-15. **The derive explains only `InRange` failures.** Found 2026-10-20
-    (2.5). Comptime can test for a known qualifier and read its constants
-    (`[if field.type is <lo, hi> InRange(lo, hi) *]`), so `args` calls
-    `InRange.explain`; a user's predicate qualifier with an `explain` gets
-    "the value is not accepted". Options: a comptime walk over a type's
-    qualifiers (`[for q in field.type.qualifiers]`, with a way to call the
-    walked qualifier's `explain`), or an expression asking an `is` test why
-    it failed (the IR already builds `Q.explain(x, …)` for `assert!(x is
-    Q(…))` [qual-explain]). A language call.
+15. ✅ **The derive explains every qualifier's failure** — done 2026-10-20
+    with a `@whynot` doc tag and `whynot?(x is Q)` ([qual-whynot],
+    [doc-tags], COMPLETED.md).
 
 16. ✅ **The validation hook (Q16)** — done 2026-10-20 with option (a)
     ([args-validate], COMPLETED.md). The record of how it was decided: Q16 (accepted) says the parse calls a user

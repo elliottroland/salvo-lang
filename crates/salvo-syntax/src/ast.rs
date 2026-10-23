@@ -2009,6 +2009,14 @@ pub enum Expr {
         message: Option<Box<Expr>>,
         span: Span,
     },
+    /// [qual-whynot] `whynot?(x is Q)`: why the test fails — the failing
+    /// qualifier's `@whynot` message — or `None` when it holds. A compiler
+    /// form, like `assert!`, expanded where it is written; the `?` says it
+    /// answers an optional (user decision 2026-10-20). `test` is an `is`.
+    WhyNot {
+        test: Box<Expr>,
+        span: Span,
+    },
     /// `i++` — postfix increment.
     /// [inc-dec] `i++`, `++i`, `i--`, `--i`: a step of one on a place, in
     /// either fixity. One node rather than four variants — every consumer
@@ -2415,6 +2423,7 @@ impl Expr {
             | Expr::Assert { span, .. }
             | Expr::Unreachable { span, .. }
             | Expr::Todo { span, .. }
+            | Expr::WhyNot { span, .. }
             | Expr::IncDec { span, .. }
             | Expr::If { span, .. }
             | Expr::When { span, .. }
