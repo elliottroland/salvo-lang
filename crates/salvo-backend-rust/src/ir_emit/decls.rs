@@ -99,7 +99,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 if let Some(alias) = self.s.symbols.type_aliases.get(name.as_str()) {
                     if let Some(target) = alias.alias.as_ref() {
                         let subst: std::collections::HashMap<String, Ty> = alias.generics.iter().map(|g| g.name.clone()).zip(args.iter().cloned()).collect();
-                        if let Some(expanded) = salvo_core::approx_ty(target, &subst) {
+                        if let Some(expanded) = salvo_core::approx_ty(target, &subst, self.s.symbols) {
                             return self.ty(&salvo_core::ir::build::erase(&expanded));
                         }
                     }

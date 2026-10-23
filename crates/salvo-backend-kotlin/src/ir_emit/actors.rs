@@ -75,7 +75,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     if let Some(alias) = self.s.symbols.type_aliases.get(name.as_str()).copied() {
                         let subst: HashMap<String, Ty> = alias.generics.iter().map(|g| g.name.clone()).zip(args.iter().cloned()).collect();
                         if let Some(def) = &alias.alias {
-                            if let Some(t) = salvo_core::approx_ty(def, &subst) {
+                            if let Some(t) = salvo_core::approx_ty(def, &subst, self.s.symbols) {
                                 return self.codec(&t);
                             }
                         }

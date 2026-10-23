@@ -32096,7 +32096,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let empty = std::collections::HashMap::new();
         for f in effect.fns.iter().filter(|f| f.is_send) {
             for p in f.params.iter().filter(|p| !p.implicit) {
-                let Some(pty) = crate::wire::approx_ty(&p.ty, &empty) else { continue };
+                let Some(pty) = crate::wire::approx_ty(&p.ty, &empty, self.symbols) else { continue };
                 if let Some(block) = crate::wire::wire_blocker(self.symbols, &pty) {
                     self.error(
                         span,

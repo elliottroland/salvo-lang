@@ -224,7 +224,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 .and_then(|o| o.group.args.get(1))
                 .map(|a| {
                     let fi = file_idx.unwrap_or(0);
-                    let ctx_ty = salvo_core::wire::approx_ty(a, &HashMap::new()).unwrap_or(Ty::Unknown);
+                    let ctx_ty = salvo_core::wire::approx_ty(a, &HashMap::new(), self.s.symbols).unwrap_or(Ty::Unknown);
                     let _ = fi;
                     if ctx_ty.is_unknown() { "Any".to_string() } else { self.ty(&ctx_ty) }
                 })

@@ -158,8 +158,12 @@ fn field_ty_linear(symbols: &Symbols, own: &HashSet<String>, t: &salvo_syntax::a
             }
             // Expand a type alias (`Target = ToActor | ToWaiter | ToTask`) so a
             // field written at the alias is tested against its definition.
-            if let Some(name) = bare_name(t) {
-                if let Some(alias) = symbols.type_aliases.get(name.as_str()) {
+            // [type-identity] By the key the name has where it was written:
+            // runtime's `token: Token` is runtime's struct, not `args.lex`'s
+            // alias of the same name.
+            if let Type::Named { qualifiers, base } = t {
+                let key = symbols.ref_key(base);
+                if let Some(alias) = symbols.type_aliases.get(key).filter(|_| qualifiers.is_empty() && base.args.is_empty()) {
                     if let Some(def) = &alias.alias {
                         if alias.generics.is_empty() {
                             return field_ty_linear(symbols, own, def, subst, generics);
@@ -167,7 +171,7 @@ fn field_ty_linear(symbols: &Symbols, own: &HashSet<String>, t: &salvo_syntax::a
                     }
                 }
             }
-            crate::approx_ty(t, subst).is_some_and(|ty| ty_own_linear(symbols, own, &ty))
+            crate::approx_ty(t, subst, symbols).is_some_and(|ty| ty_own_linear(symbols, own, &ty))
         }
     }
 }

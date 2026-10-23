@@ -132,7 +132,7 @@ fn wire_blocker_at(symbols: &Symbols<'_>, ty: &Ty, depth: usize) -> Option<WireB
                     let empty = HashMap::new();
                     for f in e.fns.iter().filter(|f| f.is_send) {
                         for p in f.params.iter().filter(|p| !p.implicit) {
-                            if let Some(t) = approx_ty(&p.ty, &empty) {
+                            if let Some(t) = approx_ty(&p.ty, &empty, symbols) {
                                 if let Some(b) = wire_blocker_at(symbols, &t, depth + 1) {
                                     return Some(match b {
                                         WireBlock::NoRemote(inner) => WireBlock::NoRemote(format!(
@@ -173,7 +173,7 @@ fn wire_blocker_at(symbols: &Symbols<'_>, ty: &Ty, depth: usize) -> Option<WireB
                     .zip(args.iter().cloned())
                     .collect();
                 if let Some(def) = &alias.alias {
-                    if let Some(lowered) = approx_ty(def, &subst) {
+                    if let Some(lowered) = approx_ty(def, &subst, symbols) {
                         return wire_blocker_at(symbols, &lowered, depth + 1);
                     }
                 }
@@ -209,7 +209,7 @@ fn struct_blocker(symbols: &Symbols<'_>, decl: &StructDecl, args: &[Ty], depth: 
         // needs a wire form. Treating the field as determinable-elsewhere
         // (skip) keeps that true without a type to inspect.
         let Some(written) = &field.ty else { continue };
-        let Some(field_ty) = approx_ty(written, &subst) else {
+        let Some(field_ty) = approx_ty(written, &subst, symbols) else {
             continue;
         };
         // A generic field left unsubstituted (the struct checked at
@@ -252,10 +252,11 @@ pub fn struct_has_wire_form(symbols: &Symbols<'_>, decl: &StructDecl) -> bool {
 }
 
 /// A written type lowered structurally, with a struct's generic parameters
-/// substituted from `subst`. The checker's `lower_type` is the real thing;
+/// substituted from `subst` and every name resolved to its key
+/// ([`Symbols::ref_key`]). The checker's `lower_type` is the real thing;
 /// this is enough for a predicate over declared shapes (and was the Kotlin
 /// emitter's private helper until the wire needed it in three places).
-pub fn approx_ty(t: &Type, subst: &HashMap<String, Ty>) -> Option<Ty> {
+pub fn approx_ty(t: &Type, subst: &HashMap<String, Ty>, symbols: &Symbols<'_>) -> Option<Ty> {
     match t {
         Type::Literal { value, .. } => Some(Ty::Lit(value.clone())),
         Type::Named { qualifiers, base } => {
@@ -264,9 +265,14 @@ pub fn approx_ty(t: &Type, subst: &HashMap<String, Ty>) -> Option<Ty> {
                     return Some(ty.clone());
                 }
             }
-            let args: Option<Vec<Ty>> = base.args.iter().map(|a| approx_ty(a, subst)).collect();
+            let args: Option<Vec<Ty>> = base.args.iter().map(|a| approx_ty(a, subst, symbols)).collect();
+            // [type-identity] The key of what the name means where it was
+            // written: a field `token: Token` in `runtime` is runtime's
+            // `Token`, whichever module holds the plain key (ROADMAP §2d
+            // item 8: it was judged by `args.lex`'s, which can cross the
+            // wire, and given a codec that asked for one runtime's lacks).
             let named = Ty::Named {
-                name: base.name.name.clone(),
+                name: symbols.ref_key(base).to_string(),
                 args: args?,
             };
             let quals: Vec<Qual> = qualifiers
@@ -280,7 +286,7 @@ pub fn approx_ty(t: &Type, subst: &HashMap<String, Ty>) -> Option<Ty> {
             Some(named.qualify(quals))
         }
         Type::QualifiedGroup { qualifiers, base, .. } => {
-            let inner = approx_ty(base, subst)?;
+            let inner = approx_ty(base, subst, symbols)?;
             let quals: Vec<Qual> = qualifiers
                 .iter()
                 .map(|q| Qual {
@@ -292,18 +298,18 @@ pub fn approx_ty(t: &Type, subst: &HashMap<String, Ty>) -> Option<Ty> {
             Some(inner.qualify(quals))
         }
         Type::Union { arms, .. } => {
-            let arms: Option<Vec<Ty>> = arms.iter().map(|a| approx_ty(a, subst)).collect();
+            let arms: Option<Vec<Ty>> = arms.iter().map(|a| approx_ty(a, subst, symbols)).collect();
             Some(Ty::Union(arms?))
         }
         Type::Tuple { elems, .. } => {
-            let elems: Option<Vec<Ty>> = elems.iter().map(|e| approx_ty(e, subst)).collect();
+            let elems: Option<Vec<Ty>> = elems.iter().map(|e| approx_ty(e, subst, symbols)).collect();
             Some(Ty::Tuple(elems?))
         }
-        Type::Array { elem, .. } => Some(Ty::Array(Box::new(approx_ty(elem, subst)?))),
+        Type::Array { elem, .. } => Some(Ty::Array(Box::new(approx_ty(elem, subst, symbols)?))),
         Type::Nullable { inner, .. } => {
-            Some(Ty::Union(vec![approx_ty(inner, subst)?, Ty::none()]))
+            Some(Ty::Union(vec![approx_ty(inner, subst, symbols)?, Ty::none()]))
         }
-        Type::Spread { inner, .. } => Some(Ty::spread_marker(approx_ty(inner, subst)?)),
+        Type::Spread { inner, .. } => Some(Ty::spread_marker(approx_ty(inner, subst, symbols)?)),
         Type::Fn { .. } => Some(Ty::Fn {
             contract: None,
             effects: Vec::new(),
@@ -332,7 +338,7 @@ pub fn effect_has_wire_form(symbols: &Symbols<'_>, e: &EffectDecl) -> bool {
         f.params
             .iter()
             .filter(|p| !p.implicit)
-            .all(|p| approx_ty(&p.ty, &empty).is_some_and(|t| wire_blocker(symbols, &t).is_none()))
+            .all(|p| approx_ty(&p.ty, &empty, symbols).is_some_and(|t| wire_blocker(symbols, &t).is_none()))
     })
 }
 
@@ -353,7 +359,7 @@ pub fn protocol_canonical(symbols: &Symbols<'_>, effect: &EffectDecl) -> String 
                 out.push(',');
             }
             first = false;
-            match approx_ty(&p.ty, &HashMap::new()) {
+            match approx_ty(&p.ty, &HashMap::new(), symbols) {
                 Some(ty) => canonical_ty(symbols, &ty, &mut out, 0),
                 None => out.push('?'),
             }
@@ -413,7 +419,7 @@ fn canonical_ty(symbols: &Symbols<'_>, ty: &Ty, out: &mut String, depth: usize) 
                     if i > 0 {
                         out.push(',');
                     }
-                    match field.ty.as_ref().and_then(|t| approx_ty(t, &subst)) {
+                    match field.ty.as_ref().and_then(|t| approx_ty(t, &subst, symbols)) {
                         Some(t) => canonical_ty(symbols, &t, out, depth + 1),
                         None => out.push('?'),
                     }
@@ -429,13 +435,15 @@ fn canonical_ty(symbols: &Symbols<'_>, ty: &Ty, out: &mut String, depth: usize) 
                     .zip(args.iter().cloned())
                     .collect();
                 if let Some(def) = &alias.alias {
-                    if let Some(t) = approx_ty(def, &subst) {
+                    if let Some(t) = approx_ty(def, &subst, symbols) {
                         canonical_ty(symbols, &t, out, depth + 1);
                         return;
                     }
                 }
             }
-            out.push_str(name);
+            // The written name: which module holds the plain key is an
+            // accident of order, and a hash must not depend on it.
+            out.push_str(crate::typekey::plain(name));
             if !args.is_empty() {
                 out.push('<');
                 for (i, a) in args.iter().enumerate() {

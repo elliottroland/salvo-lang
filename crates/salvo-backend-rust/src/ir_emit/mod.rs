@@ -529,7 +529,7 @@ impl<'p> Shared<'p> {
             if let Some(alias) = self.symbols.type_aliases.get(name.as_str()) {
                 if let Some(target) = alias.alias.as_ref() {
                     let subst: HashMap<String, Ty> = alias.generics.iter().map(|g| g.name.clone()).zip(args.iter().cloned()).collect();
-                    if let Some(expanded) = salvo_core::approx_ty(target, &subst) {
+                    if let Some(expanded) = salvo_core::approx_ty(target, &subst, self.symbols) {
                         return self.unalias(&salvo_core::ir::build::erase(&expanded)).qualify(quals);
                     }
                 }

@@ -7253,7 +7253,7 @@ can have one capability without the other.
   letters }` for a bundle (`-jt`, `-p8080`, split above, where it is known
   which letters take a value), `WordToken { value }`, and `EndToken` for
   `--`, after which every argument is a word. A lone `-` and a negative
-  number (`-3`, `-.5`) are words. No abbreviations. The union is `ArgToken`.
+  number (`-3`, `-.5`) are words. No abbreviations. The union is `Token` (runtime has a `Token` too, which [type-identity] keeps apart).
 * [args-runtime] **`args` reads tokens against a command's description**, as
   the layer under the derive (Q12 (b)): `Spec<T> { name, about, opts:
   List<OptSpec>, args: List<ArgSpec> }` for the type `T` it parses into,
@@ -9965,6 +9965,17 @@ between endpoints and delivers what arrives into the scheduler.
     (`Checked::visible_keys`).
   * A `by auto` stamp reads the stamping module's own declaration of a name
     first [comptime-instantiate].
+  * **A reading of a declaration's own types resolves the same way**
+    (2026-10-20): `Symbols::ref_key` answers the key of a written reference
+    of the collected program — a declared, unclashing name is its own key,
+    and anything else is looked up in the program's resolved references
+    (`resolve::written_keys`), resolved once on first need. `wire::approx_ty`
+    lowers through it, so every predicate over declared shapes — the wire
+    form [wire-format], the protocol hash [protocol-hash], linearity
+    [linear-group], the copy plan, an emitter expanding an alias — judges
+    runtime's field `token: Token` by runtime's own `Token`. A protocol's
+    canonical form spells a name plain, so its hash does not depend on which
+    module holds the plain key.
 * [mod-used-only] Only modules used by the program are transpiled. Roots are
   the user modules declaring `fn main` (all user modules for a library compile
   without one), and from there a module is reached **two ways** (user decision

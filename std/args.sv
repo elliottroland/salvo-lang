@@ -647,7 +647,7 @@ fn short_opt<T>(spec: Spec<T>, c: Char) [] -> OptSpec? => spec {
 
 // The word at `i`, which an option's value may be: a word, or nothing
 // (an option, `--`, or the end of the line).
-fn word_at(tokens: List<ArgToken>, i: Int) [] -> Str? => tokens {
+fn word_at(tokens: List<Token>, i: Int) [] -> Str? => tokens {
     let t = get(tokens, i)
     if t is None {
         return None

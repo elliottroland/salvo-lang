@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2014 tests, complete: the toolchain tests are
+cargo test                  # 2015 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,51 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — The wire predicates resolve a written name where it was written
+
+ROADMAP §2d item 8. The user asked whether the fix was better mangling or
+resolution; it was resolution, and not where ROADMAP said. Codec names
+already followed the key (Kotlin's `struct_codec_name` qualifies by the key's
+module; Rust's codec is an `impl __Wire` on the type, with nothing to name),
+and each module's codecs live in its own package, so nothing collided. What
+read the written name was the predicate deciding *which* structs get a codec:
+`struct_blocker` lowered each field with `approx_ty`, which spelled the name
+as written, then looked it up in the key-indexed `Symbols` tables. So
+runtime's `WaiterMint { token: Token }` was judged by `args.lex`'s `Token`
+(serializable) instead of runtime's own (holding a platform type), got a
+codec, and that codec asked for one runtime's `Token` never had. Naming
+codecs after the key would have failed the same way under another name.
+
+The fix is one function, `Symbols::ref_key`: the key of a written reference
+of the program the tables were collected from. A declared, unclashing name is
+its own key; anything else (a clashing name, an import alias, a generic
+parameter) is looked up in `resolve::written_keys`, resolved once per
+`Symbols` on first need (about 10 ms over std, against ~480 ms for the
+check). `wire::approx_ty` lowers through it, so every reader of declared
+shapes is right at once: the wire predicates, the protocol hash, `linear`'s
+field test (whose alias expansion also looked the written name up, and now
+asks `ref_key`), `copyplan`, and both emitters' alias expansion. A canonical
+protocol spells names plain, so a hash never depends on module order.
+
+Tried first and replaced: a `TypeKeys` parameter threaded through the wire
+predicates (the checker's keys or the `written_keys` map), with `linear` and
+`copyplan` marked "by written name". Renaming `ArgToken` back exposed those
+two at once: std's tests reported false linear leaks, with `args`' `Token`
+judged by runtime's linear one. The first version also read keys through
+`Checked::written_key`, and the CLI build then still gave `WaiterMint` the
+missing codec while the same program built in-process from disk did not; the
+checked-in examples were regenerated with it before the suite caught it.
+Reading by address only fixed it. Why `written_key` differs under the CLI
+(its std cache, or its by-span fallback, which is not file-qualified) is not
+pinned down: ROADMAP §2d records it, since emitters use `written_key`. A table
+owned by `Symbols`, keyed by address in the tree it describes, has neither
+problem.
+
+Tests: CLI `a_clashing_type_name_is_judged_by_its_own_declaration_on_both_backends`
+(`alpha.Token` serializable and first, `beta`'s `noremote struct Token` in
+`beta.Holder`), which fails with rustc's "`Token: __Wire` is not satisfied"
+when `approx_ty` spells the written name; std's own tests with the rename.
 
 ### 2026-10-20 — The Kotlin stdlib the emitter calls is written qualified
 
@@ -27747,7 +27792,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2014 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2015 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

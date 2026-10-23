@@ -37,11 +37,11 @@ export struct WordToken {
 // `--`: the end of the options.
 export struct EndToken {}
 
-export type ArgToken = LongToken | ShortToken | WordToken | EndToken
+export type Token = LongToken | ShortToken | WordToken | EndToken
 
 // The tokens of a command line, in order.
-export fn lex(args: List<Str>) [] -> List<ArgToken> => args {
-    let out: Mut List<ArgToken> = Mut List<ArgToken>()
+export fn lex(args: List<Str>) [] -> List<Token> => args {
+    let out: Mut List<Token> = Mut List<Token>()
     let ended = false
     for arg in args {
         let a = copy(arg)

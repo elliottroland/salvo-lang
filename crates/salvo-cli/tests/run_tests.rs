@@ -976,6 +976,43 @@ fn main() [use] -> None {
     __stamp.verified();
 }
 
+/// [type-identity] [wire-format] Two modules declare `Token`: `alpha`'s, which
+/// holds the plain key, can cross the wire, and `beta`'s cannot. `beta`'s
+/// `Holder { t: Token }` must be judged by `beta`'s own `Token`, so it gets no
+/// codec. Before 2026-10-20 the wire predicate read the field by its written
+/// name, found `alpha`'s, and gave `Holder` a codec that asked for one
+/// `beta.Token` never had: no such `__Codec_Token` on Kotlin, no `__Wire` impl
+/// on Rust (ROADMAP §2d item 8). On both backends.
+#[test]
+fn a_clashing_type_name_is_judged_by_its_own_declaration_on_both_backends() {
+    let Some(__stamp) = e2e_stamp("a_clashing_type_name_is_judged_by_its_own_declaration_on_both_backends", &["rustc", "kotlinc"]) else {
+        return;
+    };
+    let dir = work_dir("wirekeys");
+    fs::write(dir.join("alpha.sv"), "export struct Word {\n    w: Str\n}\n\nexport type Token = Word | Int\n").unwrap();
+    fs::write(
+        dir.join("beta.sv"),
+        "export noremote struct Token {\n    n: Int\n}\n\nexport struct Holder {\n    t: Token\n}\n\nexport fn make(n: Int) [] -> Holder {\n    return Holder { t: Token { n: n } }\n}\n\nexport fn read(h: Holder) [] -> Int => h {\n    return h.t.n\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.join("main.sv"),
+        "import alpha.Token\nimport alpha.Word\nimport beta.make\nimport beta.read\n\nfn show(t: Token) [] -> Str => t {\n    if t is Word {\n        return t.w\n    }\n    return \"${t}\"\n}\n\nfn main() [use] -> None {\n    use StdConsole()\n    let t: Token = Word { w: \"hi\" }\n    println(\"${show(t)} ${read(make(7))}\")\n}\n",
+    )
+    .unwrap();
+    for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
+        if !have(tool) {
+            eprintln!("skipping {backend}: {tool} not found on PATH");
+            continue;
+        }
+        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", ".", "--main", "main.sv", "--clean-target", "before"]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "{backend} failed: {stderr}");
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "hi 7\n", "{backend}: {stderr}");
+    }
+    __stamp.verified();
+}
+
 /// [result-errs] The accumulating outcome keeps every error: `map2` of two
 /// successes, of two failures (both errors, in order), and of one failure,
 /// on both backends.

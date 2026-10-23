@@ -9,7 +9,7 @@ use std::collections::HashMap;
 
 use salvo_syntax::ast::{
     ParamsDecl,
-    EffectDecl, FnDecl, HandlerDecl, Item, Module, QualifierDecl, StructDecl, TypeDecl,
+    EffectDecl, FnDecl, HandlerDecl, Item, Module, QualifierDecl, StructDecl, TypeDecl, TypeRef,
 };
 
 use crate::source::{CompanionFile, ModulePath, SourceFile};
@@ -93,6 +93,14 @@ pub struct Symbols<'p> {
     /// spells every declaration of one with its module's path, since a
     /// glob or star import of two would be ambiguous in the host.
     pub clashing: std::collections::HashSet<&'p str>,
+    /// [type-identity] The program the tables were collected from, for
+    /// [`Symbols::ref_key`].
+    program: Option<&'p Program>,
+    /// [type-identity] The key of every written type reference of `program`
+    /// whose key is not its name, by the reference's address
+    /// (`resolve::written_keys`), computed the first time a reference that
+    /// may need it is asked about.
+    ref_keys: std::sync::OnceLock<HashMap<usize, String>>,
 }
 
 impl<'p> Symbols<'p> {
@@ -120,9 +128,30 @@ impl<'p> Symbols<'p> {
         self.key_of(decl).unwrap_or(name)
     }
 
+    /// [type-identity] The key of the declaration a written type reference
+    /// of the collected program names, in the scope of the file that wrote
+    /// it: what a reading of a declaration's own field and parameter types
+    /// must use, since the tables are keyed. A declared, unclashing name is
+    /// its own key; anything else (a clashing name, an import alias, a
+    /// generic parameter) is looked up in the program's resolved references,
+    /// resolved once on first need (~1% of a check). A reference from
+    /// another tree (a copy) is answered by its written name.
+    pub fn ref_key<'a>(&'a self, r: &'a TypeRef) -> &'a str {
+        let name = r.name.name.as_str();
+        if !self.clashing.contains(name) && self.key_modules.contains_key(name) {
+            return name;
+        }
+        let Some(program) = self.program else { return name };
+        let keys = self.ref_keys.get_or_init(|| {
+            let resolution = crate::resolve::resolve(program);
+            crate::resolve::written_keys(program, &resolution, self)
+        });
+        keys.get(&(r as *const TypeRef as usize)).map(String::as_str).unwrap_or(name)
+    }
+
     /// Collects symbols from every module of the program.
     pub fn collect(program: &'p Program) -> Self {
-        let mut symbols = Symbols::default();
+        let mut symbols = Symbols { program: Some(program), ..Symbols::default() };
         // [type-identity] Which module first declared each type name, and
         // which handler name: one namespace for types and effects, one for
         // handlers.

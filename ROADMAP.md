@@ -894,16 +894,21 @@ reproduced in a scratch project; the repros are below.
    from a forwarded own implicit first. `core.result`'s `joined` names its
    parameter `X` until then.
 
-8. **Two std modules declaring one type name break the wire codecs.** Found
-   2026-10-20 building `args.lex` (2.1), whose token union was first named
-   `Token` beside `runtime`'s `linear struct Token`. The earlier module
-   (`args.lex`) took the plain key and `runtime`'s became `Token§runtime`
-   [type-identity], but the codecs are named by the written name: Kotlin's
-   `runtime.kt` referred to an `__Codec_Token` that was never emitted, and
-   Rust's `Option<Token>` had no `__Wire`. Repro: rename `args.lex`'s
-   `ArgToken` back to `Token` and run `salvo test --src std`. A user module
-   is not affected (std's declarations come first). Fix: name a codec after
-   the key. `args.lex` says `ArgToken` until then.
+8. ✅ **A declaration's own types resolve where they were written** —
+   done 2026-10-20 (`Symbols::ref_key`, [type-identity], COMPLETED.md);
+   `args.lex`'s union is `Token` again. Left over, **unexplained**: with the
+   wire predicates reading keys through `Checked::written_key`, the CLI
+   build (`salvo compile` of `examples/time`, embedded std) judged runtime's
+   `WaiterMint { token: Token }` by `args.lex`'s `Token`, while the
+   in-process build from disk (`every_examples_checked_in_kotlin_is_current`)
+   judged it right. So for that reference `written_key` returned the written
+   name under the CLI. Suspects: the std cache seeding `Checked` from
+   another tree (address miss), and the by-span fallback
+   (`type_ref_span_keys`), keyed by span and name but not file, which drops
+   an entry two references disagree on. Emitters read `written_key`, so a
+   clashing name in emitted code may be affected the same way. Repro: route
+   `wire::approx_ty`'s key through `ctx.checked.written_key` and compile
+   `examples/time`.
 
 9. **Rust: a value read through a temporary's field inside `!` dies too
    soon.** Found 2026-10-20 (2.1). `copy(get(make().items, 0)!)` emits a
