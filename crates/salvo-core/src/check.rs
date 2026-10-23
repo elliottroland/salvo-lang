@@ -578,6 +578,10 @@ pub struct Checked {
     /// its value slots [qual-depend] — `k is KeyOf(m)` lowers to
     /// `KeyOf.qualifies(k, m)`.
     pub predicate_tests: HashMap<Key, Vec<PredicateCheck>>,
+    /// [qual-explain] `Q.member(args)` — a call to a qualifier's own fn
+    /// (`InRange.explain(n, 1, 65535)`): the qualifier, the member, and the
+    /// base its `of` names (which declaration of an overloaded qualifier).
+    pub qual_member_calls: HashMap<Key, (String, String, Option<String>)>,
     /// Field accesses whose type is refined by a predicate-qualifier field
     /// override, keyed by the field expression span: the overridden type
     /// (the backend casts + asserts).
@@ -20840,6 +20844,83 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// well-formed `qualifies` function [qual-predicate]; field overrides
     /// must refine real fields of the `of` struct [qual-field-override];
     /// bodiless (constructive) qualifiers take neither [qual-constructive].
+    /// [qual-explain] A predicate qualifier's optional `explain`: it says why
+    /// a value failed `qualifies`, so it takes exactly `qualifies`'s
+    /// parameters and returns a `Str`.
+    fn check_explain_decl(&mut self, q: &'p QualifierDecl) {
+        let Some(explain) = q.fns.iter().find(|f| f.name.name == "explain") else { return };
+        let Some(qualifies) = q.fns.iter().find(|f| f.name.name == "qualifies") else {
+            self.error(explain.name.span, format!("`{}.explain` says why `qualifies` failed, and `{}` has no `qualifies` [qual-explain]", q.name.name, q.name.name));
+            return;
+        };
+        let shape = |f: &ast::FnDecl| -> Vec<String> { f.params.iter().map(|p| format!("{}{}", if p.implicit { "?" } else { "" }, p.ty)).collect() };
+        if shape(explain) != shape(qualifies) {
+            self.error(
+                explain.name.span,
+                format!(
+                    "`{}.explain` takes the parameters `qualifies` takes — ({}) — so it can be called with the same arguments [qual-explain]",
+                    q.name.name,
+                    shape(qualifies).join(", ")
+                ),
+            );
+        }
+        let returns_str = matches!(&explain.return_type, Some(ast::Type::Named { qualifiers, base }) if qualifiers.is_empty() && base.name.name == "Str");
+        if !returns_str {
+            self.error(explain.name.span, format!("`{}.explain` returns the message, a `Str` [qual-explain]", q.name.name));
+        }
+    }
+
+    /// [qual-explain] `Q.member(args)`: a qualifier's own fn called directly —
+    /// `qualifies` or `explain` — with every non-implicit parameter given, the
+    /// qualifier's type parameters inferred from the arguments.
+    fn check_qual_member_call(&mut self, q: &'p QualifierDecl, f: &'p ast::FnDecl, args: &'p [Expr], span: Span) -> Ty {
+        let saved = self.enter_generics(&q.generics);
+        let params: Vec<&ast::Param> = f.params.iter().filter(|p| !p.implicit).collect();
+        if f.params.iter().any(|p| p.implicit) {
+            self.error(span, format!("`{}.{}` takes implicit parameters, which a direct call does not fill: test with `is` [qual-explain]", q.name.name, f.name.name));
+        }
+        if params.len() != args.len() {
+            self.error(
+                span,
+                format!(
+                    "`{}.{}` takes {} argument(s) — the subject, then one per slot — found {} [qual-explain]",
+                    q.name.name,
+                    f.name.name,
+                    params.len(),
+                    args.len()
+                ),
+            );
+            for a in args {
+                self.check_expr(a, None);
+            }
+            self.generics = saved;
+            return Ty::Unknown;
+        }
+        let mut subst: HashMap<String, Ty> = HashMap::new();
+        let gens: HashSet<String> = q.generics.iter().map(|g| g.name.clone()).collect();
+        for (p, a) in params.iter().zip(args) {
+            let want = self.lower_type(&p.ty);
+            let got = self.check_expr(a, Some(&want));
+            unify(&want, got.strip_quals(), &mut subst);
+            let want = if gens.is_empty() { want } else { substitute_vars(&want, &subst, &gens) };
+            if !got.is_unknown() && !want.is_unknown() && !is_subtype(&got, &want) && !is_subtype(got.strip_quals(), &want) {
+                self.error(a.span(), format!("`{}.{}` expects `{want}`, found `{got}`", q.name.name, f.name.name));
+            }
+        }
+        let ret = match &f.return_type {
+            Some(t) if !gens.is_empty() => substitute_vars(&self.lower_type(t), &subst, &gens),
+            Some(t) => self.lower_type(t),
+            None => Ty::none(),
+        };
+        self.generics = saved;
+        let of = match &q.of {
+            ast::Type::Named { base, .. } => Some(base.name.name.clone()),
+            _ => None,
+        };
+        self.out.qual_member_calls.insert(self.key(span), (q.name.name.clone(), f.name.name.clone(), of));
+        ret
+    }
+
     /// [comptime-qualifier] The comptime qualifiers written on a declaration
     /// (`subject` is `Struct`) or before a field's name (`Field`): each names
     /// a `comptime qualifier` of that subject, once, with a constant of its
@@ -21023,6 +21104,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         if !q.has_body {
             return;
         }
+        self.check_explain_decl(q);
         let Some(qualifies) = q.fns.iter().find(|f| f.name.name == "qualifies") else {
             // [qual-refn-scope] A **constructive** qualifier may still have a
             // body: refinements live in the qualifier that owns the claim, and a
@@ -29398,6 +29480,18 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         if let Expr::Field { base, field, .. } = callee {
             let name = field.name.as_str();
+            // [qual-explain] `InRange.explain(n, 1, 65535)`: a qualifier's
+            // own fn, called with the subject and the slot values.
+            if let Expr::Ident(q) = &**base {
+                if q.name.starts_with(|c: char| c.is_uppercase()) && self.scope.is_qualifier(&q.name) {
+                    if let Some(decl) = self.qual_decl(&q.name) {
+                        if let Some(f) = decl.fns.iter().find(|f| f.name.name == name) {
+                            self.record_def_ref(q.span, &q.name);
+                            return self.check_qual_member_call(decl, f, args, span);
+                        }
+                    }
+                }
+            }
             // [namespace] A namespaced free-fn call `Outer.Inner.make(x)`: a
             // `Field` chain of uppercase namespace segments ending in a
             // lowercase fn name. It resolves to the flat key `Outer.Inner.make`

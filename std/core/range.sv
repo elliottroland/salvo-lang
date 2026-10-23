@@ -64,4 +64,8 @@ export qualifier InRange(lo: Int, hi: Int) of Int {
     fn qualifies(n: Int, lo: Int, hi: Int) -> Bool {
         return n >= lo && n <= hi
     }
+    // [qual-explain] Why a value failed: "70000 is not in 1..65535".
+    fn explain(n: Int, lo: Int, hi: Int) -> Str {
+        return "${n} is not in ${lo}..${hi}"
+    }
 }

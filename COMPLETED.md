@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1985 tests, complete: the toolchain tests are
+cargo test                  # 1987 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,31 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — `explain`: a predicate qualifier says why a value failed
+
+Phase 1.9 of the argument-parsing build (ARG_PARSE.md X9, Q10, accepted with
+the call spelling `InRange.explain(n, 1, 65535)`). [qual-explain]: an
+optional `fn explain` with `qualifies`'s parameters returns the message;
+`assert!(x is Q(…))` without a message of its own traps with it; `Q.qualifies`
+and `Q.explain` are callable directly. std's `InRange` gains one, so the
+examples that reach `core.range` regenerated (the added fn only).
+
+What it took:
+- Checker: `check_explain_decl` (same parameters as `qualifies`, returns
+  `Str`), and `check_qual_member_call` for `Q.member(args)` — a call form
+  that did not exist (`InRange.qualifies(…)` was "no function named
+  `qualifies`"), recorded in `Checked::qual_member_calls`.
+- IR: `qualifies_call` became `qual_fn_call` over any member, `qualifies_ref`
+  `qual_fn_ref`; an assert with no message gets `explained(cond)`, built from
+  the single predicate check the checker recorded for the `is`.
+- Not covered: `expect` in std's tests, and the predicate-default trap's
+  message.
+
+Tests: depend_tests `explain_is_declared_like_qualifies_and_callable`; CLI
+run `explain_messages_run_on_both_backends` (direct `qualifies`/`explain`
+calls, a user qualifier's and `InRange`'s, and the assert's trap message,
+both backends).
 
 ### 2026-10-20 — `x is A | B`, `||` narrows, and a literal test compares the value
 
@@ -27218,7 +27243,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 1985 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1987 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

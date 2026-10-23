@@ -815,6 +815,30 @@ fn union_is_tests_narrow_on_both_backends() {
     __stamp.verified();
 }
 
+/// [qual-explain] A predicate qualifier says why a value failed: `Q.explain`
+/// called directly, and an `assert!(x is Q(…))` with no message of its own
+/// trapping with the explanation (std's `InRange` has one), on both backends.
+#[test]
+fn explain_messages_run_on_both_backends() {
+    let Some(__stamp) = e2e_stamp("explain_messages_run_on_both_backends", &["rustc", "kotlinc"]) else {
+        return;
+    };
+    let dir = work_dir("explain");
+    fs::write(dir.join("main.sv"), "qualifier Small(hi: Int) of Int {\n    fn qualifies(n: Int, hi: Int) -> Bool {\n        return n < hi\n    }\n    fn explain(n: Int, hi: Int) -> Str {\n        return \"${n} is not below ${hi}\"\n    }\n}\n\n\nfn main() [use] -> None {\n    use StdConsole()\n    println(\"${Small.qualifies(5, 10)} ${Small.explain(50, 10)} ${InRange.explain(70000, 1, 65535)}\")\n    let x = 70000\n    assert!(x is InRange(1, 65535))\n}\n").unwrap();
+    for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
+        if !have(tool) {
+            eprintln!("skipping {backend}: {tool} not found on PATH");
+            continue;
+        }
+        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", ".", "--clean-target", "before"]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(!out.status.success(), "{backend}: the assert must trap");
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "true 50 is not below 10 70000 is not in 1..65535\n", "{backend}");
+        assert!(stderr.contains("salvo: 70000 is not in 1..65535 at main:"), "{backend}: {stderr}");
+    }
+    __stamp.verified();
+}
+
 /// [str-parse] The value parsers read the same strings on both backends:
 /// `parse_double` checks one decimal grammar before converting (the hosts'
 /// own parsers disagree on whitespace, `NaN`, `inf`, hex and `f` suffixes),

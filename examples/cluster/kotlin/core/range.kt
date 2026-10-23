@@ -57,3 +57,7 @@ fun InRange_qualifies(n: Int, lo: Int, hi: Int): Boolean {
     return ((n >= lo) && (n <= hi))
 }
 
+fun InRange_explain(n: Int, lo: Int, hi: Int): String {
+    return "${n} is not in ${lo}..${hi}"
+}
+

@@ -468,3 +468,26 @@ fn stepping_a_linked_int_strips_the_claim() {
         "expected the widen to miss the stripped claim: {errs:?}"
     );
 }
+
+/// [qual-explain] A predicate qualifier's `explain` takes `qualifies`'s
+/// parameters and returns a `Str`; `Q.qualifies(…)` and `Q.explain(…)` are
+/// callable directly, with the subject then the slot values, and checked.
+#[test]
+fn explain_is_declared_like_qualifies_and_callable() {
+    let ok = "qualifier Small(hi: Int) of Int {\n    fn qualifies(n: Int, hi: Int) -> Bool {\n        return n < hi\n    }\n    \
+              fn explain(n: Int, hi: Int) -> Str {\n        return \"too big\"\n    }\n}\n\n\
+              fn f(n: Int) [] -> Str => n {\n    if Small.qualifies(n, 10) {\n        return \"ok\"\n    }\n    return Small.explain(n, 10)\n}\n";
+    assert!(errors(ok).is_empty(), "got {:?}", errors(ok));
+    let bad = "qualifier Bad of Int {\n    fn qualifies(n: Int) -> Bool {\n        return true\n    }\n    fn explain(n: Str) -> Int {\n        return 0\n    }\n}\n\n\
+               qualifier Small(hi: Int) of Int {\n    fn qualifies(n: Int, hi: Int) -> Bool {\n        return n < hi\n    }\n}\n\n\
+               fn f(n: Int) [] -> Bool => n {\n    return Small.qualifies(n) || Small.qualifies(\"x\", 3)\n}\n";
+    let errs = errors(bad);
+    for want in [
+        "`Bad.explain` takes the parameters `qualifies` takes",
+        "`Bad.explain` returns the message, a `Str`",
+        "`Small.qualifies` takes 2 argument(s)",
+        "`Small.qualifies` expects `Int`, found",
+    ] {
+        assert!(errs.iter().any(|e| e.contains(want)), "missing {want:?} in {errs:?}");
+    }
+}

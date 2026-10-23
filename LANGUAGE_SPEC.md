@@ -1938,6 +1938,22 @@ Conventions:
     `x is Positive` errors with "this check can never succeed"). Narrow
     first — `x is Int && x is Positive`. Lifting this needs qualifiers
     over unions; see D4 in ROADMAP.md.
+* [qual-explain] **A predicate qualifier may say why a value failed**
+  (ARG_PARSE.md X9, Q10; built 2026-10-20): an optional `fn explain` beside
+  `qualifies`, with exactly its parameters, returning the message as a
+  `Str`. std's `InRange` has one ("70000 is not in 1..65535").
+  * **`assert!(x is Q(…))` with no message of its own fails with it**: the
+    IR builds the message as `Q.explain(x, …)` from the test's single
+    predicate check, read only when the test failed, for a subject that is a
+    place.
+  * **`Q.qualifies(…)` and `Q.explain(…)` are callable directly**, the
+    subject first and then one value per slot (`InRange.explain(n, 1,
+    65535)`), the qualifier's type parameters inferred from the arguments;
+    the checker records it in `Checked::qual_member_calls` and the IR calls
+    the member's declaration. A member that takes implicits is refused here
+    (an `is` fills them).
+  * Not covered: `expect(x is Q(…))` in std's tests does not use it yet, and
+    a failing predicate default [default-predicate] keeps its own message.
 * [is-qualifies-effects] `qualifies` may declare effects; at each
   predicate `is` site those effects must be available in the caller's
   scope like any call.

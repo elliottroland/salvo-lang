@@ -152,6 +152,17 @@ qualifier Negative of Int {
 }
 ```
 
+A predicate qualifier can also say **why** a value fails, with an optional `explain` that takes the same parameters as `qualifies` and returns the message:
+
+```
+qualifier InRange(lo: Int, hi: Int) of Int {
+    fn qualifies(n: Int, lo: Int, hi: Int) -> Bool { return n >= lo && n <= hi }
+    fn explain(n: Int, lo: Int, hi: Int) -> Str { return "${n} is not in ${lo}..${hi}" }
+}
+```
+
+`assert!(port is InRange(1, 65535))` then fails with "70000 is not in 1..65535", and code that reports errors can call it directly: `InRange.explain(port, 1, 65535)`. `InRange.qualifies(port, 1, 65535)` is the test as a plain call.
+
 A claim is tested with the same `is` syntax that narrows a union ([Control flow](Control-Flow.md)). When applied to a non-union type of the relevant kind (in this case `Int`), then it calls the `qualifies` function and allows casting:
 
 ```

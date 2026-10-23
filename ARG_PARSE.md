@@ -118,7 +118,7 @@ tracked here so a fresh agent can carry on. Rules for whoever continues:
 - [x] 1.7 Literal members in comptime: `[for lit in field.type.literals]`
   (X3, Q8).
 - [x] 1.8 Multi-literal / multi-type `is` in ordinary code (X4, Q9).
-- [ ] 1.9 `explain` on predicate qualifiers (X9, Q10).
+- [x] 1.9 `explain` on predicate qualifiers (X9, Q10).
 - [ ] 1.10 An accumulating outcome `Ok T | Errs NonEmpty List<E>` (X12, Q11).
 - [ ] 1.11 Comparing two binders' names in comptime (X16).
 - [ ] 1.12 Stamping a decoder: `struct S : FromArgs<self> by args` (X6, Q7).
@@ -135,6 +135,9 @@ tracked here so a fresh agent can carry on. Rules for whoever continues:
 **Blocked on the user:** nothing.
 
 **Log** (newest first):
+- 2026-10-20: 1.9 done ("Let a predicate qualifier explain a failure"):
+  [qual-explain]; 1987 tests. `Q.explain(…)`/`Q.qualifies(…)` callable;
+  `InRange` explains. Next: 1.10 (the accumulating outcome).
 - 2026-10-20: 1.8 done ("Test several literals or types in one is"): [is-union];
   1985 tests. Fixed on the way: a literal `is` on a plain `Str` was always
   true; `||` narrowed nothing; a sub-union narrowing was rewrapped twice.

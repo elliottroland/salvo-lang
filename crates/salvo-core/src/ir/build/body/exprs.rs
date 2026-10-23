@@ -167,7 +167,12 @@ impl<'a, 'p> Lower<'a, 'p> {
             AExpr::SafeNav { base, access, .. } => self.safe_nav(base, access, span),
             AExpr::Assert { cond, message, .. } => {
                 let c = self.expr(cond);
-                let m = message.as_ref().map(|m| Box::new(self.expr(m)));
+                let mut m = message.as_ref().map(|m| Box::new(self.expr(m)));
+                // [qual-explain] `assert!(x is Q(…))` with no message of its
+                // own fails with `Q`'s `explain`, when it declares one.
+                if m.is_none() {
+                    m = self.explained(cond).map(Box::new);
+                }
                 Expr { ty: Ty::none(), span, kind: ExprKind::Assert { cond: Box::new(c), message: m, at: self.location(span) } }
             }
             AExpr::Unreachable { message, .. } => {
@@ -939,6 +944,18 @@ impl<'a, 'p> Lower<'a, 'p> {
         let checked = self.ctx.checked;
         // [unify-checker] One lookup for the whole call cluster.
         let info = checked.call_info(key);
+        // [qual-explain] `InRange.explain(n, 1, 65535)`: a qualifier's own fn.
+        if let Some((q, member, of)) = checked.qual_member_calls.get(&key).cloned() {
+            let subject = match &of {
+                Some(base) => Ty::named(base.clone()),
+                None => Ty::Unknown,
+            };
+            let a: Vec<Expr> = args.iter().map(|x| self.expr(x)).collect();
+            return match self.qual_fn_ref(&q, &subject, &member) {
+                Some(target) => Expr { ty, span, kind: ExprKind::Call { target: FnRef::Decl(target), type_args: Vec::new(), args: a } },
+                None => unsupported(ty, span, format!("`{q}.{member}`")),
+            };
+        }
         // [throw] `throw(m)`.
         if let Some(site) = info.may_throw {
             if site.performs {
@@ -1532,10 +1549,17 @@ impl<'a, 'p> Lower<'a, 'p> {
     }
 
     fn qualifies_call(&mut self, check: &crate::check::PredicateCheck, subject: Expr, span: Span) -> Expr {
-        let bool_ty = Ty::named("Bool");
-        let Some(target) = self.qualifies_ref(&check.name, &subject.ty) else {
-            self.error(span, format!("qualifier `{}` has no `qualifies`", check.name));
-            return unsupported(bool_ty, span, "qualifies");
+        self.qual_fn_call(check, subject, span, "qualifies", Ty::named("Bool"))
+    }
+
+    /// [qual-explain] A call to one of a predicate qualifier's own fns —
+    /// `qualifies`, or `explain` for a failed test's message — with the
+    /// subject and the check's slot values.
+    fn qual_fn_call(&mut self, check: &crate::check::PredicateCheck, subject: Expr, span: Span, member: &str, ret: Ty) -> Expr {
+        let bool_ty = ret;
+        let Some(target) = self.qual_fn_ref(&check.name, &subject.ty, member) else {
+            self.error(span, format!("qualifier `{}` has no `{member}`", check.name));
+            return unsupported(bool_ty, span, member.to_string());
         };
         // [is-qualifies-effects] the effects a `qualifies` performs lead.
         let mut args: Vec<Expr> = Vec::new();
@@ -1699,6 +1723,12 @@ impl<'a, 'p> Lower<'a, 'p> {
     }
 
     fn qualifies_ref(&self, name: &str, subject: &Ty) -> Option<DeclId> {
+        self.qual_fn_ref(name, subject, "qualifies")
+    }
+
+    /// [qual-explain] The fn `member` of the qualifier `name` (the declaration
+    /// for `subject` when the name is overloaded).
+    fn qual_fn_ref(&self, name: &str, subject: &Ty, member: &str) -> Option<DeclId> {
         let candidates = self.ctx.symbols.qualifiers.get(name)?;
         let decl: &ast::QualifierDecl = match candidates.as_slice() {
             [] => return None,
@@ -1712,13 +1742,26 @@ impl<'a, 'p> Lower<'a, 'p> {
                 many.iter().copied().find(|d| crate::refine::of_base(&d.of, &d.generics).is_some_and(|of| of == base)).or_else(|| candidates.first().copied())?
             }
         };
-        let fi = decl.fns.iter().position(|f| f.name.name == "qualifies")?;
+        let fi = decl.fns.iter().position(|f| f.name.name == member)?;
         for (file_idx, m) in self.ctx.program.modules.iter().enumerate() {
             if let Some(item) = m.items.iter().position(|i| matches!(i, ast::Item::Qualifier(q) if std::ptr::eq(q, decl))) {
                 return Some(DeclId { module: self.ctx.program.files[file_idx].module.clone(), item, sub: fi as u16 + 1 });
             }
         }
         None
+    }
+
+    /// [qual-explain] The message an `x is Q(…)` test that failed has: `Q`'s
+    /// `explain` with the same arguments, for a single predicate check over a
+    /// place (the place is read again, only when the test failed).
+    fn explained(&mut self, cond: &AExpr) -> Option<Expr> {
+        let AExpr::Is { subject, span, .. } = cond else { return None };
+        let checks = self.ctx.checked.predicate_tests.get(&self.key(*span)).cloned()?;
+        let [check] = checks.as_slice() else { return None };
+        self.stored_place_of(subject)?;
+        let subj = self.expr(subject);
+        self.qual_fn_ref(&check.name, &subj.ty, "explain")?;
+        Some(self.qual_fn_call(check, subj, *span, "explain", Ty::named("Str")))
     }
 
     /// [safe-nav] `base?.link`: switch on the receiver; `None` short-circuits
