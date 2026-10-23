@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1989 tests, complete: the toolchain tests are
+cargo test                  # 1992 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,26 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — A clause stamps a member that only returns its type
+
+Phase 1.12, the last of phase 1 (ARG_PARSE.md X6, Q7 (a): an obligation
+clause, `struct Serve : FromArgs<self> by args`). [obligation-return]: the
+clause path already stamped at the declaring type — the template's bound `T`
+is substituted in the return as in the parameters, and the "first
+parameter" requirement belongs only to the function form — so a decoder
+`from_strs(args: List<Str>) -> T` stamps per struct, and two structs' stamps
+are return-type overloads chosen by the expected type. Confirmed end to end
+rather than built; what needed changing was beside it:
+- A **hand-written** fulfilment of a return-only member was not attached to
+  the type (resolution required a parameter naming it), so it did not travel
+  with the type on import. It now counts the return type too.
+
+Tests: compare_tests `a_member_returning_self_is_stamped_at_the_clause`
+(two structs, chosen by annotation; ambiguous without one),
+`a_hand_written_member_returning_self_is_attached`; CLI run
+`a_stamped_decoder_runs_on_both_backends` (a positional decoder reading each
+field with `from_str`, both backends).
 
 ### 2026-10-20 — Two binders' names compare in a comptime head
 
@@ -27280,7 +27300,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 1989 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1992 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

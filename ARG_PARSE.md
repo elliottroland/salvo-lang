@@ -121,7 +121,7 @@ tracked here so a fresh agent can carry on. Rules for whoever continues:
 - [x] 1.9 `explain` on predicate qualifiers (X9, Q10).
 - [x] 1.10 An accumulating outcome `Ok T | Errs NonEmpty List<E>` (X12, Q11).
 - [x] 1.11 Comparing two binders' names in comptime (X16).
-- [ ] 1.12 Stamping a decoder: `struct S : FromArgs<self> by args` (X6, Q7).
+- [x] 1.12 Stamping a decoder: `struct S : FromArgs<self> by args` (X6, Q7).
 
 **Phase 2: `std/args`**
 - [ ] 2.1 Lexer, `ArgError`, internal runtime layer (§4.0, Q12, Q17, Q18).
@@ -135,6 +135,10 @@ tracked here so a fresh agent can carry on. Rules for whoever continues:
 **Blocked on the user:** nothing.
 
 **Log** (newest first):
+- 2026-10-20: 1.12 done ("Stamp a member that only returns its type"):
+  [obligation-return]; 1992 tests. It already worked; a hand-written
+  return-only fulfilment is now attached. **Phase 1 is complete.** Next: 2.1
+  (lexer, `ArgError`, runtime layer).
 - 2026-10-20: 1.11 done ("Compare two binders' names in comptime"):
   [comptime-name]; 1989 tests. Next: 1.12 (`FromArgs<self> by args`).
 - 2026-10-20: 1.10 done ("Add an accumulating outcome to core.result"):

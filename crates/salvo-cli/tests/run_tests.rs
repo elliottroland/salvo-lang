@@ -865,6 +865,30 @@ fn accumulated_errors_run_on_both_backends() {
     __stamp.verified();
 }
 
+/// [obligation-return] A decoder stamped by an obligation clause: two structs
+/// each get `from_strs(args: List<Str>) -> S`, which the expected type
+/// chooses between (each field read with `from_str`, chosen by the field's
+/// type), on both backends.
+#[test]
+fn a_stamped_decoder_runs_on_both_backends() {
+    let Some(__stamp) = e2e_stamp("a_stamped_decoder_runs_on_both_backends", &["rustc", "kotlinc"]) else {
+        return;
+    };
+    let dir = work_dir("stamped_decoder");
+    fs::write(dir.join("decode.sv"), "export params FromStrs<T> {\n    fn from_strs(args: List<Str>) -> T\n}\n\nexport comptime fn from_strs<T is Struct>(args: List<Str>) [] -> T => args {\n    return T { [for f in T.fields] { [f]: from_str(get(args, f.index)!)! } }\n}\n").unwrap();
+    fs::write(dir.join("main.sv"), "import decode\n\nstruct Serve : FromStrs<self> by decode {\n    port: Int,\n    host: Str\n}\n\nstruct Stop : FromStrs<self> by decode {\n    force: Bool\n}\n\nfn main() [use] -> None {\n    use StdConsole()\n    let s: Serve = from_strs(List(\"80\", \"web\"))\n    let t: Stop = from_strs(List(\"true\"))\n    println(\"${s.port} ${s.host} ${t.force}\")\n}\n").unwrap();
+    for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
+        if !have(tool) {
+            eprintln!("skipping {backend}: {tool} not found on PATH");
+            continue;
+        }
+        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", ".", "--clean-target", "before"]);
+        assert!(out.status.success(), "{backend} failed: {}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "80 web true\n", "{backend}");
+    }
+    __stamp.verified();
+}
+
 /// [str-parse] The value parsers read the same strings on both backends:
 /// `parse_double` checks one decimal grammar before converting (the hosts'
 /// own parsers disagree on whitespace, `NaN`, `inf`, hex and `f` suffixes),

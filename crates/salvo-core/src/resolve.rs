@@ -793,7 +793,12 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
                         {
                             continue;
                         }
-                        if f.params.iter().any(|p| mentions_type(&p.ty, type_name)) {
+                        // [obligation-return] A member that only *returns*
+                        // the type (`from_args(args: List<Str>) -> Ok T | …`)
+                        // is fulfilled by a fn returning it.
+                        if f.params.iter().any(|p| mentions_type(&p.ty, type_name))
+                            || f.return_type.as_ref().is_some_and(|r| mentions_type(r, type_name))
+                        {
                             attached.insert(*key, type_name.to_string());
                         }
                     }

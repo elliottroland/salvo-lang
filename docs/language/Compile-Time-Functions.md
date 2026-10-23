@@ -65,6 +65,23 @@ The type stamped at is the first parameter's, and the written signature has to
 be the instantiation's; a body beside `by` is an error, since the body is what
 `by` supplies.
 
+A clause names its type itself, so its members need not take one. A decoder
+returns the type and takes something else:
+
+```
+params FromStrs<T> {
+    fn from_strs(args: List<Str>) -> T
+}
+
+struct Serve : FromStrs<self> by decode { port: Int, host: Str }
+struct Stop : FromStrs<self> by decode { force: Bool }
+
+let s: Serve = from_strs(List("80", "web"))
+```
+
+Each struct gets its own `from_strs`, and since they differ only in what they
+return, the type the result goes to chooses ([Functions](Functions.md#overloading-by-return-type)).
+
 ### Where the errors land
 
 A stamped body resolves a `cmp` per field, so a field with no `cmp` — a

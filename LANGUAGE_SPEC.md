@@ -4882,6 +4882,18 @@ Conventions:
     member is lowered to a host derive, and no backend derives `Hash`/`Ord`
     or generates a `Comparable` for a struct: a `List<Point>` or `(Int,
     Point)` **key** reaches the element's Salvo fn [col-hashed-ordered].
+* [obligation-return] **A member that only returns the type is stamped at the
+  clause too** (ARG_PARSE.md X6, Q7 (a); confirmed 2026-10-20): the clause
+  names its target (`self`), so `struct Serve : FromArgs<self> by args`
+  stamps `from_args(args: List<Str>) -> … Serve …` though no parameter
+  mentions `Serve`; the template's bound `T` is substituted in the return as
+  in the parameters. Two structs of one module stamping it are return-type
+  overloads [fn-overload-return], chosen by where the result goes. The
+  function form (`fn f(…) by X`) still stamps at its first parameter's type.
+  * A **hand-written** fulfilment of such a member (`fn default() ->
+    Point` for `: Default<self>`) is attached to the type when its return
+    type names it, as one whose parameter does is [fn-attached]: it is
+    imported with the type.
 * [fn-by] **`by X` on a fn declaration stamps that one member**, keeping the
   full written signature [decl-explicit]:
 

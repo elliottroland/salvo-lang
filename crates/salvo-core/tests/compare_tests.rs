@@ -1735,3 +1735,92 @@ fn an_intrinsic_type_with_a_missing_member_still_errors() {
         "expected the missing-member error, got {errs:?}"
     );
 }
+
+// ===== [obligation-return] a member that only returns the type =====
+
+/// [obligation-return] `struct S : FromStrs<self> by decode` stamps a member
+/// whose parameters do not mention `S` — a decoder, `from_strs(args:
+/// List<Str>) -> S` — at the struct the clause is on (ARG_PARSE.md X6, Q7
+/// (a)). Two structs stamping it in one module are return-type overloads
+/// [fn-overload-return], chosen by where the result goes.
+#[test]
+fn a_member_returning_self_is_stamped_at_the_clause() {
+    let files: &[(&str, &str)] = &[
+        (
+            "decode.sv",
+            r#"
+export params FromStrs<T> {
+    fn from_strs(n: Int) -> T
+}
+
+export comptime fn from_strs<T is Struct>(n: Int) [] -> T => n {
+    return T { [for f in T.fields] { [f]: n } }
+}
+"#,
+        ),
+        (
+            "main.sv",
+            r#"
+import decode
+
+struct A : FromStrs<self> by decode {
+    x: Int
+}
+
+struct B : FromStrs<self> by decode {
+    y: Int,
+    z: Int
+}
+
+fn probe() [] -> Int {
+    let a: A = from_strs(1)
+    let b: B = from_strs(2)
+    return a.x + b.y + b.z
+}
+"#,
+        ),
+    ];
+    let errs = errors_in(files);
+    assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+    // Without a place that says which, the call names the two.
+    let ambiguous = files[1].1.replace("let a: A = from_strs(1)", "let a = from_strs(1)").replace("a.x + ", "");
+    let errs = errors_in(&[files[0], ("main.sv", &ambiguous)]);
+    assert!(errs.iter().any(|e| e.contains("differ only in their return type")), "{errs:?}");
+}
+
+/// [obligation-return] [fn-attached] A hand-written fulfilment of a member that
+/// only returns the type is declared on it too: it is imported with the type.
+#[test]
+fn a_hand_written_member_returning_self_is_attached() {
+    let files: &[(&str, &str)] = &[
+        (
+            "shapes.sv",
+            r#"
+export params Default<T> {
+    fn default() -> T
+}
+
+export struct Point : Default<self> {
+    x: Int
+}
+
+export fn default() [] -> Point {
+    return Point { x: 0 }
+}
+"#,
+        ),
+        (
+            "main.sv",
+            r#"
+import shapes.Point
+
+fn probe() [] -> Int {
+    let p: Point = default()
+    return p.x
+}
+"#,
+        ),
+    ];
+    let errs = errors_in(files);
+    assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+}
