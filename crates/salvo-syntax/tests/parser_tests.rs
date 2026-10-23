@@ -4130,3 +4130,26 @@ fn a_spliced_arm_type_is_a_constructor_call() {
     assert!(matches!(&**callee, Expr::Ident(id) if id.name == "arm.type"), "{callee:?}");
     assert_eq!(args.len(), 1);
 }
+
+/// [is-union] `s is "json" | "text"` is the disjunction of the tests over the
+/// same place (`!is` negates the whole); a binding, or a subject that is not
+/// a place, is refused, since the subject is read once per test.
+#[test]
+fn a_union_is_is_a_disjunction_of_tests() {
+    use salvo_syntax::ast::{BinaryOp, Expr, Item, Stmt, UnaryOp};
+    let (module, diagnostics) = salvo_syntax::parse_module("fn f(s: Str) {\n    let a = s is \"json\" | \"text\"\n    let b = s !is Int | Str\n}\n");
+    assert!(diagnostics.iter().all(|d| !d.is_error()), "{diagnostics:?}");
+    let Item::Fn(f) = &module.items[0] else { panic!() };
+    let stmts = &f.body.as_ref().unwrap().stmts;
+    let Stmt::Let { value: Expr::Binary { op: BinaryOp::Or, lhs, rhs, .. }, .. } = &stmts[0] else { panic!("{:?}", stmts[0]) };
+    assert!(matches!(&**lhs, Expr::Is { .. }) && matches!(&**rhs, Expr::Is { .. }));
+    let Stmt::Let { value: Expr::Unary { op: UnaryOp::Not, operand, .. }, .. } = &stmts[1] else { panic!("{:?}", stmts[1]) };
+    assert!(matches!(&**operand, Expr::Binary { op: BinaryOp::Or, .. }));
+    for (src, want) in [
+        ("fn f(x: Int | Str | Bool) {\n    let a = x is Int | Str v\n}\n", "binds nothing"),
+        ("fn f() {\n    let a = g() is \"json\" | \"text\"\n}\n", "bind the value first"),
+    ] {
+        let (_, diagnostics) = salvo_syntax::parse_module(src);
+        assert!(diagnostics.iter().any(|d| d.message.contains(want)), "{src}: {diagnostics:?}");
+    }
+}

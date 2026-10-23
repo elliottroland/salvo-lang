@@ -787,6 +787,34 @@ fn literal_members_run_on_both_backends() {
     __stamp.verified();
 }
 
+/// [is-union] [type-literal] [rewrap] `s is "json" | "text"` narrows a `Str` to
+/// the literal union (into a field of that type), `x is Int | Str` and `x !is
+/// Bool` narrow to the sub-union (into a parameter of it), and a literal test
+/// on a plain `Str` compares the value — it used to pass for every string —
+/// on both backends.
+#[test]
+fn union_is_tests_narrow_on_both_backends() {
+    let Some(__stamp) = e2e_stamp("union_is_tests_narrow_on_both_backends", &["rustc", "kotlinc"]) else {
+        return;
+    };
+    let dir = work_dir("union_is");
+    fs::write(dir.join("main.sv"), "struct Opts {\n    output: \"json\" | \"text\" = \"text\"\n}\n\nfn wants(v: Int | Str) [] -> Str => v {\n    when v {\n        is Int { return \"int ${v}\" }\n        is Str { return \"str ${v}\" }\n    }\n}\n\nfn describe(x: Int | Str | Bool) [] -> Str => x {\n    if x is Int | Str {\n        return wants(x)\n    }\n    return \"bool\"\n}\n\nfn main() [use] -> None {\n    use StdConsole()\n    for s in List(\"json\", \"xml\", \"text\") {\n        if s !is \"json\" | \"text\" {\n            println(\"refused ${s}\")\n        }\n        if s is \"json\" | \"text\" {\n            let o = Opts { output: s }\n            println(\"ok ${o.output}\")\n        }\n    }\n    println(\"${describe(3)} ${describe(\"a\")} ${describe(true)} ${rest(4)} ${rest(false)}\")\n    println(\"${lit(\"json\")}${lit(\"text\")}${lit(\"xml\")}\")\n}\n\nfn rest(x: Int | Str | Bool) [] -> Str => x {\n    if x !is Bool {\n        return wants(x)\n    }\n    return \"bool\"\n}\n\nfn lit(s: Str) [] -> Str => s {\n    when {\n        s is \"json\" { return \"J\" }\n        s is \"text\" { return \"T\" }\n        else { return \"?\" }\n    }\n}\n").unwrap();
+    for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
+        if !have(tool) {
+            eprintln!("skipping {backend}: {tool} not found on PATH");
+            continue;
+        }
+        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", ".", "--clean-target", "before"]);
+        assert!(out.status.success(), "{backend} failed: {}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(
+            String::from_utf8_lossy(&out.stdout),
+            "ok json\nrefused xml\nok text\nint 3 str a bool int 4 bool\nJT?\n",
+            "{backend}"
+        );
+    }
+    __stamp.verified();
+}
+
 /// [str-parse] The value parsers read the same strings on both backends:
 /// `parse_double` checks one decimal grammar before converting (the hosts'
 /// own parsers disagree on whitespace, `NaN`, `inf`, hex and `f` suffixes),

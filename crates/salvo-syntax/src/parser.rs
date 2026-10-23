@@ -6122,6 +6122,53 @@ impl<'s> Parser<'s> {
         let start = if not { self.bump().span } else { lhs.span() };
         self.bump(); // `is`
         let (check, binding, lifted) = self.parse_is_check()?;
+        // [is-union] `s is "json" | "text"`, `x is Int | Str`: the
+        // disjunction of the tests, which narrows to the union of what they
+        // test (ARG_PARSE.md X4, Q9). Written over a place, read once per
+        // test as `s is "json" || s is "text"` is; a value with a binding or
+        // a lift has nothing single to name.
+        if self.at(&TokenKind::Pipe) && self.same_line() {
+            let mut checks = vec![check];
+            let mut end = checks[0].last().map(|r| r.span).unwrap_or_else(|| lhs.span());
+            while self.at(&TokenKind::Pipe) && self.same_line() {
+                self.bump();
+                let (more, b, l) = self.parse_is_check()?;
+                if let Some(b) = b {
+                    self.error("an `is` over several tests binds nothing: bind the narrowed value with `let` after the test [is-union]", b.span);
+                }
+                if l > 0 {
+                    self.error("an `is` over several tests cannot lift `^`: lift in one test [is-union]", end);
+                }
+                end = more.last().map(|r| r.span).unwrap_or(end);
+                checks.push(more);
+            }
+            let span = lhs.span().to(end);
+            if let Some(b) = &binding {
+                self.error("an `is` over several tests binds nothing: bind the narrowed value with `let` after the test [is-union]", b.span);
+            }
+            if lifted > 0 {
+                self.error("an `is` over several tests cannot lift `^`: lift in one test [is-union]", span);
+            }
+            if !is_place_expr(&lhs) {
+                self.error(
+                    "an `is` over several tests reads its subject once per test, so the subject \
+                     is a variable or a field: bind the value first (`let v = …`) [is-union]",
+                    lhs.span(),
+                );
+            }
+            let mut tests = checks.into_iter().map(|c| {
+                let s = c.last().map(|r| lhs.span().to(r.span)).unwrap_or(span);
+                Expr::Is { subject: Box::new(lhs.clone()), check: c, binding: None, span: s }
+            });
+            let mut out = tests.next()?;
+            for t in tests {
+                out = Expr::Binary { op: BinaryOp::Or, lhs: Box::new(out), rhs: Box::new(t), span };
+            }
+            if not {
+                return Some(Expr::Unary { op: UnaryOp::Not, operand: Box::new(out), span: start.to(end) });
+            }
+            return Some(out);
+        }
         let end = binding
             .as_ref()
             .map(|b| b.span)
@@ -8304,6 +8351,15 @@ pub fn type_fn_key(ty: &Type) -> (String, Vec<Ident>) {
         // type-fn name; a later check reports it, so the key only needs to
         // be stable and non-colliding.
         _ => ("<type-fn>".to_string(), Vec::new()),
+    }
+}
+
+/// [is-union] A place: a variable, or a field chain over one.
+fn is_place_expr(e: &Expr) -> bool {
+    match e {
+        Expr::Ident(_) => true,
+        Expr::Field { base, .. } => is_place_expr(base),
+        _ => false,
     }
 }
 

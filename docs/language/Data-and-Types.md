@@ -196,7 +196,18 @@ type Retries = 0 | 1 | 3
 
 Strings, integers (negative ones too), `Long`s (`3L`) and `Bool`s can be literal types. A float cannot: equality on floats does not name a value.
 
-A literal takes its literal type from where it is used and nowhere else. `let d: Direction = "north"` is a `Direction`, a `"north"` passed to a `Direction` parameter is one, and `let s = "north"` is a plain `Str`. A literal the union does not list is an error that names the listed values, so a typo is caught where it is written. A plain `Str` is not a `Direction` either, since it could hold anything: narrow it first.
+A literal takes its literal type from where it is used and nowhere else. `let d: Direction = "north"` is a `Direction`, a `"north"` passed to a `Direction` parameter is one, and `let s = "north"` is a plain `Str`. A literal the union does not list is an error that names the listed values, so a typo is caught where it is written. A plain `Str` is not a `Direction` either, since it could hold anything: narrow it first. `is` with several literals does that in one test, comparing the value:
+
+```
+fn direction(s: Str) [] -> Direction? => s {
+    if s is "north" | "south" | "east" | "west" {
+        return s                         // a `Direction` here
+    }
+    return None
+}
+```
+
+The same form tests several arms of any union: on an `Int | Str | Bool`, `x is Int | Str` narrows `x` to `Int | Str`. It means the tests joined with `||`, which narrows the same way, so it is written over a variable or a field (bind a call's result first), and binds nothing.
 
 `is` tests a literal, and `when` over a union of literals is exhaustive, as over any union:
 

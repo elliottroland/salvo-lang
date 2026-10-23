@@ -26930,6 +26930,21 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let l = self.analyze_cond(lhs);
                 let r = self.with_narrows(&l.else_narrows.clone(), |c| c.analyze_cond(rhs));
                 let mut out = CondInfo::default();
+                // [is-union] When either side holds, a place both sides narrow
+                // is one of the two: `s is "json" || s is "text"` (and its
+                // spelling `s is "json" | "text"`) narrows `s` to `"json" |
+                // "text"`, `x is Int || x is Str` to `Int | Str`. A place only
+                // one side narrows is not narrowed [flow-or-not].
+                for ln in &l.then_narrows {
+                    if let Some(rn) = r.then_narrows.iter().find(|rn| rn.place == ln.place) {
+                        let joined = self.mk_union(vec![ln.narrowed.clone(), rn.narrowed.clone()]);
+                        out.then_narrows.push(Narrow {
+                            place: ln.place.clone(),
+                            narrowed: joined,
+                            declared: ln.declared.clone(),
+                        });
+                    }
+                }
                 out.else_narrows.extend(l.else_narrows);
                 out.else_narrows.extend(r.else_narrows);
                 out
@@ -27236,6 +27251,22 @@ impl<'p, 'r> Checker<'p, 'r> {
             // Runtime lowering against the declared union representation
             // [is-narrowing] [is-precise].
             self.out.is_tests.insert(self.key(*span), test);
+        } else if let (Some(Ty::Lit(lit)), true, Ty::Named { name, args }) =
+            (&pat.base, pat.quals.is_empty(), repr.strip_quals())
+        {
+            // [is-union] [type-literal] `s is "json"` on a plain `Str` tests
+            // the value: a one-arm "union" with no wrapper and a value
+            // condition. Before 2026-10-20 nothing was recorded here, and the
+            // IR read a missing test as decided statically — `true` — so the
+            // test passed for every string.
+            if args.is_empty() && name == lit.base() {
+                self.out.is_tests.insert(
+                    self.key(*span),
+                    UnionTest { size: 1, arms: vec![0], nullable: false, match_none: false, values: vec![(0, false, vec![lit.clone()])] },
+                );
+            } else {
+                self.error(*span, format!("this check can never succeed: a `{repr}` is never `{lit}`"));
+            }
         } else if !pat.quals.is_empty() && !matches!(subj_ty, Ty::Union(_)) && !pat.unresolved {
             // [qual-constructive] no runtime test exists for constructive
             // qualifiers on non-union values.
@@ -27309,6 +27340,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                         })
                         .collect();
                     (other.clone().qualify(quals), None)
+                } else if let (Some(Ty::Lit(lit)), true) = (&pat.base, pat.quals.is_empty()) {
+                    // [is-union] [type-literal] `s is "json"` on a plain `Str`
+                    // proves `s` is that literal: the test compares the value,
+                    // and the narrowed type is one the runtime already holds
+                    // (a literal is its base at run time).
+                    match other.strip_quals() {
+                        Ty::Named { name, args } if args.is_empty() && name == lit.base() => (Ty::Lit(lit.clone()), None),
+                        _ => (other.clone(), None),
+                    }
                 } else {
                     (other.clone(), None)
                 }
@@ -28257,7 +28297,13 @@ impl<'p, 'r> Checker<'p, 'r> {
         // The same holds for a `T?` representation narrowed to its value
         // arm: backends that read optionals physically (Rust) unwrap at
         // the use site, and Kotlin smart-casts to the same effect.
-        let effective = if repr.is_wrapper_union() && !matches!(logical, Ty::Union(_)) {
+        let effective = if crate::literal::mentions_lit(logical)
+            && crate::literal::collapse_ty(logical) == crate::literal::collapse_ty(repr)
+        {
+            // [is-union] [type-literal] A `Str` narrowed to `"json" | "text"`
+            // is the same value at run time: its literal type is what fits.
+            logical.clone()
+        } else if repr.is_wrapper_union() && !matches!(logical, Ty::Union(_)) {
             logical.clone()
         } else if repr.has_none_arm()
             && matches!(repr, Ty::Union(_))
@@ -28266,18 +28312,19 @@ impl<'p, 'r> Checker<'p, 'r> {
             && !matches!(logical, Ty::Union(_))
         {
             logical.clone()
-        } else if repr.has_none_arm()
-            && matches!(repr, Ty::Union(_))
+        } else if matches!(repr, Ty::Union(_))
             && matches!(logical, Ty::Union(_))
-            && !logical.has_none_arm()
-            && logical.value_arms() == repr.value_arms()
+            && logical != repr
+            && logical.value_arms().iter().all(|a| repr.value_arms().contains(a))
+            && (!logical.has_none_arm() || repr.has_none_arm())
         {
-            // [rewrap] A `(A | B)?` narrowed past `None` is read through the
-            // narrowing binding, which holds the `A | B` itself (the IR's
-            // `Narrow` has the logical type). Found 2026-10-20 with `("json"
-            // | "text")?` into a `"json" | "text"` field: a rewrap from the
-            // optional was applied to the already-unwrapped value, and rustc
-            // refused the `match` on a `String`.
+            // [rewrap] A union narrowed to some of its arms is read through
+            // the narrowing binding, which already holds the narrower union
+            // (the IR's `Narrow` has the logical type). Found 2026-10-20: a
+            // `("json" | "text")?` narrowed past `None` into a `"json" |
+            // "text"` field, and an `Int | Str | Bool` narrowed by `!is Bool`
+            // into an `Int | Str` parameter, were both rewrapped from the
+            // declared union a second time, which rustc and kotlinc refused.
             logical.clone()
         } else {
             repr.clone()

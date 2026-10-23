@@ -117,7 +117,7 @@ tracked here so a fresh agent can carry on. Rules for whoever continues:
 - [x] 1.6 Comptime construction of a union arm (X5, Q6).
 - [x] 1.7 Literal members in comptime: `[for lit in field.type.literals]`
   (X3, Q8).
-- [ ] 1.8 Multi-literal / multi-type `is` in ordinary code (X4, Q9).
+- [x] 1.8 Multi-literal / multi-type `is` in ordinary code (X4, Q9).
 - [ ] 1.9 `explain` on predicate qualifiers (X9, Q10).
 - [ ] 1.10 An accumulating outcome `Ok T | Errs NonEmpty List<E>` (X12, Q11).
 - [ ] 1.11 Comparing two binders' names in comptime (X16).
@@ -135,6 +135,10 @@ tracked here so a fresh agent can carry on. Rules for whoever continues:
 **Blocked on the user:** nothing.
 
 **Log** (newest first):
+- 2026-10-20: 1.8 done ("Test several literals or types in one is"): [is-union];
+  1985 tests. Fixed on the way: a literal `is` on a plain `Str` was always
+  true; `||` narrowed nothing; a sub-union narrowing was rewrapped twice.
+  Next: 1.9 (`explain`).
 - 2026-10-20: 1.7 done ("Walk a literal union's members in comptime"):
   [comptime-literals]; 1983 tests. Fixed: a narrowed `(A | B)?` passed as
   `A | B` was rewrapped on Rust. Recorded (ROADMAP §2d item 6, DECISION): `?:`
@@ -1263,7 +1267,9 @@ make literal unions first-class in generated code.
 **What.** Comptime already accepts `field.name is "a" | "b"` [comptime-name].
 Ordinary code does not: `s is "json" | "text"` is a parse error, and the
 working spelling is `s is "json" || s is "text"`, which does narrow a plain
-`Str` to `"json" | "text"` (checked 2026-10-20). The extension accepts the
+`Str` to `"json" | "text"` (checked 2026-10-20). (Corrected when building it,
+step 1.8: it type-checked but did not narrow, and the literal test itself
+passed for every string.) The extension accepts the
 union form in an ordinary `is`, meaning the disjunction, and narrowing to the
 union of the literals.
 

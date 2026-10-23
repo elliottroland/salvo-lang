@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1983 tests, complete: the toolchain tests are
+cargo test                  # 1985 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,41 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — `x is A | B`, `||` narrows, and a literal test compares the value
+
+Phase 1.8 of the argument-parsing build (ARG_PARSE.md X4, Q9: both forms).
+[is-union]: `s is "json" | "text"` and `x is Int | Str` are the disjunction
+of the tests, and `||` now narrows a place both sides narrow to the union of
+the two.
+
+What it took — mostly defects found on the way, each with wrong behaviour
+before:
+- **A literal `is` on a plain `Str` was always `true`** (silent wrong code,
+  both backends). The checker recorded a runtime test only for a union
+  subject, and the IR reads a missing test as "decided statically". X4's
+  note that `s is "json" || s is "text"` worked had checked only that it
+  compiled. Now a one-arm value test is recorded, and the `is` narrows the
+  `Str` to the literal; a literal of another base is "can never succeed".
+- **`||` narrowed nothing.** `analyze_cond` gave an `||` only `else`
+  narrowings; it now joins the `then` narrowings both sides make on one
+  place.
+- **A sub-union narrowing was rewrapped twice.** `x !is Bool` on `Int | Str
+  | Bool`, passed to an `Int | Str` parameter, failed rustc and kotlinc: the
+  checker's `coerce_repr` used the declared union as the value's
+  representation whenever the narrowed type was a union, but the IR's
+  narrowing binding already holds the narrower union. 1.7's narrower fix
+  (a `None` removed) is generalized to any narrowing to a subset of the
+  arms, and a `Str` narrowed to a literal union is read as its literal type.
+- The parser builds `x is A | B` as `x is A || x is B` over clones of the
+  subject, so the subject must be a place, and a binding or a lift is
+  refused.
+
+Tests: parser_tests `a_union_is_is_a_disjunction_of_tests`; CLI run
+`union_is_tests_narrow_on_both_backends` (a `Str` narrowed into a literal
+field, `is` and `!is` on literals giving the right answer for `"xml"`,
+`is Int | Str` and `!is Bool` into an `Int | Str` parameter, a `when` over
+literal tests, both backends).
 
 ### 2026-10-20 — A literal union's members in comptime, and a narrowed optional union read as itself
 
@@ -27183,7 +27218,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 1983 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1985 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -28458,6 +28493,12 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A missing `is_tests` entry lowers to `true`** (2026-10-20): the IR builder
+  reads "no runtime test recorded" as "the checker decided it statically".
+  Any new `is` shape the checker accepts must record a test (or a predicate
+  test), or it passes for every value. A literal on a plain `Str` did exactly
+  that until 1.8.
 
 - **The IR's `Lower` reads checker facts under its own file index**
   (2026-10-20): `ty_of`, `call_info` and every `key(span)` lookup are

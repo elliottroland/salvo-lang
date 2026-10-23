@@ -566,11 +566,12 @@ Conventions:
     still readable after the form ([elvis-guard], and the arms the right side
     reads). Kotlin needs no copy, its values being references.
 
-  * **A `(A | B)?` narrowed past `None` is its `A | B`** (2026-10-20): the
-    narrowing binding holds the inner union, so a use of it is not rewrapped
-    from the optional. Before, `("json" | "text")?` narrowed by `!is None`
-    and passed to a `"json" | "text"` field was rewrapped from `Str?` on Rust,
-    which rustc refused.
+  * **A union narrowed to some of its arms is read as the narrower union**
+    (2026-10-20): the IR's narrowing binding already holds it, so a use is
+    not rewrapped from the declared union again. Before, an `Int | Str |
+    Bool` narrowed by `!is Bool` and passed to an `Int | Str` parameter, and
+    a `("json" | "text")?` narrowed by `!is None` into a `"json" | "text"`
+    field, were rewrapped twice, which rustc and kotlinc refused.
 * [placeholder] `_` reads as **the arms a pick left behind** — the sub-union of
   the subject after its first arm (the arm `?:`/`?>` did not pick)
   [elvis]. It reads only inside a pick's right-hand side; reading it anywhere
@@ -2514,6 +2515,26 @@ Conventions:
     total `get` over a `List<P?>` answers `proj(xs) P?`, a view of the whole
     optional, and `s is P p` binds `p: proj(xs) P` — each side keeps the
     `proj`. It used to bind `p` at `P?` (a field read on it was refused).
+* [is-union] **`x is A | B` is `x is A || x is B`** (ARG_PARSE.md X4, Q9;
+  built 2026-10-20), and **`||` narrows** a place both of its sides narrow,
+  to the union of the two: `s is "json" | "text"` makes a `Str` a `"json" |
+  "text"`, `x is Int | Str` makes an `Int | Str | Bool` an `Int | Str`. The
+  parser builds the disjunction over clones of the subject, so the subject
+  must be a place (a variable or a field chain), read once per test; a
+  binding or a `^` lift is refused, and `!is A | B` negates the whole.
+  * A place only one side narrows is not narrowed [flow-or-not]; `&&` and
+    the `else` of `||` are as before.
+  * **A literal test on a plain base compares the value** (fixed
+    2026-10-20): `s is "json"` on a `Str` records a value test with no
+    wrapper (`UnionTest` of size 1 with a value condition) and narrows `s` to
+    `"json"`. Before, nothing was recorded for a non-union subject, and the
+    IR read the missing test as decided statically, so `s is "json"` was
+    `true` for every string on both backends — silently wrong code
+    [backend-never-wrong]. A literal of another base (`n is "json"` on an
+    `Int`) can never succeed and is an error.
+  * A narrowed literal union of the same runtime shape as its declared type
+    (a `Str` narrowed to `"json" | "text"`) is read as its literal type where
+    a literal union is expected (`coerce_repr`).
 * [is-not] `x !is Q` is **sugar for `!(x is Q)`** (user decision 2026-09-22,
   the heap plan's item 5): the parser builds one `Expr::Is` under a `Not`, so
   narrowing, `when` heads and [is-narrow-guard]'s fall-through all reach it
