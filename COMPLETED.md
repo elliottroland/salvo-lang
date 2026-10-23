@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1971 tests, complete: the toolchain tests are
+cargo test                  # 1973 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,35 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — `Char` and `Str` constants in qualifier slots
+
+Phase 1.4 of the argument-parsing build (ARG_PARSE.md Q5c, accepted: both
+kinds, for ordinary qualifiers too). [qual-const]: `Ty::ConstInt(i64)`
+became `Ty::Const(Const)` with `Int`, `Char` and `Str`, so `Prefix("arn:")
+Str` and `Initial('p') Str` are claims like `InRange(0, 65535) Int`:
+established by `is`, demanded by a signature, equal only with equal
+constants, and tested at a defaulted field [default-predicate].
+
+What it took:
+- **One encoding.** The parser already carried an `Int` constant as a ref
+  named by its digits; a `Char` is now named `'p'` and a `Str` `"arn:"`,
+  read back by `Const::parse` in the checker's two lowering sites, and a
+  predicate check's argument path holds the same text (`Const::encode`).
+  The IR's `literal_arg` already read `"…"` as a `Str`; it gained `'c'`.
+- **A slot-type check, new for every constant.** Nothing checked that an
+  `Int` constant filled an `Int` slot either; `validate_quals` (written
+  types) and the `is` test now refuse a constant of the wrong type, naming
+  slot and qualifier.
+- Every `ConstInt` wildcard pattern became `Const`; `Ty`'s display prints a
+  `Char` and a `Str` quoted, as written.
+- Not done, in the spec: a negative constant does not parse.
+
+Tests: depend_tests `char_and_str_constants_match_exactly` (exact matching,
+wrong-typed constants in a signature and in an `is`); CLI run
+`char_and_str_qualifier_constants_run_on_both_backends` (an `is` test, a
+signature, a predicate default, and a failing default's trap naming
+`Initial('p') Str`).
 
 ### 2026-10-20 — `.docs`: a doc comment as a comptime value
 
@@ -27050,7 +27079,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 1971 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 1973 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

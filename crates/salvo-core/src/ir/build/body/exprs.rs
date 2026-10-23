@@ -1655,7 +1655,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         let checks: Vec<crate::types::Qual> = slot
             .quals()
             .iter()
-            .filter(|q| q.args.iter().all(|a| matches!(a, Ty::ConstInt(_))))
+            .filter(|q| q.args.iter().all(|a| matches!(a, Ty::Const(_))))
             .filter(|q| self.qualifies_ref(&q.name, slot).is_some())
             .cloned()
             .collect();
@@ -1676,7 +1676,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 .args
                 .iter()
                 .map(|a| match a {
-                    Ty::ConstInt(n) => crate::check::PredicateArg { path: n.to_string(), copy: true },
+                    Ty::Const(c) => crate::check::PredicateArg { path: c.encode(), copy: true },
                     other => crate::check::PredicateArg { path: other.to_string(), copy: true },
                 })
                 .collect();
@@ -3134,6 +3134,10 @@ fn literal_arg(text: &str) -> Option<Expr> {
     }
     if let Some(inner) = text.strip_prefix('"').and_then(|t| t.strip_suffix('"')) {
         return mk("Str", ExprKind::Str(inner.to_string()));
+    }
+    // [qual-const] A `Char` constant, `'p'`.
+    if let Some(crate::types::Const::Char(c)) = crate::types::Const::parse(text) {
+        return mk("Char", ExprKind::Char(c));
     }
     if let Some(n) = text.strip_suffix('L') {
         return n.replace('_', "").parse::<i64>().ok().and_then(|v| mk("Long", ExprKind::Long(v)));

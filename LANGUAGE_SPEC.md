@@ -1829,8 +1829,18 @@ Conventions:
     fitting an `InRange(0, 100)` position) would need the qualifier's own
     semantics — recorded in ROADMAP.md with literal establishment
     (`listen(8080)` proving itself), the two remainders of the step.
-  * Parsed as a digit-named ref (the type language has no literal node —
-    a recorded shortcut), lowered to `Ty::ConstInt`.
+  * **`Int`, `Char` and `Str` constants** (`Char`/`Str` added 2026-10-20,
+    ARG_PARSE.md Q5c, for `Short('p')` and ordinary qualifiers such as
+    `Prefix("arn:") Str`): `Ty::Const(Const::{Int, Char, Str})`. A constant
+    must be of its slot's type, checked where a type is written
+    (`validate_quals`) and in an `is` test: "`\"p\"` fills the `c` slot of
+    `Initial`, which needs `Char`, not `Str`". A string constant cannot
+    interpolate.
+  * Parsed as a ref named by its text — digits, `'c'`, or `"text"` (the type
+    language has no literal node, a recorded shortcut) — and read back by
+    `Const::parse`; a predicate check's argument path carries the same text
+    (`Const::encode`), which the IR lowers back to a literal.
+  * A negative constant (`InRange(-5, 5)`) does not parse yet.
 * [qual-preserve] A **`preserve` entry** opts a call back out of the
   conservative cross-value stripping [qual-depend]: `=> map: preserve
   KeyOf` says the call does not invalidate the named dependent claims

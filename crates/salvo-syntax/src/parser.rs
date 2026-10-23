@@ -4457,7 +4457,7 @@ impl<'s> Parser<'s> {
             && self.at(&TokenKind::LParen)
             && self.same_line()
             && (matches!(self.peek_at(1).kind, TokenKind::Question)
-                || (matches!(self.peek_at(1).kind, TokenKind::Int { .. })
+                || (matches!(self.peek_at(1).kind, TokenKind::Int { .. } | TokenKind::Char(_) | TokenKind::Str(_))
                     && matches!(self.peek_at(2).kind, TokenKind::Comma | TokenKind::RParen))
                 || (matches!(&self.peek_at(1).kind, TokenKind::Ident(n) if n.starts_with(|c: char| c.is_lowercase()))
                     && matches!(
@@ -4510,10 +4510,32 @@ impl<'s> Parser<'s> {
                     continue;
                 }
                 // [qual-const] A **constant** filling a value slot:
-                // `InRange(0, 65535) Int`. Carried as a digit-named ref —
-                // the AST's type language has no literal node, and the
-                // lowering reads the digits back — a recorded shortcut.
-                if let TokenKind::Int { value, .. } = self.peek().kind {
+                // `InRange(0, 65535) Int`, `Short('p')`, `Prefix("arn:")`.
+                // Carried as a ref named by its text — digits, `'c'`, or
+                // `"text"` — since the AST's type language has no literal
+                // node; the lowering reads it back (`Const::parse`), a
+                // recorded shortcut.
+                let constant = match self.peek().kind.clone() {
+                    TokenKind::Int { value, .. } => Some(value.to_string()),
+                    TokenKind::Char(c) => Some(format!("'{c}'")),
+                    TokenKind::Str(parts) => {
+                        let mut text = String::new();
+                        let mut plain = true;
+                        for part in parts {
+                            match part {
+                                StrPart::Text(t) => text.push_str(&t),
+                                StrPart::Interp { .. } => plain = false,
+                            }
+                        }
+                        if !plain {
+                            let span = self.peek().span;
+                            self.error("a constant in a qualifier cannot interpolate [qual-const]", span);
+                        }
+                        Some(format!("\"{text}\""))
+                    }
+                    _ => None,
+                };
+                if let Some(value) = constant {
                     let span = self.bump().span;
                     value_args.push(Type::Named {
                         qualifiers: Vec::new(),

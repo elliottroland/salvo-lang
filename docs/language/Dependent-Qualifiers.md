@@ -138,7 +138,11 @@ one of them:
 * **A place** — everything above.
 * **A constant**, compile-time known, so nothing can invalidate it:
   `core.range` declares `qualifier InRange(lo: Int, hi: Int) of Int`, used as
-  `InRange(0, 65535) Int`.
+  `InRange(0, 65535) Int`. A constant is an `Int`, a `Char` or a `Str`
+  literal, of the slot's own type: `qualifier Prefix(p: Str) of Str` is
+  written `Prefix("arn:") Str`, and `qualifier Initial(c: Char) of Str`
+  `Initial('p') Str`. Two claims are the same fact only when their
+  constants are equal.
 * **A function identity** — the ordering a structure is kept by:
   `Heap<T>(?cmp)`, described in
   [Implicit parameters](Implicit-Parameters.md).

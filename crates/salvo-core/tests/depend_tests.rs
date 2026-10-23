@@ -6,7 +6,7 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
-const STD_PRELUDE: &str = "export intrinsic type Str\nexport intrinsic type Int\nexport intrinsic type Bool\n";
+const STD_PRELUDE: &str = "export intrinsic type Str\nexport intrinsic type Int\nexport intrinsic type Bool\nexport intrinsic type Char\n";
 
 /// Parses + resolves + checks one file (no std) and returns the checker's
 /// and resolver's error messages.
@@ -368,6 +368,39 @@ fn different_constants_refuse() {
         !errs.is_empty(),
         "a Percent(0, 255) must not fill a Percent(0, 100) position"
     );
+}
+
+/// [qual-const] `Char` and `Str` constants (ARG_PARSE.md Q5c): `Tag('p')`
+/// and `Prefix("arn:")` fill slots of their own type, establish by `is`, and
+/// agree exactly — a `Prefix("arm:")` claim does not fill a
+/// `Prefix("arn:")` position.
+#[test]
+fn char_and_str_constants_match_exactly() {
+    let decls = "\
+        qualifier Prefix(p: Str) of Str {\n\
+            fn qualifies(s: Str, p: Str) -> Bool {\n\
+                return true\n\
+            }\n\
+        }\n\
+        qualifier Tag(c: Char) of Int {\n\
+            fn qualifies(n: Int, c: Char) -> Bool {\n\
+                return true\n\
+            }\n\
+        }\n\
+        fn arn(s: Prefix(\"arn:\") Str) [] -> Int => s {\n\
+            return 0\n\
+        }\n\
+        fn tagged(n: Tag('p') Int) [] -> Int => n {\n\
+            return n + 0\n\
+        }\n";
+    let ok = format!("{decls}fn f(s: Str, n: Int) [] -> Int => s, n {{\n    assert!(s is Prefix(\"arn:\"))\n    assert!(n is Tag('p'))\n    return arn(s) + tagged(n)\n}}\n");
+    assert!(errors(&ok).is_empty(), "got {:?}", errors(&ok));
+    let other = format!("{decls}fn f(s: Str) [] -> Int => s {{\n    assert!(s is Prefix(\"arm:\"))\n    return arn(s)\n}}\n");
+    assert!(!errors(&other).is_empty(), "a Prefix(\"arm:\") must not fill a Prefix(\"arn:\") position");
+    let wrong = format!("{decls}fn g(n: Tag(\"p\") Int) [] -> Int => n {{\n    return 0\n}}\nfn h(n: Int) [] -> Bool => n {{\n    return n is Tag(1)\n}}\n");
+    let errs = errors(&wrong);
+    assert!(errs.iter().any(|e| e.contains("`\"p\"` fills the `c` slot of `Tag`, which needs `Char`, not `Str`")), "{errs:?}");
+    assert!(errs.iter().any(|e| e.contains("`1` fills the `c` slot of `Tag`, which needs `Char`, not `Int`")), "{errs:?}");
 }
 
 /// [elvis-guard] A leaving right side takes its flow effects with it: a

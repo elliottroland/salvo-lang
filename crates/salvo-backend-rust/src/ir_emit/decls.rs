@@ -85,7 +85,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         }
         match t {
             Ty::Lit(l) => self.ty(&Ty::named(l.base())),
-            Ty::ValueRef { .. } | Ty::ConstInt(_) => String::new(),
+            Ty::ValueRef { .. } | Ty::Const(_) => String::new(),
             Ty::Named { name, args } => {
                 let args: Vec<Ty> = args.iter().filter(|a| !matches!(a, Ty::FnName(_))).map(|a| super::strip_nested_var_proj_in(a, true, &self.f.generics)).collect();
                 if name == "Addr" && args.len() == 1 {

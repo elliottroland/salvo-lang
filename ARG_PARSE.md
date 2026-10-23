@@ -109,7 +109,7 @@ tracked here so a fresh agent can carry on. Rules for whoever continues:
   as a literal head; bare projections as types become a parse error (§13).
 - [x] 1.2 `field.default` (X1).
 - [x] 1.3 `field.docs` (and on `Struct`, `Arm`, `Union`) (X2).
-- [ ] 1.4 `Char`/`Str` constant slots in qualifiers (Q5c).
+- [x] 1.4 `Char`/`Str` constant slots in qualifiers (Q5c).
 - [ ] 1.5 Comptime qualifiers `of Field` / `of Struct`: declaration, placement
   before a field's name or a declaration, comptime `field is Q` and
   `[if field is <c> Q(c)]`; the same binder form for qualifiers on a field's
@@ -135,6 +135,9 @@ tracked here so a fresh agent can carry on. Rules for whoever continues:
 **Blocked on the user:** nothing.
 
 **Log** (newest first):
+- 2026-10-20: 1.4 done ("Allow Char and Str constants in qualifier slots"):
+  [qual-const]; 1973 tests. `Ty::Const(Const)`; constants are now checked
+  against their slot's type. Next: 1.5 (comptime qualifiers).
 - 2026-10-20: 1.3 done ("Read doc comments in comptime"): [comptime-docs]; 1971
   tests. A copy's `.docs`/`.default` is one value, so it is tested in a head
   (`[if field.docs !is None]`), not with `?:`. Next: 1.4 (`Char`/`Str` slots).

@@ -235,6 +235,64 @@ impl fmt::Display for FnId {
     }
 }
 
+/// [qual-const] A constant filling a qualifier's value slot.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum Const {
+    Int(i64),
+    Char(char),
+    Str(String),
+}
+
+impl Const {
+    /// [qual-const] The constant a value-argument's text encodes, as the
+    /// parser writes it: digits, `'c'`, or `"text"` (the text raw, between
+    /// the outer quotes). `None` for anything else (a place).
+    pub fn parse(text: &str) -> Option<Const> {
+        if let Ok(n) = text.parse::<i64>() {
+            return Some(Const::Int(n));
+        }
+        if let Some(inner) = text.strip_prefix('\'').and_then(|t| t.strip_suffix('\'')) {
+            let mut cs = inner.chars();
+            if let (Some(c), None) = (cs.next(), cs.next()) {
+                return Some(Const::Char(c));
+            }
+            return None;
+        }
+        if text.len() >= 2 && text.starts_with('"') && text.ends_with('"') {
+            return Some(Const::Str(text[1..text.len() - 1].to_string()));
+        }
+        None
+    }
+
+    /// The text `parse` reads back: what a predicate's argument path holds.
+    pub fn encode(&self) -> String {
+        match self {
+            Const::Int(n) => n.to_string(),
+            Const::Char(c) => format!("'{c}'"),
+            Const::Str(s) => format!("\"{s}\""),
+        }
+    }
+
+    /// The type of the value: `Int`, `Char` or `Str`.
+    pub fn base(&self) -> &'static str {
+        match self {
+            Const::Int(_) => "Int",
+            Const::Char(_) => "Char",
+            Const::Str(_) => "Str",
+        }
+    }
+}
+
+impl fmt::Display for Const {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Const::Int(n) => write!(f, "{n}"),
+            Const::Char(c) => write!(f, "{c:?}"),
+            Const::Str(s) => write!(f, "{s:?}"),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Ty {
     /// A nominal type: `Str`, `List<Int>`, a struct, an effect, ...
@@ -254,8 +312,9 @@ pub enum Ty {
     /// [qual-const] A **constant** in a qualifier's value-argument block —
     /// the third slot kind: `InRange(0, 65535) Int`. Compile-time known,
     /// so it needs no flow tracking and no invalidation; two claims agree
-    /// exactly when their constants do.
-    ConstInt(i64),
+    /// exactly when their constants do. An `Int`, a `Char` (`Short('p')`)
+    /// or a `Str` (`Prefix("arn:")`).
+    Const(Const),
     /// A qualified type: `Ok Int`, `Mut NonEmpty List<T>`. Invariants:
     /// `quals` is non-empty and sorted by name; `base` is never `Qualified`.
     Qualified { quals: Vec<Qual>, base: Box<Ty> },
@@ -397,7 +456,7 @@ impl Ty {
             Ty::Fn { params, ret, .. } => {
                 params.iter().any(|p| p.mentions_iter_marker()) || ret.mentions_iter_marker()
             }
-            Ty::FnName(_) | Ty::ValueRef { .. } | Ty::ConstInt(_) | Ty::Var(_) | Ty::Any
+            Ty::FnName(_) | Ty::ValueRef { .. } | Ty::Const(_) | Ty::Var(_) | Ty::Any
             | Ty::Never | Ty::Unknown => false,
         }
     }
@@ -498,7 +557,7 @@ impl Ty {
     fn collect_binders(&self, out: &mut Vec<String>) {
         match self {
             Ty::Lit(_) => {}
-            Ty::ValueRef { .. } | Ty::ConstInt(_) => {}
+            Ty::ValueRef { .. } | Ty::Const(_) => {}
             Ty::FnName(FnId::Binder(name)) => {
                 if !out.iter().any(|n| n == name) {
                     out.push(name.clone());
@@ -806,7 +865,7 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
         // [qual-const] Constants agree exactly or not at all; range
         // containment would need the qualifier's own semantics, which is
         // the recorded remainder of the constants step (ROADMAP.md).
-        (Ty::ConstInt(x), Ty::ConstInt(y)) => x == y,
+        (Ty::Const(x), Ty::Const(y)) => x == y,
         // [type-literal] A literal widens to its base: a `"A"` is a `Str`.
         (Ty::Lit(l), Ty::Named { name, args }) if args.is_empty() && name == l.base() => true,
         // [type-literal] A union with literals widens to its runtime shape
@@ -1424,7 +1483,7 @@ impl fmt::Display for Ty {
             // `KeyOf(m)`, `ValidFor(state.data)`.
             Ty::ValueRef { path, .. } => write!(f, "{path}"),
             // [qual-const] A constant reads as it is written: `InRange(0, 65535)`.
-            Ty::ConstInt(n) => write!(f, "{n}"),
+            Ty::Const(c) => write!(f, "{c}"),
             // [iter-type] The placeholder reads as it is written: `iter Int`.
             Ty::Named { name, args } if name == ITER_MARKER && args.len() == 1 => {
                 if matches!(args[0], Ty::Union(_) | Ty::Qualified { .. } | Ty::Fn { .. }) {
@@ -1535,7 +1594,7 @@ fn fmt_args(f: &mut fmt::Formatter<'_>, args: &[Ty]) -> fmt::Result {
     // after the type generics — the way the source spells them (user
     // decision 2026-09-23): `Heap<Person>(by_name)`, `SortedSet<Str>(by_len)`.
     let (types, values): (Vec<&Ty>, Vec<&Ty>) =
-        args.iter().partition(|a| !matches!(a, Ty::FnName(_) | Ty::ValueRef { .. } | Ty::ConstInt(_)));
+        args.iter().partition(|a| !matches!(a, Ty::FnName(_) | Ty::ValueRef { .. } | Ty::Const(_)));
     if !types.is_empty() && !(types.iter().all(|t| t.is_unknown()) && !values.is_empty()) {
         write!(f, "<")?;
         for (i, a) in types.iter().enumerate() {

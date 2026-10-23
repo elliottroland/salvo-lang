@@ -657,6 +657,46 @@ fn defaults_are_evaluated_where_they_are_declared() {
     __stamp.verified();
 }
 
+/// [qual-const] `Char` and `Str` constants run on both backends: an `is`
+/// test passes the constant to `qualifies`, a predicate-qualified default
+/// is tested with it where it is applied, and a failing one traps naming
+/// the claim with its constant.
+#[test]
+fn char_and_str_qualifier_constants_run_on_both_backends() {
+    let Some(__stamp) = e2e_stamp("char_and_str_qualifier_constants_run_on_both_backends", &["rustc", "kotlinc"]) else {
+        return;
+    };
+    let src = |default: &str| {
+        format!(
+            "qualifier Prefix(p: Str) of Str {{\n    fn qualifies(s: Str, p: Str) -> Bool {{\n        return starts_with(s, p)\n    }}\n}}\n\n\
+             qualifier Initial(c: Char) of Str {{\n    fn qualifies(s: Str, c: Char) -> Bool {{\n        return char_at(s, 0) == c\n    }}\n}}\n\n\
+             fn needs(a: Prefix(\"arn:\") Str) [] -> Str {{\n    return \"ok ${{a}}\"\n}}\n\n\
+             struct Opts {{\n    name: Initial('p') Str = \"{default}\",\n    arn: Prefix(\"arn:\") Str = \"arn:aws:s3\"\n}}\n\n\
+             fn main() [use] -> None {{\n    use StdConsole()\n    let x = \"arn:aws:sqs\"\n    \
+             if x is Prefix(\"arn:\") {{\n        println(needs(x))\n    }}\n    let y = \"http\"\n    \
+             println(\"${{y is Prefix(\"arn:\")}} ${{y is Initial('h')}}\")\n    let o = Opts {{}}\n    \
+             println(\"${{o.name}} ${{needs(o.arn)}}\")\n}}\n"
+        )
+    };
+    for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
+        if !have(tool) {
+            eprintln!("skipping {backend}: {tool} not found on PATH");
+            continue;
+        }
+        let dir = work_dir(&format!("const_slots_{backend}"));
+        fs::write(dir.join("main.sv"), src("port")).unwrap();
+        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", ".", "--clean-target", "before"]);
+        assert!(out.status.success(), "{backend} failed: {}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "ok arn:aws:sqs\nfalse true\nport ok arn:aws:s3\n", "{backend}");
+        fs::write(dir.join("main.sv"), src("quit")).unwrap();
+        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", ".", "--clean-target", "before"]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(!out.status.success(), "{backend}: a failing default must trap");
+        assert!(stderr.contains("the default for field `name` is not `Initial('p') Str`"), "{backend}: {stderr}");
+    }
+    __stamp.verified();
+}
+
 /// [str-parse] The value parsers read the same strings on both backends:
 /// `parse_double` checks one decimal grammar before converting (the hosts'
 /// own parsers disagree on whitespace, `NaN`, `inf`, hex and `f` suffixes),

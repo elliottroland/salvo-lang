@@ -13568,7 +13568,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // about a key refused here [type-unknown-lenient].
                 let type_args: Vec<&Ty> = args
                     .iter()
-                    .filter(|a| !matches!(a, Ty::FnName(_) | Ty::ValueRef { .. } | Ty::ConstInt(_)))
+                    .filter(|a| !matches!(a, Ty::FnName(_) | Ty::ValueRef { .. } | Ty::Const(_)))
                     .collect();
                 if arity > 0 && type_args.len() == arity {
                     let bad = if ordered {
@@ -18326,7 +18326,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// no implicits and performs no effects, since a default is applied at
     /// sites that need not have either.
     fn default_checkable(&self, q: &Qual) -> bool {
-        if !q.args.iter().all(|a| matches!(a, Ty::ConstInt(_))) {
+        if !q.args.iter().all(|a| matches!(a, Ty::Const(_))) {
             return false;
         }
         let Some(decl) = self.qual_decl(&q.name) else { return false };
@@ -18907,11 +18907,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 ast::Type::Named { qualifiers, base }
                                     if qualifiers.is_empty() && !base.binder =>
                                 {
-                                    // [qual-const] A digit-named ref is the
-                                    // parser's constant encoding.
-                                    match base.name.name.parse::<i64>() {
-                                        Ok(n) => Some(Ty::ConstInt(n)),
-                                        Err(_) => Some(Ty::ValueRef {
+                                    // [qual-const] A digit-, char- or
+                                    // string-named ref is the parser's
+                                    // constant encoding.
+                                    match crate::types::Const::parse(&base.name.name) {
+                                        Some(c) => Some(Ty::Const(c)),
+                                        None => Some(Ty::ValueRef {
                                             path: base.name.name.clone(),
                                             roots: Vec::new(),
                                         }),
@@ -20279,6 +20280,31 @@ impl<'p, 'r> Checker<'p, 'r> {
             .iter()
             .map(|q| self.qualifier_for(q.name.name.as_str(), Some(base)))
             .collect();
+        // [qual-const] A constant fills a value slot of its own type:
+        // `Short('p')` a `Char`, `Prefix("arn:")` a `Str`, `InRange(0, 9)` an
+        // `Int`. A place's type is the `is` test's to check, where it has one.
+        for (q, decl) in qualifiers.iter().zip(&decls) {
+            let Some(decl) = decl else { continue };
+            for (written, slot) in q.value_args.iter().zip(&decl.value_slots) {
+                let ast::Type::Named { qualifiers: wq, base: wb } = written else { continue };
+                if !wq.is_empty() || wb.binder {
+                    continue;
+                }
+                let Some(c) = crate::types::Const::parse(&wb.name.name) else { continue };
+                let saved = self.enter_generics(&decl.generics);
+                let want = self.lower_type(&slot.ty);
+                self.generics = saved;
+                if !want.is_unknown() && !matches!(want.strip_quals(), Ty::Named { name, args } if args.is_empty() && name == c.base()) {
+                    self.error(
+                        wb.span,
+                        format!(
+                            "`{c}` fills the `{}` slot of `{}`, which needs `{want}`, not `{}` [qual-const]",
+                            slot.name.name, q.name.name, c.base()
+                        ),
+                    );
+                }
+            }
+        }
         // Each qualifier must apply to the base type (per its `of` type)
         // [qual-of].
         if !matches!(base, Ty::Unknown | Ty::Var(_)) {
@@ -26842,8 +26868,18 @@ impl<'p, 'r> Checker<'p, 'r> {
             let mut slot_subst: HashMap<String, Ty> = HashMap::new();
             for (slot, (path, pspan)) in slots.iter().zip(args) {
                 // [qual-const] A constant fills its slot whole: nothing
-                // to resolve, nothing to invalidate.
-                if path.parse::<i64>().is_ok() {
+                // to resolve, nothing to invalidate — but it must be of the
+                // slot's type (`Short('p')` into a `Char`).
+                if let Some(c) = crate::types::Const::parse(path) {
+                    let saved = self.enter_generics(&qual_generics);
+                    let want = self.lower_type(&slot.ty);
+                    self.generics = saved;
+                    if !matches!(want.strip_quals(), Ty::Named { name, args } if args.is_empty() && name == c.base()) && !want.is_unknown() {
+                        self.error(
+                            *pspan,
+                            format!("`{c}` fills the `{}` slot of `{q}`, which needs `{want}`, not `{}` [qual-const]", slot.name.name, c.base()),
+                        );
+                    }
                     rendered.push(PredicateArg {
                         path: path.clone(),
                         copy: true,
@@ -26906,10 +26942,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 dependent_args.insert(
                     q.clone(),
                     args.iter()
-                        .map(|(path, _)| match path.parse::<i64>() {
+                        .map(|(path, _)| match crate::types::Const::parse(path) {
                             // [qual-const] Constants are complete facts.
-                            Ok(n) => Ty::ConstInt(n),
-                            Err(_) => Ty::ValueRef {
+                            Some(c) => Ty::Const(c),
+                            None => Ty::ValueRef {
                                 path: path.clone(),
                                 roots: roots.clone(),
                             },
@@ -28499,8 +28535,8 @@ fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
         (Ty::ValueRef { .. }, _) | (_, Ty::ValueRef { .. }) => false,
         // [qual-const] Two constants match by value, and a constant never
         // unifies with a type.
-        (Ty::ConstInt(a), Ty::ConstInt(b)) => a == b,
-        (Ty::ConstInt(_), _) | (_, Ty::ConstInt(_)) => false,
+        (Ty::Const(a), Ty::Const(b)) => a == b,
+        (Ty::Const(_), _) | (_, Ty::Const(_)) => false,
         (
             Ty::Qualified {
                 quals: pq,
@@ -29717,7 +29753,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             .filter(|q| {
                 q.args
                     .iter()
-                    .any(|a| Self::ty_has_value_ref(a) || matches!(a, Ty::ConstInt(_)))
+                    .any(|a| Self::ty_has_value_ref(a) || matches!(a, Ty::Const(_)))
             })
             .collect();
         if demanded.is_empty() {
@@ -29726,7 +29762,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         demanded.iter().all(|want| {
             // [qual-const] A constant-slotted demand is met by carrying the
             // claim with exactly those constants.
-            if want.args.iter().all(|x| matches!(x, Ty::ConstInt(_))) {
+            if want.args.iter().all(|x| matches!(x, Ty::Const(_))) {
                 return arg
                     .quals()
                     .iter()

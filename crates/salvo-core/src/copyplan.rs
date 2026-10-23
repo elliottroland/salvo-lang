@@ -125,7 +125,7 @@ fn mut_platform_value(symbols: &Symbols<'_>, name: &str) -> bool {
 /// immutable spines stays immutable).
 pub fn immutable(symbols: &Symbols<'_>, ty: &Ty, visiting: &mut Vec<String>) -> bool {
     match ty {
-        Ty::ValueRef { .. } | Ty::ConstInt(_) | Ty::Lit(_) => true,
+        Ty::ValueRef { .. } | Ty::Const(_) | Ty::Lit(_) => true,
         Ty::Qualified { quals, base } => !quals.iter().any(|q| q.name == "Mut") && immutable(symbols, base, visiting),
         Ty::Named { name, args } => match name.as_str() {
             "Byte" | "Int" | "Long" | "Float" | "Double" | "Char" | "Bool" | "Str" | "None" => true,
