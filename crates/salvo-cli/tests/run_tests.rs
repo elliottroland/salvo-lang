@@ -1082,6 +1082,39 @@ fn a_reassigned_local_owns_or_borrows_for_its_whole_life_on_both_backends() {
     __stamp.verified();
 }
 
+/// [comptime-hygiene] A stamped body resolves a name the stamping site cannot
+/// in the template's own file, private declarations included (user decision
+/// 2026-10-20, ROADMAP §2d item 10 (b)): `deriv`'s private `shout` serves
+/// `Point`'s stamped `label`, though `main` cannot see it. A name the site
+/// does resolve is the site's: with its own `shout`, `main`'s is called, and
+/// the two never meet in an ambiguity the site did not write. On both
+/// backends.
+#[test]
+fn a_stamped_body_falls_back_to_its_templates_names_on_both_backends() {
+    let Some(__stamp) = e2e_stamp("a_stamped_body_falls_back_to_its_templates_names_on_both_backends", &["rustc", "kotlinc"]) else {
+        return;
+    };
+    const DERIV: &str = "export params Labelled<T> {\n    fn label(value: T) -> Str\n}\n\nexport comptime fn label<T is Struct>(value: T) [] -> Str => value {\n    return shout(T.name)\n}\n\nfn shout(s: Str) [] -> Str => s {\n    return \"${s}!\"\n}\n";
+    const MAIN: &str = "import deriv\n\nstruct Point : Labelled<self> by deriv {\n    x: Int\n}\n\nfn main() [use] -> None {\n    use StdConsole()\n    println(label(Point { x: 1 }))\n}\n";
+    const OWN: &str = "\nfn shout(s: Str) [] -> Str => s {\n    return \"mine: ${s}\"\n}\n";
+    for (case, main, want) in [("fallback", MAIN.to_string(), "Point!\n"), ("site", format!("{MAIN}{OWN}"), "mine: Point\n")] {
+        let dir = work_dir(&format!("hygiene_{case}"));
+        fs::write(dir.join("deriv.sv"), DERIV).unwrap();
+        fs::write(dir.join("main.sv"), main).unwrap();
+        for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
+            if !have(tool) {
+                eprintln!("skipping {backend}: {tool} not found on PATH");
+                continue;
+            }
+            let out = salvo_in(&dir, &["run", "--backend", backend, "--src", ".", "--main", "main.sv", "--clean-target", "before"]);
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            assert!(out.status.success(), "{case} on {backend} failed: {stderr}");
+            assert_eq!(String::from_utf8_lossy(&out.stdout), want, "{case} on {backend}: {stderr}");
+        }
+    }
+    __stamp.verified();
+}
+
 /// [result-errs] The accumulating outcome keeps every error: `map2` of two
 /// successes, of two failures (both errors, in order), and of one failure,
 /// on both backends.

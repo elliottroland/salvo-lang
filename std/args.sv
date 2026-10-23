@@ -44,9 +44,10 @@ export threadsafe platform handler HostArgs() of Args
 // [args-runtime] What the derive (`: FromArgs<self> by args`) builds on: a
 // command's description (`Spec`), a scan of the command line against it
 // (`scan`, answering a `Found`), the readers the derived code takes values
-// with, the errors, and the help text. Exported because a stamped body
-// resolves its names where it is stamped; it is the derive's layer, not yet
-// a surface to build parsers by hand (the CLI design record Q12 (b)).
+// with, the errors, and the help text. The helpers are private: a stamped
+// body reaches them through this file [comptime-hygiene]. It is the derive's
+// layer, not a surface to build parsers by hand (the CLI design record Q12
+// (b)).
 
 // ----- what can go wrong -----
 
@@ -211,7 +212,7 @@ export struct CmdSpec {
 // the struct a field of kind `kind` holds, under `key`. Its own groups nest
 // under `key`; an empty arm (`struct FromStdin {}`) is chosen by a switch
 // named after it, `--from-stdin`.
-export fn merge_group<C>(opts: Mut List<OptSpec>, groups: Mut List<GroupSpec>, child: Spec<C>, key: Str, kind: Str, heading: Str?) [] -> None
+fn merge_group<C>(opts: Mut List<OptSpec>, groups: Mut List<GroupSpec>, child: Spec<C>, key: Str, kind: Str, heading: Str?) [] -> None
 => opts: Mut, groups: Mut, child, key, kind, !heading {
     if !is_empty(child.args) {
         unreachable!("`${key}` is a group of options, and `${child.name}` takes positionals")
@@ -241,13 +242,13 @@ export fn merge_group<C>(opts: Mut List<OptSpec>, groups: Mut List<GroupSpec>, c
 
 // [args-groups] The exclusive group for a union-typed field: its key, and
 // whether an arm is required (no `None` arm).
-export fn add_one(groups: Mut List<GroupSpec>, key: Str, required: Bool, heading: Str?) [] -> None => groups: Mut, key, !heading {
+fn add_one(groups: Mut List<GroupSpec>, key: Str, required: Bool, heading: Str?) [] -> None => groups: Mut, key, !heading {
     add(groups, GroupSpec { key: copy(key), kind: "one", required: required, heading: heading })
 }
 
 // [args-groups] Whether the scan found any of `spec`'s options: whether a
 // group (`tls: Tls?`) or an exclusive arm was given.
-export fn any_given<C>(found: Found, spec: Spec<C>) [] -> Bool => found, spec {
+fn any_given<C>(found: Found, spec: Spec<C>) [] -> Bool => found, spec {
     if is_empty(spec.opts) {
         return given(found, replace(command_name(spec.name), "-", "_"))
     }
@@ -260,7 +261,7 @@ export fn any_given<C>(found: Found, spec: Spec<C>) [] -> Bool => found, spec {
 }
 
 // The long spelling of a field's option: `max_workers` is `--max-workers`.
-export fn long_name(field: Str) [] -> Str => field {
+fn long_name(field: Str) [] -> Str => field {
     return "--${replace(field, "_", "-")}"
 }
 
@@ -271,7 +272,7 @@ fn arg_name(field: Str) [] -> Str => field {
 
 // A command's name from its type's: `Serve` is `serve`, `RemoteAdd`
 // `remote-add`, and a namespaced `Remote.Add` the last segment, `add`.
-export fn command_name(type_name: Str) [] -> Str => type_name {
+fn command_name(type_name: Str) [] -> Str => type_name {
     let last = type_name
     let cut = split_last(type_name, ".")
     if cut !is None {
@@ -319,7 +320,7 @@ export struct Found {
 // option repeated that takes one value, a value outside its choices, a
 // required option or argument absent, a word with nowhere to go. Whether a
 // value parses as its field's type is the derived code's check, after.
-export fn scan<T>(spec: Spec<T>, args: List<Str>) [] -> Found => spec, args {
+fn scan<T>(spec: Spec<T>, args: List<Str>) [] -> Found => spec, args {
     let tokens = lex(args)
     let hits: Mut List<Hit> = Mut List<Hit>()
     let errors: Mut List<ArgError> = Mut List<ArgError>()
@@ -617,7 +618,7 @@ fn has_command<T>(spec: Spec<T>, name: Str) [] -> Bool => spec, name {
 }
 
 // [args-commands] Whether the scan found the sub-command `name`.
-export fn is_command(found: Found, name: Str) [] -> Bool => found, name {
+fn is_command(found: Found, name: Str) [] -> Bool => found, name {
     let c = found.command
     if c is None {
         return false
@@ -662,7 +663,7 @@ fn word_at(tokens: List<Token>, i: Int) [] -> Str? => tokens {
 // ----- reading what a scan found -----
 
 // [args-runtime] Whether the scan found `field` at all.
-export fn given(found: Found, field: Str) [] -> Bool => found, field {
+fn given(found: Found, field: Str) [] -> Bool => found, field {
     for h in found.hits {
         if h.field == field {
             return true
@@ -672,7 +673,7 @@ export fn given(found: Found, field: Str) [] -> Bool => found, field {
 }
 
 // [args-runtime] The value found for `field`, when there was one.
-export fn value_of(found: Found, field: Str) [] -> Str? => found, field {
+fn value_of(found: Found, field: Str) [] -> Str? => found, field {
     for h in found.hits {
         if h.field == field {
             return copy(h.value)
@@ -682,7 +683,7 @@ export fn value_of(found: Found, field: Str) [] -> Str? => found, field {
 }
 
 // [args-runtime] Every value found for `field`, in order.
-export fn values_of(found: Found, field: Str) [] -> List<Str> => found, field {
+fn values_of(found: Found, field: Str) [] -> List<Str> => found, field {
     let out: Mut List<Str> = Mut List<Str>()
     for h in found.hits {
         if h.field == field {
@@ -1133,7 +1134,7 @@ fn opt_takes_value<T>(spec: Spec<T>, key: Str) [] -> Bool => spec, key {
 
 // [args-derive] Runs `f`: a block in a place that takes an expression, which
 // is how the derive reads a field with statements inside a struct literal.
-export fn eval<Q>(f: once () -> Q) [] -> Q => !f {
+fn eval<Q>(f: once () -> Q) [] -> Q => !f {
     return f()
 }
 
@@ -1141,7 +1142,7 @@ export fn eval<Q>(f: once () -> Q) [] -> Q => !f {
 // the field's own type (its qualifiers tested), or `default`. The derive's
 // check pass has already reported a value that fails, so a failure here is
 // a bug in the derive.
-export fn read_value<B, Q>(found: Found, field: Str, default: Q?, refine: (v: B) -> Q?, ?from_str: (s: Str) -> B?) [] -> Q
+fn read_value<B, Q>(found: Found, field: Str, default: Q?, refine: (v: B) -> Q?, ?from_str: (s: Str) -> B?) [] -> Q
 =>[refine] !v => found, field, !default, refine {
     let s = value_of(found, field)
     if s !is None {
@@ -1161,7 +1162,7 @@ export fn read_value<B, Q>(found: Found, field: Str, default: Q?, refine: (v: B)
 }
 
 // [args-derive] The value found for `field`, parsed, or `None`.
-export fn read_optional<E>(found: Found, field: Str, ?from_str: (s: Str) -> E?) [] -> E? => found, field {
+fn read_optional<E>(found: Found, field: Str, ?from_str: (s: Str) -> E?) [] -> E? => found, field {
     let s = value_of(found, field)
     if s is None {
         return None
@@ -1170,7 +1171,7 @@ export fn read_optional<E>(found: Found, field: Str, ?from_str: (s: Str) -> E?) 
 }
 
 // [args-derive] Every value found for `field`, parsed.
-export fn read_all<E>(found: Found, field: Str, ?from_str: (s: Str) -> E?) [] -> List<E> => found, field {
+fn read_all<E>(found: Found, field: Str, ?from_str: (s: Str) -> E?) [] -> List<E> => found, field {
     let out: Mut List<E> = Mut List<E>()
     for s in values_of(found, field) {
         let v = from_str(copy(s))
@@ -1185,7 +1186,7 @@ export fn read_all<E>(found: Found, field: Str, ?from_str: (s: Str) -> E?) [] ->
 // not parse as a `B` (`what` says what one is: "an integer"), or that fails
 // `test`, the field type's qualifiers, which answers why (`None` when the
 // value is accepted).
-export fn check_value<B>(errors: Mut List<ArgError>, found: Found, field: Str, shown: Str, what: Str, test: (v: B) -> Str?, ?from_str: (s: Str) -> B?) [] -> None
+fn check_value<B>(errors: Mut List<ArgError>, found: Found, field: Str, shown: Str, what: Str, test: (v: B) -> Str?, ?from_str: (s: Str) -> B?) [] -> None
 =>[test] v => errors: Mut, found, field, shown, what, test {
     for s in values_of(found, field) {
         let v = from_str(copy(s))
@@ -1201,7 +1202,7 @@ export fn check_value<B>(errors: Mut List<ArgError>, found: Found, field: Str, s
 }
 
 // [args-derive] How errors name a field: `--max-workers`, or `<files>`.
-export fn shown_name(field: Str, positional: Bool) [] -> Str => field {
+fn shown_name(field: Str, positional: Bool) [] -> Str => field {
     if positional {
         return arg_name(field)
     }
@@ -1209,14 +1210,14 @@ export fn shown_name(field: Str, positional: Bool) [] -> Str => field {
 }
 
 // [args-derive] The text of a literal arm's name: `json` for `"json"`.
-export fn literal_text(name: Str) [] -> Str => name {
+fn literal_text(name: Str) [] -> Str => name {
     return trim_suffix(trim_prefix(name, "\""), "\"")
 }
 
 // [args-groups] A group's value from its own `from_found`, adding the
 // errors it found beyond the scan's (the first `skip`, which the caller
 // already has).
-export fn group_errors<C>(errors: Mut List<ArgError>, r: Ok C | Errs NonEmpty List<ArgError>, skip: Int) [] -> None
+fn group_errors<C>(errors: Mut List<ArgError>, r: Ok C | Errs NonEmpty List<ArgError>, skip: Int) [] -> None
 => errors: Mut, !r {
     if r is Errs {
         let i = 0
@@ -1230,7 +1231,7 @@ export fn group_errors<C>(errors: Mut List<ArgError>, r: Ok C | Errs NonEmpty Li
 }
 
 // [args-groups] A group's value, once every check has passed.
-export fn built<C>(r: Ok C | Errs NonEmpty List<ArgError>) [] -> C => !r {
+fn built<C>(r: Ok C | Errs NonEmpty List<ArgError>) [] -> C => !r {
     when r {
         is Ok { return r }
         is Errs { unreachable!("a group failed after its checks passed") }

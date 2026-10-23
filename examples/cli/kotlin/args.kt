@@ -205,7 +205,7 @@ fun message(e: Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected
             return "help was requested"
         }
         else -> {
-            throw AssertionError(("salvo: " + ("unhandled union arm") + " at args:121:5"))
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at args:122:5"))
         }
     }
 }
@@ -311,7 +311,7 @@ object __Codec_CmdSpec : salvo.WireCodec<CmdSpec> {
 
 fun mergeGroup(opts: salvo.platform.core.list.MutList<OptSpec>, groups: salvo.platform.core.list.MutList<GroupSpec>, child: Spec, key: String, kind: String, heading: String?) {
     if (!(salvo.core.list.isEmpty(child.args))) {
-        throw AssertionError(("salvo: " + ("`${key}` is a group of options, and `${child.name}` takes positionals") + " at args:217:9"))
+        throw AssertionError(("salvo: " + ("`${key}` is a group of options, and `${child.name}` takes positionals") + " at args:218:9"))
     }
     salvo.core.list.addPlatform(groups, GroupSpec(key = key, kind = kind, required = false, heading = kotlin.run {
         val __pick_1: String? = heading
@@ -440,7 +440,7 @@ fun scan(spec: Spec, args: List<String>): Found {
             val __nn_1: Union4<salvo.args.lex.LongToken, salvo.args.lex.ShortToken, salvo.args.lex.WordToken, salvo.args.lex.EndToken>? = salvo.core.list.getPlatform(tokens, i)
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at args:334:22"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at args:335:22"))
                 }
                 else -> {
                     val __some_2: Union4<salvo.args.lex.LongToken, salvo.args.lex.ShortToken, salvo.args.lex.WordToken, salvo.args.lex.EndToken> = __nn_1!!
@@ -466,7 +466,7 @@ fun scan(spec: Spec, args: List<String>): Found {
                                 val __nn_5: String? = salvo.core.list.getPlatform(args, i)
                                 when {
                                     (__nn_5 == null) -> {
-                                        throw AssertionError(("salvo: " + ("value is absent") + " at args:345:44"))
+                                        throw AssertionError(("salvo: " + ("value is absent") + " at args:346:44"))
                                     }
                                     else -> {
                                         val __some_6: String = __nn_5!!
@@ -538,7 +538,7 @@ fun scan(spec: Spec, args: List<String>): Found {
                         val __nn_15: Char? = salvo.core.string.charAtPlatform(letters, k)
                         when {
                             (__nn_15 == null) -> {
-                                throw AssertionError(("salvo: " + ("value is absent") + " at args:395:29"))
+                                throw AssertionError(("salvo: " + ("value is absent") + " at args:396:29"))
                             }
                             else -> {
                                 val __some_16: Char = __nn_15!!
@@ -565,7 +565,7 @@ fun scan(spec: Spec, args: List<String>): Found {
                                         val __nn_20: String? = salvo.core.string.substrPlatform(letters, k, len)
                                         when {
                                             (__nn_20 == null) -> {
-                                                throw AssertionError(("salvo: " + ("value is absent") + " at args:411:78"))
+                                                throw AssertionError(("salvo: " + ("value is absent") + " at args:412:78"))
                                             }
                                             else -> {
                                                 val __some_21: String = __nn_20!!
@@ -591,7 +591,7 @@ fun scan(spec: Spec, args: List<String>): Found {
                 }
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at args:336:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at args:337:9"))
             }
         }
     }
@@ -660,7 +660,7 @@ fun scan(spec: Spec, args: List<String>): Found {
                     val __nn_28: String? = salvo.core.list.getPlatform(words, w)
                     when {
                         (__nn_28 == null) -> {
-                            throw AssertionError(("salvo: " + ("value is absent") + " at args:487:67"))
+                            throw AssertionError(("salvo: " + ("value is absent") + " at args:488:67"))
                         }
                         else -> {
                             val __some_29: String = __nn_28!!
@@ -676,7 +676,7 @@ fun scan(spec: Spec, args: List<String>): Found {
                     val __nn_30: String? = salvo.core.list.getPlatform(words, w)
                     when {
                         (__nn_30 == null) -> {
-                            throw AssertionError(("salvo: " + ("value is absent") + " at args:493:71"))
+                            throw AssertionError(("salvo: " + ("value is absent") + " at args:494:71"))
                         }
                         else -> {
                             val __some_31: String = __nn_30!!
@@ -699,7 +699,7 @@ fun scan(spec: Spec, args: List<String>): Found {
             val __nn_32: String? = salvo.core.list.getPlatform(words, w)
             when {
                 (__nn_32 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at args:504:46"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at args:505:46"))
                 }
                 else -> {
                     val __some_33: String = __nn_32!!
@@ -1069,7 +1069,7 @@ fun helpRows(out: salvo.platform.core.string.MutStr, lefts: List<String>, rights
             val __nn_1: String? = salvo.core.list.getPlatform(lefts, i)
             when {
                 (__nn_1 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at args:843:17"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at args:844:17"))
                 }
                 else -> {
                     val __some_2: String = __nn_1!!
@@ -1081,7 +1081,7 @@ fun helpRows(out: salvo.platform.core.string.MutStr, lefts: List<String>, rights
             val __nn_3: String? = salvo.core.list.getPlatform(rights, i)
             when {
                 (__nn_3 == null) -> {
-                    throw AssertionError(("salvo: " + ("value is absent") + " at args:844:17"))
+                    throw AssertionError(("salvo: " + ("value is absent") + " at args:845:17"))
                 }
                 else -> {
                     val __some_4: String = __nn_3!!
@@ -1170,7 +1170,7 @@ fun<T> argsOrExit(console: salvo.core.console.Console, process: salvo.process.Pr
             exitWith(console, process, parsed_2, argSpec, fromFound)
         }
         else -> {
-            throw AssertionError(("salvo: " + ("unhandled union arm") + " at args:977:5"))
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at args:978:5"))
         }
     }
 }
@@ -1215,12 +1215,12 @@ fun<T, V> parseValid(args: List<String>, validate: (T) -> V, argSpec: () -> Spec
                     return Union2.U2<V, List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>>(salvo.core.result.errs(e))
                 }
                 else -> {
-                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at args:1009:13"))
+                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at args:1010:13"))
                 }
             }
         }
         else -> {
-            throw AssertionError(("salvo: " + ("unhandled union arm") + " at args:1003:5"))
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at args:1004:5"))
         }
     }
 }
@@ -1238,7 +1238,7 @@ fun<T, V> validArgsOrExit(console: salvo.core.console.Console, process: salvo.pr
             exitWith(console, process, parsed_2, argSpec, fromFound)
         }
         else -> {
-            throw AssertionError(("salvo: " + ("unhandled union arm") + " at args:1025:5"))
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at args:1026:5"))
         }
     }
 }
@@ -1266,21 +1266,21 @@ fun checkSpec(spec: Spec) {
     val fields: salvo.platform.core.list.MutList<String> = mutableListOf<String>()
     for (o in salvo.platform.core.list.each(spec.opts)) {
         if (salvo.core.list.contains(fields, o.field, { __a0, __a1 -> ((__a0) == (__a1)) })) {
-            throw AssertionError(("salvo: " + ("two options of `${spec.name}` are spelled `${longName(o.field)}`") + " at args:1061:13"))
+            throw AssertionError(("salvo: " + ("two options of `${spec.name}` are spelled `${longName(o.field)}`") + " at args:1062:13"))
         }
         salvo.core.list.addPlatform(fields, o.field)
         if (((o.field) == ("help"))) {
-            throw AssertionError(("salvo: " + ("`--help` is the parser's own: name the field of `${spec.name}` something else") + " at args:1065:13"))
+            throw AssertionError(("salvo: " + ("`--help` is the parser's own: name the field of `${spec.name}` something else") + " at args:1066:13"))
         }
         val s: Char? = o.short
         if (!((s == null))) {
             val s_1: Char = s!!
             if ((s_1 == 'h')) {
-                throw AssertionError(("salvo: " + ("`Short('h')` on `${o.field}` takes help's short name") + " at args:1070:17"))
+                throw AssertionError(("salvo: " + ("`Short('h')` on `${o.field}` takes help's short name") + " at args:1071:17"))
             }
             val s_2: Char = s!!
             if (salvo.core.list.contains(shorts, s_2, { __a0, __a1 -> ((__a0) == (__a1)) })) {
-                throw AssertionError(("salvo: " + ("two options of `${spec.name}` have the short name `-${s_2}`") + " at args:1073:17"))
+                throw AssertionError(("salvo: " + ("two options of `${spec.name}` have the short name `-${s_2}`") + " at args:1074:17"))
             }
             val s_3: Char = s!!
             salvo.core.list.addPlatform(shorts, s_3)
@@ -1297,20 +1297,20 @@ fun checkSpec(spec: Spec) {
                 }
             }
             if ((((count > 0) && !(required)) && !(((count == 1) && !(optTakesValue(spec, g.key)))))) {
-                throw AssertionError(("salvo: " + ("every option of `${g.key}` is optional, so nothing chooses that arm: make one required") + " at args:1091:17"))
+                throw AssertionError(("salvo: " + ("every option of `${g.key}` is optional, so nothing chooses that arm: make one required") + " at args:1092:17"))
             }
         }
     }
     if ((!(salvo.core.list.isEmpty(spec.commands)) && !(salvo.core.list.isEmpty(spec.args)))) {
-        throw AssertionError(("salvo: " + ("`${spec.name}` takes a sub-command and positionals: whether a word is one or the other would depend on its spelling") + " at args:1097:9"))
+        throw AssertionError(("salvo: " + ("`${spec.name}` takes a sub-command and positionals: whether a word is one or the other would depend on its spelling") + " at args:1098:9"))
     }
     if ((spec.commandFields > 1)) {
-        throw AssertionError(("salvo: " + ("`${spec.name}` has more than one `Subcommand` field") + " at args:1100:9"))
+        throw AssertionError(("salvo: " + ("`${spec.name}` has more than one `Subcommand` field") + " at args:1101:9"))
     }
     val names: salvo.platform.core.list.MutList<String> = mutableListOf<String>()
     for (c in salvo.platform.core.list.each(spec.commands)) {
         if (salvo.core.list.contains(names, c.name, { __a0, __a1 -> ((__a0) == (__a1)) })) {
-            throw AssertionError(("salvo: " + ("two sub-commands of `${spec.name}` are named `${c.name}`") + " at args:1105:13"))
+            throw AssertionError(("salvo: " + ("two sub-commands of `${spec.name}` are named `${c.name}`") + " at args:1106:13"))
         }
         salvo.core.list.addPlatform(names, c.name)
     }
@@ -1318,10 +1318,10 @@ fun checkSpec(spec: Spec) {
     var many: Boolean = false
     for (a in salvo.platform.core.list.each(spec.args)) {
         if (many) {
-            throw AssertionError(("salvo: " + ("positional `${a.field}` follows one that takes every remaining word") + " at args:1113:13"))
+            throw AssertionError(("salvo: " + ("positional `${a.field}` follows one that takes every remaining word") + " at args:1114:13"))
         }
         if ((a.required && optional)) {
-            throw AssertionError(("salvo: " + ("required positional `${a.field}` follows an optional one") + " at args:1116:13"))
+            throw AssertionError(("salvo: " + ("required positional `${a.field}` follows an optional one") + " at args:1117:13"))
         }
         optional = (optional || !(a.required))
         many = a.many
@@ -1355,13 +1355,13 @@ fun<B, Q> readValue(found: Found, field: String, default: Q?, refine: (B) -> Q?,
                 return q_3
             }
         }
-        throw AssertionError(("salvo: " + ("`${field}`'s value was checked") + " at args:1155:9"))
+        throw AssertionError(("salvo: " + ("`${field}`'s value was checked") + " at args:1156:9"))
     }
     if (!((default == null))) {
         val default_4: Q = default!!
         return default_4
     }
-    return throw AssertionError(("salvo: " + ("`${field}` was checked as required") + " at args:1160:5"))
+    return throw AssertionError(("salvo: " + ("`${field}` was checked as required") + " at args:1161:5"))
 }
 
 fun<E> readOptional(found: Found, field: String, fromStr: (String) -> E?): E? {
@@ -1435,10 +1435,10 @@ fun<C> built(r: Union2<C, List<Union11<UnknownOption, MissingValue, Missing, Inv
         }
         (r is Union2.U2<*, *>) -> {
             val r_2: List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>> = ((r as Union2.U2<*, *>).value as List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>)
-            throw AssertionError(("salvo: " + ("a group failed after its checks passed") + " at args:1236:19"))
+            throw AssertionError(("salvo: " + ("a group failed after its checks passed") + " at args:1237:19"))
         }
         else -> {
-            throw AssertionError(("salvo: " + ("unhandled union arm") + " at args:1234:5"))
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at args:1235:5"))
         }
     }
 }

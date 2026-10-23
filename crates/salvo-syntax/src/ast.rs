@@ -546,6 +546,12 @@ pub struct Stamp {
     /// requires each to be visible where it is written, like any type name,
     /// and records it for go-to-definition. Empty for a stamped fn.
     pub roots: Vec<Ident>,
+    /// [comptime-hygiene] The file the template was written in (an index
+    /// into the program's files), for a stamp from a `comptime fn` of
+    /// another file: a name the stamping site cannot resolve is looked up
+    /// where the template's author wrote it, private declarations included.
+    /// `None` for an expanded-in-place fn, whose template is its own text.
+    pub template_file: Option<usize>,
 }
 
 #[derive(Clone, Debug, PartialEq)]

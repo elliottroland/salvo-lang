@@ -919,19 +919,14 @@ reproduced in a scratch project; the repros are below.
    local first compiles. Fix: hoist the temporary out of the `!` block, or
    apply `copy` inside it.
 
-10. **A stamped body resolves only in the stamping module's scope
-    (DECISION).** Found 2026-10-20 (2.1). A `by args` stamp lands in the
-    user's module, so every function and type the derive's template names
-    must be visible there: a private helper of `args`, or one in `args.lex`
-    the user did not import, is "not in scope" (probed). `core.auto` never
-    met this because `core` is visible everywhere. So `args` exports its
-    runtime layer ([args-runtime]), which Q12 meant to keep internal.
-    Options: (a) keep it: a derive exports what it calls, documented as its
-    layer; (b) a name the stamping site cannot resolve falls back to the
-    template's module, private declarations included (hygiene, as Rust's
-    `$crate::` gives macros). Recommendation: (b), which keeps a derive's
-    helpers private and cannot change what a site's own names mean. Until
-    decided, (a).
+10. ✅ **A stamped body falls back to its template's names** — done
+    2026-10-20 with option (b) ([comptime-hygiene], COMPLETED.md). Left
+    over: the same-file and same-module rules a stamped body may meet inside
+    template code — [struct-opaque] field access on a template-private
+    struct, the `own_qualifiers` constructor rule, the [linear-group]
+    same-file discharger — still key on the stamping file, so a derive's
+    private *types* would be refused there; `args` keeps its types exported.
+    `refine` (refinements per file) and `reach` read the site file's scope.
 
 11. ✅ **A reassigned local owns or borrows for its whole life** — done
     2026-10-20 ([proj-local], [rs-opt-borrow], COMPLETED.md).

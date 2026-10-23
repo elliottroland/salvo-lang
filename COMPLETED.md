@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2020 tests, complete: the toolchain tests are
+cargo test                  # 2021 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -137,6 +137,37 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-20 — A stamped body falls back to its template's names
+
+ROADMAP §2d item 10, option (b), the user's call ("(b) is good"). A `by args`
+stamp lands in the user's module, so every name the derive's template wrote
+had to be visible there, and `args` exported its whole runtime layer for it.
+[comptime-hygiene]: a name the site cannot resolve is looked up in the
+template's own file, privates and imports included. `args`' nineteen helper
+fns are private again; its types stay exported because the derive's
+signatures name them.
+
+What it took: `Stamp::template_file` (comptime records `CompFnDecl.file`,
+which had sat unused); a **stamp scope** per (site file, template file) —
+the site's scope cloned, the template's non-fn names filling only the gaps,
+its fns appended on a new lowest rung, `Rung::Template`; the checker switching
+`self.scope` for the stamped fn (as `written_fn_id` and `handler_dep_effects`
+already do for another file); `scope_of` and `resolve::written_keys`
+resolving the fn's type references in the stamp scope
+(`Resolution::scope_for_ref`). One rule had to bend: overload selection
+refuses an ambiguity across rungs (2026-09-26), so a site's `shout` beside
+the template's private `shout` was an ambiguity reported at the user's `by`
+site about code they never wrote. A template candidate now competes only
+when nothing the site sees fits — the "falls back" of the decision taken
+literally. Emitters needed nothing: every Salvo fn is public in emitted code.
+Found on the way: a `Visitor::visit_type_ref` that calls `walk_type_ref`
+recurses forever, since the walk starts by visiting (a compile-time stack
+overflow on every derive).
+
+Tests: CLI `a_stamped_body_falls_back_to_its_templates_names_on_both_backends`
+(a private helper reached through the fallback, and a site fn of the same
+name winning); every derive test, with `args`' helpers private.
 
 ### 2026-10-20 — Moving a Copy scalar is a copy, by one rule
 
@@ -589,7 +620,7 @@ Q18). No new decision; the layer the derive (2.2) builds on:
 - [args-help] `usage` and `help_text`, clap's layout.
 
 What building it found:
-- The layer is **exported**: a stamped body resolves names where it is
+- (Until 2026-10-20 [comptime-hygiene].) The layer is **exported**: a stamped body resolves names where it is
   stamped, so a private helper of `args` is "not in scope" from the user's
   module (ROADMAP §2d item 10, a DECISION: fall back to the template's
   module).
@@ -27881,7 +27912,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2020 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2021 under `cargo test` on 2026-10-20; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -29157,9 +29188,23 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- **"cached cgu … should have an object file, but doesn't"** (2026-10-20):
+  the `salvo-testkit` hygiene test prunes `.rcgu.o` files no live binary
+  references, and an incremental build that then reuses one of those codegen
+  units fails. `cargo clean -p <crate>` (here `salvo-core`, 6.7 GiB) is the
+  reset; a whole `cargo clean` is not needed.
+
+- **A `Visitor::visit_type_ref` must not call `walk_type_ref`** (2026-10-20):
+  the walk starts by visiting, so the pair recurses until the stack
+  overflows — at compile time, on every derive. Collect in the visit and let
+  the outer walk recurse.
+
 - **Writing a derive in Salvo** (2026-10-20, `std/args`): a stamped body
-  resolves names in the *stamping* module, so everything it calls must be
-  exported (ROADMAP §2d item 10); a struct-literal entry is one expression,
+  resolves names in the *stamping* module first and in the template's file
+  after [comptime-hygiene], so a helper may stay private — but a *type* a
+  same-module rule keys on ([struct-opaque] field access, a constructive
+  qualifier's constructor) is still judged against the stamping file, so
+  keep those exported; a struct-literal entry is one expression,
   so a field read that needs statements goes in a block lambda run by a
   `eval(f: once () -> Q)`; a dropped `[if]` branch is never checked, but a
   statement after an `[if] { return … }` is, in every copy, so a type chain

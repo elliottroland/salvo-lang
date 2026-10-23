@@ -5387,6 +5387,29 @@ Conventions:
   once per written place and text. Before, `warn` skipped the redirect, so
   a copy's warning kept its synthetic span and printed past the end of the
   file, once per copy.
+* [comptime-hygiene] **A stamped body falls back to its template's names**
+  (user decision 2026-10-20, ROADMAP §2d item 10 (b): "hygiene, as Rust's
+  `$crate::` gives macros"). A body stamped at a `by` site lands in the
+  stamping module, so its names resolve there first; a name the site cannot
+  resolve is then looked up where the template was written — the template's
+  file's own scope, its **private** declarations and its imports included.
+  A derive keeps its helpers private, and a user needs to import nothing the
+  derive's body names.
+  * **The site wins.** A non-fn name (a type, an effect, a qualifier) the
+    site declares or imports means the site's; the template's fills only the
+    gaps. A template fn competes in an overload only when no candidate the
+    site sees fits — it never meets a site's fn in an ambiguity the site did
+    not write. `name@module` reaches the template's explicitly.
+  * Built as a **stamp scope** per (stamping file, template file) pair
+    (`Resolution::stamp_scopes`): the site's scope with the template's added
+    underneath, its fns on the lowest rung (`Rung::Template`). The checker
+    checks the stamped fn in it, and every written type reference inside the
+    fn resolves in it (`Resolution::scope_for_ref`, which keys the emitters'
+    `type_ref_keys` too). `Stamp::template_file` records where the template
+    was written; an expanded-in-place fn has none (its template is its own
+    text).
+  * Emitters need nothing: every Salvo fn is public in emitted code, so a
+    call from the user's module to a template module's private fn compiles.
 * [comptime-instantiate] **Instantiation is concrete and happens at a `by`
   site only** — an obligation clause or a fn declaration (a third site, an
   implicit override `eq by auto` at a call, is decided and deferred; ROADMAP
@@ -7270,9 +7293,13 @@ can have one capability without the other.
     positional takes are all errors, every one reported.
   * Positionals take one word each in order, and a `many` one the rest.
   * `--help` and `-h` (in a bundle too) are reserved, and set `found.help`.
-  * The layer is exported because a stamped body resolves its names where
-    it is stamped [comptime-instantiate]; it is not yet a surface to build
-    parsers by hand.
+  * The derive's own helpers (`scan`, `given`, `value_of`, `values_of`,
+    `read_value`, `read_optional`, `read_all`, `check_value`, `eval`,
+    `merge_group`, `add_one`, `any_given`, `group_errors`, `built`,
+    `shown_name`, `literal_text`, `long_name`, `command_name`, `is_command`)
+    are **private**: a stamped body reaches them through its template's file
+    [comptime-hygiene] (2026-10-20; exported until then). The types the
+    derive's signatures name (`Spec`, `Found`, `OptSpec` …) stay exported.
   * `command_name("Remote.Add")` is `add`, `RemoteAdd` `remote-add`.
 * [args-errors] **`ArgError` is every way a command line fails**, and the
   request for help: `UnknownOption | MissingValue | Missing | Invalid |

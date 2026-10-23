@@ -146,6 +146,9 @@ struct Viable<'p> {
     /// The declaring module, rendered — for `@module` matching and for the
     /// diagnostics.
     module: String,
+    /// [comptime-hygiene] Whether it is only visible as a stamped body's
+    /// fallback to its template's file.
+    template: bool,
 }
 
 /// What an `@` on a call or a fn value selects.
@@ -3226,6 +3229,14 @@ impl<'p, 'r> Checker<'p, 'r> {
         // else the previous round's inferred facts.
         self.own_fn = Some(key);
         self.own_stamp = f.stamped.as_ref();
+        // [comptime-hygiene] A body stamped from another module's template is
+        // checked where the site sees what the template's author saw too:
+        // a name the site cannot resolve falls back to the template's file,
+        // private declarations included.
+        let saved_scope = self.scope;
+        if let Some(&i) = self.resolution.fn_stamp_scope.get(&(f as *const FnDecl as usize)) {
+            self.scope = &self.resolution.stamp_scopes[i];
+        }
         // [comptime-root-visible] A type an expanded-in-place comptime fn
         // names as a root (`Pt` in `[for field in Pt.fields]`) is a type
         // name written here, and is visible here or an error — the
@@ -3295,6 +3306,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.own_task = f.is_send.then(|| f.name.name.clone());
         self.check_fn(f, &[], &[]);
         self.flush_copy_warnings();
+        self.scope = saved_scope;
         self.own_task = None;
         self.own_fn = None;
         self.own_stamp = None;
@@ -7599,6 +7611,13 @@ impl<'p, 'r> Checker<'p, 'r> {
         // what makes step 2's "no single winner is an error" mean what it says —
         // it compares *alternatives*, and these are not.
         Self::dedupe_by_declaration(&mut pool, viable);
+        // [comptime-hygiene] A stamped body's fallback: the template's own
+        // fns compete only when nothing the stamping site sees fits, so a
+        // site name never meets the template's in an ambiguity it did not
+        // write.
+        if pool.iter().any(|&i| !viable[i].template) {
+            pool.retain(|&i| !viable[i].template);
+        }
         // [fn-overload-return] Candidates whose parameter types are identical
         // are one alternative for the ranking (parameters cannot tell them
         // apart); the return type chooses within it below.
@@ -19210,6 +19229,10 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// [type-identity] The scope of the file that wrote [r]; this file's for
     /// a reference the checker made up.
     fn scope_of(&self, r: &TypeRef) -> &'r ModuleScope<'p> {
+        // [comptime-hygiene] Inside a stamped body, its stamp scope.
+        if let Some(&i) = self.resolution.type_ref_stamp.get(&(r as *const TypeRef as usize)) {
+            return &self.resolution.stamp_scopes[i];
+        }
         self.resolution
             .type_ref_files
             .get(&(r as *const TypeRef as usize))
@@ -31135,6 +31158,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     variadic: collects_variadic,
                 },
                 module: entry.module.to_string(),
+                template: entry.rung == crate::resolve::Rung::Template,
             });
         }
 

@@ -251,7 +251,7 @@ pub fn expand_comptime(files: &[SourceFile], modules: &mut [Module]) -> Comptime
                 let mut site_hover: Vec<String> = Vec::new();
                 let mut site_module: Option<ModulePath> = None;
                 for member in members {
-                    let Some((template, module)) =
+                    let Some((template, module, template_file)) =
                         world.pick_with_module(&member.name.name, by, target.kind, &mut diags)
                     else {
                         continue;
@@ -261,6 +261,9 @@ pub fn expand_comptime(files: &[SourceFile], modules: &mut [Module]) -> Comptime
                     let stamp = Stamper::new(&world, &target, &template, by, &mut virtual_next);
                     match stamp.stamp_whole(by.span) {
                         Ok(mut f) => {
+                            if let Some(s) = &mut f.stamped {
+                                s.template_file = template_file;
+                            }
                             f.exported = exported;
                             f.scoped_to = Some(name.clone());
                             // The function form (`by tag`) fulfils the member
@@ -331,7 +334,7 @@ pub fn expand_comptime(files: &[SourceFile], modules: &mut [Module]) -> Comptime
                     fallback_body(f);
                     continue;
                 };
-                let Some((template, module)) = world.pick_with_module(&f.name.name, &by, target.kind, &mut diags) else {
+                let Some((template, module, template_file)) = world.pick_with_module(&f.name.name, &by, target.kind, &mut diags) else {
                     fallback_body(f);
                     continue;
                 };
@@ -343,7 +346,11 @@ pub fn expand_comptime(files: &[SourceFile], modules: &mut [Module]) -> Comptime
                 });
                 let stamper = Stamper::new(&world, &target, &template, &by, &mut virtual_next);
                 match stamper.stamp_into(f) {
-                    Ok(()) => {}
+                    Ok(()) => {
+                        if let Some(s) = &mut f.stamped {
+                            s.template_file = template_file;
+                        }
+                    }
                     Err(errs) => {
                         diags.extend(errs);
                         fallback_body(f);
@@ -399,6 +406,7 @@ pub fn expand_comptime(files: &[SourceFile], modules: &mut [Module]) -> Comptime
                         site,
                         regions,
                         roots,
+                        template_file: None,
                     });
                 } else {
                     diags.extend(errs);
@@ -1109,7 +1117,7 @@ fn named_base(ty: &Type) -> Option<String> {
 
 struct CompFnDecl {
     module: ModulePath,
-    #[allow(dead_code)]
+    /// [comptime-hygiene] The template's file, recorded on every stamp.
     file: usize,
     decl: FnDecl,
 }
@@ -1333,24 +1341,25 @@ impl World {
     /// type of `kind`: a module's compfn of that name and kind, or a compfn
     /// named directly (the function form).
     /// The module a picked comptime fn lives in, beside it.
-    fn module_of(&self, decl: &FnDecl) -> ModulePath {
+    fn compfn_of(&self, decl: &FnDecl) -> Option<&CompFnDecl> {
         self.compfns
             .iter()
             .find(|c| std::ptr::eq(&c.decl, decl) || (c.decl.name.span == decl.name.span && c.decl.name.name == decl.name.name))
-            .map(|c| c.module.clone())
-            .unwrap_or(ModulePath(vec![]))
     }
 
+    /// The picked template, its module, and [comptime-hygiene] its file.
     fn pick_with_module(
         &self,
         member: &str,
         by: &ByRef,
         kind: CompKind,
         diags: &mut Vec<Diagnostic>,
-    ) -> Option<(FnDecl, ModulePath)> {
+    ) -> Option<(FnDecl, ModulePath, Option<usize>)> {
         let decl = self.pick_inner(member, by, kind, diags)?;
-        let module = self.module_of(&decl);
-        Some((decl, module))
+        let from = self.compfn_of(&decl);
+        let module = from.map(|c| c.module.clone()).unwrap_or(ModulePath(vec![]));
+        let file = from.map(|c| c.file);
+        Some((decl, module, file))
     }
 
     fn pick_inner(
@@ -1776,6 +1785,7 @@ impl<'w> Stamper<'w> {
             site,
             regions,
             roots: Vec::new(),
+            template_file: None,
         });
         f.span = site;
         f.name.span = name_span;
@@ -1899,6 +1909,7 @@ impl<'w> Stamper<'w> {
             site,
             regions,
             roots: Vec::new(),
+            template_file: None,
         });
         Ok(())
     }

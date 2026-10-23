@@ -53,6 +53,10 @@ pub struct FnEntry<'p> {
 /// name [fn-rename].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Rung {
+    /// [comptime-hygiene] Visible to a stamped body only because the
+    /// template's author could see it: the last resort, so a name the
+    /// stamping site resolves itself always wins.
+    Template,
     /// Implicitly visible `core.*`.
     Core,
     /// Swept in by a whole-module `import time` [mod-import-module]: less
@@ -69,6 +73,7 @@ impl Rung {
     /// How the rung reads in a diagnostic.
     pub fn describe(self) -> &'static str {
         match self {
+            Rung::Template => "the module the stamped code was written in",
             Rung::Core => "the standard library",
             Rung::ModuleImport => "a whole-module import in this file",
             Rung::Import => "an import in this file",
@@ -89,7 +94,7 @@ pub struct DefSite {
 }
 
 /// The names visible to one source file.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct ModuleScope<'p> {
     pub fns: HashMap<&'p str, Vec<FnEntry<'p>>>,
     pub structs: HashMap<&'p str, &'p StructDecl>,
@@ -209,6 +214,105 @@ pub struct Resolution<'p> {
     pub attached: HashMap<FnKey, String>,
     /// Resolution errors (unresolved/ambiguous imports) [diag-structured].
     pub errors: Vec<FileDiagnostic>,
+    /// [comptime-hygiene] The scopes stamped bodies are checked in: the
+    /// stamping file's, with what the template's own file sees added
+    /// underneath (privates included) — one per (stamping file, template
+    /// file) pair.
+    pub stamp_scopes: Vec<ModuleScope<'p>>,
+    /// [comptime-hygiene] Which of `stamp_scopes` a stamped fn is checked
+    /// in, by the fn declaration's address.
+    pub fn_stamp_scope: HashMap<usize, usize>,
+    /// [comptime-hygiene] The same for every written type reference inside
+    /// such a fn, by the reference's address.
+    pub type_ref_stamp: HashMap<usize, usize>,
+}
+
+impl<'p> Resolution<'p> {
+    /// [comptime-hygiene] The scope a type reference resolves in, given the
+    /// file it is written in: a stamp's own when it is inside one.
+    pub fn scope_for_ref(&self, file: usize, r: &salvo_syntax::ast::TypeRef) -> &ModuleScope<'p> {
+        match self.type_ref_stamp.get(&(r as *const salvo_syntax::ast::TypeRef as usize)) {
+            Some(&i) => &self.stamp_scopes[i],
+            None => &self.scopes[file],
+        }
+    }
+}
+
+/// [comptime-hygiene] A stamped body's scope: everything the stamping file
+/// sees, and under it what the template's file sees. Non-fn names fill only
+/// the gaps — the site's own meaning of a name always stands — and the
+/// template's fns join each overload set on the lowest rung, so a call the
+/// site can answer is the site's, and only one it cannot falls back.
+fn stamp_scope<'p>(site: &ModuleScope<'p>, template: &ModuleScope<'p>) -> ModuleScope<'p> {
+    let mut out = site.clone();
+    for (name, entries) in &template.fns {
+        let list = out.fns.entry(name).or_default();
+        for e in entries {
+            if !list.iter().any(|x| x.key == e.key) {
+                list.push(FnEntry { rung: Rung::Template, ..*e });
+            }
+        }
+    }
+    fn fill<K: std::hash::Hash + Eq + Copy, V: Clone>(out: &mut HashMap<K, V>, from: &HashMap<K, V>) {
+        for (k, v) in from {
+            out.entry(*k).or_insert_with(|| v.clone());
+        }
+    }
+    fill(&mut out.structs, &template.structs);
+    fill(&mut out.struct_files, &template.struct_files);
+    fill(&mut out.effects, &template.effects);
+    fill(&mut out.effect_files, &template.effect_files);
+    fill(&mut out.param_groups, &template.param_groups);
+    fill(&mut out.handlers, &template.handlers);
+    fill(&mut out.qualifiers, &template.qualifiers);
+    fill(&mut out.type_aliases, &template.type_aliases);
+    fill(&mut out.opaque_types, &template.opaque_types);
+    fill(&mut out.opaque_type_files, &template.opaque_type_files);
+    fill(&mut out.effect_members, &template.effect_members);
+    fill(&mut out.name_origins, &template.name_origins);
+    fill(&mut out.def_sites, &template.def_sites);
+    out
+}
+
+/// [comptime-hygiene] The stamp scopes, and which fn and type reference is
+/// checked in which: one per (stamping file, template file) pair whose
+/// modules differ (a template of the stamping module sees nothing more).
+#[allow(clippy::type_complexity)]
+fn stamp_scopes<'p>(
+    program: &'p Program,
+    scopes: &[ModuleScope<'p>],
+) -> (Vec<ModuleScope<'p>>, HashMap<usize, usize>, HashMap<usize, usize>) {
+    use salvo_syntax::visit::{self as v, Visitor};
+    struct Refs<'m>(&'m mut Vec<usize>);
+    impl Visitor for Refs<'_> {
+        fn visit_type_ref(&mut self, t: &salvo_syntax::ast::TypeRef) {
+            self.0.push(t as *const salvo_syntax::ast::TypeRef as usize);
+        }
+    }
+    let mut out: Vec<ModuleScope<'p>> = Vec::new();
+    let mut by_pair: HashMap<(usize, usize), usize> = HashMap::new();
+    let mut fns: HashMap<usize, usize> = HashMap::new();
+    let mut refs: HashMap<usize, usize> = HashMap::new();
+    for (site, ast) in program.modules.iter().enumerate() {
+        for item in &ast.items {
+            let Item::Fn(f) = item else { continue };
+            let Some(t) = f.stamped.as_ref().and_then(|s| s.template_file) else { continue };
+            if t >= scopes.len() || program.files[t].module == program.files[site].module {
+                continue;
+            }
+            let idx = *by_pair.entry((site, t)).or_insert_with(|| {
+                out.push(stamp_scope(&scopes[site], &scopes[t]));
+                out.len() - 1
+            });
+            fns.insert(f as *const FnDecl as usize, idx);
+            let mut addrs = Vec::new();
+            v::walk_fn(&mut Refs(&mut addrs), f);
+            for a in addrs {
+                refs.insert(a, idx);
+            }
+        }
+    }
+    (out, fns, refs)
 }
 
 impl Resolution<'_> {
@@ -992,6 +1096,7 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
         }
     }
 
+    let (stamp_scopes, fn_stamp_scope, type_ref_stamp) = stamp_scopes(program, &scopes);
     Resolution {
         scopes,
         handler_files,
@@ -1001,6 +1106,9 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
         private_in,
         attached,
         errors,
+        stamp_scopes,
+        fn_stamp_scope,
+        type_ref_stamp,
     }
 }
 
@@ -2020,7 +2128,7 @@ pub fn written_keys<'p>(
     let mut out = HashMap::new();
     for_each_type_ref(program, &mut |file, t| {
         let name = t.name.name.as_str();
-        if let Some(key) = key_in(symbols, &resolution.scopes[file], name) {
+        if let Some(key) = key_in(symbols, resolution.scope_for_ref(file, t), name) {
             if key != name {
                 out.insert(t as *const salvo_syntax::ast::TypeRef as usize, key.to_string());
             }
@@ -2041,7 +2149,7 @@ pub fn written_keys_by_span<'p>(
     let mut out: HashMap<(u32, u32, String), Option<String>> = HashMap::new();
     for_each_type_ref(program, &mut |file, t| {
         let name = t.name.name.as_str();
-        let key = key_in(symbols, &resolution.scopes[file], name).unwrap_or(name).to_string();
+        let key = key_in(symbols, resolution.scope_for_ref(file, t), name).unwrap_or(name).to_string();
         let at = (t.name.span.start, t.name.span.end, name.to_string());
         match out.get(&at) {
             None => {

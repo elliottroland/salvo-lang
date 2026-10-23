@@ -82,6 +82,16 @@ let s: Serve = from_strs(List("80", "web"))
 Each struct gets its own `from_strs`, and since they differ only in what they
 return, the type the result goes to chooses ([Functions](Functions.md#overloading-by-return-type)).
 
+### Whose names a stamped body sees
+
+A stamped body lands in your module, so its names mean what they mean there
+first. A name your module cannot resolve is then looked up where the
+`comptime fn` was written, private declarations included, so a derive keeps
+its helpers to itself and you import nothing its body uses. Your names win:
+a type you declare is yours in the stamped code, and a function of yours
+that fits a call is the one called. Write `name@module` to reach the
+template's explicitly.
+
 ### Where the errors land
 
 A stamped body resolves a `cmp` per field, so a field with no `cmp` — a
